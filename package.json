@@ -1,0 +1,14 @@
+{
+  "name": "feature-workshop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local dashboard for the Claude Code feature workflow.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node dashboard/server.js",
+    "test": "node --test dashboard/test/"
+  }
+}

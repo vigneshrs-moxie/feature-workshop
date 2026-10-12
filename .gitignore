@@ -1,0 +1,6 @@
+node_modules/
+.DS_Store
+*.log
+.env
+# Local runtime state (locks, cached session data). Never commit.
+.workshop/
