@@ -1,0 +1,2 @@
+{"sessionId": "sess-other", "cwd": "/tmp/widget-repo", "type": "user", "timestamp": "2026-10-03T11:00:00.000Z", "message": {"role": "user", "content": "Build a dashboard that reads __FEATURES__/widget-export and __FEATURES__/widget-export"}}
+{"sessionId": "sess-other", "cwd": "/tmp/widget-repo", "type": "assistant", "timestamp": "2026-10-03T11:00:05.000Z", "message": {"id": "o1", "model": "claude-opus-5-5", "stop_reason": "end_turn", "content": [{"type": "text", "text": "ok"}], "usage": {"input_tokens": 1, "output_tokens": 99999}}}

@@ -16,5 +16,5 @@ The server only listens on `127.0.0.1`, so nothing outside your machine can reac
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js 22 or newer
 - Claude Code, logged in with your own account

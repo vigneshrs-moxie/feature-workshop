@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "slug": "widget-export",
+  "title": "Widget Export",
+  "route": "small",
+  "stage": "review",
+  "stage_state": "waiting_for_you",
+  "waiting_for": "answers",
+  "waiting_since": "2026-10-03T10:00:00-07:00",
+  "brief": { "number": 2, "path": "briefs/002-review.md", "headline": "Widget Export · review done" },
+  "questions": [
+    { "id": "1", "text": "Fix R-1 now?", "recommendation": "a", "options": [ { "id": "a", "label": "Yes" }, { "id": "b", "label": "Later" } ] },
+    { "id": "2", "text": "Button wording?", "recommendation": null, "options": [] },
+    { "id": "3", "text": "Third?", "recommendation": "a", "options": [ { "id": "a", "label": "A" } ] },
+    { "id": "4", "text": "A fourth question is over the limit", "options": [] }
+  ],
+  "decided_on_your_behalf": [
+    { "id": "D-1", "decision": "CSV, not Excel", "reason": "use your recommendations", "where": "spec v0.3 §2", "confirmed": false }
+  ],
+  "next_proposed": "Fix round, then PR #1",
+  "spec": { "path": "/tmp/widget-repo/docs/plans/x.md", "version": 0.3, "status": "DRAFT" },
+  "artifacts": [ { "name": "Findings", "path": "findings.md", "version": "1", "based_on": "spec v0.2" } ],
+  "repo": { "path": "/tmp/widget-repo", "base_branch": "moxie/main" },
+  "branch": "feature/widget-export",
+  "worktree": "/tmp/orbit-widget-export",
+  "base_sha": "1a2b3c4",
+  "prs": [
+    { "number": 1, "label": "fork → org branch", "url": "https://github.com/example/repo/pull/7", "state": "open" },
+    { "number": 2, "url": "javascript:alert(1)", "state": "weird" }
+  ],
+  "session_id": "sess-widget-1",
+  "cwd": "/tmp/widget-repo",
+  "updated_at": "2026-10-03T10:00:00-07:00"
+}

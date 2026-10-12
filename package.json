@@ -5,10 +5,10 @@
   "description": "Local dashboard for the Claude Code feature workflow.",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node dashboard/server.js",
-    "test": "node --test dashboard/test/"
+    "test": "node --test \"dashboard/test/*.test.js\""
   }
 }
