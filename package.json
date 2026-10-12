@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node dashboard/server.js",
+    "demo": "node dashboard/demo/run-demo.js",
     "test": "node --test \"dashboard/test/*.test.js\""
   }
 }

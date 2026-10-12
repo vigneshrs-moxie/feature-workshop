@@ -4,17 +4,38 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Feature Workshop</title>
-  <style>
-    :root { --bg: #f6efe3; --ink: #3b2f25; }
-    @media (prefers-color-scheme: dark) { :root { --bg: #1f1915; --ink: #f1e4cf; } }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center;
-           background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, sans-serif; }
-  </style>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="crew.css">
+  <script type="module" src="app.js"></script>
 </head>
 <body>
-  <main>
-    <h1>Feature Workshop</h1>
-    <p>Skeleton is running. The workshop board arrives in milestone 4.</p>
+  <header class="beam">
+    <a class="sign" href="#/" aria-label="Feature Workshop, back to the board">
+      <span id="foreman"></span>
+      <span>
+        <h1>Feature Workshop</h1>
+        <p>Every feature on the bench, and who’s working on it</p>
+      </span>
+    </a>
+    <div class="beam-right">
+      <a class="needs-counter" id="needs-counter" href="#/" data-count="0">
+        <span class="num" id="needs-num">0</span>
+        <span id="needs-label">need you</span>
+      </a>
+      <button class="clock" id="clock" type="button" title="Switch between 12-hour and 24-hour time">
+        <time class="clock-time" id="clock-time" aria-hidden="true">--:--:--</time>
+        <span class="clock-date" id="clock-date"></span>
+        <span class="visually-hidden" id="clock-label"></span>
+      </button>
+      <button class="icon-btn" id="theme" type="button" aria-label="Theme: automatic">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="app" tabindex="-1">
+    <p class="empty">Opening the workshop…</p>
   </main>
 </body>
 </html>
