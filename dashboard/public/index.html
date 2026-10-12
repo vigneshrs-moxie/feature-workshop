@@ -6,32 +6,31 @@
   <title>Feature Workshop</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="crew.css">
   <script type="module" src="app.js"></script>
 </head>
 <body>
-  <header class="beam">
-    <a class="sign" href="#/" aria-label="Feature Workshop, back to the board">
+  <header class="topbar">
+    <a class="title" href="#/" aria-label="Feature Workshop, back to the map">
       <span id="foreman"></span>
-      <span>
-        <h1>Feature Workshop</h1>
-        <p>Every feature on the bench, and who’s working on it</p>
-      </span>
+      <span><h1 id="title-text">Feature Workshop</h1><small>Your crew, your features, your turn</small></span>
     </a>
-    <div class="beam-right">
-      <a class="needs-counter" id="needs-counter" href="#/" data-count="0">
-        <span class="num" id="needs-num">0</span>
-        <span id="needs-label">need you</span>
+    <nav class="top-right" aria-label="Workshop controls">
+      <a class="top-link" href="#/crew">Crew-dex</a>
+      <a class="needs-badge" id="needs-badge" href="#/" data-count="0">
+        <span class="num" id="needs-num">0</span><span id="needs-label">need you</span>
       </a>
       <button class="clock" id="clock" type="button" title="Switch between 12-hour and 24-hour time">
-        <time class="clock-time" id="clock-time" aria-hidden="true">--:--:--</time>
-        <span class="clock-date" id="clock-date"></span>
+        <span class="clock-screen">
+          <span class="clock-time" id="clock-time" aria-hidden="true"></span>
+          <span class="clock-date" id="clock-date"></span>
+        </span>
+        <span class="clock-brand">WORKSHOP·GEAR</span>
         <span class="visually-hidden" id="clock-label"></span>
       </button>
       <button class="icon-btn" id="theme" type="button" aria-label="Theme: automatic">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>
       </button>
-    </div>
+    </nav>
   </header>
 
   <main id="app" tabindex="-1">

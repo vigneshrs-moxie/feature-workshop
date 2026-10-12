@@ -36,7 +36,8 @@ async function writeSession({ sessionId, featureDir, prompt, startAgo, conductor
     if (t.dispatch) {
       rows.push(assistant(sessionId, iso(t.ago), 'claude-fable-5-1',
         [toolUse('Agent', { subagent_type: t.dispatch, description: t.description, prompt: `Private folder: ${featureDir}` })], usage(t.out ?? 900, 60000, 8000)));
-      rows.push(toolResult(sessionId, iso(t.ago - 1000)));
+      // `waiting`: the Foreman is still waiting for this worker, so no result yet.
+      if (!t.waiting) rows.push(toolResult(sessionId, iso(t.ago - 1000)));
     } else {
       rows.push(assistant(sessionId, iso(t.ago), 'claude-fable-5-1', [{ type: 'text', text: t.text ?? 'Brief.' }], usage(t.out ?? 1500, 90000), 'end_turn'));
     }
@@ -183,7 +184,7 @@ async function build() {
       { dispatch: 'feature-spec-writer', description: 'Refine interview', ago: 40 * HOUR }, { ago: 39 * HOUR },
       { dispatch: 'feature-investigator', description: 'Investigate', ago: 30 * HOUR }, { ago: 29 * HOUR },
       { dispatch: 'feature-planner', description: 'Plan', ago: 10 * HOUR }, { ago: 9 * HOUR },
-      { dispatch: 'feature-implementer', description: 'Implement S3: archive job', ago: 12 * MIN },
+      { dispatch: 'feature-implementer', description: 'Implement S3: archive job', ago: 12 * MIN, waiting: true },
     ],
     workers: [
       { type: 'feature-implementer', description: 'Implement S3: archive job', model: 'claude-opus-5-5', startAgo: 12 * MIN, finished: false, out: 2500,
@@ -225,7 +226,7 @@ async function build() {
   });
   await writeSession({
     sessionId: 'demo-sess-0003', featureDir: login, prompt: '/feature Fix the login redirect loop for expired sessions.', startAgo: 4 * HOUR,
-    conductorTurns: [{ dispatch: 'feature-implementer', description: 'Implement S2: session refresh', ago: 30 * MIN }],
+    conductorTurns: [{ dispatch: 'feature-implementer', description: 'Implement S2: session refresh', ago: 30 * MIN, waiting: true }],
     workers: [{ type: 'feature-implementer', description: 'Implement S2: session refresh', model: 'claude-opus-5-5', startAgo: 30 * MIN, finished: false,
       steps: [['Edit', { file_path: '/demo/acme-portal/app/src/auth/session.ts' }], ['Bash', { description: 'Run the database session tests (npm run test:db)' }]] }],
   });
@@ -248,7 +249,7 @@ async function build() {
   });
   const reviewLogs = await writeSession({
     sessionId: 'demo-sess-0004', featureDir: route, prompt: '/feature Suggest the shortest route for each technician’s day.', startAgo: 70 * HOUR,
-    conductorTurns: [{ dispatch: 'feature-reviewer', description: 'Review', ago: 9 * MIN }],
+    conductorTurns: [{ dispatch: 'feature-reviewer', description: 'Review', ago: 9 * MIN, waiting: true }],
     workers: ['feature-reviewer', 'feature-review-performance', 'feature-review-db'].map((type) => ({
       type, description: 'Review lens', model: type === 'feature-reviewer' ? 'claude-opus-5-5' : 'claude-sonnet-5-5', startAgo: 9 * MIN, finished: false,
       steps: [['Read', { file_path: '/demo/field-app/src/routing/plan.ts' }]],

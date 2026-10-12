@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { parseWorkflowStatus } from './workflow-status.js';
 import { parseStatusJson } from './status-json.js';
-import { parseSessionLog, usageByModel, activityState, spendSince } from './session-log.js';
+import { parseSessionLog, usageByModel, activityState, quietHint, spendSince } from './session-log.js';
 import { agentInfo, skippedStages } from './stages.js';
 import { estimateCost, calibrationFactors } from './cost.js';
 
@@ -184,16 +184,15 @@ export function summariseSessions(sessions, now = Date.now()) {
   // Live activity: the conductor and any worker still running.
   const activity = [];
   for (const s of sessions) {
-    const conductorState = activityState(s.parsed, now);
     activity.push({
       who: 'conductor', name: agentInfo('conductor').name, sessionId: s.parsed.sessionId,
-      state: conductorState, doing: s.parsed.lastAction?.text ?? null,
+      state: activityState(s.parsed), quiet: quietHint(s.parsed, now), doing: s.parsed.lastAction?.text ?? null,
       since: s.parsed.lastAction?.at ?? s.parsed.lastAt, lastAt: s.parsed.lastAt,
     });
     for (const sub of s.subagents) {
       activity.push({
         who: sub.meta.agentType ?? 'unknown', name: agentInfo(sub.meta.agentType).name, description: sub.meta.description ?? null,
-        sessionId: s.parsed.sessionId, state: activityState(sub.parsed, now),
+        sessionId: s.parsed.sessionId, state: activityState(sub.parsed), quiet: quietHint(sub.parsed, now),
         doing: sub.parsed.lastAction?.text ?? null, startedAt: sub.parsed.firstAt, lastAt: sub.parsed.lastAt,
       });
     }
@@ -309,11 +308,11 @@ export async function loadFeatures({ featuresDir, sessionIndex, now = Date.now()
     f.activity = f.cost.activity;
     delete f.cost.activity;
     f.working = f.activity.some((a) => a.state === 'running');
-    f.stalled = f.activity.some((a) => a.state === 'stalled');
+    f.quiet = f.activity.some((a) => a.state === 'running' && a.quiet);
     f.project = projectFor(f.repoPath ?? s[0]?.parsed.cwd ?? null);
   }
   // Features waiting on you first (longest wait first), then working, then the rest by last update.
-  const rank = (f) => (f.needsYou ? 0 : f.stalled ? 1 : f.working || f.stageState === 'working' ? 2 : 3);
+  const rank = (f) => (f.needsYou ? 0 : f.working || f.stageState === 'working' ? 1 : f.stageState === 'done' ? 3 : 2);
   features.sort((a, b) => rank(a) - rank(b)
     || (a.needsYou ? (a.waitingSince || '').localeCompare(b.waitingSince || '') : 0)
     || (b.updatedAt || '').localeCompare(a.updatedAt || ''));

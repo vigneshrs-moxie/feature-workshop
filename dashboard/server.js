@@ -18,6 +18,24 @@ const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'publ
 const CLAUDE_DIR = path.join(os.homedir(), '.claude');
 const FEATURES_DIR = path.resolve(process.env.WORKSHOP_FEATURES_DIR || path.join(CLAUDE_DIR, 'feature-work'));
 const PROJECTS_DIR = path.resolve(process.env.WORKSHOP_PROJECTS_DIR || path.join(CLAUDE_DIR, 'projects'));
+const AGENTS_DIR = path.resolve(process.env.WORKSHOP_AGENTS_DIR || path.join(CLAUDE_DIR, 'agents'));
+
+// Model and effort for each worker, from the frontmatter of its agent file (read-only).
+async function crewModels() {
+  const out = {};
+  for (const type of Object.keys(AGENTS)) {
+    if (type === 'conductor') continue;
+    try {
+      const text = await fsp.readFile(path.join(AGENTS_DIR, `${type}.md`), 'utf8');
+      const front = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? '';
+      const field = (k) => new RegExp(`^${k}:\\s*(.+)$`, 'm').exec(front)?.[1].trim().replace(/^["']|["']$/g, '') ?? null;
+      out[type] = { model: field('model'), effort: field('effort') };
+    } catch {
+      out[type] = { model: null, effort: null };
+    }
+  }
+  return out;
+}
 
 const sessionIndex = new SessionIndex(PROJECTS_DIR);
 
@@ -65,7 +83,13 @@ async function features() {
   return list;
 }
 
-const ACTIVE = new Set(['running', 'stalled']);
+// Stages done out of the stages this route uses (skipped ones don't count).
+function progressOf(f) {
+  const ids = STAGES.map((s) => s.id).filter((id) => !f.skipped.includes(id));
+  const at = ids.indexOf(f.stage);
+  if (f.stageState === 'done') return { done: ids.length, total: ids.length };
+  return { done: Math.max(0, at), total: ids.length };
+}
 
 function boardCard(f) {
   return {
@@ -82,11 +106,12 @@ function boardCard(f) {
     waitingSince: f.waitingSince,
     needsYou: f.needsYou,
     working: f.working,
-    stalled: f.stalled,
-    nowDoing: f.activity.filter((a) => ACTIVE.has(a.state)).map((a) => ({
-      who: a.who, name: a.name, state: a.state, doing: a.doing,
+    quiet: f.quiet,
+    nowDoing: f.activity.filter((a) => a.state === 'running').map((a) => ({
+      who: a.who, name: a.name, doing: a.doing, quietMs: a.quiet?.quietMs ?? null,
       since: a.who === 'conductor' ? a.since : a.startedAt ?? a.since, lastAt: a.lastAt,
     })),
+    progress: progressOf(f),
     firstQuestion: f.questions[0]?.text ?? null,
     questions: f.questions.length,
     unconfirmed: f.decidedOnYourBehalf.filter((d) => !d.confirmed).length,
@@ -104,6 +129,7 @@ const routes = {
     agents: AGENTS,
     prices: { asOf: PRICES_AS_OF, models: PRICES },
     featuresDir: FEATURES_DIR,
+    crewModels: await crewModels(),
     demo: Boolean(process.env.WORKSHOP_DEMO),
   }),
   '/api/features': async () => {
@@ -119,7 +145,7 @@ const routes = {
       needsYou: list.filter((f) => f.needsYou).length,
       workingAgents: agents.filter((a) => a.state === 'running').length,
       workingFeatures: list.filter((f) => f.working).length,
-      stalled: list.filter((f) => f.stalled).length,
+      quiet: list.filter((f) => f.quiet).length,
       inProgress: list.filter((f) => f.stageState !== 'done').length,
       done: list.filter((f) => f.stageState === 'done').length,
       projects: new Set(list.map((f) => f.project.name)).size,

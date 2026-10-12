@@ -127,25 +127,24 @@ export function usageByModel(parsed) {
   return byModel;
 }
 
-// Is the agent behind this log working right now?
-// "running": recent activity and it has not finished its turn.
-// "finished": its last message ended the turn.
-// "delegating": waiting for a worker it sent work to (quiet is expected).
-// "stalled": it asked to use a tool and nothing has happened for 5+ minutes (but under half a
-//   day). Usually a permission prompt waiting in a terminal; sometimes just a slow command.
-// "idle": quiet for a long time without a clean finish (stopped or abandoned).
-export const STALL_AFTER_MS = 5 * 60 * 1000;
-export const STALL_LIMIT_MS = 12 * 60 * 60 * 1000;
-export function activityState(parsed, now = Date.now(), activeWindowMs = 3 * 60 * 1000) {
-  const last = parsed.lastAt ? Date.parse(parsed.lastAt) : 0;
-  const quietFor = now - last;
+// Is the agent behind this log working right now? There is no time limit: long runs are
+// normal, so an agent counts as working until its log shows it finished.
+// "finished": its last message ended its turn.
+// "delegating": the conductor is waiting for a worker it sent work to.
+// "running": anything else.
+export function activityState(parsed) {
   if (parsed.lastStopReason === 'end_turn' && !parsed.pendingToolUse) return 'finished';
-  if (quietFor < activeWindowMs) return 'running';
-  if (parsed.pendingToolUse && quietFor < STALL_LIMIT_MS) {
-    if (parsed.lastToolName === 'Agent' || parsed.lastToolName === 'Task') return 'delegating';
-    return quietFor < STALL_AFTER_MS ? 'running' : 'stalled';
-  }
-  return 'idle';
+  if (parsed.pendingToolUse && (parsed.lastToolName === 'Agent' || parsed.lastToolName === 'Task')) return 'delegating';
+  return 'running';
+}
+
+// A hint, never a state change: the agent asked to use a tool and has been quiet for a while.
+// Often a permission prompt waiting in its terminal; sometimes just a slow command.
+export const QUIET_HINT_MS = 5 * 60 * 1000;
+export function quietHint(parsed, now = Date.now()) {
+  if (!parsed.pendingToolUse || !parsed.lastAt) return null;
+  const quietMs = now - Date.parse(parsed.lastAt);
+  return quietMs >= QUIET_HINT_MS ? { quietMs, tool: parsed.lastToolName } : null;
 }
 
 // Estimated spend and tokens for messages at or after `sinceMs`.
