@@ -76,6 +76,7 @@ async function crewModels() {
 let cached = null;
 async function features() {
   if (cached && Date.now() - cached.at < 1500) return cached.list;
+  runEnds = await state.lastRunEnds();
   const list = await loadFeatures({ featuresDir: FEATURES_DIR, sessionIndex });
   cached = { at: Date.now(), list };
   return list;
@@ -105,12 +106,27 @@ function runFor(f) {
   return driver.list().filter((r) => r.featureDir === f.dir).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null;
 }
 
+// When a reply sent from the dashboard ends, the process that ran it (and any workers inside it)
+// has ended too. Agents whose logs stopped before that moment are not working, even if their log
+// stops mid-task (for example after a pause). Anything with newer activity still counts.
+function stillRunning(f, a, active) {
+  if (a.state !== 'running') return false;
+  if (active) return true;
+  const ended = runEnds[f.dir];
+  return !ended || !a.lastAt || a.lastAt > ended.at;
+}
+let runEnds = {};
+
 function boardCard(f, run) {
   const ids = STAGES.map((s) => s.id).filter((id) => !f.skipped.includes(id));
   const at = ids.indexOf(f.stage);
   const active = run && ACTIVE_RUN.has(run.status) ? run : null;
   const pendingList = driver.pendingPermissions().filter((p) => p.featureDir === f.dir);
-  const nowDoing = f.activity.filter((a) => a.state === 'running').map((a) => ({
+  const running = f.activity.filter((a) => stillRunning(f, a, active));
+  // The record says "working" but nobody is: say so honestly instead of showing a busy crew.
+  const notRunning = !active && !running.length && f.stageState === 'working';
+  const pausedHere = notRunning && runEnds[f.dir]?.status === 'stopped';
+  const nowDoing = running.map((a) => ({
     who: a.who, name: a.name, doing: a.doing, quietMs: a.quiet?.quietMs ?? null,
     since: a.who === 'conductor' ? a.since : a.startedAt ?? a.since, lastAt: a.lastAt,
   }));
@@ -119,9 +135,9 @@ function boardCard(f, run) {
   }
   return {
     slug: f.slug, title: f.title, kind: f.kind, kindGuessed: f.kindGuessed, project: f.project, route: f.route, skipped: f.skipped,
-    stage: f.stage, stageState: active ? 'working' : f.stageState, waitingFor: pendingList.length ? 'permission' : f.waitingFor,
+    stage: f.stage, stageState: active ? 'working' : pausedHere ? 'paused' : notRunning ? 'idle' : f.stageState, paused: pausedHere, waitingFor: pendingList.length ? 'permission' : f.waitingFor,
     waitingSince: pendingList.length ? pendingList[0].createdAt : f.waitingSince,
-    needsYou: pendingList.length > 0 || (!active && f.needsYou), working: Boolean(active) || f.working, quiet: f.quiet,
+    needsYou: pendingList.length > 0 || (!active && f.needsYou), working: Boolean(active) || running.length > 0, quiet: f.quiet && running.length > 0,
     nowDoing, firstQuestion: f.questions[0]?.text ?? null, questions: f.questions.length,
     unconfirmed: f.decidedOnYourBehalf.filter((d) => !d.confirmed).length,
     headline: f.latestBrief?.headline ?? null, nextProposed: f.nextProposed,
@@ -185,17 +201,23 @@ async function jobDetail(f) {
   let latestBrief = null;
   if (latestPath) {
     const text = await readInside(f.dir, latestPath);
-    if (text !== null) latestBrief = { number: f.latestBrief?.number ?? f.briefs.at(-1)?.number ?? null, path: latestPath, html: renderMarkdown(text, { idHref: idHref(f) }), text };
+    const st = await fsp.stat(path.join(f.dir, latestPath)).catch(() => null);
+    if (text !== null) latestBrief = { number: f.latestBrief?.number ?? f.briefs.at(-1)?.number ?? null, path: latestPath, html: renderMarkdown(text, { idHref: idHref(f) }), text, at: st?.mtime.toISOString() ?? null };
   }
+  // The Foreman's last answer to something sent from here, shown when it's newer than the brief.
+  const audit = await state.auditFor(f.dir, 200);
+  const lastEnd = [...audit].reverse().find((e) => e.action === 'run-ended' && e.reply);
+  const lastReply = lastEnd ? { at: lastEnd.at, status: lastEnd.status, html: renderMarkdown(lastEnd.reply, { idHref: idHref(f) }) } : null;
   return {
     ...boardCard(f, run),
     dir: f.dir, repoPath: f.repoPath, branch: f.branch, worktree: f.worktree, baseSha: f.baseSha, prs: f.prs,
     spec: f.spec, specFile: specFile(f), currentText: f.currentText, questionsFull: f.questions, decidedOnYourBehalf: f.decidedOnYourBehalf,
     latestBrief, briefs: f.briefs, approvals: f.approvals, history: f.history, artifacts: f.artifacts, recordedArtifacts: f.recordedArtifacts,
     costDetail: { ...f.cost, whatIf: whatIfConductor(f.cost.agents) },
-    activity: f.activity, drive: await driveState(f), run, runs: driver.list().filter((r) => r.featureDir === f.dir),
+    activity: f.activity.map((a) => (a.state === 'running' && !stillRunning(f, a, run && ACTIVE_RUN.has(run.status) ? run : null) ? { ...a, state: 'stopped' } : a)),
+    drive: await driveState(f), run, runs: driver.list().filter((r) => r.featureDir === f.dir),
     permissionsPending: driver.pendingPermissions().filter((p) => p.featureDir === f.dir),
-    audit: await state.auditFor(f.dir, 50), warnings: f.warnings,
+    lastReply, audit: audit.slice(-50), warnings: f.warnings,
     statusForCompose: { questions: f.questions, decidedOnYourBehalf: f.decidedOnYourBehalf, nextProposed: f.nextProposed, spec: f.spec, artifacts: f.recordedArtifacts, brief: f.latestBrief },
   };
 }
@@ -265,7 +287,7 @@ const GET = {
     cards.sort((a, b) => rank(a) - rank(b) || (a.needsYou ? String(a.waitingSince ?? '').localeCompare(String(b.waitingSince ?? '')) : 0));
     const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
     const spend = await sessionIndex.spendSince({ today: startOfToday.getTime(), week: startOfToday.getTime() - 6 * 86400000 });
-    const agents = list.flatMap((f) => f.activity);
+    const agents = list.flatMap((f) => f.activity.filter((a) => stillRunning(f, a, driver.activeRunFor({ featureDir: f.dir }))));
     const totalUsd = list.reduce((a, f) => a + f.cost.totalUsd, 0);
     const stats = {
       today: spend.today, week: spend.week, featuresUsd: totalUsd,

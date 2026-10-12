@@ -99,6 +99,8 @@ function renderTop(d) {
   let briefHtml;
   if (running && d.run.lastText) {
     briefHtml = `<header class="panel-head"><span class="speaker">The Foreman · live</span><span class="muted">${esc(since(d.run.startedAt))}</span></header><div class="md live">${esc(d.run.lastText).replace(/\n/g, '<br>')}</div>`;
+  } else if (d.lastReply && (!d.latestBrief?.at || d.lastReply.at > d.latestBrief.at)) {
+    briefHtml = `<header class="panel-head"><span class="speaker">The Foreman’s reply</span><span class="muted">${esc(ago(d.lastReply.at))}</span></header><div class="md">${d.lastReply.html}</div>${d.latestBrief ? '<p class="fineprint">The latest full brief is in the Briefs tab below.</p>' : ''}`;
   } else if (d.latestBrief) {
     briefHtml = `<header class="panel-head"><span class="speaker">The Foreman’s brief${d.latestBrief.number ? ` #${d.latestBrief.number}` : ''}</span>${d.waitingSince ? `<span class="muted">${esc(ago(d.waitingSince))}</span>` : ''}</header><div class="md">${d.latestBrief.html}</div>`;
   } else if (d.currentText) {
@@ -490,7 +492,7 @@ function renderCosts(panel, d) {
 }
 
 function renderCrew(panel, d) {
-  const words = { running: 'Working', finished: 'Finished', delegating: 'Waiting on a worker' };
+  const words = { running: 'Working', finished: 'Finished', delegating: 'Waiting on a worker', stopped: 'Stopped when you paused' };
   const people = [...d.activity].sort((a, b) => (b.lastAt ?? '').localeCompare(a.lastAt ?? ''));
   panel.innerHTML = `
     ${people.length ? `<ul class="crew-list">${people.map((a) => `<li class="${a.state === 'running' ? 'busy' : ''}">${sprite(a.who === 'conductor' ? 'conductor' : a.who, { state: a.state === 'running' ? 'working' : 'idle', size: 48, label: ctx.agentName(a.who) })}<div><b>${esc(ctx.agentName(a.who))}</b> <span class="muted">${esc(words[a.state] ?? a.state)}${a.lastAt ? ` · last active ${esc(ago(a.lastAt))}` : ''}</span>${a.description ? `<small>${esc(a.description)}</small>` : ''}${a.doing ? `<small>Last: ${esc(a.doing)}</small>` : ''}${a.quiet ? `<small class="hint-warn">Quiet for ${esc(duration(a.quiet.quietMs))}. If it’s waiting for a permission click, that’s in its terminal.</small>` : ''}</div></li>`).join('')}</ul>` : '<p class="muted">No Claude Code sessions found for this job yet.</p>'}

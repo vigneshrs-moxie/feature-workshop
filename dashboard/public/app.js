@@ -80,6 +80,7 @@ export function situation(f) {
     const a = workers[0] ?? running[0];
     return { tone: 'working', main: `<b>${esc(agentName(a.who))}</b> ${esc(verbFor(a.who))}`, detail: a.doing, time: since(a.since), crew: [a], bubble: quiet ? 'quiet' : 'dots', hint };
   }
+  if (f.paused) return { tone: 'idle', main: '<b>Paused.</b> Nothing is running.', detail: 'You paused this from the workshop. Send the Foreman a message to carry on.', crew: [], bubble: null };
   if (f.stageState === 'working') return { tone: 'working', main: '<b>The crew</b> is working', detail: f.nextProposed, crew: [], bubble: 'dots' };
   if (f.stageState === 'blocked') return { tone: 'blocked', main: '<b>Blocked:</b> waiting on someone else', detail: f.nextProposed, crew: [], bubble: null };
   if (f.stageState === 'done') return { tone: 'done', main: '<b>Done!</b> This job is finished.', detail: null, crew: [], bubble: 'badge' };

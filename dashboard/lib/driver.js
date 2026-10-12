@@ -123,7 +123,8 @@ export class Driver extends EventEmitter {
       for (const p of run.pending.values()) p.resolve({ behavior: 'deny', message: 'The reply ended before this was decided.' });
       run.pending.clear();
       run.endedAt = new Date().toISOString();
-      await this.state.audit({ action: 'run-ended', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, status: run.status, costUsd: run.costUsd, error: run.error });
+      const reply = (run.lastText ?? run.resultText ?? '').slice(0, 8000) || undefined;
+      await this.state.audit({ action: 'run-ended', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, status: run.status, costUsd: run.costUsd, error: run.error, reply });
       this.emit('run', this.view(run));
     }
   }

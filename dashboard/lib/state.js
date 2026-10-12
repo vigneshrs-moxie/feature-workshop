@@ -51,6 +51,19 @@ export class State {
     await fs.appendFile(this.auditFile, line, { mode: 0o600 });
   }
 
+  // The last reply sent from the dashboard that ended, per job: { [featureDir]: { at, status, sessionId } }.
+  async lastRunEnds() {
+    let text = '';
+    try { text = await fs.readFile(this.auditFile, 'utf8'); } catch { return {}; }
+    const out = {};
+    for (const l of text.trim().split('\n')) {
+      let e;
+      try { e = JSON.parse(l); } catch { continue; }
+      if (e?.action === 'run-ended' && e.featureDir) out[e.featureDir] = { at: e.at, status: e.status, sessionId: e.sessionId };
+    }
+    return out;
+  }
+
   async auditFor(featureDir, limit = 200) {
     let text = '';
     try { text = await fs.readFile(this.auditFile, 'utf8'); } catch { return []; }
