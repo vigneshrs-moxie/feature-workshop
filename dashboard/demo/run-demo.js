@@ -4,10 +4,13 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const ROOT = path.join(os.tmpdir(), 'feature-workshop-demo');
 const FEATURES = path.join(ROOT, 'feature-work');
 const PROJECTS = path.join(ROOT, 'projects', '-demo-acme-portal');
+const ACME = path.join(ROOT, 'acme-portal');
+let BASE = null;
 
 const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
 const MIN = 60 * 1000;
@@ -21,7 +24,7 @@ const usage = (out, read = 40000, write1h = 0) => ({
   cache_creation_input_tokens: write1h, cache_creation: { ephemeral_1h_input_tokens: write1h, ephemeral_5m_input_tokens: 0 },
 });
 const assistant = (sessionId, at, model, content, u, stop = 'tool_use', agentId) => ({
-  type: 'assistant', sessionId, agentId, timestamp: at, cwd: '/demo/acme-portal',
+  type: 'assistant', sessionId, agentId, timestamp: at, cwd: ACME,
   message: { id: `msg_${++msgCounter}`, model, stop_reason: stop, content, usage: u },
 });
 const toolUse = (name, input) => ({ type: 'tool_use', id: `tu_${++msgCounter}`, name, input });
@@ -80,16 +83,16 @@ const wsDoc = ({ title, slug, route, stage, next, approvals = '' }) => `# ${titl
 
 **Feature slug:** ${slug}
 **Route:** ${route}
-**Spec:** /demo/acme-portal/docs/plans/2026-10-01-${slug}-product-spec.md · current version 0.2 · status DRAFT
+**Spec:** ${ACME}/docs/plans/2026-10-01-${slug}-product-spec.md · current version 0.2 · status DRAFT
 **Refinement:** NOT REQUIRED — demo
-**Repository:** /demo/acme-portal · branch main · commit 9f8e7d6 · working tree clean (from investigation)
+**Repository:** ${ACME} · branch main · commit 9f8e7d6 · working tree clean (from investigation)
 **Current stage:** ${stage}
 **Next proposed:** \`${next}\`
 
 ## Artifacts
 | Artifact | Path | Version | Based on |
 |---|---|---|---|
-| Spec | /demo/acme-portal/docs/plans/2026-10-01-${slug}-product-spec.md | 0.2 | |
+| Spec | ${ACME}/docs/plans/2026-10-01-${slug}-product-spec.md | 0.2 | |
 
 ## Review and authorization log
 | Date | Who | What they said or did (quote or invocation) | Artifact + version | Authorizes | Scope / limits | State |
@@ -103,9 +106,43 @@ ${approvals}
 
 // ---------- the demo features ----------
 
+// A real (throwaway) git repo so the Code tab and the New job dialog have something to show.
+async function makeRepo() {
+  const git = (...args) => execFileSync('git', ['-C', ACME, ...args], { stdio: 'pipe' }).toString().trim();
+  await fs.mkdir(path.join(ACME, 'docs', 'plans'), { recursive: true });
+  await fs.mkdir(path.join(ACME, 'app'), { recursive: true });
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.name', 'Demo'); git('config', 'user.email', 'demo@example.invalid');
+  await fs.writeFile(path.join(ACME, 'README.md'), '# Acme portal (demo)\nA pretend app for Feature Workshop\'s demo.\n');
+  await fs.writeFile(path.join(ACME, 'docs', 'plans', '2026-10-01-widget-export-product-spec.md'), [
+    '# Widget Export: product spec (demo)', '', '**Version:** 0.3 · **Status:** DRAFT', '', '## Requirements', '',
+    '| ID | Requirement |', '|---|---|',
+    '| FR-001 | Admins can download every widget as a CSV file. |',
+    '| FR-002 | The export button sits next to the widgets table heading. |',
+    '| FR-003 | Exports stop at 10,000 rows with a clear message. |', '',
+    '## Acceptance criteria', '',
+    'AC-001: the CSV has one row per widget and a header row.',
+    'AC-002: clicking Export downloads `widgets-YYYY-MM-DD.csv`.',
+    'AC-003: with more than 10,000 widgets, the message explains the limit.',
+    'AC-004: non-admins don’t see the button.', '',
+  ].join('\n'));
+  await fs.writeFile(path.join(ACME, 'app', 'widgets.js'), 'export function listWidgets(db) {\n  return db.all(\'select * from widgets\');\n}\n');
+  git('add', '-A'); git('commit', '-q', '-m', 'Start the demo app');
+  BASE = git('rev-parse', '--short', 'HEAD');
+  git('switch', '-q', '-c', 'feature/widget-export');
+  await fs.writeFile(path.join(ACME, 'app', 'csv.js'), 'export function toCsv(rows) {\n  const head = Object.keys(rows[0] ?? {});\n  return [head, ...rows.map((r) => head.map((k) => r[k]))].map((l) => l.join(\',\')).join(\'\\n\');\n}\n');
+  git('add', '-A'); git('commit', '-q', '-m', 'feat(widgets): CSV builder [S1]');
+  await fs.appendFile(path.join(ACME, 'app', 'widgets.js'), '\nexport const exportButton = \'<button>Export</button>\';\n');
+  git('commit', '-qam', 'feat(widgets): export button next to the table [S2]');
+  await fs.appendFile(path.join(ACME, 'app', 'csv.js'), '\nexport const LIMIT = 10000; // FR-003\n');
+  git('commit', '-qam', 'feat(widgets): stop at 10,000 rows with a message [S3]');
+  git('switch', '-q', 'main');
+}
+
 async function build() {
   await fs.rm(ROOT, { recursive: true, force: true });
   await fs.mkdir(PROJECTS, { recursive: true });
+  await makeRepo();
 
   // 1. Waiting on answers after review.
   const widget = await feature('widget-export', {
@@ -122,8 +159,8 @@ async function build() {
         { id: 'D-005', decision: 'Export is limited to 10,000 rows', reason: 'investigation found no paging', where: 'spec v0.3', confirmed: false },
       ],
       next_proposed: 'Small fix round for R-2/R-3, then PR #1 (needs its own go-ahead)',
-      spec: { path: '/demo/acme-portal/docs/plans/2026-10-01-widget-export-product-spec.md', version: '0.3', status: 'DRAFT' },
-      branch: 'feature/widget-export', worktree: '/demo/orbit-widget-export', base_sha: '9f8e7d6', repo: { path: '/demo/acme-portal', base_branch: 'moxie/main' },
+      spec: { path: `${ACME}/docs/plans/2026-10-01-widget-export-product-spec.md`, version: '0.3', status: 'DRAFT' },
+      branch: 'feature/widget-export', worktree: null, base_sha: BASE, repo: { path: ACME, base_branch: 'main' },
       prs: [{ number: 1, label: 'fork → org branch', url: null, state: 'not_started' }],
       session_id: 'demo-sess-0001', updated_at: iso(47 * MIN),
     },
@@ -140,7 +177,13 @@ async function build() {
       { stage: 'test', text: '**Widget Export · test done**\n\nDemo brief.' },
       { stage: 'review', text: '**Widget Export · review done** · spec v0.3 · review.md v1\n\n**What happened**\n- 7 reviewers looked at the change; 0 blockers, 2 majors, 3 minors.\n\n**Decisions for you**\n1. Fix R-2 and R-3 now? — Recommended: yes.\n2. Export file name — Recommended: widgets-YYYY-MM-DD.csv.\n\n**Next:** fix round, then PR #1.' },
     ],
-    files: { 'findings.md': '# Findings\n\nDemo.', 'implementation-plan.md': '# Plan\n\nDemo.', 'test-plan.md': '# Test plan\n\nDemo.', 'review.md': '# Review\n\nDemo.', 'review/permissions.md': '# Permissions lens\n\nDemo.' },
+    files: {
+      'findings.md': '# Findings (demo)\n\n## Summary\nThe widgets page already loads every row, so FR-001 needs no new query. FR-002 touches the export button only.\n\n## Spec impact\n- AC-003 should say what happens with more than 10,000 rows (became D-005).\n',
+      'implementation-plan.md': '# Implementation plan (demo)\n\n| Step | What | Covers |\n|---|---|---|\n| S1 | CSV builder | FR-001, AC-001 |\n| S2 | Export button | FR-002, AC-002 |\n| S3 | Row limit message | FR-003, AC-003, AC-004 |\n',
+      'test-plan.md': '# Test plan (demo)\n\n- AC-001: unit test for the CSV builder\n- AC-002: the button downloads a file\n- AC-003: 10,001 rows shows the limit message\n',
+      'review.md': '# Review (demo)\n\n- **R-2 (major):** the file name ignores the time zone (FR-002).\n- **R-3 (major):** no test for an empty table (AC-001).\n',
+      'review/permissions.md': '# Permissions lens (demo)\n\nOnly admins see the export button, as FR-002 requires. No findings.\n',
+    },
   });
   await writeSession({
     sessionId: 'demo-sess-0001', featureDir: widget, prompt: '/feature Add a CSV export to the widgets page.', startAgo: 30 * HOUR,
@@ -171,7 +214,7 @@ async function build() {
       brief: { number: 5, path: 'briefs/005-plan.md', headline: 'Bulk Archive · plan done' },
       questions: [], decided_on_your_behalf: [],
       next_proposed: 'Finish S3 (archive job), then brief you',
-      branch: 'feature/bulk-archive', worktree: '/demo/orbit-bulk-archive', base_sha: '1234abc', repo: { path: '/demo/acme-portal', base_branch: 'moxie/main' },
+      branch: 'feature/bulk-archive', worktree: '/demo/orbit-bulk-archive', base_sha: '1234abc', repo: { path: ACME, base_branch: 'main' },
       session_id: 'demo-sess-0002', updated_at: iso(20 * MIN),
     },
     workflowStatus: wsDoc({ title: 'Bulk Archive', slug: 'bulk-archive', route: 'LARGE — new lifecycle state', stage: 'implement · in progress', next: 'brief after S3' }),
@@ -220,7 +263,7 @@ async function build() {
   const login = await feature('fix-login-loop', {
     status: {
       title: 'Login redirect loop', kind: 'bug', route: 'small', stage: 'implement', stage_state: 'working',
-      next_proposed: 'Finish S2, then brief you', branch: 'fix/login-loop', repo: { path: '/demo/acme-portal' },
+      next_proposed: 'Finish S2, then brief you', branch: 'fix/login-loop', repo: { path: ACME },
       session_id: 'demo-sess-0003', updated_at: iso(40 * MIN),
     },
   });
@@ -228,7 +271,7 @@ async function build() {
     sessionId: 'demo-sess-0003', featureDir: login, prompt: '/feature Fix the login redirect loop for expired sessions.', startAgo: 4 * HOUR,
     conductorTurns: [{ dispatch: 'feature-implementer', description: 'Implement S2: session refresh', ago: 30 * MIN, waiting: true }],
     workers: [{ type: 'feature-implementer', description: 'Implement S2: session refresh', model: 'claude-opus-5-5', startAgo: 30 * MIN, finished: false,
-      steps: [['Edit', { file_path: '/demo/acme-portal/app/src/auth/session.ts' }], ['Bash', { description: 'Run the database session tests (npm run test:db)' }]] }],
+      steps: [['Edit', { file_path: `${ACME}/app/src/auth/session.ts` }], ['Bash', { description: 'Run the database session tests (npm run test:db)' }]] }],
   });
   // The last step is a tool call with no result: the worker is waiting for a permission click.
   {
@@ -290,6 +333,7 @@ const logFiles = await build();
 process.env.WORKSHOP_FEATURES_DIR = FEATURES;
 process.env.WORKSHOP_PROJECTS_DIR = path.dirname(PROJECTS);
 process.env.WORKSHOP_DEMO = '1';
+process.env.WORKSHOP_EXTRA_REPOS = ACME;
 console.log(`Demo data in ${ROOT} (invented; safe to delete).`);
 await tick(logFiles);
 await import('../server.js');

@@ -1,17 +1,16 @@
-import { sprite, icon, STAGE_CHARACTER } from './sprites.js';
+import { $, $$, esc, prefs, since, duration, plural, usd, fmtTokens, modelLabel, getJson, setToken, toast } from './ui.js';
+import { sprite, icon, renderMap, STAGE_CHARACTER } from './crew.js';
 import { pixelText } from './pixelfont.js';
-
-const $ = (sel, root = document) => root.querySelector(sel);
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-// Per-viewer preferences. Storage can be unavailable (private windows); the page works without it.
-const prefs = {
-  get(key, fallback) { try { return localStorage.getItem(`workshop.${key}`) ?? fallback; } catch { return fallback; } },
-  set(key, value) { try { localStorage.setItem(`workshop.${key}`, value); } catch { /* ignore */ } },
-};
+import { initJob, showJob, currentJobSlug } from './job.js';
+import { permissionCard, bindPermissionCards, openNewJob, openAlerts, notify, alerts } from './panels.js';
+import { showCosts } from './costs.js';
 
 let meta = null;
 let board = null;
+let lastNeeds = null; // slugs that needed you at the last refresh, for alerts
+let seenPermissions = new Set();
+
+const agentName = (type) => (type === 'conductor' ? 'Foreman' : meta?.agents[type]?.name ?? type ?? 'A helper');
 
 // ---------- Clock (Game Boy style) ----------
 
@@ -33,7 +32,6 @@ function startClock() {
   };
   $('#clock').addEventListener('click', () => { use24 = !use24; prefs.set('clock24', use24 ? 'yes' : 'no'); render(); });
   render();
-  // Tick on the second boundary so the seconds stay in step with the system clock.
   setTimeout(() => { render(); setInterval(render, 1000); }, 1000 - (Date.now() % 1000));
 }
 
@@ -43,8 +41,7 @@ function startTheme() {
   const btn = $('#theme');
   const order = ['auto', 'light', 'dark'];
   const names = { auto: 'automatic (follows your system)', light: 'day', dark: 'night' };
-  // ?theme=light|dark previews a theme without saving it.
-  const forced = new URLSearchParams(location.search).get('theme');
+  const forced = new URLSearchParams(location.search).get('theme'); // ?theme=light|dark previews without saving
   let theme = order.includes(forced) ? forced : prefs.get('theme', 'auto');
   const apply = () => {
     if (theme === 'auto') delete document.documentElement.dataset.theme;
@@ -56,119 +53,107 @@ function startTheme() {
   apply();
 }
 
-// ---------- Words ----------
+// ---------- What is going on with a job (shared by the board and the job page) ----------
 
-const since = (isoTime) => (isoTime ? duration(Date.now() - Date.parse(isoTime)) : '');
-function duration(ms) {
-  const mins = Math.max(0, Math.round(ms / 60000));
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} min`;
-  const h = Math.floor(mins / 60);
-  if (h < 24) return `${h} h${mins % 60 ? ` ${mins % 60} min` : ''}`;
-  const d = Math.floor(h / 24);
-  return `${d} day${d === 1 ? '' : 's'}`;
-}
-const usd = (n, source) => {
-  if (!n) return '$0';
-  const s = n < 0.01 ? '<$0.01' : `$${n.toFixed(2)}`;
-  return source === 'estimate' ? `≈${s}` : s;
-};
-const fmtTokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-const agentName = (type) => (type === 'conductor' ? 'Foreman' : meta?.agents[type]?.name ?? type);
-const modelLabel = (m) => (m ? m.replace(/^claude-/, '').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/^\w/, (c) => c.toUpperCase()) : 'not set');
-
-const SHORT = { spec: 'Spec', refine: 'Refine', investigate: 'Invest.', 'spec-update': 'Update', plan: 'Plan', implement: 'Build', test: 'Test', review: 'Review', pr1: 'PR 1', pr2: 'PR 2', 'staging-qa': 'QA', pr3: 'PR 3' };
+const PILL = { needs: 'Your turn', working: 'Working', blocked: 'Blocked', done: 'Done', idle: 'Resting' };
 const VERB = {
-  conductor: 'is checking the work',
-  'feature-spec-writer': 'is writing the spec',
-  'feature-investigator': 'is investigating the code',
-  'feature-planner': 'is drawing up the plan',
-  'feature-implementer': 'is building',
-  'feature-tester': 'is running the checks',
+  conductor: 'is checking the work', 'feature-spec-writer': 'is writing the spec', 'feature-investigator': 'is investigating the code',
+  'feature-planner': 'is drawing up the plan', 'feature-implementer': 'is building', 'feature-tester': 'is running the checks',
 };
 const verbFor = (type) => VERB[type] ?? 'is reviewing';
 
-// ---------- What is going on with a job ----------
-
-const PILL = {
-  needs: 'Your turn!',
-  working: 'Working',
-  blocked: 'Blocked',
-  done: 'Done',
-  idle: 'Resting',
-};
-
-function situation(f) {
-  const running = f.nowDoing;
+export function situation(f) {
+  const running = f.nowDoing ?? [];
   const workers = running.filter((a) => a.who !== 'conductor');
   const quiet = running.find((a) => a.quietMs);
-  const hint = quiet
-    ? `${agentName(quiet.who)} has been quiet for ${duration(quiet.quietMs)}. If it’s waiting for a permission click, that’s in its terminal.`
-    : null;
+  const hint = quiet ? `${agentName(quiet.who)} has been quiet for ${duration(quiet.quietMs)}. If it’s waiting for a permission click, that’s in its terminal.` : null;
+  if (f.waitingFor === 'permission') {
+    return { tone: 'needs', main: `<b>Your turn:</b> ${esc(plural(f.permissions || 1, 'permission'))} to approve`, detail: 'A crew member is waiting for your Allow or Deny.', time: f.waitingSince ? `waiting ${since(f.waitingSince)}` : '', crew: running, bubble: 'key' };
+  }
   if (f.needsYou) {
-    const main = f.waitingFor === 'answers' ? `${plural(f.questions || 1, 'question')} for you` : f.waitingFor === 'permission' ? 'A permission needs your click' : 'Waiting for your go-ahead';
+    const main = f.waitingFor === 'answers' ? `${plural(f.questions || 1, 'question')} for you` : 'waiting for your go-ahead';
     const detail = (f.waitingFor === 'answers' && f.firstQuestion) || f.headline || (f.nextProposed ? `Next: ${f.nextProposed}` : null);
-    return { tone: 'needs', main: `<b>Your turn!</b> ${esc(main)}`, detail, time: `waiting ${since(f.waitingSince)}`, crew: [], bubble: 'bang' };
+    return { tone: 'needs', main: `<b>Your turn:</b> ${esc(main)}`, detail, time: f.waitingSince ? `waiting ${since(f.waitingSince)}` : '', crew: [], bubble: 'bang' };
   }
-  if (workers.length > 1) {
-    return { tone: 'working', main: `<b>${workers.length} crew</b> are at work!`, detail: workers.map((a) => agentName(a.who)).join(', '), time: since(workers[0].since), crew: workers, bubble: 'dots', hint };
-  }
+  if (workers.length > 1) return { tone: 'working', main: `<b>${workers.length} crew</b> at work`, detail: workers.map((a) => agentName(a.who)).join(', '), time: since(workers[0].since), crew: workers, bubble: 'dots', hint };
   if (running.length) {
     const a = workers[0] ?? running[0];
-    return { tone: 'working', main: `<b>${esc(agentName(a.who))}</b> ${esc(verbFor(a.who))}!`, detail: a.doing, time: since(a.since), crew: [a], bubble: quiet ? 'quiet' : 'dots', hint };
+    return { tone: 'working', main: `<b>${esc(agentName(a.who))}</b> ${esc(verbFor(a.who))}`, detail: a.doing, time: since(a.since), crew: [a], bubble: quiet ? 'quiet' : 'dots', hint };
   }
   if (f.stageState === 'working') return { tone: 'working', main: '<b>The crew</b> is working', detail: f.nextProposed, crew: [], bubble: 'dots' };
   if (f.stageState === 'blocked') return { tone: 'blocked', main: '<b>Blocked:</b> waiting on someone else', detail: f.nextProposed, crew: [], bubble: null };
-  if (f.stageState === 'done') return { tone: 'done', main: '<b>Badge earned!</b> This job is done.', detail: null, crew: [], bubble: 'badge' };
-  return { tone: 'idle', main: '<b>Resting.</b> Nothing is running.', detail: f.nextProposed ? `Next: ${f.nextProposed}` : null, crew: [], bubble: 'zzz' };
+  if (f.stageState === 'done') return { tone: 'done', main: '<b>Done!</b> This job is finished.', detail: null, crew: [], bubble: 'badge' };
+  return { tone: 'idle', main: '<b>Resting.</b> Nothing is running.', detail: f.nextProposed ? `Next: ${f.nextProposed}` : null, crew: [], bubble: null };
 }
 
-const BUBBLES = {
-  bang: '<span class="bubble bang" aria-hidden="true">!</span>',
-  dots: '<span class="bubble dots" aria-hidden="true"><i></i><i></i><i></i></span>',
-  quiet: '<span class="bubble quiet" aria-hidden="true">…?</span>',
-  zzz: '<span class="bubble zzz" aria-hidden="true">Zz</span>',
-  badge: '<span class="bubble badge" aria-hidden="true">★</span>',
-};
+// When a job moves to a later stage, its crew walks there instead of jumping.
+const lastStage = new Map();
+function walk(container, slug, mapEl) {
+  const at = Number(mapEl?.dataset.at ?? -1);
+  const key = `${container.id || 'board'}:${slug}`;
+  const prev = lastStage.get(key);
+  lastStage.set(key, at);
+  if (prev === undefined || prev < 0 || at <= prev || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const actor = $('.actor', mapEl);
+  const stations = $$('.station', mapEl);
+  if (!actor || !stations[prev] || !stations[at]) return;
+  const dx = stations[prev].getBoundingClientRect().left - stations[at].getBoundingClientRect().left;
+  $$('.ch', actor).forEach((c) => c.classList.add('is-walking'));
+  const anim = actor.animate([{ transform: `translateX(calc(-50% + ${dx}px))` }, { transform: 'translateX(-50%)' }], { duration: Math.min(2600, 500 + Math.abs(dx) * 4), easing: 'cubic-bezier(.45,.05,.4,1)' });
+  anim.onfinish = () => $$('.ch', actor).forEach((c) => c.classList.remove('is-walking'));
+}
 
-const SPRITE_STATE = { working: 'working', needs: 'waiting', done: 'celebrating', blocked: 'idle', idle: 'asleep' };
+// ---------- Board ----------
 
-function map(f, sit) {
-  const ids = meta.stages.map((s) => s.id);
-  const at = f.stageState === 'done' ? ids.length - 1 : ids.indexOf(f.stage);
-  const costTip = f.cost.source === 'estimate' ? 'Estimated from token counts' : f.cost.source === 'claude-code' ? 'Claude Code’s own cost figure' : 'No sessions found yet';
-  return `<div class="map">
-    <span class="coins" title="${esc(`Cost so far. ${costTip}`)}">${icon('coin', 16)}${pixelText(usd(f.cost.totalUsd, f.cost.source), { px: 2 })}</span>
-    <ol class="stations" aria-label="Stages">${meta.stages.map((st, i) => {
-      let cls = 'todo';
-      let label = 'not started yet';
-      if (f.skipped.includes(st.id)) { cls = 'skipped'; label = 'skipped on this route'; }
-      else if (i === at) { cls = f.stageState === 'done' ? 'done current' : 'current'; label = 'current stage'; }
-      else if (at > -1 && i < at) { cls = 'done'; label = 'done'; }
-      let actor = '';
-      if (i === at) {
-        const crew = sit.crew.length ? sit.crew.slice(0, 3).map((a) => a.who) : [STAGE_CHARACTER[st.id] ?? 'conductor'];
-        const state = SPRITE_STATE[sit.tone];
-        actor = `<span class="actor n${crew.length}">${crew.map((w) => sprite(w, { state, size: 72, label: `${agentName(w)}${state === 'working' ? ', working' : ''}` })).join('')}${sit.bubble ? BUBBLES[sit.bubble] : ''}${state === 'working' ? '<span class="puffs" aria-hidden="true"><i></i><i></i><i></i></span>' : ''}</span>`;
-      }
-      return `<li class="station ${cls}" title="${esc(`${st.label}: ${label}. ${st.tip}`)}">${actor}<span class="tile"></span><span class="name">${esc(SHORT[st.id])}</span></li>`;
-    }).join('')}</ol>
-  </div>`;
+function statsHtml() {
+  const s = board.stats;
+  const tile = (ic, label, value, sub, tone = '', tip = '') => `<div class="stat gbox ${tone}"${tip ? ` title="${esc(tip)}"` : ''}>
+    <span class="stat-top">${icon(ic, 26)}<span class="stat-label">${esc(label)}</span></span>
+    <span class="stat-value">${esc(value)}</span><span class="stat-sub">${sub}</span></div>`;
+  return [
+    tile('coin', 'Spent today', usd(s.today.usd, 'estimate'), `${esc(fmtTokens(s.today.tokens))} tokens`, '', 'Every Claude Code session on this computer since midnight, estimated from token counts'),
+    tile('calendar', 'Last 7 days', usd(s.week.usd, 'estimate'), `${esc(fmtTokens(s.week.tokens))} tokens`, '', 'Every Claude Code session on this computer, estimated from token counts'),
+    tile('bang', 'Need you', String(s.needsYou), s.needsYou ? 'answers, go-aheads or clicks' : 'nothing waiting', s.needsYou ? 'tone-needs' : ''),
+    tile('bolt', 'Working now', String(s.workingAgents), `on ${plural(s.workingFeatures, 'job')}`, s.workingAgents ? 'tone-working' : ''),
+    tile('badge', 'Done', String(s.done), `${s.inProgress} still on the bench`, '', 'Jobs finished'),
+    tile('coin', 'All jobs', usd(s.featuresUsd), '<a href="#/costs">See costs and export →</a>', '', 'Cost of every job on the board'),
+  ].join('');
+}
+
+function foreman() {
+  const list = board.features;
+  const needs = list.filter((f) => f.needsYou);
+  const quiet = list.filter((f) => !f.needsYou && f.quiet);
+  const working = list.filter((f) => f.working);
+  let line;
+  if (needs.length) line = needs.length === 1 ? 'One job needs you. Here it is:' : `${needs.length} jobs need you. Longest wait first:`;
+  else if (quiet.length) line = 'Nothing needs your answer, but a crew member has gone quiet. Maybe a permission prompt in a terminal?';
+  else if (working.length) line = `All good! ${plural(board.stats.workingAgents, 'crew member')} at work. Nothing needs you right now.`;
+  else if (list.length) line = 'All quiet. Nothing is running and nothing needs you.';
+  else line = 'Welcome! Start your first job with the New job button.';
+  const choices = [
+    ...needs.slice(0, 4).map((f) => {
+      const what = f.waitingFor === 'permission' ? `approve ${plural(f.permissions || 1, 'permission')}` : f.waitingFor === 'answers' ? `answer ${plural(f.questions || 1, 'question')}` : 'give the go-ahead';
+      return `<li><a href="#/job/${encodeURIComponent(f.slug)}"><span class="c-title">${esc(f.title)}</span><span class="c-what">${esc(what)}${f.waitingSince ? ` · waiting ${esc(since(f.waitingSince))}` : ''}</span></a></li>`;
+    }),
+    ...quiet.slice(0, 2).map((f) => {
+      const a = f.nowDoing.find((x) => x.quietMs);
+      return `<li class="soft"><a href="#/job/${encodeURIComponent(f.slug)}"><span class="c-title">${esc(f.title)}</span><span class="c-what">${esc(agentName(a?.who))} quiet ${esc(duration(a?.quietMs ?? 0))} · check its terminal</span></a></li>`;
+    }),
+  ];
+  const mood = needs.length ? 'waiting' : working.length ? 'idle' : 'asleep';
+  return { line, choicesHtml: choices.join(''), mood };
 }
 
 function card(f) {
   const sit = situation(f);
   const type = `<span class="type type-${f.kind}" title="${f.kindGuessed ? 'Guessed from the branch or folder name' : ''}">${f.kind === 'bug' ? 'Bug' : 'Feature'}</span>`;
-  const size = f.route ? `<span class="type type-${f.route}" title="${f.route === 'small' ? 'Small: no refine interview' : 'Large: includes the refine interview'}">${f.route}</span>` : '';
+  const size = f.route ? `<span class="type type-${f.route}" title="${f.route === 'small' ? 'Small: no refine interview' : 'Large: includes the refine interview'}">${esc(f.route)}</span>` : '';
+  const coins = `<span class="coins" title="${esc(f.cost.source === 'estimate' ? 'Cost so far, estimated from token counts' : 'Cost so far')}">${icon('coin', 18)}${esc(usd(f.cost.totalUsd, f.cost.source))}</span>`;
   const flags = f.unconfirmed ? `<p class="say-flag">★ ${esc(plural(f.unconfirmed, 'thing'))} decided for you. Please check.</p>` : '';
-  return `<a class="route gbox state-${sit.tone}" href="#/feature/${encodeURIComponent(f.slug)}" data-key="${esc(f.slug)}">
-    <div class="route-head">
-      <span class="types">${type}${size}</span>
-      <h3>${esc(f.title)}</h3>
-      <span class="pill pill-${sit.tone}"><i class="led" aria-hidden="true"></i>${pixelText(PILL[sit.tone], { px: 2 })}</span>
-    </div>
-    ${map(f, sit)}
+  return `<a class="route gbox state-${sit.tone}" href="#/job/${encodeURIComponent(f.slug)}" data-key="${esc(f.slug)}">
+    <div class="route-head"><span class="types">${type}${size}</span><h3>${esc(f.title)}</h3><span class="pill pill-${sit.tone}"><i class="led" aria-hidden="true"></i>${esc(f.starting ? 'Starting' : PILL[sit.tone])}</span></div>
+    ${renderMap(meta.stages, f, sit, { agentName, size: 104, coins })}
     <div class="say gbox say-${sit.tone}">
       <p class="say-main">${sit.main}${sit.time ? ` <span class="say-time">· ${esc(sit.time)}</span>` : ''}</p>
       ${sit.detail ? `<p class="say-detail">${esc(sit.detail)}</p>` : ''}
@@ -180,72 +165,8 @@ function card(f) {
   </a>`;
 }
 
-// ---------- Top of the page: numbers, then the Foreman ----------
-
-function statsHtml() {
-  const s = board.stats;
-  const tile = (ic, label, value, sub, tone = '', tip = '') => `<div class="stat gbox ${tone}"${tip ? ` title="${esc(tip)}"` : ''}>
-    <span class="stat-top">${icon(ic, 22)}<span class="stat-label">${esc(label)}</span></span>
-    <span class="stat-value">${pixelText(value, { px: 4 })}</span>
-    <span class="stat-sub">${sub}</span></div>`;
-  return [
-    tile('coin', 'Spent today', usd(s.today.usd, 'estimate'), `${esc(fmtTokens(s.today.tokens))} tokens`, '', 'Every Claude Code session on this computer since midnight, estimated from token counts'),
-    tile('calendar', 'Last 7 days', usd(s.week.usd, 'estimate'), `${esc(fmtTokens(s.week.tokens))} tokens`, '', 'Every Claude Code session on this computer, estimated from token counts'),
-    tile('bang', 'Need you', String(s.needsYou), s.needsYou ? 'answers or a go-ahead' : 'nothing waiting', s.needsYou ? 'tone-needs' : ''),
-    tile('bolt', 'Working now', String(s.workingAgents), `on ${plural(s.workingFeatures, 'job')}`, s.workingAgents ? 'tone-working' : ''),
-    tile('badge', 'Badges', String(s.done), `${s.inProgress} still on the bench`, '', 'Jobs finished'),
-    tile('coin', 'All jobs', usd(s.featuresUsd), 'since each one started', '', 'Cost of every job on the board'),
-  ].join('');
-}
-
-function foreman() {
-  const list = board.features;
-  const needs = list.filter((f) => f.needsYou);
-  const quiet = list.filter((f) => !f.needsYou && f.quiet);
-  const working = list.filter((f) => f.working);
-  let line;
-  if (needs.length) line = needs.length === 1 ? 'One job needs you! Here it is:' : `${needs.length} jobs need you! Longest wait first:`;
-  else if (quiet.length) line = 'Nothing needs your answer, but a crew member has gone quiet. Maybe a permission prompt?';
-  else if (working.length) line = `All good! ${plural(board.stats.workingAgents, 'crew member')} hard at work. Nothing needs you.`;
-  else if (list.length) line = 'Quiet in the workshop. Nothing is running and nothing needs you.';
-  else line = 'Welcome! Start a job in Claude Code with /feature and your crew will show up here.';
-
-  const choices = [
-    ...needs.slice(0, 4).map((f) => {
-      const what = f.waitingFor === 'answers' ? `answer ${plural(f.questions || 1, 'question')}` : f.waitingFor === 'permission' ? 'approve a permission' : 'give the go-ahead';
-      return `<li><a href="#/feature/${encodeURIComponent(f.slug)}"><span class="c-title">${esc(f.title)}</span><span class="c-what">${esc(what)} · waiting ${esc(since(f.waitingSince))}</span></a></li>`;
-    }),
-    ...quiet.slice(0, 2).map((f) => {
-      const a = f.nowDoing.find((x) => x.quietMs);
-      return `<li class="soft"><a href="#/feature/${encodeURIComponent(f.slug)}"><span class="c-title">${esc(f.title)}</span><span class="c-what">${esc(agentName(a?.who))} quiet ${esc(duration(a?.quietMs ?? 0))} · check its terminal</span></a></li>`;
-    }),
-  ];
-  const mood = needs.length ? 'waiting' : working.length ? 'idle' : 'asleep';
-  return { line, choicesHtml: choices.join(''), mood };
-}
-
-function renderTop() {
-  const stats = $('#stats');
-  const s = statsHtml();
-  if (stats._html !== s) { stats.innerHTML = s; stats._html = s; }
-
-  const f = foreman();
-  const portrait = $('#dialog .portrait');
-  if (portrait._mood !== f.mood) { portrait.innerHTML = sprite('conductor', { state: f.mood, size: 72, label: 'Foreman' }); portrait._mood = f.mood; }
-  const line = $('#dialog .line');
-  if (line._text !== f.line) {
-    // A fresh span replays the "typing" reveal only when the words change.
-    line.innerHTML = `<span class="typed">${esc(f.line)}</span>`;
-    line._text = f.line;
-  }
-  const choices = $('#dialog .choices');
-  if (choices._html !== f.choicesHtml) { choices.innerHTML = f.choicesHtml; choices._html = f.choicesHtml; choices.hidden = !f.choicesHtml; }
-}
-
-// ---------- Rendering without restarting animations ----------
-
-// Replace a container's keyed children only where their HTML changed.
-function patchChildren(container, items) {
+// Replace a container's keyed children only where their HTML changed (keeps animations running).
+function patchChildren(container, items, after) {
   const existing = new Map([...container.children].map((el) => [el.dataset.key, el]));
   let prev = null;
   for (const { key, html } of items) {
@@ -257,6 +178,7 @@ function patchChildren(container, items) {
       fresh._html = html;
       if (el) el.replaceWith(fresh); else container.append(fresh);
       el = fresh;
+      after?.(el, key);
     }
     existing.delete(key);
     if (prev ? prev.nextElementSibling !== el : container.firstElementChild !== el) {
@@ -268,12 +190,12 @@ function patchChildren(container, items) {
 }
 
 const HOWTO = () => `<details class="howto gbox" id="howto"${prefs.get('howto', board.features.length ? 'closed' : 'open') === 'open' ? ' open' : ''}>
-  <summary>${pixelText('How to play', { px: 2 })}</summary>
+  <summary>How it works</summary>
   <div class="howto-body">
-    <div>${sprite('conductor', { size: 56 })}<p><strong>You talk to the Foreman.</strong> Run <code>/feature</code> in Claude Code. The Foreman hands each stage to a crew member and checks their work.</p></div>
-    <div>${sprite('feature-planner', { size: 56 })}<p><strong>Each card is one job</strong>, a feature or a bug. The crew walks the path from Spec to PR 3 and stops after each stage for you.</p></div>
-    <div>${sprite('feature-reviewer', { size: 56, state: 'waiting' })}<p><strong>Red “!” and a red card: your turn.</strong> Answers or a go-ahead. Click the card to see what’s needed.</p></div>
-    <div>${sprite('feature-implementer', { size: 56, state: 'working' })}<p><strong>Hammering, “…” and a green card: working.</strong> “Zz” is resting, ★ is done. <a href="#/crew">Meet the crew</a>. This page only reads files; it never changes your code.</p></div>
+    <div>${sprite('conductor', { size: 64 })}<p><strong>You talk to the Foreman.</strong> Start a job with <b>New job</b> (or <code>/feature</code> in Claude Code). The Foreman hands each stage to a crew member and checks their work.</p></div>
+    <div>${sprite('feature-planner', { size: 64, state: 'working' })}<p><strong>Each card is one job.</strong> The crew walks the path from Spec to PR 3 and stops after each stage so you can check it.</p></div>
+    <div>${sprite('feature-reviewer', { size: 64, state: 'waiting' })}<p><strong>Red card with “!”: your turn.</strong> Open it to answer, approve, or click Allow or Deny for something a worker wants to do.</p></div>
+    <div>${sprite('feature-implementer', { size: 64, state: 'asleep' })}<p><strong>Green: working. Grey: resting. Gold: done.</strong> Nothing changes in your code without your click. <a href="#/crew">Meet the crew</a>.</p></div>
   </div>
 </details>`;
 
@@ -285,7 +207,7 @@ function renderBoard() {
       <section class="stats" id="stats" aria-label="Headline numbers"></section>
       <section class="dialog gbox" id="dialog" aria-label="The Foreman says" aria-live="polite">
         <div class="portrait"></div>
-        <div class="speaker">${pixelText('Foreman', { px: 2 })}</div>
+        <div class="speaker">Foreman</div>
         <p class="line"></p>
         <ul class="choices" hidden></ul>
         <span class="more" aria-hidden="true">▼</span>
@@ -295,14 +217,22 @@ function renderBoard() {
       <footer class="site-footer" id="footer"></footer>
     </div>`;
   }
-  $('#banner').innerHTML = meta.demo ? '<p class="banner gbox">Demo mode: these jobs are invented.</p>' : '';
-  renderTop();
+  $('#banner').innerHTML = meta.demo ? '<p class="banner gbox">Demo mode: these jobs are invented and a pretend Foreman answers. Try every button.</p>' : '';
+  const stats = $('#stats');
+  const s = statsHtml();
+  if (stats._html !== s) { stats.innerHTML = s; stats._html = s; }
+  const fm = foreman();
+  const portrait = $('#dialog .portrait');
+  if (portrait._mood !== fm.mood) { portrait.innerHTML = sprite('conductor', { state: fm.mood, size: 84, label: 'Foreman' }); portrait._mood = fm.mood; }
+  const line = $('#dialog .line');
+  if (line._text !== fm.line) { line.innerHTML = `<span class="typed">${esc(fm.line)}</span>`; line._text = fm.line; }
+  const choices = $('#dialog .choices');
+  if (choices._html !== fm.choicesHtml) { choices.innerHTML = fm.choicesHtml; choices._html = fm.choicesHtml; choices.hidden = !fm.choicesHtml; }
   if (!$('#howto')) {
     $('#howto-slot').innerHTML = HOWTO();
     $('#howto').addEventListener('toggle', (e) => prefs.set('howto', e.target.open ? 'open' : 'closed'));
   }
 
-  // Towns (projects), in board order: the list is sorted with jobs needing you first.
   const towns = [];
   for (const f of board.features) {
     let t = towns.find((x) => x.name === f.project.name);
@@ -311,7 +241,7 @@ function renderBoard() {
   }
   const townsEl = $('#towns');
   if (!board.features.length) {
-    townsEl.innerHTML = `<div class="empty gbox">${sprite('conductor', { size: 96, state: 'asleep' })}<h2>No jobs yet</h2><p>Nothing in <code>${esc(meta.featuresDir)}</code>. Start one in Claude Code with <code>/feature &lt;one-line description&gt;</code>.</p></div>`;
+    townsEl.innerHTML = `<div class="empty gbox">${sprite('conductor', { size: 120, state: 'asleep' })}<h2>No jobs yet</h2><p>Click <b>New job</b> at the top to start one, or run <code>/feature &lt;one-line description&gt;</code> in Claude Code.</p><p class="muted">Reading jobs from <code>${esc(meta.featuresDir)}</code></p></div>`;
   } else {
     if (townsEl.querySelector('.empty')) townsEl.innerHTML = '';
     patchChildren(townsEl, towns.map((t) => {
@@ -320,13 +250,13 @@ function renderBoard() {
       return {
         key: `town:${t.name}`,
         html: `<section class="town" data-key="town:${esc(t.name)}" aria-label="${esc(t.name)}">
-          <div class="town-sign" title="${esc(t.path ?? '')}"><h2>${pixelText(t.name, { px: 3 })}</h2><span class="count">${plural(t.features.length, 'job')}${needs ? ` · <strong class="flag">${needs} need${needs === 1 ? 's' : ''} you</strong>` : ''} · ${esc(usd(cost))}</span></div>
+          <div class="town-sign" title="${esc(t.path ?? '')}"><h2>${esc(t.name)}</h2><span class="count">${plural(t.features.length, 'job')}${needs ? ` · <strong class="flag">${needs} need${needs === 1 ? 's' : ''} you</strong>` : ''} · ${esc(usd(cost))}</span></div>
           <div class="routes" data-town="${esc(t.name)}"></div></section>`,
       };
     }));
     for (const t of towns) {
       const container = [...townsEl.querySelectorAll('.routes')].find((el) => el.dataset.town === t.name);
-      patchChildren(container, t.features.map((f) => ({ key: f.slug, html: card(f) })));
+      patchChildren(container, t.features.map((f) => ({ key: f.slug, html: card(f) })), (el, slug) => walk(container, slug, $('.map', el)));
     }
   }
   $('#footer').innerHTML = `<span>≈ means estimated from token counts</span><span>Reading <code>${esc(meta.featuresDir)}</code></span><span>Prices as of ${esc(meta.prices.asOf)}</span><span>Updated ${esc(new Date(board.generatedAt).toLocaleTimeString())}</span>`;
@@ -340,32 +270,41 @@ function renderCrew() {
     'feature-review-db', 'feature-review-performance', 'feature-review-ui'];
   const busy = new Set(board.features.flatMap((f) => f.nowDoing.map((a) => a.who)));
   $('#app').innerHTML = `<section class="crewdex">
-    <div class="crew-head gbox"><h2>${pixelText('Crew-dex', { px: 4 })}</h2><p>Everyone in the workshop. Hover a crew member to see them work. A green light means they’re working on a job right now.</p><a class="back" href="#/">◀ Back to the map</a></div>
+    <a class="back" href="#/">◀ Back to the map</a>
+    <div class="crew-head gbox"><h2 class="display">Crew-dex</h2><p>Everyone in the workshop. Hover over a crew member to see them at work. A green light means they’re on a job right now.</p></div>
     <ol class="crew-grid">${order.map((type, i) => {
       const a = meta.agents[type];
       const m = meta.crewModels[type];
-      const model = type === 'conductor' ? 'Your main Claude Code session (meant for Fable 5.1)' : `${modelLabel(m?.model)}${m?.effort ? ` · effort ${m.effort}` : ''}`;
+      const model = type === 'conductor' ? 'Your Claude Code session (designed for Fable 5.1)' : `${modelLabel(m?.model)}${m?.effort ? ` · effort ${m.effort}` : ''}`;
       return `<li class="crew-card gbox${busy.has(type) ? ' busy' : ''}">
         <span class="dex-no">${pixelText(`#${String(i + 1).padStart(3, '0')}`, { px: 2 })}</span>
-        <span class="dex-sprite"><span class="still">${sprite(type, { state: busy.has(type) ? 'working' : 'idle', size: 96, label: a.name })}</span><span class="moving">${sprite(type, { state: 'working', size: 96, label: '' })}</span></span>
-        <h3>${pixelText(a.name, { px: 2 })}</h3>
-        <p>${esc(a.role)}</p>
-        <p class="dex-model">${esc(model)}</p>
-        ${busy.has(type) ? `<p class="dex-busy"><i class="led"></i> Working now</p>` : ''}
+        <span class="dex-sprite"><span class="still">${sprite(type, { state: busy.has(type) ? 'working' : 'idle', size: 120, label: a.name })}</span><span class="moving">${sprite(type, { state: 'working', size: 120, label: '' })}</span></span>
+        <h3>${esc(a.name)}</h3><p>${esc(a.role)}</p><p class="dex-model">${esc(model)}</p>
+        ${busy.has(type) ? '<p class="dex-busy"><i class="led"></i> Working now</p>' : ''}
       </li>`;
     }).join('')}</ol>
   </section>`;
 }
 
-function renderFeaturePlaceholder(slug) {
-  const f = board.features.find((x) => x.slug === slug);
-  const app = $('#app');
-  if (!f) {
-    app.innerHTML = `<div class="empty gbox">${sprite('feature-investigator', { size: 96 })}<h2>No job called “${esc(slug)}”</h2><p><a href="#/">◀ Back to the map</a></p></div>`;
-    return;
-  }
-  app.innerHTML = `<div class="empty gbox">${sprite(STAGE_CHARACTER[f.stage] ?? 'conductor', { size: 96 })}<h2>${esc(f.title)}</h2><p>The full job page (brief, answers, artifacts, code, costs) comes next.</p><p><a href="#/">◀ Back to the map</a></p></div>`;
+// ---------- Permission tray (on every page except the job it belongs to) ----------
+
+function renderTray() {
+  const openSlug = currentJobSlug();
+  const onJobPage = location.hash.startsWith('#/job/');
+  const items = (board?.permissions ?? []).filter((p) => !(onJobPage && p.slug === openSlug));
+  let tray = $('#tray');
+  if (!tray) { tray = document.createElement('aside'); tray.id = 'tray'; tray.setAttribute('aria-label', 'Waiting for your click'); document.body.append(tray); }
+  const folded = sessionStorage.getItem('workshop.trayFolded') === 'yes';
+  const html = items.length ? `<button type="button" class="tray-title" aria-expanded="${!folded}">${icon('bang', 18)} ${plural(items.length, 'thing')} waiting for your click <span aria-hidden="true">${folded ? '▴' : '▾'}</span></button>${folded ? '' : items.slice(0, 2).map((p) => permissionCard(p, { agentName, compact: true })).join('')}${!folded && items.length > 2 ? `<p class="tray-more">+${items.length - 2} more: open the jobs to see them</p>` : ''}` : '';
+  if (tray._html === html) return;
+  tray._html = html;
+  tray.innerHTML = html;
+  tray.hidden = !items.length;
+  $('.tray-title', tray)?.addEventListener('click', () => { sessionStorage.setItem('workshop.trayFolded', folded ? 'no' : 'yes'); renderTray(); });
+  bindPermissionCards(tray, { onDone: refresh });
 }
+
+// ---------- Routing and live updates ----------
 
 function updateCounter() {
   const n = board.needsYou;
@@ -375,39 +314,75 @@ function updateCounter() {
   document.title = n ? `(${n}) Feature Workshop` : 'Feature Workshop';
 }
 
-function show() {
-  if (!board || !meta) return;
-  const m = /^#\/feature\/(.+)$/.exec(location.hash);
-  if (m) renderFeaturePlaceholder(decodeURIComponent(m[1]));
-  else if (location.hash === '#/crew') renderCrew();
-  else renderBoard();
-}
-
-async function refresh() {
-  try {
-    const res = await fetch('/api/features');
-    if (!res.ok) throw new Error((await res.json()).error);
-    board = await res.json();
-    updateCounter();
-    // The crew page is static once drawn; don't redraw it under the pointer.
-    if (location.hash !== '#/crew' || !$('.crewdex')) show();
-  } catch (err) {
-    $('#app').innerHTML = `<div class="empty gbox">${sprite('conductor', { size: 96, state: 'asleep' })}<h2>Can’t reach the workshop</h2><p>${esc(err.message || 'The dashboard server may have stopped. Start it again with npm start.')}</p></div>`;
+function alertOnChanges() {
+  const needs = new Set(board.features.filter((f) => f.needsYou).map((f) => f.slug));
+  if (lastNeeds) {
+    for (const f of board.features) {
+      if (needs.has(f.slug) && !lastNeeds.has(f.slug) && f.waitingFor !== 'permission') notify(`${f.title} needs you`, f.waitingFor === 'answers' ? 'The Foreman has questions for you.' : 'The Foreman is waiting for your go-ahead.', `#/job/${encodeURIComponent(f.slug)}`);
+    }
+  }
+  lastNeeds = needs;
+  for (const p of board.permissions ?? []) {
+    if (seenPermissions.has(p.id)) continue;
+    seenPermissions.add(p.id);
+    notify(`${p.title}: permission needed`, `${agentName(p.agentType ?? 'conductor')} wants to: ${p.plain.headline}`, `#/job/${encodeURIComponent(p.slug)}`);
   }
 }
+
+async function show() {
+  if (!meta || !board) return;
+  const h = location.hash;
+  const m = /^#\/job\/([^/]+)/.exec(h);
+  document.body.dataset.page = m ? 'job' : h === '#/crew' ? 'crew' : h === '#/costs' ? 'costs' : 'board';
+  if (m) await showJob(decodeURIComponent(m[1]), { quiet: Boolean($('.job')) && $('.job')?.dataset.slug === decodeURIComponent(m[1]) });
+  else if (h === '#/crew') { if (!$('.crewdex')) renderCrew(); }
+  else if (h === '#/costs') { if (!$('.costs')) await showCosts(meta); }
+  else renderBoard();
+  renderTray();
+}
+
+let refreshing = false;
+let again = false;
+async function refresh() {
+  if (refreshing) { again = true; return; }
+  refreshing = true;
+  try {
+    board = await getJson('/api/features');
+    updateCounter();
+    alertOnChanges();
+    await show();
+  } catch (err) {
+    if (!board) $('#app').innerHTML = `<div class="empty gbox">${sprite('conductor', { size: 120, state: 'asleep' })}<h2>Can’t reach the workshop</h2><p>${esc(err.message || 'The dashboard may have stopped. Start it again with npm start.')}</p></div>`;
+  } finally {
+    refreshing = false;
+    if (again) { again = false; setTimeout(refresh, 50); }
+  }
+}
+let soon = null;
+const refreshSoon = () => { clearTimeout(soon); soon = setTimeout(refresh, 250); };
 
 async function init() {
   startClock();
   startTheme();
-  $('#foreman').innerHTML = sprite('conductor', { size: 48, label: 'Foreman', state: 'idle' });
+  $('#foreman').innerHTML = sprite('conductor', { size: 52, label: 'Foreman', state: 'idle' });
   $('#title-text').innerHTML = pixelText('Feature Workshop', { px: 3 });
-  meta = await (await fetch('/api/meta')).json();
+  meta = await getJson('/api/meta');
+  setToken(meta.token);
+  initJob({ meta, agentName, situation, pillText: (tone) => PILL[tone], walk });
+  $('#new-job').addEventListener('click', () => openNewJob(meta, { onStarted: (res) => { location.hash = `#/job/${encodeURIComponent(res.slug)}`; refreshSoon(); } }));
+  const bell = $('#alerts');
+  const paintBell = () => { bell.classList.toggle('on', alerts.notify || alerts.sound); bell.setAttribute('aria-label', `Alerts: ${alerts.notify || alerts.sound ? 'on' : 'off'}. Click to change.`); };
+  bell.addEventListener('click', () => openAlerts(bell));
+  bell.addEventListener('alerts-changed', paintBell);
+  paintBell();
   await refresh();
-  window.addEventListener('hashchange', () => { $('#app').innerHTML = ''; show(); window.scrollTo(0, 0); });
-  // Live updates when files change; a slow poll keeps the "how long" times fresh.
+  window.addEventListener('hashchange', () => { $('#app').innerHTML = ''; window.scrollTo(0, 0); show(); });
   const events = new EventSource('/api/events');
-  events.addEventListener('change', refresh);
-  setInterval(refresh, 30000);
+  events.addEventListener('change', refreshSoon);
+  events.addEventListener('run', refreshSoon);
+  events.addEventListener('permission', refreshSoon);
+  events.addEventListener('permission-gone', refreshSoon);
+  setInterval(refresh, 30000); // keeps the "how long" times fresh
 }
 
-init();
+init().catch((err) => toast(esc(err.message), { tone: 'bad', timeout: 0 }));

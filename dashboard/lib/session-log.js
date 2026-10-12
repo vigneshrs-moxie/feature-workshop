@@ -55,6 +55,11 @@ export function parseSessionLog(text) {
     lastAssistantText: null,
     pendingToolUse: false,
     lastToolName: null,
+    // Where the session was last driven from: 'cli' = a terminal, 'sdk-cli'/'sdk-ts' = headless (this dashboard or a script).
+    lastEntrypoint: null,
+    lastEntrypointAt: null,
+    lastTerminalAt: null,
+    lastModel: null,
     badLines: 0,
   };
   for (const line of text.split('\n')) {
@@ -67,6 +72,11 @@ export function parseSessionLog(text) {
     if (d.timestamp) {
       out.firstAt ??= d.timestamp;
       if (!out.lastAt || d.timestamp > out.lastAt) out.lastAt = d.timestamp;
+      if (d.entrypoint && !d.isSidechain) {
+        out.lastEntrypoint = d.entrypoint;
+        out.lastEntrypointAt = d.timestamp;
+        if (d.entrypoint === 'cli') out.lastTerminalAt = d.timestamp;
+      }
     }
 
     if (d.type === 'queue-operation' && d.operation === 'enqueue' && !out.firstPrompt) {
@@ -86,6 +96,7 @@ export function parseSessionLog(text) {
       const m = d.message;
       // A message is logged once per content block; the same id repeats. Keep the latest usage.
       const id = m.id || d.uuid;
+      if (m.model && m.model !== '<synthetic>' && !d.isSidechain) out.lastModel = m.model;
       if (m.usage && m.model && m.model !== '<synthetic>') {
         out.messages.set(id, { model: m.model, tokens: tokensFromUsage(m.usage), at: d.timestamp ?? null });
       }

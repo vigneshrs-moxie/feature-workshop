@@ -304,6 +304,13 @@ export async function loadFeatures({ featuresDir, sessionIndex, now = Date.now()
   for (const f of features) {
     const s = sessions[f.dir] ?? [];
     f.sessionIds = s.map((x) => x.parsed.sessionId);
+    // The Foreman's own session (the newest one), used to reply from the dashboard.
+    const newest = [...s].sort((a, b) => (b.parsed.lastAt ?? '').localeCompare(a.parsed.lastAt ?? ''))[0];
+    f.conductorSession = newest ? {
+      sessionId: newest.parsed.sessionId, cwd: newest.parsed.cwd, model: newest.parsed.lastModel,
+      lastAt: newest.parsed.lastAt, lastEntrypoint: newest.parsed.lastEntrypoint, lastTerminalAt: newest.parsed.lastTerminalAt,
+      state: activityState(newest.parsed),
+    } : null;
     f.cost = summariseSessions(s, now);
     f.activity = f.cost.activity;
     delete f.cost.activity;
