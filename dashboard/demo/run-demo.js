@@ -46,6 +46,7 @@ async function writeSession({ sessionId, featureDir, prompt, startAgo, conductor
 
   const subDir = path.join(PROJECTS, sessionId, 'subagents');
   await fs.mkdir(subDir, { recursive: true });
+  const files = [];
   for (const [i, w] of workers.entries()) {
     const agentId = `a${sessionId.slice(-4)}${i}`;
     const lines = [{ type: 'user', sessionId, agentId, timestamp: iso(w.startAgo), message: { role: 'user', content: `Stage work. Private folder: ${featureDir}` } }];
@@ -56,8 +57,9 @@ async function writeSession({ sessionId, featureDir, prompt, startAgo, conductor
     if (w.finished) lines.push(assistant(sessionId, iso(w.endAgo), w.model, [{ type: 'text', text: 'STAGE: done' }], usage(600, 30000), 'end_turn', agentId));
     await fs.writeFile(path.join(subDir, `agent-${agentId}.jsonl`), jsonl(lines));
     await fs.writeFile(path.join(subDir, `agent-${agentId}.meta.json`), JSON.stringify({ agentType: w.type, description: w.description, requestShape: 'background' }));
+    files.push(path.join(subDir, `agent-${agentId}.jsonl`));
   }
-  return subDir;
+  return files;
 }
 
 async function feature(slug, { status, workflowStatus, briefs = [], files = {} }) {
@@ -120,7 +122,7 @@ async function build() {
       ],
       next_proposed: 'Small fix round for R-2/R-3, then PR #1 (needs its own go-ahead)',
       spec: { path: '/demo/acme-portal/docs/plans/2026-10-01-widget-export-product-spec.md', version: '0.3', status: 'DRAFT' },
-      branch: 'feature/widget-export', worktree: '/demo/orbit-widget-export', base_sha: '9f8e7d6',
+      branch: 'feature/widget-export', worktree: '/demo/orbit-widget-export', base_sha: '9f8e7d6', repo: { path: '/demo/acme-portal', base_branch: 'moxie/main' },
       prs: [{ number: 1, label: 'fork → org branch', url: null, state: 'not_started' }],
       session_id: 'demo-sess-0001', updated_at: iso(47 * MIN),
     },
@@ -168,13 +170,13 @@ async function build() {
       brief: { number: 5, path: 'briefs/005-plan.md', headline: 'Bulk Archive · plan done' },
       questions: [], decided_on_your_behalf: [],
       next_proposed: 'Finish S3 (archive job), then brief you',
-      branch: 'feature/bulk-archive', worktree: '/demo/orbit-bulk-archive', base_sha: '1234abc',
+      branch: 'feature/bulk-archive', worktree: '/demo/orbit-bulk-archive', base_sha: '1234abc', repo: { path: '/demo/acme-portal', base_branch: 'moxie/main' },
       session_id: 'demo-sess-0002', updated_at: iso(20 * MIN),
     },
     workflowStatus: wsDoc({ title: 'Bulk Archive', slug: 'bulk-archive', route: 'LARGE — new lifecycle state', stage: 'implement · in progress', next: 'brief after S3' }),
     briefs: [{ stage: 'spec', text: 'Demo.' }, { stage: 'refine', text: 'Demo.' }, { stage: 'investigate', text: 'Demo.' }, { stage: 'spec-update', text: 'Demo.' }, { stage: 'plan', text: 'Demo.' }],
   });
-  const bulkSub = await writeSession({
+  const [bulkLog] = await writeSession({
     sessionId: 'demo-sess-0002', featureDir: bulk, prompt: '/feature Let admins archive many tickets at once.', startAgo: 50 * HOUR,
     conductorTurns: [
       { dispatch: 'feature-spec-writer', description: 'Draft spec', ago: 50 * HOUR }, { ago: 49 * HOUR },
@@ -198,7 +200,7 @@ async function build() {
   await feature('dark-mode-toggle', {
     status: {
       title: 'Dark Mode Toggle', route: 'small', stage: 'pr2', stage_state: 'blocked', waiting_for: null,
-      next_proposed: 'Waiting for Raj’s approval on PR #2', branch: 'feature/dark-mode-toggle',
+      next_proposed: 'Waiting for Raj’s approval on PR #2', branch: 'feature/dark-mode-toggle', repo: { path: '/demo/field-app' },
       prs: [
         { number: 1, label: 'fork → org branch', url: 'https://github.com/example/acme-portal/pull/41', state: 'merged' },
         { number: 2, label: 'org branch → staging', url: 'https://github.com/example/acme-portal/pull/42', state: 'open' },
@@ -209,15 +211,55 @@ async function build() {
 
   // 5. Finished.
   await feature('report-scheduler', {
-    status: { title: 'Report Scheduler', route: 'large', stage: 'pr3', stage_state: 'done', next_proposed: 'Released', updated_at: iso(5 * 24 * HOUR),
+    status: { title: 'Report Scheduler', route: 'large', stage: 'pr3', stage_state: 'done', next_proposed: 'Released', updated_at: iso(5 * 24 * HOUR), repo: { path: '/demo/field-app' },
       prs: [1, 2, 3].map((n) => ({ number: n, state: 'merged', url: `https://github.com/example/acme-portal/pull/${30 + n}` })) },
   });
 
-  return path.join(bulkSub, (await fs.readdir(bulkSub)).find((f) => f.endsWith('.jsonl')));
+  // 6. A bug whose builder is stuck on a permission prompt in a terminal.
+  const login = await feature('fix-login-loop', {
+    status: {
+      title: 'Login redirect loop', kind: 'bug', route: 'small', stage: 'implement', stage_state: 'working',
+      next_proposed: 'Finish S2, then brief you', branch: 'fix/login-loop', repo: { path: '/demo/acme-portal' },
+      session_id: 'demo-sess-0003', updated_at: iso(40 * MIN),
+    },
+  });
+  await writeSession({
+    sessionId: 'demo-sess-0003', featureDir: login, prompt: '/feature Fix the login redirect loop for expired sessions.', startAgo: 4 * HOUR,
+    conductorTurns: [{ dispatch: 'feature-implementer', description: 'Implement S2: session refresh', ago: 30 * MIN }],
+    workers: [{ type: 'feature-implementer', description: 'Implement S2: session refresh', model: 'claude-opus-5-5', startAgo: 30 * MIN, finished: false,
+      steps: [['Edit', { file_path: '/demo/acme-portal/app/src/auth/session.ts' }], ['Bash', { description: 'Run the database session tests (npm run test:db)' }]] }],
+  });
+  // The last step is a tool call with no result: the worker is waiting for a permission click.
+  {
+    const dir = path.join(PROJECTS, 'demo-sess-0003', 'subagents');
+    const file = path.join(dir, (await fs.readdir(dir)).find((f) => f.endsWith('.jsonl')));
+    const lines = (await fs.readFile(file, 'utf8')).trim().split('\n');
+    lines.pop();
+    await fs.writeFile(file, lines.join('\n') + '\n');
+  }
+
+  // 7. Three reviewers working at once, in another project.
+  const route = await feature('route-optimizer', {
+    status: {
+      title: 'Route Optimizer', route: 'large', stage: 'review', stage_state: 'working',
+      next_proposed: 'Combine the reviews, then brief you', branch: 'feature/route-optimizer', repo: { path: '/demo/field-app' },
+      session_id: 'demo-sess-0004', updated_at: iso(15 * MIN),
+    },
+  });
+  const reviewLogs = await writeSession({
+    sessionId: 'demo-sess-0004', featureDir: route, prompt: '/feature Suggest the shortest route for each technician’s day.', startAgo: 70 * HOUR,
+    conductorTurns: [{ dispatch: 'feature-reviewer', description: 'Review', ago: 9 * MIN }],
+    workers: ['feature-reviewer', 'feature-review-performance', 'feature-review-db'].map((type) => ({
+      type, description: 'Review lens', model: type === 'feature-reviewer' ? 'claude-opus-5-5' : 'claude-sonnet-5-5', startAgo: 9 * MIN, finished: false,
+      steps: [['Read', { file_path: '/demo/field-app/src/routing/plan.ts' }]],
+    })),
+  });
+
+  return [bulkLog, ...reviewLogs];
 }
 
 // Keep the Bulk Archive builder busy: a new step every few seconds.
-function tick(logFile) {
+function tick(logFiles) {
   const steps = [
     ['Read', { file_path: '/demo/orbit-bulk-archive/app/src/tickets/archive.ts' }],
     ['Edit', { file_path: '/demo/orbit-bulk-archive/app/src/tickets/archive.ts' }],
@@ -227,19 +269,26 @@ function tick(logFile) {
     ['Bash', { description: 'Typecheck and lint (npm run check)' }],
   ];
   let i = 0;
-  const step = () => {
-    const [name, input] = steps[i++ % steps.length];
-    const line = assistant('demo-sess-0002', new Date().toISOString(), 'claude-opus-5-5', [toolUse(name, input)], usage(300, 30000), 'tool_use', 'demo');
-    return fs.appendFile(logFile, JSON.stringify(line) + '\n').catch(() => {});
-  };
+  const reviewSteps = [
+    ['Read', { file_path: '/demo/field-app/src/routing/plan.ts' }],
+    ['Grep', { pattern: 'technicianId' }],
+    ['Bash', { description: 'Show the diff for the routing module' }],
+    ['Read', { file_path: '/demo/field-app/src/routing/plan.test.ts' }],
+  ];
+  const step = () => Promise.all(logFiles.map((file, n) => {
+    const list = n === 0 ? steps : reviewSteps;
+    const [name, input] = list[(i + n) % list.length];
+    const line = assistant('demo', new Date().toISOString(), 'claude-opus-5-5', [toolUse(name, input)], usage(300, 30000), 'tool_use', 'demo');
+    return fs.appendFile(file, JSON.stringify(line) + '\n').catch(() => {});
+  })).then(() => { i++; });
   setInterval(step, 6000);
   return step();
 }
 
-const logFile = await build();
+const logFiles = await build();
 process.env.WORKSHOP_FEATURES_DIR = FEATURES;
 process.env.WORKSHOP_PROJECTS_DIR = path.dirname(PROJECTS);
 process.env.WORKSHOP_DEMO = '1';
 console.log(`Demo data in ${ROOT} (invented; safe to delete).`);
-await tick(logFile);
+await tick(logFiles);
 await import('../server.js');

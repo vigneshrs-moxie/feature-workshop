@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { parseWorkflowStatus } from './workflow-status.js';
 import { parseStatusJson } from './status-json.js';
-import { parseSessionLog, usageByModel, activityState } from './session-log.js';
+import { parseSessionLog, usageByModel, activityState, spendSince } from './session-log.js';
 import { agentInfo, skippedStages } from './stages.js';
 import { estimateCost, calibrationFactors } from './cost.js';
 
@@ -96,6 +96,22 @@ export class SessionIndex {
       }
     }
     return sessions;
+  }
+
+  // Spend and tokens across every session on this machine (features or not), from each time in `since`.
+  async spendSince(since) {
+    const out = Object.fromEntries(Object.keys(since).map((k) => [k, { usd: 0, tokens: 0 }]));
+    for (const log of await this.allSessions()) {
+      const logs = [log.parsed, ...(await this.#subagents(log.file)).map((s) => s.parsed)];
+      for (const parsed of logs) {
+        for (const [k, ms] of Object.entries(since)) {
+          const s = spendSince(parsed, ms);
+          out[k].usd += s.usd;
+          out[k].tokens += s.tokens;
+        }
+      }
+    }
+    return out;
   }
 
   // Assign each workflow session to the one feature folder it mentions most.
@@ -196,6 +212,20 @@ export function summariseSessions(sessions, now = Date.now()) {
 
 // ---------- Features ----------
 
+// The project is the repository's folder name. Worktrees (orbit-<slug>) count as their main repo
+// when the main checkout's path is known; otherwise the folder name is used as is.
+export function projectFor(repoPath) {
+  if (!repoPath) return { name: 'Unknown project', path: null };
+  const clean = repoPath.replace(/\/+$/, '');
+  return { name: path.basename(clean) || clean, path: clean };
+}
+
+// Feature or bug: status.json's `kind` when present, else a guess from the branch or slug.
+export function kindFor(kind, branch, slug) {
+  if (kind) return kind;
+  return /^(fix|bug|hotfix)[/-]/i.test(branch || '') || /^(fix|bug)-/i.test(slug || '') ? 'bug' : 'feature';
+}
+
 async function readFeatureFolder(dir) {
   const slug = path.basename(dir);
   const wsFile = path.join(dir, 'workflow-status.md');
@@ -236,6 +266,8 @@ async function readFeatureFolder(dir) {
     dir,
     title: status?.title ?? ws?.title ?? slug,
     route,
+    kind: kindFor(status?.kind, status?.branch ?? ws?.repository?.branch, slug),
+    kindGuessed: !status?.kind,
     skipped: skippedStages(route),
     stage: status?.stage ?? ws?.stage ?? null,
     stageState,
@@ -277,9 +309,11 @@ export async function loadFeatures({ featuresDir, sessionIndex, now = Date.now()
     f.activity = f.cost.activity;
     delete f.cost.activity;
     f.working = f.activity.some((a) => a.state === 'running');
+    f.stalled = f.activity.some((a) => a.state === 'stalled');
+    f.project = projectFor(f.repoPath ?? s[0]?.parsed.cwd ?? null);
   }
   // Features waiting on you first (longest wait first), then working, then the rest by last update.
-  const rank = (f) => (f.needsYou ? 0 : f.working || f.stageState === 'working' ? 1 : 2);
+  const rank = (f) => (f.needsYou ? 0 : f.stalled ? 1 : f.working || f.stageState === 'working' ? 2 : 3);
   features.sort((a, b) => rank(a) - rank(b)
     || (a.needsYou ? (a.waitingSince || '').localeCompare(b.waitingSince || '') : 0)
     || (b.updatedAt || '').localeCompare(a.updatedAt || ''));

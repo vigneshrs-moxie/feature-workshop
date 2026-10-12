@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { parseWorkflowStatus } from '../lib/workflow-status.js';
 import { parseStatusJson } from '../lib/status-json.js';
-import { parseSessionLog, usageByModel, activityState, describeTool } from '../lib/session-log.js';
+import { parseSessionLog, usageByModel, activityState, describeTool, spendSince } from '../lib/session-log.js';
 import { estimateCost, tokensFromUsage, calibrationFactors, toCsv, modelFamily } from '../lib/cost.js';
 import { detectStage, detectState } from '../lib/stages.js';
 import { parseTable } from '../lib/markdown-tables.js';
@@ -140,8 +140,22 @@ test('session log: subagent usage by model and running state', async () => {
   // Cut the log after its first tool call: it is mid-work.
   const partial = parseSessionLog((await read('projects/-tmp-widget-repo/sess-widget-1/subagents/agent-a1.jsonl')).split('\n').slice(0, 2).join('\n'));
   assert.equal(activityState(partial, Date.parse('2026-10-03T09:02:00Z')), 'running');
-  assert.equal(activityState(partial, Date.parse('2026-10-03T10:00:00Z')), 'idle');
+  assert.equal(activityState(partial, Date.parse('2026-10-03T10:00:00Z')), 'stalled', 'asked for a tool, nothing since');
+  assert.equal(activityState(partial, Date.parse('2026-10-04T10:00:00Z')), 'idle', 'quiet for over 12 hours');
+  assert.equal(activityState(partial, Date.parse('2026-10-03T09:05:00Z')), 'running', 'a slow command is not flagged before 5 minutes');
+  // The conductor waiting on a worker it dispatched is not stuck.
+  const conductor = parseSessionLog((await read('projects/-tmp-widget-repo/sess-widget-1.jsonl')).split('\n').slice(0, 4).join('\n'));
+  assert.equal(activityState(conductor, Date.parse('2026-10-03T09:30:00Z')), 'delegating');
   assert.equal(partial.lastAction.text, 'Writing spec.md');
+});
+
+test('spendSince counts only messages from that time on', async () => {
+  const p = parseSessionLog(await read('projects/-tmp-widget-repo/sess-widget-1.jsonl'));
+  const all = spendSince(p, 0);
+  close(all.usd, 0.51515);
+  const later = spendSince(p, Date.parse('2026-10-03T09:01:00Z'));
+  close(later.usd, 0.04005);
+  assert.equal(later.tokens, 5 + 200 + 120000);
 });
 
 test('describeTool gives plain one-liners', () => {

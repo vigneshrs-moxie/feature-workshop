@@ -54,6 +54,7 @@ export function parseSessionLog(text) {
     lastMessageId: null,
     lastAssistantText: null,
     pendingToolUse: false,
+    lastToolName: null,
     badLines: 0,
   };
   for (const line of text.split('\n')) {
@@ -91,6 +92,7 @@ export function parseSessionLog(text) {
       for (const c of Array.isArray(m.content) ? m.content : []) {
         if (c?.type === 'tool_use') {
           out.lastAction = { text: describeTool(c.name, c.input), at: d.timestamp ?? null };
+          out.lastToolName = c.name;
           out.pendingToolUse = true;
           if (c.name === 'Agent' || c.name === 'Task') {
             out.dispatches.push({
@@ -128,10 +130,33 @@ export function usageByModel(parsed) {
 // Is the agent behind this log working right now?
 // "running": recent activity and it has not finished its turn.
 // "finished": its last message ended the turn.
-// "idle": no activity for a while without a clean finish (stopped, waiting, or crashed).
+// "delegating": waiting for a worker it sent work to (quiet is expected).
+// "stalled": it asked to use a tool and nothing has happened for 5+ minutes (but under half a
+//   day). Usually a permission prompt waiting in a terminal; sometimes just a slow command.
+// "idle": quiet for a long time without a clean finish (stopped or abandoned).
+export const STALL_AFTER_MS = 5 * 60 * 1000;
+export const STALL_LIMIT_MS = 12 * 60 * 60 * 1000;
 export function activityState(parsed, now = Date.now(), activeWindowMs = 3 * 60 * 1000) {
   const last = parsed.lastAt ? Date.parse(parsed.lastAt) : 0;
-  const recent = now - last < activeWindowMs;
+  const quietFor = now - last;
   if (parsed.lastStopReason === 'end_turn' && !parsed.pendingToolUse) return 'finished';
-  return recent ? 'running' : 'idle';
+  if (quietFor < activeWindowMs) return 'running';
+  if (parsed.pendingToolUse && quietFor < STALL_LIMIT_MS) {
+    if (parsed.lastToolName === 'Agent' || parsed.lastToolName === 'Task') return 'delegating';
+    return quietFor < STALL_AFTER_MS ? 'running' : 'stalled';
+  }
+  return 'idle';
+}
+
+// Estimated spend and tokens for messages at or after `sinceMs`.
+export function spendSince(parsed, sinceMs) {
+  let usd = 0;
+  let tokens = 0;
+  for (const msg of parsed.messages.values()) {
+    if (!msg.at || Date.parse(msg.at) < sinceMs) continue;
+    usd += estimateCost(msg.model, msg.tokens) ?? 0;
+    const t = msg.tokens;
+    tokens += t.input + t.output + t.cacheRead + t.cacheWrite5m + t.cacheWrite1h;
+  }
+  return { usd, tokens };
 }

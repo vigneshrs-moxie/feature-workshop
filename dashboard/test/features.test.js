@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { loadFeatures, SessionIndex } from '../lib/features.js';
+import { loadFeatures, SessionIndex, projectFor, kindFor } from '../lib/features.js';
 
 const FIX = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≉ ${b}`);
@@ -77,6 +77,25 @@ test('loads every feature folder, waiting ones first', async () => {
   assert.equal(empty.title, 'empty-idea');
   assert.equal(empty.stage, null);
   assert.equal(empty.cost.source, 'none');
+});
+
+test('project and feature-or-bug labels', async () => {
+  const features = await loadFeatures({ featuresDir, sessionIndex: new SessionIndex(projectsDir), now: Date.parse('2026-10-03T12:00:00Z') });
+  const widget = features.find((f) => f.slug === 'widget-export');
+  assert.deepEqual(widget.project, { name: 'widget-repo', path: '/tmp/widget-repo' });
+  assert.equal(widget.kind, 'feature');
+  assert.equal(features.find((f) => f.slug === 'empty-idea').project.name, 'Unknown project');
+  assert.deepEqual(projectFor('/a/b/acme-portal/'), { name: 'acme-portal', path: '/a/b/acme-portal' });
+  assert.equal(kindFor(null, 'fix/login-loop', 'x'), 'bug');
+  assert.equal(kindFor(null, null, 'bug-123-crash'), 'bug');
+  assert.equal(kindFor('bug', 'feature/x', 'x'), 'bug');
+  assert.equal(kindFor(null, 'feature/x', 'x'), 'feature');
+});
+
+test('spend across all sessions counts every log, workflow or not', async () => {
+  const s = await new SessionIndex(projectsDir).spendSince({ all: 0 });
+  // widget session (fable 0.51515 + opus 0.102012) + the unrelated chat (opus, 99999 output).
+  close(s.all.usd, 0.51515 + 0.102012 + (4 + 99999 * 20) / 1e6);
 });
 
 test('attributes only the workflow session, using Claude Code’s own cost', async () => {

@@ -65,18 +65,29 @@ async function features() {
   return list;
 }
 
+const ACTIVE = new Set(['running', 'stalled']);
+
 function boardCard(f) {
   return {
     slug: f.slug,
     title: f.title,
+    kind: f.kind,
+    kindGuessed: f.kindGuessed,
+    project: f.project,
     route: f.route,
+    skipped: f.skipped,
     stage: f.stage,
     stageState: f.stageState,
     waitingFor: f.waitingFor,
     waitingSince: f.waitingSince,
     needsYou: f.needsYou,
     working: f.working,
-    nowDoing: f.activity.filter((a) => a.state === 'running').map((a) => ({ who: a.who, name: a.name, doing: a.doing, since: a.startedAt ?? a.since })),
+    stalled: f.stalled,
+    nowDoing: f.activity.filter((a) => ACTIVE.has(a.state)).map((a) => ({
+      who: a.who, name: a.name, state: a.state, doing: a.doing,
+      since: a.who === 'conductor' ? a.since : a.startedAt ?? a.since, lastAt: a.lastAt,
+    })),
+    firstQuestion: f.questions[0]?.text ?? null,
     questions: f.questions.length,
     unconfirmed: f.decidedOnYourBehalf.filter((d) => !d.confirmed).length,
     headline: f.latestBrief?.headline ?? null,
@@ -98,7 +109,22 @@ const routes = {
   '/api/features': async () => {
     const list = await features();
     const totalUsd = list.reduce((a, f) => a + f.cost.totalUsd, 0);
-    return { features: list.map(boardCard), needsYou: list.filter((f) => f.needsYou).length, totalUsd, generatedAt: new Date().toISOString() };
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+    const spend = await sessionIndex.spendSince({ today: startOfToday.getTime(), week: startOfToday.getTime() - 6 * 86400000 });
+    const agents = list.flatMap((f) => f.activity);
+    const stats = {
+      today: spend.today,
+      week: spend.week,
+      featuresUsd: totalUsd,
+      needsYou: list.filter((f) => f.needsYou).length,
+      workingAgents: agents.filter((a) => a.state === 'running').length,
+      workingFeatures: list.filter((f) => f.working).length,
+      stalled: list.filter((f) => f.stalled).length,
+      inProgress: list.filter((f) => f.stageState !== 'done').length,
+      done: list.filter((f) => f.stageState === 'done').length,
+      projects: new Set(list.map((f) => f.project.name)).size,
+    };
+    return { features: list.map(boardCard), needsYou: stats.needsYou, totalUsd, stats, generatedAt: new Date().toISOString() };
   },
 };
 
