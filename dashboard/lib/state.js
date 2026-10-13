@@ -12,7 +12,9 @@ export class State {
     this.dir = dir;
     this.sessionsFile = path.join(dir, 'sessions.json');
     this.auditFile = path.join(dir, 'audit.jsonl');
+    this.settingsFile = path.join(dir, 'settings.json');
     this.sessions = null;
+    this.settings = null;
   }
 
   async #ensure() {
@@ -43,6 +45,20 @@ export class State {
     all[featureDir] = { ...(all[featureDir] ?? {}), ...patch, updatedAt: new Date().toISOString() };
     await this.#writeJson(this.sessionsFile, all);
     return all[featureDir];
+  }
+
+  // Dashboard settings. policy: 'hands-off' (routine steps handled for you) or 'ask-all'.
+  async getSettings() {
+    if (!this.settings) {
+      try { this.settings = JSON.parse(await fs.readFile(this.settingsFile, 'utf8')); } catch { this.settings = {}; }
+    }
+    return { policy: 'hands-off', ...this.settings };
+  }
+
+  async setSettings(patch) {
+    this.settings = { ...(await this.getSettings()), ...patch };
+    await this.#writeJson(this.settingsFile, this.settings);
+    return this.settings;
   }
 
   async audit(entry) {

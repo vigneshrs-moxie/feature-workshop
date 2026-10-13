@@ -18,6 +18,10 @@ import { renderMarkdown, indexIds } from './lib/markdown.js';
 import * as git from './lib/git.js';
 import { recentRepos, checkRepo } from './lib/repos.js';
 import { HttpError, checkWrite, hostAllowed } from './lib/http-guard.js';
+import { liveTerminals } from './lib/live.js';
+import { readHookSessions } from './lib/hook-events.js';
+import { classify } from './lib/policy.js';
+import { buildOverview, parseBrief } from './lib/overview.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -42,10 +46,30 @@ const MODELS = [
 
 const sessionIndex = new SessionIndex(PROJECTS_DIR);
 const state = new State(process.env.WORKSHOP_STATE_DIR || (DEMO ? path.join(path.dirname(FEATURES_DIR), 'state') : undefined));
+const HOOK_SCRIPT = path.join(HERE, 'hooks', 'record.mjs');
 const queryFn = DEMO
   ? (await import('./demo/fake-query.js')).makeFakeQuery({ featuresDir: FEATURES_DIR })
   : (await import('@anthropic-ai/claude-agent-sdk')).query;
-const driver = new Driver({ queryFn, state, projectsDir: PROJECTS_DIR, cliPath: process.env.WORKSHOP_CLAUDE_PATH || null });
+const driver = new Driver({ queryFn, state, projectsDir: PROJECTS_DIR, cliPath: process.env.WORKSHOP_CLAUDE_PATH || null, policy: policyFor });
+
+const isInside = (p, dir) => {
+  if (!p || !dir) return false;
+  const rel = path.relative(path.resolve(dir), path.resolve(p));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+};
+
+// Routine steps are handled without asking (see lib/policy.js); everything else comes to you.
+async function policyFor(run, toolName, input, opts) {
+  const settings = await state.getSettings();
+  const f = (await features()).find((x) => x.dir === run.featureDir);
+  const repo = f?.repoPath ?? run.cwd;
+  const worktrees = [f?.worktree, f?.statusWorktree, repo && f ? path.join(path.dirname(repo), `orbit-${f.slug}`) : null].filter(Boolean);
+  const specDirs = [repo ? path.join(repo, 'docs', 'plans') : null, f?.spec?.path && path.isAbsolute(f.spec.path) ? path.dirname(f.spec.path) : null].filter(Boolean);
+  return classify(toolName, input, {
+    mode: settings.policy, stage: f?.stage ?? 'spec', featureDir: run.featureDir, worktrees, repoPath: repo, specDirs,
+    cwd: run.cwd, defaultToNo: Boolean(opts?.defaultToNo), extraReadable: [SKILLS_DIR, AGENTS_DIR],
+  });
+}
 
 // Read access the Foreman gets without asking: its own instructions and the jobs' private folders.
 // Anything that changes files or runs commands still asks you.
@@ -73,15 +97,38 @@ async function crewModels() {
   return out;
 }
 
+let knownRepos = { at: 0, list: [] };
+async function repoList() {
+  if (Date.now() - knownRepos.at > 60000) {
+    const extra = (process.env.WORKSHOP_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean);
+    knownRepos = { at: Date.now(), list: (await recentRepos(sessionIndex, extra)).map((r) => r.path) };
+  }
+  return knownRepos.list;
+}
+
 let cached = null;
 async function features() {
   if (cached && Date.now() - cached.at < 1500) return cached.list;
   runEnds = await state.lastRunEnds();
-  const list = await loadFeatures({ featuresDir: FEATURES_DIR, sessionIndex });
+  const saved = await state.allSessions();
+  const overrides = Object.fromEntries(Object.entries(saved).filter(([, v]) => v.repoPath || v.branch).map(([k, v]) => [k, { repoPath: v.repoPath, branch: v.branch }]));
+  const list = await loadFeatures({ featuresDir: FEATURES_DIR, sessionIndex, overrides, knownRepos: await repoList() });
   cached = { at: Date.now(), list };
   return list;
 }
 const featureBySlug = async (slug) => (await features()).find((f) => f.slug === slug) ?? null;
+
+// Claude Code terminals open in this job's repository or worktree right now.
+async function terminalsFor(f) {
+  const open = DEMO ? [] : await liveTerminals();
+  return open.filter((t) => t.cwd && ((f.repoPath && isInside(t.cwd, f.repoPath)) || (f.worktree && isInside(t.cwd, f.worktree))));
+}
+
+// Terminal sessions seen through the optional live link that worked on this job.
+async function hookSessionsFor(f) {
+  const { enabled, sessions } = await readHookSessions(state.dir);
+  return { enabled, sessions: sessions.filter((s) => s.mentions.includes(f.slug)) };
+}
 
 // Who may reply to this job's Foreman right now.
 async function driveState(f) {
@@ -89,9 +136,13 @@ async function driveState(f) {
   const saved = await state.sessionFor(f.dir);
   const cs = f.conductorSession;
   const sessionId = cs?.sessionId ?? saved?.sessionId ?? null;
-  const base = { sessionId, cwd: cs?.cwd ?? saved?.cwd ?? f.repoPath ?? null, model: cs?.model ?? saved?.model ?? null };
+  const terminals = await terminalsFor(f);
+  const hook = await hookSessionsFor(f);
+  const liveHook = hook.sessions.filter((s) => !s.ended).sort((a, b) => String(b.lastAt).localeCompare(String(a.lastAt)))[0] ?? null;
+  const base = { sessionId, cwd: cs?.cwd ?? saved?.cwd ?? f.repoPath ?? null, model: cs?.model ?? saved?.model ?? null, terminals, liveLink: hook.enabled, terminalSession: liveHook };
   if (run) return { ...base, mode: 'running', runId: run.id };
-  if (!sessionId) return { ...base, mode: 'none' };
+  if (liveHook && (!saved?.takenOverAt || String(liveHook.lastAt) > saved.takenOverAt)) return { ...base, mode: 'terminal', lastTerminalAt: liveHook.lastAt, sessionId: liveHook.sessionId };
+  if (!sessionId) return { ...base, mode: terminals.length ? 'terminal-open' : 'none' };
   const takenOverAt = saved?.sessionId === sessionId ? saved.takenOverAt ?? null : null;
   const lastTerminalAt = cs?.lastTerminalAt ?? null;
   if (lastTerminalAt && (!takenOverAt || lastTerminalAt > takenOverAt)) return { ...base, mode: 'terminal', lastTerminalAt };
@@ -140,7 +191,8 @@ function boardCard(f, run) {
     needsYou: pendingList.length > 0 || (!active && f.needsYou), working: Boolean(active) || running.length > 0, quiet: f.quiet && running.length > 0,
     nowDoing, firstQuestion: f.questions[0]?.text ?? null, questions: f.questions.length,
     unconfirmed: f.decidedOnYourBehalf.filter((d) => !d.confirmed).length,
-    headline: f.latestBrief?.headline ?? null, nextProposed: f.nextProposed,
+    headline: f.latestBrief?.headline ?? (f.sources.statusJson ? null : f.currentText) ?? null, nextProposed: f.nextProposed,
+    repo: f.repoPath ? { name: path.basename(f.repoPath), branch: f.branch } : null,
     cost: { totalUsd: Math.max(f.cost.totalUsd, active?.costUsd ?? 0), source: f.cost.source },
     progress: { done: f.stageState === 'done' ? ids.length : Math.max(0, at), total: ids.length },
     updatedAt: f.updatedAt, sources: f.sources, permissions: pendingList.length,
@@ -205,9 +257,51 @@ async function jobDetail(f) {
     if (text !== null) latestBrief = { number: f.latestBrief?.number ?? f.briefs.at(-1)?.number ?? null, path: latestPath, html: renderMarkdown(text, { idHref: idHref(f) }), text, at: st?.mtime.toISOString() ?? null };
   }
   // The Foreman's last answer to something sent from here, shown when it's newer than the brief.
-  const audit = await state.auditFor(f.dir, 200);
+  const audit = await state.auditFor(f.dir, 400);
   const lastEnd = [...audit].reverse().find((e) => e.action === 'run-ended' && e.reply);
   const lastReply = lastEnd ? { at: lastEnd.at, status: lastEnd.status, html: renderMarkdown(lastEnd.reply, { idHref: idHref(f) }) } : null;
+  const drive = await driveState(f);
+  const settings = await state.getSettings();
+
+  // Things worth knowing before you act, found by the dashboard itself.
+  const headsUp = [];
+  if (!f.repoPath) headsUp.push({ kind: 'repo', text: 'I couldn’t tell which repository this job is in. Pick it below so the Foreman knows where to work.' });
+  if (f.locate?.checkoutBranch && f.branch && f.locate.checkoutBranch === f.branch && ['plan', 'implement'].includes(f.stage)) {
+    headsUp.push({ kind: 'branch', text: `${f.branch} is checked out in your main folder. The Foreman builds in its own worktree, which needs that branch free: run “git switch main” in your main folder before building starts.` });
+  }
+  if (drive.mode === 'terminal-open') headsUp.push({ kind: 'terminal', text: `Claude Code is open in this repository in ${drive.terminals.length} terminal${drive.terminals.length === 1 ? '' : 's'}. If one of them is this job’s Foreman, keep talking to it there, or close it (type /exit) before continuing here.` });
+  if (drive.terminalSession?.waitingForPermission) headsUp.push({ kind: 'permission', text: `This job’s Foreman in your terminal is waiting for a permission click: ${drive.terminalSession.waitingMessage}` });
+
+  const latestBriefText = latestBrief?.text ?? null;
+  const overview = buildOverview({
+    status: f.statusSummary ? { summary: f.statusSummary, nextProposed: f.nextProposed, updatedAt: f.updatedAt } : null,
+    briefText: latestBriefText, briefAt: latestBrief?.at, recordText: latestBriefText ? null : f.recordText, recordAt: f.recordAt,
+    questions: f.questions, decided: f.decidedOnYourBehalf, headsUp,
+  });
+
+  // The conversation with the Foreman: its briefs and replies, your messages, and short notes.
+  const thread = [];
+  for (const b of f.briefs) {
+    const st = await fsp.stat(path.join(f.dir, b.file)).catch(() => null);
+    const parsed = parseBrief((await readInside(f.dir, b.file)) ?? '');
+    thread.push({ kind: 'brief', at: st?.mtime.toISOString() ?? null, number: b.number, stage: b.stage, file: b.file, headline: parsed.headline, point: parsed.happened[0] ?? parsed.next ?? null });
+  }
+  let autoGroup = null;
+  for (const e of audit) {
+    if (e.action === 'auto-allowed') {
+      if (!autoGroup || autoGroup.runId !== e.runId) { autoGroup = { kind: 'auto', at: e.at, runId: e.runId, items: [] }; thread.push(autoGroup); }
+      autoGroup.items.push({ at: e.at, headline: e.headline, who: e.agentType ?? 'conductor', reason: e.reason });
+      continue;
+    }
+    if (e.action === 'send') thread.push({ kind: 'you', at: e.at, text: e.text, sendKind: e.kind });
+    else if (e.action === 'run-ended') {
+      if (e.status === 'error') thread.push({ kind: 'problem', at: e.at, text: e.error ?? 'The reply hit a problem.' });
+      else if (e.reply) thread.push({ kind: 'reply', at: e.at, html: renderMarkdown(e.reply, { idHref: idHref(f) }), stopped: e.status === 'stopped' });
+      else if (e.status === 'stopped') thread.push({ kind: 'note', at: e.at, text: 'You paused this reply.' });
+    } else if (e.action === 'permission') thread.push({ kind: 'decision', at: e.at, text: `${e.decision === 'deny' ? 'You said no to' : 'You allowed'}: ${e.headline ?? e.tool}${e.note ? ` (“${e.note}”)` : ''}` });
+    else if (e.action === 'takeover') thread.push({ kind: 'note', at: e.at, text: 'You took this job over from the terminal.' });
+  }
+  thread.sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')));
   return {
     ...boardCard(f, run),
     dir: f.dir, repoPath: f.repoPath, branch: f.branch, worktree: f.worktree, baseSha: f.baseSha, prs: f.prs,
@@ -215,7 +309,7 @@ async function jobDetail(f) {
     latestBrief, briefs: f.briefs, approvals: f.approvals, history: f.history, artifacts: f.artifacts, recordedArtifacts: f.recordedArtifacts,
     costDetail: { ...f.cost, whatIf: whatIfConductor(f.cost.agents) },
     activity: f.activity.map((a) => (a.state === 'running' && !stillRunning(f, a, run && ACTIVE_RUN.has(run.status) ? run : null) ? { ...a, state: 'stopped' } : a)),
-    drive: await driveState(f), run, runs: driver.list().filter((r) => r.featureDir === f.dir),
+    drive, run, runs: driver.list().filter((r) => r.featureDir === f.dir), overview, thread: thread.slice(-60), locate: f.locate, policy: settings.policy,
     permissionsPending: driver.pendingPermissions().filter((p) => p.featureDir === f.dir),
     lastReply, audit: audit.slice(-50), warnings: f.warnings,
     statusForCompose: { questions: f.questions, decidedOnYourBehalf: f.decidedOnYourBehalf, nextProposed: f.nextProposed, spec: f.spec, artifacts: f.recordedArtifacts, brief: f.latestBrief },
@@ -279,6 +373,7 @@ const GET = {
   '/api/meta': async () => ({
     token: TOKEN, stages: STAGES, agents: AGENTS, prices: { asOf: PRICES_AS_OF, models: PRICES },
     featuresDir: FEATURES_DIR, crewModels: await crewModels(), demo: DEMO, models: MODELS, readDirs: await readDirs(),
+    settings: await state.getSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT },
   }),
   '/api/features': async () => {
     const list = await features();
@@ -375,12 +470,13 @@ async function routePost(urlPath, req, res) {
     const drive = await driveState(f);
     if (drive.mode === 'running') throw new HttpError(409, 'The Foreman is still working on your last message. Wait for it, or pause it first.');
     if (drive.mode === 'terminal') throw new HttpError(409, 'This job’s Foreman was last used in your terminal.', { code: 'terminal', lastTerminalAt: drive.lastTerminalAt });
+    if (drive.mode === 'terminal-open' && body.confirmNoTerminal !== true) throw new HttpError(409, 'Claude Code is open in this repository in a terminal. Make sure none of those windows is this job’s Foreman, then confirm.', { code: 'terminal-open', terminals: drive.terminals.length });
     const model = MODELS.some((x) => x.id === body.model) ? body.model : drive.model ?? 'claude-fable-5-1';
     const cwd = drive.cwd ?? f.repoPath;
     if (!cwd) throw new HttpError(400, 'I don’t know which repository this job belongs to.');
     let sendText = text;
     let sessionId = drive.sessionId;
-    if (drive.mode === 'none') {
+    if (drive.mode === 'none' || drive.mode === 'terminal-open') {
       // No Foreman session yet: start one that picks this job up from its files.
       sendText = `/feature ${f.slug} Private folder: ${f.dir}\n\n${text}`;
       sessionId = null;
@@ -397,6 +493,25 @@ async function routePost(urlPath, req, res) {
     await state.setSession(f.dir, { sessionId: drive.sessionId, cwd: drive.cwd, model: drive.model, takenOverAt: new Date().toISOString() });
     await state.audit({ action: 'takeover', featureDir: f.dir, slug: f.slug, sessionId: drive.sessionId });
     return sendJson(res, 200, { ok: true });
+  }
+  if ((m = /^\/api\/job\/([^/]+)\/repo$/.exec(urlPath))) {
+    const f = await featureBySlug(m[1]);
+    if (!f) throw new HttpError(404, 'No job by that name.');
+    const repo = await checkRepo(str(body.repoPath, 1000));
+    if (!repo.ok) throw new HttpError(400, repo.reason);
+    const branch = str(body.branch, 200).trim() || null;
+    if (branch && !/^(?!-)[\w./-]{1,200}$/.test(branch)) throw new HttpError(400, 'That doesn’t look like a branch name.');
+    await state.setSession(f.dir, { repoPath: repo.path, branch });
+    await state.audit({ action: 'repo-set', featureDir: f.dir, slug: f.slug, repo: repo.path, branch });
+    cached = null;
+    return sendJson(res, 200, { ok: true, repoPath: repo.path });
+  }
+  if (urlPath === '/api/settings') {
+    const policy = ['hands-off', 'ask-all'].includes(body.policy) ? body.policy : null;
+    if (!policy) throw new HttpError(400, 'Unknown setting.');
+    await state.setSettings({ policy });
+    await state.audit({ action: 'settings', policy });
+    return sendJson(res, 200, await state.getSettings());
   }
   if ((m = /^\/api\/runs\/([\w-]+)\/stop$/.exec(urlPath))) {
     if (!(await driver.stop(m[1]))) throw new HttpError(404, 'That reply already finished.');

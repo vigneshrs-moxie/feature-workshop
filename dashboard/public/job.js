@@ -12,7 +12,18 @@ let tab = 'briefs';
 
 const RUN_WORDS = { starting: 'Starting up', running: 'Working', waiting_permission: 'Waiting for your click', stopping: 'Pausing…', done: 'Finished', stopped: 'Paused', error: 'Hit a problem' };
 
-export function initJob(c) { ctx = c; }
+export function initJob(c) { ctx = { describeTool, ...c }; }
+
+function describeTool(name, input = {}) {
+  const base = (p) => String(p ?? '').split('/').pop();
+  if (name === 'Read') return `Reading ${base(input.file_path)}`;
+  if (name === 'Write') return `Writing ${base(input.file_path)}`;
+  if (name === 'Edit' || name === 'MultiEdit') return `Editing ${base(input.file_path)}`;
+  if (name === 'Bash') return input.description || `Running ${String(input.command ?? '').slice(0, 60)}`;
+  if (name === 'Agent' || name === 'Task') return `Sending work to ${input.subagent_type ?? 'a helper'}`;
+  if (name === 'Grep' || name === 'Glob') return 'Searching the code';
+  return `Using ${name}`;
+}
 
 export async function showJob(slug, { quiet = false } = {}) {
   const app = $('#app');
@@ -28,14 +39,15 @@ export async function showJob(slug, { quiet = false } = {}) {
   const first = !quiet || !$('.job');
   current = detail;
   if (first) {
-    tab = prefs.get('jobTab', 'briefs');
+    tab = prefs.get('jobTab', 'files');
     app.innerHTML = skeleton(detail);
     bindStatic();
   }
   renderTop(detail);
+  renderOverview(detail);
+  renderThread(detail);
   renderMove(detail);
-  if (first) await renderTab();
-  else if (!$('.tab-panel').contains(document.activeElement)) await renderTab({ soft: true });
+  if ($('#job-details')?.open && !$('.tab-panel').contains(document.activeElement)) await renderTab({ soft: !first });
 }
 
 // A job started from the dashboard before its folder exists.
@@ -66,23 +78,30 @@ function skeleton(d) {
     <div class="job-perms" id="job-perms"></div>
     <section class="job-scene" id="job-scene"></section>
     <div class="job-main">
-      <section class="brief gbox" id="job-brief" aria-label="What the Foreman said"></section>
+      <div class="col-talk">
+        <section class="overview gbox" id="job-overview" aria-label="The Foreman’s overview"></section>
+        <section class="thread gbox" id="job-thread" aria-label="Your conversation with the Foreman"></section>
+      </div>
       <aside class="move gbox" id="job-move" aria-label="Your move"></aside>
     </div>
-    <nav class="tabs" role="tablist" aria-label="Job details" id="job-tabs"></nav>
-    <section class="tab-panel gbox" id="tab-panel" role="tabpanel"></section>
+    <details class="details gbox" id="job-details">
+      <summary><span class="details-title">Details</span><span class="muted">Files, code, approvals, costs and crew, for when you want to dig in</span></summary>
+      <nav class="tabs" role="tablist" aria-label="Job details" id="job-tabs"></nav>
+      <section class="tab-panel" id="tab-panel" role="tabpanel"></section>
+    </details>
   </div>`;
 }
 
-// ---------- Top: header, permissions, scene, brief ----------
+// ---------- Top: header, permissions, scene ----------
 
 function renderTop(d) {
   const sit = ctx.situation(d);
   const pill = `<span class="pill pill-${sit.tone}"><i class="led" aria-hidden="true"></i>${esc(ctx.pillText(sit.tone))}</span>`;
+  const where = d.repoPath
+    ? `<span title="${esc(d.locate?.source ? `Found from ${d.locate.source}` : '')}"><b>${esc(d.repoPath.split('/').pop())}</b></span>${d.branch ? `<span>branch <code>${esc(d.branch)}</code>${d.locate?.branchExists === false ? ' <span class="muted">(not created yet)</span>' : ''}</span>` : ''}${d.worktree ? `<a href="${esc(vscodeHref(d.worktree))}">Open the job’s worktree in VS Code</a>` : `<a href="${esc(vscodeHref(d.repoPath))}">Open in VS Code</a>`}<button type="button" class="linklike" data-change-repo>Change</button>`
+    : '<span class="warn-text">Repository not known yet</span><button type="button" class="linklike" data-change-repo>Choose it</button>';
   const meta = [
-    d.project?.name ? `<span>${esc(d.project.name)}</span>` : '',
-    d.branch ? `<span>Branch <code>${esc(d.branch)}</code></span>` : '',
-    d.worktree ? `<a href="${esc(vscodeHref(d.worktree))}">Open the job’s folder in VS Code</a>` : d.repoPath ? `<a href="${esc(vscodeHref(d.repoPath))}">Open the repository in VS Code</a>` : '',
+    where,
     d.spec?.version ? `<span>Spec v${esc(d.spec.version)}${d.spec.status ? ` · ${esc(d.spec.status)}` : ''}</span>` : '',
     `<span title="${d.costDetail.source === 'estimate' ? 'Estimated from token counts' : 'Claude Code’s own figure'}">${esc(usd(d.cost.totalUsd, d.cost.source))} so far</span>`,
   ].filter(Boolean).join('<span class="dot-sep" aria-hidden="true">·</span>');
@@ -93,23 +112,84 @@ function renderTop(d) {
   setHtml('#job-perms', perms.map((p) => permissionCard(p, { agentName: ctx.agentName, showJob: false })).join(''));
   bindPermissionCards($('#job-perms'), { onDone: () => showJob(d.slug, { quiet: true }) });
 
-  setHtml('#job-scene', renderMap(ctx.meta.stages, d, sit, { agentName: ctx.agentName, size: 136, long: true }), () => ctx.walk?.($('#job-scene'), d.slug, $('#job-scene .map')));
+  setHtml('#job-scene', renderMap(ctx.meta.stages, d, sit, { agentName: ctx.agentName, size: 128, long: true }), () => ctx.walk?.($('#job-scene'), d.slug, $('#job-scene .map')));
+}
 
+// ---------- The Foreman's overview ----------
+
+const SOURCE_WORDS = {
+  summary: 'The Foreman’s summary',
+  brief: 'From the Foreman’s latest brief',
+  record: 'From the job’s record (this job has no briefs yet)',
+};
+
+function renderOverview(d) {
+  const o = d.overview;
+  const list = (title, items, cls = '') => (items?.length ? `<div class="ov-block ${cls}"><h4>${esc(title)}</h4><ul>${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '');
   const running = d.drive.mode === 'running' && d.run;
-  let briefHtml;
-  if (running && d.run.lastText) {
-    briefHtml = `<header class="panel-head"><span class="speaker">The Foreman · live</span><span class="muted">${esc(since(d.run.startedAt))}</span></header><div class="md live">${esc(d.run.lastText).replace(/\n/g, '<br>')}</div>`;
-  } else if (d.lastReply && (!d.latestBrief?.at || d.lastReply.at > d.latestBrief.at)) {
-    briefHtml = `<header class="panel-head"><span class="speaker">The Foreman’s reply</span><span class="muted">${esc(ago(d.lastReply.at))}</span></header><div class="md">${d.lastReply.html}</div>${d.latestBrief ? '<p class="fineprint">The latest full brief is in the Briefs tab below.</p>' : ''}`;
-  } else if (d.latestBrief) {
-    briefHtml = `<header class="panel-head"><span class="speaker">The Foreman’s brief${d.latestBrief.number ? ` #${d.latestBrief.number}` : ''}</span>${d.waitingSince ? `<span class="muted">${esc(ago(d.waitingSince))}</span>` : ''}</header><div class="md">${d.latestBrief.html}</div>`;
-  } else if (d.currentText) {
-    briefHtml = `<header class="panel-head"><span class="speaker">Where things stand</span></header><div class="md"><p>${esc(d.currentText)}</p>${d.nextProposed ? `<p><b>Next proposed:</b> ${esc(d.nextProposed)}</p>` : ''}<p class="muted">This job doesn’t save its briefs yet, so this comes from its workflow-status.md. Full briefs appear here once the Foreman writes them.</p></div>`;
-  } else {
-    briefHtml = '<header class="panel-head"><span class="speaker">The Foreman’s brief</span></header><p class="muted">No brief yet.</p>';
-  }
-  setHtml('#job-brief', briefHtml);
-  bindIdLinks($('#job-brief'));
+  const now = running
+    ? `<p class="ov-now"><span class="dot-live" aria-hidden="true"></span><b>Right now:</b> ${esc(d.run.lastAction ?? 'reading your message')}${d.run.backgroundTasks?.length ? ` · in the background: ${esc(d.run.backgroundTasks.map((x) => ctx.agentName(x.agentType ?? '') || x.description).join(', '))}` : ''}</p>`
+    : d.drive.terminalSession && !d.drive.terminalSession.stopped
+      ? `<p class="ov-now"><span class="dot-live" aria-hidden="true"></span><b>Right now (in your terminal):</b> ${esc(d.drive.terminalSession.lastTool ? ctx.describeTool(d.drive.terminalSession.lastTool.name, d.drive.terminalSession.lastTool.input) : 'working')}</p>`
+      : '';
+  const headsUp = o.headsUp?.length ? `<ul class="ov-heads">${o.headsUp.map((h) => `<li class="hu-${esc(h.kind)}">${esc(h.text)}</li>`).join('')}</ul>` : '';
+  const html = `<div class="ov-top">
+      <span class="ov-face">${sprite('conductor', { state: running ? 'working' : d.needsYou ? 'waiting' : 'idle', size: 84, label: 'Foreman' })}</span>
+      <div><p class="speaker">The Foreman’s overview</p>
+      <p class="ov-headline">${esc(o.headline ?? (d.stageState === 'done' ? 'This job is done.' : 'No overview yet. Ask the Foreman for one.'))}</p>
+      ${now}</div>
+    </div>
+    ${headsUp}
+    <div class="ov-grid">
+      ${list('Where it stands', o.standing)}
+      ${list('What it needs from you', o.needs, 'needs')}
+      ${list('Watch out for', o.concerns, 'concerns')}
+      ${o.next ? `<div class="ov-block"><h4>Next</h4><p>${esc(o.next)}</p></div>` : ''}
+    </div>
+    <p class="ov-foot"><span class="muted">${esc(SOURCE_WORDS[o.source] ?? 'Overview')}${o.at ? ` · ${esc(ago(o.at))}` : ''}</span><button type="button" class="btn small" data-quick="overview">Ask the Foreman for a fresh overview</button></p>`;
+  setHtml('#job-overview', html);
+}
+
+// ---------- The conversation ----------
+
+const QUICK = {
+  overview: 'Give me a short, plain-language overview of this job: what it is, where it stands, what you need from me, and what’s next. Don’t start or continue any stage.',
+  where: 'Where are we? Answer in two or three plain sentences. Don’t start or continue any stage.',
+  needs: 'What do you need from me right now? Keep it short.',
+  plan: 'Summarise the plan in plain words: what will change for users, and the main steps. No file-by-file detail.',
+  risks: 'Any risks or open problems I should know about? Short list, most important first.',
+};
+
+function renderThread(d) {
+  // Older briefs fold into one line; the latest brief stays a full bubble.
+  const raw = d.thread ?? [];
+  const briefs = raw.filter((x) => x.kind === 'brief');
+  const latestBrief = briefs.at(-1);
+  const older = briefs.slice(0, -1);
+  const items = raw.filter((x) => x.kind !== 'brief' || x === latestBrief);
+  if (older.length) items.unshift({ kind: 'older-briefs', at: older[0].at, briefs: older });
+  const running = d.drive.mode === 'running' && d.run;
+  const row = (it, i) => {
+    const time = it.at ? `<span class="t-time">${esc(when(it.at))}</span>` : '';
+    if (it.kind === 'brief') return `<li class="t-item t-foreman"><span class="t-who">The Foreman</span>${time}<p><b>${esc(it.headline ?? `Brief #${it.number} · ${stageShort(it.stage)}`)}</b></p>${it.point ? `<p class="t-text">${esc(it.point)}</p>` : ''}<button type="button" class="linklike" data-brief="${esc(it.file)}">Read the whole brief</button><div class="md t-body" hidden></div></li>`;
+    if (it.kind === 'older-briefs') return `<li class="t-note"><details><summary>${plural(it.briefs.length, 'earlier brief')}</summary><ul class="older">${it.briefs.map((b) => `<li><button type="button" class="linklike" data-brief="${esc(b.file)}">#${b.number} ${esc(b.headline ?? stageShort(b.stage))}</button><div class="md t-body" hidden></div></li>`).join('')}</ul></details></li>`;
+    if (it.kind === 'reply') return `<li class="t-item t-foreman"><span class="t-who">The Foreman</span>${time}<div class="md">${it.html}</div>${it.stopped ? '<p class="muted">(paused before it finished)</p>' : ''}</li>`;
+    if (it.kind === 'you') return `<li class="t-item t-you"><span class="t-who">You</span>${time}<p class="t-text">${esc(it.text)}</p></li>`;
+    if (it.kind === 'auto') return `<li class="t-note"><details><summary>Handled for you: ${plural(it.items.length, 'routine step')}</summary><ul>${it.items.map((x) => `<li>${esc(ctx.agentName(x.who))}: ${esc(x.headline)} <span class="muted">· ${esc(x.reason ?? '')}</span></li>`).join('')}</ul></details></li>`;
+    if (it.kind === 'problem') return `<li class="t-item t-problem"><span class="t-who">Problem</span>${time}<p>${esc(it.text)}</p><button type="button" class="btn small" data-advise="${i}">Ask the Foreman what to do</button></li>`;
+    return `<li class="t-note">${esc(it.text)}${it.at ? ` <span class="muted">· ${esc(when(it.at))}</span>` : ''}</li>`;
+  };
+  const live = running ? `<li class="t-item t-foreman t-live"><span class="t-who">The Foreman</span><span class="t-time">now</span>${d.run.lastText ? `<p class="t-text">${esc(d.run.lastText)}</p>` : ''}<p class="typing" aria-label="Working"><i></i><i></i><i></i></p></li>` : '';
+  const shown = items.slice(-25);
+  const html = `<header class="panel-head"><span class="speaker">Your conversation with the Foreman</span>${items.length > shown.length ? `<span class="muted">last ${shown.length} of ${items.length}</span>` : ''}</header>
+    ${items.length || running ? `<ol class="t-list">${shown.map((it, i) => row(it, items.length - shown.length + i)).join('')}${live}</ol>` : '<p class="muted">Nothing yet. Messages you send from here, and the Foreman’s briefs and replies, show up here.</p>'}`;
+  const list = $('#job-thread .t-list');
+  const atBottom = !list || list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+  setHtml('#job-thread', html, () => {
+    // Keep the newest message in view, unless you've scrolled up to read something.
+    const l = $('#job-thread .t-list');
+    if (l && atBottom) l.scrollTop = l.scrollHeight;
+  });
 }
 
 // Only touch the DOM when something changed, so animations and focus survive refreshes.
@@ -127,12 +207,71 @@ function renderMove(d) {
   const el = $('#job-move');
   if (el.contains(document.activeElement) && el._mode === moveMode(d)) return; // don't yank the form while typing
   el._mode = moveMode(d);
-  if (d.drive.mode === 'running' && d.run) { el.innerHTML = runPanel(d.run); bindRunPanel(d.run); return; }
+  if (d.drive.mode === 'running' && d.run) { el.innerHTML = runPanel(d.run) + policyLine(d); bindRunPanel(d.run); return; }
   if (d.drive.mode === 'terminal') { el.innerHTML = takeoverPanel(d); bindTakeover(d); return; }
-  el.innerHTML = d.needsYou && (d.questionsFull.length || d.waitingFor || d.decidedOnYourBehalf.some((x) => !x.confirmed)) ? replyPanel(d) : messagePanel(d);
+  if (!d.repoPath) { el.innerHTML = repoPanel(d); bindRepoPanel(d); return; }
+  const terminalNote = d.drive.mode === 'terminal-open' ? terminalOpenNote(d) : '';
+  el.innerHTML = terminalNote + (d.needsYou ? replyPanel(d) : messagePanel(d)) + quickRow() + policyLine(d);
   bindReply(d);
 }
-const moveMode = (d) => `${d.drive.mode}:${d.needsYou}:${d.run?.id ?? ''}:${d.latestBrief?.number ?? ''}`;
+const moveMode = (d) => `${d.drive.mode}:${d.needsYou}:${d.run?.id ?? ''}:${d.latestBrief?.number ?? ''}:${d.repoPath ?? ''}:${d.policy}`;
+
+function quickRow() {
+  return `<div class="quick"><p class="muted">Ask the Foreman:</p>
+    <button type="button" class="chip-btn" data-quick="where">Where are we?</button>
+    <button type="button" class="chip-btn" data-quick="needs">What do you need from me?</button>
+    <button type="button" class="chip-btn" data-quick="plan">Explain the plan simply</button>
+    <button type="button" class="chip-btn" data-quick="risks">Any risks?</button></div>`;
+}
+
+function policyLine(d) {
+  return d.policy === 'ask-all'
+    ? '<p class="policy-line">You approve every step. <button type="button" class="linklike" data-policy="hands-off">Let routine steps run on their own</button></p>'
+    : '<p class="policy-line">Routine steps run on their own; you’re asked only about risky ones. <button type="button" class="linklike" data-policy="ask-all">Ask me about every step instead</button></p>';
+}
+
+function terminalOpenNote(d) {
+  const list = d.drive.terminals.map((t) => `<li>Since ${esc(when(t.started))} <span class="muted">(process ${t.pid})</span></li>`).join('');
+  return `<div class="notice"><p><b>Claude Code is open in this repository</b> in ${plural(d.drive.terminals.length, 'terminal')}:</p><ul>${list}</ul>
+    <p>If one of them is this job’s Foreman, keep talking to it there (or close it with <code>/exit</code>) so two Foremen don’t work on the same job. Sending from here starts a Foreman that picks the job up from its files.</p></div>`;
+}
+
+function repoPanel(d) {
+  return `<header class="panel-head"><span class="speaker">Your move</span></header>
+    <form class="reply repo-form" novalidate>
+      <p class="hint"><b>Which repository is this job in?</b> I couldn’t tell from its files. Pick it once and I’ll remember.</p>
+      <label class="field"><span>Repository</span><select name="repo"><option value="">Loading…</option></select></label>
+      <label class="field other-repo" hidden><span>Folder path</span><input type="text" name="repoPath" placeholder="/Users/you/Projects/your-repo"></label>
+      <label class="field"><span>Branch <span class="muted">(optional)</span></span><input type="text" name="branch" placeholder="e.g. feature/${esc(d.slug)}" value="${esc(d.branch ?? '')}"></label>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="reply-actions"><button type="submit" class="btn primary">Save</button></div>
+    </form>`;
+}
+
+async function bindRepoPanel(d) {
+  const form = $('#job-move .repo-form');
+  const sel = $('select[name=repo]', form);
+  let repos = [];
+  try { repos = (await getJson('/api/repos')).repos; } catch { /* typing a path still works */ }
+  sel.innerHTML = `${repos.map((r) => `<option value="${esc(r.path)}">${esc(r.name)} — ${esc(r.path)}</option>`).join('')}<option value="__other">Another folder…</option>`;
+  const toggle = () => { $('.other-repo', form).hidden = sel.value !== '__other'; };
+  sel.addEventListener('change', toggle);
+  toggle();
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const repoPath = sel.value === '__other' ? String(fd.get('repoPath') ?? '').trim() : sel.value;
+    try {
+      await postJson(`/api/job/${encodeURIComponent(d.slug)}/repo`, { repoPath, branch: String(fd.get('branch') ?? '').trim() });
+      toast('Saved. The Foreman will work in that repository.', { tone: 'good' });
+      showJob(d.slug, { quiet: true });
+    } catch (err) {
+      const box = $('.form-error', form);
+      box.hidden = false;
+      box.textContent = err.message;
+    }
+  });
+}
 
 function runPanel(run) {
   const bg = run.backgroundTasks ?? [];
@@ -280,12 +419,12 @@ const AFTER = {
 };
 const TITLES = { approve: 'Approve and continue', changes: 'Ask for changes', stop: 'Stop this job', message: 'Message the Foreman' };
 
-function reviewAndSend(d, kind) {
+function reviewAndSend(d, kind, presetText = null) {
   const answers = {};
   for (const [id, a] of Object.entries(draft.answers)) answers[id] = a.choice === '__other' ? { other: a.other } : a.choice ? { choice: a.choice } : a.other ? { other: a.other } : null;
   const build = (note) => composeReply({ kind, status: d.statusForCompose, answers: Object.fromEntries(Object.entries(answers).filter(([, v]) => v)), verdicts: draft.verdicts, note });
   const needsNote = kind === 'changes';
-  const initialNote = kind === 'message' ? draft.message : '';
+  const initialNote = kind === 'message' ? (presetText ?? draft.message) : '';
   const models = ctx.meta.models;
   const currentModel = d.drive.model ?? models[0].id;
   const m = modal(`
@@ -294,6 +433,7 @@ function reviewAndSend(d, kind) {
       ${kind !== 'message' ? `<label class="field"><span>${needsNote ? 'What should change?' : 'Anything to add? (optional)'}</span><textarea rows="${needsNote ? 3 : 2}" data-note${needsNote ? ' required autofocus' : ''}></textarea></label>` : ''}
       <div class="field"><span>This is exactly what the Foreman will receive:</span><textarea class="preview" rows="9" data-text>${esc(build(initialNote))}</textarea><small class="muted">You can edit it. It’s also saved in the job’s activity log.</small></div>
       <p class="after"><b>What happens next:</b> ${esc(AFTER[kind])}</p>
+      ${d.drive.mode === 'terminal-open' ? `<label class="check"><input type="checkbox" data-confirm-terminal> None of the open terminals is this job’s Foreman</label>` : ''}
       <label class="field inline"><span>Foreman model</span><select data-model>${models.map((x) => `<option value="${esc(x.id)}"${x.id === currentModel ? ' selected' : ''}>${esc(x.label)}</option>`).join('')}${models.some((x) => x.id === currentModel) ? '' : `<option value="${esc(currentModel)}" selected>${esc(modelLabel(currentModel))}</option>`}</select></label>
       <p class="form-error" role="alert" hidden></p>
       <div class="modal-actions"><button type="button" class="btn ghost" data-close>Back</button><button type="submit" class="btn primary big">Send to the Foreman</button></div>
@@ -308,11 +448,13 @@ function reviewAndSend(d, kind) {
     e.preventDefault();
     const err = $('.form-error', form);
     if (needsNote && !$('[data-note]', form).value.trim() && !edited) { err.hidden = false; err.textContent = 'Say what should change first.'; return; }
+    const confirmBox = $('[data-confirm-terminal]', form);
+    if (confirmBox && !confirmBox.checked) { err.hidden = false; err.textContent = 'Please check the open terminals first, then tick the box.'; return; }
     const btn = $('button[type=submit]', form);
     btn.disabled = true;
     btn.textContent = 'Sending…';
     try {
-      await postJson(`/api/job/${encodeURIComponent(d.slug)}/send`, { kind, text: text.value, model: $('[data-model]', form).value });
+      await postJson(`/api/job/${encodeURIComponent(d.slug)}/send`, { kind, text: text.value, model: $('[data-model]', form).value, confirmNoTerminal: Boolean(confirmBox?.checked) });
       draft = { slug: d.slug, answers: {}, verdicts: {}, message: '' };
       m.close();
       toast('Sent. The Foreman is on it.', { tone: 'good' });
@@ -341,6 +483,44 @@ function tabsHtml(d) {
 }
 
 function bindStatic() {
+  const root = $('.job');
+  bindIdLinks($('#job-overview'));
+  bindIdLinks($('#job-thread'));
+  root.addEventListener('click', async (e) => {
+    const q = e.target.closest('[data-quick]');
+    if (q) return reviewAndSend(current, 'message', QUICK[q.dataset.quick]);
+    const brief = e.target.closest('[data-brief]');
+    if (brief) {
+      const body = brief.nextElementSibling;
+      if (!body.hidden) { body.hidden = true; brief.textContent = brief.dataset.label ?? 'Read the whole brief'; return; }
+      brief.dataset.label ??= brief.textContent;
+      body.hidden = false;
+      body.innerHTML = '<p class="muted">Opening…</p>';
+      brief.textContent = 'Hide';
+      try { body.innerHTML = (await getJson(`/api/job/${encodeURIComponent(current.slug)}/doc?file=${encodeURIComponent(brief.dataset.brief)}`)).html; }
+      catch (err) { body.innerHTML = `<p class="muted">${esc(err.message)}</p>`; }
+      return;
+    }
+    const advise = e.target.closest('[data-advise]');
+    if (advise) {
+      const item = current.thread[Number(advise.dataset.advise)];
+      return reviewAndSend(current, 'message', `That last step hit a problem: “${item?.text ?? ''}”. What happened, and what do you suggest? Don’t retry anything risky without asking me.`);
+    }
+    if (e.target.closest('[data-change-repo]')) {
+      const el = $('#job-move');
+      el.innerHTML = repoPanel(current);
+      el._mode = 'repo';
+      bindRepoPanel(current);
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    const pol = e.target.closest('[data-policy]');
+    if (pol) {
+      try { await postJson('/api/settings', { policy: pol.dataset.policy }); toast(pol.dataset.policy === 'ask-all' ? 'You’ll be asked about every step.' : 'Routine steps now run on their own.', { tone: 'good' }); showJob(current.slug, { quiet: true }); }
+      catch (err) { toast(esc(err.message), { tone: 'bad' }); }
+    }
+  });
+  $('#job-details').addEventListener('toggle', (e) => { if (e.target.open) renderTab(); });
   const panel = $('#tab-panel');
   bindIdLinks(panel);
   panel.addEventListener('click', (e) => {

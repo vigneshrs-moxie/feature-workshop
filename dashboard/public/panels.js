@@ -166,14 +166,21 @@ export function notify(title, body, href) {
   } catch { /* some browsers block notifications from plain http */ }
 }
 
-export function openAlerts(anchor) {
+export function openAlerts(anchor, meta = {}) {
   const supported = typeof Notification !== 'undefined';
   const m = modal(`
     <div class="alerts-box">
-      <h2>Alerts</h2>
+      <h2>Alerts and settings</h2>
       <p class="lede">Get a nudge when a job needs you: a question, a go-ahead, or a permission click. Alerts only work while this page is open in a tab.</p>
       <label class="toggle"><input type="checkbox" name="notify"${alerts.notify ? ' checked' : ''}${supported ? '' : ' disabled'}><span><b>Browser notifications</b><small>${supported ? 'Your browser will ask once for permission.' : 'Not supported in this browser.'}</small></span></label>
       <label class="toggle"><input type="checkbox" name="sound"${alerts.sound ? ' checked' : ''}><span><b>Sound</b><small>A short, soft chime.</small></span></label>
+      <h3 class="settings-h">Routine steps</h3>
+      <fieldset class="field models"><legend class="visually-hidden">How to handle routine steps</legend>
+        <label class="opt"><input type="radio" name="policy" value="hands-off"${meta.settings?.policy !== 'ask-all' ? ' checked' : ''}><span><b>Handle them for me</b><small>Reading, updating the job’s own records, and (once you’ve approved a plan) building, committing and running checks in the job’s own worktree happen on their own and are listed in the conversation. Pushing, PRs, merges, migrations, database writes, installs, deleting and anything outside the job’s folders still come to you.</small></span></label>
+        <label class="opt"><input type="radio" name="policy" value="ask-all"${meta.settings?.policy === 'ask-all' ? ' checked' : ''}><span><b>Ask me about every step</b><small>Every action that needs permission comes to you as an Allow / Deny card.</small></span></label>
+      </fieldset>
+      <h3 class="settings-h">Live link to terminal sessions</h3>
+      <p class="fineprint">${meta.liveLink?.enabled ? '<b>On.</b> Claude Code sessions in your terminals report what they’re doing, so their jobs show up here live.' : '<b>Off.</b> The dashboard sees open terminals but not what they’re doing. Turning it on adds a small hook to your Claude Code settings that records session events for this dashboard only. Ask Claude Code to add it for you; the README has the details.'}</p>
       <div class="modal-actions"><button type="button" class="btn ghost" data-test>Try it</button><button type="button" class="btn primary" data-close>Done</button></div>
     </div>`, { label: 'Alerts' });
   $('[name=notify]', m.box).addEventListener('change', async (e) => {
@@ -185,6 +192,10 @@ export function openAlerts(anchor) {
     anchor?.dispatchEvent(new Event('alerts-changed'));
   });
   $('[name=sound]', m.box).addEventListener('change', (e) => { prefs.set('sound', e.target.checked ? 'on' : 'off'); anchor?.dispatchEvent(new Event('alerts-changed')); });
+  $$('[name=policy]', m.box).forEach((r) => r.addEventListener('change', async (e) => {
+    try { await postJson('/api/settings', { policy: e.target.value }); toast(e.target.value === 'ask-all' ? 'You’ll be asked about every step.' : 'Routine steps now run on their own.', { tone: 'good' }); }
+    catch (err) { toast(esc(err.message), { tone: 'bad' }); }
+  }));
   $('[data-test]', m.box).addEventListener('click', () => notify('Feature Workshop', 'This is what an alert looks like.', '#/'));
   $('[data-close]', m.box).addEventListener('click', () => m.close());
 }

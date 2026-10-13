@@ -22,9 +22,11 @@ export class Driver extends EventEmitter {
    * queryFn: the SDK's query() (injectable for tests).
    * state: State instance. projectsDir: where Claude Code keeps session logs.
    */
-  constructor({ queryFn, state, projectsDir, cliPath = null }) {
+  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null }) {
     super();
     this.queryFn = queryFn;
+    // policy(run, toolName, input, opts) -> { auto, reason }: routine requests are allowed without asking.
+    this.policy = policy;
     this.state = state;
     this.projectsDir = projectsDir;
     this.cliPath = cliPath;
@@ -55,7 +57,7 @@ export class Driver extends EventEmitter {
       lastText: run.lastText, lastAction: run.lastAction, resultText: run.resultText,
       costUsd: run.costUsd, apiKeySource: run.apiKeySource, error: run.error,
       newJob: run.newJob, pending: run.pending.size, denials: run.denials,
-      backgroundTasks: run.backgroundTasks, sessionState: run.sessionState ?? null,
+      backgroundTasks: run.backgroundTasks, sessionState: run.sessionState ?? null, autoAllowed: run.autoAllowed ?? 0,
     };
   }
 
@@ -191,6 +193,17 @@ export class Driver extends EventEmitter {
   }
 
   async #ask(run, toolName, input, opts = {}) {
+    if (this.policy && toolName !== 'AskUserQuestion') {
+      let verdict = null;
+      try { verdict = await this.policy(run, toolName, input, opts); } catch { verdict = null; }
+      if (verdict?.auto) {
+        const plain = describePermission(toolName, input, { cwd: run.cwd });
+        run.autoAllowed = (run.autoAllowed ?? 0) + 1;
+        await this.state.audit({ action: 'auto-allowed', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, tool: toolName, agentType: await this.#agentType(run, opts.agentID), headline: plain.headline, preview: (plain.preview ?? '').slice(0, 300) || undefined, reason: verdict.reason });
+        this.emit('run', this.view(run));
+        return { behavior: 'allow', updatedInput: input };
+      }
+    }
     const req = {
       id: randomUUID(), runId: run.id, slug: run.slug, featureDir: run.featureDir, title: run.title,
       toolName, input: trimInput(input), kind: toolName === 'AskUserQuestion' ? 'question' : 'permission',

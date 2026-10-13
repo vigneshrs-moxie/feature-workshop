@@ -154,6 +154,7 @@ function card(f) {
   const flags = f.unconfirmed ? `<p class="say-flag">★ ${esc(plural(f.unconfirmed, 'thing'))} decided for you. Please check.</p>` : '';
   return `<a class="route gbox state-${sit.tone}" href="#/job/${encodeURIComponent(f.slug)}" data-key="${esc(f.slug)}">
     <div class="route-head"><span class="types">${type}${size}</span><h3>${esc(f.title)}</h3><span class="pill pill-${sit.tone}"><i class="led" aria-hidden="true"></i>${esc(f.starting ? 'Starting' : PILL[sit.tone])}</span></div>
+    ${f.repo?.branch ? `<p class="route-sub">branch <code>${esc(f.repo.branch)}</code></p>` : !f.repo && !f.starting ? '<p class="route-sub warn-text">Repository not known yet: open the job to pick it</p>' : ''}
     ${renderMap(meta.stages, f, sit, { agentName, size: 104, coins })}
     <div class="say gbox say-${sit.tone}">
       <p class="say-main">${sit.main}${sit.time ? ` <span class="say-time">· ${esc(sit.time)}</span>` : ''}</p>
@@ -373,7 +374,7 @@ async function init() {
   $('#new-job').addEventListener('click', () => openNewJob(meta, { onStarted: (res) => { location.hash = `#/job/${encodeURIComponent(res.slug)}`; refreshSoon(); } }));
   const bell = $('#alerts');
   const paintBell = () => { bell.classList.toggle('on', alerts.notify || alerts.sound); bell.setAttribute('aria-label', `Alerts: ${alerts.notify || alerts.sound ? 'on' : 'off'}. Click to change.`); };
-  bell.addEventListener('click', () => openAlerts(bell));
+  bell.addEventListener('click', async () => { meta = await getJson('/api/meta'); openAlerts(bell, meta); });
   bell.addEventListener('alerts-changed', paintBell);
   paintBell();
   await refresh();

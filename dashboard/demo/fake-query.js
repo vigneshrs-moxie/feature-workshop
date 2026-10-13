@@ -18,7 +18,8 @@ export function makeFakeQuery({ featuresDir }) {
       yield { type: 'system', subtype: 'init', session_id: sessionId, model: options.model ?? 'claude-fable-5-1', apiKeySource: 'none', cwd: options.cwd };
       await sleep(900);
       const slugMatch = /Private folder: (\S+)/.exec(text);
-      const folder = slugMatch ? slugMatch[1] : null;
+      // The job's folder: named in the message (new jobs), else the job whose status.json has this session.
+      const folder = slugMatch ? slugMatch[1] : await folderForSession(featuresDir, options.resume);
       const stopping = /^Stop here/m.test(text);
       const changes = /^Please make changes/m.test(text);
       yield assistant(sessionId, stopping ? 'Understood. Recording where things stand and stopping.' : changes ? 'Got it. Sending your changes back to the crew.' : 'Got it! Checking the work before the next stage.', [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'workflow-status.md' } }]);
@@ -27,13 +28,16 @@ export function makeFakeQuery({ featuresDir }) {
 
       let allowed = true;
       if (!stopping) {
-        const decision = await options.canUseTool('Bash', { command: 'npm test -- --reporter=dot', description: 'Run the unit tests (demo)' }, {
-          signal: new AbortController().signal, toolUseID: 't2', requestId: randomUUID(),
-          suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm test:*' }], behavior: 'allow', destination: 'localSettings' }],
+        // A routine step (handled for you when routine steps run on their own)…
+        await options.canUseTool('Bash', { command: 'git status --short', description: 'Check the working tree (demo)' }, { signal: new AbortController().signal, toolUseID: 't2', requestId: randomUUID() });
+        // …and one that always needs your click.
+        const decision = await options.canUseTool('Bash', { command: 'npm run test:db', description: 'Run the database tests (demo)' }, {
+          signal: new AbortController().signal, toolUseID: 't3', requestId: randomUUID(),
+          suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm run test:db' }], behavior: 'allow', destination: 'localSettings' }],
         });
         allowed = decision.behavior === 'allow';
         if (interrupted) { yield result(sessionId, true); return; }
-        yield assistant(sessionId, allowed ? 'Tests pass (12 of 12). Writing the brief.' : 'Okay, I won’t run the tests. Noting that in the brief.');
+        yield assistant(sessionId, allowed ? 'Database tests pass (12 of 12). Writing the brief.' : 'Okay, I won’t run the database tests. Noting that in the brief.');
         await sleep(1200);
       }
 
@@ -47,6 +51,17 @@ export function makeFakeQuery({ featuresDir }) {
     gen.interrupt = async () => { interrupted = true; };
     return gen;
   };
+}
+
+async function folderForSession(featuresDir, sessionId) {
+  if (!sessionId) return null;
+  for (const name of await fs.readdir(featuresDir).catch(() => [])) {
+    try {
+      const s = JSON.parse(await fs.readFile(path.join(featuresDir, name, 'status.json'), 'utf8'));
+      if (s.session_id === sessionId) return path.join(featuresDir, name);
+    } catch { /* no status.json */ }
+  }
+  return null;
 }
 
 function assistant(sessionId, text, tools = []) {

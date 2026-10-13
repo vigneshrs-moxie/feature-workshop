@@ -16,7 +16,7 @@ cd feature-workshop
 npm install
 ```
 
-**Try it safely first:** `npm run demo` opens the dashboard on invented jobs with a *pretend* Foreman. Every button works and nothing real runs or costs anything.
+**Try it safely first:** `npm run demo` opens the dashboard on invented jobs with a *pretend* Foreman. Every button works and nothing real runs or costs anything. (If the real dashboard is already running, use `PORT=4478 npm run demo`.)
 
 **Use it for real:** `npm start`, then open **http://127.0.0.1:4477**. Stop it with **Ctrl+C**. Stopping the dashboard pauses any reply in progress; nothing is lost.
 
@@ -31,6 +31,15 @@ npm install
 
 ## Using it day to day
 
+You talk to the **Foreman** and nobody else. It gives you a plain-language overview of each job, you approve, reject or advise, and routine steps happen without bothering you.
+
+**The job page, top to bottom:**
+- **The Foreman's overview:** where the job stands, what it needs from you, what to watch out for, and what's next. It comes from the Foreman's own latest brief (or, for older jobs, from the job's record), so you don't have to open plan or test files. **Ask the Foreman for a fresh overview** asks it directly.
+- **Heads-ups** the dashboard spots itself: the repository isn't known yet, the job's branch is checked out in your main folder (the Foreman builds in its own worktree, which needs that branch free), or Claude Code is open in this repository in a terminal.
+- **Your conversation with the Foreman:** its briefs and replies, your messages, the permissions you decided, problems, and a folded list of routine steps handled for you.
+- **Your move:** answer, **Approve and continue**, **Ask for changes**, **Stop this job**, or ask a quick question (*Where are we? What do you need from me? Explain the plan simply. Any risks?*).
+- **Details** (folded): files, code, approvals, costs and crew, for when you want to dig in.
+
 **Start a job.** Click **+ New job**, describe it in a line, pick Feature or Bug fix, the repository and the Foreman's model (Fable 5.1 is what the workflow is designed for; Opus 5.5 is cheaper; Haiku 5.5 is only for trying things out). The Foreman writes a spec first and stops for your review. You can still start jobs with `/feature …` in a terminal; they show up here too.
 
 **Answer and approve.** Open a red card. The job page shows the Foreman's latest brief and a **Your move** panel:
@@ -42,7 +51,13 @@ Before anything is sent you see the **exact words** the Foreman will receive, an
 
 ![A permission card: the Foreman wants to run a command](docs/job-permission.png)
 
-**Permissions.** When the Foreman or a worker wants to do something that needs your OK (change a file, run a command, …), a card appears on the job page and in a tray on every other page:
+**Routine steps run on their own; risky ones come to you.** The rules follow the workflow's own gates:
+- **Handled for you** (and listed in the conversation): reading anything; the Foreman handing work to its crew; writing the job's own records; writing the spec during the spec stages; and, once you've approved a plan, editing, committing and running the checks your test plan allows (lint, typecheck, unit tests, build) inside the job's own worktree.
+- **Always asks you:** pushing, PRs, merging, resetting or switching branches, migrations and database tests, starting servers, installing packages, deleting files, anything that reaches the internet, editing anything outside the job's folders (your main folder included), complex shell commands, and anything Claude Code itself flags as risky.
+
+Prefer to approve everything yourself? Choose **Ask me about every step** under the bell (*Alerts and settings*) or on the job page.
+
+**Permissions.** When something does need your OK, a card appears on the job page and in a tray on every other page:
 - **Allow once:** it does exactly this, one time.
 - **Allow for this reply:** it won't ask again for this kind of action until the current reply is finished. Handy during building, when there are many edits. It is kept in memory only.
 - **Deny:** it doesn't do this and carries on without it. You can add a note saying why.
@@ -51,7 +66,22 @@ Nothing is ever saved to your Claude Code settings. Your existing settings still
 
 **Pause and stop.** While the Foreman works, **Pause** stops the current reply right away; send a message later and it carries on. **Stop this job** asks the Foreman to record where things stand and stop.
 
-**Jobs that live in a terminal.** Only one place drives a Foreman at a time. If a job's session was last used in a terminal, the job page asks you to close it there (`/exit`) and then **Take over here**. To go back to the terminal later: `claude --resume <session id>` (shown on the page).
+**Jobs started in a terminal.** Every job shows up on the board, wherever it was started, because the board reads the jobs' folders. Only one place drives a Foreman at a time, so:
+- The dashboard sees which Claude Code sessions are **open in a terminal right now** (from your computer's process list) and in which folder. If any are open in a job's repository, it tells you and won't start a second Foreman for that job until you confirm none of them is its Foreman. Keep talking to it in the terminal, or close it there (`/exit`) and continue here.
+- If a job's session keeps a log and was last used in a terminal, the page offers **Take over here**, which resumes that exact session with its memory. Go back later with `claude --resume <session id>` (shown on the page).
+- Some terminal sessions keep no log, for example sessions started from inside another Claude Code session (they inherit `CLAUDE_CODE_CHILD_SESSION`). The dashboard can't read those conversations. Turn on the **live link** (below) to see what they're doing as it happens, or start `claude` from a fresh terminal window.
+
+**Which repository and branch?** The dashboard works it out from the job's `status.json`, its `workflow-status.md` (including free text), the spec's location, the Foreman's session folder, and git branches and worktrees named after the job. If it still can't tell, the job page asks you once (**Choose it** / **Change**) and remembers.
+
+### The live link (optional)
+
+To see terminal sessions live (what they're doing, and when they're waiting for a permission click), add a small hook to your Claude Code settings. It records events for this dashboard only, drops file contents, and never changes what Claude Code does. In `~/.claude/settings.json`, under `"hooks"`, add this entry to each of `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionRequest`, `Stop`, `StopFailure`, `SubagentStop` and `SessionEnd` (next to any hooks you already have):
+
+```json
+{ "matcher": "*", "hooks": [ { "type": "command", "command": "/path/to/feature-workshop/dashboard/hooks/record.mjs" } ] }
+```
+
+Events land in `~/.feature-workshop/hook-events/events.jsonl`. Remove the entries to turn it off.
 
 **Details on demand** (tabs on the job page): **Briefs** (every saved brief), **Files** (spec, findings, plans, reports, each review; requirement IDs like `FR-001` are clickable and show where they're defined and mentioned), **Code** (one commit per plan step, with diffs and *Open in VS Code* links), **Approvals** (the job's approval record, superseded ones marked, plus everything sent from here), **Costs** (by stage, crew member and model) and **Crew** (who worked on the job and what they did last).
 
@@ -71,18 +101,19 @@ Nothing is ever saved to your Claude Code settings. Your existing settings still
 
 **Writes:** only its own small state folder, `~/.feature-workshop/`:
 - `sessions.json` — which Claude Code session drives each job, and when you took one over
-- `audit.jsonl` — every message sent, permission decided, pause and take-over, with the exact words
+- `audit.jsonl` — every message sent, permission decided, routine step handled, pause and take-over, with the exact words
+- `settings.json` — how routine steps are handled
 
-**Everything else happens through the job's Foreman session in Claude Code, and only after your click.** The Foreman may read its own instructions (`~/.claude/skills`, `~/.claude/agents`) and the jobs' folders without asking; anything that changes files or runs commands asks you. The dashboard itself never pushes, opens PRs, changes Claude Code settings or talks to anything except your local Claude Code.
+**Everything else happens through the job's Foreman session in Claude Code.** You start every reply; within it, routine steps run under the rules above and everything else asks you. The dashboard itself never pushes, opens PRs, changes Claude Code settings or talks to anything except your local Claude Code. It also reads the list of running processes (`ps`, `lsof`) to spot open Claude Code terminals, and `~/.feature-workshop/hook-events/` if you turn on the live link.
 
 ## Can and can't
 
 | It can | It can't (by design) |
 |---|---|
-| Show every job, who's working and what they're doing, live | Approve anything without your click |
+| Show every job, who's working and what they're doing, live | Approve anything risky without your click |
 | Send your answers, approvals and messages to a job's Foreman | Drive a session that's open in a terminal (you take it over first) |
 | Start new jobs and pause or stop running ones | Change your Claude Code settings or permission rules |
-| Forward every permission request as Allow / Deny | Run when your computer's Claude Code isn't logged in |
+| Handle routine steps itself and send you only the risky ones | Run when your computer's Claude Code isn't logged in |
 | Export costs as CSV and Markdown | Be reached from another computer |
 
 ## Security
@@ -120,6 +151,7 @@ Teammates also need the feature workflow itself (the `/feature` skills and `feat
 
 ## Known limits
 
+- **Terminal sessions without logs** (see above) show as open terminals only, unless the live link is on.
 - **No time limits.** A worker counts as working until its log shows it finished. If a terminal session is closed mid-task, its job keeps showing as working, with a “quiet for …” note. Jobs paused or finished from the dashboard are always shown correctly.
 - **Quiet ≠ stuck.** A long command and a permission prompt waiting in a terminal look the same in the logs, so the card says “maybe” and points you to the terminal.
 - **Older jobs** that don't write `status.json` and `briefs/` yet show less detail (their stage and approvals come from `workflow-status.md`).

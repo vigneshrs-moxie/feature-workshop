@@ -7,6 +7,7 @@ import { parseStatusJson } from './status-json.js';
 import { parseSessionLog, usageByModel, activityState, quietHint, spendSince } from './session-log.js';
 import { agentInfo, skippedStages } from './stages.js';
 import { estimateCost, calibrationFactors } from './cost.js';
+import { locateJob } from './locate.js';
 
 const ARTIFACT_FILES = [
   ['Workflow status', 'workflow-status.md'],
@@ -40,10 +41,13 @@ function stageForAgent(agentType, description = '') {
   return agentInfo(agentType).stage ?? 'other';
 }
 
+// A session belongs to the workflow if it ran /feature or one of its stage commands
+// (/feature-spec, /feature-plan, …) or sent work to a feature-* worker.
 const isWorkflowSession = (parsed, text) =>
   parsed.dispatches.some((d) => d.agentType?.startsWith('feature-')) ||
-  /^\/feature(\s|$)/.test(parsed.firstPrompt?.trim() ?? '') ||
-  text.includes('"skill":"feature');
+  /^\/feature(-[a-z]+)?(\s|$)/.test(parsed.firstPrompt?.trim() ?? '') ||
+  text.includes('"skill":"feature') ||
+  /<command-name>\/?feature(-[a-z]+)?<\/command-name>/.test(text);
 
 // Caches parsed logs by file path + size + mtime, so refreshes only re-read changed files.
 export class SessionIndex {
@@ -232,6 +236,7 @@ async function readFeatureFolder(dir) {
     readText(wsFile), readText(path.join(dir, 'status.json')), statOrNull(wsFile),
   ]);
   const ws = wsText ? parseWorkflowStatus(wsText) : null;
+  const recordText = wsText ?? null;
   const sj = sjText ? parseStatusJson(sjText) : null;
   const status = sj?.ok ? sj : null;
 
@@ -289,6 +294,9 @@ async function readFeatureFolder(dir) {
     history: ws?.history ?? [],
     artifacts,
     recordedArtifacts: status?.artifacts?.length ? status.artifacts : ws?.artifacts ?? [],
+    recordText, recordAt: wsStat?.mtime.toISOString() ?? null, statusSummary: status?.summary ?? null,
+    statusRepo: status?.repo?.path ?? null, statusBranch: status?.branch ?? null, statusWorktree: status?.worktree ?? null,
+    wsRepository: ws?.repository ?? null,
     sessionId: status?.sessionId ?? null,
     updatedAt: status?.updatedAt ?? wsStat?.mtime.toISOString() ?? null,
     sources: { workflowStatus: Boolean(ws?.ok), statusJson: Boolean(status) },
@@ -296,7 +304,8 @@ async function readFeatureFolder(dir) {
   };
 }
 
-export async function loadFeatures({ featuresDir, sessionIndex, now = Date.now() }) {
+// overrides: { [featureDir]: { repoPath, branch } } chosen by the person; knownRepos: repositories to search.
+export async function loadFeatures({ featuresDir, sessionIndex, now = Date.now(), overrides = {}, knownRepos = [] }) {
   const dirs = (await listDir(featuresDir)).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => path.join(featuresDir, e.name));
   const features = await Promise.all(dirs.map(readFeatureFolder));
   const explicit = Object.fromEntries(features.map((f) => [f.dir, f.sessionId]));
@@ -316,6 +325,16 @@ export async function loadFeatures({ featuresDir, sessionIndex, now = Date.now()
     delete f.cost.activity;
     f.working = f.activity.some((a) => a.state === 'running');
     f.quiet = f.activity.some((a) => a.state === 'running' && a.quiet);
+    // Repository, branch and worktree from every clue we have (records, spec, sessions, git, your choice).
+    const spec = f.spec?.path && path.isAbsolute(f.spec.path) ? f.spec.path : null;
+    f.locate = await locateJob({
+      slug: f.slug, title: f.title, statusRepo: f.statusRepo, statusBranch: f.statusBranch, statusWorktree: f.statusWorktree,
+      wsRepository: f.wsRepository, wsText: f.recordText, specPath: spec,
+      sessionCwds: s.map((x) => x.parsed.cwd).filter(Boolean), override: overrides[f.dir], knownRepos,
+    });
+    f.repoPath = f.locate.path ?? f.repoPath;
+    f.branch = f.locate.branch ?? f.branch;
+    f.worktree = f.locate.worktree ?? f.worktree;
     f.project = projectFor(f.repoPath ?? s[0]?.parsed.cwd ?? null);
   }
   // Features waiting on you first (longest wait first), then working, then the rest by last update.
