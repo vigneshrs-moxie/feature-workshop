@@ -157,3 +157,4 @@ Teammates also need the feature workflow itself (the `/feature` skills and `feat
 - **Older jobs** that don't write `status.json` and `briefs/` yet show less detail (their stage and approvals come from `workflow-status.md`).
 - The session log format belongs to Claude Code and may change; unknown lines are skipped.
 - Notifications need the page open in a tab, and some browsers limit them.
+
