@@ -2,7 +2,7 @@
 
 import { $, $$, esc, since, ago, duration, when, plural, usd, fmtTokens, modelLabel, vscodeHref, prefs, getJson, postJson, toast, modal } from './ui.js';
 import { sprite, renderMap, stageShort, STAGE_CHARACTER } from './crew.js';
-import { permissionCard, bindPermissionCards } from './panels.js';
+import { permissionCard, bindPermissionCards, optionsFields, readOptionsForm, bindOptionsForm } from './panels.js';
 import { composeReply } from '/shared/compose.js';
 import { mountLocal } from './local.js';
 
@@ -49,6 +49,7 @@ export async function showJob(slug, { quiet = false } = {}) {
   renderOverview(detail);
   renderThread(detail);
   renderMove(detail);
+  renderOptions(detail);
   if ($('#job-details')?.open && !$('.tab-panel').contains(document.activeElement)) await renderTab({ soft: !first });
 }
 
@@ -86,6 +87,7 @@ function skeleton(d) {
       </div>
       <aside class="move gbox" id="job-move" aria-label="Your move"></aside>
     </div>
+    <section class="jobopts gbox" id="job-opts" aria-label="How this job runs"></section>
     <section class="local gbox" id="job-local" aria-label="Try it on your computer"></section>
     <details class="details gbox" id="job-details">
       <summary><span class="details-title">Details</span><span class="muted">Files, code, approvals, costs and crew, for when you want to dig in</span></summary>
@@ -116,6 +118,79 @@ function renderTop(d) {
   bindPermissionCards($('#job-perms'), { onDone: () => showJob(d.slug, { quiet: true }) });
 
   setHtml('#job-scene', renderMap(ctx.meta.stages, d, sit, { agentName: ctx.agentName, size: 128, long: true }), () => ctx.walk?.($('#job-scene'), d.slug, $('#job-scene .map')));
+}
+
+// ---------- How this job runs (its options) ----------
+
+function renderOptions(d) {
+  const lines = d.optionsSummary;
+  setHtml('#job-opts', `<h3>How this job runs</h3>
+    ${lines ? `<ul>${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : `<p class="muted">No options set: the Foreman follows its usual flow${d.route ? ` (${esc(d.route)})` : ''}. Set them to skip stages, pick reviewers or ask for Fable checks.</p>`}
+    <div class="opts-actions">
+      <button class="btn small" type="button" data-opts="edit">${lines ? 'Change' : 'Set options'}</button>
+      <button class="btn small ghost" type="button" data-opts="fable">Have Fable check something</button>
+    </div>
+    <p class="fineprint">Changes take effect from the next stage; the Foreman reads them before every stage.</p>`);
+}
+
+function editOptions(d) {
+  const catalog = ctx.meta.jobOptions;
+  const m = modal(`<form class="newjob"><h2>How this job runs</h2>${optionsFields(catalog, d.options, { open: true })}
+    <p class="form-error" role="alert" hidden></p>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Save</button></div></form>`, { label: 'How this job runs' });
+  const form = $('form', m.box);
+  bindOptionsForm(form, catalog);
+  $('[data-close]', form).addEventListener('click', () => m.close());
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('button[type=submit]', form);
+    btn.disabled = true;
+    try {
+      await postJson(`/api/job/${encodeURIComponent(d.slug)}/options`, { options: readOptionsForm(form) });
+      m.close();
+      toast('Saved. The Foreman follows these from the next stage.', { tone: 'good' });
+      showJob(d.slug, { quiet: true });
+    } catch (err) {
+      const box = $('.form-error', form);
+      box.hidden = false;
+      box.textContent = err.message;
+      btn.disabled = false;
+    }
+  });
+}
+
+const FABLE_TARGETS = [
+  { id: 'plan', label: 'The plan', text: 'the implementation plan and test plan' },
+  { id: 'code', label: 'The code changes so far', text: 'the code changes on the feature branch so far (base..HEAD)' },
+  { id: 'spec', label: 'The spec', text: 'the product spec' },
+  { id: 'review', label: 'The review findings', text: 'the consolidated review and whether its verdicts hold' },
+  { id: 'other', label: 'Something else', text: null },
+];
+
+function askFable(d) {
+  const m = modal(`<form class="newjob"><h2>Have Fable check something</h2>
+    <p class="lede">The Foreman asks Fable for a short, separate second look and tells you what it found. It costs much less than running the whole job on Fable.</p>
+    <fieldset class="field">${FABLE_TARGETS.map((t, i) => `<label class="opt"><input type="radio" name="target" value="${t.id}"${i === 0 ? ' checked' : ''}><span><b>${esc(t.label)}</b></span></label>`).join('')}</fieldset>
+    <label class="field"><span>What should it look at or worry about? (optional for the first four)</span><textarea name="note" rows="2" maxlength="1500" placeholder="e.g. Is the permission check on the new route right for evaluators?"></textarea></label>
+    <p class="form-error" role="alert" hidden></p>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Ask</button></div></form>`, { label: 'Have Fable check something' });
+  const form = $('form', m.box);
+  $('[data-close]', form).addEventListener('click', () => m.close());
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const t = FABLE_TARGETS.find((x) => x.id === fd.get('target'));
+    const note = String(fd.get('note') ?? '').trim();
+    const box = $('.form-error', form);
+    if (!t.text && !note) { box.hidden = false; box.textContent = 'Say what Fable should look at.'; return; }
+    const text = `Please ask Fable for a second look (dispatch the feature-fable-check agent) at ${t.text ?? 'this'}${note ? `. Focus: ${note}` : '.'} Then brief me on what it found and what you'd do about it.`;
+    try {
+      await postJson(`/api/job/${encodeURIComponent(d.slug)}/send`, { kind: 'fable-check', text });
+      m.close();
+      toast('Asked. The Foreman gets Fable’s second look and briefs you.', { tone: 'good' });
+      showJob(d.slug, { quiet: true });
+    } catch (err) { box.hidden = false; box.textContent = err.message; }
+  });
 }
 
 // ---------- The Foreman's overview ----------
@@ -490,6 +565,8 @@ function bindStatic() {
   bindIdLinks($('#job-overview'));
   bindIdLinks($('#job-thread'));
   root.addEventListener('click', async (e) => {
+    const opt = e.target.closest('[data-opts]');
+    if (opt) return opt.dataset.opts === 'edit' ? editOptions(current) : askFable(current);
     const q = e.target.closest('[data-quick]');
     if (q) return reviewAndSend(current, 'message', QUICK[q.dataset.quick]);
     const brief = e.target.closest('[data-brief]');

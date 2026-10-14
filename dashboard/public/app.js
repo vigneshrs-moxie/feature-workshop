@@ -200,7 +200,8 @@ function foreman() {
 function card(f) {
   const sit = situation(f);
   const type = `<span class="type type-${f.kind}" title="${f.kindGuessed ? 'Guessed from the branch or folder name' : ''}">${f.kind === 'bug' ? 'Bug' : 'Feature'}</span>`;
-  const size = f.route ? `<span class="type type-${f.route}" title="${f.route === 'small' ? 'Small: no refine interview' : 'Large: includes the refine interview'}">${esc(f.route)}</span>` : '';
+  const ROUTE_TIPS = { quick: 'Quick: short plan, build, you try it, one reviewer', small: 'Small: no refine interview', large: 'Large: includes the refine interview' };
+  const size = f.route ? `<span class="type type-${esc(f.route)}" title="${esc(ROUTE_TIPS[f.route] ?? '')}">${esc(f.route)}</span>` : '';
   const coins = `<span class="coins" title="${esc(f.cost.source === 'estimate' ? 'Cost so far, estimated from token counts' : 'Cost so far')}">${icon('coin', 18)}${esc(usd(f.cost.totalUsd, f.cost.source))}</span>`;
   const flags = f.unconfirmed ? `<p class="say-flag">★ ${esc(plural(f.unconfirmed, 'thing'))} decided for you. Please check.</p>` : '';
   return `<a class="route gbox state-${sit.tone}" href="#/job/${encodeURIComponent(f.slug)}" data-key="${esc(f.slug)}">

@@ -18,6 +18,7 @@ function headerFields(text) {
 
 function parseRoute(text) {
   if (!text) return null;
+  if (/^\s*quick/i.test(text)) return 'quick';
   if (/^\s*small/i.test(text)) return 'small';
   if (/^\s*large/i.test(text)) return 'large';
   return null;

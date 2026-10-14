@@ -57,7 +57,7 @@ export function parseStatusJson(text) {
     warnings,
     slug: str(raw.slug),
     title: str(raw.title),
-    route: oneOf(raw.route, ['small', 'large'], 'route', warnings),
+    route: oneOf(raw.route, ['quick', 'small', 'large'], 'route', warnings),
     kind: oneOf(raw.kind ?? null, ['feature', 'bug'], 'kind', warnings),
     stage: oneOf(raw.stage, STAGE_IDS, 'stage', warnings),
     stageState: oneOf(raw.stage_state, STAGE_STATES, 'stage_state', warnings),

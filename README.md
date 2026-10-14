@@ -91,6 +91,21 @@ Events land in `~/.feature-workshop/hook-events/events.jsonl`. Remove the entrie
 
 **Look.** The sun button cycles automatic, day and night. Click the clock to switch 12/24-hour time. **Crew-dex** introduces every crew member with their model.
 
+### How much process a job gets
+
+**New job** asks how much process the job should get, and the job page's **How this job runs** lets you change it at any point (from the next stage):
+
+| Flow | What runs | Foreman |
+|---|---|---|
+| **Quick** | A short plan in the first reply → you say go → build → checks → you try it → one reviewer → PRs. No spec or plan documents. | Opus |
+| **Small** | Spec → investigate → plan → build → test → review → PRs | Opus |
+| **Large** | Small plus a product interview (refine); Fable checks the plan and the review | Fable |
+| **Let the Foreman decide** | It sizes the job after the spec | Opus |
+
+Under **Fine-tune**: hand over documents you already have (a spec, findings, a plan, a test plan: give the full path, and that stage is skipped), skip stages, pick exactly which reviewers run and how many fix rounds, say you'll test it yourself, ask Fable for a second look at chosen points, and leave notes for the Foreman. **Have Fable check something** on the job page asks for a one-off Fable look at the plan, the code, the spec or the review. You still approve what gets built before any code changes, and every push and PR.
+
+The options live in the job's private folder as `options.json`; the Foreman reads them before every stage (this needs the matching workflow update in `~/.claude/skills/feature/`).
+
 ### Try it on your computer
 
 Each job with a worktree has a **Try it on your computer** panel on its page, for testing the work by hand next to your main app:
@@ -114,7 +129,7 @@ When a reply run from here hits Claude's 5-hour or weekly limit, every reply sti
 - `~/.claude/agents/*.md` — each worker's model and effort, for the Crew-dex
 - your repositories, read-only with git (`git log`, `git show`) for the Code tab, and the spec file each job names
 
-**Writes:** only its own small state folder, `~/.feature-workshop/`:
+**Writes:** each job's `options.json` (and creates the job's folder when you start a job here), and its own small state folder, `~/.feature-workshop/`:
 - `sessions.json` — which Claude Code session drives each job, and when you took one over
 - `audit.jsonl` — every message sent, permission decided, routine step handled, pause and take-over, with the exact words
 - `settings.json` — how routine steps are handled, a usage-limit pause in progress, each job's local port, the terminal app, and which job the local database matches

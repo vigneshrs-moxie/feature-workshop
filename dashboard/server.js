@@ -26,6 +26,7 @@ import { classify } from './lib/policy.js';
 import { buildOverview, parseBrief } from './lib/overview.js';
 import { LimitWatch } from './lib/limits.js';
 import { LocalRunner } from './lib/local.js';
+import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions } from './lib/options.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -41,8 +42,8 @@ const DEMO = Boolean(process.env.WORKSHOP_DEMO);
 const TOKEN = crypto.randomBytes(24).toString('hex');
 
 const MODELS = [
-  { id: 'claude-fable-5-1', label: 'Fable 5.1', note: 'What the workflow is designed for. Best judgment, highest cost.' },
-  { id: 'claude-opus-5-5', label: 'Opus 5.5', note: 'Strong and cheaper. A good Foreman for smaller jobs.' },
+  { id: 'claude-opus-5-5', label: 'Opus 5.5', note: 'The everyday Foreman: strong and much cheaper than Fable. Asks Fable for a second look where your job options say.' },
+  { id: 'claude-fable-5-1', label: 'Fable 5.1', note: 'Best judgment, highest cost and quickest to use up your limits. For large or risky jobs.' },
   { id: 'claude-haiku-5-5', label: 'Haiku 5.5', note: 'Cheapest. For trying the dashboard out, not real jobs.' },
 ];
 
@@ -321,11 +322,13 @@ async function jobDetail(f) {
       else if (e.status === 'stopped') thread.push({ kind: 'note', at: e.at, text: 'You paused this reply.' });
     } else if (e.action === 'permission') thread.push({ kind: 'decision', at: e.at, text: `${e.decision === 'deny' ? 'You said no to' : 'You allowed'}: ${e.headline ?? e.tool}${e.note ? ` (“${e.note}”)` : ''}` });
     else if (e.action === 'takeover') thread.push({ kind: 'note', at: e.at, text: 'You took this job over from the terminal.' });
+    else if (e.action === 'options') thread.push({ kind: 'note', at: e.at, text: `You changed how this job runs (from the next stage): ${describeOptions(e.options).join(' ')}` });
   }
   thread.sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')));
   return {
     ...boardCard(f, run),
     dir: f.dir, repoPath: f.repoPath, branch: f.branch, worktree: f.worktree, baseSha: f.baseSha, prs: f.prs,
+    options: f.options, optionsSummary: f.options ? describeOptions(f.options) : null,
     spec: f.spec, specFile: specFile(f), currentText: f.currentText, questionsFull: f.questions, decidedOnYourBehalf: f.decidedOnYourBehalf,
     latestBrief, briefs: f.briefs, approvals: f.approvals, history: f.history, artifacts: f.artifacts, recordedArtifacts: f.recordedArtifacts,
     costDetail: { ...f.cost, whatIf: whatIfConductor(f.cost.agents) },
@@ -401,6 +404,7 @@ const GET = {
     token: TOKEN, stages: STAGES, agents: AGENTS, prices: { asOf: PRICES_AS_OF, models: PRICES },
     featuresDir: FEATURES_DIR, crewModels: await crewModels(), demo: DEMO, models: MODELS, readDirs: await readDirs(),
     settings: await state.getSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT },
+    jobOptions: { flows: Object.entries(FLOWS).map(([id, f]) => ({ id, label: f.label, note: f.note, model: f.model, defaults: defaultsFor(id) })), skippable: SKIPPABLE, providable: PROVIDABLE, reviewers: REVIEWERS, fablePoints: FABLE_POINTS },
   }),
   '/api/features': async () => {
     const list = await features();
@@ -500,7 +504,7 @@ async function routePost(urlPath, req, res) {
     if (limits.isLimited() && body.despiteLimit !== true) throw new HttpError(409, limitMessage(), { code: 'limited' });
     if (drive.mode === 'terminal') throw new HttpError(409, 'This job’s Foreman was last used in your terminal.', { code: 'terminal', lastTerminalAt: drive.lastTerminalAt });
     if (drive.mode === 'terminal-open' && body.confirmNoTerminal !== true) throw new HttpError(409, 'Claude Code is open in this repository in a terminal. Make sure none of those windows is this job’s Foreman, then confirm.', { code: 'terminal-open', terminals: drive.terminals.length });
-    const model = MODELS.some((x) => x.id === body.model) ? body.model : drive.model ?? 'claude-fable-5-1';
+    const model = MODELS.some((x) => x.id === body.model) ? body.model : drive.model ?? OPUS;
     const cwd = drive.cwd ?? f.repoPath;
     if (!cwd) throw new HttpError(400, 'I don’t know which repository this job belongs to.');
     let sendText = text;
@@ -542,6 +546,16 @@ async function routePost(urlPath, req, res) {
     await state.setSettings({ policy });
     await state.audit({ action: 'settings', policy });
     return sendJson(res, 200, await state.getSettings());
+  }
+  if ((m = /^\/api\/job\/([^/]+)\/options$/.exec(urlPath))) {
+    const f = await featureBySlug(m[1]);
+    if (!f) throw new HttpError(404, 'No job by that name.');
+    let options;
+    try { options = normalizeOptions(body.options ?? {}); } catch (err) { throw new HttpError(400, err.message); }
+    await writeOptions(f.dir, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind });
+    await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options });
+    cached = null;
+    return sendJson(res, 200, { ok: true, options, summary: describeOptions(options) });
   }
   if ((m = /^\/api\/job\/([^/]+)\/local$/.exec(urlPath))) {
     const f = await featureBySlug(m[1]);
@@ -611,13 +625,17 @@ async function routePost(urlPath, req, res) {
     if (limits.isLimited() && body.despiteLimit !== true) throw new HttpError(409, limitMessage(), { code: 'limited' });
     const repo = await checkRepo(str(body.repoPath, 1000));
     if (!repo.ok) throw new HttpError(400, repo.reason);
-    const model = MODELS.some((x) => x.id === body.model) ? body.model : 'claude-fable-5-1';
+    let options;
+    try { options = normalizeOptions(body.options ?? {}); } catch (err) { throw new HttpError(400, err.message); }
+    const model = MODELS.some((x) => x.id === body.model) ? body.model : FLOWS[options.flow]?.model ?? OPUS;
     const kind = body.kind === 'bug' ? 'bug' : 'feature';
     const slug = await uniqueSlug(slugify(description));
     const featureDir = path.join(FEATURES_DIR, slug);
-    const text = `/feature ${description}${kind === 'bug' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}`;
+    // The job's options go in its private folder (read before every stage) and in the first message.
+    await writeOptions(featureDir, options, { title: description, repo: repo.path, kind });
+    const text = `/feature ${description}${kind === 'bug' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${describeOptions(options).map((l) => `- ${l}`).join('\n')}`;
     const run = await driver.start({ featureDir, slug, title: description, cwd: repo.path, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
-    await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description });
+    await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options });
     cached = null;
     return sendJson(res, 200, { run, slug });
   }

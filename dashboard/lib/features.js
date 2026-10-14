@@ -5,7 +5,8 @@ import path from 'node:path';
 import { parseWorkflowStatus } from './workflow-status.js';
 import { parseStatusJson } from './status-json.js';
 import { parseSessionLog, usageByModel, activityState, quietHint, spendSince } from './session-log.js';
-import { agentInfo, skippedStages } from './stages.js';
+import { agentInfo } from './stages.js';
+import { readOptions, skippedFor } from './options.js';
 import { estimateCost, calibrationFactors } from './cost.js';
 import { locateJob } from './locate.js';
 
@@ -264,15 +265,17 @@ async function readFeatureFolder(dir) {
   const waitingSince = status?.waitingSince
     ?? (stageState === 'waiting_for_you' && wsStat ? wsStat.mtime.toISOString() : null);
   const route = status?.route ?? ws?.route ?? null;
+  const options = await readOptions(dir);
 
   return {
     slug,
     dir,
-    title: status?.title ?? ws?.title ?? slug,
+    title: status?.title ?? ws?.title ?? options?.title ?? slug,
     route,
-    kind: kindFor(status?.kind, status?.branch ?? ws?.repository?.branch, slug),
-    kindGuessed: !status?.kind,
-    skipped: skippedStages(route),
+    kind: kindFor(status?.kind ?? options?.kind, status?.branch ?? ws?.repository?.branch, slug),
+    kindGuessed: !status?.kind && !options?.kind,
+    skipped: skippedFor(route ?? (options?.flow === 'quick' ? 'quick' : null), options),
+    options,
     stage: status?.stage ?? ws?.stage ?? null,
     stageState,
     waitingFor: status?.waitingFor ?? null,
@@ -284,7 +287,7 @@ async function readFeatureFolder(dir) {
     branch: status?.branch ?? ws?.repository?.branch ?? null,
     worktree: status?.worktree ?? ws?.worktree ?? null,
     baseSha: status?.baseSha ?? null,
-    repoPath: status?.repo?.path ?? ws?.repository?.path ?? null,
+    repoPath: status?.repo?.path ?? ws?.repository?.path ?? options?.repo ?? null,
     prs: status?.prs ?? null,
     questions: status?.questions ?? [],
     decidedOnYourBehalf: status?.decidedOnYourBehalf ?? [],
