@@ -70,6 +70,7 @@ function closeParen(src, start) {
       continue;
     }
     if (c === '#' && (i === start || /[\s;|&(]/.test(src[i - 1]))) return -1; // a comment: not judged
+    if (c === '<' && src[i + 1] === '<') return -1; // a here-document inside $( ): not judged
     if (c === "'" || c === '"') q = c;
     else if (c === '(') depth++;
     else if (c === ')' && --depth === 0) return i;
@@ -79,17 +80,38 @@ function closeParen(src, start) {
 
 // One pass over a command line, honouring quotes. Cuts it into simple commands at ; && || | and
 // newlines, each with the separator that follows it, and lifts out $( … ) contents.
-// Returns null for what we won't judge: comments, backticks, here-documents, subshells and process
-// substitution, $(( )) arithmetic, $'…' and $"…" quoting, unusual ${…} expansions, unfinished
-// quotes and running in the background.
+// Here-documents with a quoted end word (<<'EOF') are plain text fed to the command, so their body
+// is skipped and the command itself is judged; an unquoted one (<<EOF) expands $( … ) inside, so
+// it isn't judged.
+// Returns null for what we won't judge: comments, backticks, unquoted here-documents, here-strings,
+// subshells and process substitution, $(( )) arithmetic, $'…' and $"…" quoting, unusual ${…}
+// expansions, unfinished quotes and running in the background.
 function scan(src) {
   const parts = [];
   const subs = [];
   let cur = '';
   let q = null;
+  const heredocs = []; // end words waiting for their body, which starts on the next line
   const cut = (sep) => {
     if (cur.trim()) parts.push({ text: cur.trim(), sep });
     cur = '';
+  };
+  // Skip the bodies of the here-documents opened on the line that just ended; false if one never ends.
+  const skipBodies = (from) => {
+    let i = from;
+    while (heredocs.length) {
+      const { word, tabs } = heredocs.shift();
+      let found = false;
+      while (i < src.length) {
+        const nl = src.indexOf('\n', i);
+        const lineEnd = nl < 0 ? src.length : nl;
+        const text = src.slice(i, lineEnd);
+        i = nl < 0 ? src.length : nl + 1;
+        if ((tabs ? text.replace(/^\t+/, '') : text) === word) { found = true; break; }
+      }
+      if (!found) return -1;
+    }
+    return i;
   };
   for (let i = 0; i < src.length; i++) {
     const c = src[i];
@@ -117,8 +139,22 @@ function scan(src) {
     if (c === '#' && isWordStart(cur)) return null;
     if (c === "'" || c === '"') { q = c; cur += c; continue; }
     if (c === '(' || c === ')') return null;
-    if (c === '<' && n === '<') return null;
-    if (c === ';' || c === '\n') { cut(';'); continue; }
+    if (c === '<' && n === '<') {
+      const m = /^<<(-?)[ \t]*(?:'([A-Za-z0-9_.-]+)'|"([A-Za-z0-9_.-]+)")/.exec(src.slice(i));
+      if (!m) return null; // here-strings and unquoted here-documents
+      heredocs.push({ word: m[2] ?? m[3], tabs: m[1] === '-' });
+      i += m[0].length - 1;
+      continue;
+    }
+    if (c === ';' || c === '\n') {
+      cut(';');
+      if (c === '\n' && heredocs.length) {
+        const next = skipBodies(i + 1);
+        if (next < 0) return null;
+        i = next - 1;
+      }
+      continue;
+    }
     if (c === '|') {
       if (n === '|') { cut('||'); i++; } else { cut('|'); if (n === '&') i++; }
       continue;
@@ -130,7 +166,7 @@ function scan(src) {
     }
     cur += c;
   }
-  if (q) return null;
+  if (q || heredocs.length) return null;
   cut(null);
   return { parts, subs };
 }
@@ -219,9 +255,11 @@ function tokenize(simple) {
 
 const expandHome = (p) => (p === '~' ? os.homedir() : p.startsWith('~/') ? path.join(os.homedir(), p.slice(2)) : p);
 
-// An absolute path for a word, or null when it depends on something we can't see.
+// An absolute path for a word, or null when it depends on something we can't see. Callers pass only
+// words tokenize() found literal (not dyn), so [id], * or $ left in them are plain characters
+// (quoted in the command); $( … ) placeholders and ~user still count as unknown.
 function resolvePath(word, cwd) {
-  if (!word || word.includes(SUB) || /[$*?{}[\]]/.test(word) || word.startsWith('=')) return null;
+  if (!word || word.includes(SUB)) return null;
   if (word.startsWith('~') && word !== '~' && !word.startsWith('~/')) return null;
   const p = expandHome(word);
   if (path.isAbsolute(p)) return path.resolve(p);

@@ -81,6 +81,25 @@ test('quoted patterns, substitutions and loops are read properly', () => {
   assert.equal(auto('Bash', { command: 'xargs -I {} cat {} < list' }), true, 'xargs with a read-only command');
 });
 
+test('here-documents: a quoted one writing into the worktree runs; anything that could run its text asks', () => {
+  assert.equal(auto('Bash', { command: "cd /r/orbit-x && cat >> app/x.ts <<'EOF'\nconst a = `$(rm -rf /)`; // just text\nEOF" }), true, 'quoted body is plain text');
+  assert.equal(auto('Bash', { command: "cat <<'EOF' > /r/orbit-x/notes.md\n# Title\nEOF\ngit -C /r/orbit-x status" }), true, 'commands after the body are judged too');
+  assert.equal(auto('Bash', { command: 'mkdir -p "/r/orbit-x/app/src/app/api/[id]/retract"' }), true, 'a quoted [id] folder is just a name');
+  for (const command of [
+    'cat <<EOF > /r/orbit-x/x\n$(rm -rf build)\nEOF',
+    "python3 - <<'EOF'\nprint(1)\nEOF",
+    "bash <<'EOF'\nls\nEOF",
+    "cat >> /etc/x <<'EOF'\nx\nEOF",
+    "cat > /r/app/src/a.ts <<'EOF'\nx\nEOF",
+    "cat <<'EOF'\nnever ends",
+    "cat <<< 'here-string'",
+    "cat <<'EOF'\nx\nEOF\nrm -rf build",
+    'mkdir -p /r/orbit-x/app/[id]', // unquoted: a wildcard
+  ]) {
+    assert.equal(auto('Bash', { command }), false, command);
+  }
+});
+
 // ---------- finding the repository and branch ----------
 
 test('locateJob: finds the repo, branch and worktree from text and git', async () => {
