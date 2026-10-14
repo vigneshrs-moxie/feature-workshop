@@ -81,7 +81,7 @@ export function situation(f) {
     const a = workers[0] ?? running[0];
     return { tone: 'working', main: `<b>${esc(agentName(a.who))}</b> ${esc(verbFor(a.who))}`, detail: a.doing, time: since(a.since), crew: [a], bubble: quiet ? 'quiet' : 'dots', hint };
   }
-  if (f.limitPaused) return { tone: 'idle', main: '<b>Paused</b> for Claude’s usage limit.', detail: `It carries on by itself at about ${clockTime(f.limitPaused)}.`, crew: [], bubble: null };
+  if (f.limitPaused) return { tone: 'idle', main: '<b>Paused</b> for Claude’s usage limit.', detail: f.limitAuto ? `It carries on by itself at about ${clockTime(f.limitPaused)}.` : 'Automatic carry-on is off: use “Carry on now” at the top of the page once the limit has reset.', crew: [], bubble: null };
   if (f.paused) return { tone: 'idle', main: '<b>Paused.</b> Nothing is running.', detail: 'You paused this from the workshop. Send the Foreman a message to carry on.', crew: [], bubble: null };
   if (f.stageState === 'working') return { tone: 'working', main: '<b>The crew</b> is working', detail: f.nextProposed, crew: [], bubble: 'dots' };
   if (f.stageState === 'blocked') return { tone: 'blocked', main: '<b>Blocked:</b> waiting on someone else', detail: f.nextProposed, crew: [], bubble: null };
@@ -100,7 +100,7 @@ function renderUsage() {
     const t = u.resetsAt ? clockTime(u.resetsAt) : null;
     const left = u.resetsAt ? duration(Date.parse(u.resetsAt) - Date.now()) : null;
     const jobs = u.jobs.length ? `${esc(plural(u.jobs.length, 'job'))} paused: ${u.jobs.map((j) => esc(j.title)).join(', ')}.` : 'Nothing was running from here.';
-    const plan = !u.autoResume ? 'Automatic carry-on is off, so use <b>Carry on now</b> when you’re ready.'
+    const plan = !u.autoResume ? (u.passed ? 'The limit has reset. Automatic carry-on is off, so use <b>Carry on now</b> when you’re ready; new messages go through again.' : 'Automatic carry-on is off, so use <b>Carry on now</b> when you’re ready.')
       : u.resetKnown ? `${u.jobs.length ? 'They carry on' : 'Jobs can start again'} by themselves at about <b>${esc(t)}</b> (in ${esc(left)}).`
         : `Claude didn’t say when it resets, so the workshop tries again at about <b>${esc(t)}</b>.`;
     html = `<section class="usage-banner gbox" role="status" aria-label="Usage limit">

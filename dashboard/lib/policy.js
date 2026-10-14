@@ -4,7 +4,8 @@
 // job's worktree. Pushing, PRs, merges, migrations, database writes, servers, installs, deleting,
 // network access and anything that writes outside the job's folders always come to the person.
 // Reading is fine anywhere (the Read tool already is), so moving around with cd is too.
-// When unsure, ask. Mode 'ask-all' asks about everything.
+// When unsure, ask: anything the reader below can't follow exactly (comments, unusual expansions,
+// values only known when the command runs) goes to the person. Mode 'ask-all' asks about everything.
 
 import os from 'node:os';
 import path from 'node:path';
@@ -22,18 +23,38 @@ const inside = (p, dir) => {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 };
 
-// Read-only shell commands (first word), plus a few harmless helpers. Words that only shape a
-// command (if, for, do, done …) are read past; what they wrap is judged on its own.
-const READONLY_CMDS = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'grep', 'egrep', 'fgrep', 'rg', 'pwd', 'echo', 'printf', 'date', 'which', 'sort', 'uniq', 'cut', 'tr', 'jq', 'diff', 'cmp', 'comm', 'test', '[', '[[', ']]', 'true', 'false', 'file', 'stat', 'du', 'basename', 'dirname', 'realpath', 'tree', 'nl', 'column', 'awk', 'sed', 'find', 'xargs', 'seq', 'rev', 'shasum', 'sha256sum', 'md5', 'od', 'read', 'type', 'cd']);
+// Read-only commands that stay harmless whatever their arguments turn out to be.
+const SAFE_ANY_ARGS = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'grep', 'egrep', 'fgrep', 'pwd', 'echo', 'date', 'which', 'cut', 'tr', 'jq', 'diff', 'cmp', 'comm', 'true', 'false', 'stat', 'du', 'basename', 'dirname', 'realpath', 'nl', 'column', 'seq', 'rev', 'shasum', 'sha256sum', 'md5', 'od', 'type']);
+// Read-only commands judged by their arguments below (and only when those are written out in full).
+const CHECKED_CMDS = new Set(['printf', 'test', '[', '[[', ']]', 'read', 'uniq', 'sort', 'rg', 'file', 'tree', 'awk', 'sed', 'find', 'xargs', 'cd', 'mkdir', 'git', 'gh', 'npm', 'pnpm', 'yarn', 'npx', 'node', 'timeout']);
+// What xargs may run: commands that stay read-only whatever it appends.
+const XARGS_OK = new Set(['cat', 'head', 'tail', 'wc', 'ls', 'grep', 'egrep', 'fgrep', 'stat', 'du', 'shasum', 'sha256sum', 'md5', 'basename', 'dirname', 'echo']);
 const PREFIX_WORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{', 'time']);
 const CLOSING_WORDS = new Set(['done', 'fi', '}']);
-const GIT_READ = new Set(['status', 'log', 'diff', 'show', 'rev-parse', 'ls-files', 'describe', 'blame', 'merge-base', 'for-each-ref', 'shortlog', 'cat-file', 'ls-tree', 'grep', 'fetch', 'check-ignore', 'ls-remote', 'rev-list', 'name-rev', 'cherry', 'range-diff', 'count-objects', 'whatchanged']);
+const GIT_READ = new Set(['status', 'log', 'diff', 'show', 'rev-parse', 'ls-files', 'describe', 'blame', 'merge-base', 'for-each-ref', 'shortlog', 'cat-file', 'ls-tree', 'grep', 'check-ignore', 'rev-list', 'name-rev', 'cherry', 'range-diff', 'count-objects', 'whatchanged']);
+const GIT_NETWORK_READ = new Set(['fetch', 'ls-remote']);
+const GIT_GLOBAL_OK = /^(--no-pager|-P|--no-optional-locks|--literal-pathspecs|--no-replace-objects)$/;
+// Options that make git write somewhere or run another program; git accepts any unambiguous prefix.
+const GIT_RISKY_LONG = ['upload-pack', 'receive-pack', 'exec', 'exec-path', 'open-files-in-pager', 'output', 'ext-diff', 'textconv', 'config', 'config-env'];
 const GIT_BRANCH_LIST = /^(-l|--list|--show-current|--contains|--no-contains|--merged|--no-merged|--points-at)$/;
 const GH_READ = { auth: ['status'], pr: ['view', 'list', 'status', 'checks', 'diff'], issue: ['view', 'list'], repo: ['view'], run: ['view', 'list'], release: ['view', 'list'] };
-// Variables that change which program runs or what it loads; setting them always asks.
-const RISKY_ENV = /^(PATH|BASH_ENV|ENV|SHELL|PAGER|GIT_[A-Z_]*|LD_[A-Z_]*|DYLD_[A-Z_]*|NODE_OPTIONS|NODE_PATH|EDITOR|VISUAL|PYTHON[A-Z_]*|PERL[A-Z0-9_]*|RUBY[A-Z_]*|npm_config_[a-z_]*|PROMPT_COMMAND|IFS)=/i;
+// Upper-case variables a command may set; anything else in capitals could change how programs start.
+const SAFE_UPPER_VARS = new Set(['NO_COLOR', 'FORCE_COLOR', 'CI', 'TZ', 'LANG', 'LC_ALL', 'NODE_ENV', 'SKIP_ENV_VALIDATION', 'DEBUG', 'TERM', 'COLUMNS', 'LINES']);
 const CHECK_SCRIPTS = /^(check|lint|typecheck|type-check|build|test|test:unit|format:check|lint:check)$/;
 const SUB = '\u0000sub\u0000'; // stands in for a $( … ) whose own commands are judged separately
+// ${name}, ${#name}, ${name:-word}, ${name%pat} and the like; not assignments, indirection, flags or @ operators.
+const SIMPLE_PARAM = /^(#?[A-Za-z_][A-Za-z0-9_]*|[0-9#?$*@!-])((:?[-+?])|%{1,2}|#{1,2}|\/{1,2}|:\d+)?/;
+
+const isWordStart = (cur) => cur === '' || /\s$/.test(cur);
+// zsh ties these lower-case names to PATH, CDPATH and friends.
+const ZSH_TIED = new Set(['path', 'cdpath', 'fpath', 'manpath', 'module_path', 'mailpath', 'psvar']);
+const varNameOk = (name) => (/^[a-z_][a-z0-9_]*$/.test(name) && !ZSH_TIED.has(name)) || SAFE_UPPER_VARS.has(name);
+// Does a long option name the user wrote ("--ou") abbreviate one of these?
+const abbreviates = (arg, names) => {
+  if (!arg.startsWith('--')) return false;
+  const name = arg.slice(2).split('=')[0];
+  return name.length >= 2 && names.some((n) => n.startsWith(name));
+};
 
 // Index of the ")" closing a "$(" whose contents start at `start`; -1 when it can't be read safely.
 function closeParen(src, start) {
@@ -48,6 +69,7 @@ function closeParen(src, start) {
       else if (c === '$' && src[i + 1] === '(') return -1; // nested inside quotes: not judged
       continue;
     }
+    if (c === '#' && (i === start || /[\s;|&(]/.test(src[i - 1]))) return -1; // a comment: not judged
     if (c === "'" || c === '"') q = c;
     else if (c === '(') depth++;
     else if (c === ')' && --depth === 0) return i;
@@ -57,8 +79,9 @@ function closeParen(src, start) {
 
 // One pass over a command line, honouring quotes. Cuts it into simple commands at ; && || | and
 // newlines, each with the separator that follows it, and lifts out $( … ) contents.
-// Returns null for what we won't judge: backticks, here-documents, subshells and process
-// substitution, $(( )) arithmetic, unfinished quotes and running in the background.
+// Returns null for what we won't judge: comments, backticks, here-documents, subshells and process
+// substitution, $(( )) arithmetic, $'…' and $"…" quoting, unusual ${…} expansions, unfinished
+// quotes and running in the background.
 function scan(src) {
   const parts = [];
   const subs = [];
@@ -83,7 +106,15 @@ function scan(src) {
       i = end;
       continue;
     }
+    if (c === '$' && (n === "'" || n === '"') && q !== '"') return null;
+    if (c === '$' && n === '{') {
+      const body = /^\$\{([^}]*)\}/.exec(src.slice(i))?.[1];
+      if (body === undefined || !SIMPLE_PARAM.test(body)) return null;
+      const m = SIMPLE_PARAM.exec(body);
+      if (!m[2] && m[0].length !== body.length) return null; // something after the name we don't know
+    }
     if (q === '"') { cur += c; if (c === '"') q = null; continue; }
+    if (c === '#' && isWordStart(cur)) return null;
     if (c === "'" || c === '"') { q = c; cur += c; continue; }
     if (c === '(' || c === ')') return null;
     if (c === '<' && n === '<') return null;
@@ -125,45 +156,60 @@ export function splitCommand(cmd) {
   return parsed ? [...parsed.parts, ...parsed.subs].map((p) => p.text) : null;
 }
 
-// Words (quotes removed) and redirections of one simple command; null when it can't be read cleanly.
+// Words of one simple command, quotes removed, each marked `dyn` when its value is only known when
+// it runs ($variables, $( … ), unquoted globs, ~user), and its redirections. null when unreadable.
 function tokenize(simple) {
   const words = [];
   const redirects = [];
   let w = null;
+  let dyn = false; // has $ or $( … ), or starts with ~user or =cmd
+  let glob = false; // has an unquoted * ? [
+  let brace = false; // has an unquoted {
   let q = null;
   let op = null;
+  const add = (ch) => { w = (w ?? '') + ch; };
   const end = () => {
     if (w === null) return;
-    if (op) { redirects.push({ op, target: w }); op = null; } else words.push(w);
+    // A lone [ or [[ is the test command, and {} with nothing to expand is literal.
+    const d = dyn || (glob && !/^(\[\[?|\]\]?)$/.test(w)) || (brace && /\{[^}]*(,|\.\.)[^}]*\}/.test(w));
+    if (op) { redirects.push({ op, target: w, dyn: d }); op = null; } else words.push({ t: w, dyn: d });
     w = null;
+    dyn = glob = brace = false;
   };
   for (let i = 0; i < simple.length; i++) {
     const c = simple[i];
     const n = simple[i + 1];
-    if (q === "'") { if (c === "'") q = null; else w += c; continue; }
+    if (q === "'") { if (c === "'") q = null; else add(c); continue; }
+    if (c === SUB[0] && simple.startsWith(SUB, i)) { add(SUB); dyn = true; i += SUB.length - 1; continue; }
     if (q === '"') {
       if (c === '"') q = null;
-      else if (c === '\\' && /["\\$`]/.test(n ?? '')) { w += n; i++; } else w += c;
+      else if (c === '\\' && /["\\$`]/.test(n ?? '')) { add(n); i++; } else { if (c === '$') dyn = true; add(c); }
       continue;
     }
     if (c === '\\') {
       i++;
-      if (n !== '\n' && n !== undefined) w = (w ?? '') + n;
+      if (n !== '\n' && n !== undefined) add(n);
       continue;
     }
     if (c === "'" || c === '"') { q = c; w = w ?? ''; continue; }
     if (/\s/.test(c)) { end(); continue; }
     if (c === '>' || c === '<' || (c === '&' && n === '>')) {
       // A word made only of digits right before it is the stream number, as in 2>.
-      if (w !== null && /^\d+$/.test(w) && !op) w = null; else end();
+      if (w !== null && /^\d+$/.test(w) && !op) { w = null; dyn = false; } else end();
       if (op) return null;
       if (c === '&') { op = simple[i + 2] === '>' ? '&>>' : '&>'; i += op.length - 1; continue; }
       op = c;
       if (c === '>' && /[>|&]/.test(n ?? '')) { op += n; i++; }
       if (c === '<' && /[&>]/.test(n ?? '')) { op += n; i++; }
+      if (op.startsWith('>') && simple[i + 1] === '!') { op += '!'; i++; } // zsh's >! and >>!
       continue;
     }
-    w = (w ?? '') + c;
+    if (c === '$') dyn = true;
+    if (c === '*' || c === '?' || c === '[') glob = true;
+    if (c === '{') brace = true;
+    if (c === '~' && w === null && !/^(~\/|~$)/.test(simple.slice(i, i + 2).replace(/\s$/, ''))) dyn = true; // ~user
+    if (c === '=' && w === null && /[A-Za-z]/.test(n ?? '')) dyn = true; // zsh =cmd
+    add(c);
   }
   if (q) return null;
   end();
@@ -175,7 +221,8 @@ const expandHome = (p) => (p === '~' ? os.homedir() : p.startsWith('~/') ? path.
 
 // An absolute path for a word, or null when it depends on something we can't see.
 function resolvePath(word, cwd) {
-  if (!word || word.includes(SUB) || word.includes('$') || /[*?]/.test(word)) return null;
+  if (!word || word.includes(SUB) || /[$*?{}[\]]/.test(word) || word.startsWith('=')) return null;
+  if (word.startsWith('~') && word !== '~' && !word.startsWith('~/')) return null;
   const p = expandHome(word);
   if (path.isAbsolute(p)) return path.resolve(p);
   return cwd ? path.resolve(cwd, p) : null;
@@ -183,10 +230,10 @@ function resolvePath(word, cwd) {
 
 // Output redirection is fine only to /dev/null, a temp folder, or inside the allowed folders.
 function redirectVerdict(redirects, ctx) {
-  for (const { op, target } of redirects) {
-    if ((op === '<' || op === '<&') || ((op === '>&' || op === '<&') && /^(\d+|-)$/.test(target))) continue;
-    if (/^\/dev\/(null|stdout|stderr)$/.test(target)) continue;
-    const abs = resolvePath(target, ctx.cwd);
+  for (const { op, target, dyn } of redirects) {
+    if (op === '<' || op === '<&' || (op === '>&' && /^(\d+|-)$/.test(target))) continue;
+    if (!dyn && /^\/dev\/(null|stdout|stderr)$/.test(target)) continue;
+    const abs = dyn ? null : resolvePath(target, ctx.cwd);
     if (!abs || ![...ctx.writableDirs, ...TEMP_DIRS].some((d) => inside(abs, d))) return 'writes output somewhere outside the job’s folders';
   }
   return 'ok';
@@ -200,7 +247,7 @@ function sedVerdict(args) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '-e' || a === '--expression') { scripts.push(args[++i] ?? ''); explicit = true; } else if (/^-[nEr]+$/.test(a) || a === '--quiet' || a === '-u') continue;
-    else if (a.startsWith('-')) return /^-i|--in-place/.test(a) ? 'edits files in place' : `sed ${a} needs your OK`;
+    else if (a.startsWith('-')) return /^-i|^--in/.test(a) ? 'edits files in place' : `sed ${a} needs your OK`;
     else if (!explicit && !scripts.length) scripts.push(a);
   }
   for (const s of scripts) {
@@ -220,25 +267,25 @@ function awkVerdict(args) {
     if (a === '-F' || a === '-v') i++;
     else if (!a.startsWith('-')) { prog = a; break; }
   }
-  if (/system\s*\(|(?<!\|)\|(?!\|)|\bprintf?\b[^;}]*>/.test(prog)) return 'awk that runs commands or writes files';
+  if (/system\s*\(|(?<!\|)\|(?!\|)|\bprintf?\b[^;}]*>|getline/.test(prog)) return 'awk that runs commands or writes files';
   return 'ok';
 }
 
 function gitVerdict(rest, ctx) {
-  // git -C <dir> <sub> …
+  // git [global options] <sub> …; each -C moves from the last place, as git does.
   let i = 0;
-  let dirArg = null;
+  let where = ctx.cwd;
   while (rest[i]?.startsWith('-')) {
-    // -c and --exec-path can make git run other programs.
-    if (rest[i] === '-c' || rest[i].startsWith('--exec-path') || rest[i].startsWith('--config-env')) return 'git with its settings overridden needs your OK';
-    if (rest[i] === '-C') dirArg = rest[i + 1];
-    i += rest[i] === '-C' ? 2 : 1;
+    if (rest[i] === '-C') { where = resolvePath(rest[i + 1] ?? '', where); i += 2; continue; }
+    if (!GIT_GLOBAL_OK.test(rest[i])) return `git ${rest[i]} needs your OK`;
+    i++;
   }
   const sub = rest[i];
   const args = rest.slice(i + 1);
-  if (args.some((a) => a.startsWith('--output'))) return 'git writing to a file needs your OK';
-  if (args.some((a) => /^--(upload-pack|receive-pack|exec)\b|^--open-files-in-pager|^-O/.test(a))) return 'git that runs another program needs your OK';
+  if (args.some((a) => abbreviates(a, GIT_RISKY_LONG) || /^-O/.test(a))) return 'git that writes to a file or runs another program needs your OK';
   if (GIT_READ.has(sub)) return 'ok';
+  // Network reads only towards your named remotes, never to an address made up on the spot.
+  if (GIT_NETWORK_READ.has(sub)) return args.every((a) => a.startsWith('-') || /^[A-Za-z0-9._/-]+$/.test(a)) ? 'ok' : `git ${sub} to that address needs your OK`;
   if (sub === 'remote' && (!args.length || args.every((a) => a === '-v' || a === '--verbose') || ['show', 'get-url'].includes(args[0]))) return 'ok';
   if (sub === 'reflog' && !['expire', 'delete'].includes(args[0])) return 'ok';
   if (sub === 'stash' && ['list', 'show'].includes(args[0])) return 'ok';
@@ -250,44 +297,63 @@ function gitVerdict(rest, ctx) {
   }
   if (sub === 'worktree' && args[0] === 'list') return 'ok';
   if (sub === 'worktree' && args[0] === 'add' && (ctx.stage === 'plan' || BUILD_STAGES.has(ctx.stage))) return 'ok';
-  const where = dirArg ? resolvePath(dirArg, ctx.cwd) : ctx.cwd;
   const inWorktree = Boolean(where) && ctx.worktrees.some((d) => inside(where, d));
   if ((sub === 'add' || sub === 'commit') && BUILD_STAGES.has(ctx.stage) && inWorktree) return 'ok';
   return `git ${sub ?? ''} needs your OK`.trim();
 }
 
+// w: the words of one simple command ({ t, dyn }).
 function judgeWords(w, ctx, simple) {
   w = [...w];
-  while (w.length && (PREFIX_WORDS.has(w[0]) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0]))) {
-    if (RISKY_ENV.test(w[0])) return 'changes how programs start (' + w[0].split('=')[0] + ')';
+  while (w.length && (PREFIX_WORDS.has(w[0].t) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0].t))) {
+    const name = w[0].t.split('=')[0];
+    if (w[0].t.includes('=') && !PREFIX_WORDS.has(w[0].t) && !varNameOk(name)) return `changes how programs start (${name})`;
     w.shift();
   }
-  if (!w.length || CLOSING_WORDS.has(w[0]) || w[0] === 'for') return 'ok'; // a for loop's list is only data
-  const [cmd, ...rest] = w;
-  if (cmd.includes(SUB)) return 'runs a command chosen while it runs';
-  if (cmd === 'timeout' && rest.length > 1) return judgeWords(rest.slice(1), ctx, simple);
+  if (!w.length || CLOSING_WORDS.has(w[0].t)) return 'ok';
+  const words = w.map((x) => x.t);
+  const [cmd, ...rest] = words;
+  const dynArgs = w.slice(1).some((x) => x.dyn);
+  if (w[0].dyn) return 'runs a command chosen while it runs';
+  // A for loop's list is only data, but the loop variable must not be one programs read.
+  if (cmd === 'for') return varNameOk(rest[0] ?? '') ? 'ok' : `a loop that sets ${rest[0]} needs your OK`;
+  if (SAFE_ANY_ARGS.has(cmd)) return 'ok';
+  if (!CHECKED_CMDS.has(cmd)) return `${cmd} needs your OK`;
+  if (cmd === 'cd') return 'ok'; // where it goes is followed in classify()
+  // From here on the arguments matter, so they must be written out in full.
+  if (dynArgs && !['printf', 'test', '['].includes(cmd)) return `${cmd} with values only known when it runs needs your OK`;
+  if (cmd === 'printf') {
+    const v = rest.indexOf('-v');
+    return v < 0 || varNameOk(rest[v + 1] ?? '') ? 'ok' : 'printf that sets a variable programs read needs your OK';
+  }
+  if (cmd === 'test' || cmd === '[') return rest.includes('-v') ? 'test -v needs your OK' : 'ok';
+  if (cmd === '[[' || cmd === ']]') return 'ok';
+  if (cmd === 'read') return rest.filter((a) => !a.startsWith('-')).every(varNameOk) && !rest.some((a) => /^-[a-zA-Z]*[aA]/.test(a)) ? 'ok' : 'read into a variable programs read needs your OK';
+  if (cmd === 'timeout') return rest.length > 1 && /^\d+[smhd]?$/.test(rest[0]) ? judgeWords(w.slice(2), ctx, simple) : 'timeout needs your OK';
+  if (cmd === 'uniq') return rest.filter((a) => !a.startsWith('-')).length <= 1 ? 'ok' : 'uniq writing to a file needs your OK';
   if (cmd === 'mkdir') {
     const dirs = rest.filter((a) => !a.startsWith('-'));
-    return dirs.every((a) => { const abs = resolvePath(a, ctx.cwd); return abs && ctx.writableDirs.some((d) => inside(abs, d)); }) ? 'ok' : 'creates a folder outside the job’s folders';
+    return dirs.length && dirs.every((a) => { const abs = resolvePath(a, ctx.cwd); return abs && ctx.writableDirs.some((d) => inside(abs, d)); }) ? 'ok' : 'creates a folder outside the job’s folders';
   }
   if (cmd === 'sed') return sedVerdict(rest);
   if (cmd === 'awk') return awkVerdict(rest);
-  if (cmd === 'find' && rest.some((a) => /^-(delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/.test(a))) return 'find that deletes, writes or runs commands';
-  if (cmd === 'sort' && rest.some((a) => /^-o|^--output|^--compress-program/.test(a))) return 'sort writing to a file needs your OK';
-  if (cmd === 'rg' && rest.some((a) => /^--pre\b/.test(a))) return 'rg that runs another program needs your OK';
-  if (cmd === 'file' && rest.some((a) => /^-[a-zA-Z]*C/.test(a))) return 'file writing a file needs your OK';
-  if (cmd === 'tree' && rest.includes('-o')) return 'tree writing to a file needs your OK';
+  if (cmd === 'find') return rest.some((a) => /^-(delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/.test(a)) ? 'find that deletes, writes or runs commands' : 'ok';
+  if (cmd === 'sort') return rest.some((a) => /^-[^-]*[oT]/.test(a) || abbreviates(a, ['output', 'compress-program', 'temporary-directory', 'random-source'])) ? 'sort writing to a file needs your OK' : 'ok';
+  if (cmd === 'rg') return rest.some((a) => abbreviates(a, ['pre', 'pre-glob', 'search-zip'])) ? 'rg that runs another program needs your OK' : 'ok';
+  if (cmd === 'file') return rest.some((a) => /^-[a-zA-Z]*C/.test(a) || abbreviates(a, ['compile'])) ? 'file writing a file needs your OK' : 'ok';
+  if (cmd === 'tree') return rest.some((a) => a === '-o' || a.startsWith('-o')) ? 'tree writing to a file needs your OK' : 'ok';
   if (cmd === 'xargs') {
-    // xargs <options> <command>: the command it runs is what counts.
+    // xargs <options> <command>: what it appends from its input is unknown, so only commands that
+    // stay read-only whatever their arguments are allowed.
     let i = 0;
     while (rest[i]?.startsWith('-')) i += /^-[nIPLsdEJRS]$/.test(rest[i]) ? 2 : 1;
-    return rest.length > i ? judgeWords(rest.slice(i), ctx, rest.slice(i).join(' ')) : 'ok';
+    const run = rest[i] ?? 'echo';
+    return XARGS_OK.has(run) ? 'ok' : `xargs ${run} needs your OK`;
   }
-  if (READONLY_CMDS.has(cmd)) return 'ok';
   if (cmd === 'git') return gitVerdict(rest, ctx);
   if (cmd === 'gh') {
-    const args = rest.filter((a, k) => !(a.startsWith('-') || ['-R', '--repo'].includes(rest[k - 1])));
     if (rest.some((a) => a === '--show-token' || a === '-t')) return 'gh showing your token needs your OK';
+    const args = rest.filter((a, k) => !(a.startsWith('-') || ['-R', '--repo'].includes(rest[k - 1])));
     return GH_READ[args[0]]?.includes(args[1]) ? 'ok' : `gh ${args.slice(0, 2).join(' ')} needs your OK`.trim();
   }
   if ((cmd === 'npm' || cmd === 'pnpm' || cmd === 'yarn') && BUILD_STAGES.has(ctx.stage)) {
@@ -302,11 +368,20 @@ function judgeWords(w, ctx, simple) {
 
 // Where a cd goes (absolute), null when unknown; undefined when the command isn't a cd.
 function cdTarget(words, cwd) {
-  const w = words.filter((x) => !PREFIX_WORDS.has(x));
-  if (w[0] !== 'cd') return undefined;
-  const to = w.slice(1).find((a) => !/^-[LPe@]+$/.test(a));
-  if (!to) return os.homedir();
-  return to === '-' ? null : resolvePath(to, cwd);
+  const w = words.filter((x) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(x.t) || x.t === '!');
+  if (w[0]?.t === '!' && w[1]?.t === 'cd') return null; // a negated cd may have failed
+  const at = w.findIndex((x) => !PREFIX_WORDS.has(x.t));
+  if (w[at]?.t !== 'cd') return undefined;
+  if (w.slice(0, at).some((x) => x.t === '!')) return null;
+  let args = w.slice(at + 1);
+  while (args[0] && /^-[LPe@]+$/.test(args[0].t)) args = args.slice(1);
+  if (args[0]?.t === '--') args = args.slice(1);
+  if (!args.length) return os.homedir();
+  if (args.length > 1 || args[0].dyn || args[0].t === '-') return null;
+  const to = args[0].t;
+  // A plain name may be found through CDPATH; only ., .., ~ and absolute paths are certain.
+  if (!/^(\/|\.\.?(\/|$)|~(\/|$))/.test(to)) return null;
+  return resolvePath(to, cwd);
 }
 
 /**
@@ -338,8 +413,11 @@ export function classify(toolName, input = {}, ctx = {}) {
     if (!parsed) return { auto: false, reason: 'A complex command; please check it.' };
     const say = (verdict) => ({ auto: false, reason: verdict[0].toUpperCase() + verdict.slice(1) + '.' });
     const base = { ...ctx, worktrees, writableDirs };
-    // Follow cd through && only: after ; || or | a failed cd would leave us somewhere else.
+    // A cd counts for the commands joined to it by && when it starts its list (or follows only
+    // &&): then they run only if it worked. After ; || or | it may have been skipped or failed,
+    // so where later commands run is unknown.
     let cwd = ctx.cwd ?? null;
+    let chainOk = true;
     let moved = false;
     for (const part of parsed.parts) {
       const t = tokenize(part.text);
@@ -349,7 +427,11 @@ export function classify(toolName, input = {}, ctx = {}) {
         if (verdict !== 'ok') return say(verdict);
       }
       const to = cdTarget(t.words, cwd);
-      if (to !== undefined) { cwd = part.sep === '&&' ? to : null; moved = true; } else if (moved && part.sep !== '&&') cwd = null;
+      if (to !== undefined) { cwd = chainOk && part.sep === '&&' ? to : null; moved = true; }
+      if (part.sep !== '&&') {
+        if (moved) cwd = null;
+        chainOk = part.sep === ';' || part.sep === null; // a new list starts after ; or a newline
+      }
     }
     // Commands inside $( … ) run before their line; judge them where we can't be sure where that is.
     for (const part of parsed.subs) {

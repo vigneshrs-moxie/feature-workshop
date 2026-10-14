@@ -56,8 +56,15 @@ const queryFn = DEMO
   : (await import('@anthropic-ai/claude-agent-sdk')).query;
 const driver = new Driver({ queryFn, state, projectsDir: PROJECTS_DIR, cliPath: process.env.WORKSHOP_CLAUDE_PATH || null, policy: policyFor });
 // Claude usage limits: pause everything when one is reached, carry on when it resets.
-const limits = new LimitWatch({ driver, state });
-await limits.load();
+// A paused job is carried on only if it's still driven from here by the same Foreman session.
+const limits = new LimitWatch({
+  driver, state,
+  canResume: async (job) => {
+    const f = await featureBySlug(job.slug);
+    const drive = f ? await driveState(f) : null;
+    return Boolean(drive && drive.mode === 'workshop' && drive.sessionId === job.sessionId);
+  },
+});
 driver.on('usage-limit', (e) => { limits.onLimit(e).catch((err) => console.error(err)); });
 driver.on('usage-status', (info) => limits.onStatus(info));
 // Trying a job's work on this computer (its own port, dev server, commands, terminal, database).
@@ -207,7 +214,7 @@ function boardCard(f, run) {
     repo: f.repoPath ? { name: path.basename(f.repoPath), branch: f.branch } : null,
     cost: { totalUsd: Math.max(f.cost.totalUsd, active?.costUsd ?? 0), source: f.cost.source },
     progress: { done: f.stageState === 'done' ? ids.length : Math.max(0, at), total: ids.length },
-    updatedAt: f.updatedAt, sources: f.sources, permissions: pendingList.length, limitPaused,
+    updatedAt: f.updatedAt, sources: f.sources, permissions: pendingList.length, limitPaused, limitAuto: limits.autoResume,
   };
 }
 
@@ -549,8 +556,9 @@ async function routePost(urlPath, req, res) {
         const preset = str(body.preset, 40) || null;
         const command = str(body.command, 4000);
         const where = body.where === 'root' ? 'root' : 'app';
+        const prepared = await local.prepareCommand(f, { command, preset, where });
         await audit({ command: preset ? undefined : command, preset: preset ?? undefined, where });
-        local.runCommand(f, { command, preset, where }).catch(() => {}); // output streams to the page
+        local.startPrepared(f.slug, prepared); // output streams to the page
         return sendJson(res, 200, { ok: true });
       }
       if (action === 'stop-cmd') return sendJson(res, 200, { ok: local.stopCommand(f.slug) });
@@ -670,6 +678,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+await limits.load();
 watch(FEATURES_DIR);
 watch(PROJECTS_DIR);
 server.listen(PORT, HOST, () => {

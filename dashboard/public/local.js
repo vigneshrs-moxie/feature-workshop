@@ -63,12 +63,15 @@ function render(v) {
   set('#lc-go', goHtml(v));
   set('#lc-presets', presetsHtml(v));
   set('#lc-out-head', outHeadHtml(v));
+  // Live chunks append while a command runs; the saved copy wins when a new one starts or it ends.
   const pre = $('#lc-out-pre', body);
   const out = v.cmd?.output ?? '';
-  if (pre._id !== (v.cmd?.startedAt ?? null) || !pre.textContent.length || out.length < pre.textContent.length) { pre.textContent = out; pre.scrollTop = pre.scrollHeight; pre._id = v.cmd?.startedAt ?? null; }
+  const id = v.cmd?.startedAt ?? null;
+  if (pre._id !== id || (v.cmd?.status !== 'running' && pre.textContent !== out)) { pre.textContent = out; pre.scrollTop = pre.scrollHeight; pre._id = id; }
   $('#lc-out', body).hidden = !v.cmd;
   const log = $('#lc-server-log', body);
-  if (!log.textContent || (v.serverOutput ?? '').length < log.textContent.length) { log.textContent = v.serverOutput ?? ''; log.scrollTop = log.scrollHeight; }
+  const sid = v.server?.startedAt ?? null;
+  if (log._id !== sid || (v.server?.status !== 'starting' && v.server?.status !== 'running' && log.textContent !== (v.serverOutput ?? ''))) { log.textContent = v.serverOutput ?? ''; log.scrollTop = log.scrollHeight; log._id = sid; }
   $('#lc-log', body).hidden = !v.server;
   const whereSel = $('[data-lc-where]', body);
   whereSel.closest('label').hidden = !v.app || v.app.rel === '.';
@@ -76,7 +79,17 @@ function render(v) {
 
 function set(sel, html) {
   const el = $(sel, panel.el);
-  if (el && el._html !== html) { el.innerHTML = html; el._html = html; }
+  if (!el || el._html === html) return;
+  const active = el.contains(document.activeElement) ? document.activeElement : null;
+  const key = active ? ['data-lc', 'data-db', 'data-what', 'data-preset'].map((a) => active.getAttribute(a) ?? '').join('|') : null;
+  const opened = [...el.querySelectorAll('details[open]')].map((d) => d.className);
+  el.innerHTML = html;
+  el._html = html;
+  for (const d of el.querySelectorAll('details')) if (opened.includes(d.className)) d.open = true;
+  if (key !== null) {
+    const same = [...el.querySelectorAll('button, a, select, input')].find((x) => ['data-lc', 'data-db', 'data-what', 'data-preset'].map((a) => x.getAttribute(a) ?? '').join('|') === key);
+    (same ?? el.querySelector('button, a, select, input'))?.focus();
+  }
 }
 
 function skeleton(v) {
@@ -153,6 +166,7 @@ function stepsHtml(v) {
 function dbStep(d) {
   if (!d.available) return step('off', 2, 'Database', esc(d.reason));
   if (d.busy) return step('busy', 2, 'Database', `Switching ${esc(d.name)}… (progress is in the output below)`);
+  if (d.gone) return step('todo', 2, 'Database', `Your local database <code>${esc(d.name)}</code> isn’t there (a switch may have stopped half-way). The saved original is safe.`, '<button class="btn small primary" type="button" data-lc="db" data-db="original">Put the original back</button>');
   const now = d.matches?.kind === 'job'
     ? `Your local database was last matched to <b>${esc(d.matches.title ?? d.matches.slug)}</b>${d.matches.partial ? ' <span class="warn-text">(not finished)</span>' : ''}.`
     : d.matches?.kind === 'original' ? 'Your local database is the original.' : '';
@@ -180,16 +194,22 @@ function outHeadHtml(v) {
 
 // ---------- Actions ----------
 
-async function act(action, extra = {}) {
-  return postJson(`/api/job/${encodeURIComponent(panel.slug)}/local`, { action, ...extra });
+async function act(slug, action, extra = {}) {
+  return postJson(`/api/job/${encodeURIComponent(slug)}/local`, { action, ...extra });
 }
+const stillOn = (slug) => panel?.slug === slug && panel.el.isConnected;
 
 function ask(html, buttons) {
   return new Promise((resolve) => {
     let answered = false;
-    const { box, close } = modal(`<div class="lc-ask">${html}<div class="modal-actions">${buttons.map((b) => `<button class="btn ${b.cls ?? ''}" type="button" data-answer="${esc(b.value)}">${esc(b.label)}</button>`).join('')}</div></div>`, {
-      label: 'Please confirm', onClose: () => { if (!answered) resolve('cancel'); },
+    let close = null;
+    const gone = () => { if (!answered) { answered = true; resolve('cancel'); close?.(); } };
+    window.addEventListener('hashchange', gone, { once: true }); // leaving the page cancels the question
+    const m = modal(`<div class="lc-ask">${html}<div class="modal-actions">${buttons.map((b) => `<button class="btn ${b.cls ?? ''}" type="button" data-answer="${esc(b.value)}">${esc(b.label)}</button>`).join('')}</div></div>`, {
+      label: 'Please confirm', onClose: () => { window.removeEventListener('hashchange', gone); if (!answered) { answered = true; resolve('cancel'); } },
     });
+    close = m.close;
+    const box = m.box;
     box.addEventListener('click', (e) => {
       const b = e.target.closest('[data-answer]');
       if (!b) return;
@@ -212,35 +232,36 @@ function dbExplain(d, what) {
     <li>${lose} “Put the original back” returns to the original at any time.</li></ul>`;
 }
 
-async function runDb(what) {
+async function runDb(slug, what) {
   const d = panel.view.db;
   const go = await ask(dbExplain(d, what), [{ label: what === 'match' ? 'Match this job' : what === 'original' ? 'Put it back' : 'Save as the original', value: 'yes', cls: 'primary' }, { label: 'Cancel', value: 'cancel', cls: 'ghost' }]);
-  if (go !== 'yes') return false;
+  if (go !== 'yes' || !stillOn(slug)) return false;
   toast('Switching the database. Progress shows in the output.', { tone: 'info' });
   setTimeout(() => load(), 300);
-  await act('db', { db: what });
+  await act(slug, 'db', { db: what });
   toast('Database switched.', { tone: 'good' });
   return true;
 }
 
-async function tryIt() {
+async function tryIt(slug) {
   const v = panel.view;
   if (v.env && !v.env.ready) {
     if (!v.env.exists && !v.env.sourceExists) throw new Error('The app needs a .env.local and your main folder has none to copy.');
-    const r = await act('env');
+    const r = await act(slug, 'env');
     toast(r.copied ? 'Settings file copied from your main folder and pointed at this job’s port.' : 'Settings file updated for this job’s port.', { tone: 'good' });
   }
   if (v.db?.available && v.db.missing.length && !v.db.busy) {
     const choice = await ask(`${dbExplain(v.db, 'match')}<p>You can also start without switching: pages that use the new database changes will then fail.</p>`,
       [{ label: 'Match and start', value: 'match', cls: 'primary' }, { label: 'Start without switching', value: 'skip' }, { label: 'Cancel', value: 'cancel', cls: 'ghost' }]);
-    if (choice === 'cancel') return;
+    if (choice === 'cancel' || !stillOn(slug)) return;
     if (choice === 'match') {
       toast('Switching the database first. Progress shows in the output.', { tone: 'info' });
       setTimeout(() => load(), 300);
-      await act('db', { db: 'match' });
+      await act(slug, 'db', { db: 'match' });
     }
   }
-  await act('start');
+  if (!stillOn(slug)) return;
+  await act(slug, 'start');
   toast('Starting the app. The Open button lights up when it’s ready.', { tone: 'info' });
 }
 
@@ -251,32 +272,33 @@ function bind(el) {
     const b = e.target.closest('[data-lc]');
     if (!b || !panel) return;
     const what = b.dataset.lc;
+    const slug = panel.slug;
     if (what === 'copy') {
       try { await navigator.clipboard.writeText($('#lc-out-pre', el).textContent); toast('Output copied.', { tone: 'good' }); } catch { toast('Couldn’t copy. Select the text instead.', { tone: 'bad' }); }
       return;
     }
     b.disabled = true;
     try {
-      if (what === 'go') await tryIt();
-      else if (what === 'env') { const r = await act('env'); toast(r.copied ? 'Settings file copied from your main folder and pointed at this job’s port.' : 'Settings file updated.', { tone: 'good' }); }
-      else if (what === 'start') { await act('start'); toast('Starting the app. The Open button lights up when it’s ready.', { tone: 'info' }); }
-      else if (what === 'stop') { await act('stop'); toast('Stopping the app.'); }
-      else if (what === 'stop-cmd') await act('stop-cmd');
-      else if (what === 'preset') await act('run', { preset: b.dataset.preset });
+      if (what === 'go') await tryIt(slug);
+      else if (what === 'env') { const r = await act(slug, 'env'); toast(r.copied ? 'Settings file copied from your main folder and pointed at this job’s port.' : 'Settings file updated.', { tone: 'good' }); }
+      else if (what === 'start') { await act(slug, 'start'); toast('Starting the app. The Open button lights up when it’s ready.', { tone: 'info' }); }
+      else if (what === 'stop') { await act(slug, 'stop'); toast('Stopping the app.'); }
+      else if (what === 'stop-cmd') await act(slug, 'stop-cmd');
+      else if (what === 'preset') await act(slug, 'run', { preset: b.dataset.preset });
       else if (what === 'open') {
-        const r = await act('open', { what: b.dataset.what });
+        const r = await act(slug, 'open', { what: b.dataset.what });
         toast(b.dataset.what === 'terminal' ? `Opened a terminal in ${esc(short(r.dir))}.` : 'Opened.', { tone: 'good' });
-      } else if (what === 'db') await runDb(b.dataset.db);
+      } else if (what === 'db') await runDb(slug, b.dataset.db);
     } catch (err) {
       toast(esc(err.message), { tone: 'bad', timeout: 10000 });
     } finally {
       b.disabled = false;
-      load(what === 'db');
+      if (stillOn(slug)) load(what === 'db');
     }
   });
   el.addEventListener('change', async (e) => {
     if (!e.target.matches('[data-lc-term]')) return;
-    try { await act('terminal-app', { name: e.target.value }); toast(`“Open terminal here” now uses ${esc(e.target.value)}.`, { tone: 'good' }); } catch (err) { toast(esc(err.message), { tone: 'bad' }); }
+    try { await act(panel.slug, 'terminal-app', { name: e.target.value }); toast(`“Open terminal here” now uses ${esc(e.target.value)}.`, { tone: 'good' }); } catch (err) { toast(esc(err.message), { tone: 'bad' }); }
   });
   el.addEventListener('submit', async (e) => {
     if (!e.target.matches('#lc-cmd')) return;
@@ -285,8 +307,9 @@ function bind(el) {
     const command = input.value.trim();
     if (!command) return;
     const where = $('[data-lc-where]', el).value;
+    const slug = panel.slug;
     try {
-      await act('run', { command, where });
+      await act(slug, 'run', { command, where });
       prefs.set('localHistory', JSON.stringify([command, ...history().filter((c) => c !== command)].slice(0, 30)));
       input.value = '';
       input._at = -1;

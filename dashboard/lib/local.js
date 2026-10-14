@@ -50,8 +50,8 @@ export function envValue(text, key) {
     const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
     if (!m || m[1] !== key) continue;
     let v = m[2].trim();
-    if (/^(['"]).*\1$/.test(v)) v = v.slice(1, -1);
-    else v = v.replace(/\s+#.*$/, '');
+    const quoted = /^(['"])(.*?)\1\s*(?:#.*)?$/.exec(v);
+    v = quoted ? quoted[2] : v.replace(/\s+#.*$/, '');
     value = v;
   }
   return value;
@@ -169,6 +169,7 @@ export class LocalRunner extends EventEmitter {
   /** Where a job's work can run: { root, app, mainApp } or { reason }. */
   async where(f) {
     if (!f.worktree) return { reason: 'This job has no worktree yet. It gets one when building starts, and then you can try it here.' };
+    if (this.demo) return { root: f.worktree, app: { dir: path.join(f.worktree, 'app'), rel: 'app', scripts: { dev: 'next dev', check: 'npm run typecheck && npm test', test: 'vitest run' } }, mainApp: f.repoPath ? path.join(f.repoPath, 'app') : null };
     if (!exists(f.worktree)) return { reason: `The job’s worktree isn’t there any more (${f.worktree}).` };
     let app = null;
     for (const rel of APP_SUBDIRS) {
@@ -242,7 +243,8 @@ export class LocalRunner extends EventEmitter {
     const port = await this.portFor(f.slug);
     if (!this.demo && await portInUse(port)) throw new Error(`Something else is already using port ${port}. Stop it, or close the other app, and try again.`);
     const usesNext = /\bnext\b/.test(w.app.scripts.dev);
-    const command = `npm run dev${usesNext ? ` -- -p ${port}` : ''}`;
+    // Only on this computer: with the sign-in skip on, the app must not be reachable from the network.
+    const command = `npm run dev${usesNext ? ` -- -p ${port} -H 127.0.0.1` : ''}`;
     const server = { status: 'starting', port, url: `http://localhost:${port}`, command, startedAt: new Date().toISOString(), output: '', child: null, exitCode: null };
     slot.server = server;
     if (this.demo) {
@@ -252,7 +254,7 @@ export class LocalRunner extends EventEmitter {
       return this.#serverView(server);
     }
     server.output = `$ ${command}   (in ${w.app.dir})\n`;
-    const child = spawn(process.env.SHELL || '/bin/zsh', ['-c', command], { cwd: w.app.dir, env: childEnv({ PORT: String(port) }), detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.env.SHELL || '/bin/zsh', ['-c', command], { cwd: w.app.dir, env: childEnv({ PORT: String(port), HOSTNAME: '127.0.0.1', HOST: '127.0.0.1' }), detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     server.child = child;
     const onData = (buf) => {
       const chunk = String(buf).replace(ANSI, '');
@@ -295,8 +297,19 @@ export class LocalRunner extends EventEmitter {
 
   // ----- commands -----
 
-  /** Run a command (or a preset) in the job's app folder or its whole worktree. */
-  async runCommand(f, { command, preset, where = 'app' }) {
+  /** Run a command (or a preset) in the job's app folder or its whole worktree; resolves when it ends. */
+  async runCommand(f, opts) {
+    const prepared = await this.prepareCommand(f, opts);
+    return this.#exec(f.slug, prepared);
+  }
+
+  /** Start a prepared command; output streams to the page. */
+  startPrepared(slug, prepared) {
+    this.#exec(slug, prepared).catch(() => {});
+  }
+
+  /** Check a command can run here and work out where: { command, cwd, label }. Throws a plain message. */
+  async prepareCommand(f, { command, preset, where = 'app' }) {
     const w = await this.where(f);
     if (!w.root) throw new Error(w.reason);
     const slot = this.#slot(f.slug);
@@ -310,7 +323,7 @@ export class LocalRunner extends EventEmitter {
     command = String(command ?? '').trim();
     if (!command) throw new Error('Type a command first.');
     const cwd = where === 'root' || !w.app ? w.root : w.app.dir;
-    return this.#exec(f.slug, { command, cwd, label });
+    return { command, cwd, label };
   }
 
   stopCommand(slug) {
@@ -389,9 +402,11 @@ export class LocalRunner extends EventEmitter {
     try { u = new URL(url); } catch { return { reason: 'DATABASE_URL isn’t a database address the workshop can read.' }; }
     if (!/^postgres(ql)?:$/.test(u.protocol)) return { reason: 'Only Postgres databases can be switched from here.' };
     if (!isLocalHost(u.hostname)) return { reason: 'Your app’s database isn’t on this computer, so the workshop won’t touch it.' };
-    const name = decodeURIComponent(u.pathname.slice(1));
+    let name;
+    let env;
+    try { name = decodeURIComponent(u.pathname.slice(1)); env = pgEnv(url); } catch { return { reason: 'DATABASE_URL has characters the workshop can’t read.' }; }
     if (!/^[A-Za-z0-9_]{1,50}$/.test(name)) return { reason: 'The database name has characters the workshop won’t risk.' };
-    return { url, name, original: `${name}__original`, env: pgEnv(url) };
+    return { url, name, original: `${name}__original`, incoming: `${name}__incoming`, env };
   }
 
   async #psql(db, sql) {
@@ -427,6 +442,8 @@ export class LocalRunner extends EventEmitter {
     if (!db.url) return db.reason ? { available: false, reason: db.reason } : null;
     let facts;
     try { facts = await this.#dbFacts(db); } catch (err) { return { available: false, name: db.name, reason: `Couldn’t read the local database: ${err.message}` }; }
+    const saved0 = (await this.#settings()).db?.[db.name] ?? {};
+    if (!facts.exists && facts.originalExists) return { available: true, gone: true, name: db.name, busy: this.dbBusy, original: { exists: true, savedAt: saved0.originalAt ?? null }, matches: saved0.matches ?? null, missing: [], extra: [], connections: 0 };
     if (!facts.exists) return { available: false, name: db.name, reason: `The database ${db.name} doesn’t exist on this computer.` };
     if (!facts.ledger) return { available: false, name: db.name, reason: 'This database has no applied_migrations table, so the workshop can’t tell which changes it has.' };
     const disk = await diskMigrations(w.app.dir);
@@ -506,20 +523,31 @@ export class LocalRunner extends EventEmitter {
       const step = async (file, args) => { const r = await this.#run(f.slug, file, args, db.env); if (!r.ok) throw new Error(`${path.basename(file)} failed (exit ${r.code}).`); };
       await this.#needQuietDb(f.slug, db);
       let facts = await this.#dbFacts(db);
+      const admin = { ...db, dbName: 'postgres' };
+      // Build a copy under a temporary name, then swap it in: a failed copy never costs a database.
+      const swapIn = async (from, to) => {
+        await step(dropdb, ['--if-exists', db.incoming]);
+        await step(createdb, ['-T', from, db.incoming]);
+        await step(dropdb, ['--if-exists', to]);
+        this.#note(f.slug, `$ rename ${db.incoming} to ${to}\n`);
+        await this.#psql(admin, `alter database "${db.incoming}" rename to "${to}"`);
+      };
       if (action === 'save-original' || !facts.originalExists) {
+        if (!facts.exists) throw new Error(`${db.name} isn’t there, so there’s nothing to save as the original. Nothing was changed.`);
         if (facts.originalExists) {
           this.#note(f.slug, `Replacing the saved original with the database as it is now…\n`);
-          await step(dropdb, [db.original]);
-        } else this.#note(f.slug, `First time: saving your database as it is now, as the original (${db.original}). This copy is never changed by switching.\n`);
-        await step(createdb, ['-T', db.name, db.original]);
+          await swapIn(db.name, db.original);
+        } else {
+          this.#note(f.slug, `First time: saving your database as it is now, as the original (${db.original}). This copy is never changed by switching.\n`);
+          await step(createdb, ['-T', db.name, db.original]);
+        }
         await save({ originalAt: new Date().toISOString(), matches: action === 'save-original' ? { kind: 'original' } : saved.matches ?? { kind: 'original' } });
         if (action === 'save-original') { this.#finish(f.slug, 'done', 'Saved. Switching back to the original now restores the database as it is at this moment.\n'); return; }
       }
       facts = await this.#dbFacts(db);
       if (!facts.originalExists) throw new Error('The original copy isn’t there, so nothing was changed.');
       this.#note(f.slug, `Rebuilding ${db.name} from the saved original…\n`);
-      await step(dropdb, [db.name]);
-      await step(createdb, ['-T', db.original, db.name]);
+      await swapIn(db.original, db.name);
       if (action === 'original') {
         await save({ matches: { kind: 'original', at: new Date().toISOString() } });
         this.#finish(f.slug, 'done', 'Done: your local database is the original again.\n');
