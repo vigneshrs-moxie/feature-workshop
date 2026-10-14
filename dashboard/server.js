@@ -27,6 +27,7 @@ import { buildOverview, parseBrief } from './lib/overview.js';
 import { LimitWatch } from './lib/limits.js';
 import { LocalRunner } from './lib/local.js';
 import { History, historyMarkdown } from './lib/history.js';
+import { removeWorktree } from './lib/close.js';
 import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions } from './lib/options.js';
 
 const HOST = '127.0.0.1';
@@ -144,6 +145,8 @@ async function features() {
   const saved = await state.allSessions();
   const overrides = Object.fromEntries(Object.entries(saved).filter(([, v]) => v.repoPath || v.branch).map(([k, v]) => [k, { repoPath: v.repoPath, branch: v.branch }]));
   const list = await loadFeatures({ featuresDir: FEATURES_DIR, sessionIndex, overrides, knownRepos: await repoList() });
+  // Jobs you marked done or dropped (kept in the dashboard's own state; the job's records are untouched).
+  for (const f of list) f.closed = saved[f.dir]?.closed ?? null;
   cached = { at: Date.now(), list };
   return list;
 }
@@ -228,6 +231,7 @@ function boardCard(f, run) {
     cost: { totalUsd: Math.max(f.cost.totalUsd, active?.costUsd ?? 0), source: f.cost.source },
     progress: { done: f.stageState === 'done' ? ids.length : Math.max(0, at), total: ids.length },
     updatedAt: f.updatedAt, sources: f.sources, permissions: pendingList.length, limitPaused, limitAuto: limits.autoResume,
+    ...(f.closed && !active ? { closed: f.closed, needsYou: false, working: false, waitingFor: null, stageState: f.closed.as === 'done' ? 'done' : 'idle' } : {}),
   };
 }
 
@@ -334,6 +338,8 @@ async function jobDetail(f) {
       else if (e.status === 'stopped') thread.push({ kind: 'note', at: e.at, text: 'You paused this reply.' });
     } else if (e.action === 'permission') thread.push({ kind: 'decision', at: e.at, text: `${e.decision === 'deny' ? 'You said no to' : 'You allowed'}: ${e.headline ?? e.tool}${e.note ? ` (“${e.note}”)` : ''}` });
     else if (e.action === 'takeover') thread.push({ kind: 'note', at: e.at, text: 'You took this job over from the terminal.' });
+    else if (e.action === 'close') thread.push({ kind: 'note', at: e.at, text: `You marked this job ${e.as === 'dropped' ? 'dropped' : 'done'}${e.note ? ` (“${e.note}”)` : ''}${e.worktreeRemoved ? `, and removed its worktree (${e.worktreeRemoved}); the branch is kept` : ''}.` });
+    else if (e.action === 'reopen') thread.push({ kind: 'note', at: e.at, text: e.how === 'message' ? 'Reopened: you sent the Foreman a message.' : 'You reopened this job.' });
     else if (e.action === 'options') thread.push({ kind: 'note', at: e.at, text: `You changed how this job runs (from the next stage): ${describeOptions(e.options).join(' ')}` });
   }
   thread.sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')));
@@ -427,14 +433,16 @@ const GET = {
     const spend = await sessionIndex.spendSince({ today: startOfToday.getTime(), week: startOfToday.getTime() - 6 * 86400000 });
     const agents = list.flatMap((f) => f.activity.filter((a) => stillRunning(f, a, driver.activeRunFor({ featureDir: f.dir }))));
     const totalUsd = list.reduce((a, f) => a + f.cost.totalUsd, 0);
+    const open = cards.filter((c) => !c.closed);
     const stats = {
       today: spend.today, week: spend.week, featuresUsd: totalUsd,
-      needsYou: cards.filter((c) => c.needsYou).length,
+      needsYou: open.filter((c) => c.needsYou).length,
       workingAgents: agents.filter((a) => a.state === 'running').length + cards.filter((c) => c.starting).length,
       workingFeatures: cards.filter((c) => c.working).length,
       quiet: list.filter((f) => f.quiet).length,
-      inProgress: cards.filter((c) => c.stageState !== 'done').length,
-      done: cards.filter((c) => c.stageState === 'done').length,
+      inProgress: open.filter((c) => c.stageState !== 'done').length,
+      done: cards.filter((c) => c.stageState === 'done' || c.closed?.as === 'done').length,
+      dropped: cards.filter((c) => c.closed?.as === 'dropped').length,
       projects: new Set(cards.map((c) => c.project.name)).size,
     };
     return { features: cards, needsYou: stats.needsYou, totalUsd, stats, permissions: driver.pendingPermissions(), usage: limits.view(), generatedAt: new Date().toISOString() };
@@ -553,6 +561,7 @@ async function routePost(urlPath, req, res) {
     }
     const run = await driver.start({ featureDir: f.dir, slug: f.slug, title: f.title, cwd, sessionId, model, text: sendText, kind: str(body.kind, 20) || 'message', additionalDirectories: await readDirs() });
     await limits.forget(f.dir); // you've picked it up yourself
+    if (f.closed) { await state.setSession(f.dir, { closed: null }); await state.audit({ action: 'reopen', featureDir: f.dir, slug: f.slug, how: 'message' }); }
     cached = null;
     return sendJson(res, 200, { run });
   }
@@ -583,6 +592,33 @@ async function routePost(urlPath, req, res) {
     await state.setSettings({ policy });
     await state.audit({ action: 'settings', policy });
     return sendJson(res, 200, await state.getSettings());
+  }
+  if ((m = /^\/api\/job\/([^/]+)\/(close|reopen)$/.exec(urlPath))) {
+    const f = await featureBySlug(m[1]);
+    if (!f) throw new HttpError(404, 'No job by that name.');
+    if (m[2] === 'reopen') {
+      await state.setSession(f.dir, { closed: null });
+      await state.audit({ action: 'reopen', featureDir: f.dir, slug: f.slug, how: 'button' });
+      cached = null;
+      return sendJson(res, 200, { ok: true });
+    }
+    if (driver.activeRunFor({ featureDir: f.dir })) throw new HttpError(409, 'The Foreman is working on a reply. Pause it first, then mark the job.');
+    const as = body.as === 'dropped' ? 'dropped' : 'done';
+    const note = str(body.note, 300).trim() || null;
+    // Optional: remove the job's worktree, only when nothing would be lost (see lib/close.js).
+    let worktree = null;
+    if (body.removeWorktree === true) {
+      if (!f.worktree) throw new HttpError(400, 'This job has no worktree to remove.');
+      local.stopServer(f.slug); // its app, if started from the job page
+      worktree = await removeWorktree(f.worktree, f.repoPath);
+      if (!worktree.ok) throw new HttpError(409, `Not marked yet: the worktree can’t be removed safely. ${worktree.reason}`);
+    }
+    const closed = { as, note, at: new Date().toISOString(), worktreeRemoved: worktree?.ok ? f.worktree : null };
+    await state.setSession(f.dir, { closed });
+    await limits.forget(f.dir);
+    await state.audit({ action: 'close', featureDir: f.dir, slug: f.slug, as, note: note ?? undefined, worktreeRemoved: closed.worktreeRemoved ?? undefined });
+    cached = null;
+    return sendJson(res, 200, { ok: true, closed });
   }
   if ((m = /^\/api\/job\/([^/]+)\/options$/.exec(urlPath))) {
     const f = await featureBySlug(m[1]);

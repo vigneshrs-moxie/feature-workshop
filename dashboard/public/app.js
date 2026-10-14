@@ -65,6 +65,10 @@ const VERB = {
 const verbFor = (type) => VERB[type] ?? 'is reviewing';
 
 export function situation(f) {
+  if (f.closed) {
+    const done = f.closed.as === 'done';
+    return { tone: done ? 'done' : 'idle', main: done ? '<b>Done.</b> You marked this job done.' : '<b>Dropped.</b> You set this job aside.', detail: f.closed.note ? `“${f.closed.note}”` : null, time: since(f.closed.at) ? `${since(f.closed.at)} ago` : '', crew: [], bubble: done ? 'badge' : null };
+  }
   const running = f.nowDoing ?? [];
   const workers = running.filter((a) => a.who !== 'conductor');
   const quiet = running.find((a) => a.quietMs);
@@ -269,6 +273,7 @@ function renderBoard() {
       </section>
       <div id="howto-slot"></div>
       <div id="towns"></div>
+      <div id="finished"></div>
       <footer class="site-footer" id="footer"></footer>
     </div>`;
   }
@@ -289,16 +294,20 @@ function renderBoard() {
   }
 
   const towns = [];
-  for (const f of board.features) {
+  const openJobs = board.features.filter((f) => !f.closed);
+  for (const f of openJobs) {
     let t = towns.find((x) => x.name === f.project.name);
     if (!t) { t = { name: f.project.name, path: f.project.path, features: [] }; towns.push(t); }
     t.features.push(f);
   }
   const townsEl = $('#towns');
-  if (!board.features.length) {
+  renderFinished(board.features.filter((f) => f.closed));
+  if (!openJobs.length && board.features.length) {
+    townsEl.innerHTML = '<p class="empty gbox">Nothing in progress. Finished jobs are below.</p>';
+  } else if (!board.features.length) {
     townsEl.innerHTML = `<div class="empty gbox">${sprite('conductor', { size: 120, state: 'asleep' })}<h2>No jobs yet</h2><p>Click <b>New job</b> at the top to start one, or run <code>/feature &lt;one-line description&gt;</code> in Claude Code.</p><p class="muted">Reading jobs from <code>${esc(meta.featuresDir)}</code></p></div>`;
   } else {
-    if (townsEl.querySelector('.empty')) townsEl.innerHTML = '';
+    if (townsEl.querySelector('.empty') || townsEl.matches('.empty')) townsEl.innerHTML = '';
     patchChildren(townsEl, towns.map((t) => {
       const needs = t.features.filter((f) => f.needsYou).length;
       const cost = t.features.reduce((a, f) => a + f.cost.totalUsd, 0);
@@ -315,6 +324,22 @@ function renderBoard() {
     }
   }
   $('#footer').innerHTML = `<span>≈ means estimated from token counts</span><span>Reading <code>${esc(meta.featuresDir)}</code></span><span>Prices as of ${esc(meta.prices.asOf)}</span><span>Updated ${esc(new Date(board.generatedAt).toLocaleTimeString())}</span>`;
+}
+
+// Jobs you marked done or dropped, folded away at the bottom of the board.
+function renderFinished(list) {
+  const el = $('#finished');
+  const done = list.filter((f) => f.closed.as === 'done').length;
+  const html = list.length ? `<details class="finished gbox"${prefs.get('finishedOpen', 'no') === 'yes' ? ' open' : ''}>
+    <summary><b>Finished</b> <span class="muted">${done ? `${done} done` : ''}${done && list.length - done ? ' · ' : ''}${list.length - done ? `${list.length - done} dropped` : ''}</span></summary>
+    <p class="fineprint">Jobs you marked done or dropped, so they’re off the board. Nothing was deleted: open one to look at it or reopen it.</p>
+    <ul>${[...list].sort((a, b) => String(b.closed.at).localeCompare(String(a.closed.at))).map((f) => `<li><a href="#/job/${encodeURIComponent(f.slug)}">${esc(f.title)}</a>
+      <span class="hbadge">${f.closed.as === 'done' ? 'Done' : 'Dropped'}</span>
+      <span class="muted">${esc(f.project?.name ?? '')} · ${esc(since(f.closed.at))} ago${f.closed.note ? ` · ${esc(f.closed.note)}` : ''}</span></li>`).join('')}</ul></details>` : '';
+  if (el._html === html) return;
+  el.innerHTML = html;
+  el._html = html;
+  $('details', el)?.addEventListener('toggle', (e) => prefs.set('finishedOpen', e.target.open ? 'yes' : 'no'));
 }
 
 // ---------- Crew-dex ----------

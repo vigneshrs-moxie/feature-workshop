@@ -106,6 +106,10 @@ Under **Fine-tune**: hand over documents you already have (a spec, findings, a p
 
 The options live in the job's private folder as `options.json`; the Foreman reads them before every stage (this needs the matching workflow update in `~/.claude/skills/feature/`).
 
+### Marking a job done
+
+**Mark as done…** on a job's page takes it off the board when it's finished, waiting on someone else's merge, or not going ahead: pick **Done** or **Dropped** and add a note if you like. It moves into **Finished** at the bottom of the board; nothing is deleted and the Foreman isn't contacted. **Reopen** brings it back (so does sending its Foreman a message). Optionally it also removes the job's worktree, only when nothing would be lost: no uncommitted changes and its latest commit already on GitHub; the branch is always kept.
+
 ### Start from a past conversation (History)
 
 **History** in the top bar lists every conversation you've had with Claude Code on this computer (read from `~/.claude/projects`), newest first, with its title, first message, repository, branch, files changed and PRs. Open one to see what was asked and how it ended, then **Make it a job**: New job opens filled in from it, and you pick the flow and options as usual. Two ways for the Foreman to pick it up:

@@ -124,11 +124,13 @@ function renderTop(d) {
 
 function renderOptions(d) {
   const lines = d.optionsSummary;
-  setHtml('#job-opts', `<h3>How this job runs</h3>
+  const closed = d.closed ? `<p class="notice closed-note"><b>${d.closed.as === 'done' ? 'Marked done' : 'Dropped'}</b> ${esc(when(d.closed.at))}${d.closed.note ? `: “${esc(d.closed.note)}”` : ''}.${d.closed.worktreeRemoved ? ` Its worktree was removed; the branch is kept.` : ''} It’s off the board, in Finished. <button class="btn small" type="button" data-opts="reopen">Reopen</button></p>` : '';
+  setHtml('#job-opts', `${closed}<h3>How this job runs</h3>
     ${lines ? `<ul>${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : `<p class="muted">No options set: the Foreman follows its usual flow${d.route ? ` (${esc(d.route)})` : ''}. Set them to skip stages, pick reviewers or ask for Fable checks.</p>`}
     <div class="opts-actions">
       <button class="btn small" type="button" data-opts="edit">${lines ? 'Change' : 'Set options'}</button>
       <button class="btn small ghost" type="button" data-opts="fable">Have Fable check something</button>
+      ${d.closed ? '' : '<button class="btn small ghost" type="button" data-opts="close" title="Take it off the board when it’s finished, waiting on someone else’s merge, or not going ahead">Mark as done…</button>'}
     </div>
     <p class="fineprint">Changes take effect from the next stage; the Foreman reads them before every stage.</p>`);
 }
@@ -157,6 +159,46 @@ function editOptions(d) {
       btn.disabled = false;
     }
   });
+}
+
+function closeJob(d) {
+  const m = modal(`<form class="newjob"><h2>Mark this job as done</h2>
+    <p class="lede">It moves off the board into <b>Finished</b>. Nothing is deleted, the Foreman isn’t contacted, and you can reopen it any time (sending the Foreman a message reopens it too).</p>
+    <fieldset class="field">
+      <label class="opt"><input type="radio" name="as" value="done" checked><span><b>Done</b><small>Shipped, merged, or only waiting on someone else’s merge or release. Counts as done.</small></span></label>
+      <label class="opt"><input type="radio" name="as" value="dropped"><span><b>Dropped</b><small>Not going ahead (or replaced by another job). Doesn’t count as done.</small></span></label>
+    </fieldset>
+    <label class="field"><span>Note (optional)</span><input type="text" name="note" maxlength="300" placeholder="e.g. PR #2 waiting on Raj’s approval"></label>
+    ${d.worktree ? `<label class="check-line"><input type="checkbox" name="removeWorktree"> Also remove its worktree (<code>${esc(d.worktree.replace(/^\/Users\/[^/]+/, '~'))}</code>)</label>
+    <p class="fineprint">Frees the folder. Only happens when nothing would be lost: no uncommitted changes, and its latest commit is already on GitHub (pushed or merged). The branch itself is kept. If it can’t be removed safely, the job isn’t marked and you’re told why.</p>` : ''}
+    <p class="form-error" role="alert" hidden></p>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Mark it</button></div></form>`, { label: 'Mark this job as done' });
+  const form = $('form', m.box);
+  $('[data-close]', form).addEventListener('click', () => m.close());
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const btn = $('button[type=submit]', form);
+    btn.disabled = true;
+    btn.textContent = fd.get('removeWorktree') ? 'Checking the worktree…' : 'Marking…';
+    try {
+      await postJson(`/api/job/${encodeURIComponent(d.slug)}/close`, { as: fd.get('as'), note: fd.get('note'), removeWorktree: fd.get('removeWorktree') === 'on' });
+      m.close();
+      toast(fd.get('as') === 'dropped' ? 'Dropped. It’s in Finished at the bottom of the board.' : 'Marked done. It’s in Finished at the bottom of the board.', { tone: 'good' });
+      showJob(d.slug, { quiet: true });
+    } catch (err) {
+      const box = $('.form-error', form);
+      box.hidden = false;
+      box.textContent = err.message;
+      btn.disabled = false;
+      btn.textContent = 'Mark it';
+    }
+  });
+}
+
+async function reopenJob(d) {
+  try { await postJson(`/api/job/${encodeURIComponent(d.slug)}/reopen`, {}); toast('Reopened. It’s back on the board.', { tone: 'good' }); showJob(d.slug, { quiet: true }); }
+  catch (err) { toast(esc(err.message), { tone: 'bad' }); }
 }
 
 const FABLE_TARGETS = [
@@ -566,7 +608,7 @@ function bindStatic() {
   bindIdLinks($('#job-thread'));
   root.addEventListener('click', async (e) => {
     const opt = e.target.closest('[data-opts]');
-    if (opt) return opt.dataset.opts === 'edit' ? editOptions(current) : askFable(current);
+    if (opt) return ({ edit: editOptions, fable: askFable, close: closeJob, reopen: reopenJob })[opt.dataset.opts]?.(current);
     const q = e.target.closest('[data-quick]');
     if (q) return reviewAndSend(current, 'message', QUICK[q.dataset.quick]);
     const brief = e.target.closest('[data-brief]');
