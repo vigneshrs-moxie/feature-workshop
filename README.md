@@ -108,7 +108,7 @@ The options live in the job's private folder as `options.json`; the Foreman read
 
 ### Marking a job done
 
-**Mark as done…** on a job's page takes it off the board when it's finished, waiting on someone else's merge, or not going ahead: pick **Done** or **Dropped** and add a note if you like. It moves into **Finished** at the bottom of the board; nothing is deleted and the Foreman isn't contacted. **Reopen** brings it back (so does sending its Foreman a message). Optionally it also removes the job's worktree, only when nothing would be lost: no uncommitted changes and its latest commit already on GitHub; the branch is always kept.
+**Mark as done…** on a job's page takes it off the board when it's finished, waiting on someone else's merge, or not going ahead: pick **Done** or **Dropped** and add a note if you like. It moves into **Finished** at the bottom of the board; nothing is deleted and the Foreman isn't contacted. **Reopen** brings it back (so does sending its Foreman a message). Optionally it also removes the job's worktree, only when nothing would be lost: no uncommitted changes or hidden local edits, no ignored files except ones that come back by themselves (installed packages, build output, the settings file the job page made), its latest commit already on GitHub, and nothing still working in it (a command from the job page, a crew member, a terminal). The branch is always kept. If a removal is cut short, the page says so and how to finish it. A job you marked comes back on the board by itself if it changes afterwards (for example the Foreman asks you something).
 
 ### Start from a past conversation (History)
 

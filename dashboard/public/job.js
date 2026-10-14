@@ -124,7 +124,8 @@ function renderTop(d) {
 
 function renderOptions(d) {
   const lines = d.optionsSummary;
-  const closed = d.closed ? `<p class="notice closed-note"><b>${d.closed.as === 'done' ? 'Marked done' : 'Dropped'}</b> ${esc(when(d.closed.at))}${d.closed.note ? `: “${esc(d.closed.note)}”` : ''}.${d.closed.worktreeRemoved ? ` Its worktree was removed; the branch is kept.` : ''} It’s off the board, in Finished. <button class="btn small" type="button" data-opts="reopen">Reopen</button></p>` : '';
+  const closed = d.closedEarlier ? `<p class="notice closed-note">You marked this job ${d.closedEarlier.as === 'done' ? 'done' : 'dropped'} ${esc(when(d.closedEarlier.at))}, but it has changed since, so it’s back on the board. <button class="btn small" type="button" data-opts="reopen">Keep it open</button></p>`
+    : d.closed ? `<p class="notice closed-note"><b>${d.closed.as === 'done' ? 'Marked done' : 'Dropped'}</b> ${esc(when(d.closed.at))}${d.closed.note ? `: “${esc(d.closed.note)}”` : ''}.${d.closed.worktreeRemoved ? ` Its worktree was removed; the branch is kept.` : ''} It’s off the board, in Finished. <button class="btn small" type="button" data-opts="reopen">Reopen</button></p>` : '';
   setHtml('#job-opts', `${closed}<h3>How this job runs</h3>
     ${lines ? `<ul>${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : `<p class="muted">No options set: the Foreman follows its usual flow${d.route ? ` (${esc(d.route)})` : ''}. Set them to skip stages, pick reviewers or ask for Fable checks.</p>`}
     <div class="opts-actions">

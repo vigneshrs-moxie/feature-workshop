@@ -291,6 +291,24 @@ export class LocalRunner extends EventEmitter {
     return true;
   }
 
+  /** Stop the app and wait until it has actually exited (or give up after `ms`). */
+  stopServerAndWait(slug, ms = 10_000) {
+    const server = this.jobs.get(slug)?.server;
+    if (!server || !['starting', 'running'].includes(server.status)) return Promise.resolve(true);
+    if (this.demo || !server.child) { this.stopServer(slug); return Promise.resolve(true); }
+    return new Promise((resolve) => {
+      const t = setTimeout(() => resolve(false), ms);
+      server.child.once('exit', () => { clearTimeout(t); resolve(true); });
+      this.stopServer(slug);
+    });
+  }
+
+  /** Is a command from the job page still running for this job? */
+  busy(slug) {
+    const slot = this.jobs.get(slug);
+    return slot?.cmd?.status === 'running';
+  }
+
   #serverView(s) {
     return s ? { status: s.status, port: s.port, url: s.url, command: s.command, startedAt: s.startedAt, exitCode: s.exitCode } : null;
   }

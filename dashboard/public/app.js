@@ -1,4 +1,4 @@
-import { $, $$, esc, prefs, since, duration, plural, usd, fmtTokens, modelLabel, getJson, postJson, setToken, toast } from './ui.js';
+import { $, $$, esc, prefs, since, ago, duration, plural, usd, fmtTokens, modelLabel, getJson, postJson, setToken, toast } from './ui.js';
 import { sprite, icon, renderMap, STAGE_CHARACTER } from './crew.js';
 import { pixelText } from './pixelfont.js';
 import { initJob, showJob, currentJobSlug } from './job.js';
@@ -67,7 +67,7 @@ const verbFor = (type) => VERB[type] ?? 'is reviewing';
 export function situation(f) {
   if (f.closed) {
     const done = f.closed.as === 'done';
-    return { tone: done ? 'done' : 'idle', main: done ? '<b>Done.</b> You marked this job done.' : '<b>Dropped.</b> You set this job aside.', detail: f.closed.note ? `“${f.closed.note}”` : null, time: since(f.closed.at) ? `${since(f.closed.at)} ago` : '', crew: [], bubble: done ? 'badge' : null };
+    return { tone: done ? 'done' : 'idle', main: done ? '<b>Done.</b> You marked this job done.' : '<b>Dropped.</b> You set this job aside.', detail: f.closed.note ? `“${f.closed.note}”` : null, time: ago(f.closed.at), crew: [], bubble: done ? 'badge' : null };
   }
   const running = f.nowDoing ?? [];
   const workers = running.filter((a) => a.who !== 'conductor');
@@ -335,7 +335,7 @@ function renderFinished(list) {
     <p class="fineprint">Jobs you marked done or dropped, so they’re off the board. Nothing was deleted: open one to look at it or reopen it.</p>
     <ul>${[...list].sort((a, b) => String(b.closed.at).localeCompare(String(a.closed.at))).map((f) => `<li><a href="#/job/${encodeURIComponent(f.slug)}">${esc(f.title)}</a>
       <span class="hbadge">${f.closed.as === 'done' ? 'Done' : 'Dropped'}</span>
-      <span class="muted">${esc(f.project?.name ?? '')} · ${esc(since(f.closed.at))} ago${f.closed.note ? ` · ${esc(f.closed.note)}` : ''}</span></li>`).join('')}</ul></details>` : '';
+      <span class="muted">${esc(f.project?.name ?? '')} · ${esc(ago(f.closed.at))}${f.closed.note ? ` · ${esc(f.closed.note)}` : ''}</span></li>`).join('')}</ul></details>` : '';
   if (el._html === html) return;
   el.innerHTML = html;
   el._html = html;

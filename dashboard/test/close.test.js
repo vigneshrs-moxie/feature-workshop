@@ -27,6 +27,13 @@ test('closing a job: its worktree goes only when nothing would be lost, and the 
   git(wt, 'add', '.'); git(wt, 'commit', '-qm', 'b');
   assert.match((await checkWorktree(wt, repo)).reason, /isn’t on GitHub/, 'unpushed commits block it');
   git(wt, 'push', '-q', 'origin', 'feature/x');
+  // Ignored files: installed packages come back by themselves; your own notes would be lost.
+  await fs.appendFile(path.join(repo, '.git', 'info', 'exclude'), 'node_modules/\nnotes.txt\n');
+  await fs.mkdir(path.join(wt, 'node_modules', 'pkg'), { recursive: true });
+  await fs.writeFile(path.join(wt, 'node_modules', 'pkg', 'index.js'), 'x');
+  await fs.writeFile(path.join(wt, 'notes.txt'), 'my notes');
+  assert.match((await checkWorktree(wt, repo)).reason, /would be lost: notes\.txt/);
+  await fs.rm(path.join(wt, 'notes.txt'));
   const r = await removeWorktree(wt, repo);
   assert.equal(r.ok, true, r.reason);
   assert.equal(await fs.stat(wt).then(() => true, () => false), false, 'the worktree folder is gone');

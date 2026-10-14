@@ -27,7 +27,7 @@ import { buildOverview, parseBrief } from './lib/overview.js';
 import { LimitWatch } from './lib/limits.js';
 import { LocalRunner } from './lib/local.js';
 import { History, historyMarkdown } from './lib/history.js';
-import { removeWorktree } from './lib/close.js';
+import { removeWorktree, checkWorktree } from './lib/close.js';
 import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions } from './lib/options.js';
 
 const HOST = '127.0.0.1';
@@ -64,6 +64,7 @@ const limits = new LimitWatch({
   driver, state,
   canResume: async (job) => {
     const f = await featureBySlug(job.slug);
+    if (!f || f.closed || closing.has(f.dir)) return false; // marked done meanwhile
     const drive = f ? await driveState(f) : null;
     return Boolean(drive && drive.mode === 'workshop' && drive.sessionId === job.sessionId);
   },
@@ -72,6 +73,8 @@ driver.on('usage-limit', (e) => { limits.onLimit(e).catch((err) => console.error
 driver.on('usage-status', (info) => limits.onStatus(info));
 // Trying a job's work on this computer (its own port, dev server, commands, terminal, database).
 const local = new LocalRunner({ state, demo: DEMO });
+// Jobs being marked done right now (sends and automatic carry-ons wait).
+const closing = new Set();
 // Past Claude Code conversations, to start a job from one.
 const history = new History(PROJECTS_DIR);
 async function historyContext() {
@@ -231,7 +234,10 @@ function boardCard(f, run) {
     cost: { totalUsd: Math.max(f.cost.totalUsd, active?.costUsd ?? 0), source: f.cost.source },
     progress: { done: f.stageState === 'done' ? ids.length : Math.max(0, at), total: ids.length },
     updatedAt: f.updatedAt, sources: f.sources, permissions: pendingList.length, limitPaused, limitAuto: limits.autoResume,
-    ...(f.closed && !active ? { closed: f.closed, needsYou: false, working: false, waitingFor: null, stageState: f.closed.as === 'done' ? 'done' : 'idle' } : {}),
+    // Marked done or dropped: off the board, unless something is going on or the job changed since.
+    ...(f.closed && !active && !running.length && !(f.updatedAt && f.updatedAt > f.closed.at)
+      ? { closed: f.closed, needsYou: false, working: false, quiet: false, waitingFor: null, stageState: f.closed.as === 'done' ? 'done' : 'idle' }
+      : f.closed ? { closedEarlier: f.closed } : {}),
   };
 }
 
@@ -431,7 +437,8 @@ const GET = {
     cards.sort((a, b) => rank(a) - rank(b) || (a.needsYou ? String(a.waitingSince ?? '').localeCompare(String(b.waitingSince ?? '')) : 0));
     const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
     const spend = await sessionIndex.spendSince({ today: startOfToday.getTime(), week: startOfToday.getTime() - 6 * 86400000 });
-    const agents = list.flatMap((f) => f.activity.filter((a) => stillRunning(f, a, driver.activeRunFor({ featureDir: f.dir }))));
+    const shown = new Set(cards.filter((c) => !c.closed).map((c) => c.slug));
+    const agents = list.filter((f) => shown.has(f.slug)).flatMap((f) => f.activity.filter((a) => stillRunning(f, a, driver.activeRunFor({ featureDir: f.dir }))));
     const totalUsd = list.reduce((a, f) => a + f.cost.totalUsd, 0);
     const open = cards.filter((c) => !c.closed);
     const stats = {
@@ -546,6 +553,7 @@ async function routePost(urlPath, req, res) {
     if (!text) throw new HttpError(400, 'The message is empty.');
     const drive = await driveState(f);
     if (drive.mode === 'running') throw new HttpError(409, 'The Foreman is still working on your last message. Wait for it, or pause it first.');
+    if (closing.has(f.dir)) throw new HttpError(409, 'This job is being marked done right now. Wait a moment.');
     if (limits.isLimited() && body.despiteLimit !== true) throw new HttpError(409, limitMessage(), { code: 'limited' });
     if (drive.mode === 'terminal') throw new HttpError(409, 'This job’s Foreman was last used in your terminal.', { code: 'terminal', lastTerminalAt: drive.lastTerminalAt });
     if (drive.mode === 'terminal-open' && body.confirmNoTerminal !== true) throw new HttpError(409, 'Claude Code is open in this repository in a terminal. Make sure none of those windows is this job’s Foreman, then confirm.', { code: 'terminal-open', terminals: drive.terminals.length });
@@ -603,19 +611,34 @@ async function routePost(urlPath, req, res) {
       return sendJson(res, 200, { ok: true });
     }
     if (driver.activeRunFor({ featureDir: f.dir })) throw new HttpError(409, 'The Foreman is working on a reply. Pause it first, then mark the job.');
+    if (closing.has(f.dir)) throw new HttpError(409, 'This job is already being marked. Wait a moment.');
     const as = body.as === 'dropped' ? 'dropped' : 'done';
     const note = str(body.note, 300).trim() || null;
-    // Optional: remove the job's worktree, only when nothing would be lost (see lib/close.js).
     let worktree = null;
-    if (body.removeWorktree === true) {
-      if (!f.worktree) throw new HttpError(400, 'This job has no worktree to remove.');
-      local.stopServer(f.slug); // its app, if started from the job page
-      worktree = await removeWorktree(f.worktree, f.repoPath);
-      if (!worktree.ok) throw new HttpError(409, `Not marked yet: the worktree can’t be removed safely. ${worktree.reason}`);
+    closing.add(f.dir);
+    try {
+      await limits.forget(f.dir); // no automatic carry-on for it from now on
+      // Optional: remove the job's worktree, only when nothing would be lost (see lib/close.js).
+      if (body.removeWorktree === true) {
+        if (!f.worktree) throw new HttpError(400, 'This job has no worktree to remove.');
+        // Nothing may still be working in it: a command from the job page, a crew member, a terminal.
+        if (local.busy(f.slug)) throw new HttpError(409, 'Not marked yet: a command from the job page is still running in its worktree. Stop it first.');
+        const run = runFor(f);
+        if (f.activity.some((a) => stillRunning(f, a, run && ACTIVE_RUN.has(run.status) ? run : null))) throw new HttpError(409, 'Not marked yet: a crew member is still working on this job.');
+        if ((await terminalsFor(f)).some((t) => isInside(t.cwd, f.worktree))) throw new HttpError(409, 'Not marked yet: Claude Code is open in its worktree in a terminal. Close it (/exit) first.');
+        // Check before touching anything, so a refusal leaves your app running.
+        const check = await checkWorktree(f.worktree, f.repoPath);
+        if (!check.ok) throw new HttpError(409, `Not marked yet: the worktree can’t be removed safely. ${check.reason}`);
+        await local.stopServerAndWait(f.slug); // its app, if started from the job page
+        worktree = await removeWorktree(f.worktree, f.repoPath, { fetch: false });
+        if (!worktree.ok) throw new HttpError(409, worktree.partial ? `Not marked yet. ${worktree.reason}` : `Not marked yet: the worktree can’t be removed safely. ${worktree.reason}`);
+      }
+      if (driver.activeRunFor({ featureDir: f.dir })) throw new HttpError(409, 'The Foreman started a reply meanwhile. Not marked; try again once it’s done.');
+    } finally {
+      closing.delete(f.dir);
     }
     const closed = { as, note, at: new Date().toISOString(), worktreeRemoved: worktree?.ok ? f.worktree : null };
     await state.setSession(f.dir, { closed });
-    await limits.forget(f.dir);
     await state.audit({ action: 'close', featureDir: f.dir, slug: f.slug, as, note: note ?? undefined, worktreeRemoved: closed.worktreeRemoved ?? undefined });
     cached = null;
     return sendJson(res, 200, { ok: true, closed });
