@@ -4,6 +4,7 @@ import { pixelText } from './pixelfont.js';
 import { initJob, showJob, currentJobSlug } from './job.js';
 import { permissionCard, bindPermissionCards, openNewJob, openAlerts, notify, alerts } from './panels.js';
 import { showCosts } from './costs.js';
+import { onLocalEvent } from './local.js';
 
 let meta = null;
 let board = null;
@@ -436,6 +437,7 @@ async function init() {
   events.addEventListener('run', refreshSoon);
   events.addEventListener('permission', refreshSoon);
   events.addEventListener('permission-gone', refreshSoon);
+  for (const type of ['local', 'local-state']) events.addEventListener(type, (e) => { try { onLocalEvent(type, JSON.parse(e.data)); } catch { /* ignore */ } });
   setInterval(refresh, 30000); // keeps the "how long" times fresh
 }
 

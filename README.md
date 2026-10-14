@@ -91,6 +91,21 @@ Events land in `~/.feature-workshop/hook-events/events.jsonl`. Remove the entrie
 
 **Look.** The sun button cycles automatic, day and night. Click the clock to switch 12/24-hour time. **Crew-dex** introduces every crew member with their model.
 
+### Try it on your computer
+
+Each job with a worktree has a **Try it on your computer** panel on its page, for testing the work by hand next to your main app:
+
+- **▶ Try it** does everything missing in one go: prepares the job's settings file, offers to switch the local database to the job's branch, starts the app on the job's own port (3001, 3002, …) and gives you the link.
+- **Settings file:** copies your main folder's `app/.env.local` into the worktree (only if git ignores it there), points its own-address settings (`AUTH_URL`, `NEXT_PUBLIC_APP_URL`, …) at the job's port and turns on the app's local sign-in skip (`DEV_BYPASS_AUTH=true`) when the file has one. Your main folder's file is never changed, and values never reach the page.
+- **Database** (apps with an `applied_migrations` ledger and an `npm run db:migrate` script, on a local Postgres): the first switch saves your database as **the original** (`<name>__original`). **Match this job** rebuilds the local database from the original and adds the branch's migrations; **Put the original back** restores it. Switching needs nothing connected to the database: apps started here stop first, and you stop your main app's dev server yourself. Anything changed in the local database since the last switch is lost (the page says so before it starts).
+- **Quick commands** (checks, tests, types, lint, build, migration status, git status), a **command box** that runs anything in the job's folder with live output (↑/↓ for history), and **Open terminal here** (iTerm or Terminal), VS Code and Finder.
+
+Commands run without a terminal, so ones that ask questions won't work there; open a terminal for those. Apps and commands started here stop when the dashboard stops.
+
+### Usage limits
+
+When a reply run from here hits Claude's 5-hour or weekly limit, every reply still going is paused and a banner at the top of each page says which limit, which jobs, and when they carry on. Once the limit resets (plus a minute and a half), each paused job is told to carry on from where it stopped. **Carry on now** skips the wait (for example after you turn on extra usage), and the switch beside it turns automatic carry-on off. A heads-up shows when Claude warns you're close. Jobs running in a terminal can't be paused from here.
+
 ## What it reads and what it changes
 
 **Reads (never changes):**
@@ -102,9 +117,9 @@ Events land in `~/.feature-workshop/hook-events/events.jsonl`. Remove the entrie
 **Writes:** only its own small state folder, `~/.feature-workshop/`:
 - `sessions.json` — which Claude Code session drives each job, and when you took one over
 - `audit.jsonl` — every message sent, permission decided, routine step handled, pause and take-over, with the exact words
-- `settings.json` — how routine steps are handled
+- `settings.json` — how routine steps are handled, a usage-limit pause in progress, each job's local port, the terminal app, and which job the local database matches
 
-**Everything else happens through the job's Foreman session in Claude Code.** You start every reply; within it, routine steps run under the rules above and everything else asks you. The dashboard itself never pushes, opens PRs, changes Claude Code settings or talks to anything except your local Claude Code. It also reads the list of running processes (`ps`, `lsof`) to spot open Claude Code terminals, and `~/.feature-workshop/hook-events/` if you turn on the live link.
+**Everything else happens through the job's Foreman session in Claude Code**, except what you start from **Try it on your computer**: on your click, that runs the job's app, your commands and database switches in the job's worktree, writes the worktree's `.env.local`, and copies or restores your local database. You start every reply; within it, routine steps run under the rules above and everything else asks you. The dashboard itself never pushes, opens PRs, changes Claude Code settings or talks to anything except your local Claude Code (and your local database, when you switch it). It also reads the list of running processes (`ps`, `lsof`) to spot open Claude Code terminals, and `~/.feature-workshop/hook-events/` if you turn on the live link.
 
 ## Can and can't
 
@@ -115,6 +130,8 @@ Events land in `~/.feature-workshop/hook-events/events.jsonl`. Remove the entrie
 | Start new jobs and pause or stop running ones | Change your Claude Code settings or permission rules |
 | Handle routine steps itself and send you only the risky ones | Run when your computer's Claude Code isn't logged in |
 | Export costs as CSV and Markdown | Be reached from another computer |
+| Run a job's app, commands and database switches on your click | Touch a database that isn't on this computer |
+| Pause jobs at Claude's usage limit and carry them on after it resets | Pause Claude Code sessions running in a terminal |
 
 ## Security
 
@@ -123,6 +140,7 @@ Events land in `~/.feature-workshop/hook-events/events.jsonl`. Remove the entrie
 - Strict content security policy: the page loads only its own files, no outside scripts or styles.
 - Markdown is rendered with raw HTML switched off and unsafe links removed.
 - Git is read with fixed commands and checked arguments; files are only read from inside each job's folder or the spec path the job records.
+- The command box runs what you type, as you, in the job's worktree: treat the page like a terminal. Database switches run fixed programs (`createdb`, `dropdb`, `npm run db:migrate -- <name>`) with no shell, only for a Postgres on this computer, and refuse while anything is connected.
 
 ## Settings (environment variables)
 
@@ -147,7 +165,7 @@ Teammates also need the feature workflow itself (the `/feature` skills and `feat
 - Plain Node.js server (`dashboard/server.js`) and a no-build front end (`dashboard/public/`).
 - Two dependencies: the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) to run Foreman sessions, and `markdown-it` to render briefs and artifacts.
 - `dashboard/lib/` holds the readers (workflow files, session logs, git, costs), the driver that runs replies and parks permission requests, and the message composer.
-- `npm test` runs the tests (Node's built-in runner): parsers, costs and exports, Markdown safety, git, request safety, the driver with a pretend session, and the demo Foreman.
+- `npm test` runs the tests (Node's built-in runner): parsers, costs and exports, Markdown safety, git, request safety, the routine-step rules, usage-limit pause and carry-on, local settings files and ports, the driver with a pretend session, and the demo Foreman.
 
 ## Known limits
 

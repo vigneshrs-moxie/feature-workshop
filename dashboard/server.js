@@ -1,6 +1,8 @@
 // Feature Workshop: local-only dashboard server.
 // Listens on 127.0.0.1 only. Reads workflow files, session logs and git (read-only).
-// The only things it changes go through a job's Foreman session, and only when you click.
+// What it changes goes through a job's Foreman session, and only when you click. The one exception
+// is "Try it on your computer" (lib/local.js): on your click it runs the job's app, your commands
+// and database switches in the job's own worktree.
 
 import http from 'node:http';
 import fs from 'node:fs';
@@ -23,6 +25,7 @@ import { readHookSessions } from './lib/hook-events.js';
 import { classify } from './lib/policy.js';
 import { buildOverview, parseBrief } from './lib/overview.js';
 import { LimitWatch } from './lib/limits.js';
+import { LocalRunner } from './lib/local.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -57,6 +60,8 @@ const limits = new LimitWatch({ driver, state });
 await limits.load();
 driver.on('usage-limit', (e) => { limits.onLimit(e).catch((err) => console.error(err)); });
 driver.on('usage-status', (info) => limits.onStatus(info));
+// Trying a job's work on this computer (its own port, dev server, commands, terminal, database).
+const local = new LocalRunner({ state, demo: DEMO });
 
 const isInside = (p, dir) => {
   if (!p || !dir) return false;
@@ -455,6 +460,7 @@ async function routeGet(urlPath, url, req, res) {
       const index = indexIds(await jobDocs(f));
       return sendJson(res, 200, index[id] ?? { id, definition: null, mentions: [] });
     }
+    if (sub === '/local') return sendJson(res, 200, await local.view(f, { fresh: url.searchParams.get('fresh') === '1' }));
     const codeDir = f.worktree && fs.existsSync(f.worktree) ? f.worktree : f.repoPath;
     if (sub === '/commits') {
       if (!codeDir || !f.branch || !(await git.isGitRepo(codeDir))) return sendJson(res, 200, { dir: codeDir, commits: [], note: 'No feature branch yet. Commits show up here once building starts.' });
@@ -530,6 +536,47 @@ async function routePost(urlPath, req, res) {
     await state.audit({ action: 'settings', policy });
     return sendJson(res, 200, await state.getSettings());
   }
+  if ((m = /^\/api\/job\/([^/]+)\/local$/.exec(urlPath))) {
+    const f = await featureBySlug(m[1]);
+    if (!f) throw new HttpError(404, 'No job by that name.');
+    const action = str(body.action, 20);
+    const audit = (extra = {}) => state.audit({ action: 'local', featureDir: f.dir, slug: f.slug, what: action, ...extra });
+    try {
+      if (action === 'env') { const r = await local.setupEnv(f); await audit({ changed: r.changed }); return sendJson(res, 200, r); }
+      if (action === 'start') { const r = await local.startServer(f); await audit({ port: r.port }); return sendJson(res, 200, r); }
+      if (action === 'stop') return sendJson(res, 200, { ok: local.stopServer(f.slug) });
+      if (action === 'run') {
+        const preset = str(body.preset, 40) || null;
+        const command = str(body.command, 4000);
+        const where = body.where === 'root' ? 'root' : 'app';
+        await audit({ command: preset ? undefined : command, preset: preset ?? undefined, where });
+        local.runCommand(f, { command, preset, where }).catch(() => {}); // output streams to the page
+        return sendJson(res, 200, { ok: true });
+      }
+      if (action === 'stop-cmd') return sendJson(res, 200, { ok: local.stopCommand(f.slug) });
+      if (action === 'open') {
+        const what = ['terminal', 'finder', 'vscode'].includes(body.what) ? body.what : 'terminal';
+        const terminalApp = (await state.getSettings()).local?.terminalApp ?? 'iTerm';
+        return sendJson(res, 200, await local.open(f, what, terminalApp));
+      }
+      if (action === 'terminal-app') {
+        const name = ['iTerm', 'Terminal'].includes(body.name) ? body.name : null;
+        if (!name) throw new HttpError(400, 'Choose iTerm or Terminal.');
+        await local.setTerminalApp(name);
+        return sendJson(res, 200, { ok: true });
+      }
+      if (action === 'db') {
+        const what = str(body.db, 20);
+        await audit({ db: what });
+        await local.database(f, what);
+        return sendJson(res, 200, { ok: true });
+      }
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      throw new HttpError(400, err.message);
+    }
+    throw new HttpError(400, 'Unknown action.');
+  }
   if (urlPath === '/api/usage/resume') {
     if (!limits.isLimited()) throw new HttpError(409, 'Nothing is paused for the usage limit.');
     return sendJson(res, 200, await limits.resume('you'));
@@ -585,6 +632,8 @@ driver.on('run', (run) => { cached = null; broadcast('run', run); });
 driver.on('permission', (p) => broadcast('permission', p));
 driver.on('permission-gone', (p) => broadcast('permission-gone', p));
 limits.on('change', () => { cached = null; broadcast('change', { at: Date.now() }); });
+local.on('output', (e) => broadcast('local', e));
+local.on('changed', (e) => broadcast('local-state', e));
 
 function watch(dir) {
   try {
@@ -634,6 +683,7 @@ server.listen(PORT, HOST, () => {
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     for (const r of driver.list()) if (ACTIVE_RUN.has(r.status)) driver.stop(r.id);
+    local.stopAll(); // dev servers and commands started from the page stop with it
     setTimeout(() => process.exit(0), 400);
   });
 }

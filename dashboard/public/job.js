@@ -4,13 +4,14 @@ import { $, $$, esc, since, ago, duration, when, plural, usd, fmtTokens, modelLa
 import { sprite, renderMap, stageShort, STAGE_CHARACTER } from './crew.js';
 import { permissionCard, bindPermissionCards } from './panels.js';
 import { composeReply } from '/shared/compose.js';
+import { mountLocal } from './local.js';
 
 let ctx = null; // { meta, agentName, situation }
 let current = null; // the job detail being shown
 let draft = { slug: null, answers: {}, verdicts: {}, message: '' }; // survives live refreshes
 let tab = 'briefs';
 
-const RUN_WORDS = { starting: 'Starting up', running: 'Working', waiting_permission: 'Waiting for your click', stopping: 'Pausing…', done: 'Finished', stopped: 'Paused', error: 'Hit a problem' };
+const RUN_WORDS = { starting: 'Starting up', running: 'Working', waiting_permission: 'Waiting for your click', stopping: 'Pausing…', done: 'Finished', stopped: 'Paused', error: 'Hit a problem', limited: 'Paused for the usage limit' };
 
 export function initJob(c) { ctx = { describeTool, ...c }; }
 
@@ -42,6 +43,7 @@ export async function showJob(slug, { quiet = false } = {}) {
     tab = prefs.get('jobTab', 'files');
     app.innerHTML = skeleton(detail);
     bindStatic();
+    mountLocal(detail.slug, $('#job-local'));
   }
   renderTop(detail);
   renderOverview(detail);
@@ -84,6 +86,7 @@ function skeleton(d) {
       </div>
       <aside class="move gbox" id="job-move" aria-label="Your move"></aside>
     </div>
+    <section class="local gbox" id="job-local" aria-label="Try it on your computer"></section>
     <details class="details gbox" id="job-details">
       <summary><span class="details-title">Details</span><span class="muted">Files, code, approvals, costs and crew, for when you want to dig in</span></summary>
       <nav class="tabs" role="tablist" aria-label="Job details" id="job-tabs"></nav>
