@@ -42,6 +42,34 @@ test('risky or unknown steps always come to you', () => {
   assert.deepEqual(splitCommand('ls 2>&1'), ['ls 2>&1']);
 });
 
+test('quoted patterns, substitutions and loops are read properly', () => {
+  for (const command of [
+    'grep -rn "createRoleTemplate\\|templateName" src | head -5',
+    "sed -n '/^## 6\\./,/^## 8\\./p;/^## 12\\./,/^## 14\\./p' docs/plans/x.md",
+    'ls /r/app 2>/dev/null; echo ---; git -C /r/app log --oneline -3',
+    'cd /r/orbit-x/app && npm run check > /tmp/orbit-check-s1.log 2>&1; tail -5 /tmp/orbit-check-s1.log',
+    'echo "moxie/main is $(git rev-parse --short moxie/main)"',
+    'for c in 81d217c cd64f28; do printf "%s: " $c; git show "$c:app/x.ts" | head -3; done',
+    'if [ -n "${DATABASE_URL:-}" ]; then echo set; else echo unset; fi',
+    'git check-ignore -v docs/plans/x.md; git ls-remote --heads origin; git rev-list --count main..HEAD',
+    "git branch -a --list '*in-progress*'",
+    'cd /anywhere/else && ls',
+    'find src -type f | xargs wc -l',
+    'gh pr view 12 --json state',
+  ]) {
+    assert.equal(auto('Bash', { command }), true, command);
+  }
+  for (const command of [
+    'echo $(rm -rf build)', 'diff <(ls) b', 'cat <<EOF > /etc/x\nEOF', 'git -c core.pager=sh log', 'PATH=/tmp/x:$PATH ls',
+    'git fetch --upload-pack=evil origin', "sed 's/a/b/w /etc/x' f", "awk '{ print > \"/etc/x\" }' f", 'rg --pre ./x foo',
+    'git remote add evil https://x', 'cd /r/app; git commit -m x', 'cd /r/orbit-x; git commit -m x', 'echo hi > relative.txt',
+    'gh auth status --show-token', 'xargs rm < list', 'sort -o /etc/x f', 'git -C /r/app add -A',
+  ]) {
+    assert.equal(auto('Bash', { command }), false, command);
+  }
+  assert.equal(auto('Bash', { command: 'cd /r/orbit-x && git add -A && git commit -m "x"' }), true, 'cd through && into the worktree');
+});
+
 // ---------- finding the repository and branch ----------
 
 test('locateJob: finds the repo, branch and worktree from text and git', async () => {

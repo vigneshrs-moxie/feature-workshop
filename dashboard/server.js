@@ -67,7 +67,7 @@ async function policyFor(run, toolName, input, opts) {
   const specDirs = [repo ? path.join(repo, 'docs', 'plans') : null, f?.spec?.path && path.isAbsolute(f.spec.path) ? path.dirname(f.spec.path) : null].filter(Boolean);
   return classify(toolName, input, {
     mode: settings.policy, stage: f?.stage ?? 'spec', featureDir: run.featureDir, worktrees, repoPath: repo, specDirs,
-    cwd: run.cwd, defaultToNo: Boolean(opts?.defaultToNo), extraReadable: [SKILLS_DIR, AGENTS_DIR],
+    cwd: run.cwd, defaultToNo: Boolean(opts?.defaultToNo),
   });
 }
 
