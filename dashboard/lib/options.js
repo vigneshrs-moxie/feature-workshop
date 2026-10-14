@@ -24,8 +24,8 @@ export const FLOWS = {
   },
   large: {
     label: 'Large', model: FABLE,
-    note: 'Small plus a product interview (refine). Fable checks the plan and the review.',
-    skip: [], reviewers: 'auto', fable: ['plan', 'review'], manualTest: false,
+    note: 'Small plus a product interview (refine), with Fable as the Foreman for the whole job.',
+    skip: [], reviewers: 'auto', fable: [], manualTest: false, // the Foreman is already Fable
   },
   auto: {
     label: 'Let the Foreman decide', model: OPUS,

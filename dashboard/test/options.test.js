@@ -11,7 +11,7 @@ test('job options: flows bring their defaults; your choices win', () => {
   assert.deepEqual(quick.skip, ['spec', 'refine', 'investigate', 'spec-update']);
   assert.deepEqual(quick.reviewers, ['feature-reviewer']);
   assert.equal(quick.manual_test, true);
-  assert.deepEqual(normalize({ flow: 'large' }).fable_checks, ['plan', 'review']);
+  assert.deepEqual(normalize({ flow: 'large' }).fable_checks, [], 'a Fable Foreman doesn’t also pay for Fable checks');
   assert.equal(FLOWS.quick.model, 'claude-opus-5-5', 'Fable is not the default Foreman for quick jobs');
   assert.equal(normalize({ flow: 'nonsense' }).flow, 'auto');
 

@@ -33,6 +33,7 @@ export const AGENTS = {
   'feature-review-db': { name: 'Mason', role: 'Review: migrations, schema and data integrity', stage: 'review' },
   'feature-review-performance': { name: 'Stopwatch', role: 'Review: speed with lots of data', stage: 'review' },
   'feature-review-ui': { name: 'Painter', role: 'Review: screens, wording and accessibility', stage: 'review' },
+  'feature-fable-check': { name: 'Oracle', role: 'Fable second look at one document or change', stage: null },
 };
 
 export function agentInfo(agentType) {

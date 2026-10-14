@@ -321,7 +321,7 @@ function renderBoard() {
 function renderCrew() {
   const order = ['conductor', 'feature-spec-writer', 'feature-investigator', 'feature-planner', 'feature-implementer', 'feature-tester',
     'feature-reviewer', 'feature-review-permissions', 'feature-review-tests', 'feature-review-conventions', 'feature-review-errors',
-    'feature-review-db', 'feature-review-performance', 'feature-review-ui'];
+    'feature-review-db', 'feature-review-performance', 'feature-review-ui', 'feature-fable-check'];
   const busy = new Set(board.features.flatMap((f) => f.nowDoing.map((a) => a.who)));
   $('#app').innerHTML = `<section class="crewdex">
     <a class="back" href="#/">◀ Back to the map</a>

@@ -49,6 +49,7 @@ const CREW = {
   'feature-review-db': { hat: 'visor', tool: 'brick' },
   'feature-review-performance': { hat: 'visor', tool: 'stopwatch' },
   'feature-review-ui': { hat: 'visor', tool: 'brush' },
+  'feature-fable-check': { hat: 'beret', tool: 'magnifier' },
 };
 
 // The character who stands at each stage.

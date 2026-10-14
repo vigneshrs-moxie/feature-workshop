@@ -99,7 +99,7 @@ Events land in `~/.feature-workshop/hook-events/events.jsonl`. Remove the entrie
 |---|---|---|
 | **Quick** | A short plan in the first reply → you say go → build → checks → you try it → one reviewer → PRs. No spec or plan documents. | Opus |
 | **Small** | Spec → investigate → plan → build → test → review → PRs | Opus |
-| **Large** | Small plus a product interview (refine); Fable checks the plan and the review | Fable |
+| **Large** | Small plus a product interview (refine) | Fable |
 | **Let the Foreman decide** | It sizes the job after the spec | Opus |
 
 Under **Fine-tune**: hand over documents you already have (a spec, findings, a plan, a test plan: give the full path, and that stage is skipped), skip stages, pick exactly which reviewers run and how many fix rounds, say you'll test it yourself, ask Fable for a second look at chosen points, and leave notes for the Foreman. **Have Fable check something** on the job page asks for a one-off Fable look at the plan, the code, the spec or the review. You still approve what gets built before any code changes, and every push and PR.
