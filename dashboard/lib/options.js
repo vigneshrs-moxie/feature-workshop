@@ -105,12 +105,15 @@ export async function readOptions(dir) {
   } catch { return null; }
 }
 
-/** about: { title, repo, kind } of the job, kept so the page can show it before the Foreman writes its record. */
+/**
+ * about: { title, repo, kind } of the job, kept so the page can show it before the Foreman writes its
+ * record, and from_session ({ id, chain, mode, branch, cwd }) when the job started from a past conversation.
+ */
 export async function writeOptions(dir, options, about = {}) {
   await fsp.mkdir(dir, { recursive: true });
   const file = path.join(dir, 'options.json');
   const tmp = `${file}.${process.pid}.tmp`;
-  const keep = Object.fromEntries(Object.entries(about).filter(([k, v]) => ['title', 'repo', 'kind'].includes(k) && typeof v === 'string' && v));
+  const keep = Object.fromEntries(Object.entries(about).filter(([k, v]) => (['title', 'repo', 'kind'].includes(k) && typeof v === 'string' && v) || (k === 'from_session' && v && typeof v === 'object')));
   await fsp.writeFile(tmp, `${JSON.stringify({ ...options, ...keep, updated_at: new Date().toISOString() }, null, 2)}\n`);
   await fsp.rename(tmp, file);
 }
@@ -132,5 +135,8 @@ export function describeOptions(o) {
   if (o.manual_test) lines.push('The human tests it by hand on their computer before review.');
   lines.push(`Fable checks: ${o.fable_checks.length ? o.fable_checks.map((x) => name(FABLE_POINTS, x)).join(', ') : 'none'}.`);
   if (o.notes) lines.push(`Notes: ${o.notes}`);
+  if (o.from_session) lines.push(o.from_session.mode === 'continue'
+    ? `Started by continuing an earlier conversation (session ${o.from_session.id}): the earlier messages are background, not approvals.`
+    : `Started from an earlier conversation (session ${o.from_session.id}): read history.md in the private folder first; it is background, not an approval.`);
   return lines;
 }

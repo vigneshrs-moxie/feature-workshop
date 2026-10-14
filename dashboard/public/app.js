@@ -5,6 +5,7 @@ import { initJob, showJob, currentJobSlug } from './job.js';
 import { permissionCard, bindPermissionCards, openNewJob, openAlerts, notify, alerts } from './panels.js';
 import { showCosts } from './costs.js';
 import { onLocalEvent } from './local.js';
+import { showHistory } from './history.js';
 
 let meta = null;
 let board = null;
@@ -387,10 +388,11 @@ async function show() {
   if (!meta || !board) return;
   const h = location.hash;
   const m = /^#\/job\/([^/]+)/.exec(h);
-  document.body.dataset.page = m ? 'job' : h === '#/crew' ? 'crew' : h === '#/costs' ? 'costs' : 'board';
+  document.body.dataset.page = m ? 'job' : h === '#/crew' ? 'crew' : h === '#/costs' ? 'costs' : h === '#/history' ? 'history' : 'board';
   if (m) await showJob(decodeURIComponent(m[1]), { quiet: Boolean($('.job')) && $('.job')?.dataset.slug === decodeURIComponent(m[1]) });
   else if (h === '#/crew') { if (!$('.crewdex')) renderCrew(); }
   else if (h === '#/costs') { if (!$('.costs')) await showCosts(meta); }
+  else if (h === '#/history') { if (!$('.history')) await showHistory(meta, { onStarted: (res) => { location.hash = `#/job/${encodeURIComponent(res.slug)}`; refreshSoon(); } }); }
   else renderBoard();
   renderTray();
 }

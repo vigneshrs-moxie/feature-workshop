@@ -147,17 +147,27 @@ export function bindOptionsForm(form, catalog, { onFlow } = {}) {
 
 // ---------- Start a job ----------
 
-export async function openNewJob(meta, { onStarted } = {}) {
+/** from: a past conversation (History page detail) to start the job from; canContinue: whether it can be continued. */
+export async function openNewJob(meta, { onStarted, from = null, canContinue = false } = {}) {
   let repos = [];
   try { repos = (await getJson('/api/repos')).repos; } catch { /* still allow typing a path */ }
-  const lastRepo = prefs.get('lastRepo', repos[0]?.path ?? '');
+  if (from?.repo && !repos.some((r) => r.path === from.repo)) repos.unshift({ path: from.repo, name: from.repo.split('/').pop() });
+  const lastRepo = from?.repo ?? prefs.get('lastRepo', repos[0]?.path ?? '');
+  const tokens = from?.contextTokens ? (from.contextTokens >= 1000 ? `${Math.round(from.contextTokens / 1000)}k` : String(from.contextTokens)) : null;
+  const fromBlock = from ? `
+      <fieldset class="field from-session"><legend>Starting from a past conversation</legend>
+        <p class="from-what"><b>${esc(from.title)}</b> <span class="muted">· ${esc(ago(from.lastAt))} · ${from.prompts.length} message${from.prompts.length === 1 ? '' : 's'}${from.branch ? ` · branch ${esc(from.branch)}` : ''}</span></p>
+        <label class="opt"><input type="radio" name="fromMode" value="summary" checked><span><b>Fresh Foreman with a summary</b><small>Recommended. The Foreman reads a short extract (what you asked, the files changed, the branch, how it ended), saved as history.md in the job’s private folder. Cheap, and a clean start.</small></span></label>
+        <label class="opt"><input type="radio" name="fromMode" value="continue"${canContinue ? '' : ' disabled'}><span><b>Continue that conversation</b><small>${canContinue ? `A copy of the conversation becomes the Foreman, so it remembers everything said. Your original stays as it was. Costs more: ${tokens ? `about ${esc(tokens)} tokens` : 'the whole conversation'} re-read on every reply.` : 'Not available here (demo or a custom history folder).'}</small></span></label>
+      </fieldset>` : '';
   const lastModel = meta.models[0].id; // follows the flow you pick; change it here for this job
   const m = modal(`
     <form class="newjob">
       <h2>Start a new job</h2>
-      <p class="lede">Describe it in a line and pick how much process it gets. Nothing in your code changes until you approve what will be built.</p>
+      <p class="lede">Describe it in a line and pick how much process it gets. Nothing in your code changes until you approve what will be built.${from ? '' : ' <a href="#/history" data-close-to-history>Or start from a past conversation →</a>'}</p>
+      ${fromBlock}
       <label class="field"><span>What should the crew build or fix?</span>
-        <textarea name="description" rows="2" required minlength="4" maxlength="600" autofocus placeholder="e.g. Add a Copy ID button next to the ticket ID on the admin ticket page"></textarea></label>
+        <textarea name="description" rows="2" required minlength="4" maxlength="600" autofocus placeholder="e.g. Add a Copy ID button next to the ticket ID on the admin ticket page">${esc(from ? from.title.slice(0, 600) : '')}</textarea></label>
       <fieldset class="field seg"><legend>Kind</legend>
         <label><input type="radio" name="kind" value="feature" checked><span>Feature</span></label>
         <label><input type="radio" name="kind" value="bug"><span>Bug fix</span></label>
@@ -180,6 +190,7 @@ export async function openNewJob(meta, { onStarted } = {}) {
   form.addEventListener('change', (e) => { if (e.target.name === 'model') modelTouched = true; });
   bindOptionsForm(form, meta.jobOptions, { onFlow: (f) => { if (!modelTouched) { const r = $(`input[name=model][value="${f.model}"]`, form); if (r) r.checked = true; } } });
   $('[data-close]', form).addEventListener('click', () => m.close());
+  $('[data-close-to-history]', form)?.addEventListener('click', () => m.close());
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
@@ -188,7 +199,8 @@ export async function openNewJob(meta, { onStarted } = {}) {
     btn.disabled = true;
     btn.textContent = 'Starting…';
     try {
-      const res = await postJson('/api/jobs', { description: fd.get('description'), kind: fd.get('kind'), repoPath, model: fd.get('model'), options: readOptionsForm(form) });
+      const fromSession = from ? { id: from.id, mode: fd.get('fromMode') === 'continue' ? 'continue' : 'summary' } : undefined;
+      const res = await postJson('/api/jobs', { description: fd.get('description'), kind: fd.get('kind'), repoPath, model: fd.get('model'), options: readOptionsForm(form), fromSession });
       prefs.set('lastRepo', repoPath);
       m.close();
       toast(`${icon('bolt', 18)} Job started. The Foreman is reading your request.`, { tone: 'good' });

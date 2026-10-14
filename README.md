@@ -106,6 +106,15 @@ Under **Fine-tune**: hand over documents you already have (a spec, findings, a p
 
 The options live in the job's private folder as `options.json`; the Foreman reads them before every stage (this needs the matching workflow update in `~/.claude/skills/feature/`).
 
+### Start from a past conversation (History)
+
+**History** in the top bar lists every conversation you've had with Claude Code on this computer (read from `~/.claude/projects`), newest first, with its title, first message, repository, branch, files changed and PRs. Open one to see what was asked and how it ended, then **Make it a job**: New job opens filled in from it, and you pick the flow and options as usual. Two ways for the Foreman to pick it up:
+
+- **Fresh Foreman with a summary** (recommended): the dashboard writes a short extract (`history.md`) into the job's private folder and a fresh Foreman reads it. Cheap and a clean start.
+- **Continue that conversation**: a copy of it (Claude Code's own fork; the original is untouched) becomes the Foreman, so it remembers everything. Costs more on every reply.
+
+Either way the earlier conversation is background, never approval: every plan still needs your yes in the job. Conversations a job already uses, the dashboard's own runs and test runs are hidden unless you tick them. Some terminal setups don't save conversation logs; those are listed as "no saved log" and can't be used.
+
 ### Try it on your computer
 
 Each job with a worktree has a **Try it on your computer** panel on its page, for testing the work by hand next to your main app:
@@ -129,7 +138,7 @@ When a reply run from here hits Claude's 5-hour or weekly limit, every reply sti
 - `~/.claude/agents/*.md` — each worker's model and effort, for the Crew-dex
 - your repositories, read-only with git (`git log`, `git show`) for the Code tab, and the spec file each job names
 
-**Writes:** each job's `options.json` (and creates the job's folder when you start a job here), and its own small state folder, `~/.feature-workshop/`:
+**Writes:** each job's `options.json` and, when it starts from a past conversation, `history.md` (and creates the job's folder when you start a job here); a forked copy of a conversation when you choose to continue one; and its own small state folder, `~/.feature-workshop/`:
 - `sessions.json` — which Claude Code session drives each job, and when you took one over
 - `audit.jsonl` — every message sent, permission decided, routine step handled, pause and take-over, with the exact words
 - `settings.json` — how routine steps are handled, a usage-limit pause in progress, each job's local port, the terminal app, and which job the local database matches

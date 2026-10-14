@@ -26,6 +26,7 @@ import { classify } from './lib/policy.js';
 import { buildOverview, parseBrief } from './lib/overview.js';
 import { LimitWatch } from './lib/limits.js';
 import { LocalRunner } from './lib/local.js';
+import { History, historyMarkdown } from './lib/history.js';
 import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions } from './lib/options.js';
 
 const HOST = '127.0.0.1';
@@ -70,6 +71,17 @@ driver.on('usage-limit', (e) => { limits.onLimit(e).catch((err) => console.error
 driver.on('usage-status', (info) => limits.onStatus(info));
 // Trying a job's work on this computer (its own port, dev server, commands, terminal, database).
 const local = new LocalRunner({ state, demo: DEMO });
+// Past Claude Code conversations, to start a job from one.
+const history = new History(PROJECTS_DIR);
+async function historyContext() {
+  const linked = new Map();
+  for (const f of await features()) {
+    for (const id of f.sessionIds ?? []) linked.set(id, f.slug);
+    if (f.options?.from_session?.id) for (const id of f.options.from_session.chain ?? [f.options.from_session.id]) linked.set(id, f.slug);
+  }
+  const ownSessions = new Set([...Object.values(await state.allSessions()).map((x) => x.sessionId), ...driver.list().map((r) => r.sessionId)].filter(Boolean));
+  return { linked, ownSessions };
+}
 
 const isInside = (p, dir) => {
   if (!p || !dir) return false;
@@ -428,6 +440,10 @@ const GET = {
     return { features: cards, needsYou: stats.needsYou, totalUsd, stats, permissions: driver.pendingPermissions(), usage: limits.view(), generatedAt: new Date().toISOString() };
   },
   '/api/runs': async () => ({ runs: driver.list(), permissions: driver.pendingPermissions() }),
+  '/api/history': async () => {
+    const { rows, missing } = await history.list(await historyContext());
+    return { rows: rows.slice(0, 400), missing: missing.slice(0, 100), total: rows.length, canContinue: !DEMO && PROJECTS_DIR === path.join(CLAUDE_DIR, 'projects') };
+  },
   '/api/repos': async () => ({ repos: await recentRepos(sessionIndex, [...(process.env.WORKSHOP_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean), ...(await features()).map((f) => f.repoPath)]) }),
   '/api/costs': async () => {
     const list = await features();
@@ -443,6 +459,14 @@ async function routeGet(urlPath, url, req, res) {
   const day = new Date().toISOString().slice(0, 10);
   if (urlPath === '/api/costs/export.csv') return send(res, 200, costCsv(await features()), TYPES['.csv'], { 'Content-Disposition': `attachment; filename="feature-costs-${day}.csv"` });
   if (urlPath === '/api/costs/export.md') return send(res, 200, costMarkdown(await features()), TYPES['.md'], { 'Content-Disposition': `attachment; filename="feature-costs-${day}.md"` });
+  const hm = /^\/api\/history\/([0-9a-f-]{36})$/.exec(urlPath);
+  if (hm) {
+    const d = await history.detail(hm[1], await historyContext());
+    if (!d) throw new HttpError(404, 'That conversation isn’t there any more, or has nothing in it.');
+    const cut = (t, n) => (t && t.length > n ? `${t.slice(0, n - 1)}…` : t);
+    const prompts = d.prompts.length > 15 ? [...d.prompts.slice(0, 12), { gap: d.prompts.length - 15 }, ...d.prompts.slice(-3)] : d.prompts;
+    return sendJson(res, 200, { ...d, prompts: prompts.map((p) => (p.gap ? p : { at: p.at, text: cut(p.text, 600) })), filesEdited: d.filesEdited.slice(0, 50), moreFiles: Math.max(0, d.filesEdited.length - 50), lastAnswer: cut(d.lastAnswer, 1500) });
+  }
   let m = /^\/api\/job\/([^/]+)(\/.*)?$/.exec(urlPath);
   if (m) {
     const f = await featureBySlug(m[1]);
@@ -629,13 +653,41 @@ async function routePost(urlPath, req, res) {
     try { options = normalizeOptions(body.options ?? {}); } catch (err) { throw new HttpError(400, err.message); }
     const model = MODELS.some((x) => x.id === body.model) ? body.model : FLOWS[options.flow]?.model ?? OPUS;
     const kind = body.kind === 'bug' ? 'bug' : 'feature';
+    // Starting from a past conversation: a fresh Foreman reads an extract of it (history.md), or
+    // a copy of the conversation itself becomes the Foreman (the original is never changed).
+    let from = null;
+    let sessionId = null;
+    let cwd = repo.path;
+    if (body.fromSession?.id) {
+      const id = str(body.fromSession.id, 40);
+      const mode = body.fromSession.mode === 'continue' ? 'continue' : 'summary';
+      const d = /^[0-9a-f-]{36}$/.test(id) ? await history.detail(id, await historyContext()) : null;
+      if (!d) throw new HttpError(400, 'That conversation isn’t there any more, or has nothing in it.');
+      from = { id: d.id, chain: d.chain, mode, branch: d.branch ?? null, cwd: d.cwd ?? null, title: d.title };
+      if (mode === 'continue') {
+        if (DEMO || PROJECTS_DIR !== path.join(CLAUDE_DIR, 'projects')) throw new HttpError(400, 'Continuing a conversation only works with your real Claude Code history. Use “Fresh Foreman with a summary” instead.');
+        if (!d.cwd || !fs.existsSync(d.cwd)) throw new HttpError(400, `The folder that conversation ran in (${d.cwd ?? 'unknown'}) isn’t there any more, so it can’t be continued. Use “Fresh Foreman with a summary” instead.`);
+        const { forkSession } = await import('@anthropic-ai/claude-agent-sdk');
+        sessionId = (await forkSession(d.id, { dir: d.cwd, title: `${d.title} (Feature Workshop)` })).sessionId;
+        cwd = d.cwd;
+        from.forkedTo = sessionId;
+      }
+      from.detail = d;
+    }
     const slug = await uniqueSlug(slugify(description));
     const featureDir = path.join(FEATURES_DIR, slug);
     // The job's options go in its private folder (read before every stage) and in the first message.
-    await writeOptions(featureDir, options, { title: description, repo: repo.path, kind });
-    const text = `/feature ${description}${kind === 'bug' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${describeOptions(options).map((l) => `- ${l}`).join('\n')}`;
-    const run = await driver.start({ featureDir, slug, title: description, cwd: repo.path, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
-    await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options });
+    const { detail: fromDetail, ...fromRecord } = from ?? {};
+    const optionsOut = from ? { ...options, from_session: fromRecord } : options;
+    await writeOptions(featureDir, options, { title: description, repo: repo.path, kind, from_session: from ? fromRecord : undefined });
+    if (fromDetail) await fsp.writeFile(path.join(featureDir, 'history.md'), historyMarkdown(fromDetail), { mode: 0o600 });
+    // The /feature command must come first in the message, or it doesn't run.
+    const tail = from?.mode === 'continue'
+      ? '\n\nThis conversation is now a Feature Workshop job: carry it on through the feature workflow from here. Everything said earlier in it is background, not approval.'
+      : '';
+    const text = `/feature ${description}${kind === 'bug' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${describeOptions(optionsOut).map((l) => `- ${l}`).join('\n')}${tail}`;
+    const run = await driver.start({ featureDir, slug, title: description, cwd, sessionId, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
+    await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options, fromSession: from ? { id: from.id, mode: from.mode, forkedTo: from.forkedTo } : undefined });
     cached = null;
     return sendJson(res, 200, { run, slug });
   }
