@@ -461,6 +461,7 @@ main { padding: 18px clamp(16px, 4vw, 40px) 120px; max-width: 1360px; margin: 0 
 .crew-feature-review-db { --paint: var(--c-forest); --hat: var(--c-tweed); }
 .crew-feature-review-performance { --paint: var(--c-forest); --hat: var(--c-blueprint); }
 .crew-feature-review-ui { --paint: var(--c-forest); --hat: var(--c-plum-deep); }
+.crew-feature-fable-check { --paint: var(--c-plum-deep); --hat: var(--c-forest); }
 .crew-unknown { --paint: var(--c-steel); --hat: var(--c-steel); }
 .ch { --paint-shade: color-mix(in srgb, var(--paint) 70%, #000); --paint-arm: color-mix(in srgb, var(--paint) 86%, #000); --hat-shade: color-mix(in srgb, var(--hat) 72%, #000); }
 
