@@ -62,3 +62,57 @@ Draft plan, biggest wins first:
 - **App preview:** embedded browser or Chrome. Ask once which should be the default and remember it.
 - **Terminal:** embedded terminal plus "open in iTerm / Terminal / VS Code".
 - **Look:** futuristic, clean, professional, a few fun touches, impressive to the team.
+
+## 6. Visibility into every stage, without Fable writing it
+
+The user wants full visibility, in the UI, into what is going on at each stage. Fable should not be the one writing it; a cheap Haiku or Sonnet "dispatch" agent should write status somewhere the UI reads.
+
+**Recommendation: three layers, cheapest first. The narrator runs in the dashboard, not inside the Foreman.** A narrator dispatched by the Foreman would cost Foreman turns every time.
+1. **Free, live activity from the logs (no model):** current stage, which worker, each tool call in plain words ("editing labels.ts", "running npm run check"), files touched, checks pass/fail, timers, and a "quiet for 6 min" warning. It comes from the SDK stream and the session logs the dashboard already reads.
+2. **Haiku narrator (cheap):** runs as its own small query outside the Foreman. It is triggered when a worker finishes, a check ends, or every couple of minutes while a job is active.
+   - **What it reads:** a capped excerpt (about 4k tokens: recent tool calls plus the worker's last text).
+   - **What it writes:** 1–2 plain lines ("Builder finished step S3; 2 tests failing in labels.test.ts, fixing now") and a rough progress estimate, to `<job>/activity.jsonl`. The UI shows these.
+   - **Cost:** about $0.0005 per update, or about $0.05 for 100 updates per job; Sonnet would be about 20× that if the wording needs to be better.
+   - **Limits:** it reads and never decides.
+3. **Worker handoff cards (structured):** each worker ends with done / remaining / commands and exit codes / issues, written by the worker itself. The Foreman and the UI read these cards, not the logs.
+
+## 7. Same Foreman or a fresh one: decided per send, with the numbers shown
+
+Measured: Foreman conversations grow to 166k–266k tokens per job. Re-reading them while cached is cheap (18M cached tokens cost $4.51 over 3 jobs). The expensive moment is the first message after an idle gap of more than an hour: the whole conversation is written to cache again, which cost about $3 per event on Fable.
+
+| ~200k Foreman conversation | Opus | Fable |
+|---|---|---|
+| Each reply while cached (idle under 1 h) | ≈ $0.04 | ≈ $0.05 |
+| First reply after more than 1 h idle (re-cache) | ≈ $1.60 | ≈ $4.00 |
+| Fresh Foreman from the job record and last handoff (~40k) | ≈ $0.32 | ≈ $0.80 |
+
+**Recommended default rule (the dashboard picks; you can override):**
+- **Continue the same Foreman** while its cache is warm (last reply under ~55 min ago) and its conversation is under ~150k tokens. A mid-stage back-and-forth stays cheap and keeps every nuance.
+- **Start a fresh Foreman from the handoff** when any of these holds:
+  - The cache is cold and the conversation is over ~60k tokens. Above that, re-caching costs more than starting fresh.
+  - The conversation is over ~150k tokens. Every reply then gets slower and pricier, and quality drifts.
+  - The previous stage has just been approved (a natural handoff point, especially for L2/L3).
+  - A usage-limit reset has just happened (the cache is certainly cold).
+- **How it shows at send time:** the cheaper choice is preselected, with its estimate visible, for example: "Continue (re-loads 210k ≈ $1.70 ≈ 4% of the 5-hour window) · Fresh from handoff (≈ $0.35)".
+- **What makes fresh safe:** the job's decision log, approvals, options and the last handoff card, all on disk. Starting fresh loses chat nuance, not decisions.
+
+## 8. A Stats tab for deep dives
+
+A separate **Stats** tab, clear and easy to understand, with drill-down. Sources: session logs, the dashboard's audit log, rate-limit events, job records. All local.
+- **Overview:**
+  - Usage today, this week and this month: tokens, API-equivalent $, and share of the 5-hour and weekly windows.
+  - When limits were hit, and what was running at the time.
+- **By model:** Fable / Opus / Sonnet / Haiku share. Cache efficiency (hit ratio, re-cache events and their cost). Output vs input.
+- **By job, by level (L0–L3), by stage, by agent type:** cost and time per stage, number of dispatches, fix and review rounds, average cost per level (to tune the levels).
+- **Waiting:**
+  - **On you:** time-to-approve, number of prompts, auto-allowed vs asked, and which commands ask most (to tune the rules).
+  - **On agents:** quiet periods and stuck runs.
+- **Top sinks:** the 10 most expensive sessions and why (long-lived context, re-cache after idle, big reviews), each with a suggested fix.
+- **People (shared plan):** usage per teammate, if they choose to share. Data is local per machine, so the team view needs an opt-in export or a shared folder (open question).
+- **Quality of life:** time ranges, comparisons with last week, CSV and Markdown export. Every chart has a one-line "what this tells you".
+
+## 9. Open questions added
+
+- **Narrator model:** Haiku by default, Sonnet if the wording isn't good enough.
+- **How often it writes:** on events only, or also a timed tick while a job is active.
+- **Team data:** how teammates' usage reaches the Stats tab (export or import, a shared folder, or each person sees only their own).
