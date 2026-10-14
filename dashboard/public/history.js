@@ -39,37 +39,48 @@ export async function showHistory(meta, { onStarted } = {}) {
     <ul class="history-list" id="h-list"></ul>
     <div id="h-missing"></div>
   </div>`;
-  let data;
-  try { data = await getJson('/api/history'); } catch (err) { $('#h-count').textContent = err.message; return; }
-  const repos = [...new Set(data.rows.map((r) => r.repo).filter(Boolean))].sort();
-  $('#h-repo').insertAdjacentHTML('beforeend', repos.map((r) => `<option value="${esc(r)}">${esc(short(r))}</option>`).join(''));
-  for (const [id, key] of [['#h-linked', 'histLinked'], ['#h-dash', 'histDash'], ['#h-test', 'histTest']]) $(id).checked = prefs.get(key, 'no') === 'yes';
-  const render = () => {
-    const q = $('#h-q').value.trim().toLowerCase();
-    const repo = $('#h-repo').value;
-    const rows = data.rows.filter((r) => (!r.job || $('#h-linked').checked)
-      && (r.kind !== 'dashboard' || $('#h-dash').checked) && (r.kind !== 'test' || $('#h-test').checked)
-      && (!repo || r.repo === repo) && (!q || `${r.title} ${r.firstPrompt ?? ''}`.toLowerCase().includes(q)));
-    $('#h-count').textContent = rows.length ? `${plural(rows.length, 'conversation')} (of ${data.total}). Open one to see it.` : data.total ? 'Nothing matches. Try the filters above.' : 'No saved conversations yet. Have one with Claude Code in a terminal, and it shows up here.';
-    $('#h-list').innerHTML = rows.slice(0, 200).map(rowHtml).join('');
+  // Everything below belongs to this copy of the page: leaving and coming back builds a new one.
+  const root = $('.history', app);
+  const at = (sel) => $(sel, root);
+  for (const [id, key] of [['#h-linked', 'histLinked'], ['#h-dash', 'histDash'], ['#h-test', 'histTest']]) at(id).checked = prefs.get(key, 'no') === 'yes';
+  let data = null;
+  let asked = 0;
+  const load = async () => {
+    const mine = ++asked;
+    const qs = new URLSearchParams({ q: at('#h-q').value.trim(), repo: at('#h-repo').value, linked: at('#h-linked').checked ? '1' : '', dashboard: at('#h-dash').checked ? '1' : '', test: at('#h-test').checked ? '1' : '' });
+    let got;
+    try { got = await getJson(`/api/history?${qs}`); } catch (err) { if (root.isConnected) at('#h-count').textContent = err.message; return; }
+    if (!root.isConnected || mine !== asked) return; // left the page, or a newer search is on its way
+    const first = !data;
+    data = got;
+    if (first) {
+      at('#h-repo').insertAdjacentHTML('beforeend', data.repos.map((r) => `<option value="${esc(r)}">${esc(short(r))}</option>`).join(''));
+      if (data.missing.length) {
+        at('#h-missing').innerHTML = `<details class="gbox pad"><summary>${esc(plural(data.missing.length, 'conversation'))} with no saved log</summary>
+          <p class="fineprint">Claude Code ran these but kept no conversation log (some terminal setups don’t save one), so they can’t be turned into jobs.</p>
+          <ul>${data.missing.slice(0, 50).map((m) => `<li>${esc(when(m.lastAt))} · <code>${esc(m.id.slice(0, 8))}</code>${m.job ? ` · used by <a href="#/job/${encodeURIComponent(m.job)}">a job</a>` : ''}</li>`).join('')}</ul></details>`;
+      }
+    }
+    at('#h-count').textContent = !data.total ? 'No saved conversations yet. Have one with Claude Code in a terminal, and it shows up here.'
+      : !data.matched ? 'Nothing matches. Try the filters above.'
+        : data.matched > data.rows.length ? `Showing the newest ${data.rows.length} of ${data.matched} matching conversations (${data.total} in all). Search to narrow it down.`
+          : `${plural(data.matched, 'conversation')} (of ${data.total}). Open one to see it.`;
+    at('#h-list').innerHTML = data.rows.map(rowHtml).join('');
   };
-  $('.history-filters').addEventListener('input', (e) => {
+  let typing = null;
+  at('.history-filters').addEventListener('input', (e) => {
     const key = { 'h-linked': 'histLinked', 'h-dash': 'histDash', 'h-test': 'histTest' }[e.target.id];
     if (key) prefs.set(key, e.target.checked ? 'yes' : 'no');
-    render();
+    clearTimeout(typing);
+    typing = setTimeout(load, e.target.id === 'h-q' ? 300 : 0);
   });
-  render();
-  if (data.missing.length) {
-    $('#h-missing').innerHTML = `<details class="gbox pad"><summary>${esc(plural(data.missing.length, 'conversation'))} with no saved log</summary>
-      <p class="fineprint">Claude Code ran these but kept no conversation log (some terminal setups don’t save one), so they can’t be turned into jobs.</p>
-      <ul>${data.missing.slice(0, 50).map((m) => `<li>${esc(when(m.lastAt))} · <code>${esc(m.id.slice(0, 8))}</code>${m.job ? ` · used by <a href="#/job/${encodeURIComponent(m.job)}">a job</a>` : ''}</li>`).join('')}</ul></details>`;
-  }
+  await load();
 
-  $('#h-list').addEventListener('click', async (e) => {
+  at('#h-list').addEventListener('click', async (e) => {
     const make = e.target.closest('[data-make]');
     if (make) {
       const d = make.closest('.hrow')._detail;
-      return openNewJob(meta, { from: d, canContinue: data.canContinue, onStarted });
+      return openNewJob(meta, { from: d, canContinue: data?.canContinue ?? false, onStarted });
     }
     const head = e.target.closest('[data-open]');
     if (!head) return;

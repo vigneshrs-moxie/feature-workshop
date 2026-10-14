@@ -13,14 +13,15 @@ const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 // Lines that look like user messages but aren't something the person typed.
 const NOT_TYPED = /^\s*(<local-command-caveat>|<local-command-stdout>|<local-command-stderr>|<task-notification>|<bash-input>|<bash-stdout>|Caveat:)/;
 const TEMP_ROOTS = [...new Set(['/tmp', '/private/tmp', os.tmpdir(), path.join('/private', os.tmpdir())])];
-const MAX_MESSAGES = 200; // kept per session for the extract
+const HEAD_MESSAGES = 50; // the first messages are kept, plus a window of the latest ones
+const TAIL_MESSAGES = 150;
 
 const clean = (t) => String(t ?? '').replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
 
 // The words a person typed in one user line, or null when the line is a tool result, a meta line,
 // command output or a notification. "/command args" lines become "/command args".
 export function typedText(d) {
-  if (d.type !== 'user' || d.isMeta || d.toolUseResult || d.isSidechain) return null;
+  if (d.type !== 'user' || d.isMeta || d.toolUseResult || d.isSidechain || d.isCompactSummary || d.isVisibleInTranscriptOnly) return null;
   const c = d.message?.content;
   let text = typeof c === 'string' ? c : Array.isArray(c) && !c.some((x) => x?.type === 'tool_result') ? c.filter((x) => x?.type === 'text').map((x) => x.text).join('\n') : null;
   if (!text) return null;
@@ -38,7 +39,7 @@ export function typedText(d) {
 export function summariseSession(text, { file = null } = {}) {
   const s = {
     sessionId: null, file, title: null, cwd: null, branch: null, firstAt: null, lastAt: null,
-    models: new Set(), prompts: [], filesEdited: new Set(), prs: [], continuedIn: null,
+    models: new Set(), prompts: [], dropped: 0, filesEdited: new Set(), prs: [], continuedIn: null,
     lastAnswer: null, terminal: false, headless: false, workflow: false, contextTokens: null, costUsd: null,
   };
   for (const line of String(text).split('\n')) {
@@ -53,8 +54,9 @@ export function summariseSession(text, { file = null } = {}) {
       s.firstAt ??= d.timestamp;
       if (!s.lastAt || d.timestamp > s.lastAt) s.lastAt = d.timestamp;
     }
-    if (d.entrypoint === 'cli') s.terminal = true;
-    else if (d.entrypoint) s.headless = true;
+    // Programs (this dashboard, scripts) use the SDK; a person typed everything else (terminal, IDE, desktop).
+    if (d.entrypoint && /^sdk-/.test(d.entrypoint)) s.headless = true;
+    else if (d.entrypoint) s.terminal = true;
     switch (d.type) {
       case 'ai-title': if (d.aiTitle) s.title = d.aiTitle; break;
       case 'custom-title': if (d.customTitle) s.title = d.customTitle; break;
@@ -68,7 +70,11 @@ export function summariseSession(text, { file = null } = {}) {
         break;
       case 'user': {
         const t = typedText(d);
-        if (t && s.prompts.length < MAX_MESSAGES && s.prompts.at(-1)?.text !== t) s.prompts.push({ at: d.timestamp ?? null, text: t });
+        if (t && s.prompts.at(-1)?.text !== t) {
+          s.prompts.push({ at: d.timestamp ?? null, text: t });
+          // Keep the first ones and a window of the latest; count what falls out in between.
+          if (s.prompts.length > HEAD_MESSAGES + TAIL_MESSAGES) { s.prompts.splice(HEAD_MESSAGES, 1); s.dropped++; }
+        }
         if (t && /^\/feature\b/.test(t)) s.workflow = true;
         break;
       }
@@ -87,6 +93,19 @@ export function summariseSession(text, { file = null } = {}) {
     }
   }
   return s;
+}
+
+// A continued session repeats the earlier part's messages; keep each message once, in order.
+function mergePrompts(parts) {
+  const seen = new Set();
+  const out = [];
+  for (const p of parts) {
+    for (const m of p.prompts) {
+      const key = `${m.at ?? ''}|${m.text}`;
+      if (!seen.has(key)) { seen.add(key); out.push(m); }
+    }
+  }
+  return out;
 }
 
 const isTemp = (p) => Boolean(p) && TEMP_ROOTS.some((t) => p === t || p.startsWith(`${t}/`));
@@ -166,17 +185,19 @@ export class History {
       if (folded.has(s.sessionId) || !s.prompts.length) continue;
       const chain = this.#chain(s.sessionId, byId, earlier);
       const first = chain[0];
+      const prompts = mergePrompts(chain);
       rows.push({
         id: s.sessionId, chain: chain.map((x) => x.sessionId),
         title: s.title ?? first.title ?? first.prompts[0]?.text.split('\n')[0].slice(0, 120) ?? 'Untitled conversation',
-        firstPrompt: first.prompts[0]?.text.slice(0, 400) ?? null,
-        messages: chain.reduce((n, x) => n + x.prompts.length, 0),
-        cwd: first.cwd ?? s.cwd, repo: await this.#repo(s.cwd ?? first.cwd), branch: s.branch,
+        firstPrompt: prompts[0]?.text.slice(0, 400) ?? null,
+        messages: prompts.length + chain.reduce((n, x) => n + x.dropped, 0),
+        cwd: s.cwd ?? first.cwd, repo: await this.#repo(s.cwd ?? first.cwd), branch: s.branch,
         firstAt: first.firstAt, lastAt: s.lastAt,
         models: [...new Set(chain.flatMap((x) => [...x.models]))],
         filesChanged: new Set(chain.flatMap((x) => [...x.filesEdited])).size,
         prs: chain.flatMap((x) => x.prs),
-        contextTokens: s.contextTokens, costUsd: chain.reduce((n, x) => n + (x.costUsd ?? 0), 0) || null,
+        // A continued session's cost already includes the earlier parts.
+        contextTokens: s.contextTokens, costUsd: Math.max(0, ...chain.map((x) => x.costUsd ?? 0)) || null,
         kind: ownSessions.has(s.sessionId) || (s.headless && !s.terminal) ? 'dashboard' : isTemp(s.cwd) ? 'test' : 'terminal',
         workflow: chain.some((x) => x.workflow),
         job: chain.map((x) => linked.get(x.sessionId)).find(Boolean) ?? null,
@@ -210,7 +231,8 @@ export class History {
     const parts = row.chain.map((sid) => available.find((s) => s.sessionId === sid)).filter(Boolean);
     return {
       ...row,
-      prompts: parts.flatMap((p) => p.prompts),
+      prompts: mergePrompts(parts),
+      dropped: parts.reduce((n, p) => n + p.dropped, 0),
       filesEdited: [...new Set(parts.flatMap((p) => [...p.filesEdited]))],
       lastAnswer: parts.at(-1)?.lastAnswer ?? null,
     };
@@ -236,17 +258,27 @@ export function historyMarkdown(d, { now = new Date() } = {}) {
     '',
     '## What the person asked, in order',
   ];
-  // Keep the first and the latest messages when there are many; each message is capped.
-  const msgs = d.prompts;
-  const keep = msgs.length > 40 ? [...msgs.slice(0, 15), null, ...msgs.slice(-25)] : msgs;
-  let budget = 24000;
-  keep.forEach((m, i) => {
-    if (m === null) { lines.push('', `…(${msgs.length - 40} messages in the middle left out)…`); return; }
-    const text = cap(m.text, 1500);
-    budget -= text.length;
-    if (budget < 0 && i < keep.length - 1) return;
-    lines.push('', `**${i + 1}.** ${m.at ? `(${m.at.slice(0, 16).replace('T', ' ')}) ` : ''}${text}`);
-  });
+  // The latest messages matter most: they get most of the room, filled from the newest back;
+  // the first ones (the original request) get the rest. Every gap is marked.
+  // Numbers as in the whole conversation (messages dropped from a very long one sat after the first 50).
+  const msgs = d.prompts.map((m, i) => ({ ...m, n: i + 1 + (i >= HEAD_MESSAGES ? d.dropped ?? 0 : 0) }));
+  const fill = (list, budget) => {
+    const kept = [];
+    for (const m of list) {
+      const text = cap(m.text, 1500);
+      if (budget - text.length < 0 && kept.length) break;
+      budget -= text.length;
+      kept.push({ ...m, text });
+    }
+    return kept;
+  };
+  const head = fill(msgs.slice(0, 15), 8000);
+  const tail = fill(msgs.slice(head.length).reverse(), 16000).reverse();
+  const left = msgs.length - head.length - tail.length + (d.dropped ?? 0);
+  const show = (m) => lines.push('', `**${m.n}.** ${m.at ? `(${m.at.slice(0, 16).replace('T', ' ')}) ` : ''}${m.text}`);
+  head.forEach(show);
+  if (left > 0) lines.push('', `…(${left} message${left === 1 ? '' : 's'} in the middle left out for length)…`);
+  tail.forEach(show);
   lines.push('', '## Files changed in that conversation', ...(d.filesEdited.length ? d.filesEdited.slice(0, 80).map((f) => `- ${f}`) : ['- none recorded']));
   if (d.filesEdited.length > 80) lines.push(`- …and ${d.filesEdited.length - 80} more`);
   lines.push('', '## The last answer', '', d.lastAnswer ? cap(d.lastAnswer, 4000) : 'not recorded', '');

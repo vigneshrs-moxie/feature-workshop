@@ -152,13 +152,15 @@ export async function openNewJob(meta, { onStarted, from = null, canContinue = f
   let repos = [];
   try { repos = (await getJson('/api/repos')).repos; } catch { /* still allow typing a path */ }
   if (from?.repo && !repos.some((r) => r.path === from.repo)) repos.unshift({ path: from.repo, name: from.repo.split('/').pop() });
-  const lastRepo = from?.repo ?? prefs.get('lastRepo', repos[0]?.path ?? '');
+  // From a conversation outside any repository: no guess; you pick the repository.
+  const lastRepo = from ? from.repo ?? '__other' : prefs.get('lastRepo', repos[0]?.path ?? '');
   const tokens = from?.contextTokens ? (from.contextTokens >= 1000 ? `${Math.round(from.contextTokens / 1000)}k` : String(from.contextTokens)) : null;
   const fromBlock = from ? `
       <fieldset class="field from-session"><legend>Starting from a past conversation</legend>
-        <p class="from-what"><b>${esc(from.title)}</b> <span class="muted">· ${esc(ago(from.lastAt))} · ${from.prompts.length} message${from.prompts.length === 1 ? '' : 's'}${from.branch ? ` · branch ${esc(from.branch)}` : ''}</span></p>
+        <p class="from-what"><b>${esc(from.title)}</b> <span class="muted">· ${esc(ago(from.lastAt))} · ${from.messages} message${from.messages === 1 ? '' : 's'}${from.branch ? ` · branch ${esc(from.branch)}` : ''}</span></p>
+        ${from.repo ? '' : `<p class="form-error">That conversation ran in ${esc(from.cwd ?? 'an unknown folder')}, which isn’t a git repository. Pick the repository this job is for below.</p>`}
         <label class="opt"><input type="radio" name="fromMode" value="summary" checked><span><b>Fresh Foreman with a summary</b><small>Recommended. The Foreman reads a short extract (what you asked, the files changed, the branch, how it ended), saved as history.md in the job’s private folder. Cheap, and a clean start.</small></span></label>
-        <label class="opt"><input type="radio" name="fromMode" value="continue"${canContinue ? '' : ' disabled'}><span><b>Continue that conversation</b><small>${canContinue ? `A copy of the conversation becomes the Foreman, so it remembers everything said. Your original stays as it was. Costs more: ${tokens ? `about ${esc(tokens)} tokens` : 'the whole conversation'} re-read on every reply.` : 'Not available here (demo or a custom history folder).'}</small></span></label>
+        <label class="opt"><input type="radio" name="fromMode" value="continue"${canContinue && from.repo ? '' : ' disabled'}><span><b>Continue that conversation</b><small>${canContinue && from.repo ? `A copy of the conversation becomes the Foreman, so it remembers everything said. Your original stays as it was. Costs more: ${tokens ? `about ${esc(tokens)} tokens` : 'the whole conversation'} re-read on every reply.` : from.repo ? 'Not available here (demo or a custom history folder).' : 'Only for conversations that ran inside a repository.'}</small></span></label>
       </fieldset>` : '';
   const lastModel = meta.models[0].id; // follows the flow you pick; change it here for this job
   const m = modal(`
@@ -173,8 +175,8 @@ export async function openNewJob(meta, { onStarted, from = null, canContinue = f
         <label><input type="radio" name="kind" value="bug"><span>Bug fix</span></label>
       </fieldset>
       <label class="field"><span>Repository</span>
-        <select name="repo">${repos.map((r) => `<option value="${esc(r.path)}"${r.path === lastRepo ? ' selected' : ''}>${esc(r.name)} — ${esc(r.path)}</option>`).join('')}<option value="__other"${repos.length ? '' : ' selected'}>Another folder…</option></select></label>
-      <label class="field other-repo" ${repos.length ? 'hidden' : ''}><span>Folder path</span><input name="repoPath" type="text" placeholder="/Users/you/Projects/your-repo"></label>
+        <select name="repo">${repos.map((r) => `<option value="${esc(r.path)}"${r.path === lastRepo ? ' selected' : ''}>${esc(r.name)} — ${esc(r.path)}</option>`).join('')}<option value="__other"${!repos.length || lastRepo === '__other' ? ' selected' : ''}>Another folder…</option></select></label>
+      <label class="field other-repo" ${repos.length && lastRepo !== '__other' ? 'hidden' : ''}><span>Folder path</span><input name="repoPath" type="text" placeholder="/Users/you/Projects/your-repo"></label>
       ${optionsFields(meta.jobOptions, null)}
       <fieldset class="field models"><legend>Foreman model</legend>
         ${meta.models.map((x) => `<label class="opt"><input type="radio" name="model" value="${esc(x.id)}"${x.id === lastModel ? ' checked' : ''}><span><b>${esc(x.label)}</b><small>${esc(x.note)}</small></span></label>`).join('')}

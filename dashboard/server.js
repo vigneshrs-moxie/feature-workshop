@@ -440,10 +440,7 @@ const GET = {
     return { features: cards, needsYou: stats.needsYou, totalUsd, stats, permissions: driver.pendingPermissions(), usage: limits.view(), generatedAt: new Date().toISOString() };
   },
   '/api/runs': async () => ({ runs: driver.list(), permissions: driver.pendingPermissions() }),
-  '/api/history': async () => {
-    const { rows, missing } = await history.list(await historyContext());
-    return { rows: rows.slice(0, 400), missing: missing.slice(0, 100), total: rows.length, canContinue: !DEMO && PROJECTS_DIR === path.join(CLAUDE_DIR, 'projects') };
-  },
+
   '/api/repos': async () => ({ repos: await recentRepos(sessionIndex, [...(process.env.WORKSHOP_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean), ...(await features()).map((f) => f.repoPath)]) }),
   '/api/costs': async () => {
     const list = await features();
@@ -459,6 +456,22 @@ async function routeGet(urlPath, url, req, res) {
   const day = new Date().toISOString().slice(0, 10);
   if (urlPath === '/api/costs/export.csv') return send(res, 200, costCsv(await features()), TYPES['.csv'], { 'Content-Disposition': `attachment; filename="feature-costs-${day}.csv"` });
   if (urlPath === '/api/costs/export.md') return send(res, 200, costMarkdown(await features()), TYPES['.md'], { 'Content-Disposition': `attachment; filename="feature-costs-${day}.md"` });
+  if (urlPath === '/api/history') {
+    // Filtered here, before the list is cut, so searching reaches every conversation.
+    const { rows, missing } = await history.list(await historyContext());
+    const p = url.searchParams;
+    const q = (p.get('q') ?? '').trim().toLowerCase().slice(0, 200);
+    const repo = p.get('repo') ?? '';
+    const show = { linked: p.get('linked') === '1', dashboard: p.get('dashboard') === '1', test: p.get('test') === '1' };
+    const matches = rows.filter((r) => (!r.job || show.linked) && (r.kind !== 'dashboard' || show.dashboard) && (r.kind !== 'test' || show.test)
+      && (!repo || r.repo === repo) && (!q || `${r.title} ${r.firstPrompt ?? ''}`.toLowerCase().includes(q)));
+    const LIMIT = 200;
+    return sendJson(res, 200, {
+      rows: matches.slice(0, LIMIT), matched: matches.length, total: rows.length, limit: LIMIT,
+      repos: [...new Set(rows.map((r) => r.repo).filter(Boolean))].sort(),
+      missing: missing.slice(0, 100), canContinue: !DEMO && PROJECTS_DIR === path.join(CLAUDE_DIR, 'projects'),
+    });
+  }
   const hm = /^\/api\/history\/([0-9a-f-]{36})$/.exec(urlPath);
   if (hm) {
     const d = await history.detail(hm[1], await historyContext());
@@ -576,7 +589,7 @@ async function routePost(urlPath, req, res) {
     if (!f) throw new HttpError(404, 'No job by that name.');
     let options;
     try { options = normalizeOptions(body.options ?? {}); } catch (err) { throw new HttpError(400, err.message); }
-    await writeOptions(f.dir, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind });
+    await writeOptions(f.dir, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
     await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options });
     cached = null;
     return sendJson(res, 200, { ok: true, options, summary: describeOptions(options) });
@@ -667,6 +680,8 @@ async function routePost(urlPath, req, res) {
       if (mode === 'continue') {
         if (DEMO || PROJECTS_DIR !== path.join(CLAUDE_DIR, 'projects')) throw new HttpError(400, 'Continuing a conversation only works with your real Claude Code history. Use “Fresh Foreman with a summary” instead.');
         if (!d.cwd || !fs.existsSync(d.cwd)) throw new HttpError(400, `The folder that conversation ran in (${d.cwd ?? 'unknown'}) isn’t there any more, so it can’t be continued. Use “Fresh Foreman with a summary” instead.`);
+        // The continued conversation runs where it ran before, so that must be inside the job's repository.
+        if (!isInside(d.cwd, repo.path)) throw new HttpError(400, `That conversation ran in ${d.cwd}, which isn’t inside ${repo.path}. Pick that repository, or use “Fresh Foreman with a summary”.`);
         const { forkSession } = await import('@anthropic-ai/claude-agent-sdk');
         sessionId = (await forkSession(d.id, { dir: d.cwd, title: `${d.title} (Feature Workshop)` })).sessionId;
         cwd = d.cwd;

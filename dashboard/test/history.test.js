@@ -44,14 +44,15 @@ test('history: lists conversations, folds continued ones, flags jobs and missing
   const a = '11111111-1111-1111-1111-111111111111';
   const b = '22222222-2222-2222-2222-222222222222';
   await fs.writeFile(path.join(proj, `${a}.jsonl`), `${user('First part', { sessionId: a })}\n${line({ type: 'continued-in', continuedInSessionId: b })}\n`);
-  await fs.writeFile(path.join(proj, `${b}.jsonl`), LOG.replaceAll('"S"', `"${b}"`));
+  // The later part repeats the earlier part's messages, as Claude Code does when a conversation continues.
+  await fs.writeFile(path.join(proj, `${b}.jsonl`), `${user('First part', { sessionId: b })}\n${LOG.replaceAll('"S"', `"${b}"`)}`);
   await fs.mkdir(path.join(proj, '33333333-3333-3333-3333-333333333333'));
 
   const h = new History(root);
   const { rows, missing } = await h.list({ linked: new Map([[a, 'copy-id']]) });
   assert.equal(rows.length, 1, 'the earlier part is folded into the later one');
   assert.deepEqual(rows[0].chain, [a, b]);
-  assert.equal(rows[0].messages, 3);
+  assert.equal(rows[0].messages, 3, 'repeated messages count once');
   assert.equal(rows[0].job, 'copy-id', 'a job using any part counts');
   assert.equal(missing.length, 1, 'a session folder with no log is listed as unavailable');
 
