@@ -22,6 +22,7 @@ import { liveTerminals } from './lib/live.js';
 import { readHookSessions } from './lib/hook-events.js';
 import { classify } from './lib/policy.js';
 import { buildOverview, parseBrief } from './lib/overview.js';
+import { LimitWatch } from './lib/limits.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -51,6 +52,11 @@ const queryFn = DEMO
   ? (await import('./demo/fake-query.js')).makeFakeQuery({ featuresDir: FEATURES_DIR })
   : (await import('@anthropic-ai/claude-agent-sdk')).query;
 const driver = new Driver({ queryFn, state, projectsDir: PROJECTS_DIR, cliPath: process.env.WORKSHOP_CLAUDE_PATH || null, policy: policyFor });
+// Claude usage limits: pause everything when one is reached, carry on when it resets.
+const limits = new LimitWatch({ driver, state });
+await limits.load();
+driver.on('usage-limit', (e) => { limits.onLimit(e).catch((err) => console.error(err)); });
+driver.on('usage-status', (info) => limits.onStatus(info));
 
 const isInside = (p, dir) => {
   if (!p || !dir) return false;
@@ -176,7 +182,8 @@ function boardCard(f, run) {
   const running = f.activity.filter((a) => stillRunning(f, a, active));
   // The record says "working" but nobody is: say so honestly instead of showing a busy crew.
   const notRunning = !active && !running.length && f.stageState === 'working';
-  const pausedHere = notRunning && runEnds[f.dir]?.status === 'stopped';
+  const limitPaused = !active && limits.pausedJob(f.dir) ? limits.view().resetsAt : null;
+  const pausedHere = Boolean(limitPaused) || (notRunning && runEnds[f.dir]?.status === 'stopped');
   const nowDoing = running.map((a) => ({
     who: a.who, name: a.name, doing: a.doing, quietMs: a.quiet?.quietMs ?? null,
     since: a.who === 'conductor' ? a.since : a.startedAt ?? a.since, lastAt: a.lastAt,
@@ -195,7 +202,7 @@ function boardCard(f, run) {
     repo: f.repoPath ? { name: path.basename(f.repoPath), branch: f.branch } : null,
     cost: { totalUsd: Math.max(f.cost.totalUsd, active?.costUsd ?? 0), source: f.cost.source },
     progress: { done: f.stageState === 'done' ? ids.length : Math.max(0, at), total: ids.length },
-    updatedAt: f.updatedAt, sources: f.sources, permissions: pendingList.length,
+    updatedAt: f.updatedAt, sources: f.sources, permissions: pendingList.length, limitPaused,
   };
 }
 
@@ -293,9 +300,11 @@ async function jobDetail(f) {
       autoGroup.items.push({ at: e.at, headline: e.headline, who: e.agentType ?? 'conductor', reason: e.reason });
       continue;
     }
-    if (e.action === 'send') thread.push({ kind: 'you', at: e.at, text: e.text, sendKind: e.kind });
+    if (e.action === 'send' && e.kind === 'resume') thread.push({ kind: 'note', at: e.at, text: 'Claude’s usage limit reset, so the workshop told the Foreman to carry on.' });
+    else if (e.action === 'send') thread.push({ kind: 'you', at: e.at, text: e.text, sendKind: e.kind });
     else if (e.action === 'run-ended') {
-      if (e.status === 'error') thread.push({ kind: 'problem', at: e.at, text: e.error ?? 'The reply hit a problem.' });
+      if (e.status === 'limited' || (e.status === 'stopped' && e.stopReason === 'usage-limit')) thread.push({ kind: 'note', at: e.at, text: `Paused: Claude’s usage limit was reached.${limits.autoResume ? ' The job carries on by itself once the limit resets.' : ' Send a message to carry on once the limit resets.'}` });
+      else if (e.status === 'error') thread.push({ kind: 'problem', at: e.at, text: e.error ?? 'The reply hit a problem.' });
       else if (e.reply) thread.push({ kind: 'reply', at: e.at, html: renderMarkdown(e.reply, { idHref: idHref(f) }), stopped: e.status === 'stopped' });
       else if (e.status === 'stopped') thread.push({ kind: 'note', at: e.at, text: 'You paused this reply.' });
     } else if (e.action === 'permission') thread.push({ kind: 'decision', at: e.at, text: `${e.decision === 'deny' ? 'You said no to' : 'You allowed'}: ${e.headline ?? e.tool}${e.note ? ` (“${e.note}”)` : ''}` });
@@ -356,6 +365,12 @@ async function readBody(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { throw new HttpError(400, 'That wasn’t valid JSON.'); }
 }
 
+function limitMessage() {
+  const v = limits.view();
+  const when = v.resetsAt ? new Date(v.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null;
+  return `Claude’s ${v.label ?? 'usage limit'} is reached${when ? ` (${v.resetKnown ? 'it resets' : 'trying again'} around ${when})` : ''}. Paused jobs carry on by themselves then. If you know it’s lifted (for example you turned on extra usage), use “Carry on now” at the top of the page.`;
+}
+
 const str = (v, max = 20000) => (typeof v === 'string' ? v.slice(0, max) : '');
 
 function slugify(s) {
@@ -394,7 +409,7 @@ const GET = {
       done: cards.filter((c) => c.stageState === 'done').length,
       projects: new Set(cards.map((c) => c.project.name)).size,
     };
-    return { features: cards, needsYou: stats.needsYou, totalUsd, stats, permissions: driver.pendingPermissions(), generatedAt: new Date().toISOString() };
+    return { features: cards, needsYou: stats.needsYou, totalUsd, stats, permissions: driver.pendingPermissions(), usage: limits.view(), generatedAt: new Date().toISOString() };
   },
   '/api/runs': async () => ({ runs: driver.list(), permissions: driver.pendingPermissions() }),
   '/api/repos': async () => ({ repos: await recentRepos(sessionIndex, [...(process.env.WORKSHOP_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean), ...(await features()).map((f) => f.repoPath)]) }),
@@ -469,6 +484,7 @@ async function routePost(urlPath, req, res) {
     if (!text) throw new HttpError(400, 'The message is empty.');
     const drive = await driveState(f);
     if (drive.mode === 'running') throw new HttpError(409, 'The Foreman is still working on your last message. Wait for it, or pause it first.');
+    if (limits.isLimited() && body.despiteLimit !== true) throw new HttpError(409, limitMessage(), { code: 'limited' });
     if (drive.mode === 'terminal') throw new HttpError(409, 'This job’s Foreman was last used in your terminal.', { code: 'terminal', lastTerminalAt: drive.lastTerminalAt });
     if (drive.mode === 'terminal-open' && body.confirmNoTerminal !== true) throw new HttpError(409, 'Claude Code is open in this repository in a terminal. Make sure none of those windows is this job’s Foreman, then confirm.', { code: 'terminal-open', terminals: drive.terminals.length });
     const model = MODELS.some((x) => x.id === body.model) ? body.model : drive.model ?? 'claude-fable-5-1';
@@ -482,6 +498,7 @@ async function routePost(urlPath, req, res) {
       sessionId = null;
     }
     const run = await driver.start({ featureDir: f.dir, slug: f.slug, title: f.title, cwd, sessionId, model, text: sendText, kind: str(body.kind, 20) || 'message', additionalDirectories: await readDirs() });
+    await limits.forget(f.dir); // you've picked it up yourself
     cached = null;
     return sendJson(res, 200, { run });
   }
@@ -513,6 +530,15 @@ async function routePost(urlPath, req, res) {
     await state.audit({ action: 'settings', policy });
     return sendJson(res, 200, await state.getSettings());
   }
+  if (urlPath === '/api/usage/resume') {
+    if (!limits.isLimited()) throw new HttpError(409, 'Nothing is paused for the usage limit.');
+    return sendJson(res, 200, await limits.resume('you'));
+  }
+  if (urlPath === '/api/usage/auto') {
+    await limits.setAutoResume(body.on === true);
+    await state.audit({ action: 'settings', autoResume: body.on === true });
+    return sendJson(res, 200, limits.view());
+  }
   if ((m = /^\/api\/runs\/([\w-]+)\/stop$/.exec(urlPath))) {
     if (!(await driver.stop(m[1]))) throw new HttpError(404, 'That reply already finished.');
     return sendJson(res, 200, { ok: true });
@@ -527,6 +553,7 @@ async function routePost(urlPath, req, res) {
   if (urlPath === '/api/jobs') {
     const description = str(body.description, 600).replace(/\s+/g, ' ').trim();
     if (description.length < 4) throw new HttpError(400, 'Describe the job in a few words.');
+    if (limits.isLimited() && body.despiteLimit !== true) throw new HttpError(409, limitMessage(), { code: 'limited' });
     const repo = await checkRepo(str(body.repoPath, 1000));
     if (!repo.ok) throw new HttpError(400, repo.reason);
     const model = MODELS.some((x) => x.id === body.model) ? body.model : 'claude-fable-5-1';
@@ -557,6 +584,7 @@ function notifyChange() {
 driver.on('run', (run) => { cached = null; broadcast('run', run); });
 driver.on('permission', (p) => broadcast('permission', p));
 driver.on('permission-gone', (p) => broadcast('permission-gone', p));
+limits.on('change', () => { cached = null; broadcast('change', { at: Date.now() }); });
 
 function watch(dir) {
   try {

@@ -1,4 +1,4 @@
-import { $, $$, esc, prefs, since, duration, plural, usd, fmtTokens, modelLabel, getJson, setToken, toast } from './ui.js';
+import { $, $$, esc, prefs, since, duration, plural, usd, fmtTokens, modelLabel, getJson, postJson, setToken, toast } from './ui.js';
 import { sprite, icon, renderMap, STAGE_CHARACTER } from './crew.js';
 import { pixelText } from './pixelfont.js';
 import { initJob, showJob, currentJobSlug } from './job.js';
@@ -80,11 +80,61 @@ export function situation(f) {
     const a = workers[0] ?? running[0];
     return { tone: 'working', main: `<b>${esc(agentName(a.who))}</b> ${esc(verbFor(a.who))}`, detail: a.doing, time: since(a.since), crew: [a], bubble: quiet ? 'quiet' : 'dots', hint };
   }
+  if (f.limitPaused) return { tone: 'idle', main: '<b>Paused</b> for Claude’s usage limit.', detail: `It carries on by itself at about ${clockTime(f.limitPaused)}.`, crew: [], bubble: null };
   if (f.paused) return { tone: 'idle', main: '<b>Paused.</b> Nothing is running.', detail: 'You paused this from the workshop. Send the Foreman a message to carry on.', crew: [], bubble: null };
   if (f.stageState === 'working') return { tone: 'working', main: '<b>The crew</b> is working', detail: f.nextProposed, crew: [], bubble: 'dots' };
   if (f.stageState === 'blocked') return { tone: 'blocked', main: '<b>Blocked:</b> waiting on someone else', detail: f.nextProposed, crew: [], bubble: null };
   if (f.stageState === 'done') return { tone: 'done', main: '<b>Done!</b> This job is finished.', detail: null, crew: [], bubble: 'badge' };
   return { tone: 'idle', main: '<b>Resting.</b> Nothing is running.', detail: f.nextProposed ? `Next: ${f.nextProposed}` : null, crew: [], bubble: null };
+}
+
+const clockTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+// ---------- Usage limit (shown on every page) ----------
+
+function renderUsage() {
+  const u = board?.usage;
+  let html = '';
+  if (u?.limited) {
+    const t = u.resetsAt ? clockTime(u.resetsAt) : null;
+    const left = u.resetsAt ? duration(Date.parse(u.resetsAt) - Date.now()) : null;
+    const jobs = u.jobs.length ? `${esc(plural(u.jobs.length, 'job'))} paused: ${u.jobs.map((j) => esc(j.title)).join(', ')}.` : 'Nothing was running from here.';
+    const plan = !u.autoResume ? 'Automatic carry-on is off, so use <b>Carry on now</b> when you’re ready.'
+      : u.resetKnown ? `${u.jobs.length ? 'They carry on' : 'Jobs can start again'} by themselves at about <b>${esc(t)}</b> (in ${esc(left)}).`
+        : `Claude didn’t say when it resets, so the workshop tries again at about <b>${esc(t)}</b>.`;
+    html = `<section class="usage-banner gbox" role="status" aria-label="Usage limit">
+      <p><b>Claude’s ${esc(u.label)} is reached.</b> ${jobs} ${plan}</p>
+      <p class="fineprint">Jobs you run in a terminal can’t be paused from here: they stop with a limit message instead.</p>
+      <div class="usage-actions">
+        <button class="btn small primary" type="button" data-usage="resume">Carry on now</button>
+        <label class="usage-auto"><input type="checkbox" data-usage="auto"${u.autoResume ? ' checked' : ''}> Carry on automatically when it resets</label>
+      </div></section>`;
+  } else if (u?.warning) {
+    const w = u.warning;
+    html = `<p class="banner gbox usage-warn" role="status"><b>Heads-up:</b> you’ve used ${w.percent != null ? `${esc(w.percent)}% of` : 'most of'} Claude’s ${esc(w.label)}${w.resetsAt ? ` (it resets at about ${esc(clockTime(w.resetsAt))})` : ''}. If it runs out, running jobs pause and carry on after it resets.</p>`;
+  }
+  const el = $('#usage');
+  if (el._html !== html) { el.innerHTML = html; el._html = html; }
+}
+
+function bindUsage() {
+  const el = $('#usage');
+  el.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-usage="resume"]');
+    if (!btn) return;
+    btn.disabled = true;
+    try {
+      const r = await postJson('/api/usage/resume', {});
+      toast(r.resumed.length ? `Carrying on: ${esc(plural(r.resumed.length, 'job'))}.` : 'Unpaused. Nothing was waiting.', { tone: 'good' });
+      refreshSoon();
+    } catch (err) { toast(esc(err.message), { tone: 'bad' }); btn.disabled = false; }
+  });
+  el.addEventListener('change', async (e) => {
+    const box = e.target.closest('[data-usage="auto"]');
+    if (!box) return;
+    try { await postJson('/api/usage/auto', { on: box.checked }); toast(box.checked ? 'Paused jobs will carry on by themselves.' : 'Paused jobs will wait for you.', { tone: 'good' }); refreshSoon(); }
+    catch (err) { toast(esc(err.message), { tone: 'bad' }); box.checked = !box.checked; }
+  });
 }
 
 // When a job moves to a later stage, its crew walks there instead of jumping.
@@ -352,6 +402,7 @@ async function refresh() {
     board = await getJson('/api/features');
     updateCounter();
     alertOnChanges();
+    renderUsage();
     await show();
   } catch (err) {
     if (!board) $('#app').innerHTML = `<div class="empty gbox">${sprite('conductor', { size: 120, state: 'asleep' })}<h2>Can’t reach the workshop</h2><p>${esc(err.message || 'The dashboard may have stopped. Start it again with npm start.')}</p></div>`;
@@ -377,6 +428,7 @@ async function init() {
   bell.addEventListener('click', async () => { meta = await getJson('/api/meta'); openAlerts(bell, meta); });
   bell.addEventListener('alerts-changed', paintBell);
   paintBell();
+  bindUsage();
   await refresh();
   window.addEventListener('hashchange', () => { $('#app').innerHTML = ''; window.scrollTo(0, 0); show(); });
   const events = new EventSource('/api/events');

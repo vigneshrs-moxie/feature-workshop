@@ -10,6 +10,7 @@ import { describePermission } from './permissions.js';
 import { describeTool } from './session-log.js';
 
 const ACTIVE = new Set(['starting', 'running', 'waiting_permission', 'stopping']);
+// Ended states: done, stopped, error, and limited (the reply ended on a Claude usage limit).
 const trimInput = (input) => {
   const s = JSON.stringify(input ?? {});
   return s.length > 20000 ? { note: 'Input too large to show in full.', preview: s.slice(0, 20000) } : input;
@@ -58,6 +59,7 @@ export class Driver extends EventEmitter {
       costUsd: run.costUsd, apiKeySource: run.apiKeySource, error: run.error,
       newJob: run.newJob, pending: run.pending.size, denials: run.denials,
       backgroundTasks: run.backgroundTasks, sessionState: run.sessionState ?? null, autoAllowed: run.autoAllowed ?? 0,
+      additionalDirectories: run.additionalDirectories, stopReason: run.stopReason ?? null,
     };
   }
 
@@ -126,7 +128,7 @@ export class Driver extends EventEmitter {
       run.pending.clear();
       run.endedAt = new Date().toISOString();
       const reply = (run.lastText ?? run.resultText ?? '').slice(0, 8000) || undefined;
-      await this.state.audit({ action: 'run-ended', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, status: run.status, costUsd: run.costUsd, error: run.error, reply });
+      await this.state.audit({ action: 'run-ended', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, status: run.status, costUsd: run.costUsd, error: run.error, reply, stopReason: run.stopReason ?? undefined });
       this.emit('run', this.view(run));
     }
   }
@@ -138,7 +140,16 @@ export class Driver extends EventEmitter {
       run.apiKeySource = msg.apiKeySource ?? null;
       await this.state.setSession(run.featureDir, { sessionId: run.sessionId, cwd: run.cwd, model: run.model, lastRunAt: run.startedAt, ...(run.newJob ? { startedFromWorkshop: true, title: run.title } : {}) });
       this.emit('run', this.view(run));
+    } else if (msg.type === 'rate_limit_event') {
+      // Claude's plan usage: 'rejected' means the limit is reached; 'allowed_warning' means close to it.
+      const info = msg.rate_limit_info ?? null;
+      run.rateLimit = info;
+      const covered = info?.overageStatus === 'allowed' || info?.overageStatus === 'allowed_warning';
+      if (info?.status === 'rejected' && !covered) this.#limitHit(run, info);
+      else this.emit('usage-status', info);
     } else if (msg.type === 'assistant' && !msg.parent_tool_use_id) {
+      // The CLI turns a usage-limit refusal into a message of its own, marked as a rate_limit error.
+      if (msg.error === 'rate_limit') this.#limitHit(run, run.rateLimit?.status === 'rejected' ? run.rateLimit : null);
       // A new turn (for example after a background worker finished): not idle any more.
       run.awaitingIdle = false;
       clearTimeout(run.idleTimer);
@@ -153,7 +164,11 @@ export class Driver extends EventEmitter {
       run.costUsd = typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : run.costUsd;
       if (typeof msg.result === 'string' && msg.result.trim()) run.resultText = msg.result;
       run.denials = (msg.permission_denials ?? []).map((d) => ({ tool: d.tool_name, input: trimInput(d.tool_input) }));
-      if (msg.is_error && !run.stopRequested) { run.status = 'error'; run.error = run.resultText || msg.subtype; }
+      if (msg.is_error && !run.stopRequested) {
+        run.status = run.limitHit || msg.api_error_status === 429 ? 'limited' : 'error';
+        run.error = run.resultText || msg.subtype;
+        if (run.status === 'limited') this.#limitHit(run, run.rateLimit?.status === 'rejected' ? run.rateLimit : null);
+      }
       run.awaitingIdle = true;
       this.#armIdle(run);
       this.emit('run', this.view(run));
@@ -179,6 +194,13 @@ export class Driver extends EventEmitter {
     run.idleTimer = setTimeout(() => {
       if (run.awaitingIdle && !run.backgroundTasks.length && !run.pending.size) run.closeInput?.();
     }, this.idleGraceMs ?? 5000);
+  }
+
+  // Reported once per run; the listener (LimitWatch) pauses the other runs and plans the carry-on.
+  #limitHit(run, info) {
+    if (run.limitHit) return;
+    run.limitHit = true;
+    this.emit('usage-limit', { run: this.view(run), info });
   }
 
   async #agentType(run, agentID) {
@@ -250,14 +272,17 @@ export class Driver extends EventEmitter {
     return false;
   }
 
-  async stop(runId) {
+  /** reason: null (you clicked Stop) or 'usage-limit' (paused until the limit resets). */
+  async stop(runId, { reason = null } = {}) {
     const run = this.runs.get(runId);
     if (!run || !ACTIVE.has(run.status)) return false;
     run.stopRequested = true;
+    run.stopReason = reason;
     run.status = 'stopping';
     this.emit('run', this.view(run));
-    await this.state.audit({ action: 'stop-now', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId });
-    for (const p of [...run.pending.values()]) p.resolve({ behavior: 'deny', message: 'The person stopped this reply.', interrupt: true });
+    await this.state.audit({ action: 'stop-now', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId, reason: reason ?? undefined });
+    const why = reason === 'usage-limit' ? 'Paused: the Claude usage limit was reached. The job carries on after it resets.' : 'The person stopped this reply.';
+    for (const p of [...run.pending.values()]) p.resolve({ behavior: 'deny', message: why, interrupt: true });
     try {
       await run.query?.interrupt?.();
     } catch {
