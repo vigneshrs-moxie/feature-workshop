@@ -22,7 +22,8 @@ import { recentRepos, checkRepo } from './lib/repos.js';
 import { HttpError, checkWrite, hostAllowed } from './lib/http-guard.js';
 import { liveTerminals } from './lib/live.js';
 import { readHookSessions } from './lib/hook-events.js';
-import { classify } from './lib/policy.js';
+import { classify, matchRule } from './lib/policy.js';
+import { RuleStore, RuleError, validateRule, describeRule } from './lib/rules.js';
 import { buildOverview, parseBrief } from './lib/overview.js';
 import { LimitWatch } from './lib/limits.js';
 import { LocalRunner } from './lib/local.js';
@@ -59,6 +60,8 @@ const MODELS = [
 
 const sessionIndex = new SessionIndex(PROJECTS_DIR);
 const state = new State(process.env.WORKSHOP_STATE_DIR || (DEMO ? path.join(path.dirname(FEATURES_DIR), 'state') : undefined));
+// Your "Always allow" rules (rules.json next to the dashboard's other state; see lib/rules.js).
+const rules = new RuleStore(state.dir);
 const HOOK_SCRIPT = path.join(HERE, 'hooks', 'record.mjs');
 const queryFn = DEMO
   ? (await import('./demo/fake-query.js')).makeFakeQuery({ featuresDir: FEATURES_DIR })
@@ -108,7 +111,7 @@ async function policyFor(run, toolName, input, opts) {
   const specDirs = [repo ? path.join(repo, 'docs', 'plans') : null, f?.spec?.path && path.isAbsolute(f.spec.path) ? path.dirname(f.spec.path) : null].filter(Boolean);
   return classify(toolName, input, {
     mode: settings.policy, stage: f?.stage ?? 'spec', featureDir: run.featureDir, worktrees, repoPath: repo, specDirs,
-    cwd: run.cwd, defaultToNo: Boolean(opts?.defaultToNo),
+    cwd: run.cwd, defaultToNo: Boolean(opts?.defaultToNo), rules: await rules.list(),
   });
 }
 
@@ -473,6 +476,8 @@ const GET = {
     return { features: cards, needsYou: stats.needsYou, totalUsd, stats, permissions: driver.pendingPermissions(), usage: limits.view(), generatedAt: new Date().toISOString() };
   },
   '/api/runs': async () => ({ runs: driver.list(), permissions: driver.pendingPermissions() }),
+  // Your "Always allow" rules. active: false while "ask about everything" is on (then they wait).
+  '/api/rules': async () => ({ rules: await rules.list(), active: (await state.getSettings()).policy !== 'ask-all', unreadable: rules.broken ? rules.file : null }),
 
   '/api/repos': async () => ({ repos: await recentRepos(sessionIndex, [...(process.env.WORKSHOP_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean), ...(await features()).map((f) => f.repoPath)]) }),
   '/api/costs': async () => {
@@ -740,8 +745,38 @@ async function routePost(urlPath, req, res) {
     if (!(await driver.decide(m[1], { decision, note: str(body.note, 2000), answers }))) throw new HttpError(404, 'That request was already answered or has expired.');
     return sendJson(res, 200, { ok: true });
   }
+  if (urlPath === '/api/rules') {
+    // "Always allow…": save a rule you confirmed, and (with permissionId) allow the request it was
+    // drafted from. The rule must cover that request; nothing broader than its kind is accepted.
+    let v;
+    try { v = validateRule(body.rule); } catch (err) { if (err instanceof RuleError) throw new HttpError(400, err.message); throw err; }
+    const permissionId = str(body.permissionId, 100) || null;
+    const req = permissionId ? driver.pendingRequest(permissionId) : null;
+    if (permissionId) {
+      if (!req) throw new HttpError(404, 'That request was already answered or has expired. Nothing was saved.');
+      if (req.kind !== 'permission') throw new HttpError(400, 'Questions can’t be always allowed.');
+      if (req.defaultToNo) throw new HttpError(400, 'Claude Code flagged this step as risky, so it can’t be always allowed. Use Allow once instead.');
+      if (!matchRule(v, req.toolName, req.input)) throw new HttpError(400, `That rule (${describeRule(v)}) wouldn’t cover this request, so it wasn’t saved. Change it so it does, or use Allow once.`);
+    }
+    let saved;
+    try { saved = await rules.add(v, { from: req ? { slug: req.slug, title: req.title ?? null, headline: req.plain?.headline ?? null } : null }); } catch (err) { if (err instanceof RuleError) throw new HttpError(400, err.message); throw err; }
+    const { rule, added } = saved;
+    if (added) await state.audit({ action: 'rule-added', rule: rule.id, tool: rule.tool, kind: rule.kind, value: rule.value, label: rule.label, featureDir: req?.featureDir, slug: req?.slug });
+    const allowed = req ? await driver.decide(permissionId, { decision: 'allow', rule: rule.id }) : false;
+    // Other requests waiting right now that the rule covers are allowed too, as later ones will be.
+    const active = (await state.getSettings()).policy !== 'ask-all';
+    let alsoAllowed = 0;
+    if (active) {
+      for (const p of driver.pendingPermissions()) {
+        if (p.kind !== 'permission' || p.defaultToNo) continue;
+        const full = driver.pendingRequest(p.id);
+        if (full && matchRule(rule, full.toolName, full.input) && (await driver.decide(p.id, { decision: 'allow', rule: rule.id }))) alsoAllowed++;
+      }
+    }
+    return sendJson(res, 200, { rule, added, allowed, alsoAllowed, active });
+  }
   if (urlPath === '/api/jobs') {
-    const description = str(body.description, 600).replace(/\s+/g, ' ').trim();
+    const description =str(body.description, 600).replace(/\s+/g, ' ').trim();
     if (description.length < 4) throw new HttpError(400, 'Describe the job in a few words.');
     if (limits.isLimited() && body.despiteLimit !== true) throw new HttpError(409, limitMessage(), { code: 'limited' });
     const repo = await checkRepo(str(body.repoPath, 1000));
@@ -793,6 +828,19 @@ async function routePost(urlPath, req, res) {
   throw new HttpError(404, 'Not found');
 }
 
+async function routeDelete(urlPath, req, res) {
+  checkWrite(req.headers, { port: PORT, token: TOKEN });
+  await readBody(req);
+  const m = /^\/api\/rules\/([\w-]{1,100})$/.exec(urlPath);
+  if (m) {
+    const rule = await rules.remove(m[1]);
+    if (!rule) throw new HttpError(404, 'That rule was already removed.');
+    await state.audit({ action: 'rule-removed', rule: rule.id, tool: rule.tool, kind: rule.kind, value: rule.value, label: rule.label });
+    return sendJson(res, 200, { ok: true, rule });
+  }
+  throw new HttpError(404, 'Not found');
+}
+
 // ---------- Live updates (server-sent events) ----------
 
 const clients = new Set();
@@ -823,6 +871,8 @@ function threadChanged(slug, why) {
   clearTimeout(threadTimers.get(slug));
   threadTimers.set(slug, setTimeout(() => { threadTimers.delete(slug); events.emit('thread', slug, { why }); }, 300));
 }
+// The rule list changed: open Settings views refetch it.
+rules.on('change', (list) => { events.emit('rules', null, { count: list.length }); });
 state.on('audit', (e) => { if (e.featureDir) threadChanged(e.slug ?? path.basename(e.featureDir), e.action); });
 function featureFileChanged(_type, filename) {
   // fs.watch names the file relative to the jobs folder: its first part is the job's folder name.
@@ -859,6 +909,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && urlPath === '/api/events') return openEvents(req, res);
     if (req.method === 'GET') return await routeGet(urlPath, url, req, res);
     if (req.method === 'POST') return await routePost(urlPath, req, res);
+    if (req.method === 'DELETE') return await routeDelete(urlPath, req, res);
     return send(res, 405, 'Method not allowed');
   } catch (err) {
     if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message, ...err.extra });

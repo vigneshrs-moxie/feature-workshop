@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { describePermission } from './permissions.js';
+import { draftRule } from './rules.js';
 import { describeTool } from './session-log.js';
 
 const ACTIVE = new Set(['starting', 'running', 'waiting_permission', 'stopping']);
@@ -63,9 +64,21 @@ export class Driver extends EventEmitter {
     };
   }
 
+  // What a page sees of a waiting request: everything but the callback and the untrimmed input.
+  // `suggestions` are Claude Code's own (only ever used for this reply); `draft` is the narrowest
+  // "Always allow" rule for it (lib/rules.js), or null when none can be saved.
   viewPermission(p) {
-    const { resolve, originalInput, suggestions, ...rest } = p;
+    const { resolve, originalInput, ...rest } = p;
     return rest;
+  }
+
+  /** A waiting request with its full input (for checking a rule against it), or null. */
+  pendingRequest(requestId) {
+    for (const run of this.runs.values()) {
+      const req = run.pending.get(requestId);
+      if (req) return { ...this.viewPermission(req), input: req.originalInput };
+    }
+    return null;
   }
 
   /**
@@ -220,7 +233,7 @@ export class Driver extends EventEmitter {
       if (verdict?.auto) {
         const plain = describePermission(toolName, input, { cwd: run.cwd });
         run.autoAllowed = (run.autoAllowed ?? 0) + 1;
-        await this.state.audit({ action: 'auto-allowed', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, tool: toolName, agentType: await this.#agentType(run, opts.agentID), headline: plain.headline, preview: (plain.preview ?? '').slice(0, 300) || undefined, reason: verdict.reason });
+        await this.state.audit({ action: 'auto-allowed', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, tool: toolName, agentType: await this.#agentType(run, opts.agentID), headline: plain.headline, preview: (plain.preview ?? '').slice(0, 300) || undefined, reason: verdict.reason, rule: verdict.rule ?? undefined });
         this.emit('run', this.view(run));
         return { behavior: 'allow', updatedInput: input };
       }
@@ -236,6 +249,8 @@ export class Driver extends EventEmitter {
       // for this run only (destination 'session'); nothing is written to settings files.
       canAllowForRun: !opts.suppressAlwaysAllowRule && Array.isArray(opts.suggestions) && opts.suggestions.length > 0,
       suggestions: (opts.suggestions ?? []).map((s) => ({ ...s, destination: 'session' })),
+      // "Always allow…": saved rules never apply to questions or to steps Claude Code flagged as risky.
+      draft: toolName === 'AskUserQuestion' || opts.defaultToNo ? null : draftRule(toolName, input, opts.suggestions ?? []),
       plain: describePermission(toolName, input, { cwd: run.cwd, blockedPath: opts.blockedPath, defaultToNo: opts.defaultToNo }),
       createdAt: new Date().toISOString(),
       originalInput: input,
@@ -254,8 +269,11 @@ export class Driver extends EventEmitter {
     });
   }
 
-  /** decision: 'allow' | 'allow-run' | 'deny'. answers: for questions, { [questionText]: label }. */
-  async decide(requestId, { decision, note = '', answers = null }) {
+  /**
+   * decision: 'allow' | 'allow-run' | 'deny'. answers: for questions, { [questionText]: label }.
+   * rule: the id of the "Always allow" rule this allow came with (recorded in the audit log).
+   */
+  async decide(requestId, { decision, note = '', answers = null, rule = null }) {
     for (const run of this.runs.values()) {
       const req = run.pending.get(requestId);
       if (!req) continue;
@@ -267,7 +285,7 @@ export class Driver extends EventEmitter {
         result = { behavior: 'allow', updatedInput };
         if (decision === 'allow-run' && req.canAllowForRun) result.updatedPermissions = req.suggestions;
       }
-      await this.state.audit({ action: 'permission', featureDir: req.featureDir, slug: req.slug, sessionId: run.sessionId, runId: run.id, tool: req.toolName, agentType: req.agentType, headline: req.plain.headline, decision, note: note || undefined, answers: answers ?? undefined });
+      await this.state.audit({ action: 'permission', featureDir: req.featureDir, slug: req.slug, sessionId: run.sessionId, runId: run.id, tool: req.toolName, agentType: req.agentType, headline: req.plain.headline, decision, note: note || undefined, answers: answers ?? undefined, rule: rule ?? undefined });
       req.resolve(result);
       this.emit('permission-gone', { id: requestId, slug: req.slug, reason: 'answered' });
       return true;

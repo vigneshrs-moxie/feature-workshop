@@ -189,6 +189,27 @@ describe('Foreman pane', () => {
     expect(screen.getByText('Pick a job on the left to see its conversation.')).toBeInTheDocument();
   });
 
+  it('shows the job’s waiting cards at the foot of its conversation, live', async () => {
+    const { store } = setup();
+    await screen.findByText('Spec is ready');
+    act(() => { store.dispatch({ type: 'event', event: ev(11, 'permission', 'alpha', { id: 'p1', slug: 'alpha', kind: 'permission', toolName: 'Bash', plain: { headline: 'Run the tests' } }) }); });
+    act(() => { store.dispatch({ type: 'event', event: ev(12, 'permission', 'other', { id: 'p2', slug: 'other', kind: 'permission', toolName: 'Bash', plain: { headline: 'Not this job' } }) }); });
+    const waiting = screen.getByRole('region', { name: 'Waiting for you' });
+    expect(within(waiting).getByRole('article', { name: 'Permission: Run the tests' })).toBeInTheDocument();
+    expect(screen.queryByText('Not this job')).toBeNull();
+    act(() => { store.dispatch({ type: 'event', event: ev(13, 'permission-gone', 'alpha', { id: 'p1', slug: 'alpha' }) }); });
+    expect(screen.queryByRole('region', { name: 'Waiting for you' })).toBeNull();
+  });
+
+  it('with no job open, lists every card waiting for you', () => {
+    const { store } = setup({ slug: null });
+    expect(screen.getByText('No permission or question is waiting for you.')).toBeInTheDocument();
+    act(() => { store.dispatch({ type: 'event', event: ev(11, 'permission', 'alpha', { id: 'p1', slug: 'alpha', kind: 'question', toolName: 'AskUserQuestion', input: { questions: [{ question: 'Ship it?', options: [{ label: 'Yes' }] }] } }) }); });
+    const inbox = screen.getByRole('region', { name: 'Waiting for your answer' });
+    expect(within(inbox).getByRole('link', { name: 'Job alpha' })).toHaveAttribute('href', '#/job/alpha');
+    expect(within(inbox).getByRole('article', { name: 'Question: Ship it?' })).toBeInTheDocument();
+  });
+
   it('shows an empty conversation plainly', async () => {
     setup({ routes: { '/api/job/alpha': detail({ thread: [] }) } });
     expect(await screen.findByText(/Nothing here yet/)).toBeInTheDocument();

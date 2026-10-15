@@ -341,6 +341,124 @@ a:hover { text-decoration: underline; }
 .prose th, .prose td { padding: var(--space-1) var(--space-2); border: 1px solid var(--border-2); text-align: left; }
 .prose .id-link { font-family: var(--font-mono); font-size: .92em; }
 
+/* ---------- Permission and question cards ---------- */
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: var(--weight-medium); }
+.btn-primary:hover { background: var(--accent-strong); }
+.btn-danger { border-color: var(--status-error); color: var(--status-error); background: transparent; }
+.btn-danger:hover { background: var(--status-error-bg); }
+.btn:disabled, .btn:disabled:hover { opacity: .5; cursor: not-allowed; }
+
+.text-input {
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-md);
+  background: var(--bg-0);
+  color: var(--text-1);
+  font: inherit;
+}
+.text-input:focus-visible { border-color: var(--focus-ring); }
+.field { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); color: var(--text-2); }
+.field-problem { margin: var(--space-2) 0 0; color: var(--status-error); font-size: var(--text-sm); }
+
+.pending-cards { display: flex; flex-direction: column; gap: var(--space-3); }
+.pending-job { margin: var(--space-3) 0 0; font-size: var(--text-base); }
+.needs-you-inbox { margin-top: var(--space-4); }
+
+.perm-card {
+  padding: var(--space-3);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-1);
+}
+.perm-card.is-risky { border-color: var(--status-warn); }
+.perm-head { margin-bottom: var(--space-1); font-size: var(--text-sm); }
+.perm-who { display: flex; align-items: baseline; gap: var(--space-1); margin: 0; color: var(--text-2); }
+.perm-who strong { color: var(--text-1); font-weight: var(--weight-medium); }
+.perm-job { margin: 2px 0 0; }
+.perm-headline { margin: 0 0 var(--space-2); font-size: var(--text-md); }
+.perm-detail { color: var(--text-2); }
+.perm-preview {
+  max-height: 240px;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2);
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: var(--bg-0);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.perm-reason { font-size: var(--text-sm); }
+.perm-warn { padding: var(--space-1) var(--space-2); border-radius: var(--radius-md); background: var(--status-warn-bg); color: var(--status-warn); font-size: var(--text-sm); }
+.perm-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+.perm-deny { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
+
+.question { margin: 0 0 var(--space-3); padding: 0; border: 0; }
+.question legend { margin-bottom: var(--space-1); padding: 0; font-weight: var(--weight-medium); }
+.question-hint { margin: 0 0 var(--space-1); font-size: var(--text-sm); }
+.answer-option { display: flex; align-items: flex-start; gap: var(--space-2); padding: var(--space-1) var(--space-2); border-radius: var(--radius-md); cursor: pointer; }
+.answer-option:hover { background: var(--bg-3); }
+.answer-option input[type='radio'], .answer-option input[type='checkbox'] { margin-top: 3px; accent-color: var(--accent); }
+.answer-label { display: block; }
+.answer-desc { display: block; font-size: var(--text-sm); }
+.answer-other { display: flex; flex: 1; align-items: center; gap: var(--space-2); }
+.answer-other .answer-label { flex: none; }
+
+/* The "Always allow" sheet. */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: oklch(0 0 0 / .5);
+  animation: fade-in var(--dur-menu) var(--ease-out);
+}
+.sheet {
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: var(--space-4);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-xl);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-2);
+  animation: rise-in var(--dur-pane) var(--ease-out);
+}
+.sheet-title { margin-bottom: var(--space-2); font-size: var(--text-md); }
+.sheet-facts { margin: 0 0 var(--space-2) var(--space-4); list-style: disc; font-size: var(--text-sm); }
+.sheet-facts li { margin: 2px 0; }
+.sheet-actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+.rule-options { display: flex; flex-direction: column; gap: var(--space-1); margin: 0; padding: 0; border: 0; }
+.rule-option { display: flex; align-items: flex-start; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--border-1); border-radius: var(--radius-md); cursor: pointer; }
+.rule-option.is-picked { border-color: var(--accent); background: var(--accent-soft); }
+.rule-option input[type='radio'] { margin-top: 3px; accent-color: var(--accent); }
+.rule-option-body { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: var(--space-1); }
+.rule-option-kind { display: flex; align-items: center; gap: var(--space-2); font-weight: var(--weight-medium); }
+.rule-option-value { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-2); overflow-wrap: anywhere; }
+
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes rise-in { from { opacity: 0; transform: translateY(var(--motion-shift)) scale(var(--motion-scale-from)); } }
+
+/* ---------- Settings ---------- */
+
+.settings-heading { margin: 0 0 var(--space-2); font-size: var(--text-base); color: var(--text-2); }
+.rule-list { display: flex; flex-direction: column; border: 1px solid var(--border-1); border-radius: var(--radius-lg); }
+.rule-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); }
+.rule-row + .rule-row { border-top: 1px solid var(--border-1); }
+.rule-row-main { flex: 1; min-width: 0; }
+.rule-row-label { margin: 0; overflow-wrap: anywhere; }
+.rule-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin: 2px 0 0; font-size: var(--text-sm); }
+
 /* With reduced motion turned on, only fades remain and pulses stop. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-iteration-count: 1 !important; }

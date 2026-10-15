@@ -14,6 +14,9 @@ describe('hash router', () => {
     ['#/job/alpha/id/FR-001', { name: 'job', slug: 'alpha' }],
     ['#/job/%E0%A4%A', { name: 'home' }],
     ['#/costs', { name: 'home' }],
+    ['#/settings', { name: 'settings' }],
+    ['#/settings/', { name: 'settings' }],
+    ['#/settings/x', { name: 'home' }],
   ])('%s', (hash, route) => {
     expect(parseHash(hash)).toEqual(route);
   });
@@ -22,6 +25,7 @@ describe('hash router', () => {
     expect(jobHref('a b/c')).toBe('#/job/a%20b%2Fc');
     expect(parseHash(jobHref('a b/c'))).toEqual({ name: 'job', slug: 'a b/c' });
     expect(hrefFor({ name: 'home' })).toBe('#/');
+    expect(hrefFor({ name: 'settings' })).toBe('#/settings');
   });
 
   it('links into the classic view at /', () => {

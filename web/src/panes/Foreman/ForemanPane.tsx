@@ -1,9 +1,11 @@
 // Foreman pane: the open job's header and its conversation with the Foreman, oldest first, with
-// "Load older" at the top and the live row at the foot while it replies. Plan step 7 adds the
-// permission and question cards, step 8 the composer.
+// "Load older" at the top, then the permission and question cards waiting for you, and the live
+// row at the foot while it replies. With no job open it lists every card waiting for you (Needs
+// you). Plan step 8 adds the composer.
 import { useEffect, useRef } from 'react';
 import type { Job } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
+import { JobCards, NeedsYouCards } from '../../components/permissions/PendingCards';
 import { useNow } from '../../lib/time';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
@@ -37,6 +39,7 @@ function JobThread({ job }: { job: Job }) {
       <HowThisWorks id="foreman">
         <p>{HOW}</p>
         <p>A brief opens in full while it waits for you and folds to its headline once you’ve answered; click a headline to open it again. Steps the Foreman took by itself are folded into one “routine steps” line.</p>
+        <p>When it wants to do something that isn’t routine, a card appears at the foot of the conversation: <strong>Allow once</strong>, <strong>Allow for this reply</strong> (when offered), <strong>Deny…</strong> with a note, or <strong>Always allow…</strong>, which saves a narrow rule you check first (listed in Settings). Questions come as a short form.</p>
       </HowThisWorks>
       <section className="thread" aria-label="Conversation" aria-busy={thread.loading || thread.loadingOlder}>
         {thread.more && (
@@ -59,6 +62,7 @@ function JobThread({ job }: { job: Job }) {
             ? <BriefCard key={`${s.id}:${s.brief.answered}`} slug={job.slug} brief={s.brief} now={now} />
             : <ThreadItemView key={s.id} item={s.item} now={now} />,
         )}
+        <JobCards slug={job.slug} now={now} />
         <LiveRow run={run} />
         <div ref={end} />
       </section>
@@ -69,6 +73,7 @@ function JobThread({ job }: { job: Job }) {
 export function ForemanPane({ slug }: { slug: string | null }) {
   const state = useWorkshopState();
   const job = jobBySlug(state, slug);
+  const now = useNow();
   return (
     <main className="pane pane-foreman" aria-label="Foreman">
       <div className="foreman-column">
@@ -80,6 +85,12 @@ export function ForemanPane({ slug }: { slug: string | null }) {
             <HowThisWorks id="foreman"><p>{HOW}</p></HowThisWorks>
             {!slug && <p className="muted">Pick a job on the left to see its conversation.</p>}
             {slug && state.status === 'ready' && <p className="muted">There’s no job called “{slug}”. It may have been renamed or removed.</p>}
+            {!slug && state.status === 'ready' && (
+              <section className="needs-you-inbox" aria-label="Waiting for your answer">
+                <h3 className="settings-heading" title="Every permission and question waiting for you, across all jobs. You can answer them here or in each job.">Waiting for your answer</h3>
+                <NeedsYouCards now={now} />
+              </section>
+            )}
           </>
         )}
       </div>

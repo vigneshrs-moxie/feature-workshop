@@ -34,12 +34,16 @@ export interface WorkshopState {
   jobsStale: boolean;
   /** The stream couldn't catch up (dashboard restarted, or too far behind): fetch a fresh snapshot. */
   resyncNeeded: boolean;
+  /** Bumped when your "Always allow" rules change (here or in another tab): Settings refetches them. */
+  rulesVersion: number;
   generatedAt: string | null;
 }
 
 export type Action =
   | { type: 'snapshot'; snapshot: Snapshot }
   | { type: 'event'; event: LiveEvent }
+  /** You answered a card here: drop it now, without waiting for the dashboard's permission-gone. */
+  | { type: 'permission-answered'; id: string }
   | { type: 'connection'; connection: Connection }
   | { type: 'error'; error: string };
 
@@ -58,6 +62,7 @@ export const initialState: WorkshopState = {
   threadEpoch: 0,
   jobsStale: false,
   resyncNeeded: false,
+  rulesVersion: 0,
   generatedAt: null,
 };
 
@@ -96,6 +101,17 @@ function patchJob(jobs: Job[], slug: string | null, fn: (j: Job) => Job): Job[] 
   return jobs.map((j) => (j.slug === slug ? fn(j) : j));
 }
 
+// A card is gone (answered here or elsewhere, cancelled, or the reply ended): drop it once.
+function dropPermission(state: WorkshopState, id: string, slug: string | null): WorkshopState {
+  const card = state.permissions.find((x) => x.id === id);
+  if (!card) return state;
+  return {
+    ...state,
+    permissions: state.permissions.filter((x) => x.id !== id),
+    jobs: patchJob(state.jobs, slug ?? card.slug ?? null, (j) => ({ ...j, permissions: Math.max(0, (j.permissions ?? 1) - 1) })),
+  };
+}
+
 function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
   if (!e || e.v !== 2 || typeof e.type !== 'string') return state;
   if (e.type === 'resync') {
@@ -123,14 +139,11 @@ function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
       }
       return next;
     }
-    case 'permission-gone': {
-      const id = d.id;
-      if (!state.permissions.some((x) => x.id === id)) return next;
-      next.permissions = state.permissions.filter((x) => x.id !== id);
-      const slug = e.job ?? (typeof d.slug === 'string' ? d.slug : null);
-      next.jobs = patchJob(state.jobs, slug, (j) => ({ ...j, permissions: Math.max(0, (j.permissions ?? 1) - 1) }));
+    case 'permission-gone':
+      return dropPermission(next, typeof d.id === 'string' ? d.id : '', e.job ?? (typeof d.slug === 'string' ? d.slug : null));
+    case 'rules':
+      next.rulesVersion = state.rulesVersion + 1;
       return next;
-    }
     case 'run': {
       const run = d as unknown as Run;
       const slug = e.job ?? run.slug;
@@ -158,6 +171,11 @@ export function reducer(state: WorkshopState, action: Action): WorkshopState {
       return applySnapshot(state, action.snapshot);
     case 'event':
       return applyEvent(state, action.event);
+    case 'permission-answered': {
+      // The job may now leave Needs you: the next snapshot (soon, as the dashboard also sends events) says so.
+      const next = dropPermission(state, action.id, null);
+      return next === state ? state : { ...next, jobsStale: true };
+    }
     case 'connection':
       return state.connection === action.connection ? state : { ...state, connection: action.connection };
     case 'error':

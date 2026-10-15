@@ -161,6 +161,25 @@ describe('reducer: connection and errors', () => {
   });
 });
 
+describe('reducer: cards and rules', () => {
+  it('drops a card you answered here at once, and the later permission-gone is harmless', () => {
+    let s = run(hydrated(), { type: 'event', event: ev(11, 'permission', 'alpha', permission('p1', 'alpha')) });
+    s = reducer(s, { type: 'permission-answered', id: 'p1' });
+    expect(s.permissions).toEqual([]);
+    expect(s.jobs.find((j) => j.slug === 'alpha')?.permissions).toBe(0);
+    expect(s.jobsStale).toBe(true);
+    const after = reducer(s, { type: 'event', event: ev(12, 'permission-gone', 'alpha', { id: 'p1', slug: 'alpha' }) });
+    expect(after.jobs.find((j) => j.slug === 'alpha')?.permissions).toBe(0);
+    expect(reducer(after, { type: 'permission-answered', id: 'p1' })).toBe(after);
+  });
+
+  it('a rules event bumps rulesVersion so Settings refetches', () => {
+    const s = reducer(hydrated(), { type: 'event', event: ev(11, 'rules', null, { count: 2 }) });
+    expect(s.rulesVersion).toBe(1);
+    expect(s.seq).toBe(11);
+  });
+});
+
 describe('selectors', () => {
   it('groups jobs in Jobs-pane order', () => {
     const s = reducer(initialState, { type: 'snapshot', snapshot: snapshot({ jobs: [job('a', 'done'), job('b', 'needs-you'), job('c', 'idle')] }) });

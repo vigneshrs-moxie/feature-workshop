@@ -26,15 +26,69 @@ export interface Job {
   [key: string]: unknown;
 }
 
+/** One question in a Foreman's AskUserQuestion request. */
+export interface AskedQuestion {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options?: { label: string; description?: string }[];
+}
+
+/** What a saved "Always allow" rule covers (dashboard/lib/rules.js, matchRule in lib/policy.js). */
+export type RuleKind = 'exact' | 'prefix' | 'domain' | 'tool';
+
+export interface RuleOption {
+  kind: RuleKind;
+  value: string;
+  /** Plain words, lower case: "run exactly “npm test”". */
+  label: string;
+}
+
+/** The narrowest rule covering one request first, then wider ones you may pick and edit. */
+export interface RuleDraft {
+  tool: string;
+  options: RuleOption[];
+}
+
+export interface Rule {
+  id: string;
+  tool: string;
+  kind: RuleKind;
+  value: string;
+  label: string;
+  createdAt: string | null;
+  from?: { slug?: string; title?: string | null; headline?: string | null };
+}
+
+/** GET /api/rules. active: false while "ask about everything" is on (the rules wait). */
+export interface RulesList {
+  rules: Rule[];
+  active: boolean;
+  unreadable: string | null;
+}
+
 export interface Permission {
   id: string;
   slug: string;
   runId?: string;
   featureDir?: string;
+  /** Which job it belongs to (its title), for cards shown outside the job. */
+  title?: string;
+  /** 'question' for AskUserQuestion; anything else is a permission. */
   kind?: string;
   toolName?: string;
   createdAt?: string;
-  plain?: { headline: string; [key: string]: unknown };
+  /** Who asks: a crew member's agent type, or null for the Foreman itself. */
+  agentType?: string | null;
+  input?: Record<string, unknown> & { questions?: AskedQuestion[]; command?: string };
+  plain?: { headline: string; detail?: string | null; preview?: string | null; risk?: string; [key: string]: unknown };
+  decisionReason?: string | null;
+  /** Claude Code flagged it as risky: "Always allow" isn't offered. */
+  defaultToNo?: boolean;
+  /** "Allow for this reply" is offered (Claude Code suggested a rule for this reply). */
+  canAllowForRun?: boolean;
+  suggestions?: unknown[];
+  draft?: RuleDraft | null;
   [key: string]: unknown;
 }
 
@@ -110,7 +164,8 @@ export interface BriefItem extends ItemBase {
 export interface YouItem extends ItemBase { kind: 'you'; text: string; sendKind?: string }
 /** `html` is rendered and sanitised by the dashboard (lib/markdown.js: raw HTML escaped, unsafe links dropped). */
 export interface ReplyItem extends ItemBase { kind: 'reply'; html: string; stopped?: boolean }
-export interface AutoStep { at: string | null; headline: string; who?: string; reason?: string }
+/** rule: the id of your saved "Always allow" rule that let it run, when one did. */
+export interface AutoStep { at: string | null; headline: string; who?: string; reason?: string; rule?: string }
 export interface AutoItem extends ItemBase { kind: 'auto'; runId?: string; items: AutoStep[] }
 export interface ProblemItem extends ItemBase { kind: 'problem'; text: string }
 export interface NoteItem extends ItemBase { kind: 'note'; text: string }

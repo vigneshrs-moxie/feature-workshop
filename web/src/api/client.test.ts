@@ -70,6 +70,16 @@ describe('api client', () => {
     expect(d.metaCalls()).toBe(0);
   });
 
+  it('sends a DELETE like a write: JSON, the token, and one retry on 403', async () => {
+    const d = dashboard(['t1', 't2']);
+    const api = createApi({ fetch: d.fetch });
+    api.setToken('stale');
+    await expect(api.del('/api/rules/r1')).resolves.toEqual({ ok: true });
+    expect(d.writes).toEqual([{ token: 'stale', contentType: 'application/json' }, { token: 't1', contentType: 'application/json' }]);
+    const calls = (d.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([u]) => String(u) === '/api/rules/r1');
+    expect(calls.map(([, init]) => (init as RequestInit).method)).toEqual(['DELETE', 'DELETE']);
+  });
+
   it('a failed read throws ApiError with a plain message when the body is not JSON', async () => {
     const fetch = vi.fn(async () => new Response('nope', { status: 500 }));
     const api = createApi({ fetch: fetch as unknown as typeof globalThis.fetch });

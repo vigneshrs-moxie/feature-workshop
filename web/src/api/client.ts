@@ -1,4 +1,4 @@
-// Talking to the dashboard. Reads are plain GETs. Writes are POSTs with JSON and the page token
+// Talking to the dashboard. Reads are plain GETs. Writes (POST, DELETE) carry JSON and the page token
 // (header X-Workshop-Token, from /api/meta); the dashboard refuses a write without it (403). The
 // token changes when the dashboard restarts, so on a 403 the client fetches /api/meta once more
 // and retries the write once with the new token.
@@ -21,6 +21,8 @@ type Fetch = typeof fetch;
 export interface ApiClient {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body?: unknown): Promise<T>;
+  /** A DELETE, sent like a write (JSON and the page token). */
+  del<T>(path: string): Promise<T>;
   meta(): Promise<Meta>;
   snapshot(): Promise<Snapshot>;
   /** Use this token for writes (the snapshot carries one, saving a call). */
@@ -49,26 +51,29 @@ export function createApi({ fetch: f = (...a: Parameters<Fetch>) => fetch(...a),
     return m;
   }
 
-  async function postOnce(path: string, body: unknown): Promise<Response> {
+  async function writeOnce(method: string, path: string, body: unknown): Promise<Response> {
     return f(base + path, {
-      method: 'POST',
+      method,
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Workshop-Token': token ?? '' },
       body: JSON.stringify(body ?? {}),
     });
   }
 
-  async function post<T>(path: string, body?: unknown): Promise<T> {
+  async function write<T>(method: string, path: string, body?: unknown): Promise<T> {
     if (!token) await meta();
-    let res = await postOnce(path, body);
+    let res = await writeOnce(method, path, body);
     if (res.status === 403) {
       // Most likely the dashboard restarted and the token changed: fetch it again, retry once.
       await meta();
-      res = await postOnce(path, body);
+      res = await writeOnce(method, path, body);
     }
     if (!res.ok) throw await readError(res);
     return res.json() as Promise<T>;
   }
+
+  const post = <T,>(path: string, body?: unknown) => write<T>('POST', path, body);
+  const del = <T,>(path: string) => write<T>('DELETE', path, {});
 
   async function snapshot(): Promise<Snapshot> {
     const s = await get<Snapshot>('/api/snapshot');
@@ -76,5 +81,5 @@ export function createApi({ fetch: f = (...a: Parameters<Fetch>) => fetch(...a),
     return s;
   }
 
-  return { get, post, meta, snapshot, setToken: (t) => { token = t || null; } };
+  return { get, post, del, meta, snapshot, setToken: (t) => { token = t || null; } };
 }

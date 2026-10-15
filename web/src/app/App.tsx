@@ -9,7 +9,8 @@ import { PreviewPane } from '../panes/Preview/PreviewPane';
 import { createLiveSync, type EventSourceLike, type LiveSync } from '../state/live';
 import { needsYouCount, type Connection } from '../state/reducer';
 import { createStore, useWorkshopState, WorkshopContext, type Store } from '../state/store';
-import { classicHref, useRoute } from './router';
+import { SettingsView } from '../views/Settings/SettingsView';
+import { classicHref, settingsHref, useRoute } from './router';
 
 const CONNECTION: Record<Connection, { label: string; hint: string }> = {
   connecting: { label: 'Connecting…', hint: 'Opening the live connection to the dashboard.' },
@@ -38,6 +39,7 @@ function TopBar({ onRetry }: { onRetry: () => void }) {
       {state.error && state.status === 'ready' && (
         <button type="button" className="btn btn-quiet" onClick={onRetry} title="Fetch everything from the dashboard again now.">Refresh</button>
       )}
+      <a className="btn btn-quiet" href={settingsHref()} title="Your settings: the “Always allow” rules you’ve saved, and removing them.">Settings</a>
       <a className="btn btn-quiet" href={classicHref.home()} title="Open the classic Feature Workshop page.">Classic view</a>
     </header>
   );
@@ -72,7 +74,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       <TopBar onRetry={onRetry} />
       <div className={rail ? 'panes panes-rail' : 'panes'}>
         <JobsPane selected={slug} />
-        <ForemanPane slug={slug} />
+        {route.name === 'settings' ? <SettingsView /> : <ForemanPane slug={slug} />}
         <PreviewPane slug={slug} />
       </div>
     </div>

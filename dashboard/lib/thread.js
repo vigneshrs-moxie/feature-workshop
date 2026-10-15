@@ -31,7 +31,7 @@ export function buildThread({ briefs = [], audit = [], autoResume = true }) {
     const id = (kind) => `${kind}:${hash(e)}`;
     if (e.action === 'auto-allowed') {
       if (!autoGroup || autoGroup.runId !== e.runId) { autoGroup = { id: id('auto'), kind: 'auto', at: e.at, runId: e.runId, items: [] }; thread.push(autoGroup); }
-      autoGroup.items.push({ at: e.at, headline: e.headline, who: e.agentType ?? 'conductor', reason: e.reason });
+      autoGroup.items.push({ at: e.at, headline: e.headline, who: e.agentType ?? 'conductor', reason: e.reason, ...(e.rule ? { rule: e.rule } : {}) });
       continue;
     }
     const note = (text) => thread.push({ id: id('note'), kind: 'note', at: e.at, text });
@@ -43,6 +43,7 @@ export function buildThread({ briefs = [], audit = [], autoResume = true }) {
       else if (e.reply) thread.push({ id: id('reply'), kind: 'reply', at: e.at, reply: e.reply, stopped: e.status === 'stopped' });
       else if (e.status === 'stopped') note('You paused this reply.');
     } else if (e.action === 'permission') thread.push({ id: id('decision'), kind: 'decision', at: e.at, text: `${e.decision === 'deny' ? 'You said no to' : 'You allowed'}: ${e.headline ?? e.tool}${e.note ? ` (“${e.note}”)` : ''}` });
+    else if (e.action === 'rule-added') note(`You saved an “Always allow” rule: ${e.label ?? 'see Settings'}. It applies to every job run from the dashboard until you remove it in Settings.`);
     else if (e.action === 'takeover') note('You took this job over from the terminal.');
     else if (e.action === 'close') note(`You marked this job ${e.as === 'dropped' ? 'dropped' : 'done'}${e.note ? ` (“${e.note}”)` : ''}${e.worktreeRemoved ? `, and removed its worktree (${e.worktreeRemoved}); the branch is kept` : ''}.`);
     else if (e.action === 'reopen') note(e.how === 'message' ? 'Reopened: you sent the Foreman a message.' : 'You reopened this job.');

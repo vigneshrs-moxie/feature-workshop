@@ -422,14 +422,81 @@ function cdTarget(words, cwd) {
   return resolvePath(to, cwd);
 }
 
+// ---------- Your saved "Always allow" rules (lib/rules.js keeps the list) ----------
+// A rule only ever allows what it describes, never more:
+//   Bash 'exact'   the command, character for character (spaces at the ends aside).
+//   Bash 'prefix'  one simple command whose words start with the rule's words, word for word. It
+//                  must be a single command (no ; && || | or $( … )), every word written out (no
+//                  $variables or globs), no here-document or input from a file, and its output may
+//                  only go to /dev/null or another stream. So "npm run test:db" covers
+//                  "npm run test:db -- --grep x" but not "npm run test:dbx", nor
+//                  "npm run test:db && rm -rf ~".
+//   Edit tools     'exact' one file; 'prefix' any file inside one folder (.. can't climb out).
+//   WebFetch       'domain' pages on exactly that host name (not its subdomains).
+//   mcp__…         'tool' that one connection tool.
+
+const OK_REDIRECT = (r) => (r.op === '>&' && /^(\d+|-)$/.test(r.target)) || (!r.dyn && /^>{1,2}$|^&>{1,2}$/.test(r.op) && r.target === '/dev/null');
+
+/** The words of a command made of one simple, fully written-out command; null for anything else. */
+export function simpleCommandWords(cmd) {
+  const src = String(cmd ?? '').trim();
+  if (!src || src.includes('\n') || src.includes('<<')) return null;
+  const parsed = parseCommand(src);
+  if (!parsed || parsed.parts.length !== 1 || parsed.subs.length) return null;
+  const t = tokenize(parsed.parts[0].text);
+  if (!t || !t.words.length || t.words.some((w) => w.dyn) || !t.redirects.every(OK_REDIRECT)) return null;
+  return t.words.map((w) => w.t);
+}
+
+export const RULE_EDIT_TOOLS = EDIT_TOOLS;
+
+/** Does this one saved rule cover this request? */
+export function matchRule(rule, toolName, input = {}) {
+  if (!rule || rule.tool !== toolName) return false;
+  if (toolName === 'Bash') {
+    const cmd = String(input.command ?? '').trim();
+    if (!cmd) return false;
+    if (rule.kind === 'exact') return cmd === String(rule.value).trim();
+    if (rule.kind !== 'prefix') return false;
+    const want = simpleCommandWords(rule.value);
+    const got = simpleCommandWords(cmd);
+    return Boolean(want && got && got.length >= want.length && want.every((w, i) => got[i] === w));
+  }
+  if (EDIT_TOOLS.has(toolName)) {
+    const file = input.file_path ?? input.notebook_path;
+    if (typeof file !== 'string' || !path.isAbsolute(file) || !path.isAbsolute(String(rule.value))) return false;
+    if (rule.kind === 'exact') return path.resolve(file) === path.resolve(rule.value);
+    if (rule.kind === 'prefix') return inside(file, rule.value) && path.resolve(file) !== path.resolve(rule.value);
+    return false;
+  }
+  if (toolName === 'WebFetch') {
+    if (rule.kind !== 'domain') return false;
+    try {
+      const u = new URL(String(input.url ?? ''));
+      return (u.protocol === 'https:' || u.protocol === 'http:') && u.hostname.toLowerCase() === String(rule.value).toLowerCase();
+    } catch { return false; }
+  }
+  if (String(toolName).startsWith('mcp__')) return rule.kind === 'tool';
+  return false;
+}
+
 /**
- * toolName, input: the request. ctx: { mode, stage, featureDir, worktrees[], repoPath, specDirs[], cwd, defaultToNo }
- * Returns { auto: boolean, reason }.
+ * toolName, input: the request. ctx: { mode, stage, featureDir, worktrees[], repoPath, specDirs[], cwd, defaultToNo, rules[] }
+ * Returns { auto: boolean, reason, rule? } (rule: the id of the saved rule that allowed it).
+ * Saved rules count only where the dashboard would otherwise ask: never in "ask about everything",
+ * never for a step Claude Code flagged as risky, and never for questions.
  */
 export function classify(toolName, input = {}, ctx = {}) {
   if (ctx.mode === 'ask-all') return { auto: false, reason: 'You asked to approve every step.' };
   if (ctx.defaultToNo) return { auto: false, reason: 'Claude Code flagged this one as risky.' };
   if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') return { auto: false, reason: 'A question for you.' };
+  const verdict = classifyRoutine(toolName, input, ctx);
+  if (verdict.auto) return verdict;
+  const rule = (ctx.rules ?? []).find((r) => matchRule(r, toolName, input));
+  return rule ? { auto: true, reason: `Your saved rule: ${rule.label ?? rule.value}.`, rule: rule.id } : verdict;
+}
+
+function classifyRoutine(toolName, input, ctx) {
   if (READ_TOOLS.has(toolName)) return { auto: true, reason: toolName === 'Agent' || toolName === 'Task' ? 'The Foreman handing work to its crew.' : 'Reading only.' };
   if (String(toolName).startsWith('mcp__') || toolName === 'WebFetch' || toolName === 'WebSearch') return { auto: false, reason: 'Reaches outside your computer.' };
 

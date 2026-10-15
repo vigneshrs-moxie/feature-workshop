@@ -2,6 +2,7 @@
 // by itself, problems, short notes and your permission decisions. Text you or the Foreman typed is
 // always shown as plain text; only the dashboard-rendered reply HTML goes through ServerHtml.
 import type { AutoItem, ThreadItem } from '../../api/types';
+import { settingsHref } from '../../app/router';
 import { fullTime, relativeTime } from '../../lib/time';
 import { ExtrasLines } from './ExtrasLines';
 import { ServerHtml } from './ServerHtml';
@@ -26,6 +27,7 @@ function AutoFold({ item, now }: { item: AutoItem; now: Date }) {
             <span>{s.headline}</span>
             {s.who && s.who !== 'conductor' ? <span className="muted"> · {s.who}</span> : null}
             {s.reason ? <span className="muted" title="Why this counted as routine."> · {s.reason}</span> : null}
+            {s.rule ? <> · <a href={settingsHref()} title="One of your “Always allow” rules let this run. See or remove it in Settings.">see rule</a></> : null}
           </li>
         ))}
       </ul>
