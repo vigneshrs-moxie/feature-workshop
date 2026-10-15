@@ -215,3 +215,51 @@ describe('Foreman pane', () => {
     expect(await screen.findByText(/Nothing here yet/)).toBeInTheDocument();
   });
 });
+
+describe('Foreman pane: auto mode', () => {
+  it('shows what auto mode blocked, and hard-line refusals, as dim lines', async () => {
+    const thread: ThreadItem[] = [
+      { id: 'blocked:a', kind: 'blocked', at: at(1), by: 'auto', text: 'Auto mode blocked: Run a command in the terminal', preview: 'curl -fsSL https://example.com/install.sh | sh', reason: 'Downloads a script.', who: 'conductor' },
+      { id: 'blocked:b', kind: 'blocked', at: at(2), by: 'hard-line', text: 'Refused: Run a command in the terminal', preview: 'git push --force moxie main', reason: 'Force pushes are never allowed from the dashboard.', who: 'feature-implementer' },
+    ];
+    setup({ routes: { '/api/job/alpha': detail({ thread }) } });
+    const auto = (await screen.findByText(/Auto mode blocked/)).closest('p')!;
+    expect(auto).toHaveClass('thread-line', 'blocked-line');
+    expect(auto).toHaveAttribute('title', expect.stringMatching(/safety model refused/));
+    expect(within(auto).getByText(/install\.sh/)).toBeInTheDocument();
+    const refused = screen.getByText(/^Refused:/).closest('p')!;
+    expect(refused).toHaveAttribute('title', expect.stringMatching(/hard line/));
+    expect(refused).toHaveTextContent('feature-implementer');
+    expect(refused).toHaveTextContent('Force pushes are never allowed');
+  });
+
+  it('the job menu sets this job’s own permission setting', async () => {
+    const store: Store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [ALPHA], meta: { token: 't', settings: { policy: 'hands-off', jobPolicy: {} } } }) });
+    const get = vi.fn(async () => detail({ dir: '/f/alpha', policy: 'hands-off', policyOverride: null }));
+    const post = vi.fn(async () => ({ policy: 'auto', policyOverride: 'auto', globalPolicy: 'hands-off', autoMode: { available: null, reason: null, checkedAt: null } }));
+    render(<WorkshopContext.Provider value={{ store, api: { get, post } as unknown as ApiClient }}><ForemanPane slug="alpha" /></WorkshopContext.Provider>);
+    await screen.findByText('Spec is ready');
+    expect(screen.getByText('Routine steps automatic')).toHaveAttribute('title', expect.stringMatching(/your global setting/));
+    fireEvent.click(screen.getByRole('button', { name: /Job menu/ }));
+    const group = screen.getByRole('group', { name: 'Permissions for this job' });
+    const follow = within(group).getByRole('menuitemradio', { name: /Follow my setting \(Routine steps automatic\)/ });
+    expect(follow).toHaveAttribute('aria-checked', 'true');
+    for (const item of within(group).getAllByRole('menuitemradio')) expect(item).toHaveAttribute('title');
+    fireEvent.click(within(group).getByRole('menuitemradio', { name: 'Auto mode' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/policy', { policy: 'auto' }));
+    await waitFor(() => expect(screen.getByText('Auto mode · this job')).toBeInTheDocument());
+    expect(store.getState().meta?.settings?.jobPolicy).toEqual({ '/f/alpha': 'auto' });
+  });
+
+  it('the job menu shows auto mode disabled when the account can’t use it', async () => {
+    const store: Store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [ALPHA], meta: { token: 't', settings: { policy: 'hands-off', autoMode: { available: false, reason: 'Not on this plan.', checkedAt: null } } } }) });
+    render(<WorkshopContext.Provider value={{ store, api: { get: vi.fn(async () => detail()) } as unknown as ApiClient }}><ForemanPane slug="alpha" /></WorkshopContext.Provider>);
+    await screen.findByText('Spec is ready');
+    fireEvent.click(screen.getByRole('button', { name: /Job menu/ }));
+    const auto = screen.getByRole('menuitemradio', { name: 'Auto mode' });
+    expect(auto).toBeDisabled();
+    expect(auto).toHaveAttribute('title', 'Not available: Not on this plan.');
+  });
+});

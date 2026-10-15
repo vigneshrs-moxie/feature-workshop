@@ -22,7 +22,7 @@ import { recentRepos, checkRepo } from './lib/repos.js';
 import { HttpError, checkWrite, hostAllowed } from './lib/http-guard.js';
 import { liveTerminals } from './lib/live.js';
 import { readHookSessions } from './lib/hook-events.js';
-import { classify, matchRule } from './lib/policy.js';
+import { classify, matchRule, POLICIES } from './lib/policy.js';
 import { RuleStore, RuleError, validateRule, describeRule } from './lib/rules.js';
 import { buildOverview, parseBrief } from './lib/overview.js';
 import { LimitWatch } from './lib/limits.js';
@@ -66,7 +66,16 @@ const HOOK_SCRIPT = path.join(HERE, 'hooks', 'record.mjs');
 const queryFn = DEMO
   ? (await import('./demo/fake-query.js')).makeFakeQuery({ featuresDir: FEATURES_DIR })
   : (await import('@anthropic-ai/claude-agent-sdk')).query;
-const driver = new Driver({ queryFn, state, projectsDir: PROJECTS_DIR, cliPath: process.env.WORKSHOP_CLAUDE_PATH || null, policy: policyFor });
+const driver = new Driver({ queryFn, state, projectsDir: PROJECTS_DIR, cliPath: process.env.WORKSHOP_CLAUDE_PATH || null, policy: policyFor, modeFor: (run) => state.policyFor(run.featureDir) });
+// Whether auto mode works for this account, as the last reply that asked for it found out.
+driver.on('auto-mode', ({ available, reason = null }) => {
+  (async () => {
+    const was = (await state.getSettings()).autoMode;
+    if (was?.available === available && (was?.reason ?? null) === reason) return;
+    await state.setSettings({ autoMode: { available, reason: available ? null : reason, checkedAt: new Date().toISOString() } });
+    settingsChanged();
+  })().catch((err) => console.error(err));
+});
 // Claude usage limits: pause everything when one is reached, carry on when it resets.
 // A paused job is carried on only if it's still driven from here by the same Foreman session.
 const limits = new LimitWatch({
@@ -104,13 +113,13 @@ const isInside = (p, dir) => {
 
 // Routine steps are handled without asking (see lib/policy.js); everything else comes to you.
 async function policyFor(run, toolName, input, opts) {
-  const settings = await state.getSettings();
+  const mode = await state.policyFor(run.featureDir);
   const f = (await features()).find((x) => x.dir === run.featureDir);
   const repo = f?.repoPath ?? run.cwd;
   const worktrees = [f?.worktree, f?.statusWorktree, repo && f ? path.join(path.dirname(repo), `orbit-${f.slug}`) : null].filter(Boolean);
   const specDirs = [repo ? path.join(repo, 'docs', 'plans') : null, f?.spec?.path && path.isAbsolute(f.spec.path) ? path.dirname(f.spec.path) : null].filter(Boolean);
   return classify(toolName, input, {
-    mode: settings.policy, stage: f?.stage ?? 'spec', featureDir: run.featureDir, worktrees, repoPath: repo, specDirs,
+    mode, stage: f?.stage ?? 'spec', featureDir: run.featureDir, worktrees, repoPath: repo, specDirs,
     cwd: run.cwd, defaultToNo: Boolean(opts?.defaultToNo), rules: await rules.list(),
   });
 }
@@ -355,7 +364,9 @@ async function jobDetail(f) {
     latestBrief, briefs: f.briefs, approvals: f.approvals, history: f.history, artifacts: f.artifacts, recordedArtifacts: f.recordedArtifacts,
     costDetail: { ...f.cost, whatIf: whatIfConductor(f.cost.agents) },
     activity: f.activity.map((a) => (a.state === 'running' && !stillRunning(f, a, run && ACTIVE_RUN.has(run.status) ? run : null) ? { ...a, state: 'stopped' } : a)),
-    drive, run, runs: driver.list().filter((r) => r.featureDir === f.dir), overview, thread: page.items, threadMore: page.more, locate: f.locate, policy: settings.policy,
+    drive, run, runs: driver.list().filter((r) => r.featureDir === f.dir), overview, thread: page.items, threadMore: page.more, locate: f.locate,
+    // policy: the setting in force for this job; policyOverride: the job's own (null: it follows yours).
+    policy: settings.jobPolicy?.[f.dir] || settings.policy, policyOverride: settings.jobPolicy?.[f.dir] ?? null, globalPolicy: settings.policy, autoMode: settings.autoMode,
     permissionsPending: driver.pendingPermissions().filter((p) => p.featureDir === f.dir),
     lastReply, audit: audit.slice(-50), warnings: f.warnings,
     statusForCompose: { questions: f.questions, decidedOnYourBehalf: f.decidedOnYourBehalf, nextProposed: f.nextProposed, spec: f.spec, artifacts: f.recordedArtifacts, brief: f.latestBrief },
@@ -625,11 +636,31 @@ async function routePost(urlPath, req, res) {
     return sendJson(res, 200, { ok: true, repoPath: repo.path });
   }
   if (urlPath === '/api/settings') {
-    const policy = ['hands-off', 'ask-all'].includes(body.policy) ? body.policy : null;
+    // recheckAuto: forget that auto mode wasn't available, so the next reply that asks for it tries again.
+    if (body.recheckAuto === true) {
+      await state.setSettings({ autoMode: { available: null, reason: null, checkedAt: null } });
+      settingsChanged();
+      if (body.policy === undefined) return sendJson(res, 200, await state.getSettings());
+    }
+    const policy = POLICIES.includes(body.policy) ? body.policy : null;
     if (!policy) throw new HttpError(400, 'Unknown setting.');
     await state.setSettings({ policy });
     await state.audit({ action: 'settings', policy });
+    await driver.applyModes(); // replies in progress switch now
+    settingsChanged();
     return sendJson(res, 200, await state.getSettings());
+  }
+  if ((m = /^\/api\/job\/([^/]+)\/policy$/.exec(urlPath))) {
+    // One job's own permission setting; null clears it (the job follows your global setting again).
+    const f = await featureBySlug(m[1]);
+    if (!f) throw new HttpError(404, 'No job by that name.');
+    if (body.policy !== null && !POLICIES.includes(body.policy)) throw new HttpError(400, 'Unknown setting.');
+    await state.setJobPolicy(f.dir, body.policy);
+    await state.audit({ action: 'job-policy', featureDir: f.dir, slug: f.slug, policy: body.policy });
+    await driver.applyModes();
+    settingsChanged();
+    const s = await state.getSettings();
+    return sendJson(res, 200, { policy: s.jobPolicy?.[f.dir] || s.policy, policyOverride: s.jobPolicy?.[f.dir] ?? null, globalPolicy: s.policy, autoMode: s.autoMode });
   }
   if ((m = /^\/api\/job\/([^/]+)\/(close|reopen)$/.exec(urlPath))) {
     const f = await featureBySlug(m[1]);
@@ -756,6 +787,7 @@ async function routePost(urlPath, req, res) {
       if (!req) throw new HttpError(404, 'That request was already answered or has expired. Nothing was saved.');
       if (req.kind !== 'permission') throw new HttpError(400, 'Questions can’t be always allowed.');
       if (req.defaultToNo) throw new HttpError(400, 'Claude Code flagged this step as risky, so it can’t be always allowed. Use Allow once instead.');
+      if (req.hardLine) throw new HttpError(400, 'This step is a hard line: it asks you every time, whatever your rules say. Use Allow once instead.');
       if (!matchRule(v, req.toolName, req.input)) throw new HttpError(400, `That rule (${describeRule(v)}) wouldn’t cover this request, so it wasn’t saved. Change it so it does, or use Allow once.`);
     }
     let saved;
@@ -768,7 +800,7 @@ async function routePost(urlPath, req, res) {
     let alsoAllowed = 0;
     if (active) {
       for (const p of driver.pendingPermissions()) {
-        if (p.kind !== 'permission' || p.defaultToNo) continue;
+        if (p.kind !== 'permission' || p.defaultToNo || p.hardLine) continue;
         const full = driver.pendingRequest(p.id);
         if (full && matchRule(rule, full.toolName, full.input) && (await driver.decide(p.id, { decision: 'allow', rule: rule.id }))) alsoAllowed++;
       }
@@ -873,6 +905,10 @@ function threadChanged(slug, why) {
 }
 // The rule list changed: open Settings views refetch it.
 rules.on('change', (list) => { events.emit('rules', null, { count: list.length }); });
+// Your permission settings changed (global, a job's own, or whether auto mode is available).
+function settingsChanged() {
+  state.getSettings().then((s) => events.emit('settings', null, s)).catch(() => {});
+}
 state.on('audit', (e) => { if (e.featureDir) threadChanged(e.slug ?? path.basename(e.featureDir), e.action); });
 function featureFileChanged(_type, filename) {
   // fs.watch names the file relative to the jobs folder: its first part is the job's folder name.

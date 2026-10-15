@@ -7,7 +7,7 @@
 // the event says outright (a permission card arriving or going, a run's status, the usage limit)
 // are applied straight away so the page reacts without waiting for that.
 
-import type { Job, JobGroup, LiveEvent, Meta, Permission, Run, Snapshot, Usage } from '../api/types';
+import type { Job, JobGroup, LiveEvent, Meta, Permission, Run, Settings, Snapshot, Usage } from '../api/types';
 import { JOB_GROUPS } from '../api/types';
 
 export type Connection = 'connecting' | 'live' | 'reconnecting';
@@ -44,6 +44,8 @@ export type Action =
   | { type: 'event'; event: LiveEvent }
   /** You answered a card here: drop it now, without waiting for the dashboard's permission-gone. */
   | { type: 'permission-answered'; id: string }
+  /** You changed a setting here: show it now, without waiting for the dashboard's 'settings' event. */
+  | { type: 'settings'; settings: Settings }
   | { type: 'connection'; connection: Connection }
   | { type: 'error'; error: string };
 
@@ -112,6 +114,11 @@ function dropPermission(state: WorkshopState, id: string, slug: string | null): 
   };
 }
 
+function withSettings(state: WorkshopState, settings: Settings): WorkshopState {
+  if (!state.meta) return state; // the snapshot that follows carries them
+  return { ...state, meta: { ...state.meta, settings } };
+}
+
 function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
   if (!e || e.v !== 2 || typeof e.type !== 'string') return state;
   if (e.type === 'resync') {
@@ -144,6 +151,9 @@ function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
     case 'rules':
       next.rulesVersion = state.rulesVersion + 1;
       return next;
+    case 'settings':
+      // Your permission settings (global, per job, auto mode's availability), sent whole.
+      return typeof d.policy === 'string' ? withSettings(next, d as unknown as Settings) : next;
     case 'run': {
       const run = d as unknown as Run;
       const slug = e.job ?? run.slug;
@@ -176,6 +186,8 @@ export function reducer(state: WorkshopState, action: Action): WorkshopState {
       const next = dropPermission(state, action.id, null);
       return next === state ? state : { ...next, jobsStale: true };
     }
+    case 'settings':
+      return withSettings(state, action.settings);
     case 'connection':
       return state.connection === action.connection ? state : { ...state, connection: action.connection };
     case 'error':

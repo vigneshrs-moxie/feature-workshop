@@ -346,6 +346,7 @@ function quickRow() {
 }
 
 function policyLine(d) {
+  if (d.policy === 'auto') return '<p class="policy-line">Auto mode: Claude Code’s safety model decides each step; pushes, PRs, deletes and migrations still ask you. Change it in the new view (/next). <button type="button" class="linklike" data-policy="ask-all">Ask me about every step instead</button></p>';
   return d.policy === 'ask-all'
     ? '<p class="policy-line">You approve every step. <button type="button" class="linklike" data-policy="hands-off">Let routine steps run on their own</button></p>'
     : '<p class="policy-line">Routine steps run on their own; you’re asked only about risky ones. <button type="button" class="linklike" data-policy="ask-all">Ask me about every step instead</button></p>';

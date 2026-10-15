@@ -35,11 +35,12 @@ function JobThread({ job }: { job: Job }) {
 
   return (
     <>
-      <JobHeader job={job} branch={thread.detail?.branch} />
+      <JobHeader job={job} branch={thread.detail?.branch} dir={thread.detail?.dir} policyOverride={thread.detail?.policyOverride} />
       <HowThisWorks id="foreman">
         <p>{HOW}</p>
         <p>A brief opens in full while it waits for you and folds to its headline once you’ve answered; click a headline to open it again. Steps the Foreman took by itself are folded into one “routine steps” line.</p>
         <p>When it wants to do something that isn’t routine, a card appears at the foot of the conversation: <strong>Allow once</strong>, <strong>Allow for this reply</strong> (when offered), <strong>Deny…</strong> with a note, or <strong>Always allow…</strong>, which saves a narrow rule you check first (listed in Settings). Questions come as a short form.</p>
+        <p>How much asks you depends on the job’s permission setting (job menu, or Settings for all jobs). In <strong>Auto mode</strong> Claude Code’s safety model decides most steps; anything it blocks shows as a dim ⊘ line. Pushes, pull requests, rm -rf and migrations always ask, and org or force pushes are refused.</p>
       </HowThisWorks>
       <section className="thread" aria-label="Conversation" aria-busy={thread.loading || thread.loadingOlder}>
         {thread.more && (

@@ -6,9 +6,15 @@
 // Reading is fine anywhere (the Read tool already is), so moving around with cd is too.
 // When unsure, ask: anything the reader below can't follow exactly (comments, unusual expansions,
 // values only known when the command runs) goes to the person. Mode 'ask-all' asks about everything.
+// Mode 'auto' judges the same way as 'hands-off': in auto mode only the requests Claude Code's
+// safety model couldn't decide reach the dashboard, and those go through this list as usual.
+// The hard lines (lib/hard-lines.js) are checked before this, in every mode.
 
 import os from 'node:os';
 import path from 'node:path';
+
+/** The permission settings, globally and per job. 'hands-off' is the default. */
+export const POLICIES = ['hands-off', 'ask-all', 'auto'];
 
 const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'TodoWrite', 'TaskOutput', 'SendMessage', 'Agent', 'Task']);
 const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);

@@ -89,6 +89,29 @@ export interface Permission {
   canAllowForRun?: boolean;
   suggestions?: unknown[];
   draft?: RuleDraft | null;
+  /** On a hard line (dashboard/lib/hard-lines.js): it asks every time, whatever your setting. */
+  hardLine?: { line: string; reason: string } | null;
+  /** Auto mode's safety model couldn't decide this one, so it came to you. */
+  fromAutoMode?: boolean;
+  [key: string]: unknown;
+}
+
+/** The permission settings: routine steps automatic (the default), ask about everything, auto mode. */
+export type PolicyId = 'hands-off' | 'ask-all' | 'auto';
+
+/** Whether auto mode works for this account. available: null until a reply has tried it. */
+export interface AutoModeStatus {
+  available: boolean | null;
+  reason: string | null;
+  checkedAt: string | null;
+}
+
+/** The dashboard's settings (meta.settings; also sent whole in the 'settings' live event). */
+export interface Settings {
+  policy: PolicyId;
+  /** Jobs with their own setting, by job folder (JobDetail.dir). */
+  jobPolicy?: Record<string, PolicyId>;
+  autoMode?: AutoModeStatus;
   [key: string]: unknown;
 }
 
@@ -115,6 +138,7 @@ export interface Usage {
 export interface Meta {
   token: string;
   demo?: boolean;
+  settings?: Settings;
   [key: string]: unknown;
 }
 
@@ -171,7 +195,10 @@ export interface ProblemItem extends ItemBase { kind: 'problem'; text: string }
 export interface NoteItem extends ItemBase { kind: 'note'; text: string }
 export interface DecisionItem extends ItemBase { kind: 'decision'; text: string }
 
-export type ThreadItem = BriefItem | YouItem | ReplyItem | AutoItem | ProblemItem | NoteItem | DecisionItem;
+/** An action refused without a card: by auto mode's safety model, or by a hard line. */
+export interface BlockedItem extends ItemBase { kind: 'blocked'; by: 'auto' | 'hard-line'; text: string; preview?: string | null; reason?: string | null; who?: string }
+
+export type ThreadItem = BriefItem | YouItem | ReplyItem | AutoItem | ProblemItem | NoteItem | DecisionItem | BlockedItem;
 
 /** The parts of GET /api/job/:slug the Foreman pane reads. */
 export interface JobDetail {
@@ -183,7 +210,20 @@ export interface JobDetail {
   run?: Run | null;
   thread: ThreadItem[];
   threadMore: boolean;
+  /** The job's folder (the key of Settings.jobPolicy). */
+  dir?: string;
+  /** The permission setting in force for this job, and its own one (null: it follows yours). */
+  policy?: PolicyId;
+  policyOverride?: PolicyId | null;
   [key: string]: unknown;
+}
+
+/** POST /api/job/:slug/policy. */
+export interface JobPolicyResult {
+  policy: PolicyId;
+  policyOverride: PolicyId | null;
+  globalPolicy: PolicyId;
+  autoMode: AutoModeStatus;
 }
 
 /** GET /api/job/:slug?before=<id>: the page of items just before that one. */

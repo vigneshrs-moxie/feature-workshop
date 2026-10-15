@@ -65,7 +65,15 @@ export function PermissionCard({ permission: p, now, showJob = false }: { permis
       <h3 className="perm-headline">{plain.headline}</h3>
       {plain.detail && <p className="perm-detail">{plain.detail}</p>}
       {plain.preview && <pre className="perm-preview">{plain.preview}</pre>}
-      {p.decisionReason && <p className="perm-reason muted" title="Why Claude Code asked about this one.">Why it asks: {p.decisionReason}</p>}
+      {p.hardLine ? (
+        <p className="perm-reason muted" title="Hard lines ask you every time, whatever your permission setting, and can’t be always allowed.">
+          <span className="chip">Hard line</span> {p.hardLine.reason}
+        </p>
+      ) : p.decisionReason && (
+        <p className="perm-reason muted" title={p.fromAutoMode ? 'Auto mode’s safety model couldn’t decide this one by itself, so it asks you.' : 'Why Claude Code asked about this one.'}>
+          {p.fromAutoMode ? <><span className="chip">Auto mode</span> </> : 'Why it asks: '}{p.decisionReason}
+        </p>
+      )}
       {risky && <p className="perm-warn" role="note"><span aria-hidden="true">⚠ </span>Take a careful look: this may be hard to undo.</p>}
       {error && <p className="field-problem" role="alert">{error}</p>}
       {denying ? (

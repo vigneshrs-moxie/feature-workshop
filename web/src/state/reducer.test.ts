@@ -178,6 +178,14 @@ describe('reducer: cards and rules', () => {
     expect(s.rulesVersion).toBe(1);
     expect(s.seq).toBe(11);
   });
+
+  it('a settings event (or your own change) replaces meta.settings', () => {
+    const s = reducer(hydrated(), { type: 'event', event: ev(11, 'settings', null, { policy: 'auto', jobPolicy: { '/f/alpha': 'ask-all' } }) });
+    expect(s.meta?.settings?.policy).toBe('auto');
+    expect(s.meta?.token).toBe('tok-1');
+    expect(reducer(s, { type: 'event', event: ev(12, 'settings', null, { nonsense: true }) }).meta?.settings?.policy).toBe('auto');
+    expect(reducer(s, { type: 'settings', settings: { policy: 'ask-all' } }).meta?.settings?.policy).toBe('ask-all');
+  });
 });
 
 describe('selectors', () => {

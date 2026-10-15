@@ -1,9 +1,11 @@
-// Settings: for now, your "Always allow" rules (GET /api/rules), each removable. Refetched when
-// they change anywhere (the dashboard's 'rules' event), so another tab's change shows here too.
+// Settings: your permission setting (ask about everything, routine steps automatic, auto mode;
+// POST /api/settings), and your "Always allow" rules (GET /api/rules), each removable. Both
+// follow changes made elsewhere (the dashboard's 'settings' and 'rules' events).
 import { useEffect, useState } from 'react';
-import type { Rule, RulesList } from '../../api/types';
-import { classicHref, jobHref } from '../../app/router';
+import type { PolicyId, Rule, RulesList, Settings } from '../../api/types';
+import { jobHref } from '../../app/router';
 import { HowThisWorks } from '../../components/HowThisWorks';
+import { autoBlockedReason, autoModeOf, HARD_LINES_NOTE, POLICIES } from '../../components/permissions/policies';
 import { sentence } from '../../components/permissions/rules';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
@@ -52,9 +54,65 @@ function RuleRow({ rule, now, onRemoved }: { rule: Rule; now: Date; onRemoved: (
   );
 }
 
+const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+/** The three-way permission setting. Auto mode is shown disabled, with the reason, when it isn't available. */
+function PolicyChoice() {
+  const { api, store } = useWorkshop();
+  const { meta } = useWorkshopState();
+  const settings = meta?.settings;
+  const current: PolicyId = settings?.policy ?? 'hands-off';
+  const auto = autoModeOf(settings);
+  const blocked = autoBlockedReason(auto);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function post(body: Record<string, unknown>) {
+    setBusy(true);
+    setError(null);
+    try {
+      store.dispatch({ type: 'settings', settings: await api.post<Settings>('/api/settings', body) });
+    } catch (err) {
+      setError(message(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section aria-label="Permissions">
+      <h3 className="settings-heading">Permissions</h3>
+      <fieldset className="rule-options policy-options" disabled={busy}>
+        <legend className="sr-only">How much the Foreman may do without asking you</legend>
+        {POLICIES.map((p) => {
+          const off = p.id === 'auto' && blocked !== null && current !== 'auto';
+          return (
+            <label key={p.id} className={`rule-option${current === p.id ? ' is-picked' : ''}${off ? ' is-off' : ''}`} title={off ? blocked ?? undefined : p.hint}>
+              <input type="radio" name="policy" value={p.id} checked={current === p.id} disabled={off} onChange={() => void post({ policy: p.id })} />
+              <span className="rule-option-body">
+                <span className="rule-option-kind">{p.label}{p.id === 'hands-off' && <span className="chip">Default</span>}</span>
+                <span className="muted">{p.note}</span>
+                {p.id === 'auto' && blocked && <span className="perm-warn" role="note">Not available: {blocked}</span>}
+              </span>
+            </label>
+          );
+        })}
+      </fieldset>
+      {blocked && (
+        <button type="button" className="btn btn-quiet policy-recheck" disabled={busy} onClick={() => void post({ recheckAuto: true })} title="Forget that auto mode wasn’t available, so you can pick it and the next reply tries it again.">
+          Check again
+        </button>
+      )}
+      <p className="muted policy-hard-lines">{HARD_LINES_NOTE} A job can have its own setting: use its job menu.</p>
+      {error && <p className="field-problem" role="alert">{error}</p>}
+    </section>
+  );
+}
+
 export function SettingsView() {
   const { api } = useWorkshop();
-  const { rulesVersion } = useWorkshopState();
+  const { rulesVersion, meta } = useWorkshopState();
+  const policy = meta?.settings?.policy; // the rules wait while "ask about everything" is on: refetch when it changes
   const now = useNow();
   const [load, setLoad] = useState<Load>({ state: 'loading' });
   const [mine, setMine] = useState(0); // bumped after a removal here, to refetch
@@ -66,16 +124,18 @@ export function SettingsView() {
       (err) => { if (!cancelled) setLoad({ state: 'error', message: err instanceof Error ? err.message : String(err) }); },
     );
     return () => { cancelled = true; };
-  }, [api, rulesVersion, mine]);
+  }, [api, rulesVersion, mine, policy]);
 
   return (
     <main className="pane pane-foreman" aria-label="Settings">
       <div className="foreman-column settings">
         <h2 className="pane-title">Settings</h2>
         <HowThisWorks id="settings">
+          <p><strong>Permissions</strong> decide how much the Foreman and its crew may do without asking you. <strong>Routine steps automatic</strong> is the default. <strong>Auto mode</strong> lets Claude Code’s own safety model judge each step; what it blocks is listed in the conversation as a dim line, so nothing is hidden. A change applies at once, also to replies already running. {HARD_LINES_NOTE}</p>
           <p>When a permission card asks you about a step, <strong>Always allow…</strong> saves a rule so steps exactly like it run without asking. Each rule covers only what it says: one exact command, commands starting with the same words, one file, one folder, one website or one connection tool. Anything else still asks.</p>
           <p>Rules apply to every job the dashboard runs, and only there: they aren’t added to your Claude Code settings, so your terminal sessions are unaffected. They’re not used while “ask about everything” is on, or for steps Claude Code flags as risky. Remove a rule here and those steps ask again.</p>
         </HowThisWorks>
+        <PolicyChoice />
         <section aria-label="Always allow rules">
           <h3 className="settings-heading">Always allow rules</h3>
           {load.state === 'loading' && <p className="muted">Loading your rules…</p>}
@@ -86,7 +146,7 @@ export function SettingsView() {
                 <p className="perm-warn" role="alert">The rules file {load.list.unreadable} can’t be read, so no rule is used and new ones can’t be saved. Fix or remove that file.</p>
               )}
               {!load.list.active && (
-                <p className="perm-warn" role="note">“Ask about everything” is on, so these rules wait: every step asks you until you switch back to “Routine steps automatic” (in the <a href={classicHref.home()}>classic view</a> for now).</p>
+                <p className="perm-warn" role="note">“Ask about everything” is on, so these rules wait: every step asks you until you pick “Routine steps automatic” or “Auto mode” above.</p>
               )}
               {load.list.rules.length === 0 ? (
                 <p className="muted">No rules yet. Use <strong>Always allow…</strong> on a permission card to add one.</p>

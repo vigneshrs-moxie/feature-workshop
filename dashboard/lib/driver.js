@@ -1,6 +1,17 @@
 // Runs a job's Foreman (conductor) session headlessly with the Claude Agent SDK.
 // One "run" = one message sent to the session and everything it does until it replies.
 // Every tool permission request is parked here until the person clicks Allow or Deny.
+//
+// Permission settings (the job's own, else the global one; see modeFor):
+//   'ask-all' and 'hands-off' run the session in Claude Code's 'default' mode: every request that
+//     needs permission reaches canUseTool, and the policy decides which are routine.
+//   'auto' runs it in Claude Code's auto mode: its safety model allows or blocks each action by
+//     itself, and only those it can't decide reach canUseTool (then the policy is consulted as
+//     usual). What it blocks is recorded as 'auto-blocked' and shown as a dim line in the thread.
+//     When the account can't use auto mode, Claude Code starts in 'default' instead; the init
+//     message says so and the driver reports it ('auto-mode' event).
+// In every setting a PreToolUse hook (lib/hard-lines.js) forces a card for the hard lines and
+// refuses org and force pushes; the same check runs again here before the policy is asked.
 
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
@@ -9,6 +20,10 @@ import path from 'node:path';
 import { describePermission } from './permissions.js';
 import { draftRule } from './rules.js';
 import { describeTool } from './session-log.js';
+import { hardLine, hardLineHook } from './hard-lines.js';
+
+/** The SDK permission mode for a permission setting. */
+export const sdkModeFor = (mode) => (mode === 'auto' ? 'auto' : 'default');
 
 const ACTIVE = new Set(['starting', 'running', 'waiting_permission', 'stopping']);
 // Ended states: done, stopped, error, and limited (the reply ended on a Claude usage limit).
@@ -24,11 +39,13 @@ export class Driver extends EventEmitter {
    * queryFn: the SDK's query() (injectable for tests).
    * state: State instance. projectsDir: where Claude Code keeps session logs.
    */
-  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null }) {
+  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null }) {
     super();
     this.queryFn = queryFn;
     // policy(run, toolName, input, opts) -> { auto, reason }: routine requests are allowed without asking.
     this.policy = policy;
+    // modeFor(run) -> 'hands-off' | 'ask-all' | 'auto': the permission setting for the run's job.
+    this.modeFor = modeFor;
     this.state = state;
     this.projectsDir = projectsDir;
     this.cliPath = cliPath;
@@ -61,6 +78,9 @@ export class Driver extends EventEmitter {
       newJob: run.newJob, pending: run.pending.size, denials: run.denials,
       backgroundTasks: run.backgroundTasks, sessionState: run.sessionState ?? null, autoAllowed: run.autoAllowed ?? 0,
       additionalDirectories: run.additionalDirectories, stopReason: run.stopReason ?? null,
+      // mode: the permission setting in force; permissionMode: the mode Claude Code reports.
+      mode: run.mode ?? 'hands-off', permissionMode: run.permissionMode ?? null,
+      autoUnavailable: run.autoUnavailable ?? null, autoBlocked: run.autoBlocked ?? 0,
     };
   }
 
@@ -86,6 +106,9 @@ export class Driver extends EventEmitter {
    * text: the exact message to send. sessionId: resume this session (null = new session).
    */
   async start({ featureDir, slug, title, cwd, sessionId = null, model = null, text, kind = 'message', newJob = false, additionalDirectories = [] }) {
+    // Asked before the busy check, so nothing is awaited between that check and the run being listed.
+    let mode = null;
+    if (this.modeFor) { try { mode = await this.modeFor({ featureDir, slug }); } catch { mode = null; } }
     if (this.activeRunFor({ featureDir, sessionId })) throw new Busy('This job’s Foreman is already working on a reply.');
     const run = {
       id: randomUUID(), featureDir, slug, title, cwd, sessionId, model, text, kind, newJob,
@@ -93,7 +116,12 @@ export class Driver extends EventEmitter {
       lastText: null, lastAction: null, resultText: null, costUsd: null, apiKeySource: null, error: null,
       denials: [], stderr: [], pending: new Map(), abort: new AbortController(), query: null, stopRequested: false,
       additionalDirectories, backgroundTasks: [], hasResult: false, closeInput: null, idleTimer: null,
+      mode: 'hands-off', permissionMode: null, autoUnavailable: null, autoBlocked: 0,
+      // Tool calls seen in the session (id -> { name, input }) and the denials already accounted for,
+      // so a block is recorded once and denials you or a hard line made aren't put on auto mode.
+      toolUses: new Map(), blockedIds: new Set(), deniedIds: new Set(),
     };
+    if (mode) run.mode = mode;
     this.runs.set(run.id, run);
     await this.state.audit({ action: 'send', featureDir, slug, sessionId, kind, text, runId: run.id, model });
     this.#launch(run).catch(() => {});
@@ -110,10 +138,15 @@ export class Driver extends EventEmitter {
       yield { type: 'user', message: { role: 'user', content: message }, parent_tool_use_id: null };
       await finished; // keep the input open until the reply is complete, so Stop can interrupt
     }
+    run.requestedMode = sdkModeFor(run.mode);
     const options = {
       cwd: run.cwd,
-      permissionMode: 'default', // every risky action asks; never the auto-approving modes
+      // 'default' (every risky action reaches canUseTool) or, when you chose it, 'auto' (Claude
+      // Code's safety model). Never acceptEdits, dontAsk or bypassPermissions.
+      permissionMode: run.requestedMode,
       canUseTool: (toolName, input, opts) => this.#ask(run, toolName, input, opts),
+      // The hard lines, in every mode, before Claude Code's own permission check (lib/hard-lines.js).
+      hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [hardLineHook((verdict, input) => this.#onHardLine(run, verdict, input))] }] },
       abortController: run.abort,
       stderr: (data) => { run.stderr.push(String(data)); if (run.stderr.length > 60) run.stderr.shift(); },
       additionalDirectories: run.additionalDirectories,
@@ -146,12 +179,29 @@ export class Driver extends EventEmitter {
   }
 
   async #onMessage(run, msg) {
+    if (msg.type === 'assistant') {
+      // Remember tool calls (crew members' too), so a blocked one can be named by its id.
+      for (const b of msg.message?.content ?? []) {
+        if (b?.type !== 'tool_use' || !b.id) continue;
+        run.toolUses.set(b.id, { name: b.name, input: b.input });
+        if (run.toolUses.size > 300) run.toolUses.delete(run.toolUses.keys().next().value);
+      }
+    }
     if (msg.type === 'system' && msg.subtype === 'init') {
       run.sessionId = msg.session_id ?? run.sessionId;
       run.model = msg.model ?? run.model;
       run.apiKeySource = msg.apiKeySource ?? null;
       await this.state.setSession(run.featureDir, { sessionId: run.sessionId, cwd: run.cwd, model: run.model, lastRunAt: run.startedAt, ...(run.newJob ? { startedFromWorkshop: true, title: run.title } : {}) });
+      await this.#modeReported(run, msg.permissionMode);
       this.emit('run', this.view(run));
+    } else if (msg.type === 'system' && msg.subtype === 'status' && msg.permissionMode) {
+      await this.#modeReported(run, msg.permissionMode);
+      this.emit('run', this.view(run));
+    } else if (msg.type === 'system' && msg.subtype === 'permission_denied') {
+      // Refused without a card. Only auto mode's safety model counts here: deny rules from your own
+      // settings and the like are Claude Code's business, and hard-line refusals are recorded by the hook.
+      const byClassifier = msg.decision_reason_type === 'classifier' || (!msg.decision_reason_type && run.permissionMode === 'auto');
+      if (byClassifier) await this.#recordBlocked(run, msg.tool_use_id, { tool: msg.tool_name, reason: msg.decision_reason ?? null, agentID: msg.agent_id });
     } else if (msg.type === 'rate_limit_event') {
       // Claude's plan usage: 'rejected' means the limit is reached; 'allowed_warning' means close to it.
       const info = msg.rate_limit_info ?? null;
@@ -176,6 +226,14 @@ export class Driver extends EventEmitter {
       run.costUsd = typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : run.costUsd;
       if (typeof msg.result === 'string' && msg.result.trim()) run.resultText = msg.result;
       run.denials = (msg.permission_denials ?? []).map((d) => ({ tool: d.tool_name, input: trimInput(d.tool_input) }));
+      // The authoritative list of refusals: any made in auto mode that nobody else accounts for
+      // (not you, not a hard line, not already reported) was the safety model's.
+      if (run.permissionMode === 'auto') {
+        for (const d of msg.permission_denials ?? []) {
+          if (!d?.tool_use_id || run.deniedIds.has(d.tool_use_id)) continue;
+          await this.#recordBlocked(run, d.tool_use_id, { tool: d.tool_name, input: d.tool_input, reason: null });
+        }
+      }
       if (msg.is_error && !run.stopRequested) {
         run.status = run.limitHit || msg.api_error_status === 429 ? 'limited' : 'error';
         run.error = run.resultText || msg.subtype;
@@ -193,6 +251,94 @@ export class Driver extends EventEmitter {
       if (msg.state === 'idle' && (run.hasResult || run.stopRequested)) {
         clearTimeout(run.idleTimer);
         run.closeInput?.();
+      }
+      this.emit('run', this.view(run));
+    }
+  }
+
+  // Claude Code said which permission mode it is in (init, or a status message after a switch).
+  // Asked for auto mode and got something else: auto mode isn't available to this account (the
+  // SDK falls back to 'default'), so the policy alone decides, as with "routine steps automatic".
+  async #modeReported(run, mode) {
+    if (!mode) return;
+    run.permissionMode = mode;
+    if (run.requestedMode !== 'auto') return;
+    if (mode === 'auto') {
+      run.autoUnavailable = false;
+      this.emit('auto-mode', { available: true });
+    } else if (!run.autoUnavailable) {
+      run.autoUnavailable = true;
+      const reason = 'Claude Code started in its normal mode instead of auto mode, so auto mode isn’t available for this account (or this Claude Code version).';
+      this.emit('auto-mode', { available: false, reason });
+      await this.state.audit({ action: 'auto-unavailable', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, got: mode });
+    }
+  }
+
+  // One action auto mode's safety model refused, recorded once (audit 'auto-blocked').
+  async #recordBlocked(run, toolUseId, { tool, input = null, reason = null, agentID = null }) {
+    if (toolUseId) {
+      if (run.blockedIds.has(toolUseId) || run.deniedIds.has(toolUseId)) return;
+      run.blockedIds.add(toolUseId);
+    }
+    const seen = toolUseId ? run.toolUses.get(toolUseId) : null;
+    const name = tool ?? seen?.name ?? 'a tool';
+    const plain = describePermission(name, input ?? seen?.input ?? {}, { cwd: run.cwd });
+    run.autoBlocked = (run.autoBlocked ?? 0) + 1;
+    await this.state.audit({
+      action: 'auto-blocked', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, tool: name,
+      agentType: await this.#agentType(run, agentID), headline: plain.headline, preview: (plain.preview ?? '').slice(0, 300) || undefined,
+      reason: reason ? String(reason).replace(/\u001b\[[0-9;]*m/g, '').slice(0, 500) : undefined, // may carry terminal colours
+    });
+    this.emit('run', this.view(run));
+  }
+
+  // The hard-line hook met one (lib/hard-lines.js). Refusals are recorded here, since Claude Code
+  // never asks about them; 'ask' ones become an ordinary card through canUseTool.
+  async #onHardLine(run, verdict, input) {
+    if (verdict.decision !== 'deny') return;
+    await this.#recordRefusal(run, input?.tool_name ?? 'Bash', input?.tool_input ?? {}, verdict, input?.tool_use_id, input?.agent_id);
+  }
+
+  async #recordRefusal(run, toolName, input, verdict, toolUseId, agentID) {
+    if (toolUseId) {
+      if (run.deniedIds.has(toolUseId)) return;
+      run.deniedIds.add(toolUseId);
+    }
+    const plain = describePermission(toolName, input, { cwd: run.cwd });
+    await this.state.audit({
+      action: 'hard-line-refused', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, tool: toolName,
+      agentType: await this.#agentType(run, agentID), headline: plain.headline, preview: (plain.preview ?? '').slice(0, 300) || undefined,
+      line: verdict.line, reason: verdict.reason,
+    });
+    this.emit('run', this.view(run));
+  }
+
+  /**
+   * The permission setting changed (yours or a job's): re-read it for every reply in progress and
+   * switch Claude Code's mode live where that changes ('default' <-> 'auto').
+   */
+  async applyModes() {
+    if (!this.modeFor) return;
+    for (const run of this.runs.values()) {
+      if (!ACTIVE.has(run.status)) continue;
+      let mode;
+      try { mode = await this.modeFor(run); } catch { continue; }
+      if (!mode || mode === run.mode) continue;
+      const want = sdkModeFor(mode);
+      const had = run.requestedMode;
+      run.mode = mode;
+      run.requestedMode = want;
+      if (want !== had && run.query?.setPermissionMode) {
+        try {
+          await run.query.setPermissionMode(want);
+          run.permissionMode = want; // a later status message corrects this if Claude Code fell back
+        } catch (err) {
+          run.requestedMode = had;
+          if (want === 'auto') {
+            run.autoUnavailable = true;
+            this.emit('auto-mode', { available: false, reason: `Claude Code wouldn’t switch to auto mode: ${String(err?.message ?? err).split('\n')[0]}` });
+          }
+        }
       }
       this.emit('run', this.view(run));
     }
@@ -227,7 +373,20 @@ export class Driver extends EventEmitter {
   }
 
   async #ask(run, toolName, input, opts = {}) {
-    if (this.policy && toolName !== 'AskUserQuestion') {
+    const result = await this.#askInner(run, toolName, input, opts);
+    if (result?.behavior === 'deny' && opts.toolUseID) run.deniedIds.add(opts.toolUseID);
+    return result;
+  }
+
+  async #askInner(run, toolName, input, opts) {
+    // Hard lines first (the hook already did this; checked again in case it didn't run): a refusal
+    // never asks, and an "ask" one is never settled by the routine list or a saved rule.
+    const hard = toolName === 'AskUserQuestion' ? null : hardLine(toolName, input);
+    if (hard?.decision === 'deny') {
+      await this.#recordRefusal(run, toolName, input, hard, opts.toolUseID, opts.agentID);
+      return { behavior: 'deny', message: hard.reason };
+    }
+    if (this.policy && toolName !== 'AskUserQuestion' && !hard) {
       let verdict = null;
       try { verdict = await this.policy(run, toolName, input, opts); } catch { verdict = null; }
       if (verdict?.auto) {
@@ -242,15 +401,19 @@ export class Driver extends EventEmitter {
       id: randomUUID(), runId: run.id, slug: run.slug, featureDir: run.featureDir, title: run.title,
       toolName, input: trimInput(input), kind: toolName === 'AskUserQuestion' ? 'question' : 'permission',
       prompt: opts.title ?? null, displayName: opts.displayName ?? null, description: opts.description ?? null,
-      decisionReason: opts.decisionReason ?? null, blockedPath: opts.blockedPath ?? null,
+      decisionReason: opts.decisionReason ?? hard?.reason ?? null, blockedPath: opts.blockedPath ?? null,
       agentID: opts.agentID ?? null, agentType: await this.#agentType(run, opts.agentID),
       defaultToNo: Boolean(opts.defaultToNo),
+      // A hard line (lib/hard-lines.js): it asks every time, so nothing is offered that would stop it asking.
+      hardLine: hard ? { line: hard.line, reason: hard.reason } : null,
+      // Auto mode's safety model couldn't decide this one, so it came to you.
+      fromAutoMode: run.permissionMode === 'auto' && !hard && toolName !== 'AskUserQuestion',
       // "Allow for this reply" is offered only when Claude Code suggests a rule, and is kept in memory
       // for this run only (destination 'session'); nothing is written to settings files.
-      canAllowForRun: !opts.suppressAlwaysAllowRule && Array.isArray(opts.suggestions) && opts.suggestions.length > 0,
+      canAllowForRun: !hard && !opts.suppressAlwaysAllowRule && Array.isArray(opts.suggestions) && opts.suggestions.length > 0,
       suggestions: (opts.suggestions ?? []).map((s) => ({ ...s, destination: 'session' })),
-      // "Always allow…": saved rules never apply to questions or to steps Claude Code flagged as risky.
-      draft: toolName === 'AskUserQuestion' || opts.defaultToNo ? null : draftRule(toolName, input, opts.suggestions ?? []),
+      // "Always allow…": saved rules never apply to questions, hard lines or steps Claude Code flagged as risky.
+      draft: toolName === 'AskUserQuestion' || opts.defaultToNo || hard ? null : draftRule(toolName, input, opts.suggestions ?? []),
       plain: describePermission(toolName, input, { cwd: run.cwd, blockedPath: opts.blockedPath, defaultToNo: opts.defaultToNo }),
       createdAt: new Date().toISOString(),
       originalInput: input,

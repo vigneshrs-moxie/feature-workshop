@@ -1,5 +1,6 @@
 // "Always allow…" through the real dashboard: GET/POST/DELETE /api/rules, the permission it was
-// drafted from, and the audit and thread lines. Starts the dashboard in demo mode (a pretend
+// drafted from, and the audit and thread lines; then the permission settings and auto mode
+// (POST /api/settings, /api/job/:slug/policy). Starts the dashboard in demo mode (a pretend
 // Foreman, nothing real runs) on temp folders: no real job, ~/.claude or ~/.feature-workshop is
 // touched and no Claude usage is spent.
 
@@ -140,4 +141,63 @@ test('server: a rule for a request that’s gone is not saved', async () => {
   const res = await write('POST', '/api/rules', { rule: { tool: 'Bash', kind: 'exact', value: 'npm test' }, permissionId: 'no-such-request' });
   assert.equal(res.status, 404);
   assert.deepEqual((await get('/api/rules')).rules, []);
+});
+
+// ---------- Permission settings and auto mode (D5) ----------
+
+const idle = () => waitFor(async () => !(await get('/api/runs')).runs.some((r) => ['starting', 'running', 'waiting_permission', 'stopping'].includes(r.status)), 'the earlier reply to end', 15000);
+
+test('server: the permission setting takes auto mode, a job can override it, and both are saved', async () => {
+  await idle(); // a change applies to a reply in progress at once; let the first test's reply end first
+  assert.equal((await write('POST', '/api/settings', { policy: 'auto' }, { auth: false })).status, 403);
+  assert.equal((await write('POST', '/api/settings', { policy: 'yolo' })).status, 400);
+  const set = await write('POST', '/api/settings', { policy: 'auto' });
+  assert.equal(set.status, 200);
+  assert.equal(set.body.policy, 'auto');
+  assert.equal((await get('/api/meta')).settings.policy, 'auto');
+
+  assert.equal((await write('POST', '/api/job/sample-job/policy', { policy: 'sometimes' })).status, 400);
+  assert.equal((await write('POST', '/api/job/no-such-job/policy', { policy: 'auto' })).status, 404);
+  const own = await write('POST', '/api/job/sample-job/policy', { policy: 'ask-all' });
+  assert.deepEqual(own.body, { policy: 'ask-all', policyOverride: 'ask-all', globalPolicy: 'auto', autoMode: { available: null, reason: null, checkedAt: null } });
+  let detail = await get('/api/job/sample-job');
+  assert.equal(detail.policy, 'ask-all');
+  assert.equal(detail.policyOverride, 'ask-all');
+  const saved = JSON.parse(await fs.readFile(path.join(stateDir, 'settings.json'), 'utf8'));
+  assert.equal(saved.policy, 'auto');
+  assert.deepEqual(Object.values(saved.jobPolicy), ['ask-all']);
+
+  await write('POST', '/api/job/sample-job/policy', { policy: null });
+  detail = await get('/api/job/sample-job');
+  assert.equal(detail.policy, 'auto', 'it follows yours again');
+  assert.equal(detail.policyOverride, null);
+  await waitFor(async () => (await get('/api/job/sample-job')).thread.some((i) => i.kind === 'note' && /follows your global permission setting/.test(i.text)), 'the thread note');
+});
+
+test('server: in auto mode a push still asks, and what auto mode blocked shows in the thread', async () => {
+  await write('POST', '/api/settings', { policy: 'auto' });
+  const sent = await write('POST', '/api/job/sample-job/send', { text: 'Carry on.' });
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  // The pretend safety model can't decide about the database tests: a card, marked as coming from auto mode.
+  const db = await waitFor(async () => (await get('/api/snapshot')).permissions.find((p) => p.input?.command === 'npm run test:db'), 'the database card');
+  assert.equal(db.fromAutoMode, true);
+  assert.equal((await write('POST', `/api/permissions/${db.id}`, { decision: 'allow' })).status, 200);
+  // The push is a hard line: a card even in auto mode, and it can't be always allowed.
+  const push = await waitFor(async () => (await get('/api/snapshot')).permissions.find((p) => p.input?.command?.startsWith('git push')), 'the push card');
+  assert.equal(push.hardLine.line, 'git-push');
+  assert.equal(push.draft, null);
+  const always = await write('POST', '/api/rules', { rule: { tool: 'Bash', kind: 'prefix', value: 'git push' }, permissionId: push.id });
+  assert.equal(always.status, 400);
+  assert.match(always.body.error, /hard line/);
+  assert.equal((await write('POST', `/api/permissions/${push.id}`, { decision: 'deny' })).status, 200);
+  const thread = await waitFor(async () => {
+    const t = (await get('/api/job/sample-job')).thread;
+    return t.some((i) => i.kind === 'blocked') ? t : null;
+  }, 'the blocked line');
+  const blocked = thread.filter((i) => i.kind === 'blocked');
+  assert.equal(blocked.length, 1);
+  assert.equal(blocked[0].by, 'auto');
+  assert.match(blocked[0].preview, /curl/);
+  assert.equal((await get('/api/meta')).settings.autoMode.available, true, 'the reply found auto mode available');
+  await write('POST', '/api/settings', { policy: 'hands-off' });
 });

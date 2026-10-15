@@ -51,12 +51,29 @@ export class State extends EventEmitter {
     return all[featureDir];
   }
 
-  // Dashboard settings. policy: 'hands-off' (routine steps handled for you) or 'ask-all'.
+  // Dashboard settings.
+  //   policy     'hands-off' (routine steps automatic), 'ask-all' or 'auto' (Claude Code's auto mode)
+  //   jobPolicy  { [featureDir]: policy }: jobs that override it
+  //   autoMode   { available: true | false | null (not tried yet), reason, checkedAt }
   async getSettings() {
     if (!this.settings) {
       try { this.settings = JSON.parse(await fs.readFile(this.settingsFile, 'utf8')); } catch { this.settings = {}; }
     }
-    return { policy: 'hands-off', ...this.settings };
+    return { policy: 'hands-off', jobPolicy: {}, autoMode: { available: null, reason: null, checkedAt: null }, ...this.settings };
+  }
+
+  /** The permission setting for one job: its own, else the global one. */
+  async policyFor(featureDir) {
+    const s = await this.getSettings();
+    return (featureDir && s.jobPolicy?.[featureDir]) || s.policy;
+  }
+
+  /** Set (or with null, clear) one job's own permission setting. */
+  async setJobPolicy(featureDir, policy) {
+    const s = await this.getSettings();
+    const jobPolicy = { ...(s.jobPolicy ?? {}) };
+    if (policy) jobPolicy[featureDir] = policy; else delete jobPolicy[featureDir];
+    return this.setSettings({ jobPolicy });
   }
 
   async setSettings(patch) {

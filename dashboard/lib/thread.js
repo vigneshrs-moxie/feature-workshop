@@ -13,6 +13,8 @@ import { describeOptions } from './options.js';
 
 export const PAGE = 60;
 
+const POLICY_LABELS = { 'hands-off': 'Routine steps automatic', 'ask-all': 'Ask about everything', auto: 'Auto mode' };
+
 const hash = (entry) => createHash('sha1').update(JSON.stringify(entry)).digest('hex').slice(0, 12);
 
 /**
@@ -43,6 +45,11 @@ export function buildThread({ briefs = [], audit = [], autoResume = true }) {
       else if (e.reply) thread.push({ id: id('reply'), kind: 'reply', at: e.at, reply: e.reply, stopped: e.status === 'stopped' });
       else if (e.status === 'stopped') note('You paused this reply.');
     } else if (e.action === 'permission') thread.push({ id: id('decision'), kind: 'decision', at: e.at, text: `${e.decision === 'deny' ? 'You said no to' : 'You allowed'}: ${e.headline ?? e.tool}${e.note ? ` (“${e.note}”)` : ''}` });
+    // Actions refused without a card: by auto mode's safety model, or by a hard line (lib/hard-lines.js).
+    else if (e.action === 'auto-blocked') thread.push({ id: id('blocked'), kind: 'blocked', at: e.at, by: 'auto', text: `Auto mode blocked: ${e.headline ?? e.tool}`, preview: e.preview ?? null, reason: e.reason ?? null, who: e.agentType ?? 'conductor' });
+    else if (e.action === 'hard-line-refused') thread.push({ id: id('blocked'), kind: 'blocked', at: e.at, by: 'hard-line', text: `Refused: ${e.headline ?? e.tool}`, preview: e.preview ?? null, reason: e.reason ?? null, who: e.agentType ?? 'conductor' });
+    else if (e.action === 'auto-unavailable') note('Auto mode isn’t available for your account, so this reply ran with routine steps automatic instead.');
+    else if (e.action === 'job-policy') note(e.policy ? `You set this job’s permissions to “${POLICY_LABELS[e.policy] ?? e.policy}”. It applies straight away, also to a reply in progress.` : 'This job follows your global permission setting again.');
     else if (e.action === 'rule-added') note(`You saved an “Always allow” rule: ${e.label ?? 'see Settings'}. It applies to every job run from the dashboard until you remove it in Settings.`);
     else if (e.action === 'takeover') note('You took this job over from the terminal.');
     else if (e.action === 'close') note(`You marked this job ${e.as === 'dropped' ? 'dropped' : 'done'}${e.note ? ` (“${e.note}”)` : ''}${e.worktreeRemoved ? `, and removed its worktree (${e.worktreeRemoved}); the branch is kept` : ''}.`);

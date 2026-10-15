@@ -189,6 +189,31 @@ describe('QuestionCard', () => {
   });
 });
 
+describe('PermissionCard: hard lines and auto mode', () => {
+  it('a hard line says so and offers no way to stop it asking', () => {
+    setup([bash({
+      input: { command: 'git push -u origin feature/x' }, plain: { headline: 'Run a command in the terminal', preview: 'git push -u origin feature/x' },
+      hardLine: { line: 'git-push', reason: 'Pushing is a hard line: it always asks you, whatever the setting.' },
+      canAllowForRun: false, draft: null,
+    })]);
+    const card = screen.getByRole('article', { name: 'Permission: Run a command in the terminal' });
+    expect(within(card).getByText('Hard line')).toBeInTheDocument();
+    expect(within(card).getByText(/always asks you, whatever the setting/).closest('p')).toHaveAttribute('title');
+    expect(within(card).getByRole('button', { name: 'Allow once' })).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'Always allow…' })).toBeNull();
+    expect(within(card).queryByRole('button', { name: 'Allow for this reply' })).toBeNull();
+  });
+
+  it('a step auto mode couldn’t decide is marked as such', () => {
+    setup([bash({ fromAutoMode: true, decisionReason: 'Auto mode couldn’t tell whether this is safe.' })]);
+    const card = screen.getByRole('article', { name: 'Permission: Run a command in the terminal' });
+    const why = within(card).getByText(/couldn’t tell whether this is safe/).closest('p')!;
+    expect(within(why).getByText('Auto mode')).toBeInTheDocument();
+    expect(why).toHaveAttribute('title', expect.stringMatching(/safety model couldn’t decide/));
+    expect(within(card).getByRole('button', { name: 'Always allow…' })).toBeInTheDocument();
+  });
+});
+
 describe('Needs-you cards', () => {
   it('lists every job’s waiting cards, grouped by job, oldest first', () => {
     const store: Store = createStore();

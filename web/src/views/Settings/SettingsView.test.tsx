@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../../api/client';
-import type { Rule, RulesList } from '../../api/types';
+import type { Rule, RulesList, Settings } from '../../api/types';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { ev, snapshot } from '../../state/test-fixtures';
 import { SettingsView } from './SettingsView';
@@ -56,5 +56,55 @@ describe('Settings', () => {
   it('explains when the rules wait because every step asks', async () => {
     setup([{ rules: [RULE], active: false, unreadable: null }]);
     expect(await screen.findByRole('note')).toHaveTextContent('“Ask about everything” is on');
+  });
+});
+
+describe('Settings: permissions', () => {
+  function withSettings(settings: Settings, post: (path: string, body: unknown) => Promise<unknown>) {
+    const store: Store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', settings } }) });
+    const api = { get: vi.fn(async () => ({ rules: [], active: true, unreadable: null })), del: vi.fn(), post: vi.fn(post) } as unknown as ApiClient;
+    render(<WorkshopContext.Provider value={{ store, api }}><SettingsView /></WorkshopContext.Provider>);
+    return { store, post: api.post as ReturnType<typeof vi.fn> };
+  }
+
+  it('offers the three settings with hints, routine steps automatic by default', async () => {
+    withSettings({ policy: 'hands-off' }, async () => ({}));
+    const group = screen.getByRole('group', { name: 'How much the Foreman may do without asking you' });
+    const radios = within(group).getAllByRole('radio');
+    expect(radios.map((r) => (r.closest('label') as HTMLElement).querySelector('.rule-option-kind')?.textContent)).toEqual(['Ask about everything', 'Routine steps automaticDefault', 'Auto mode']);
+    expect(within(group).getByRole('radio', { name: /Routine steps automatic/ })).toBeChecked();
+    for (const r of radios) expect(r.closest('label')).toHaveAttribute('title');
+    expect(document.querySelector('.policy-hard-lines')).toHaveTextContent(/always ask you, and pushes to the org repo or force pushes are refused/);
+    await screen.findByText(/No rules yet/);
+  });
+
+  it('picking auto mode saves it and shows it at once', async () => {
+    const { post, store } = withSettings({ policy: 'hands-off' }, async (_p, body) => ({ policy: (body as { policy: string }).policy, jobPolicy: {}, autoMode: { available: null, reason: null, checkedAt: null } }));
+    fireEvent.click(screen.getByRole('radio', { name: /Auto mode/ }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /Auto mode/ })).toBeChecked());
+    expect(post).toHaveBeenCalledWith('/api/settings', { policy: 'auto' });
+    expect(store.getState().meta?.settings?.policy).toBe('auto');
+  });
+
+  it('shows auto mode disabled with the reason when the account can’t use it, and can check again', async () => {
+    const { post } = withSettings(
+      { policy: 'hands-off', autoMode: { available: false, reason: 'Claude Code started in its normal mode instead.', checkedAt: '2026-10-15T12:00:00Z' } },
+      async () => ({ policy: 'hands-off', autoMode: { available: null, reason: null, checkedAt: null } }),
+    );
+    const auto = screen.getByRole('radio', { name: /Auto mode/ });
+    expect(auto).toBeDisabled();
+    expect(screen.getByText(/Not available: Claude Code started in its normal mode/)).toBeInTheDocument();
+    const again = screen.getByRole('button', { name: 'Check again' });
+    expect(again).toHaveAttribute('title');
+    fireEvent.click(again);
+    await waitFor(() => expect(screen.getByRole('radio', { name: /Auto mode/ })).toBeEnabled());
+    expect(post).toHaveBeenCalledWith('/api/settings', { recheckAuto: true });
+  });
+
+  it('follows a change made elsewhere (the settings event)', async () => {
+    const { store } = withSettings({ policy: 'hands-off' }, async () => ({}));
+    act(() => store.dispatch({ type: 'event', event: ev(11, 'settings', null, { policy: 'ask-all', jobPolicy: {} }) }));
+    expect(screen.getByRole('radio', { name: /Ask about everything/ })).toBeChecked();
   });
 });
