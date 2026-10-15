@@ -4,3 +4,5 @@ node_modules/
 .env
 # Local runtime state (locks, cached session data). Never commit.
 .workshop/
+# Built new UI (npm run web:build). The dashboard serves it at /next.
+web/dist/
