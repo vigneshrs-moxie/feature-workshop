@@ -31,7 +31,14 @@ function clock(start) {
   });
 }
 const run = (slug, status = 'running') => ({ id: `run-${slug}`, featureDir: `/f/${slug}`, slug, title: slug.toUpperCase(), cwd: '/r', sessionId: `s-${slug}`, model: 'm', status, additionalDirectories: [] });
-const settle = async (limits) => { for (let i = 0; i < 50 && limits.resuming; i++) await limits.resuming; };
+// Wait for the carry-on to begin (resume saves to disk before it starts draining) and to finish.
+const settle = async (limits) => {
+  for (let i = 0; i < 200; i++) {
+    if (limits.resuming) { await limits.resuming; if (!limits.queue.length) return; }
+    else if (!limits.limit && !limits.queue.length && i > 20) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+};
 
 test('usage limit: pauses every running job and carries them on after the reset', async () => {
   const c = clock(Date.parse('2026-10-14T12:00:00Z'));
