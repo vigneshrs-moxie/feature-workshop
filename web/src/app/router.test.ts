@@ -11,6 +11,7 @@ describe('hash router', () => {
     ['#/job/with%20space', { name: 'job', slug: 'with space' }],
     ['#/job/', { name: 'home' }],
     ['#/job/a/b', { name: 'home' }],
+    ['#/job/alpha/id/FR-001', { name: 'job', slug: 'alpha' }],
     ['#/job/%E0%A4%A', { name: 'home' }],
     ['#/costs', { name: 'home' }],
   ])('%s', (hash, route) => {

@@ -19,6 +19,7 @@ function renderApp(snap: Snapshot | Error) {
   const api = {
     snapshot: vi.fn(async () => { if (snap instanceof Error) throw snap; return snap; }),
     setToken: vi.fn(),
+    get: vi.fn(async () => ({ slug: 'beta', thread: [], threadMore: false })),
   } as unknown as ApiClient;
   const openStream = (_url: string) => { const s = new FakeStream(); streams.push(s); return s; };
   render(<App api={api} openStream={openStream} />);

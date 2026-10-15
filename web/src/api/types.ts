@@ -22,6 +22,7 @@ export interface Job {
   limitPaused?: string | null;
   project?: { name: string; path?: string };
   repo?: { name: string; branch?: string | null } | null;
+  cost?: { totalUsd: number; source?: string } | null;
   [key: string]: unknown;
 }
 
@@ -44,6 +45,8 @@ export interface Run {
   startedAt?: string;
   endedAt?: string | null;
   lastAction?: string | null;
+  lastText?: string | null;
+  error?: string | null;
   [key: string]: unknown;
 }
 
@@ -80,4 +83,64 @@ export interface LiveEvent {
   job: string | null;
   data: unknown;
   seq: number;
+}
+
+// ---------- One job's conversation (GET /api/job/:slug, lib/thread.js) ----------
+
+/** Shown only when present (workflow draft): judgement calls a worker made, and its proof lines. */
+export interface Extras {
+  rulings?: string | string[] | null;
+  proof?: string | string[] | null;
+}
+
+interface ItemBase extends Extras {
+  /** Stable across fetches: brief:<file>, <kind>:<hash>, auto:<hash> (lib/thread.js). */
+  id: string;
+  at: string | null;
+}
+
+export interface BriefItem extends ItemBase {
+  kind: 'brief';
+  number: number;
+  stage: string;
+  file: string;
+  headline: string | null;
+  point: string | null;
+}
+export interface YouItem extends ItemBase { kind: 'you'; text: string; sendKind?: string }
+/** `html` is rendered and sanitised by the dashboard (lib/markdown.js: raw HTML escaped, unsafe links dropped). */
+export interface ReplyItem extends ItemBase { kind: 'reply'; html: string; stopped?: boolean }
+export interface AutoStep { at: string | null; headline: string; who?: string; reason?: string }
+export interface AutoItem extends ItemBase { kind: 'auto'; runId?: string; items: AutoStep[] }
+export interface ProblemItem extends ItemBase { kind: 'problem'; text: string }
+export interface NoteItem extends ItemBase { kind: 'note'; text: string }
+export interface DecisionItem extends ItemBase { kind: 'decision'; text: string }
+
+export type ThreadItem = BriefItem | YouItem | ReplyItem | AutoItem | ProblemItem | NoteItem | DecisionItem;
+
+/** The parts of GET /api/job/:slug the Foreman pane reads. */
+export interface JobDetail {
+  slug: string;
+  title?: string;
+  kind?: string;
+  branch?: string | null;
+  repoPath?: string | null;
+  run?: Run | null;
+  thread: ThreadItem[];
+  threadMore: boolean;
+  [key: string]: unknown;
+}
+
+/** GET /api/job/:slug?before=<id>: the page of items just before that one. */
+export interface ThreadPage {
+  slug: string;
+  thread: ThreadItem[];
+  threadMore: boolean;
+}
+
+/** GET /api/job/:slug/doc?file=<file>: one file from the job's folder, rendered and sanitised. */
+export interface JobDoc {
+  file: string;
+  name: string;
+  html: string;
 }

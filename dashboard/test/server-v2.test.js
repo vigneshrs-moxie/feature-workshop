@@ -43,11 +43,17 @@ before(async () => {
     title: 'Widget Export', route: 'small', stage: 'review', stage_state: 'waiting_for_you', waiting_for: 'answers',
     waiting_since: '2026-10-03T10:00:00Z', questions: [{ id: '1', text: 'Fix R-1 now?', options: [] }], updated_at: '2026-10-03T10:00:00Z',
   });
-  await writeJob('report-scheduler', { title: 'Report Scheduler', route: 'large', stage: 'pr3', stage_state: 'done', updated_at: '2026-10-01T10:00:00Z' });
+  const done = await writeJob('report-scheduler', { title: 'Report Scheduler', route: 'large', stage: 'pr3', stage_state: 'done', updated_at: '2026-10-01T10:00:00Z' });
+  // A brief, its detail file and a reply that all try to sneak HTML in: the new UI inserts the
+  // dashboard's rendered HTML as it is, so it must come out escaped.
+  const sneaky = '# Hi\n\n<script>alert(1)</script> <img src=x onerror=alert(2)> [x](javascript:alert(3)) FR-001';
+  await fs.writeFile(path.join(done, 'briefs', '1-spec.md'), sneaky);
+  await fs.writeFile(path.join(done, 'briefs', '1-detail.md'), sneaky);
   // 70 messages already sent to widget-export: a newest page of 60, then 10 older ones.
   const lines = Array.from({ length: 70 }, (_, i) => JSON.stringify({
     at: new Date(Date.UTC(2026, 9, 3, 9, 0, i)).toISOString(), action: 'send', kind: 'message', featureDir: waiting, slug: 'widget-export', text: `message ${i}`,
   }));
+  lines.push(JSON.stringify({ at: '2026-10-01T09:00:00Z', action: 'run-ended', status: 'done', featureDir: done, slug: 'report-scheduler', reply: sneaky }));
   await fs.writeFile(path.join(dirs.state, 'audit.jsonl'), lines.join('\n') + '\n');
 
   port = await freePort();
@@ -113,6 +119,30 @@ test('server: a job page holds the newest 60 thread items, ?before= gives the ol
   assert.equal(gone.status, 404);
   assert.match(gone.body.error, /Reload the job/);
   assert.equal((await getJson('/api/job/no-such-job?before=x')).status, 404);
+});
+
+// The new UI inserts reply, brief and detail HTML from these routes without changing it
+// (web/src/panes/Foreman/ServerHtml.tsx), so they must only ever send sanitised HTML.
+test('server: thread and doc HTML come out sanitised', async () => {
+  const unsafe = (html) => {
+    assert.doesNotMatch(html, /<script/i);
+    assert.doesNotMatch(html, /<img/i);
+    assert.doesNotMatch(html, /href="javascript:/i);
+    assert.match(html, /&lt;script&gt;/);
+    assert.match(html, /<a class="id-link" href="#\/job\/report-scheduler\/id\/FR-001"/);
+  };
+  const { body: job } = await getJson('/api/job/report-scheduler');
+  const reply = job.thread.find((t) => t.kind === 'reply');
+  assert.ok(reply, 'the reply is in the thread');
+  assert.equal(reply.reply, undefined, 'only the rendered HTML is sent');
+  unsafe(reply.html);
+  // The detail file reaches the page as a brief item of its own; the new UI folds it into brief 1.
+  assert.deepEqual(job.thread.filter((t) => t.kind === 'brief').map((t) => t.id).sort(), ['brief:briefs/1-detail.md', 'brief:briefs/1-spec.md']);
+  for (const file of ['briefs/1-spec.md', 'briefs/1-detail.md']) {
+    const { status, body } = await getJson(`/api/job/report-scheduler/doc?file=${encodeURIComponent(file)}`);
+    assert.equal(status, 200);
+    unsafe(body.html);
+  }
 });
 
 // Reads the v2 stream until `match` returns true for an event (or gives up after 5 seconds).

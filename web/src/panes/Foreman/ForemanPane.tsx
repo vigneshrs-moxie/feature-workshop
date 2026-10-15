@@ -1,9 +1,69 @@
-// Foreman pane, shell version: names the open job. Plan step 6 adds the thread, step 7 the
+// Foreman pane: the open job's header and its conversation with the Foreman, oldest first, with
+// "Load older" at the top and the live row at the foot while it replies. Plan step 7 adds the
 // permission and question cards, step 8 the composer.
+import { useEffect, useRef } from 'react';
+import type { Job } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
-import { GROUP_LABELS } from '../Jobs/jobStatus';
+import { useNow } from '../../lib/time';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
+import { BriefCard } from './BriefCard';
+import { JobHeader } from './JobHeader';
+import { LiveRow } from './LiveRow';
+import { shownItems } from './thread';
+import { ThreadItemView } from './ThreadItems';
+import { useJobThread } from './useJobThread';
+
+const HOW = 'This is your conversation with the job’s Foreman, the Claude session that plans the work and runs the crew. Its briefs, questions and permission requests appear here for you to answer.';
+
+function JobThread({ job }: { job: Job }) {
+  const state = useWorkshopState();
+  const now = useNow();
+  const thread = useJobThread(job.slug, state.threadVersions[job.slug] ?? 0);
+  const run = state.runs[job.slug] ?? thread.detail?.run ?? null;
+  const shown = shownItems(thread.items);
+
+  // Open a job at its newest message.
+  const end = useRef<HTMLDivElement>(null);
+  const loaded = thread.detail !== null;
+  useEffect(() => {
+    if (loaded) end.current?.scrollIntoView?.({ block: 'end' });
+  }, [loaded]);
+
+  return (
+    <>
+      <JobHeader job={job} branch={thread.detail?.branch} />
+      <HowThisWorks id="foreman">
+        <p>{HOW}</p>
+        <p>A brief opens in full while it waits for you and folds to its headline once you’ve answered; click a headline to open it again. Steps the Foreman took by itself are folded into one “routine steps” line.</p>
+      </HowThisWorks>
+      <section className="thread" aria-label="Conversation" aria-busy={thread.loading || thread.loadingOlder}>
+        {thread.more && (
+          <button
+            type="button"
+            className="btn btn-quiet load-older"
+            onClick={thread.loadOlder}
+            disabled={thread.loadingOlder}
+            title="Show the earlier part of this conversation."
+          >
+            {thread.loadingOlder ? 'Loading…' : 'Load older'}
+          </button>
+        )}
+        {thread.error && <p className="thread-error" role="alert">{thread.error}</p>}
+        {thread.loading && <p className="muted">Loading the conversation…</p>}
+        {loaded && shown.length === 0 && !run && <p className="muted">Nothing here yet. The Foreman’s briefs and replies appear here as it works.</p>}
+        {shown.map((s) =>
+          s.kind === 'brief-card'
+            // Keyed on `answered` too, so a brief folds back to its headline the moment you answer it.
+            ? <BriefCard key={`${s.id}:${s.brief.answered}`} slug={job.slug} brief={s.brief} now={now} />
+            : <ThreadItemView key={s.id} item={s.item} now={now} />,
+        )}
+        <LiveRow run={run} />
+        <div ref={end} />
+      </section>
+    </>
+  );
+}
 
 export function ForemanPane({ slug }: { slug: string | null }) {
   const state = useWorkshopState();
@@ -11,17 +71,15 @@ export function ForemanPane({ slug }: { slug: string | null }) {
   return (
     <main className="pane pane-foreman" aria-label="Foreman">
       <div className="foreman-column">
-        <h2 className="pane-title">{job ? job.title : 'Foreman'}</h2>
-        <HowThisWorks id="foreman">
-          <p>This is your conversation with the job’s Foreman, the Claude session that plans the work and runs the crew. Its briefs, questions and permission requests appear here for you to answer.</p>
-        </HowThisWorks>
-        {!slug && <p className="muted">Pick a job on the left to see its conversation.</p>}
-        {slug && !job && state.status === 'ready' && <p className="muted">There’s no job called “{slug}”. It may have been renamed or removed.</p>}
-        {job && (
-          <p className="muted">
-            Status: <span className={`status status-${job.group}`}>{GROUP_LABELS[job.group] ?? job.group}</span>
-            {job.headline ? <> · {job.headline}</> : null}
-          </p>
+        {job ? (
+          <JobThread key={job.slug} job={job} />
+        ) : (
+          <>
+            <h2 className="pane-title">Foreman</h2>
+            <HowThisWorks id="foreman"><p>{HOW}</p></HowThisWorks>
+            {!slug && <p className="muted">Pick a job on the left to see its conversation.</p>}
+            {slug && state.status === 'ready' && <p className="muted">There’s no job called “{slug}”. It may have been renamed or removed.</p>}
+          </>
         )}
       </div>
     </main>

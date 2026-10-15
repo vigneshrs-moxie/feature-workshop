@@ -1,13 +1,15 @@
 // Hash routes, so the dashboard only ever serves /next/index.html:
 //   #/            no job open
 //   #/job/<slug>  that job's thread in the Foreman pane
+//   #/job/<slug>/id/<id>  the same job: the dashboard links requirement IDs (FR-001...) in
+//                 replies and briefs this way; the job stays open (the ID itself is ignored for now)
 // Anything else falls back to #/.
 import { useEffect, useState } from 'react';
 
 export type Route = { name: 'home' } | { name: 'job'; slug: string };
 
 export function parseHash(hash: string): Route {
-  const m = /^#\/job\/([^/?#]+)\/?$/.exec(hash);
+  const m = /^#\/job\/([^/?#]+)(?:\/id\/[^/?#]+)?\/?$/.exec(hash);
   if (m) {
     try {
       const slug = decodeURIComponent(m[1]);
