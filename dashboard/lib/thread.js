@@ -39,6 +39,8 @@ export function buildThread({ briefs = [], audit = [], autoResume = true }) {
     const note = (text) => thread.push({ id: id('note'), kind: 'note', at: e.at, text });
     if (e.action === 'send' && e.kind === 'resume') note('Claude’s usage limit reset, so the workshop told the Foreman to carry on.');
     else if (e.action === 'send') thread.push({ id: id('you'), kind: 'you', at: e.at, text: e.text, sendKind: e.kind });
+    // A message you steered into a reply in progress; the page shows its delivery state by steerId.
+    else if (e.action === 'steer') thread.push({ id: id('you'), kind: 'you', at: e.at, text: e.text, sendKind: 'steer', steerId: e.steerId, runId: e.runId });
     else if (e.action === 'run-ended') {
       if (e.status === 'limited' || (e.status === 'stopped' && e.stopReason === 'usage-limit')) note(`Paused: Claude’s usage limit was reached.${autoResume ? ' The job carries on by itself once the limit resets.' : ' Send a message to carry on once the limit resets.'}`);
       else if (e.status === 'error') thread.push({ id: id('problem'), kind: 'problem', at: e.at, text: e.error ?? 'The reply hit a problem.' });

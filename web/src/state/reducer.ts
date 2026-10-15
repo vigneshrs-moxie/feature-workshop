@@ -7,7 +7,7 @@
 // the event says outright (a permission card arriving or going, a run's status, the usage limit)
 // are applied straight away so the page reacts without waiting for that.
 
-import type { Job, JobGroup, LiveEvent, Meta, Permission, Run, Settings, Snapshot, Usage } from '../api/types';
+import type { Job, JobGroup, LiveEvent, Meta, Permission, Run, Settings, Snapshot, Steer, SteerState, Usage } from '../api/types';
 import { JOB_GROUPS } from '../api/types';
 
 export type Connection = 'connecting' | 'live' | 'reconnecting';
@@ -22,6 +22,8 @@ export interface WorkshopState {
   usage: Usage | null;
   /** The latest run reported for each job, by slug (from 'run' events). */
   runs: Record<string, Run>;
+  /** Messages you steered into a reply in progress, by steer id, with their delivery state. */
+  steers: Record<string, Steer>;
   /** The newest event applied, and the dashboard run (epoch) it came from. */
   seq: number;
   epoch: string | null;
@@ -46,6 +48,8 @@ export type Action =
   | { type: 'permission-answered'; id: string }
   /** You changed a setting here: show it now, without waiting for the dashboard's 'settings' event. */
   | { type: 'settings'; settings: Settings }
+  /** You steered a message here: show it at once (the dashboard's 'steer' events follow). */
+  | { type: 'steer'; steer: Steer }
   | { type: 'connection'; connection: Connection }
   | { type: 'error'; error: string };
 
@@ -58,6 +62,7 @@ export const initialState: WorkshopState = {
   permissions: [],
   usage: null,
   runs: {},
+  steers: {},
   seq: 0,
   epoch: null,
   threadVersions: {},
@@ -91,6 +96,7 @@ function applySnapshot(state: WorkshopState, s: Snapshot): WorkshopState {
     seq: sameRun ? Math.max(state.seq, s.seq) : s.seq,
     epoch: s.epoch,
     runs: sameRun ? state.runs : {},
+    steers: sameRun ? state.steers : {},
     threadEpoch: gap ? state.threadEpoch + 1 : state.threadEpoch,
     jobsStale: false,
     resyncNeeded: false,
@@ -112,6 +118,21 @@ function dropPermission(state: WorkshopState, id: string, slug: string | null): 
     permissions: state.permissions.filter((x) => x.id !== id),
     jobs: patchJob(state.jobs, slug ?? card.slug ?? null, (j) => ({ ...j, permissions: Math.max(0, (j.permissions ?? 1) - 1) })),
   };
+}
+
+// Steer states only move forward; a late copy (the POST's answer after the events) never undoes one.
+const STEER_RANK: Record<SteerState, number> = { queued: 0, delivered: 1, 'acted-on': 2, cancelled: 2 };
+
+function withSteers(steers: Record<string, Steer>, list: Steer[]): Record<string, Steer> {
+  let out = steers;
+  for (const s of list) {
+    if (!s || typeof s.id !== 'string' || !(s.state in STEER_RANK)) continue;
+    const had = out[s.id];
+    if (had && STEER_RANK[had.state] >= STEER_RANK[s.state]) continue;
+    if (out === steers) out = { ...steers };
+    out[s.id] = s;
+  }
+  return out;
 }
 
 function withSettings(state: WorkshopState, settings: Settings): WorkshopState {
@@ -161,6 +182,11 @@ function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
       const prev = state.runs[slug];
       if (!prev || prev.id !== run.id || prev.status !== run.status) next.jobsStale = true;
       next.runs = { ...state.runs, [slug]: run };
+      if (Array.isArray(run.steers)) next.steers = withSteers(state.steers, run.steers);
+      return next;
+    }
+    case 'steer': {
+      next.steers = withSteers(state.steers, [d as unknown as Steer]);
       return next;
     }
     case 'usage':
@@ -188,6 +214,10 @@ export function reducer(state: WorkshopState, action: Action): WorkshopState {
     }
     case 'settings':
       return withSettings(state, action.settings);
+    case 'steer': {
+      const steers = withSteers(state.steers, [action.steer]);
+      return steers === state.steers ? state : { ...state, steers };
+    }
     case 'connection':
       return state.connection === action.connection ? state : { ...state, connection: action.connection };
     case 'error':

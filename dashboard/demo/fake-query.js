@@ -8,6 +8,11 @@
 // "push" in your message and it pushes in any mode, and also tries a force push to the org repo,
 // which the dashboard refuses. Set WORKSHOP_DEMO_NO_AUTO=1 to play an account without auto mode:
 // asked for 'auto', it starts in 'default', as Claude Code does.
+//
+// Steer: like the SDK, it keeps reading its input all through the reply, so a message you steer in
+// is taken as soon as the dashboard hands it over. The pretend Foreman answers it at its next step
+// ("Noted: …"). One that arrives after its result starts a short extra turn, as Claude Code would.
+// Like Claude Code it says when it has gone idle; it ends once the dashboard closes its input.
 
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -74,8 +79,32 @@ export function makeFakeQuery({ featuresDir, autoAvailable = !process.env.WORKSH
       return decision;
     }
 
+    // The input, read all through the reply as the SDK does (Query.streamInput).
+    const input = prompt[Symbol.asyncIterator]();
+    const steered = []; // messages handed over mid-reply, not answered yet
+    let inputDone = false;
+    let nudge = null; // wakes the end of the reply when a message arrives or the input closes
+    const pump = async () => {
+      for (;;) {
+        const r = await input.next();
+        if (r.done) break;
+        steered.push(r.value);
+        nudge?.();
+      }
+      inputDone = true;
+      nudge?.();
+    };
+    // Answer each steered message: the dashboard counts this as the Foreman acting on it.
+    function* heard() {
+      for (const m of steered.splice(0)) {
+        const said = String(m?.message?.content ?? '').replace(/\s+/g, ' ').trim();
+        yield assistant(sessionId, `Noted: “${said.length > 120 ? `${said.slice(0, 120)}…` : said}”. Taking that into account.`, [], m?.uuid ? [m.uuid] : null);
+      }
+    }
+
     const gen = (async function* () {
-      const first = await prompt[Symbol.asyncIterator]().next();
+      const first = await input.next();
+      pump().catch(() => { inputDone = true; nudge?.(); });
       const text = first.value?.message?.content ?? '';
       yield { type: 'system', subtype: 'init', session_id: sessionId, model: options.model ?? 'claude-fable-5-1', apiKeySource: 'none', cwd: options.cwd, permissionMode: mode };
       await sleep(900);
@@ -85,10 +114,11 @@ export function makeFakeQuery({ featuresDir, autoAvailable = !process.env.WORKSH
       const stopping = /^Stop here/m.test(text);
       const changes = /^Please make changes/m.test(text);
       const pushing = /\bpush\b/i.test(text);
-      yield assistant(sessionId, stopping ? 'Understood. Recording where things stand and stopping.' : changes ? 'Got it. Sending your changes back to the crew.' : 'Got it! Checking the work before the next stage.', [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'workflow-status.md' } }]);
+      yield assistant(sessionId, stopping ? 'Understood. Recording where things stand and stopping.' : changes ? 'Got it. Sending your changes back to the crew.' : 'Got it! Checking the work before the next stage.', [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'workflow-status.md' } }], first.value?.uuid ? [first.value.uuid] : null);
       await sleep(1200);
       yield* queue.splice(0);
       if (interrupted) { yield result(sessionId, true, '', denials); return; }
+      yield* heard();
 
       let allowed = true;
       if (!stopping) {
@@ -109,6 +139,7 @@ export function makeFakeQuery({ featuresDir, autoAvailable = !process.env.WORKSH
         allowed = decision.behavior === 'allow';
         yield* queue.splice(0);
         if (interrupted) { yield result(sessionId, true, '', denials); return; }
+        yield* heard();
         yield assistant(sessionId, allowed ? 'Database tests pass (12 of 12). Writing the brief.' : 'Okay, I won’t run the database tests. Noting that in the brief.');
         await sleep(1200);
         if (mode === 'auto' || pushing) {
@@ -119,6 +150,7 @@ export function makeFakeQuery({ featuresDir, autoAvailable = !process.env.WORKSH
           const pushed = await useTool('Bash', push, { id: 't-push' });
           yield* queue.splice(0);
           if (interrupted) { yield result(sessionId, true, '', denials); return; }
+          yield* heard();
           yield assistant(sessionId, pushed.behavior === 'allow' ? `Pushed ${branch}.` : 'Okay, not pushing.');
           if (pushing) {
             const force = { command: 'git push --force moxie main', description: 'Force-push to the org repo (demo of a refusal)' };
@@ -135,10 +167,22 @@ export function makeFakeQuery({ featuresDir, autoAvailable = !process.env.WORKSH
       if (dir) await advance(dir, { stopping, changes, allowed });
       const brief = stopping ? 'Stopped. Everything is recorded in workflow-status.md.' : changes ? 'Changes made. Please take another look.' : '**Next stage done.** Have a look at the brief and say go when you’re ready.';
       yield* queue.splice(0);
+      yield* heard();
       yield assistant(sessionId, brief);
       yield result(sessionId, false, brief, denials);
+      // Idle until the dashboard closes the input. A message steered in after the result starts a
+      // short turn of its own (Claude Code says it's idle only when nothing is waiting).
+      for (;;) {
+        if (!steered.length) yield { type: 'system', subtype: 'session_state_changed', state: 'idle', session_id: sessionId };
+        while (!inputDone && !interrupted && steered.length === 0) await new Promise((r) => { nudge = r; });
+        nudge = null;
+        if (inputDone || interrupted) return;
+        await sleep(600);
+        yield* heard();
+        yield result(sessionId, false, 'Noted.', denials);
+      }
     })();
-    gen.interrupt = async () => { interrupted = true; };
+    gen.interrupt = async () => { interrupted = true; nudge?.(); };
     // A live switch, as the SDK's Query.setPermissionMode: reported by a status message.
     gen.setPermissionMode = async (m) => {
       mode = settle(m);
@@ -159,8 +203,11 @@ async function folderForSession(featuresDir, sessionId) {
   return null;
 }
 
-function assistant(sessionId, text, tools = []) {
-  return { type: 'assistant', parent_tool_use_id: null, session_id: sessionId, message: { id: randomUUID(), model: 'claude-fable-5-1', content: [{ type: 'text', text }, ...tools] } };
+// answers: the uuids of the messages this one answers, stamped as Claude Code does (on a turn's first
+// reply, and on the first reply after a message folded in mid-turn).
+function assistant(sessionId, text, tools = [], answers = null) {
+  const stamp = answers?.length ? { user_message_uuid: answers.at(-1), user_message_uuids: answers } : {};
+  return { type: 'assistant', parent_tool_use_id: null, session_id: sessionId, ...stamp, message: { id: randomUUID(), model: 'claude-fable-5-1', content: [{ type: 'text', text }, ...tools] } };
 }
 
 function result(sessionId, isError, text = '', denials = []) {

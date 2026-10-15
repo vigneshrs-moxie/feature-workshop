@@ -2,6 +2,8 @@
 // Sources: GET /api/snapshot and /api/events?v=2 in dashboard/server.js, lib/events.js,
 // lib/snapshot.js, lib/driver.js (view, viewPermission) and lib/limits.js (view).
 
+import type { ComposeStatus } from '../lib/compose';
+
 export type JobGroup = 'needs-you' | 'running' | 'paused' | 'idle' | 'done';
 export const JOB_GROUPS: JobGroup[] = ['needs-you', 'running', 'paused', 'idle', 'done'];
 
@@ -119,10 +121,37 @@ export interface Settings {
   [key: string]: unknown;
 }
 
+/**
+ * Where a message you steered into a reply in progress is (dashboard/lib/driver.js): accepted by the
+ * dashboard, handed to Claude Code, answered by the Foreman, or never read (the reply stopped first).
+ */
+export type SteerState = 'queued' | 'delivered' | 'acted-on' | 'cancelled';
+
+/** A steered message (POST /api/runs/:id/steer, 'steer' events, Run.steers). */
+export interface Steer {
+  id: string;
+  runId: string;
+  slug: string;
+  text: string;
+  state: SteerState;
+  queuedAt?: string;
+  deliveredAt?: string | null;
+  actedAt?: string | null;
+}
+
+/** A Foreman model you can choose (meta.models). */
+export interface ModelChoice {
+  id: string;
+  label: string;
+  note?: string;
+}
+
 export interface Run {
   id: string;
   slug: string;
   status: string;
+  model?: string | null;
+  steers?: Steer[];
   startedAt?: string;
   endedAt?: string | null;
   lastAction?: string | null;
@@ -142,6 +171,8 @@ export interface Usage {
 export interface Meta {
   token: string;
   demo?: boolean;
+  /** The Foreman models you can choose, the everyday one first. */
+  models?: ModelChoice[];
   settings?: Settings;
   [key: string]: unknown;
 }
@@ -189,7 +220,8 @@ export interface BriefItem extends ItemBase {
   headline: string | null;
   point: string | null;
 }
-export interface YouItem extends ItemBase { kind: 'you'; text: string; sendKind?: string }
+/** steerId: set when you steered it into a reply in progress (its delivery state is in the store). */
+export interface YouItem extends ItemBase { kind: 'you'; text: string; sendKind?: string; steerId?: string; runId?: string }
 /** `html` is rendered and sanitised by the dashboard (lib/markdown.js: raw HTML escaped, unsafe links dropped). */
 export interface ReplyItem extends ItemBase { kind: 'reply'; html: string; stopped?: boolean }
 /** rule: the id of your saved "Always allow" rule that let it run, when one did. */
@@ -212,6 +244,10 @@ export interface JobDetail {
   branch?: string | null;
   repoPath?: string | null;
   run?: Run | null;
+  /** Who drives the job's Foreman, and the model it last used (the composer's default). */
+  drive?: { mode?: string; model?: string | null; [key: string]: unknown } | null;
+  /** What composeReply needs to build your message (dashboard/lib/compose.js). */
+  statusForCompose?: ComposeStatus | null;
   thread: ThreadItem[];
   threadMore: boolean;
   /** The job's folder (the key of Settings.jobPolicy). */

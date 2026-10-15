@@ -12,6 +12,19 @@
 //     message says so and the driver reports it ('auto-mode' event).
 // In every setting a PreToolUse hook (lib/hard-lines.js) forces a card for the hard lines and
 // refuses org and force pushes; the same check runs again here before the policy is asked.
+//
+// Steer (a message you send while the Foreman is still replying): the session's input is a queue.
+// The first message starts the reply; anything you steer joins the queue and is handed to Claude
+// Code's live input as soon as it asks for more (the SDK reads its input all through the reply),
+// and Claude Code reads it at its next turn. Each steered message goes through these states,
+// reported as 'steer' events:
+//   queued     the dashboard accepted it
+//   delivered  handed to Claude Code's input
+//   acted-on   the Foreman wrote its first message answering it: Claude Code stamps reply messages
+//              with the uuids of the messages they answer (user_message_uuids); with a Claude Code
+//              too old to stamp, the first message the Foreman writes after it was delivered
+//   cancelled  never read: the reply stopped or ended first
+// The input still closes when the reply finishes (or you click Stop).
 
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
@@ -33,6 +46,9 @@ const trimInput = (input) => {
 };
 
 export class Busy extends Error {}
+
+/** What a page sees of a steered message. */
+const viewSteer = (s) => ({ id: s.id, runId: s.runId, slug: s.slug, text: s.text, state: s.state, queuedAt: s.queuedAt, deliveredAt: s.deliveredAt, actedAt: s.actedAt });
 
 export class Driver extends EventEmitter {
   /**
@@ -81,6 +97,8 @@ export class Driver extends EventEmitter {
       // mode: the permission setting in force; permissionMode: the mode Claude Code reports.
       mode: run.mode ?? 'hands-off', permissionMode: run.permissionMode ?? null,
       autoUnavailable: run.autoUnavailable ?? null, autoBlocked: run.autoBlocked ?? 0,
+      // Messages you steered into this reply, with where each one is (queued, delivered, acted-on, cancelled).
+      steers: (run.steers ?? []).map(viewSteer),
     };
   }
 
@@ -122,6 +140,8 @@ export class Driver extends EventEmitter {
       toolUses: new Map(), blockedIds: new Set(), deniedIds: new Set(),
       // Where this reply's pushes really go (a remote with another name can be the org repo).
       orgPushCheck: orgPushCheck(),
+      // Steer: every message steered into this reply, and those not yet handed to Claude Code.
+      steers: [], inbox: [], inputClosed: false, wake: null,
     };
     if (mode) run.mode = mode;
     this.runs.set(run.id, run);
@@ -132,13 +152,28 @@ export class Driver extends EventEmitter {
   }
 
   async #launch(run) {
-    let closeInput;
-    const finished = new Promise((r) => { closeInput = r; });
+    // The input stays open until the reply is complete, so Stop can interrupt and Steer can add to it.
+    const closeInput = () => {
+      if (run.inputClosed) return;
+      run.inputClosed = true;
+      this.#cancelQueued(run, run.inbox.splice(0));
+      run.wake?.();
+    };
     run.closeInput = closeInput;
     const message = run.text;
+    const deliver = (s) => this.#delivered(run, s);
     async function* input() {
-      yield { type: 'user', message: { role: 'user', content: message }, parent_tool_use_id: null };
-      await finished; // keep the input open until the reply is complete, so Stop can interrupt
+      // A uuid on the first message too, so the replies' stamps show whether Claude Code stamps at all.
+      yield { type: 'user', message: { role: 'user', content: message }, parent_tool_use_id: null, uuid: randomUUID() };
+      for (;;) {
+        while (!run.inputClosed && run.inbox.length === 0) await new Promise((r) => { run.wake = r; });
+        run.wake = null;
+        if (run.inputClosed) return;
+        const s = run.inbox.shift();
+        deliver(s); // Claude Code asked for the next message (the SDK reads its input all through the reply)
+        // The uuid lets Stop cancel it in Claude Code's queue if it hasn't been read yet.
+        yield { type: 'user', message: { role: 'user', content: s.text }, parent_tool_use_id: null, uuid: s.id };
+      }
     }
     run.requestedMode = sdkModeFor(run.mode);
     const options = {
@@ -217,6 +252,14 @@ export class Driver extends EventEmitter {
       // A new turn (for example after a background worker finished): not idle any more.
       run.awaitingIdle = false;
       clearTimeout(run.idleTimer);
+      // A steered message is acted on when a reply message names it among those it answers. Once
+      // Claude Code has stamped any message, only stamps count (unstamped frames of a turn are
+      // normal); a Claude Code that never stamps: the first message after delivery.
+      const stamped = Array.isArray(msg.user_message_uuids) ? msg.user_message_uuids : msg.user_message_uuid ? [msg.user_message_uuid] : null;
+      if (stamped) run.stamps = true;
+      for (const s of run.steers) {
+        if (s.state === 'delivered' && (stamped ? stamped.includes(s.id) : !run.stamps)) this.#steerState(run, s, 'acted-on');
+      }
       const blocks = msg.message?.content ?? [];
       const text = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
       if (text) run.lastText = text;
@@ -469,6 +512,45 @@ export class Driver extends EventEmitter {
     run.pending.clear();
   }
 
+  /**
+   * Steer: add a message to a reply in progress. Returns the steered message (state 'queued'), or
+   * null when there is no such reply in progress. Throws Busy while the reply is stopping.
+   */
+  async steer(runId, text) {
+    const run = this.runs.get(runId);
+    if (!run || !ACTIVE.has(run.status) || run.inputClosed) return null;
+    if (run.stopRequested) throw new Busy('This reply is stopping. Send your message once it has stopped.');
+    const s = { id: randomUUID(), runId: run.id, slug: run.slug, text, state: 'queued', queuedAt: new Date().toISOString(), deliveredAt: null, actedAt: null };
+    run.steers.push(s);
+    if (run.steers.length > 50) run.steers.shift();
+    run.inbox.push(s);
+    this.emit('steer', viewSteer(s));
+    // Shown in the job's conversation like any message you sent (lib/thread.js).
+    await this.state.audit({ action: 'steer', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, steerId: s.id, text });
+    run.wake?.();
+    return viewSteer(s);
+  }
+
+  #steerState(run, s, state) {
+    s.state = state;
+    if (state === 'delivered') s.deliveredAt = new Date().toISOString();
+    if (state === 'acted-on') s.actedAt = new Date().toISOString();
+    this.emit('steer', viewSteer(s));
+  }
+
+  // Handed to Claude Code: the reply now goes on until the Foreman has answered it too, even if
+  // its result for the earlier message already came in.
+  #delivered(run, s) {
+    run.hasResult = false;
+    run.awaitingIdle = false;
+    clearTimeout(run.idleTimer);
+    this.#steerState(run, s, 'delivered');
+  }
+
+  #cancelQueued(run, list) {
+    for (const s of list) if (s.state === 'queued' || s.state === 'delivered') this.#steerState(run, s, 'cancelled');
+  }
+
   /** reason: null (you clicked Stop) or 'usage-limit' (paused until the limit resets). */
   async stop(runId, { reason = null } = {}) {
     const run = this.runs.get(runId);
@@ -476,12 +558,18 @@ export class Driver extends EventEmitter {
     run.stopRequested = true;
     run.stopReason = reason;
     run.status = 'stopping';
+    // Steered messages not yet handed over never will be.
+    this.#cancelQueued(run, run.inbox.splice(0));
     this.emit('run', this.view(run));
     await this.state.audit({ action: 'stop-now', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId, reason: reason ?? undefined });
     const why = reason === 'usage-limit' ? 'Paused: the Claude usage limit was reached. The job carries on after it resets.' : 'The person stopped this reply.';
     this.#dropPending(run, { behavior: 'deny', message: why, interrupt: true }, reason === 'usage-limit' ? 'usage-limit' : 'stopped');
     try {
-      await run.query?.interrupt?.();
+      // cancelQueued: steered messages Claude Code holds but hasn't read yet are dropped too, so
+      // they can't start a new turn after the stop (older Claude Code versions ignore it).
+      const receipt = await run.query?.interrupt?.({ cancelQueued: true });
+      const cancelled = new Set(Array.isArray(receipt?.cancelled) ? receipt.cancelled : []);
+      this.#cancelQueued(run, run.steers.filter((s) => cancelled.has(s.id)));
     } catch {
       run.abort.abort();
     }

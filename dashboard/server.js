@@ -776,6 +776,14 @@ async function routePost(urlPath, req, res) {
     if (!(await driver.stop(m[1]))) throw new HttpError(404, 'That reply already finished.');
     return sendJson(res, 200, { ok: true });
   }
+  if ((m = /^\/api\/runs\/([\w-]+)\/steer$/.exec(urlPath))) {
+    // Steer: add a message to a reply in progress (see lib/driver.js). Its states arrive as 'steer' events.
+    const text = str(body.text).trim();
+    if (!text) throw new HttpError(400, 'The message is empty.');
+    const steer = await driver.steer(m[1], text);
+    if (!steer) throw new HttpError(404, 'That reply already finished. Send your message as a new one.', { code: 'finished' });
+    return sendJson(res, 200, { steer });
+  }
   if ((m = /^\/api\/permissions\/([\w-]+)$/.exec(urlPath))) {
     const decision = ['allow', 'allow-run', 'deny'].includes(body.decision) ? body.decision : null;
     if (!decision) throw new HttpError(400, 'Choose allow or deny.');
@@ -896,6 +904,8 @@ function notifyChange() {
 driver.on('run', (run) => { cached = null; broadcast('run', run); events.emit('run', run.slug, run); });
 driver.on('permission', (p) => { broadcast('permission', p); events.emit('permission', p.slug, p); });
 driver.on('permission-gone', (p) => { broadcast('permission-gone', p); events.emit('permission-gone', p.slug ?? null, p); });
+// Where a steered message is (queued, delivered, acted-on, cancelled): the new UI only.
+driver.on('steer', (s) => { events.emit('steer', s.slug ?? null, s); });
 limits.on('change', () => { cached = null; broadcast('change', { at: Date.now() }); events.emit('usage', null, limits.view()); });
 local.on('output', (e) => { broadcast('local', e); events.emit('local', e.slug ?? null, e, { replay: false }); }); // live only: see EventLog.emit
 local.on('changed', (e) => { broadcast('local-state', e); events.emit('local-state', e.slug ?? null, e); });

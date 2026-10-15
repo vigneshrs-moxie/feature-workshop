@@ -2,11 +2,12 @@
 // by itself, problems, short notes, your permission decisions, and steps refused without a card
 // (by auto mode or a hard line), shown as dim lines. Text you or the Foreman typed is
 // always shown as plain text; only the dashboard-rendered reply HTML goes through ServerHtml.
-import type { AutoItem, ThreadItem } from '../../api/types';
+import type { AutoItem, SteerState, ThreadItem } from '../../api/types';
 import { settingsHref } from '../../app/router';
 import { fullTime, relativeTime } from '../../lib/time';
 import { ExtrasLines } from './ExtrasLines';
 import { ServerHtml } from './ServerHtml';
+import { STEER_LABELS } from './thread';
 
 function When({ at, now }: { at: string | null; now: Date }) {
   if (!at) return null;
@@ -37,18 +38,26 @@ function AutoFold({ item, now }: { item: AutoItem; now: Date }) {
   );
 }
 
-export function ThreadItemView({ item, now }: { item: ThreadItem; now: Date }) {
+/** Your message; one you steered into a reply in progress also shows where it is (`steer`). */
+export function YouMessage({ text, at, now, steer = null, steered = false }: { text: string; at: string | null; now: Date; steer?: SteerState | null; steered?: boolean }) {
+  const s = steer ? STEER_LABELS[steer] : null;
+  return (
+    <article className={`thread-item you${steered ? ' is-steer' : ''}`} aria-label="You">
+      <header className="thread-meta">
+        <span className="who">You</span>
+        {steered && <span className="chip" title="You sent this while the Foreman was replying, so it joined that reply.">Steer</span>}
+        {s && <span className={`steer-state steer-${steer}`} title={s.hint}>{s.label}</span>}
+        <When at={at} now={now} />
+      </header>
+      <p className="you-text">{text}</p>
+    </article>
+  );
+}
+
+export function ThreadItemView({ item, now, steer = null }: { item: ThreadItem; now: Date; steer?: SteerState | null }) {
   switch (item.kind) {
     case 'you':
-      return (
-        <article className="thread-item you" aria-label="You">
-          <header className="thread-meta">
-            <span className="who">You</span>
-            <When at={item.at} now={now} />
-          </header>
-          <p className="you-text">{item.text}</p>
-        </article>
-      );
+      return <YouMessage text={item.text} at={item.at} now={now} steer={steer} steered={item.sendKind === 'steer'} />;
     case 'reply':
       return (
         <article className="thread-item reply" aria-label="Foreman">

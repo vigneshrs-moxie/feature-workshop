@@ -197,3 +197,21 @@ describe('selectors', () => {
     expect(g.running).toEqual([]);
   });
 });
+
+describe('reducer: steer', () => {
+  const st = (state: 'queued' | 'delivered' | 'acted-on' | 'cancelled') => ({ id: 'st-1', runId: 'r1', slug: 'alpha', text: 'Use the small table.', state });
+  it('tracks a steered message’s state from steer events, run events and your own POST, only ever forward', () => {
+    let s = run(hydrated(), { type: 'steer', steer: st('queued') });
+    expect(s.steers['st-1'].state).toBe('queued');
+    s = run(s, { type: 'event', event: ev(11, 'steer', 'alpha', st('delivered')) });
+    expect(s.steers['st-1'].state).toBe('delivered');
+    s = run(s, { type: 'steer', steer: st('queued') });
+    expect(s.steers['st-1'].state).toBe('delivered');
+    s = run(s, { type: 'event', event: ev(12, 'run', 'alpha', { id: 'r1', slug: 'alpha', status: 'running', steers: [st('acted-on')] }) });
+    expect(s.steers['st-1'].state).toBe('acted-on');
+  });
+  it('forgets steered messages after a dashboard restart', () => {
+    const s = run(hydrated(), { type: 'steer', steer: st('queued') }, { type: 'snapshot', snapshot: snapshot({ epoch: 'bbbb' }) });
+    expect(s.steers).toEqual({});
+  });
+});

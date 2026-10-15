@@ -468,6 +468,55 @@ a:hover { text-decoration: underline; }
 .rule-row-label { margin: 0; overflow-wrap: anywhere; }
 .rule-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin: 2px 0 0; font-size: var(--text-sm); }
 
+/* ---------- Composer (Send, Steer, Stop) ---------- */
+
+.composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 0 var(--space-3);
+  background: var(--bg-0);
+  border-top: 1px solid var(--border-1);
+}
+.text-area {
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-md);
+  background: var(--bg-1);
+  color: var(--text-1);
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+.text-area:focus-visible { border-color: var(--focus-ring); }
+.preview-text { font-family: var(--font-mono); font-size: var(--text-sm); background: var(--bg-0); }
+.composer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.composer-spacer { flex: 1; }
+.composer-model { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+.select {
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-md);
+  background: var(--bg-1);
+  color: var(--text-1);
+  font: inherit;
+}
+.composer-note { margin: 0; font-size: var(--text-sm); }
+.send-sheet { width: min(640px, 100%); }
+.send-facts { margin: var(--space-2) 0 0; font-size: var(--text-sm); }
+.check { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); font-size: var(--text-sm); }
+
+/* A steered message's delivery state: always words, the colour only backs them up. */
+.steer-state { padding: 0 var(--space-2); border-radius: var(--radius-sm); font-size: var(--text-xs); color: var(--text-2); background: var(--bg-3); }
+.steer-delivered { color: var(--status-info); background: var(--status-info-bg); }
+.steer-acted-on { color: var(--status-ok); background: var(--status-ok-bg); }
+.steer-cancelled { color: var(--status-warn); background: var(--status-warn-bg); }
+
 /* With reduced motion turned on, only fades remain and pulses stop. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-iteration-count: 1 !important; }

@@ -1,6 +1,6 @@
 // Pure helpers for the Foreman pane's thread: joining pages by stable id, pairing a brief with its
 // detail file, and deciding which briefs are answered. No React, no fetching (see useJobThread.ts).
-import type { BriefItem, Extras, Run, ThreadItem } from '../../api/types';
+import type { BriefItem, Extras, Run, Steer, SteerState, ThreadItem } from '../../api/types';
 
 /**
  * Join the older pages ("load older") with the newest page, oldest first, each id once.
@@ -77,6 +77,23 @@ export function liveLabel(run: Run): string {
     case 'stopping': return 'Stopping…';
     default: return 'The Foreman is working';
   }
+}
+
+/** A steered message's delivery state in plain words, with a hint saying what it means. */
+export const STEER_LABELS: Record<SteerState, { label: string; hint: string }> = {
+  queued: { label: 'Queued', hint: 'The dashboard has your message and passes it to the Foreman as soon as it can take it.' },
+  delivered: { label: 'Delivered', hint: 'The Foreman has your message. It reads it at its next step.' },
+  'acted-on': { label: 'Acted on', hint: 'The Foreman has read your message and replied with it in mind.' },
+  cancelled: { label: 'Not delivered', hint: 'The reply stopped before the Foreman read this message. Send it again if you still need it.' },
+};
+
+/**
+ * Where a steered message is: the store's live state first, else what the job's last run says
+ * (after a reload the store starts empty).
+ */
+export function steerStateOf(steerId: string | undefined, live: Record<string, Steer>, run: Run | null | undefined): SteerState | null {
+  if (!steerId) return null;
+  return live[steerId]?.state ?? run?.steers?.find((s) => s.id === steerId)?.state ?? null;
 }
 
 /** "$1.23", or "<$0.01" for a little; empty when unknown. */
