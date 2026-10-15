@@ -34,7 +34,7 @@ describe('App shell', () => {
     expect(screen.getByRole('main', { name: 'Foreman' })).toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: 'Preview' })).toBeInTheDocument();
     const needs = screen.getByRole('region', { name: 'Needs you' });
-    expect(within(needs).getByRole('link', { name: 'Job alpha' })).toHaveAttribute('href', '#/job/alpha');
+    expect(within(needs).getByRole('link', { name: /^Job alpha/ })).toHaveAttribute('href', '#/job/alpha');
     expect(screen.getByRole('region', { name: 'Running' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Paused' })).toBeNull();
     expect(screen.getByText('1 needs you')).toBeInTheDocument();
@@ -44,7 +44,7 @@ describe('App shell', () => {
     window.location.hash = '#/job/beta';
     renderApp(snapshot());
     expect(await screen.findByRole('heading', { name: 'Job beta' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Job beta' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: /^Job beta/ })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: 'Open this job in classic view' })).toHaveAttribute('href', '/#/job/beta');
     act(() => { window.location.hash = '#/'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     expect(screen.getByText('Pick a job on the left to see its conversation.')).toBeInTheDocument();
@@ -57,7 +57,7 @@ describe('App shell', () => {
     act(() => { streams[0].readyState = 1; streams[0].onopen?.(new Event('open')); });
     expect(screen.getByText('Live')).toBeInTheDocument();
     act(() => { streams[0].onmessage?.(new MessageEvent('message', { data: JSON.stringify(ev(11, 'permission', 'alpha', permission('p1', 'alpha'))) })); });
-    expect(within(screen.getByRole('region', { name: 'Needs you' })).getByRole('link', { name: 'Job alpha' })).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Needs you' })).getByRole('link', { name: /^Job alpha/ })).toBeInTheDocument();
   });
 
   it('says so when the dashboard can’t be reached', async () => {

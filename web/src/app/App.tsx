@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createApi, type ApiClient } from '../api/client';
 import { ForemanPane } from '../panes/Foreman/ForemanPane';
-import { JobsPane } from '../panes/Jobs/JobsPane';
+import { useAlerts } from '../alerts/useAlerts';
+import { JobsPane, useJobsRail } from '../panes/Jobs/JobsPane';
 import { PreviewPane } from '../panes/Preview/PreviewPane';
 import { createLiveSync, type EventSourceLike, type LiveSync } from '../state/live';
 import { needsYouCount, type Connection } from '../state/reducer';
@@ -45,6 +46,8 @@ function TopBar({ onRetry }: { onRetry: () => void }) {
 function Shell({ onRetry }: { onRetry: () => void }) {
   const state = useWorkshopState();
   const route = useRoute();
+  const [rail] = useJobsRail();
+  useAlerts(state);
   const slug = route.name === 'job' ? route.slug : null;
   if (state.status !== 'ready') {
     return (
@@ -67,7 +70,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="app">
       <TopBar onRetry={onRetry} />
-      <div className="panes">
+      <div className={rail ? 'panes panes-rail' : 'panes'}>
         <JobsPane selected={slug} />
         <ForemanPane slug={slug} />
         <PreviewPane slug={slug} />

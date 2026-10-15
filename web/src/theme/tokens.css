@@ -38,6 +38,7 @@
   --jobs-w: 264px;
   --jobs-w-min: 240px;
   --jobs-w-max: 280px;
+  --rail-w: 48px;
   --foreman-max: 760px;
   --preview-w: 40%;
   --bg-0: oklch(.16 .006 260);
@@ -64,6 +65,8 @@
   --status-error-bg: oklch(.78 .14 25 / .14);
   --status-info: oklch(.78 .14 235);
   --status-info-bg: oklch(.78 .14 235 / .14);
+  --job-hue-l: .74;
+  --job-hue-c: .13;
   --status-paused: oklch(.7 0 0);
   --status-paused-bg: oklch(.7 0 0 / .12);
   --shadow-1: 0 1px 2px oklch(0 0 0 / .3), 0 2px 8px oklch(0 0 0 / .2);

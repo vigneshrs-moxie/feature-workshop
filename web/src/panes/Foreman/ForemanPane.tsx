@@ -1,7 +1,7 @@
 // Foreman pane, shell version: names the open job. Plan step 6 adds the thread, step 7 the
 // permission and question cards, step 8 the composer.
 import { HowThisWorks } from '../../components/HowThisWorks';
-import { GROUP_LABELS } from '../Jobs/JobsPane';
+import { GROUP_LABELS } from '../Jobs/jobStatus';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
 

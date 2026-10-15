@@ -52,6 +52,9 @@ export function colorTokens({ baseHue, accentHue, contrast }: ThemeInput): Recor
     out[`status-${name}`] = oklch(0.78, 0.14, hue);
     out[`status-${name}-bg`] = oklch(0.78, 0.14, hue, 0.14);
   }
+  // Per-job hue dots (theme/hue.ts): one lightness and chroma for every job's hue.
+  out['job-hue-l'] = num(0.74);
+  out['job-hue-c'] = num(0.13);
   out['status-paused'] = oklch(0.7, 0, 0);
   out['status-paused-bg'] = oklch(0.7, 0, 0, 0.12);
   // Two-layer translucent shadows.
@@ -104,6 +107,7 @@ export const STATIC_TOKENS: Record<string, string> = {
   'jobs-w': '264px',
   'jobs-w-min': '240px',
   'jobs-w-max': '280px',
+  'rail-w': '48px',
   'foreman-max': '760px',
   'preview-w': '40%',
 };

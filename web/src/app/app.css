@@ -114,7 +114,11 @@ a:hover { text-decoration: underline; }
 .how summary:hover { color: var(--text-1); }
 .how-body { padding: 0 var(--space-2) var(--space-1); }
 
-/* ---------- Jobs (shell version) ---------- */
+/* ---------- Jobs pane ---------- */
+
+.pane-jobs { display: flex; flex-direction: column; }
+.pane-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
+.pane-head .pane-title { margin-bottom: 0; }
 
 .job-group { margin-bottom: var(--space-3); }
 .job-group-title {
@@ -127,19 +131,85 @@ a:hover { text-decoration: underline; }
   color: var(--text-2);
   margin-bottom: var(--space-1);
 }
-.job-link {
+.job-group-title .glyph { text-transform: none; }
+
+.job-row {
   display: flex;
-  align-items: center;
-  min-height: var(--row-h);
-  padding: 0 var(--space-2);
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-md);
   color: var(--text-1);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
-.job-link:hover { background: var(--bg-3); text-decoration: none; }
-.job-link[aria-current='page'] { background: var(--accent-soft); }
+.job-row:hover { background: var(--bg-3); text-decoration: none; }
+.job-row[aria-current='page'] { background: var(--accent-soft); }
+.job-row-line { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.job-row-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.job-row-time { color: var(--text-3); font-size: var(--text-xs); }
+.job-row-meta { padding-left: calc(8px + var(--space-2)); font-size: var(--text-sm); }
+
+.hue-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: oklch(var(--job-hue-l) var(--job-hue-c) var(--job-hue, 0)); }
+.glyph { display: inline-block; width: 1em; text-align: center; font-family: var(--font-mono); }
+.job-status { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; white-space: nowrap; }
+.job-status-label { overflow: hidden; text-overflow: ellipsis; }
+
+.stage-chip {
+  flex: none;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: var(--text-xs);
+}
+
+.rail-toggle { height: 24px; padding: 0 var(--space-2); font-family: var(--font-mono); }
+
+/* The icon rail: the pane shrinks to dots and glyphs. */
+.panes-rail { grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--preview-w); }
+.pane-jobs.is-rail { align-items: center; gap: var(--space-2); padding: var(--space-2) 0; }
+.rail-needs {
+  min-width: 20px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+.rail-group { padding-top: var(--space-2); border-top: 1px solid var(--border-1); }
+.rail-group:first-of-type { border-top: 0; }
+.rail-group li + li { margin-top: var(--space-1); }
+.job-rail-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+.job-rail-item:hover { background: var(--bg-3); text-decoration: none; }
+.job-rail-item[aria-current='page'] { background: var(--accent-soft); }
+
+/* Alerts switches at the foot of the pane. */
+.alert-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-1);
+  font-size: var(--text-sm);
+}
+.alert-settings-title { color: var(--text-2); margin-right: var(--space-1); }
+.btn-toggle { height: 24px; gap: var(--space-1); padding: 0 var(--space-2); }
+.btn-toggle .toggle-state { color: var(--text-3); }
+.btn-toggle[aria-pressed='true'] .toggle-state { color: var(--status-ok); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.alert-settings-note { flex-basis: 100%; margin: var(--space-1) 0 0; color: var(--status-warn); }
 
 .status { font-weight: var(--weight-medium); }
 .status-needs-you { color: var(--status-warn); }
