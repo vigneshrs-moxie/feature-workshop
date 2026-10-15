@@ -809,7 +809,7 @@ driver.on('run', (run) => { cached = null; broadcast('run', run); events.emit('r
 driver.on('permission', (p) => { broadcast('permission', p); events.emit('permission', p.slug, p); });
 driver.on('permission-gone', (p) => { broadcast('permission-gone', p); events.emit('permission-gone', p.slug ?? null, p); });
 limits.on('change', () => { cached = null; broadcast('change', { at: Date.now() }); events.emit('usage', null, limits.view()); });
-local.on('output', (e) => { broadcast('local', e); events.emit('local', e.slug ?? null, e); });
+local.on('output', (e) => { broadcast('local', e); events.emit('local', e.slug ?? null, e, { replay: false }); }); // live only: see EventLog.emit
 local.on('changed', (e) => { broadcast('local-state', e); events.emit('local-state', e.slug ?? null, e); });
 
 // ---------- Live updates for the new UI (/api/events?v=2, see lib/events.js) ----------

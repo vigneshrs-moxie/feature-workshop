@@ -5,8 +5,9 @@
 //   job   the job's slug when the event is about one job, else null
 //   seq   a number that only goes up while the dashboard runs
 //
-// The last 500 events are kept so a page that lost its connection can catch up: it reconnects
-// with Last-Event-ID (the browser does this by itself) or ?since=<seq>. Each SSE id is
+// The last 500 events (apart from live-only ones, see emit) are kept so a page that lost its
+// connection can catch up: it reconnects with Last-Event-ID (the browser does this by itself) or
+// ?since=<seq>. Each SSE id is
 // "<epoch>.<seq>", where epoch is random per dashboard start, so a page that last talked to an
 // earlier run of the dashboard is told to start over instead of being given the wrong events.
 // When catching up isn't possible (too far behind, or another epoch) the page gets one 'resync'
@@ -22,14 +23,22 @@ export class EventLog {
     this.epoch = epoch;
     this.seq = 0; // the seq of the newest event (0: none yet)
     this.ring = [];
+    this.dropped = 0; // the seq of the newest event pushed out of the ring (0: none yet)
     this.subscribers = new Set();
   }
 
-  /** Record an event and pass it to every open stream. Returns the envelope. */
-  emit(type, job = null, data = {}) {
+  /**
+   * Record an event and pass it to every open stream. Returns the envelope.
+   * replay: false sends it to open streams only, without keeping it for catching up. For chatty
+   * events that are no use later (output lines from a local dev server): they would push the
+   * events that matter out of the ring. A page that was away simply misses them.
+   */
+  emit(type, job = null, data = {}, { replay = true } = {}) {
     const event = { v: 2, type, job: job ?? null, data: data ?? {}, seq: ++this.seq };
-    this.ring.push(event);
-    if (this.ring.length > this.size) this.ring.shift();
+    if (replay) {
+      this.ring.push(event);
+      if (this.ring.length > this.size) this.dropped = this.ring.shift().seq;
+    }
     for (const fn of this.subscribers) {
       try { fn(event); } catch { /* one broken stream doesn't stop the others */ }
     }
@@ -49,8 +58,8 @@ export class EventLog {
     if (epoch && epoch !== this.epoch) return { resync: 'restarted' };
     if (!Number.isInteger(since) || since < 0) return { resync: 'unknown' };
     if (since > this.seq) return { resync: 'restarted' };
-    const oldest = this.ring[0]?.seq ?? this.seq + 1;
-    if (since < oldest - 1) return { resync: 'too-far-behind' };
+    // Behind only if an event it hasn't seen was pushed out of the ring (live-only events don't count).
+    if (since < this.dropped) return { resync: 'too-far-behind' };
     return { events: this.ring.filter((e) => e.seq > since) };
   }
 

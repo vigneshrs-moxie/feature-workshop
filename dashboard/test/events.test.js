@@ -40,6 +40,25 @@ test('events: the ring keeps the last 500 and resumes from inside it', () => {
   assert.deepEqual(new EventLog().since(0), { events: [] }, 'nothing yet, nothing missed');
 });
 
+test('events: live-only events reach open streams but are not kept for catching up', () => {
+  const log = new EventLog({ epoch: 'e2', size: 5 });
+  const got = [];
+  log.subscribe((e) => got.push(e.seq));
+  log.emit('run', 'widget', {});
+  for (let i = 0; i < 50; i++) log.emit('local', 'widget', { chunk: i }, { replay: false });
+  log.emit('thread', 'widget', {});
+  assert.equal(got.length, 52, 'every event went out live');
+  assert.equal(log.seq, 52);
+  assert.deepEqual(log.ring.map((e) => e.type), ['run', 'thread']);
+  // A page that saw only the first event isn't "too far behind": nothing it needs was pushed out.
+  assert.deepEqual(log.since(1).events.map((e) => e.seq), [52]);
+  assert.deepEqual(log.since(0).events.map((e) => e.seq), [1, 52]);
+  const onlyLive = new EventLog({ epoch: 'e3' });
+  onlyLive.emit('local', 'w', {}, { replay: false });
+  onlyLive.emit('local', 'w', {}, { replay: false });
+  assert.deepEqual(onlyLive.since(1), { events: [] });
+});
+
 test('events: Last-Event-ID wins over ?since=', () => {
   const q = (s) => new URLSearchParams(s);
   assert.equal(resumePoint({}, q('')), null);
