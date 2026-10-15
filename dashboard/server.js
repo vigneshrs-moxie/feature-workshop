@@ -29,11 +29,14 @@ import { LocalRunner } from './lib/local.js';
 import { History, historyMarkdown } from './lib/history.js';
 import { removeWorktree, checkWorktree } from './lib/close.js';
 import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions } from './lib/options.js';
+import { isWebAppPath, serveWebApp } from './lib/web-app.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(HERE, 'public');
+// The new UI, built from web/ (npm run web:build), served at /next.
+const WEB_DIST = path.join(HERE, '..', 'web', 'dist');
 const SHARED = { '/shared/compose.js': path.join(HERE, 'lib', 'compose.js') };
 const CLAUDE_DIR = path.join(os.homedir(), '.claude');
 const FEATURES_DIR = path.resolve(process.env.WORKSHOP_FEATURES_DIR || path.join(CLAUDE_DIR, 'feature-work'));
@@ -539,6 +542,7 @@ async function routeGet(urlPath, url, req, res) {
     }
   }
   if (urlPath.startsWith('/api/')) throw new HttpError(404, 'Not found');
+  if (isWebAppPath(urlPath)) return serveWebApp(urlPath, res, { distDir: WEB_DIST, send });
   return serveStatic(urlPath, res);
 }
 
