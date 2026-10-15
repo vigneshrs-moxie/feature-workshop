@@ -60,10 +60,14 @@ export interface Rule {
   from?: { slug?: string; title?: string | null; headline?: string | null };
 }
 
-/** GET /api/rules. active: false while "ask about everything" is on (the rules wait). */
+/**
+ * GET /api/rules. active: false while your (global) setting is "ask about everything" (the rules
+ * wait). jobOverrides: jobs whose own setting makes that different for them.
+ */
 export interface RulesList {
   rules: Rule[];
   active: boolean;
+  jobOverrides?: number;
   unreadable: string | null;
 }
 

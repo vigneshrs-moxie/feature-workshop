@@ -20,7 +20,7 @@ import path from 'node:path';
 import { describePermission } from './permissions.js';
 import { draftRule } from './rules.js';
 import { describeTool } from './session-log.js';
-import { hardLine, hardLineHook } from './hard-lines.js';
+import { hardLine, hardLineHook, orgPushCheck } from './hard-lines.js';
 
 /** The SDK permission mode for a permission setting. */
 export const sdkModeFor = (mode) => (mode === 'auto' ? 'auto' : 'default');
@@ -120,6 +120,8 @@ export class Driver extends EventEmitter {
       // Tool calls seen in the session (id -> { name, input }) and the denials already accounted for,
       // so a block is recorded once and denials you or a hard line made aren't put on auto mode.
       toolUses: new Map(), blockedIds: new Set(), deniedIds: new Set(),
+      // Where this reply's pushes really go (a remote with another name can be the org repo).
+      orgPushCheck: orgPushCheck(),
     };
     if (mode) run.mode = mode;
     this.runs.set(run.id, run);
@@ -146,7 +148,7 @@ export class Driver extends EventEmitter {
       permissionMode: run.requestedMode,
       canUseTool: (toolName, input, opts) => this.#ask(run, toolName, input, opts),
       // The hard lines, in every mode, before Claude Code's own permission check (lib/hard-lines.js).
-      hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [hardLineHook((verdict, input) => this.#onHardLine(run, verdict, input))] }] },
+      hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [hardLineHook((verdict, input) => this.#onHardLine(run, verdict, input), { check: run.orgPushCheck, cwd: run.cwd })] }] },
       abortController: run.abort,
       stderr: (data) => { run.stderr.push(String(data)); if (run.stderr.length > 60) run.stderr.shift(); },
       additionalDirectories: run.additionalDirectories,
@@ -381,7 +383,8 @@ export class Driver extends EventEmitter {
   async #askInner(run, toolName, input, opts) {
     // Hard lines first (the hook already did this; checked again in case it didn't run): a refusal
     // never asks, and an "ask" one is never settled by the routine list or a saved rule.
-    const hard = toolName === 'AskUserQuestion' ? null : hardLine(toolName, input);
+    let hard = toolName === 'AskUserQuestion' ? null : hardLine(toolName, input);
+    if (hard) { try { hard = await run.orgPushCheck(hard, run.cwd); } catch { /* a failed lookup still asks */ } }
     if (hard?.decision === 'deny') {
       await this.#recordRefusal(run, toolName, input, hard, opts.toolUseID, opts.agentID);
       return { behavior: 'deny', message: hard.reason };

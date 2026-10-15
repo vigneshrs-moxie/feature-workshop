@@ -47,6 +47,44 @@ test('hard lines: org pushes and force pushes are refused', () => {
   assert.equal(hardLine('Bash', { command: 'git push -f origin x' }).line, 'force-push');
 });
 
+test('hard lines: wrapper options that take a value don’t hide the command', () => {
+  for (const command of [
+    'timeout -s KILL 60 git push moxie main', 'timeout --signal=KILL 60 git push moxie main', 'timeout -k 5 60 git push moxie main',
+    'sudo -u me git push moxie', 'nice -n 10 git push moxie main', 'env -u FOO git push moxie', 'env -C /r git push moxie main',
+    'sudo -u me env -u FOO timeout -s KILL 60 git push -f origin x', 'xargs -n 1 git push moxie',
+  ]) {
+    assert.equal(hardLine('Bash', { command })?.decision, 'deny', command);
+  }
+  for (const command of ['timeout -s KILL 60 git push origin x', 'nice -n 10 rm -rf build', 'sudo -u me gh pr create --fill', 'env -u FOO npm run db:migrate']) {
+    assert.equal(hardLine('Bash', { command })?.decision, 'ask', command);
+  }
+});
+
+test('hard lines: package-manager options don’t hide a database script', () => {
+  for (const command of ['npm run --silent db:reset', 'npm --prefix x run db:migrate', 'pnpm -C dir db:push', 'pnpm --filter api run db:push', 'yarn workspace api db:push', 'npm run-script --if-present migrate:up', 'npm -w api run db:seed']) {
+    assert.equal(hardLine('Bash', { command })?.decision, 'ask', command);
+  }
+});
+
+test('hard lines: a remote with another name that points at the org repo is refused', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const repo = await tmp('workshop-remote-');
+  const git = (...args) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' });
+  git('init', '-q');
+  git('remote', 'add', 'upstream', 'git@github.com:moxie/orbit.git');
+  git('remote', 'add', 'origin', 'https://github.com/me/orbit.git');
+  const hook = hardLineHook();
+  const base = { hook_event_name: 'PreToolUse', session_id: 's', transcript_path: '', cwd: repo, tool_use_id: 't', tool_name: 'Bash' };
+  const decide = async (command) => (await hook({ ...base, tool_input: { command } })).hookSpecificOutput?.permissionDecision;
+  assert.equal(await decide('git push upstream main'), 'deny');
+  assert.equal(await decide('git push origin x && git push upstream main'), 'deny');
+  assert.equal(await decide(`git -C ${repo} push upstream main`), 'deny');
+  assert.equal(await decide('git push origin feature/x'), 'ask');
+  assert.equal(await decide('git push nowhere x'), 'ask', 'git can’t answer: still asks');
+  // No folder to look in: the plain list decides.
+  assert.equal((await hardLineHook()({ ...base, cwd: '', tool_input: { command: 'git push upstream main' } })).hookSpecificOutput.permissionDecision, 'ask');
+});
+
 test('hard lines: everyday commands and other tools are left alone', () => {
   for (const command of ['git status', 'git pull', 'git fetch moxie', 'npm run test:db', 'npm test', 'rm file.txt', 'rm -r build', 'ls -rf', 'gh pr view 12', 'git log --grep push']) {
     assert.equal(hardLine('Bash', { command }), null, command);

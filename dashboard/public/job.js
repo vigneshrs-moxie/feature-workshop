@@ -346,6 +346,12 @@ function quickRow() {
 }
 
 function policyLine(d) {
+  // The buttons below change your global setting, so a job with its own setting gets none.
+  if (d.policyOverride) {
+    const what = { auto: 'Auto mode: Claude Code’s safety model decides each step; pushes, PRs, deletes and migrations still ask you.', 'ask-all': 'You approve every step.' }[d.policyOverride]
+      ?? 'Routine steps run on their own; you’re asked only about risky ones.';
+    return `<p class="policy-line">${what} This job has its own setting; change it in the new view (/next).</p>`;
+  }
   if (d.policy === 'auto') return '<p class="policy-line">Auto mode: Claude Code’s safety model decides each step; pushes, PRs, deletes and migrations still ask you. Change it in the new view (/next). <button type="button" class="linklike" data-policy="ask-all">Ask me about every step instead</button></p>';
   return d.policy === 'ask-all'
     ? '<p class="policy-line">You approve every step. <button type="button" class="linklike" data-policy="hands-off">Let routine steps run on their own</button></p>'

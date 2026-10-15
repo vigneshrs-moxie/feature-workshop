@@ -487,8 +487,15 @@ const GET = {
     return { features: cards, needsYou: stats.needsYou, totalUsd, stats, permissions: driver.pendingPermissions(), usage: limits.view(), generatedAt: new Date().toISOString() };
   },
   '/api/runs': async () => ({ runs: driver.list(), permissions: driver.pendingPermissions() }),
-  // Your "Always allow" rules. active: false while "ask about everything" is on (then they wait).
-  '/api/rules': async () => ({ rules: await rules.list(), active: (await state.getSettings()).policy !== 'ask-all', unreadable: rules.broken ? rules.file : null }),
+  // Your "Always allow" rules. active: false while your (global) setting is "ask about everything"
+  // (then they wait). It describes your setting only: jobOverrides counts the jobs whose own
+  // setting makes the rules apply differently there (on for them, or off for them).
+  '/api/rules': async () => {
+    const s = await state.getSettings();
+    const active = s.policy !== 'ask-all';
+    const jobOverrides = Object.values(s.jobPolicy ?? {}).filter((p) => (p !== 'ask-all') !== active).length;
+    return { rules: await rules.list(), active, jobOverrides, unreadable: rules.broken ? rules.file : null };
+  },
 
   '/api/repos': async () => ({ repos: await recentRepos(sessionIndex, [...(process.env.WORKSHOP_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean), ...(await features()).map((f) => f.repoPath)]) }),
   '/api/costs': async () => {
@@ -795,15 +802,16 @@ async function routePost(urlPath, req, res) {
     const { rule, added } = saved;
     if (added) await state.audit({ action: 'rule-added', rule: rule.id, tool: rule.tool, kind: rule.kind, value: rule.value, label: rule.label, featureDir: req?.featureDir, slug: req?.slug });
     const allowed = req ? await driver.decide(permissionId, { decision: 'allow', rule: rule.id }) : false;
-    // Other requests waiting right now that the rule covers are allowed too, as later ones will be.
-    const active = (await state.getSettings()).policy !== 'ask-all';
+    // Other requests waiting right now that the rule covers are allowed too, as later ones will be:
+    // each by its own job's setting (a job set to "ask about everything" keeps asking).
+    // active: whether the rule is used for the job it was drafted from (else your setting).
+    const active = (await state.policyFor(req?.featureDir ?? null)) !== 'ask-all';
     let alsoAllowed = 0;
-    if (active) {
-      for (const p of driver.pendingPermissions()) {
-        if (p.kind !== 'permission' || p.defaultToNo || p.hardLine) continue;
-        const full = driver.pendingRequest(p.id);
-        if (full && matchRule(rule, full.toolName, full.input) && (await driver.decide(p.id, { decision: 'allow', rule: rule.id }))) alsoAllowed++;
-      }
+    for (const p of driver.pendingPermissions()) {
+      if (p.kind !== 'permission' || p.defaultToNo || p.hardLine) continue;
+      if ((await state.policyFor(p.featureDir)) === 'ask-all') continue;
+      const full = driver.pendingRequest(p.id);
+      if (full && matchRule(rule, full.toolName, full.input) && (await driver.decide(p.id, { decision: 'allow', rule: rule.id }))) alsoAllowed++;
     }
     return sendJson(res, 200, { rule, added, allowed, alsoAllowed, active });
   }

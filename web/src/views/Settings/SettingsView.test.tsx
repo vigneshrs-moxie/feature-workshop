@@ -57,6 +57,11 @@ describe('Settings', () => {
     setup([{ rules: [RULE], active: false, unreadable: null }]);
     expect(await screen.findByRole('note')).toHaveTextContent('“Ask about everything” is on');
   });
+
+  it('says when jobs with their own setting don’t use the rules', async () => {
+    setup([{ rules: [RULE], active: true, jobOverrides: 2, unreadable: null }]);
+    expect(await screen.findByRole('note')).toHaveTextContent('aren’t used for the 2 jobs set to “Ask about everything” on their own');
+  });
 });
 
 describe('Settings: permissions', () => {

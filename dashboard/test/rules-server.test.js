@@ -39,6 +39,12 @@ before(async () => {
     schema_version: 1, slug: 'sample-job', title: 'Sample job', route: 'small', stage: 'implement', stage_state: 'in_progress',
     repo: { path: repo }, updated_at: '2026-10-15T10:00:00Z',
   }, null, 2));
+  const second = path.join(featuresDir, 'second-job');
+  await fs.mkdir(path.join(second, 'briefs'), { recursive: true });
+  await fs.writeFile(path.join(second, 'status.json'), JSON.stringify({
+    schema_version: 1, slug: 'second-job', title: 'Second job', route: 'small', stage: 'implement', stage_state: 'in_progress',
+    repo: { path: repo }, updated_at: '2026-10-15T10:00:00Z',
+  }, null, 2));
 
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
@@ -200,4 +206,43 @@ test('server: in auto mode a push still asks, and what auto mode blocked shows i
   assert.match(blocked[0].preview, /curl/);
   assert.equal((await get('/api/meta')).settings.autoMode.available, true, 'the reply found auto mode available');
   await write('POST', '/api/settings', { policy: 'hands-off' });
+});
+
+test('server: a new rule allows other waiting requests only for jobs not set to ask about everything', async () => {
+  await idle();
+  await write('POST', '/api/settings', { policy: 'hands-off' });
+  assert.equal((await write('POST', '/api/job/sample-job/policy', { policy: 'ask-all' })).status, 200);
+  const listed = await get('/api/rules');
+  assert.equal(listed.active, true);
+  assert.equal(listed.jobOverrides, 1, 'Settings can say one job doesn’t use the rules');
+
+  assert.equal((await write('POST', '/api/job/sample-job/send', { text: 'Carry on.' })).status, 200);
+  assert.equal((await write('POST', '/api/job/second-job/send', { text: 'Carry on.' })).status, 200);
+  const cardFor = (slug) => waitFor(async () => (await get('/api/snapshot')).permissions.find((p) => p.slug === slug && p.input?.command === 'npm run test:db'), `${slug}’s database card`);
+  // sample-job asks about every step: allow its earlier ones until the database card comes.
+  const askAll = await waitFor(async () => {
+    const perms = (await get('/api/snapshot')).permissions.filter((p) => p.slug === 'sample-job');
+    const db = perms.find((p) => p.input?.command === 'npm run test:db');
+    if (db) return db;
+    for (const p of perms) await write('POST', `/api/permissions/${p.id}`, { decision: 'allow' });
+    return null;
+  }, 'sample-job’s database card');
+  const card = await cardFor('second-job');
+
+  const ok = await write('POST', '/api/rules', { rule: { tool: 'Bash', kind: 'exact', value: 'npm run test:db' }, permissionId: card.id });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.allowed, true);
+  assert.equal(ok.body.active, true);
+  assert.equal(ok.body.alsoAllowed, 0, 'the job set to ask about everything still asks');
+  assert.ok((await get('/api/snapshot')).permissions.some((p) => p.id === askAll.id), 'its card is still waiting');
+
+  // Tidy up: answer what's left, end both replies, clear the rule and the job's own setting.
+  await write('POST', `/api/permissions/${askAll.id}`, { decision: 'deny' });
+  await waitFor(async () => {
+    const perms = (await get('/api/snapshot')).permissions;
+    for (const p of perms) await write('POST', `/api/permissions/${p.id}`, { decision: 'deny' });
+    return !(await get('/api/runs')).runs.some((r) => ['starting', 'running', 'waiting_permission', 'stopping'].includes(r.status));
+  }, 'both replies to end', 15000);
+  await write('DELETE', `/api/rules/${ok.body.rule.id}`);
+  await write('POST', '/api/job/sample-job/policy', { policy: null });
 });

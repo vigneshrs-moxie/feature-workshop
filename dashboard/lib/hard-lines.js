@@ -17,12 +17,17 @@
 //   rm -rf              recursive, forced deletes (-rf, -fr, -r -f, --recursive --force, …)
 //   database changes    package scripts named db:* or *migrat*, and the usual migration tools
 // NEVER: refused without asking, in every mode.
-//   pushes to the org repo (the "moxie" remote, or a github.com/moxie… address)
+//   pushes to the org repo (the "moxie" remote, a github.com/moxie… address, or any other remote
+//   whose push address is one: orgPushCheck() asks git in the job's folder)
 //   force pushes (--force, -f, --force-with-lease, --force-if-includes, a +refspec, --mirror)
 //
 // Matching reads the command word by word, through && ; | and $( … ), past VAR=value prefixes and
-// wrappers such as sudo, env, command, nohup, time and timeout. When the command can't be read that
-// way, the raw text is searched instead: asking about something harmless is fine; missing one is not.
+// wrappers such as sudo, env, command, nohup, time and timeout (and their options' values). When
+// the command can't be read that way, or sits behind a wrapper, the raw text is searched too:
+// asking about something harmless is fine; missing one is not.
+
+import { execFile } from 'node:child_process';
+import path from 'node:path';
 
 import { splitCommand } from './policy.js';
 
@@ -30,7 +35,17 @@ import { splitCommand } from './policy.js';
 export const ORG_REMOTES = ['moxie'];
 export const ORG_URL = /github\.com[:/]+moxie[\w.-]*\//i;
 
-const WRAPPERS = new Set(['sudo', 'env', 'command', 'builtin', 'exec', 'nohup', 'time', 'nice', 'caffeinate', 'xargs', 'then', 'do', 'else', '!', '{']);
+// Wrappers, each with its options that take a value (the next word, unless written --opt=value).
+const WRAPPERS = new Map([
+  ['sudo', ['-u', '-g', '-C', '-D', '-h', '-p', '-U', '-r', '-t', '-T', '-R', '--user', '--group', '--close-from', '--chdir', '--host', '--prompt', '--other-user', '--role', '--type', '--command-timeout', '--chroot']],
+  ['env', ['-u', '-C', '-S', '-P', '--unset', '--chdir', '--split-string']],
+  ['timeout', ['-s', '-k', '--signal', '--kill-after']],
+  ['nice', ['-n', '--adjustment']],
+  ['time', ['-f', '-o', '--format', '--output']],
+  ['xargs', ['-I', '-J', '-L', '-n', '-P', '-R', '-S', '-s', '-E', '-d', '-a', '--max-args', '--max-procs', '--max-lines', '--replace', '--delimiter', '--arg-file', '--eof']],
+  ['caffeinate', ['-t', '-w']],
+  ['command', []], ['builtin', []], ['exec', ['-a']], ['nohup', []], ['then', []], ['do', []], ['else', []], ['!', []], ['{', []],
+]);
 const PKG = new Set(['npm', 'pnpm', 'yarn', 'bun']);
 const DB_SCRIPT = /^db:|migrat/i;
 
@@ -50,10 +65,20 @@ function strip(w) {
     if (i >= w.length) return [];
     const x = w[i];
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(x)) { i++; continue; }
-    if (x === 'timeout') { i += 2; continue; } // timeout <duration> <command>
-    if (WRAPPERS.has(x)) { i++; while (w[i]?.startsWith('-')) i++; continue; }
+    const takesValue = WRAPPERS.get(x.replace(/^.*\//, ''));
+    if (takesValue) {
+      i++;
+      while (w[i]?.startsWith('-') && w[i] !== '-') {
+        const opt = w[i++];
+        if (opt === '--') break;
+        if (takesValue.includes(opt)) i++; // -u me, --signal KILL
+      }
+      if (x.endsWith('timeout')) i++; // timeout [options] <duration> <command>
+      continue;
+    }
     break;
   }
+  if (i >= w.length) return [];
   const [cmd, ...rest] = w.slice(i);
   return [cmd.replace(/^.*\//, ''), ...rest]; // /usr/bin/git is git
 }
@@ -61,8 +86,12 @@ function strip(w) {
 // git [global options] <sub> <args>: the subcommand and its arguments.
 function gitSub(rest) {
   let i = 0;
-  while (rest[i]?.startsWith('-')) i += ['-C', '-c', '--git-dir', '--work-tree', '--namespace'].includes(rest[i]) ? 2 : 1;
-  return { sub: rest[i], args: rest.slice(i + 1) };
+  let dir = null;
+  while (rest[i]?.startsWith('-')) {
+    if (rest[i] === '-C') dir = dir ? `${dir}/${rest[i + 1]}` : rest[i + 1];
+    i += ['-C', '-c', '--git-dir', '--work-tree', '--namespace'].includes(rest[i]) ? 2 : 1;
+  }
+  return { sub: rest[i], args: rest.slice(i + 1), dir };
 }
 
 // gh [-R repo] <group> <action>
@@ -71,7 +100,7 @@ function ghSub(rest) {
   return [args[0], args[1]];
 }
 
-function pushVerdict(args) {
+function pushVerdict(args, dir = null) {
   const force = args.some((a) => /^--(force|force-with-lease|force-if-includes|mirror)(=|$)/.test(a) || /^-[A-Za-z]*f/.test(a))
     || args.filter((a) => !a.startsWith('-')).slice(1).some((a) => a.startsWith('+'));
   if (force) return { decision: 'deny', line: 'force-push', reason: 'Force pushes are never allowed from the dashboard.' };
@@ -84,7 +113,9 @@ function pushVerdict(args) {
   }
   const remote = positional[0] ?? '';
   if (ORG_REMOTES.includes(remote) || ORG_URL.test(remote)) return { decision: 'deny', line: 'org-push', reason: 'Pushing to the org repository is never allowed from the dashboard. Push to your fork (origin) instead.' };
-  return { decision: 'ask', line: 'git-push', reason: 'Pushing is a hard line: it always asks you, whatever the setting.' };
+  // remote ('' when the command names none) and dir (git -C) let orgPushCheck() look up where a
+  // remote with another name really points.
+  return { decision: 'ask', line: 'git-push', reason: 'Pushing is a hard line: it always asks you, whatever the setting.', remote, dir };
 }
 
 function rmVerdict(args) {
@@ -102,10 +133,10 @@ function rmVerdict(args) {
 const DB = { decision: 'ask', line: 'database', reason: 'Database migrations are a hard line: they always ask you, whatever the setting.' };
 
 function dbVerdict(cmd, rest) {
-  if (PKG.has(cmd)) {
-    const script = rest[0] === 'run' || rest[0] === 'run-script' ? rest[1] : rest[0];
-    if (script && DB_SCRIPT.test(script)) return DB;
-  }
+  // Any word naming a db:* or migration script, wherever it sits (npm run --silent db:reset,
+  // npm --prefix x run db:migrate, pnpm -C dir db:push, yarn workspace api db:push). Over-asking
+  // (npm install some-migrate-tool) is fine; missing one is not.
+  if (PKG.has(cmd) && rest.some((a) => DB_SCRIPT.test(a.replace(/^-[^=]*=/, '')))) return DB;
   const tool = cmd === 'npx' || cmd === 'bunx' || (cmd === 'pnpm' && rest[0] === 'exec') || (cmd === 'pnpm' && rest[0] === 'dlx')
     ? rest.filter((a) => !a.startsWith('-') && !['exec', 'dlx'].includes(a)) : [cmd, ...rest];
   const [t, a, b] = tool;
@@ -117,12 +148,21 @@ function dbVerdict(cmd, rest) {
 }
 
 function judgeSimple(simple) {
-  const w = strip(words(simple));
+  const all = words(simple);
+  const verdict = judgeWords(strip(all));
+  // Behind a wrapper (sudo, env, timeout, …) an option we don't know could hide the command, so
+  // the raw text is searched too and the stricter answer kept.
+  const first = all.find((x) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(x));
+  if (first && WRAPPERS.has(first.replace(/^.*\//, ''))) return strictest([verdict, judgeRaw(simple)]);
+  return verdict;
+}
+
+function judgeWords(w) {
   if (!w.length) return null;
   const [cmd, ...rest] = w;
   if (cmd === 'git') {
-    const { sub, args } = gitSub(rest);
-    return sub === 'push' ? pushVerdict(args) : null;
+    const { sub, args, dir } = gitSub(rest);
+    return sub === 'push' ? pushVerdict(args, dir) : null;
   }
   if (cmd === 'gh') {
     const [group, action] = ghSub(rest);
@@ -146,6 +186,7 @@ function judgeRaw(text) {
 }
 
 const RANK = { deny: 2, ask: 1 };
+const strictest = (verdicts) => verdicts.filter(Boolean).sort((a, b) => RANK[b.decision] - RANK[a.decision])[0] ?? null;
 
 /**
  * Is this request on a hard line? Returns null, or { decision: 'ask' | 'deny', line, reason }.
@@ -159,19 +200,70 @@ export function hardLine(toolName, input = {}) {
   const verdicts = parts ? parts.map(judgeSimple) : [judgeRaw(command)];
   // A command we could split may still hide one where the splitter can't see (eval "git push").
   if (parts && /\b(eval|sh|bash|zsh)\b/.test(command)) verdicts.push(judgeRaw(command));
-  return verdicts.filter(Boolean).sort((a, b) => RANK[b.decision] - RANK[a.decision])[0] ?? null;
+  const verdict = strictest(verdicts);
+  if (verdict?.decision !== 'ask') return verdict;
+  // Every push in the command, for orgPushCheck().
+  const pushes = verdicts.filter((v) => v?.line === 'git-push').map((v) => ({ remote: v.remote ?? '', dir: v.dir ?? null }));
+  return { ...verdict, pushes };
+}
+
+const ORG_PUSH = { decision: 'deny', line: 'org-push', reason: 'That remote points at the org repository, and pushing there is never allowed from the dashboard. Push to your fork (origin) instead.' };
+
+function git(args, cwd) {
+  return new Promise((resolve) => {
+    execFile('git', args, { cwd, timeout: 3000, windowsHide: true }, (err, stdout) => resolve(err ? null : String(stdout).trim()));
+  });
+}
+
+/**
+ * A remote named something other than "moxie" (upstream, org, …) can still point at the org repo.
+ * Returns check(verdict, cwd): the verdict, turned into an org-push refusal when one of its pushes
+ * goes to a remote whose push address is the org's. Asks `git remote get-url --push` in the job's
+ * folder (or git -C's), remembering each answer for this reply. With no remote named, the branch's
+ * push remote is looked up. When git can't answer, the push still asks you.
+ * Not seen: a `cd` earlier in the same command (the lookup uses the job's folder).
+ */
+export function orgPushCheck() {
+  const cache = new Map();
+  const urlOf = async (remote, dir) => {
+    const key = `${dir}\0${remote}`;
+    if (!cache.has(key)) {
+      cache.set(key, (async () => {
+        let name = remote;
+        if (!name) {
+          const push = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{push}'], dir);
+          name = push ? push.split('/')[0] : 'origin';
+        }
+        return git(['remote', 'get-url', '--push', name], dir);
+      })());
+    }
+    return cache.get(key);
+  };
+  return async (verdict, cwd) => {
+    if (verdict?.decision !== 'ask' || !verdict.pushes?.length || !cwd) return verdict;
+    for (const { remote, dir } of verdict.pushes) {
+      if (/[:/]/.test(remote)) continue; // an address, already judged
+      const where = dir ? path.resolve(cwd, dir) : cwd;
+      const url = await urlOf(remote, where);
+      if (url && ORG_URL.test(url)) return ORG_PUSH;
+    }
+    return verdict;
+  };
 }
 
 /**
  * The PreToolUse hook callback (SDK `hooks` option). onVerdict(verdict, input) is told about every
  * hard line it meets (the driver records refusals). Returns the hook's answer: 'ask' forces a
- * card, 'deny' refuses; anything else is left to the permission setting.
+ * card, 'deny' refuses; anything else is left to the permission setting. check (from
+ * orgPushCheck()) looks up where pushes really go; cwd is the job's folder when the hook input
+ * has none.
  */
-export function hardLineHook(onVerdict = () => {}) {
+export function hardLineHook(onVerdict = () => {}, { check = orgPushCheck(), cwd = null } = {}) {
   return async (input) => {
     if (input?.hook_event_name !== 'PreToolUse') return {};
-    const verdict = hardLine(input.tool_name, input.tool_input);
+    let verdict = hardLine(input.tool_name, input.tool_input);
     if (!verdict) return {};
+    try { verdict = await check(verdict, input.cwd || cwd); } catch { /* a failed lookup still asks */ }
     try { await onVerdict(verdict, input); } catch { /* recording must not change the answer */ }
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: verdict.decision, permissionDecisionReason: verdict.reason } };
   };

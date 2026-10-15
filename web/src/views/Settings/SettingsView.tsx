@@ -146,7 +146,10 @@ export function SettingsView() {
                 <p className="perm-warn" role="alert">The rules file {load.list.unreadable} can’t be read, so no rule is used and new ones can’t be saved. Fix or remove that file.</p>
               )}
               {!load.list.active && (
-                <p className="perm-warn" role="note">“Ask about everything” is on, so these rules wait: every step asks you until you pick “Routine steps automatic” or “Auto mode” above.</p>
+                <p className="perm-warn" role="note">“Ask about everything” is on, so these rules wait: every step asks you until you pick “Routine steps automatic” or “Auto mode” above.{load.list.jobOverrides ? ` Jobs with their own setting (${load.list.jobOverrides}) follow that instead.` : ''}</p>
+              )}
+              {load.list.active && !!load.list.jobOverrides && (
+                <p className="muted" role="note">These rules aren’t used for {load.list.jobOverrides === 1 ? 'the 1 job' : `the ${load.list.jobOverrides} jobs`} set to “Ask about everything” on their own.</p>
               )}
               {load.list.rules.length === 0 ? (
                 <p className="muted">No rules yet. Use <strong>Always allow…</strong> on a permission card to add one.</p>
