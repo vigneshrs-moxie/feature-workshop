@@ -124,8 +124,7 @@ export class Driver extends EventEmitter {
     } finally {
       clearTimeout(run.idleTimer);
       closeInput();
-      for (const p of run.pending.values()) p.resolve({ behavior: 'deny', message: 'The reply ended before this was decided.' });
-      run.pending.clear();
+      this.#dropPending(run, { behavior: 'deny', message: 'The reply ended before this was decided.' }, 'run-ended');
       run.endedAt = new Date().toISOString();
       const reply = (run.lastText ?? run.resultText ?? '').slice(0, 8000) || undefined;
       await this.state.audit({ action: 'run-ended', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, status: run.status, costUsd: run.costUsd, error: run.error, reply, stopReason: run.stopReason ?? undefined });
@@ -245,7 +244,11 @@ export class Driver extends EventEmitter {
       req.resolve = (result) => { run.pending.delete(req.id); if (run.status === 'waiting_permission' && run.pending.size === 0) run.status = 'running'; if (run.awaitingIdle) this.#armIdle(run); resolve(result); this.emit('run', this.view(run)); };
       run.pending.set(req.id, req);
       run.status = 'waiting_permission';
-      opts.signal?.addEventListener?.('abort', () => { if (run.pending.has(req.id)) req.resolve({ behavior: 'deny', message: 'Cancelled.' }); this.emit('permission-gone', { id: req.id }); });
+      opts.signal?.addEventListener?.('abort', () => {
+        if (!run.pending.has(req.id)) return; // already answered; its card is gone already
+        req.resolve({ behavior: 'deny', message: 'Cancelled.' });
+        this.emit('permission-gone', { id: req.id, slug: run.slug, reason: 'cancelled' });
+      });
       this.emit('permission', this.viewPermission(req));
       this.emit('run', this.view(run));
     });
@@ -266,10 +269,20 @@ export class Driver extends EventEmitter {
       }
       await this.state.audit({ action: 'permission', featureDir: req.featureDir, slug: req.slug, sessionId: run.sessionId, runId: run.id, tool: req.toolName, agentType: req.agentType, headline: req.plain.headline, decision, note: note || undefined, answers: answers ?? undefined });
       req.resolve(result);
-      this.emit('permission-gone', { id: requestId });
+      this.emit('permission-gone', { id: requestId, slug: req.slug, reason: 'answered' });
       return true;
     }
     return false;
+  }
+
+  // Say no to everything still waiting on this run, and tell open pages each card is gone.
+  // reason: 'stopped' | 'usage-limit' | 'run-ended'.
+  #dropPending(run, result, reason) {
+    for (const p of [...run.pending.values()]) {
+      p.resolve(result);
+      this.emit('permission-gone', { id: p.id, slug: run.slug, reason });
+    }
+    run.pending.clear();
   }
 
   /** reason: null (you clicked Stop) or 'usage-limit' (paused until the limit resets). */
@@ -282,7 +295,7 @@ export class Driver extends EventEmitter {
     this.emit('run', this.view(run));
     await this.state.audit({ action: 'stop-now', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId, reason: reason ?? undefined });
     const why = reason === 'usage-limit' ? 'Paused: the Claude usage limit was reached. The job carries on after it resets.' : 'The person stopped this reply.';
-    for (const p of [...run.pending.values()]) p.resolve({ behavior: 'deny', message: why, interrupt: true });
+    this.#dropPending(run, { behavior: 'deny', message: why, interrupt: true }, reason === 'usage-limit' ? 'usage-limit' : 'stopped');
     try {
       await run.query?.interrupt?.();
     } catch {

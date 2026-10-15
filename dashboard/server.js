@@ -30,6 +30,9 @@ import { History, historyMarkdown } from './lib/history.js';
 import { removeWorktree, checkWorktree } from './lib/close.js';
 import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions } from './lib/options.js';
 import { isWebAppPath, serveWebApp } from './lib/web-app.js';
+import { EventLog, resumePoint, openStream } from './lib/events.js';
+import { groupCards } from './lib/snapshot.js';
+import { buildThread, pageThread } from './lib/thread.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -292,6 +295,21 @@ async function jobDocs(f) {
   return docs;
 }
 
+// One page of the conversation with the Foreman (see lib/thread.js): the newest items, or the ones
+// just before the item `before`. Only the replies on this page are rendered. Null: `before` unknown.
+async function threadPage(f, audit, { before = null } = {}) {
+  const briefs = [];
+  for (const b of f.briefs) {
+    const st = await fsp.stat(path.join(f.dir, b.file)).catch(() => null);
+    const parsed = parseBrief((await readInside(f.dir, b.file)) ?? '');
+    briefs.push({ number: b.number, stage: b.stage, file: b.file, at: st?.mtime.toISOString() ?? null, headline: parsed.headline, point: parsed.happened[0] ?? parsed.next ?? null });
+  }
+  const page = pageThread(buildThread({ briefs, audit, autoResume: limits.autoResume }), { before });
+  if (!page) return null;
+  const items = page.items.map(({ reply, ...it }) => (it.kind === 'reply' ? { ...it, html: renderMarkdown(reply, { idHref: idHref(f) }) } : it));
+  return { items, more: page.more };
+}
+
 async function jobDetail(f) {
   const run = runFor(f);
   const latestPath = f.latestBrief?.path ?? f.briefs.at(-1)?.file ?? null;
@@ -302,7 +320,8 @@ async function jobDetail(f) {
     if (text !== null) latestBrief = { number: f.latestBrief?.number ?? f.briefs.at(-1)?.number ?? null, path: latestPath, html: renderMarkdown(text, { idHref: idHref(f) }), text, at: st?.mtime.toISOString() ?? null };
   }
   // The Foreman's last answer to something sent from here, shown when it's newer than the brief.
-  const audit = await state.auditFor(f.dir, 400);
+  // All of the job's audit lines are read, so thread ids don't depend on how far back we looked.
+  const audit = await state.auditFor(f.dir, Infinity);
   const lastEnd = [...audit].reverse().find((e) => e.action === 'run-ended' && e.reply);
   const lastReply = lastEnd ? { at: lastEnd.at, status: lastEnd.status, html: renderMarkdown(lastEnd.reply, { idHref: idHref(f) }) } : null;
   const drive = await driveState(f);
@@ -324,34 +343,7 @@ async function jobDetail(f) {
     questions: f.questions, decided: f.decidedOnYourBehalf, headsUp,
   });
 
-  // The conversation with the Foreman: its briefs and replies, your messages, and short notes.
-  const thread = [];
-  for (const b of f.briefs) {
-    const st = await fsp.stat(path.join(f.dir, b.file)).catch(() => null);
-    const parsed = parseBrief((await readInside(f.dir, b.file)) ?? '');
-    thread.push({ kind: 'brief', at: st?.mtime.toISOString() ?? null, number: b.number, stage: b.stage, file: b.file, headline: parsed.headline, point: parsed.happened[0] ?? parsed.next ?? null });
-  }
-  let autoGroup = null;
-  for (const e of audit) {
-    if (e.action === 'auto-allowed') {
-      if (!autoGroup || autoGroup.runId !== e.runId) { autoGroup = { kind: 'auto', at: e.at, runId: e.runId, items: [] }; thread.push(autoGroup); }
-      autoGroup.items.push({ at: e.at, headline: e.headline, who: e.agentType ?? 'conductor', reason: e.reason });
-      continue;
-    }
-    if (e.action === 'send' && e.kind === 'resume') thread.push({ kind: 'note', at: e.at, text: 'Claude’s usage limit reset, so the workshop told the Foreman to carry on.' });
-    else if (e.action === 'send') thread.push({ kind: 'you', at: e.at, text: e.text, sendKind: e.kind });
-    else if (e.action === 'run-ended') {
-      if (e.status === 'limited' || (e.status === 'stopped' && e.stopReason === 'usage-limit')) thread.push({ kind: 'note', at: e.at, text: `Paused: Claude’s usage limit was reached.${limits.autoResume ? ' The job carries on by itself once the limit resets.' : ' Send a message to carry on once the limit resets.'}` });
-      else if (e.status === 'error') thread.push({ kind: 'problem', at: e.at, text: e.error ?? 'The reply hit a problem.' });
-      else if (e.reply) thread.push({ kind: 'reply', at: e.at, html: renderMarkdown(e.reply, { idHref: idHref(f) }), stopped: e.status === 'stopped' });
-      else if (e.status === 'stopped') thread.push({ kind: 'note', at: e.at, text: 'You paused this reply.' });
-    } else if (e.action === 'permission') thread.push({ kind: 'decision', at: e.at, text: `${e.decision === 'deny' ? 'You said no to' : 'You allowed'}: ${e.headline ?? e.tool}${e.note ? ` (“${e.note}”)` : ''}` });
-    else if (e.action === 'takeover') thread.push({ kind: 'note', at: e.at, text: 'You took this job over from the terminal.' });
-    else if (e.action === 'close') thread.push({ kind: 'note', at: e.at, text: `You marked this job ${e.as === 'dropped' ? 'dropped' : 'done'}${e.note ? ` (“${e.note}”)` : ''}${e.worktreeRemoved ? `, and removed its worktree (${e.worktreeRemoved}); the branch is kept` : ''}.` });
-    else if (e.action === 'reopen') thread.push({ kind: 'note', at: e.at, text: e.how === 'message' ? 'Reopened: you sent the Foreman a message.' : 'You reopened this job.' });
-    else if (e.action === 'options') thread.push({ kind: 'note', at: e.at, text: `You changed how this job runs (from the next stage): ${describeOptions(e.options).join(' ')}` });
-  }
-  thread.sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')));
+  const page = await threadPage(f, audit);
   return {
     ...boardCard(f, run),
     dir: f.dir, repoPath: f.repoPath, branch: f.branch, worktree: f.worktree, baseSha: f.baseSha, prs: f.prs,
@@ -360,7 +352,7 @@ async function jobDetail(f) {
     latestBrief, briefs: f.briefs, approvals: f.approvals, history: f.history, artifacts: f.artifacts, recordedArtifacts: f.recordedArtifacts,
     costDetail: { ...f.cost, whatIf: whatIfConductor(f.cost.agents) },
     activity: f.activity.map((a) => (a.state === 'running' && !stillRunning(f, a, run && ACTIVE_RUN.has(run.status) ? run : null) ? { ...a, state: 'stopped' } : a)),
-    drive, run, runs: driver.list().filter((r) => r.featureDir === f.dir), overview, thread: thread.slice(-60), locate: f.locate, policy: settings.policy,
+    drive, run, runs: driver.list().filter((r) => r.featureDir === f.dir), overview, thread: page.items, threadMore: page.more, locate: f.locate, policy: settings.policy,
     permissionsPending: driver.pendingPermissions().filter((p) => p.featureDir === f.dir),
     lastReply, audit: audit.slice(-50), warnings: f.warnings,
     statusForCompose: { questions: f.questions, decidedOnYourBehalf: f.decidedOnYourBehalf, nextProposed: f.nextProposed, spec: f.spec, artifacts: f.recordedArtifacts, brief: f.latestBrief },
@@ -426,18 +418,41 @@ async function uniqueSlug(base) {
   return slug;
 }
 
-const GET = {
-  '/api/meta': async () => ({
+async function meta() {
+  return {
     token: TOKEN, stages: STAGES, agents: AGENTS, prices: { asOf: PRICES_AS_OF, models: PRICES },
     featuresDir: FEATURES_DIR, crewModels: await crewModels(), demo: DEMO, models: MODELS, readDirs: await readDirs(),
     settings: await state.getSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT },
     jobOptions: { flows: Object.entries(FLOWS).map(([id, f]) => ({ id, label: f.label, note: f.note, model: f.model, defaults: defaultsFor(id) })), skippable: SKIPPABLE, providable: PROVIDABLE, reviewers: REVIEWERS, fablePoints: FABLE_POINTS },
-  }),
+  };
+}
+
+// Every job's card, most urgent first (jobs being started from here come first).
+async function boardCards(list) {
+  const cards = [...startingCards(list), ...list.map((f) => boardCard(f, runFor(f)))];
+  const rank = (c) => (c.needsYou ? 0 : c.working || c.stageState === 'working' ? 1 : c.stageState === 'done' ? 3 : 2);
+  cards.sort((a, b) => rank(a) - rank(b) || (a.needsYou ? String(a.waitingSince ?? '').localeCompare(String(b.waitingSince ?? '')) : 0));
+  return cards;
+}
+
+const GET = {
+  '/api/meta': meta,
+  // Everything the new UI needs to draw itself, in one call. `seq` is the newest live event at the
+  // moment the snapshot started: open /api/events?v=2&since=<seq>&epoch=<epoch> to carry on from
+  // it. Events that also made it into the snapshot may arrive again; applying them twice is harmless.
+  '/api/snapshot': async () => {
+    const seq = events.seq;
+    const list = await features();
+    const jobs = groupCards(await boardCards(list));
+    return {
+      v: 2, seq, epoch: events.epoch, meta: await meta(), jobs,
+      needsYou: jobs.filter((j) => j.group === 'needs-you').length,
+      permissions: driver.pendingPermissions(), usage: limits.view(), generatedAt: new Date().toISOString(),
+    };
+  },
   '/api/features': async () => {
     const list = await features();
-    const cards = [...startingCards(list), ...list.map((f) => boardCard(f, runFor(f)))];
-    const rank = (c) => (c.needsYou ? 0 : c.working || c.stageState === 'working' ? 1 : c.stageState === 'done' ? 3 : 2);
-    cards.sort((a, b) => rank(a) - rank(b) || (a.needsYou ? String(a.waitingSince ?? '').localeCompare(String(b.waitingSince ?? '')) : 0));
+    const cards = await boardCards(list);
     const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
     const spend = await sessionIndex.spendSince({ today: startOfToday.getTime(), week: startOfToday.getTime() - 6 * 86400000 });
     const shown = new Set(cards.filter((c) => !c.closed).map((c) => c.slug));
@@ -503,6 +518,12 @@ async function routeGet(urlPath, url, req, res) {
     const f = await featureBySlug(m[1]);
     if (!f) throw new HttpError(404, 'No job by that name.');
     const sub = m[2] ?? '';
+    if (!sub && url.searchParams.has('before')) {
+      // "Load older": only the thread items before the given one.
+      const page = await threadPage(f, await state.auditFor(f.dir, Infinity), { before: str(url.searchParams.get('before'), 300) });
+      if (!page) throw new HttpError(404, 'That part of the conversation isn’t there any more. Reload the job.');
+      return sendJson(res, 200, { slug: f.slug, thread: page.items, threadMore: page.more });
+    }
     if (!sub) return sendJson(res, 200, await jobDetail(f));
     if (sub === '/doc') {
       const file = url.searchParams.get('file') ?? '';
@@ -782,18 +803,36 @@ function broadcast(event, data) {
 let changeTimer = null;
 function notifyChange() {
   clearTimeout(changeTimer);
-  changeTimer = setTimeout(() => { cached = null; broadcast('change', { at: Date.now() }); }, 700);
+  changeTimer = setTimeout(() => { cached = null; broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); }, 700);
 }
-driver.on('run', (run) => { cached = null; broadcast('run', run); });
-driver.on('permission', (p) => broadcast('permission', p));
-driver.on('permission-gone', (p) => broadcast('permission-gone', p));
-limits.on('change', () => { cached = null; broadcast('change', { at: Date.now() }); });
-local.on('output', (e) => broadcast('local', e));
-local.on('changed', (e) => broadcast('local-state', e));
+driver.on('run', (run) => { cached = null; broadcast('run', run); events.emit('run', run.slug, run); });
+driver.on('permission', (p) => { broadcast('permission', p); events.emit('permission', p.slug, p); });
+driver.on('permission-gone', (p) => { broadcast('permission-gone', p); events.emit('permission-gone', p.slug ?? null, p); });
+limits.on('change', () => { cached = null; broadcast('change', { at: Date.now() }); events.emit('usage', null, limits.view()); });
+local.on('output', (e) => { broadcast('local', e); events.emit('local', e.slug ?? null, e); });
+local.on('changed', (e) => { broadcast('local-state', e); events.emit('local-state', e.slug ?? null, e); });
 
-function watch(dir) {
+// ---------- Live updates for the new UI (/api/events?v=2, see lib/events.js) ----------
+
+const events = new EventLog();
+// A job's conversation changed: one 'thread' event per job, a moment after the last change, so
+// the page refetches only that job. Sources: the dashboard's audit log, and files in the job's folder.
+const threadTimers = new Map();
+function threadChanged(slug, why) {
+  if (!slug) return;
+  clearTimeout(threadTimers.get(slug));
+  threadTimers.set(slug, setTimeout(() => { threadTimers.delete(slug); events.emit('thread', slug, { why }); }, 300));
+}
+state.on('audit', (e) => { if (e.featureDir) threadChanged(e.slug ?? path.basename(e.featureDir), e.action); });
+function featureFileChanged(_type, filename) {
+  // fs.watch names the file relative to the jobs folder: its first part is the job's folder name.
+  const slug = filename ? String(filename).split(path.sep)[0] : null;
+  if (slug && !slug.startsWith('.')) threadChanged(slug, 'files');
+}
+
+function watch(dir, onFile = null) {
   try {
-    fs.watch(dir, { recursive: true }, notifyChange).on('error', () => {});
+    fs.watch(dir, { recursive: true }, (type, filename) => { notifyChange(); onFile?.(type, filename); }).on('error', () => {});
   } catch {
     console.warn(`Not watching ${dir} (missing or not supported); the page still refreshes every 30 seconds.`);
   }
@@ -814,6 +853,9 @@ const server = http.createServer(async (req, res) => {
   let urlPath;
   try { urlPath = decodeURIComponent(url.pathname); } catch { return send(res, 400, 'Bad request'); }
   try {
+    if (req.method === 'GET' && urlPath === '/api/events' && url.searchParams.get('v') === '2') {
+      return openStream(req, res, { log: events, headers: SECURITY_HEADERS, resume: resumePoint(req.headers, url.searchParams) });
+    }
     if (req.method === 'GET' && urlPath === '/api/events') return openEvents(req, res);
     if (req.method === 'GET') return await routeGet(urlPath, url, req, res);
     if (req.method === 'POST') return await routePost(urlPath, req, res);
@@ -827,7 +869,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 await limits.load();
-watch(FEATURES_DIR);
+watch(FEATURES_DIR, featureFileChanged);
 watch(PROJECTS_DIR);
 server.listen(PORT, HOST, () => {
   console.log(`Feature Workshop running at http://${HOST}:${PORT}  (Ctrl+C to stop)`);

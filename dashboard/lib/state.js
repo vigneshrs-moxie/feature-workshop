@@ -3,12 +3,16 @@
 //   audit.jsonl    everything sent or decided from the browser, with the exact words
 // Default folder: ~/.feature-workshop (WORKSHOP_STATE_DIR overrides it).
 
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 
-export class State {
+// Emits 'audit' (the entry as written) after each audit line is saved, so live views can say
+// which job's conversation just changed.
+export class State extends EventEmitter {
   constructor(dir = process.env.WORKSHOP_STATE_DIR || path.join(os.homedir(), '.feature-workshop')) {
+    super();
     this.dir = dir;
     this.sessionsFile = path.join(dir, 'sessions.json');
     this.auditFile = path.join(dir, 'audit.jsonl');
@@ -63,8 +67,9 @@ export class State {
 
   async audit(entry) {
     await this.#ensure();
-    const line = JSON.stringify({ at: new Date().toISOString(), ...entry }) + '\n';
-    await fs.appendFile(this.auditFile, line, { mode: 0o600 });
+    const record = { at: new Date().toISOString(), ...entry };
+    await fs.appendFile(this.auditFile, JSON.stringify(record) + '\n', { mode: 0o600 });
+    try { this.emit('audit', record); } catch { /* a listener's problem must not fail the write */ }
   }
 
   // The last reply sent from the dashboard that ended, per job: { [featureDir]: { at, status, sessionId } }.
