@@ -136,6 +136,16 @@ describe('Foreman pane', () => {
     expect(within(now).getByText('Plan needs your yes')).toBeInTheDocument();
   });
 
+  it('refetches the open thread after a resync, catching up thread events lost in the gap', async () => {
+    const { store, all } = setup();
+    await screen.findByText('Spec is ready');
+    all['/api/job/alpha'] = detail({ thread: [...THREAD, { id: 'you:hhh', kind: 'you', at: at(9), text: 'Sent while you were away' }] });
+    act(() => { store.dispatch({ type: 'event', event: ev(2, 'resync', null, { reason: 'restarted', epoch: 'bbbb' }) }); });
+    expect(screen.queryByText('Sent while you were away')).toBeNull(); // waits for the fresh snapshot
+    act(() => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [ALPHA], seq: 2, epoch: 'bbbb' }) }); });
+    expect(await screen.findByText('Sent while you were away')).toBeInTheDocument();
+  });
+
   it('shows the live row while the Foreman replies', async () => {
     const { store } = setup();
     await screen.findByText('Spec is ready');

@@ -27,6 +27,9 @@ export interface WorkshopState {
   epoch: string | null;
   /** Bumped when a job's conversation changes, so its thread view refetches (and only that one). */
   threadVersions: Record<string, number>;
+  /** Bumped when a snapshot follows a resync or a dashboard restart: thread events may have been
+   *  lost in the gap, so every open thread refetches (useJobThread adds it to its version). */
+  threadEpoch: number;
   /** An event may have moved jobs between groups: fetch a fresh snapshot. */
   jobsStale: boolean;
   /** The stream couldn't catch up (dashboard restarted, or too far behind): fetch a fresh snapshot. */
@@ -52,18 +55,23 @@ export const initialState: WorkshopState = {
   seq: 0,
   epoch: null,
   threadVersions: {},
+  threadEpoch: 0,
   jobsStale: false,
   resyncNeeded: false,
   generatedAt: null,
 };
 
-// Event types that can change which group a job is in, or what its row shows.
-const MOVES_JOBS = new Set(['run', 'permission', 'permission-gone', 'thread', 'change', 'usage']);
+// Event types that can change which group a job is in, or what its row shows. 'run' is not here:
+// the driver sends one on many SDK messages while a job replies, so a run only marks jobs stale
+// when it starts, ends or changes status (see the 'run' case below).
+const MOVES_JOBS = new Set(['permission', 'permission-gone', 'thread', 'change', 'usage']);
 
 const asObject = (d: unknown): Record<string, unknown> => (d && typeof d === 'object' ? (d as Record<string, unknown>) : {});
 
 function applySnapshot(state: WorkshopState, s: Snapshot): WorkshopState {
   const sameRun = state.epoch !== null && state.epoch === s.epoch;
+  // After a resync (or a dashboard restart) thread events may have been lost: refetch open threads.
+  const gap = state.resyncNeeded || (state.epoch !== null && state.epoch !== s.epoch);
   return {
     ...state,
     status: 'ready',
@@ -76,6 +84,7 @@ function applySnapshot(state: WorkshopState, s: Snapshot): WorkshopState {
     seq: sameRun ? Math.max(state.seq, s.seq) : s.seq,
     epoch: s.epoch,
     runs: sameRun ? state.runs : {},
+    threadEpoch: gap ? state.threadEpoch + 1 : state.threadEpoch,
     jobsStale: false,
     resyncNeeded: false,
     generatedAt: s.generatedAt ?? null,
@@ -125,7 +134,10 @@ function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
     case 'run': {
       const run = d as unknown as Run;
       const slug = e.job ?? run.slug;
-      if (slug) next.runs = { ...state.runs, [slug]: run };
+      if (!slug) return next;
+      const prev = state.runs[slug];
+      if (!prev || prev.id !== run.id || prev.status !== run.status) next.jobsStale = true;
+      next.runs = { ...state.runs, [slug]: run };
       return next;
     }
     case 'usage':

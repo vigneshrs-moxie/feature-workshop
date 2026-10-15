@@ -1,5 +1,6 @@
 // Fetches the open job's conversation: GET /api/job/:slug for the newest page (again whenever a
-// 'thread' event for this job bumps its version in the store, so other jobs never refetch), and
+// 'thread' event for this job bumps its version in the store, so other jobs never refetch, and
+// after a resync, when the store's threadEpoch moves on), and
 // GET /api/job/:slug?before=<id> for "Load older". Pages are joined by the items' stable ids.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';

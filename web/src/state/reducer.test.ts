@@ -88,6 +88,21 @@ describe('reducer: events', () => {
     expect(s.runs.beta.status).toBe('done');
   });
 
+  it('a run marks jobs stale only when it starts, ends or changes status', () => {
+    const r = (seq: number, status: string, extra: Record<string, unknown> = {}) =>
+      ({ type: 'event', event: ev(seq, 'run', 'beta', { id: 'r1', slug: 'beta', status, ...extra }) }) as Action;
+    let s = run(hydrated(), r(11, 'running'));
+    expect(s.jobsStale).toBe(true); // a new run
+    s = reducer(s, { type: 'snapshot', snapshot: snapshot({ seq: 11 }) });
+    s = run(s, r(12, 'running', { lastAction: 'Reading a file' }), r(13, 'running', { lastText: 'Working on it.' }));
+    expect(s.jobsStale).toBe(false); // progress only: no snapshot refetch
+    expect(s.runs.beta.lastText).toBe('Working on it.');
+    s = reducer(s, r(14, 'done'));
+    expect(s.jobsStale).toBe(true); // it ended
+    s = run(reducer(s, { type: 'snapshot', snapshot: snapshot({ seq: 14 }) }), { type: 'event', event: ev(15, 'run', 'beta', { id: 'r2', slug: 'beta', status: 'done' }) });
+    expect(s.jobsStale).toBe(true); // another run, even with the same status
+  });
+
   it('replaces usage', () => {
     const s = reducer(hydrated(), { type: 'event', event: ev(11, 'usage', null, { limited: true, blocking: true, label: '5-hour limit', resetsAt: null }) });
     expect(s.usage?.limited).toBe(true);
@@ -116,6 +131,17 @@ describe('reducer: events', () => {
     const fresh = reducer(after, { type: 'snapshot', snapshot: snapshot({ seq: 2, epoch: 'bbbb' }) });
     expect(fresh.resyncNeeded).toBe(false);
     expect(fresh.seq).toBe(3);
+  });
+
+  it('refetches every thread after a resync or a dashboard restart, but not on an ordinary snapshot', () => {
+    let s = hydrated();
+    expect(s.threadEpoch).toBe(0);
+    s = reducer(s, { type: 'snapshot', snapshot: snapshot({ seq: 12 }) });
+    expect(s.threadEpoch).toBe(0); // same run, no gap
+    s = run(s, { type: 'event', event: ev(2, 'resync', null, { reason: 'restarted', epoch: 'bbbb' }) }, { type: 'snapshot', snapshot: snapshot({ seq: 2, epoch: 'bbbb' }) });
+    expect(s.threadEpoch).toBe(1);
+    s = reducer(s, { type: 'snapshot', snapshot: snapshot({ seq: 1, epoch: 'cccc' }) });
+    expect(s.threadEpoch).toBe(2); // a restart seen only through the snapshot
   });
 });
 

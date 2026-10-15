@@ -19,7 +19,8 @@ const HOW = 'This is your conversation with the job’s Foreman, the Claude sess
 function JobThread({ job }: { job: Job }) {
   const state = useWorkshopState();
   const now = useNow();
-  const thread = useJobThread(job.slug, state.threadVersions[job.slug] ?? 0);
+  // Both only ever grow, so their sum changes whenever either does.
+  const thread = useJobThread(job.slug, (state.threadVersions[job.slug] ?? 0) + state.threadEpoch);
   const run = state.runs[job.slug] ?? thread.detail?.run ?? null;
   const shown = shownItems(thread.items);
 
