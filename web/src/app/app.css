@@ -1,0 +1,157 @@
+/* The shell's styles. Every value comes from tokens.css (generated from theme/tokens.ts). */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg-0);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { margin: 0; font-family: var(--font-display); font-weight: var(--weight-bold); }
+p { margin: 0 0 var(--space-2); }
+ul { margin: 0; padding: 0; list-style: none; }
+
+a { color: var(--accent-strong); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Visible focus for keyboard users, everywhere. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.muted { color: var(--text-2); }
+.count, .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ---------- Layout ---------- */
+
+.app { display: grid; grid-template-rows: var(--topbar-h) minmax(0, 1fr); height: 100%; }
+
+.panes {
+  display: grid;
+  grid-template-columns: clamp(var(--jobs-w-min), var(--jobs-w), var(--jobs-w-max)) minmax(0, 1fr) var(--preview-w);
+  min-height: 0;
+}
+
+.pane { min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4); }
+.pane-jobs { background: var(--bg-1); border-right: 1px solid var(--border-1); }
+.pane-foreman { background: var(--bg-0); }
+.pane-preview { background: var(--bg-1); border-left: 1px solid var(--border-1); }
+.foreman-column { max-width: var(--foreman-max); margin: 0 auto; }
+
+.pane-title { font-size: var(--text-md); margin-bottom: var(--space-2); }
+
+.app-message { padding: var(--space-8); max-width: var(--foreman-max); }
+
+/* ---------- Top bar ---------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border-1);
+}
+.brand { font-size: var(--text-base); }
+.spacer { flex: 1; }
+.needs { color: var(--text-2); }
+
+.conn { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-2); font-size: var(--text-sm); }
+.conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status-paused); }
+.conn-live .conn-dot { background: var(--status-ok); }
+.conn-reconnecting .conn-dot { background: var(--status-warn); animation: pulse 1.2s ease-in-out infinite; }
+
+@keyframes pulse { 50% { opacity: .35; } }
+
+.chip {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: var(--text-xs);
+}
+
+/* ---------- Controls ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-md);
+  background: var(--bg-3);
+  color: var(--text-1);
+  font: inherit;
+  cursor: pointer;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.btn:hover { background: var(--bg-4); text-decoration: none; }
+.btn:active { opacity: .8; }
+.btn-quiet { background: transparent; border-color: transparent; color: var(--text-2); }
+.btn-quiet:hover { background: var(--bg-2); color: var(--text-1); }
+
+/* ---------- "How this works" ---------- */
+
+.how {
+  margin: 0 0 var(--space-3);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+.how summary { padding: var(--space-1) var(--space-2); cursor: pointer; color: var(--text-2); }
+.how summary:hover { color: var(--text-1); }
+.how-body { padding: 0 var(--space-2) var(--space-1); }
+
+/* ---------- Jobs (shell version) ---------- */
+
+.job-group { margin-bottom: var(--space-3); }
+.job-group-title {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-2);
+  margin-bottom: var(--space-1);
+}
+.job-link {
+  display: flex;
+  align-items: center;
+  min-height: var(--row-h);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.job-link:hover { background: var(--bg-3); text-decoration: none; }
+.job-link[aria-current='page'] { background: var(--accent-soft); }
+
+.status { font-weight: var(--weight-medium); }
+.status-needs-you { color: var(--status-warn); }
+.status-running { color: var(--status-info); }
+.status-paused { color: var(--status-paused); }
+.status-idle { color: var(--text-2); }
+.status-done { color: var(--status-ok); }
+
+.classic-links li { margin-bottom: var(--space-2); }
+
+/* With reduced motion turned on, only fades remain and pulses stop. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-iteration-count: 1 !important; }
+  .conn-reconnecting .conn-dot { animation: none; }
+}

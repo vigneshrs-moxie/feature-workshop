@@ -1,0 +1,30 @@
+import { describe, expect, it } from 'vitest';
+import { classicHref, hrefFor, jobHref, parseHash } from './router';
+
+describe('hash router', () => {
+  it.each([
+    ['', { name: 'home' }],
+    ['#', { name: 'home' }],
+    ['#/', { name: 'home' }],
+    ['#/job/alpha', { name: 'job', slug: 'alpha' }],
+    ['#/job/alpha/', { name: 'job', slug: 'alpha' }],
+    ['#/job/with%20space', { name: 'job', slug: 'with space' }],
+    ['#/job/', { name: 'home' }],
+    ['#/job/a/b', { name: 'home' }],
+    ['#/job/%E0%A4%A', { name: 'home' }],
+    ['#/costs', { name: 'home' }],
+  ])('%s', (hash, route) => {
+    expect(parseHash(hash)).toEqual(route);
+  });
+
+  it('builds links that parse back', () => {
+    expect(jobHref('a b/c')).toBe('#/job/a%20b%2Fc');
+    expect(parseHash(jobHref('a b/c'))).toEqual({ name: 'job', slug: 'a b/c' });
+    expect(hrefFor({ name: 'home' })).toBe('#/');
+  });
+
+  it('links into the classic view at /', () => {
+    expect(classicHref.job('x y')).toBe('/#/job/x%20y');
+    expect(classicHref.costs()).toBe('/#/costs');
+  });
+});
