@@ -1,0 +1,54 @@
+// What the job menu and ⌘K do to a job, in one place so both behave the same. Each call is one
+// dashboard route (dashboard/server.js); the live events that follow bring the page up to date.
+import type { ApiClient } from '../api/client';
+import type { Closed, JobPolicyResult, PolicyId, Usage } from '../api/types';
+import type { Store } from '../state/store';
+
+const job = (slug: string) => `/api/job/${encodeURIComponent(slug)}`;
+
+/** End the reply in progress (decision D2): the job then waits for your next message. */
+export async function stopRun(api: ApiClient, runId: string) {
+  await api.post(`/api/runs/${encodeURIComponent(runId)}/stop`, {});
+}
+
+/** Put a job marked done or dropped back among the open ones. Nothing else changes. */
+export async function reopenJob(api: ApiClient, slug: string) {
+  await api.post(`${job(slug)}/reopen`, {});
+}
+
+export interface CloseChoice {
+  as: 'done' | 'dropped';
+  note: string;
+  /** Also remove its worktree, only when nothing would be lost (the dashboard checks). */
+  removeWorktree: boolean;
+}
+
+/** Mark a job done or dropped (the classic view's Mark done options). */
+export async function closeJob(api: ApiClient, slug: string, choice: CloseChoice): Promise<Closed | null> {
+  const r = await api.post<{ closed?: Closed }>(`${job(slug)}/close`, choice);
+  return r?.closed ?? null;
+}
+
+/** Set one job's own permission setting (null: it follows your global one), shown at once. */
+export async function setJobPolicy(api: ApiClient, store: Store, slug: string, dir: string | null | undefined, policy: PolicyId | null) {
+  const r = await api.post<JobPolicyResult>(`${job(slug)}/policy`, { policy });
+  const settings = store.getState().meta?.settings;
+  if (settings && dir) {
+    const jobPolicy = { ...(settings.jobPolicy ?? {}) };
+    if (r.policyOverride) jobPolicy[dir] = r.policyOverride; else delete jobPolicy[dir];
+    store.dispatch({ type: 'settings', settings: { ...settings, jobPolicy } });
+  }
+  return r;
+}
+
+/** Carry on now: start the jobs paused by the usage limit again. Returns how many started. */
+export async function carryOnNow(api: ApiClient): Promise<number> {
+  const r = await api.post<{ resumed?: unknown[] }>('/api/usage/resume', {});
+  return Array.isArray(r?.resumed) ? r.resumed.length : 0;
+}
+
+/** Turn automatic carry-on (when the limit resets) on or off. */
+export async function setAutoCarryOn(api: ApiClient, store: Store, on: boolean) {
+  const usage = await api.post<Usage>('/api/usage/auto', { on });
+  if (usage && typeof usage === 'object') store.dispatch({ type: 'usage', usage });
+}

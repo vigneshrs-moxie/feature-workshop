@@ -28,7 +28,7 @@ function QuestionGroup({ q, i, pick, onChange, disabled }: { q: AskedQuestion; i
       </legend>
       {multi && <p className="muted question-hint">Pick any that apply.</p>}
       {(q.options ?? []).map((o) => (
-        <label key={o.label} className="answer-option">
+        <label key={o.label} className="answer-option" title={multi ? 'Tick this answer; you can pick more than one.' : 'Pick this answer.'}>
           <input type={multi ? 'checkbox' : 'radio'} name={name} checked={pick.picked.includes(o.label)} onChange={() => toggle(o.label)} />
           <span>
             <span className="answer-label">{o.label}</span>
@@ -36,7 +36,7 @@ function QuestionGroup({ q, i, pick, onChange, disabled }: { q: AskedQuestion; i
           </span>
         </label>
       ))}
-      <label className="answer-option">
+      <label className="answer-option" title="None of these fits: answer in your own words.">
         <input
           type={multi ? 'checkbox' : 'radio'}
           name={name}

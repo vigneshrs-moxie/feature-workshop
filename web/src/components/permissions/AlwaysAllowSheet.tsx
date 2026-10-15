@@ -99,7 +99,7 @@ export function AlwaysAllowSheet({ permission: p, draft, onClose }: { permission
               <li>It also allows the request that’s waiting now.</li>
               <li>It never covers anything else: other commands, files or sites still ask.</li>
               <li>It isn’t used for a job set to “ask about everything” (by your setting or the job’s own), or for steps Claude Code flags as risky.</li>
-              <li>You can remove it any time in <a href={settingsHref()}>Settings</a>. Your Claude Code settings aren’t changed.</li>
+              <li>You can remove it any time in <a href={settingsHref()} title="Open Settings, where your saved rules are listed and can be removed.">Settings</a>. Your Claude Code settings aren’t changed.</li>
             </ul>
             {error && <p className="field-problem" role="alert">{error}</p>}
             <div className="sheet-actions">

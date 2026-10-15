@@ -1,18 +1,21 @@
 // The open job's header: title, kind, repository and branch, what it has cost so far, its status,
-// its permission setting, and the job menu. The menu links to the classic page and sets this job's
-// own permission setting (POST /api/job/:slug/policy); Mark done, Reopen and Options arrive in plan
-// step 9 (and are shown disabled until then).
+// its permission setting, whether it was marked done or dropped, and the job menu:
+//   Mark done or dropped… (the classic options, in a sheet), Reopen, Options and the job's classic
+//   page (decision D4), and this job's own permission setting (POST /api/job/:slug/policy).
+// ⌘K offers the same actions (app/commands.ts); both call app/jobActions.ts.
 import { useEffect, useRef, useState } from 'react';
-import type { Job, JobPolicyResult, PolicyId } from '../../api/types';
+import type { Job, PolicyId, Run } from '../../api/types';
+import { reopenJob, setJobPolicy } from '../../app/jobActions';
 import { classicHref } from '../../app/router';
+import { useUi } from '../../app/ui';
 import { autoBlockedReason, autoModeOf, HARD_LINES_NOTE, POLICIES, policyLabel } from '../../components/permissions/policies';
+import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { jobHueStyle } from '../../theme/hue';
 import { GROUP_HINTS, GROUP_LABELS } from '../Jobs/jobStatus';
-import { formatCost } from './thread';
+import { formatCost, isActiveRun } from './thread';
 
 const KIND_LABELS: Record<string, string> = { feature: 'Feature', bug: 'Bug fix' };
-const SOON = 'Coming to this view soon. Use the classic view for this for now.';
 
 /** This job's own permission setting (null: it follows yours), and the one in force. */
 function useJobPolicy(dir: string | null | undefined, fromDetail: PolicyId | null | undefined) {
@@ -24,10 +27,21 @@ function useJobPolicy(dir: string | null | undefined, fromDetail: PolicyId | nul
   return { override, global, effective: override ?? global, auto: autoModeOf(settings) };
 }
 
-function JobMenu({ slug, dir, policyOverride }: { slug: string; dir?: string | null; policyOverride?: PolicyId | null }) {
+interface MenuProps {
+  job: Job;
+  dir?: string | null;
+  policyOverride?: PolicyId | null;
+  run?: Run | null;
+  worktree?: string | null;
+}
+
+function JobMenu({ job, dir, policyOverride, run, worktree }: MenuProps) {
   const { api, store } = useWorkshop();
+  const ui = useUi();
+  const slug = job.slug;
   const { override, global, auto } = useJobPolicy(dir, policyOverride);
   const blocked = autoBlockedReason(auto);
+  const running = isActiveRun(run);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,17 +55,11 @@ function JobMenu({ slug, dir, policyOverride }: { slug: string; dir?: string | n
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [open]);
 
-  async function choose(policy: PolicyId | null) {
+  async function act(fn: () => Promise<unknown>) {
     setBusy(true);
     setError(null);
     try {
-      const r = await api.post<JobPolicyResult>(`/api/job/${encodeURIComponent(slug)}/policy`, { policy });
-      const settings = store.getState().meta?.settings;
-      if (settings && dir) {
-        const jobPolicy = { ...(settings.jobPolicy ?? {}) };
-        if (r.policyOverride) jobPolicy[dir] = r.policyOverride; else delete jobPolicy[dir];
-        store.dispatch({ type: 'settings', settings: { ...settings, jobPolicy } });
-      }
+      await fn();
       setOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -68,21 +76,43 @@ function JobMenu({ slug, dir, policyOverride }: { slug: string; dir?: string | n
         aria-haspopup="true"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        title="More things you can do with this job."
+        title="More things you can do with this job. ⌘K lists them too."
       >
         Job menu <span aria-hidden="true">▾</span>
       </button>
       {open && (
         <ul className="job-menu-list">
+          {!job.closed && (
+            <li>
+              <button
+                type="button"
+                disabled={busy || running}
+                onClick={() => { setOpen(false); ui.openSheet({ kind: 'close-job', slug, worktree: worktree ?? null }); }}
+                title={running ? 'The Foreman is replying. Stop the reply first, then mark the job.' : 'Move it to Done, as done or dropped, with an optional note. Nothing is deleted and you can reopen it any time.'}
+              >
+                Mark done or dropped…
+              </button>
+            </li>
+          )}
+          {(job.closed || job.closedEarlier) && (
+            <li>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void act(() => reopenJob(api, slug))}
+                title={job.closed ? 'Put it back among the open jobs. Nothing else changes; the Foreman isn’t contacted.' : 'It was marked done or dropped earlier and has changed since. Keep it open for good.'}
+              >
+                {job.closed ? 'Reopen' : 'Keep it open'}
+              </button>
+            </li>
+          )}
+          <li><a href={classicHref.job(slug)} title="Change this job’s options on its classic page (the Options button there): stages, reviewers, notes for the Foreman.">Options (classic view)</a></li>
           <li><a href={classicHref.job(slug)} title="Open this job in the classic view: try it on your computer, details, costs and options.">Open in classic view</a></li>
-          <li><button type="button" disabled title={SOON}>Mark done</button></li>
-          <li><button type="button" disabled title={SOON}>Reopen</button></li>
-          <li><button type="button" disabled title={SOON}>Options</button></li>
           <li role="presentation"><p className="job-menu-heading" id={`perm-${slug}`}>Permissions for this job</p></li>
           <li>
             <ul role="group" aria-labelledby={`perm-${slug}`}>
               <li>
-                <button type="button" role="menuitemradio" aria-checked={override === null} disabled={busy} onClick={() => void choose(null)} title="Use your global setting from Settings, and follow it when you change it.">
+                <button type="button" role="menuitemradio" aria-checked={override === null} disabled={busy} onClick={() => void act(() => setJobPolicy(api, store, slug, dir, null))} title="Use your global setting from Settings, and follow it when you change it.">
                   {override === null ? '✓ ' : ''}Follow my setting ({policyLabel(global)})
                 </button>
               </li>
@@ -95,7 +125,7 @@ function JobMenu({ slug, dir, policyOverride }: { slug: string; dir?: string | n
                       role="menuitemradio"
                       aria-checked={override === p.id}
                       disabled={busy || off}
-                      onClick={() => void choose(p.id)}
+                      onClick={() => void act(() => setJobPolicy(api, store, slug, dir, p.id))}
                       title={off ? `Not available: ${blocked}` : `${p.hint} Only this job; it applies at once, also to a reply in progress. ${HARD_LINES_NOTE}`}
                     >
                       {override === p.id ? '✓ ' : ''}{p.label}
@@ -112,7 +142,17 @@ function JobMenu({ slug, dir, policyOverride }: { slug: string; dir?: string | n
   );
 }
 
-export function JobHeader({ job, branch, dir, policyOverride }: { job: Job; branch?: string | null; dir?: string | null; policyOverride?: PolicyId | null }) {
+export interface JobHeaderProps {
+  job: Job;
+  branch?: string | null;
+  dir?: string | null;
+  policyOverride?: PolicyId | null;
+  run?: Run | null;
+  worktree?: string | null;
+}
+
+export function JobHeader({ job, branch, dir, policyOverride, run, worktree }: JobHeaderProps) {
+  const now = useNow();
   const kind = job.kind ? KIND_LABELS[job.kind] ?? job.kind : null;
   const repo = job.repo?.name ?? null;
   const br = branch ?? job.repo?.branch ?? null;
@@ -120,12 +160,14 @@ export function JobHeader({ job, branch, dir, policyOverride }: { job: Job; bran
   const cost = job.cost?.source === 'none' ? '' : formatCost(job.cost?.totalUsd);
   const costHint = job.cost?.source === 'estimate' ? 'What this job has cost so far (an estimate from its sessions’ token counts).' : 'What this job has cost so far.';
   const policy = useJobPolicy(dir, policyOverride);
+  const closed = job.closed ?? null;
+  const ago = closed ? relativeTime(closed.at, now) : '';
   return (
     <header className="job-header">
       <div className="job-header-line">
         <span className="hue-dot" style={jobHueStyle(job.slug)} aria-hidden="true" />
         <h2 className="pane-title job-title">{job.title || job.slug}</h2>
-        <JobMenu slug={job.slug} dir={dir} policyOverride={policyOverride} />
+        <JobMenu job={job} dir={dir} policyOverride={policyOverride} run={run} worktree={worktree} />
       </div>
       <p className="job-facts muted">
         <span className={`status status-${job.group}`} title={GROUP_HINTS[job.group]}>{GROUP_LABELS[job.group] ?? job.group}</span>
@@ -137,6 +179,12 @@ export function JobHeader({ job, branch, dir, policyOverride }: { job: Job; bran
           {policyLabel(policy.effective)}{policy.override ? ' · this job' : ''}
         </span>
       </p>
+      {closed && (
+        <p className="closed-note muted" title={`Marked on ${fullTime(closed.at)}. Reopen it from the job menu; sending the Foreman a message reopens it too.`}>
+          <strong>{closed.as === 'done' ? 'Marked done' : 'Dropped'}</strong> {ago && (/^\d+[mhd]$/.test(ago) ? `${ago} ago` : ago)}
+          {closed.note ? `: “${closed.note}”` : ''}.{closed.worktreeRemoved ? ' Its worktree was removed; the branch is kept.' : ''}
+        </p>
+      )}
     </header>
   );
 }

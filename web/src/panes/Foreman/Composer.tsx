@@ -171,6 +171,7 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
       <label htmlFor={inputId} className="sr-only">{running ? 'Steer the reply in progress' : 'Your message to the Foreman'}</label>
       <textarea
         id={inputId}
+        data-composer-input
         className="text-area composer-input"
         rows={3}
         value={draft}

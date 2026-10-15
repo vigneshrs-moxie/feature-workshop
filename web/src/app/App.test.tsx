@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
 import type { Snapshot } from '../api/types';
@@ -65,6 +65,66 @@ describe('App shell', () => {
     renderApp(new Error('connection refused'));
     expect(await screen.findByRole('alert')).toHaveTextContent('connection refused');
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
+  it('⌘K opens the palette with only the actions valid now; picking one runs it', async () => {
+    window.location.hash = '#/job/alpha';
+    renderApp(snapshot({ jobs: [job('alpha', 'idle'), job('beta', 'running')] }));
+    await screen.findByRole('heading', { name: 'Job alpha' });
+    fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
+    const box = screen.getByRole('combobox', { name: 'Search actions' });
+    const names = screen.getAllByRole('option').map((o) => o.querySelector('.palette-label')?.textContent);
+    expect(names).toEqual(expect.arrayContaining(['Mark done or dropped…', 'New job…', 'Open Job beta', 'Settings']));
+    expect(names).not.toContain('Stop the reply'); // alpha isn't replying
+    expect(names).not.toContain('Open Job alpha'); // already open
+    fireEvent.change(box, { target: { value: 'open beta' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(screen.queryByRole('dialog', { name: 'Command palette' })).toBeNull();
+    expect(window.location.hash).toBe('#/job/beta');
+  });
+
+  it('the palette opens Mark done for the open job', async () => {
+    window.location.hash = '#/job/alpha';
+    renderApp(snapshot({ jobs: [job('alpha', 'idle')] }));
+    await screen.findByRole('heading', { name: 'Job alpha' });
+    fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Search actions' }), { target: { value: 'mark' } });
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Search actions' }), { key: 'Enter' });
+    expect(screen.getByRole('dialog', { name: 'Mark “Job alpha” as done' })).toBeInTheDocument();
+  });
+
+  it('c opens the new job sheet and ? the keys; j and k step through the jobs, but not while typing', async () => {
+    renderApp(snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'idle')] }));
+    await screen.findByRole('navigation', { name: 'Jobs' });
+    const hop = () => act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(window.location.hash).toBe('#/job/alpha');
+    hop();
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(window.location.hash).toBe('#/job/beta');
+    hop();
+    fireEvent.keyDown(document.body, { key: 'k' });
+    expect(window.location.hash).toBe('#/job/alpha');
+    hop();
+
+    const composer = await screen.findByRole('textbox', { name: /Your message to the Foreman/ });
+    fireEvent.keyDown(composer, { key: 'j' });
+    expect(window.location.hash).toBe('#/job/alpha');
+
+    fireEvent.keyDown(document.body, { key: '?' });
+    expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).toBeNull();
+    fireEvent.keyDown(document.body, { key: 'c' });
+    expect(screen.getByRole('dialog', { name: 'Start a new job' })).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: 'j' }); // a sheet is open: page keys wait
+    expect(window.location.hash).toBe('#/job/alpha');
+  });
+
+  it('shows the usage-limit banner under the top bar', async () => {
+    renderApp(snapshot({ usage: { limited: true, blocking: true, label: '5-hour limit', resetsAt: null, jobs: [], autoResume: false, passed: true } }));
+    expect(await screen.findByRole('status', { name: 'Usage limit' })).toHaveTextContent('The limit has reset. Automatic carry-on is off');
+    expect(screen.getByRole('button', { name: 'Carry on now' })).toBeInTheDocument();
   });
 
   it('remembers a closed “How this works” box', async () => {

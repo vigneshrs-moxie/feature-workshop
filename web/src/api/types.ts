@@ -25,7 +25,49 @@ export interface Job {
   project?: { name: string; path?: string };
   repo?: { name: string; branch?: string | null } | null;
   cost?: { totalUsd: number; source?: string } | null;
+  /** Marked done or dropped (POST /api/job/:slug/close), and nothing has happened since. */
+  closed?: Closed | null;
+  /** Marked done or dropped earlier, but it changed since, so it's back among the open jobs. */
+  closedEarlier?: Closed | null;
   [key: string]: unknown;
+}
+
+/** How a job was marked: done or dropped, with your note. */
+export interface Closed {
+  as: 'done' | 'dropped';
+  note?: string | null;
+  at?: string;
+  worktreeRemoved?: string | null;
+}
+
+/** A repository you can start a job in (GET /api/repos, lib/repos.js), most recently used first. */
+export interface Repo {
+  path: string;
+  name: string;
+  lastUsed?: string | null;
+}
+
+/** One past Claude Code conversation (GET /api/history, lib/history.js). */
+export interface HistoryRow {
+  id: string;
+  title: string;
+  firstPrompt?: string | null;
+  messages?: number;
+  cwd?: string | null;
+  /** The git repository it ran in, or null when it ran outside one. */
+  repo?: string | null;
+  branch?: string | null;
+  lastAt?: string | null;
+  contextTokens?: number | null;
+  [key: string]: unknown;
+}
+
+/** GET /api/history?q=... canContinue: false in the demo or with a custom history folder. */
+export interface HistoryList {
+  rows: HistoryRow[];
+  matched: number;
+  total: number;
+  canContinue: boolean;
 }
 
 /** One question in a Foreman's AskUserQuestion request. */
@@ -160,11 +202,22 @@ export interface Run {
   [key: string]: unknown;
 }
 
+/** Claude's usage limit as the dashboard sees it (lib/limits.js view()). */
 export interface Usage {
   limited: boolean;
   blocking: boolean;
   label: string | null;
   resetsAt: string | null;
+  /** Claude said when it resets (else the dashboard just tries again then). */
+  resetKnown?: boolean;
+  /** The reset time has gone by (it still blocks while automatic carry-on is off). */
+  passed?: boolean;
+  /** The jobs it paused; they carry on once it lifts. */
+  jobs?: { slug: string; title: string }[];
+  /** Paused jobs carry on by themselves when it resets. */
+  autoResume?: boolean;
+  /** Close to the limit, not there yet. */
+  warning?: { label: string; percent: number | null; resetsAt: string | null } | null;
   [key: string]: unknown;
 }
 
@@ -252,6 +305,8 @@ export interface JobDetail {
   threadMore: boolean;
   /** The job's folder (the key of Settings.jobPolicy). */
   dir?: string;
+  /** Its own git worktree, when it has one (Mark done can remove it). */
+  worktree?: string | null;
   /** The permission setting in force for this job, and its own one (null: it follows yours). */
   policy?: PolicyId;
   policyOverride?: PolicyId | null;

@@ -50,6 +50,8 @@ export type Action =
   | { type: 'settings'; settings: Settings }
   /** You steered a message here: show it at once (the dashboard's 'steer' events follow). */
   | { type: 'steer'; steer: Steer }
+  /** You changed the usage limit here (Carry on now, the automatic toggle): show it at once. */
+  | { type: 'usage'; usage: Usage }
   | { type: 'connection'; connection: Connection }
   | { type: 'error'; error: string };
 
@@ -218,6 +220,9 @@ export function reducer(state: WorkshopState, action: Action): WorkshopState {
       const steers = withSteers(state.steers, [action.steer]);
       return steers === state.steers ? state : { ...state, steers };
     }
+    case 'usage':
+      // Paused jobs may start again: the next snapshot regroups them.
+      return action.usage && typeof action.usage === 'object' ? { ...state, usage: action.usage, jobsStale: true } : state;
     case 'connection':
       return state.connection === action.connection ? state : { ...state, connection: action.connection };
     case 'error':

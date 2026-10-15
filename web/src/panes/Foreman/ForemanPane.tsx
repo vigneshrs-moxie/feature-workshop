@@ -6,6 +6,7 @@ import { useEffect, useRef } from 'react';
 import type { Job } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { JobCards, NeedsYouCards } from '../../components/permissions/PendingCards';
+import { useUi } from '../../app/ui';
 import { useNow } from '../../lib/time';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
@@ -29,6 +30,16 @@ function JobThread({ job }: { job: Job }) {
   const inThread = new Set(thread.items.flatMap((it) => (it.kind === 'you' && it.steerId ? [it.steerId] : [])));
   const justSteered = Object.values(state.steers).filter((s) => s.slug === job.slug && s.runId === run?.id && !inThread.has(s.id));
 
+  // Tell the shell what only this pane knows, so ⌘K can offer Stop, Mark done and the job's setting.
+  const { setCurrent } = useUi();
+  const dir = thread.detail?.dir ?? null;
+  const worktree = thread.detail?.worktree ?? null;
+  const policyOverride = thread.detail?.policyOverride ?? null;
+  useEffect(() => {
+    setCurrent({ slug: job.slug, run, dir, worktree, policyOverride });
+  }, [setCurrent, job.slug, run, dir, worktree, policyOverride]);
+  useEffect(() => () => setCurrent(null), [setCurrent]);
+
   // Open a job at its newest message.
   const end = useRef<HTMLDivElement>(null);
   const loaded = thread.detail !== null;
@@ -38,13 +49,14 @@ function JobThread({ job }: { job: Job }) {
 
   return (
     <>
-      <JobHeader job={job} branch={thread.detail?.branch} dir={thread.detail?.dir} policyOverride={thread.detail?.policyOverride} />
+      <JobHeader job={job} branch={thread.detail?.branch} dir={thread.detail?.dir} policyOverride={thread.detail?.policyOverride} run={run} worktree={thread.detail?.worktree} />
       <HowThisWorks id="foreman">
         <p>{HOW}</p>
         <p>A brief opens in full while it waits for you and folds to its headline once you’ve answered; click a headline to open it again. Steps the Foreman took by itself are folded into one “routine steps” line.</p>
         <p>When it wants to do something that isn’t routine, a card appears at the foot of the conversation: <strong>Allow once</strong>, <strong>Allow for this reply</strong> (when offered), <strong>Deny…</strong> with a note, or <strong>Always allow…</strong>, which saves a narrow rule you check first (listed in Settings). Questions come as a short form.</p>
         <p>Write to the Foreman in the box at the foot. <strong>Send…</strong> shows exactly what it will receive before it goes. While it’s replying the button becomes <strong>Steer</strong>: your message joins the reply in progress and shows <em>Queued</em>, <em>Delivered</em>, then <em>Acted on</em>. <strong>Stop</strong> ends the reply; the job then waits for you. Each job keeps its own unsent draft in this browser.</p>
         <p>How much asks you depends on the job’s permission setting (job menu, or Settings for all jobs). In <strong>Auto mode</strong> Claude Code’s safety model decides most steps; anything it blocks shows as a dim ⊘ line. Pushes, pull requests, rm -rf and migrations always ask, and org or force pushes are refused.</p>
+        <p>The <strong>Job menu</strong> marks the job done or dropped (nothing is deleted; <strong>Reopen</strong> brings it back), links to its options and its classic page, and sets its own permission setting. <strong>⌘K</strong> (Ctrl+K) lists the same actions and more; press <strong>?</strong> for the keys.</p>
       </HowThisWorks>
       <section className="thread" aria-label="Conversation" aria-busy={thread.loading || thread.loadingOlder}>
         {thread.more && (
@@ -92,7 +104,9 @@ export function ForemanPane({ slug }: { slug: string | null }) {
             <h2 className="pane-title">Foreman</h2>
             <HowThisWorks id="foreman"><p>{HOW}</p></HowThisWorks>
             {!slug && <p className="muted">Pick a job on the left to see its conversation.</p>}
-            {slug && state.status === 'ready' && <p className="muted">There’s no job called “{slug}”. It may have been renamed or removed.</p>}
+            {slug && state.status === 'ready' && (state.runs[slug]
+              ? <p className="muted" role="status">Starting the job… It appears here in a moment.</p>
+              : <p className="muted">There’s no job called “{slug}”. It may have been renamed or removed.</p>)}
             {!slug && state.status === 'ready' && (
               <section className="needs-you-inbox" aria-label="Waiting for your answer">
                 <h3 className="settings-heading" title="Every permission and question waiting for you, across all jobs. You can answer them here or in each job.">Waiting for your answer</h3>

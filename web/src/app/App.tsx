@@ -1,16 +1,32 @@
-// The shell: top bar, then Jobs | Foreman | Preview. Owns the store, the API client and the live
-// sync; tests pass their own (a fake fetch and a fake EventSource).
+// The shell: top bar, the usage-limit banner, then Jobs | Foreman | Preview, plus the sheets (⌘K,
+// New job, Mark done, the keys list) and the page keys. Owns the store, the API client and the
+// live sync; tests pass their own (a fake fetch and a fake EventSource).
 import { useEffect, useMemo, useState } from 'react';
 import { createApi, type ApiClient } from '../api/client';
+import type { PolicyId } from '../api/types';
 import { ForemanPane } from '../panes/Foreman/ForemanPane';
 import { useAlerts } from '../alerts/useAlerts';
+import { CommandPalette } from '../components/CommandPalette';
+import { UsageBanner } from '../components/UsageBanner';
 import { JobsPane, useJobsRail } from '../panes/Jobs/JobsPane';
 import { PreviewPane } from '../panes/Preview/PreviewPane';
 import { createLiveSync, type EventSourceLike, type LiveSync } from '../state/live';
 import { needsYouCount, type Connection } from '../state/reducer';
-import { createStore, useWorkshopState, WorkshopContext, type Store } from '../state/store';
+import { createStore, useWorkshop, useWorkshopState, WorkshopContext, type Store } from '../state/store';
+import { CloseJobSheet } from '../views/JobSheets/CloseJobSheet';
+import { KeysSheet } from '../views/JobSheets/KeysSheet';
+import { NewJobSheet } from '../views/JobSheets/NewJobSheet';
 import { SettingsView } from '../views/Settings/SettingsView';
-import { classicHref, settingsHref, useRoute } from './router';
+import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
+import { reopenJob, setJobPolicy, stopRun } from './jobActions';
+import { dialogOpen, paletteKeyLabel, usePageKeys } from './keys';
+import { classicHref, navigate, settingsHref, useRoute, type Route } from './router';
+import { UiProvider, useUi, type SheetState } from './ui';
+
+/** Put the cursor in the message box at the foot of the Foreman pane. */
+export function focusComposer() {
+  document.querySelector<HTMLTextAreaElement>('[data-composer-input]')?.focus();
+}
 
 const CONNECTION: Record<Connection, { label: string; hint: string }> = {
   connecting: { label: 'Connecting…', hint: 'Opening the live connection to the dashboard.' },
@@ -20,12 +36,28 @@ const CONNECTION: Record<Connection, { label: string; hint: string }> = {
 
 function TopBar({ onRetry }: { onRetry: () => void }) {
   const state = useWorkshopState();
+  const ui = useUi();
   const needs = needsYouCount(state);
   const conn = CONNECTION[state.connection];
   return (
     <header className="topbar">
       <h1 className="brand">Feature Workshop</h1>
       {state.meta?.demo ? <span className="chip" title="Demo mode: a pretend Foreman answers and nothing real runs.">Demo</span> : null}
+      {state.status === 'ready' && (
+        <button type="button" className="btn" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job: describe it, pick the repository, kind and Foreman model (key: c).">
+          New job
+        </button>
+      )}
+      <button
+        type="button"
+        className="btn btn-quiet palette-button"
+        onClick={() => ui.openSheet({ kind: 'palette' })}
+        aria-label="Command palette"
+        aria-keyshortcuts="Meta+K Control+K"
+        title={`Search every action you can take right now (${paletteKeyLabel()}). Press ? for the list of keys.`}
+      >
+        <span aria-hidden="true">Actions</span> <kbd className="kbd">{paletteKeyLabel()}</kbd>
+      </button>
       <span className="spacer" />
       {state.status === 'ready' && (
         <span className="needs" title="How many jobs are waiting for you." aria-live="polite">
@@ -45,6 +77,70 @@ function TopBar({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+/** The open sheet, if any, and what each of ⌘K's actions does. */
+function Sheets({ route }: { route: Route }) {
+  const { api, store } = useWorkshop();
+  const state = useWorkshopState();
+  const ui = useUi();
+  const [problem, setProblem] = useState<string | null>(null);
+  const slug = route.name === 'job' ? route.slug : null;
+
+  const attempt = (p: Promise<unknown>) => { setProblem(null); p.catch((err) => setProblem(err instanceof Error ? err.message : String(err))); };
+  const handlers: CommandHandlers = {
+    openJob: (s) => navigate({ name: 'job', slug: s }),
+    newJob: () => ui.openSheet({ kind: 'new-job' }),
+    stop: (runId) => attempt(stopRun(api, runId)),
+    // After the palette has closed and given focus back.
+    focusComposer: () => setTimeout(focusComposer, 0),
+    markDone: (s) => ui.openSheet({ kind: 'close-job', slug: s, worktree: ui.current?.slug === s ? ui.current.worktree : undefined }),
+    reopen: (s) => attempt(reopenJob(api, s)),
+    setPolicy: (s, policy: PolicyId | null) => attempt(setJobPolicy(api, store, s, ui.current?.slug === s ? ui.current.dir : null, policy)),
+    settings: () => navigate({ name: 'settings' }),
+    classic: (href) => { window.location.href = href; },
+    showKeys: () => ui.openSheet({ kind: 'keys' }),
+  };
+
+  usePageKeys({
+    palette: () => {
+      if (ui.sheet?.kind === 'palette') ui.closeSheet();
+      else if (!dialogOpen()) ui.openSheet({ kind: 'palette' });
+    },
+    nextJob: () => stepJob(1),
+    previousJob: () => stepJob(-1),
+    newJob: () => { if (state.status === 'ready') ui.openSheet({ kind: 'new-job' }); },
+    showKeys: () => ui.openSheet({ kind: 'keys' }),
+  });
+
+  function stepJob(by: 1 | -1) {
+    const list = jobsInOrder(state);
+    if (!list.length) return;
+    const at = list.findIndex((j) => j.slug === slug);
+    const next = at < 0 ? (by > 0 ? 0 : list.length - 1) : (at + by + list.length) % list.length;
+    navigate({ name: 'job', slug: list[next].slug });
+  }
+
+  const sheet: SheetState = ui.sheet;
+  return (
+    <>
+      {problem && (
+        <div className="toast" role="alert">
+          <span>{problem}</span>
+          <button type="button" className="btn btn-quiet" onClick={() => setProblem(null)} title="Hide this message.">Dismiss</button>
+        </div>
+      )}
+      {sheet?.kind === 'palette' && (
+        <CommandPalette
+          commands={commandsFor({ state, slug, current: ui.current, onSettings: route.name === 'settings', classic: classicHref }, handlers)}
+          onClose={ui.closeSheet}
+        />
+      )}
+      {sheet?.kind === 'new-job' && <NewJobSheet onClose={ui.closeSheet} />}
+      {sheet?.kind === 'close-job' && <CloseJobSheet slug={sheet.slug} worktree={sheet.worktree} onClose={ui.closeSheet} />}
+      {sheet?.kind === 'keys' && <KeysSheet onClose={ui.closeSheet} />}
+    </>
+  );
+}
+
 function Shell({ onRetry }: { onRetry: () => void }) {
   const state = useWorkshopState();
   const route = useRoute();
@@ -55,6 +151,8 @@ function Shell({ onRetry }: { onRetry: () => void }) {
     return (
       <div className="app">
         <TopBar onRetry={onRetry} />
+        <div className="banner-slot" />
+        <Sheets route={route} />
         <div className="app-message" role={state.status === 'error' ? 'alert' : 'status'}>
           {state.status === 'loading' ? (
             <p>Loading jobs…</p>
@@ -72,6 +170,8 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="app">
       <TopBar onRetry={onRetry} />
+      <div className="banner-slot"><UsageBanner /></div>
+      <Sheets route={route} />
       <div className={rail ? 'panes panes-rail' : 'panes'}>
         <JobsPane selected={slug} />
         {route.name === 'settings' ? <SettingsView /> : <ForemanPane slug={slug} />}
@@ -100,7 +200,9 @@ export function App({ api: givenApi, store: givenStore, openStream }: AppProps) 
   const value = useMemo(() => ({ api, store }), [api, store]);
   return (
     <WorkshopContext.Provider value={value}>
-      <Shell onRetry={() => void sync?.refresh()} />
+      <UiProvider>
+        <Shell onRetry={() => void sync?.refresh()} />
+      </UiProvider>
     </WorkshopContext.Provider>
   );
 }
