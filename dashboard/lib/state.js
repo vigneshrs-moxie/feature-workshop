@@ -7,6 +7,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { playSettings } from './play.js';
 
 // Emits 'audit' (the entry as written) after each audit line is saved, so live views can say
 // which job's conversation just changed.
@@ -55,11 +56,12 @@ export class State extends EventEmitter {
   //   policy     'hands-off' (routine steps automatic), 'ask-all' or 'auto' (Claude Code's auto mode)
   //   jobPolicy  { [featureDir]: policy }: jobs that override it
   //   autoMode   { available: true | false | null (not tried yet), reason, checkedAt }
+  //   play       { mode: 'subtle' | 'full' | 'off', questDone: 'first-pr' | 'marked-done', sounds } (lib/play.js)
   async getSettings() {
     if (!this.settings) {
       try { this.settings = JSON.parse(await fs.readFile(this.settingsFile, 'utf8')); } catch { this.settings = {}; }
     }
-    return { policy: 'hands-off', jobPolicy: {}, autoMode: { available: null, reason: null, checkedAt: null }, ...this.settings };
+    return { policy: 'hands-off', jobPolicy: {}, autoMode: { available: null, reason: null, checkedAt: null }, ...this.settings, play: playSettings(this.settings.play) };
   }
 
   /** The permission setting for one job: its own, else the global one. */

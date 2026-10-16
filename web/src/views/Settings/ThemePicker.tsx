@@ -1,9 +1,23 @@
 // The theme picker in Settings: one radio per theme (theme/theme.ts), applied as you click and
 // remembered in this browser. Only looks change; every pane, button and key stays where it is.
+// A pick is also told to the dashboard's play ledger (POST /api/play/event, for the Explorer
+// achievement) unless Play mode is Off; that never gets in the way of the pick itself.
+import { playOf } from '../../play/settings';
+import { useWorkshop, useWorkshopState } from '../../state/store';
 import { THEMES, useTheme } from '../../theme/theme';
 
 export function ThemePicker() {
   const [theme, setTheme] = useTheme();
+  const { api } = useWorkshop();
+  const { meta } = useWorkshopState();
+  const playOff = playOf(meta?.settings).mode === 'off';
+
+  function pick(id: string) {
+    setTheme(id);
+    if (playOff || !meta) return;
+    Promise.resolve().then(() => api.post('/api/play/event', { kind: 'theme', id })).catch(() => { /* only the ledger misses it */ });
+  }
+
   return (
     <section className="theme-picker" aria-label="Theme">
       <h3 className="settings-heading">Theme</h3>
@@ -11,7 +25,7 @@ export function ThemePicker() {
         <legend className="sr-only">How the Workshop looks</legend>
         {THEMES.map((t) => (
           <label key={t.id} className={`rule-option theme-option${theme === t.id ? ' is-picked' : ''}`} title={t.description}>
-            <input type="radio" name="theme" value={t.id} checked={theme === t.id} onChange={() => setTheme(t.id)} />
+            <input type="radio" name="theme" value={t.id} checked={theme === t.id} onChange={() => pick(t.id)} />
             <span className="rule-option-body">
               <span className="rule-option-kind">{t.label}{t.id === 'default' && <span className="chip">Default</span>}</span>
               <span className="muted">{t.description}</span>

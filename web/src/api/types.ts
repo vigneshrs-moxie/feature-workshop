@@ -247,13 +247,67 @@ export interface AutoModeStatus {
   checkedAt: string | null;
 }
 
+/** Play mode (Settings → Play): Subtle is the default; Off is the Workshop without the Play layer. */
+export type PlayMode = 'subtle' | 'full' | 'off';
+/** When a job counts as a finished quest: its first PR is created (the default), or you mark it done. */
+export type QuestDoneRule = 'first-pr' | 'marked-done';
+
+/** settings.play (dashboard/lib/play.js playSettings). */
+export interface PlaySettings {
+  mode: PlayMode;
+  questDone: QuestDoneRule;
+  /** Chiptune blips, Full mode only; off unless you turn them on. */
+  sounds: boolean;
+}
+
 /** The dashboard's settings (meta.settings; also sent whole in the 'settings' live event). */
 export interface Settings {
   policy: PolicyId;
   /** Jobs with their own setting, by job folder (JobDetail.dir). */
   jobPolicy?: Record<string, PolicyId>;
   autoMode?: AutoModeStatus;
+  play?: PlaySettings;
   [key: string]: unknown;
+}
+
+/** One achievement (dashboard/lib/play.js ACHIEVEMENTS). unlockedAt: null while still to get. */
+export interface Achievement {
+  id: string;
+  name: string;
+  howTo: string;
+  /** An easter egg: listed only once found. */
+  secret: boolean;
+  unlockedAt: string | null;
+}
+
+/** One crew member you have met, with their stats on this machine. */
+export interface CrewStats {
+  firstSeen: string;
+  lastSeen: string;
+  jobs: number;
+  dispatches: number;
+  /** Average time on a stage, when the session logs say. */
+  avgStageMs: number | null;
+  /** Raised as a review lens (review.md). */
+  blockers: number;
+  majors: number;
+}
+
+/** GET /api/play (dashboard/lib/play.js ledgerView). Personal: from this machine's data only. */
+export interface PlayView {
+  schema: number;
+  mode: PlayMode;
+  questDone: QuestDoneRule;
+  /** By agent type; only the crew met so far. */
+  crew: Record<string, CrewStats>;
+  crewMet: number;
+  crewTotal: number;
+  quests: { done: number; bugs: number; recent: { slug: string; doneAt: string; kind: 'feature' | 'bug'; level: number | null }[] };
+  achievements: Achievement[];
+  secrets: { found: string[]; total: number };
+  themesTried: string[];
+  /** The hidden themes: CRT Terminal (the Konami code) and Gold (10 quests done). */
+  unlocks: { crt: boolean; gold: boolean };
 }
 
 /**

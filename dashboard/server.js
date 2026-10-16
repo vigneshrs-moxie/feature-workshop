@@ -39,6 +39,7 @@ import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, g
 import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
 import { skillChecker } from './lib/skill-check.js';
 import { DOC_MAX_BYTES, DocError, describeDoc, jsonHtml, listJobDocs, readJobDoc } from './lib/docs.js';
+import { PlayBook, PlayError, PLAY_EVENTS, SECRET_IDS, ledgerView, parseReviewFindings, playSettings, validatePlayPatch } from './lib/play.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -207,6 +208,39 @@ const gateParked = (f, runActive) => isParkable(f) && !closedOff(f) && parking.i
 // that held reply is dropped). The same rule as answeredBriefs.
 const noteAnswered = (e) => { if (e?.featureDir) parking.noteAudit(e.slug ?? path.basename(e.featureDir), e); };
 state.on('audit', noteAnswered);
+
+// ---------- Play (lib/play.js): crew met, quests done, achievements, secrets ----------
+// Built from local data only, kept in play.json next to the dashboard's other state, refreshed a
+// moment after an audit line or a job file changes. A new achievement is a 'play' event (none
+// while Play mode is Off). Never a model call.
+async function reviewOf(f) {
+  const file = path.join(f.dir, 'review.md');
+  try {
+    const st = await fsp.stat(file);
+    if (!st.isFile() || st.size > DOC_MAX_BYTES) return null;
+    const counts = parseReviewFindings(await fsp.readFile(file, 'utf8'));
+    return counts ? { at: st.mtime.toISOString(), counts } : null;
+  } catch {
+    return null;
+  }
+}
+async function playInput() {
+  const [audit, settings, list] = await Promise.all([state.auditAll(), state.getSettings(), features()]);
+  const jobs = await Promise.all(list.map(async (f) => ({
+    slug: f.slug, dir: f.dir, kind: f.kind, level: f.level, prs: f.prs, updatedAt: f.updatedAt,
+    workers: (f.activity ?? []).filter((a) => a.who !== 'conductor').map((a) => ({ agentType: a.who, startedAt: a.startedAt ?? null, lastAt: a.lastAt ?? null })),
+    review: await reviewOf(f),
+  })));
+  return { audit, jobs, play: playSettings(settings.play) };
+}
+const playbook = new PlayBook({
+  dir: state.dir,
+  collect: playInput,
+  onUnlock: (achievement) => {
+    state.getSettings().then((s) => { if (s.play.mode !== 'off') events.emit('play', null, { achievement }); }).catch(() => {});
+  },
+});
+state.on('audit', () => playbook.schedule());
 
 // The jobs for the timer: the cached full list when it is fresh, else a light read of each job
 // folder (status.json, brief files; no session logs, no git), so the timer stays cheap.
@@ -794,6 +828,8 @@ const GET = {
     return { features: cards, needsYou: stats.needsYou, totalUsd, stats, permissions: driver.pendingPermissions(), usage: limits.view(), generatedAt: new Date().toISOString() };
   },
   '/api/runs': async () => ({ runs: driver.list(), permissions: driver.pendingPermissions() }),
+  // The play ledger (lib/play.js ledgerView): crew met, quests done, achievements, secrets found.
+  '/api/play': async () => ledgerView(await playbook.current(), (await state.getSettings()).play),
   // Your "Always allow" rules. active: false while your (global) setting is "ask about everything"
   // (then they wait). It describes your setting only: jobOverrides counts the jobs whose own
   // setting makes the rules apply differently there (on for them, or off for them).
@@ -1006,6 +1042,17 @@ async function routePost(urlPath, req, res) {
     return sendJson(res, 200, { ok: true, repoPath: repo.path });
   }
   if (urlPath === '/api/settings') {
+    // play: Play mode, when a quest counts as done, sounds (lib/play.js validatePlayPatch).
+    if (body.play !== undefined) {
+      let patch;
+      try { patch = validatePlayPatch(body.play); } catch (err) { if (err instanceof PlayError) throw new HttpError(400, err.message); throw err; }
+      const was = (await state.getSettings()).play;
+      await state.setSettings({ play: playSettings({ ...was, ...patch }) });
+      await state.audit({ action: 'settings', play: patch });
+      settingsChanged();
+      if (patch.questDone && patch.questDone !== was.questDone) playbook.schedule(0);
+      if (body.policy === undefined && body.recheckAuto !== true) return sendJson(res, 200, await state.getSettings());
+    }
     // recheckAuto: forget that auto mode wasn't available, so the next reply that asks for it tries again.
     if (body.recheckAuto === true) {
       await state.setSettings({ autoMode: { available: null, reason: null, checkedAt: null } });
@@ -1201,6 +1248,24 @@ async function routePost(urlPath, req, res) {
     }
     return sendJson(res, 200, { rule, added, allowed, alsoAllowed, active });
   }
+  if (urlPath === '/api/play/secret' || urlPath === '/api/play/event') {
+    // An easter egg found, or something the page saw you do (a theme tried), from fixed lists only.
+    // Recorded once, as an audit line, so the ledger can always be rebuilt. Nothing while Play is Off.
+    const secret = urlPath === '/api/play/secret';
+    const id = typeof body.id === 'string' ? body.id : '';
+    const kind = secret ? null : typeof body.kind === 'string' ? body.kind : '';
+    if (secret && !SECRET_IDS.includes(id)) throw new HttpError(400, 'Unknown secret.');
+    if (!secret && !(Object.hasOwn(PLAY_EVENTS, kind) && PLAY_EVENTS[kind].includes(id))) throw new HttpError(400, 'Unknown play event.');
+    if ((await state.getSettings()).play.mode === 'off') return sendJson(res, 200, { recorded: false, reason: 'Play mode is off.' });
+    const ledger = await playbook.current();
+    const already = secret ? Boolean(ledger?.secrets?.[id]) : Boolean(ledger?.themes?.[id]);
+    if (!already) {
+      await state.audit(secret ? { action: 'play-secret', id } : { action: 'play-event', kind, id });
+      await playbook.refresh();
+    }
+    const view = ledgerView(playbook.ledger, (await state.getSettings()).play);
+    return sendJson(res, 200, { recorded: !already, secrets: view.secrets, themesTried: view.themesTried });
+  }
   if (urlPath === '/api/jobs') {
     const description =str(body.description, 600).replace(/\s+/g, ' ').trim();
     if (description.length < 4) throw new HttpError(400, 'Describe the job in a few words.');
@@ -1327,7 +1392,7 @@ state.on('audit', (e) => { if (e.featureDir) threadChanged(e.slug ?? path.basena
 function featureFileChanged(_type, filename) {
   // fs.watch names the file relative to the jobs folder: its first part is the job's folder name.
   const slug = filename ? String(filename).split(path.sep)[0] : null;
-  if (slug && !slug.startsWith('.')) threadChanged(slug, 'files');
+  if (slug && !slug.startsWith('.')) { threadChanged(slug, 'files'); playbook.schedule(); }
 }
 
 function watch(dir, onFile = null) {
@@ -1380,6 +1445,8 @@ server.listen(PORT, HOST, () => {
   console.log(`  jobs:     ${FEATURES_DIR}`);
   console.log(`  sessions: ${PROJECTS_DIR}`);
   if (DEMO) console.log('  demo mode: a pretend Foreman answers; nothing real runs.');
+  // The play ledger: read play.json, or rebuild it from the audit log when it is missing.
+  playbook.refresh().catch((err) => console.error('play ledger:', err));
 });
 
 // Stopping the dashboard pauses any reply in progress; sessions stay resumable.

@@ -26,7 +26,7 @@ describe('Settings', () => {
     const row = (await screen.findByText('Run any command starting with “npm run test:db”')).closest('li')!;
     expect(within(row).getByRole('link', { name: 'Job alpha' })).toHaveAttribute('href', '#/job/alpha');
     expect(within(row).getByText('Bash')).toBeInTheDocument();
-    expect(screen.getByText('How this works')).toBeInTheDocument();
+    expect(screen.getAllByText('How this works').length).toBeGreaterThan(0);
   });
 
   it('removes a rule and fetches the list again', async () => {

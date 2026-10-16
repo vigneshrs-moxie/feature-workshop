@@ -686,6 +686,13 @@ a:hover { text-decoration: underline; }
 .rule-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin: 2px 0 0; font-size: var(--text-sm); }
 .theme-picker { margin-top: var(--space-5); }
 .theme-hint { margin: var(--space-2) 0 0; font-size: var(--text-sm); }
+.play-settings { margin-top: var(--space-5); }
+.play-settings .how { margin-bottom: var(--space-2); }
+.play-quest-done { margin-top: var(--space-3); }
+.play-legend { margin-bottom: var(--space-1); padding: 0; color: var(--text-2); font-size: var(--text-sm); }
+.play-sounds { margin-top: var(--space-3); cursor: pointer; }
+.play-sounds input { accent-color: var(--accent); }
+.play-sounds.is-off { color: var(--text-3); cursor: not-allowed; }
 
 /* ---------- Composer (Send, Steer, Stop) ---------- */
 
