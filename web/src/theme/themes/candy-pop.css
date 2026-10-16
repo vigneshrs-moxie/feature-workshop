@@ -13,6 +13,9 @@
      done       mint             green family
      permission tangerine · question grape · hard line cherry (red stripe) · blocked slate
      stages     peach → lemon → mint → sky → lilac → grape, a rainbow walk in workflow order
+   Contrast: every text/background pair below was checked at APCA Lc ≥ 60 (text on tints, ink on
+   solid pastels, cherry text on the hard-line card). Two cherries: a light one for text and a
+   deep one for solid chips, stripes and borders, because one red cannot do both on charcoal.
    Fonts: system only. Headings, chips and buttons use the system rounded face (SF Pro Rounded on
    macOS via ui-rounded; falls back to the ordinary system sans elsewhere). */
 
@@ -29,38 +32,65 @@ html[data-theme="candy-pop"] {
   --border-2: oklch(1 0 0 / .14);
   --border-3: oklch(1 0 0 / .24);
   --text-1: oklch(.97 .008 330);
-  --text-2: oklch(.8 .02 320);
-  --text-3: oklch(.66 .025 320);
+  --text-2: oklch(.83 .02 320);
+  --text-3: oklch(.79 .02 320);
 
   /* ---- The candy jar ---- */
-  --candy-bubblegum: oklch(.8 .17 350);
-  --candy-bubblegum-deep: oklch(.7 .2 350);
-  --candy-bubblegum-tint: oklch(.8 .17 350 / .18);
+  --candy-bubblegum: oklch(.84 .16 350);
+  --candy-bubblegum-deep: oklch(.72 .2 350);
+  --candy-bubblegum-tint: oklch(.84 .16 350 / .1);
+  --candy-bubblegum-tint-strong: oklch(.84 .16 350 / .14);
   --candy-mint: oklch(.86 .13 160);
-  --candy-mint-tint: oklch(.86 .13 160 / .16);
+  --candy-mint-tint: oklch(.86 .13 160 / .2);
+  --candy-mint-tint-strong: oklch(.86 .13 160 / .3);
   --candy-lemon: oklch(.9 .15 95);
-  --candy-lemon-tint: oklch(.9 .15 95 / .16);
+  --candy-lemon-tint: oklch(.9 .15 95 / .2);
+  --candy-lemon-tint-strong: oklch(.9 .15 95 / .3);
   --candy-sky: oklch(.83 .11 220);
-  --candy-sky-tint: oklch(.83 .11 220 / .18);
-  --candy-lavender: oklch(.82 .07 285);
-  --candy-lavender-tint: oklch(.82 .07 285 / .14);
+  --candy-sky-tint: oklch(.83 .11 220 / .2);
+  --candy-sky-tint-strong: oklch(.83 .11 220 / .3);
+  --candy-lavender: oklch(.86 .07 285);
+  --candy-lavender-tint: oklch(.86 .07 285 / .18);
+  --candy-lavender-tint-strong: oklch(.86 .07 285 / .3);
   --candy-tangerine: oklch(.82 .14 55);
-  --candy-tangerine-tint: oklch(.82 .14 55 / .14);
-  --candy-grape: oklch(.8 .13 305);
-  --candy-grape-tint: oklch(.8 .13 305 / .16);
-  --candy-cherry: oklch(.74 .19 20);
-  --candy-cherry-tint: oklch(.74 .19 20 / .14);
-  --candy-slate: oklch(.68 .02 250);
+  --candy-tangerine-tint: oklch(.82 .14 55 / .18);
+  --candy-grape: oklch(.84 .12 305);
+  --candy-grape-tint: oklch(.84 .12 305 / .2);
+  --candy-cherry: oklch(.83 .13 22);
+  --candy-cherry-deep: oklch(.6 .21 22);
+  --candy-cherry-tint: oklch(.6 .21 22 / .14);
+  --candy-slate: oklch(.79 .02 250);
   --candy-peach: oklch(.85 .1 40);
-  --candy-peach-tint: oklch(.85 .1 40 / .16);
+  --candy-peach-tint: oklch(.85 .1 40 / .2);
   --candy-lilac: oklch(.83 .1 280);
-  --candy-lilac-tint: oklch(.83 .1 280 / .16);
+  --candy-lilac-tint: oklch(.83 .1 280 / .2);
   --candy-ink: oklch(.2 .03 330);
+  --candy-stripe: linear-gradient(90deg, var(--candy-sky), var(--candy-mint), var(--candy-lemon), var(--candy-peach), var(--candy-grape));
+
+  /* Opaque paints: the same tints mixed into the pane colour, for surfaces that sit on the
+     confetti (rows, headers, folds, bubbles), so no squiggle shows through the text. */
+  --paint-needs-you: color-mix(in oklch, var(--bg-1), var(--candy-bubblegum) 10%);
+  --paint-needs-you-strong: color-mix(in oklch, var(--bg-1), var(--candy-bubblegum) 14%);
+  --paint-running: color-mix(in oklch, var(--bg-1), var(--candy-sky) 7%);
+  --paint-running-hover: color-mix(in oklch, var(--bg-1), var(--candy-sky) 14%);
+  --paint-paused: color-mix(in oklch, var(--bg-1), var(--candy-lemon) 7%);
+  --paint-paused-hover: color-mix(in oklch, var(--bg-1), var(--candy-lemon) 14%);
+  --paint-done: color-mix(in oklch, var(--bg-1), var(--candy-mint) 5%);
+  --paint-done-hover: color-mix(in oklch, var(--bg-1), var(--candy-mint) 12%);
+  --paint-current: color-mix(in oklch, var(--bg-1), oklch(.78 .13 300) 20%);
+  --paint-head-running: color-mix(in oklch, var(--bg-1), var(--candy-sky) 30%);
+  --paint-head-paused: color-mix(in oklch, var(--bg-1), var(--candy-lemon) 30%);
+  --paint-head-idle: color-mix(in oklch, var(--bg-1), var(--candy-lavender) 30%);
+  --paint-head-done: color-mix(in oklch, var(--bg-1), var(--candy-mint) 30%);
+  --paint-how: color-mix(in oklch, var(--bg-2), var(--candy-sky) 6%);
+  --paint-you: color-mix(in oklch, var(--bg-0), oklch(.78 .13 300) 20%);
+  --paint-brief-answered: color-mix(in oklch, var(--bg-1), var(--candy-grape) 4%);
+  --paint-live: color-mix(in oklch, var(--bg-0), var(--candy-sky) 6%);
 
   /* Accent: grape soda, so bubblegum stays reserved for needs-you. */
   --accent: oklch(.78 .13 300);
   --accent-strong: oklch(.85 .11 300);
-  --accent-soft: oklch(.78 .13 300 / .18);
+  --accent-soft: oklch(.78 .13 300 / .2);
   --on-accent: var(--candy-ink);
   --focus-ring: oklch(.9 .12 190);
 
@@ -80,7 +110,7 @@ html[data-theme="candy-pop"] {
   /* ---- Job groups ---- */
   --group-needs-you-fg: var(--candy-bubblegum);
   --group-needs-you-bg: var(--candy-bubblegum-tint);
-  --group-needs-you-line: var(--candy-bubblegum);
+  --group-needs-you-line: var(--candy-bubblegum-deep);
   --group-running-fg: var(--candy-sky);
   --group-running-bg: var(--candy-sky-tint);
   --group-running-line: var(--candy-sky);
@@ -89,21 +119,21 @@ html[data-theme="candy-pop"] {
   --group-paused-line: var(--candy-lemon);
   --group-idle-fg: var(--candy-lavender);
   --group-idle-bg: var(--candy-lavender-tint);
-  --group-idle-line: oklch(.82 .07 285 / .5);
+  --group-idle-line: oklch(.86 .07 285 / .55);
   --group-done-fg: var(--candy-mint);
   --group-done-bg: var(--candy-mint-tint);
   --group-done-line: var(--candy-mint);
 
   /* ---- Kinds of ask ---- */
   --ask-permission-fg: var(--candy-tangerine);
-  --ask-permission-bg: oklch(.82 .14 55 / .07);
+  --ask-permission-bg: oklch(.82 .14 55 / .08);
   --ask-permission-line: var(--candy-tangerine);
   --ask-question-fg: var(--candy-grape);
-  --ask-question-bg: oklch(.8 .13 305 / .08);
+  --ask-question-bg: oklch(.84 .12 305 / .09);
   --ask-question-line: var(--candy-grape);
   --ask-hardline-fg: var(--candy-cherry);
-  --ask-hardline-bg: oklch(.74 .19 20 / .08);
-  --ask-hardline-line: var(--candy-cherry);
+  --ask-hardline-bg: oklch(.6 .21 22 / .1);
+  --ask-hardline-line: var(--candy-cherry-deep);
   --ask-blocked-fg: var(--candy-slate);
   --ask-blocked-bg: transparent;
   --ask-blocked-line: var(--candy-slate);
@@ -134,14 +164,15 @@ html[data-theme="candy-pop"] {
   --shadow-1: 0 1px 2px oklch(0 0 0 / .35), 0 4px 14px oklch(0 0 0 / .25);
   --shadow-2: 0 2px 6px oklch(0 0 0 / .35), 0 18px 48px oklch(0 0 0 / .45);
 
-  /* Memphis confetti: scattered dots in four candy colours plus faint squiggles, crosses and rings. */
-  --candy-squiggle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320' viewBox='0 0 320 320' fill='none' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M22 44c8-10 16-10 24 0s16 10 24 0 16-10 24 0' stroke='%23f5a6cf' opacity='.07'/%3E%3Cpath d='M190 238c8-10 16-10 24 0s16 10 24 0 16-10 24 0' stroke='%2389e0f0' opacity='.07'/%3E%3Cpath d='M230 70l8-8M238 70l-8-8' stroke='%23fde68a' opacity='.09'/%3E%3Cpath d='M70 230l8-8M78 230l-8-8' stroke='%23a7f3d0' opacity='.09'/%3E%3Ccircle cx='280' cy='150' r='4' stroke='%23c4b5fd' opacity='.08'/%3E%3Ccircle cx='120' cy='140' r='3.5' stroke='%23fda4af' opacity='.07'/%3E%3C/svg%3E");
+  /* Memphis confetti: scattered dots in four candy colours plus faint squiggles, crosses and rings.
+     Faint on purpose: it should read as texture behind the cards, never compete with text. */
+  --candy-squiggle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320' viewBox='0 0 320 320' fill='none' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M22 44c8-10 16-10 24 0s16 10 24 0 16-10 24 0' stroke='%23f5a6cf' opacity='.14'/%3E%3Cpath d='M190 238c8-10 16-10 24 0s16 10 24 0 16-10 24 0' stroke='%2389e0f0' opacity='.14'/%3E%3Cpath d='M230 70l10-10M240 70l-10-10' stroke='%23fde68a' opacity='.16'/%3E%3Cpath d='M70 230l10-10M80 230l-10-10' stroke='%23a7f3d0' opacity='.16'/%3E%3Ccircle cx='280' cy='150' r='5' stroke='%23c4b5fd' opacity='.15'/%3E%3Ccircle cx='120' cy='140' r='4' stroke='%23fda4af' opacity='.14'/%3E%3Cpath d='M150 300c6-8 12-8 18 0' stroke='%23a7f3d0' opacity='.12'/%3E%3C/svg%3E");
   --pane-pattern:
     var(--candy-squiggle),
-    radial-gradient(circle at 10px 10px, oklch(.8 .17 350 / .09) 1.2px, transparent 1.9px),
-    radial-gradient(circle at 54px 38px, oklch(.86 .13 160 / .09) 1.2px, transparent 1.9px),
-    radial-gradient(circle at 32px 72px, oklch(.9 .15 95 / .09) 1.2px, transparent 1.9px),
-    radial-gradient(circle at 78px 86px, oklch(.83 .11 220 / .09) 1.2px, transparent 1.9px);
+    radial-gradient(circle at 10px 10px, oklch(.84 .16 350 / .15) 1.4px, transparent 2.2px),
+    radial-gradient(circle at 54px 38px, oklch(.86 .13 160 / .15) 1.4px, transparent 2.2px),
+    radial-gradient(circle at 32px 72px, oklch(.9 .15 95 / .15) 1.4px, transparent 2.2px),
+    radial-gradient(circle at 78px 86px, oklch(.83 .11 220 / .15) 1.4px, transparent 2.2px);
 }
 
 /* ---------- Panes: charcoal with faint confetti ---------- */
@@ -159,14 +190,24 @@ html[data-theme="candy-pop"] .pane-foreman { background-color: var(--bg-0); }
 html[data-theme="candy-pop"] .pane-preview { background-color: var(--bg-1); border-left-color: var(--border-2); }
 html[data-theme="candy-pop"] .pane[data-pane="settings"] { background-color: var(--bg-0); }
 
+/* Pane titles: rounded face with a short candy underline. */
 html[data-theme="candy-pop"] .pane-title { font-family: var(--font-rounded); letter-spacing: .01em; }
+html[data-theme="candy-pop"] .pane-title::after {
+  content: "";
+  display: block;
+  width: 28px;
+  height: 3px;
+  margin-top: 3px;
+  border-radius: 999px;
+  background: var(--candy-stripe);
+}
 
 /* ---------- Top bar: a candy-stripe underline and a sweet brand ---------- */
 
 html[data-theme="candy-pop"] .topbar {
   background: var(--bg-1);
-  border-bottom: 1px solid transparent;
-  border-image: linear-gradient(90deg, var(--candy-sky), var(--candy-mint), var(--candy-lemon), var(--candy-peach), var(--candy-grape)) 1;
+  border-bottom: 2px solid transparent;
+  border-image: var(--candy-stripe) 1;
 }
 html[data-theme="candy-pop"] .brand {
   font-family: var(--font-rounded);
@@ -178,10 +219,20 @@ html[data-theme="candy-pop"] .brand {
   color: transparent;
 }
 html[data-theme="candy-pop"] .brand:hover { text-decoration: none; }
-/* "n need you" is needs-you news, so it borrows the bubblegum. */
-html[data-theme="candy-pop"] .needs { color: var(--candy-bubblegum); font-weight: var(--weight-medium); }
+/* "n need you" is needs-you news, so it borrows the bubblegum, as a solid pill in ink. */
+html[data-theme="candy-pop"] .needs {
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  background: var(--candy-bubblegum);
+  color: var(--candy-ink);
+  font-family: var(--font-rounded);
+  font-weight: var(--weight-bold);
+}
 html[data-theme="candy-pop"] .conn { color: var(--text-2); }
 html[data-theme="candy-pop"] .conn-dot { box-shadow: 0 0 0 3px oklch(1 0 0 / .08); }
+/* The New job button in the top bar wears the grape soda. */
+html[data-theme="candy-pop"] .topbar .btn { background: var(--accent-soft); border-color: oklch(.78 .13 300 / .4); color: var(--accent-strong); }
+html[data-theme="candy-pop"] .topbar .btn:hover { background: oklch(.78 .13 300 / .3); color: var(--text-1); }
 
 /* ---------- Chips and buttons: pills, rounded face ---------- */
 
@@ -192,7 +243,7 @@ html[data-theme="candy-pop"] .chip {
   font-family: var(--font-rounded);
   font-weight: var(--weight-medium);
 }
-html[data-theme="candy-pop"] .kbd { border-radius: 6px; background: var(--bg-3); border-color: var(--border-2); border-bottom-color: var(--border-3); }
+html[data-theme="candy-pop"] .kbd { border-radius: 6px; background: var(--bg-3); border-color: var(--border-2); border-bottom-color: var(--border-3); color: var(--text-2); }
 
 html[data-theme="candy-pop"] .btn {
   border-radius: 999px;
@@ -214,7 +265,7 @@ html[data-theme="candy-pop"] .btn-primary {
   box-shadow: 0 2px 10px oklch(.83 .11 220 / .3);
 }
 html[data-theme="candy-pop"] .btn-primary:hover { background: linear-gradient(135deg, oklch(.87 .1 220), oklch(.9 .12 160)); }
-html[data-theme="candy-pop"] .btn-danger { border-color: var(--candy-cherry); color: var(--candy-cherry); background: transparent; }
+html[data-theme="candy-pop"] .btn-danger { border-color: var(--candy-cherry-deep); color: var(--candy-cherry); background: transparent; }
 html[data-theme="candy-pop"] .btn-danger:hover { background: var(--candy-cherry-tint); }
 html[data-theme="candy-pop"] .btn-toggle[aria-pressed='true'] .toggle-state { color: var(--candy-mint); }
 
@@ -225,24 +276,32 @@ html[data-theme="candy-pop"] .text-input { border-radius: 999px; }
 html[data-theme="candy-pop"] .text-input:focus-visible,
 html[data-theme="candy-pop"] .text-area:focus-visible { border-color: var(--focus-ring); }
 
-/* ---------- Jobs pane: pill group headers, stripes per row ---------- */
+/* ---------- Jobs pane: pill group headers, a tint and a stripe per row ---------- */
 
 html[data-theme="candy-pop"] .job-group-title {
-  padding: 2px var(--space-2);
+  align-items: center;
+  padding: 3px var(--space-3);
   border-radius: 999px;
   font-family: var(--font-rounded);
   font-weight: var(--weight-bold);
   letter-spacing: .06em;
   color: var(--text-2);
   background: var(--bg-3);
+  margin-bottom: var(--space-2);
 }
-html[data-theme="candy-pop"] .job-group-title .count { color: inherit; opacity: .85; }
-html[data-theme="candy-pop"] .job-group-title[data-group="needs-you"] { background: var(--candy-bubblegum); color: var(--candy-ink); }
+html[data-theme="candy-pop"] .job-group-title .count {
+  padding: 0 7px;
+  border-radius: 999px;
+  background: oklch(0 0 0 / .18);
+  color: inherit;
+  font-family: var(--font-rounded);
+}
+html[data-theme="candy-pop"] .job-group-title[data-group="needs-you"] { background: var(--candy-bubblegum); color: var(--candy-ink); box-shadow: 0 2px 12px oklch(.84 .16 350 / .35); }
 html[data-theme="candy-pop"] .job-group-title[data-group="needs-you"] .glyph { color: var(--candy-ink); }
-html[data-theme="candy-pop"] .job-group-title[data-group="running"] { background: var(--group-running-bg); color: var(--group-running-fg); }
-html[data-theme="candy-pop"] .job-group-title[data-group="paused"] { background: var(--group-paused-bg); color: var(--group-paused-fg); }
-html[data-theme="candy-pop"] .job-group-title[data-group="idle"] { background: var(--group-idle-bg); color: var(--group-idle-fg); }
-html[data-theme="candy-pop"] .job-group-title[data-group="done"] { background: var(--group-done-bg); color: var(--group-done-fg); }
+html[data-theme="candy-pop"] .job-group-title[data-group="running"] { background: var(--paint-head-running); color: var(--group-running-fg); }
+html[data-theme="candy-pop"] .job-group-title[data-group="paused"] { background: var(--paint-head-paused); color: var(--group-paused-fg); }
+html[data-theme="candy-pop"] .job-group-title[data-group="idle"] { background: var(--paint-head-idle); color: var(--group-idle-fg); }
+html[data-theme="candy-pop"] .job-group-title[data-group="done"] { background: var(--paint-head-done); color: var(--group-done-fg); }
 
 html[data-theme="candy-pop"] .job-row {
   border-radius: 14px;
@@ -250,14 +309,21 @@ html[data-theme="candy-pop"] .job-row {
   transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 html[data-theme="candy-pop"] .job-row:hover { background: var(--bg-3); transform: translateX(1px); }
-html[data-theme="candy-pop"] .job-row[data-group="needs-you"] { background: var(--candy-bubblegum-tint); box-shadow: inset 3px 0 0 var(--candy-bubblegum); }
-html[data-theme="candy-pop"] .job-row[data-group="needs-you"]:hover { background: oklch(.8 .17 350 / .26); }
-html[data-theme="candy-pop"] .job-row[data-group="running"] { box-shadow: inset 3px 0 0 var(--group-running-line); }
-html[data-theme="candy-pop"] .job-row[data-group="paused"] { box-shadow: inset 3px 0 0 var(--group-paused-line); }
-html[data-theme="candy-pop"] .job-row[data-group="done"] { box-shadow: inset 3px 0 0 var(--group-done-line); }
+/* Every group tints its rows a little and draws its stripe; needs-you tints the most, with a
+   deeper pink stripe so it still leads. The row time steps up to text-2 on tinted rows. */
+html[data-theme="candy-pop"] .job-row[data-group="needs-you"] { background: var(--paint-needs-you); box-shadow: inset 4px 0 0 var(--candy-bubblegum-deep); }
+html[data-theme="candy-pop"] .job-row[data-group="needs-you"]:hover { background: var(--paint-needs-you-strong); }
+html[data-theme="candy-pop"] .job-row[data-group="needs-you"] .job-row-time { color: var(--text-2); }
+html[data-theme="candy-pop"] .job-row[data-group="running"] { background: var(--paint-running); box-shadow: inset 3px 0 0 var(--group-running-line); }
+html[data-theme="candy-pop"] .job-row[data-group="running"]:hover { background: var(--paint-running-hover); }
+html[data-theme="candy-pop"] .job-row[data-group="paused"] { background: var(--paint-paused); box-shadow: inset 3px 0 0 var(--group-paused-line); }
+html[data-theme="candy-pop"] .job-row[data-group="paused"]:hover { background: var(--paint-paused-hover); }
+html[data-theme="candy-pop"] .job-row[data-group="idle"] { background: var(--bg-1); box-shadow: inset 3px 0 0 var(--group-idle-line); }
+html[data-theme="candy-pop"] .job-row[data-group="done"] { background: var(--paint-done); box-shadow: inset 3px 0 0 var(--group-done-line); }
+html[data-theme="candy-pop"] .job-row[data-group="done"]:hover { background: var(--paint-done-hover); }
 html[data-theme="candy-pop"] .job-row[data-group="done"] .job-row-title { color: var(--text-2); }
-html[data-theme="candy-pop"] .job-row[aria-current='page'] { background: var(--accent-soft); outline: 1px solid oklch(.78 .13 300 / .45); outline-offset: -1px; }
-html[data-theme="candy-pop"] .job-row[data-group="needs-you"][aria-current='page'] { background: oklch(.8 .17 350 / .3); outline-color: var(--candy-bubblegum); }
+html[data-theme="candy-pop"] .job-row[aria-current='page'] { background: var(--paint-current); outline: 1.5px solid oklch(.78 .13 300 / .6); outline-offset: -1.5px; }
+html[data-theme="candy-pop"] .job-row[data-group="needs-you"][aria-current='page'] { background: var(--paint-needs-you-strong); outline-color: var(--candy-bubblegum); }
 html[data-theme="candy-pop"] .job-row-title { font-weight: var(--weight-medium); }
 html[data-theme="candy-pop"] .job-row-time { color: var(--text-3); }
 
@@ -266,7 +332,7 @@ html[data-theme="candy-pop"] .job-status { font-weight: var(--weight-medium); }
 /* The running glyph wears a soft sky halo instead of looping motion. */
 html[data-theme="candy-pop"] .job-status[data-group="running"] .glyph,
 html[data-theme="candy-pop"] .job-group-title[data-group="running"] .glyph { border-radius: 50%; box-shadow: 0 0 0 3px var(--candy-sky-tint); }
-html[data-theme="candy-pop"] .job-status[data-group="needs-you"] .glyph { text-shadow: 0 0 6px oklch(.8 .17 350 / .6); }
+html[data-theme="candy-pop"] .job-status[data-group="needs-you"] .glyph { text-shadow: 0 0 6px oklch(.84 .16 350 / .6); }
 
 html[data-theme="candy-pop"] .stage-chip {
   padding: 0 var(--space-2);
@@ -278,8 +344,8 @@ html[data-theme="candy-pop"] .stage-chip {
 /* The icon rail */
 html[data-theme="candy-pop"] .rail-needs { background: var(--candy-bubblegum); color: var(--candy-ink); font-weight: var(--weight-bold); }
 html[data-theme="candy-pop"] .job-rail-item { border-radius: 12px; }
-html[data-theme="candy-pop"] .job-rail-item[data-group="needs-you"] { background: var(--candy-bubblegum-tint); }
-html[data-theme="candy-pop"] .job-rail-item[aria-current='page'] { background: var(--accent-soft); outline: 1px solid oklch(.78 .13 300 / .45); outline-offset: -1px; }
+html[data-theme="candy-pop"] .job-rail-item[data-group="needs-you"] { background: var(--paint-needs-you); }
+html[data-theme="candy-pop"] .job-rail-item[aria-current='page'] { background: var(--paint-current); outline: 1px solid oklch(.78 .13 300 / .45); outline-offset: -1px; }
 html[data-theme="candy-pop"] .rail-group { border-top-color: var(--border-2); }
 
 html[data-theme="candy-pop"] .alert-settings { border-top-color: var(--border-2); }
@@ -289,23 +355,29 @@ html[data-theme="candy-pop"] .alert-settings-note { color: var(--candy-lemon); }
 
 html[data-theme="candy-pop"] .job-title { font-family: var(--font-rounded); font-weight: 700; }
 html[data-theme="candy-pop"] .status {
-  padding: 0 var(--space-2);
+  padding: 1px var(--space-2);
   border-radius: 999px;
   background: var(--bg-3);
   font-family: var(--font-rounded);
   font-weight: var(--weight-bold);
 }
 html[data-theme="candy-pop"] .status[data-group="needs-you"] { background: var(--candy-bubblegum); color: var(--candy-ink); }
-html[data-theme="candy-pop"] .status[data-group="running"] { background: var(--group-running-bg); }
-html[data-theme="candy-pop"] .status[data-group="paused"] { background: var(--group-paused-bg); }
-html[data-theme="candy-pop"] .status[data-group="idle"] { background: var(--group-idle-bg); }
-html[data-theme="candy-pop"] .status[data-group="done"] { background: var(--group-done-bg); }
+html[data-theme="candy-pop"] .status[data-group="running"] { background: var(--candy-sky-tint-strong); }
+html[data-theme="candy-pop"] .status[data-group="paused"] { background: var(--candy-lemon-tint-strong); }
+html[data-theme="candy-pop"] .status[data-group="idle"] { background: var(--candy-lavender-tint-strong); }
+html[data-theme="candy-pop"] .status[data-group="done"] { background: var(--candy-mint-tint-strong); }
 
 html[data-theme="candy-pop"] .job-menu-list { border-radius: 16px; border-color: var(--border-2); background: var(--bg-2); padding: var(--space-2); }
 html[data-theme="candy-pop"] .job-menu-list a, html[data-theme="candy-pop"] .job-menu-list button { border-radius: 10px; }
 html[data-theme="candy-pop"] .job-menu-list button[aria-checked='true'] { color: var(--accent-strong); }
 
-/* ---------- Thread: bubbles and cards ---------- */
+/* ---------- "How this works": a sky-tinted fold ---------- */
+
+html[data-theme="candy-pop"] .how { border-radius: 14px; border-color: oklch(.83 .11 220 / .3); background: var(--paint-how); }
+html[data-theme="candy-pop"] .how summary { font-family: var(--font-rounded); font-weight: var(--weight-medium); color: var(--candy-sky); }
+html[data-theme="candy-pop"] .how summary:hover { color: var(--text-1); }
+
+/* ---------- Thread: bubbles and cards, each kind with its own candy edge ---------- */
 
 html[data-theme="candy-pop"] .who { font-family: var(--font-rounded); font-weight: var(--weight-bold); color: var(--text-2); }
 html[data-theme="candy-pop"] .reply .who { color: var(--candy-sky); }
@@ -319,32 +391,35 @@ html[data-theme="candy-pop"] .live-row {
   border-radius: var(--card-radius);
   border-top-left-radius: 6px;
 }
-html[data-theme="candy-pop"] .reply { box-shadow: var(--shadow-1); }
+/* Foreman replies: a sky stripe down the left. */
+html[data-theme="candy-pop"] .reply { box-shadow: var(--shadow-1), inset 4px 0 0 var(--candy-sky); border-color: oklch(.83 .11 220 / .3); }
 html[data-theme="candy-pop"] .you {
   border-radius: var(--card-radius);
   border-bottom-right-radius: 6px;
-  background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px oklch(.78 .13 300 / .35);
+  background: var(--paint-you);
+  box-shadow: inset 0 0 0 1px oklch(.78 .13 300 / .4);
 }
-html[data-theme="candy-pop"] .you.is-steer { box-shadow: inset 0 0 0 1px oklch(.83 .11 220 / .5); }
-html[data-theme="candy-pop"] .problem { border-color: var(--candy-cherry); background: var(--candy-cherry-tint); border-top-left-radius: 6px; }
+html[data-theme="candy-pop"] .you.is-steer { box-shadow: inset 0 0 0 1px oklch(.83 .11 220 / .55); }
+html[data-theme="candy-pop"] .problem { border-color: var(--candy-cherry-deep); background: var(--candy-cherry-tint); border-top-left-radius: 6px; box-shadow: inset 4px 0 0 var(--candy-cherry-deep); }
 html[data-theme="candy-pop"] .problem .who { color: var(--candy-cherry); }
 
-/* Briefs: a mint "answered" state and a grape headline bar. */
-html[data-theme="candy-pop"] .brief-card { background: var(--bg-2); border-color: oklch(.8 .13 305 / .35); }
-html[data-theme="candy-pop"] .brief-card.is-answered { background: transparent; border-color: var(--border-2); }
-html[data-theme="candy-pop"] .brief-label { color: var(--candy-grape); font-family: var(--font-rounded); }
-html[data-theme="candy-pop"] .brief-state { padding: 0 var(--space-2); background: var(--candy-mint-tint); color: var(--candy-mint); font-weight: var(--weight-medium); }
+/* Briefs: a grape stripe and label, a mint "answered" pill. */
+html[data-theme="candy-pop"] .brief-card { background: var(--bg-2); border-color: oklch(.84 .12 305 / .4); box-shadow: inset 4px 0 0 var(--candy-grape); }
+html[data-theme="candy-pop"] .brief-card.is-answered { background: var(--paint-brief-answered); border-color: oklch(.84 .12 305 / .25); box-shadow: inset 4px 0 0 oklch(.84 .12 305 / .55); }
+html[data-theme="candy-pop"] .brief-label { color: var(--candy-grape); font-family: var(--font-rounded); font-weight: var(--weight-bold); }
+html[data-theme="candy-pop"] .brief-state { padding: 0 var(--space-2); background: var(--candy-mint-tint); color: var(--candy-mint); font-family: var(--font-rounded); font-weight: var(--weight-medium); }
 html[data-theme="candy-pop"] .brief-headline { font-family: var(--font-rounded); font-size: var(--text-md); }
 html[data-theme="candy-pop"] .brief-detail { border-top-color: var(--border-2); }
 
-html[data-theme="candy-pop"] .live-row { border-style: dashed; border-color: oklch(.83 .11 220 / .5); background: oklch(.83 .11 220 / .05); }
+html[data-theme="candy-pop"] .live-row { border-style: dashed; border-color: oklch(.83 .11 220 / .55); background: var(--paint-live); }
 html[data-theme="candy-pop"] .typing span { background: var(--candy-sky); }
 html[data-theme="candy-pop"] .typing span:nth-child(2) { background: var(--candy-mint); }
 html[data-theme="candy-pop"] .typing span:nth-child(3) { background: var(--candy-lemon); }
 
+html[data-theme="candy-pop"] .thread-line { color: var(--text-2); }
 html[data-theme="candy-pop"] .decision { color: var(--text-2); }
 html[data-theme="candy-pop"] .decision .glyph { color: var(--candy-mint); }
+html[data-theme="candy-pop"] .auto-fold { color: var(--text-2); }
 html[data-theme="candy-pop"] .auto-fold .glyph { color: var(--candy-mint); }
 html[data-theme="candy-pop"] .blocked-line { color: var(--candy-slate); }
 html[data-theme="candy-pop"] .blocked-line .glyph { color: var(--candy-slate); text-decoration: line-through; text-decoration-color: var(--candy-cherry); text-decoration-thickness: 2px; }
@@ -387,8 +462,8 @@ html[data-theme="candy-pop"] .perm-preview { border-radius: 12px; background: va
 html[data-theme="candy-pop"] .perm-warn { border-radius: 999px; background: var(--candy-lemon-tint); color: var(--candy-lemon); }
 
 /* The ask label chip ("Hard line", "Auto mode") carries the kind's colour. */
-html[data-theme="candy-pop"] .perm-card .ask-label { background: var(--ask-permission-bg); border: 1px solid var(--ask-permission-line); color: var(--ask-permission-fg); font-weight: var(--weight-bold); letter-spacing: .02em; }
-html[data-theme="candy-pop"] .perm-card[data-ask='hardline'] .ask-label { background: var(--candy-cherry); border-color: var(--candy-cherry); color: var(--candy-ink); }
+html[data-theme="candy-pop"] .perm-card .ask-label { background: var(--candy-tangerine-tint); border: 1px solid var(--ask-permission-line); color: var(--ask-permission-fg); font-family: var(--font-rounded); font-weight: var(--weight-bold); letter-spacing: .02em; }
+html[data-theme="candy-pop"] .perm-card[data-ask='hardline'] .ask-label { background: var(--candy-cherry-deep); border-color: var(--candy-cherry-deep); color: var(--text-1); }
 html[data-theme="candy-pop"] .perm-card[data-ask='hardline'] .perm-reason { color: var(--text-2); }
 
 html[data-theme="candy-pop"] .question legend { font-family: var(--font-rounded); }
@@ -402,7 +477,7 @@ html[data-theme="candy-pop"] .answer-option input, html[data-theme="candy-pop"] 
 html[data-theme="candy-pop"] .composer {
   background: var(--bg-0);
   border-top: 2px solid transparent;
-  border-image: linear-gradient(90deg, var(--candy-grape), var(--candy-sky), var(--candy-mint), var(--candy-lemon), var(--candy-peach)) 1;
+  border-image: var(--candy-stripe) 1;
 }
 html[data-theme="candy-pop"] .text-area { background: var(--bg-1); border-color: var(--border-2); border-radius: 16px; }
 html[data-theme="candy-pop"] .text-area:focus-visible { border-color: var(--candy-sky); box-shadow: 0 0 0 3px var(--candy-sky-tint); outline: none; }
@@ -440,36 +515,45 @@ html[data-theme="candy-pop"] .palette {
   box-shadow: var(--shadow-2), 0 0 0 6px oklch(1 0 0 / .04);
 }
 html[data-theme="candy-pop"] .sheet-title { font-family: var(--font-rounded); font-size: var(--text-lg); }
+html[data-theme="candy-pop"] .sheet .how { margin-top: var(--space-2); }
 html[data-theme="candy-pop"] .palette-input { font-family: var(--font-rounded); border-bottom-color: var(--border-2); }
 html[data-theme="candy-pop"] .palette-input::placeholder { color: var(--text-3); }
 html[data-theme="candy-pop"] .palette-input:focus-visible { border-bottom-color: var(--candy-sky); }
 html[data-theme="candy-pop"] .palette-option { border-radius: 999px; transition: background-color var(--dur-fast) var(--ease-out); }
-html[data-theme="candy-pop"] .palette-option.is-active { background: var(--accent-soft); box-shadow: inset 0 0 0 1px oklch(.78 .13 300 / .5); }
+html[data-theme="candy-pop"] .palette-option:hover { background: var(--bg-3); }
+html[data-theme="candy-pop"] .palette-option.is-active { background: var(--accent-soft); box-shadow: inset 0 0 0 1px oklch(.78 .13 300 / .55); }
 html[data-theme="candy-pop"] .palette-option.is-active .palette-label { color: var(--text-1); }
-html[data-theme="candy-pop"] .palette-section { color: var(--candy-sky); font-family: var(--font-rounded); font-weight: var(--weight-medium); }
+html[data-theme="candy-pop"] .palette-section { padding: 0 var(--space-2); border-radius: 999px; background: var(--candy-sky-tint); color: var(--candy-sky); font-family: var(--font-rounded); font-weight: var(--weight-medium); font-size: var(--text-xs); }
 html[data-theme="candy-pop"] .palette-option .kbd { background: var(--bg-3); }
-html[data-theme="candy-pop"] .palette-foot { border-top-color: var(--border-2); }
+html[data-theme="candy-pop"] .palette-foot { border-top-color: var(--border-2); color: var(--text-2); }
 
-/* New job sheet: each option is a soft pill box; the picked one goes grape. */
+/* New job sheet: each option is a soft pill box; the picked one goes grape, the kind goes mint. */
 html[data-theme="candy-pop"] .rule-option { border-radius: 14px; border-color: var(--border-2); background: var(--bg-1); transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out); }
 html[data-theme="candy-pop"] .rule-option:hover { border-color: var(--border-3); }
 html[data-theme="candy-pop"] .rule-option.is-picked { border-color: var(--accent); background: var(--accent-soft); }
 html[data-theme="candy-pop"] .rule-option-kind { font-family: var(--font-rounded); }
 html[data-theme="candy-pop"] .rule-option-value { color: var(--text-2); }
 html[data-theme="candy-pop"] .seg-option { border-radius: 999px; }
-html[data-theme="candy-pop"] .seg-option.is-picked { border-color: var(--candy-mint); background: var(--candy-mint-tint); }
+html[data-theme="candy-pop"] .seg-option.is-picked { border-color: var(--candy-mint); background: var(--candy-mint-tint); color: var(--candy-mint); }
+html[data-theme="candy-pop"] .seg-option.is-picked input { accent-color: var(--candy-mint); }
 html[data-theme="candy-pop"] .from-session { border-radius: 16px; }
 html[data-theme="candy-pop"] .from-session legend { font-family: var(--font-rounded); color: var(--candy-sky); }
+html[data-theme="candy-pop"] .from-search summary { color: var(--candy-sky); }
 html[data-theme="candy-pop"] .history-results { border-radius: 14px; }
 html[data-theme="candy-pop"] .sheet-fine { color: var(--text-2); }
 
-/* ---------- Settings: pastel section headings, a sweet theme picker ---------- */
+/* ---------- Settings: pastel section headings with candy underlines, a sweet theme picker ---------- */
 
 html[data-theme="candy-pop"] .settings-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-family: var(--font-rounded);
   font-size: var(--text-md);
+  font-weight: var(--weight-bold);
   color: var(--candy-sky);
 }
+html[data-theme="candy-pop"] .settings-heading::after { content: ""; flex: 1; max-width: 72px; height: 3px; border-radius: 999px; background: var(--candy-stripe); }
 html[data-theme="candy-pop"] .theme-picker .settings-heading { color: var(--candy-lemon); }
 html[data-theme="candy-pop"] .rule-list { border-radius: 16px; border-color: var(--border-2); background: var(--bg-1); }
 html[data-theme="candy-pop"] .rule-row + .rule-row { border-top-color: var(--border-2); }
@@ -487,9 +571,7 @@ html[data-theme="candy-pop"] .job-menu-heading { border-top-color: var(--border-
 
 /* ---------- Odds and ends ---------- */
 
-html[data-theme="candy-pop"] .how { border-radius: 14px; border-color: var(--border-2); background: var(--bg-2); }
-html[data-theme="candy-pop"] .how summary { font-family: var(--font-rounded); }
-html[data-theme="candy-pop"] .toast { border-radius: 16px; border-color: var(--candy-cherry); background: var(--bg-2); }
+html[data-theme="candy-pop"] .toast { border-radius: 16px; border-color: var(--candy-cherry-deep); background: var(--bg-2); }
 html[data-theme="candy-pop"] .thread-error { color: var(--candy-cherry); }
 html[data-theme="candy-pop"] .field-problem { color: var(--candy-cherry); }
 html[data-theme="candy-pop"] a { color: var(--candy-sky); }
@@ -498,6 +580,7 @@ html[data-theme="candy-pop"] .btn-quiet { color: var(--text-2); }
 html[data-theme="candy-pop"] .btn-quiet:hover { color: var(--text-1); }
 html[data-theme="candy-pop"] .btn-primary { color: var(--candy-ink); }
 html[data-theme="candy-pop"] .btn-danger { color: var(--candy-cherry); }
+html[data-theme="candy-pop"] .topbar .btn { color: var(--accent-strong); }
 
 /* Reduced motion: the small lifts and slides stop. */
 @media (prefers-reduced-motion: reduce) {
