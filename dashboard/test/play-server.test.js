@@ -196,7 +196,7 @@ test('POST /api/play/event: themes tried, from the fixed list; all five make an 
   const v = await getJson('/api/play');
   assert.ok(v.achievements.find((a) => a.id === 'explorer').unlockedAt);
   const { epoch } = await getJson('/api/snapshot');
-  const play = (await eventsSince(epoch)).filter((e) => e.type === 'play');
+  const play = (await eventsSince(epoch)).filter((e) => e.type === 'play' && e.data.achievement);
   const ids = play.map((e) => e.data.achievement.id);
   assert.ok(ids.includes('explorer'), `play events: ${ids}`);
   assert.ok(ids.includes('secret-teapot'));
@@ -242,8 +242,10 @@ test('Play mode Off is nothing: GET says only that, play.json is left alone; bac
   assert.equal(v.quests.done, 2);
   assert.ok(v.achievements.find((a) => a.id === 'boss-slayer').unlockedAt);
   await new Promise((r) => setTimeout(r, 1800));
-  const ids = (await eventsSince(epoch)).filter((e) => e.type === 'play').map((e) => e.data.achievement.id);
+  const news = (await eventsSince(epoch)).filter((e) => e.type === 'play');
+  const ids = news.filter((e) => e.data.achievement).map((e) => e.data.achievement.id);
   assert.ok(!ids.includes('boss-slayer'), `play events: ${ids}`);
+  assert.ok(!news.some((e) => e.data.quest?.slug === 'boss-job'), 'no quest event for what was missed');
 });
 
 test('play.json lost: rebuilt from the audit log at start, with the same unlocks', async () => {
@@ -256,4 +258,40 @@ test('play.json lost: rebuilt from the audit log at start, with the same unlocks
   const time = (list, id) => list.find(([x]) => x === id)[1];
   for (const id of ['explorer', 'secret-teapot', 'first-quest']) assert.equal(time(after, id), time(before, id), id);
   await fs.access(path.join(stateDir, 'play.json'));
+});
+
+test('POST /api/play/event: a hidden theme counts only once unlocked (CRT Terminal by the Konami code, Gold at 10 quests)', async () => {
+  const crt = await write('/api/play/event', { kind: 'theme', id: 'crt' });
+  assert.equal(crt.status, 409, 'CRT Terminal is still locked');
+  assert.match(crt.body.error, /locked/);
+  assert.equal((await write('/api/play/event', { kind: 'theme', id: 'gold' })).status, 409, 'Gold needs 10 quests');
+  assert.deepEqual((await getJson('/api/play')).unlocks, { crt: false, gold: false });
+  assert.equal((await write('/api/play/secret', { id: 'konami' })).body.recorded, true);
+  assert.deepEqual((await getJson('/api/play')).unlocks, { crt: true, gold: false });
+  const now = await write('/api/play/event', { kind: 'theme', id: 'crt' });
+  assert.equal(now.status, 200);
+  assert.equal(now.body.recorded, true);
+  assert.ok(now.body.themesTried.includes('crt'));
+  assert.equal((await write('/api/play/event', { kind: 'theme', id: 'gold' })).status, 409);
+  // Explorer is about the five originals: trying CRT Terminal changes nothing there.
+  assert.ok((await getJson('/api/play')).achievements.find((a) => a.id === 'explorer').unlockedAt);
+});
+
+test('a quest done while Play is on is a play event with the quest, for the page to celebrate', async () => {
+  const { epoch } = await getJson('/api/snapshot');
+  const dir = path.join(featuresDir, 'fresh-quest');
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({
+    schema_version: 1, slug: 'fresh-quest', title: 'Fresh quest', kind: 'bug', stage: 'pr1', stage_state: 'working',
+    prs: [{ number: 1, url: 'https://github.com/example/repo/pull/3', state: 'open' }], updated_at: new Date(2026, 9, 15, 15).toISOString(),
+  }, null, 2));
+  let quest = null;
+  for (let i = 0; i < 20 && !quest; i++) {
+    await new Promise((r) => setTimeout(r, 400));
+    quest = (await eventsSince(epoch, 200)).find((e) => e.type === 'play' && e.data.quest?.slug === 'fresh-quest') ?? null;
+  }
+  assert.ok(quest, 'a play event for the quest');
+  assert.equal(quest.job, 'fresh-quest');
+  assert.equal(quest.data.quest.rule, 'first-pr');
+  assert.ok(quest.data.quest.doneAt);
 });

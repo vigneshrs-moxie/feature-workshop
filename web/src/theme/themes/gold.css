@@ -1,0 +1,343 @@
+/* Theme: gold — a hidden theme (the Play layer: unlocked after ten quests done; theme.ts applies it
+   only once the play ledger says so). Warm dark walnut with polished gold accents: gold hairlines,
+   a gold brand and primary button, serif headings and a faint pinstripe on the panes. Quiet, not
+   flashy: gold marks what is active, everything else stays calm.
+   Every rule is scoped under html[data-theme="gold"]. Looks only: layout, markup and what each
+   control does are untouched. Hooks and tokens: theme/THEMING.md.
+
+   Colour language (the shared families, warmed to sit on walnut):
+     needs-you  hot pink-magenta (the loudest colour here; nothing else uses it)
+     running    teal
+     paused     amber-orange (kept clear of the gold accent)
+     idle       blue-grey
+     done       green
+     permission coral orange · question violet · hard line red · blocked slate, struck glyph
+     stages     spec rose → investigate apricot → plan wheat → build sage → test teal → review lilac */
+
+html[data-theme="gold"] {
+  color-scheme: dark;
+
+  /* The gold. */
+  --gd-gold: oklch(.82 .12 88);
+  --gd-gold-bright: oklch(.9 .11 92);
+  --gd-gold-deep: oklch(.66 .11 78);
+  --gd-gold-soft: oklch(.82 .12 88 / .14);
+  --gd-leaf: linear-gradient(135deg, oklch(.9 .11 95), oklch(.78 .13 82) 55%, oklch(.68 .11 72));
+
+  /* Walnut. */
+  --bg-0: oklch(.15 .014 60);
+  --bg-1: oklch(.18 .016 60);
+  --bg-2: oklch(.21 .019 62);
+  --bg-3: oklch(.25 .022 64);
+  --bg-4: oklch(.29 .024 66);
+  --border-1: oklch(.82 .1 85 / .11);
+  --row-alt: oklch(.82 .1 85 / .045);
+  --border-2: oklch(.82 .1 85 / .2);
+  --border-3: oklch(.82 .1 85 / .34);
+
+  --text-1: oklch(.95 .02 85);
+  --text-2: oklch(.8 .035 80);
+  --text-3: oklch(.73 .04 78);
+
+  --accent: var(--gd-gold);
+  --accent-strong: var(--gd-gold-bright);
+  --accent-soft: var(--gd-gold-soft);
+  --on-accent: oklch(.2 .03 60);
+  --focus-ring: oklch(.93 .09 95);
+
+  --status-ok: oklch(.8 .13 150);
+  --status-ok-bg: oklch(.8 .13 150 / .14);
+  --status-warn: oklch(.8 .14 62);
+  --status-warn-bg: oklch(.8 .14 62 / .14);
+  --status-error: oklch(.7 .18 25);
+  --status-error-bg: oklch(.7 .18 25 / .16);
+  --status-info: oklch(.8 .1 195);
+  --status-info-bg: oklch(.8 .1 195 / .14);
+  --status-paused: oklch(.8 .14 62);
+  --status-paused-bg: oklch(.8 .14 62 / .14);
+
+  --job-hue-l: .76;
+  --job-hue-c: .12;
+
+  --shadow-1: 0 1px 2px oklch(0 0 0 / .4), 0 2px 10px oklch(.08 .02 60 / .5);
+  --shadow-2: 0 2px 4px oklch(0 0 0 / .4), 0 16px 44px oklch(.06 .02 60 / .7);
+
+  /* Job groups. */
+  --group-needs-you-fg: oklch(.8 .18 352);
+  --group-needs-you-bg: oklch(.74 .2 352 / .15);
+  --group-needs-you-line: oklch(.72 .21 352);
+  --group-running-fg: oklch(.84 .1 195);
+  --group-running-bg: oklch(.8 .1 195 / .12);
+  --group-running-line: oklch(.74 .11 195);
+  --group-paused-fg: oklch(.84 .13 62);
+  --group-paused-bg: oklch(.8 .14 62 / .12);
+  --group-paused-line: oklch(.74 .15 60);
+  --group-idle-fg: oklch(.78 .04 265);
+  --group-idle-bg: oklch(.78 .04 265 / .08);
+  --group-idle-line: oklch(.62 .05 265);
+  --group-done-fg: oklch(.84 .12 150);
+  --group-done-bg: oklch(.8 .13 150 / .12);
+  --group-done-line: oklch(.72 .13 150);
+
+  /* Kinds of ask. */
+  --ask-permission-fg: oklch(.84 .12 45);
+  --ask-permission-bg: oklch(.19 .022 55);
+  --ask-permission-line: oklch(.74 .15 45);
+  --ask-question-fg: oklch(.84 .1 300);
+  --ask-question-bg: oklch(.19 .022 300);
+  --ask-question-line: oklch(.72 .12 300);
+  --ask-hardline-fg: oklch(.82 .14 25);
+  --ask-hardline-bg: oklch(.19 .025 40);
+  --ask-hardline-line: oklch(.66 .19 25);
+  --ask-blocked-fg: oklch(.74 .02 250);
+  --ask-blocked-bg: transparent;
+  --ask-blocked-line: oklch(.56 .02 250);
+
+  /* Stages: soft warm-to-cool inks in workflow order. */
+  --stage-spec-fg: oklch(.86 .08 15);
+  --stage-spec-bg: oklch(.78 .1 15 / .14);
+  --stage-investigate-fg: oklch(.87 .09 55);
+  --stage-investigate-bg: oklch(.8 .1 55 / .14);
+  --stage-plan-fg: oklch(.9 .08 95);
+  --stage-plan-bg: oklch(.84 .09 95 / .14);
+  --stage-build-fg: oklch(.86 .09 140);
+  --stage-build-bg: oklch(.78 .1 140 / .14);
+  --stage-test-fg: oklch(.86 .07 195);
+  --stage-test-bg: oklch(.78 .08 195 / .14);
+  --stage-review-fg: oklch(.84 .07 300);
+  --stage-review-bg: oklch(.76 .09 300 / .14);
+
+  /* Shape, pattern, type. */
+  --font-heading: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --chip-radius: 4px;
+  --card-radius: 10px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  /* A faint gold pinstripe. */
+  --pane-pattern: repeating-linear-gradient(135deg, oklch(.82 .12 88 / .028) 0 1px, transparent 1px 14px);
+}
+
+html[data-theme="gold"] ::selection { background: oklch(.82 .12 88 / .35); }
+
+/* ---------- Panes and the top bar ---------- */
+
+html[data-theme="gold"] .pane-jobs { border-right-color: var(--border-2); }
+html[data-theme="gold"] .pane-preview { border-left-color: var(--border-2); }
+html[data-theme="gold"] .pane-foreman { background-color: var(--bg-0); background-image: radial-gradient(ellipse 70% 35% at 50% 0%, oklch(.82 .12 88 / .06), transparent 70%), var(--pane-pattern); }
+html[data-theme="gold"] .topbar {
+  position: relative;
+  background: linear-gradient(180deg, oklch(.21 .022 62), oklch(.17 .016 60));
+  border-bottom-color: transparent;
+}
+/* A gold hairline under the top bar, brightest in the middle. */
+html[data-theme="gold"] .topbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gd-gold-deep) 15%, var(--gd-gold-bright) 50%, var(--gd-gold-deep) 85%, transparent);
+  pointer-events: none;
+}
+html[data-theme="gold"] .brand {
+  font-family: var(--font-heading);
+  font-size: var(--text-md);
+  letter-spacing: .04em;
+  background: var(--gd-leaf);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+html[data-theme="gold"] .needs { padding: 0 var(--space-2); border: 1px solid var(--group-needs-you-line); border-radius: 999px; color: var(--group-needs-you-fg); background: var(--group-needs-you-bg); font-weight: var(--weight-medium); }
+html[data-theme="gold"] .topbar .btn { border-color: var(--border-2); background: oklch(1 0 0 / .03); }
+html[data-theme="gold"] .topbar .btn:hover { border-color: var(--border-3); background: var(--accent-soft); }
+
+html[data-theme="gold"] .pane-title,
+html[data-theme="gold"] .settings-heading,
+html[data-theme="gold"] .sheet-title { font-family: var(--font-heading); color: var(--gd-gold-bright); letter-spacing: .02em; }
+
+/* ---------- Jobs pane ---------- */
+
+html[data-theme="gold"] .job-group-title { color: var(--group-idle-fg); letter-spacing: .1em; border-bottom: 1px solid var(--border-1); }
+html[data-theme="gold"] .job-group-title[data-group="needs-you"] { color: var(--group-needs-you-fg); border-bottom-color: var(--group-needs-you-line); }
+html[data-theme="gold"] .job-group-title[data-group="running"] { color: var(--group-running-fg); }
+html[data-theme="gold"] .job-group-title[data-group="paused"] { color: var(--group-paused-fg); }
+html[data-theme="gold"] .job-group-title[data-group="done"] { color: var(--group-done-fg); }
+html[data-theme="gold"] .job-row { --row-line: transparent; box-shadow: inset 3px 0 0 var(--row-line); transition: background var(--dur-fast) var(--ease-out); }
+html[data-theme="gold"] .job-row[data-group="needs-you"] { --row-line: var(--group-needs-you-line); background: var(--group-needs-you-bg); }
+html[data-theme="gold"] .job-row[data-group="running"] { --row-line: var(--group-running-line); }
+html[data-theme="gold"] .job-row[data-group="paused"] { --row-line: var(--group-paused-line); }
+html[data-theme="gold"] .job-row:hover { background: var(--bg-3); text-decoration: none; }
+html[data-theme="gold"] .job-row[aria-current="page"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--gd-gold), inset 0 0 0 1px oklch(.82 .12 88 / .3); }
+html[data-theme="gold"] .job-row[aria-current="page"][data-group="needs-you"] { background: var(--group-needs-you-bg); box-shadow: inset 3px 0 0 var(--group-needs-you-line), inset 0 0 0 1px oklch(.72 .21 352 / .45); }
+html[data-theme="gold"] .job-row-title { font-weight: var(--weight-medium); }
+html[data-theme="gold"] .job-rail-item[aria-current="page"] { box-shadow: inset 0 0 0 1px var(--gd-gold); background: var(--accent-soft); }
+html[data-theme="gold"] .rail-needs { border: 1px solid var(--group-needs-you-line); }
+html[data-theme="gold"] .stage-chip { border-color: color-mix(in oklch, currentColor 40%, transparent); }
+html[data-theme="gold"] .hue-dot { box-shadow: 0 0 0 1.5px oklch(.82 .12 88 / .35); }
+
+/* ---------- Job header ---------- */
+
+html[data-theme="gold"] .job-title { font-family: var(--font-heading); font-size: var(--text-md); color: var(--text-1); }
+html[data-theme="gold"] .job-header .status { padding: 0 var(--space-2); border: 1px solid currentColor; border-radius: 999px; font-size: var(--text-xs); }
+html[data-theme="gold"] .job-menu-list { border-color: var(--border-3); box-shadow: var(--shadow-2); }
+
+/* ---------- Thread: cards with a gold hairline on top ---------- */
+
+html[data-theme="gold"] .reply,
+html[data-theme="gold"] .brief-card,
+html[data-theme="gold"] .live-row {
+  border-color: var(--border-2);
+  background: linear-gradient(180deg, oklch(.2 .019 62), oklch(.175 .016 60));
+  box-shadow: inset 0 1px 0 oklch(.82 .12 88 / .16), var(--shadow-1);
+}
+html[data-theme="gold"] .who { color: var(--gd-gold); font-weight: var(--weight-medium); }
+html[data-theme="gold"] .you { border: 1px solid oklch(.82 .12 88 / .3); background: oklch(.82 .12 88 / .07); }
+html[data-theme="gold"] .you .who { color: var(--gd-gold-bright); }
+html[data-theme="gold"] .brief-card:not(.is-answered) { border-color: oklch(.82 .12 88 / .42); }
+html[data-theme="gold"] .brief-card.is-answered { background: var(--bg-1); box-shadow: none; }
+html[data-theme="gold"] .brief-label { color: var(--gd-gold-bright); }
+html[data-theme="gold"] .brief-headline { font-family: var(--font-heading); font-size: var(--text-md); }
+html[data-theme="gold"] .brief-state { padding: 0 var(--space-2); border: 1px solid currentColor; }
+html[data-theme="gold"] .live-row { border-style: dashed; }
+html[data-theme="gold"] .typing span { background: var(--gd-gold); }
+html[data-theme="gold"] .problem { border-color: var(--status-error); }
+html[data-theme="gold"] .blocked-line .glyph { color: var(--ask-blocked-line); text-decoration: line-through; text-decoration-thickness: 2px; }
+
+/* Markdown pages. */
+html[data-theme="gold"] .prose h1,
+html[data-theme="gold"] .prose h2,
+html[data-theme="gold"] .prose h3 { font-family: var(--font-heading); color: var(--gd-gold-bright); }
+html[data-theme="gold"] .prose a { color: var(--gd-gold-bright); }
+html[data-theme="gold"] .prose code { color: oklch(.9 .07 90); background: oklch(.82 .12 88 / .1); }
+html[data-theme="gold"] .prose pre { border: 1px solid var(--border-1); background: oklch(.13 .012 60); }
+html[data-theme="gold"] .prose blockquote { border-left-color: var(--gd-gold-deep); color: var(--text-2); }
+html[data-theme="gold"] .prose th { color: var(--gd-gold); border-bottom-color: var(--border-3); }
+html[data-theme="gold"] .prose hr { border-color: var(--border-2); }
+
+/* ---------- Permission and question cards ---------- */
+
+html[data-theme="gold"] .perm-card {
+  --ask-line: var(--ask-permission-line);
+  border-color: color-mix(in oklch, var(--ask-line) 60%, transparent);
+  box-shadow: inset 4px 0 0 var(--ask-line), var(--shadow-1);
+}
+html[data-theme="gold"] .perm-card[data-ask="question"] { --ask-line: var(--ask-question-line); }
+html[data-theme="gold"] .perm-card[data-ask="hardline"] { --ask-line: var(--ask-hardline-line); }
+html[data-theme="gold"] .perm-card.is-risky { border-color: color-mix(in oklch, var(--status-warn) 60%, transparent); }
+html[data-theme="gold"] .perm-card[data-ask="hardline"].is-risky { border-color: color-mix(in oklch, var(--ask-hardline-line) 60%, transparent); }
+html[data-theme="gold"] .perm-card .ask-label { padding: 0 var(--space-2); border-color: var(--ask-line); background: color-mix(in oklch, var(--ask-line) 15%, transparent); font-weight: var(--weight-bold); letter-spacing: .05em; text-transform: uppercase; }
+html[data-theme="gold"] .perm-headline { font-family: var(--font-heading); }
+html[data-theme="gold"] .perm-preview { border: 1px solid var(--border-1); background: oklch(.13 .012 60); }
+html[data-theme="gold"] .perm-warn { border: 1px solid oklch(.8 .14 62 / .5); }
+html[data-theme="gold"] .question legend { color: var(--ask-question-fg); }
+html[data-theme="gold"] .answer-option:hover { background: oklch(.72 .12 300 / .1); }
+html[data-theme="gold"] .answer-option input { accent-color: var(--gd-gold); }
+
+/* ---------- Controls ---------- */
+
+html[data-theme="gold"] .btn { border-color: var(--border-3); background: linear-gradient(180deg, var(--bg-4), var(--bg-3)); transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out); }
+html[data-theme="gold"] .btn:hover { border-color: var(--gd-gold-deep); background: var(--bg-4); }
+html[data-theme="gold"] .btn-quiet { background: transparent; border-color: transparent; }
+html[data-theme="gold"] .btn-quiet:hover { background: var(--bg-2); border-color: transparent; }
+html[data-theme="gold"] .btn-primary { border-color: var(--gd-gold-deep); background: var(--gd-leaf); color: var(--on-accent); font-weight: var(--weight-bold); }
+html[data-theme="gold"] .btn-primary:hover { border-color: var(--gd-gold-bright); background: var(--gd-leaf); box-shadow: 0 0 0 1px oklch(.9 .11 92 / .35); }
+html[data-theme="gold"] .btn-primary:disabled,
+html[data-theme="gold"] .btn-primary:disabled:hover { opacity: 1; border-color: var(--border-2); background: transparent; color: var(--text-3); box-shadow: none; }
+html[data-theme="gold"] .btn-danger { border-color: oklch(.7 .18 25 / .7); color: oklch(.84 .13 25); background: transparent; }
+html[data-theme="gold"] .btn-danger:hover { background: var(--status-error-bg); }
+html[data-theme="gold"] .chip { border-color: var(--border-3); padding: 0 var(--space-2); }
+html[data-theme="gold"] .kbd { border-color: oklch(.82 .12 88 / .4); color: var(--gd-gold-bright); background: oklch(.82 .12 88 / .07); }
+html[data-theme="gold"] .text-input,
+html[data-theme="gold"] .text-area,
+html[data-theme="gold"] .select { border-color: var(--border-3); background: oklch(.13 .012 60); }
+html[data-theme="gold"] .text-input:focus-visible,
+html[data-theme="gold"] .text-area:focus-visible { border-color: var(--gd-gold); box-shadow: 0 0 0 1px oklch(.82 .12 88 / .5); }
+html[data-theme="gold"] .rule-option { border-color: var(--border-2); }
+html[data-theme="gold"] .rule-option:hover { background: var(--bg-2); }
+html[data-theme="gold"] .rule-option.is-picked,
+html[data-theme="gold"] .seg-option.is-picked { border-color: var(--gd-gold); background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--gd-gold); }
+html[data-theme="gold"] .rule-option.is-picked .rule-option-kind { color: var(--gd-gold-bright); }
+html[data-theme="gold"] .rule-list { border-color: var(--border-2); }
+html[data-theme="gold"] .theme-picker { padding-top: var(--space-4); border-top: 1px solid var(--border-2); }
+html[data-theme="gold"] .how { border-color: oklch(.82 .12 88 / .28); background: oklch(.82 .12 88 / .05); box-shadow: inset 3px 0 0 oklch(.82 .12 88 / .5); }
+html[data-theme="gold"] .how summary { color: var(--gd-gold); font-weight: var(--weight-medium); }
+html[data-theme="gold"] .how strong { color: var(--text-1); }
+
+/* ---------- Composer, palette, sheets, drawer ---------- */
+
+html[data-theme="gold"] .composer { border-top-color: var(--border-2); background: var(--bg-0); }
+html[data-theme="gold"] .composer .text-area { background: var(--bg-1); }
+html[data-theme="gold"] .steer-state { border: 1px solid var(--border-3); padding: 0 var(--space-2); }
+html[data-theme="gold"] .sheet-backdrop,
+html[data-theme="gold"] .palette-backdrop,
+html[data-theme="gold"] .drawer-backdrop { background: oklch(.08 .015 60 / .7); }
+html[data-theme="gold"] .palette,
+html[data-theme="gold"] .sheet,
+html[data-theme="gold"] .drawer {
+  border-color: oklch(.82 .12 88 / .45);
+  background: linear-gradient(180deg, oklch(.22 .02 62), oklch(.19 .017 60));
+  box-shadow: inset 0 1px 0 oklch(.9 .11 92 / .2), var(--shadow-2);
+}
+html[data-theme="gold"] .palette-input { font-family: var(--font-heading); border-bottom-color: var(--border-2); }
+html[data-theme="gold"] .palette-option.is-active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--gd-gold); }
+html[data-theme="gold"] .palette-section { color: var(--gd-gold); letter-spacing: .08em; text-transform: uppercase; }
+html[data-theme="gold"] .drawer-tab[aria-selected="true"],
+html[data-theme="gold"] .preview-tab[aria-selected="true"] { box-shadow: inset 0 -2px 0 var(--gd-gold); color: var(--gd-gold-bright); }
+
+/* ---------- Usage banner, toasts ---------- */
+
+html[data-theme="gold"] .usage-limited { background: linear-gradient(90deg, oklch(.8 .14 62 / .18), transparent); box-shadow: inset 4px 0 0 var(--status-warn); }
+html[data-theme="gold"] .usage-warn { box-shadow: inset 4px 0 0 oklch(.8 .14 62 / .5); }
+html[data-theme="gold"] .play-toast { border-color: oklch(.82 .12 88 / .5); box-shadow: inset 0 1px 0 oklch(.9 .11 92 / .2), var(--shadow-2); }
+
+/* ---------- Crew-dex and achievements ---------- */
+
+html[data-theme="gold"] .dex-face,
+html[data-theme="gold"] .ach-badge { border-color: var(--border-2); background: linear-gradient(180deg, oklch(.2 .019 62), oklch(.175 .016 60)); }
+html[data-theme="gold"] .dex-card.is-unmet .dex-face,
+html[data-theme="gold"] .ach-badge.is-locked { background: transparent; }
+html[data-theme="gold"] .ach-badge.is-unlocked { border-color: oklch(.82 .12 88 / .42); }
+html[data-theme="gold"] .dex-name,
+html[data-theme="gold"] .ach-name { font-family: var(--font-heading); }
+
+/* ---------- Focus ---------- */
+
+html[data-theme="gold"] :focus-visible { outline-color: var(--focus-ring); }
+
+/* ---------- The crew (play/play.css): warm paints, real gold for their tools ---------- */
+/* No pink-magenta on the crew: that colour is only for needs-you. */
+html[data-theme="gold"] {
+  --crew-ink: oklch(.2 .03 55);
+  --crew-feet: oklch(.32 .04 55);
+  --crew-shadow: oklch(0 0 0 / .4);
+  --crew-glass: oklch(.92 .04 90);
+  --crew-metal: oklch(.8 .05 85);
+  --crew-wood: oklch(.55 .09 60);
+  --crew-gold: oklch(.84 .13 88);
+  --crew-gold-dark: oklch(.64 .12 76);
+  --crew-spark: oklch(.92 .12 95);
+  --crew-zzz: oklch(.86 .08 90);
+  --crew-c-clay: oklch(.68 .14 45);
+  --crew-c-amber: oklch(.84 .12 90);
+  --crew-c-amber-deep: oklch(.68 .12 78);
+  --crew-c-plum: oklch(.6 .12 315);
+  --crew-c-plum-deep: oklch(.48 .11 315);
+  --crew-c-tweed: oklch(.68 .08 70);
+  --crew-c-tweed-deep: oklch(.54 .07 65);
+  --crew-c-blueprint: oklch(.6 .1 250);
+  --crew-c-blueprint-deep: oklch(.48 .1 252);
+  --crew-c-moss: oklch(.7 .11 130);
+  --crew-c-teal: oklch(.7 .09 190);
+  --crew-c-steel: oklch(.68 .03 250);
+  --crew-c-forest: oklch(.62 .1 160);
+  --crew-c-forest-deep: oklch(.5 .09 160);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="gold"] .btn,
+  html[data-theme="gold"] .job-row { transition: none; }
+}

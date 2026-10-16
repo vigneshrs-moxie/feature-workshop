@@ -1,0 +1,134 @@
+/* Achievements, the play toasts and the celebration burst (the Play layer; play/AchievementBadge.tsx,
+   play/PlayToasts.tsx, views/Achievements). Colours come from tokens only, so every theme restyles
+   them through its own palette (the medal is the crew's gold, the ribbons the accent). Hooks: THEMING.md.
+   Motion: the toast fades and rises in (rise-in, 240 ms); in Full mode a burst flies out of the
+   badge (under 1.2 s). Under reduced motion the toast only fades and the burst is not drawn. */
+
+/* ---------- The medal ---------- */
+
+.ach-medal {
+  flex: none;
+  --medal: var(--crew-gold);
+  --medal-rim: var(--crew-gold-dark);
+  --medal-glyph: var(--crew-ink);
+  --ribbon-l: var(--accent);
+  --ribbon-r: var(--accent-strong);
+}
+.ach-medal .ach-rim { fill: var(--medal-rim); }
+.ach-medal .ach-face { fill: var(--medal); }
+.ach-medal .ach-glyph { color: var(--medal-glyph); }
+.ach-medal .ach-ribbon-l { fill: var(--ribbon-l); }
+.ach-medal .ach-ribbon-r { fill: var(--ribbon-r); }
+.ach-medal.is-secret { --ribbon-l: var(--crew-c-plum); --ribbon-r: var(--crew-c-plum-deep); }
+.ach-medal.is-quest { --ribbon-l: var(--crew-c-forest); --ribbon-r: var(--crew-c-forest-deep); }
+/* Locked: grey and flat. The word "Locked" next to it says so; the grey only backs it up. */
+.ach-medal.is-locked { --medal: var(--bg-3); --medal-rim: var(--border-3); --medal-glyph: var(--text-3); --ribbon-l: var(--bg-4); --ribbon-r: var(--bg-3); }
+
+/* ---------- The Achievements view ---------- */
+
+.achievements { padding-bottom: var(--space-8); }
+.ach-summary { margin: var(--space-3) 0; color: var(--text-2); font-size: var(--text-sm); }
+.ach-summary .num { color: var(--text-1); font-weight: var(--weight-bold); }
+.ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-3); list-style: none; margin: var(--space-3) 0 var(--space-6); padding: 0; }
+.ach-badge {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-2);
+  border-radius: var(--card-radius);
+  background: var(--bg-1);
+}
+.ach-badge.is-locked { border-style: dashed; border-color: var(--border-2); background: transparent; }
+.ach-text { min-width: 0; }
+.ach-name { margin: 0; font-family: var(--font-heading); font-size: var(--text-base); font-weight: var(--weight-bold); }
+.ach-badge.is-locked .ach-name { color: var(--text-2); }
+.ach-how { margin: 2px 0 var(--space-1); color: var(--text-2); font-size: var(--text-sm); }
+.ach-state { margin: 0; font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.ach-state.is-unlocked { color: var(--text-1); }
+.ach-state.is-locked { color: var(--text-2); letter-spacing: .04em; text-transform: uppercase; }
+.ach-secrets, .ach-unlocks { margin-top: var(--space-4); }
+.ach-secret-list { margin-bottom: var(--space-2); }
+.ach-secrets-left { margin: var(--space-2) 0 0; color: var(--text-2); font-size: var(--text-sm); }
+.ach-unlock-list { display: grid; gap: var(--space-2); list-style: none; margin: var(--space-2) 0; padding: 0; font-size: var(--text-sm); }
+.ach-unlock-list li { padding: var(--space-2) var(--space-3); border: 1px solid var(--border-2); border-radius: var(--card-radius); }
+.ach-unlock-list li.is-locked { border-style: dashed; color: var(--text-2); }
+
+/* The Crew-dex's count is a link to the view. */
+.dex-achievements a { color: inherit; text-decoration: none; }
+.dex-achievements a:hover { text-decoration: underline; }
+.dex-achievements:has(a:hover) { border-color: var(--border-3); }
+
+/* The theme picker's "Unlocked" tag on a hidden theme. */
+.theme-unlocked { margin-left: var(--space-2); }
+
+/* ---------- The toasts: bottom right, over the Preview pane ---------- */
+/* Never over the middle pane (the composer, the gate card and permission cards live there) and
+   under every sheet and drawer (z-index 50). Above the error toast when both show. */
+
+.play-toasts {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  width: min(340px, calc(40vw - var(--space-8)));
+  pointer-events: none;
+}
+.toast ~ .play-toasts { bottom: calc(var(--space-4) + 64px); }
+.play-toast {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border: 1px solid var(--border-3);
+  border-radius: var(--card-radius);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-2);
+  pointer-events: auto;
+  animation: rise-in var(--dur-pane) var(--ease-out);
+}
+.play-toast.is-quest { border-color: var(--group-done-line); }
+.play-toast-badge { position: relative; display: flex; flex: none; }
+.play-toast-body { flex: 1; min-width: 0; }
+.play-toast-label { margin: 0; color: var(--text-2); font-size: var(--text-xs); letter-spacing: .06em; text-transform: uppercase; }
+.play-toast-name { margin: 1px 0; color: var(--text-1); font-family: var(--font-heading); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.play-toast-line { margin: 0; color: var(--text-2); font-size: var(--text-sm); }
+.play-toast-close { flex: none; width: 24px; height: 24px; padding: 0; font-size: var(--text-md); line-height: 1; }
+.play-toasts-more { margin: 0; padding: 0 var(--space-2); border-radius: var(--chip-radius); background: var(--bg-2); font-size: var(--text-xs); pointer-events: auto; }
+
+/* ---------- The celebration burst (Full mode) ---------- */
+
+.play-burst { position: absolute; top: 40%; left: 50%; width: 0; height: 0; pointer-events: none; }
+.play-burst-piece {
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--crew-spark);
+  opacity: 0;
+  animation: play-burst 900ms var(--ease-out) var(--delay, 0ms) both;
+}
+.play-burst-piece.tone-1 { background: var(--accent); }
+.play-burst-piece.tone-2 { background: var(--crew-c-teal); }
+.play-burst-piece.tone-3 { background: var(--crew-gold); }
+.burst-quest .play-burst-piece { width: 7px; height: 7px; }
+@keyframes play-burst {
+  0% { opacity: 1; transform: translate(0, 0) scale(.5); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(1) rotate(120deg); }
+}
+.play-toast.has-burst .ach-medal { animation: play-pop 360ms var(--ease-out); }
+@keyframes play-pop { 40% { transform: scale(1.15); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .play-burst { display: none; }
+  .play-toast.has-burst .ach-medal { animation: none; }
+}

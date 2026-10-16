@@ -304,6 +304,26 @@ export interface CrewStats {
   majors: number;
 }
 
+/** A quest just done (dashboard/lib/play.js newlyDone), by the Settings → Play rule it was counted under. */
+export interface QuestDone {
+  slug: string;
+  doneAt: string;
+  kind: 'feature' | 'bug';
+  level: number | null;
+  rule: QuestDoneRule;
+}
+
+/** The 'play' live event: an achievement unlocked, or a quest done (one of the two). */
+export interface PlayNewsData {
+  achievement?: Achievement;
+  quest?: QuestDone;
+}
+
+/** A 'play' event the page has heard, kept for the toasts (seq: the event's, so each is shown once). */
+export interface PlayNews extends PlayNewsData {
+  seq: number;
+}
+
 /** GET /api/play with Play mode Off: only that (nothing is read or built). */
 export interface PlayOff {
   mode: 'off';

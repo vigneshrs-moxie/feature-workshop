@@ -1,9 +1,12 @@
 // usePlayLedger(): the play ledger (GET /api/play: crew met with their stats, quests, achievements,
-// secrets found), kept fresh: fetched again on the dashboard's 'play' event (playVersion), on every
-// new snapshot (generatedAt: the jobs changed) and when Play mode changes. What was shown stays up
-// while a refetch runs, so the page never blinks back to "Loading". Nothing is fetched while Play
-// mode is Off.
-import { useEffect, useState } from 'react';
+// secrets found, unlocks), kept fresh: fetched again on the dashboard's 'play' event (playVersion),
+// on every new snapshot (generatedAt: the jobs changed) and when Play mode changes. What was shown
+// stays up while a refetch runs, so the page never blinks back to "Loading". Nothing is fetched
+// while Play mode is Off.
+//
+// The shell fetches it once for the whole page (<PlayLedgerProvider>, play/PlayLedger.tsx), which
+// also hands the unlocks to the theme picker; a view rendered on its own (a test) fetches its own.
+import { createContext, useContext, useEffect, useState } from 'react';
 import type { PlayResponse, PlayView } from '../api/types';
 import { useWorkshop, useWorkshopState } from '../state/store';
 import { playOf } from './settings';
@@ -14,17 +17,25 @@ export type LedgerLoad =
   | { state: 'off' }
   | { state: 'error'; message: string };
 
+export interface Ledger {
+  load: LedgerLoad;
+  retry: () => void;
+}
+
 const isView = (r: PlayResponse | null | undefined): r is PlayView => Boolean(r && r.mode !== 'off' && 'crew' in r);
 
-export function usePlayLedger(): { load: LedgerLoad; retry: () => void } {
+/** The ledger as one place fetches it (enabled false: nothing is fetched, for when a provider does it). */
+export function useLedgerFetch(enabled = true): Ledger {
   const { api } = useWorkshop();
   const { playVersion, generatedAt, meta } = useWorkshopState();
   const mode = playOf(meta?.settings).mode;
+  // Before the first snapshot the Play mode isn't known yet: wait, so Off never fetches anything.
+  const known = Boolean(meta);
   const [load, setLoad] = useState<LedgerLoad>({ state: 'loading' });
   const [tries, setTries] = useState(0);
 
   useEffect(() => {
-    if (mode === 'off') return;
+    if (!enabled || !known || mode === 'off') return;
     let cancelled = false;
     api.get<PlayResponse>('/api/play').then(
       (r) => { if (!cancelled) setLoad(isView(r) ? { state: 'ready', view: r } : { state: 'off' }); },
@@ -35,7 +46,16 @@ export function usePlayLedger(): { load: LedgerLoad; retry: () => void } {
       },
     );
     return () => { cancelled = true; };
-  }, [api, mode, playVersion, generatedAt, tries]);
+  }, [api, enabled, known, mode, playVersion, generatedAt, tries]);
 
   return { load: mode === 'off' ? { state: 'off' } : load, retry: () => setTries((n) => n + 1) };
+}
+
+/** The page's one ledger, from <PlayLedgerProvider>. */
+export const PlayLedgerContext = createContext<Ledger | null>(null);
+
+export function usePlayLedger(): Ledger {
+  const shared = useContext(PlayLedgerContext);
+  const own = useLedgerFetch(!shared);
+  return shared ?? own;
 }

@@ -181,6 +181,22 @@ describe('reducer: cards and rules', () => {
     expect(reducer(after, { type: 'permission-answered', id: 'p1' })).toBe(after);
   });
 
+  it('a play event bumps playVersion and keeps an achievement or a quest for the toasts (the newest few, cleared on a restart)', () => {
+    const achievement = { id: 'first-quest', name: 'First Quest', howTo: 'Finish your first quest.', secret: false, unlockedAt: '2026-10-16T10:00:00.000Z' };
+    const quest = { slug: 'alpha', doneAt: '2026-10-16T10:00:00.000Z', kind: 'feature', level: 2, rule: 'first-pr' };
+    let s = run(hydrated(),
+      { type: 'event', event: ev(11, 'play', 'alpha', { quest }) },
+      { type: 'event', event: ev(12, 'play', null, { achievement }) },
+      { type: 'event', event: ev(13, 'play', null, { achievement: { id: 3 } }) });
+    expect(s.playVersion).toBe(3);
+    expect(s.playNews).toEqual([{ seq: 11, quest }, { seq: 12, achievement }]);
+    for (let i = 0; i < 30; i++) s = reducer(s, { type: 'event', event: ev(20 + i, 'play', null, { achievement }) });
+    expect(s.playNews).toHaveLength(20);
+    expect(s.playNews[19].seq).toBe(49);
+    expect(reducer(s, { type: 'snapshot', snapshot: snapshot({ seq: 60 }) }).playNews).toHaveLength(20);
+    expect(reducer(s, { type: 'snapshot', snapshot: snapshot({ epoch: 'bbbb' }) }).playNews).toEqual([]);
+  });
+
   it('a rules event bumps rulesVersion so Settings refetches', () => {
     const s = reducer(hydrated(), { type: 'event', event: ev(11, 'rules', null, { count: 2 }) });
     expect(s.rulesVersion).toBe(1);

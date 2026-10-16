@@ -40,6 +40,8 @@ export interface CommandHandlers {
   settings(): void;
   /** Open the Crew-dex (Play mode). */
   crewDex(): void;
+  /** Open your achievements (Play mode). */
+  achievements(): void;
   /** Open a page of the classic view (decision D4). */
   classic(href: string): void;
   showKeys(): void;
@@ -54,7 +56,9 @@ export interface CommandContext {
   onSettings: boolean;
   /** The Crew-dex is open. */
   onCrew?: boolean;
-  /** Play mode isn't Off (the Crew-dex is listed only then). */
+  /** Your achievements are open. */
+  onAchievements?: boolean;
+  /** Play mode isn't Off (the Crew-dex and Achievements are listed only then). */
   play?: boolean;
   classic: { home(): string; job(slug: string): string; costs(): string; history(): string };
 }
@@ -178,6 +182,9 @@ export function commandsFor(ctx: CommandContext, h: CommandHandlers): Command[] 
   }
   if (ctx.play && !ctx.onCrew) {
     out.push({ id: 'crew-dex', label: 'Crew-dex', section: 'Go to', keywords: 'crew play collection characters met secrets achievements', hint: 'Every crew member: who you have met and what they have done on your jobs.', run: h.crewDex });
+  }
+  if (ctx.play && !ctx.onAchievements) {
+    out.push({ id: 'achievements', label: 'Achievements', section: 'Go to', keywords: 'play badges rewards secrets unlocked trophies', hint: 'Your achievements: what you have unlocked by finishing work, and the secrets you have found.', run: h.achievements });
   }
   out.push(
     { id: 'classic-home', label: 'Classic view', section: 'Go to', keywords: 'old board', hint: 'Open the classic Feature Workshop page.', run: () => h.classic(ctx.classic.home()) },

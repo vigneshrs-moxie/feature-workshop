@@ -11,7 +11,7 @@ const classic = { home: () => '/#/', job: (s: string) => `/#/job/${s}`, costs: (
 function handlers(): CommandHandlers {
   return {
     openJob: vi.fn(), newJob: vi.fn(), stop: vi.fn(), focusComposer: vi.fn(), markDone: vi.fn(), reopen: vi.fn(),
-    setPolicy: vi.fn(), jobDrawer: vi.fn(), openDocs: vi.fn(), settings: vi.fn(), crewDex: vi.fn(), classic: vi.fn(), showKeys: vi.fn(),
+    setPolicy: vi.fn(), jobDrawer: vi.fn(), openDocs: vi.fn(), settings: vi.fn(), crewDex: vi.fn(), achievements: vi.fn(), classic: vi.fn(), showKeys: vi.fn(),
   };
 }
 
@@ -121,6 +121,21 @@ describe('commandsFor', () => {
     expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: false, classic }, h))).not.toContain('crew-dex');
     expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, classic }, h))).not.toContain('crew-dex');
     expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: true, onCrew: true, classic }, h))).not.toContain('crew-dex');
+  });
+
+  it('offers Achievements only with Play on, and not while you’re on it', () => {
+    const h = handlers();
+    const on = commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: true, classic }, h);
+    const entry = on.find((c) => c.id === 'achievements')!;
+    expect(entry.label).toBe('Achievements');
+    expect(entry.section).toBe('Go to');
+    expect(entry.hint).toBeTruthy();
+    expect(ids(filterCommands(on, 'achievements'))).toContain('achievements');
+    expect(ids(filterCommands(on, 'badges'))).toEqual(['achievements']);
+    entry.run();
+    expect(h.achievements).toHaveBeenCalledTimes(1);
+    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: false, classic }, h))).not.toContain('achievements');
+    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: true, onAchievements: true, classic }, h))).not.toContain('achievements');
   });
 });
 

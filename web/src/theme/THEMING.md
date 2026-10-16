@@ -7,6 +7,14 @@ description) and loaded by `themes/index.css`. Which theme is on is decided at s
 `#/?theme=x`), else localStorage `workshop.theme`, else `default`. The picker in Settings
 saves to localStorage and applies live.
 
+**Hidden themes.** Two themes are rewards from the Play layer: **CRT Terminal** (`crt`, unlocked
+by the Konami code) and **Gold** (`gold`, unlocked after 10 quests done). They carry `unlock` in
+`THEMES` and are listed in the picker (with an "Unlocked" tag) only once the dashboard's play
+ledger says so (GET /api/play `unlocks`, handed to `setThemeUnlocks` by `play/PlayLedger.tsx`).
+Until then, and always with Play mode Off, a hidden id in the address or localStorage is skipped
+like an unknown one; the dashboard also refuses to record one as tried (409). They are full
+themes like the others and keep every rule below.
+
 **The rule: a theme changes looks only.** Colour, type, radii, borders, backgrounds, patterns,
 shadows, decoration with pseudo-elements, and motion within the limits below. It never moves,
 hides, adds or re-orders anything, never changes text, and never changes what a control does.
@@ -103,7 +111,7 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `data-group` | `.job-row`, `.job-rail-item`, `.job-status`, `.job-group`, `.job-group-title`, `.rail-group`, the header `.status` pill | `needs-you` `running` `paused` `idle` `done` |
 | `data-ask` | `.perm-card` (permission and question cards), `.blocked-line` | `permission` `question` `hardline` `blocked` |
 | `data-stage` | `.stage-chip` | `spec` `investigate` `plan` `build` `test` `review` |
-| `data-pane` | the three panes (`.pane`) | `jobs` `foreman` `preview`, `settings` when Settings fills the middle, `crew` for the Crew-dex |
+| `data-pane` | the three panes (`.pane`) | `jobs` `foreman` `preview`, `settings` when Settings fills the middle, `crew` for the Crew-dex, `achievements` for Achievements |
 | `data-crew` | `.crew`, `.dex-card` | the crew member's agent type (`conductor`, `feature-tester`…) |
 
 ### Class names
@@ -148,8 +156,12 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `.how` | a "How this works" fold |
 | `.crew` | a crew member (an inline `svg`): `.crew-<agent type>`, `.is-<state>` (`working` `waiting` `idle` `asleep` `celebrating` `walking` `thinking`), `.m-<motion>` (`strike` `write` `scan` `shake`), `.is-animated` (Full mode) or `.is-still`; parts `.rig`, `.head`, `.hat`, `.arm-l`, `.arm-r`, `.tool` (`.grip` inside), `.feet`, `.shadow`, `.fx`; `.is-silhouette` when not met yet. Restyle colours through `--crew-*` only |
 | `.crew-tag`, `.crew-handoff`, `.crew-lineup`, `.live-crew`, `.foreman-face` | the crew in the conversation (Play on): a character with its name on a thread line, the workers a routine-steps line handed work to, a review brief's reviewers, who is at work in the live row, the Foreman by the job title. Never inside a gate card, a permission card or the composer |
-| `.crew-dex` | the Crew-dex (Play on): `.dex-counts` (crew met, secrets found, `.dex-achievements`), `.dex-grid`, `.dex-card` (`.is-met` or `.is-unmet`, `.is-flipped`, `.rarity-common` `-uncommon` `-rare` `-legendary`), `.dex-card-inner`, `.dex-face` (`.dex-front`, `.dex-back`), `.dex-card-top`, `.dex-no`, `.dex-rarity` (a `.chip`; its dot is `--dex-rarity`), `.dex-portrait`, `.dex-name`, `.dex-role`, `.dex-model`, `.dex-stats`, `.dex-unmet-note`, `.dex-bio`, `.dex-first`, `.dex-flip` (the Card back toggle, `aria-pressed`) |
+| `.crew-dex` | the Crew-dex (Play on): `.dex-counts` (crew met, secrets found, `.dex-achievements` with its link to Achievements), `.dex-grid`, `.dex-card` (`.is-met` or `.is-unmet`, `.is-flipped`, `.rarity-common` `-uncommon` `-rare` `-legendary`), `.dex-card-inner`, `.dex-face` (`.dex-front`, `.dex-back`), `.dex-card-top`, `.dex-no`, `.dex-rarity` (a `.chip`; its dot is `--dex-rarity`), `.dex-portrait`, `.dex-name`, `.dex-role`, `.dex-model`, `.dex-stats`, `.dex-unmet-note`, `.dex-bio`, `.dex-first`, `.dex-flip` (the Card back toggle, `aria-pressed`) |
 | `.play-settings` | Settings → Play (`.play-options`, `.play-quest-done`, `.play-legend`, `.play-sounds` with `.is-off` outside Full mode) |
+| `.achievements` | the Achievements view (Play on, `play/achievements.css`): `.ach-summary`, `.ach-grid`, `.ach-badge` (`.is-unlocked` or `.is-locked`, `.is-secret`; `data-achievement` its id), `.ach-text`, `.ach-name`, `.ach-how`, `.ach-state` (`.is-unlocked` with the date, `.is-locked` with the word "Locked"), `.ach-secrets`, `.ach-secrets-left`, `.ach-unlocks`, `.ach-unlock-list` |
+| `.ach-medal` | an achievement's badge (an inline `svg`): `.is-unlocked` / `.is-locked`, `.is-secret`, `.is-quest`; parts `.ach-rim`, `.ach-face`, `.ach-glyph`, `.ach-ribbon-l`, `.ach-ribbon-r`. Colours from `--medal`, `--medal-rim`, `--medal-glyph`, `--ribbon-l`, `--ribbon-r` (default: the crew's gold and the accent) |
+| `.play-toasts` | the play toasts' corner (`.at-bottom-end`: bottom right, over the Preview pane, under sheets): `.play-toast` (`.is-achievement` `.is-secret` `.is-quest`, `.has-burst` in Full mode), `.play-toast-badge`, `.play-toast-label`, `.play-toast-name`, `.play-toast-line`, `.play-toast-close`, `.play-toasts-more`; the burst `.play-burst` (`.burst-<kind>`) and its `.play-burst-piece` (`.tone-0`…`.tone-3`). Never move them over the middle pane |
+| `.theme-unlocked` | the "Unlocked" chip on a hidden theme in the picker (`.theme-option.is-hidden-theme`) |
 | `.toast` | the error toast |
 
 ## Adding a theme
@@ -157,4 +169,6 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 1. Add it to `THEMES` in `theme.ts` (id, label, one-line description).
 2. Create `themes/<id>.css` with a comment header, every rule under `html[data-theme="<id>"]`.
 3. Add `@import './<id>.css';` to `themes/index.css`.
-4. `npm run web:test` checks the file exists, is scoped, and is imported.
+4. `npm run web:test` checks the file exists, is scoped, and is imported; a hidden theme (and any
+   theme besides Default) must also set every token in `REQUIRED_THEME_TOKENS`
+   (`themes.test.ts`: the palette, groups, asks, stages, shape, `--row-alt` and the crew's paints).

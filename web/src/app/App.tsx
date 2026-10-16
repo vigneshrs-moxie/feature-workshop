@@ -19,6 +19,9 @@ import { KeysSheet } from '../views/JobSheets/KeysSheet';
 import { NewJobSheet } from '../views/JobSheets/NewJobSheet';
 import { SettingsView } from '../views/Settings/SettingsView';
 import { CrewDexView } from '../views/CrewDex/CrewDexView';
+import { AchievementsView } from '../views/Achievements/AchievementsView';
+import { PlayLedgerProvider } from '../play/PlayLedger';
+import { PlayToasts } from '../play/PlayToasts';
 import { usePlay } from '../play/usePlay';
 import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
 import { reopenJob, setJobPolicy, stopRun } from './jobActions';
@@ -108,6 +111,7 @@ function Sheets({ route }: { route: Route }) {
     setPolicy: (s, policy: PolicyId | null) => attempt(setJobPolicy(api, store, s, ui.current?.slug === s ? ui.current.dir : null, policy)),
     settings: () => navigate({ name: 'settings' }),
     crewDex: () => navigate({ name: 'crew' }),
+    achievements: () => navigate({ name: 'achievements' }),
     classic: (href) => { window.location.href = href; },
     showKeys: () => ui.openSheet({ kind: 'keys' }),
   };
@@ -142,7 +146,7 @@ function Sheets({ route }: { route: Route }) {
       )}
       {sheet?.kind === 'palette' && (
         <CommandPalette
-          commands={commandsFor({ state, slug, current: ui.current, onSettings: route.name === 'settings', onCrew: route.name === 'crew', play: play.on, classic: classicHref }, handlers)}
+          commands={commandsFor({ state, slug, current: ui.current, onSettings: route.name === 'settings', onCrew: route.name === 'crew', onAchievements: route.name === 'achievements', play: play.on, classic: classicHref }, handlers)}
           onClose={ui.closeSheet}
         />
       )}
@@ -161,8 +165,9 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   const play = usePlay();
   useAlerts(state);
   const slug = route.name === 'job' ? route.slug : null;
-  // The Crew-dex is part of Play: with Play mode Off, #/crew shows the same as #/.
+  // The Crew-dex and Achievements are part of Play: with Play mode Off, #/crew and #/achievements show the same as #/.
   const crew = route.name === 'crew' && play.on;
+  const achievements = route.name === 'achievements' && play.on;
   if (state.status !== 'ready') {
     return (
       <div className="app">
@@ -190,9 +195,10 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       <Sheets route={route} />
       <div className={rail ? 'panes panes-rail' : 'panes'}>
         <JobsPane selected={slug} />
-        {route.name === 'settings' ? <SettingsView /> : crew ? <CrewDexView /> : <ForemanPane slug={slug} />}
+        {route.name === 'settings' ? <SettingsView /> : crew ? <CrewDexView /> : achievements ? <AchievementsView /> : <ForemanPane slug={slug} />}
         <PreviewPane slug={slug} />
       </div>
+      <PlayToasts />
     </div>
   );
 }
@@ -217,7 +223,9 @@ export function App({ api: givenApi, store: givenStore, openStream }: AppProps) 
   return (
     <WorkshopContext.Provider value={value}>
       <UiProvider>
-        <Shell onRetry={() => void sync?.refresh()} />
+        <PlayLedgerProvider>
+          <Shell onRetry={() => void sync?.refresh()} />
+        </PlayLedgerProvider>
       </UiProvider>
     </WorkshopContext.Provider>
   );

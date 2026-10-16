@@ -21,6 +21,10 @@ describe('hash router', () => {
     ['#/crew/', { name: 'crew' }],
     ['#/crew?theme=pixel-crew', { name: 'crew' }],
     ['#/crew/x', { name: 'home' }],
+    ['#/achievements', { name: 'achievements' }],
+    ['#/achievements/', { name: 'achievements' }],
+    ['#/achievements?theme=gold', { name: 'achievements' }],
+    ['#/achievements/x', { name: 'home' }],
     // A query after the hash (the theme preview) changes nothing about the route.
     ['#/?theme=blueprint', { name: 'home' }],
     ['#/settings?theme=blueprint', { name: 'settings' }],
@@ -36,6 +40,7 @@ describe('hash router', () => {
     expect(hrefFor({ name: 'home' })).toBe('#/');
     expect(hrefFor({ name: 'settings' })).toBe('#/settings');
     expect(hrefFor({ name: 'crew' })).toBe('#/crew');
+    expect(hrefFor({ name: 'achievements' })).toBe('#/achievements');
   });
 
   it('links into the classic view at /', () => {

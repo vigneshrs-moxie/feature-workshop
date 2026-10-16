@@ -7,8 +7,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  ACHIEVEMENTS, CREW_TYPES, LENS_TYPES, PLAY_DEFAULTS, PLAY_SCHEMA, PlayBook, PlayError, SECRET_IDS,
-  buildLedger, jobKey, ledgerView, lensType, newlyUnlocked, parseReviewFindings, playSettings, validatePlayPatch,
+  ACHIEVEMENTS, CREW_TYPES, EXPLORER_THEMES, GOLD_QUESTS, LENS_TYPES, PLAY_DEFAULTS, PLAY_EVENTS, PLAY_SCHEMA, PlayBook, PlayError,
+  SECRET_IDS, THEME_IDS, buildLedger, jobKey, ledgerView, lensType, newlyDone, newlyUnlocked, parseReviewFindings, playSettings,
+  themeUnlocked, unlocksOf, validatePlayPatch,
 } from '../lib/play.js';
 
 const DIR = '/tmp/fw-play/feature-work';
@@ -365,6 +366,52 @@ test('ledgerView: counts, quests and the Gold unlock after 10 quests', () => {
   assert.equal(ledgerView(null).quests.done, 0);
 });
 
+test('hidden themes: CRT Terminal from the Konami secret, Gold at 10 quests, nothing before', () => {
+  assert.deepEqual(THEME_IDS, ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'crt', 'gold']);
+  assert.deepEqual(PLAY_EVENTS.theme, THEME_IDS, 'both can be reported as tried');
+  assert.deepEqual(unlocksOf(null), { crt: false, gold: false });
+  assert.deepEqual(unlocksOf(build({})), { crt: false, gold: false });
+
+  const otherSecret = build({ audit: [{ at: T0, action: 'play-secret', id: 'teapot' }] });
+  assert.equal(unlocksOf(otherSecret).crt, false, 'only the Konami code opens CRT Terminal');
+  const konami = build({ audit: [{ at: T0, action: 'play-secret', id: 'konami' }] });
+  assert.deepEqual(unlocksOf(konami), { crt: true, gold: false });
+
+  const quests = (n) => Array.from({ length: n }, (_, i) => prJob(`q${i}`, { updatedAt: plus(T0, i) }));
+  assert.equal(GOLD_QUESTS, 10);
+  assert.equal(unlocksOf(build({ jobs: quests(9) })).gold, false, '9 quests');
+  assert.equal(unlocksOf(build({ jobs: quests(10) })).gold, true, '10 quests');
+  assert.deepEqual(ledgerView(build({ jobs: quests(9) })).unlocks, { crt: false, gold: false });
+  // Kept: a quest counted once stays counted, so Gold stays open when the jobs are gone.
+  const ten = build({ jobs: quests(10) });
+  assert.equal(unlocksOf(build({ jobs: [], previous: ten })).gold, true);
+
+  // A theme you may use: the originals always, a hidden one only once unlocked, nothing unknown.
+  for (const id of ['default', 'candy-pop']) assert.equal(themeUnlocked(null, id), true, id);
+  assert.equal(themeUnlocked(null, 'crt'), false);
+  assert.equal(themeUnlocked(konami, 'crt'), true);
+  assert.equal(themeUnlocked(konami, 'gold'), false);
+  assert.equal(themeUnlocked(ten, 'gold'), true);
+  assert.equal(themeUnlocked(ten, 'hot-pink'), false);
+});
+
+test('Explorer stays about the five original themes: the hidden two neither count nor stand in', () => {
+  const tried = (ids) => ids.map((id, i) => ({ at: plus(T0, i), action: 'play-event', kind: 'theme', id }));
+  const secret = { at: T0, action: 'play-secret', id: 'konami' };
+  assert.deepEqual(EXPLORER_THEMES, ['neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop']);
+  const almost = build({ audit: [secret, ...tried(['crt', 'gold', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper'])] });
+  assert.equal(almost.achievements.explorer, undefined);
+  assert.ok(almost.themes.crt, 'CRT Terminal is remembered as tried');
+  assert.ok(build({ audit: tried(EXPLORER_THEMES) }).achievements.explorer);
+});
+
+test('newlyDone lists the quests the new ledger adds, once', () => {
+  const before = build({ jobs: [prJob('a')] });
+  const after = build({ jobs: [prJob('a'), prJob('b', { kind: 'bug', level: 1 })], previous: before });
+  assert.deepEqual(newlyDone(before, after).map((q) => [q.slug, q.kind, q.level, q.rule]), [['b', 'bug', 1, 'first-pr']]);
+  assert.deepEqual(newlyDone(after, build({ jobs: [prJob('a'), prJob('b')], previous: after })), []);
+});
+
 // ---------- play.json ----------
 
 // The PlayBook's sources over plain arrays, counting what they are asked for. `fresh` is the list
@@ -393,9 +440,11 @@ test('PlayBook: saves play.json, tells about new unlocks, and rebuilds from the 
   try {
     const input = { audit: [{ at: T0, action: 'play-event', kind: 'theme', id: 'blueprint' }], jobs: [], play: PLAY_DEFAULTS };
     const heard = [];
-    const book = new PlayBook({ dir, sources: fakeSources(input), onUnlock: (a) => heard.push(a.id), now: () => Date.parse(plus(T0, 100)) });
+    const quests = [];
+    const book = new PlayBook({ dir, sources: fakeSources(input), onUnlock: (a) => heard.push(a.id), onQuest: (q) => quests.push(q.slug), now: () => Date.parse(plus(T0, 100)) });
     await book.refresh();
     assert.deepEqual(heard, [], 'the first build only finds what was already earned');
+    assert.deepEqual(quests, []);
     const file = path.join(dir, 'play.json');
     assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).schema, PLAY_SCHEMA);
     assert.equal(((await fs.stat(file)).mode & 0o777).toString(8), '600');
@@ -407,6 +456,9 @@ test('PlayBook: saves play.json, tells about new unlocks, and rebuilds from the 
     book.noteJob('a');
     await book.refresh();
     assert.deepEqual(heard.sort(), ['boss-slayer', 'first-quest', 'secret-teapot']);
+    assert.deepEqual(quests, ['a'], 'the quest done is told once');
+    await book.refresh();
+    assert.deepEqual(quests, ['a']);
     const saved = JSON.parse(await fs.readFile(file, 'utf8'));
     assert.ok((await fs.readdir(dir)).every((n) => !n.endsWith('.tmp')), 'no temp files left');
 

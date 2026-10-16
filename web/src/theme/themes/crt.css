@@ -1,0 +1,381 @@
+/* Theme: crt — CRT Terminal, a hidden theme (the Play layer: unlocked by the Konami code; theme.ts
+   applies it only once the play ledger says so). Phosphor green on a near-black tube, monospace
+   type, square-ish corners, a faint phosphor glow on titles and a scanline overlay.
+   Every rule is scoped under html[data-theme="crt"]. Looks only: layout, markup and what each
+   control does are untouched. Hooks and tokens: theme/THEMING.md.
+
+   Colour language (the shared families, drawn as phosphors):
+     needs-you  hot magenta   (the loudest colour here; nothing else uses it)
+     running    cyan phosphor
+     paused     amber phosphor
+     idle       blue-grey
+     done       sea green (a cooler green than the screen's own)
+     permission orange · question violet · hard line red · blocked slate, struck glyph
+     stages     spec rose → investigate orange → plan yellow → build green → test cyan → review violet
+
+   Scanlines: a fixed overlay over the whole app (.app::after), dark 1px lines every 3px at low
+   strength so text stays crisp; it never takes a click. A faint bright band rolls down the
+   screen slowly (.app::before); under reduced motion it is not drawn. */
+
+html[data-theme="crt"] {
+  color-scheme: dark;
+
+  /* The phosphor. */
+  --crt-green: oklch(.87 .2 145);
+  --crt-green-bright: oklch(.95 .17 145);
+  --crt-green-dim: oklch(.7 .14 145);
+  --crt-glow: oklch(.87 .2 145 / .35);
+
+  /* The tube: near-black with a green cast. */
+  --bg-0: oklch(.13 .02 150);
+  --bg-1: oklch(.155 .024 150);
+  --bg-2: oklch(.185 .028 150);
+  --bg-3: oklch(.225 .032 150);
+  --bg-4: oklch(.265 .036 150);
+  --border-1: oklch(.87 .2 145 / .13);
+  --row-alt: oklch(.87 .2 145 / .05);
+  --border-2: oklch(.87 .2 145 / .24);
+  --border-3: oklch(.87 .2 145 / .4);
+
+  --text-1: oklch(.93 .16 145);
+  --text-2: oklch(.81 .13 145);
+  --text-3: oklch(.74 .1 145);
+
+  --accent: var(--crt-green);
+  --accent-strong: var(--crt-green-bright);
+  --accent-soft: oklch(.87 .2 145 / .14);
+  --on-accent: oklch(.13 .02 150);
+  --focus-ring: oklch(.97 .07 110);
+
+  --status-ok: oklch(.85 .15 170);
+  --status-ok-bg: oklch(.85 .15 170 / .14);
+  --status-warn: oklch(.85 .15 78);
+  --status-warn-bg: oklch(.85 .15 78 / .14);
+  --status-error: oklch(.74 .19 28);
+  --status-error-bg: oklch(.74 .19 28 / .16);
+  --status-info: oklch(.86 .12 200);
+  --status-info-bg: oklch(.86 .12 200 / .14);
+  --status-paused: oklch(.85 .15 78);
+  --status-paused-bg: oklch(.85 .15 78 / .14);
+
+  --job-hue-l: .8;
+  --job-hue-c: .16;
+
+  --shadow-1: 0 0 0 1px oklch(.87 .2 145 / .08), 0 2px 8px oklch(0 0 0 / .5);
+  --shadow-2: 0 0 0 1px oklch(.87 .2 145 / .16), 0 0 24px oklch(.87 .2 145 / .12), 0 16px 40px oklch(0 0 0 / .6);
+
+  /* Job groups. */
+  --group-needs-you-fg: oklch(.82 .2 345);
+  --group-needs-you-bg: oklch(.76 .23 345 / .16);
+  --group-needs-you-line: oklch(.76 .23 345);
+  --group-running-fg: oklch(.88 .12 200);
+  --group-running-bg: oklch(.86 .12 200 / .12);
+  --group-running-line: oklch(.82 .13 200);
+  --group-paused-fg: oklch(.87 .15 78);
+  --group-paused-bg: oklch(.85 .15 78 / .12);
+  --group-paused-line: oklch(.8 .15 75);
+  --group-idle-fg: oklch(.8 .05 255);
+  --group-idle-bg: oklch(.8 .05 255 / .08);
+  --group-idle-line: oklch(.66 .06 255);
+  --group-done-fg: oklch(.86 .15 170);
+  --group-done-bg: oklch(.85 .15 170 / .12);
+  --group-done-line: oklch(.78 .15 170);
+
+  /* Kinds of ask. */
+  --ask-permission-fg: oklch(.86 .14 60);
+  --ask-permission-bg: oklch(.17 .03 140);
+  --ask-permission-line: oklch(.78 .15 58);
+  --ask-question-fg: oklch(.84 .12 300);
+  --ask-question-bg: oklch(.17 .03 160);
+  --ask-question-line: oklch(.74 .14 300);
+  --ask-hardline-fg: oklch(.84 .15 28);
+  --ask-hardline-bg: oklch(.17 .03 140);
+  --ask-hardline-line: oklch(.7 .2 28);
+  --ask-blocked-fg: oklch(.76 .03 200);
+  --ask-blocked-bg: transparent;
+  --ask-blocked-line: oklch(.58 .03 200);
+
+  /* Stages: a phosphor walk in workflow order. */
+  --stage-spec-fg: oklch(.87 .1 10);
+  --stage-spec-bg: oklch(.8 .14 10 / .14);
+  --stage-investigate-fg: oklch(.88 .12 55);
+  --stage-investigate-bg: oklch(.8 .14 55 / .14);
+  --stage-plan-fg: oklch(.92 .13 100);
+  --stage-plan-bg: oklch(.85 .14 100 / .14);
+  --stage-build-fg: var(--crt-green-bright);
+  --stage-build-bg: oklch(.87 .2 145 / .14);
+  --stage-test-fg: oklch(.89 .11 200);
+  --stage-test-bg: oklch(.86 .12 200 / .14);
+  --stage-review-fg: oklch(.85 .11 300);
+  --stage-review-bg: oklch(.76 .14 300 / .14);
+
+  /* Shape, pattern, type: a terminal is all monospace and nearly square. */
+  --font-sans: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
+  --font-display: var(--font-sans);
+  --font-heading: var(--font-sans);
+  --chip-radius: 2px;
+  --card-radius: 3px;
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+  --pane-pattern: none;
+}
+
+html[data-theme="crt"] ::selection { background: var(--crt-green); color: var(--bg-0); }
+
+/* ---------- The tube: scanlines, a vignette and a slow rolling band ---------- */
+
+html[data-theme="crt"] body { background: var(--bg-0); }
+html[data-theme="crt"] .app { position: relative; }
+html[data-theme="crt"] .app::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(to bottom, oklch(0 0 0 / .16) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse 120% 100% at 50% 50%, transparent 65%, oklch(0 0 0 / .32) 100%);
+}
+html[data-theme="crt"] .app::before {
+  content: "";
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: -18vh;
+  z-index: 70;
+  height: 18vh;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, oklch(.87 .2 145 / .035), transparent);
+  animation: crt-roll 9s linear infinite;
+}
+@keyframes crt-roll { to { transform: translateY(136vh); } }
+
+/* ---------- Panes and the top bar ---------- */
+
+html[data-theme="crt"] .pane-jobs { border-right-color: var(--border-2); }
+html[data-theme="crt"] .pane-preview { border-left-color: var(--border-2); background: var(--bg-1); }
+html[data-theme="crt"] .topbar { background: var(--bg-1); border-bottom-color: var(--border-2); }
+html[data-theme="crt"] .brand {
+  color: var(--crt-green-bright);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  text-shadow: 0 0 6px var(--crt-glow);
+}
+/* A cursor block after the brand (still: it is only a shape, with no text in it). */
+html[data-theme="crt"] .brand::after {
+  content: "";
+  display: inline-block;
+  width: .55em;
+  height: .9em;
+  margin-left: .35em;
+  vertical-align: -.1em;
+  background: var(--crt-green);
+  box-shadow: 0 0 6px var(--crt-glow);
+}
+html[data-theme="crt"] .needs { padding: 0 var(--space-2); border: 1px solid var(--group-needs-you-line); color: var(--group-needs-you-fg); background: var(--group-needs-you-bg); }
+html[data-theme="crt"] .topbar .btn { border-color: var(--border-2); background: transparent; }
+html[data-theme="crt"] .topbar .btn:hover { background: var(--accent-soft); }
+
+html[data-theme="crt"] .pane-title,
+html[data-theme="crt"] .settings-heading,
+html[data-theme="crt"] .sheet-title {
+  color: var(--crt-green-bright);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  text-shadow: 0 0 6px var(--crt-glow);
+}
+
+/* ---------- Jobs pane ---------- */
+
+html[data-theme="crt"] .job-group-title { color: var(--group-idle-fg); letter-spacing: .08em; }
+html[data-theme="crt"] .job-group-title[data-group="needs-you"] { color: var(--group-needs-you-fg); }
+html[data-theme="crt"] .job-group-title[data-group="running"] { color: var(--group-running-fg); }
+html[data-theme="crt"] .job-group-title[data-group="paused"] { color: var(--group-paused-fg); }
+html[data-theme="crt"] .job-group-title[data-group="done"] { color: var(--group-done-fg); }
+html[data-theme="crt"] .job-row { --row-line: transparent; box-shadow: inset 2px 0 0 var(--row-line); }
+html[data-theme="crt"] .job-row[data-group="needs-you"] { --row-line: var(--group-needs-you-line); background: var(--group-needs-you-bg); }
+html[data-theme="crt"] .job-row[data-group="running"] { --row-line: var(--group-running-line); }
+html[data-theme="crt"] .job-row[data-group="paused"] { --row-line: var(--group-paused-line); }
+html[data-theme="crt"] .job-row:hover { background: var(--accent-soft); text-decoration: none; }
+/* The open job: a lit frame with a bright edge (not inverse video, so needs-you stays the loudest). */
+html[data-theme="crt"] .job-row[aria-current="page"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--crt-green-bright), inset 0 0 0 1px var(--border-3); }
+html[data-theme="crt"] .job-row[aria-current="page"][data-group="needs-you"] { background: var(--group-needs-you-bg); box-shadow: inset 3px 0 0 var(--group-needs-you-line), inset 0 0 0 1px var(--group-needs-you-line); }
+html[data-theme="crt"] .job-rail-item[aria-current="page"] { box-shadow: inset 0 0 0 1px var(--crt-green); background: var(--accent-soft); }
+html[data-theme="crt"] .rail-needs { border: 1px solid var(--group-needs-you-line); }
+html[data-theme="crt"] .stage-chip { border-color: color-mix(in oklch, currentColor 45%, transparent); }
+html[data-theme="crt"] .glyph.status-running { animation: crt-blink 1.2s steps(2, jump-none) infinite; }
+@keyframes crt-blink { 50% { opacity: .4; } }
+
+/* ---------- Job header ---------- */
+
+html[data-theme="crt"] .job-title { color: var(--crt-green-bright); text-shadow: 0 0 6px var(--crt-glow); }
+html[data-theme="crt"] .job-header .status { padding: 0 var(--space-2); border: 1px solid currentColor; }
+html[data-theme="crt"] .job-menu-list { border-color: var(--border-3); }
+
+/* ---------- Thread: boxed text, like a terminal's frames ---------- */
+
+html[data-theme="crt"] .reply,
+html[data-theme="crt"] .brief-card,
+html[data-theme="crt"] .live-row {
+  border-color: var(--border-2);
+  background: var(--bg-1);
+  box-shadow: none;
+}
+html[data-theme="crt"] .who { color: var(--crt-green-bright); text-transform: uppercase; letter-spacing: .04em; }
+html[data-theme="crt"] .you { border: 1px dashed var(--border-3); background: var(--bg-2); }
+html[data-theme="crt"] .brief-card:not(.is-answered) { border-color: var(--border-3); }
+html[data-theme="crt"] .brief-card.is-answered { opacity: .85; }
+html[data-theme="crt"] .brief-label { color: var(--crt-green-bright); }
+html[data-theme="crt"] .brief-state { padding: 0 var(--space-2); border: 1px solid currentColor; }
+html[data-theme="crt"] .live-row { border-style: dashed; }
+html[data-theme="crt"] .typing span { background: var(--crt-green); }
+html[data-theme="crt"] .problem { border-color: var(--status-error); }
+html[data-theme="crt"] .blocked-line .glyph { color: var(--ask-blocked-line); text-decoration: line-through; text-decoration-thickness: 2px; }
+
+/* Markdown pages. */
+html[data-theme="crt"] .prose h1,
+html[data-theme="crt"] .prose h2,
+html[data-theme="crt"] .prose h3 { color: var(--crt-green-bright); }
+html[data-theme="crt"] .prose a { color: var(--crt-green-bright); text-decoration: underline; }
+html[data-theme="crt"] .prose code { color: var(--crt-green-bright); background: var(--accent-soft); }
+html[data-theme="crt"] .prose pre { border: 1px solid var(--border-2); background: oklch(.1 .02 150); }
+html[data-theme="crt"] .prose blockquote { border-left-color: var(--crt-green-dim); color: var(--text-2); }
+html[data-theme="crt"] .prose th { color: var(--crt-green-bright); border-bottom-color: var(--border-3); }
+html[data-theme="crt"] .prose hr { border-color: var(--border-2); border-style: dashed; }
+
+/* ---------- Permission and question cards: a stripe in the kind's colour ---------- */
+
+html[data-theme="crt"] .perm-card {
+  --ask-line: var(--ask-permission-line);
+  border-color: var(--ask-line);
+  box-shadow: inset 4px 0 0 var(--ask-line);
+}
+html[data-theme="crt"] .perm-card[data-ask="question"] { --ask-line: var(--ask-question-line); }
+html[data-theme="crt"] .perm-card[data-ask="hardline"] { --ask-line: var(--ask-hardline-line); }
+html[data-theme="crt"] .perm-card.is-risky { border-color: var(--status-warn); }
+html[data-theme="crt"] .perm-card[data-ask="hardline"].is-risky { border-color: var(--ask-hardline-line); }
+html[data-theme="crt"] .perm-card .ask-label { padding: 0 var(--space-2); border-color: var(--ask-line); background: color-mix(in oklch, var(--ask-line) 18%, transparent); letter-spacing: .06em; text-transform: uppercase; }
+html[data-theme="crt"] .perm-preview { border: 1px solid var(--border-1); background: oklch(.1 .02 150); }
+html[data-theme="crt"] .perm-warn { border: 1px solid var(--status-warn); }
+html[data-theme="crt"] .question legend { color: var(--ask-question-fg); }
+html[data-theme="crt"] .answer-option:hover { background: var(--accent-soft); }
+html[data-theme="crt"] .answer-option input { accent-color: var(--crt-green); }
+
+/* ---------- Controls ---------- */
+
+html[data-theme="crt"] .btn { border-color: var(--border-3); background: transparent; }
+html[data-theme="crt"] .btn:hover { background: var(--accent-soft); }
+html[data-theme="crt"] .btn-quiet { border-color: transparent; }
+html[data-theme="crt"] .btn-primary { border-color: var(--crt-green); background: var(--crt-green); color: var(--on-accent); font-weight: var(--weight-bold); }
+html[data-theme="crt"] .btn-primary:hover { background: var(--crt-green-bright); }
+html[data-theme="crt"] .btn-primary:disabled,
+html[data-theme="crt"] .btn-primary:disabled:hover { opacity: 1; border-color: var(--border-2); background: transparent; color: var(--text-3); }
+html[data-theme="crt"] .btn-danger { border-color: var(--status-error); color: oklch(.84 .15 28); background: transparent; }
+html[data-theme="crt"] .btn-danger:hover { background: var(--status-error-bg); }
+html[data-theme="crt"] .chip { border-color: var(--border-3); padding: 0 var(--space-2); }
+html[data-theme="crt"] .kbd { border-color: var(--border-3); color: var(--crt-green-bright); background: transparent; }
+html[data-theme="crt"] .text-input,
+html[data-theme="crt"] .text-area,
+html[data-theme="crt"] .select { border-color: var(--border-3); background: oklch(.1 .02 150); caret-color: var(--crt-green-bright); }
+html[data-theme="crt"] .text-input:focus-visible,
+html[data-theme="crt"] .text-area:focus-visible { border-color: var(--crt-green); box-shadow: 0 0 0 1px var(--crt-green), 0 0 12px var(--crt-glow); }
+html[data-theme="crt"] .rule-option { border-color: var(--border-2); }
+html[data-theme="crt"] .rule-option:hover { background: var(--bg-2); }
+html[data-theme="crt"] .rule-option.is-picked,
+html[data-theme="crt"] .seg-option.is-picked { border-color: var(--crt-green); background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--crt-green); }
+html[data-theme="crt"] .rule-option.is-picked .rule-option-kind { color: var(--crt-green-bright); }
+html[data-theme="crt"] .rule-list { border-color: var(--border-2); }
+html[data-theme="crt"] .theme-picker { padding-top: var(--space-4); border-top: 1px dashed var(--border-2); }
+html[data-theme="crt"] .how { border-color: var(--border-2); border-style: dashed; background: transparent; }
+html[data-theme="crt"] .how summary { color: var(--crt-green-bright); }
+
+/* ---------- Composer, palette, sheets, drawer ---------- */
+
+html[data-theme="crt"] .composer { border-top: 1px dashed var(--border-2); background: var(--bg-0); }
+html[data-theme="crt"] .composer .text-area { background: var(--bg-1); }
+html[data-theme="crt"] .steer-state { border: 1px solid currentColor; padding: 0 var(--space-2); }
+html[data-theme="crt"] .sheet-backdrop,
+html[data-theme="crt"] .palette-backdrop,
+html[data-theme="crt"] .drawer-backdrop { background: oklch(.06 .02 150 / .75); }
+html[data-theme="crt"] .palette,
+html[data-theme="crt"] .sheet,
+html[data-theme="crt"] .drawer { border-color: var(--crt-green); background: var(--bg-1); box-shadow: var(--shadow-2); }
+html[data-theme="crt"] .palette-input { border-bottom-color: var(--border-2); caret-color: var(--crt-green-bright); }
+html[data-theme="crt"] .palette-option.is-active { background: var(--crt-green); }
+html[data-theme="crt"] .palette-option.is-active,
+html[data-theme="crt"] .palette-option.is-active * { color: var(--bg-0); }
+html[data-theme="crt"] .palette-section { color: var(--crt-green-dim); letter-spacing: .08em; text-transform: uppercase; }
+html[data-theme="crt"] .drawer-tab[aria-selected="true"] { box-shadow: inset 0 -2px 0 var(--crt-green); color: var(--crt-green-bright); }
+html[data-theme="crt"] .preview-tab[aria-selected="true"] { box-shadow: inset 0 -2px 0 var(--crt-green); color: var(--crt-green-bright); }
+
+/* ---------- Usage banner, toasts ---------- */
+
+html[data-theme="crt"] .usage-limited { background: var(--status-warn-bg); box-shadow: inset 4px 0 0 var(--status-warn); }
+html[data-theme="crt"] .usage-warn { box-shadow: inset 4px 0 0 oklch(.85 .15 78 / .5); }
+html[data-theme="crt"] .toast { background: var(--bg-1); border-style: solid; }
+html[data-theme="crt"] .play-toast { border-color: var(--crt-green); background: var(--bg-1); }
+
+/* ---------- Crew-dex and achievements ---------- */
+
+html[data-theme="crt"] .dex-face,
+html[data-theme="crt"] .ach-badge { background: var(--bg-1); border-color: var(--border-2); }
+html[data-theme="crt"] .dex-card.is-unmet .dex-face,
+html[data-theme="crt"] .ach-badge.is-locked { background: transparent; }
+html[data-theme="crt"] .dex-name,
+html[data-theme="crt"] .ach-name { color: var(--crt-green-bright); }
+
+/* ---------- Focus ---------- */
+
+html[data-theme="crt"] :focus-visible { outline-color: var(--focus-ring); }
+
+/* ---------- The crew (play/play.css): phosphor paints, all on a green screen ---------- */
+/* No magenta on the crew: that colour is only for needs-you. */
+html[data-theme="crt"] {
+  --crew-skin: oklch(.88 .09 135);
+  --crew-skin-shade: oklch(.74 .1 138);
+  --crew-blush: oklch(.8 .1 60);
+  --crew-ink: oklch(.16 .03 150);
+  --crew-tongue: oklch(.78 .1 50);
+  --crew-feet: oklch(.3 .05 150);
+  --crew-shadow: oklch(.87 .2 145 / .22);
+  --crew-shine: oklch(.97 .08 140);
+  --crew-paper: oklch(.92 .08 140);
+  --crew-line: oklch(.6 .1 145);
+  --crew-glass: oklch(.9 .1 170);
+  --crew-glass-line: oklch(.7 .12 170);
+  --crew-metal: oklch(.78 .07 150);
+  --crew-wood: oklch(.6 .1 80);
+  --crew-blueprint: oklch(.7 .12 190);
+  --crew-blueprint-dark: oklch(.5 .1 190);
+  --crew-clay: oklch(.72 .14 60);
+  --crew-gold: oklch(.86 .15 95);
+  --crew-gold-dark: oklch(.66 .13 90);
+  --crew-ok: var(--crt-green-bright);
+  --crew-danger: oklch(.7 .19 28);
+  --crew-brush: oklch(.72 .15 50);
+  --crew-spark: var(--crt-green-bright);
+  --crew-zzz: var(--crt-green);
+  --crew-c-clay: oklch(.74 .14 60);
+  --crew-c-amber: oklch(.86 .15 85);
+  --crew-c-amber-deep: oklch(.72 .14 78);
+  --crew-c-plum: oklch(.72 .1 290);
+  --crew-c-plum-deep: oklch(.58 .1 290);
+  --crew-c-tweed: oklch(.74 .09 110);
+  --crew-c-tweed-deep: oklch(.58 .08 110);
+  --crew-c-blueprint: oklch(.74 .12 195);
+  --crew-c-blueprint-deep: oklch(.58 .11 195);
+  --crew-c-moss: oklch(.84 .18 140);
+  --crew-c-teal: oklch(.8 .13 175);
+  --crew-c-steel: oklch(.72 .05 160);
+  --crew-c-forest: oklch(.72 .17 148);
+  --crew-c-forest-deep: oklch(.56 .14 150);
+  --crew-shade-base: oklch(.1 .03 150);
+  --crew-font: var(--font-mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="crt"] .app::before { display: none; animation: none; }
+  html[data-theme="crt"] .glyph.status-running { animation: none; }
+}

@@ -5,16 +5,18 @@
 //                 replies and briefs this way; the job stays open (the ID itself is ignored for now)
 //   #/settings    Settings (your "Always allow" rules) in the middle pane
 //   #/crew        the Crew-dex in the middle pane (Play mode only; with Play Off it shows #/'s view)
+//   #/achievements  your achievements in the middle pane (Play mode only, like the Crew-dex)
 // Anything else falls back to #/. A query after the hash (#/?theme=x, read by theme/theme.ts)
 // is ignored here, so it changes nothing about the route.
 import { useEffect, useState } from 'react';
 
-export type Route = { name: 'home' } | { name: 'settings' } | { name: 'crew' } | { name: 'job'; slug: string };
+export type Route = { name: 'home' } | { name: 'settings' } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string };
 
 export function parseHash(rawHash: string): Route {
   const hash = rawHash.replace(/\?.*$/, '');
   if (/^#\/settings\/?$/.test(hash)) return { name: 'settings' };
   if (/^#\/crew\/?$/.test(hash)) return { name: 'crew' };
+  if (/^#\/achievements\/?$/.test(hash)) return { name: 'achievements' };
   const m = /^#\/job\/([^/?#]+)(?:\/id\/[^/?#]+)?\/?$/.exec(hash);
   if (m) {
     try {
@@ -28,12 +30,15 @@ export function parseHash(rawHash: string): Route {
 export function hrefFor(route: Route): string {
   if (route.name === 'job') return `#/job/${encodeURIComponent(route.slug)}`;
   if (route.name === 'crew') return '#/crew';
+  if (route.name === 'achievements') return '#/achievements';
   return route.name === 'settings' ? '#/settings' : '#/';
 }
 
 export const settingsHref = () => hrefFor({ name: 'settings' });
 
 export const crewDexHref = () => hrefFor({ name: 'crew' });
+
+export const achievementsHref = () => hrefFor({ name: 'achievements' });
 
 export const jobHref = (slug: string) => hrefFor({ name: 'job', slug });
 

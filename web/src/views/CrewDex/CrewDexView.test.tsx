@@ -130,6 +130,10 @@ describe('Crew-dex', () => {
     expect(counts).toHaveTextContent('Secrets found 1/13');
     expect(counts).toHaveTextContent('Achievements 1/3');
     expect(counts).not.toHaveTextContent(/teapot/i);
+    // The achievements count opens the Achievements view.
+    const link = within(counts).getByRole('link', { name: /Achievements 1\/3/ });
+    expect(link).toHaveAttribute('href', '#/achievements');
+    expect(link).toHaveAttribute('title');
   });
 
   it('turns a met card over with a toggle button (and a click on the card), to the bio', async () => {

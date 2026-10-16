@@ -7,7 +7,7 @@
 // the event says outright (a permission card arriving or going, a run's status, the usage limit)
 // are applied straight away so the page reacts without waiting for that.
 
-import type { Job, JobGroup, LiveEvent, Meta, Permission, Run, Settings, Snapshot, Steer, SteerState, Usage } from '../api/types';
+import type { Achievement, Job, JobGroup, LiveEvent, Meta, Permission, PlayNews, QuestDone, Run, Settings, Snapshot, Steer, SteerState, Usage } from '../api/types';
 import { JOB_GROUPS } from '../api/types';
 
 export type Connection = 'connecting' | 'live' | 'reconnecting';
@@ -40,8 +40,13 @@ export interface WorkshopState {
   rulesVersion: number;
   /** Bumped by the dashboard's 'play' event (something new in the play ledger): the Crew-dex refetches. */
   playVersion: number;
+  /** The newest 'play' events heard live (achievements unlocked, quests done), oldest first: the toasts. */
+  playNews: PlayNews[];
   generatedAt: string | null;
 }
+
+/** How many 'play' events playNews keeps. */
+export const PLAY_NEWS_KEPT = 20;
 
 export type Action =
   | { type: 'snapshot'; snapshot: Snapshot }
@@ -75,6 +80,7 @@ export const initialState: WorkshopState = {
   resyncNeeded: false,
   rulesVersion: 0,
   playVersion: 0,
+  playNews: [],
   generatedAt: null,
 };
 
@@ -102,6 +108,7 @@ function applySnapshot(state: WorkshopState, s: Snapshot): WorkshopState {
     epoch: s.epoch,
     runs: sameRun ? state.runs : {},
     steers: sameRun ? state.steers : {},
+    playNews: sameRun ? state.playNews : [],
     threadEpoch: gap ? state.threadEpoch + 1 : state.threadEpoch,
     jobsStale: false,
     resyncNeeded: false,
@@ -177,9 +184,17 @@ function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
     case 'rules':
       next.rulesVersion = state.rulesVersion + 1;
       return next;
-    case 'play':
+    case 'play': {
       next.playVersion = state.playVersion + 1;
+      // An achievement unlocked or a quest done: kept (the newest few) for the toasts.
+      const achievement = asObject(d.achievement);
+      const quest = asObject(d.quest);
+      const news: PlayNews = { seq: e.seq };
+      if (typeof achievement.id === 'string' && typeof achievement.name === 'string') news.achievement = d.achievement as Achievement;
+      if (typeof quest.slug === 'string') news.quest = d.quest as QuestDone;
+      if (news.achievement || news.quest) next.playNews = [...state.playNews, news].slice(-PLAY_NEWS_KEPT);
       return next;
+    }
     case 'settings':
       // Your permission settings (global, per job, auto mode's availability), sent whole.
       return typeof d.policy === 'string' ? withSettings(next, d as unknown as Settings) : next;

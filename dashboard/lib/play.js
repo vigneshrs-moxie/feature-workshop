@@ -73,9 +73,15 @@ export function validatePlayPatch(patch) {
 export const CREW_TYPES = Object.keys(AGENTS);
 /** The 8 review lenses (lib/options.js REVIEWERS). */
 export const LENS_TYPES = REVIEWERS.map((r) => r.id);
-/** Themes the page can say you tried (web/src/theme/theme.ts THEMES); Explorer needs the five besides Default. */
-export const THEME_IDS = ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop'];
-export const EXPLORER_THEMES = THEME_IDS.filter((t) => t !== 'default');
+/** The five themes besides Default that shipped with the Workshop: Explorer is about these only. */
+export const EXPLORER_THEMES = ['neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop'];
+/**
+ * The hidden themes, each with the unlock that opens it (ledgerView `unlocks`): CRT Terminal from
+ * the Konami code (the 'konami' secret), Gold after GOLD_QUESTS quests done.
+ */
+export const HIDDEN_THEMES = { crt: 'crt', gold: 'gold' };
+/** Themes the page can say you tried (web/src/theme/theme.ts THEMES): Default, the five, the hidden two. */
+export const THEME_IDS = ['default', ...EXPLORER_THEMES, ...Object.keys(HIDDEN_THEMES)];
 /** The 13 easter eggs (design doc section 5). Only these ids can be recorded. */
 export const SECRET_IDS = [
   'konami', 'hammertime', 'sandwich', 'rm-rf', 'git-blame', 'teapot', 'console',
@@ -646,8 +652,32 @@ export function ledgerView(ledger, play = PLAY_DEFAULTS) {
     achievements,
     secrets: { found, total: SECRET_IDS.length },
     themesTried: THEME_IDS.filter((t) => l.themes?.[t]),
-    unlocks: { crt: found.includes('konami'), gold: quests.length >= GOLD_QUESTS },
+    unlocks: unlocksOf(l),
   };
+}
+
+/** What the ledger has unlocked: CRT Terminal once the Konami code was entered, Gold at GOLD_QUESTS quests done. */
+export function unlocksOf(ledger) {
+  return {
+    crt: Boolean(ledger?.secrets?.konami),
+    gold: Object.keys(ledger?.quests ?? {}).length >= GOLD_QUESTS,
+  };
+}
+
+/** A theme the ledger lets you use: any of the originals, a hidden one only once unlocked. */
+export function themeUnlocked(ledger, id) {
+  if (!THEME_IDS.includes(id)) return false;
+  const unlock = HIDDEN_THEMES[id];
+  return !unlock || unlocksOf(ledger)[unlock] === true;
+}
+
+/** Quests done in `next` that weren't in `before` (by job), oldest first: what the page celebrates. */
+export function newlyDone(before, next) {
+  const had = before?.quests ?? {};
+  return Object.entries(next?.quests ?? {})
+    .filter(([key]) => !had[key])
+    .map(([, q]) => ({ slug: q.slug, doneAt: q.doneAt, kind: q.kind, level: q.level, rule: q.rule }))
+    .sort((a, b) => ms(a.doneAt) - ms(b.doneAt));
 }
 
 // ---------- play.json (the one part that touches files) ----------
@@ -674,14 +704,16 @@ export const JOBS_EVERY_MS = 60_000;
  * next refresh reads everything again). onUnlock(achievement) is called for each achievement a
  * refresh unlocks: not on a rebuild from scratch (it only finds what was already earned) and not on
  * a muted refresh (refresh({ muted: true }): Play turned back on, or the quest rule changed).
+ * onQuest(quest) likewise for each quest a refresh finds done (newlyDone), before its achievements.
  */
 export class PlayBook {
-  constructor({ dir, sources, isOn = () => true, onUnlock = () => {}, now = () => Date.now(), jobsEveryMs = JOBS_EVERY_MS, log = (msg, err) => console.error(msg, err) }) {
+  constructor({ dir, sources, isOn = () => true, onUnlock = () => {}, onQuest = () => {}, now = () => Date.now(), jobsEveryMs = JOBS_EVERY_MS, log = (msg, err) => console.error(msg, err) }) {
     this.file = path.join(dir, 'play.json');
     this.dir = dir;
     this.sources = sources;
     this.isOn = isOn;
     this.onUnlock = onUnlock;
+    this.onQuest = onQuest;
     this.now = now;
     this.jobsEveryMs = jobsEveryMs;
     this.log = log;
@@ -780,7 +812,9 @@ export class PlayBook {
     // The ledger in memory first: a failed write must not lose it (GET /api/play still answers).
     this.ledger = next;
     try { await this.save(next); } catch (err) { this.log('play ledger: could not save play.json:', err); }
-    if (before && !muted) for (const a of newlyUnlocked(before, next)) { try { this.onUnlock(a); } catch { /* a listener's problem */ } }
+    if (!before || muted) return;
+    for (const q of newlyDone(before, next)) { try { this.onQuest(q); } catch { /* a listener's problem */ } }
+    for (const a of newlyUnlocked(before, next)) { try { this.onUnlock(a); } catch { /* a listener's problem */ } }
   }
 
   // The audit: everything at the first build, or when audit.jsonl shrank or was replaced; else the

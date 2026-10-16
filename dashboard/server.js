@@ -39,7 +39,7 @@ import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, g
 import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
 import { skillChecker } from './lib/skill-check.js';
 import { DOC_MAX_BYTES, DocError, describeDoc, jsonHtml, listJobDocs, readJobDoc, servableSpec } from './lib/docs.js';
-import { PlayBook, PlayError, PLAY_EVENTS, SECRET_IDS, ledgerView, parseReviewFindings, playSettings, validatePlayPatch } from './lib/play.js';
+import { PlayBook, PlayError, PLAY_EVENTS, SECRET_IDS, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from './lib/play.js';
 import { parseStatusJson } from './lib/status-json.js';
 
 const HOST = '127.0.0.1';
@@ -213,7 +213,8 @@ state.on('audit', noteAnswered);
 // ---------- Play (lib/play.js): crew met, quests done, achievements, secrets ----------
 // Built from local data only, kept in play.json next to the dashboard's other state, refreshed a
 // moment after an audit line or a job file changes (each audit line folded in as it is written,
-// one job re-read when its files change). A new achievement is a 'play' event. Never a model call.
+// one job re-read when its files change). A new achievement, or a quest done, is a 'play' event
+// ({ achievement } or { quest }). Never a model call.
 // Play mode Off means nothing: no refresh, no events, GET /api/play says only { mode: 'off' }.
 // The play settings live here in memory, read once at start and changed by POST /api/settings.
 let playNow = (await state.getSettings()).play;
@@ -269,6 +270,8 @@ const playbook = new PlayBook({
     settings: () => playNow,
   },
   onUnlock: (achievement) => { if (playOn()) events.emit('play', null, { achievement }); },
+  // A quest done: the page celebrates it (a toast), from the ledger alone.
+  onQuest: (quest) => { if (playOn()) events.emit('play', quest.slug ?? null, { quest }); },
 });
 state.on('audit', (e) => { playbook.noteAudit(e); playbook.schedule(); });
 
@@ -1301,6 +1304,8 @@ async function routePost(urlPath, req, res) {
     if (!secret && !(Object.hasOwn(PLAY_EVENTS, kind) && PLAY_EVENTS[kind].includes(id))) throw new HttpError(400, 'Unknown play event.');
     if (!playOn()) return sendJson(res, 200, { recorded: false, reason: 'Play mode is off.' });
     const ledger = await playbook.current();
+    // A hidden theme (CRT Terminal, Gold) counts only once the ledger has unlocked it.
+    if (!secret && kind === 'theme' && !themeUnlocked(ledger, id)) throw new HttpError(409, 'That theme is still locked.');
     const already = secret ? Boolean(ledger?.secrets?.[id]) : Boolean(ledger?.themes?.[id]);
     if (!already) {
       await state.audit(secret ? { action: 'play-secret', id } : { action: 'play-event', kind, id });

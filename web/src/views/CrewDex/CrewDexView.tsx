@@ -4,9 +4,11 @@
 // stage, last seen). A member you haven't met yet is a silhouette with no stats. A card you have met
 // flips (click it, or its "Card back" button) to a short bio. In Full mode a character gets to work
 // while you point at or focus its card; Subtle keeps them still. The header counts crew met, secrets
-// found (never which) and achievements. Everything is local: no model is asked anything.
+// found (never which) and achievements (a link to the Achievements view). Everything is local: no
+// model is asked anything.
 import { useState } from 'react';
 import type { CrewStats, Meta, PlayView } from '../../api/types';
+import { achievementsHref } from '../../app/router';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { CREW, crewModelName, crewRarity, dexNumber, isLensType, RARITY_HINT, RARITY_LABEL, type CrewInfo } from '../../play/crew';
@@ -138,8 +140,10 @@ function Counts({ view }: { view: PlayView }) {
       <li title="A few secrets are hidden around the Workshop. This only says how many you have found.">
         Secrets found <strong className="num">{view.secrets.found.length}/{view.secrets.total}</strong>
       </li>
-      <li className="dex-achievements" title="Achievements you have unlocked by finishing work (never by approving). The full list comes in a later update.">
-        Achievements <strong className="num">{got}/{visible.length}</strong>
+      <li className="dex-achievements">
+        <a href={achievementsHref()} title="Achievements you have unlocked by finishing work (never by approving). Open the full list.">
+          Achievements <strong className="num">{got}/{visible.length}</strong>
+        </a>
       </li>
     </ul>
   );
