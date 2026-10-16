@@ -1,16 +1,21 @@
 // The shell's own UI state, shared by the top bar, the job menu, ⌘K and the keyboard keys:
-// - which sheet is open (the command palette, New job, Mark done, the keys list), one at a time;
+// - which sheet is open (the command palette, New job, Mark done, the keys list, the job drawer
+//   with its notes and options), one at a time;
 // - the job open in the Foreman pane with what only its detail knows (its reply in progress, its
 //   folder and worktree), so ⌘K can offer Stop and Mark done without fetching it again.
 // Without a provider (component tests) every call is a harmless no-op.
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import type { PolicyId, Run } from '../api/types';
 
+/** The job drawer's two tabs. */
+export type DrawerTab = 'notes' | 'options';
+
 export type SheetState =
   | { kind: 'palette' }
   | { kind: 'new-job' }
   | { kind: 'close-job'; slug: string; worktree?: string | null }
   | { kind: 'keys' }
+  | { kind: 'job-drawer'; slug: string; tab?: DrawerTab }
   | null;
 
 /** The open job, as its Foreman pane knows it. */

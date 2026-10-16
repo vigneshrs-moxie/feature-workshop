@@ -1,10 +1,10 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../../api/client';
-import type { Rule, RulesList, Settings } from '../../api/types';
+import type { Rule, RulesList, Settings, SkillStatus } from '../../api/types';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { ev, snapshot } from '../../state/test-fixtures';
-import { SettingsView } from './SettingsView';
+import { SettingsView, STALE_SKILL } from './SettingsView';
 
 const RULE: Rule = { id: 'r1', tool: 'Bash', kind: 'prefix', value: 'npm run test:db', label: 'run any command starting with “npm run test:db”', createdAt: '2026-10-15T11:00:00Z', from: { slug: 'alpha', title: 'Job alpha' } };
 
@@ -61,6 +61,40 @@ describe('Settings', () => {
   it('says when jobs with their own setting don’t use the rules', async () => {
     setup([{ rules: [RULE], active: true, jobOverrides: 2, unreadable: null }]);
     expect(await screen.findByRole('note')).toHaveTextContent('aren’t used for the 2 jobs set to “Ask about everything” on their own');
+  });
+});
+
+describe('Settings: the installed skill', () => {
+  function withSkill(skill: SkillStatus | undefined) {
+    const store: Store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', skill } }) });
+    const api = { get: vi.fn(async () => ({ rules: [], active: true, unreadable: null })) } as unknown as ApiClient;
+    render(<WorkshopContext.Provider value={{ store, api }}><SettingsView /></WorkshopContext.Provider>);
+    return { store };
+  }
+  const warning = () => screen.queryByText(/predates levels/);
+
+  it('warns when the installed /feature skill has no Levels table, saying how to update it', async () => {
+    withSkill({ installed: true, levels: false, path: '/tmp/fw-test/skills/feature/job-options.md' });
+    const w = warning()!;
+    expect(w).toHaveTextContent(STALE_SKILL);
+    expect(STALE_SKILL).toBe('Your installed /feature skill predates levels. Run install.sh from claude-feature-workflow to update it; until then the Foreman treats L0 like L1 and ignores chip lines it doesn’t know.');
+    expect(w).toHaveAttribute('title', expect.stringContaining('/tmp/fw-test/skills/feature/job-options.md'));
+    await screen.findByText(/No rules yet/);
+  });
+
+  it('says nothing when the skill knows levels, when none is installed, or before meta says', async () => {
+    withSkill({ installed: true, levels: true, path: '/tmp/fw-test/skills/feature/job-options.md' });
+    expect(warning()).toBeNull();
+    await screen.findByText(/No rules yet/);
+    cleanup();
+    withSkill({ installed: false, levels: false, path: '/tmp/fw-test/skills/feature/job-options.md' });
+    expect(warning()).toBeNull();
+    await screen.findByText(/No rules yet/);
+    cleanup();
+    withSkill(undefined);
+    expect(warning()).toBeNull();
+    await screen.findByText(/No rules yet/);
   });
 });
 

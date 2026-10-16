@@ -1,7 +1,8 @@
 // The open job's header: title, kind, repository and branch, what it has cost so far, its status,
 // its permission setting, whether it was marked done or dropped, and the job menu:
-//   Mark done or dropped… (the classic options, in a sheet), Reopen, Options and the job's classic
-//   page (decision D4), and this job's own permission setting (POST /api/job/:slug/policy).
+//   Mark done or dropped… (the classic options, in a sheet), Reopen, Notes and options… (the job
+//   drawer), the job's classic page (decision D4), and this job's own permission setting
+//   (POST /api/job/:slug/policy).
 // ⌘K offers the same actions (app/commands.ts); both call app/jobActions.ts.
 // The level chip (LevelChip.tsx) shows the job's level and changes it.
 import { useEffect, useRef, useState } from 'react';
@@ -108,8 +109,16 @@ function JobMenu({ job, dir, policyOverride, run, worktree }: MenuProps) {
               </button>
             </li>
           )}
-          <li><a href={classicHref.job(slug)} title="Change this job’s options on its classic page (the Options button there): stages, reviewers, notes for the Foreman.">Options (classic view)</a></li>
-          <li><a href={classicHref.job(slug)} title="Open this job in the classic view: try it on your computer, details, costs and options.">Open in classic view</a></li>
+          <li>
+            <button
+              type="button"
+              onClick={() => { setOpen(false); ui.openSheet({ kind: 'job-drawer', slug }); }}
+              title="Open this job’s notes (notes.md, read by the Foreman every session) and its options: level, stages, reviewers, testing, Fable second looks and models."
+            >
+              Notes and options…
+            </button>
+          </li>
+          <li><a href={classicHref.job(slug)} title="Open this job in the classic view: try it on your computer, details, costs and provided documents.">Open in classic view</a></li>
           <li role="presentation"><p className="job-menu-heading" id={`perm-${slug}`}>Permissions for this job</p></li>
           <li>
             <ul role="group" aria-labelledby={`perm-${slug}`}>

@@ -11,7 +11,7 @@ const classic = { home: () => '/#/', job: (s: string) => `/#/job/${s}`, costs: (
 function handlers(): CommandHandlers {
   return {
     openJob: vi.fn(), newJob: vi.fn(), stop: vi.fn(), focusComposer: vi.fn(), markDone: vi.fn(), reopen: vi.fn(),
-    setPolicy: vi.fn(), settings: vi.fn(), classic: vi.fn(), showKeys: vi.fn(),
+    setPolicy: vi.fn(), jobDrawer: vi.fn(), settings: vi.fn(), classic: vi.fn(), showKeys: vi.fn(),
   };
 }
 
@@ -52,7 +52,7 @@ describe('commandsFor', () => {
 
   it('offers Mark done for an idle job and Reopen for one marked done', () => {
     const idle = commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: 'alpha', current: { slug: 'alpha', run: null }, onSettings: false, classic }, handlers());
-    expect(ids(idle)).toEqual(expect.arrayContaining(['write', 'mark-done', 'options', 'classic-job']));
+    expect(ids(idle)).toEqual(expect.arrayContaining(['write', 'mark-done', 'job-drawer', 'classic-job']));
     expect(ids(idle)).not.toContain('reopen');
 
     const h = handlers();
@@ -61,8 +61,22 @@ describe('commandsFor', () => {
     expect(ids(done)).not.toContain('mark-done');
     done.find((c) => c.id === 'reopen')!.run();
     expect(h.reopen).toHaveBeenCalledWith('alpha');
-    done.find((c) => c.id === 'options')!.run();
-    expect(h.classic).toHaveBeenCalledWith('/#/job/alpha');
+  });
+
+  it('offers “Job notes and options” for the open job, opening its drawer; the classic Options entry is gone', () => {
+    const h = handlers();
+    const list = commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: 'alpha', current: { slug: 'alpha', run: null }, onSettings: false, classic }, h);
+    const entry = list.find((c) => c.id === 'job-drawer')!;
+    expect(entry.label).toBe('Job notes and options');
+    expect(entry.hint).toMatch(/notes\.md/);
+    entry.run();
+    expect(h.jobDrawer).toHaveBeenCalledWith('alpha');
+    expect(h.classic).not.toHaveBeenCalled();
+    expect(list.some((c) => /Options \(classic view\)/.test(c.label))).toBe(false);
+    expect(ids(filterCommands(list, 'notes'))).toEqual(['job-drawer']);
+    expect(ids(filterCommands(list, 'reviewers'))).toEqual(['job-drawer']);
+    // No job open: no drawer to offer.
+    expect(ids(commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: null, current: null, onSettings: false, classic }, h))).not.toContain('job-drawer');
   });
 
   it('offers the job’s permission settings other than the one in force, and not auto mode when it isn’t available', () => {

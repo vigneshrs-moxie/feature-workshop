@@ -32,6 +32,8 @@ export interface CommandHandlers {
   focusComposer(): void;
   markDone(slug: string): void;
   reopen(slug: string): void;
+  /** Open the job drawer: the job's notes and options. */
+  jobDrawer(slug: string): void;
   setPolicy(slug: string, policy: PolicyId | null): void;
   settings(): void;
   /** Open a page of the classic view (decision D4). */
@@ -124,13 +126,13 @@ function jobCommands(ctx: CommandContext, h: CommandHandlers, job: Job): Command
   }
 
   out.push({
-    id: 'options', label: 'Options (classic view)', section: 'This job', keywords: 'settings flow reviewers',
-    hint: `Change ${title}’s job options on its classic page: stages, reviewers, notes for the Foreman.`,
-    run: () => h.classic(ctx.classic.job(job.slug)),
+    id: 'job-drawer', label: 'Job notes and options', section: 'This job', keywords: 'notes options settings level flow stages skip reviewers models fable',
+    hint: `Open ${title}’s notes (notes.md, read by the Foreman every session) and its options: level, stages, reviewers, testing, Fable, models.`,
+    run: () => h.jobDrawer(job.slug),
   });
   out.push({
     id: 'classic-job', label: 'Open this job in classic view', section: 'This job', keywords: 'details costs try local',
-    hint: 'Its classic page: try it on your computer, details, costs and options.',
+    hint: 'Its classic page: try it on your computer, details, costs and provided documents.',
     run: () => h.classic(ctx.classic.job(job.slug)),
   });
   return out;

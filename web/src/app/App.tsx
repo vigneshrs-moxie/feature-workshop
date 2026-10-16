@@ -1,5 +1,5 @@
 // The shell: top bar, the usage-limit banner, then Jobs | Foreman | Preview, plus the sheets (⌘K,
-// New job, Mark done, the keys list) and the page keys. Owns the store, the API client and the
+// New job, Mark done, the keys list, the job drawer with notes and options) and the page keys. Owns the store, the API client and the
 // live sync; tests pass their own (a fake fetch and a fake EventSource).
 import { useEffect, useMemo, useState } from 'react';
 import { createApi, type ApiClient } from '../api/client';
@@ -11,8 +11,9 @@ import { UsageBanner } from '../components/UsageBanner';
 import { JobsPane, useJobsRail } from '../panes/Jobs/JobsPane';
 import { PreviewPane } from '../panes/Preview/PreviewPane';
 import { createLiveSync, type EventSourceLike, type LiveSync } from '../state/live';
-import { needsYouCount, type Connection } from '../state/reducer';
+import { jobBySlug, needsYouCount, type Connection } from '../state/reducer';
 import { createStore, useWorkshop, useWorkshopState, WorkshopContext, type Store } from '../state/store';
+import { JobDrawer } from '../views/JobDrawer/JobDrawer';
 import { CloseJobSheet } from '../views/JobSheets/CloseJobSheet';
 import { KeysSheet } from '../views/JobSheets/KeysSheet';
 import { NewJobSheet } from '../views/JobSheets/NewJobSheet';
@@ -94,6 +95,7 @@ function Sheets({ route }: { route: Route }) {
     focusComposer: () => setTimeout(focusComposer, 0),
     markDone: (s) => ui.openSheet({ kind: 'close-job', slug: s, worktree: ui.current?.slug === s ? ui.current.worktree : undefined }),
     reopen: (s) => attempt(reopenJob(api, s)),
+    jobDrawer: (s) => ui.openSheet({ kind: 'job-drawer', slug: s }),
     setPolicy: (s, policy: PolicyId | null) => attempt(setJobPolicy(api, store, s, ui.current?.slug === s ? ui.current.dir : null, policy)),
     settings: () => navigate({ name: 'settings' }),
     classic: (href) => { window.location.href = href; },
@@ -137,6 +139,7 @@ function Sheets({ route }: { route: Route }) {
       {sheet?.kind === 'new-job' && <NewJobSheet onClose={ui.closeSheet} />}
       {sheet?.kind === 'close-job' && <CloseJobSheet slug={sheet.slug} worktree={sheet.worktree} onClose={ui.closeSheet} />}
       {sheet?.kind === 'keys' && <KeysSheet onClose={ui.closeSheet} />}
+      {sheet?.kind === 'job-drawer' && <JobDrawer key={sheet.slug} slug={sheet.slug} job={jobBySlug(state, sheet.slug)} tab={sheet.tab} onClose={ui.closeSheet} />}
     </>
   );
 }

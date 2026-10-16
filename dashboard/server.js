@@ -29,7 +29,7 @@ import { LimitWatch } from './lib/limits.js';
 import { LocalRunner } from './lib/local.js';
 import { History, historyMarkdown } from './lib/history.js';
 import { removeWorktree, checkWorktree } from './lib/close.js';
-import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions, foremanModel, levelsForClient, optionsAtLevel, isLevel } from './lib/options.js';
+import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, FOREMAN_MODEL_IDS, MODEL_IDS, MODEL_CHOICES, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions, foremanModel, levelsForClient, optionsAtLevel, isLevel } from './lib/options.js';
 import { isWebAppPath, serveWebApp } from './lib/web-app.js';
 import { EventLog, resumePoint, openStream } from './lib/events.js';
 import { groupCards } from './lib/snapshot.js';
@@ -37,6 +37,7 @@ import { buildThread, pageThread } from './lib/thread.js';
 import { suggestLevel, changedPaths } from './lib/levels.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs } from './lib/gate.js';
 import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
+import { skillChecker } from './lib/skill-check.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -51,6 +52,8 @@ const PROJECTS_DIR = path.resolve(process.env.WORKSHOP_PROJECTS_DIR || path.join
 const AGENTS_DIR = path.resolve(process.env.WORKSHOP_AGENTS_DIR || path.join(CLAUDE_DIR, 'agents'));
 const SKILLS_DIR = path.resolve(process.env.WORKSHOP_SKILLS_DIR || path.join(CLAUDE_DIR, 'skills'));
 const DEMO = Boolean(process.env.WORKSHOP_DEMO);
+// Whether the installed /feature skill knows levels (read only; Settings warns when it doesn't).
+const skill = skillChecker(SKILLS_DIR);
 const TOKEN = crypto.randomBytes(24).toString('hex');
 
 const MODELS = [
@@ -731,9 +734,13 @@ async function meta() {
     token: TOKEN, stages: STAGES, agents: AGENTS, prices: { asOf: PRICES_AS_OF, models: PRICES },
     featuresDir: FEATURES_DIR, crewModels: await crewModels(), demo: DEMO, models: MODELS, readDirs: await readDirs(),
     settings: await state.getSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT },
-    jobOptions: { flows: Object.entries(FLOWS).map(([id, f]) => ({ id, label: f.label, note: f.note, model: f.model, defaults: defaultsFor(id) })), skippable: SKIPPABLE, providable: PROVIDABLE, reviewers: REVIEWERS, fablePoints: FABLE_POINTS },
+    jobOptions: { flows: Object.entries(FLOWS).map(([id, f]) => ({ id, label: f.label, note: f.note, model: f.model, defaults: defaultsFor(id) })), skippable: SKIPPABLE, providable: PROVIDABLE, reviewers: REVIEWERS, fablePoints: FABLE_POINTS,
+      // The options editor's model choices: the Foreman's (FOREMAN_MODEL_IDS) and the crew's (MODEL_IDS), with names.
+      models: { foreman: FOREMAN_MODEL_IDS, crew: MODEL_IDS, choices: MODEL_CHOICES }, notesMax: NOTES_MAX },
     // L0–L3 with their one-line "what runs" hints, for the level picker.
     levels: levelsForClient(),
+    // The installed skill's job-options.md: has it the Levels table? (lib/skill-check.js)
+    skill: await skill.check(),
   };
 }
 
@@ -1334,6 +1341,7 @@ const server = http.createServer(async (req, res) => {
 
 await limits.load();
 await startGateParking();
+await skill.check(); // read once at start; /api/meta re-reads only when the file changes
 watch(FEATURES_DIR, featureFileChanged);
 watch(PROJECTS_DIR);
 server.listen(PORT, HOST, () => {

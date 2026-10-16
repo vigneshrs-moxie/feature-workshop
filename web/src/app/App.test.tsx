@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
 import type { Snapshot } from '../api/types';
@@ -127,12 +127,59 @@ describe('App shell', () => {
     expect(screen.getByRole('button', { name: 'Carry on now' })).toBeInTheDocument();
   });
 
-  it('remembers a closed “How this works” box', async () => {
+  it('“How this works” boxes start folded, and one you opened stays open', async () => {
     renderApp(snapshot());
     await screen.findByRole('navigation', { name: 'Jobs' });
-    const box = within(screen.getByRole('navigation', { name: 'Jobs' })).getByText('How this works').closest('details')!;
-    expect(box.open).toBe(true);
-    act(() => { box.open = false; box.dispatchEvent(new Event('toggle')); });
+    const box = () => within(screen.getByRole('navigation', { name: 'Jobs' })).getByText('How this works').closest('details')!;
+    expect(box().open).toBe(false);
+    act(() => { box().open = true; box().dispatchEvent(new Event('toggle')); });
+    expect(localStorage.getItem('fw.how.jobs')).toBe('open');
+    cleanup();
+    renderApp(snapshot());
+    await screen.findByRole('navigation', { name: 'Jobs' });
+    expect(box().open).toBe(true);
+    act(() => { box().open = false; box().dispatchEvent(new Event('toggle')); });
     expect(localStorage.getItem('fw.how.jobs')).toBe('closed');
+  });
+});
+
+describe('Job drawer in the shell', () => {
+  function renderWithJob() {
+    window.location.hash = '#/job/alpha';
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/job/alpha/notes') return { text: 'Keep it small.', updatedAt: null };
+      return { slug: 'alpha', thread: [], threadMore: false, options: null };
+    });
+    const api = { snapshot: vi.fn(async () => snapshot({ jobs: [job('alpha', 'idle')] })), setToken: vi.fn(), get, post: vi.fn(), put: vi.fn() } as unknown as ApiClient;
+    render(<App api={api} openStream={() => new FakeStream()} />);
+    return { get };
+  }
+
+  it('the job menu opens it; Escape closes it and focus goes back to the job menu', async () => {
+    renderWithJob();
+    await screen.findByRole('heading', { name: 'Job alpha' });
+    fireEvent.click(screen.getByRole('button', { name: /Job menu/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Notes and options…' }));
+    const drawer = screen.getByRole('dialog', { name: 'Notes and options' });
+    expect(drawer).toHaveAttribute('aria-modal', 'true');
+    expect(within(drawer).getByRole('tab', { name: 'Notes' })).toHaveFocus();
+    expect(await within(drawer).findByRole('textbox', { name: /Notes for the Foreman/ })).toHaveValue('Keep it small.');
+    fireEvent.keyDown(document.body, { key: 'j' }); // the drawer is open: page keys wait
+    expect(window.location.hash).toBe('#/job/alpha');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Notes and options' })).toBeNull();
+    expect(screen.getByRole('button', { name: /Job menu/ })).toHaveFocus();
+  });
+
+  it('⌘K offers “Job notes and options” and opens the drawer', async () => {
+    renderWithJob();
+    await screen.findByRole('heading', { name: 'Job alpha' });
+    fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
+    const box = screen.getByRole('combobox', { name: 'Search actions' });
+    fireEvent.change(box, { target: { value: 'notes and options' } });
+    expect(screen.getAllByRole('option').map((o) => o.querySelector('.palette-label')?.textContent)).toEqual(['Job notes and options']);
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(screen.queryByRole('dialog', { name: 'Command palette' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Notes and options' })).toBeInTheDocument();
   });
 });

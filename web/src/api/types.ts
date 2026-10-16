@@ -375,9 +375,46 @@ export interface Meta {
   settings?: Settings;
   /** L0–L3 with their hints, for the level picker. */
   levels?: LevelInfo[];
-  /** The job options' lists (the classic Options page's); the new UI reads the reviewers' names. */
-  jobOptions?: { reviewers?: ReviewerInfo[]; [key: string]: unknown };
+  /** The job options' lists (lib/options.js), for the options editor and the reviewers' names. */
+  jobOptions?: JobOptionLists;
+  /** Whether the installed /feature skill knows levels (dashboard/lib/skill-check.js). */
+  skill?: SkillStatus;
   [key: string]: unknown;
+}
+
+/** One choice in a job options list: a stage to skip, a Fable point, a document you can provide. */
+export interface OptionChoice {
+  id: string;
+  label: string;
+  /** PROVIDABLE only: the stages a provided document skips. */
+  skips?: string[];
+}
+
+/** One model the options can name, with its friendly name (lib/options.js MODEL_CHOICES). */
+export interface ModelInfo {
+  id: string;
+  label: string;
+  note?: string;
+}
+
+/** meta.jobOptions. */
+export interface JobOptionLists {
+  skippable?: OptionChoice[];
+  providable?: OptionChoice[];
+  reviewers?: ReviewerInfo[];
+  fablePoints?: OptionChoice[];
+  /** The ids allowed for the Foreman and for the crew (build, checks), and every model's name. */
+  models?: { foreman?: string[]; crew?: string[]; choices?: ModelInfo[] };
+  /** notes.md's size cap, in characters. */
+  notesMax?: number;
+  [key: string]: unknown;
+}
+
+/** meta.skill: the installed skill's job-options.md, read only. levels: it has the Levels table. */
+export interface SkillStatus {
+  installed: boolean;
+  levels: boolean;
+  path: string;
 }
 
 export interface Snapshot {

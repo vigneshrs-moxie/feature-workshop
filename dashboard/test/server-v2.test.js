@@ -38,6 +38,9 @@ before(async () => {
   featuresDir = path.join(root, 'feature-work');
   const dirs = { projects: path.join(root, 'projects'), agents: path.join(root, 'agents'), skills: path.join(root, 'skills'), state: path.join(root, 'state'), home: path.join(root, 'home') };
   for (const d of [featuresDir, ...Object.values(dirs)]) await fs.mkdir(d, { recursive: true });
+  // An installed /feature skill from before levels (its job-options.md has no Levels table).
+  await fs.mkdir(path.join(dirs.skills, 'feature'), { recursive: true });
+  await fs.writeFile(path.join(dirs.skills, 'feature', 'job-options.md'), '# Job options\n\n| Field | Meaning |\n|---|---|\n| `flow` | quick |\n');
 
   const waiting = await writeJob('widget-export', {
     title: 'Widget Export', route: 'small', stage: 'review', stage_state: 'waiting_for_you', waiting_for: 'answers',
@@ -192,6 +195,20 @@ test('server: a stream from an earlier dashboard run is told to resync', async (
   const { event } = await waitForEvent('since=3&epoch=00000000', () => true);
   assert.equal(event.type, 'resync');
   assert.equal(event.data.reason, 'restarted');
+});
+
+test('server: meta says whether the installed skill knows levels, from WORKSHOP_SKILLS_DIR, and notices an update', async () => {
+  const file = path.join(root, 'skills', 'feature', 'job-options.md');
+  const { body: meta } = await getJson('/api/meta');
+  assert.deepEqual(meta.skill, { installed: true, levels: false, path: file });
+  // The options editor's lists ride along: model choices by role, with names, and the notes cap.
+  assert.deepEqual(meta.jobOptions.models.foreman, ['claude-opus-5-5', 'claude-fable-5-1', 'claude-haiku-5-5']);
+  assert.ok(meta.jobOptions.models.crew.includes('claude-sonnet-5-5'));
+  assert.ok(meta.jobOptions.models.choices.every((c) => c.id && c.label && c.note));
+  assert.equal(meta.jobOptions.notesMax, 20000);
+  const before = await fs.readFile(file, 'utf8');
+  await fs.writeFile(file, `${before}\n## Levels\n\n| Level | Stages |\n|---|---|\n| L0 Tweak | one build |\n`);
+  assert.equal((await getJson('/api/meta')).body.skill.levels, true);
 });
 
 test('server: meta lists the levels; an L3 job starts an Opus Foreman and writes schema 2 options', async () => {

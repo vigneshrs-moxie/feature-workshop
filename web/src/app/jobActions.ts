@@ -1,7 +1,7 @@
 // What the job menu and ⌘K do to a job, in one place so both behave the same. Each call is one
 // dashboard route (dashboard/server.js); the live events that follow bring the page up to date.
 import type { ApiClient } from '../api/client';
-import type { Closed, GateRequest, GateResult, JobPolicyResult, LevelNumber, OptionsResult, PolicyId, Usage } from '../api/types';
+import type { Closed, GateRequest, GateResult, JobNotes, JobOptions, JobPolicyResult, LevelNumber, OptionsResult, PolicyId, Usage } from '../api/types';
 import type { Store } from '../state/store';
 
 const job = (slug: string) => `/api/job/${encodeURIComponent(slug)}`;
@@ -62,6 +62,25 @@ export async function sendGate(api: ApiClient, slug: string, body: GateRequest):
  */
 export async function setJobLevel(api: ApiClient, slug: string, level: LevelNumber): Promise<OptionsResult> {
   return api.post<OptionsResult>(`${job(slug)}/options`, { level });
+}
+
+/**
+ * Save a job's whole options from the options editor (POST /api/job/:slug/options { options }).
+ * The dashboard checks and tidies them (lib/options.js normalize) and answers with the options as
+ * saved and the plain lines describing them; a refusal (400, with a plain message) throws an ApiError.
+ */
+export async function saveJobOptions(api: ApiClient, slug: string, options: JobOptions): Promise<OptionsResult> {
+  return api.post<OptionsResult>(`${job(slug)}/options`, { options });
+}
+
+/** A job's notes.md (empty text when it has none yet). */
+export async function loadJobNotes(api: ApiClient, slug: string): Promise<JobNotes> {
+  return api.get<JobNotes>(`${job(slug)}/notes`);
+}
+
+/** Replace a job's notes.md (PUT, at most 20,000 characters); answers with the notes as saved. */
+export async function saveJobNotes(api: ApiClient, slug: string, text: string): Promise<JobNotes> {
+  return api.put<JobNotes>(`${job(slug)}/notes`, { text });
 }
 
 /** Carry on now: start the jobs paused by the usage limit again. Returns how many started. */

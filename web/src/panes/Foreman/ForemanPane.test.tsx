@@ -70,13 +70,14 @@ describe('Foreman pane', () => {
     await screen.findByText('Spec is ready');
   });
 
-  it('has a job menu with Mark done, Options and the classic link', async () => {
+  it('has a job menu with Mark done, Notes and options, and the classic link (no classic Options link)', async () => {
     setup();
     const button = screen.getByRole('button', { name: /Job menu/ });
     expect(button).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(button);
     expect(screen.getByRole('link', { name: 'Open in classic view' })).toHaveAttribute('href', '/#/job/alpha');
-    expect(screen.getByRole('link', { name: 'Options (classic view)' })).toHaveAttribute('href', '/#/job/alpha');
+    expect(screen.queryByRole('link', { name: /Options \(classic view\)/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Notes and options…' })).toHaveAttribute('title', expect.stringContaining('notes.md'));
     expect(screen.getByRole('button', { name: 'Mark done or dropped…' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Reopen' })).toBeNull(); // only for a job marked done
     fireEvent.keyDown(document, { key: 'Escape' });

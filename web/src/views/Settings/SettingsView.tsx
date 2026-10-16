@@ -1,6 +1,7 @@
 // Settings: your permission setting (ask about everything, routine steps automatic, auto mode;
 // POST /api/settings), and your "Always allow" rules (GET /api/rules), each removable. Both
-// follow changes made elsewhere (the dashboard's 'settings' and 'rules' events).
+// follow changes made elsewhere (the dashboard's 'settings' and 'rules' events). A warning shows
+// when the installed /feature skill predates levels (meta.skill).
 import { useEffect, useState } from 'react';
 import type { PolicyId, Rule, RulesList, Settings } from '../../api/types';
 import { jobHref } from '../../app/router';
@@ -110,6 +111,20 @@ function PolicyChoice() {
   );
 }
 
+export const STALE_SKILL = 'Your installed /feature skill predates levels. Run install.sh from claude-feature-workflow to update it; until then the Foreman treats L0 like L1 and ignores chip lines it doesn’t know.';
+
+/** A warning when the installed /feature skill has no Levels table (meta.skill; the dashboard only reads it). */
+function SkillWarning() {
+  const { meta } = useWorkshopState();
+  const skill = meta?.skill;
+  if (!skill?.installed || skill.levels) return null;
+  return (
+    <p className="perm-warn skill-warning" role="note" title={`The dashboard read ${skill.path} (it never changes it) and found no Levels table.`}>
+      {STALE_SKILL}
+    </p>
+  );
+}
+
 export function SettingsView() {
   const { api } = useWorkshop();
   const { rulesVersion, meta } = useWorkshopState();
@@ -136,7 +151,9 @@ export function SettingsView() {
           <p>When a permission card asks you about a step, <strong>Always allow…</strong> saves a rule so steps exactly like it run without asking. Each rule covers only what it says: one exact command, commands starting with the same words, one file, one folder, one website or one connection tool. Anything else still asks.</p>
           <p>Rules apply to every job the dashboard runs, and only there: they aren’t added to your Claude Code settings, so your terminal sessions are unaffected. They’re not used while “ask about everything” is on, or for steps Claude Code flags as risky. Remove a rule here and those steps ask again.</p>
           <p><strong>Theme</strong> changes how the Workshop looks and nothing else; it’s remembered in this browser.</p>
+          <p>If your installed <code>/feature</code> skill is older than the dashboard (it doesn’t know levels yet), a warning shows at the top of this page with how to update it.</p>
         </HowThisWorks>
+        <SkillWarning />
         <PolicyChoice />
         <section aria-label="Always allow rules">
           <h3 className="settings-heading">Always allow rules</h3>

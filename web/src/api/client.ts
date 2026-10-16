@@ -21,6 +21,8 @@ type Fetch = typeof fetch;
 export interface ApiClient {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body?: unknown): Promise<T>;
+  /** A PUT (replace something whole, like a job's notes), sent like a write. */
+  put<T>(path: string, body?: unknown): Promise<T>;
   /** A DELETE, sent like a write (JSON and the page token). */
   del<T>(path: string): Promise<T>;
   meta(): Promise<Meta>;
@@ -73,6 +75,7 @@ export function createApi({ fetch: f = (...a: Parameters<Fetch>) => fetch(...a),
   }
 
   const post = <T,>(path: string, body?: unknown) => write<T>('POST', path, body);
+  const put = <T,>(path: string, body?: unknown) => write<T>('PUT', path, body);
   const del = <T,>(path: string) => write<T>('DELETE', path, {});
 
   async function snapshot(): Promise<Snapshot> {
@@ -81,5 +84,5 @@ export function createApi({ fetch: f = (...a: Parameters<Fetch>) => fetch(...a),
     return s;
   }
 
-  return { get, post, del, meta, snapshot, setToken: (t) => { token = t || null; } };
+  return { get, post, put, del, meta, snapshot, setToken: (t) => { token = t || null; } };
 }

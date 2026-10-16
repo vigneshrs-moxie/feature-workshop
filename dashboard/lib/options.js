@@ -20,6 +20,13 @@ export const HAIKU = 'claude-haiku-5-5';
 export const MODEL_IDS = [OPUS, FABLE, SONNET, HAIKU];
 /** The ones the Foreman itself may run on (models.foreman). KEEP IN STEP with MODELS in server.js. */
 export const FOREMAN_MODEL_IDS = [OPUS, FABLE, HAIKU];
+/** Friendly names and a few words on each, for the options editor's model choices (meta.jobOptions.models). */
+export const MODEL_CHOICES = [
+  { id: OPUS, label: 'Opus 5.5', note: 'Strong and much cheaper than Fable: the everyday choice.' },
+  { id: FABLE, label: 'Fable 5.1', note: 'Best judgment, highest cost and quickest to use up your limits.' },
+  { id: SONNET, label: 'Sonnet 5.5', note: 'Cheaper; fine for small builds and running checks.' },
+  { id: HAIKU, label: 'Haiku 5.5', note: 'Cheapest; for simple checks and trying things out.' },
+];
 export const SCHEMA_VERSION = 2;
 
 // The Foreman is Opus for every flow and level. Fable takes short second looks (fable_checks);
@@ -165,6 +172,8 @@ function levelInput(v) {
  * saving an L0 job from there doesn't quietly turn it into L1. It sends no models either; while
  * the level stays the same, the job's own models are kept (not reset to the level's defaults).
  * models.foreman must be one of FOREMAN_MODEL_IDS; the build and checks any of MODEL_IDS.
+ * A provided document the job already had (previous.provided) was checked when it was given, so
+ * it is kept even if it has moved since (as optionsAtLevel does); only new paths must exist.
  *
  * The level wins over the flow: `flow` is always flowFor(level). Without a level, a schema 1 flow
  * maps to one (quick → L1, small → L2, large → L3; auto → none) and keeps that flow's defaults.
@@ -175,11 +184,12 @@ export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previo
   const out = level !== null ? defaultsForLevel(level) : defaultsFor(input.flow);
   if (Array.isArray(input.skip)) out.skip = pick(input.skip, ids(SKIPPABLE));
   out.provided = {};
+  const known = new Set(Object.values(previous?.provided && typeof previous.provided === 'object' ? previous.provided : {}));
   for (const doc of PROVIDABLE) {
     const p = typeof input.provided?.[doc.id] === 'string' ? input.provided[doc.id].trim() : '';
     if (!p) continue;
     if (!path.isAbsolute(p) || p.length > 1000) throw new Error(`${doc.label}: give the full path to the file (starting with /).`);
-    if (!exists(p)) throw new Error(`${doc.label}: there’s no file at ${p}.`);
+    if (!known.has(p) && !exists(p)) throw new Error(`${doc.label}: there’s no file at ${p}.`);
     out.provided[doc.id] = p;
     for (const s of doc.skips) if (!out.skip.includes(s)) out.skip.push(s);
   }
@@ -222,11 +232,10 @@ export function optionsAtLevel(current, level, { exists = (p) => fs.existsSync(p
     .map((r) => [r, before.models?.[r]])
     .filter(([r, id]) => modelAllowed(r, id) && id !== old.models[r]));
   const ownTest = typeof before.manual_test === 'boolean' && before.manual_test !== old.manual_test;
-  const known = new Set(Object.values(before.provided ?? {}));
   return normalize({
     level, provided: before.provided, notes: before.notes, review_rounds: before.review_rounds, models,
     ...(ownTest ? { manual_test: before.manual_test } : {}),
-  }, { previous: before, exists: (p) => known.has(p) || exists(p) });
+  }, { previous: before, exists });
 }
 
 /**

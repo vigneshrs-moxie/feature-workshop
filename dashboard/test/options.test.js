@@ -243,3 +243,13 @@ test('job options: schema 2 is written with every v1 field; schema 1 files still
   assert.equal(describeOptions(await readOptions(old))[0], 'Flow: Let the Foreman decide.');
   await fs.rm(path.dirname(dir), { recursive: true, force: true });
 });
+
+test('job options: a document the job already had is kept when saved again, even if it moved; a new one must exist', () => {
+  const nowhere = () => false;
+  const previous = { level: 2, provided: { plan: '/tmp/fw-test/moved-plan.md' } };
+  const again = normalize({ level: 2, provided: { plan: '/tmp/fw-test/moved-plan.md' } }, { previous, exists: nowhere });
+  assert.equal(again.provided.plan, '/tmp/fw-test/moved-plan.md');
+  assert.ok(again.skip.includes('plan'), 'it still skips its stage');
+  assert.throws(() => normalize({ level: 2, provided: { spec: '/tmp/fw-test/new-spec.md' } }, { previous, exists: nowhere }), /Spec: there’s no file at/);
+  assert.throws(() => normalize({ level: 2, provided: { plan: '/tmp/fw-test/moved-plan.md' } }, { exists: nowhere }), /no file at/, 'without the earlier options it is checked');
+});
