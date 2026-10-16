@@ -29,7 +29,7 @@ import { LimitWatch } from './lib/limits.js';
 import { LocalRunner } from './lib/local.js';
 import { History, historyMarkdown } from './lib/history.js';
 import { removeWorktree, checkWorktree } from './lib/close.js';
-import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions, foremanModel, levelsForClient } from './lib/options.js';
+import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, MODEL_IDS, FOREMAN_MODEL_IDS, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions, foremanModel, levelsForClient } from './lib/options.js';
 import { isWebAppPath, serveWebApp } from './lib/web-app.js';
 import { EventLog, resumePoint, openStream } from './lib/events.js';
 import { groupCards } from './lib/snapshot.js';
@@ -198,8 +198,9 @@ const parking = new GateParking({ thresholdMs: PARK_MS, file: path.join(state.di
 const gateOf = (f, runActive) => ({ slug: f.slug, briefNumber: f.currentBrief?.number ?? null, waitingSince: f.gateWaitingSince, runActive: Boolean(runActive) });
 const gateParked = (f, runActive) => isParkable(f) && !closedOff(f) && parking.isParked(gateOf(f, runActive));
 // Briefs answered from a gate card: read from the audit once at start, then kept up as replies are
-// sent (or held until the usage limit resets: you've decided, so the gate isn't parked).
-const noteAnswered = (e) => { if ((e?.action === 'send' || e?.action === 'send-held') && e.featureDir) parking.noteAnswered(e.slug ?? path.basename(e.featureDir), e.gateBrief); };
+// sent (or held until the usage limit resets: you've decided, so the gate isn't parked, unless
+// that held reply is dropped). The same rule as answeredBriefs.
+const noteAnswered = (e) => { if (e?.featureDir) parking.noteAudit(e.slug ?? path.basename(e.featureDir), e); };
 state.on('audit', noteAnswered);
 
 // The jobs for the timer: the cached full list when it is fresh, else a light read of each job
@@ -366,11 +367,16 @@ function startingCards(list) {
 
 const idHref = (f) => (id) => `#/job/${encodeURIComponent(f.slug)}/id/${encodeURIComponent(id)}`;
 
-// Read a file inside a folder, refusing anything that escapes it.
-async function readInside(dir, rel) {
+// Read a file inside a folder, refusing anything that escapes it. noLink: refuse the file itself
+// being a symlink (it could point anywhere), or anything but a plain file.
+async function readInside(dir, rel, { noLink = false } = {}) {
   const root = path.resolve(dir);
   const file = path.resolve(root, rel);
   if (!file.startsWith(root + path.sep)) return null;
+  if (noLink) {
+    const st = await fsp.lstat(file).catch(() => null);
+    if (!st?.isFile()) return null;
+  }
   try { return await fsp.readFile(file, 'utf8'); } catch { return null; }
 }
 
@@ -596,14 +602,16 @@ function byId(v, max, what, each) {
     return [k, each(x)];
   }));
 }
+// A brief number from the page (1–99,999), or null when none is given.
+function readBriefNumber(v) {
+  if (v === undefined || v === null) return null;
+  if (!Number.isInteger(v) || v < 1 || v > 99999) throw new HttpError(400, 'That isn’t a brief number.');
+  return v;
+}
 function readGateBody(body) {
   const kind = GATE_KINDS.includes(body.kind) ? body.kind : null;
   if (!kind) throw new HttpError(400, 'Unknown decision: approve, changes, message or stop.');
-  let briefNumber = null;
-  if (body.briefNumber !== undefined && body.briefNumber !== null) {
-    if (!Number.isInteger(body.briefNumber) || body.briefNumber < 1 || body.briefNumber > 99999) throw new HttpError(400, 'That isn’t a brief number.');
-    briefNumber = body.briefNumber;
-  }
+  const briefNumber = readBriefNumber(body.briefNumber);
   if (body.note !== undefined && body.note !== null && typeof body.note !== 'string') throw new HttpError(400, 'The note must be text.');
   const note = body.note ?? '';
   if (note.length > GATE_NOTE_MAX) throw new HttpError(400, `The note is too long (at most ${GATE_NOTE_MAX.toLocaleString('en')} characters).`);
@@ -616,6 +624,8 @@ function readGateBody(body) {
   if (body.chips !== undefined && body.chips !== null && !Array.isArray(body.chips)) throw new HttpError(400, 'Chips: expected a list.');
   const chips = body.chips ?? [];
   if (chips.length > MAX_CHIPS) throw new HttpError(400, `Chips: at most ${MAX_CHIPS}.`);
+  // Chips change how the next stage runs; a stop has no next stage.
+  if (kind === 'stop' && chips.length) throw new HttpError(400, 'A stop can’t carry option changes.');
   return { kind, briefNumber, note, answers, verdicts, chips, startAfterReset: body.startAfterReset === true };
 }
 
@@ -626,8 +636,9 @@ const OPTION_KEYS = ['schema_version', 'level', 'flow', 'skip', 'provided', 'rev
 /**
  * The job's options after the gate card's chips (the workflow's job-options.md, "Option lines from
  * the gate card"): skip adds the stage to `skip`, ask Fable adds the point to `fable_checks`, a
- * level change takes the new level's defaults and keeps provided documents, notes and fix rounds
- * (then the other chips apply on top). Lighter, heavier and "I'll do it" are for the next step
+ * level change takes the new level's skip, reviewers and Fable defaults and keeps the job's own
+ * provided documents, notes, fix rounds, manual test and models (then the other chips apply on
+ * top). Lighter, heavier and "I'll do it" are for the next step
  * only: their line in the reply is the instruction, options.json doesn't change. Null: no change.
  */
 function chipOptions(current, chips) {
@@ -639,8 +650,13 @@ function chipOptions(current, chips) {
   if (lv) {
     // Documents provided earlier were checked then; only new paths must exist.
     const known = new Set(Object.values(before.provided ?? {}));
+    // The job's models, where each is one the crew may still use for its role (else the level's).
+    const models = Object.fromEntries(['foreman', 'build', 'checks'].map((r) => [r, before.models?.[r]]).filter(([r, id]) => (r === 'foreman' ? FOREMAN_MODEL_IDS : MODEL_IDS).includes(id)));
     try {
-      o = normalizeOptions({ level: lv.level, provided: before.provided, notes: before.notes, review_rounds: before.review_rounds }, { previous: before, exists: (p) => known.has(p) || fs.existsSync(p) });
+      o = normalizeOptions({
+        level: lv.level, provided: before.provided, notes: before.notes, review_rounds: before.review_rounds, models,
+        ...(typeof before.manual_test === 'boolean' ? { manual_test: before.manual_test } : {}),
+      }, { previous: before, exists: (p) => known.has(p) || fs.existsSync(p) });
     } catch (err) { throw new HttpError(400, err.message); }
   }
   for (const c of patching) {
@@ -662,10 +678,12 @@ async function saveChipOptions(f, options) {
 const NOTES_MAX = 20000;
 const notesFile = (f) => path.join(f.dir, 'notes.md');
 
+// No notes yet: empty. A notes.md that is a symlink (or not a plain file) isn't followed: 404.
 async function readNotes(f) {
-  const text = await readInside(f.dir, 'notes.md');
-  const st = text === null ? null : await fsp.stat(notesFile(f)).catch(() => null);
-  return { text: text ?? '', updatedAt: st?.mtime.toISOString() ?? null };
+  const st = await fsp.lstat(notesFile(f)).catch(() => null);
+  if (st && !st.isFile()) throw new HttpError(404, 'This job’s notes.md isn’t a plain file, so it isn’t shown.');
+  const text = st ? await readInside(f.dir, 'notes.md', { noLink: true }) : null;
+  return { text: text ?? '', updatedAt: text === null ? null : st.mtime.toISOString() };
 }
 
 /** Replace notes.md, atomically (a new temp file renamed over it), only inside the job's own folder. */
@@ -815,7 +833,7 @@ async function routeGet(urlPath, url, req, res) {
         name = 'Product spec';
         try { text = p ? await fsp.readFile(p, 'utf8') : null; } catch { text = null; }
       } else if (/\.(md|json)$/.test(file)) {
-        text = await readInside(f.dir, file);
+        text = await readInside(f.dir, file, { noLink: true }); // a symlinked file isn't followed: 404
         const brief = /^briefs\/(\d+)-(.+)\.md$/.exec(file);
         name = f.artifacts.find((a) => a.file === file)?.name ?? (brief ? `Brief #${Number(brief[1])} · ${brief[2].replace(/-/g, ' ')}` : file);
       }
@@ -857,9 +875,12 @@ async function routePost(urlPath, req, res) {
     if (!f) throw new HttpError(404, 'No job by that name.');
     const text = str(body.text).trim();
     if (!text) throw new HttpError(400, 'The message is empty.');
+    // gateBrief: a gate reply composed while a reply was in progress (…/gate gave the text back) and
+    // sent now; it still answers that brief.
+    const gateBrief = readBriefNumber(body.gateBrief);
     const drive = await driveState(f);
     const out = sendPlan(f, drive, body, text);
-    const run = await startSend(f, out, { kind: str(body.kind, 20) || 'message' });
+    const run = await startSend(f, out, { kind: str(body.kind, 20) || 'message', gateBrief });
     return sendJson(res, 200, { run });
   }
   if ((m = /^\/api\/job\/([^/]+)\/gate$/.exec(urlPath))) {
@@ -870,11 +891,14 @@ async function routePost(urlPath, req, res) {
     const f = await featureBySlug(m[1]);
     if (!f) throw new HttpError(404, 'No job by that name.');
     const g = readGateBody(body);
-    if (['approve', 'changes'].includes(g.kind) && g.briefNumber && f.currentBrief?.number && f.currentBrief.number !== g.briefNumber) {
+    // Answers, verdicts and chips for an older brief mustn't land on the new brief's questions; only
+    // a stop goes through whichever brief is current.
+    if (g.kind !== 'stop' && g.briefNumber && f.currentBrief?.number && f.currentBrief.number !== g.briefNumber) {
       throw new HttpError(409, `The Foreman has moved on to brief ${f.currentBrief.number} since this card was shown. Nothing was sent; decide on the new brief.`, { code: 'stale-brief', briefNumber: f.currentBrief.number });
     }
     // A level chip names the level the job is at now (the server's word, not the page's).
     const level = Number.isInteger(f.options?.level) ? f.options.level : null;
+    if (level === null && g.chips.some((c) => c?.kind === 'level')) throw new HttpError(400, 'Pick a level for this job first.');
     const chips = cleanChips(g.chips.map((c) => (c?.kind === 'level' ? { ...c, was: level } : c)));
     // A message needs something of yours in it (the reply would otherwise only list open decisions).
     if (g.kind === 'message' && !g.note.trim() && !chips.length && !Object.keys(g.answers).length && !Object.keys(g.verdicts).length) throw new HttpError(400, 'The message is empty.');

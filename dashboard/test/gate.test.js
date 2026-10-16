@@ -155,6 +155,37 @@ test('answeredBriefs: from audit send lines that carry gateBrief, each once, old
   assert.deepEqual(answeredBriefs([]), []);
 });
 
+test('answeredBriefs: a reply held for the usage-limit reset counts, until it is dropped', () => {
+  const held = [{ action: 'send-held', kind: 'approve', gateBrief: 2 }, { action: 'send-held', kind: 'approve', gateBrief: 4 }];
+  assert.deepEqual(answeredBriefs(held), [2, 4], 'held: you have decided');
+  // Dropped because you sent a message yourself, or the carry-on skipped it.
+  assert.deepEqual(answeredBriefs([...held, { action: 'send-held-dropped', gateBrief: 2 }]), [4]);
+  assert.deepEqual(answeredBriefs([...held, { action: 'usage-limit-skip', reason: 'x', held: { kind: 'approve', gateBrief: 4 } }]), [2]);
+  // A reply actually sent for the brief stays answered whatever happens to a held one after.
+  assert.deepEqual(answeredBriefs([{ action: 'send', gateBrief: 2 }, ...held, { action: 'send-held-dropped', gateBrief: 2 }]), [2, 4]);
+  // Held, dropped, held again: answered.
+  assert.deepEqual(answeredBriefs([held[0], { action: 'send-held-dropped', gateBrief: 2 }, held[0]]), [2]);
+  assert.deepEqual(answeredBriefs([{ action: 'send-held', gateBrief: '2' }, { action: 'send-held-dropped' }]), []);
+});
+
+test('parking: noteAudit follows answeredBriefs (sent, held, dropped)', () => {
+  const now = Date.parse('2026-10-16T10:00:00Z');
+  const p = new GateParking({ thresholdMs: 1000, now: () => now });
+  const g = { slug: 'a', briefNumber: 2, waitingSince: '2026-10-16T09:00:00Z' };
+  p.noteAudit('a', { action: 'send-held', gateBrief: 2 });
+  assert.equal(p.isParked(g), false, 'held: not parked');
+  p.noteAudit('a', { action: 'send-held-dropped', gateBrief: 2 });
+  assert.equal(p.isParked(g), true, 'dropped: parked again');
+  p.noteAudit('a', { action: 'send-held', gateBrief: 2 });
+  p.noteAudit('a', { action: 'usage-limit-skip', held: { gateBrief: 2 } });
+  assert.equal(p.isParked(g), true);
+  p.noteAudit('a', { action: 'send', gateBrief: 2 });
+  p.noteAudit('a', { action: 'send-held-dropped', gateBrief: 2 });
+  assert.equal(p.isParked(g), false, 'a sent reply stays answered');
+  p.noteAudit('a', { action: 'options', gateBrief: 3 });
+  assert.equal(p.isAnswered('a', 3), false);
+});
+
 // ---------- parking ----------
 
 test('parking: four hours by default; parked by time, alerted once per gate', () => {

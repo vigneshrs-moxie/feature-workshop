@@ -141,14 +141,36 @@ export function gateView(job, { brief = null, raisedVersions = null, parked = fa
   };
 }
 
+const briefNo = (n) => (Number.isInteger(n) && n > 0 ? n : null);
+
 /**
- * The brief numbers a gate reply was sent for, oldest first. A reply sent from a gate card carries
- * `gateBrief` (its brief's number) on its audit 'send' line; other sends don't count.
+ * How one audit line bears on which briefs are answered: 'sent' (a gate reply went, its 'send' line
+ * carries `gateBrief`), 'held' (a gate reply waits for the usage limit to reset: you've decided),
+ * 'dropped' (that held reply won't go: you sent a message yourself, or it couldn't be carried on),
+ * with the brief's number; null for anything else.
+ */
+export function answerEvent(e) {
+  if (e?.action === 'send' && briefNo(e.gateBrief)) return { what: 'sent', brief: e.gateBrief };
+  if (e?.action === 'send-held' && briefNo(e.gateBrief)) return { what: 'held', brief: e.gateBrief };
+  if (e?.action === 'send-held-dropped' && briefNo(e.gateBrief)) return { what: 'dropped', brief: e.gateBrief };
+  if (e?.action === 'usage-limit-skip' && briefNo(e.held?.gateBrief)) return { what: 'dropped', brief: e.held.gateBrief };
+  return null;
+}
+
+/**
+ * The brief numbers answered from a gate card, oldest first: a gate reply was sent for them, or is
+ * held until the usage limit resets (and not dropped since). Other sends don't count.
  */
 export function answeredBriefs(audit = []) {
-  const out = new Set();
-  for (const e of audit) if (e?.action === 'send' && Number.isInteger(e.gateBrief) && e.gateBrief > 0) out.add(e.gateBrief);
-  return [...out].sort((a, b) => a - b);
+  const sent = new Set();
+  const held = new Set();
+  for (const e of audit) {
+    const a = answerEvent(e);
+    if (a?.what === 'sent') sent.add(a.brief);
+    else if (a?.what === 'held') held.add(a.brief);
+    else if (a?.what === 'dropped') held.delete(a.brief);
+  }
+  return [...new Set([...sent, ...held])].sort((a, b) => a - b);
 }
 
 /**
@@ -176,16 +198,27 @@ export class GateParking {
     this.file = file;
     this.alerted = new Set();
     this.answered = new Set();
+    this.held = new Set();
   }
 
   static key({ slug, briefNumber, waitingSince }) { return `${slug}#${briefNumber ?? '-'}#${waitingSince ?? '-'}`; }
 
   /** A gate reply was sent for this job's brief (an audit 'send' line with gateBrief). */
   noteAnswered(slug, briefNumber) {
-    if (slug && Number.isInteger(briefNumber) && briefNumber > 0) this.answered.add(`${slug}#${briefNumber}`);
+    if (slug && briefNo(briefNumber)) this.answered.add(`${slug}#${briefNumber}`);
   }
 
-  isAnswered(slug, briefNumber) { return this.answered.has(`${slug}#${briefNumber}`); }
+  /** An audit line for this job, kept up the way answeredBriefs reads them (sent, held, dropped). */
+  noteAudit(slug, e) {
+    const a = answerEvent(e);
+    if (!slug || !a) return;
+    const k = `${slug}#${a.brief}`;
+    if (a.what === 'sent') this.answered.add(k);
+    else if (a.what === 'held') this.held.add(k);
+    else this.held.delete(k);
+  }
+
+  isAnswered(slug, briefNumber) { const k = `${slug}#${briefNumber}`; return this.answered.has(k) || this.held.has(k); }
 
   /** Parked now: long enough untouched, not answered, nothing running. */
   isParked(g) {

@@ -45,6 +45,8 @@ export function buildThread({ briefs = [], audit = [], autoResume = true }) {
     else if (e.action === 'send') thread.push({ id: id('you'), kind: 'you', at: e.at, text: e.text, sendKind: e.kind, ...(Number.isInteger(e.gateBrief) ? { gateBrief: e.gateBrief } : {}) });
     // A gate reply held until Claude's usage limit resets (lib/limits.js hold); sent then as a 'send'.
     else if (e.action === 'send-held') note(`Your reply${Number.isInteger(e.gateBrief) ? ` to brief ${e.gateBrief}` : ''} waits for Claude’s usage limit to reset${e.autoResume === false ? ' and for you to press “Carry on now”' : ''}; it goes to the Foreman then.`);
+    // A held reply dropped because you sent a message yourself meanwhile (lib/limits.js forget).
+    else if (e.action === 'send-held-dropped') note('Your held reply wasn’t sent: you sent a message yourself.');
     else if (e.action === 'usage-limit-skip' && e.held) note(`Your reply held for the usage-limit reset wasn’t sent: ${e.reason ?? 'the job couldn’t be carried on from here.'}`);
     // notes.md saved from the job drawer: one dim line for a run of saves with nothing else between.
     else if (e.action === 'notes') {

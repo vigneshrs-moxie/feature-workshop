@@ -17,6 +17,8 @@ const RETRY_MS = 30 * 60_000; // when the reset time is unknown, try again after
 const STAGGER_MS = 4000; // space out the resumed jobs
 const CHECK_MS = 60_000; // the clock is checked every minute: one long timer would oversleep when the Mac sleeps
 const BUSY_TRIES = 5;
+const MANUAL_SEND = 'You sent a message yourself.';
+const LIMITED_AGAIN = 'limited-again';
 
 const label = (kind) => LIMIT_LABELS[kind] ?? 'usage limit';
 // The event reports utilisation as a fraction; the usage report as a percentage.
@@ -151,13 +153,18 @@ export class LimitWatch extends EventEmitter {
     return j ? { kind: j.send.kind, gateBrief: j.send.gateBrief, at: j.send.at } : null;
   }
 
-  /** A job sent a message by hand while paused no longer waits for the automatic carry-on. */
+  /**
+   * A job sent a message by hand while paused no longer waits for the automatic carry-on. A reply
+   * held for it (hold) is dropped too, and the audit says so ('send-held-dropped').
+   */
   async forget(featureDir) {
-    const before = (this.limit?.jobs.length ?? 0) + this.queue.length;
+    const removed = [...(this.limit?.jobs ?? []), ...this.queue].filter((j) => j.featureDir === featureDir);
+    if (!removed.length) return;
     if (this.limit) this.limit.jobs = this.limit.jobs.filter((j) => j.featureDir !== featureDir);
     this.queue = this.queue.filter((j) => j.featureDir !== featureDir);
-    if (before === (this.limit?.jobs.length ?? 0) + this.queue.length) return;
     await this.#save();
+    const held = removed.find((j) => j.send);
+    if (held) await this.state.audit({ action: 'send-held-dropped', featureDir, slug: held.slug, kind: held.send.kind, ...(Number.isInteger(held.send.gateBrief) ? { gateBrief: held.send.gateBrief } : {}), reason: 'manual-send' });
     this.emit('change');
   }
 
@@ -175,6 +182,9 @@ export class LimitWatch extends EventEmitter {
         let outcome = null;
         if (!(await this.canResume(job))) outcome = 'It’s been picked up somewhere else since the pause.';
         for (let tries = 0; !outcome && tries < BUSY_TRIES; tries++) {
+          // Gone from the queue while we waited: the limit hit again (it waits with the limit now),
+          // or you sent a message yourself (forget), so a held reply must not go after yours.
+          if (!this.queue.includes(job)) { outcome = this.limit ? LIMITED_AGAIN : MANUAL_SEND; break; }
           try {
             // A held reply (hold) goes in place of the carry-on message, as you composed it.
             const send = job.send ? { text: job.send.text, kind: job.send.kind, gateBrief: job.send.gateBrief } : { text: RESUME_TEXT, kind: 'resume' };
@@ -187,7 +197,9 @@ export class LimitWatch extends EventEmitter {
         }
         if (this.queue[0] === job) this.queue.shift();
         if (outcome === 'started') resumed.push(job.slug);
-        else await this.state.audit({ action: 'usage-limit-skip', featureDir: job.featureDir, slug: job.slug, how, reason: outcome ?? 'Still busy after several tries.', ...(job.send ? { held: { kind: job.send.kind, gateBrief: job.send.gateBrief, text: job.send.text } } : {}) });
+        else if (outcome === LIMITED_AGAIN) { /* it waits with the new limit (onLimit took it) */ }
+        // After a message you sent yourself, forget has already noted a held reply as dropped.
+        else await this.state.audit({ action: 'usage-limit-skip', featureDir: job.featureDir, slug: job.slug, how, reason: outcome ?? 'Still busy after several tries.', ...(job.send && outcome !== MANUAL_SEND ? { held: { kind: job.send.kind, gateBrief: job.send.gateBrief, text: job.send.text } } : {}) });
         await this.#save();
         this.emit('change');
       }
@@ -196,9 +208,11 @@ export class LimitWatch extends EventEmitter {
     return this.resuming;
   }
 
+  // A paused run, or a job that was waiting to be carried on. A held reply (send) stays with it,
+  // and a job with a held reply but no Foreman session yet waits too (the reply starts one).
   #add(run) {
-    if (!run?.featureDir || !run.sessionId || this.limit.jobs.some((j) => j.featureDir === run.featureDir)) return;
-    this.limit.jobs.push(jobOf(run));
+    if (!run?.featureDir || (!run.sessionId && !run.send) || this.limit.jobs.some((j) => j.featureDir === run.featureDir)) return;
+    this.limit.jobs.push({ ...jobOf(run), ...(run.send ? { send: run.send } : {}) });
   }
 
   #dueAt() { return this.limit.resetsAt + (this.limit.resetKnown ? GRACE_MS : 0); }
