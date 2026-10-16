@@ -97,9 +97,16 @@ export interface Gate {
   questions: GateQuestion[];
   /** decided_on_your_behalf: the "Also decided" list. */
   decided: DecidedItem[];
-  /** The versions status.json names now; compare with the brief item's versions (at raise time). */
+  /** The versions status.json names now. */
   versions: Versions | null;
+  /** The versions this gate was raised at (remembered for its brief; the ones now when none were). */
+  raisedVersions: Versions | null;
+  /** The spec or an artifact named at raise time has a different version now: the card greys out. */
+  stale: boolean;
   waitingSince: string | null;
+  /** The Foreman is working on a reply for this job right now. */
+  runActive: boolean;
+  /** Waited past the parking time with nothing running (never true while runActive). */
   parked: boolean;
   level: LevelNumber | null;
   suggestedLevel: LevelNumber | null;
@@ -108,7 +115,7 @@ export interface Gate {
   usage: string | null;
 }
 
-/** 'gate-stale' event data: a gate waited past the parking time (sent once per job and brief). */
+/** 'gate-stale' event data: a gate waited past the parking time (sent once per gate, also across restarts). */
 export interface GateStale {
   job: string;
   briefNumber: number | null;
@@ -316,6 +323,10 @@ export interface LevelInfo {
   /** The flow an un-updated skill reads for it. */
   flow: 'quick' | 'small' | 'large';
   models: { foreman: string; build: string; checks: string };
+  /** Stages this level skips by default (ids as in the job options). */
+  skip: string[];
+  /** Its default reviewers: agent ids, or 'auto' (the Foreman picks the usual ones). */
+  reviewers: string[] | 'auto';
 }
 
 export interface Meta {

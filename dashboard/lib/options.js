@@ -18,6 +18,8 @@ export const SONNET = 'claude-sonnet-5-5';
 export const HAIKU = 'claude-haiku-5-5';
 /** The model ids options.json may name in `models`. */
 export const MODEL_IDS = [OPUS, FABLE, SONNET, HAIKU];
+/** The ones the Foreman itself may run on (models.foreman). KEEP IN STEP with MODELS in server.js. */
+export const FOREMAN_MODEL_IDS = [OPUS, FABLE, HAIKU];
 export const SCHEMA_VERSION = 2;
 
 // The Foreman is Opus for every flow and level. Fable takes short second looks (fable_checks);
@@ -74,6 +76,8 @@ export const FABLE_POINTS = [
 ];
 
 const ids = (list) => list.map((x) => x.id);
+// The Foreman runs only on the models offered for it; the build and the checks on any the crew knows.
+const modelAllowed = (role, id) => (role === 'foreman' ? FOREMAN_MODEL_IDS : MODEL_IDS).includes(id);
 const pick = (v, allowed) => [...new Set((Array.isArray(v) ? v : []).filter((x) => allowed.includes(x)))];
 
 /**
@@ -158,7 +162,9 @@ function levelInput(v) {
  * exists(p): whether a provided document is there (injectable for tests).
  * previous: the job's options before this change. A page that only knows flows (the classic one)
  * sends no level; when its flow is the one the previous level already ran, that level is kept, so
- * saving an L0 job from there doesn't quietly turn it into L1.
+ * saving an L0 job from there doesn't quietly turn it into L1. It sends no models either; while
+ * the level stays the same, the job's own models are kept (not reset to the level's defaults).
+ * models.foreman must be one of FOREMAN_MODEL_IDS; the build and checks any of MODEL_IDS.
  *
  * The level wins over the flow: `flow` is always flowFor(level). Without a level, a schema 1 flow
  * maps to one (quick → L1, small → L2, large → L3; auto → none) and keeps that flow's defaults.
@@ -187,9 +193,13 @@ export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previo
     for (const role of ['foreman', 'build', 'checks']) {
       const id = input.models[role];
       if (id === undefined || id === null || id === '') continue;
-      if (!MODEL_IDS.includes(id)) throw new Error(`Models: “${String(id).slice(0, 60)}” isn’t a model the crew can use for ${role === 'checks' ? 'the checks' : role === 'build' ? 'the build' : 'the Foreman'}.`);
+      if (!modelAllowed(role, id)) throw new Error(`Models: “${String(id).slice(0, 60)}” isn’t a model the crew can use for ${role === 'checks' ? 'the checks' : role === 'build' ? 'the build' : 'the Foreman'}.`);
       out.models[role] = id;
     }
+  } else if (previous && out.level === (isLevel(previous.level) ? previous.level : null) && previous.models && typeof previous.models === 'object') {
+    // A page that doesn't edit models (the classic one) sent none and the level is unchanged:
+    // keep the job's own models rather than resetting them to the level's defaults.
+    for (const role of ['foreman', 'build', 'checks']) if (modelAllowed(role, previous.models[role])) out.models[role] = previous.models[role];
   }
   out.notes = typeof input.notes === 'string' ? input.notes.trim().slice(0, 1000) : '';
   out.skip = ids(SKIPPABLE).filter((s) => out.skip.includes(s)); // workflow order
@@ -197,13 +207,14 @@ export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previo
 }
 
 /**
- * Which model the Foreman starts on: the one asked for (if it's one of `allowed`), else the
- * job's models.foreman, else Opus. Never Fable just because the job is large or L3.
+ * Which model the Foreman starts on: the one asked for (if it's one of `allowed`, the models
+ * offered for the Foreman), else the job's models.foreman if that is one of them too, else Opus.
+ * Never Fable just because the job is large or L3.
  */
-export function foremanModel(requested, options, allowed = MODEL_IDS) {
+export function foremanModel(requested, options, allowed = FOREMAN_MODEL_IDS) {
   if (allowed.includes(requested)) return requested;
   const fromOptions = options?.models?.foreman;
-  return MODEL_IDS.includes(fromOptions) ? fromOptions : OPUS;
+  return allowed.includes(fromOptions) ? fromOptions : OPUS;
 }
 
 /** A job's options.json, schema 1 or 2, filled out with the defaults for its level (or flow); null when there's none. */
@@ -254,7 +265,13 @@ export function describeOptions(o) {
   return lines;
 }
 
-/** The levels as the page needs them (meta.levels): kept small. */
+/**
+ * The levels as the page needs them (meta.levels): kept small. skip and reviewers are the level's
+ * defaults, so the page can say what moving between levels adds ("L1→L2 adds: …").
+ */
 export function levelsForClient() {
-  return LEVELS.map((l) => ({ level: l.level, label: levelLabel(l.level), name: l.name, hint: l.hint, flow: l.flow, models: { ...l.models } }));
+  return LEVELS.map((l) => ({
+    level: l.level, label: levelLabel(l.level), name: l.name, hint: l.hint, flow: l.flow, models: { ...l.models },
+    skip: [...l.skip], reviewers: Array.isArray(l.reviewers) ? [...l.reviewers] : l.reviewers,
+  }));
 }

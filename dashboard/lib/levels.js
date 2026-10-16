@@ -1,5 +1,5 @@
 // Suggesting a level (L0–L3) for a job without asking a model: scan the description, and once a
-// worktree exists the paths `git diff --stat` reports, for risk triggers. A trigger sets a floor
+// worktree exists the paths `git diff --numstat` reports, for risk triggers. A trigger sets a floor
 // the suggestion never goes under; with none, size words in the description decide. The Foreman's
 // own suggestion (status.json `suggested_level`) arrives with its first brief; the page shows both.
 
@@ -7,16 +7,23 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+// "Add a column", "a new table": a database change only when the description also says database,
+// migration, schema or SQL; a column can just as well be one in a list on a page.
+const TABLE_OR_COLUMN = /\b(add|adds|adding|new|drop|drops|dropping|rename|renames|renaming)\b[^.;\n]{0,30}?\b(tables?|columns?)\b/i;
+const DB_CONTEXT = /\b(db|database|databases|migrations?|schema|schemas|sql)\b/i;
+
 /**
  * Risk triggers and the lowest level each allows.
  * KEEP IN STEP with the /feature skill's level-floor rule (job-options.md, "Levels" in
  * claude-feature-workflow): same triggers, same floors. Change one, change the other.
- *   text: matched against the job's description. path: matched against each changed file path.
+ *   text: matched against the job's description. withContext (optional): also a match when the
+ *   description has both `phrase` and `context`. path: matched against each changed file path.
  */
 export const RISK_TRIGGERS = [
   {
     id: 'migrations', label: 'database migrations', floor: 3,
-    text: /\bmigrat(e|es|ed|ing|ion|ions)\b|\bschema change|\balter table\b|\b(add|new|drop|rename) (a |the )?(db |database )?(table|column)s?\b/i,
+    text: /\bmigrat(e|es|ed|ing|ion|ions)\b|\bschema change|\balter table\b|\b(db|database|sql) (tables?|columns?)\b/i,
+    withContext: { phrase: TABLE_OR_COLUMN, context: DB_CONTEXT },
     path: /(^|\/)(migrations?|migrate)\/|migration/i,
   },
   {
@@ -27,7 +34,8 @@ export const RISK_TRIGGERS = [
   {
     id: 'scope', label: 'data scoping (getScope, scopeWhere)', floor: 3,
     text: /\bgetScope\b|\bscopeWhere\b|\b(data|row|record|office|branch|user|access)[- ]scop(e|es|ed|ing)\b|\bscop(ed|ing) (to|by)\b/i,
-    path: /scope/i,
+    // "scope" as a word or name part (lib/scope.ts, getScope.ts, scope_where.js), not inside a word (telescope.svg).
+    path: /(?:^|[^A-Za-z])[Ss]cop(?:e|es|ed|ing)(?![a-z])|[a-z]Scop(?:e|es|ed|ing)(?![a-z])/,
   },
   {
     id: 'office-visibility', label: 'office visibility (entity_branches)', floor: 2,
@@ -60,10 +68,14 @@ const SEVERAL = /\band (also )?(add|change|make|update|fix|remove|show|let)\b|;|
 
 const wordCount = (s) => (s.trim() ? s.trim().split(/\s+/).length : 0);
 
+const says = (t, text) => t.text.test(text) || Boolean(t.withContext && t.withContext.phrase.test(text) && t.withContext.context.test(text));
+
 /**
  * Suggest a level from the description and, when there is one, the list of changed paths.
- * Returns { level, floor, reasons, triggers }: floor 0 means no risk trigger fired; reasons are
- * plain sentences for the page; triggers the ids of RISK_TRIGGERS that fired.
+ * Returns { level, floor, reasons, triggers }: floor is the lowest level the risk rules allow (0:
+ * none applies); reasons are plain sentences for the page; triggers the ids of RISK_TRIGGERS that
+ * fired. "Add a column" or "a new table" without any word about the database is not a migration
+ * trigger, but sets a floor of L2 in case it changes stored data.
  */
 export function suggestLevel({ description = '', paths = [] } = {}) {
   const text = String(description ?? '');
@@ -72,7 +84,7 @@ export function suggestLevel({ description = '', paths = [] } = {}) {
   const triggers = [];
   let floor = 0;
   for (const t of RISK_TRIGGERS) {
-    const said = t.text.test(text);
+    const said = says(t, text);
     const touched = files.filter((p) => t.path.test(p));
     if (!said && !touched.length) continue;
     triggers.push(t.id);
@@ -80,36 +92,49 @@ export function suggestLevel({ description = '', paths = [] } = {}) {
     const where = [said ? 'the description mentions it' : null, touched.length ? `changes ${touched.slice(0, 3).join(', ')}${touched.length > 3 ? ` and ${touched.length - 3} more` : ''}` : null].filter(Boolean).join('; ');
     reasons.push(`Touches ${t.label} (${where}), so at least L${t.floor}.`);
   }
+  if (!triggers.includes('migrations') && TABLE_OR_COLUMN.test(text)) {
+    floor = Math.max(floor, 2);
+    reasons.push('Mentions a new or changed table or column, which may change stored data, so at least L2.');
+  }
 
+  // The size of the change, from the description (and how many files the branch already changes).
   const words = wordCount(text);
   let size;
-  if (BIG_WORDS.test(text) || words > 30) { size = 2; reasons.push('Sounds like more than one small change, so L2.'); }
-  else if (TWEAK_WORDS.test(text) && words <= 25 && !SEVERAL.test(text)) { size = 0; reasons.push('Sounds like a small tweak (wording, a rename, a colour), so L0.'); }
-  else if (words <= 20 && !SEVERAL.test(text)) { size = 1; reasons.push('A short, single change, so L1.'); }
-  else { size = 2; reasons.push('Not obviously a one-line change, so L2.'); }
-  if (files.length > 15 && size < 2) { size = 2; reasons.push(`Already ${files.length} files changed, so L2.`); }
+  let why;
+  if (BIG_WORDS.test(text) || words > 30) { size = 2; why = 'it sounds like more than one small change'; }
+  else if (TWEAK_WORDS.test(text) && words <= 25 && !SEVERAL.test(text)) { size = 0; why = 'a small tweak (wording, a rename, a colour)'; }
+  else if (words <= 20 && !SEVERAL.test(text)) { size = 1; why = 'a short single change'; }
+  else { size = 2; why = 'not obviously a one-line change'; }
+  if (files.length > 15 && size < 2) { size = 2; why = `already ${files.length} files changed`; }
 
   const level = Math.max(floor, size);
+  // Never contradict the level: when a floor raises it, the size is only what it would be otherwise.
+  reasons.push(level > size ? `Otherwise ${why} (L${size}).` : `${why[0].toUpperCase()}${why.slice(1)}, so L${size}.`);
   return { level, floor, reasons, triggers };
 }
 
 const SAFE_REF = /^[A-Za-z0-9_][A-Za-z0-9_./@^~-]{0,199}$/;
 
 /**
- * The paths changed on a worktree's branch since it left `base`: `git diff --numstat base...HEAD`
- * (--stat's machine-readable form, so long paths aren't shortened with "..."). No shell, a
- * timeout, and [] on any trouble (not a repository, unknown base, git missing).
+ * The paths changed on a worktree's branch since it left `base`: `git diff --numstat -z base...HEAD`
+ * (--stat's machine-readable form, so long paths aren't shortened with "...", and -z so odd file
+ * names come through as they are). No shell, a timeout, no external diff or textconv drivers, no
+ * optional locks. [] when nothing changed; null on any trouble (not a repository, unknown base,
+ * git missing), so the caller can fall back to the description alone.
  */
 export function changedPaths(worktree, base = 'main', { timeout = 5000 } = {}) {
   return new Promise((resolve) => {
-    if (typeof worktree !== 'string' || !path.isAbsolute(worktree) || !SAFE_REF.test(String(base)) || String(base).includes('..')) return resolve([]);
-    try { if (!fs.statSync(worktree).isDirectory()) return resolve([]); } catch { return resolve([]); }
-    execFile('git', ['-C', worktree, 'diff', '--numstat', '--no-renames', '--no-color', `${base}...HEAD`, '--'], { timeout, maxBuffer: 1024 * 1024, windowsHide: true }, (err, stdout) => {
-      if (err) return resolve([]);
+    if (typeof worktree !== 'string' || !path.isAbsolute(worktree) || !SAFE_REF.test(String(base)) || String(base).includes('..')) return resolve(null);
+    try { if (!fs.statSync(worktree).isDirectory()) return resolve(null); } catch { return resolve(null); }
+    const args = ['-C', worktree, 'diff', '--numstat', '-z', '--no-renames', '--no-color', '--no-ext-diff', '--no-textconv', `${base}...HEAD`, '--'];
+    execFile('git', args, { timeout, maxBuffer: 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' } }, (err, stdout) => {
+      if (err) return resolve(null);
+      // Each record is "added<TAB>deleted<TAB>path<NUL>" (no renames, so never the two-path form).
       const out = [];
-      for (const line of String(stdout).split('\n')) {
-        const parts = line.split('\t');
-        if (parts.length >= 3 && parts[2]) out.push(parts.slice(2).join('\t'));
+      for (const rec of String(stdout).split('\0')) {
+        const a = rec.indexOf('\t');
+        const b = a >= 0 ? rec.indexOf('\t', a + 1) : -1;
+        if (b > 0 && b < rec.length - 1) out.push(rec.slice(b + 1));
       }
       resolve(out);
     });

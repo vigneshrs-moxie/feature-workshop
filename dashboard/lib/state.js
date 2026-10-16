@@ -102,12 +102,16 @@ export class State extends EventEmitter {
     return out;
   }
 
-  async auditFor(featureDir, limit = 200) {
+  // Every audit entry, oldest first (unreadable lines left out).
+  async auditAll() {
     let text = '';
     try { text = await fs.readFile(this.auditFile, 'utf8'); } catch { return []; }
     return text.trim().split('\n').filter(Boolean)
       .map((l) => { try { return JSON.parse(l); } catch { return null; } })
-      .filter((e) => e && e.featureDir === featureDir)
-      .slice(-limit);
+      .filter(Boolean);
+  }
+
+  async auditFor(featureDir, limit = 200) {
+    return (await this.auditAll()).filter((e) => e.featureDir === featureDir).slice(-limit);
   }
 }

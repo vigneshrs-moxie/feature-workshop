@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { normalize, defaultsFor, skippedFor, describeOptions, readOptions, writeOptions, FLOWS, LEVELS, flowFor, levelFor, foremanModel, OPUS, FABLE, SONNET, HAIKU } from '../lib/options.js';
+import { normalize, defaultsFor, skippedFor, describeOptions, readOptions, writeOptions, FLOWS, LEVELS, flowFor, levelFor, foremanModel, levelsForClient, OPUS, FABLE, SONNET, HAIKU } from '../lib/options.js';
 
 test('job options: flows bring their defaults; your choices win', () => {
   const quick = normalize({ flow: 'quick' });
@@ -49,6 +49,7 @@ test('job options: skipped stages, the plain summary, and the file round trip', 
   assert.equal(back.title, 'Fix the thing');
   assert.equal(back.evil, undefined, 'only title, repo and kind ride along');
   assert.equal(await readOptions(path.join(dir, 'missing')), null);
+  await fs.rm(path.dirname(dir), { recursive: true, force: true });
 });
 
 test('levels: four of them, each with a hint, and the flow an old skill reads', () => {
@@ -94,6 +95,8 @@ test('job options: models must be ones the crew knows; review rounds go up to 3'
   assert.deepEqual(o.models, { foreman: OPUS, build: SONNET, checks: HAIKU });
   assert.equal(normalize({ level: 2, models: { foreman: FABLE } }).models.foreman, FABLE, 'you can still ask for Fable yourself');
   assert.throws(() => normalize({ models: { build: 'gpt-9' } }), /isn’t a model/);
+  assert.throws(() => normalize({ level: 2, models: { foreman: SONNET } }), /for the Foreman/, 'the Foreman runs only on the models offered for it');
+  assert.equal(normalize({ level: 2, models: { build: SONNET } }).models.build, SONNET, 'Sonnet is fine for the build');
   assert.equal(normalize({ review_rounds: 3 }).review_rounds, 3);
   assert.equal(normalize({ review_rounds: 4 }).review_rounds, 1, '4 rounds is not allowed; the default stands');
   assert.equal(normalize({ review_rounds: 0 }).review_rounds, 1);
@@ -107,6 +110,35 @@ test('job options: L3 never starts a Fable Foreman', () => {
   assert.equal(foremanModel(undefined, null, allowed), OPUS);
   assert.equal(foremanModel(HAIKU, normalize({ level: 3 }), allowed), HAIKU, 'the model you pick wins');
   assert.equal(foremanModel(SONNET, normalize({ level: 1 }), allowed), OPUS, 'only models offered for the Foreman can be picked');
+  assert.equal(foremanModel(undefined, { models: { foreman: SONNET } }, allowed), OPUS, 'nor named in options.json');
+  assert.equal(foremanModel(undefined, { models: { foreman: HAIKU } }, allowed), HAIKU);
+  assert.equal(foremanModel(undefined, { models: { foreman: SONNET } }), OPUS, 'the default list is the Foreman list');
+});
+
+test('job options: a resave that sends no models keeps the job’s own while the level stays', () => {
+  const previous = normalize({ level: 2, models: { build: SONNET, checks: HAIKU, foreman: FABLE } });
+  // The classic page: a flow, no level, no models.
+  const resaved = normalize({ flow: 'small', review_rounds: 2 }, { previous });
+  assert.equal(resaved.level, 2);
+  assert.deepEqual(resaved.models, { foreman: FABLE, build: SONNET, checks: HAIKU });
+  assert.equal(resaved.review_rounds, 2);
+  assert.deepEqual(normalize({ level: 2 }, { previous }).models, previous.models, 'same level, no models sent');
+  // A new level brings its own models; models sent win.
+  assert.deepEqual(normalize({ flow: 'large' }, { previous }).models, LEVELS[3].models);
+  assert.equal(normalize({ level: 2, models: { build: OPUS } }, { previous }).models.build, OPUS);
+  // Anything odd in the old file isn't carried over.
+  assert.equal(normalize({ level: 2 }, { previous: { level: 2, models: { foreman: SONNET, build: 'gpt-9' } } }).models.foreman, OPUS);
+  assert.equal(normalize({ level: 2 }, { previous: { level: 2, models: { foreman: SONNET, build: 'gpt-9' } } }).models.build, LEVELS[2].models.build);
+});
+
+test('levels for the page: each with its hint, models, skipped stages and reviewers', () => {
+  const list = levelsForClient();
+  assert.deepEqual(list.map((l) => l.label), ['L0 Tweak', 'L1 Small', 'L2 Standard', 'L3 Large']);
+  assert.deepEqual(list[1].reviewers, ['feature-reviewer']);
+  assert.equal(list[2].reviewers, 'auto');
+  assert.ok(list[0].skip.includes('plan') && !list[3].skip.length);
+  list[0].skip.push('x');
+  assert.ok(!LEVELS[0].skip.includes('x'), 'a copy, not the table itself');
 });
 
 test('job options: describeOptions leads with the level', () => {
@@ -151,4 +183,5 @@ test('job options: schema 2 is written with every v1 field; schema 1 files still
   await fs.writeFile(path.join(old, 'options.json'), JSON.stringify({ schema_version: 1, flow: 'auto', skip: [], reviewers: 'auto', review_rounds: 1, manual_test: false, fable_checks: [] }));
   assert.equal((await readOptions(old)).level, null, 'an auto job has no level yet');
   assert.equal(describeOptions(await readOptions(old))[0], 'Flow: Let the Foreman decide.');
+  await fs.rm(path.dirname(dir), { recursive: true, force: true });
 });

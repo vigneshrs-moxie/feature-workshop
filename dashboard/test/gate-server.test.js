@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 const OLD = '2026-10-01T10:00:00Z';
 
-let root, featuresDir, child, base;
+let root, featuresDir, child, base, stateDir;
 const output = [];
 
 async function freePort() {
@@ -94,6 +94,8 @@ before(async () => {
     { at: '2026-10-02T09:00:00Z', action: 'send', kind: 'approve', featureDir: answered, slug: 'answered', text: 'go', gateBrief: 4 },
   ];
   await fs.writeFile(path.join(dirs.state, 'audit.jsonl'), audit.map((l) => JSON.stringify(l)).join('\n') + '\n');
+
+  stateDir = dirs.state;
 
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
@@ -194,6 +196,9 @@ test('gate: the plan gate in full; null while working; answered briefs from gate
   assert.equal(g.questions.length, 3);
   assert.equal(g.decided[0].id, 'D-1');
   assert.deepEqual(g.versions, { spec: '0.3', artifacts: { 'implementation-plan': '2' } });
+  assert.deepEqual(g.raisedVersions, g.versions);
+  assert.equal(g.stale, false);
+  assert.equal(g.runActive, false);
   assert.equal(g.waitingSince, OLD);
   assert.deepEqual([g.level, g.suggestedLevel, g.levelReason], [1, 2, 'Adds columns to an existing table.']);
   assert.equal(g.usage, null, 'no usage limit in the demo');
@@ -205,6 +210,21 @@ test('gate: the plan gate in full; null while working; answered briefs from gate
   assert.equal(noSince.gate.headline, 'No since · spec v0.1', 'from the brief file when status.json names none');
   assert.equal(noSince.gate.waitingSince, '2026-01-02T03:04:05.000Z', 'timed from the brief file');
   assert.deepEqual((await getJson('/api/job/answered')).answeredBriefs, [4]);
+});
+
+test('gate: the versions it was raised at stay put when the plan moves on; the card is stale', async () => {
+  const dir = path.join(featuresDir, 'visit-audit');
+  const bumped = planStatus(2);
+  bumped.artifacts = [{ name: 'implementation-plan', path: 'implementation-plan.md', version: 3 }];
+  await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({ schema_version: 1, slug: 'visit-audit', ...bumped }, null, 2));
+  await pause(1600); // the job list is cached for 1.5 seconds
+  const g = (await getJson('/api/job/visit-audit')).gate;
+  assert.equal(g.briefNumber, 2, 'the same brief');
+  assert.deepEqual(g.raisedVersions, { spec: '0.3', artifacts: { 'implementation-plan': '2' } });
+  assert.deepEqual(g.versions, { spec: '0.3', artifacts: { 'implementation-plan': '3' } });
+  assert.equal(g.stale, true);
+  const job = await getJson('/api/job/visit-audit');
+  assert.deepEqual(job.thread.find((t) => t.file === 'briefs/002-plan.md').versions.artifacts, { 'implementation-plan': '2' }, 'the brief item keeps them too');
 });
 
 test('parking: one gate-stale per job and brief; the row says parked and stays under Needs you', async () => {
@@ -222,6 +242,9 @@ test('parking: one gate-stale per job and brief; the row says parked and stays u
   assert.equal(after1.jobs.find((j) => j.slug === 'answered').parked, false);
   assert.equal(after1.jobs.find((j) => j.slug === 'button-label').parked, false);
   assert.equal((await getJson('/api/job/visit-audit')).gate.parked, true);
+  // Kept across restarts, in the dashboard's state folder.
+  const saved = JSON.parse(await fs.readFile(path.join(stateDir, 'gate-parking.json'), 'utf8'));
+  assert.deepEqual(saved.alerted, ['no-since#1#2026-01-02T03:04:05.000Z', `visit-audit#2#${OLD}`]);
 
   // The Foreman raises brief 3: a new gate, reported once more; brief 2 is not reported again.
   const dir = path.join(featuresDir, 'visit-audit');
@@ -230,4 +253,6 @@ test('parking: one gate-stale per job and brief; the row says parked and stays u
   await pause(2000); // the job list is cached for 1.5 seconds
   seen = await eventsFor(800, snap.epoch);
   assert.deepEqual(stale(seen), ['no-since#1', 'visit-audit#2', 'visit-audit#3']);
+  const trimmed = JSON.parse(await fs.readFile(path.join(stateDir, 'gate-parking.json'), 'utf8'));
+  assert.deepEqual(trimmed.alerted, ['no-since#1#2026-01-02T03:04:05.000Z', `visit-audit#3#${OLD}`], 'brief 2 no longer waits: forgotten');
 });

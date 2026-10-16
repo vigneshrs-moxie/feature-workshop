@@ -232,6 +232,44 @@ export function kindFor(kind, branch, slug) {
   return /^(fix|bug|hotfix)[/-]/i.test(branch || '') || /^(fix|bug)-/i.test(slug || '') ? 'bug' : 'feature';
 }
 
+// The job's brief files (briefs/NNN-stage.md), oldest first.
+async function listBriefs(dir) {
+  return (await listDir(path.join(dir, 'briefs')))
+    .filter((e) => e.isFile() && /^\d+-.+\.md$/.test(e.name))
+    .map((e) => {
+      const [, n, stage] = /^(\d+)-(.+)\.md$/.exec(e.name);
+      return { number: Number(n), stage, file: `briefs/${e.name}` };
+    })
+    .sort((a, b) => a.number - b.number);
+}
+
+// The brief the Foreman is on: the one status.json names, else the newest brief file (detail
+// files left out). statusBriefFile is set only when status.json names it: its versions are known.
+// gateWaitingSince: since when the gate waits (waiting_since, else that brief's file time, else
+// the record's). Shared by the full read and the light one the parking timer uses.
+async function gateFields(dir, status, briefs, waitingSince) {
+  const isDetail = (b) => /(^|-)detail$/.test(b.stage);
+  const named = status?.brief ?? null;
+  const namedPath = named?.path ? path.resolve(dir, named.path) : null;
+  const namedFile = named
+    ? briefs.find((b) => namedPath && path.join(dir, b.file) === namedPath) ?? briefs.find((b) => !isDetail(b) && named.number && b.number === named.number) ?? null
+    : null;
+  const current = named ? namedFile : briefs.filter((b) => !isDetail(b)).at(-1) ?? null;
+  const currentStat = current ? await statOrNull(path.join(dir, current.file)) : null;
+  const currentBrief = named || current ? {
+    number: named?.number ?? current?.number ?? null,
+    file: current?.file ?? null,
+    headline: named?.headline ?? null,
+    at: currentStat?.mtime.toISOString() ?? null,
+  } : null;
+  return {
+    currentBrief,
+    statusBriefFile: named ? namedFile?.file ?? null : null,
+    gateWaitingSince: status?.waitingSince ?? currentBrief?.at ?? waitingSince,
+    versions: versionsFrom(status),
+  };
+}
+
 async function readFeatureFolder(dir) {
   const slug = path.basename(dir);
   const wsFile = path.join(dir, 'workflow-status.md');
@@ -243,13 +281,7 @@ async function readFeatureFolder(dir) {
   const sj = sjText ? parseStatusJson(sjText) : null;
   const status = sj?.ok ? sj : null;
 
-  const briefs = (await listDir(path.join(dir, 'briefs')))
-    .filter((e) => e.isFile() && /^\d+-.+\.md$/.test(e.name))
-    .map((e) => {
-      const [, n, stage] = /^(\d+)-(.+)\.md$/.exec(e.name);
-      return { number: Number(n), stage, file: `briefs/${e.name}` };
-    })
-    .sort((a, b) => a.number - b.number);
+  const briefs = await listBriefs(dir);
 
   const artifacts = [];
   for (const [name, file] of ARTIFACT_FILES) {
@@ -269,22 +301,7 @@ async function readFeatureFolder(dir) {
   const route = status?.route ?? ws?.route ?? null;
   const options = await readOptions(dir);
 
-  // The brief the Foreman is on: the one status.json names, else the newest brief file (detail
-  // files left out). statusBriefFile is set only when status.json names it: its versions are known.
-  const isDetail = (b) => /(^|-)detail$/.test(b.stage);
-  const named = status?.brief ?? null;
-  const namedPath = named?.path ? path.resolve(dir, named.path) : null;
-  const namedFile = named
-    ? briefs.find((b) => namedPath && path.join(dir, b.file) === namedPath) ?? briefs.find((b) => !isDetail(b) && named.number && b.number === named.number) ?? null
-    : null;
-  const current = named ? namedFile : briefs.filter((b) => !isDetail(b)).at(-1) ?? null;
-  const currentStat = current ? await statOrNull(path.join(dir, current.file)) : null;
-  const currentBrief = named || current ? {
-    number: named?.number ?? current?.number ?? null,
-    file: current?.file ?? null,
-    headline: named?.headline ?? null,
-    at: currentStat?.mtime.toISOString() ?? null,
-  } : null;
+  const gate = await gateFields(dir, status, briefs, waitingSince);
   // The rules' level from the description alone (no git here: this runs for every job on every refresh).
   const description = options?.title ?? status?.title ?? ws?.title ?? slug;
 
@@ -330,16 +347,38 @@ async function readFeatureFolder(dir) {
     description,
     rulesLevel: { ...suggestLevel({ description }), fromDiff: false, changedFiles: null },
     baseBranch: status?.repo?.baseBranch ?? null,
-    // The gate: the brief the Foreman waits on, since when (waiting_since, else that brief's file
-    // time), and the versions status.json names now (null without status.json).
-    currentBrief,
-    statusBriefFile: named ? namedFile?.file ?? null : null,
-    gateWaitingSince: status?.waitingSince ?? currentBrief?.at ?? waitingSince,
-    versions: versionsFrom(status),
+    // The gate: the brief the Foreman waits on (currentBrief, statusBriefFile), since when
+    // (gateWaitingSince), and the versions status.json names now (null without status.json).
+    ...gate,
     updatedAt: status?.updatedAt ?? wsStat?.mtime.toISOString() ?? null,
     sources: { workflowStatus: Boolean(ws?.ok), statusJson: Boolean(status) },
     warnings: [...(ws?.warnings ?? []), ...(sj?.warnings ?? [])],
   };
+}
+
+/**
+ * Just enough of every job to time its gate, for the parking timer: status.json (the record only
+ * when there's no status.json), the briefs listing and one file time. No session logs, no git, no
+ * repository search, so it is cheap to run every few minutes.
+ * Each: { slug, dir, stage, stageState, waitingFor, currentBrief, statusBriefFile, gateWaitingSince, versions, updatedAt }.
+ */
+export async function loadGateStates({ featuresDir }) {
+  const dirs = (await listDir(featuresDir)).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => path.join(featuresDir, e.name));
+  return Promise.all(dirs.map(async (dir) => {
+    const wsFile = path.join(dir, 'workflow-status.md');
+    const [sjText, wsStat] = await Promise.all([readText(path.join(dir, 'status.json')), statOrNull(wsFile)]);
+    const sj = sjText ? parseStatusJson(sjText) : null;
+    const status = sj?.ok ? sj : null;
+    const ws = !status && wsStat ? parseWorkflowStatus((await readText(wsFile)) ?? '') : null;
+    const stageState = status?.stageState ?? ws?.stageState ?? null;
+    const waitingSince = status?.waitingSince ?? (stageState === 'waiting_for_you' && wsStat ? wsStat.mtime.toISOString() : null);
+    return {
+      slug: path.basename(dir), dir,
+      stage: status?.stage ?? ws?.stage ?? null, stageState, waitingFor: status?.waitingFor ?? null,
+      ...(await gateFields(dir, status, await listBriefs(dir), waitingSince)),
+      updatedAt: status?.updatedAt ?? wsStat?.mtime.toISOString() ?? null,
+    };
+  }));
 }
 
 // overrides: { [featureDir]: { repoPath, branch } } chosen by the person; knownRepos: repositories to search.
