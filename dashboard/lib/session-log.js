@@ -63,10 +63,15 @@ export function parseSessionLog(text) {
     lastModel: null,
     badLines: 0,
   };
+  // The timestamp of the nearest line before this one that had one: a pr-link line without its own
+  // timestamp is dated by it (when the PR was created, as near as the log says).
+  let prevAt = null;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let d;
     try { d = JSON.parse(line); } catch { out.badLines++; continue; }
+    const before = prevAt;
+    if (d.timestamp) prevAt = d.timestamp;
     out.sessionId ??= d.sessionId ?? null;
     out.agentId ??= d.agentId ?? null;
     out.cwd ??= d.cwd ?? null;
@@ -83,7 +88,7 @@ export function parseSessionLog(text) {
     if (d.type === 'queue-operation' && d.operation === 'enqueue' && !out.firstPrompt) {
       out.firstPrompt = d.content ?? null;
     } else if (d.type === 'pr-link' && typeof d.prUrl === 'string') {
-      if (!out.prLinks.some((p) => p.url === d.prUrl)) out.prLinks.push({ url: d.prUrl, number: d.prNumber ?? null, at: d.timestamp ?? null });
+      if (!out.prLinks.some((p) => p.url === d.prUrl)) out.prLinks.push({ url: d.prUrl, number: d.prNumber ?? null, at: d.timestamp ?? before ?? null });
     } else if (d.type === 'user' && d.message) {
       const c = d.message.content;
       if (!out.firstPrompt && !d.isMeta) out.firstPrompt = lastTextOf(c);

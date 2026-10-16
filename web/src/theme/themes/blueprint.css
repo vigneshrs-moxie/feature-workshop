@@ -349,6 +349,8 @@ html[data-theme="blueprint"] .reply .prose pre code, html[data-theme="blueprint"
 html[data-theme="blueprint"] .perm-card .prose pre code, html[data-theme="blueprint"] .sheet .prose pre code { background: none; color: inherit; }
 html[data-theme="blueprint"] :is(.reply, .brief-card, .perm-card, .sheet) .prose blockquote { border-left-color: var(--bp-ink-line); color: var(--bp-ink-2); }
 html[data-theme="blueprint"] :is(.reply, .brief-card, .perm-card, .sheet) .prose :is(th, td) { border-color: var(--bp-ink-line); }
+/* Table headers: ink on a light ink tint, not ink on the page's dark blue --bg-3. */
+html[data-theme="blueprint"] :is(.reply, .brief-card, .perm-card, .sheet) .prose th { background: var(--bp-ink-tint); color: var(--bp-ink); }
 html[data-theme="blueprint"] .perm-preview { background: var(--bg-1); color: var(--bp-chalk); border: 1px solid var(--bp-ink-line); }
 html[data-theme="blueprint"] .perm-warn { background: oklch(.75 .17 80 / .22); color: oklch(.42 .13 70); }
 html[data-theme="blueprint"] .perm-card .field-problem, html[data-theme="blueprint"] .perm-card .btn-danger { color: var(--bp-red-ink); }

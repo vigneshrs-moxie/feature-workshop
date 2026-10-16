@@ -11,6 +11,7 @@ import {
   SECRET_IDS, THEME_IDS, buildLedger, jobKey, ledgerView, lensType, newlyDone, newlyUnlocked, parseReviewFindings, playSettings,
   themeUnlocked, unlocksOf, validatePlayPatch,
 } from '../lib/play.js';
+import { parseSessionLog } from '../lib/session-log.js';
 
 const DIR = '/tmp/fw-play/feature-work';
 const local = (y, mo, d, h, mi = 0) => new Date(y, mo - 1, d, h, mi).toISOString();
@@ -48,7 +49,7 @@ test('play settings: a change from the page takes only known fields with allowed
 
 test('review.md: the summary line, else the findings table, else "No findings"', () => {
   const summary = parseReviewFindings('# Review v1\n\n**Result:** 0 blockers, 2 majors, 3 minors\n');
-  assert.deepEqual({ ...summary, byLens: undefined }, { blockers: 0, majors: 2, minors: 3, total: 5, byLens: undefined });
+  assert.deepEqual({ ...summary, byLens: undefined }, { blockers: 0, majors: 2, minors: 3, total: 5, byLens: undefined, round: 1, laterRound: false });
   const table = parseReviewFindings('## Findings\n\n| ID | Severity | Lens | Finding |\n|---|---|---|---|\n| R-1 | major | errors | x |\n| R-2 | **blocker** | Locksmith | y |\n| R-3 | minor | db | z |\n');
   assert.equal(table.total, 3);
   assert.equal(table.blockers, 1);
@@ -168,6 +169,87 @@ test('Clean Sweep: the first lens review round of a job comes back clean; draini
     audit: [{ at: T0, action: 'auto-allowed', featureDir: `${DIR}/a`, slug: 'a', tool: 'Read', agentType: 'feature-review-db', headline: 'Read a file' }],
   });
   assert.ok(byAudit.achievements['clean-sweep']);
+});
+
+test('review.md: which round it says it is', () => {
+  const r = (text) => { const c = parseReviewFindings(text); return [c.round, c.laterRound]; };
+  assert.deepEqual(r('# Review v1\n\n**Result:** No findings.'), [1, false]);
+  assert.deepEqual(r('# Review\n\n**Result:** No findings.'), [null, false]);
+  assert.deepEqual(r('# Review v2\n\n**Result:** No findings.'), [2, true]);
+  assert.deepEqual(r('# Review\n\n## Round 3\n\n**Result:** No findings.'), [3, true]);
+  assert.deepEqual(r('# Review\n\nSecond round.\n\n**Result:** No findings.'), [2, true]);
+  assert.deepEqual(r('# Review v1\n\nR-1 fixed in 3f2a1c.\n\n**Result:** No findings.'), [1, true]);
+  // A version outside a heading is not the review's version.
+  assert.deepEqual(r('# Review\n\nChecked against spec v3.\n\n**Result:** No findings.'), [null, false]);
+});
+
+test('Clean Sweep: only a review evidently in its first round; anything else is "unknown" and never awards', () => {
+  const lens = [{ agentType: 'feature-review-errors', startedAt: T0, lastAt: plus(T0, 2) }];
+  const key = jobKey('a', `${DIR}/a`);
+  const review = (at, text) => ({ at, counts: parseReviewFindings(text) });
+  // A fresh build that first sees a clean v2 review: it can't know round 1.
+  const v2 = build({ jobs: [job('a', { workers: lens, review: review(plus(T0, 30), '# Review v2\n\n**Result:** 0 blockers, 0 majors, 0 minors') })] });
+  assert.deepEqual(v2.reviews[key].first, { unknown: true });
+  assert.equal(v2.reviews[key].cleanAt, null);
+  assert.equal(v2.achievements['clean-sweep'], undefined);
+  // "Round 2" or "fixed" wording does the same.
+  for (const text of ['# Review\n\nRound 2.\n\n**Result:** No findings.', '# Review\n\nAll three findings fixed.\n\n**Result:** No findings.']) {
+    assert.deepEqual(build({ jobs: [job('a', { workers: lens, review: review(plus(T0, 30), text) })] }).reviews[key].first, { unknown: true }, text);
+  }
+  // A lens that ran twice on the job: not round 1, even if review.md doesn't say.
+  const twice = [...lens, { agentType: 'feature-review-errors', startedAt: plus(T0, 20), lastAt: plus(T0, 22) }];
+  const rerun = build({ jobs: [job('a', { workers: twice, review: review(plus(T0, 30), '# Review\n\n**Result:** No findings.') })] });
+  assert.deepEqual(rerun.reviews[key].first, { unknown: true });
+  assert.equal(rerun.achievements['clean-sweep'], undefined);
+  // Unknown stays unknown: a later clean round never turns it into a Clean Sweep.
+  const later = build({ jobs: [job('a', { workers: lens, review: review(plus(T0, 60), '# Review v3\n\n**Result:** No findings.') })], previous: v2 });
+  assert.deepEqual(later.reviews[key].first, { unknown: true });
+  assert.equal(later.achievements['clean-sweep'], undefined);
+  // A clean v1 with one run per lens still earns it.
+  const v1 = build({ jobs: [job('a', { workers: lens, review: review(plus(T0, 3), '# Review v1\n\n**Result:** No findings.') })] });
+  assert.equal(v1.achievements['clean-sweep'].unlockedAt, plus(T0, 3));
+});
+
+test('crew met: a permission you answered by hand meets no one, whatever agentType it carries', () => {
+  const d = `${DIR}/a`;
+  for (const decision of ['allow', 'allow-run', 'deny']) {
+    const l = build({ audit: [{ at: T0, action: 'permission', featureDir: d, slug: 'a', tool: 'Bash', agentType: 'feature-implementer', headline: 'Run npm install', decision }], jobs: [job('a')] });
+    assert.deepEqual(l.crew, {}, decision);
+  }
+  // The worker's own steps the dashboard decided without you do meet it.
+  for (const action of ['auto-allowed', 'auto-blocked', 'hard-line-refused']) {
+    const l = build({ audit: [{ at: T0, action, featureDir: d, slug: 'a', tool: 'Bash', agentType: 'feature-implementer', headline: 'Run curl' }], jobs: [job('a')] });
+    assert.ok(l.crew['feature-implementer'], action);
+  }
+  // Any other line with an agentType (a settings change, a send) meets no one either.
+  const other = build({ audit: [{ at: T0, action: 'send', featureDir: d, slug: 'a', agentType: 'feature-tester' }], jobs: [job('a')] });
+  assert.equal(other.crew['feature-tester'], undefined);
+});
+
+test('PR times: a pr-link line without a timestamp takes the nearest earlier line’s, and is still exact', () => {
+  const url = PR[0].url;
+  const log = (lines) => lines.map((l) => JSON.stringify(l)).join('\n');
+  const stamped = parseSessionLog(log([
+    { type: 'user', timestamp: plus(T0, 1), message: { content: 'go' } },
+    { type: 'pr-link', timestamp: plus(T0, 9), prUrl: url, prNumber: 7 },
+  ]));
+  assert.equal(stamped.prLinks[0].at, plus(T0, 9));
+  const bare = parseSessionLog(log([
+    { type: 'user', timestamp: plus(T0, 1), message: { content: 'go' } },
+    { type: 'assistant', timestamp: plus(T0, 5), message: { id: 'm1', content: [] } },
+    { type: 'summary' },
+    { type: 'pr-link', prUrl: url, prNumber: 7 },
+    { type: 'assistant', timestamp: plus(T0, 8), message: { id: 'm2', content: [] } },
+  ]));
+  assert.equal(bare.prLinks[0].at, plus(T0, 5), 'the nearest earlier timestamp, not a later one');
+  const fromBare = build({ jobs: [prJob('a', { updatedAt: plus(T0, 40), prLinks: bare.prLinks })] });
+  assert.equal(Object.values(fromBare.quests)[0].doneAt, plus(T0, 5));
+  assert.equal(Object.values(fromBare.quests)[0].doneAtExact, true);
+  // Nothing before it has a timestamp: no time, so the quest's time is a guess (not exact).
+  const none = parseSessionLog(log([{ type: 'pr-link', prUrl: url, prNumber: 7 }, { type: 'user', timestamp: plus(T0, 8), message: { content: 'x' } }]));
+  assert.equal(none.prLinks[0].at, null);
+  const guessed = build({ jobs: [prJob('a', { updatedAt: plus(T0, 40), prLinks: none.prLinks })] });
+  assert.equal(Object.values(guessed.quests)[0].doneAtExact, false);
 });
 
 test('Crew-dex findings: the most each lens raised on a job, kept across rounds', () => {
@@ -665,6 +747,94 @@ test('PlayBook: while Play is Off nothing is scheduled or folded; turning it on 
     book.noteAudit(input.audit.at(-1));
     await book.refresh();
     assert.deepEqual(heard, ['secret-konami']);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('PlayBook: a refresh already running when Play goes Off stops, keeps nothing it read and saves nothing', async () => {
+  const dir = await tempDir();
+  try {
+    let on = true;
+    const input = { audit: [{ at: T0, action: 'play-secret', id: 'teapot' }], jobs: [prJob('a')] };
+    const sources = fakeSources(input);
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const readAudit = sources.readAudit;
+    sources.readAudit = async () => { const all = await readAudit(); await gate; return all; };
+    const book = new PlayBook({ dir, sources, isOn: () => on });
+    const saves = [];
+    book.save = async (l) => { saves.push(l); };
+    const running = book.refresh();
+    await wait(5);
+    // Play goes Off mid-read; another refresh was asked for meanwhile.
+    on = false;
+    book.forget();
+    book.refresh();
+    release();
+    await running;
+    assert.equal(book.fold, null, 'what was read is dropped');
+    assert.equal(book.ledger, null);
+    assert.deepEqual(saves, [], 'nothing saved');
+    assert.equal(sources.calls.jobsFull, 0, 'it stopped before reading the jobs');
+    // On again: a fresh refresh reads everything.
+    on = true;
+    await book.refresh({ muted: true });
+    assert.ok(book.ledger.secrets.teapot);
+    assert.equal(saves.length, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('PlayBook: a failed play.json write is tried again at the next refresh, even with nothing new', async () => {
+  const dir = await tempDir();
+  try {
+    const logged = [];
+    const book = new PlayBook({ dir, sources: fakeSources({ audit: [{ at: T0, action: 'play-secret', id: 'teapot' }], jobs: [] }), log: (msg) => logged.push(msg) });
+    let fail = true;
+    const tries = [];
+    const save = book.save.bind(book);
+    book.save = async (l) => { tries.push(l); if (fail) throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); return save(l); };
+    await book.refresh();
+    assert.equal(tries.length, 1);
+    assert.equal(logged.length, 1);
+    fail = false;
+    await book.refresh();
+    assert.equal(tries.length, 2, 'unchanged, but play.json never had it: written now');
+    assert.ok(JSON.parse(await fs.readFile(path.join(dir, 'play.json'), 'utf8')).secrets.teapot);
+    await book.refresh();
+    assert.equal(tries.length, 2, 'saved: not written again');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('PlayBook: Clean Sweep is never awarded for a later round, after Off and On or with play.json lost', async () => {
+  const dir = await tempDir();
+  try {
+    let on = true;
+    const lens = [{ agentType: 'feature-review-errors', startedAt: T0, lastAt: plus(T0, 2) }];
+    const review = (at, text) => ({ at, counts: parseReviewFindings(text) });
+    const input = { audit: [], jobs: [job('a', { workers: lens })] };
+    const book = new PlayBook({ dir, sources: fakeSources(input), isOn: () => on });
+    await book.refresh();
+    // Off while round 1 (two majors) and round 2 (clean) happen.
+    on = false;
+    book.forget();
+    input.jobs[0] = job('a', { workers: [...lens, { agentType: 'feature-review-errors', startedAt: plus(T0, 20), lastAt: plus(T0, 21) }], review: review(plus(T0, 30), '# Review v2\n\nR-1 and R-2 fixed.\n\n**Result:** No findings.') });
+    on = true;
+    await book.refresh({ muted: true });
+    const key = jobKey('a', `${DIR}/a`);
+    assert.deepEqual(book.ledger.reviews[key].first, { unknown: true });
+    assert.equal(book.ledger.achievements['clean-sweep'], undefined);
+
+    // play.json lost: the rebuild sees only the v2 review and awards nothing either.
+    await fs.rm(path.join(dir, 'play.json'));
+    const fresh = new PlayBook({ dir, sources: fakeSources(input) });
+    const rebuilt = await fresh.current();
+    assert.deepEqual(rebuilt.reviews[key].first, { unknown: true });
+    assert.equal(rebuilt.achievements['clean-sweep'], undefined);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

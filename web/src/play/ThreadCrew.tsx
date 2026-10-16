@@ -3,6 +3,7 @@
 // moves them (CrewMember follows the mode). Each character sits beside words that name it, or is
 // an image named "<Name>, <mood>" with a tooltip. Callers never put these in a gate card, a
 // permission card or the composer.
+import { memo } from 'react';
 import type { Job, Run, Usage } from '../api/types';
 import { crewInfo, type CrewState } from './crew';
 import { CrewMember } from './CrewMember';
@@ -15,7 +16,7 @@ const hint = (type: string) => {
 };
 
 /** A crew member with their name (or other words) beside them: "[Sleuth] Sleuth". */
-export function CrewTag({ type, state = 'idle', text, size }: { type: string; state?: CrewState; text?: string; size?: number }) {
+export const CrewTag = memo(function CrewTag({ type, state = 'idle', text, size }: { type: string; state?: CrewState; text?: string; size?: number }) {
   const play = usePlayIfAny();
   if (play && !play.on) return null;
   return (
@@ -24,10 +25,10 @@ export function CrewTag({ type, state = 'idle', text, size }: { type: string; st
       <span className="crew-tag-text">{text ?? crewInfo(type).name}</span>
     </span>
   );
-}
+});
 
 /** In a routine-steps line: the workers it handed work to, "Sleuth started investigating". */
-export function HandoffSummary({ types }: { types: string[] }) {
+export const HandoffSummary = memo(function HandoffSummary({ types }: { types: string[] }) {
   const play = usePlayIfAny();
   if ((play && !play.on) || !types.length) return null;
   const size = play?.full ? 24 : 20;
@@ -40,7 +41,7 @@ export function HandoffSummary({ types }: { types: string[] }) {
       <span className="crew-handoff-text">{text}</span>
     </span>
   );
-}
+}, (a, b) => a.types.join() === b.types.join());
 
 /**
  * The live row's crew: the workers at work, or the Foreman thinking, waiting or asleep. `where`:
@@ -53,10 +54,13 @@ export function LiveCrewFaces({ job, run, usage, where }: { job: Job | null | un
   const size = play?.full ? 30 : 26;
   const foreman = who.types.length === 1 && who.types[0] === 'conductor';
   if ((where === 'lead' && !foreman) || (where === 'tail' && foreman)) return null;
+  // The Foreman before its name ('lead') is decoration: the row says "Foreman" and what it is doing
+  // right beside it, so a screen reader hears it once. Alone (a usage pause) it is named.
+  const named = foreman && where !== 'lead';
   return (
     <span className="live-crew">
       {who.types.slice(0, 4).map((t) => (
-        <CrewMember key={t} type={t} state={who.state} size={size} {...(foreman ? {} : { label: '' })} />
+        <CrewMember key={t} type={t} state={who.state} size={size} {...(named ? {} : { label: '' })} />
       ))}
       {who.text && <span className="live-crew-text" title="Who is at work on this job right now (from its session logs).">{who.text}</span>}
     </span>

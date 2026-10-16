@@ -15,6 +15,7 @@
 //
 // Colours come from --crew-* tokens (theme/tokens.ts, restyled per theme); animations live in
 // play/play.css and only run on .crew.is-animated.
+import { memo } from 'react';
 import { crewInfo, MOTION, type CrewState } from './crew';
 import { Effects, Eyes, HATS, Mouth, TOOLS } from './crewParts';
 import { usePlayIfAny, usePrefersReducedMotion } from './usePlay';
@@ -34,7 +35,8 @@ const C = (name: string) => `var(--crew-${name})`;
 /** The accessible name a crew member gets by default: "Builder, working". */
 export const crewLabel = (type: string, state: CrewState) => `${crewInfo(type).name}, ${state}`;
 
-export function CrewMember({ type, state = 'idle', size = 48, label, animated, silhouette = false, className }: CrewMemberProps) {
+// Memoized: its props are plain values, and a thread draws many of them.
+export const CrewMember = memo(function CrewMember({ type, state = 'idle', size = 48, label, animated, silhouette = false, className }: CrewMemberProps) {
   const reduced = usePrefersReducedMotion();
   const play = usePlayIfAny();
   if (play && !play.on) return null;
@@ -87,4 +89,4 @@ export function CrewMember({ type, state = 'idle', size = 48, label, animated, s
       <g className="fx"><Effects state={state} motion={motion} /></g>
     </svg>
   );
-}
+});

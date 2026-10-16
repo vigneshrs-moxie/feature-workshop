@@ -2,7 +2,7 @@
 // "Load older" at the top, then the permission and question cards waiting for you, and the live
 // row at the foot while it replies. With no job open it lists every card waiting for you (Needs
 // you). The composer sits under the conversation: Send, Steer and Stop (Composer.tsx).
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { Job } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { JobCards, NeedsYouCards } from '../../components/permissions/PendingCards';
@@ -31,20 +31,26 @@ function JobThread({ job }: { job: Job }) {
   const thread = useJobThread(job.slug, (state.threadVersions[job.slug] ?? 0) + state.threadEpoch);
   const run = state.runs[job.slug] ?? thread.detail?.run ?? null;
   const gate = thread.detail?.gate ?? null;
-  const shown = shownItems(thread.items, { answeredBriefs: thread.detail?.answeredBriefs, openBrief: gate ? gate.briefNumber : null });
+  const answeredBriefs = thread.detail?.answeredBriefs;
+  const openBrief = gate ? gate.briefNumber : null;
+  const shown = useMemo(() => shownItems(thread.items, { answeredBriefs, openBrief }), [thread.items, answeredBriefs, openBrief]);
   const inThread = new Set(thread.items.flatMap((it) => (it.kind === 'you' && it.steerId ? [it.steerId] : [])));
   const justSteered = Object.values(state.steers).filter((s) => s.slug === job.slug && s.runId === run?.id && !inThread.has(s.id));
-  // Play: the lenses that ran for each review brief (those that started since the review brief before it).
+  // Play, read once here for every line below.
   const play = usePlay();
-  const lenses = new Map<string, string[]>();
-  if (play.on) {
+  const activity = thread.detail?.activity;
+  // The lenses that ran for each review brief (those that started since the review brief before it).
+  const lenses = useMemo(() => {
+    const out = new Map<string, string[]>();
+    if (!play.on) return out;
     let previousReview: string | null = null;
     for (const s of shown) {
       if (s.kind !== 'brief-card' || s.brief.item.stage !== 'review') continue;
-      lenses.set(s.id, reviewLineup(thread.detail?.activity, s.brief.item.at, previousReview));
+      out.set(s.id, reviewLineup(activity, s.brief.item.at, previousReview));
       previousReview = s.brief.item.at;
     }
-  }
+    return out;
+  }, [shown, activity, play.on]);
 
   // Tell the shell what only this pane knows, so ⌘K can offer Stop, Mark done and the job's setting.
   const { setCurrent } = useUi();
@@ -117,7 +123,7 @@ function JobThread({ job }: { job: Job }) {
           s.kind === 'brief-card'
             // It folds back to its headline itself the moment you answer it (no remount, no refetch).
             ? <BriefCard key={s.id} slug={job.slug} brief={s.brief} now={now} lenses={lenses.get(s.id)} />
-            : <ThreadItemView key={s.id} item={s.item} now={now} steer={s.item.kind === 'you' ? steerStateOf(s.item.steerId, state.steers, run) : null} />,
+            : <ThreadItemView key={s.id} item={s.item} now={now} playOn={play.on} steer={s.item.kind === 'you' ? steerStateOf(s.item.steerId, state.steers, run) : null} />,
         )}
         {/* Steered just now: shown at once, until the conversation (refetched a moment later) has it. */}
         {justSteered.map((s) => <YouMessage key={s.id} text={s.text} at={s.queuedAt ?? null} now={now} steer={s.state} steered />)}

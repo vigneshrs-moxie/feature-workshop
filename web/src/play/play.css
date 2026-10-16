@@ -228,6 +228,8 @@
 .dex-bio { margin: var(--space-2) 0; padding: 0; border: 0; color: var(--text-1); font-size: var(--text-sm); font-style: italic; }
 .dex-first { margin: 0; font-size: var(--text-xs); }
 .dex-flip { position: absolute; right: var(--space-2); bottom: var(--space-2); }
+/* Pressed (the back is showing): filled, with a tick in the label. */
+.dex-flip[aria-pressed="true"] { background: var(--bg-3); color: var(--text-1); border-color: var(--border-3); }
 
 /* Reduced motion: never animate, and hold the waiting wave as a pose. */
 @media (prefers-reduced-motion: reduce) {

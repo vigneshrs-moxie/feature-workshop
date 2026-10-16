@@ -122,7 +122,8 @@ function DexCard({ member, stats, meta, play, now }: { member: CrewInfo; stats: 
           title={back ? 'Turn the card back to the front.' : `Turn the card over to read ${member.name}’s bio.`}
           onClick={(e) => { e.stopPropagation(); toggle(); }}
         >
-          Card back
+          {/* A toggle: while the back shows it looks pressed (and ticked), so its name never changes. */}
+          {back && <span aria-hidden="true">✓ </span>}Card back
         </button>
       )}
     </li>
@@ -164,6 +165,8 @@ export function CrewDexView() {
           <p>The stats come from what the dashboard already records (its log, the session logs and each job’s review.md). It is personal: nothing is shared, Claude is never asked anything and it costs no usage. There are also a few secrets hidden around the Workshop; the counter says how many you have found, not where.</p>
         </HowThisWorks>
         {load.state === 'loading' && <p className="muted">Loading the Crew-dex…</p>}
+        {/* The dashboard answered that Play is Off before this page heard (another tab turned it off). */}
+        {load.state === 'off' && <p className="muted" role="status">Play mode is Off, so the Crew-dex is put away. Turn Play back on in Settings to see it.</p>}
         {load.state === 'error' && (
           <p className="thread-error" role="alert">
             Couldn’t load the Crew-dex: {load.message}{' '}

@@ -136,6 +136,14 @@ describe('Crew-dex', () => {
     expect(link).toHaveAttribute('title');
   });
 
+  it('says Play is Off when the dashboard answers so before this page has heard', async () => {
+    const { get } = setup({ mode: 'subtle', view: { mode: 'off' } as unknown as PlayView });
+    expect(await screen.findByRole('status')).toHaveTextContent('Play mode is Off, so the Crew-dex is put away.');
+    expect(get).toHaveBeenCalledWith('/api/play');
+    expect(screen.queryByText('Loading the Crew-dex…')).toBeNull();
+    expect(document.querySelector('.dex-grid')).toBeNull();
+  });
+
   it('turns a met card over with a toggle button (and a click on the card), to the bio', async () => {
     setup();
     await screen.findByRole('heading', { name: 'Foreman', level: 3 });
@@ -147,8 +155,12 @@ describe('Crew-dex', () => {
     expect(back).toHaveAttribute('aria-hidden', 'true');
     expect(front).not.toHaveAttribute('aria-hidden');
 
+    expect(flip).toHaveTextContent(/^Card back$/);
     fireEvent.click(flip);
     expect(flip).toHaveAttribute('aria-pressed', 'true');
+    // It looks pressed (ticked) while the back shows; its name stays the same.
+    expect(flip).toHaveTextContent('✓ Card back');
+    expect(flip).toHaveAccessibleName('Locksmith: card back');
     expect(locksmith).toHaveClass('is-flipped');
     expect(back).not.toHaveAttribute('aria-hidden');
     expect(front).toHaveAttribute('aria-hidden', 'true');

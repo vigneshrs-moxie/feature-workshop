@@ -17,8 +17,12 @@
 //     (slug + folder): reopening it and finishing again never awards it twice.
 //   - Once unlocked, an achievement stays unlocked, whatever happens to the job later.
 //   - Crew are met only by working: a worker in a session log, a dispatch the dashboard allowed by
-//     itself (auto-allowed), or an audit line the worker itself caused (agentType). A permission you
-//     allowed by hand meets no one.
+//     itself (auto-allowed), or an audit line the worker's own step caused (auto-allowed,
+//     auto-blocked or hard-line-refused, by agentType). A permission you answered by hand, allowed
+//     or denied, meets no one, whatever agentType it carries.
+//   - Clean Sweep needs the job's review round to be evidently its first (review.md shows no later
+//     version or round, no lens ran twice); when that can't be told the first round is "unknown"
+//     and never awards.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -236,7 +240,27 @@ export function parseReviewFindings(text) {
   } else {
     return null;
   }
-  return { ...counts, total: counts.blockers + counts.majors + counts.minors, byLens };
+  return { ...counts, total: counts.blockers + counts.majors + counts.minors, byLens, ...reviewRound(lines, text) };
+}
+
+const ROUND_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, first: 1, second: 2, third: 3, fourth: 4, fifth: 5 };
+/**
+ * Which review round a review.md says it is: { round, laterRound }. round is the highest version
+ * in a heading ("# Review v2") or round named anywhere ("Round 2", "round two", "second round"),
+ * else null. laterRound: it evidently isn't the first round (round 2 or more, or it says something
+ * was fixed). Not knowing is not "round 1": callers must ask laterRound === false and more.
+ */
+export function reviewRound(lines, text) {
+  let round = null;
+  const saw = (n) => { if (Number.isInteger(n) && n > 0 && n < 1000) round = Math.max(round ?? 0, n); };
+  for (const l of lines) {
+    const t = l.trim();
+    if (!t.startsWith('#')) continue;
+    for (const m of t.matchAll(/\bv(\d{1,3})\b/gi)) saw(Number(m[1]));
+  }
+  for (const m of text.matchAll(/\bround\s*#?\s*(\d{1,3}|one|two|three|four|five)\b/gi)) saw(/^\d/.test(m[1]) ? Number(m[1]) : ROUND_WORDS[m[1].toLowerCase()]);
+  for (const m of text.matchAll(/\b(first|second|third|fourth|fifth)\s+(?:review\s+)?round\b/gi)) saw(ROUND_WORDS[m[1].toLowerCase()]);
+  return { round, laterRound: (round ?? 1) > 1 || /\bfixed\b/i.test(text) };
 }
 
 // ---------- Building the ledger (pure) ----------
@@ -267,6 +291,10 @@ function dispatchTarget(e) {
   const type = typeof e.dispatch === 'string' ? e.dispatch : /Start a helper:\s*([\w-]+)/.exec(String(e.headline ?? ''))?.[1];
   return CREW_TYPES.includes(type) ? type : null;
 }
+
+// Audit lines a worker's own step caused, decided without you: allowed or blocked by the dashboard
+// or auto mode, or refused by a hard line (lib/driver.js). Their agentType is who took the step.
+const WORKER_STEP_ACTIONS = new Set(['auto-allowed', 'auto-blocked', 'hard-line-refused']);
 
 const emptyCounts = () => ({ blockers: 0, majors: 0, minors: 0 });
 
@@ -354,7 +382,9 @@ export class AuditFold {
     }
     const target = dispatchTarget(e);
     if (target) this.#meet(target, e.at, key, `${e.at}|${e.toolUseId ?? ''}|${target}`);
-    if (typeof e.agentType === 'string' && e.agentType !== target) this.#meet(e.agentType, e.at, key);
+    // The worker that took a step: only on lines its own step caused and nothing you answered
+    // (a permission you answered by hand carries the asking worker's agentType too: never a meeting).
+    if (WORKER_STEP_ACTIONS.has(e.action) && typeof e.agentType === 'string' && e.agentType !== target) this.#meet(e.agentType, e.at, key);
     return this;
   }
 }
@@ -450,7 +480,17 @@ export function ledgerFrom({ fold = new AuditFold(), jobs = [], play = PLAY_DEFA
     }
     if (job.startedAt && ms(job.startedAt)) d.startedAt = minAt(d.startedAt, job.startedAt);
 
-    if (job.review?.counts) reviews[key] = reviewRecord(reviews[key], job.review, LENS_TYPES.some((t) => crew[t]?.jobs?.[key]), nowIso);
+    if (job.review?.counts) {
+      // How many times each lens ran on this job (dispatches, session logs, the ledger before).
+      const runs = LENS_TYPES.map((t) => {
+        const j = crew[t]?.jobs?.[key];
+        const p = prev?.crew?.[t]?.jobs?.[key];
+        return Math.max(j?.audit ?? 0, j?.workers ?? 0, p?.audit ?? 0, p?.workers ?? 0, j || p ? 1 : 0);
+      });
+      const lensRan = runs.some((n) => n > 0);
+      const roundOne = job.review.counts.laterRound === false && runs.every((n) => n <= 1);
+      reviews[key] = reviewRecord(reviews[key], job.review, lensRan, roundOne, nowIso);
+    }
 
     const exactPrAt = rule === 'first-pr' ? firstPrAt(job.prs?.[0], job.prLinks) : null;
     if (quests[key]) {
@@ -529,10 +569,13 @@ function questRecord(slug, dir, doneAt, doneAtExact, kind, level, d, rule) {
  * A job's review record: the latest round's counts, the most each lens ever raised on it (per
  * severity, across rounds) and its first lens round, which is kept as it was: later rewrites of
  * review.md never change it. A round counts as the first only once a review lens has run for the
- * job; Clean Sweep is that first round coming back with nothing (draining to clean later is the
- * boss fight's "Boss defeated", not this).
+ * job, and only when it evidently is the first (roundOne: review.md names no later version or
+ * round and says nothing was fixed, and no lens ran twice). Seen for the first time later than
+ * that (a fresh build, Play turned on again, play.json lost), the first round is { unknown: true }
+ * for good. Clean Sweep is a known first round coming back with nothing (draining to clean later is
+ * the boss fight's "Boss defeated", not this).
  */
-function reviewRecord(was, review, lensRan, nowIso) {
+function reviewRecord(was, review, lensRan, roundOne, nowIso) {
   const counts = review.counts;
   const at = review.at ?? nowIso;
   const byLens = counts.byLens ?? {};
@@ -543,10 +586,11 @@ function reviewRecord(was, review, lensRan, nowIso) {
       for (const k of ['blockers', 'majors', 'minors']) m[k] = Math.max(m[k], c?.[k] ?? 0);
     }
   }
-  const first = was?.first ?? (lensRan ? { at, blockers: counts.blockers, majors: counts.majors, minors: counts.minors, total: counts.total } : null);
+  let first = was?.first ?? null;
+  if (!first && lensRan) first = roundOne ? { at, blockers: counts.blockers, majors: counts.majors, minors: counts.minors, total: counts.total } : { unknown: true };
   return {
     blockers: counts.blockers, majors: counts.majors, minors: counts.minors, total: counts.total, at, byLens, byLensMax, first,
-    cleanAt: first && first.total === 0 ? first.at : null,
+    cleanAt: first && !first.unknown && first.total === 0 ? first.at : null,
   };
 }
 
@@ -696,8 +740,10 @@ export const JOBS_EVERY_MS = 60_000;
  *     files (sources.job); every job (with its workers) comes from sources.jobs({ fresh: true })
  *     when a fresh list is already at hand, else sources.jobs({ fresh: false }) at most every
  *     JOBS_EVERY_MS;
- *   - play.json is written only when the ledger changed (builtAt aside); a failed write is logged
- *     and the ledger in memory stays good.
+ *   - play.json is written only when the ledger changed (builtAt aside); a failed write is logged,
+ *     the ledger in memory stays good, and the next refresh writes it again even if unchanged.
+ *   - Play turned Off (forget()) stops a refresh already running: each pass checks isOn(), and a
+ *     read that finishes after forget() keeps nothing (a generation count), so nothing is saved.
  * sources: { readAudit() → entries, auditStat() → { size, ino } | null, jobs({ fresh }) → jobs | null,
  *            job(folder, known) → job | null, settings() → the play settings }
  * isOn(): Play mode isn't Off. While it is Off, schedule() does nothing and nothing is folded (the
@@ -732,6 +778,10 @@ export class PlayBook {
     this.jobs = new Map(); // dir -> job
     this.jobsAt = null;
     this.dirty = new Set(); // job folder names changed since
+    // Bumped by forget(): a read that started before Play went Off drops what it read.
+    this.generation = 0;
+    // The ledger in memory is newer than play.json (its last write failed): write it next time.
+    this.unsaved = false;
   }
 
   /** An audit line was just written: fold it in (or keep it for after the full read under way). */
@@ -750,6 +800,7 @@ export class PlayBook {
 
   /** Play mode Off: stop, and drop what was read, so turning it on again reads everything afresh. */
   forget() {
+    this.generation++;
     clearTimeout(this.timer);
     this.timer = null;
     this.timerMuted = false;
@@ -790,6 +841,8 @@ export class PlayBook {
         let quiet = muted;
         do {
           this.again = false;
+          // Play went Off meanwhile: stop doing work (turning it on again starts a fresh refresh).
+          if (!this.isOn()) { this.again = false; break; }
           await this.#build(quiet);
           quiet = this.againMuted;
           this.againMuted = false;
@@ -805,13 +858,23 @@ export class PlayBook {
   async #build(muted) {
     if (!this.loaded) await this.load();
     const before = this.ledger;
-    await this.#readAudit();
-    await this.#readJobs();
+    const gen = this.generation;
+    await this.#readAudit(gen);
+    await this.#readJobs(gen);
+    // Play went Off while reading (forget() dropped what was read): build nothing, save nothing.
+    if (gen !== this.generation || !this.isOn() || !this.fold) return;
     const next = ledgerFrom({ fold: this.fold, jobs: [...this.jobs.values()], play: this.sources.settings(), now: this.now(), previous: before });
-    if (before && sameLedger(before, next)) return;
+    // Unchanged, and play.json has it: nothing to write. A failed write is tried again here.
+    if (before && sameLedger(before, next) && !this.unsaved) return;
     // The ledger in memory first: a failed write must not lose it (GET /api/play still answers).
     this.ledger = next;
-    try { await this.save(next); } catch (err) { this.log('play ledger: could not save play.json:', err); }
+    try {
+      await this.save(next);
+      this.unsaved = false;
+    } catch (err) {
+      this.unsaved = true;
+      this.log('play ledger: could not save play.json:', err);
+    }
     if (!before || muted) return;
     for (const q of newlyDone(before, next)) { try { this.onQuest(q); } catch { /* a listener's problem */ } }
     for (const a of newlyUnlocked(before, next)) { try { this.onUnlock(a); } catch { /* a listener's problem */ } }
@@ -819,9 +882,11 @@ export class PlayBook {
 
   // The audit: everything at the first build, or when audit.jsonl shrank or was replaced; else the
   // lines noteAudit folded in as they were written are all there is to know.
-  async #readAudit() {
+  // Nothing read is kept when forget() ran meanwhile (gen: the generation the build started in).
+  async #readAudit(gen) {
     let st = null;
     try { st = (await this.sources.auditStat()) ?? null; } catch { st = null; }
+    if (gen !== this.generation) return;
     const seen = this.auditSeen;
     const replaced = st && seen && (st.ino !== seen.ino || st.size < seen.size);
     const gone = !st && seen;
@@ -831,6 +896,7 @@ export class PlayBook {
     try {
       const fold = new AuditFold();
       for (const e of await this.sources.readAudit()) fold.add(e);
+      if (gen !== this.generation) return;
       // Lines written while the file was read: folding one twice changes nothing.
       for (const e of this.pending) fold.add(e);
       this.fold = fold;
@@ -843,10 +909,12 @@ export class PlayBook {
 
   // The jobs: the fresh full list when there is one, else a full read at most every jobsEveryMs;
   // then the jobs whose files changed since, one by one (their status.json and review.md only).
-  async #readJobs() {
+  async #readJobs(gen) {
+    if (gen !== this.generation) return;
     const now = this.now();
     let list = await this.sources.jobs({ fresh: true });
-    if (!list && (this.jobsAt === null || now - this.jobsAt >= this.jobsEveryMs || now < this.jobsAt)) list = await this.sources.jobs({ fresh: false });
+    if (!list && gen === this.generation && (this.jobsAt === null || now - this.jobsAt >= this.jobsEveryMs || now < this.jobsAt)) list = await this.sources.jobs({ fresh: false });
+    if (gen !== this.generation) return;
     if (list) {
       this.jobs = new Map(list.filter((j) => j?.dir).map((j) => [j.dir, j]));
       this.jobsAt = now;
@@ -854,8 +922,10 @@ export class PlayBook {
     const changed = [...this.dirty];
     this.dirty.clear();
     for (const folder of changed) {
+      if (gen !== this.generation || !this.isOn()) return;
       const known = [...this.jobs.values()].find((j) => baseName(j.dir) === folder) ?? null;
       const job = await this.sources.job(folder, known);
+      if (gen !== this.generation) return;
       if (job?.dir) this.jobs.set(job.dir, job);
     }
   }
