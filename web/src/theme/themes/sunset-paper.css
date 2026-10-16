@@ -35,10 +35,10 @@ html[data-theme="sunset-paper"] {
   --text-2: oklch(.44 .04 40);
   --text-3: oklch(.5 .04 45);
 
-  /* ----- Coral accent, teal focus ----- */
-  --accent: oklch(.56 .17 28);
-  --accent-strong: oklch(.48 .17 28);
-  --accent-soft: oklch(.62 .17 30 / .14);
+  /* ----- Coral accent (a warm orange-coral, so it never reads as the hard line's red), teal focus ----- */
+  --accent: oklch(.57 .17 38);
+  --accent-strong: oklch(.49 .17 36);
+  --accent-soft: oklch(.64 .17 38 / .14);
   --on-accent: oklch(.995 .01 85);
   --focus-ring: oklch(.5 .12 195);
 
@@ -66,7 +66,9 @@ html[data-theme="sunset-paper"] {
   --radius-xl: 22px;
   --chip-radius: 999px;
   --card-radius: 16px;
-  --font-heading: "Avenir Next", "Avenir", "Nunito", "Segoe UI", system-ui, -apple-system, sans-serif;
+  /* A round, friendly heading face. The system's rounded face first (SF Rounded on a Mac); Avenir
+     Next is deliberately not listed: headless Chrome mis-rasterised its "o" in the round-1 shots. */
+  --font-heading: ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", "Segoe UI", system-ui, -apple-system, sans-serif;
   /* A faint dot grid, like the paper's tooth. (app.css paints each pane's own colour with the
      background shorthand after the pattern, so the panes below re-apply it.) */
   --pane-pattern: radial-gradient(oklch(.4 .08 50 / .09) 1px, transparent 1.2px);
@@ -78,12 +80,12 @@ html[data-theme="sunset-paper"] {
   --group-running-fg: oklch(.44 .11 195);
   --group-running-bg: oklch(.65 .12 195 / .16);
   --group-running-line: oklch(.52 .12 195);
-  --group-paused-fg: oklch(.48 .13 65);
-  --group-paused-bg: oklch(.78 .16 75 / .26);
-  --group-paused-line: oklch(.7 .16 70);
-  --group-idle-fg: oklch(.46 .08 285);
-  --group-idle-bg: oklch(.7 .08 285 / .16);
-  --group-idle-line: oklch(.66 .09 285);
+  --group-paused-fg: oklch(.46 .13 65);
+  --group-paused-bg: oklch(.8 .16 75 / .34);
+  --group-paused-line: oklch(.72 .16 70);
+  --group-idle-fg: oklch(.42 .09 285);
+  --group-idle-bg: oklch(.68 .1 285 / .22);
+  --group-idle-line: oklch(.62 .11 285);
   --group-done-fg: oklch(.45 .13 150);
   --group-done-bg: oklch(.65 .14 150 / .16);
   --group-done-line: oklch(.52 .14 150);
@@ -122,7 +124,16 @@ html[data-theme="sunset-paper"] {
 html[data-theme="sunset-paper"] h1,
 html[data-theme="sunset-paper"] h2,
 html[data-theme="sunset-paper"] h3 { font-weight: 700; letter-spacing: -.01em; }
-html[data-theme="sunset-paper"] .pane-title { color: oklch(.36 .1 330); } /* plum ink */
+/* Pane titles in plum ink, each with the same little sunset tab the settings headings wear. */
+html[data-theme="sunset-paper"] .pane-title { display: flex; align-items: center; gap: var(--space-2); color: oklch(.36 .1 330); }
+html[data-theme="sunset-paper"] .pane-title::before {
+  content: '';
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, oklch(.62 .18 30), oklch(.78 .16 75));
+}
 html[data-theme="sunset-paper"] .job-title { color: var(--text-1); }
 
 /* ---------- Top bar: a sunset rule under it ---------- */
@@ -153,7 +164,8 @@ html[data-theme="sunset-paper"] .pane-foreman { background-color: var(--bg-0); b
 html[data-theme="sunset-paper"] .pane-jobs { border-right-color: var(--border-1); }
 html[data-theme="sunset-paper"] .pane-preview { border-left-color: var(--border-1); }
 
-html[data-theme="sunset-paper"] .how { background: var(--bg-1); border-color: var(--border-1); border-radius: var(--radius-lg); }
+html[data-theme="sunset-paper"] .how { background: var(--bg-1); border-color: var(--border-1); border-radius: var(--radius-lg); box-shadow: inset 4px 0 0 oklch(.78 .16 75); }
+html[data-theme="sunset-paper"] .how summary { font-weight: var(--weight-medium); color: oklch(.4 .1 330); }
 
 /* ---------- Jobs: colour-block headers, striped rows, pill chips ---------- */
 
@@ -185,12 +197,14 @@ html[data-theme="sunset-paper"] .job-row {
   box-shadow: inset 3px 0 0 var(--group-idle-line);
   transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 }
+/* Every row wears a faint wash of its group's colour; needs-you is the strongest. */
 html[data-theme="sunset-paper"] .job-row[data-group="needs-you"] { box-shadow: inset 3px 0 0 var(--group-needs-you-line); background: var(--group-needs-you-bg); }
-html[data-theme="sunset-paper"] .job-row[data-group="running"] { box-shadow: inset 3px 0 0 var(--group-running-line); }
-html[data-theme="sunset-paper"] .job-row[data-group="paused"] { box-shadow: inset 3px 0 0 var(--group-paused-line); }
-html[data-theme="sunset-paper"] .job-row[data-group="done"] { box-shadow: inset 3px 0 0 var(--group-done-line); }
+html[data-theme="sunset-paper"] .job-row[data-group="running"] { box-shadow: inset 3px 0 0 var(--group-running-line); background: oklch(.65 .12 195 / .07); }
+html[data-theme="sunset-paper"] .job-row[data-group="paused"] { box-shadow: inset 3px 0 0 var(--group-paused-line); background: oklch(.8 .16 75 / .12); }
+html[data-theme="sunset-paper"] .job-row[data-group="idle"] { background: oklch(.68 .1 285 / .07); }
+html[data-theme="sunset-paper"] .job-row[data-group="done"] { box-shadow: inset 3px 0 0 var(--group-done-line); background: oklch(.65 .14 150 / .07); }
 html[data-theme="sunset-paper"] .job-row:hover { background: var(--bg-3); transform: translateX(2px); }
-html[data-theme="sunset-paper"] .job-row[data-group="needs-you"]:hover { background: oklch(.62 .24 345 / .17); }
+html[data-theme="sunset-paper"] .job-row[data-group="needs-you"]:hover { background: oklch(.62 .24 345 / .15); }
 html[data-theme="sunset-paper"] .job-row[aria-current="page"] { background: var(--bg-1); box-shadow: inset 3px 0 0 var(--accent), var(--shadow-1); }
 html[data-theme="sunset-paper"] .job-row[aria-current="page"][data-group="needs-you"] { box-shadow: inset 3px 0 0 var(--group-needs-you-line), var(--shadow-1); }
 html[data-theme="sunset-paper"] .job-row-time { color: var(--text-3); }
@@ -232,7 +246,7 @@ html[data-theme="sunset-paper"] .btn { border-radius: 999px; background: var(--b
 html[data-theme="sunset-paper"] .btn:hover { background: var(--bg-3); }
 html[data-theme="sunset-paper"] .btn-quiet { background: transparent; border-color: transparent; box-shadow: none; }
 html[data-theme="sunset-paper"] .btn-quiet:hover { background: var(--bg-3); }
-html[data-theme="sunset-paper"] .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); box-shadow: 0 2px 6px oklch(.56 .17 28 / .3); }
+html[data-theme="sunset-paper"] .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); box-shadow: 0 2px 6px oklch(.57 .17 38 / .3); }
 html[data-theme="sunset-paper"] .btn-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
 html[data-theme="sunset-paper"] .btn-danger { background: var(--bg-1); border-color: var(--status-error); }
 html[data-theme="sunset-paper"] .btn-danger:hover { background: var(--status-error-bg); }
@@ -258,7 +272,7 @@ html[data-theme="sunset-paper"] .live-row { box-shadow: var(--shadow-1); }
 html[data-theme="sunset-paper"] .reply { border-color: var(--border-1); }
 html[data-theme="sunset-paper"] .who { color: var(--text-2); }
 html[data-theme="sunset-paper"] .reply .who { color: oklch(.4 .1 330); }   /* the Foreman signs in plum */
-html[data-theme="sunset-paper"] .you { background: var(--accent-soft); box-shadow: inset 0 0 0 1px oklch(.62 .17 30 / .25); }
+html[data-theme="sunset-paper"] .you { background: var(--accent-soft); box-shadow: inset 0 0 0 1px oklch(.64 .17 38 / .25); }
 html[data-theme="sunset-paper"] .you .who { color: var(--accent-strong); }
 
 /* A brief wears a plum stripe; a live row dashes in teal (running); a problem in red. */
@@ -324,9 +338,9 @@ html[data-theme="sunset-paper"] .steer-unanswered { background: var(--status-war
 
 /* ---------- ⌘K palette and sheets ---------- */
 
-html[data-theme="sunset-paper"] .sheet-backdrop { background: oklch(.3 .06 330 / .4); }
+html[data-theme="sunset-paper"] .sheet-backdrop { background: oklch(.3 .06 330 / .45); }
 html[data-theme="sunset-paper"] .palette,
-html[data-theme="sunset-paper"] .sheet { background: var(--bg-2); border-color: oklch(.5 .06 60 / .18); }
+html[data-theme="sunset-paper"] .sheet { background: var(--bg-1); border-color: oklch(.5 .06 60 / .18); }
 html[data-theme="sunset-paper"] .palette-input { border-bottom-color: var(--border-1); }
 html[data-theme="sunset-paper"] .palette-input:focus-visible { outline: none; border-bottom-color: var(--focus-ring); }
 html[data-theme="sunset-paper"] .palette-option { transition: transform var(--dur-fast) var(--ease-out); }
