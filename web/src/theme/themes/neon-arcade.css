@@ -1,7 +1,505 @@
 /* Theme: neon-arcade — deep ink-navy night, electric magenta + cyan + lime accents, soft glows on
    active things (never on text), hue-lit job dots, group headers as neon signs.
-   Scope every rule under html[data-theme="neon-arcade"]. Override the semantic tokens first
-   (--group-*, --ask-*, --stage-*, --chip-radius, --card-radius, --pane-pattern, --font-heading),
-   then decorate the hooks in theme/THEMING.md. Looks only: layout and components stay the same.
-   Stub: the theme agent fills this in. */
-html[data-theme="neon-arcade"] {}
+   Every rule is scoped under html[data-theme="neon-arcade"]. Looks only: layout, markup and what
+   each control does are untouched. Hooks and tokens: theme/THEMING.md.
+
+   Colour language (shared across themes, see the brief):
+     needs-you  hot magenta   (the loudest colour here; nothing else uses it)
+     running    electric cyan (glyph breathes gently; still under reduced motion)
+     paused     amber
+     idle       lavender
+     done       lime-green
+     permission orange · question violet · hard line red stripe · blocked slate, struck glyph
+     stages     spec rose → investigate orange → plan yellow → build lime → test cyan → review violet
+
+   Glows are box-shadows on edges and outlines, never text-shadow. Motion is opacity/transform,
+   120–240 ms transitions; the one looping cue (the running glyph) stops under reduced motion. */
+
+html[data-theme="neon-arcade"] {
+  color-scheme: dark;
+
+  /* The three neon tubes. */
+  --na-cyan: oklch(.84 .14 200);
+  --na-magenta: oklch(.76 .24 345);
+  --na-lime: oklch(.88 .2 130);
+  --na-violet: oklch(.76 .16 300);
+
+  /* Ink-navy night. */
+  --bg-0: oklch(.14 .04 275);
+  --bg-1: oklch(.17 .042 275);
+  --bg-2: oklch(.205 .045 275);
+  --bg-3: oklch(.25 .048 275);
+  --bg-4: oklch(.29 .05 275);
+  --border-1: oklch(.8 .12 220 / .12);
+  --border-2: oklch(.8 .12 220 / .2);
+  --border-3: oklch(.8 .12 220 / .34);
+
+  --text-1: oklch(.97 .012 250);
+  --text-2: oklch(.8 .035 265);
+  --text-3: oklch(.68 .05 270);
+
+  --accent: var(--na-cyan);
+  --accent-strong: oklch(.9 .12 200);
+  --accent-soft: oklch(.84 .14 200 / .14);
+  --on-accent: oklch(.16 .05 260);
+  --focus-ring: var(--na-lime);
+
+  --status-ok: oklch(.86 .18 150);
+  --status-ok-bg: oklch(.86 .18 150 / .14);
+  --status-warn: oklch(.86 .16 82);
+  --status-warn-bg: oklch(.86 .16 82 / .14);
+  --status-error: oklch(.74 .2 22);
+  --status-error-bg: oklch(.74 .2 22 / .16);
+  --status-info: var(--na-cyan);
+  --status-info-bg: oklch(.84 .14 200 / .14);
+  --status-paused: oklch(.86 .16 82);
+  --status-paused-bg: oklch(.86 .16 82 / .14);
+
+  /* Job dots burn brighter here. */
+  --job-hue-l: .78;
+  --job-hue-c: .19;
+
+  --shadow-1: 0 1px 2px oklch(0 0 0 / .4), 0 2px 10px oklch(.1 .05 275 / .5);
+  --shadow-2: 0 2px 4px oklch(0 0 0 / .4), 0 16px 48px oklch(.05 .05 275 / .7);
+
+  /* Job groups. */
+  --group-needs-you-fg: oklch(.82 .22 345);
+  --group-needs-you-bg: oklch(.76 .24 345 / .13);
+  --group-needs-you-line: var(--na-magenta);
+  --group-running-fg: var(--na-cyan);
+  --group-running-bg: oklch(.84 .14 200 / .12);
+  --group-running-line: var(--na-cyan);
+  --group-paused-fg: oklch(.87 .16 82);
+  --group-paused-bg: oklch(.86 .16 82 / .12);
+  --group-paused-line: oklch(.82 .17 78);
+  --group-idle-fg: oklch(.8 .08 290);
+  --group-idle-bg: oklch(.8 .08 290 / .1);
+  --group-idle-line: oklch(.7 .1 290);
+  --group-done-fg: oklch(.87 .18 150);
+  --group-done-bg: oklch(.86 .18 150 / .12);
+  --group-done-line: oklch(.82 .2 150);
+
+  /* Kinds of ask. */
+  --ask-permission-fg: oklch(.86 .16 60);
+  --ask-permission-bg: oklch(.19 .05 275);
+  --ask-permission-line: oklch(.78 .17 55);
+  --ask-question-fg: oklch(.84 .14 300);
+  --ask-question-bg: oklch(.19 .05 285);
+  --ask-question-line: var(--na-violet);
+  --ask-hardline-fg: oklch(.8 .2 22);
+  --ask-hardline-bg: oklch(.19 .05 275);
+  --ask-hardline-line: oklch(.7 .22 22);
+  --ask-blocked-fg: oklch(.7 .02 260);
+  --ask-blocked-bg: transparent;
+  --ask-blocked-line: oklch(.6 .02 260);
+
+  /* Stages: a rainbow walk in workflow order. */
+  --stage-spec-fg: oklch(.88 .12 10);
+  --stage-spec-bg: oklch(.8 .16 10 / .16);
+  --stage-investigate-fg: oklch(.9 .13 55);
+  --stage-investigate-bg: oklch(.8 .16 55 / .16);
+  --stage-plan-fg: oklch(.92 .14 95);
+  --stage-plan-bg: oklch(.85 .16 95 / .16);
+  --stage-build-fg: oklch(.92 .16 130);
+  --stage-build-bg: oklch(.85 .2 130 / .16);
+  --stage-test-fg: oklch(.9 .12 200);
+  --stage-test-bg: oklch(.84 .14 200 / .16);
+  --stage-review-fg: oklch(.86 .12 300);
+  --stage-review-bg: oklch(.76 .16 300 / .16);
+
+  /* Shape, pattern, type. */
+  --chip-radius: 999px;
+  --card-radius: 12px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --font-heading: "Avenir Next", "Inter Display", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* A faint cyan grid, the arcade floor. */
+  --pane-pattern:
+    linear-gradient(oklch(.84 .14 200 / .045) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(.84 .14 200 / .045) 1px, transparent 1px);
+}
+
+html[data-theme="neon-arcade"] ::selection { background: oklch(.84 .14 200 / .35); }
+
+/* ---------- Panes and the top bar ---------- */
+
+html[data-theme="neon-arcade"] .pane { background-size: 28px 28px; background-position: center top; }
+html[data-theme="neon-arcade"] .pane-foreman {
+  background-color: var(--bg-0);
+  background-image:
+    radial-gradient(ellipse 70% 40% at 50% 0%, oklch(.76 .16 300 / .09), transparent 70%),
+    var(--pane-pattern);
+  background-size: auto, 28px 28px, 28px 28px;
+}
+html[data-theme="neon-arcade"] .pane-jobs { border-right-color: var(--border-2); }
+html[data-theme="neon-arcade"] .pane-preview { border-left-color: var(--border-2); }
+
+html[data-theme="neon-arcade"] .topbar {
+  position: relative;
+  background: linear-gradient(90deg, oklch(.19 .06 300), oklch(.17 .05 260) 50%, oklch(.18 .05 220));
+  border-bottom-color: transparent;
+}
+/* A three-colour neon strip under the top bar. */
+html[data-theme="neon-arcade"] .topbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--na-magenta), var(--na-violet) 30%, var(--na-cyan) 65%, var(--na-lime));
+  box-shadow: 0 0 10px oklch(.84 .14 200 / .45);
+  pointer-events: none;
+}
+html[data-theme="neon-arcade"] .brand {
+  font-family: var(--font-heading);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--na-cyan), var(--na-lime));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+html[data-theme="neon-arcade"] .needs { color: var(--text-2); }
+html[data-theme="neon-arcade"] .conn-live .conn-dot { box-shadow: 0 0 6px var(--status-ok); }
+html[data-theme="neon-arcade"] .conn-reconnecting .conn-dot { box-shadow: 0 0 6px var(--status-warn); }
+
+/* Pane titles and settings headings read as small neon signs: tracked caps in cyan. */
+html[data-theme="neon-arcade"] .pane-title,
+html[data-theme="neon-arcade"] .settings-heading,
+html[data-theme="neon-arcade"] .sheet-title {
+  font-family: var(--font-heading);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--na-cyan);
+}
+html[data-theme="neon-arcade"] .pane-title { font-size: var(--text-sm); }
+
+/* ---------- Jobs pane: neon-sign group headers, lit dots, tinted rows ---------- */
+
+html[data-theme="neon-arcade"] .job-group-title {
+  --sign: var(--group-idle-line);
+  --sign-fg: var(--group-idle-fg);
+  align-items: center;
+  padding: 2px var(--space-2) 2px var(--space-3);
+  border: 1px solid var(--sign);
+  border-radius: 999px;
+  color: var(--sign-fg);
+  letter-spacing: .1em;
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--sign) 25%, transparent),
+    0 0 12px color-mix(in oklch, var(--sign) 45%, transparent),
+    inset 0 0 10px color-mix(in oklch, var(--sign) 18%, transparent);
+}
+html[data-theme="neon-arcade"] .job-group-title .count { color: var(--sign-fg); opacity: .85; }
+html[data-theme="neon-arcade"] .job-group-title[data-group="needs-you"] { --sign: var(--group-needs-you-line); --sign-fg: var(--group-needs-you-fg); }
+html[data-theme="neon-arcade"] .job-group-title[data-group="running"] { --sign: var(--group-running-line); --sign-fg: var(--group-running-fg); }
+html[data-theme="neon-arcade"] .job-group-title[data-group="paused"] { --sign: var(--group-paused-line); --sign-fg: var(--group-paused-fg); }
+html[data-theme="neon-arcade"] .job-group-title[data-group="idle"] { --sign: var(--group-idle-line); --sign-fg: var(--group-idle-fg); }
+html[data-theme="neon-arcade"] .job-group-title[data-group="done"] { --sign: var(--group-done-line); --sign-fg: var(--group-done-fg); }
+/* Idle and done hum quietly: no outer glow. */
+html[data-theme="neon-arcade"] .job-group-title[data-group="idle"],
+html[data-theme="neon-arcade"] .job-group-title[data-group="done"] {
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--sign) 15%, transparent);
+}
+
+html[data-theme="neon-arcade"] .job-row {
+  --row-line: transparent;
+  --row-tint: transparent;
+  background: var(--row-tint);
+  box-shadow: inset 3px 0 0 var(--row-line);
+  transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+html[data-theme="neon-arcade"] .job-row[data-group="needs-you"] { --row-line: var(--group-needs-you-line); --row-tint: var(--group-needs-you-bg); }
+html[data-theme="neon-arcade"] .job-row[data-group="running"] { --row-line: var(--group-running-line); --row-tint: var(--group-running-bg); }
+html[data-theme="neon-arcade"] .job-row[data-group="paused"] { --row-line: var(--group-paused-line); --row-tint: var(--group-paused-bg); }
+html[data-theme="neon-arcade"] .job-row:hover { background: var(--bg-3); text-decoration: none; }
+html[data-theme="neon-arcade"] .job-row[aria-current="page"] {
+  background: var(--accent-soft);
+  box-shadow:
+    inset 3px 0 0 var(--na-cyan),
+    0 0 0 1px oklch(.84 .14 200 / .4),
+    0 0 14px oklch(.84 .14 200 / .3);
+}
+html[data-theme="neon-arcade"] .job-row[aria-current="page"][data-group="needs-you"] {
+  background: var(--group-needs-you-bg);
+  box-shadow:
+    inset 3px 0 0 var(--na-magenta),
+    0 0 0 1px oklch(.76 .24 345 / .45),
+    0 0 14px oklch(.76 .24 345 / .35);
+}
+html[data-theme="neon-arcade"] .job-row-title { font-weight: var(--weight-medium); }
+html[data-theme="neon-arcade"] .job-row-time { color: var(--text-3); }
+
+/* Hue-lit job dots: each one is a tiny bulb in its own colour. */
+html[data-theme="neon-arcade"] .hue-dot {
+  box-shadow:
+    0 0 0 1px oklch(var(--job-hue-l) var(--job-hue-c) var(--job-hue, 0) / .35),
+    0 0 7px 1px oklch(var(--job-hue-l) var(--job-hue-c) var(--job-hue, 0) / .75);
+}
+
+/* The running glyph breathes (opacity only; stops under reduced motion). */
+html[data-theme="neon-arcade"] .glyph.status-running { animation: na-breathe 2s ease-in-out infinite; }
+@keyframes na-breathe { 50% { opacity: .45; } }
+
+html[data-theme="neon-arcade"] .stage-chip {
+  padding: 0 var(--space-2);
+  border-color: color-mix(in oklch, currentColor 45%, transparent);
+  font-weight: var(--weight-medium);
+}
+
+/* Icon rail. */
+html[data-theme="neon-arcade"] .rail-needs {
+  border: 1px solid var(--group-needs-you-line);
+  font-weight: var(--weight-bold);
+  box-shadow: 0 0 10px oklch(.76 .24 345 / .5);
+}
+html[data-theme="neon-arcade"] .job-rail-item { transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+html[data-theme="neon-arcade"] .job-rail-item[aria-current="page"] { box-shadow: 0 0 0 1px oklch(.84 .14 200 / .45), 0 0 12px oklch(.84 .14 200 / .3); }
+html[data-theme="neon-arcade"] .rail-group { border-top-color: var(--border-2); }
+
+/* ---------- Job header: the status pill is a small neon sign too ---------- */
+
+/* The open job's title is a title, not a sign: normal case, full size, white. */
+html[data-theme="neon-arcade"] .job-title { font-family: var(--font-heading); font-size: var(--text-md); letter-spacing: .01em; text-transform: none; color: var(--text-1); }
+html[data-theme="neon-arcade"] .job-header .status {
+  --sign: var(--group-idle-line);
+  display: inline-block;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--sign);
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  box-shadow: 0 0 8px color-mix(in oklch, var(--sign) 45%, transparent);
+}
+html[data-theme="neon-arcade"] .job-header .status[data-group="needs-you"] { --sign: var(--group-needs-you-line); }
+html[data-theme="neon-arcade"] .job-header .status[data-group="running"] { --sign: var(--group-running-line); }
+html[data-theme="neon-arcade"] .job-header .status[data-group="paused"] { --sign: var(--group-paused-line); }
+html[data-theme="neon-arcade"] .job-header .status[data-group="done"] { --sign: var(--group-done-line); }
+html[data-theme="neon-arcade"] .job-header .status[data-group="idle"] { box-shadow: none; }
+html[data-theme="neon-arcade"] .job-facts { color: var(--text-2); }
+html[data-theme="neon-arcade"] .job-menu-list { border-color: var(--border-3); box-shadow: var(--shadow-2), 0 0 0 1px oklch(.84 .14 200 / .15); }
+
+/* ---------- Thread: cards, replies, your messages ---------- */
+
+html[data-theme="neon-arcade"] .reply,
+html[data-theme="neon-arcade"] .brief-card,
+html[data-theme="neon-arcade"] .live-row {
+  border-color: var(--border-2);
+  background: linear-gradient(180deg, oklch(.19 .045 275), oklch(.165 .042 275));
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / .03), var(--shadow-1);
+}
+html[data-theme="neon-arcade"] .reply .who { color: var(--na-cyan); }
+html[data-theme="neon-arcade"] .you {
+  border: 1px solid oklch(.88 .2 130 / .35);
+  background: linear-gradient(135deg, oklch(.88 .2 130 / .16), oklch(.84 .14 200 / .12));
+}
+html[data-theme="neon-arcade"] .you .who { color: var(--na-lime); }
+html[data-theme="neon-arcade"] .who { letter-spacing: .02em; }
+
+html[data-theme="neon-arcade"] .brief-card { border-color: oklch(.76 .16 300 / .45); }
+html[data-theme="neon-arcade"] .brief-card:not(.is-answered) { box-shadow: 0 0 0 1px oklch(.76 .16 300 / .2), 0 0 16px oklch(.76 .16 300 / .2); }
+html[data-theme="neon-arcade"] .brief-card.is-answered { background: oklch(.17 .042 275 / .6); box-shadow: none; }
+html[data-theme="neon-arcade"] .brief-label { color: var(--na-violet); }
+html[data-theme="neon-arcade"] .brief-state { padding: 0 var(--space-2); border: 1px solid oklch(.86 .18 150 / .5); }
+html[data-theme="neon-arcade"] .brief-headline { font-family: var(--font-heading); font-size: var(--text-md); }
+
+html[data-theme="neon-arcade"] .live-row { border-style: solid; border-color: oklch(.84 .14 200 / .4); box-shadow: 0 0 14px oklch(.84 .14 200 / .2); }
+html[data-theme="neon-arcade"] .typing span { background: var(--na-cyan); box-shadow: 0 0 5px var(--na-cyan); }
+
+html[data-theme="neon-arcade"] .problem { border-color: var(--status-error); box-shadow: 0 0 14px oklch(.74 .2 22 / .3); }
+
+/* Blocked by auto mode: slate, with the glyph struck through. */
+html[data-theme="neon-arcade"] .blocked-line .glyph { color: var(--ask-blocked-line); text-decoration: line-through; text-decoration-thickness: 2px; }
+html[data-theme="neon-arcade"] .blocked-preview { color: var(--text-3); }
+
+/* Markdown bits. */
+html[data-theme="neon-arcade"] .prose code { color: oklch(.9 .1 200); background: oklch(.84 .14 200 / .1); }
+html[data-theme="neon-arcade"] .prose pre { border: 1px solid var(--border-1); background: oklch(.13 .04 275); }
+html[data-theme="neon-arcade"] .prose blockquote { border-left-color: var(--na-violet); }
+html[data-theme="neon-arcade"] .prose th { color: var(--na-cyan); }
+
+/* ---------- Permission and question cards: a stripe in the kind's colour, a glow while waiting ---------- */
+
+html[data-theme="neon-arcade"] .perm-card {
+  --ask-line: var(--ask-permission-line);
+  position: relative;
+  border-color: color-mix(in oklch, var(--ask-line) 55%, transparent);
+  box-shadow:
+    inset 4px 0 0 var(--ask-line),
+    0 0 0 1px color-mix(in oklch, var(--ask-line) 18%, transparent),
+    0 0 20px color-mix(in oklch, var(--ask-line) 28%, transparent),
+    var(--shadow-1);
+}
+html[data-theme="neon-arcade"] .perm-card[data-ask="question"] { --ask-line: var(--ask-question-line); }
+html[data-theme="neon-arcade"] .perm-card[data-ask="hardline"] { --ask-line: var(--ask-hardline-line); }
+html[data-theme="neon-arcade"] .perm-card.is-risky { border-color: color-mix(in oklch, var(--status-warn) 60%, transparent); }
+/* A hard line keeps its red frame even when the step is also flagged risky; the amber note inside says so. */
+html[data-theme="neon-arcade"] .perm-card[data-ask="hardline"].is-risky { border-color: color-mix(in oklch, var(--ask-hardline-line) 55%, transparent); }
+/* A faint wash of the kind's colour in the top corner. */
+html[data-theme="neon-arcade"] .perm-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at 100% 0%, color-mix(in oklch, var(--ask-line) 14%, transparent), transparent 50%);
+  pointer-events: none;
+}
+html[data-theme="neon-arcade"] .perm-headline { font-family: var(--font-heading); }
+html[data-theme="neon-arcade"] .perm-who strong { color: var(--na-cyan); }
+html[data-theme="neon-arcade"] .perm-preview { border: 1px solid var(--border-1); background: oklch(.12 .04 275); color: oklch(.9 .04 200); }
+html[data-theme="neon-arcade"] .perm-warn { border: 1px solid oklch(.86 .16 82 / .45); }
+
+/* "Hard line" / "Auto mode" labels: a lit chip in the kind's colour. */
+html[data-theme="neon-arcade"] .perm-card .ask-label {
+  padding: 0 var(--space-2);
+  border-color: var(--ask-line);
+  background: color-mix(in oklch, var(--ask-line) 16%, transparent);
+  font-weight: var(--weight-bold);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  box-shadow: 0 0 8px color-mix(in oklch, var(--ask-line) 40%, transparent);
+}
+
+html[data-theme="neon-arcade"] .question legend { color: var(--na-violet); }
+html[data-theme="neon-arcade"] .answer-option:hover { background: oklch(.76 .16 300 / .12); }
+html[data-theme="neon-arcade"] .answer-option input { accent-color: var(--na-violet); }
+
+/* ---------- Controls ---------- */
+
+html[data-theme="neon-arcade"] .btn {
+  border-color: var(--border-3);
+  background: linear-gradient(180deg, var(--bg-4), var(--bg-3));
+  transition: box-shadow var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+html[data-theme="neon-arcade"] .btn:hover { background: var(--bg-4); box-shadow: 0 0 0 1px oklch(.84 .14 200 / .3), 0 0 10px oklch(.84 .14 200 / .25); }
+html[data-theme="neon-arcade"] .btn-quiet { background: transparent; border-color: transparent; }
+html[data-theme="neon-arcade"] .btn-quiet:hover { background: var(--bg-2); box-shadow: none; }
+html[data-theme="neon-arcade"] .btn-primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--na-cyan), var(--na-lime));
+  color: var(--on-accent);
+  font-weight: var(--weight-bold);
+  box-shadow: 0 0 12px oklch(.84 .14 200 / .35);
+}
+html[data-theme="neon-arcade"] .btn-primary:hover { background: linear-gradient(135deg, var(--accent-strong), oklch(.92 .2 130)); box-shadow: 0 0 18px oklch(.84 .14 200 / .55); }
+html[data-theme="neon-arcade"] .btn-danger { border-color: oklch(.74 .2 22 / .7); color: oklch(.82 .18 22); background: transparent; }
+html[data-theme="neon-arcade"] .btn-danger:hover { background: var(--status-error-bg); box-shadow: 0 0 0 1px oklch(.74 .2 22 / .4), 0 0 10px oklch(.74 .2 22 / .3); }
+html[data-theme="neon-arcade"] .btn-toggle[aria-pressed="true"] .toggle-state { color: var(--na-lime); }
+
+html[data-theme="neon-arcade"] .chip { border-color: var(--border-3); padding: 0 var(--space-2); }
+html[data-theme="neon-arcade"] .kbd { border-color: oklch(.84 .14 200 / .4); color: var(--na-cyan); background: oklch(.84 .14 200 / .08); }
+
+html[data-theme="neon-arcade"] .text-input,
+html[data-theme="neon-arcade"] .text-area,
+html[data-theme="neon-arcade"] .select {
+  border-color: var(--border-3);
+  background: oklch(.13 .04 275);
+  transition: box-shadow var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+html[data-theme="neon-arcade"] .text-input:focus-visible,
+html[data-theme="neon-arcade"] .text-area:focus-visible {
+  border-color: var(--na-cyan);
+  box-shadow: 0 0 0 1px oklch(.84 .14 200 / .5), 0 0 16px oklch(.84 .14 200 / .3);
+}
+
+/* Picked options (rules, policy, theme, kind of job) light up cyan. */
+html[data-theme="neon-arcade"] .rule-option { border-color: var(--border-2); transition: box-shadow var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
+html[data-theme="neon-arcade"] .rule-option:hover { background: var(--bg-2); }
+html[data-theme="neon-arcade"] .rule-option.is-picked,
+html[data-theme="neon-arcade"] .seg-option.is-picked {
+  border-color: var(--na-cyan);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px oklch(.84 .14 200 / .3), 0 0 14px oklch(.84 .14 200 / .25);
+}
+html[data-theme="neon-arcade"] .rule-option.is-picked .rule-option-kind { color: var(--na-cyan); }
+html[data-theme="neon-arcade"] .rule-option.is-off { opacity: .55; }
+html[data-theme="neon-arcade"] .rule-list { border-color: var(--border-2); background: oklch(.16 .042 275 / .6); }
+html[data-theme="neon-arcade"] .rule-row + .rule-row { border-top-color: var(--border-1); }
+html[data-theme="neon-arcade"] .theme-picker { padding-top: var(--space-4); border-top: 1px solid var(--border-2); }
+
+html[data-theme="neon-arcade"] .how { border-color: var(--border-2); background: oklch(.84 .14 200 / .05); }
+html[data-theme="neon-arcade"] .how summary:hover { color: var(--na-cyan); }
+
+/* ---------- Composer ---------- */
+
+html[data-theme="neon-arcade"] .composer { border-top-color: transparent; background: linear-gradient(180deg, oklch(.14 .04 275 / .85), var(--bg-0) 30%); }
+html[data-theme="neon-arcade"] .composer::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--na-cyan) 30%, var(--na-violet) 70%, transparent);
+  opacity: .8;
+  pointer-events: none;
+}
+html[data-theme="neon-arcade"] .composer .text-area { background: var(--bg-1); }
+html[data-theme="neon-arcade"] .steer-state { border: 1px solid var(--border-3); padding: 0 var(--space-2); font-weight: var(--weight-medium); }
+html[data-theme="neon-arcade"] .steer-delivered { border-color: oklch(.84 .14 200 / .5); }
+html[data-theme="neon-arcade"] .steer-acted-on { border-color: oklch(.86 .18 150 / .5); }
+html[data-theme="neon-arcade"] .steer-cancelled, html[data-theme="neon-arcade"] .steer-unanswered { border-color: oklch(.86 .16 82 / .5); }
+html[data-theme="neon-arcade"] .you.is-steer { border-color: oklch(.84 .14 200 / .45); }
+
+/* ---------- ⌘K palette and sheets: lit frames ---------- */
+
+html[data-theme="neon-arcade"] .sheet-backdrop,
+html[data-theme="neon-arcade"] .palette-backdrop { background: oklch(.08 .04 275 / .7); }
+html[data-theme="neon-arcade"] .palette,
+html[data-theme="neon-arcade"] .sheet {
+  border-color: oklch(.84 .14 200 / .45);
+  background: linear-gradient(180deg, oklch(.21 .05 280), oklch(.18 .045 270));
+  box-shadow:
+    0 0 0 1px oklch(.84 .14 200 / .2),
+    0 0 40px oklch(.84 .14 200 / .22),
+    0 0 90px oklch(.76 .16 300 / .18),
+    var(--shadow-2);
+}
+html[data-theme="neon-arcade"] .palette-input { font-family: var(--font-heading); color: var(--text-1); border-bottom-color: var(--border-2); }
+html[data-theme="neon-arcade"] .palette-input::placeholder { color: var(--text-3); }
+html[data-theme="neon-arcade"] .palette-input:focus-visible { border-bottom-color: var(--na-cyan); box-shadow: 0 1px 0 0 oklch(.84 .14 200 / .6), 0 6px 14px -6px oklch(.84 .14 200 / .5); }
+html[data-theme="neon-arcade"] .palette-option { transition: background var(--dur-fast) var(--ease-out); }
+html[data-theme="neon-arcade"] .palette-option.is-active {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--na-cyan), 0 0 0 1px oklch(.84 .14 200 / .3);
+}
+html[data-theme="neon-arcade"] .palette-section { color: var(--na-violet); letter-spacing: .06em; text-transform: uppercase; }
+html[data-theme="neon-arcade"] .palette-foot { border-top-color: var(--border-2); }
+
+html[data-theme="neon-arcade"] .sheet-title { font-size: var(--text-sm); }
+html[data-theme="neon-arcade"] .from-session, html[data-theme="neon-arcade"] .history-results { border-color: var(--border-2); }
+html[data-theme="neon-arcade"] .from-session legend { color: var(--na-violet); }
+
+/* ---------- Usage-limit banner: an amber strip ---------- */
+
+html[data-theme="neon-arcade"] .usage-banner { border-bottom-color: var(--border-2); }
+html[data-theme="neon-arcade"] .usage-limited {
+  background: linear-gradient(90deg, oklch(.86 .16 82 / .2), oklch(.86 .16 82 / .08) 60%, transparent);
+  border-bottom-color: var(--status-warn);
+  box-shadow: inset 4px 0 0 var(--status-warn), 0 0 16px oklch(.86 .16 82 / .25);
+}
+html[data-theme="neon-arcade"] .usage-warn { background: oklch(.86 .16 82 / .07); color: var(--text-2); box-shadow: inset 4px 0 0 oklch(.86 .16 82 / .5); }
+
+/* ---------- Toast ---------- */
+
+html[data-theme="neon-arcade"] .toast { box-shadow: var(--shadow-2), 0 0 18px oklch(.74 .2 22 / .35); }
+
+/* ---------- Focus and reduced motion ---------- */
+
+/* Lime focus rings read on every surface here, including magenta rows and cyan buttons. */
+html[data-theme="neon-arcade"] :focus-visible { outline-color: var(--na-lime); }
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="neon-arcade"] .glyph.status-running { animation: none; }
+  html[data-theme="neon-arcade"] .btn,
+  html[data-theme="neon-arcade"] .job-row,
+  html[data-theme="neon-arcade"] .job-rail-item,
+  html[data-theme="neon-arcade"] .rule-option,
+  html[data-theme="neon-arcade"] .palette-option,
+  html[data-theme="neon-arcade"] .text-input,
+  html[data-theme="neon-arcade"] .text-area { transition: none; }
+}
