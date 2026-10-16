@@ -1,8 +1,402 @@
-/* Theme: sunset-paper — the LIGHT theme: warm cream paper, coral / amber / teal / plum inks, big
-   rounded corners, bold colour blocks on group headers, generous whitespace. Daytime-friendly.
-   Remember to flip color-scheme to light and re-set the base bg/text/border tokens too.
-   Scope every rule under html[data-theme="sunset-paper"]. Override the semantic tokens first
-   (--group-*, --ask-*, --stage-*, --chip-radius, --card-radius, --pane-pattern, --font-heading),
-   then decorate the hooks in theme/THEMING.md. Looks only: layout and components stay the same.
-   Stub: the theme agent fills this in. */
-html[data-theme="sunset-paper"] {}
+/* Theme: sunset-paper — the LIGHT theme. Warm cream paper, coral / amber / teal / plum inks, big
+   rounded corners, bold colour blocks on the group headers, generous whitespace. Daytime-friendly.
+
+   Every rule is scoped under html[data-theme="sunset-paper"]. Looks only: nothing moves, hides or
+   changes meaning. Status keeps its words; colour backs them up. Text stays at or above APCA Lc 60
+   on its background (checked with an APCA script when the theme was drawn), focus rings stay
+   visible, motion is transform/opacity under 300 ms and stops under prefers-reduced-motion.
+
+   Shared colour language (theme/THEMING.md):
+     needs-you  hot pink / magenta  — the loudest colour on the page, used for nothing else
+     running    teal                — with a tiny hover nudge
+     paused     amber
+     idle       lavender
+     done       green
+     permission orange · question violet · hard line red stripe · blocked slate grey
+     stages     a rainbow walk: coral → amber → lime → teal → sky → plum
+
+   Hooks drawn on here: the top bar's sunset rule, the pane dot-grid, group headers as colour
+   blocks, row stripes, pill chips, striped ask cards, the composer, the ⌘K palette, sheets, the
+   settings headings and the usage banner. */
+
+html[data-theme="sunset-paper"] {
+  color-scheme: light;
+
+  /* ----- Paper and ink ----- */
+  --bg-0: oklch(.965 .02 80);            /* the window: cream paper */
+  --bg-1: oklch(.99 .01 85);             /* cards and side panes: near-white */
+  --bg-2: oklch(.995 .006 85);           /* sheets, the palette, code blocks */
+  --bg-3: oklch(.93 .03 75);             /* buttons, hover rows: warm sand */
+  --bg-4: oklch(.895 .04 70);            /* a pressed or hovered button */
+  --border-1: oklch(.5 .06 60 / .14);
+  --border-2: oklch(.5 .06 60 / .24);
+  --border-3: oklch(.5 .06 60 / .4);
+  --text-1: oklch(.27 .035 40);          /* espresso */
+  --text-2: oklch(.44 .04 40);
+  --text-3: oklch(.5 .04 45);
+
+  /* ----- Coral accent, teal focus ----- */
+  --accent: oklch(.56 .17 28);
+  --accent-strong: oklch(.48 .17 28);
+  --accent-soft: oklch(.62 .17 30 / .14);
+  --on-accent: oklch(.995 .01 85);
+  --focus-ring: oklch(.5 .12 195);
+
+  --status-ok: oklch(.47 .13 150);
+  --status-ok-bg: oklch(.6 .14 150 / .14);
+  --status-warn: oklch(.5 .13 65);
+  --status-warn-bg: oklch(.75 .15 70 / .2);
+  --status-error: oklch(.5 .19 25);
+  --status-error-bg: oklch(.6 .18 25 / .12);
+  --status-info: oklch(.46 .1 200);
+  --status-info-bg: oklch(.6 .11 200 / .14);
+  --status-paused: oklch(.5 .02 60);
+  --status-paused-bg: oklch(.5 .02 60 / .12);
+
+  --job-hue-l: .64;
+  --job-hue-c: .17;
+
+  --shadow-1: 0 1px 2px oklch(.3 .06 40 / .08), 0 3px 10px oklch(.3 .06 40 / .08);
+  --shadow-2: 0 2px 6px oklch(.3 .06 40 / .1), 0 16px 40px oklch(.3 .06 40 / .18);
+
+  /* ----- Shape and type: big rounded corners, pill chips, a round-ish heading face ----- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --chip-radius: 999px;
+  --card-radius: 16px;
+  --font-heading: "Avenir Next", "Avenir", "Nunito", "Segoe UI", system-ui, -apple-system, sans-serif;
+  /* A faint dot grid, like the paper's tooth. (app.css paints each pane's own colour with the
+     background shorthand after the pattern, so the panes below re-apply it.) */
+  --pane-pattern: radial-gradient(oklch(.4 .08 50 / .09) 1px, transparent 1.2px);
+
+  /* ----- Job groups ----- */
+  --group-needs-you-fg: oklch(.5 .23 345);
+  --group-needs-you-bg: oklch(.62 .24 345 / .11);
+  --group-needs-you-line: oklch(.56 .24 345);
+  --group-running-fg: oklch(.44 .11 195);
+  --group-running-bg: oklch(.65 .12 195 / .16);
+  --group-running-line: oklch(.52 .12 195);
+  --group-paused-fg: oklch(.48 .13 65);
+  --group-paused-bg: oklch(.78 .16 75 / .26);
+  --group-paused-line: oklch(.7 .16 70);
+  --group-idle-fg: oklch(.46 .08 285);
+  --group-idle-bg: oklch(.7 .08 285 / .16);
+  --group-idle-line: oklch(.66 .09 285);
+  --group-done-fg: oklch(.45 .13 150);
+  --group-done-bg: oklch(.65 .14 150 / .16);
+  --group-done-line: oklch(.52 .14 150);
+
+  /* ----- Kinds of ask ----- */
+  --ask-permission-fg: oklch(.44 .15 50);
+  --ask-permission-bg: oklch(.985 .02 70);
+  --ask-permission-line: oklch(.66 .17 50);
+  --ask-question-fg: oklch(.42 .17 300);
+  --ask-question-bg: oklch(.985 .015 300);
+  --ask-question-line: oklch(.56 .17 300);
+  --ask-hardline-fg: oklch(.995 .01 85);
+  --ask-hardline-bg: oklch(.985 .018 20);
+  --ask-hardline-line: oklch(.54 .21 25);
+  --ask-blocked-fg: oklch(.48 .02 250);
+  --ask-blocked-bg: oklch(.5 .02 250 / .07);
+  --ask-blocked-line: oklch(.7 .02 250);
+
+  /* ----- Stages: coral → amber → lime → teal → sky → plum ----- */
+  --stage-spec-fg: oklch(.42 .15 25);
+  --stage-spec-bg: oklch(.7 .15 25 / .16);
+  --stage-investigate-fg: oklch(.42 .13 70);
+  --stage-investigate-bg: oklch(.8 .15 75 / .24);
+  --stage-plan-fg: oklch(.4 .13 130);
+  --stage-plan-bg: oklch(.75 .15 130 / .2);
+  --stage-build-fg: oklch(.4 .11 195);
+  --stage-build-bg: oklch(.7 .12 195 / .18);
+  --stage-test-fg: oklch(.4 .13 255);
+  --stage-test-bg: oklch(.7 .12 255 / .16);
+  --stage-review-fg: oklch(.4 .15 325);
+  --stage-review-bg: oklch(.7 .15 325 / .16);
+}
+
+/* ---------- Type ---------- */
+
+html[data-theme="sunset-paper"] h1,
+html[data-theme="sunset-paper"] h2,
+html[data-theme="sunset-paper"] h3 { font-weight: 700; letter-spacing: -.01em; }
+html[data-theme="sunset-paper"] .pane-title { color: oklch(.36 .1 330); } /* plum ink */
+html[data-theme="sunset-paper"] .job-title { color: var(--text-1); }
+
+/* ---------- Top bar: a sunset rule under it ---------- */
+
+html[data-theme="sunset-paper"] .topbar {
+  position: relative;
+  background: var(--bg-1);
+  border-bottom-color: transparent;
+}
+html[data-theme="sunset-paper"] .topbar::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 3px;
+  background: linear-gradient(90deg, oklch(.62 .18 30), oklch(.78 .16 75) 35%, oklch(.6 .12 195) 70%, oklch(.5 .15 320));
+  pointer-events: none;
+}
+html[data-theme="sunset-paper"] .brand { color: var(--accent-strong); font-size: var(--text-md); }
+html[data-theme="sunset-paper"] .needs { color: var(--group-needs-you-fg); font-weight: var(--weight-bold); }
+html[data-theme="sunset-paper"] .conn-live .conn-dot { box-shadow: 0 0 0 3px var(--status-ok-bg); }
+
+/* ---------- Panes: cream, with the paper's tooth ---------- */
+
+html[data-theme="sunset-paper"] .pane { background-size: 18px 18px; }
+html[data-theme="sunset-paper"] .pane-jobs,
+html[data-theme="sunset-paper"] .pane-preview { background-color: oklch(.975 .016 82); background-image: var(--pane-pattern); }
+html[data-theme="sunset-paper"] .pane-foreman { background-color: var(--bg-0); background-image: none; }
+html[data-theme="sunset-paper"] .pane-jobs { border-right-color: var(--border-1); }
+html[data-theme="sunset-paper"] .pane-preview { border-left-color: var(--border-1); }
+
+html[data-theme="sunset-paper"] .how { background: var(--bg-1); border-color: var(--border-1); border-radius: var(--radius-lg); }
+
+/* ---------- Jobs: colour-block headers, striped rows, pill chips ---------- */
+
+/* The block is painted with spread shadows in the same colour (3px above and below, 8px to the
+   sides), so the header keeps its size and the list below does not move. */
+html[data-theme="sunset-paper"] .job-group-title {
+  --block: var(--group-idle-bg);
+  background: var(--block);
+  box-shadow: 0 0 0 3px var(--block), 5px 0 0 3px var(--block), -5px 0 0 3px var(--block);
+  border-radius: 999px;
+  letter-spacing: .06em;
+  font-weight: var(--weight-bold);
+  color: var(--text-1);
+}
+html[data-theme="sunset-paper"] .job-group-title .glyph { font-weight: 400; }
+/* The loud three are solid blocks with white words; paused and idle are quieter tints. */
+html[data-theme="sunset-paper"] .job-group-title[data-group="needs-you"] { --block: var(--group-needs-you-line); color: #fff; }
+html[data-theme="sunset-paper"] .job-group-title[data-group="running"] { --block: var(--group-running-line); color: #fff; }
+html[data-theme="sunset-paper"] .job-group-title[data-group="done"] { --block: var(--group-done-line); color: #fff; }
+html[data-theme="sunset-paper"] .job-group-title[data-group="paused"] { --block: var(--group-paused-bg); color: var(--group-paused-fg); }
+html[data-theme="sunset-paper"] .job-group-title[data-group="idle"] { --block: var(--group-idle-bg); color: var(--group-idle-fg); }
+html[data-theme="sunset-paper"] .job-group-title[data-group="needs-you"] .glyph,
+html[data-theme="sunset-paper"] .job-group-title[data-group="running"] .glyph,
+html[data-theme="sunset-paper"] .job-group-title[data-group="done"] .glyph { color: inherit; }
+html[data-theme="sunset-paper"] .job-group-title .count { color: inherit; opacity: .85; }
+
+html[data-theme="sunset-paper"] .job-row {
+  border-radius: var(--radius-md);
+  box-shadow: inset 3px 0 0 var(--group-idle-line);
+  transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+html[data-theme="sunset-paper"] .job-row[data-group="needs-you"] { box-shadow: inset 3px 0 0 var(--group-needs-you-line); background: var(--group-needs-you-bg); }
+html[data-theme="sunset-paper"] .job-row[data-group="running"] { box-shadow: inset 3px 0 0 var(--group-running-line); }
+html[data-theme="sunset-paper"] .job-row[data-group="paused"] { box-shadow: inset 3px 0 0 var(--group-paused-line); }
+html[data-theme="sunset-paper"] .job-row[data-group="done"] { box-shadow: inset 3px 0 0 var(--group-done-line); }
+html[data-theme="sunset-paper"] .job-row:hover { background: var(--bg-3); transform: translateX(2px); }
+html[data-theme="sunset-paper"] .job-row[data-group="needs-you"]:hover { background: oklch(.62 .24 345 / .17); }
+html[data-theme="sunset-paper"] .job-row[aria-current="page"] { background: var(--bg-1); box-shadow: inset 3px 0 0 var(--accent), var(--shadow-1); }
+html[data-theme="sunset-paper"] .job-row[aria-current="page"][data-group="needs-you"] { box-shadow: inset 3px 0 0 var(--group-needs-you-line), var(--shadow-1); }
+html[data-theme="sunset-paper"] .job-row-time { color: var(--text-3); }
+html[data-theme="sunset-paper"] .job-row-title { font-weight: var(--weight-medium); }
+
+html[data-theme="sunset-paper"] .hue-dot { box-shadow: 0 0 0 2px var(--bg-1); }
+html[data-theme="sunset-paper"] .job-status-label { font-weight: var(--weight-medium); }
+html[data-theme="sunset-paper"] .job-row[data-group="running"] .glyph { transition: transform 240ms var(--ease-out); }
+html[data-theme="sunset-paper"] .job-row[data-group="running"]:hover .glyph { transform: rotate(180deg); }
+
+html[data-theme="sunset-paper"] .stage-chip,
+html[data-theme="sunset-paper"] .chip,
+html[data-theme="sunset-paper"] .brief-state,
+html[data-theme="sunset-paper"] .steer-state,
+html[data-theme="sunset-paper"] .rail-needs { font-weight: var(--weight-medium); }
+html[data-theme="sunset-paper"] .stage-chip { border-color: color-mix(in oklch, currentColor 30%, transparent); }
+html[data-theme="sunset-paper"] .chip { background: var(--bg-1); }
+
+/* The icon rail. */
+html[data-theme="sunset-paper"] .rail-needs { background: var(--group-needs-you-line); color: #fff; }
+html[data-theme="sunset-paper"] .job-rail-item[aria-current="page"] { background: var(--bg-1); box-shadow: var(--shadow-1); }
+html[data-theme="sunset-paper"] .rail-group[data-group="needs-you"] .job-rail-item { background: var(--group-needs-you-bg); }
+
+/* Status pill in the open job's header: a filled pill in its group colour. */
+html[data-theme="sunset-paper"] .job-facts .status {
+  --block: var(--group-idle-bg);
+  border-radius: 999px;
+  background: var(--block);
+  box-shadow: 0 0 0 2px var(--block), 4px 0 0 2px var(--block), -4px 0 0 2px var(--block);
+}
+html[data-theme="sunset-paper"] .job-facts .status[data-group="needs-you"] { --block: var(--group-needs-you-bg); }
+html[data-theme="sunset-paper"] .job-facts .status[data-group="running"] { --block: var(--group-running-bg); }
+html[data-theme="sunset-paper"] .job-facts .status[data-group="paused"] { --block: var(--group-paused-bg); }
+html[data-theme="sunset-paper"] .job-facts .status[data-group="done"] { --block: var(--group-done-bg); }
+
+/* ---------- Controls: pills and a coral primary ---------- */
+
+html[data-theme="sunset-paper"] .btn { border-radius: 999px; background: var(--bg-1); border-color: var(--border-2); box-shadow: 0 1px 0 oklch(.3 .06 40 / .06); }
+html[data-theme="sunset-paper"] .btn:hover { background: var(--bg-3); }
+html[data-theme="sunset-paper"] .btn-quiet { background: transparent; border-color: transparent; box-shadow: none; }
+html[data-theme="sunset-paper"] .btn-quiet:hover { background: var(--bg-3); }
+html[data-theme="sunset-paper"] .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); box-shadow: 0 2px 6px oklch(.56 .17 28 / .3); }
+html[data-theme="sunset-paper"] .btn-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+html[data-theme="sunset-paper"] .btn-danger { background: var(--bg-1); border-color: var(--status-error); }
+html[data-theme="sunset-paper"] .btn-danger:hover { background: var(--status-error-bg); }
+html[data-theme="sunset-paper"] .btn-toggle[aria-pressed="true"] { background: var(--status-ok-bg); border-color: var(--status-ok); }
+html[data-theme="sunset-paper"] .text-input,
+html[data-theme="sunset-paper"] .text-area,
+html[data-theme="sunset-paper"] .select { background: var(--bg-1); border-color: var(--border-2); }
+html[data-theme="sunset-paper"] .text-area { border-radius: var(--radius-lg); }
+html[data-theme="sunset-paper"] .text-input:focus-visible,
+html[data-theme="sunset-paper"] .text-area:focus-visible { border-color: var(--focus-ring); }
+html[data-theme="sunset-paper"] .kbd { background: var(--bg-3); border-color: var(--border-3); color: var(--text-2); }
+html[data-theme="sunset-paper"] .answer-option:hover { background: var(--bg-3); }
+html[data-theme="sunset-paper"] .rule-option { background: var(--bg-1); border-color: var(--border-1); border-radius: var(--radius-lg); }
+html[data-theme="sunset-paper"] .rule-option.is-picked { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+html[data-theme="sunset-paper"] .seg-option { border-radius: 999px; background: var(--bg-1); }
+html[data-theme="sunset-paper"] .seg-option.is-picked { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* ---------- Thread: white cards on cream ---------- */
+
+html[data-theme="sunset-paper"] .reply,
+html[data-theme="sunset-paper"] .brief-card,
+html[data-theme="sunset-paper"] .live-row { box-shadow: var(--shadow-1); }
+html[data-theme="sunset-paper"] .reply { border-color: var(--border-1); }
+html[data-theme="sunset-paper"] .who { color: var(--text-2); }
+html[data-theme="sunset-paper"] .reply .who { color: oklch(.4 .1 330); }   /* the Foreman signs in plum */
+html[data-theme="sunset-paper"] .you { background: var(--accent-soft); box-shadow: inset 0 0 0 1px oklch(.62 .17 30 / .25); }
+html[data-theme="sunset-paper"] .you .who { color: var(--accent-strong); }
+
+/* A brief wears a plum stripe; a live row dashes in teal (running); a problem in red. */
+html[data-theme="sunset-paper"] .brief-card { position: relative; overflow: hidden; border-color: oklch(.5 .12 330 / .35); }
+html[data-theme="sunset-paper"] .brief-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: oklch(.5 .14 330); }
+html[data-theme="sunset-paper"] .brief-card.is-answered { background: var(--bg-1); box-shadow: none; }
+html[data-theme="sunset-paper"] .brief-card.is-answered::before { background: var(--status-ok); }
+html[data-theme="sunset-paper"] .brief-label { color: oklch(.4 .12 330); }
+html[data-theme="sunset-paper"] .brief-state { background: var(--status-ok); color: #fff; }
+html[data-theme="sunset-paper"] .live-row { border-color: var(--group-running-line); background: oklch(.65 .12 195 / .08); }
+html[data-theme="sunset-paper"] .live-row .who { color: var(--group-running-fg); }
+html[data-theme="sunset-paper"] .typing span { background: var(--group-running-line); }
+html[data-theme="sunset-paper"] .problem { background: var(--status-error-bg); }
+
+html[data-theme="sunset-paper"] .decision .glyph { color: var(--accent); }
+html[data-theme="sunset-paper"] .auto-fold summary { color: var(--text-2); }
+html[data-theme="sunset-paper"] .auto-fold .glyph { color: var(--status-ok); }
+html[data-theme="sunset-paper"] .blocked-line { border-radius: 999px; box-shadow: 0 0 0 3px var(--ask-blocked-bg); }
+html[data-theme="sunset-paper"] .blocked-line .glyph { text-decoration: line-through; font-weight: 700; }
+
+html[data-theme="sunset-paper"] .prose code { background: var(--bg-3); }
+html[data-theme="sunset-paper"] .prose pre { background: var(--bg-1); box-shadow: inset 0 0 0 1px var(--border-1); }
+html[data-theme="sunset-paper"] .prose blockquote { border-left-color: oklch(.78 .16 75); }
+html[data-theme="sunset-paper"] .prose th { background: var(--bg-3); }
+
+/* ---------- Ask cards: a thick stripe in the kind's colour, the label a filled pill ---------- */
+
+html[data-theme="sunset-paper"] .perm-card { position: relative; overflow: hidden; border-color: var(--border-2); box-shadow: var(--shadow-1); }
+html[data-theme="sunset-paper"] .perm-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--ask-permission-line); }
+html[data-theme="sunset-paper"] .perm-card[data-ask="question"]::before { background: var(--ask-question-line); }
+html[data-theme="sunset-paper"] .perm-card[data-ask="hardline"]::before { background: repeating-linear-gradient(135deg, var(--ask-hardline-line) 0 8px, oklch(.72 .19 25) 8px 16px); }
+html[data-theme="sunset-paper"] .perm-card[data-ask="hardline"] { border-color: var(--ask-hardline-line); }
+html[data-theme="sunset-paper"] .perm-card.is-risky { border-color: var(--status-warn); }
+html[data-theme="sunset-paper"] .perm-card .ask-label { border-color: transparent; background: var(--ask-permission-line); color: #fff; }
+html[data-theme="sunset-paper"] .perm-card[data-ask="hardline"] .ask-label { background: var(--ask-hardline-line); color: var(--ask-hardline-fg); font-weight: var(--weight-bold); }
+html[data-theme="sunset-paper"] .perm-card[data-ask="question"] .ask-label { background: var(--ask-question-line); }
+html[data-theme="sunset-paper"] .perm-who strong { color: var(--ask-permission-fg); }
+html[data-theme="sunset-paper"] .perm-card[data-ask="question"] .perm-who strong { color: var(--ask-question-fg); }
+html[data-theme="sunset-paper"] .perm-card[data-ask="hardline"] .perm-who strong { color: var(--ask-hardline-line); }
+html[data-theme="sunset-paper"] .perm-preview { background: oklch(.3 .035 40); color: oklch(.95 .02 80); border-radius: var(--radius-md); }
+html[data-theme="sunset-paper"] .perm-warn { background: var(--status-warn-bg); color: var(--status-warn); border-radius: 999px; }
+html[data-theme="sunset-paper"] .pending-job { color: oklch(.4 .1 330); }
+
+/* ---------- Composer: a white paper slip on the cream desk ---------- */
+
+html[data-theme="sunset-paper"] .composer { border-top: 0; }
+html[data-theme="sunset-paper"] .composer::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, oklch(.62 .18 30 / .5), oklch(.78 .16 75 / .5), oklch(.6 .12 195 / .5), oklch(.5 .15 320 / .5));
+  pointer-events: none;
+}
+html[data-theme="sunset-paper"] .composer .text-area { box-shadow: var(--shadow-1); }
+html[data-theme="sunset-paper"] .composer .text-area:focus-visible { box-shadow: var(--shadow-1), 0 0 0 3px oklch(.6 .12 195 / .2); }
+html[data-theme="sunset-paper"] .steer-state { background: var(--bg-3); color: var(--text-2); }
+html[data-theme="sunset-paper"] .steer-delivered { background: var(--status-info-bg); color: var(--status-info); }
+html[data-theme="sunset-paper"] .steer-acted-on { background: var(--status-ok-bg); color: var(--status-ok); }
+html[data-theme="sunset-paper"] .steer-cancelled,
+html[data-theme="sunset-paper"] .steer-unanswered { background: var(--status-warn-bg); color: var(--status-warn); }
+
+/* ---------- ⌘K palette and sheets ---------- */
+
+html[data-theme="sunset-paper"] .sheet-backdrop { background: oklch(.3 .06 330 / .4); }
+html[data-theme="sunset-paper"] .palette,
+html[data-theme="sunset-paper"] .sheet { background: var(--bg-2); border-color: oklch(.5 .06 60 / .18); }
+html[data-theme="sunset-paper"] .palette-input { border-bottom-color: var(--border-1); }
+html[data-theme="sunset-paper"] .palette-input:focus-visible { outline: none; border-bottom-color: var(--focus-ring); }
+html[data-theme="sunset-paper"] .palette-option { transition: transform var(--dur-fast) var(--ease-out); }
+html[data-theme="sunset-paper"] .palette-option.is-active { background: var(--accent-soft); box-shadow: inset 4px 0 0 var(--accent); }
+html[data-theme="sunset-paper"] .palette-section { color: oklch(.46 .1 200); font-weight: var(--weight-medium); }
+html[data-theme="sunset-paper"] .palette-foot { background: var(--bg-0); color: var(--text-2); }
+html[data-theme="sunset-paper"] .sheet-title { color: oklch(.36 .1 330); font-size: var(--text-lg); }
+html[data-theme="sunset-paper"] .sheet { position: relative; overflow: hidden; }
+html[data-theme="sunset-paper"] .sheet::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 6px;
+  background: linear-gradient(90deg, oklch(.62 .18 30), oklch(.78 .16 75) 35%, oklch(.6 .12 195) 70%, oklch(.5 .15 320));
+  pointer-events: none;
+}
+html[data-theme="sunset-paper"] .from-session,
+html[data-theme="sunset-paper"] .history-results { background: var(--bg-1); border-radius: var(--radius-lg); }
+html[data-theme="sunset-paper"] .job-menu-list { background: var(--bg-2); border-radius: var(--radius-lg); }
+html[data-theme="sunset-paper"] .job-menu-list a:hover,
+html[data-theme="sunset-paper"] .job-menu-list button:enabled:hover { background: var(--bg-3); }
+html[data-theme="sunset-paper"] .toast { background: var(--bg-2); border-radius: var(--radius-lg); }
+
+/* ---------- Settings: plum headings with a coral tab, the theme picker as paper swatches ---------- */
+
+html[data-theme="sunset-paper"] .settings-heading {
+  font-family: var(--font-heading);
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: oklch(.36 .1 330);
+}
+html[data-theme="sunset-paper"] .settings-heading::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: var(--space-2);
+  border-radius: 3px;
+  background: linear-gradient(135deg, oklch(.62 .18 30), oklch(.78 .16 75));
+  vertical-align: 0;
+}
+html[data-theme="sunset-paper"] .rule-list { background: var(--bg-1); border-color: var(--border-1); border-radius: var(--radius-lg); box-shadow: var(--shadow-1); }
+html[data-theme="sunset-paper"] .rule-row + .rule-row { border-top-color: var(--border-1); }
+html[data-theme="sunset-paper"] .theme-option { transition: transform var(--dur-fast) var(--ease-out); }
+html[data-theme="sunset-paper"] .theme-option:hover { transform: translateX(2px); }
+html[data-theme="sunset-paper"] .theme-option.is-picked { background: linear-gradient(90deg, oklch(.62 .18 30 / .14), oklch(.78 .16 75 / .14) 40%, oklch(.6 .12 195 / .14)); }
+html[data-theme="sunset-paper"] .job-menu-list button[aria-checked="true"] { color: var(--accent-strong); }
+html[data-theme="sunset-paper"] .job-menu-heading { color: var(--text-2); }
+
+/* ---------- Usage banner: an amber block, a paused job's colour ---------- */
+
+html[data-theme="sunset-paper"] .usage-banner { border-bottom: 0; }
+html[data-theme="sunset-paper"] .usage-limited {
+  background: var(--group-paused-bg);
+  box-shadow: inset 6px 0 0 var(--group-paused-line), inset 0 -1px 0 var(--border-1);
+}
+html[data-theme="sunset-paper"] .usage-limited .usage-text strong { color: var(--group-paused-fg); }
+html[data-theme="sunset-paper"] .usage-warn { background: var(--bg-3); color: var(--text-1); box-shadow: inset 6px 0 0 var(--group-paused-line); }
+
+/* ---------- Focus and motion ---------- */
+
+html[data-theme="sunset-paper"] :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+html[data-theme="sunset-paper"] .btn:focus-visible { border-radius: 999px; }
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="sunset-paper"] .job-row,
+  html[data-theme="sunset-paper"] .job-row .glyph,
+  html[data-theme="sunset-paper"] .palette-option,
+  html[data-theme="sunset-paper"] .theme-option { transition: none; }
+  html[data-theme="sunset-paper"] .job-row:hover,
+  html[data-theme="sunset-paper"] .theme-option:hover,
+  html[data-theme="sunset-paper"] .job-row[data-group="running"]:hover .glyph { transform: none; }
+}
