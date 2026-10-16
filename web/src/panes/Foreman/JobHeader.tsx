@@ -5,6 +5,7 @@
 //   (POST /api/job/:slug/policy).
 // ⌘K offers the same actions (app/commands.ts); both call app/jobActions.ts.
 // The level chip (LevelChip.tsx) shows the job's level and changes it.
+// With Play on, the Foreman character stands by the title, its mood following the job.
 import { useEffect, useRef, useState } from 'react';
 import type { Job, PolicyId, Run } from '../../api/types';
 import { reopenJob, setJobPolicy } from '../../app/jobActions';
@@ -15,6 +16,7 @@ import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { jobHueStyle } from '../../theme/hue';
 import { GROUP_HINTS, GROUP_LABELS } from '../Jobs/jobStatus';
+import { ForemanFace } from '../../play/ThreadCrew';
 import { LevelChip } from './LevelChip';
 import { formatCost, isActiveRun } from './thread';
 
@@ -173,12 +175,15 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree, det
   const cost = job.cost?.source === 'none' ? '' : formatCost(job.cost?.totalUsd);
   const costHint = job.cost?.source === 'estimate' ? 'What this job has cost so far (an estimate from its sessions’ token counts).' : 'What this job has cost so far.';
   const policy = useJobPolicy(dir, policyOverride);
+  const { usage } = useWorkshopState();
   const closed = job.closed ?? null;
   const ago = closed ? relativeTime(closed.at, now) : '';
   return (
     <header className="job-header">
       <div className="job-header-line">
         <span className="hue-dot" style={jobHueStyle(job.slug)} aria-hidden="true" />
+        {/* Play: the Foreman, its mood following the job (nothing with Play Off). */}
+        <ForemanFace job={job} usage={usage} />
         <h2 className="pane-title job-title">{job.title || job.slug}</h2>
         <LevelChip job={job} ready={detailLoaded} />
         <JobMenu job={job} dir={dir} policyOverride={policyOverride} run={run} worktree={worktree} />

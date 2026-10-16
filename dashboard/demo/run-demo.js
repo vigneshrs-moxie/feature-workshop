@@ -10,6 +10,9 @@
 //
 // Docs tab (phase 2.1): Customer merge has a full set of documents (spec, findings, a plan with a
 // table, code and a task list, test plan, Fable's second look, notes) and Widget Export a review.
+//
+// Play layer: Widget Export's conversation starts with the routine steps that handed each stage to
+// its worker (widgetThread), so the crew show on handoff lines and the review brief's lineup.
 
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -681,6 +684,33 @@ async function demoAgents() {
   }
 }
 
+// Widget Export's conversation as the dashboard would have recorded it: the routine steps that
+// handed each stage to its worker ("Start a helper: …", allowed by the routine-steps setting) and a
+// step or two each worker took, in the demo's own state folder, with each brief written when its
+// stage ended. So the thread shows the crew handing work on (Play mode) without a reply being sent.
+async function widgetThread() {
+  const dir = path.join(FEATURES, 'widget-export');
+  const stages = [
+    { at: 30 * HOUR, done: 29 * HOUR, brief: '001-spec.md', workers: ['feature-spec-writer'], steps: [['feature-spec-writer', 'Write spec.md']] },
+    { at: 26 * HOUR, done: 25 * HOUR, brief: '002-investigate.md', workers: ['feature-investigator'], steps: [['feature-investigator', 'Search the code for “export”'], ['feature-investigator', 'Read widgets.js']] },
+    { at: 22 * HOUR, done: 21 * HOUR, brief: '003-plan.md', workers: ['feature-planner'], steps: [['feature-planner', 'Write implementation-plan.md']] },
+    { at: 6 * HOUR, done: 5 * HOUR, brief: '004-implement.md', workers: ['feature-implementer'], steps: [['feature-implementer', 'Edit widgets.js'], ['feature-implementer', 'Run the unit tests']] },
+    { at: 3 * HOUR, done: 2.5 * HOUR, brief: '005-test.md', workers: ['feature-tester'], steps: [['feature-tester', 'npm run check']] },
+    { at: 2 * HOUR, done: 47 * MIN, brief: '006-review.md', workers: ['feature-reviewer', 'feature-review-permissions', 'feature-review-conventions'], steps: [['feature-review-permissions', 'Search the code for “requireAdmin”'], ['feature-review-conventions', 'Read CLAUDE.md']] },
+  ];
+  const lines = [];
+  for (const [i, s] of stages.entries()) {
+    const base = { featureDir: dir, slug: 'widget-export', sessionId: 'demo-sess-0001', runId: `demo-widget-run-${i + 1}` };
+    s.workers.forEach((w, j) => lines.push({ at: iso(s.at - j * 1000), action: 'auto-allowed', ...base, tool: 'Agent', agentType: null, headline: `Start a helper: ${w}`, reason: 'Starting a workflow worker is routine here.' }));
+    s.steps.forEach(([w, headline], j) => lines.push({ at: iso(s.at - (j + 1) * 60_000), action: 'auto-allowed', ...base, tool: /^Run|^npm/.test(headline) ? 'Bash' : 'Read', agentType: w, headline, reason: 'A routine step inside the job.' }));
+    const when = new Date(Date.now() - s.done);
+    await fs.utimes(path.join(dir, 'briefs', s.brief), when, when);
+  }
+  const state = path.join(ROOT, 'state');
+  await fs.mkdir(state, { recursive: true });
+  await fs.appendFile(path.join(state, 'audit.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+}
+
 // The stale card: once the dashboard has noted the card at plan v2, the plan moves to v3.
 async function staleAfterStart(port) {
   for (let i = 0; i < 20; i++) {
@@ -724,6 +754,7 @@ function tick(logFiles) {
 const logFiles = await build();
 await oldSkill();
 await demoAgents();
+await widgetThread();
 process.env.WORKSHOP_FEATURES_DIR = FEATURES;
 process.env.WORKSHOP_PROJECTS_DIR = path.dirname(PROJECTS);
 process.env.WORKSHOP_DEMO = '1';

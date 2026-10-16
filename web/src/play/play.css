@@ -154,6 +154,29 @@
 @keyframes crew-step { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
 @keyframes crew-swing { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
 
+/* thinking: eyes up and a thought bubble (the Foreman deciding what's next) */
+.crew .think circle { transform-box: fill-box; transform-origin: center; }
+.crew.is-thinking .head { transform: rotate(-5deg); }
+.crew.is-animated.is-thinking .rig { animation: crew-breathe 3s ease-in-out infinite; }
+.crew.is-animated.is-thinking .think circle { animation: crew-think 1.8s ease-in-out infinite; }
+.crew.is-animated.is-thinking .think .t2 { animation-delay: .3s; }
+.crew.is-animated.is-thinking .think .t3 { animation-delay: .6s; }
+@keyframes crew-think { 0%, 100% { opacity: .55; transform: scale(.85); } 50% { opacity: 1; transform: scale(1.1); } }
+
+/* ---------- The crew in the conversation (play/ThreadCrew.tsx) ----------
+   Small and beside the words, never instead of them: each character sits next to visible text
+   naming it (or is an image named by its accessible name, with a tooltip). */
+.crew-tag { display: inline-flex; align-items: center; gap: var(--space-1); vertical-align: middle; }
+.crew-tag .crew, .crew-handoff .crew, .live-crew .crew { margin: -4px 0; }
+.crew-handoff { display: inline-flex; align-items: center; gap: 2px; margin-left: var(--space-2); vertical-align: middle; }
+.crew-handoff-text { margin-left: var(--space-1); color: var(--text-2); }
+.crew-lineup { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 2px; list-style: none; margin: var(--space-1) 0 0; padding: 0; }
+.crew-lineup li { display: flex; }
+.live-crew { display: inline-flex; align-items: center; gap: 2px; }
+.live-crew-text { color: var(--text-2); }
+.live-row.is-paused { opacity: .85; }
+.foreman-face { margin: -6px 0; }
+
 /* Reduced motion: never animate, and hold the waiting wave as a pose. */
 @media (prefers-reduced-motion: reduce) {
   .crew, .crew * { animation: none !important; }

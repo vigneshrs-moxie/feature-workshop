@@ -180,6 +180,17 @@ export const TOOLS: Record<ToolId, ReactElement> = {
 export function Eyes({ state }: { state: CrewState }) {
   if (state === 'asleep') return <path d="M48.5 43Q52 46.5 55.5 43M64.5 43Q68 46.5 71.5 43" stroke={INK} strokeWidth="2.2" strokeLinecap="round" fill="none" />;
   if (state === 'celebrating') return <path d="M48.5 44Q52 39 55.5 44M64.5 44Q68 39 71.5 44" stroke={INK} strokeWidth="2.4" strokeLinecap="round" fill="none" />;
+  if (state === 'thinking') {
+    // Looking up and to the side, as if working something out.
+    return (
+      <g className="eyes">
+        <ellipse cx="53.6" cy="40.2" rx="2.6" ry="3.2" fill={INK} />
+        <ellipse cx="69.6" cy="40.2" rx="2.6" ry="3.2" fill={INK} />
+        <circle cx="54.6" cy="38.8" r="1" fill={SHINE} />
+        <circle cx="70.6" cy="38.8" r="1" fill={SHINE} />
+      </g>
+    );
+  }
   const ry = state === 'working' ? 2.7 : state === 'waiting' ? 4 : 3.5;
   return (
     <g className="eyes">
@@ -202,6 +213,7 @@ export function Mouth({ state }: { state: CrewState }) {
   }
   if (state === 'working') return <path d="M56.5 51.2Q60 52.6 63.5 51.2" stroke={INK} strokeWidth="2" strokeLinecap="round" fill="none" />;
   if (state === 'asleep') return <ellipse cx="60" cy="51.5" rx="2" ry="2.4" fill={INK} opacity=".8" />;
+  if (state === 'thinking') return <path d="M56.5 52Q60.5 50.4 64.5 51.4" stroke={INK} strokeWidth="2" strokeLinecap="round" fill="none" />;
   return <path d="M55.5 50Q60 54.2 64.5 50" stroke={INK} strokeWidth="2" strokeLinecap="round" fill="none" />;
 }
 
@@ -218,6 +230,15 @@ export function Effects({ state, motion }: { state: CrewState; motion: Motion })
         )}
         <path className="sweat" d="M83 26c2 3.2 3 5 3 6.4a3 3 0 0 1-6 0c0-1.4 1-3.2 3-6.4z" fill={v('glass')} stroke={v('glass-line')} strokeWidth=".8" />
       </>
+    );
+  }
+  if (state === 'thinking') {
+    return (
+      <g className="think" fill={PAPER} stroke={v('line')} strokeWidth="1.2">
+        <circle className="t1" cx="84" cy="25" r="2.2" />
+        <circle className="t2" cx="90.5" cy="16.5" r="3.4" />
+        <circle className="t3" cx="99.5" cy="7" r="5" />
+      </g>
     );
   }
   if (state === 'asleep') {

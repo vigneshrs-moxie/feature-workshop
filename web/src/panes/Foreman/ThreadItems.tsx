@@ -3,10 +3,15 @@
 // (by auto mode or a hard line), shown as dim lines. Text you typed is always shown as plain
 // text; short AI-written reasons go through InlineText (React elements, no HTML); only the
 // dashboard-rendered reply HTML goes through ServerHtml.
+// With Play on (Subtle or Full) the workers on these lines appear as small crew characters with
+// their names (play/ThreadCrew.tsx); with Play Off these lines are exactly as before.
 import type { AutoItem, SteerState, ThreadItem } from '../../api/types';
 import { settingsHref } from '../../app/router';
 import { InlineText } from '../../components/InlineText';
 import { fullTime, relativeTime } from '../../lib/time';
+import { CrewTag, HandoffSummary } from '../../play/ThreadCrew';
+import { dispatchType, handoffLine } from '../../play/crewLines';
+import { usePlayIfAny } from '../../play/usePlay';
 import { ExtrasLines } from './ExtrasLines';
 import { ServerHtml } from './ServerHtml';
 import { STEER_LABELS } from './thread';
@@ -16,20 +21,42 @@ function When({ at, now }: { at: string | null; now: Date }) {
   return <time className="thread-time num" dateTime={at} title={fullTime(at)}>{relativeTime(at, now)}</time>;
 }
 
+/**
+ * " · feature-tester": the worker that took a step. With Play on, the worker's character and name
+ * (" · [Tester] Tester"); Off, the agent type as phase 2 showed it.
+ */
+function Worker({ who, className }: { who: string; className?: string }) {
+  const play = usePlayIfAny();
+  if (play && !play.on) return <span className={className}> · {who}</span>;
+  return <span className={className}> · <CrewTag type={who} /></span>;
+}
+
+/** A step that started a worker: " · [Sleuth] Sleuth started investigating" with Play on; nothing Off. */
+function Handoff({ headline }: { headline: string }) {
+  const type = dispatchType(headline);
+  const play = usePlayIfAny();
+  if (!type || (play && !play.on)) return null;
+  return <span className="muted"> · <CrewTag type={type} text={handoffLine(type)} /></span>;
+}
+
 function AutoFold({ item, now }: { item: AutoItem; now: Date }) {
   const steps = item.items ?? [];
   const n = steps.length;
+  // The workers this fold handed work to (Play shows them on the folded line).
+  const handedTo = [...new Set(steps.map((s) => dispatchType(s.headline)).filter((t): t is string => t !== null))];
   return (
     <details className="thread-item auto-fold">
       <summary title="Steps the Foreman took without asking, because your settings count them as routine. Open to see each one.">
         <span className="glyph" aria-hidden="true">✓</span> {n} routine step{n === 1 ? '' : 's'} done automatically
+        <HandoffSummary types={handedTo} />
         <When at={item.at} now={now} />
       </summary>
       <ul className="auto-steps">
         {steps.map((s, i) => (
           <li key={i}>
             <span>{s.headline}</span>
-            {s.who && s.who !== 'conductor' ? <span className="muted"> · {s.who}</span> : null}
+            <Handoff headline={s.headline} />
+            {s.who && s.who !== 'conductor' ? <Worker who={s.who} className="muted" /> : null}
             {s.reason ? <span className="muted" title="Why this counted as routine."> · <InlineText text={s.reason} /></span> : null}
             {s.rule ? <> · <a href={settingsHref()} title="One of your “Always allow” rules let this run. See or remove it in Settings.">see rule</a></> : null}
           </li>
@@ -102,7 +129,7 @@ export function ThreadItemView({ item, now, steer = null }: { item: ThreadItem; 
             : 'The dashboard refuses this step in every setting (a hard line). The Foreman was told and carries on without it.'}
         >
           <span className="glyph" aria-hidden="true">⊘</span> {item.text}
-          {item.who && item.who !== 'conductor' ? <span> · {item.who}</span> : null}
+          {item.who && item.who !== 'conductor' ? <Worker who={item.who} /> : null}
           {item.preview ? <> · <code className="blocked-preview">{item.preview}</code></> : null}
           {item.reason ? <span> · <InlineText text={item.reason} /></span> : null}
           {' '}<When at={item.at} now={now} />

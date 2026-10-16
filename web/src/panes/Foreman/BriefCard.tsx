@@ -7,6 +7,7 @@ import type { JobDoc } from '../../api/types';
 import { InlineText } from '../../components/InlineText';
 import { plainInline } from '../../lib/inlineMarkdown';
 import { fullTime, relativeTime } from '../../lib/time';
+import { ReviewLineup } from '../../play/ThreadCrew';
 import { useWorkshop } from '../../state/store';
 import { stageLabel } from '../Jobs/stages';
 import { ServerHtml } from './ServerHtml';
@@ -72,7 +73,8 @@ function DetailFold({ slug, file }: { slug: string; file: string }) {
   );
 }
 
-export function BriefCard({ slug, brief, now }: { slug: string; brief: ShownBrief; now: Date }) {
+/** lenses: on a review brief, the review lenses that looked (Play mode lines them up under the headline). */
+export function BriefCard({ slug, brief, now, lenses }: { slug: string; brief: ShownBrief; now: Date; lenses?: string[] }) {
   const { item, answered, detailFile } = brief;
   const [open, setOpen] = useState(!answered);
   // Answering it folds it back to its headline (and a brief that is open again opens): followed
@@ -104,6 +106,7 @@ export function BriefCard({ slug, brief, now }: { slug: string; brief: ShownBrie
           {item.at && <time className="thread-time num" dateTime={item.at} title={fullTime(item.at)}>{relativeTime(item.at, now)}</time>}
         </button>
         <p className="brief-headline"><InlineText text={headline} /></p>
+        {item.stage === 'review' && lenses && <ReviewLineup types={lenses} />}
       </header>
       <div id={bodyId} className="brief-body" hidden={!open}>
         {open && <DocBody doc={doc} what="brief" headline={headline} file={item.file} />}

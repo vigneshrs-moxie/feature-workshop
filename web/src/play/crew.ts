@@ -3,8 +3,9 @@
 // for the Crew-dex card back, and how rare their model is. Nothing here is read from the network
 // except the models (meta.crewModels), and none of it is ever user input.
 
-export type CrewState = 'working' | 'waiting' | 'idle' | 'asleep' | 'celebrating' | 'walking';
-export const CREW_STATES: readonly CrewState[] = ['working', 'waiting', 'idle', 'asleep', 'celebrating', 'walking'];
+/** A mood. thinking: the Foreman deciding what's next (eyes up, a thought bubble). */
+export type CrewState = 'working' | 'waiting' | 'idle' | 'asleep' | 'celebrating' | 'walking' | 'thinking';
+export const CREW_STATES: readonly CrewState[] = ['working', 'waiting', 'idle', 'asleep', 'celebrating', 'walking', 'thinking'];
 
 export type HatId = 'hardhat' | 'beret' | 'deerstalker' | 'cap' | 'bandana' | 'goggles' | 'visor';
 export type ToolId = 'clipboard' | 'check' | 'quill' | 'magnifier' | 'blueprint' | 'hammer' | 'flask' | 'key' | 'gauge' | 'ruler' | 'fuse' | 'brick' | 'stopwatch' | 'brush';

@@ -143,7 +143,8 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `.theme-picker`, `.theme-option`, `.theme-hint` | the theme picker in Settings |
 | `.btn`, `.btn-primary`, `.btn-danger`, `.btn-quiet`, `.chip`, `.kbd`, `.text-input`, `.text-area`, `.select` | controls |
 | `.how` | a "How this works" fold |
-| `.crew` | a crew member (an inline `svg`): `.crew-<agent type>`, `.is-<state>` (`working` `waiting` `idle` `asleep` `celebrating` `walking`), `.m-<motion>` (`strike` `write` `scan` `shake`), `.is-animated` (Full mode) or `.is-still`; parts `.rig`, `.head`, `.hat`, `.arm-l`, `.arm-r`, `.tool`, `.feet`, `.shadow`, `.fx`. Restyle colours through `--crew-*` only |
+| `.crew` | a crew member (an inline `svg`): `.crew-<agent type>`, `.is-<state>` (`working` `waiting` `idle` `asleep` `celebrating` `walking` `thinking`), `.m-<motion>` (`strike` `write` `scan` `shake`), `.is-animated` (Full mode) or `.is-still`; parts `.rig`, `.head`, `.hat`, `.arm-l`, `.arm-r`, `.tool` (`.grip` inside), `.feet`, `.shadow`, `.fx`. Restyle colours through `--crew-*` only |
+| `.crew-tag`, `.crew-handoff`, `.crew-lineup`, `.live-crew`, `.foreman-face` | the crew in the conversation (Play on): a character with its name on a thread line, the workers a routine-steps line handed work to, a review brief's reviewers, who is at work in the live row, the Foreman by the job title. Never inside a gate card, a permission card or the composer |
 | `.play-settings` | Settings → Play (`.play-options`, `.play-quest-done`, `.play-legend`, `.play-sounds` with `.is-off` outside Full mode) |
 | `.toast` | the error toast |
 

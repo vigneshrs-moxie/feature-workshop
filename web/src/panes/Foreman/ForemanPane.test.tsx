@@ -277,7 +277,9 @@ describe('Foreman pane: auto mode', () => {
     expect(auto).not.toHaveTextContent('**');
     const refused = screen.getByText(/^Refused:/).closest('p')!;
     expect(refused).toHaveAttribute('title', expect.stringMatching(/hard line/));
-    expect(refused).toHaveTextContent('feature-implementer');
+    // The worker by name, with its crew character (Play mode is Subtle by default; Off shows the agent type).
+    expect(refused).toHaveTextContent('Builder');
+    expect(refused.querySelector('.crew-feature-implementer')).not.toBeNull();
     expect(refused).toHaveTextContent('Force pushes are never allowed');
   });
 
