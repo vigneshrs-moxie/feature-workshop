@@ -288,7 +288,10 @@ export interface Achievement {
   unlockedAt: string | null;
 }
 
-/** One crew member you have met, with their stats on this machine. */
+/**
+ * One crew member you have met, with their stats on this machine. The Foreman (conductor) is never
+ * dispatched: its jobs are every job its crew worked on and its dispatches the work it handed out.
+ */
 export interface CrewStats {
   firstSeen: string;
   lastSeen: string;

@@ -38,6 +38,8 @@ export interface CommandHandlers {
   openDocs(): void;
   setPolicy(slug: string, policy: PolicyId | null): void;
   settings(): void;
+  /** Open the Crew-dex (Play mode). */
+  crewDex(): void;
   /** Open a page of the classic view (decision D4). */
   classic(href: string): void;
   showKeys(): void;
@@ -50,6 +52,10 @@ export interface CommandContext {
   /** What the open job's pane knows (its reply in progress); null until it has loaded. */
   current: CurrentJob | null;
   onSettings: boolean;
+  /** The Crew-dex is open. */
+  onCrew?: boolean;
+  /** Play mode isn't Off (the Crew-dex is listed only then). */
+  play?: boolean;
   classic: { home(): string; job(slug: string): string; costs(): string; history(): string };
 }
 
@@ -169,6 +175,9 @@ export function commandsFor(ctx: CommandContext, h: CommandHandlers): Command[] 
 
   if (!ctx.onSettings) {
     out.push({ id: 'settings', label: 'Settings', section: 'Go to', keywords: 'permissions rules always allow', hint: 'Your permission setting and your “Always allow” rules.', run: h.settings });
+  }
+  if (ctx.play && !ctx.onCrew) {
+    out.push({ id: 'crew-dex', label: 'Crew-dex', section: 'Go to', keywords: 'crew play collection characters met secrets achievements', hint: 'Every crew member: who you have met and what they have done on your jobs.', run: h.crewDex });
   }
   out.push(
     { id: 'classic-home', label: 'Classic view', section: 'Go to', keywords: 'old board', hint: 'Open the classic Feature Workshop page.', run: () => h.classic(ctx.classic.home()) },

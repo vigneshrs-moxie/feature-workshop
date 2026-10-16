@@ -8,6 +8,7 @@
 //             as decoration (then the caller shows the name in text)
 //   animated  move (default: Full mode, from usePlay). Otherwise, or with reduced motion asked
 //             for, it holds a still pose that still shows the mood.
+//   silhouette  draw only their outline in --crew-silhouette (the Crew-dex's "not met yet"); never moves
 //
 // With Play mode Off it draws nothing (returns null), so callers needn't check. Outside a
 // WorkshopContext (tests, isolated previews) it always draws.
@@ -24,6 +25,7 @@ export interface CrewMemberProps {
   size?: number;
   label?: string;
   animated?: boolean;
+  silhouette?: boolean;
   className?: string;
 }
 
@@ -32,17 +34,17 @@ const C = (name: string) => `var(--crew-${name})`;
 /** The accessible name a crew member gets by default: "Builder, working". */
 export const crewLabel = (type: string, state: CrewState) => `${crewInfo(type).name}, ${state}`;
 
-export function CrewMember({ type, state = 'idle', size = 48, label, animated, className }: CrewMemberProps) {
+export function CrewMember({ type, state = 'idle', size = 48, label, animated, silhouette = false, className }: CrewMemberProps) {
   const reduced = usePrefersReducedMotion();
   const play = usePlayIfAny();
   if (play && !play.on) return null;
   const member = crewInfo(type);
   const key = member.number ? member.type : 'unknown';
   const motion = MOTION[member.tool];
-  const moving = (animated ?? play?.animated ?? false) && !reduced;
+  const moving = !silhouette && (animated ?? play?.animated ?? false) && !reduced;
   const name = label ?? crewLabel(type, state);
   const decorative = name === '';
-  const classes = ['crew', `crew-${key}`, `is-${state}`, `m-${motion}`, moving ? 'is-animated' : 'is-still', className].filter(Boolean).join(' ');
+  const classes = ['crew', `crew-${key}`, `is-${state}`, `m-${motion}`, moving ? 'is-animated' : 'is-still', silhouette && 'is-silhouette', className].filter(Boolean).join(' ');
   return (
     <svg
       className={classes}

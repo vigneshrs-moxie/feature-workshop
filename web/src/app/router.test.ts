@@ -17,6 +17,10 @@ describe('hash router', () => {
     ['#/settings', { name: 'settings' }],
     ['#/settings/', { name: 'settings' }],
     ['#/settings/x', { name: 'home' }],
+    ['#/crew', { name: 'crew' }],
+    ['#/crew/', { name: 'crew' }],
+    ['#/crew?theme=pixel-crew', { name: 'crew' }],
+    ['#/crew/x', { name: 'home' }],
     // A query after the hash (the theme preview) changes nothing about the route.
     ['#/?theme=blueprint', { name: 'home' }],
     ['#/settings?theme=blueprint', { name: 'settings' }],
@@ -31,6 +35,7 @@ describe('hash router', () => {
     expect(parseHash(jobHref('a b/c'))).toEqual({ name: 'job', slug: 'a b/c' });
     expect(hrefFor({ name: 'home' })).toBe('#/');
     expect(hrefFor({ name: 'settings' })).toBe('#/settings');
+    expect(hrefFor({ name: 'crew' })).toBe('#/crew');
   });
 
   it('links into the classic view at /', () => {

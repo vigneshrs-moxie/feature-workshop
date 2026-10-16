@@ -304,6 +304,18 @@ test('crew met: a dispatch permission you allowed, alone, meets no one', () => {
   assert.equal(ledgerView(ran).crew['feature-planner'].dispatches, 1);
 });
 
+test('ledgerView: the Foreman’s jobs and dispatches are the work it handed out', () => {
+  const l = build({ jobs: [
+    job('a', { workers: [{ agentType: 'feature-planner', startedAt: T0, lastAt: plus(T0, 5) }, { agentType: 'feature-tester', startedAt: plus(T0, 6), lastAt: plus(T0, 9) }] }),
+    job('b', { workers: [{ agentType: 'feature-planner', startedAt: plus(T0, 20), lastAt: plus(T0, 30) }] }),
+  ] });
+  const v = ledgerView(l);
+  assert.equal(v.crew.conductor.jobs, 2, 'every job its crew worked on');
+  assert.equal(v.crew.conductor.dispatches, 3, 'two planners and a tester handed out');
+  assert.equal(v.crew.conductor.lastSeen, plus(T0, 30), 'last seen when its crew last worked');
+  assert.equal(v.crew['feature-planner'].jobs, 2);
+});
+
 test('secrets: only the 13 known ids, each an easter-egg achievement once found', () => {
   assert.equal(SECRET_IDS.length, 13);
   const l = build({ audit: [{ at: T0, action: 'play-secret', id: 'konami' }, { at: T0, action: 'play-secret', id: 'free-xp' }] });

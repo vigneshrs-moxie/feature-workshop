@@ -12,7 +12,8 @@
 // table, code and a task list, test plan, Fable's second look, notes) and Widget Export a review.
 //
 // Play layer: Widget Export's conversation starts with the routine steps that handed each stage to
-// its worker (widgetThread), so the crew show on handoff lines and the review brief's lineup.
+// its worker (widgetThread), so the crew show on handoff lines and the review brief's lineup. For
+// the Crew-dex: Report Scheduler has a lens review (blockers and majors), and two secrets are found.
 
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -275,6 +276,8 @@ async function build() {
   await feature('report-scheduler', {
     status: { title: 'Report Scheduler', route: 'large', stage: 'pr3', stage_state: 'done', next_proposed: 'Released', updated_at: iso(5 * 24 * HOUR), repo: { path: '/demo/field-app' },
       prs: [1, 2, 3].map((n) => ({ number: n, state: 'merged', url: `https://github.com/example/acme-portal/pull/${30 + n}` })) },
+    // Its lens review, so the Crew-dex shows blockers and majors the reviewers raised.
+    files: { 'review.md': SCHEDULER_REVIEW },
   });
 
   // 6. A bug whose builder is stuck on a permission prompt in a terminal.
@@ -480,6 +483,19 @@ After 5pm in California this names tomorrow. **Suggested fix:** take the date fr
 
 - [ ] A small fix round for R-2 and R-3 (your call: question 1)
 - [ ] PR #1, after your go-ahead
+`;
+const SCHEDULER_REVIEW = `# Review v2: Report Scheduler
+
+**Result:** 1 blocker, 2 majors, 1 minor, all fixed in round 2
+
+## Findings
+
+| ID | Severity | Lens | Finding | Status |
+|---|---|---|---|---|
+| R-1 | blocker | permissions | Any signed-in user could schedule a report for another branch | fixed |
+| R-2 | major | db | The schedules table had no index on next_run_at | fixed |
+| R-3 | major | performance | Every run loaded all reports to find the due ones | fixed |
+| R-4 | minor | conventions | Cron strings were built by hand; the repo has a helper | fixed |
 `;
 const planBrief = ({ title, v, spec, fable = null, decided }) => [
   `**${title} · plan v${v} ready** · spec v${spec} · plan v${v} · test plan v${v}`, '',
@@ -711,6 +727,14 @@ async function widgetThread() {
   await fs.appendFile(path.join(state, 'audit.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
 }
 
+// Play layer: two secrets already found, so the Crew-dex's "Secrets found" counter shows some.
+async function playSecrets() {
+  const state = path.join(ROOT, 'state');
+  await fs.mkdir(state, { recursive: true });
+  const lines = [{ at: iso(20 * HOUR), action: 'play-secret', id: 'teapot' }, { at: iso(4 * HOUR), action: 'play-secret', id: 'headers' }];
+  await fs.appendFile(path.join(state, 'audit.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+}
+
 // The stale card: once the dashboard has noted the card at plan v2, the plan moves to v3.
 async function staleAfterStart(port) {
   for (let i = 0; i < 20; i++) {
@@ -755,6 +779,7 @@ const logFiles = await build();
 await oldSkill();
 await demoAgents();
 await widgetThread();
+await playSecrets();
 process.env.WORKSHOP_FEATURES_DIR = FEATURES;
 process.env.WORKSHOP_PROJECTS_DIR = path.dirname(PROJECTS);
 process.env.WORKSHOP_DEMO = '1';

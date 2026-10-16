@@ -38,6 +38,8 @@ export interface WorkshopState {
   resyncNeeded: boolean;
   /** Bumped when your "Always allow" rules change (here or in another tab): Settings refetches them. */
   rulesVersion: number;
+  /** Bumped by the dashboard's 'play' event (something new in the play ledger): the Crew-dex refetches. */
+  playVersion: number;
   generatedAt: string | null;
 }
 
@@ -72,6 +74,7 @@ export const initialState: WorkshopState = {
   jobsStale: false,
   resyncNeeded: false,
   rulesVersion: 0,
+  playVersion: 0,
   generatedAt: null,
 };
 
@@ -173,6 +176,9 @@ function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
       return dropPermission(next, typeof d.id === 'string' ? d.id : '', e.job ?? (typeof d.slug === 'string' ? d.slug : null));
     case 'rules':
       next.rulesVersion = state.rulesVersion + 1;
+      return next;
+    case 'play':
+      next.playVersion = state.playVersion + 1;
       return next;
     case 'settings':
       // Your permission settings (global, per job, auto mode's availability), sent whole.

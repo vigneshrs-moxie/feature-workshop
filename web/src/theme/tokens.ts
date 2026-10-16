@@ -177,9 +177,13 @@ export function semanticTokens(): Record<string, string> {
  *   materials: skin, ink (faces), feet, shadow, glass, metal, wood, paper, shine, the tools' own colours
  *   --crew-c-*: the 14 paint colours the crew wear (each member's body and hat pick two, play.css)
  *   --crew-shade-base: what the paints' shades are mixed toward; --crew-font: the sleeping z's
+ *   --crew-silhouette, --crew-silhouette-line: a member not met yet (the Crew-dex), mixed from the
+ *     theme's own text and card colours so it reads in every theme
  */
 export const CREW_TOKENS: Record<string, string> = {
   'crew-shade-base': '#000000',
+  'crew-silhouette': 'color-mix(in srgb, var(--text-1) 24%, var(--bg-2))',
+  'crew-silhouette-line': 'color-mix(in srgb, var(--text-1) 42%, var(--bg-2))',
   'crew-font': 'ui-rounded, system-ui, sans-serif',
   'crew-skin': '#f6d6ae',
   'crew-skin-shade': '#dcae7c',

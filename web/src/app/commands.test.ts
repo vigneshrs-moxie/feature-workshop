@@ -11,7 +11,7 @@ const classic = { home: () => '/#/', job: (s: string) => `/#/job/${s}`, costs: (
 function handlers(): CommandHandlers {
   return {
     openJob: vi.fn(), newJob: vi.fn(), stop: vi.fn(), focusComposer: vi.fn(), markDone: vi.fn(), reopen: vi.fn(),
-    setPolicy: vi.fn(), jobDrawer: vi.fn(), openDocs: vi.fn(), settings: vi.fn(), classic: vi.fn(), showKeys: vi.fn(),
+    setPolicy: vi.fn(), jobDrawer: vi.fn(), openDocs: vi.fn(), settings: vi.fn(), crewDex: vi.fn(), classic: vi.fn(), showKeys: vi.fn(),
   };
 }
 
@@ -106,6 +106,21 @@ describe('commandsFor', () => {
   it('leaves Settings out while you’re on it', () => {
     const list = commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: true, classic }, handlers());
     expect(ids(list)).not.toContain('settings');
+  });
+
+  it('offers the Crew-dex only with Play on, and not while you’re on it', () => {
+    const h = handlers();
+    const on = commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: true, classic }, h);
+    const entry = on.find((c) => c.id === 'crew-dex')!;
+    expect(entry.label).toBe('Crew-dex');
+    expect(entry.section).toBe('Go to');
+    expect(entry.hint).toBeTruthy();
+    expect(ids(filterCommands(on, 'crew'))).toEqual(['crew-dex']);
+    entry.run();
+    expect(h.crewDex).toHaveBeenCalledTimes(1);
+    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: false, classic }, h))).not.toContain('crew-dex');
+    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, classic }, h))).not.toContain('crew-dex');
+    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: true, onCrew: true, classic }, h))).not.toContain('crew-dex');
   });
 });
 

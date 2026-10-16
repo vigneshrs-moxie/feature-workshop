@@ -108,6 +108,39 @@ export function crewRarity(type: string, crewModels?: Record<string, { model: st
   return rarityOf(crewModels?.[type]?.model) ?? FAMILY_RARITY[crewInfo(type).model];
 }
 
+/** The review lenses (lib/options.js REVIEWERS): the Head inspector and the seven feature-review-* types. */
+export const isLensType = (type: string) => type === 'feature-reviewer' || type.startsWith('feature-review-');
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/**
+ * A model's friendly name: the dashboard's own label when it has one (choices: meta.models and
+ * meta.jobOptions.models.choices), else made from the id ("claude-sonnet-5-5" → "Sonnet 5.5",
+ * "haiku" → "Haiku"), else the id itself. Null for no model.
+ */
+export function modelName(model: string | null | undefined, choices: readonly { id: string; label: string }[] = []): string | null {
+  if (!model) return null;
+  const known = choices.find((c) => c.id === model);
+  if (known) return known.label;
+  const m = /(fable|opus|sonnet|haiku)(?:[-_ ]?(\d+)(?:[-.](\d+))?)?/i.exec(model);
+  if (!m) return model;
+  return [cap(m[1].toLowerCase()), m[2] ? `${m[2]}${m[3] ? `.${m[3]}` : ''}` : ''].filter(Boolean).join(' ');
+}
+
+/**
+ * The model a crew member runs on, by name: the Foreman is Opus at every level (the everyday choice,
+ * models[0]) unless you pick another for a job; everyone else from their agent file
+ * (meta.crewModels), else the family they usually run on.
+ */
+export function crewModelName(
+  type: string,
+  meta: { models?: readonly { id: string; label: string }[]; crewModels?: Record<string, { model: string | null } | undefined>; jobOptions?: { models?: { choices?: readonly { id: string; label: string }[] } } } | null | undefined,
+): string {
+  const choices = [...(meta?.models ?? []), ...(meta?.jobOptions?.models?.choices ?? [])];
+  if (type === 'conductor') return modelName(meta?.models?.[0]?.id, choices) ?? 'Opus';
+  return modelName(meta?.crewModels?.[type]?.model, choices) ?? cap(crewInfo(type).model);
+}
+
 /** The character who stands at each stage. */
 export const STAGE_CHARACTER: Record<string, string> = {
   spec: 'feature-spec-writer', refine: 'feature-spec-writer', investigate: 'feature-investigator',

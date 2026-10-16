@@ -116,6 +116,8 @@
   --font-heading: var(--font-display);
   --row-alt: var(--border-1);
   --crew-shade-base: #000000;
+  --crew-silhouette: color-mix(in srgb, var(--text-1) 24%, var(--bg-2));
+  --crew-silhouette-line: color-mix(in srgb, var(--text-1) 42%, var(--bg-2));
   --crew-font: ui-rounded, system-ui, sans-serif;
   --crew-skin: #f6d6ae;
   --crew-skin-shade: #dcae7c;

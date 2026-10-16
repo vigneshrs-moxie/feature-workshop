@@ -616,6 +616,20 @@ export function ledgerView(ledger, play = PLAY_DEFAULTS) {
       blockers: findings[type]?.blockers ?? 0, majors: findings[type]?.majors ?? 0,
     };
   }
+  // The Foreman is never dispatched itself: it hands the work out. Its jobs are every job its crew
+  // worked on, its dispatches the work it handed out, and it was last seen when they were.
+  if (crew.conductor) {
+    const keys = new Set(Object.keys(l.crew.conductor.jobs ?? {}));
+    let handedOut = 0;
+    for (const type of CREW_TYPES) {
+      if (type === 'conductor' || !crew[type]) continue;
+      for (const k of Object.keys(l.crew[type].jobs ?? {})) keys.add(k);
+      handedOut += crew[type].dispatches;
+      crew.conductor.lastSeen = maxAt(crew.conductor.lastSeen, crew[type].lastSeen);
+    }
+    crew.conductor.jobs = keys.size;
+    crew.conductor.dispatches = handedOut;
+  }
   const quests = Object.values(l.quests ?? {}).sort((a, b) => ms(b.doneAt) - ms(a.doneAt));
   const achievements = ACHIEVEMENTS
     .filter((a) => !a.secret || l.achievements?.[a.id])

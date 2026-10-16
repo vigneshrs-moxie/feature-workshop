@@ -18,10 +18,12 @@ import { CloseJobSheet } from '../views/JobSheets/CloseJobSheet';
 import { KeysSheet } from '../views/JobSheets/KeysSheet';
 import { NewJobSheet } from '../views/JobSheets/NewJobSheet';
 import { SettingsView } from '../views/Settings/SettingsView';
+import { CrewDexView } from '../views/CrewDex/CrewDexView';
+import { usePlay } from '../play/usePlay';
 import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
 import { reopenJob, setJobPolicy, stopRun } from './jobActions';
 import { dialogOpen, paletteKeyLabel, usePageKeys } from './keys';
-import { classicHref, navigate, settingsHref, useRoute, type Route } from './router';
+import { classicHref, crewDexHref, navigate, settingsHref, useRoute, type Route } from './router';
 import { UiProvider, useUi, type SheetState } from './ui';
 
 /** Put the cursor in the message box at the foot of the Foreman pane. */
@@ -35,9 +37,10 @@ const CONNECTION: Record<Connection, { label: string; hint: string }> = {
   reconnecting: { label: 'Reconnecting…', hint: 'The connection to the dashboard dropped. This page catches up by itself when it’s back.' },
 };
 
-function TopBar({ onRetry }: { onRetry: () => void }) {
+function TopBar({ onRetry, onCrew = false }: { onRetry: () => void; onCrew?: boolean }) {
   const state = useWorkshopState();
   const ui = useUi();
+  const play = usePlay();
   const needs = needsYouCount(state);
   const conn = CONNECTION[state.connection];
   return (
@@ -72,6 +75,9 @@ function TopBar({ onRetry }: { onRetry: () => void }) {
       {state.error && state.status === 'ready' && (
         <button type="button" className="btn btn-quiet" onClick={onRetry} title="Fetch everything from the dashboard again now.">Refresh</button>
       )}
+      {play.on && (
+        <a className="btn btn-quiet" href={crewDexHref()} aria-current={onCrew ? 'page' : undefined} title="The Crew-dex: every crew member, who you have met and what they have done on your jobs (Play mode).">Crew-dex</a>
+      )}
       <a className="btn btn-quiet" href={settingsHref()} title="Your settings: the “Always allow” rules you’ve saved, and removing them.">Settings</a>
       <a className="btn btn-quiet" href={classicHref.home()} title="Open the classic Feature Workshop page.">Classic view</a>
     </header>
@@ -83,6 +89,7 @@ function Sheets({ route }: { route: Route }) {
   const { api, store } = useWorkshop();
   const state = useWorkshopState();
   const ui = useUi();
+  const play = usePlay();
   const [problem, setProblem] = useState<string | null>(null);
   const slug = route.name === 'job' ? route.slug : null;
 
@@ -100,6 +107,7 @@ function Sheets({ route }: { route: Route }) {
     openDocs: () => setTimeout(ui.openDocs, 0),
     setPolicy: (s, policy: PolicyId | null) => attempt(setJobPolicy(api, store, s, ui.current?.slug === s ? ui.current.dir : null, policy)),
     settings: () => navigate({ name: 'settings' }),
+    crewDex: () => navigate({ name: 'crew' }),
     classic: (href) => { window.location.href = href; },
     showKeys: () => ui.openSheet({ kind: 'keys' }),
   };
@@ -134,7 +142,7 @@ function Sheets({ route }: { route: Route }) {
       )}
       {sheet?.kind === 'palette' && (
         <CommandPalette
-          commands={commandsFor({ state, slug, current: ui.current, onSettings: route.name === 'settings', classic: classicHref }, handlers)}
+          commands={commandsFor({ state, slug, current: ui.current, onSettings: route.name === 'settings', onCrew: route.name === 'crew', play: play.on, classic: classicHref }, handlers)}
           onClose={ui.closeSheet}
         />
       )}
@@ -150,8 +158,11 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   const state = useWorkshopState();
   const route = useRoute();
   const [rail] = useJobsRail();
+  const play = usePlay();
   useAlerts(state);
   const slug = route.name === 'job' ? route.slug : null;
+  // The Crew-dex is part of Play: with Play mode Off, #/crew shows the same as #/.
+  const crew = route.name === 'crew' && play.on;
   if (state.status !== 'ready') {
     return (
       <div className="app">
@@ -174,12 +185,12 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   }
   return (
     <div className="app">
-      <TopBar onRetry={onRetry} />
+      <TopBar onRetry={onRetry} onCrew={crew} />
       <div className="banner-slot"><UsageBanner /></div>
       <Sheets route={route} />
       <div className={rail ? 'panes panes-rail' : 'panes'}>
         <JobsPane selected={slug} />
-        {route.name === 'settings' ? <SettingsView /> : <ForemanPane slug={slug} />}
+        {route.name === 'settings' ? <SettingsView /> : crew ? <CrewDexView /> : <ForemanPane slug={slug} />}
         <PreviewPane slug={slug} />
       </div>
     </div>

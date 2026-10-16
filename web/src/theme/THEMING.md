@@ -87,6 +87,8 @@ restyles them in its own file.
   wears two (body `--crew-paint`, hat `--crew-hat`, set in `play.css`); shades are mixed from them
   toward `--crew-shade-base` (black by default).
 - Type: `--crew-font` (the sleeping z's).
+- Not met yet (the Crew-dex's silhouettes): `--crew-silhouette` (every painted part) and
+  `--crew-silhouette-line` (the soft outline), mixed from the theme's `--text-1` and `--bg-2` by default.
 - Keep the needs-you hue off the crew: it stays the only thing on screen in that colour.
 
 ## Hooks
@@ -101,7 +103,8 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `data-group` | `.job-row`, `.job-rail-item`, `.job-status`, `.job-group`, `.job-group-title`, `.rail-group`, the header `.status` pill | `needs-you` `running` `paused` `idle` `done` |
 | `data-ask` | `.perm-card` (permission and question cards), `.blocked-line` | `permission` `question` `hardline` `blocked` |
 | `data-stage` | `.stage-chip` | `spec` `investigate` `plan` `build` `test` `review` |
-| `data-pane` | the three panes (`.pane`) | `jobs` `foreman` `preview`, and `settings` when Settings fills the middle |
+| `data-pane` | the three panes (`.pane`) | `jobs` `foreman` `preview`, `settings` when Settings fills the middle, `crew` for the Crew-dex |
+| `data-crew` | `.crew`, `.dex-card` | the crew member's agent type (`conductor`, `feature-tester`…) |
 
 ### Class names
 
@@ -143,8 +146,9 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `.theme-picker`, `.theme-option`, `.theme-hint` | the theme picker in Settings |
 | `.btn`, `.btn-primary`, `.btn-danger`, `.btn-quiet`, `.chip`, `.kbd`, `.text-input`, `.text-area`, `.select` | controls |
 | `.how` | a "How this works" fold |
-| `.crew` | a crew member (an inline `svg`): `.crew-<agent type>`, `.is-<state>` (`working` `waiting` `idle` `asleep` `celebrating` `walking` `thinking`), `.m-<motion>` (`strike` `write` `scan` `shake`), `.is-animated` (Full mode) or `.is-still`; parts `.rig`, `.head`, `.hat`, `.arm-l`, `.arm-r`, `.tool` (`.grip` inside), `.feet`, `.shadow`, `.fx`. Restyle colours through `--crew-*` only |
+| `.crew` | a crew member (an inline `svg`): `.crew-<agent type>`, `.is-<state>` (`working` `waiting` `idle` `asleep` `celebrating` `walking` `thinking`), `.m-<motion>` (`strike` `write` `scan` `shake`), `.is-animated` (Full mode) or `.is-still`; parts `.rig`, `.head`, `.hat`, `.arm-l`, `.arm-r`, `.tool` (`.grip` inside), `.feet`, `.shadow`, `.fx`; `.is-silhouette` when not met yet. Restyle colours through `--crew-*` only |
 | `.crew-tag`, `.crew-handoff`, `.crew-lineup`, `.live-crew`, `.foreman-face` | the crew in the conversation (Play on): a character with its name on a thread line, the workers a routine-steps line handed work to, a review brief's reviewers, who is at work in the live row, the Foreman by the job title. Never inside a gate card, a permission card or the composer |
+| `.crew-dex` | the Crew-dex (Play on): `.dex-counts` (crew met, secrets found, `.dex-achievements`), `.dex-grid`, `.dex-card` (`.is-met` or `.is-unmet`, `.is-flipped`, `.rarity-common` `-uncommon` `-rare` `-legendary`), `.dex-card-inner`, `.dex-face` (`.dex-front`, `.dex-back`), `.dex-card-top`, `.dex-no`, `.dex-rarity` (a `.chip`; its dot is `--dex-rarity`), `.dex-portrait`, `.dex-name`, `.dex-role`, `.dex-model`, `.dex-stats`, `.dex-unmet-note`, `.dex-bio`, `.dex-first`, `.dex-flip` (the Card back toggle, `aria-pressed`) |
 | `.play-settings` | Settings → Play (`.play-options`, `.play-quest-done`, `.play-legend`, `.play-sounds` with `.is-off` outside Full mode) |
 | `.toast` | the error toast |
 
