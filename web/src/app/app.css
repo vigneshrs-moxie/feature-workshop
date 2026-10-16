@@ -516,7 +516,8 @@ a:hover { text-decoration: underline; }
 .drawer-confirm { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) var(--space-4) 0; padding: var(--space-2) var(--space-3); }
 .drawer-confirm p { margin: 0; }
 .drawer-confirm-actions { display: flex; gap: var(--space-2); }
-.drawer-body { flex: 1; min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4) var(--space-4); }
+/* Extra room at the bottom so the sticky Save row never sits over the last rows. */
+.drawer-body { flex: 1; min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4) var(--space-10); }
 .drawer-body > .how { margin-top: var(--space-4); }
 .drawer-hint { margin: 0 0 var(--space-3); font-size: var(--text-sm); }
 .drawer-notes-input { min-height: 240px; font-family: var(--font-mono); font-size: var(--text-sm); }
@@ -538,9 +539,14 @@ a:hover { text-decoration: underline; }
 .drawer-models { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--space-2); }
 .drawer-model { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); }
 .drawer-model-label { color: var(--text-2); }
+.drawer-model-value { padding: var(--space-1) 0; color: var(--text-1); font-weight: var(--weight-medium); }
+.drawer-model-note { font-size: var(--text-xs); }
+/* A save refused because the options changed elsewhere: a full-width row in the sticky Save row. */
+.drawer-conflict { display: flex; flex: 1 0 100%; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--status-warn); border-radius: var(--radius-md); background: var(--status-warn-bg); font-size: var(--text-sm); }
+.drawer-conflict span { flex: 1 1 200px; }
 .drawer-provided { display: flex; flex-direction: column; gap: var(--space-1); margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
 .drawer-provided code { overflow-wrap: anywhere; color: var(--text-2); }
-.drawer-foot { position: sticky; bottom: calc(-1 * var(--space-4)); z-index: 1; margin: 0 calc(-1 * var(--space-4)); padding: var(--space-2) var(--space-4); border-top: 1px solid var(--border-1); background: var(--bg-2); }
+.drawer-foot { position: sticky; bottom: calc(-1 * var(--space-10)); z-index: 1; margin: 0 calc(-1 * var(--space-4)); padding: var(--space-2) var(--space-4); border-top: 1px solid var(--border-1); background: var(--bg-2); }
 .drawer-summary { margin-top: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--status-ok); border-radius: var(--radius-md); background: var(--status-ok-bg); font-size: var(--text-sm); }
 .drawer-summary p { margin: 0 0 var(--space-1); }
 .drawer-summary ul { margin: 0; padding-left: var(--space-4); list-style: disc; }

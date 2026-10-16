@@ -68,9 +68,11 @@ export async function setJobLevel(api: ApiClient, slug: string, level: LevelNumb
  * Save a job's whole options from the options editor (POST /api/job/:slug/options { options }).
  * The dashboard checks and tidies them (lib/options.js normalize) and answers with the options as
  * saved and the plain lines describing them; a refusal (400, with a plain message) throws an ApiError.
+ * updatedAt: the options' updated_at as loaded (null: they had none). When given, the dashboard
+ * refuses the save (409, code 'options-changed') if they changed since.
  */
-export async function saveJobOptions(api: ApiClient, slug: string, options: JobOptions): Promise<OptionsResult> {
-  return api.post<OptionsResult>(`${job(slug)}/options`, { options });
+export async function saveJobOptions(api: ApiClient, slug: string, options: JobOptions, updatedAt?: string | null): Promise<OptionsResult> {
+  return api.post<OptionsResult>(`${job(slug)}/options`, { options, ...(updatedAt !== undefined ? { updated_at: updatedAt } : {}) });
 }
 
 /** A job's notes.md (empty text when it has none yet). */

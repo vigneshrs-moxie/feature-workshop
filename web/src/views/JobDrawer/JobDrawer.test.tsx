@@ -8,15 +8,19 @@ import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job, LEVELS, REVIEWERS, snapshot } from '../../state/test-fixtures';
 import { JobDrawer } from './JobDrawer';
 import { NOTES_HINT } from './NotesEditor';
+import { FOREMAN_MODEL_NOTE, OPTIONS_CHANGED } from './OptionsEditor';
 
 // Invented job, notes and paths only.
 const OPUS = 'claude-opus-5-5';
+const FABLE = 'claude-fable-5-1';
 const SONNET = 'claude-sonnet-5-5';
 const HAIKU = 'claude-haiku-5-5';
 const L1: JobOptions = {
   schema_version: 2, level: 1, flow: 'quick', skip: ['spec', 'refine', 'investigate', 'spec-update'], provided: {}, reviewers: ['feature-reviewer'],
   review_rounds: 2, manual_test: true, fable_checks: [], models: { foreman: OPUS, build: OPUS, checks: OPUS }, notes: 'Keep it small.',
+  updated_at: '2026-10-16T09:00:00.000Z',
 };
+const LOADED = L1.updated_at;
 const LISTS = {
   reviewers: REVIEWERS.map((r) => ({ ...r, what: r.id === 'feature-review-permissions' ? 'who can see and do what' : 'its area' })),
   models: {
@@ -32,11 +36,13 @@ interface Setup {
   post?: ReturnType<typeof vi.fn>;
   put?: ReturnType<typeof vi.fn>;
   tab?: 'notes' | 'options';
+  /** The job's current stage. */
+  stage?: string;
 }
 
-function setup({ options = L1, notes = { text: 'Ask before renaming the API.', updatedAt: null }, post, put, tab }: Setup = {}) {
+function setup({ options = L1, notes = { text: 'Ask before renaming the API.', updatedAt: null }, post, put, tab, stage }: Setup = {}) {
   const store: Store = createStore();
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS, jobOptions: LISTS }, jobs: [job('alpha', 'idle', { level: 1 })] }) });
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS, jobOptions: LISTS }, jobs: [job('alpha', 'idle', { level: 1, ...(stage ? { stage } : {}) })] }) });
   const detail: JobDetail = { slug: 'alpha', thread: [], threadMore: false, level: 1, options };
   const get = vi.fn(async (path: string) => {
     if (path === '/api/job/alpha/notes') { if (notes instanceof Error) throw notes; return notes; }
@@ -211,9 +217,14 @@ describe('Job drawer · options', () => {
     expect(screen.getByRole('checkbox', { name: /^Head inspector/ })).toBeChecked();
     expect(screen.getByRole('radio', { name: '2' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'I test it by hand before review' })).toBeChecked();
-    expect(screen.getByRole('combobox', { name: /Foreman/ })).toHaveValue(OPUS);
+    // The Foreman's model is shown, not edited: it is used only when the job starts.
+    expect(screen.queryByRole('combobox', { name: /Foreman/ })).toBeNull();
+    const foreman = panel.querySelector('.drawer-model')!;
+    expect(foreman).toHaveTextContent('Foreman');
+    expect(foreman).toHaveTextContent('Opus 5.5');
+    expect(foreman).toHaveTextContent(FOREMAN_MODEL_NOTE);
+    expect(FOREMAN_MODEL_NOTE).toBe('Set when the job started; change it with the Foreman model menu under the message box.');
     expect(within(screen.getByRole('combobox', { name: /Checks/ })).getAllByRole('option').map((o) => o.textContent)).toEqual(['Opus 5.5', 'Fable 5.1', 'Sonnet 5.5', 'Haiku 5.5']);
-    expect(within(screen.getByRole('combobox', { name: /Foreman/ })).getAllByRole('option').map((o) => o.textContent)).toEqual(['Opus 5.5', 'Fable 5.1', 'Haiku 5.5']);
     expect(screen.getByRole('textbox', { name: 'Process notes' })).toHaveValue('Keep it small.');
     const save = screen.getByRole('button', { name: 'Save options' });
     expect(save).toBeDisabled();
@@ -234,6 +245,7 @@ describe('Job drawer · options', () => {
         reviewers: ['feature-reviewer', 'feature-review-permissions'], review_rounds: 3, manual_test: true,
         fable_checks: ['pr'], models: { foreman: OPUS, build: OPUS, checks: HAIKU }, notes: 'Keep it small.',
       },
+      updated_at: LOADED, // the options' updated_at as loaded, so a change made elsewhere isn't overwritten
     });
     const summary = screen.getByText(/The Foreman reads this from its next stage/).closest('.drawer-summary')!;
     expect(summary).toHaveTextContent('Reviewers: Head inspector, at most 3 fix rounds.');
@@ -262,7 +274,54 @@ describe('Job drawer · options', () => {
         level: 2, skip: ['refine'], provided: {}, reviewers: 'auto', review_rounds: 1, manual_test: true,
         fable_checks: [], models: { foreman: OPUS, build: OPUS, checks: SONNET }, notes: 'Keep it small.',
       },
+      updated_at: LOADED,
     });
+  });
+
+  it('a new level keeps your own testing choice and models (ones not the old level’s default), like the level chips; the Foreman’s model is posted unchanged', async () => {
+    // Not testing it yourself and a Sonnet build are this L1 job's own choices; Opus checks are L1's default.
+    const { post } = await openOptions({ options: { ...L1, manual_test: false, models: { foreman: FABLE, build: SONNET, checks: OPUS } } });
+    fireEvent.click(screen.getByRole('radio', { name: /^L2 Standard/ }));
+    expect(screen.getByRole('checkbox', { name: 'I test it by hand before review' })).not.toBeChecked();
+    expect(screen.getByRole('combobox', { name: /Build/ })).toHaveValue(SONNET);
+    expect(screen.getByRole('combobox', { name: /Checks/ })).toHaveValue(SONNET); // follows L2
+    fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1].options).toMatchObject({ level: 2, manual_test: false, models: { foreman: FABLE, build: SONNET, checks: SONNET } });
+    // Reset puts the level's own defaults back, except the Foreman's model.
+    fireEvent.click(await screen.findByRole('radio', { name: /^L3 Large/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to level defaults' }));
+    expect(screen.getByRole('checkbox', { name: 'I test it by hand before review' })).toBeChecked();
+    expect(screen.getByRole('combobox', { name: /Build/ })).toHaveValue(OPUS);
+    fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    expect(post.mock.calls[1][1].options.models).toEqual({ foreman: FABLE, build: OPUS, checks: SONNET });
+  });
+
+  it('what a level change adds leaves out the stages the job has finished', async () => {
+    await openOptions({ options: { ...L1, level: 2, skip: ['refine'], reviewers: 'auto' }, stage: 'plan' });
+    fireEvent.click(screen.getByRole('radio', { name: /^L3 Large/ }));
+    const line = screen.getByText(/^If you save: L2→L3 adds:/);
+    expect(line).toHaveTextContent('Fable at plan + review');
+    expect(line).not.toHaveTextContent('product interview');
+  });
+
+  it('a save after the options changed elsewhere is refused: it says so, keeps your edits, and Reload loads them as saved', async () => {
+    const post = vi.fn(async () => { throw new ApiError(409, 'These options changed elsewhere since you opened them.', { code: 'options-changed' }); });
+    const { get } = await openOptions({ post });
+    fireEvent.click(screen.getByRole('radio', { name: '3' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
+    const alert = await within(screen.getByRole('tabpanel', { name: 'Options' })).findByRole('alert');
+    expect(alert).toHaveTextContent(OPTIONS_CHANGED);
+    expect(OPTIONS_CHANGED).toBe('These options changed elsewhere since you opened them. Reload to see them (your edits will be lost) or keep editing.');
+    expect(screen.getByRole('radio', { name: '3' })).toBeChecked(); // your edits stay
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+    const loads = get.mock.calls.filter(([p]) => p === '/api/job/alpha').length;
+    fireEvent.click(within(alert).getByRole('button', { name: 'Reload' }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: '2' })).toBeChecked());
+    expect(get.mock.calls.filter(([p]) => p === '/api/job/alpha').length).toBe(loads + 1);
+    expect(within(screen.getByRole('tabpanel', { name: 'Options' })).queryByRole('alert')).toBeNull();
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
   });
 
   it('shows the dashboard’s refusal inline and keeps your changes', async () => {

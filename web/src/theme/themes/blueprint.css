@@ -344,8 +344,10 @@ html[data-theme="blueprint"] .perm-card .btn-quiet { color: var(--bp-ink-2); }
 html[data-theme="blueprint"] .perm-card .btn-quiet:hover { background: var(--bp-ink-tint); color: var(--bp-ink); }
 html[data-theme="blueprint"] .perm-card .btn:not(.btn-quiet):not(.btn-danger) { background: var(--bg-2); border-color: var(--bg-2); color: var(--bp-chalk); }
 html[data-theme="blueprint"] .perm-card .btn:not(.btn-quiet):not(.btn-danger):hover { background: var(--bg-3); }
-html[data-theme="blueprint"] .perm-card .btn-primary { background: var(--bg-0); border-color: var(--bg-0); color: var(--bp-chalk); }
-html[data-theme="blueprint"] .perm-card .btn-primary:hover { background: var(--bg-2); }
+/* The main action on a card: the light blue accent with a navy rule, so it never reads as one of the navy buttons beside it. */
+/* (As specific as the navy rule above, so it wins.) */
+html[data-theme="blueprint"] .perm-card .btn.btn-primary:not(.btn-quiet):not(.btn-danger) { background: var(--accent); border-color: var(--bg-0); color: var(--on-accent); font-weight: var(--weight-bold); box-shadow: inset 0 0 0 1px var(--bg-0); }
+html[data-theme="blueprint"] .perm-card .btn.btn-primary:not(.btn-quiet):not(.btn-danger):hover { background: var(--accent-strong); }
 html[data-theme="blueprint"] .answer-option:hover { background: var(--bp-ink-tint); }
 html[data-theme="blueprint"] .answer-option input { accent-color: var(--bg-0); }
 html[data-theme="blueprint"] .perm-card .text-input { background: var(--bg-1); border-color: var(--bg-1); color: var(--bp-chalk); }
@@ -386,7 +388,8 @@ html[data-theme="blueprint"] .text-input, html[data-theme="blueprint"] .select {
 html[data-theme="blueprint"] .btn { border-color: var(--bp-chalk-2); background: oklch(1 0 0 / .07); }
 html[data-theme="blueprint"] .btn:hover { background: oklch(1 0 0 / .14); }
 html[data-theme="blueprint"] .btn-quiet { border-color: transparent; background: transparent; }
-html[data-theme="blueprint"] .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+/* The primary action, everywhere: light blue accent, bold, with a navy rule inside (as on the cards and sheets). */
+html[data-theme="blueprint"] .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: var(--weight-bold); box-shadow: inset 0 0 0 1px var(--bg-0); }
 html[data-theme="blueprint"] .btn-primary:hover { background: var(--accent-strong); }
 html[data-theme="blueprint"] .btn-danger { background: transparent; border-color: var(--status-error); }
 html[data-theme="blueprint"] .composer-note { color: var(--text-2); }
@@ -432,8 +435,8 @@ html[data-theme="blueprint"] .sheet .text-input, html[data-theme="blueprint"] .s
 html[data-theme="blueprint"] .sheet .text-area { background-image: repeating-linear-gradient(transparent 0 20px, oklch(1 0 0 / .1) 20px 21px); }
 html[data-theme="blueprint"] .sheet .btn, html[data-theme="blueprint"] .palette .btn { background: var(--bg-2); border-color: var(--bg-2); color: var(--bp-chalk); }
 html[data-theme="blueprint"] .sheet .btn:hover, html[data-theme="blueprint"] .palette .btn:hover { background: var(--bg-3); }
-html[data-theme="blueprint"] .sheet .btn-primary { background: var(--bg-0); border-color: var(--bg-0); color: var(--bp-chalk); }
-html[data-theme="blueprint"] .sheet .btn-primary:hover { background: var(--bg-2); }
+html[data-theme="blueprint"] .sheet .btn-primary { background: var(--accent); border-color: var(--bg-0); color: var(--on-accent); font-weight: var(--weight-bold); box-shadow: inset 0 0 0 1px var(--bg-0); }
+html[data-theme="blueprint"] .sheet .btn-primary:hover { background: var(--accent-strong); }
 html[data-theme="blueprint"] .sheet .btn-quiet { background: transparent; border-color: transparent; color: var(--bp-ink-2); }
 html[data-theme="blueprint"] .sheet .btn-quiet:hover { background: var(--bp-ink-tint); color: var(--bp-ink); }
 html[data-theme="blueprint"] .sheet .btn-danger { background: transparent; border-color: var(--bp-red); color: var(--bp-red-ink); }

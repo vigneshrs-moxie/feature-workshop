@@ -32,7 +32,9 @@ export function LevelCard({ job, detail }: { job: Job; detail: JobDetail | null 
   const [dismissed, setDismissed] = useStored(levelCardKey(job.slug));
   const view = levelCardView(facts, dismissed);
   const chosen = isLevel(facts.level) ? facts.level : null;
-  const choice = useSetLevel(job.slug, chosen);
+  // The stage the job is at: what moving adds or drops leaves out the stages already finished.
+  const stage = job.stage ?? detail?.gate?.stage ?? null;
+  const choice = useSetLevel(job.slug, chosen, stage);
 
   if (!view.show && !choice.done) return null;
 
@@ -42,7 +44,7 @@ export function LevelCard({ job, detail }: { job: Job; detail: JobDetail | null 
   const target = view.target;
   // With no level yet and the rules saying something else than the Foreman, both are offered.
   const other = chosen === null && rules && isLevel(rules.level) && rules.level !== target ? rules.level : null;
-  const consequence = (to: LevelNumber) => levelChange(chosen, to, levels, names).text;
+  const consequence = (to: LevelNumber) => levelChange(chosen, to, levels, names, stage).text;
   const headId = `level-card-${job.slug}`;
 
   return (

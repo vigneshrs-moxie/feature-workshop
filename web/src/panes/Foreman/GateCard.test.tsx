@@ -192,9 +192,18 @@ describe('GateCard', () => {
     fireEvent.click(button('I’ll do this part (Build)'));
     const lines = card()!.querySelector('.gate-lines-text')!;
     expect(lines.textContent).toBe("Option change for the next step: I'll do implement myself\nOption change for the next step: level L2 (was L1)");
-    expect(card()).toHaveTextContent('L1→L2 adds: spec, investigation, spec update, tester, Locksmith + Gauge + Stickler lenses.');
+    // At a plan gate the spec stages are behind the job, so they aren't named.
+    expect(card()).toHaveTextContent('L1→L2 adds: tester, Locksmith + Gauge + Stickler lenses.');
+    expect(card()).not.toHaveTextContent('spec update');
     fireEvent.click(button('Raise the level to L2'));
     expect(lines.textContent).toBe("Option change for the next step: I'll do implement myself");
+  });
+
+  it('at a plan gate, L2→L3 leaves out the product interview (already behind the job) and names what is still ahead', () => {
+    setup({ det: detail({ level: 2 }, { options: { level: 2 } }), jobExtra: { level: 2 } });
+    fireEvent.click(button('Raise the level to L3'));
+    expect(card()).toHaveTextContent('L2→L3 adds: Fable at plan + review, Fuse + Mason + Stopwatch + Painter lenses.');
+    expect(card()).not.toHaveTextContent('product interview');
   });
 
   it('chips that don’t apply are off, with a hint saying why', () => {

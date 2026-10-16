@@ -16,7 +16,8 @@ export interface SetLevel {
   clear(): void;
 }
 
-export function useSetLevel(slug: string, from: LevelNumber | null): SetLevel {
+/** stage: the job's current stage (finished stages are left out of what the change adds or drops). */
+export function useSetLevel(slug: string, from: LevelNumber | null, stage: string | null = null): SetLevel {
   const { api } = useWorkshop();
   const { meta } = useWorkshopState();
   const [busy, setBusy] = useState(false);
@@ -28,7 +29,7 @@ export function useSetLevel(slug: string, from: LevelNumber | null): SetLevel {
     setError(null);
     try {
       await setJobLevel(api, slug, level);
-      const change = levelChange(from, level, meta?.levels, lensNames(meta));
+      const change = levelChange(from, level, meta?.levels, lensNames(meta), stage);
       setDone(`Level set to ${levelLabel(level, meta?.levels)}, from the next stage. ${change.text}.`);
       return true;
     } catch (err) {

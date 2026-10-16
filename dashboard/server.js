@@ -1054,6 +1054,13 @@ async function routePost(urlPath, req, res) {
   if ((m = /^\/api\/job\/([^/]+)\/options$/.exec(urlPath))) {
     const f = await featureBySlug(m[1]);
     if (!f) throw new HttpError(404, 'No job by that name.');
+    // The new UI's options editor sends the updated_at it loaded (null: the job had none), so a
+    // change made elsewhere since (a gate chip, the level chip, the classic page) isn't overwritten.
+    // The classic page sends none and saves as before.
+    if (Object.hasOwn(body, 'updated_at')) {
+      const now = (await readOptions(f.dir))?.updated_at ?? null;
+      if (now !== (body.updated_at ?? null)) throw new HttpError(409, 'These options changed elsewhere since you opened them.', { code: 'options-changed' });
+    }
     let options;
     if (body.options === undefined && body.level !== undefined) {
       // A level on its own (the header's level chip, the LevelCard): merged here with the job's
@@ -1063,11 +1070,11 @@ async function routePost(urlPath, req, res) {
     } else {
       try { options = normalizeOptions(body.options ?? {}, { previous: f.options }); } catch (err) { throw new HttpError(400, err.message); }
     }
-    await writeOptions(f.dir, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
+    const updatedAt = await writeOptions(f.dir, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
     // was: the level before, so the conversation can say "Level changed from L2 Standard to L3 Large".
     await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options, was: f.options?.level ?? null });
     cached = null;
-    return sendJson(res, 200, { ok: true, options, summary: describeOptions(options) });
+    return sendJson(res, 200, { ok: true, options, summary: describeOptions(options), updated_at: updatedAt });
   }
   if ((m = /^\/api\/job\/([^/]+)\/local$/.exec(urlPath))) {
     const f = await featureBySlug(m[1]);

@@ -76,13 +76,30 @@ function lensesAt(info: LevelInfo): string[] {
   return info.reviewers === 'auto' ? USUAL_LENSES : info.reviewers;
 }
 
-/** What runs at a level, as short phrases: stages (in words), you testing it, Fable points, lenses. */
-function parts(info: LevelInfo) {
+/** Every stage in workflow order (dashboard/lib/stages.js), to leave out the ones a job has finished. */
+const WORKFLOW = ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3'];
+// The stage each Fable point belongs to ("pr": before PR #1 opens).
+const FABLE_STAGE: Record<string, string> = { spec: 'spec', plan: 'plan', review: 'review', pr: 'pr1' };
+
+/**
+ * Whether a stage is still to come for a job now at `current`: the current stage and the ones after
+ * it are; the ones before it are finished. No (or an unknown) current stage: every stage is.
+ */
+function stillAhead(current: string | null | undefined) {
+  const at = current ? WORKFLOW.indexOf(current) : -1;
+  return (stage: string) => at < 0 || !WORKFLOW.includes(stage) || WORKFLOW.indexOf(stage) >= at;
+}
+
+/**
+ * What runs at a level, as short phrases: stages (in words), you testing it, Fable points, lenses;
+ * only what is still ahead (you test after the tester; the lenses at review).
+ */
+function parts(info: LevelInfo, ahead: (stage: string) => boolean = () => true) {
   return {
-    stages: Object.keys(STAGE_WORDS).filter((s) => !info.skip.includes(s)).map((s) => stageWord(s, info.level)),
-    manual: Boolean(info.manualTest),
-    fable: info.fable ?? [],
-    lenses: lensesAt(info),
+    stages: Object.keys(STAGE_WORDS).filter((s) => !info.skip.includes(s) && ahead(s)).map((s) => stageWord(s, info.level)),
+    manual: Boolean(info.manualTest) && ahead('test'),
+    fable: (info.fable ?? []).filter((p) => ahead(FABLE_STAGE[p] ?? p)),
+    lenses: ahead('review') ? lensesAt(info) : [],
   };
 }
 
@@ -110,18 +127,22 @@ export interface LevelChange {
  * What moving a job from one level to another adds and drops, by the levels' defaults (stages
  * skipped, you testing it, Fable points, reviewers; 'auto' reviewers count as USUAL_LENSES).
  * from null (no level yet): what the new level runs. Lenses by their friendly names when given.
+ * stage: the job's current stage, for a job under way; stages before it are finished, so what they
+ * would add or drop is left out (at a plan gate, L2→L3 doesn't name the product interview). Leave
+ * it out for a job not started yet (the New job sheet).
  */
-export function levelChange(from: LevelNumber | null, to: LevelNumber, levels: LevelInfo[] | null | undefined, names: Record<string, string> = {}): LevelChange {
+export function levelChange(from: LevelNumber | null, to: LevelNumber, levels: LevelInfo[] | null | undefined, names: Record<string, string> = {}, stage: string | null = null): LevelChange {
   const toInfo = levels?.find((l) => l.level === to);
   const fromInfo = from === null ? null : levels?.find((l) => l.level === from);
+  const ahead = stillAhead(stage);
   if (!toInfo) return { from, to, added: [], dropped: [], text: levelLabel(to, levels) };
   if (from === null || !fromInfo) {
-    const added = phrases(parts(toInfo), names);
+    const added = phrases(parts(toInfo, ahead), names);
     return { from, to, added, dropped: [], text: `${toInfo.label} runs: ${added.join(', ') || 'one build and the checks'}` };
   }
   const noChecks = (p: ReturnType<typeof parts>) => ({ ...p, stages: p.stages.filter((s) => s !== CHECKS) });
-  const a = noChecks(parts(fromInfo));
-  const b = noChecks(parts(toInfo));
+  const a = noChecks(parts(fromInfo, ahead));
+  const b = noChecks(parts(toInfo, ahead));
   const added = phrases({ stages: minus(b.stages, a.stages), manual: b.manual && !a.manual, fable: minus(b.fable, a.fable), lenses: minus(b.lenses, a.lenses) }, names);
   const dropped = phrases({ stages: minus(a.stages, b.stages), manual: a.manual && !b.manual, fable: minus(a.fable, b.fable), lenses: minus(a.lenses, b.lenses) }, names);
   const head = `L${from}→L${to}`;

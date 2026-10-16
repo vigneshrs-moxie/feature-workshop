@@ -115,16 +115,23 @@ export function formFrom(options: JobOptions | null | undefined, jobLevel: Level
   };
 }
 
+/** What carries over when the level changes: always these, and your own testing and models from `from`. */
+export type LevelKeep = Pick<OptionsForm, 'provided' | 'notes' | 'review_rounds'> & { from?: Pick<OptionsForm, 'level' | 'manual_test' | 'models'> };
+
 /**
  * A level's own defaults (meta.levels: stages skipped, reviewers, you testing it, Fable points,
  * models), keeping what isn't the level's: the documents provided (and the stages they skip), the
  * process notes and the fix rounds given in `keep`. No level: the dashboard's defaults for a job
  * the Foreman will size (nothing skipped, the usual reviewers).
+ * keep.from (moving from another level): you testing it and each model are kept only when they are
+ * your own choice, i.e. differ from the OLD level's default; otherwise they follow the new level.
+ * The same rule as the dashboard's optionsAtLevel (the header's level chip and the gate card's L↑/L↓),
+ * so all three behave the same. Without it (Reset to level defaults) everything is the level's.
  */
-export function levelDefaults(level: LevelNumber | null, levels: LevelInfo[] | null | undefined, lists: OptionLists, keep: Pick<OptionsForm, 'provided' | 'notes' | 'review_rounds'>): OptionsForm {
+export function levelDefaults(level: LevelNumber | null, levels: LevelInfo[] | null | undefined, lists: OptionLists, keep: LevelKeep): OptionsForm {
   const info = level === null ? null : levels?.find((l) => l.level === level) ?? null;
   const skip = [...(info?.skip ?? []), ...providedSkips(keep.provided, lists)];
-  return {
+  const out: OptionsForm = {
     level,
     flow: info?.flow ?? 'auto',
     skip: inOrder(skip, lists),
@@ -136,6 +143,12 @@ export function levelDefaults(level: LevelNumber | null, levels: LevelInfo[] | n
     models: { ...DEFAULT_MODELS, ...(info?.models ?? {}) },
     notes: keep.notes,
   };
+  if (keep.from) {
+    const old = levelDefaults(keep.from.level, levels, lists, { provided: {}, notes: '', review_rounds: 1 });
+    if (keep.from.manual_test !== old.manual_test) out.manual_test = keep.from.manual_test;
+    for (const role of MODEL_ROLES) if (keep.from.models[role] && keep.from.models[role] !== old.models[role]) out.models[role] = keep.from.models[role];
+  }
+  return out;
 }
 
 /** The body for POST /api/job/:slug/options ({ options: … }). A job with no level sends its flow. */

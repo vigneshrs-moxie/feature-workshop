@@ -80,6 +80,8 @@ before(async () => {
   // L0 and L1 jobs with their levels' own defaults, for a level change from the header (…/options {level}).
   await writeJob('l0-job', { options: { level: 0, flow: 'quick', skip: ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'test', 'review'], reviewers: [], manual_test: false, models: { foreman: 'claude-opus-5-5', build: 'claude-sonnet-5-5', checks: 'claude-sonnet-5-5' } } });
   await writeJob('l1-job');
+  // Options saved at a known time, for the options editor's "changed elsewhere" check.
+  await writeJob('conflict-job', { options: { updated_at: '2026-10-16T09:00:00.000Z' } });
   // Claude's usage limit is reached, resetting in an hour (as the limit watch saves it).
   const now = Date.now();
   await fs.writeFile(path.join(stateDir, 'settings.json'), JSON.stringify({ usageLimit: { kind: 'five_hour', since: now, resetsAt: now + 3600_000, resetKnown: true, jobs: [] } }));
@@ -467,4 +469,30 @@ test('options: a level alone is merged with the job’s options; manual test and
   assert.equal(audit.was, 1, 'the level before, for the conversation note');
   assert.equal((await write('POST', '/api/job/l1-job/options', { level: 7 })).status, 400);
   assert.equal((await write('POST', '/api/job/l1-job/options', { level: '1' })).status, 400);
+});
+
+test('options: a save carrying the updated_at it loaded is refused when the options changed since; one without it (the classic page) saves as before', async () => {
+  const file = path.join(featuresDir, 'conflict-job', 'options.json');
+  const loaded = '2026-10-16T09:00:00.000Z';
+  const options = { level: 1, skip: ['spec', 'refine', 'investigate', 'spec-update'], reviewers: ['feature-reviewer'], review_rounds: 1, manual_test: true, fable_checks: ['plan'], notes: 'Mine.' };
+  // Changed elsewhere: the stamp sent isn't the file's.
+  const before = await fs.readFile(file, 'utf8');
+  const refused = await write('POST', '/api/job/conflict-job/options', { options, updated_at: '2026-10-16T08:00:00.000Z' });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.body.code, 'options-changed');
+  assert.equal(await fs.readFile(file, 'utf8'), before, 'a refusal writes nothing');
+  assert.equal((await write('POST', '/api/job/conflict-job/options', { options, updated_at: null })).status, 409, 'null: the job had none when loaded');
+  // The stamp it loaded: saved, and the answer carries the new stamp.
+  const ok = await write('POST', '/api/job/conflict-job/options', { options, updated_at: loaded });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  const o = await readJson(featuresDir, 'conflict-job', 'options.json');
+  assert.deepEqual(o.fable_checks, ['plan']);
+  assert.equal(ok.body.updated_at, o.updated_at);
+  assert.notEqual(o.updated_at, loaded);
+  // The old stamp again: refused now.
+  assert.equal((await write('POST', '/api/job/conflict-job/options', { options: { ...options, notes: 'Stale.' }, updated_at: loaded })).status, 409);
+  // The classic page sends no stamp: saved as before.
+  const classic = await write('POST', '/api/job/conflict-job/options', { options: { ...options, notes: 'Classic.' } });
+  assert.equal(classic.status, 200, JSON.stringify(classic.body));
+  assert.equal((await readJson(featuresDir, 'conflict-job', 'options.json')).notes, 'Classic.');
 });

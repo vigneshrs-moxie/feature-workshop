@@ -140,7 +140,7 @@ export function makeFakeQuery({ featuresDir, autoAvailable = !process.env.WORKSH
       const slugMatch = /Private folder: (\S+)/.exec(text);
       // The job's folder: named in the message (new jobs), else the job whose status.json has this session.
       const folder = slugMatch ? slugMatch[1] : await folderForSession(featuresDir, options.resume);
-      const dir = folder && folder.startsWith(featuresDir) ? folder : null;
+      const dir = folder && folder.startsWith(featuresDir + path.sep) ? folder : null;
       const reply = readReply(text);
       const pushing = /\bpush\b/i.test(text);
       // What this reply does to the job: its stages, checks and brief (null outside the demo's jobs).

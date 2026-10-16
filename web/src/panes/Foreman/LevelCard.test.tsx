@@ -90,6 +90,15 @@ describe('LevelCard', () => {
     fireEvent.click(within(c).getByRole('button', { name: 'Got it' }));
   });
 
+  it('for a job at its plan, leaves the finished stages out of the consequence and of what changed', async () => {
+    setup({ level: 2, suggestedLevel: 3, stage: 'plan' });
+    const c = card()!;
+    expect(c).toHaveTextContent('If you use L3: L2→L3 adds: Fable at plan + review, Fuse + Mason + Stopwatch + Painter lenses.');
+    expect(c).not.toHaveTextContent('product interview');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Use L3' })); });
+    expect(within(card()!).getByRole('status')).toHaveTextContent('Level set to L3 Large, from the next stage. L2→L3 adds: Fable at plan + review, Fuse + Mason + Stopwatch + Painter lenses.');
+  });
+
   it('shows the dashboard’s refusal', async () => {
     const post = vi.fn(async () => { throw new ApiError(400, 'Plan: there’s no file at /tmp/fw-test/plan.md.'); });
     setup({ level: 2, suggestedLevel: 3 }, { post });
@@ -117,6 +126,17 @@ describe('Level chip (job header)', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(chip).toHaveFocus();
+  });
+
+  it('for a job building, leaves the finished stages out of moving up or down', () => {
+    setup({ level: 2, suggestedLevel: 2, stage: 'implement' });
+    const chip = screen.getByRole('button', { name: 'L2 Standard' });
+    expect(chip).not.toHaveAttribute('title', expect.stringContaining('product interview'));
+    fireEvent.click(chip);
+    const pop = screen.getByRole('dialog', { name: 'This job’s level' });
+    expect(pop).toHaveTextContent('Up: L2→L3 adds: Fable at review, Fuse + Mason + Stopwatch + Painter lenses.');
+    expect(pop).toHaveTextContent('Down: L2→L1 drops: tester, Locksmith + Gauge + Stickler lenses.');
+    expect(within(pop).getByRole('button', { name: 'Use L3 Large' })).toHaveAttribute('title', expect.not.stringContaining('product interview'));
   });
 
   it('is off until the job’s detail has loaded', () => {

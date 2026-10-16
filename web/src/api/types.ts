@@ -357,6 +357,8 @@ export interface JobOptions {
   fable_checks?: string[];
   models?: { foreman?: string; build?: string; checks?: string };
   notes?: string;
+  /** When options.json was last written (the options editor's "changed elsewhere" check). */
+  updated_at?: string;
   [key: string]: unknown;
 }
 
@@ -365,6 +367,8 @@ export interface OptionsResult {
   ok: true;
   options: JobOptions;
   summary: string[];
+  /** The updated_at it wrote. */
+  updated_at?: string;
 }
 
 export interface Meta {

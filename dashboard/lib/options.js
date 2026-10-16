@@ -264,14 +264,17 @@ export async function readOptions(dir) {
  * Written as schema 2, with every schema 1 field still in it.
  * about: { title, repo, kind } of the job, kept so the page can show it before the Foreman writes its
  * record, and from_session ({ id, chain, mode, branch, cwd }) when the job started from a past conversation.
+ * Returns the updated_at it wrote.
  */
 export async function writeOptions(dir, options, about = {}) {
   await fsp.mkdir(dir, { recursive: true });
   const file = path.join(dir, 'options.json');
   const tmp = `${file}.${process.pid}.tmp`;
   const keep = Object.fromEntries(Object.entries(about).filter(([k, v]) => (['title', 'repo', 'kind'].includes(k) && typeof v === 'string' && v) || (k === 'from_session' && v && typeof v === 'object')));
-  await fsp.writeFile(tmp, `${JSON.stringify({ ...options, schema_version: SCHEMA_VERSION, ...keep, updated_at: new Date().toISOString() }, null, 2)}\n`);
+  const updatedAt = new Date().toISOString();
+  await fsp.writeFile(tmp, `${JSON.stringify({ ...options, schema_version: SCHEMA_VERSION, ...keep, updated_at: updatedAt }, null, 2)}\n`);
   await fsp.rename(tmp, file);
+  return updatedAt;
 }
 
 /** Stages not run for this job: by its route and by your options. */

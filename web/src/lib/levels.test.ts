@@ -35,6 +35,23 @@ describe('levelChange (the consequence line)', () => {
     expect(levelChange(1, 3, null).text, 'no meta.levels: just the label').toBe('L3 Large');
   });
 
+  it('for a job under way, leaves out the stages it has finished (the stages before its current one)', () => {
+    // At a plan gate: the product interview is behind the job; the plan point and later still count.
+    expect(levelChange(2, 3, LEVELS, NAMES, 'plan').text).toBe('L2→L3 adds: Fable at plan + review, Fuse + Mason + Stopwatch + Painter lenses');
+    expect(levelChange(1, 2, LEVELS, NAMES, 'plan').text).toBe('L1→L2 adds: tester, Locksmith + Gauge + Stickler lenses');
+    expect(levelChange(2, 1, LEVELS, NAMES, 'implement').text).toBe('L2→L1 drops: tester, Locksmith + Gauge + Stickler lenses');
+    // At review: the tester and your own test are behind it; only Fable at review and the lenses are left.
+    expect(levelChange(2, 3, LEVELS, NAMES, 'review').text).toBe('L2→L3 adds: Fable at review, Fuse + Mason + Stopwatch + Painter lenses');
+    // After review nothing it would add is still ahead.
+    expect(levelChange(2, 3, LEVELS, NAMES, 'pr1').text).toBe('L2→L3: the same stages and reviewers');
+    // No level yet: what the level runs from here.
+    expect(levelChange(null, 2, LEVELS, NAMES, 'plan').text).toBe('L2 Standard runs: plan, tester, review, you test, Head inspector + Locksmith + Gauge + Stickler lenses');
+    // At the first stage, an unknown one, or none (the New job sheet): everything counts.
+    expect(levelChange(2, 3, LEVELS, NAMES, 'spec').text).toBe(levelChange(2, 3, LEVELS, NAMES).text);
+    expect(levelChange(2, 3, LEVELS, NAMES, 'other').text).toBe(levelChange(2, 3, LEVELS, NAMES).text);
+    expect(levelChange(2, 3, LEVELS, NAMES, null).text).toContain('product interview');
+  });
+
   it('reads the lens names from meta.jobOptions', () => {
     expect(lensNames({ token: 't', jobOptions: { reviewers: REVIEWERS } })['feature-review-db']).toBe('Mason');
     expect(lensNames(null)).toEqual({});

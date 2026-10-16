@@ -14,7 +14,9 @@ export function LevelChip({ job, ready = true }: { job: Job; ready?: boolean }) 
   const names = lensNames(meta);
   const level = isLevel(job.level) ? job.level : null;
   const info = level === null ? null : levels?.find((l) => l.level === level) ?? null;
-  const choice = useSetLevel(job.slug, level);
+  // The stage the job is at: what moving adds or drops leaves out the stages already finished.
+  const stage = job.stage ?? null;
+  const choice = useSetLevel(job.slug, level, stage);
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const chip = useRef<HTMLButtonElement>(null);
@@ -31,8 +33,8 @@ export function LevelChip({ job, ready = true }: { job: Job; ready?: boolean }) 
   }, [open]);
 
   const label = level === null ? 'No level yet' : levelLabel(level, levels);
-  const up = level !== null && level < 3 ? levelChange(level, (level + 1) as LevelNumber, levels, names) : null;
-  const down = level !== null && level > 0 ? levelChange(level, (level - 1) as LevelNumber, levels, names) : null;
+  const up = level !== null && level < 3 ? levelChange(level, (level + 1) as LevelNumber, levels, names, stage) : null;
+  const down = level !== null && level > 0 ? levelChange(level, (level - 1) as LevelNumber, levels, names, stage) : null;
   const hint = level === null
     ? 'No level chosen yet: the Foreman suggests one in its first brief. Click to pick one.'
     : `${label}: ${info?.hint ?? ''}${up ? ` Up: ${up.text}.` : ''}${down ? ` Down: ${down.text}.` : ''} Click to change it.`;
@@ -68,7 +70,7 @@ export function LevelChip({ job, ready = true }: { job: Job; ready?: boolean }) 
                     disabled={choice.busy || now}
                     aria-current={now ? 'true' : undefined}
                     onClick={() => void choice.set(n)}
-                    title={now ? 'The level this job runs at now.' : `Run this job at ${levelLabel(n, levels)} from the next stage. ${levelChange(level, n, levels, names).text}.`}
+                    title={now ? 'The level this job runs at now.' : `Run this job at ${levelLabel(n, levels)} from the next stage. ${levelChange(level, n, levels, names, stage).text}.`}
                   >
                     {now ? `✓ ${levelLabel(n, levels)} (now)` : `Use ${levelLabel(n, levels)}`}
                   </button>

@@ -1,21 +1,24 @@
 // The job drawer's Options tab: the job's options.json in full, replacing the classic Options page.
 // Level (with what moving there adds or drops), stages to skip, reviewers, fix rounds, testing it
 // yourself, Fable second looks, models, the documents provided (read only here) and process notes.
-// Save posts the whole options (POST /api/job/:slug/options { options }) and shows the dashboard's
-// summary of what it saved; the dashboard's refusals show inline. Options choose process, never
-// permission, and apply from the next stage.
+// Save posts the whole options (POST /api/job/:slug/options { options, updated_at }) and shows the
+// dashboard's summary of what it saved; the dashboard's refusals show inline, and a save after the
+// options changed elsewhere is refused (409 options-changed) with a Reload offered. Options choose
+// process, never permission, and apply from the next stage. The Foreman's model is shown, not
+// edited: it is used only when the job starts (later sessions take the composer's model menu).
 import { useEffect, useId, useRef, useState } from 'react';
+import { ApiError } from '../../api/client';
 import type { JobDetail, LevelNumber } from '../../api/types';
 import { saveJobOptions } from '../../app/jobActions';
 import { classicHref } from '../../app/router';
-import { bodyFrom, formFrom, levelDefaults, MODEL_ROLES, optionLists, PROCESS_NOTES_MAX, providedSkips, sameOptions, inOrder, type ModelRole, type OptionsForm } from '../../lib/jobOptions';
+import { bodyFrom, formFrom, levelDefaults, MODEL_ROLES, modelName, optionLists, PROCESS_NOTES_MAX, providedSkips, sameOptions, inOrder, type ModelRole, type OptionsForm } from '../../lib/jobOptions';
 import { isLevel, LEVEL_NUMBERS, levelChange, levelLabel, lensNames } from '../../lib/levels';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 
 export const OPTIONS_HINT = 'Options choose how much process this job gets, never what it may do without asking (that is the permission setting). A change applies from the next stage; a worker already running finishes first.';
 
 const ROLE_LABELS: Record<ModelRole, { label: string; hint: string }> = {
-  foreman: { label: 'Foreman', hint: 'The model the Foreman itself runs on: it plans, dispatches the crew and writes your briefs. Used from its next session.' },
+  foreman: { label: 'Foreman', hint: 'The model the Foreman itself runs on: it plans, dispatches the crew and writes your briefs.' },
   build: { label: 'Build', hint: 'The model the builder (feature-implementer) uses to change the code.' },
   checks: { label: 'Checks', hint: 'The model the tester uses to run the checks and the approved test plan.' },
 };
@@ -30,11 +33,17 @@ const STAGE_HINTS: Record<string, string> = {
   review: 'The review lenses after the build.',
 };
 
+/** Under the Foreman's model, shown read only: options.models.foreman is used only when the job starts. */
+export const FOREMAN_MODEL_NOTE = 'Set when the job started; change it with the Foreman model menu under the message box.';
+/** A save refused because the options changed elsewhere since the drawer loaded them. */
+export const OPTIONS_CHANGED = 'These options changed elsewhere since you opened them. Reload to see them (your edits will be lost) or keep editing.';
+
 type Load = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const toggle = (list: string[], id: string, on: boolean) => (on ? [...new Set([...list, id])] : list.filter((x) => x !== id));
 
-export function OptionsEditor({ slug, level: jobLevel, onDirtyChange }: { slug: string; level: LevelNumber | null; onDirtyChange: (dirty: boolean) => void }) {
+/** stage: the job's current stage, so what a level change adds or drops leaves out finished stages. */
+export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChange }: { slug: string; level: LevelNumber | null; stage?: string | null; onDirtyChange: (dirty: boolean) => void }) {
   const { api } = useWorkshop();
   const state = useWorkshopState();
   const meta = state.meta;
@@ -49,6 +58,11 @@ export function OptionsEditor({ slug, level: jobLevel, onDirtyChange }: { slug: 
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<string[] | null>(null);
   const [tries, setTries] = useState(0);
+  // The options' updated_at as loaded (null: none), sent with a save so a change made elsewhere
+  // since isn't overwritten; changedElsewhere: the dashboard refused a save for that reason.
+  const [stamp, setStamp] = useState<string | null>(null);
+  const [changedElsewhere, setChangedElsewhere] = useState(false);
+  const forceLoad = useRef(false);
 
   const dirty = !!form && !!saved && !sameOptions(form, saved);
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
@@ -59,14 +73,19 @@ export function OptionsEditor({ slug, level: jobLevel, onDirtyChange }: { slug: 
   const editing = useRef(false);
   editing.current = dirty || busy;
   useEffect(() => {
-    if (editing.current && load.state === 'ready') return;
+    if (editing.current && load.state === 'ready' && !forceLoad.current) return;
     let cancelled = false;
     api.get<JobDetail>(`/api/job/${encodeURIComponent(slug)}`).then(
       (detail) => {
-        if (cancelled || editing.current) return;
+        if (cancelled || (editing.current && !forceLoad.current)) return;
+        forceLoad.current = false;
         const f = formFrom(detail?.options ?? null, isLevel(detail?.level) ? detail.level : jobLevel, levels, lists);
+        const at = detail?.options?.updated_at;
+        setStamp(typeof at === 'string' ? at : null);
+        setChangedElsewhere(false);
         setSaved(f);
         setForm(f);
+        setError(null);
         setLoad({ state: 'ready' });
       },
       (err) => { if (!cancelled) setLoad({ state: 'error', message: message(err) }); },
@@ -88,13 +107,16 @@ export function OptionsEditor({ slug, level: jobLevel, onDirtyChange }: { slug: 
   }
 
   const edit = (patch: Partial<OptionsForm>) => { setForm({ ...form, ...patch }); setError(null); setSummary(null); };
-  const pickLevel = (n: LevelNumber) => edit(levelDefaults(n, levels, lists, { provided: form.provided, notes: form.notes, review_rounds: form.review_rounds }));
-  const resetToLevel = () => edit(levelDefaults(form.level, levels, lists, { provided: form.provided, notes: form.notes, review_rounds: 1 }));
+  // The Foreman's model isn't edited here: whatever the level, the saved one is posted back unchanged.
+  const keepForeman = (f: OptionsForm): OptionsForm => ({ ...f, models: { ...f.models, foreman: saved.models.foreman } });
+  // Your own testing choice and models (ones that differ from the old level's) stay, as with the level chips.
+  const pickLevel = (n: LevelNumber) => edit(keepForeman(levelDefaults(n, levels, lists, { provided: form.provided, notes: form.notes, review_rounds: form.review_rounds, from: form })));
+  const resetToLevel = () => edit(keepForeman(levelDefaults(form.level, levels, lists, { provided: form.provided, notes: form.notes, review_rounds: 1 })));
   const lockedSkips = providedSkips(form.provided, lists);
   const lenses = form.reviewers === 'auto' ? [] : form.reviewers;
   const noLenses = form.reviewers !== 'auto' && lenses.length === 0;
   const reviewSkipped = form.skip.includes('review') || noLenses;
-  const change = form.level !== null && form.level !== saved.level ? levelChange(saved.level, form.level, levels, names) : null;
+  const change = form.level !== null && form.level !== saved.level ? levelChange(saved.level, form.level, levels, names, stage) : null;
   const providedList = lists.providable.filter((d) => form.provided[d.id]);
 
   async function save() {
@@ -103,13 +125,15 @@ export function OptionsEditor({ slug, level: jobLevel, onDirtyChange }: { slug: 
     setError(null);
     setSummary(null);
     try {
-      const r = await saveJobOptions(api, slug, bodyFrom(form));
+      const r = await saveJobOptions(api, slug, bodyFrom(form), stamp);
       const f = formFrom(r.options, form.level, levels, lists);
+      if (typeof r.updated_at === 'string') setStamp(r.updated_at);
       setSaved(f);
       setForm(f);
       setSummary(Array.isArray(r.summary) ? r.summary : []);
     } catch (err) {
-      setError(message(err));
+      if (err instanceof ApiError && err.status === 409 && err.body.code === 'options-changed') setChangedElsewhere(true);
+      else setError(message(err));
     } finally {
       setBusy(false);
     }
@@ -120,12 +144,12 @@ export function OptionsEditor({ slug, level: jobLevel, onDirtyChange }: { slug: 
       <p className="muted drawer-hint">{OPTIONS_HINT}</p>
 
       <fieldset className="drawer-section" disabled={busy}>
-        <legend className="drawer-legend" title="How much process the job gets. Picking a level here sets its stages, reviewers, testing, Fable points and models below; change any of them after.">Level</legend>
+        <legend className="drawer-legend" title="How much process the job gets. Picking a level here sets its stages, reviewers and Fable points below. Your testing choice and the build and checks models stay if you changed them from the old level’s; otherwise they follow the new level. Change any of them after.">Level</legend>
         <div className="rule-options" role="radiogroup" aria-label="Level">
           {LEVEL_NUMBERS.map((n) => {
             const info = levels?.find((l) => l.level === n);
             return (
-              <label key={n} className={`rule-option${form.level === n ? ' is-picked' : ''}`} title={`${levelLabel(n, levels)}: ${info?.hint ?? ''}${saved.level !== n ? ` ${levelChange(saved.level, n, levels, names).text}.` : ' The level saved now.'}`}>
+              <label key={n} className={`rule-option${form.level === n ? ' is-picked' : ''}`} title={`${levelLabel(n, levels)}: ${info?.hint ?? ''}${saved.level !== n ? ` ${levelChange(saved.level, n, levels, names, stage).text}.` : ' The level saved now.'}`}>
                 <input type="radio" name={`${id}-level`} value={n} checked={form.level === n} onChange={() => pickLevel(n)} />
                 <span className="rule-option-body">
                   <span className="rule-option-kind">{levelLabel(n, levels)}{saved.level === n && <span className="chip">Saved</span>}</span>
@@ -212,6 +236,16 @@ export function OptionsEditor({ slug, level: jobLevel, onDirtyChange }: { slug: 
         <legend className="drawer-legend" title="Which Claude model each part of the job runs on.">Models</legend>
         <div className="drawer-models">
           {MODEL_ROLES.map((role) => {
+            if (role === 'foreman') {
+              // Read only: used when the job started; the composer's model menu sets it for later sessions.
+              return (
+                <div key={role} className="drawer-model" title={`${ROLE_LABELS.foreman.hint} ${FOREMAN_MODEL_NOTE}`}>
+                  <span className="drawer-model-label">{ROLE_LABELS.foreman.label}</span>
+                  <span className="drawer-model-value">{modelName(form.models.foreman, lists)}</span>
+                  <span className="muted drawer-model-note">{FOREMAN_MODEL_NOTE}</span>
+                </div>
+              );
+            }
             const choices = lists.models[role];
             const value = form.models[role];
             const shown = choices.some((c) => c.id === value) ? choices : [...choices, { id: value, label: value }];
@@ -266,7 +300,7 @@ export function OptionsEditor({ slug, level: jobLevel, onDirtyChange }: { slug: 
           className="btn btn-quiet"
           disabled={busy || form.level === null}
           onClick={resetToLevel}
-          title={form.level === null ? 'Pick a level first.' : `Put stages, reviewers, fix rounds, testing, Fable points and models back to ${levelLabel(form.level, levels)}’s defaults. Provided documents and process notes stay. Nothing is saved until you choose Save.`}
+          title={form.level === null ? 'Pick a level first.' : `Put stages, reviewers, fix rounds, testing, Fable points and the build and checks models back to ${levelLabel(form.level, levels)}’s defaults. Provided documents, process notes and the Foreman’s model stay. Nothing is saved until you choose Save.`}
         >
           Reset to level defaults
         </button>
@@ -279,6 +313,19 @@ export function OptionsEditor({ slug, level: jobLevel, onDirtyChange }: { slug: 
         >
           {busy ? 'Saving…' : 'Save options'}
         </button>
+        {changedElsewhere && (
+          <div className="drawer-conflict" role="alert">
+            <span>{OPTIONS_CHANGED}</span>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => { forceLoad.current = true; setTries((n) => n + 1); }}
+              title="Load the options as they are saved now. Your unsaved edits here are lost."
+            >
+              Reload
+            </button>
+          </div>
+        )}
       </div>
       {error && <p className="field-problem" role="alert">{error}</p>}
       {summary && (

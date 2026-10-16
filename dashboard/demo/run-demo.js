@@ -519,6 +519,26 @@ async function oldSkill() {
   await fs.writeFile(path.join(dir, 'job-options.md'), '# Job options (demo copy from before levels)\n\n## Reading them\n\n| Field | Meaning |\n|---|---|\n| `flow` | quick, small, large or auto |\n');
 }
 
+// Invented crew definitions, so the dashboard reads the crew's models from here and not from
+// ~/.claude/agents. Same front-matter shape as the real ones (name, description, model, effort).
+const DEMO_AGENTS = {
+  'feature-spec-writer': ['claude-opus-5-5', 'high'], 'feature-investigator': ['claude-opus-5-5', 'high'],
+  'feature-planner': ['claude-opus-5-5', 'high'], 'feature-implementer': ['claude-opus-5-5', 'high'],
+  'feature-tester': ['claude-sonnet-5-5', null], 'feature-reviewer': ['claude-opus-5-5', 'high'],
+  'feature-review-permissions': ['claude-opus-5-5', null], 'feature-review-tests': ['claude-sonnet-5-5', null],
+  'feature-review-conventions': ['claude-haiku-5-5', null], 'feature-review-errors': ['claude-sonnet-5-5', null],
+  'feature-review-db': ['claude-sonnet-5-5', null], 'feature-review-performance': ['claude-sonnet-5-5', null],
+  'feature-review-ui': ['claude-sonnet-5-5', null], 'feature-fable-check': ['claude-fable-5-1', 'high'],
+};
+async function demoAgents() {
+  const dir = path.join(ROOT, 'agents');
+  await fs.mkdir(dir, { recursive: true });
+  for (const [name, [model, effort]] of Object.entries(DEMO_AGENTS)) {
+    const front = [`name: ${name}`, 'description: "Demo copy of a feature workflow worker (invented)."', `model: ${model}`, ...(effort ? [`effort: ${effort}`] : []), 'tools: Read, Grep, Glob'];
+    await fs.writeFile(path.join(dir, `${name}.md`), `---\n${front.join('\n')}\n---\n\nDemo agent: nothing here runs.\n`);
+  }
+}
+
 // The stale card: once the dashboard has noted the card at plan v2, the plan moves to v3.
 async function staleAfterStart(port) {
   for (let i = 0; i < 20; i++) {
@@ -561,11 +581,13 @@ function tick(logFiles) {
 
 const logFiles = await build();
 await oldSkill();
+await demoAgents();
 process.env.WORKSHOP_FEATURES_DIR = FEATURES;
 process.env.WORKSHOP_PROJECTS_DIR = path.dirname(PROJECTS);
 process.env.WORKSHOP_DEMO = '1';
 process.env.WORKSHOP_EXTRA_REPOS = ACME;
 process.env.WORKSHOP_SKILLS_DIR ||= path.join(ROOT, 'skills');
+process.env.WORKSHOP_AGENTS_DIR ||= path.join(ROOT, 'agents');
 console.log(`Demo data in ${ROOT} (invented; safe to delete).`);
 await tick(logFiles);
 await import('../server.js');

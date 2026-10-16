@@ -306,7 +306,7 @@ html[data-theme="sunset-paper"] .perm-card[data-ask="question"]::before { backgr
 html[data-theme="sunset-paper"] .perm-card[data-ask="hardline"]::before { background: repeating-linear-gradient(135deg, var(--ask-hardline-line) 0 8px, oklch(.72 .19 25) 8px 16px); }
 html[data-theme="sunset-paper"] .perm-card[data-ask="hardline"] { border-color: var(--ask-hardline-line); }
 html[data-theme="sunset-paper"] .perm-card.is-risky { border-color: var(--status-warn); }
-html[data-theme="sunset-paper"] .perm-card .ask-label { border-color: transparent; background: var(--ask-permission-line); color: #fff; }
+html[data-theme="sunset-paper"] .perm-card .ask-label { display: inline-block; padding: 1px var(--space-2); border-color: transparent; border-radius: var(--chip-radius); background: var(--ask-permission-line); color: #fff; }
 html[data-theme="sunset-paper"] .perm-card[data-ask="hardline"] .ask-label { background: var(--ask-hardline-line); color: var(--ask-hardline-fg); font-weight: var(--weight-bold); }
 html[data-theme="sunset-paper"] .perm-card[data-ask="question"] .ask-label { background: var(--ask-question-line); }
 html[data-theme="sunset-paper"] .perm-who strong { color: var(--ask-permission-fg); }
