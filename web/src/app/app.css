@@ -151,6 +151,7 @@ a:hover { text-decoration: underline; }
 .job-row-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .job-row-time { color: var(--text-3); font-size: var(--text-xs); }
 .job-row-meta { padding-left: calc(8px + var(--space-2)); font-size: var(--text-sm); }
+.job-row-parked { flex: none; white-space: nowrap; }
 
 .hue-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: oklch(var(--job-hue-l) var(--job-hue-c) var(--job-hue, 0)); }
 .glyph { display: inline-block; width: 1em; text-align: center; font-family: var(--font-mono); }

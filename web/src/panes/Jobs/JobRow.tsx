@@ -8,6 +8,8 @@ import { jobHueStyle } from '../../theme/hue';
 import { jobStatus } from './jobStatus';
 import { stageFamily, stageHint, stageLabel } from './stages';
 
+const PARKED_HINT = 'A decision has waited for you for more than 4 hours. Nothing goes ahead until you decide; nothing is approved for you.';
+
 export interface JobRowProps {
   job: Job;
   selected: boolean;
@@ -22,9 +24,11 @@ export function JobRow({ job, selected, now, rail = false }: JobRowProps) {
   const ago = relativeTime(job.updatedAt, now);
   const dot = <span className="hue-dot" style={jobHueStyle(job.slug)} aria-hidden="true" />;
   const glyph = <span className={`glyph status-${status.group}`} aria-hidden="true">{status.glyph}</span>;
+  // A decision left waiting past the parking time (decision D3): still under Needs you, marked parked.
+  const parked = Boolean(job.parked) && job.group === 'needs-you';
 
   if (rail) {
-    const name = [title, status.label, stage, ago && `updated ${/^\d+[mhd]$/.test(ago) ? `${ago} ago` : ago}`].filter(Boolean).join(' · ');
+    const name = [title, status.label, parked && 'parked 4h', stage, ago && `updated ${/^\d+[mhd]$/.test(ago) ? `${ago} ago` : ago}`].filter(Boolean).join(' · ');
     return (
       <a className="job-rail-item" data-group={status.group} href={jobHref(job.slug)} aria-current={selected ? 'page' : undefined} aria-label={name} title={`${name}. ${status.hint}`}>
         {dot}
@@ -48,6 +52,7 @@ export function JobRow({ job, selected, now, rail = false }: JobRowProps) {
           <span className="job-status-label">{status.label}</span>
         </span>
         {stage && <span className="stage-chip" data-stage={stageFamily(job.stage)} title={stageHint(job.stage)}>{stage}</span>}
+        {parked && <span className="chip gate-parked job-row-parked" title={PARKED_HINT}>parked 4h</span>}
       </span>
     </a>
   );

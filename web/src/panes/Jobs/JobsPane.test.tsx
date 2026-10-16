@@ -47,6 +47,13 @@ describe('Jobs pane', () => {
     expect(screen.getByRole('link', { name: /^Job beta/ })).toHaveTextContent('Build');
   });
 
+  it('marks a decision left 4 hours as parked, still under Needs you (row and rail)', () => {
+    renderPane([job('alpha', 'needs-you', { waitingFor: 'approval', stage: 'plan', parked: true }), job('beta', 'idle', { parked: true })]);
+    const row = within(screen.getByRole('region', { name: 'Needs you' })).getByRole('link', { name: /^Job alpha/ });
+    expect(within(row).getByText('parked 4h')).toHaveAttribute('title', expect.stringMatching(/more than 4 hours/));
+    expect(within(screen.getByRole('link', { name: /^Job beta/ })).queryByText('parked 4h'), 'only a job that needs you').toBeNull();
+  });
+
   it('says when a usage-paused job resumes', () => {
     renderPane(JOBS);
     expect(within(screen.getByRole('region', { name: 'Paused' })).getByText('resumes 3:42pm')).toBeInTheDocument();

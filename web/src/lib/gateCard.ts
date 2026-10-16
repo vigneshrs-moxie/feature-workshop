@@ -30,8 +30,14 @@ export function openGate(detail: Pick<JobDetail, 'gate' | 'answeredBriefs' | 'he
 // ---------- What Approve is called ----------
 
 // Which artifact a stage's gate approves, by its name in status.json ("Quick plan", "Findings").
+// Each matches only that stage's own: the plan gate not the test plan, the build gate not the
+// implementation plan, the test gate not the test plan, the review gate not the investigation's findings.
 const STAGE_ARTIFACT: Record<string, RegExp> = {
-  plan: /plan/i, investigate: /finding|investigat/i, test: /test/i, review: /review|finding/i, implement: /build|implement/i,
+  plan: /^(?!test\b).*\bplan\b/i,
+  investigate: /finding|investigat/i,
+  test: /\btest[-_ ]?(report|results?)\b|\bmanual[-_ ]test\b/i,
+  review: /review/i,
+  implement: /\bbuild\b|\bimplement(ed|ing)?\b/i,
 };
 const SPEC_STAGES = ['spec', 'refine', 'spec-update'];
 

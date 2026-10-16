@@ -131,6 +131,27 @@ describe('GateCard', () => {
     expect(button('Approve review findings v1 and start PR #1')).toBeInTheDocument();
   });
 
+  it('a later gate doesn’t borrow the plan, the test plan or the findings of an earlier stage', () => {
+    const { show } = setup();
+    const at = (stage: string, nextStage: string | null, artifacts: Record<string, string>) => {
+      const v = { spec: '0.2', artifacts };
+      show(detail({ stage, nextStage, versions: v, raisedVersions: v }));
+    };
+    const all = { Findings: '1', 'Implementation plan': '2', 'Test plan': '2' };
+    at('implement', 'test', all);
+    expect(button('Approve and start Test'), 'the build gate approves the build, not plan v2').toBeInTheDocument();
+    at('test', 'review', all);
+    expect(button('Approve and start Review'), 'not the test plan').toBeInTheDocument();
+    at('review', 'pr1', all);
+    expect(button('Approve and start PR #1'), 'not the investigation’s findings').toBeInTheDocument();
+    at('plan', 'implement', { 'Test plan': '3', 'Implementation plan': '3' });
+    expect(button('Approve plan v3 and start Build'),'the plan, even listed after the test plan').toBeInTheDocument();
+    at('implement', 'test', { ...all, Build: '1' });
+    expect(button('Approve build v1 and start Test')).toBeInTheDocument();
+    at('test', 'review', { ...all, 'Test report': '1' });
+    expect(button('Approve test report v1 and start Review')).toBeInTheDocument();
+  });
+
   it('Approve sends the answers, confirms the decisions not overridden, and the chips', async () => {
     const { post } = setup();
     fireEvent.change(screen.getByRole('textbox', { name: 'Your answer to question 2' }), { target: { value: 'Copy ID' } });

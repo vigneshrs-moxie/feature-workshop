@@ -31,6 +31,17 @@ describe('what counts as newly needing you', () => {
     expect(newAlerts(new Set(), after)[0].body).toBe('The Foreman is waiting for your go-ahead.');
   });
 
+  it('alerts once when a decision already waiting for you is parked (left 4 hours)', () => {
+    const waiting = { jobs: [job('alpha', 'needs-you', { waitingFor: 'approval' })], permissions: [] };
+    const parked = { jobs: [job('alpha', 'needs-you', { waitingFor: 'approval', parked: true })], permissions: [] };
+    expect(newAlerts(attentionKeys(waiting), parked)).toEqual([
+      { slug: 'alpha', title: 'Parked 4h: Job alpha', body: 'A decision has waited for you for more than 4 hours. Nothing goes ahead until you decide.' },
+    ]);
+    expect(newAlerts(attentionKeys(parked), parked), 'only once').toEqual([]);
+    // Entering Needs you already parked (a page that wasn't watching): one alert, the usual one.
+    expect(newAlerts(attentionKeys(calm), { jobs: [job('alpha', 'needs-you', { parked: true })], permissions: [] }).map((a) => a.title)).toEqual(['Needs you: Job alpha']);
+  });
+
   it('stays quiet when something stops needing you', () => {
     const before = attentionKeys({ jobs: [job('alpha', 'needs-you')], permissions: [permission('p1', 'alpha')] });
     expect(newAlerts(before, calm)).toEqual([]);

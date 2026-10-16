@@ -5,8 +5,9 @@
 //                     anywhere (see useAlerts) and remembers the answer.
 //   fw.alerts.chime   'on' | 'off' (off unless you turn it on).
 //
-// What counts as new: a job that has just entered Needs you, or a permission card that has just
-// arrived (also for a job that was already in Needs you). What was already there when the page
+// What counts as new: a job that has just entered Needs you, a permission card that has just
+// arrived (also for a job that was already in Needs you), or a decision that has just been parked
+// (left waiting 4 hours; the dashboard's gate-stale event). What was already there when the page
 // loaded never alerts.
 import type { Job, Permission } from '../api/types';
 import { jobHref } from '../app/router';
@@ -25,6 +26,7 @@ export interface Alert {
 export function attentionKeys(state: Pick<WorkshopState, 'jobs' | 'permissions'>): Set<string> {
   const keys = new Set<string>();
   for (const j of state.jobs) if (j.group === 'needs-you') keys.add(`job:${j.slug}`);
+  for (const j of state.jobs) if (j.group === 'needs-you' && j.parked) keys.add(`parked:${j.slug}`);
   for (const p of state.permissions) keys.add(`perm:${p.id}`);
   return keys;
 }
@@ -51,6 +53,10 @@ export function newAlerts(before: Set<string>, state: Pick<WorkshopState, 'jobs'
   for (const j of state.jobs) {
     if (j.group !== 'needs-you' || before.has(`job:${j.slug}`) || bySlug.has(j.slug)) continue;
     bySlug.set(j.slug, { slug: j.slug, title: `Needs you: ${j.title || j.slug}`, body: j.headline ? String(j.headline) : waitingText(j) });
+  }
+  for (const j of state.jobs) {
+    if (j.group !== 'needs-you' || !j.parked || before.has(`parked:${j.slug}`) || bySlug.has(j.slug)) continue;
+    bySlug.set(j.slug, { slug: j.slug, title: `Parked 4h: ${j.title || j.slug}`, body: 'A decision has waited for you for more than 4 hours. Nothing goes ahead until you decide.' });
   }
   return [...bySlug.values()];
 }
