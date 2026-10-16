@@ -1,7 +1,7 @@
 // What the job menu and ⌘K do to a job, in one place so both behave the same. Each call is one
 // dashboard route (dashboard/server.js); the live events that follow bring the page up to date.
 import type { ApiClient } from '../api/client';
-import type { Closed, JobPolicyResult, PolicyId, Usage } from '../api/types';
+import type { Closed, GateRequest, GateResult, JobPolicyResult, PolicyId, Usage } from '../api/types';
 import type { Store } from '../state/store';
 
 const job = (slug: string) => `/api/job/${encodeURIComponent(slug)}`;
@@ -39,6 +39,16 @@ export async function setJobPolicy(api: ApiClient, store: Store, slug: string, d
     store.dispatch({ type: 'settings', settings: { ...settings, jobPolicy } });
   }
   return r;
+}
+
+/**
+ * Send a gate card's decision (answers, verdicts, chips, note). The dashboard composes the reply,
+ * saves the chips' option changes, and sends it; or, with a reply in progress, sends nothing and
+ * returns the text (sent: false); or, asked to start after the usage limit resets, holds it.
+ * Refusals (409: limited, terminal, terminal-open, stale-brief; 400: too much) throw an ApiError.
+ */
+export async function sendGate(api: ApiClient, slug: string, body: GateRequest): Promise<GateResult> {
+  return api.post<GateResult>(`${job(slug)}/gate`, body);
 }
 
 /** Carry on now: start the jobs paused by the usage limit again. Returns how many started. */

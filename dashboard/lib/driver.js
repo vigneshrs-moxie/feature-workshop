@@ -124,8 +124,9 @@ export class Driver extends EventEmitter {
   /**
    * Start a run. Throws Busy if this job or session already has one going.
    * text: the exact message to send. sessionId: resume this session (null = new session).
+   * gateBrief: the brief a gate card's reply answers (its number), kept on the audit 'send' line.
    */
-  async start({ featureDir, slug, title, cwd, sessionId = null, model = null, text, kind = 'message', newJob = false, additionalDirectories = [] }) {
+  async start({ featureDir, slug, title, cwd, sessionId = null, model = null, text, kind = 'message', newJob = false, additionalDirectories = [], gateBrief = null }) {
     // Asked before the busy check, so nothing is awaited between that check and the run being listed.
     let mode = null;
     if (this.modeFor) { try { mode = await this.modeFor({ featureDir, slug }); } catch { mode = null; } }
@@ -147,7 +148,7 @@ export class Driver extends EventEmitter {
     };
     if (mode) run.mode = mode;
     this.runs.set(run.id, run);
-    await this.state.audit({ action: 'send', featureDir, slug, sessionId, kind, text, runId: run.id, model });
+    await this.state.audit({ action: 'send', featureDir, slug, sessionId, kind, text, runId: run.id, model, ...(Number.isInteger(gateBrief) && gateBrief > 0 ? { gateBrief } : {}) });
     this.#launch(run).catch(() => {});
     this.emit('run', this.view(run));
     return this.view(run);

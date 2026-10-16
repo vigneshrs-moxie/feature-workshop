@@ -36,6 +36,7 @@ import { groupCards } from './lib/snapshot.js';
 import { buildThread, pageThread } from './lib/thread.js';
 import { suggestLevel, changedPaths } from './lib/levels.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs } from './lib/gate.js';
+import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -86,6 +87,8 @@ const limits = new LimitWatch({
     const f = await featureBySlug(job.slug);
     if (!f || f.closed || closing.has(f.dir)) return false; // marked done meanwhile
     const drive = f ? await driveState(f) : null;
+    // A reply held for a job with no Foreman session yet starts one, as long as none has started since.
+    if (job.send && !job.sessionId) return Boolean(drive && ['none', 'terminal-open'].includes(drive.mode));
     return Boolean(drive && drive.mode === 'workshop' && drive.sessionId === job.sessionId);
   },
 });
@@ -194,8 +197,9 @@ const PARK_CHECK_MS = Math.min(5 * 60_000, Math.max(200, Math.floor(PARK_MS / 4)
 const parking = new GateParking({ thresholdMs: PARK_MS, file: path.join(state.dir, 'gate-parking.json') });
 const gateOf = (f, runActive) => ({ slug: f.slug, briefNumber: f.currentBrief?.number ?? null, waitingSince: f.gateWaitingSince, runActive: Boolean(runActive) });
 const gateParked = (f, runActive) => isParkable(f) && !closedOff(f) && parking.isParked(gateOf(f, runActive));
-// Briefs answered from a gate card: read from the audit once at start, then kept up as replies are sent.
-const noteAnswered = (e) => { if (e?.action === 'send' && e.featureDir) parking.noteAnswered(e.slug ?? path.basename(e.featureDir), e.gateBrief); };
+// Briefs answered from a gate card: read from the audit once at start, then kept up as replies are
+// sent (or held until the usage limit resets: you've decided, so the gate isn't parked).
+const noteAnswered = (e) => { if ((e?.action === 'send' || e?.action === 'send-held') && e.featureDir) parking.noteAnswered(e.slug ?? path.basename(e.featureDir), e.gateBrief); };
 state.on('audit', noteAnswered);
 
 // The jobs for the timer: the cached full list when it is fresh, else a light read of each job
@@ -478,8 +482,15 @@ async function jobDetail(f) {
     policy: settings.jobPolicy?.[f.dir] || settings.policy, policyOverride: settings.jobPolicy?.[f.dir] ?? null, globalPolicy: settings.policy, autoMode: settings.autoMode,
     permissionsPending: driver.pendingPermissions().filter((p) => p.featureDir === f.dir),
     lastReply, audit: audit.slice(-50), warnings: f.warnings,
-    statusForCompose: { questions: f.questions, decidedOnYourBehalf: f.decidedOnYourBehalf, nextProposed: f.nextProposed, spec: f.spec, artifacts: f.recordedArtifacts, brief: f.latestBrief },
+    statusForCompose: statusForCompose(f),
+    // A gate reply waiting for the usage limit to reset ({ kind, gateBrief, at }), or null.
+    heldReply: limits.heldFor(f.dir),
   };
+}
+
+// What composeReply needs from the job's records (the page composes with the same).
+function statusForCompose(f) {
+  return { questions: f.questions, decidedOnYourBehalf: f.decidedOnYourBehalf, nextProposed: f.nextProposed, spec: f.spec, artifacts: f.recordedArtifacts, brief: f.latestBrief };
 }
 
 // ---------- HTTP ----------
@@ -529,6 +540,141 @@ function limitMessage() {
 }
 
 const str = (v, max = 20000) => (typeof v === 'string' ? v.slice(0, max) : '');
+
+// ---------- Sending to a job's Foreman (…/send and …/gate) ----------
+
+/**
+ * The checks before anything goes to a job's Foreman, then what starting the reply needs: the
+ * model, where it runs, which session, and the exact text (a job with no Foreman session yet gets
+ * one that picks it up from its files). Each refusal is a 409 the page explains.
+ * holding: the reply waits for the usage limit to reset (…/gate startAfterReset), so the limit
+ * doesn't refuse it.
+ */
+function sendPlan(f, drive, body, text, { holding = false } = {}) {
+  if (drive.mode === 'running') throw new HttpError(409, 'The Foreman is still working on your last message. Wait for it, or pause it first.');
+  if (closing.has(f.dir)) throw new HttpError(409, 'This job is being marked done right now. Wait a moment.');
+  if (!holding && limits.isLimited() && body.despiteLimit !== true) throw new HttpError(409, limitMessage(), { code: 'limited' });
+  if (drive.mode === 'terminal') throw new HttpError(409, 'This job’s Foreman was last used in your terminal.', { code: 'terminal', lastTerminalAt: drive.lastTerminalAt });
+  if (drive.mode === 'terminal-open' && body.confirmNoTerminal !== true) throw new HttpError(409, 'Claude Code is open in this repository in a terminal. Make sure none of those windows is this job’s Foreman, then confirm.', { code: 'terminal-open', terminals: drive.terminals.length });
+  const model = MODELS.some((x) => x.id === body.model) ? body.model : drive.model ?? OPUS;
+  const cwd = drive.cwd ?? f.repoPath;
+  if (!cwd) throw new HttpError(400, 'I don’t know which repository this job belongs to.');
+  const fresh = drive.mode === 'none' || drive.mode === 'terminal-open';
+  return {
+    featureDir: f.dir, slug: f.slug, title: f.title, cwd, model,
+    sessionId: fresh ? null : drive.sessionId,
+    text: fresh ? `/feature ${f.slug} Private folder: ${f.dir}\n\n${text}` : text,
+  };
+}
+
+/** Start the reply sendPlan prepared. gateBrief: the brief a gate card's reply answers (audited). */
+async function startSend(f, out, { kind, gateBrief = null }) {
+  const run = await driver.start({ ...out, kind, gateBrief, additionalDirectories: await readDirs() });
+  await limits.forget(f.dir); // you've picked it up yourself
+  await reopenIfClosed(f);
+  cached = null;
+  return run;
+}
+
+async function reopenIfClosed(f) {
+  if (!f.closed) return;
+  await state.setSession(f.dir, { closed: null });
+  await state.audit({ action: 'reopen', featureDir: f.dir, slug: f.slug, how: 'message' });
+}
+
+// The gate card's body, checked: kind, the brief it answers, at most 3 answers, 20 verdicts,
+// MAX_CHIPS chips and a 4,000-character note. Anything off is a 400, and nothing is sent.
+const GATE_KINDS = ['approve', 'changes', 'message', 'stop'];
+const GATE_NOTE_MAX = 4000;
+function byId(v, max, what, each) {
+  if (v === undefined || v === null) return {};
+  if (typeof v !== 'object' || Array.isArray(v)) throw new HttpError(400, `${what}: expected them by id.`);
+  const entries = Object.entries(v);
+  if (entries.length > max) throw new HttpError(400, `${what}: at most ${max}.`);
+  return Object.fromEntries(entries.map(([k, x]) => {
+    if (k.length > 100 || !x || typeof x !== 'object' || Array.isArray(x)) throw new HttpError(400, `${what}: one of them isn’t readable.`);
+    return [k, each(x)];
+  }));
+}
+function readGateBody(body) {
+  const kind = GATE_KINDS.includes(body.kind) ? body.kind : null;
+  if (!kind) throw new HttpError(400, 'Unknown decision: approve, changes, message or stop.');
+  let briefNumber = null;
+  if (body.briefNumber !== undefined && body.briefNumber !== null) {
+    if (!Number.isInteger(body.briefNumber) || body.briefNumber < 1 || body.briefNumber > 99999) throw new HttpError(400, 'That isn’t a brief number.');
+    briefNumber = body.briefNumber;
+  }
+  if (body.note !== undefined && body.note !== null && typeof body.note !== 'string') throw new HttpError(400, 'The note must be text.');
+  const note = body.note ?? '';
+  if (note.length > GATE_NOTE_MAX) throw new HttpError(400, `The note is too long (at most ${GATE_NOTE_MAX.toLocaleString('en')} characters).`);
+  if (kind === 'changes' && !note.trim()) throw new HttpError(400, 'Say what to change.');
+  const answers = byId(body.answers, 3, 'Answers', (a) => ({ ...(str(a.choice, 100) ? { choice: str(a.choice, 100) } : {}), ...(str(a.other, 1000) ? { other: str(a.other, 1000) } : {}) }));
+  const verdicts = byId(body.verdicts, 20, 'Verdicts', (v) => {
+    if (!['confirm', 'change'].includes(v.verdict)) throw new HttpError(400, 'Verdicts: confirm or change.');
+    return { verdict: v.verdict, ...(str(v.note, 1000) ? { note: str(v.note, 1000) } : {}) };
+  });
+  if (body.chips !== undefined && body.chips !== null && !Array.isArray(body.chips)) throw new HttpError(400, 'Chips: expected a list.');
+  const chips = body.chips ?? [];
+  if (chips.length > MAX_CHIPS) throw new HttpError(400, `Chips: at most ${MAX_CHIPS}.`);
+  return { kind, briefNumber, note, answers, verdicts, chips, startAfterReset: body.startAfterReset === true };
+}
+
+// The status fields composeReply reads, without the ones the job's records leave empty (null).
+const present = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined));
+
+const OPTION_KEYS = ['schema_version', 'level', 'flow', 'skip', 'provided', 'reviewers', 'review_rounds', 'manual_test', 'fable_checks', 'models', 'notes'];
+/**
+ * The job's options after the gate card's chips (the workflow's job-options.md, "Option lines from
+ * the gate card"): skip adds the stage to `skip`, ask Fable adds the point to `fable_checks`, a
+ * level change takes the new level's defaults and keeps provided documents, notes and fix rounds
+ * (then the other chips apply on top). Lighter, heavier and "I'll do it" are for the next step
+ * only: their line in the reply is the instruction, options.json doesn't change. Null: no change.
+ */
+function chipOptions(current, chips) {
+  const patching = chips.filter((c) => ['skip', 'fable', 'level'].includes(c.kind));
+  if (!patching.length) return null;
+  const before = current ?? defaultsFor('auto');
+  let o = Object.fromEntries(OPTION_KEYS.filter((k) => k in before).map((k) => [k, structuredClone(before[k])]));
+  const lv = patching.find((c) => c.kind === 'level');
+  if (lv) {
+    // Documents provided earlier were checked then; only new paths must exist.
+    const known = new Set(Object.values(before.provided ?? {}));
+    try {
+      o = normalizeOptions({ level: lv.level, provided: before.provided, notes: before.notes, review_rounds: before.review_rounds }, { previous: before, exists: (p) => known.has(p) || fs.existsSync(p) });
+    } catch (err) { throw new HttpError(400, err.message); }
+  }
+  for (const c of patching) {
+    if (c.kind === 'skip' && !o.skip.includes(c.stage)) o.skip = SKIPPABLE.map((s) => s.id).filter((s) => s === c.stage || o.skip.includes(s));
+    if (c.kind === 'fable' && !o.fable_checks.includes(c.point)) o.fable_checks = FABLE_POINTS.map((p) => p.id).filter((p) => p === c.point || o.fable_checks.includes(p));
+  }
+  return o;
+}
+
+async function saveChipOptions(f, options) {
+  if (!options) return;
+  await writeOptions(f.dir, options, { title: f.options?.title ?? f.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
+  await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options, via: 'gate' });
+  cached = null;
+}
+
+// ---------- A job's notes (notes.md in its private folder) ----------
+
+const NOTES_MAX = 20000;
+const notesFile = (f) => path.join(f.dir, 'notes.md');
+
+async function readNotes(f) {
+  const text = await readInside(f.dir, 'notes.md');
+  const st = text === null ? null : await fsp.stat(notesFile(f)).catch(() => null);
+  return { text: text ?? '', updatedAt: st?.mtime.toISOString() ?? null };
+}
+
+/** Replace notes.md, atomically (a new temp file renamed over it), only inside the job's own folder. */
+async function writeNotes(f, text) {
+  if (!isInside(f.dir, FEATURES_DIR) || path.resolve(f.dir) === FEATURES_DIR) throw new HttpError(400, 'This job’s folder isn’t where the workshop keeps jobs.');
+  const tmp = path.join(f.dir, `.notes.md.${crypto.randomBytes(6).toString('hex')}.tmp`);
+  await fsp.writeFile(tmp, text, { flag: 'wx', mode: 0o600 });
+  try { await fsp.rename(tmp, notesFile(f)); } catch (err) { await fsp.rm(tmp, { force: true }); throw err; }
+}
 
 function slugify(s) {
   return String(s).toLowerCase().normalize('NFKD').replace(/[^\w\s-]/g, '').trim().replace(/[\s_]+/g, '-').replace(/-+/g, '-').slice(0, 48).replace(/-$/, '') || 'job';
@@ -659,6 +805,7 @@ async function routeGet(urlPath, url, req, res) {
       return sendJson(res, 200, { slug: f.slug, thread: page.items, threadMore: page.more });
     }
     if (!sub) return sendJson(res, 200, await jobDetail(f));
+    if (sub === '/notes') return sendJson(res, 200, await readNotes(f));
     if (sub === '/doc') {
       const file = url.searchParams.get('file') ?? '';
       let text = null;
@@ -711,26 +858,48 @@ async function routePost(urlPath, req, res) {
     const text = str(body.text).trim();
     if (!text) throw new HttpError(400, 'The message is empty.');
     const drive = await driveState(f);
-    if (drive.mode === 'running') throw new HttpError(409, 'The Foreman is still working on your last message. Wait for it, or pause it first.');
-    if (closing.has(f.dir)) throw new HttpError(409, 'This job is being marked done right now. Wait a moment.');
-    if (limits.isLimited() && body.despiteLimit !== true) throw new HttpError(409, limitMessage(), { code: 'limited' });
-    if (drive.mode === 'terminal') throw new HttpError(409, 'This job’s Foreman was last used in your terminal.', { code: 'terminal', lastTerminalAt: drive.lastTerminalAt });
-    if (drive.mode === 'terminal-open' && body.confirmNoTerminal !== true) throw new HttpError(409, 'Claude Code is open in this repository in a terminal. Make sure none of those windows is this job’s Foreman, then confirm.', { code: 'terminal-open', terminals: drive.terminals.length });
-    const model = MODELS.some((x) => x.id === body.model) ? body.model : drive.model ?? OPUS;
-    const cwd = drive.cwd ?? f.repoPath;
-    if (!cwd) throw new HttpError(400, 'I don’t know which repository this job belongs to.');
-    let sendText = text;
-    let sessionId = drive.sessionId;
-    if (drive.mode === 'none' || drive.mode === 'terminal-open') {
-      // No Foreman session yet: start one that picks this job up from its files.
-      sendText = `/feature ${f.slug} Private folder: ${f.dir}\n\n${text}`;
-      sessionId = null;
-    }
-    const run = await driver.start({ featureDir: f.dir, slug: f.slug, title: f.title, cwd, sessionId, model, text: sendText, kind: str(body.kind, 20) || 'message', additionalDirectories: await readDirs() });
-    await limits.forget(f.dir); // you've picked it up yourself
-    if (f.closed) { await state.setSession(f.dir, { closed: null }); await state.audit({ action: 'reopen', featureDir: f.dir, slug: f.slug, how: 'message' }); }
-    cached = null;
+    const out = sendPlan(f, drive, body, text);
+    const run = await startSend(f, out, { kind: str(body.kind, 20) || 'message' });
     return sendJson(res, 200, { run });
+  }
+  if ((m = /^\/api\/job\/([^/]+)\/gate$/.exec(urlPath))) {
+    // A decision from the gate card: answers, verdicts, next-step chips and a note, composed into
+    // the reply here (composeReply, as the page previews it). Chips that change an option patch
+    // options.json first. With a reply in progress nothing is sent: the text comes back for the
+    // composer to hold. With the usage limit reached, startAfterReset holds it until the reset.
+    const f = await featureBySlug(m[1]);
+    if (!f) throw new HttpError(404, 'No job by that name.');
+    const g = readGateBody(body);
+    if (['approve', 'changes'].includes(g.kind) && g.briefNumber && f.currentBrief?.number && f.currentBrief.number !== g.briefNumber) {
+      throw new HttpError(409, `The Foreman has moved on to brief ${f.currentBrief.number} since this card was shown. Nothing was sent; decide on the new brief.`, { code: 'stale-brief', briefNumber: f.currentBrief.number });
+    }
+    // A level chip names the level the job is at now (the server's word, not the page's).
+    const level = Number.isInteger(f.options?.level) ? f.options.level : null;
+    const chips = cleanChips(g.chips.map((c) => (c?.kind === 'level' ? { ...c, was: level } : c)));
+    // A message needs something of yours in it (the reply would otherwise only list open decisions).
+    if (g.kind === 'message' && !g.note.trim() && !chips.length && !Object.keys(g.answers).length && !Object.keys(g.verdicts).length) throw new HttpError(400, 'The message is empty.');
+    const options = chipOptions(f.options, chips);
+    const text = composeReply({ kind: g.kind, status: present(statusForCompose(f)), answers: g.answers, verdicts: g.verdicts, note: g.note, chips });
+    if (!text) throw new HttpError(400, 'The message is empty.');
+    const reply = { ok: true, text, chipsDropped: g.chips.length - chips.length, ...(options ? { options, summary: describeOptions(options) } : {}) };
+    const drive = await driveState(f);
+    if (drive.mode === 'running') {
+      await saveChipOptions(f, options);
+      return sendJson(res, 200, { ...reply, sent: false, queued: false, message: `The Foreman is still working on a reply, so nothing was sent${options ? '. The option changes are saved and apply from its next stage' : ''}. Send this text once the reply is done.` });
+    }
+    const hold = g.startAfterReset && body.despiteLimit !== true && limits.isLimited();
+    const out = sendPlan(f, drive, body, text, { holding: hold });
+    await saveChipOptions(f, options);
+    if (hold) {
+      const held = await limits.hold({ featureDir: f.dir, slug: f.slug, title: f.title, cwd: out.cwd, sessionId: out.sessionId, model: out.model, additionalDirectories: await readDirs() }, { text: out.text, kind: g.kind, gateBrief: g.briefNumber });
+      await state.audit({ action: 'send-held', featureDir: f.dir, slug: f.slug, kind: g.kind, text, autoResume: held.autoResume, resetsAt: held.resetsAt, ...(g.briefNumber ? { gateBrief: g.briefNumber } : {}) });
+      await reopenIfClosed(f);
+      cached = null;
+      const when = new Date(held.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      return sendJson(res, 200, { ...reply, sent: false, held: true, resetsAt: held.resetsAt, message: held.autoResume ? `Held: it goes to the Foreman when Claude’s usage limit resets (around ${when}).` : `Held: it goes to the Foreman when you press “Carry on now” after Claude’s usage limit resets (around ${when}).` });
+    }
+    const run = await startSend(f, out, { kind: g.kind, gateBrief: g.briefNumber });
+    return sendJson(res, 200, { ...reply, sent: true, run });
   }
   if ((m = /^\/api\/job\/([^/]+)\/takeover$/.exec(urlPath))) {
     const f = await featureBySlug(m[1]);
@@ -988,6 +1157,23 @@ async function routePost(urlPath, req, res) {
   throw new HttpError(404, 'Not found');
 }
 
+async function routePut(urlPath, req, res) {
+  checkWrite(req.headers, { port: PORT, token: TOKEN });
+  const body = await readBody(req);
+  const m = /^\/api\/job\/([^/]+)\/notes$/.exec(urlPath);
+  if (m) {
+    // The job's notes (notes.md), saved whole from the job drawer. Audited by size only.
+    const f = await featureBySlug(m[1]);
+    if (!f) throw new HttpError(404, 'No job by that name.');
+    if (typeof body.text !== 'string') throw new HttpError(400, 'The notes must be text.');
+    if (body.text.length > NOTES_MAX) throw new HttpError(413, `The notes are too long (at most ${NOTES_MAX.toLocaleString('en')} characters).`);
+    await writeNotes(f, body.text);
+    await state.audit({ action: 'notes', featureDir: f.dir, slug: f.slug, size: body.text.length });
+    return sendJson(res, 200, { ok: true, ...(await readNotes(f)) });
+  }
+  throw new HttpError(404, 'Not found');
+}
+
 async function routeDelete(urlPath, req, res) {
   checkWrite(req.headers, { port: PORT, token: TOKEN });
   await readBody(req);
@@ -1075,6 +1261,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && urlPath === '/api/events') return openEvents(req, res);
     if (req.method === 'GET') return await routeGet(urlPath, url, req, res);
     if (req.method === 'POST') return await routePost(urlPath, req, res);
+    if (req.method === 'PUT') return await routePut(urlPath, req, res);
     if (req.method === 'DELETE') return await routeDelete(urlPath, req, res);
     return send(res, 405, 'Method not allowed');
   } catch (err) {

@@ -66,7 +66,8 @@ export class LimitWatch extends EventEmitter {
       resetsAt: iso(this.limit?.resetsAt),
       resetKnown: Boolean(this.limit?.resetKnown),
       passed: Boolean(this.limit) && this.now() >= this.limit.resetsAt,
-      jobs: (this.limit?.jobs ?? []).map((j) => ({ slug: j.slug, title: j.title })),
+      // held: a reply you composed waits to be sent then (hold), rather than "carry on".
+      jobs: (this.limit?.jobs ?? []).map((j) => ({ slug: j.slug, title: j.title, ...(j.send ? { held: true } : {}) })),
       autoResume: this.autoResume,
       warning: warning ? { label: label(warning.kind), percent: warning.percent, resetsAt: iso(warning.resetsAt) } : null,
     };
@@ -126,6 +127,30 @@ export class LimitWatch extends EventEmitter {
     this.emit('change');
   }
 
+  /**
+   * "Approve, start after reset": hold a reply for a job until the limit resets, then send it in
+   * place of the usual carry-on message (Carry on now sends it too). One held reply per job; a
+   * newer one replaces it, and a message you send by hand meanwhile drops it (forget). Kept with
+   * the paused jobs, so a restart doesn't lose it.
+   * job: { featureDir, slug, title, cwd, sessionId, model, additionalDirectories }.
+   * send: { text (exactly what goes to the Foreman), kind, gateBrief }.
+   */
+  async hold(job, send) {
+    if (!this.limit) throw new Error('No usage limit is in force, so there is nothing to wait for.');
+    const entry = { ...jobOf(job), send: { text: String(send.text), kind: send.kind ?? 'message', gateBrief: Number.isInteger(send.gateBrief) ? send.gateBrief : null, at: new Date(this.now()).toISOString() } };
+    this.limit.jobs = [...this.limit.jobs.filter((j) => j.featureDir !== job.featureDir), entry];
+    this.queue = this.queue.filter((j) => j.featureDir !== job.featureDir);
+    await this.#save();
+    this.emit('change');
+    return { resetsAt: new Date(this.limit.resetsAt).toISOString(), resetKnown: Boolean(this.limit.resetKnown), autoResume: this.autoResume };
+  }
+
+  /** The reply held for this job until the limit resets ({ kind, gateBrief, at }), or null. */
+  heldFor(featureDir) {
+    const j = [...(this.limit?.jobs ?? []), ...this.queue].find((x) => x.featureDir === featureDir && x.send);
+    return j ? { kind: j.send.kind, gateBrief: j.send.gateBrief, at: j.send.at } : null;
+  }
+
   /** A job sent a message by hand while paused no longer waits for the automatic carry-on. */
   async forget(featureDir) {
     const before = (this.limit?.jobs.length ?? 0) + this.queue.length;
@@ -151,7 +176,9 @@ export class LimitWatch extends EventEmitter {
         if (!(await this.canResume(job))) outcome = 'It’s been picked up somewhere else since the pause.';
         for (let tries = 0; !outcome && tries < BUSY_TRIES; tries++) {
           try {
-            await this.driver.start({ featureDir: job.featureDir, slug: job.slug, title: job.title, cwd: job.cwd, sessionId: job.sessionId, model: job.model, text: RESUME_TEXT, kind: 'resume', additionalDirectories: job.additionalDirectories });
+            // A held reply (hold) goes in place of the carry-on message, as you composed it.
+            const send = job.send ? { text: job.send.text, kind: job.send.kind, gateBrief: job.send.gateBrief } : { text: RESUME_TEXT, kind: 'resume' };
+            await this.driver.start({ featureDir: job.featureDir, slug: job.slug, title: job.title, cwd: job.cwd, sessionId: job.sessionId, model: job.model, additionalDirectories: job.additionalDirectories, ...send });
             outcome = 'started';
           } catch (err) {
             if (err?.name !== 'Busy' && err?.constructor?.name !== 'Busy') { outcome = String(err?.message ?? err); break; }
@@ -160,7 +187,7 @@ export class LimitWatch extends EventEmitter {
         }
         if (this.queue[0] === job) this.queue.shift();
         if (outcome === 'started') resumed.push(job.slug);
-        else await this.state.audit({ action: 'usage-limit-skip', featureDir: job.featureDir, slug: job.slug, how, reason: outcome ?? 'Still busy after several tries.' });
+        else await this.state.audit({ action: 'usage-limit-skip', featureDir: job.featureDir, slug: job.slug, how, reason: outcome ?? 'Still busy after several tries.', ...(job.send ? { held: { kind: job.send.kind, gateBrief: job.send.gateBrief, text: job.send.text } } : {}) });
         await this.#save();
         this.emit('change');
       }

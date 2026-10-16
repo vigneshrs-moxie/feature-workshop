@@ -41,7 +41,17 @@ export function buildThread({ briefs = [], audit = [], autoResume = true }) {
     }
     const note = (text) => thread.push({ id: id('note'), kind: 'note', at: e.at, text });
     if (e.action === 'send' && e.kind === 'resume') note('Claude’s usage limit reset, so the workshop told the Foreman to carry on.');
-    else if (e.action === 'send') thread.push({ id: id('you'), kind: 'you', at: e.at, text: e.text, sendKind: e.kind });
+    // gateBrief: sent from a gate card, answering that brief.
+    else if (e.action === 'send') thread.push({ id: id('you'), kind: 'you', at: e.at, text: e.text, sendKind: e.kind, ...(Number.isInteger(e.gateBrief) ? { gateBrief: e.gateBrief } : {}) });
+    // A gate reply held until Claude's usage limit resets (lib/limits.js hold); sent then as a 'send'.
+    else if (e.action === 'send-held') note(`Your reply${Number.isInteger(e.gateBrief) ? ` to brief ${e.gateBrief}` : ''} waits for Claude’s usage limit to reset${e.autoResume === false ? ' and for you to press “Carry on now”' : ''}; it goes to the Foreman then.`);
+    else if (e.action === 'usage-limit-skip' && e.held) note(`Your reply held for the usage-limit reset wasn’t sent: ${e.reason ?? 'the job couldn’t be carried on from here.'}`);
+    // notes.md saved from the job drawer: one dim line for a run of saves with nothing else between.
+    else if (e.action === 'notes') {
+      const last = thread.at(-1);
+      if (last?.kind === 'note' && last.notes) last.at = e.at;
+      else thread.push({ id: id('note'), kind: 'note', at: e.at, text: 'You updated this job’s notes (notes.md).', notes: true });
+    }
     // A message you steered into a reply in progress; the page shows its delivery state by steerId.
     else if (e.action === 'steer') thread.push({ id: id('you'), kind: 'you', at: e.at, text: e.text, sendKind: 'steer', steerId: e.steerId, runId: e.runId });
     else if (e.action === 'run-ended') {

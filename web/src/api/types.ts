@@ -2,7 +2,7 @@
 // Sources: GET /api/snapshot and /api/events?v=2 in dashboard/server.js, lib/events.js,
 // lib/snapshot.js, lib/driver.js (view, viewPermission) and lib/limits.js (view).
 
-import type { ComposeStatus } from '../lib/compose';
+import type { ComposeAnswers, ComposeStatus, ComposeVerdicts, GateChip, GateKind } from '../lib/compose';
 
 export type JobGroup = 'needs-you' | 'running' | 'paused' | 'idle' | 'done';
 export const JOB_GROUPS: JobGroup[] = ['needs-you', 'running', 'paused', 'idle', 'done'];
@@ -303,8 +303,8 @@ export interface Usage {
   resetKnown?: boolean;
   /** The reset time has gone by (it still blocks while automatic carry-on is off). */
   passed?: boolean;
-  /** The jobs it paused; they carry on once it lifts. */
-  jobs?: { slug: string; title: string }[];
+  /** The jobs it paused; they carry on once it lifts. held: a gate reply waits to be sent then. */
+  jobs?: { slug: string; title: string; held?: boolean }[];
   /** Paused jobs carry on by themselves when it resets. */
   autoResume?: boolean;
   /** Close to the limit, not there yet. */
@@ -385,15 +385,19 @@ export interface BriefItem extends ItemBase {
   /** The versions it was raised at: only on the brief status.json names (null for older ones). */
   versions?: Versions | null;
 }
-/** steerId: set when you steered it into a reply in progress (its delivery state is in the store). */
-export interface YouItem extends ItemBase { kind: 'you'; text: string; sendKind?: string; steerId?: string; runId?: string }
+/**
+ * steerId: set when you steered it into a reply in progress (its delivery state is in the store).
+ * gateBrief: sent from a gate card, answering that brief.
+ */
+export interface YouItem extends ItemBase { kind: 'you'; text: string; sendKind?: string; steerId?: string; runId?: string; gateBrief?: number }
 /** `html` is rendered and sanitised by the dashboard (lib/markdown.js: raw HTML escaped, unsafe links dropped). */
 export interface ReplyItem extends ItemBase { kind: 'reply'; html: string; stopped?: boolean }
 /** rule: the id of your saved "Always allow" rule that let it run, when one did. */
 export interface AutoStep { at: string | null; headline: string; who?: string; reason?: string; rule?: string }
 export interface AutoItem extends ItemBase { kind: 'auto'; runId?: string; items: AutoStep[] }
 export interface ProblemItem extends ItemBase { kind: 'problem'; text: string }
-export interface NoteItem extends ItemBase { kind: 'note'; text: string }
+/** notes: the line for saves of the job's notes.md (a run of saves is one line). */
+export interface NoteItem extends ItemBase { kind: 'note'; text: string; notes?: boolean }
 export interface DecisionItem extends ItemBase { kind: 'decision'; text: string }
 
 /** An action refused without a card: by auto mode's safety model, or by a hard line. */
@@ -432,7 +436,54 @@ export interface JobDetail {
   gate?: Gate | null;
   /** Brief numbers a gate reply was already sent for. */
   answeredBriefs?: number[];
+  /** A gate reply held until Claude's usage limit resets ("Approve, start after reset"), or null. */
+  heldReply?: { kind: GateKind; gateBrief: number | null; at: string } | null;
   [key: string]: unknown;
+}
+
+/** POST /api/job/:slug/gate: a decision from the gate card (dashboard/server.js). */
+export interface GateRequest {
+  kind: GateKind;
+  /** The brief this card answers; an approval for an older brief than the Foreman's is refused (409 stale-brief). */
+  briefNumber?: number | null;
+  /** By question id; at most 3. */
+  answers?: ComposeAnswers;
+  /** By decision id; at most 20. */
+  verdicts?: ComposeVerdicts;
+  /** At most 4,000 characters. */
+  note?: string;
+  /** At most 8; malformed ones are left out (chipsDropped). A level chip's `was` is the job's level now. */
+  chips?: GateChip[];
+  model?: string;
+  despiteLimit?: boolean;
+  confirmNoTerminal?: boolean;
+  /** With the usage limit reached: hold the reply and send it when the limit resets. */
+  startAfterReset?: boolean;
+}
+
+/**
+ * The gate route's answer. sent: it went to the Foreman (run). Otherwise held (until the usage
+ * limit resets), or nothing was sent because a reply is in progress (queued: false): `text` is
+ * the composed reply for the composer to hold. options/summary: the job's options after the chips.
+ */
+export interface GateResult {
+  ok: true;
+  sent: boolean;
+  text: string;
+  run?: Run;
+  held?: boolean;
+  resetsAt?: string;
+  queued?: false;
+  message?: string;
+  chipsDropped?: number;
+  options?: Record<string, unknown>;
+  summary?: string[];
+}
+
+/** GET /api/job/:slug/notes (PUT saves { text }). */
+export interface JobNotes {
+  text: string;
+  updatedAt: string | null;
 }
 
 /** POST /api/job/:slug/policy. */
