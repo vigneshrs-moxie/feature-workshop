@@ -5,7 +5,7 @@
 // ⌘K offers the same actions (app/commands.ts); both call app/jobActions.ts.
 // The level chip (LevelChip.tsx) shows the job's level and changes it.
 import { useEffect, useRef, useState } from 'react';
-import type { Job, JobOptions, PolicyId, Run } from '../../api/types';
+import type { Job, PolicyId, Run } from '../../api/types';
 import { reopenJob, setJobPolicy } from '../../app/jobActions';
 import { classicHref } from '../../app/router';
 import { useUi } from '../../app/ui';
@@ -151,11 +151,11 @@ export interface JobHeaderProps {
   policyOverride?: PolicyId | null;
   run?: Run | null;
   worktree?: string | null;
-  /** The job's options.json (from its detail), kept when the level chip changes the level. */
-  options?: JobOptions | null;
+  /** Whether the job's detail has loaded: the level chip waits for it before it changes the level. */
+  detailLoaded?: boolean;
 }
 
-export function JobHeader({ job, branch, dir, policyOverride, run, worktree, options }: JobHeaderProps) {
+export function JobHeader({ job, branch, dir, policyOverride, run, worktree, detailLoaded = false }: JobHeaderProps) {
   const now = useNow();
   const kind = job.kind ? KIND_LABELS[job.kind] ?? job.kind : null;
   const repo = job.repo?.name ?? null;
@@ -171,7 +171,7 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree, opt
       <div className="job-header-line">
         <span className="hue-dot" style={jobHueStyle(job.slug)} aria-hidden="true" />
         <h2 className="pane-title job-title">{job.title || job.slug}</h2>
-        <LevelChip job={job} options={options} />
+        <LevelChip job={job} ready={detailLoaded} />
         <JobMenu job={job} dir={dir} policyOverride={policyOverride} run={run} worktree={worktree} />
       </div>
       <p className="job-facts muted">

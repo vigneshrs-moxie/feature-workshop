@@ -40,6 +40,8 @@ export interface SendPreviewProps {
   intro?: string;
   sendLabel?: string;
   sendHint?: string;
+  /** Why it can't be sent any more (shown, and Send is off); null or absent when it can. */
+  blocked?: string | null;
 }
 
 /**
@@ -52,6 +54,7 @@ export function SendPreview({
   intro = 'This is exactly what the Foreman will receive. You can still edit it.',
   sendLabel = 'Send to the Foreman',
   sendHint = 'Send this text to the job’s Foreman now (⌘/Ctrl+Enter).',
+  blocked = null,
 }: SendPreviewProps) {
   const titleId = useId();
   const [text, setText] = useState(initial);
@@ -70,6 +73,7 @@ export function SendPreview({
   }, [busy, onClose]);
 
   async function send() {
+    if (blocked) return;
     if (!text.trim()) { setError('The message is empty.'); return; }
     if (askTerminal && !noTerminal) { setError('Check the open terminals first, then tick the box.'); return; }
     setBusy(true);
@@ -111,9 +115,10 @@ export function SendPreview({
             <input type="checkbox" checked={noTerminal} onChange={(e) => setNoTerminal(e.target.checked)} /> None of the open terminals is this job’s Foreman
           </label>
         )}
+        {blocked && <p className="perm-warn" role="alert">{blocked}</p>}
         {error && <p className="field-problem" role="alert">{error}</p>}
         <div className="sheet-actions">
-          <button type="button" className="btn btn-primary" onClick={() => void send()} disabled={busy} title={sendHint}>
+          <button type="button" className="btn btn-primary" onClick={() => void send()} disabled={busy || Boolean(blocked)} title={blocked ?? sendHint}>
             {busy ? 'Sending…' : sendLabel}
           </button>
           <button type="button" className="btn btn-quiet" onClick={onClose} disabled={busy} title="Go back without sending. Nothing is lost.">Back</button>
@@ -166,7 +171,8 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
   }
 
   async function steer() {
-    if (!running || empty) return;
+    // A gate reply goes as its own message once the Foreman finishes, never into the reply in progress.
+    if (!running || empty || gate) return;
     setBusy('steer');
     setError(null);
     setNote(null);
@@ -200,9 +206,21 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
 
   async function submit(text: string, { confirmNoTerminal }: { confirmNoTerminal: boolean }) {
     // A gate reply goes as the kind of reply it is, with the brief it answers.
-    await api.post(`/api/job/${encodeURIComponent(slug)}/send`, {
-      kind: gate?.kind ?? 'message', text, model, confirmNoTerminal, ...(gate ? { gateBrief: gate.brief } : {}),
-    });
+    try {
+      await api.post(`/api/job/${encodeURIComponent(slug)}/send`, {
+        kind: gate?.kind ?? 'message', text, model, confirmNoTerminal, ...(gate ? { gateBrief: gate.brief } : {}),
+      });
+    } catch (err) {
+      // The Foreman moved on to a newer brief: this reply was for the old one, so nothing was sent.
+      // The text stays in the box as an ordinary message; the newer brief's card is the place to decide.
+      if (gate && err instanceof ApiError && err.status === 409 && err.body.code === 'stale-brief') {
+        const now = typeof err.body.briefNumber === 'number' ? err.body.briefNumber : null;
+        setGateRaw(null);
+        setPreview(null);
+        setError(`The Foreman moved on to ${now ? `brief ${now}` : 'a newer brief'}; your reply to brief ${gate.brief} wasn’t sent. It’s still in the box.`);
+      }
+      throw err;
+    }
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -211,16 +229,23 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
     if (running) void steer(); else openPreview();
   }
 
+  // A gate reply can't steer the reply in progress: it is a decision on its brief, sent on its own.
+  const gateWaits = running && gate !== null;
+
   return (
     <section className="composer" aria-label="Message the Foreman">
       {gate && (
         <p className="muted composer-note composer-gate" role="status">
-          This is your reply to brief {gate.brief} from its card ({KIND_WORDS[gate.kind]}). {running ? 'Send it once the Foreman finishes.' : 'Press Send… to send it.'}{' '}
+          {gateWaits
+            ? `This is your reply to brief ${gate.brief} (${KIND_WORDS[gate.kind]}); it goes as its own message once the Foreman finishes. Make it a plain message to steer it.`
+            : `This is your reply to brief ${gate.brief} from its card (${KIND_WORDS[gate.kind]}). Press Send… to send it.`}{' '}
           <button
             type="button"
             className="link-button"
             onClick={() => setGateRaw(null)}
-            title="Send this text as an ordinary message instead: brief cards then don’t count it as your answer."
+            title={gateWaits
+              ? 'Make this an ordinary message, so you can steer the reply in progress with it: brief cards then don’t count it as your answer.'
+              : 'Send this text as an ordinary message instead: brief cards then don’t count it as your answer.'}
           >
             Make it a plain message
           </button>
@@ -236,7 +261,9 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
         placeholder={running ? 'Add something to the reply in progress…' : 'Write to the Foreman…'}
         onChange={(e) => { if (e.target.value === '') clearDraft(); else setDraft(e.target.value); }}
         onKeyDown={onKeyDown}
-        title={running
+        title={gateWaits
+          ? 'Your reply to a brief, waiting for the Foreman to finish. It goes as its own message then; it can’t steer the reply in progress.'
+          : running
           ? 'The Foreman is replying. What you write here joins that reply: it reads it at its next step. ⌘/Ctrl+Enter to steer.'
           : 'Your message to this job’s Foreman. It is kept for this job until you send it. ⌘/Ctrl+Enter to preview and send.'}
       />
@@ -263,8 +290,9 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
               type="button"
               className="btn btn-primary"
               onClick={() => void steer()}
-              disabled={empty || stopping || busy !== null}
-              title={stopping ? 'The reply is stopping. Send your message once it has stopped.' : 'Add your message to the reply in progress. The Foreman reads it at its next step; its state shows on your message.'}
+              disabled={empty || stopping || busy !== null || gateWaits}
+              title={gateWaits ? `This is your reply to brief ${gate?.brief}; it goes as its own message once the Foreman finishes. Make it a plain message to steer it.`
+                : stopping ? 'The reply is stopping. Send your message once it has stopped.' : 'Add your message to the reply in progress. The Foreman reads it at its next step; its state shows on your message.'}
             >
               {busy === 'steer' ? 'Steering…' : 'Steer'}
             </button>

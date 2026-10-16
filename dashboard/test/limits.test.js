@@ -141,6 +141,32 @@ test('usage limit hits again while carrying on: a held reply (even with no sessi
   assert.equal(driver.started.find((s) => s.slug === 'a' && s !== driver.started[0]).text, RESUME_TEXT);
 });
 
+test('a limit landing while a held reply is being started never sends that reply twice', async () => {
+  for (const sessionId of ['s-h', null]) {
+    const c = clock(Date.parse('2026-10-16T12:00:00Z'));
+    const driver = fakeDriver([]);
+    const limits = new LimitWatch({ driver, state: await tmpState(), ...c });
+    await limits.load();
+    await limits.onLimit({ run: null, info: limitInfo(c) });
+    await limits.hold({ ...heldJob('h'), sessionId }, HELD);
+    // Another job's limit lands while the held reply's start is still in flight (before its run is listed).
+    const start = driver.start.bind(driver);
+    let fired = false;
+    driver.start = async (o) => {
+      if (!fired) { fired = true; await limits.onLimit({ run: run('other'), info: limitInfo(c) }); }
+      return start(o);
+    };
+    await limits.resume('you');
+    await settle(limits);
+    assert.equal(limits.heldFor('/f/h'), null, 'the held reply is not kept for the next reset');
+    assert.deepEqual(limits.view().jobs.map((j) => j.slug), sessionId ? ['other', 'h'] : ['other'], 'with a session, h waits for a plain carry-on; without one, it is dropped');
+    await limits.resume('you');
+    await settle(limits);
+    assert.equal(driver.started.filter((s) => s.text === HELD.text).length, 1, 'the approval went once');
+    if (sessionId) assert.equal(driver.started.filter((s) => s.slug === 'h').at(-1).text, RESUME_TEXT);
+  }
+});
+
 test('a message you send yourself drops the held reply: audited, and a carry-on mid-retry never sends it after yours', async () => {
   const c = clock(Date.parse('2026-10-16T12:00:00Z'));
   const driver = fakeDriver([]);

@@ -2,7 +2,7 @@
 // /api/job/:slug/options (app/jobActions.ts setJobLevel), then the line saying what changed
 // ("Level set to L3 Large from the next stage. L2→L3 adds: …"), which stays until you close it.
 import { useState } from 'react';
-import type { JobOptions, LevelNumber } from '../../api/types';
+import type { LevelNumber } from '../../api/types';
 import { setJobLevel } from '../../app/jobActions';
 import { levelChange, levelLabel, lensNames } from '../../lib/levels';
 import { useWorkshop, useWorkshopState } from '../../state/store';
@@ -16,7 +16,7 @@ export interface SetLevel {
   clear(): void;
 }
 
-export function useSetLevel(slug: string, from: LevelNumber | null, options: JobOptions | null | undefined): SetLevel {
+export function useSetLevel(slug: string, from: LevelNumber | null): SetLevel {
   const { api } = useWorkshop();
   const { meta } = useWorkshopState();
   const [busy, setBusy] = useState(false);
@@ -27,7 +27,7 @@ export function useSetLevel(slug: string, from: LevelNumber | null, options: Job
     setBusy(true);
     setError(null);
     try {
-      await setJobLevel(api, slug, options, level);
+      await setJobLevel(api, slug, level);
       const change = levelChange(from, level, meta?.levels, lensNames(meta));
       setDone(`Level set to ${levelLabel(level, meta?.levels)}, from the next stage. ${change.text}.`);
       return true;

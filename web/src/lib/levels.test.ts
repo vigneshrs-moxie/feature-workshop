@@ -8,14 +8,17 @@ const NAMES = Object.fromEntries(REVIEWERS.map((r) => [r.id, r.label]));
 
 describe('levelChange (the consequence line)', () => {
   it('names what moving up adds, with the lenses’ friendly names', () => {
-    expect(levelChange(1, 2, LEVELS, NAMES).text).toBe('L1→L2 adds: spec, investigation, spec update, Locksmith + Gauge lenses');
-    expect(levelChange(0, 1, LEVELS, NAMES).text).toBe('L0→L1 adds: plan, tester, review, you test, Head inspector lens');
-    expect(levelChange(2, 3, LEVELS, NAMES).text).toBe('L2→L3 adds: product interview, Fable at plan + review, Stickler + Fuse + Mason + Stopwatch + Painter lenses');
+    // At L1 the test stage is the Foreman running the checks; from L2 up it is the tester.
+    expect(levelChange(1, 2, LEVELS, NAMES).text).toBe('L1→L2 adds: spec, investigation, spec update, tester, Locksmith + Gauge + Stickler lenses');
+    // Every level runs the checks (L0 in its build), so moving to L1 doesn't name them.
+    expect(levelChange(0, 1, LEVELS, NAMES).text).toBe('L0→L1 adds: plan, review, you test, Head inspector lens');
+    expect(levelChange(0, 2, LEVELS, NAMES).added).toContain('tester');
+    expect(levelChange(2, 3, LEVELS, NAMES).text).toBe('L2→L3 adds: product interview, Fable at plan + review, Fuse + Mason + Stopwatch + Painter lenses');
   });
 
   it('names what moving down drops', () => {
     const c = levelChange(2, 1, LEVELS, NAMES);
-    expect(c.text).toBe('L2→L1 drops: spec, investigation, spec update, Locksmith + Gauge lenses');
+    expect(c.text).toBe('L2→L1 drops: spec, investigation, spec update, tester, Locksmith + Gauge + Stickler lenses');
     expect(c.added).toEqual([]);
     expect(levelChange(3, 0, LEVELS, NAMES).dropped).toEqual([
       'spec', 'product interview', 'investigation', 'spec update', 'plan', 'tester', 'review', 'you test', 'Fable at plan + review',
@@ -24,8 +27,9 @@ describe('levelChange (the consequence line)', () => {
   });
 
   it('falls back to agent ids without names, and says what a level runs when there was none', () => {
-    expect(levelChange(1, 2, LEVELS).text).toBe('L1→L2 adds: spec, investigation, spec update, feature-review-permissions + feature-review-tests lenses');
-    expect(levelChange(null, 2, LEVELS, NAMES).text).toBe('L2 Standard runs: spec, investigation, spec update, plan, tester, review, you test, Head inspector + Locksmith + Gauge lenses');
+    expect(levelChange(1, 2, LEVELS).text).toBe('L1→L2 adds: spec, investigation, spec update, tester, feature-review-permissions + feature-review-tests + feature-review-conventions lenses');
+    expect(levelChange(null, 2, LEVELS, NAMES).text).toBe('L2 Standard runs: spec, investigation, spec update, plan, tester, review, you test, Head inspector + Locksmith + Gauge + Stickler lenses');
+    expect(levelChange(null, 1, LEVELS, NAMES).text).toBe('L1 Small runs: plan, checks, review, you test, Head inspector lens');
     expect(levelChange(null, 0, LEVELS, NAMES).text).toBe('L0 Tweak runs: one build and the checks');
     expect(levelChange(2, 2, LEVELS, NAMES).text).toBe('L2→L2: the same stages and reviewers');
     expect(levelChange(1, 3, null).text, 'no meta.levels: just the label').toBe('L3 Large');

@@ -196,7 +196,20 @@ export class LimitWatch extends EventEmitter {
           }
         }
         if (this.queue[0] === job) this.queue.shift();
-        if (outcome === 'started') resumed.push(job.slug);
+        if (outcome === 'started') {
+          resumed.push(job.slug);
+          // A limit that landed while this start was in flight took the job with it (onLimit),
+          // held reply and all. That reply has just gone: it must not go a second time after the
+          // next reset. With a session the job still waits for a plain carry-on; without one, not.
+          if (job.send && this.limit) {
+            this.limit.jobs = this.limit.jobs.flatMap((j) => {
+              if (j.featureDir !== job.featureDir || !j.send) return [j];
+              if (!j.sessionId) return [];
+              const { send: _sent, ...plain } = j;
+              return [plain];
+            });
+          }
+        }
         else if (outcome === LIMITED_AGAIN) { /* it waits with the new limit (onLimit took it) */ }
         // After a message you sent yourself, forget has already noted a held reply as dropped.
         else await this.state.audit({ action: 'usage-limit-skip', featureDir: job.featureDir, slug: job.slug, how, reason: outcome ?? 'Still busy after several tries.', ...(job.send && outcome !== MANUAL_SEND ? { held: { kind: job.send.kind, gateBrief: job.send.gateBrief, text: job.send.text } } : {}) });

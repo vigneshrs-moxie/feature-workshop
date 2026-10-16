@@ -51,7 +51,12 @@ describe('thread helpers', () => {
     expect(answered([brief(2, 'plan'), you('q', 'Is the CSV in scope?', { sendKind: 'message' }), you('s', 'also this', { sendKind: 'steer' })], { openBrief: 2 })).toEqual([[2, false]]);
     // ...a deciding reply (the classic page's approve, changes, stop) or one sent for it answers it.
     expect(answered([brief(2, 'plan'), you('a', 'I approve.', { sendKind: 'approve' })], { openBrief: 2 })).toEqual([[2, true]]);
-    expect(answered([brief(2, 'plan'), you('g', 'My answers to brief 2: …', { sendKind: 'message', gateBrief: 2 })], { openBrief: 2 })).toEqual([[2, true]]);
+    expect(answered([brief(2, 'plan'), you('g', 'My answers to brief 2: …\n\nI approve.', { sendKind: 'approve', gateBrief: 2 })], { openBrief: 2 })).toEqual([[2, true]]);
+    // "Other guidance" from the gate card (a message for brief 2) keeps its card open.
+    expect(answered([brief(2, 'plan'), you('o', 'Also check the CSV.', { sendKind: 'message', gateBrief: 2 })], { openBrief: 2 })).toEqual([[2, false]]);
+    // A gate reply answers only the brief it was for: a reply to brief 1 sent after brief 2 is not an answer to 2.
+    expect(answered([brief(2, 'plan'), you('r', 'I approve.', { sendKind: 'approve', gateBrief: 1 })], { openBrief: 2 })).toEqual([[2, false]]);
+    expect(answered([brief(1, 'spec'), you('r2', 'I approve.', { sendKind: 'approve', gateBrief: 3 })], { openBrief: 3 })).toEqual([[1, false]]);
     // Older briefs (no gate open on them) keep the old rule: any later message of yours.
     expect(answered([brief(1, 'spec'), you('m', 'Looks good')], { openBrief: 2 })).toEqual([[1, true]]);
     // A newer brief still replaces one.

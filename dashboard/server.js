@@ -29,7 +29,7 @@ import { LimitWatch } from './lib/limits.js';
 import { LocalRunner } from './lib/local.js';
 import { History, historyMarkdown } from './lib/history.js';
 import { removeWorktree, checkWorktree } from './lib/close.js';
-import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, MODEL_IDS, FOREMAN_MODEL_IDS, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions, foremanModel, levelsForClient } from './lib/options.js';
+import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions, foremanModel, levelsForClient, optionsAtLevel, isLevel } from './lib/options.js';
 import { isWebAppPath, serveWebApp } from './lib/web-app.js';
 import { EventLog, resumePoint, openStream } from './lib/events.js';
 import { groupCards } from './lib/snapshot.js';
@@ -195,7 +195,7 @@ const PARK_MS = Number(process.env.WORKSHOP_GATE_PARK_MS) > 0 ? Number(process.e
 // How often the timer looks: every 5 minutes (a quarter of the time when it is shortened, at least 200 ms).
 const PARK_CHECK_MS = Math.min(5 * 60_000, Math.max(200, Math.floor(PARK_MS / 4)));
 const parking = new GateParking({ thresholdMs: PARK_MS, file: path.join(state.dir, 'gate-parking.json') });
-const gateOf = (f, runActive) => ({ slug: f.slug, briefNumber: f.currentBrief?.number ?? null, waitingSince: f.gateWaitingSince, runActive: Boolean(runActive) });
+const gateOf = (f, runActive) => ({ slug: f.slug, briefNumber: f.currentBrief?.number ?? null, briefAt: f.currentBrief?.at ?? null, waitingSince: f.gateWaitingSince, runActive: Boolean(runActive) });
 const gateParked = (f, runActive) => isParkable(f) && !closedOff(f) && parking.isParked(gateOf(f, runActive));
 // Briefs answered from a gate card: read from the audit once at start, then kept up as replies are
 // sent (or held until the usage limit resets: you've decided, so the gate isn't parked, unless
@@ -475,8 +475,9 @@ async function jobDetail(f) {
   return {
     ...boardCard(f, run),
     rulesLevel, gate,
-    // Briefs a gate reply was already sent for (audit 'send' lines with gateBrief).
-    answeredBriefs: answeredBriefs(audit),
+    // Briefs already decided: a deciding gate reply (audit 'send' lines with gateBrief), or a
+    // decision from the classic page sent after the current brief was written.
+    answeredBriefs: answeredBriefs(audit, f.currentBrief),
     dir: f.dir, repoPath: f.repoPath, branch: f.branch, worktree: f.worktree, baseSha: f.baseSha, prs: f.prs,
     options: f.options, optionsSummary: f.options ? describeOptions(f.options) : null,
     spec: f.spec, specFile: specFile(f), currentText: f.currentText, questionsFull: f.questions, decidedOnYourBehalf: f.decidedOnYourBehalf,
@@ -629,9 +630,30 @@ function readGateBody(body) {
   // "Edit, then approve": the reply as you edited it, sent instead of the composed one (the chips
   // still change the options). Approvals only; the same 20,000 characters as /send.
   if (body.text !== undefined && body.text !== null && typeof body.text !== 'string') throw new HttpError(400, 'The edited reply must be text.');
+  tooLong(body.text, 'The edited reply');
   const edited = str(body.text ?? '').trim() || null;
   if (edited && kind !== 'approve') throw new HttpError(400, 'Only an approval can carry an edited reply.');
   return { kind, briefNumber, note, answers, verdicts, chips, edited, startAfterReset: body.startAfterReset === true };
+}
+
+// A reply (…/send text, …/gate edited text) longer than this is refused, not cut short.
+const TEXT_MAX = 20000;
+function tooLong(v, what) {
+  if (typeof v === 'string' && v.length > TEXT_MAX) throw new HttpError(400, `${what} is too long (at most ${TEXT_MAX.toLocaleString('en')} characters).`);
+}
+
+// A gate reply for a brief the Foreman has moved on from: 409 stale-brief, nothing is sent.
+function staleBriefCheck(f, briefNumber) {
+  const now = f.currentBrief?.number;
+  if (briefNumber && now && now !== briefNumber) {
+    throw new HttpError(409, `The Foreman has moved on to brief ${now} since this card was shown. Nothing was sent; decide on the new brief.`, { code: 'stale-brief', briefNumber: now });
+  }
+}
+
+// The gate as the job page shows it (gateView), enough to tell whether it is stale; null when the Foreman isn't waiting.
+function gateNow(f) {
+  if (!isGateWaiting(f) || closedOff(f)) return null;
+  return gateView({ ...f, decided: f.decidedOnYourBehalf, waitingSince: f.gateWaitingSince }, { raisedVersions: f.statusBriefFile ? raisedVersions.get(f.dir, f.statusBriefFile) : null });
 }
 
 // The status fields composeReply reads, without the ones the job's records leave empty (null).
@@ -641,10 +663,10 @@ const OPTION_KEYS = ['schema_version', 'level', 'flow', 'skip', 'provided', 'rev
 /**
  * The job's options after the gate card's chips (the workflow's job-options.md, "Option lines from
  * the gate card"): skip adds the stage to `skip`, ask Fable adds the point to `fable_checks`, a
- * level change takes the new level's skip, reviewers and Fable defaults and keeps the job's own
- * provided documents, notes, fix rounds, manual test and models (then the other chips apply on
- * top). Lighter, heavier and "I'll do it" are for the next step
- * only: their line in the reply is the instruction, options.json doesn't change. Null: no change.
+ * level change is optionsAtLevel (the new level's skip, reviewers and Fable defaults; the job's own
+ * provided documents, notes and fix rounds; manual test and models only where they were the job's
+ * own choice), then the other chips apply on top. Lighter, heavier and "I'll do it" are for the
+ * next step only: their line in the reply is the instruction, options.json doesn't change. Null: no change.
  */
 function chipOptions(current, chips) {
   const patching = chips.filter((c) => ['skip', 'fable', 'level'].includes(c.kind));
@@ -652,23 +674,17 @@ function chipOptions(current, chips) {
   const before = current ?? defaultsFor('auto');
   let o = Object.fromEntries(OPTION_KEYS.filter((k) => k in before).map((k) => [k, structuredClone(before[k])]));
   const lv = patching.find((c) => c.kind === 'level');
-  if (lv) {
-    // Documents provided earlier were checked then; only new paths must exist.
-    const known = new Set(Object.values(before.provided ?? {}));
-    // The job's models, where each is one the crew may still use for its role (else the level's).
-    const models = Object.fromEntries(['foreman', 'build', 'checks'].map((r) => [r, before.models?.[r]]).filter(([r, id]) => (r === 'foreman' ? FOREMAN_MODEL_IDS : MODEL_IDS).includes(id)));
-    try {
-      o = normalizeOptions({
-        level: lv.level, provided: before.provided, notes: before.notes, review_rounds: before.review_rounds, models,
-        ...(typeof before.manual_test === 'boolean' ? { manual_test: before.manual_test } : {}),
-      }, { previous: before, exists: (p) => known.has(p) || fs.existsSync(p) });
-    } catch (err) { throw new HttpError(400, err.message); }
-  }
+  if (lv) o = levelOptions(before, lv.level);
   for (const c of patching) {
     if (c.kind === 'skip' && !o.skip.includes(c.stage)) o.skip = SKIPPABLE.map((s) => s.id).filter((s) => s === c.stage || o.skip.includes(s));
     if (c.kind === 'fable' && !o.fable_checks.includes(c.point)) o.fable_checks = FABLE_POINTS.map((p) => p.id).filter((p) => p === c.point || o.fable_checks.includes(p));
   }
   return o;
+}
+
+// optionsAtLevel, with its refusals as a 400.
+function levelOptions(current, level) {
+  try { return optionsAtLevel(current, level); } catch (err) { throw new HttpError(400, err.message); }
 }
 
 async function saveChipOptions(f, options) {
@@ -878,14 +894,17 @@ async function routePost(urlPath, req, res) {
   if ((m = /^\/api\/job\/([^/]+)\/send$/.exec(urlPath))) {
     const f = await featureBySlug(m[1]);
     if (!f) throw new HttpError(404, 'No job by that name.');
+    tooLong(body.text, 'The message');
     const text = str(body.text).trim();
     if (!text) throw new HttpError(400, 'The message is empty.');
     // gateBrief: a gate reply composed while a reply was in progress (…/gate gave the text back) and
-    // sent now; it still answers that brief.
+    // sent now; it still answers that brief, so it must still be the current one (as …/gate checks).
     const gateBrief = readBriefNumber(body.gateBrief);
+    const kind = str(body.kind, 20) || 'message';
+    if (gateBrief && kind !== 'stop') staleBriefCheck(f, gateBrief);
     const drive = await driveState(f);
     const out = sendPlan(f, drive, body, text);
-    const run = await startSend(f, out, { kind: str(body.kind, 20) || 'message', gateBrief });
+    const run = await startSend(f, out, { kind, gateBrief });
     return sendJson(res, 200, { run });
   }
   if ((m = /^\/api\/job\/([^/]+)\/gate$/.exec(urlPath))) {
@@ -899,8 +918,11 @@ async function routePost(urlPath, req, res) {
     const g = readGateBody(body);
     // Answers, verdicts and chips for an older brief mustn't land on the new brief's questions; only
     // a stop goes through whichever brief is current.
-    if (g.kind !== 'stop' && g.briefNumber && f.currentBrief?.number && f.currentBrief.number !== g.briefNumber) {
-      throw new HttpError(409, `The Foreman has moved on to brief ${f.currentBrief.number} since this card was shown. Nothing was sent; decide on the new brief.`, { code: 'stale-brief', briefNumber: f.currentBrief.number });
+    if (g.kind !== 'stop' && g.briefNumber) staleBriefCheck(f, g.briefNumber);
+    // An approval of a spec or plan that changed since the card was raised approves something you
+    // haven't seen: refused, as the card greys out (gate.stale).
+    if (g.kind === 'approve' && gateNow(f)?.stale) {
+      throw new HttpError(409, 'The spec or plan changed since this card was shown. Nothing was sent; read the new version, then decide.', { code: 'stale-gate' });
     }
     // A level chip names the level the job is at now (the server's word, not the page's).
     const level = Number.isInteger(f.options?.level) ? f.options.level : null;
@@ -1025,7 +1047,14 @@ async function routePost(urlPath, req, res) {
     const f = await featureBySlug(m[1]);
     if (!f) throw new HttpError(404, 'No job by that name.');
     let options;
-    try { options = normalizeOptions(body.options ?? {}, { previous: f.options }); } catch (err) { throw new HttpError(400, err.message); }
+    if (body.options === undefined && body.level !== undefined) {
+      // A level on its own (the header's level chip, the LevelCard): merged here with the job's
+      // options now, the same way as the gate card's level chip (optionsAtLevel).
+      if (!isLevel(body.level)) throw new HttpError(400, 'Level: pick L0, L1, L2 or L3.');
+      options = levelOptions(f.options, body.level);
+    } else {
+      try { options = normalizeOptions(body.options ?? {}, { previous: f.options }); } catch (err) { throw new HttpError(400, err.message); }
+    }
     await writeOptions(f.dir, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
     // was: the level before, so the conversation can say "Level changed from L2 Standard to L3 Large".
     await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options, was: f.options?.level ?? null });

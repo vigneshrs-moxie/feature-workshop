@@ -4,7 +4,8 @@
 //
 //   gateView        what the page shows on the gate card; null when the Foreman isn't waiting
 //   RaisedVersions  the spec and artifact versions each brief was raised at (staleness guard)
-//   answeredBriefs  the briefs a gate reply was already sent for (audit 'send' lines with gateBrief)
+//   answeredBriefs  the briefs already decided: a deciding gate reply (audit 'send' lines with
+//                   gateBrief), or a classic-page decision sent after the current brief
 //   GateParking     which gates have been waiting too long; each one is alerted once
 //
 // Nothing here asks a model. The only thing written is GateParking's small file of alerted gates.
@@ -144,28 +145,52 @@ export function gateView(job, { brief = null, raisedVersions = null, parked = fa
 const briefNo = (n) => (Number.isInteger(n) && n > 0 ? n : null);
 
 /**
- * How one audit line bears on which briefs are answered: 'sent' (a gate reply went, its 'send' line
- * carries `gateBrief`), 'held' (a gate reply waits for the usage limit to reset: you've decided),
- * 'dropped' (that held reply won't go: you sent a message yourself, or it couldn't be carried on),
- * with the brief's number; null for anything else.
+ * The kinds of reply that decide a brief: approve, changes, stop. "Other guidance" (a message, even
+ * one sent from the gate card) leaves the gate open, as its hint says.
  */
-export function answerEvent(e) {
-  if (e?.action === 'send' && briefNo(e.gateBrief)) return { what: 'sent', brief: e.gateBrief };
-  if (e?.action === 'send-held' && briefNo(e.gateBrief)) return { what: 'held', brief: e.gateBrief };
+export const DECIDING_KINDS = ['approve', 'changes', 'stop'];
+const decides = (kind) => DECIDING_KINDS.includes(kind);
+const later = (at, since) => {
+  const a = Date.parse(at ?? '');
+  const s = Date.parse(since ?? '');
+  return Number.isFinite(a) && Number.isFinite(s) && a > s;
+};
+
+/**
+ * Whether an audit line is a decision sent from the classic page: a 'send' that decides (approve,
+ * changes, stop) and names no brief (the classic page doesn't know about gateBrief).
+ */
+export const isUnnumberedDecision = (e) => e?.action === 'send' && decides(e.kind) && (e.gateBrief === undefined || e.gateBrief === null);
+
+/**
+ * How one audit line bears on which briefs are answered: 'sent' (a deciding gate reply went, its
+ * 'send' line carries `gateBrief`), 'held' (a deciding gate reply waits for the usage limit to
+ * reset: you've decided), 'dropped' (that held reply won't go: you sent a message yourself, or it
+ * couldn't be carried on), with the brief's number; null for anything else.
+ * current: { number, at } of the brief the Foreman is on (its file's time). A decision from the
+ * classic page (no gateBrief) sent after that brief was written answers it, so the new page's gate
+ * card closes after a classic approval too.
+ */
+export function answerEvent(e, current = null) {
+  if (e?.action === 'send' && briefNo(e.gateBrief)) return decides(e.kind) ? { what: 'sent', brief: e.gateBrief } : null;
+  if (isUnnumberedDecision(e) && briefNo(current?.number) && later(e.at, current.at)) return { what: 'sent', brief: current.number };
+  if (e?.action === 'send-held' && briefNo(e.gateBrief)) return decides(e.kind) ? { what: 'held', brief: e.gateBrief } : null;
   if (e?.action === 'send-held-dropped' && briefNo(e.gateBrief)) return { what: 'dropped', brief: e.gateBrief };
   if (e?.action === 'usage-limit-skip' && briefNo(e.held?.gateBrief)) return { what: 'dropped', brief: e.held.gateBrief };
   return null;
 }
 
 /**
- * The brief numbers answered from a gate card, oldest first: a gate reply was sent for them, or is
- * held until the usage limit resets (and not dropped since). Other sends don't count.
+ * The brief numbers answered, oldest first: a deciding gate reply (approve, changes, stop) was sent
+ * for them, or is held until the usage limit resets (and not dropped since); or, for the current
+ * brief, a decision from the classic page came after it. Other sends don't count.
+ * current: { number, at } of the brief the Foreman is on (see answerEvent); null when unknown.
  */
-export function answeredBriefs(audit = []) {
+export function answeredBriefs(audit = [], current = null) {
   const sent = new Set();
   const held = new Set();
   for (const e of audit) {
-    const a = answerEvent(e);
+    const a = answerEvent(e, current);
     if (a?.what === 'sent') sent.add(a.brief);
     else if (a?.what === 'held') held.add(a.brief);
     else if (a?.what === 'dropped') held.delete(a.brief);
@@ -189,7 +214,7 @@ export function isParkable(job) {
  * card are remembered here (noteAnswered) so the audit file isn't read on every check.
  * thresholdMs, now and file are injectable for tests.
  *
- * A gate: { slug, briefNumber, waitingSince, runActive }.
+ * A gate: { slug, briefNumber, briefAt, waitingSince, runActive } (briefAt: the brief file's time).
  */
 export class GateParking {
   constructor({ thresholdMs = GATE_PARK_MS, now = () => Date.now(), file = null } = {}) {
@@ -199,6 +224,7 @@ export class GateParking {
     this.alerted = new Set();
     this.answered = new Set();
     this.held = new Set();
+    this.decidedAt = new Map(); // slug → time of the latest classic-page decision
   }
 
   static key({ slug, briefNumber, waitingSince }) { return `${slug}#${briefNumber ?? '-'}#${waitingSince ?? '-'}`; }
@@ -208,8 +234,17 @@ export class GateParking {
     if (slug && briefNo(briefNumber)) this.answered.add(`${slug}#${briefNumber}`);
   }
 
-  /** An audit line for this job, kept up the way answeredBriefs reads them (sent, held, dropped). */
+  /**
+   * An audit line for this job, kept up the way answeredBriefs reads them (sent, held, dropped). A
+   * decision from the classic page (no brief named) is remembered by its time: it answers a brief
+   * written before it (isAnswered with the brief's time).
+   */
   noteAudit(slug, e) {
+    if (slug && isUnnumberedDecision(e) && Number.isFinite(Date.parse(e.at ?? ''))) {
+      const was = this.decidedAt.get(slug);
+      if (!was || Date.parse(e.at) > Date.parse(was)) this.decidedAt.set(slug, e.at);
+      return;
+    }
     const a = answerEvent(e);
     if (!slug || !a) return;
     const k = `${slug}#${a.brief}`;
@@ -218,11 +253,16 @@ export class GateParking {
     else this.held.delete(k);
   }
 
-  isAnswered(slug, briefNumber) { const k = `${slug}#${briefNumber}`; return this.answered.has(k) || this.held.has(k); }
+  /** briefAt: the brief file's time; a classic-page decision after it answers it too. */
+  isAnswered(slug, briefNumber, briefAt = null) {
+    const k = `${slug}#${briefNumber}`;
+    if (this.answered.has(k) || this.held.has(k)) return true;
+    return Boolean(briefNo(briefNumber) && answerEvent({ action: 'send', kind: 'approve', at: this.decidedAt.get(slug) }, { number: briefNumber, at: briefAt }));
+  }
 
   /** Parked now: long enough untouched, not answered, nothing running. */
   isParked(g) {
-    if (!g?.slug || g.runActive || this.isAnswered(g.slug, g.briefNumber)) return false;
+    if (!g?.slug || g.runActive || this.isAnswered(g.slug, g.briefNumber, g.briefAt)) return false;
     const since = Date.parse(g.waitingSince ?? '');
     return Number.isFinite(since) && this.now() - since >= this.thresholdMs;
   }

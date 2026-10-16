@@ -1,7 +1,7 @@
 // What the job menu and ⌘K do to a job, in one place so both behave the same. Each call is one
 // dashboard route (dashboard/server.js); the live events that follow bring the page up to date.
 import type { ApiClient } from '../api/client';
-import type { Closed, GateRequest, GateResult, JobOptions, JobPolicyResult, LevelNumber, OptionsResult, PolicyId, Usage } from '../api/types';
+import type { Closed, GateRequest, GateResult, JobPolicyResult, LevelNumber, OptionsResult, PolicyId, Usage } from '../api/types';
 import type { Store } from '../state/store';
 
 const job = (slug: string) => `/api/job/${encodeURIComponent(slug)}`;
@@ -52,24 +52,16 @@ export async function sendGate(api: ApiClient, slug: string, body: GateRequest):
 }
 
 /**
- * Change a job's level (POST /api/job/:slug/options), from the next stage. The new level brings its
- * own stages, reviewers and Fable points (the same defaults the consequence line describes); the
- * documents you provided, your notes, the fix rounds, whether you test it by hand and the job's
- * models are kept, exactly as the gate card's level chip does (server.js chipOptions). The
- * dashboard audits it, and the conversation says "Level changed from L2 Standard to L3 Large".
+ * Change a job's level (POST /api/job/:slug/options with the level alone), from the next stage.
+ * The dashboard merges it with the job's options as they are on disk (lib/options.js
+ * optionsAtLevel, as the gate card's level chip does): the new level brings its own stages,
+ * reviewers and Fable points (the defaults the consequence line describes); the documents you
+ * provided, your notes and the fix rounds are kept; manual test and the models are kept only where
+ * they were the job's own choice, else they follow the new level. The dashboard audits it, and the
+ * conversation says "Level changed from L2 Standard to L3 Large".
  */
-export async function setJobLevel(api: ApiClient, slug: string, current: JobOptions | null | undefined, level: LevelNumber): Promise<OptionsResult> {
-  const keep: JobOptions = {};
-  if (current?.provided && typeof current.provided === 'object') keep.provided = current.provided;
-  if (typeof current?.notes === 'string') keep.notes = current.notes;
-  if (typeof current?.review_rounds === 'number') keep.review_rounds = current.review_rounds;
-  if (typeof current?.manual_test === 'boolean') keep.manual_test = current.manual_test;
-  const models = Object.fromEntries((['foreman', 'build', 'checks'] as const).flatMap((r) => {
-    const id = current?.models?.[r];
-    return typeof id === 'string' && id ? [[r, id]] : [];
-  }));
-  if (Object.keys(models).length) keep.models = models;
-  return api.post<OptionsResult>(`${job(slug)}/options`, { options: { ...keep, level } });
+export async function setJobLevel(api: ApiClient, slug: string, level: LevelNumber): Promise<OptionsResult> {
+  return api.post<OptionsResult>(`${job(slug)}/options`, { level });
 }
 
 /** Carry on now: start the jobs paused by the usage limit again. Returns how many started. */

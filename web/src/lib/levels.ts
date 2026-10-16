@@ -45,13 +45,24 @@ export function floorNote(s: Pick<LevelSuggestion, 'floor' | 'triggers'> & { flo
 
 // ---------- What a level runs, and what moving between two adds or drops ----------
 
-/** Stage ids (the job options' skip list) in workflow order, in the words the page uses. */
+/**
+ * Stage ids (the job options' skip list) in workflow order, in the words the page uses. The test
+ * stage reads "tester" from L2 up; at L1 it is the Foreman running the quick plan's checks (see
+ * stageWord).
+ */
 export const STAGE_WORDS: Record<string, string> = {
   spec: 'spec', refine: 'product interview', investigate: 'investigation', 'spec-update': 'spec update',
   plan: 'plan', test: 'tester', review: 'review',
 };
-/** What a level with reviewers 'auto' runs at least (design doc section 3: reviewer, permissions, tests; +db/ui if touched). */
-export const USUAL_LENSES = ['feature-reviewer', 'feature-review-permissions', 'feature-review-tests'];
+// Every level runs the checks (L0 in its build, L1 as its test stage, L2 up inside the tester), so
+// "checks" is never named as added or dropped; only "tester" is.
+const CHECKS = 'checks';
+const stageWord = (stage: string, level: LevelNumber) => (stage === 'test' && level <= 1 ? CHECKS : STAGE_WORDS[stage]);
+/**
+ * What a level with reviewers 'auto' runs at least (design doc section 3: reviewer, permissions,
+ * tests, and Stickler on Haiku per the skill; +db/ui if touched).
+ */
+export const USUAL_LENSES = ['feature-reviewer', 'feature-review-permissions', 'feature-review-tests', 'feature-review-conventions'];
 const FABLE_WORDS: Record<string, string> = { spec: 'spec', plan: 'plan', review: 'review', pr: 'PR' };
 
 /** The reviewers' friendly names by agent id (meta.jobOptions.reviewers: "Locksmith"), else none. */
@@ -65,10 +76,10 @@ function lensesAt(info: LevelInfo): string[] {
   return info.reviewers === 'auto' ? USUAL_LENSES : info.reviewers;
 }
 
-/** What runs at a level, as short phrases: stages, you testing it, Fable points, lenses. */
+/** What runs at a level, as short phrases: stages (in words), you testing it, Fable points, lenses. */
 function parts(info: LevelInfo) {
   return {
-    stages: Object.keys(STAGE_WORDS).filter((s) => !info.skip.includes(s)),
+    stages: Object.keys(STAGE_WORDS).filter((s) => !info.skip.includes(s)).map((s) => stageWord(s, info.level)),
     manual: Boolean(info.manualTest),
     fable: info.fable ?? [],
     lenses: lensesAt(info),
@@ -76,7 +87,7 @@ function parts(info: LevelInfo) {
 }
 
 function phrases({ stages, manual, fable, lenses }: ReturnType<typeof parts>, names: Record<string, string>): string[] {
-  const out = stages.map((s) => STAGE_WORDS[s]);
+  const out = [...stages];
   if (manual) out.push('you test');
   if (fable.length) out.push(`Fable at ${fable.map((p) => FABLE_WORDS[p] ?? p).join(' + ')}`);
   if (lenses.length) out.push(`${lenses.map((l) => names[l] ?? l).join(' + ')} lens${lenses.length === 1 ? '' : 'es'}`);
@@ -108,8 +119,9 @@ export function levelChange(from: LevelNumber | null, to: LevelNumber, levels: L
     const added = phrases(parts(toInfo), names);
     return { from, to, added, dropped: [], text: `${toInfo.label} runs: ${added.join(', ') || 'one build and the checks'}` };
   }
-  const a = parts(fromInfo);
-  const b = parts(toInfo);
+  const noChecks = (p: ReturnType<typeof parts>) => ({ ...p, stages: p.stages.filter((s) => s !== CHECKS) });
+  const a = noChecks(parts(fromInfo));
+  const b = noChecks(parts(toInfo));
   const added = phrases({ stages: minus(b.stages, a.stages), manual: b.manual && !a.manual, fable: minus(b.fable, a.fable), lenses: minus(b.lenses, a.lenses) }, names);
   const dropped = phrases({ stages: minus(a.stages, b.stages), manual: a.manual && !b.manual, fable: minus(a.fable, b.fable), lenses: minus(a.lenses, b.lenses) }, names);
   const head = `L${from}→L${to}`;

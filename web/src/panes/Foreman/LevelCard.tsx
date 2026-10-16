@@ -32,7 +32,7 @@ export function LevelCard({ job, detail }: { job: Job; detail: JobDetail | null 
   const [dismissed, setDismissed] = useStored(levelCardKey(job.slug));
   const view = levelCardView(facts, dismissed);
   const chosen = isLevel(facts.level) ? facts.level : null;
-  const choice = useSetLevel(job.slug, chosen, detail?.options);
+  const choice = useSetLevel(job.slug, chosen);
 
   if (!view.show && !choice.done) return null;
 

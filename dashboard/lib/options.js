@@ -207,6 +207,29 @@ export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previo
 }
 
 /**
+ * A job's options moved to another level (the level chip in the header, the LevelCard, the gate
+ * card's level chip): the new level's stages, reviewers and Fable points, keeping the documents
+ * provided, the notes and the fix rounds. Manual test and each model are kept only when they are
+ * the job's own choice, i.e. they differ from the OLD level's default; otherwise they follow the new
+ * level (so L0→L1 brings L1's Opus build and your own testing, L1→L0 brings L0's Sonnet build).
+ * Throws an Error with a plain message when something is off (as normalize does).
+ * Documents provided earlier were checked then; only new paths must exist.
+ */
+export function optionsAtLevel(current, level, { exists = (p) => fs.existsSync(p) } = {}) {
+  const before = current ?? defaultsFor('auto');
+  const old = isLevel(before.level) ? defaultsForLevel(before.level) : defaultsFor(before.flow);
+  const models = Object.fromEntries(['foreman', 'build', 'checks']
+    .map((r) => [r, before.models?.[r]])
+    .filter(([r, id]) => modelAllowed(r, id) && id !== old.models[r]));
+  const ownTest = typeof before.manual_test === 'boolean' && before.manual_test !== old.manual_test;
+  const known = new Set(Object.values(before.provided ?? {}));
+  return normalize({
+    level, provided: before.provided, notes: before.notes, review_rounds: before.review_rounds, models,
+    ...(ownTest ? { manual_test: before.manual_test } : {}),
+  }, { previous: before, exists: (p) => known.has(p) || exists(p) });
+}
+
+/**
  * Which model the Foreman starts on: the one asked for (if it's one of `allowed`, the models
  * offered for the Foreman), else the job's models.foreman if that is one of them too, else Opus.
  * Never Fable just because the job is large or L3.

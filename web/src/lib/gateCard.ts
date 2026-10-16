@@ -10,9 +10,12 @@ import { isLevel } from './levels';
 
 // ---------- When the card shows ----------
 
+/** The replies that decide a brief (dashboard/lib/gate.js DECIDING_KINDS); "Other guidance" leaves it open. */
+export const DECIDING_KINDS: GateKind[] = ['approve', 'changes', 'stop'];
+
 /**
- * The gate the card shows, or null: the Foreman waits for a decision on a brief that no gate reply
- * answered yet (sent, or held until the usage limit resets), on a job that isn't marked done.
+ * The gate the card shows, or null: the Foreman waits for a decision on a brief that no deciding
+ * reply answered yet (sent, or held until the usage limit resets), on a job that isn't marked done.
  */
 export function openGate(detail: Pick<JobDetail, 'gate' | 'answeredBriefs' | 'heldReply'> | null | undefined, closed = false): Gate | null {
   const gate = detail?.gate ?? null;
@@ -20,7 +23,7 @@ export function openGate(detail: Pick<JobDetail, 'gate' | 'answeredBriefs' | 'he
   const n = gate.briefNumber ?? null;
   if (n !== null && (detail?.answeredBriefs ?? []).includes(n)) return null;
   const held = detail?.heldReply ?? null;
-  if (held && (held.gateBrief ?? null) === n) return null;
+  if (held && (held.gateBrief ?? null) === n && DECIDING_KINDS.includes(held.kind)) return null;
   return gate;
 }
 
@@ -39,30 +42,32 @@ function friendly(name: string): string {
 
 /**
  * What the gate proposes, by name and the version it was raised at: "plan v2", "spec v0.3",
- * "quick plan v1". Null when the gate names no versions.
+ * "quick plan v1". Only the stage's own artifact counts (the spec for the spec stages): a gate whose
+ * stage names none says nothing rather than borrowing the spec or the last artifact. Null then.
  */
 export function proposedPhrase(gate: Pick<Gate, 'stage' | 'raisedVersions' | 'versions'>): string | null {
   const v = gate.raisedVersions ?? gate.versions;
   if (!v) return null;
   const stage = gate.stage ?? '';
-  if (SPEC_STAGES.includes(stage) && v.spec != null) return `spec v${v.spec}`;
-  const arts = Object.entries(v.artifacts ?? {}).filter(([, ver]) => ver != null);
+  if (SPEC_STAGES.includes(stage)) return v.spec != null ? `spec v${v.spec}` : null;
   const want = STAGE_ARTIFACT[stage];
-  const match = (want ? arts.find(([name]) => want.test(name)) : undefined) ?? arts.at(-1);
-  if (match) return `${friendly(match[0])} v${match[1]}`;
-  return v.spec != null ? `spec v${v.spec}` : null;
+  if (!want) return null;
+  const match = Object.entries(v.artifacts ?? {}).find(([name, ver]) => ver != null && want.test(name));
+  return match ? `${friendly(match[0])} v${match[1]}` : null;
 }
 
 /**
  * The Approve button's words, naming what it approves and what starts: "Approve plan v2 and start
- * Build". With "Skip next" pressed, the next stage is skipped instead. Falls back to "Approve and
- * go ahead" when the gate names neither.
+ * Build". With "Skip next" pressed, the next stage is skipped instead; with "I'll do this part",
+ * you do it yourself. Falls back to "Approve and start Build" / "Approve and go ahead" when the
+ * gate names no version of its own artifact.
  */
 export function approveLabel(gate: Pick<Gate, 'stage' | 'nextStage' | 'raisedVersions' | 'versions'>, chips: ChipId[] = []): string {
   const what = proposedPhrase(gate);
   const next = gate.nextStage ? stageLabel(gate.nextStage) : null;
   const head = what ? `Approve ${what}` : 'Approve';
   if (next && chips.includes('skip')) return `${head}, skip ${next} and go ahead`;
+  if (next && chips.includes('self')) return `${head}; you do ${next} yourself`;
   if (next) return `${head} and start ${next}`;
   return `${head} and go ahead`;
 }
@@ -75,11 +80,20 @@ export const CHIP_IDS: ChipId[] = ['skip', 'lighter', 'heavier', 'fable', 'self'
 const STEP_GROUP: ChipId[] = ['skip', 'lighter', 'heavier', 'self'];
 const LEVEL_GROUP: ChipId[] = ['up', 'down'];
 
-/** The Fable second-look point for a stage: spec, plan, review, or pr for the PR stages; null otherwise. */
+// The first Fable second-look point at or after each stage, in workflow order: after the spec
+// (and its product interview), before the plan is approved, when the review is wrapped up, and
+// before the PR.
+const NEXT_POINT: Record<string, ChipPoint> = {
+  spec: 'spec', refine: 'spec',
+  investigate: 'plan', 'spec-update': 'plan', plan: 'plan',
+  implement: 'review', test: 'review', review: 'review',
+  pr1: 'pr', pr2: 'pr', 'staging-qa': 'pr', pr3: 'pr',
+};
+
+/** The Fable point "Ask Fable" adds for a next stage: the first one at or after it (NEXT_POINT); null when there is none. */
 export function fablePoint(stage: string | null | undefined): ChipPoint | null {
-  if (!stage) return null;
-  if ((CHIP_POINTS as string[]).includes(stage) && stage !== 'pr') return stage as ChipPoint;
-  return /^pr\d$/.test(stage) ? 'pr' : null;
+  const p = stage ? NEXT_POINT[stage] : undefined;
+  return p && (CHIP_POINTS as string[]).includes(p) ? p : null;
 }
 
 export interface ChipView {
@@ -130,9 +144,9 @@ export function chipViews(gate: Pick<Gate, 'nextStage'>, { level = null, fableCh
   const already = point !== null && fableChecks.includes(point);
   views.push({
     id: 'fable', label: 'Ask Fable', name: point ? `Ask Fable (${FABLE_WORDS[point]})` : 'Ask Fable', enabled: point !== null && !already,
-    hint: point === null ? `Fable takes second looks at the spec, the plan, the review or the PR only${name ? `, not ${name}` : ''}.`
+    hint: point === null ? `Fable takes second looks at the spec, the plan, the review or the PR only${name ? `; there’s none left after ${name}` : ''}.`
       : already ? `Fable already looks at ${FABLE_WORDS[point]} for this job.`
-        : `Fable takes a short second look at ${FABLE_WORDS[point]}: added to the job’s Fable points. It costs more than Opus.`,
+        : `Fable takes a short second look at ${FABLE_WORDS[point]}${stage !== point ? `, the first point it can look at from ${name} on` : ''}: added to the job’s Fable points. It costs more than Opus.`,
     chip: point !== null && !already ? { kind: 'fable', point } : null,
   });
   views.push({
@@ -209,6 +223,17 @@ export function answersFor(gate: Pick<Gate, 'questions'>, c: GateChoices): Compo
   return out;
 }
 
+/**
+ * The first question (1-based) an approval would leave unanswered: nothing picked, or "Other…" (or a
+ * question without options) with no words. A question whose recommendation is still picked is
+ * answered. Null when every question has an answer.
+ */
+export function unansweredQuestion(gate: Pick<Gate, 'questions'>, c: GateChoices): number | null {
+  const answers = answersFor(gate, c);
+  const i = (gate.questions ?? []).findIndex((q) => !(q.id in answers));
+  return i < 0 ? null : i + 1;
+}
+
 /** The verdicts: each override as "change" with its note; when approving, every other open decision as "confirm". */
 export function verdictsFor(gate: Pick<Gate, 'decided'>, c: GateChoices, kind: GateKind): ComposeVerdicts {
   const out: ComposeVerdicts = {};
@@ -250,16 +275,62 @@ export interface GateDraftMemo {
   /** The brief the reply answers (sent as gateBrief with /send). */
   brief: number;
   kind: GateKind;
+  /**
+   * The reply as the card composed it (the part of the draft that is the decision). "Decide again
+   * here" uses it to replace that decision rather than send two.
+   */
+  text?: string;
 }
 
 const KINDS: GateKind[] = ['approve', 'changes', 'message', 'stop'];
 
-export function readGateMemo(raw: string | null): GateDraftMemo | null {
+function parseMemo(raw: string | null): (GateDraftMemo & { reopened: boolean }) | null {
   if (!raw) return null;
   try {
-    const v = JSON.parse(raw) as Partial<GateDraftMemo>;
-    return Number.isInteger(v.brief) && (v.brief as number) > 0 && KINDS.includes(v.kind as GateKind) ? { brief: v.brief as number, kind: v.kind as GateKind } : null;
+    const v = JSON.parse(raw) as Partial<GateDraftMemo> & { reopened?: unknown };
+    if (!(Number.isInteger(v.brief) && (v.brief as number) > 0 && KINDS.includes(v.kind as GateKind))) return null;
+    return { brief: v.brief as number, kind: v.kind as GateKind, ...(typeof v.text === 'string' && v.text ? { text: v.text } : {}), reopened: v.reopened === true };
   } catch { return null; }
+}
+
+const plainMemo = ({ brief, kind, text }: GateDraftMemo): GateDraftMemo => ({ brief, kind, ...(text ? { text } : {}) });
+
+/** The draft is a gate reply waiting to be sent: the brief it answers and its kind. Null otherwise (or after "Decide again here"). */
+export function readGateMemo(raw: string | null): GateDraftMemo | null {
+  const m = parseMemo(raw);
+  return m && !m.reopened ? plainMemo(m) : null;
+}
+
+/**
+ * The memo as "Decide again here" left it: the draft counts as an ordinary message now, but the
+ * decision it held is remembered so deciding again can replace it (placeGateReply).
+ */
+export function readReopenedMemo(raw: string | null): GateDraftMemo | null {
+  const m = parseMemo(raw);
+  return m && m.reopened ? plainMemo(m) : null;
+}
+
+/** "Decide again here": the memo, marked so the draft no longer counts as the reply to its brief. */
+export const reopenMemo = (memo: GateDraftMemo) => JSON.stringify({ ...plainMemo(memo), reopened: true });
+
+/** Between an earlier draft and a gate reply added to it (the composer shows both). */
+export const DRAFT_SEPARATOR = '\n\n';
+
+/**
+ * Where a gate reply goes in the composer's draft. A reply decided again for the same brief
+ * replaces the earlier decision when the draft is still exactly that decision (memo.text), or ends
+ * with it unchanged; otherwise it is added after what is there, and `kept` says the earlier text
+ * is still in the box (so two decisions never go silently).
+ */
+export function placeGateReply(draft: string, reply: string, memo: GateDraftMemo | null): { text: string; replaced: boolean; kept: boolean } {
+  const existing = draft.trim();
+  if (!existing || existing === reply) return { text: reply, replaced: false, kept: false };
+  const before = memo?.text?.trim();
+  if (before && existing === before) return { text: reply, replaced: true, kept: false };
+  if (before && existing.endsWith(`${DRAFT_SEPARATOR}${before}`)) {
+    return { text: `${existing.slice(0, -before.length).trimEnd()}${DRAFT_SEPARATOR}${reply}`, replaced: true, kept: true };
+  }
+  return { text: `${existing}${DRAFT_SEPARATOR}${reply}`, replaced: false, kept: true };
 }
 
 export const KIND_WORDS: Record<GateKind, string> = { approve: 'an approval', changes: 'changes asked for', message: 'guidance', stop: 'a stop' };

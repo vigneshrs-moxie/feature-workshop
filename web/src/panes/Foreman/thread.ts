@@ -57,14 +57,15 @@ export function isOptionOnly(text: string): boolean {
 const DECIDING = new Set(['approve', 'changes', 'stop']);
 
 /**
- * Whether one of your later messages answers brief n. Option lines alone never do. A message
- * sent from the gate card for this brief does. For the brief the gate card is open on, only a
+ * Whether one of your later messages answers brief n. Option lines alone never do. A message sent
+ * from a gate card answers only the brief it was for, and only when it decides (approve, changes,
+ * stop; "Other guidance" leaves the gate open). For the brief the gate card is open on, only a
  * deciding reply does (a plain message, a steer or a question leaves the gate open); for older
  * briefs, from before gate cards, any message after it does, as it always did.
  */
 function youAnswers(x: YouItem, n: number, openBrief: number | null): boolean {
   if (isOptionOnly(x.text)) return false;
-  if (x.gateBrief === n) return true;
+  if (x.gateBrief != null) return x.gateBrief === n && DECIDING.has(x.sendKind ?? '');
   if (n !== openBrief) return true;
   return DECIDING.has(x.sendKind ?? '');
 }

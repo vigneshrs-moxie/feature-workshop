@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { normalize, defaultsFor, skippedFor, describeOptions, readOptions, writeOptions, FLOWS, LEVELS, flowFor, levelFor, foremanModel, levelsForClient, levelChangeLine, OPUS, FABLE, SONNET, HAIKU } from '../lib/options.js';
+import { normalize, defaultsFor, skippedFor, describeOptions, readOptions, writeOptions, FLOWS, LEVELS, flowFor, levelFor, foremanModel, levelsForClient, levelChangeLine, optionsAtLevel, OPUS, FABLE, SONNET, HAIKU } from '../lib/options.js';
 import { buildThread } from '../lib/thread.js';
 
 test('job options: flows bring their defaults; your choices win', () => {
@@ -130,6 +130,41 @@ test('job options: a resave that sends no models keeps the job’s own while the
   // Anything odd in the old file isn't carried over.
   assert.equal(normalize({ level: 2 }, { previous: { level: 2, models: { foreman: SONNET, build: 'gpt-9' } } }).models.foreman, OPUS);
   assert.equal(normalize({ level: 2 }, { previous: { level: 2, models: { foreman: SONNET, build: 'gpt-9' } } }).models.build, LEVELS[2].models.build);
+});
+
+test('optionsAtLevel: manual test and models follow the new level unless they were the job’s own choice', () => {
+  const exists = () => true;
+  // L0 → L1 with L0's defaults (Sonnet build and checks, no manual test): L1's Opus build and your own testing.
+  const l0 = normalize({ level: 0, notes: 'Tiny.', review_rounds: 2 });
+  const up = optionsAtLevel(l0, 1, { exists });
+  assert.equal(up.level, 1);
+  assert.equal(up.flow, 'quick');
+  assert.deepEqual(up.models, LEVELS[1].models, 'L0’s default models give way to L1’s');
+  assert.equal(up.manual_test, true, 'L1 tests by hand by default');
+  assert.deepEqual(up.skip, LEVELS[1].skip);
+  assert.deepEqual(up.reviewers, LEVELS[1].reviewers);
+  assert.equal(up.notes, 'Tiny.');
+  assert.equal(up.review_rounds, 2);
+  // L1 → L0 with L1's defaults: back to L0's Sonnet build and no manual test.
+  const down = optionsAtLevel(normalize({ level: 1 }), 0, { exists });
+  assert.deepEqual(down.models, LEVELS[0].models);
+  assert.equal(down.manual_test, false);
+  assert.deepEqual(down.skip, LEVELS[0].skip);
+  // Your own choices (differing from the old level's default) are kept either way.
+  const mine = normalize({ level: 1, manual_test: false, models: { build: SONNET, checks: HAIKU } });
+  const kept = optionsAtLevel(mine, 0, { exists });
+  assert.deepEqual(kept.models, { foreman: OPUS, build: SONNET, checks: HAIKU });
+  assert.equal(kept.manual_test, false);
+  const mineUp = optionsAtLevel(normalize({ level: 0, manual_test: true, models: { build: HAIKU } }), 1, { exists });
+  assert.equal(mineUp.manual_test, true);
+  assert.equal(mineUp.models.build, HAIKU, 'your Haiku build stays');
+  assert.equal(mineUp.models.checks, LEVELS[1].models.checks, 'L0’s default checks model gives way');
+  // A job with no level yet compares with its flow's defaults; documents given earlier needn't exist now.
+  const auto = optionsAtLevel({ ...defaultsFor('auto'), provided: { plan: '/gone/plan.md' } }, 2, { exists: () => false });
+  assert.deepEqual(auto.models, LEVELS[2].models);
+  assert.deepEqual(auto.provided, { plan: '/gone/plan.md' });
+  assert.ok(auto.skip.includes('plan'));
+  assert.deepEqual(optionsAtLevel(null, 3, { exists }).fable_checks, ['plan', 'review']);
 });
 
 test('levels for the page: each with its hint, models, skipped stages and reviewers', () => {

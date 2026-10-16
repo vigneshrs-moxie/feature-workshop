@@ -1,19 +1,20 @@
 // The level chip in the job header: "L2 Standard" (or "No level yet"). Its hover hint says what
 // runs at that level; clicking it opens a small panel with that, what moving up or down adds or
 // drops, and the four levels to switch to (POST /api/job/:slug/options, from the next stage).
+// Until the job's detail has loaded the chip is off: the level shown may not be the job's yet.
 import { useEffect, useRef, useState } from 'react';
-import type { Job, JobOptions, LevelNumber } from '../../api/types';
+import type { Job, LevelNumber } from '../../api/types';
 import { isLevel, LEVEL_NUMBERS, levelChange, levelLabel, lensNames } from '../../lib/levels';
 import { useWorkshopState } from '../../state/store';
 import { useSetLevel } from './useSetLevel';
 
-export function LevelChip({ job, options }: { job: Job; options?: JobOptions | null }) {
+export function LevelChip({ job, ready = true }: { job: Job; ready?: boolean }) {
   const { meta } = useWorkshopState();
   const levels = meta?.levels;
   const names = lensNames(meta);
   const level = isLevel(job.level) ? job.level : null;
   const info = level === null ? null : levels?.find((l) => l.level === level) ?? null;
-  const choice = useSetLevel(job.slug, level, options);
+  const choice = useSetLevel(job.slug, level);
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const chip = useRef<HTMLButtonElement>(null);
@@ -43,13 +44,14 @@ export function LevelChip({ job, options }: { job: Job; options?: JobOptions | n
         type="button"
         className="chip level-chip"
         aria-haspopup="dialog"
-        aria-expanded={open}
+        aria-expanded={open && ready}
+        disabled={!ready}
         onClick={() => { setOpen((o) => !o); choice.clear(); }}
-        title={hint}
+        title={ready ? hint : 'Loading this job… The level can be changed once it has loaded.'}
       >
         {label}
       </button>
-      {open && (
+      {open && ready && (
         <div className="level-pop" role="dialog" aria-label="This job’s level" ref={pop}>
           <p className="level-pop-now">
             <strong>{label}</strong>{info ? ` — ${info.hint}` : ' — the Foreman suggests one in its first brief, or pick one below.'}

@@ -162,28 +162,68 @@ test('answeredBriefs: a reply held for the usage-limit reset counts, until it is
   assert.deepEqual(answeredBriefs([...held, { action: 'send-held-dropped', gateBrief: 2 }]), [4]);
   assert.deepEqual(answeredBriefs([...held, { action: 'usage-limit-skip', reason: 'x', held: { kind: 'approve', gateBrief: 4 } }]), [2]);
   // A reply actually sent for the brief stays answered whatever happens to a held one after.
-  assert.deepEqual(answeredBriefs([{ action: 'send', gateBrief: 2 }, ...held, { action: 'send-held-dropped', gateBrief: 2 }]), [2, 4]);
+  assert.deepEqual(answeredBriefs([{ action: 'send', kind: 'approve', gateBrief: 2 }, ...held, { action: 'send-held-dropped', gateBrief: 2 }]), [2, 4]);
   // Held, dropped, held again: answered.
   assert.deepEqual(answeredBriefs([held[0], { action: 'send-held-dropped', gateBrief: 2 }, held[0]]), [2]);
   assert.deepEqual(answeredBriefs([{ action: 'send-held', gateBrief: '2' }, { action: 'send-held-dropped' }]), []);
+});
+
+test('answeredBriefs: only approve, changes and stop decide a brief; “Other guidance” keeps it open', () => {
+  const audit = [
+    { action: 'send', kind: 'message', gateBrief: 1 }, // Other guidance from the gate card
+    { action: 'send-held', kind: 'message', gateBrief: 2 }, // guidance held for the reset
+    { action: 'send', kind: 'stop', gateBrief: 3 },
+    { action: 'send', kind: 'changes', gateBrief: 4 },
+    { action: 'send-held', kind: 'approve', gateBrief: 5 },
+    { action: 'send', gateBrief: 6 }, // no kind: not a decision
+  ];
+  assert.deepEqual(answeredBriefs(audit), [3, 4, 5]);
+});
+
+test('answeredBriefs: a decision from the classic page (no gateBrief) answers the current brief when sent after it', () => {
+  const current = { number: 4, at: '2026-10-16T10:00:00.000Z' };
+  const at = (iso, extra) => ({ action: 'send', at: iso, ...extra });
+  assert.deepEqual(answeredBriefs([at('2026-10-16T10:05:00.000Z', { kind: 'approve' })], current), [4]);
+  assert.deepEqual(answeredBriefs([at('2026-10-16T10:05:00.000Z', { kind: 'changes' })], current), [4]);
+  assert.deepEqual(answeredBriefs([at('2026-10-16T10:05:00.000Z', { kind: 'stop' })], current), [4]);
+  assert.deepEqual(answeredBriefs([at('2026-10-16T09:55:00.000Z', { kind: 'approve' })], current), [], 'sent before the brief was written: it answered an earlier one');
+  assert.deepEqual(answeredBriefs([at('2026-10-16T10:05:00.000Z', { kind: 'message' })], current), [], 'a plain message decides nothing');
+  assert.deepEqual(answeredBriefs([at('2026-10-16T10:05:00.000Z', { kind: 'approve' })], { number: 4, at: null }), [], 'no brief time: can’t tell');
+  assert.deepEqual(answeredBriefs([at('2026-10-16T10:05:00.000Z', { kind: 'approve' })]), [], 'no current brief');
+  // A gate reply for another brief doesn't answer the current one.
+  assert.deepEqual(answeredBriefs([at('2026-10-16T10:05:00.000Z', { kind: 'approve', gateBrief: 3 })], current), [3]);
 });
 
 test('parking: noteAudit follows answeredBriefs (sent, held, dropped)', () => {
   const now = Date.parse('2026-10-16T10:00:00Z');
   const p = new GateParking({ thresholdMs: 1000, now: () => now });
   const g = { slug: 'a', briefNumber: 2, waitingSince: '2026-10-16T09:00:00Z' };
-  p.noteAudit('a', { action: 'send-held', gateBrief: 2 });
+  p.noteAudit('a', { action: 'send-held', kind: 'approve', gateBrief: 2 });
   assert.equal(p.isParked(g), false, 'held: not parked');
   p.noteAudit('a', { action: 'send-held-dropped', gateBrief: 2 });
   assert.equal(p.isParked(g), true, 'dropped: parked again');
-  p.noteAudit('a', { action: 'send-held', gateBrief: 2 });
+  p.noteAudit('a', { action: 'send-held', kind: 'approve', gateBrief: 2 });
   p.noteAudit('a', { action: 'usage-limit-skip', held: { gateBrief: 2 } });
   assert.equal(p.isParked(g), true);
-  p.noteAudit('a', { action: 'send', gateBrief: 2 });
+  p.noteAudit('a', { action: 'send', kind: 'message', gateBrief: 2 });
+  assert.equal(p.isParked(g), true, 'guidance leaves the gate open, so it can park');
+  p.noteAudit('a', { action: 'send', kind: 'approve', gateBrief: 2 });
   p.noteAudit('a', { action: 'send-held-dropped', gateBrief: 2 });
   assert.equal(p.isParked(g), false, 'a sent reply stays answered');
   p.noteAudit('a', { action: 'options', gateBrief: 3 });
   assert.equal(p.isAnswered('a', 3), false);
+});
+
+test('parking: a classic-page decision answers a brief written before it', () => {
+  const now = Date.parse('2026-10-16T12:00:00Z');
+  const p = new GateParking({ thresholdMs: 1000, now: () => now });
+  const g = { slug: 'a', briefNumber: 2, briefAt: '2026-10-16T09:00:00.000Z', waitingSince: '2026-10-16T09:00:00Z' };
+  assert.equal(p.isParked(g), true);
+  p.noteAudit('a', { action: 'send', kind: 'approve', at: '2026-10-16T09:30:00.000Z' });
+  assert.equal(p.isParked(g), false, 'approved from the classic page after brief 2');
+  assert.equal(p.isParked({ ...g, briefNumber: 3, briefAt: '2026-10-16T10:00:00.000Z' }), true, 'brief 3 came after it');
+  p.noteAudit('b', { action: 'send', kind: 'message', at: '2026-10-16T09:30:00.000Z' });
+  assert.equal(p.isParked({ ...g, slug: 'b' }), true, 'a plain message decides nothing');
 });
 
 // ---------- parking ----------

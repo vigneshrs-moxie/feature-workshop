@@ -72,6 +72,14 @@ before(async () => {
   await fs.symlink(path.join(root, 'secret.md'), path.join(linkDir, 'briefs', '003-linked.md'));
   await writeJob('nolevel-job', { options: null });
   await writeJob('level-job', { options: { manual_test: false, models: { foreman: 'claude-opus-5-5', build: 'claude-sonnet-5-5', checks: 'claude-haiku-5-5' } } });
+  await writeJob('send-stale-job');
+  await writeJob('long-job');
+  await writeJob('versions-job');
+  await writeJob('classic-job');
+  await writeJob('guidance-job');
+  // L0 and L1 jobs with their levels' own defaults, for a level change from the header (…/options {level}).
+  await writeJob('l0-job', { options: { level: 0, flow: 'quick', skip: ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'test', 'review'], reviewers: [], manual_test: false, models: { foreman: 'claude-opus-5-5', build: 'claude-sonnet-5-5', checks: 'claude-sonnet-5-5' } } });
+  await writeJob('l1-job');
   // Claude's usage limit is reached, resetting in an hour (as the limit watch saves it).
   const now = Date.now();
   await fs.writeFile(path.join(stateDir, 'settings.json'), JSON.stringify({ usageLimit: { kind: 'five_hour', since: now, resetsAt: now + 3600_000, resetKnown: true, jobs: [] } }));
@@ -222,7 +230,7 @@ test('gate: composes the reply, patches options from the chips, sends it with it
   assert.deepEqual(o.fable_checks, ['review']);
   assert.equal(o.review_rounds, 2);
   assert.equal(o.notes, 'Keep it small.');
-  assert.deepEqual(o.models, { foreman: 'claude-opus-5-5', build: 'claude-opus-5-5', checks: 'claude-opus-5-5' }, 'the job’s models, not L2’s (Sonnet checks)');
+  assert.deepEqual(o.models, { foreman: 'claude-opus-5-5', build: 'claude-opus-5-5', checks: 'claude-sonnet-5-5' }, 'the job had L1’s default models, so it takes L2’s (Sonnet checks)');
   assert.equal(o.manual_test, true);
   assert.equal(o.title, 'Job gate-job', 'the job’s title is kept');
   assert.deepEqual(r.body.options.skip, o.skip);
@@ -318,7 +326,7 @@ test('gate: a level chip on a job with no level is refused; nothing is written o
   assert.ok(!(await auditLines()).some((e) => e.slug === 'nolevel-job'), 'nothing audited');
 });
 
-test('gate: a level chip keeps the job’s manual test, models, notes and fix rounds; takes the new level’s skip, reviewers and Fable', async () => {
+test('gate: a level chip keeps the job’s own manual test and models (they differ from L1’s), notes and fix rounds; takes the new level’s skip, reviewers and Fable', async () => {
   const r = await write('POST', '/api/job/level-job/gate', { kind: 'approve', briefNumber: 2, chips: [{ kind: 'level', level: 3 }] });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   const o = await readJson(featuresDir, 'level-job', 'options.json');
@@ -380,4 +388,83 @@ test('gate: “Edit, then approve” sends your edited text instead of the compo
   assert.ok(sent.text.endsWith(edited));
   assert.deepEqual((await get('/api/job/edit-job')).answeredBriefs, [2]);
   await stopReply('edit-job');
+});
+
+test('/send: a gate reply for a brief the Foreman moved on from is refused (409 stale-brief) like /gate; a stop still goes', async () => {
+  const r = await write('POST', '/api/job/send-stale-job/send', { kind: 'approve', text: APPROVE_TEXT, gateBrief: 1 });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.code, 'stale-brief');
+  assert.equal(r.body.briefNumber, 2);
+  assert.deepEqual(await sendsFor('send-stale-job'), [], 'nothing sent');
+  const stop = await write('POST', '/api/job/send-stale-job/send', { kind: 'stop', text: 'Please stop.', gateBrief: 1 });
+  assert.equal(stop.status, 200, JSON.stringify(stop.body));
+  await stopReply('send-stale-job');
+});
+
+test('/send and /gate: a reply over 20,000 characters is refused, not cut short', async () => {
+  const long = 'x'.repeat(20001);
+  const send = await write('POST', '/api/job/long-job/send', { text: long });
+  assert.equal(send.status, 400);
+  assert.match(send.body.error, /too long \(at most 20,000 characters\)/);
+  const gate = await write('POST', '/api/job/long-job/gate', { kind: 'approve', briefNumber: 2, answers: { 1: { choice: 'a' } }, text: long });
+  assert.equal(gate.status, 400);
+  assert.match(gate.body.error, /edited reply is too long/);
+  assert.deepEqual(await sendsFor('long-job'), [], 'nothing sent');
+});
+
+test('gate: approving a plan that changed since the card was raised is refused (409 stale-gate); asking for changes still goes', async () => {
+  // The dashboard notes the versions brief 2 was raised at when it reads the job.
+  assert.equal((await get('/api/job/versions-job')).gate.stale, false);
+  const status = planStatus('versions-job');
+  status.artifacts = [{ name: 'quick-plan', path: 'quick-plan.md', version: 3 }];
+  await fs.writeFile(path.join(featuresDir, 'versions-job', 'status.json'), JSON.stringify(status, null, 2));
+  await waitFor(async () => (await get('/api/job/versions-job')).gate?.stale === true, 'the gate to turn stale', 5000);
+  const r = await write('POST', '/api/job/versions-job/gate', { kind: 'approve', briefNumber: 2, answers: { 1: { choice: 'a' } } });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.code, 'stale-gate');
+  const edited = await write('POST', '/api/job/versions-job/gate', { kind: 'approve', briefNumber: 2, text: 'I approve.' });
+  assert.equal(edited.body.code, 'stale-gate', 'an edited approval too');
+  assert.deepEqual(await sendsFor('versions-job'), [], 'nothing sent');
+  const changes = await write('POST', '/api/job/versions-job/gate', { kind: 'changes', briefNumber: 2, note: 'Split step 2.' });
+  assert.equal(changes.status, 200, JSON.stringify(changes.body));
+  await stopReply('versions-job');
+});
+
+test('a decision from the classic page (no gateBrief) answers the current brief; guidance from the gate card does not', async () => {
+  const classic = await write('POST', '/api/job/classic-job/send', { kind: 'approve', text: 'I approve.' });
+  assert.equal(classic.status, 200, JSON.stringify(classic.body));
+  assert.deepEqual((await get('/api/job/classic-job')).answeredBriefs, [2], 'the new page’s card closes after a classic approval');
+  await stopReply('classic-job');
+
+  const guidance = await write('POST', '/api/job/guidance-job/gate', { kind: 'message', briefNumber: 2, note: 'Is the CSV in scope?' });
+  assert.equal(guidance.status, 200, JSON.stringify(guidance.body));
+  assert.equal(guidance.body.sent, true);
+  assert.deepEqual((await get('/api/job/guidance-job')).answeredBriefs, [], '“Other guidance” keeps the card open');
+  await stopReply('guidance-job');
+});
+
+test('options: a level alone is merged with the job’s options; manual test and models follow the new level unless they were the job’s own', async () => {
+  // L0 → L1: the job had L0's defaults, so it takes L1's Opus build and your own testing.
+  const up = await write('POST', '/api/job/l0-job/options', { level: 1 });
+  assert.equal(up.status, 200, JSON.stringify(up.body));
+  let o = await readJson(featuresDir, 'l0-job', 'options.json');
+  assert.equal(o.level, 1);
+  assert.deepEqual(o.models, { foreman: 'claude-opus-5-5', build: 'claude-opus-5-5', checks: 'claude-opus-5-5' });
+  assert.equal(o.manual_test, true);
+  assert.deepEqual(o.skip, ['spec', 'refine', 'investigate', 'spec-update']);
+  assert.deepEqual(o.reviewers, ['feature-reviewer']);
+  assert.equal(o.notes, 'Keep it small.', 'kept');
+  assert.equal(o.review_rounds, 2, 'kept');
+  assert.equal(o.title, 'Job l0-job', 'the job’s title is kept');
+  assert.deepEqual(up.body.options.models, o.models);
+  // L1 → L0: back to L0's Sonnet build and no manual test.
+  await write('POST', '/api/job/l1-job/options', { level: 0 });
+  o = await readJson(featuresDir, 'l1-job', 'options.json');
+  assert.equal(o.level, 0);
+  assert.deepEqual(o.models, { foreman: 'claude-opus-5-5', build: 'claude-sonnet-5-5', checks: 'claude-sonnet-5-5' });
+  assert.equal(o.manual_test, false);
+  const audit = (await auditLines()).find((e) => e.action === 'options' && e.slug === 'l1-job');
+  assert.equal(audit.was, 1, 'the level before, for the conversation note');
+  assert.equal((await write('POST', '/api/job/l1-job/options', { level: 7 })).status, 400);
+  assert.equal((await write('POST', '/api/job/l1-job/options', { level: '1' })).status, 400);
 });

@@ -12,17 +12,15 @@ import { LevelChip } from './LevelChip';
 const RULES: RulesLevel = { level: 2, floor: 0, reasons: ['Not obviously a one-line change, so L2.'], floorReasons: [], triggers: [], fromDiff: false, changedFiles: null };
 const MODELS = { foreman: 'claude-opus-5-5', build: 'claude-sonnet-5-5', checks: 'claude-haiku-5-5' };
 const OPTIONS = { level: 2 as const, flow: 'small', skip: ['refine'], provided: { plan: '/tmp/fw-test/plan.md' }, notes: 'Keep it small.', review_rounds: 2, manual_test: false, models: MODELS };
-// What a level change keeps (as the gate card's level chip does): everything but the level's own stages, reviewers and Fable points.
-const KEPT = { provided: { plan: '/tmp/fw-test/plan.md' }, notes: 'Keep it small.', review_rounds: 2, manual_test: false, models: MODELS };
 const detail = (extra: Partial<JobDetail> = {}): JobDetail => ({ slug: 'alpha', thread: [], threadMore: false, options: OPTIONS, rulesLevel: RULES, ...extra });
 
-function setup(jobExtra: Partial<Job>, { post = vi.fn(async () => ({ ok: true, options: {}, summary: [] })), det = detail() } = {}) {
+function setup(jobExtra: Partial<Job>, { post = vi.fn(async () => ({ ok: true, options: {}, summary: [] })), det = detail(), ready = true } = {}) {
   const store: Store = createStore();
   const jobs = [job('alpha', 'needs-you', { rulesLevel: RULES, ...jobExtra })];
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS, jobOptions: { reviewers: REVIEWERS } }, jobs }) });
   const api = { get: vi.fn(), post } as unknown as ApiClient;
   const view = (j: Job = store.getState().jobs[0]) => (
-    <WorkshopContext.Provider value={{ store, api }}><LevelCard job={j} detail={det} /><LevelChip job={j} options={det.options} /></WorkshopContext.Provider>
+    <WorkshopContext.Provider value={{ store, api }}><LevelCard job={j} detail={det} /><LevelChip job={j} ready={ready} /></WorkshopContext.Provider>
   );
   const utils = render(view());
   const setJob = (extra: Partial<Job>) => utils.rerender(view({ ...store.getState().jobs[0], ...extra }));
@@ -42,7 +40,7 @@ describe('LevelCard', () => {
     expect(c).toHaveTextContent('L2 · Not obviously a one-line change, so L2.');
     expect(c).toHaveTextContent('L3 · It changes who can see which offices.');
     expect(c).toHaveTextContent('Chosen: L2 Standard');
-    expect(c).toHaveTextContent('If you use L3: L2→L3 adds: product interview, Fable at plan + review, Stickler + Fuse + Mason + Stopwatch + Painter lenses.');
+    expect(c).toHaveTextContent('If you use L3: L2→L3 adds: product interview, Fable at plan + review, Fuse + Mason + Stopwatch + Painter lenses.');
     expect(within(c).getByRole('button', { name: 'Use L3' })).toHaveAttribute('title', expect.stringContaining('from the next stage'));
     expect(within(c).getByRole('button', { name: 'Keep L2' })).toHaveAttribute('title', expect.stringContaining('different level'));
   });
@@ -76,20 +74,19 @@ describe('LevelCard', () => {
     expect(c).toHaveTextContent('Chosen: none yet');
     expect(within(c).getByRole('button', { name: 'Use L1' })).toBeInTheDocument();
     expect(within(c).getByRole('button', { name: 'Use L2' })).toHaveAttribute('title', expect.stringContaining('as the rules suggest'));
-    expect(c).toHaveTextContent('If you use L1: L1 Small runs: plan, tester, review, you test, Head inspector lens.');
+    expect(c).toHaveTextContent('If you use L1: L1 Small runs: plan, checks, review, you test, Head inspector lens.');
     fireEvent.click(within(c).getByRole('button', { name: 'Not now' }));
     expect(card()).toBeNull();
     setJob({ level: null, suggestedLevel: null });
     expect(card(), 'now the rules’ L2 is offered: a new situation').not.toBeNull();
   });
 
-  it('Use posts the job’s options with the new level and says what changed', async () => {
+  it('Use posts the new level alone (the dashboard merges it with the job’s options) and says what changed', async () => {
     const { post } = setup({ level: 2, suggestedLevel: 3 });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Use L3' })); });
-    // The provided documents, notes, fix rounds, manual test and models are kept; the level brings its own stages and reviewers.
-    expect(post).toHaveBeenCalledWith('/api/job/alpha/options', { options: { ...KEPT, level: 3 } });
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/options', { level: 3 });
     const c = card()!;
-    expect(within(c).getByRole('status')).toHaveTextContent('Level set to L3 Large, from the next stage. L2→L3 adds: product interview, Fable at plan + review, Stickler + Fuse + Mason + Stopwatch + Painter lenses.');
+    expect(within(c).getByRole('status')).toHaveTextContent('Level set to L3 Large, from the next stage. L2→L3 adds: product interview, Fable at plan + review, Fuse + Mason + Stopwatch + Painter lenses.');
     fireEvent.click(within(c).getByRole('button', { name: 'Got it' }));
   });
 
@@ -110,16 +107,25 @@ describe('Level chip (job header)', () => {
     expect(chip).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(chip);
     const pop = screen.getByRole('dialog', { name: 'This job’s level' });
-    expect(pop).toHaveTextContent('Up: L2→L3 adds: product interview, Fable at plan + review, Stickler + Fuse + Mason + Stopwatch + Painter lenses.');
-    expect(pop).toHaveTextContent('Down: L2→L1 drops: spec, investigation, spec update, Locksmith + Gauge lenses.');
+    expect(pop).toHaveTextContent('Up: L2→L3 adds: product interview, Fable at plan + review, Fuse + Mason + Stopwatch + Painter lenses.');
+    expect(pop).toHaveTextContent('Down: L2→L1 drops: spec, investigation, spec update, tester, Locksmith + Gauge + Stickler lenses.');
     expect(within(pop).getByRole('button', { name: '✓ L2 Standard (now)' })).toBeDisabled();
     expect(within(pop).getByRole('button', { name: 'Use L0 Tweak' })).toHaveFocus();
     await act(async () => { fireEvent.click(within(pop).getByRole('button', { name: 'Use L1 Small' })); });
-    expect(post).toHaveBeenCalledWith('/api/job/alpha/options', { options: { ...KEPT, level: 1 } });
-    expect(within(pop).getByRole('status')).toHaveTextContent('Level set to L1 Small, from the next stage. L2→L1 drops: spec, investigation, spec update, Locksmith + Gauge lenses.');
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/options', { level: 1 });
+    expect(within(pop).getByRole('status')).toHaveTextContent('Level set to L1 Small, from the next stage. L2→L1 drops: spec, investigation, spec update, tester, Locksmith + Gauge + Stickler lenses.');
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(chip).toHaveFocus();
+  });
+
+  it('is off until the job’s detail has loaded', () => {
+    setup({ level: 2, suggestedLevel: 2 }, { ready: false });
+    const chip = screen.getByRole('button', { name: 'L2 Standard' });
+    expect(chip).toBeDisabled();
+    expect(chip).toHaveAttribute('title', expect.stringContaining('once it has loaded'));
+    fireEvent.click(chip);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('says when there is no level yet', () => {

@@ -11,12 +11,13 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
 import type { Gate, GateRequest, GateResult, Job, JobDetail } from '../../api/types';
-import { sendGate } from '../../app/jobActions';
+import { sendGate, stopRun } from '../../app/jobActions';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { composeGate, type GateKind } from '../../lib/compose';
 import {
   answersFor, approveLabel, chipsFor, chipViews, decidedKey, emptyOverride, gateDraftKey, gateRequest, initialChoices,
-  openDecisions, openGate, OTHER, readGateMemo, toggleChip, verdictsFor, type ChipId, type GateChoices,
+  openDecisions, openGate, OTHER, placeGateReply, readGateMemo, readReopenedMemo, reopenMemo, toggleChip, unansweredQuestion,
+  verdictsFor, type ChipId, type GateChoices,
 } from '../../lib/gateCard';
 import { isLevel, levelChange, lensNames } from '../../lib/levels';
 import { readStored, useStored, writeStored } from '../../lib/stored';
@@ -24,6 +25,12 @@ import { clockTime, fullTime, relativeTime } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { stageLabel } from '../Jobs/stages';
 import { draftKey, SendPreview } from './Composer';
+import { isActiveRun } from './thread';
+
+// Refusals that mean the card is out of date: the Foreman moved on to a new brief, or the spec or
+// plan changed since the card was raised. The slot says so and the job is fetched again.
+const STALE_CODES = ['stale-brief', 'stale-gate'];
+const isStale = (err: unknown) => err instanceof ApiError && err.status === 409 && STALE_CODES.includes(String(err.body.code));
 
 /** What the slot says after a decision: sent, held, waiting in the composer, or refused. */
 export interface GateNotice {
@@ -58,11 +65,14 @@ function openLevelChip() {
 }
 
 export function GateSlot({ job, detail, now, reload }: { job: Job; detail: JobDetail; now: Date; reload(): void }) {
+  const { runs } = useWorkshopState();
   const [notice, setNotice] = useState<GateNotice | null>(null);
   const [memoRaw, setMemo] = useStored(gateDraftKey(job.slug));
   const [draft] = useStored(draftKey(job.slug));
   const memo = draft?.trim() ? readGateMemo(memoRaw) : null;
   const gate = openGate(detail, Boolean(job.closed));
+  // The live run first (it ends before the job is fetched again), else the detail's.
+  const running = isActiveRun(runs[job.slug] ?? detail.run ?? null);
   const noticeEl = useRef<HTMLDivElement>(null);
   const headId = useId();
 
@@ -91,20 +101,24 @@ export function GateSlot({ job, detail, now, reload }: { job: Job; detail: JobDe
       {gate && (waiting ? (
         <section className="perm-card question-card gate-card gate-held" data-ask="question" aria-labelledby={headId}>
           <h3 className="perm-headline" id={headId}>Brief {gate.briefNumber}: your reply is in the message box</h3>
-          <p className="muted">Send it once the Foreman finishes the reply in progress. Until it goes, this brief stays open.</p>
+          <p className="muted" role="status">
+            {running
+              ? 'Send it once the Foreman finishes the reply in progress. Until it goes, this brief stays open.'
+              : 'The Foreman has finished; send your reply from the message box. Until it goes, this brief stays open.'}
+          </p>
           <div className="perm-actions">
             <button
               type="button"
               className="btn btn-quiet"
-              onClick={() => setMemo(null)}
-              title="Decide on this brief again here. The text in the message box stays, as an ordinary message, until you clear it."
+              onClick={() => { if (memo) setMemo(reopenMemo(memo)); }}
+              title="Decide on this brief again here. Your new decision replaces the one in the message box if you haven’t changed it; otherwise it is added after it, and the card says so."
             >
               Decide again here
             </button>
           </div>
         </section>
       ) : (
-        <GateCard key={`${job.slug}#${gate.briefNumber ?? '-'}`} job={job} detail={detail} gate={gate} now={now} reload={reload} report={setNotice} />
+        <GateCard key={`${job.slug}#${gate.briefNumber ?? '-'}`} job={job} detail={detail} gate={gate} now={now} reload={reload} report={setNotice} running={running} />
       ))}
     </>
   );
@@ -112,11 +126,13 @@ export function GateSlot({ job, detail, now, reload }: { job: Job; detail: JobDe
 
 type Mode = null | 'changes' | 'message' | 'stop';
 
-function GateCard({ job, detail, gate, now, reload, report }: {
+function GateCard({ job, detail, gate, now, reload, report, running }: {
   job: Job; detail: JobDetail; gate: Gate; now: Date; reload(): void; report(n: GateNotice): void;
+  /** The Foreman is working on a reply for this job right now. */
+  running: boolean;
 }) {
   const { api } = useWorkshop();
-  const { meta, usage } = useWorkshopState();
+  const { meta, usage, runs } = useWorkshopState();
   const slug = job.slug;
   const uid = useId();
   const headId = `${uid}-head`;
@@ -133,6 +149,7 @@ function GateCard({ job, detail, gate, now, reload, report }: {
   const [editing, setEditing] = useState<string | null>(null);
   const edited = useRef<GateResult | null>(null);
   const moreBtn = useRef<HTMLButtonElement>(null);
+  const editBtn = useRef<HTMLButtonElement>(null);
   const menuBox = useRef<HTMLDivElement>(null);
   const noteBox = useRef<HTMLTextAreaElement>(null);
   const stopBox = useRef<HTMLInputElement>(null);
@@ -150,7 +167,8 @@ function GateCard({ job, detail, gate, now, reload, report }: {
   const limited = Boolean(usage?.limited);
   const next = gate.nextStage ? stageLabel(gate.nextStage) : null;
   const stage = stageLabel(gate.stage);
-  const approve = approveLabel(gate, c.chips);
+  // Only chips that apply to this next stage name anything (a pressed one that no longer applies is left out).
+  const approve = approveLabel(gate, c.chips.filter((id) => views.some((v) => v.id === id && v.enabled)));
 
   // The ⋯ menu: closes on Escape (focus back on ⋯) or a click elsewhere.
   useEffect(() => {
@@ -176,17 +194,30 @@ function GateCard({ job, detail, gate, now, reload, report }: {
   const undoOverride = (key: string) => update((p) => { const o = { ...p.overrides }; delete o[key]; return { ...p, overrides: o }; });
   const toggle = (id: ChipId) => update((p) => ({ ...p, chips: toggleChip(p.chips, id) }));
 
-  /** Send one decision; a refusal throws (a stale brief also refetches the job and says so). */
+  /**
+   * What stops a decision before it is sent: an override with nothing said (any decision but a
+   * stop), or, for an approval, a question with no answer.
+   */
+  function problemWith(kind: GateKind): string | null {
+    if (kind === 'stop') return null;
+    const missing = emptyOverride(gate, c);
+    if (missing) return `Say what “${missing.decision}” should be instead, or undo that override.`;
+    const q = kind === 'approve' ? unansweredQuestion(gate, c) : null;
+    return q === null ? null : `Question ${q} has no answer. Pick one, or write your own, before approving.`;
+  }
+
+  /** Send one decision; a refusal throws (a stale brief or gate also refetches the job and says so). */
   async function post(kind: GateKind, extra: Partial<GateRequest> = {}): Promise<GateResult> {
-    const missing = kind === 'stop' ? null : emptyOverride(gate, c);
-    if (missing) throw new Error(`Say what “${missing.decision}” should be instead, or undo that override.`);
+    const problem = problemWith(kind);
+    if (problem) throw new Error(problem);
     const body = gateRequest(kind, gate, c, views, { ...(noTerminal ? { confirmNoTerminal: true } : {}), ...extra });
     try {
       return await sendGate(api, slug, body);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409 && err.body.code === 'stale-brief') {
+      if (isStale(err)) {
+        setEditing(null);
         reload();
-        report({ tone: 'problem', text: err.message, focus: 'notice' });
+        report({ tone: 'problem', text: (err as Error).message, focus: 'notice' });
       }
       throw err;
     }
@@ -205,13 +236,21 @@ function GateCard({ job, detail, gate, now, reload, report }: {
     } else if (r.held) {
       report({ tone: 'ok', text: `${r.message ?? 'Held until Claude’s usage limit resets.'}${dropped}`, lines, focus: 'notice' });
     } else {
-      // The Foreman is still working: the reply waits in the composer, remembering its brief.
-      const existing = (readStored(draftKey(slug)) ?? '').trim();
-      writeStored(draftKey(slug), existing && existing !== r.text ? `${existing}\n\n${r.text}` : r.text);
-      if (gate.briefNumber) writeStored(gateDraftKey(slug), JSON.stringify({ brief: gate.briefNumber, kind }));
+      // The Foreman is still working: the reply waits in the composer, remembering its brief and
+      // its text. Decided again ("Decide again here"), it replaces the earlier decision when that is
+      // unchanged; anything else already in the box stays, and the note says so.
+      const memoRaw = readStored(gateDraftKey(slug));
+      const earlier = readReopenedMemo(memoRaw) ?? readGateMemo(memoRaw);
+      const placed = placeGateReply(readStored(draftKey(slug)) ?? '', r.text, earlier && earlier.brief === gate.briefNumber ? earlier : null);
+      writeStored(draftKey(slug), placed.text);
+      if (gate.briefNumber) writeStored(gateDraftKey(slug), JSON.stringify({ brief: gate.briefNumber, kind, text: r.text }));
+      const where = placed.replaced && !placed.kept ? ' It replaces your earlier reply to this brief.'
+        : placed.replaced ? ' It replaces your earlier reply to this brief; the text you had above it is kept.'
+          : placed.kept ? ' What was already in the box is still there, above it: delete what you don’t want before sending, or both go.'
+            : '';
       report({
         tone: 'ok',
-        text: `The Foreman is still working; your reply is ready to send when it finishes. It’s in the message box below.${r.options ? ' The option changes are saved already.' : ''}${dropped}`,
+        text: `The Foreman is still working; your reply is ready to send when it finishes. It’s in the message box below.${where}${r.options ? ' The option changes are saved already.' : ''}${dropped}`,
         lines, focus: 'composer',
       });
     }
@@ -224,7 +263,7 @@ function GateCard({ job, detail, gate, now, reload, report }: {
     try {
       done(kind, await post(kind, extra));
     } catch (err) {
-      if (err instanceof ApiError && err.body.code === 'stale-brief') return; // said in the slot; the card is refetched
+      if (isStale(err)) return; // said in the slot; the card is refetched
       if (err instanceof ApiError && err.body.code === 'terminal-open') setAskTerminal(true);
       setError(err instanceof ApiError && err.body.code === 'terminal'
         ? 'This job’s Foreman was last used in your terminal. Take it over in the classic view first, or carry on in the terminal.'
@@ -235,10 +274,31 @@ function GateCard({ job, detail, gate, now, reload, report }: {
   }
 
   function openEdit() {
-    const missing = emptyOverride(gate, c);
-    if (missing) { setError(`Say what “${missing.decision}” should be instead, or undo that override.`); return; }
+    const problem = problemWith('approve');
+    if (problem) { setError(problem); return; }
     setError(null);
     setEditing(composeGate({ kind: 'approve', answers: answersFor(gate, c), verdicts: verdictsFor(gate, c, 'approve'), chips }, detail.statusForCompose));
+  }
+
+  /** The "Edit, then approve" sheet closed without sending: focus goes back to its button. */
+  function closeEdit() {
+    setEditing(null);
+    editBtn.current?.focus();
+  }
+
+  /**
+   * Stop the job. While the Foreman is working on a reply, that reply is ended first (as the
+   * composer's Stop does); the stop then waits in the message box until it has ended, as any
+   * decision made while it works does.
+   */
+  async function stopJob() {
+    const run = runs[slug] ?? detail.run ?? null;
+    if (running && isActiveRun(run) && run.status !== 'stopping') {
+      setBusy(true);
+      setError(null);
+      try { await stopRun(api, run.id); } catch (err) { setBusy(false); setError(message(err)); return; }
+    }
+    await act('stop', { note: stopNote });
   }
 
   function openMode(m: Mode) {
@@ -354,7 +414,7 @@ function GateCard({ job, detail, gate, now, reload, report }: {
         <button type="button" className="btn btn-primary" disabled={busy || stale} onClick={() => void act('approve')} title={stale ? staleHint : approveHint}>
           {approve}
         </button>
-        <button type="button" className="btn" disabled={busy || stale} onClick={openEdit} title={stale ? staleHint : 'See the whole reply exactly as the Foreman will receive it, edit it, then send it as your approval.'}>
+        <button ref={editBtn} type="button" className="btn" disabled={busy || stale} onClick={openEdit} title={stale ? staleHint : 'See the whole reply exactly as the Foreman will receive it, edit it, then send it as your approval.'}>
           Edit, then approve
         </button>
         <button type="button" className="btn" disabled={busy} aria-expanded={mode === 'changes'} onClick={() => openMode('changes')} title="Ask for changes: the Foreman stays in this stage and revises. Nothing is approved.">
@@ -404,7 +464,17 @@ function GateCard({ job, detail, gate, now, reload, report }: {
         <div className="gate-note">
           <label className="field">
             <span>{mode === 'changes' ? 'What should change? The Foreman stays in this stage and revises; nothing is approved.' : 'Your guidance or question for the Foreman. Nothing is approved.'}</span>
-            <textarea ref={noteBox} className="text-area" rows={3} value={note} onChange={(e) => setNote(e.target.value)} disabled={busy} />
+            <textarea
+              ref={noteBox}
+              className="text-area"
+              rows={3}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              disabled={busy}
+              title={mode === 'changes'
+                ? 'Say what the Foreman should change. It goes in your reply with your answers; the Foreman revises and briefs you again.'
+                : 'A question or a note for the Foreman. It goes in your reply with your answers; this card stays open.'}
+            />
           </label>
           <div className="perm-actions">
             <button
@@ -423,22 +493,43 @@ function GateCard({ job, detail, gate, now, reload, report }: {
 
       {mode === 'stop' && (
         <div className="gate-stop" role="group" aria-labelledby={`${uid}-stop`}>
-          <p className="perm-warn" id={`${uid}-stop`}>Stop this job: the Foreman records where things stand and starts nothing else. Nothing is deleted; you can carry on later with a message.</p>
+          <p className="perm-warn" id={`${uid}-stop`}>
+            Stop this job: the Foreman records where things stand and starts nothing else. Nothing is deleted; you can carry on later with a message.
+            {running && ' The Foreman is working on a reply right now: stopping the job ends that reply first, then your stop waits in the message box until it has ended.'}
+          </p>
           <label className="field">
             <span>Type the job’s name, <code>{slug}</code>, to confirm</span>
-            <input ref={stopBox} className="text-input" value={stopName} onChange={(e) => setStopName(e.target.value)} autoComplete="off" spellCheck={false} disabled={busy} />
+            <input
+              ref={stopBox}
+              className="text-input"
+              value={stopName}
+              onChange={(e) => setStopName(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              disabled={busy}
+              title={`Type ${slug} exactly. This makes sure you mean to stop this job.`}
+            />
           </label>
           <label className="field">
             <span>A note for the Foreman (optional)</span>
-            <textarea className="text-area" rows={2} value={stopNote} onChange={(e) => setStopNote(e.target.value)} disabled={busy} />
+            <textarea
+              className="text-area"
+              rows={2}
+              value={stopNote}
+              onChange={(e) => setStopNote(e.target.value)}
+              disabled={busy}
+              title="Why you’re stopping, or anything the Foreman should record. It goes with the stop."
+            />
           </label>
           <div className="perm-actions">
             <button
               type="button"
               className="btn btn-danger"
               disabled={busy || stopName.trim() !== slug}
-              onClick={() => void act('stop', { note: stopNote })}
-              title={stopName.trim() === slug ? 'Stop the job now. No answers or option changes go with it.' : 'Type the job’s name above first.'}
+              onClick={() => void stopJob()}
+              title={stopName.trim() !== slug ? 'Type the job’s name above first.'
+                : running ? 'End the reply in progress, then stop the job. No answers or option changes go with it.'
+                  : 'Stop the job now. No answers or option changes go with it.'}
             >
               Stop the job
             </button>
@@ -475,7 +566,8 @@ function GateCard({ job, detail, gate, now, reload, report }: {
           <button type="button" className="link-button" onClick={openLevelChip} title="Open the level chip in the job header to pick this job’s level.">Pick a level first</button>
         </p>
       )}
-      {chipLines.length > 0 && (
+      {/* A stop carries no option changes, so its lines aren't shown while you stop. */}
+      {chipLines.length > 0 && mode !== 'stop' && (
         <div className="gate-lines" aria-live="polite">
           <p className="muted gate-lines-head">Added to your reply, exactly:</p>
           <pre className="perm-preview gate-lines-text">{chipLines.join('\n')}</pre>
@@ -492,7 +584,7 @@ function GateCard({ job, detail, gate, now, reload, report }: {
 
       <HowThisWorks id="gate-card" defaultOpen={false}>
         <p>The Foreman has briefed you and waits for your decision. Nothing goes ahead, and nothing is ever approved for you, until you press one of these.</p>
-        <p><strong>Approve</strong> (its label says what it approves and what starts) sends your answers to the questions, confirms the decisions made on your behalf that you didn’t override, and names the versions you approved. <strong>Edit, then approve</strong> shows that reply in full so you can change the words first. <strong>Revise with feedback</strong> asks for changes: the Foreman stays in this stage. <strong>Other guidance</strong> sends a question or a note without approving. <strong>Approve, start after reset</strong> appears when Claude’s usage limit is reached: your approval waits and goes when it resets. <strong>Stop job</strong> is under ⋯ and asks you to type the job’s name.</p>
+        <p><strong>Approve</strong> (its label says what it approves and what starts) sends your answers to the questions, confirms the decisions made on your behalf that you didn’t override, and names the versions you approved. <strong>Edit, then approve</strong> shows that reply in full so you can change the words first. <strong>Revise with feedback</strong> asks for changes: the Foreman stays in this stage. <strong>Other guidance</strong> sends a question or a note without approving; the card stays open. Approve needs an answer to every question (a recommended answer is picked for you). <strong>Approve, start after reset</strong> appears when Claude’s usage limit is reached: your approval waits and goes when it resets. <strong>Stop job</strong> is under ⋯ and asks you to type the job’s name.</p>
         <p><strong>Override</strong> on an “Also decided” item marks it changed, with what it should be instead. The chips change <strong>only the next step</strong>: skip it, make it lighter or heavier, ask Fable for a second look, do it yourself, or move the level up or down from there. Each adds one line to your reply, shown under the chips, and saves the job’s options where there is one.</p>
         <p>If the plan changes after the card appears, it greys out (“Plan changed since this was proposed”) so you can’t approve an old version. If the Foreman is still working, your reply waits in the message box until it finishes. A decision left 4 hours shows as parked.</p>
       </HowThisWorks>
@@ -507,8 +599,10 @@ function GateCard({ job, detail, gate, now, reload, report }: {
           intro="This is your approval as the Foreman will receive it. Edit it, then send. The chips’ option changes are saved whatever you write here."
           sendLabel="Approve with this text"
           sendHint="Send this text as your approval of this brief (⌘/Ctrl+Enter)."
+          // The plan changed while the sheet was open: sending is off (your text stays to copy).
+          blocked={stale ? 'The plan changed since this card was raised, so this approval would be for an old version. Nothing was sent; close this and check the new version.' : null}
           submit={async (text, { confirmNoTerminal }) => { edited.current = await post('approve', { text, ...(confirmNoTerminal ? { confirmNoTerminal } : {}) }); }}
-          onClose={() => setEditing(null)}
+          onClose={closeEdit}
           onSent={() => { setEditing(null); if (edited.current) done('approve', edited.current); }}
         />
       )}
