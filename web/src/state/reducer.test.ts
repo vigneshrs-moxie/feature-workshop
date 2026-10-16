@@ -197,6 +197,13 @@ describe('reducer: cards and rules', () => {
     expect(reducer(s, { type: 'snapshot', snapshot: snapshot({ epoch: 'bbbb' }) }).playNews).toEqual([]);
   });
 
+  it('a play event can be a boss defeated, kept for the toasts', () => {
+    const boss = { slug: 'alpha', at: '2026-10-16T12:00:00.000Z', hp: 12 };
+    const s = reducer(reducer(initialState, { type: 'snapshot', snapshot: snapshot({ seq: 10 }) }), { type: 'event', event: ev(11, 'play', 'alpha', { boss }) });
+    expect(s.playNews).toEqual([{ seq: 11, boss }]);
+    expect(reducer(s, { type: 'event', event: ev(12, 'play', 'alpha', { boss: { hp: 3 } }) }).playNews).toHaveLength(1);
+  });
+
   it('a rules event bumps rulesVersion so Settings refetches', () => {
     const s = reducer(hydrated(), { type: 'event', event: ev(11, 'rules', null, { count: 2 }) });
     expect(s.rulesVersion).toBe(1);

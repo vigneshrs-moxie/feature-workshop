@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
 import type { Achievement, PlayMode, QuestDone } from '../api/types';
@@ -149,6 +149,32 @@ describe('celebrations', () => {
     const { news } = setup({ mode: 'full' });
     news({ achievement: ach('first-quest', 'First Quest') });
     expect(toasts()[0]).toHaveTextContent('First Quest');
+    expect(document.querySelector('.play-burst')).toBeNull();
+  });
+
+  it('a boss defeated (Full only): a toast with the boss burst and, with Sounds on, its blip', () => {
+    const boss = { slug: 'alpha', at: '2026-10-16T10:00:00.000Z', hp: 12 };
+    const subtle = setup({ mode: 'subtle', sounds: true });
+    subtle.news({ boss });
+    expect(toasts()).toHaveLength(0);
+    cleanup();
+    const { news } = setup({ mode: 'full', sounds: true });
+    news({ boss });
+    const [t] = toasts();
+    expect(t).toHaveClass('is-boss', 'has-burst');
+    expect(t).toHaveTextContent('Boss defeated');
+    expect(t).toHaveTextContent('Alpha feature');
+    expect(t).toHaveTextContent('all 12 hit points of findings fixed');
+    expect(t.querySelector('.play-burst.burst-boss')).not.toBeNull();
+    expect(playBlip).toHaveBeenCalledWith('boss');
+    expect(toastOf({ seq: 1, boss }, () => undefined, false)).toBeNull();
+  });
+
+  it('a boss defeated holds still under reduced motion: no burst, the words stay', () => {
+    reducedMotion(true);
+    const { news } = setup({ mode: 'full' });
+    news({ boss: { slug: 'alpha', at: '2026-10-16T10:00:00.000Z', hp: 5 } });
+    expect(toasts()[0]).toHaveTextContent('Boss defeated');
     expect(document.querySelector('.play-burst')).toBeNull();
   });
 

@@ -7,7 +7,7 @@
 // the event says outright (a permission card arriving or going, a run's status, the usage limit)
 // are applied straight away so the page reacts without waiting for that.
 
-import type { Achievement, Job, JobGroup, LiveEvent, Meta, Permission, PlayNews, QuestDone, Run, Settings, Snapshot, Steer, SteerState, Usage } from '../api/types';
+import type { Achievement, BossDefeated, Job, JobGroup, LiveEvent, Meta, Permission, PlayNews, QuestDone, Run, Settings, Snapshot, Steer, SteerState, Usage } from '../api/types';
 import { JOB_GROUPS } from '../api/types';
 
 export type Connection = 'connecting' | 'live' | 'reconnecting';
@@ -186,13 +186,15 @@ function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
       return next;
     case 'play': {
       next.playVersion = state.playVersion + 1;
-      // An achievement unlocked or a quest done: kept (the newest few) for the toasts.
+      // An achievement unlocked, a quest done or a boss defeated: kept (the newest few) for the toasts.
       const achievement = asObject(d.achievement);
       const quest = asObject(d.quest);
+      const boss = asObject(d.boss);
       const news: PlayNews = { seq: e.seq };
       if (typeof achievement.id === 'string' && typeof achievement.name === 'string') news.achievement = d.achievement as Achievement;
       if (typeof quest.slug === 'string') news.quest = d.quest as QuestDone;
-      if (news.achievement || news.quest) next.playNews = [...state.playNews, news].slice(-PLAY_NEWS_KEPT);
+      if (typeof boss.slug === 'string') news.boss = d.boss as BossDefeated;
+      if (news.achievement || news.quest || news.boss) next.playNews = [...state.playNews, news].slice(-PLAY_NEWS_KEPT);
       return next;
     }
     case 'settings':

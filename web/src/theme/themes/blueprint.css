@@ -300,6 +300,9 @@ html[data-theme="blueprint"] .answer-desc, html[data-theme="blueprint"] .questio
 html[data-theme="blueprint"] .perm-card .field { color: var(--bp-ink-2); }
 html[data-theme="blueprint"] .reply .thread-time, html[data-theme="blueprint"] .brief-card .thread-time, html[data-theme="blueprint"] .problem .thread-time, html[data-theme="blueprint"] .perm-card .thread-time { color: var(--bp-ink-3); }
 html[data-theme="blueprint"] .perm-who strong, html[data-theme="blueprint"] .brief-headline, html[data-theme="blueprint"] .brief-toggle:hover .brief-label { color: var(--bp-ink); }
+/* Play's boss fight on a cream brief card: ink words, an ink-tinted track. */
+html[data-theme="blueprint"] .brief-card .boss-text { color: var(--bp-ink); }
+html[data-theme="blueprint"] .brief-card .boss-bar { border-color: var(--bp-ink-line); background: var(--bp-ink-tint); }
 html[data-theme="blueprint"] .who {
   font-family: var(--font-heading);
   text-transform: uppercase;

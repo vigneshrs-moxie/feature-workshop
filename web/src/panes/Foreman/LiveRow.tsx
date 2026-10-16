@@ -3,9 +3,11 @@
 // the reply ends; the finished reply then appears in the thread.
 // With Play on (Subtle or Full) it also shows who is at work: the workers on the job (working) or
 // the Foreman (thinking; waiting when something waits for you), and during a usage-limit pause a
-// dim line with the crew asleep. With Play Off it is exactly as before.
+// dim line with the crew asleep (Full: the Foreman and the workers asleep, with when they're back).
+// With Play Off it is exactly as before.
 import type { Job, Run, Usage } from '../../api/types';
 import { ShortMarkdown } from '../../components/InlineText';
+import { SleepingCrew } from '../../play/FullExtras';
 import { LiveCrewFaces } from '../../play/ThreadCrew';
 import { usagePaused } from '../../play/crewLines';
 import { usePlayIfAny } from '../../play/usePlay';
@@ -18,7 +20,9 @@ export function LiveRow({ run, job = null, usage = null }: { run: Run | null | u
     if (!on || !job || !usagePaused(job, usage)) return null;
     return (
       <p className="thread-item thread-line live-row is-paused" title="Claude’s usage limit paused this job. It carries on when the limit resets (see the banner at the top).">
-        <LiveCrewFaces job={job} run={run} usage={usage} /> Asleep until Claude’s usage limit resets.
+        {play?.full
+          ? <SleepingCrew job={job} usage={usage} />
+          : <><LiveCrewFaces job={job} run={run} usage={usage} /> Asleep until Claude’s usage limit resets.</>}
       </p>
     );
   }

@@ -94,6 +94,7 @@
   animation: rise-in var(--dur-pane) var(--ease-out);
 }
 .play-toast.is-quest { border-color: var(--group-done-line); }
+.play-toast.is-boss { border-color: var(--crew-gold); }
 .play-toast-badge { position: relative; display: flex; flex: none; }
 .play-toast-body { flex: 1; min-width: 0; }
 .play-toast-label { margin: 0; color: var(--text-2); font-size: var(--text-xs); letter-spacing: .06em; text-transform: uppercase; }
@@ -120,6 +121,7 @@
 .play-burst-piece.tone-2 { background: var(--crew-c-teal); }
 .play-burst-piece.tone-3 { background: var(--crew-gold); }
 .burst-quest .play-burst-piece { width: 7px; height: 7px; }
+.burst-boss .play-burst-piece { width: 8px; height: 8px; }
 @keyframes play-burst {
   0% { opacity: 1; transform: translate(0, 0) scale(.5); }
   70% { opacity: 1; }

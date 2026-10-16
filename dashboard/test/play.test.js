@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   ACHIEVEMENTS, CREW_TYPES, EXPLORER_THEMES, GOLD_QUESTS, LENS_TYPES, PLAY_DEFAULTS, PLAY_EVENTS, PLAY_SCHEMA, PlayBook, PlayError,
-  SECRET_IDS, THEME_IDS, buildLedger, jobKey, ledgerView, lensType, newlyDone, newlyUnlocked, parseReviewFindings, playSettings,
+  SECRET_IDS, THEME_IDS, BOSS_WEIGHTS, bossHp, buildLedger, jobKey, ledgerView, lensType, newlyDefeated, newlyDone, newlyUnlocked, parseReviewFindings, playSettings, reviewsChanged,
   themeUnlocked, unlocksOf, validatePlayPatch,
 } from '../lib/play.js';
 import { parseSessionLog } from '../lib/session-log.js';
@@ -208,6 +208,44 @@ test('Clean Sweep: only a review evidently in its first round; anything else is 
   // A clean v1 with one run per lens still earns it.
   const v1 = build({ jobs: [job('a', { workers: lens, review: review(plus(T0, 3), '# Review v1\n\n**Result:** No findings.') })] });
   assert.equal(v1.achievements['clean-sweep'].unlockedAt, plus(T0, 3));
+});
+
+test('boss fight: an L3 review’s findings as hit points, draining by round; defeated once, kept for good', () => {
+  assert.deepEqual(BOSS_WEIGHTS, { blockers: 5, majors: 3, minors: 1 });
+  assert.equal(bossHp({ blockers: 1, majors: 2, minors: 1 }), 12);
+  const lens = [{ agentType: 'feature-review-errors', startedAt: T0, lastAt: plus(T0, 2) }];
+  const key = jobKey('boss', `${DIR}/boss`);
+  const review = (at, text) => ({ at, counts: parseReviewFindings(text) });
+  const l3 = (at, text, extra = {}) => job('boss', { level: 3, stage: 'review', workers: lens, review: review(at, text), ...extra });
+  const r1 = build({ jobs: [l3(plus(T0, 10), '# Review v1\n\n**Result:** 1 blocker, 2 majors, 1 minor')] });
+  assert.deepEqual([r1.reviews[key].hp, r1.reviews[key].peak, r1.reviews[key].bossDefeatedAt], [12, 12, null]);
+  assert.deepEqual(ledgerView(r1).reviews.boss, { at: plus(T0, 10), blockers: 1, majors: 2, minors: 1, hp: 12, startHp: 12, defeatedAt: null });
+  // Round 2 lands: 1 blocker, 1 major left (8 of 12).
+  const r2 = build({ jobs: [l3(plus(T0, 40), '# Review v2\n\n**Result:** 1 blocker, 1 major, 0 minors')], previous: r1 });
+  assert.deepEqual([r2.reviews[key].hp, r2.reviews[key].peak], [8, 12]);
+  assert.deepEqual(newlyDefeated(r1, r2), []);
+  // A new round is news for a page showing the boss (it refetches); the same round again is not.
+  assert.deepEqual(reviewsChanged(r1, r2), ['boss']);
+  assert.deepEqual(reviewsChanged(r2, build({ jobs: [l3(plus(T0, 40), '# Review v2\n\n**Result:** 1 blocker, 1 major, 0 minors')], previous: r2 })), []);
+  // Round 3 is clean: defeated, once.
+  const r3 = build({ jobs: [l3(plus(T0, 70), '# Review v3\n\n**Result:** No findings.')], previous: r2 });
+  assert.equal(r3.reviews[key].bossDefeatedAt, plus(T0, 70));
+  assert.deepEqual(newlyDefeated(r2, r3), [{ slug: 'boss', at: plus(T0, 70), hp: 12 }]);
+  assert.deepEqual(ledgerView(r3).reviews.boss, { at: plus(T0, 70), blockers: 0, majors: 0, minors: 0, hp: 0, startHp: 12, defeatedAt: plus(T0, 70) });
+  // A later round with findings again never takes it back, nor fires again.
+  const r4 = build({ jobs: [l3(plus(T0, 90), '# Review v4\n\n**Result:** 0 blockers, 0 majors, 1 minor')], previous: r3 });
+  assert.equal(r4.reviews[key].bossDefeatedAt, plus(T0, 70));
+  const r5 = build({ jobs: [l3(plus(T0, 99), '# Review v5\n\n**Result:** No findings.')], previous: r4 });
+  assert.deepEqual(newlyDefeated(r4, r5), []);
+  // Not L3: no boss. A review first seen already clean: nothing to defeat.
+  const l2 = build({ jobs: [job('boss', { level: 2, workers: lens, review: review(plus(T0, 70), '# Review v3\n\n**Result:** No findings.') })], previous: r2 });
+  assert.equal(l2.reviews[key].bossDefeatedAt, null);
+  const fresh = build({ jobs: [l3(plus(T0, 70), '# Review v3\n\n**Result:** No findings.')] });
+  assert.deepEqual([fresh.reviews[key].peak, fresh.reviews[key].bossDefeatedAt], [0, null]);
+  // A ledger from before the boss fight (no peak) never celebrates an old clean review.
+  const old = structuredClone(r2);
+  delete old.reviews[key].peak;
+  assert.deepEqual(newlyDefeated(old, build({ jobs: [l3(plus(T0, 70), '# Review v3\n\n**Result:** No findings.')], previous: old })), []);
 });
 
 test('crew met: a permission you answered by hand meets no one, whatever agentType it carries', () => {
@@ -782,6 +820,31 @@ test('PlayBook: a refresh already running when Play goes Off stops, keeps nothin
     await book.refresh({ muted: true });
     assert.ok(book.ledger.secrets.teapot);
     assert.equal(saves.length, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('PlayBook: tells about a boss defeated once, and never on a rebuild', async () => {
+  const dir = await tempDir();
+  try {
+    const lens = [{ agentType: 'feature-review-errors', startedAt: T0, lastAt: plus(T0, 2) }];
+    const review = (at, text) => ({ at, counts: parseReviewFindings(text) });
+    const input = { audit: [], jobs: [job('boss', { level: 3, workers: lens, review: review(plus(T0, 10), '# Review v1\n\n**Result:** 1 blocker, 0 majors, 0 minors') })] };
+    const bosses = [];
+    const book = new PlayBook({ dir, sources: fakeSources(input), onBoss: (b) => bosses.push(b) });
+    await book.refresh();
+    input.jobs[0] = { ...input.jobs[0], review: review(plus(T0, 40), '# Review v2\n\n**Result:** No findings.') };
+    book.noteJob('boss');
+    await book.refresh();
+    await book.refresh();
+    assert.deepEqual(bosses, [{ slug: 'boss', at: plus(T0, 40), hp: 5 }]);
+    // play.json lost: the rebuild finds it defeated but tells nothing.
+    await fs.rm(path.join(dir, 'play.json'));
+    const heard = [];
+    const fresh = new PlayBook({ dir, sources: fakeSources(input), onBoss: (b) => heard.push(b) });
+    await fresh.refresh();
+    assert.deepEqual(heard, []);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

@@ -3,10 +3,11 @@
 // headline to open or close it any time. If the brief has a detail file it shows as a folded
 // section underneath, read only when you open it. Rulings and proof lines show only if present.
 import { useEffect, useState } from 'react';
-import type { JobDoc } from '../../api/types';
+import type { JobDoc, ReviewBoss } from '../../api/types';
 import { InlineText } from '../../components/InlineText';
 import { plainInline } from '../../lib/inlineMarkdown';
 import { fullTime, relativeTime } from '../../lib/time';
+import { BossFight } from '../../play/FullExtras';
 import { ReviewLineup } from '../../play/ThreadCrew';
 import { useWorkshop } from '../../state/store';
 import { stageLabel } from '../Jobs/stages';
@@ -73,8 +74,11 @@ function DetailFold({ slug, file }: { slug: string; file: string }) {
   );
 }
 
-/** lenses: on a review brief, the review lenses that looked (Play mode lines them up under the headline). */
-export function BriefCard({ slug, brief, now, lenses }: { slug: string; brief: ShownBrief; now: Date; lenses?: string[] }) {
+/**
+ * lenses: on a review brief, the review lenses that looked (Play mode lines them up under the headline).
+ * boss: on an L3 job's latest review brief in Full mode, the review's boss fight (under the lineup).
+ */
+export function BriefCard({ slug, brief, now, lenses, boss }: { slug: string; brief: ShownBrief; now: Date; lenses?: string[]; boss?: ReviewBoss | null }) {
   const { item, answered, detailFile } = brief;
   const [open, setOpen] = useState(!answered);
   // Answering it folds it back to its headline (and a brief that is open again opens): followed
@@ -107,6 +111,7 @@ export function BriefCard({ slug, brief, now, lenses }: { slug: string; brief: S
         </button>
         <p className="brief-headline"><InlineText text={headline} /></p>
         {item.stage === 'review' && lenses && <ReviewLineup types={lenses} />}
+        {item.stage === 'review' && boss && <BossFight review={boss} />}
       </header>
       <div id={bodyId} className="brief-body" hidden={!open}>
         {open && <DocBody doc={doc} what="brief" headline={headline} file={item.file} />}

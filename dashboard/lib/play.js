@@ -298,6 +298,11 @@ const WORKER_STEP_ACTIONS = new Set(['auto-allowed', 'auto-blocked', 'hard-line-
 
 const emptyCounts = () => ({ blockers: 0, majors: 0, minors: 0 });
 
+/** The boss fight's hit points per finding: blockers heavy, majors medium, minors light. */
+export const BOSS_WEIGHTS = Object.freeze({ blockers: 5, majors: 3, minors: 1 });
+/** A review round's findings as the boss's hit points. */
+export const bossHp = (c) => (c?.blockers ?? 0) * BOSS_WEIGHTS.blockers + (c?.majors ?? 0) * BOSS_WEIGHTS.majors + (c?.minors ?? 0) * BOSS_WEIGHTS.minors;
+
 /**
  * What the audit log says for the ledger, folded in one entry at a time (PlayBook folds each new
  * audit line as it is written, and reads the whole file only at start or when it shrank or was
@@ -489,7 +494,7 @@ export function ledgerFrom({ fold = new AuditFold(), jobs = [], play = PLAY_DEFA
       });
       const lensRan = runs.some((n) => n > 0);
       const roundOne = job.review.counts.laterRound === false && runs.every((n) => n <= 1);
-      reviews[key] = reviewRecord(reviews[key], job.review, lensRan, roundOne, nowIso);
+      reviews[key] = reviewRecord(reviews[key], job.review, lensRan, roundOne, nowIso, levelOf(job, d));
     }
 
     const exactPrAt = rule === 'first-pr' ? firstPrAt(job.prs?.[0], job.prLinks) : null;
@@ -574,8 +579,13 @@ function questRecord(slug, dir, doneAt, doneAtExact, kind, level, d, rule) {
  * that (a fresh build, Play turned on again, play.json lost), the first round is { unknown: true }
  * for good. Clean Sweep is a known first round coming back with nothing (draining to clean later is
  * the boss fight's "Boss defeated", not this).
+ *
+ * The boss fight (Full mode, L3 reviews): hp is a round's findings weighted (BOSS_WEIGHTS), peak the
+ * heaviest round seen (the first round, unless a later one raised more), and bossDefeatedAt when an
+ * L3 job's review.md came back with nothing after a round that had findings: set once, kept for
+ * good, so the celebration never fires twice.
  */
-function reviewRecord(was, review, lensRan, roundOne, nowIso) {
+function reviewRecord(was, review, lensRan, roundOne, nowIso, level = null) {
   const counts = review.counts;
   const at = review.at ?? nowIso;
   const byLens = counts.byLens ?? {};
@@ -588,9 +598,13 @@ function reviewRecord(was, review, lensRan, roundOne, nowIso) {
   }
   let first = was?.first ?? null;
   if (!first && lensRan) first = roundOne ? { at, blockers: counts.blockers, majors: counts.majors, minors: counts.minors, total: counts.total } : { unknown: true };
+  const hp = bossHp(counts);
+  const peak = Math.max(hp, was?.peak ?? 0, first && !first.unknown ? bossHp(first) : 0);
+  const bossDefeatedAt = was?.bossDefeatedAt ?? (level === 3 && hp === 0 && peak > 0 ? at : null);
   return {
     blockers: counts.blockers, majors: counts.majors, minors: counts.minors, total: counts.total, at, byLens, byLensMax, first,
     cleanAt: first && !first.unknown && first.total === 0 ? first.at : null,
+    hp, peak, bossDefeatedAt,
   };
 }
 
@@ -642,7 +656,9 @@ export function newlyUnlocked(before, next) {
 
 /**
  * What GET /api/play sends: crew met with stats, quests done, achievements (an easter egg's only
- * once found: the rest are just counted), secrets found, themes tried and what is unlocked.
+ * once found: the rest are just counted), secrets found, themes tried, what is unlocked, and each
+ * job's latest review round by slug for the boss fight ({ blockers, majors, minors, hp, startHp,
+ * defeatedAt }: hp now, startHp the heaviest round seen).
  */
 export function ledgerView(ledger, play = PLAY_DEFAULTS) {
   const l = ledger ?? { crew: {}, quests: {}, reviews: {}, achievements: {}, secrets: {}, themes: {} };
@@ -686,6 +702,17 @@ export function ledgerView(ledger, play = PLAY_DEFAULTS) {
     .map((a) => ({ ...a, unlockedAt: l.achievements?.[a.id]?.unlockedAt ?? null }));
   const found = SECRET_IDS.filter((id) => l.secrets?.[id]);
   const p = playSettings(play);
+  // Each job's latest review round, by slug (the newest when two folders share a slug): the boss fight.
+  const reviews = {};
+  for (const [key, r] of Object.entries(l.reviews ?? {})) {
+    const slug = key.slice(0, key.indexOf('|'));
+    if (!slug || (reviews[slug] && ms(reviews[slug].at) >= ms(r.at))) continue;
+    const hp = typeof r.hp === 'number' ? r.hp : bossHp(r);
+    reviews[slug] = {
+      at: r.at, blockers: r.blockers ?? 0, majors: r.majors ?? 0, minors: r.minors ?? 0, hp,
+      startHp: Math.max(hp, r.peak ?? 0), defeatedAt: r.bossDefeatedAt ?? null,
+    };
+  }
   return {
     schema: PLAY_SCHEMA, mode: p.mode, questDone: p.questDone,
     crew, crewMet: Object.keys(crew).length, crewTotal: CREW_TYPES.length,
@@ -697,6 +724,7 @@ export function ledgerView(ledger, play = PLAY_DEFAULTS) {
     secrets: { found, total: SECRET_IDS.length },
     themesTried: THEME_IDS.filter((t) => l.themes?.[t]),
     unlocks: unlocksOf(l),
+    reviews,
   };
 }
 
@@ -722,6 +750,30 @@ export function newlyDone(before, next) {
     .filter(([key]) => !had[key])
     .map(([, q]) => ({ slug: q.slug, doneAt: q.doneAt, kind: q.kind, level: q.level, rule: q.rule }))
     .sort((a, b) => ms(a.doneAt) - ms(b.doneAt));
+}
+
+/**
+ * Bosses defeated in `next` that weren't in `before` (by job), oldest first: what the page
+ * celebrates. Only a boss `before` was already following (its review had a peak) counts, so a
+ * ledger from before the boss fight existed never celebrates an old clean review.
+ */
+export function newlyDefeated(before, next) {
+  const had = before?.reviews ?? {};
+  return Object.entries(next?.reviews ?? {})
+    .filter(([key, r]) => r?.bossDefeatedAt && had[key] && typeof had[key].peak === 'number' && !had[key].bossDefeatedAt)
+    .map(([key, r]) => ({ slug: key.slice(0, key.indexOf('|')), at: r.bossDefeatedAt, hp: r.peak }))
+    .sort((a, b) => ms(a.at) - ms(b.at));
+}
+
+/** Slugs of the jobs whose latest review round changed between two ledgers (new, other counts or time). */
+export function reviewsChanged(before, next) {
+  const had = before?.reviews ?? {};
+  const out = new Set();
+  for (const [key, r] of Object.entries(next?.reviews ?? {})) {
+    const h = had[key];
+    if (!h || h.at !== r.at || h.hp !== r.hp || h.total !== r.total) out.add(key.slice(0, key.indexOf('|')));
+  }
+  return [...out];
 }
 
 // ---------- play.json (the one part that touches files) ----------
@@ -750,16 +802,20 @@ export const JOBS_EVERY_MS = 60_000;
  * next refresh reads everything again). onUnlock(achievement) is called for each achievement a
  * refresh unlocks: not on a rebuild from scratch (it only finds what was already earned) and not on
  * a muted refresh (refresh({ muted: true }): Play turned back on, or the quest rule changed).
- * onQuest(quest) likewise for each quest a refresh finds done (newlyDone), before its achievements.
+ * onQuest(quest) likewise for each quest a refresh finds done (newlyDone), before its achievements;
+ * onBoss({ slug, at, hp }) for each L3 review boss a refresh finds defeated (newlyDefeated), and
+ * onReview({ slug }) for each job whose review round changed (so a page showing its boss refetches).
  */
 export class PlayBook {
-  constructor({ dir, sources, isOn = () => true, onUnlock = () => {}, onQuest = () => {}, now = () => Date.now(), jobsEveryMs = JOBS_EVERY_MS, log = (msg, err) => console.error(msg, err) }) {
+  constructor({ dir, sources, isOn = () => true, onUnlock = () => {}, onQuest = () => {}, onBoss = () => {}, onReview = () => {}, now = () => Date.now(), jobsEveryMs = JOBS_EVERY_MS, log = (msg, err) => console.error(msg, err) }) {
     this.file = path.join(dir, 'play.json');
     this.dir = dir;
     this.sources = sources;
     this.isOn = isOn;
     this.onUnlock = onUnlock;
     this.onQuest = onQuest;
+    this.onBoss = onBoss;
+    this.onReview = onReview;
     this.now = now;
     this.jobsEveryMs = jobsEveryMs;
     this.log = log;
@@ -877,6 +933,8 @@ export class PlayBook {
     }
     if (!before || muted) return;
     for (const q of newlyDone(before, next)) { try { this.onQuest(q); } catch { /* a listener's problem */ } }
+    for (const b of newlyDefeated(before, next)) { try { this.onBoss(b); } catch { /* a listener's problem */ } }
+    for (const slug of reviewsChanged(before, next)) { try { this.onReview({ slug }); } catch { /* a listener's problem */ } }
     for (const a of newlyUnlocked(before, next)) { try { this.onUnlock(a); } catch { /* a listener's problem */ } }
   }
 

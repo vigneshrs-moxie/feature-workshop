@@ -22,6 +22,7 @@ import { CrewDexView } from '../views/CrewDex/CrewDexView';
 import { AchievementsView } from '../views/Achievements/AchievementsView';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayToasts } from '../play/PlayToasts';
+import { StaminaBar } from '../play/FullExtras';
 import { usePlay } from '../play/usePlay';
 import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
 import { reopenJob, setJobPolicy, stopRun } from './jobActions';
@@ -66,6 +67,8 @@ function TopBar({ onRetry, onCrew = false }: { onRetry: () => void; onCrew?: boo
         <span aria-hidden="true">Actions</span> <kbd className="kbd">{paletteKeyLabel()}</kbd>
       </button>
       <span className="spacer" />
+      {/* Play, Full mode only: Claude's usage limit as stamina. */}
+      {state.status === 'ready' && <StaminaBar />}
       {state.status === 'ready' && (
         <span className="needs" title="How many jobs are waiting for you." aria-live="polite">
           {needs === 0 ? 'Nothing needs you' : `${needs} need${needs === 1 ? 's' : ''} you`}

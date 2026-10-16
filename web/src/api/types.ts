@@ -313,10 +313,33 @@ export interface QuestDone {
   rule: QuestDoneRule;
 }
 
-/** The 'play' live event: an achievement unlocked, or a quest done (one of the two). */
+/** An L3 review's boss defeated (dashboard/lib/play.js newlyDefeated): once per job. hp: what it started with. */
+export interface BossDefeated {
+  slug: string;
+  at: string;
+  hp: number;
+}
+
+/** The 'play' live event: an achievement unlocked, a quest done, or a boss defeated (one of them). */
 export interface PlayNewsData {
   achievement?: Achievement;
   quest?: QuestDone;
+  boss?: BossDefeated;
+}
+
+/**
+ * A job's latest review round for the boss fight (ledgerView reviews): its findings, the hit points
+ * they make (blockers 5, majors 3, minors 1), the heaviest round seen (startHp) and when its boss
+ * was defeated (L3 only).
+ */
+export interface ReviewBoss {
+  at: string;
+  blockers: number;
+  majors: number;
+  minors: number;
+  hp: number;
+  startHp: number;
+  defeatedAt: string | null;
 }
 
 /** A 'play' event the page has heard, kept for the toasts (seq: the event's, so each is shown once). */
@@ -347,6 +370,8 @@ export interface PlayView {
   themesTried: string[];
   /** The hidden themes: CRT Terminal (the Konami code) and Gold (10 quests done). */
   unlocks: { crt: boolean; gold: boolean };
+  /** Each job's latest review round, by slug (dashboards from before the boss fight send none). */
+  reviews?: Record<string, ReviewBoss>;
 }
 
 /**

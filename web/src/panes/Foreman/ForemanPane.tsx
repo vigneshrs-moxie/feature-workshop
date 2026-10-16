@@ -10,6 +10,7 @@ import { useUi } from '../../app/ui';
 import { useNow } from '../../lib/time';
 import { reviewLineup } from '../../play/crewLines';
 import { usePlay } from '../../play/usePlay';
+import { usePlayLedger } from '../../play/usePlayLedger';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
 import { BriefCard } from './BriefCard';
@@ -51,6 +52,12 @@ function JobThread({ job }: { job: Job }) {
     }
     return out;
   }, [shown, activity, play.on]);
+  // Full mode, an L3 job at review: the boss fight under its latest review brief (from the ledger).
+  const bossTime = play.full && job.level === 3 && job.stage === 'review';
+  const ledger = usePlayLedger(bossTime);
+  const boss = bossTime && ledger.load.state === 'ready' ? ledger.load.view.reviews?.[job.slug] ?? null : null;
+  let bossBrief: string | null = null;
+  if (boss) for (const s of shown) if (s.kind === 'brief-card' && s.brief.item.stage === 'review') bossBrief = s.id;
 
   // Tell the shell what only this pane knows, so ⌘K can offer Stop, Mark done and the job's setting.
   const { setCurrent } = useUi();
@@ -103,6 +110,7 @@ function JobThread({ job }: { job: Job }) {
         <p>The <strong>level chip</strong> next to the title (L0 Tweak to L3 Large) says how much process the job gets; click it to see what runs and to change it. When the Foreman suggests a different level, or none is chosen yet, a level card in the conversation shows the rules’ and the Foreman’s suggestions side by side.</p>
         <p>The <strong>Job menu</strong> marks the job done or dropped (nothing is deleted; <strong>Reopen</strong> brings it back), opens <strong>Notes and options</strong> (a drawer with the job’s notes for the Foreman and its options: level, stages, reviewers, testing, Fable, models), links to its classic page, and sets its own permission setting. <strong>⌘K</strong> (Ctrl+K) lists the same actions and more; press <strong>?</strong> for the keys.</p>
         {play.on && <p>The <strong>crew</strong> (Play mode): small characters show who did what. The Foreman by the title shows how the job is doing (at work, waiting for you, asleep in a usage pause), routine-step lines show the worker they handed work to, a review brief lines up the reviewers who looked (hover for names), and the live row shows who is at work. Subtle keeps them still; Full lets them move. Settings → Play turns them off.</p>}
+        {play.full && <p><strong>Full mode extras:</strong> the <strong>quest track</strong> under the title shows the job’s level as difficulty (★ to ★★★★) and the stages it runs as a path, with whoever is on the current stage standing on it. On an L3 job’s review, the <strong>boss fight</strong> under the review brief turns the findings into hit points (blockers 5, majors 3, minors 1) that drain as fix rounds land. <strong>Stamina</strong> in the top bar is Claude’s usage limit: Fresh, Warning, or Resting while the crew sleep through a pause. All from local files; nothing costs usage.</p>}
       </HowThisWorks>
       <section ref={threadEl} className="thread" aria-label="Conversation" aria-busy={thread.loading || thread.loadingOlder}>
         {thread.more && (
@@ -122,7 +130,7 @@ function JobThread({ job }: { job: Job }) {
         {shown.map((s) =>
           s.kind === 'brief-card'
             // It folds back to its headline itself the moment you answer it (no remount, no refetch).
-            ? <BriefCard key={s.id} slug={job.slug} brief={s.brief} now={now} lenses={lenses.get(s.id)} />
+            ? <BriefCard key={s.id} slug={job.slug} brief={s.brief} now={now} lenses={lenses.get(s.id)} boss={s.id === bossBrief ? boss : null} />
             : <ThreadItemView key={s.id} item={s.item} now={now} playOn={play.on} steer={s.item.kind === 'you' ? steerStateOf(s.item.steerId, state.steers, run) : null} />,
         )}
         {/* Steered just now: shown at once, until the conversation (refetched a moment later) has it. */}

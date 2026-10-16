@@ -272,6 +272,10 @@ const playbook = new PlayBook({
   onUnlock: (achievement) => { if (playOn()) events.emit('play', null, { achievement }); },
   // A quest done: the page celebrates it (a toast), from the ledger alone.
   onQuest: (quest) => { if (playOn()) events.emit('play', quest.slug ?? null, { quest }); },
+  // An L3 review's boss defeated (Full mode celebrates it), once per job.
+  onBoss: (boss) => { if (playOn()) events.emit('play', boss.slug ?? null, { boss }); },
+  // A job's review round changed: nothing to celebrate, but a page showing its boss fetches again.
+  onReview: (review) => { if (playOn()) events.emit('play', review.slug ?? null, { review }); },
 });
 state.on('audit', (e) => { playbook.noteAudit(e); playbook.schedule(); });
 

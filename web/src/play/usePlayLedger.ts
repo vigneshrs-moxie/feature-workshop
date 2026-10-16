@@ -54,8 +54,9 @@ export function useLedgerFetch(enabled = true): Ledger {
 /** The page's one ledger, from <PlayLedgerProvider>. */
 export const PlayLedgerContext = createContext<Ledger | null>(null);
 
-export function usePlayLedger(): Ledger {
+/** enabled false: with no provider above, fetch nothing (a caller that only needs it in Full mode). */
+export function usePlayLedger(enabled = true): Ledger {
   const shared = useContext(PlayLedgerContext);
-  const own = useLedgerFetch(!shared);
+  const own = useLedgerFetch(!shared && enabled);
   return shared ?? own;
 }

@@ -5,6 +5,7 @@
 // quickly, goes by itself after about 5 s (held while you point at it or focus it) and has a
 // Dismiss button. Up to three show at once, the rest wait their turn. Read out politely
 // (aria-live). Full mode adds a small burst and, with Sounds on, a blip (play/celebrate.ts).
+// A boss defeated (an L3 review drained to nothing) is a Full-mode extra: toasted only in Full.
 // Events already in the page when it mounts are never toasted, so nothing celebrates on load.
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { PlayNews } from '../api/types';
@@ -19,7 +20,7 @@ export const MAX_VISIBLE = 3;
 
 export interface ToastItem {
   key: number;
-  kind: 'achievement' | 'secret' | 'quest';
+  kind: 'achievement' | 'secret' | 'quest' | 'boss';
   badge: string;
   label: string;
   name: string;
@@ -28,8 +29,16 @@ export interface ToastItem {
 
 const LEVEL = (n: number | null) => (Number.isInteger(n) ? `L${n} ` : '');
 
-/** What a 'play' event says as a toast (null: nothing to show). */
-export function toastOf(news: PlayNews, titleOf: (slug: string) => string | undefined): ToastItem | null {
+/** What a 'play' event says as a toast (null: nothing to show). full: Full mode (a boss only shows then). */
+export function toastOf(news: PlayNews, titleOf: (slug: string) => string | undefined, full = false): ToastItem | null {
+  if (news.boss) {
+    if (!full) return null;
+    const b = news.boss;
+    return {
+      key: news.seq, kind: 'boss', badge: 'boss-slayer', label: 'Boss defeated', name: titleOf(b.slug) ?? b.slug,
+      line: `The review came back clean: all ${b.hp} hit points of findings fixed.`,
+    };
+  }
   if (news.quest) {
     const q = news.quest;
     const how = q.rule === 'marked-done' ? 'you marked it done' : 'its first PR was created';
@@ -58,7 +67,7 @@ function Burst({ c }: { c: Celebration }) {
 function Toast({ item, onDone }: { item: ToastItem; onDone: (key: number) => void }) {
   const play = usePlay();
   // Decided once, when the toast appears.
-  const [c] = useState(() => celebrate(item.kind === 'quest' ? 'quest' : 'achievement', play));
+  const [c] = useState(() => celebrate(item.kind === 'quest' || item.kind === 'boss' ? item.kind : 'achievement', play));
   const [held, setHeld] = useState(false);
   useEffect(() => {
     if (c.sound) playBlip(c.kind);
@@ -114,9 +123,9 @@ export function PlayToasts() {
     seen.current = { epoch, seq: fresh[fresh.length - 1].seq };
     if (!play.on) return;
     const titleOf = (slug: string) => jobs.find((j) => j.slug === slug)?.title;
-    const items = fresh.map((n) => toastOf(n, titleOf)).filter((t): t is ToastItem => t !== null);
+    const items = fresh.map((n) => toastOf(n, titleOf, play.full)).filter((t): t is ToastItem => t !== null);
     if (items.length) setQueue((q) => [...q, ...items]);
-  }, [playNews, play.on, jobs, epoch]);
+  }, [playNews, play.on, play.full, jobs, epoch]);
 
   useEffect(() => { if (!play.on) setQueue([]); }, [play.on]);
 
