@@ -1,10 +1,19 @@
 // `npm run demo`: builds invented features in a temp folder and starts the dashboard on them.
 // Nothing here touches ~/.claude. One worker keeps "working" so the live view has something to show.
+//
+// Levels and gate cards (phase 2): every job has a level (options.json), and seven more jobs show
+// the gate card's cases: an L0 job showing its diff, an L1 quick-plan card, an L2 plan card with
+// decisions, an L3 plan card with Fable's second look, a card gone stale (raised at plan v2; the
+// plan moves to v3 a moment after start), a gate parked 5 hours, and a job with no level yet (the
+// LevelCard). Settings warns that the skill is out of date: the demo reads its own pre-levels copy
+// of job-options.md (set WORKSHOP_SKILLS_DIR to a folder with a current one to see it go away).
 
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { defaultsFor, defaultsForLevel, writeOptions } from '../lib/options.js';
+import { suggestLevel } from '../lib/level-rules.js';
 
 const ROOT = path.join(os.tmpdir(), 'feature-workshop-demo');
 const FEATURES = path.join(ROOT, 'feature-work');
@@ -299,7 +308,228 @@ async function build() {
     })),
   });
 
+  await levelJobs();
   return [bulkLog, ...reviewLogs];
+}
+
+// ---------- levels and gate cards (phase 2) ----------
+
+// A job's options.json at a level (null: none yet), as the New job sheet writes it.
+const options = (slug, level, description, extra = {}) => writeOptions(path.join(FEATURES, slug), { ...(level === null ? defaultsFor('auto') : defaultsForLevel(level)), ...extra }, { title: description, repo: ACME, kind: 'feature' });
+// The Foreman's first-brief suggestion: the level picked, with the rules' reasons when they agree
+// (these jobs show no LevelCard; visit-reminder is the one that does).
+const suggestion = (description, level) => {
+  const s = suggestLevel({ description });
+  return { suggested_level: level, level_reason: s.level === level ? s.reasons.join(' ') : `The rules say L${s.level}, but it changes a query and more than one screen, so I’d keep L${level}: the tester and 3–4 reviewers are worth it.` };
+};
+const repo = { path: ACME, base_branch: 'main' };
+const PLAN_QUESTIONS = [
+  { id: '1', text: 'Build it in how many steps?', recommendation: 'a', options: [{ id: 'a', label: 'Three steps, one commit each' }, { id: 'b', label: 'One step' }] },
+  { id: '2', text: 'Which data should the tester use?', recommendation: 'a', options: [{ id: 'a', label: 'The demo seed data' }, { id: 'b', label: 'An empty copy' }] },
+];
+const planArtifacts = (v) => [
+  { name: 'Findings', path: 'findings.md', version: '1' },
+  { name: 'Implementation plan', path: 'implementation-plan.md', version: String(v) },
+  { name: 'Test plan', path: 'test-plan.md', version: String(v) },
+];
+const planFiles = (v) => ({
+  'findings.md': '# Findings v1 (demo)\n\nThe change fits in one page, its query and its tests.\n',
+  'implementation-plan.md': `# Implementation plan v${v} (demo)\n\n| Step | What |\n|---|---|\n| S1 | The data |\n| S2 | The page |\n| S3 | The tests |\n`,
+  'test-plan.md': `# Test plan v${v} (demo)\n\n- One check per acceptance criterion (5 in all)\n`,
+});
+const planBrief = ({ title, v, spec, fable = null, decided }) => [
+  `**${title} · plan v${v} ready** · spec v${spec} · plan v${v} · test plan v${v}`, '',
+  '**What happened**', `- Spec v${spec}, findings v1, plan v${v} (3 steps) and test plan v${v} (5 checks).`, ...(fable ? [fable] : []), '',
+  '**Decisions for you**', '1. Build it in how many steps? — Recommended: three steps, one commit each.', '2. Which data should the tester use? — Recommended: the demo seed data.', '',
+  '**Decided on your behalf**', `- ${decided.id}: ${decided.decision} (${decided.reason}).`, '',
+  `**Next:** build S1–S3 once you approve plan v${v}, then the tester.`,
+].join('\n');
+
+// Put the stale job's plan on v3 once the dashboard has seen its card at v2 (the card then greys out).
+const STALE_SLUG = 'tech-next-stops';
+
+async function levelJobs() {
+  // The older demo jobs get the level their flow stood for.
+  for (const [slug, level, description] of [
+    ['widget-export', 2, 'Add a CSV export to the widgets page.'], ['bulk-archive', 3, 'Let admins archive many tickets at once.'],
+    ['saved-filters', 2, 'Let people save the filters they use on the tickets page.'], ['dark-mode-toggle', 1, 'Add a dark mode toggle to the field app.'],
+    ['report-scheduler', 3, 'Schedule reports to run every week.'], ['fix-login-loop', 3, 'Fix the login redirect loop for expired sessions.'],
+    ['route-optimizer', 3, 'Suggest the shortest route for each technician’s day.'],
+  ]) await options(slug, level, description);
+
+  // L0: built straight from the request; the brief shows the diff and asks nothing.
+  {
+    const description = 'Fix the typo in the invoice footer';
+    const file = 'app/src/invoices/InvoiceFooter.tsx';
+    await feature('invoice-footer-typo', {
+      status: {
+        title: 'Invoice footer typo', kind: 'feature', route: 'quick', stage: 'implement', stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: iso(6 * MIN),
+        brief: { number: 1, path: 'briefs/001-implement.md', headline: 'Invoice footer typo · built; here’s the diff' },
+        questions: [], decided_on_your_behalf: [], next_proposed: 'PR #1: push the branch to your fork and open it (each needs your yes)',
+        branch: 'feature/invoice-footer-typo', repo, ...suggestion(description, 0), updated_at: iso(6 * MIN),
+      },
+      briefs: [{ stage: 'implement', text: [
+        '**Invoice footer typo · built; here’s the diff** (L0: your request was the go-ahead for this one build)', '',
+        '**What changed**', `- ${file}: one line (commit S1 on feature/invoice-footer-typo).`, '',
+        '**Checks**', '- npm run check: pass', '- npm run build: pass', '',
+        '**The diff**', '', '```diff', `--- a/${file}`, `+++ b/${file}`, '@@ -9,7 +9,7 @@ export function InvoiceFooter() {', '   return (', '     <footer className="invoice-foot">',
+        '-      <p>Thank you for your buisness.</p>', '+      <p>Thank you for your business.</p>', '     </footer>', '   );', ' }', '```', '',
+        '**Next:** PR #1: push the branch to your fork and open it (each push and PR needs your yes).',
+      ].join('\n') }],
+    });
+    await options('invoice-footer-typo', 0, description);
+  }
+
+  // L1 at its quick-plan card: one question.
+  {
+    const description = 'Add a copy link button to the job card';
+    await feature('copy-link-button', {
+      status: {
+        title: 'Copy link button', kind: 'feature', route: 'quick', stage: 'plan', stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: iso(9 * MIN),
+        brief: { number: 1, path: 'briefs/001-plan.md', headline: 'Quick plan v1 for the copy link button' },
+        questions: [{ id: '1', text: 'Where should the button go?', recommendation: 'a', options: [{ id: 'a', label: 'Next to the job title' }, { id: 'b', label: 'In the card’s ⋯ menu' }] }],
+        decided_on_your_behalf: [], next_proposed: 'Build it in one step, run the checks, then you try it',
+        artifacts: [{ name: 'Quick plan', path: 'quick-plan.md', version: '1' }], repo, ...suggestion(description, 1), updated_at: iso(9 * MIN),
+      },
+      briefs: [{ stage: 'plan', text: '**Quick plan v1 for the copy link button**\n\n**Quick plan v1**\n- What: a “Copy link” button on each job card; it copies the job’s address and says “Copied”.\n- Where: app/src/jobs/JobCard.tsx and its test.\n- Checks: npm run check and npm run build, then you try it.\n\n**Decisions for you**\n1. Where should the button go? — Recommended: next to the job title.\n\n**Next:** build it in one step once you approve quick plan v1.\n' }],
+      files: { 'quick-plan.md': '# Quick plan v1 (demo)\n\n- What: a Copy link button on each job card\n- Where: app/src/jobs/JobCard.tsx and its test\n- Checks: npm run check, npm run build\n' },
+    });
+    await options('copy-link-button', 1, description);
+  }
+
+  // L2 at its plan card: two questions, one decision on your behalf, versioned artifacts.
+  {
+    const description = 'Let office managers filter tickets by tag';
+    const decided = { id: 'D-001', decision: 'Tags combine with AND, like the other filters', reason: 'the filter bar already works that way', where: 'plan v1', confirmed: false };
+    await feature('ticket-tag-filter', {
+      status: {
+        title: 'Ticket tag filter', kind: 'feature', route: 'small', stage: 'plan', stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: iso(14 * MIN),
+        brief: { number: 3, path: 'briefs/003-plan.md', headline: 'Ticket tag filter · plan v1 ready' },
+        questions: PLAN_QUESTIONS, decided_on_your_behalf: [decided], next_proposed: 'Build S1–S3, then the tester',
+        spec: { path: `${ACME}/docs/plans/2026-10-15-ticket-tag-filter-product-spec.md`, version: '0.2', status: 'DRAFT' },
+        artifacts: planArtifacts(1), repo, ...suggestion(description, 2), updated_at: iso(14 * MIN),
+      },
+      briefs: [
+        { stage: 'spec', text: '**Ticket tag filter · spec v0.1 ready**\n\nDemo brief.' },
+        { stage: 'investigate', text: '**Ticket tag filter · investigate done**\n\nDemo brief.' },
+        { stage: 'plan', text: planBrief({ title: 'Ticket tag filter', v: 1, spec: '0.2', decided }) },
+      ],
+      files: planFiles(1),
+    });
+    await options('ticket-tag-filter', 2, description);
+  }
+
+  // L3 at its plan card, with Fable's second look at the plan.
+  {
+    const description = 'Merge duplicate customer records, with a database migration for the merged_into column';
+    const decided = { id: 'D-003', decision: 'A merge can be undone for 30 days', reason: 'Fable’s second look: merges are hard to reverse', where: 'plan v2', confirmed: false };
+    await feature('customer-merge', {
+      status: {
+        title: 'Customer merge', kind: 'feature', route: 'large', stage: 'plan', stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: iso(22 * MIN),
+        brief: { number: 5, path: 'briefs/005-plan.md', headline: 'Customer merge · plan v2 ready' },
+        questions: [
+          { id: '1', text: 'Which record wins when both have a phone number?', recommendation: 'a', options: [{ id: 'a', label: 'The most recently updated one' }, { id: 'b', label: 'Ask each time' }] },
+          { id: '2', text: 'Run the migration in one go or in batches?', recommendation: 'b', options: [{ id: 'a', label: 'One go' }, { id: 'b', label: 'Batches of 1,000' }] },
+        ],
+        decided_on_your_behalf: [decided], next_proposed: 'Build S1–S4 (the migration first), then the tester',
+        spec: { path: `${ACME}/docs/plans/2026-10-14-customer-merge-product-spec.md`, version: '0.4', status: 'DRAFT' },
+        artifacts: planArtifacts(2), repo, ...suggestion(description, 3), updated_at: iso(22 * MIN),
+      },
+      briefs: [
+        { stage: 'spec', text: '**Customer merge · spec v0.1 ready**\n\nDemo brief.' },
+        { stage: 'refine', text: '**Customer merge · product interview done**\n\nDemo brief.' },
+        { stage: 'investigate', text: '**Customer merge · investigate done**\n\nDemo brief.' },
+        { stage: 'plan', text: '**Customer merge · plan v1 ready**\n\nDemo brief.' },
+        { stage: 'plan', text: planBrief({ title: 'Customer merge', v: 2, spec: '0.4', decided, fable: '- **Fable second look at plan v2** (feature-fable-check): 2 points: a merge must be reversible (now D-003), and the migration needs a dry run on a copy. Both are in plan v2. Fable looks again when the review is wrapped up.' }) },
+      ],
+      files: planFiles(2),
+    });
+    await options('customer-merge', 3, description);
+  }
+
+  // A card that goes stale: raised at plan v2; a moment after start the plan moves to v3 (staleAfterStart).
+  {
+    const description = 'Show each technician’s next three stops on the map';
+    const decided = { id: 'D-002', decision: 'Stops come from today’s schedule only', reason: 'the map has no date picker', where: 'plan v2', confirmed: false };
+    await feature(STALE_SLUG, {
+      status: {
+        title: 'Next stops on the map', kind: 'feature', route: 'small', stage: 'plan', stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: iso(31 * MIN),
+        brief: { number: 4, path: 'briefs/004-plan.md', headline: 'Next stops on the map · plan v2 ready' },
+        questions: PLAN_QUESTIONS, decided_on_your_behalf: [decided], next_proposed: 'Build S1–S3, then the tester',
+        spec: { path: `${ACME}/docs/plans/2026-10-13-tech-next-stops-product-spec.md`, version: '0.3', status: 'DRAFT' },
+        artifacts: planArtifacts(2), repo, ...suggestion(description, 2), updated_at: iso(31 * MIN),
+      },
+      briefs: [
+        { stage: 'spec', text: '**Next stops on the map · spec v0.1 ready**\n\nDemo brief.' },
+        { stage: 'investigate', text: '**Next stops on the map · investigate done**\n\nDemo brief.' },
+        { stage: 'plan', text: '**Next stops on the map · plan v1 ready**\n\nDemo brief.' },
+        { stage: 'plan', text: planBrief({ title: 'Next stops on the map', v: 2, spec: '0.3', decided }) },
+      ],
+      files: planFiles(2),
+    });
+    await options(STALE_SLUG, 2, description);
+  }
+
+  // A gate left 5 hours: parked (still under Needs you, with a "parked" chip and one alert).
+  {
+    const description = 'Add a notes tab to the customer page';
+    await feature('customer-notes-tab', {
+      status: {
+        title: 'Customer notes tab', kind: 'feature', route: 'small', stage: 'implement', stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: iso(5 * HOUR),
+        brief: { number: 5, path: 'briefs/005-implement.md', headline: 'Customer notes tab · build done' },
+        questions: [], decided_on_your_behalf: [], next_proposed: 'The tester runs test plan v1',
+        spec: { path: `${ACME}/docs/plans/2026-10-12-customer-notes-tab-product-spec.md`, version: '0.2', status: 'APPROVED' },
+        artifacts: planArtifacts(1), branch: 'feature/customer-notes-tab', repo, ...suggestion(description, 2), updated_at: iso(5 * HOUR),
+      },
+      briefs: [
+        { stage: 'spec', text: '**Customer notes tab · spec v0.1 ready**\n\nDemo brief.' },
+        { stage: 'investigate', text: '**Customer notes tab · investigate done**\n\nDemo brief.' },
+        { stage: 'plan', text: '**Customer notes tab · plan v1 ready**\n\nDemo brief.' },
+        { stage: 'plan', text: '**Customer notes tab · plan v1 approved**\n\nDemo brief.' },
+        { stage: 'implement', text: '**Customer notes tab · build done**\n\n**What happened**\n- The Builder committed S1, S2, S3.\n- Next the Tester runs test plan v1.\n\n**Next:** the tester, then you try it, then the review.\n' },
+      ],
+      files: planFiles(1),
+    });
+    await options('customer-notes-tab', 2, description);
+  }
+
+  // No level yet: the Foreman's first brief suggests L3, the rules L2 (the LevelCard shows both).
+  {
+    const description = 'Email customers a reminder the day before their visit';
+    await feature('visit-reminder', {
+      status: {
+        title: 'Visit reminder', kind: 'feature', route: 'small', stage: 'spec', stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: iso(3 * MIN),
+        brief: { number: 1, path: 'briefs/001-spec.md', headline: 'Visit reminder · spec v0.1 ready' },
+        questions: [], decided_on_your_behalf: [], next_proposed: 'Investigate the code (read-only), then plan',
+        spec: { path: `${ACME}/docs/plans/2026-10-16-visit-reminder-product-spec.md`, version: '0.1', status: 'DRAFT' },
+        repo, suggested_level: 3,
+        level_reason: 'It sends email to customers on a schedule, and a mistake reaches people outside the company, so I’d run the full review panel with Fable.',
+        updated_at: iso(3 * MIN),
+      },
+      briefs: [{ stage: 'spec', text: '**Visit reminder · spec v0.1 ready**\n\n**What happened**\n- The Scribe wrote spec v0.1: who gets the reminder, when, and what it says.\n\n**Level**\nI suggest **L3 Large**: it sends email to customers on a schedule, and a mistake reaches people outside the company. The rules say L2. Pick a level on the card below; approving the spec goes on at the level you pick.\n\n**Next:** investigate the code (read-only), then the plan.\n' }],
+    });
+    await options('visit-reminder', null, description);
+  }
+}
+
+// A skill from before levels, so Settings shows its "out of date" warning (the demo never reads ~/.claude).
+async function oldSkill() {
+  const dir = path.join(ROOT, 'skills', 'feature');
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, 'job-options.md'), '# Job options (demo copy from before levels)\n\n## Reading them\n\n| Field | Meaning |\n|---|---|\n| `flow` | quick, small, large or auto |\n');
+}
+
+// The stale card: once the dashboard has noted the card at plan v2, the plan moves to v3.
+async function staleAfterStart(port) {
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try { if ((await fetch(`http://127.0.0.1:${port}/api/job/${STALE_SLUG}`)).ok) break; } catch { /* not listening yet */ }
+  }
+  const file = path.join(FEATURES, STALE_SLUG, 'status.json');
+  const s = JSON.parse(await fs.readFile(file, 'utf8'));
+  s.artifacts = planArtifacts(3);
+  s.next_proposed = 'Plan v3 adds the stop times; I’ll brief you on it';
+  await fs.writeFile(file, JSON.stringify(s, null, 2));
 }
 
 // Keep the Bulk Archive builder busy: a new step every few seconds.
@@ -330,10 +560,13 @@ function tick(logFiles) {
 }
 
 const logFiles = await build();
+await oldSkill();
 process.env.WORKSHOP_FEATURES_DIR = FEATURES;
 process.env.WORKSHOP_PROJECTS_DIR = path.dirname(PROJECTS);
 process.env.WORKSHOP_DEMO = '1';
 process.env.WORKSHOP_EXTRA_REPOS = ACME;
+process.env.WORKSHOP_SKILLS_DIR ||= path.join(ROOT, 'skills');
 console.log(`Demo data in ${ROOT} (invented; safe to delete).`);
 await tick(logFiles);
 await import('../server.js');
+staleAfterStart(Number(process.env.PORT) || 4477).catch((err) => console.error('Demo: could not move the stale job’s plan on:', err.message));

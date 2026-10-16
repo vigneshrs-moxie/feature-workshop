@@ -195,8 +195,9 @@ const closedOff = (f) => Boolean(f.closed && !(f.updatedAt && f.updatedAt > f.cl
 // the 4 hours for tests and the demo. The alerted gates are kept in gate-parking.json in the
 // dashboard's state folder, so a restart doesn't alert them again.
 const PARK_MS = Number(process.env.WORKSHOP_GATE_PARK_MS) > 0 ? Number(process.env.WORKSHOP_GATE_PARK_MS) : GATE_PARK_MS;
-// How often the timer looks: every 5 minutes (a quarter of the time when it is shortened, at least 200 ms).
-const PARK_CHECK_MS = Math.min(5 * 60_000, Math.max(200, Math.floor(PARK_MS / 4)));
+// How often the timer looks: every 5 minutes (a quarter of the time when it is shortened, at least
+// 200 ms). The demo looks every 30 seconds, so its gate seeded 5 hours ago is alerted soon after start.
+const PARK_CHECK_MS = Math.min(DEMO ? 30_000 : 5 * 60_000, Math.max(200, Math.floor(PARK_MS / 4)));
 const parking = new GateParking({ thresholdMs: PARK_MS, file: path.join(state.dir, 'gate-parking.json') });
 const gateOf = (f, runActive) => ({ slug: f.slug, briefNumber: f.currentBrief?.number ?? null, briefAt: f.currentBrief?.at ?? null, waitingSince: f.gateWaitingSince, runActive: Boolean(runActive) });
 const gateParked = (f, runActive) => isParkable(f) && !closedOff(f) && parking.isParked(gateOf(f, runActive));
