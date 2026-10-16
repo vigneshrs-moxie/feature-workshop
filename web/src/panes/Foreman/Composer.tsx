@@ -7,10 +7,14 @@
 //   (POST /api/runs/:id/stop); the job then waits for you.
 // Each job keeps its own unsent draft in this browser (localStorage): it survives switching jobs,
 // reloading and Stop, and is cleared only once the message has gone.
+// A gate card's reply made while the Foreman was still working waits here too: the draft then
+// remembers the brief it answers (lib/gateCard.ts gateDraftKey), and Send carries it as gateBrief,
+// so the brief counts as answered once it goes.
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { ApiError } from '../../api/client';
 import type { JobDetail, ModelChoice, Run, Steer } from '../../api/types';
 import { composeMessage } from '../../lib/compose';
+import { gateDraftKey, KIND_WORDS, readGateMemo } from '../../lib/gateCard';
 import { useStored } from '../../lib/stored';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { isActiveRun } from './thread';
@@ -23,10 +27,32 @@ function modelLabel(models: ModelChoice[], id: string | null | undefined): strin
   return models.find((m) => m.id === id)?.label ?? id ?? 'the usual model';
 }
 
-function SendPreview({ slug, initial, model, models, onSent, onClose }: {
-  slug: string; initial: string; model: string | null; models: ModelChoice[]; onSent: () => void; onClose: () => void;
-}) {
-  const { api } = useWorkshop();
+export interface SendPreviewProps {
+  initial: string;
+  model: string | null;
+  models: ModelChoice[];
+  /** Send the text (it throws the dashboard's refusal, shown in the sheet). */
+  submit(text: string, opts: { confirmNoTerminal: boolean }): Promise<void>;
+  onSent(): void;
+  onClose(): void;
+  title?: string;
+  /** The line above the text box. */
+  intro?: string;
+  sendLabel?: string;
+  sendHint?: string;
+}
+
+/**
+ * The sheet that shows exactly what the Foreman will receive, editable, before it goes: the
+ * composer's Send… and the gate card's "Edit, then approve".
+ */
+export function SendPreview({
+  initial, model, models, submit, onSent, onClose,
+  title = 'Message the Foreman',
+  intro = 'This is exactly what the Foreman will receive. You can still edit it.',
+  sendLabel = 'Send to the Foreman',
+  sendHint = 'Send this text to the job’s Foreman now (⌘/Ctrl+Enter).',
+}: SendPreviewProps) {
   const titleId = useId();
   const [text, setText] = useState(initial);
   const [busy, setBusy] = useState(false);
@@ -49,7 +75,7 @@ function SendPreview({ slug, initial, model, models, onSent, onClose }: {
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/api/job/${encodeURIComponent(slug)}/send`, { kind: 'message', text, model, confirmNoTerminal: noTerminal });
+      await submit(text, { confirmNoTerminal: noTerminal });
     } catch (err) {
       setBusy(false);
       if (err instanceof ApiError && err.body.code === 'terminal-open') setAskTerminal(true);
@@ -64,9 +90,9 @@ function SendPreview({ slug, initial, model, models, onSent, onClose }: {
   return (
     <div className="sheet-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <div className="sheet send-sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <h3 id={titleId} className="sheet-title">Message the Foreman</h3>
+        <h3 id={titleId} className="sheet-title">{title}</h3>
         <label className="field">
-          <span>This is exactly what the Foreman will receive. You can still edit it.</span>
+          <span>{intro}</span>
           <textarea
             ref={box}
             className="text-area preview-text"
@@ -87,10 +113,10 @@ function SendPreview({ slug, initial, model, models, onSent, onClose }: {
         )}
         {error && <p className="field-problem" role="alert">{error}</p>}
         <div className="sheet-actions">
-          <button type="button" className="btn btn-primary" onClick={() => void send()} disabled={busy} title="Send this text to the job’s Foreman now (⌘/Ctrl+Enter).">
-            {busy ? 'Sending…' : 'Send to the Foreman'}
+          <button type="button" className="btn btn-primary" onClick={() => void send()} disabled={busy} title={sendHint}>
+            {busy ? 'Sending…' : sendLabel}
           </button>
-          <button type="button" className="btn btn-quiet" onClick={onClose} disabled={busy} title="Go back to your draft without sending. Your draft is kept.">Back</button>
+          <button type="button" className="btn btn-quiet" onClick={onClose} disabled={busy} title="Go back without sending. Nothing is lost.">Back</button>
         </div>
       </div>
     </div>
@@ -104,7 +130,10 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
   const { meta } = useWorkshopState();
   const models = meta?.models ?? [];
   const [stored, setDraft] = useStored(draftKey(slug));
+  const [gateRaw, setGateRaw] = useStored(gateDraftKey(slug));
   const draft = stored ?? '';
+  // The draft is a gate card's reply: the brief it answers and what kind of reply it is.
+  const gate = draft.trim() ? readGateMemo(gateRaw) : null;
   const [chosenModel, setChosenModel] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState<'steer' | 'stop' | null>(null);
@@ -122,11 +151,18 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
   // "Stopping…" is over once the reply ends; an old problem is moot once a new reply starts.
   useEffect(() => { setNote(null); if (running) setError(null); }, [running]);
 
+  /** The message has gone (or the box was emptied): forget the draft and what it answered. */
+  function clearDraft() {
+    setDraft(null);
+    setGateRaw(null);
+  }
+
   function openPreview() {
     if (empty) return;
     setError(null);
     setNote(null);
-    setPreview(composeMessage(draft, detail?.statusForCompose));
+    // A gate reply was composed already (by the dashboard, with its answers and decisions): as it is.
+    setPreview(gate ? draft.trim() : composeMessage(draft, detail?.statusForCompose));
   }
 
   async function steer() {
@@ -139,7 +175,7 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
       store.dispatch({ type: 'steer', steer: r.steer });
       // Accepted, but the reply ended before it was handed over: keep the draft to send anew.
       if (r.steer?.state === 'cancelled') setError(FINISHED_FIRST);
-      else setDraft(null);
+      else clearDraft();
     } catch (err) {
       // The reply ended meanwhile: keep the draft, it goes as a new message instead.
       setError(err instanceof ApiError && err.status === 404 ? FINISHED_FIRST : message(err));
@@ -162,6 +198,13 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
     }
   }
 
+  async function submit(text: string, { confirmNoTerminal }: { confirmNoTerminal: boolean }) {
+    // A gate reply goes as the kind of reply it is, with the brief it answers.
+    await api.post(`/api/job/${encodeURIComponent(slug)}/send`, {
+      kind: gate?.kind ?? 'message', text, model, confirmNoTerminal, ...(gate ? { gateBrief: gate.brief } : {}),
+    });
+  }
+
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
     e.preventDefault();
@@ -170,6 +213,19 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
 
   return (
     <section className="composer" aria-label="Message the Foreman">
+      {gate && (
+        <p className="muted composer-note composer-gate" role="status">
+          This is your reply to brief {gate.brief} from its card ({KIND_WORDS[gate.kind]}). {running ? 'Send it once the Foreman finishes.' : 'Press Send… to send it.'}{' '}
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => setGateRaw(null)}
+            title="Send this text as an ordinary message instead: brief cards then don’t count it as your answer."
+          >
+            Make it a plain message
+          </button>
+        </p>
+      )}
       <label htmlFor={inputId} className="sr-only">{running ? 'Steer the reply in progress' : 'Your message to the Foreman'}</label>
       <textarea
         id={inputId}
@@ -178,7 +234,7 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
         rows={3}
         value={draft}
         placeholder={running ? 'Add something to the reply in progress…' : 'Write to the Foreman…'}
-        onChange={(e) => setDraft(e.target.value === '' ? null : e.target.value)}
+        onChange={(e) => { if (e.target.value === '') clearDraft(); else setDraft(e.target.value); }}
         onKeyDown={onKeyDown}
         title={running
           ? 'The Foreman is replying. What you write here joins that reply: it reads it at its next step. ⌘/Ctrl+Enter to steer.'
@@ -229,12 +285,12 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
       {error && <p className="field-problem" role="alert">{error}</p>}
       {preview !== null && (
         <SendPreview
-          slug={slug}
           initial={preview}
           model={model}
           models={models}
+          submit={submit}
           onClose={() => setPreview(null)}
-          onSent={() => { setPreview(null); setDraft(null); }}
+          onSent={() => { setPreview(null); clearDraft(); }}
         />
       )}
     </section>

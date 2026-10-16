@@ -11,6 +11,7 @@ import { useNow } from '../../lib/time';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
 import { BriefCard } from './BriefCard';
+import { GateSlot } from './GateCard';
 import { JobHeader } from './JobHeader';
 import { LevelCard } from './LevelCard';
 import { LiveRow } from './LiveRow';
@@ -27,7 +28,8 @@ function JobThread({ job }: { job: Job }) {
   // Both only ever grow, so their sum changes whenever either does.
   const thread = useJobThread(job.slug, (state.threadVersions[job.slug] ?? 0) + state.threadEpoch);
   const run = state.runs[job.slug] ?? thread.detail?.run ?? null;
-  const shown = shownItems(thread.items);
+  const gate = thread.detail?.gate ?? null;
+  const shown = shownItems(thread.items, { answeredBriefs: thread.detail?.answeredBriefs, openBrief: gate ? gate.briefNumber : null });
   const inThread = new Set(thread.items.flatMap((it) => (it.kind === 'you' && it.steerId ? [it.steerId] : [])));
   const justSteered = Object.values(state.steers).filter((s) => s.slug === job.slug && s.runId === run?.id && !inThread.has(s.id));
 
@@ -75,6 +77,7 @@ function JobThread({ job }: { job: Job }) {
       <HowThisWorks id="foreman">
         <p>{HOW}</p>
         <p>A brief opens in full while it waits for you and folds to its headline once you’ve answered; click a headline to open it again. Steps the Foreman took by itself are folded into one “routine steps” line.</p>
+        <p>When the Foreman waits for your decision, a <strong>gate card</strong> sits above the message box: its questions, what it decided on your behalf, and buttons that say what they do (Approve, Edit then approve, Revise, Other guidance). Its own “How this works” explains it.</p>
         <p>When it wants to do something that isn’t routine, a card appears at the foot of the conversation: <strong>Allow once</strong>, <strong>Allow for this reply</strong> (when offered), <strong>Deny…</strong> with a note, or <strong>Always allow…</strong>, which saves a narrow rule you check first (listed in Settings). Questions come as a short form.</p>
         <p>Write to the Foreman in the box at the foot. <strong>Send…</strong> shows exactly what it will receive before it goes. While it’s replying the button becomes <strong>Steer</strong>: your message joins the reply in progress and shows <em>Queued</em>, <em>Delivered</em>, then <em>Acted on</em>. <strong>Stop</strong> ends the reply; the job then waits for you. Each job keeps its own unsent draft in this browser.</p>
         <p>How much asks you depends on the job’s permission setting (job menu, or Settings for all jobs). In <strong>Auto mode</strong> Claude Code’s safety model decides most steps; anything it blocks shows as a dim ⊘ line. Pushes, pull requests, rm -rf and migrations always ask, and org or force pushes are refused.</p>
@@ -98,8 +101,8 @@ function JobThread({ job }: { job: Job }) {
         {loaded && shown.length === 0 && !run && <p className="muted">Nothing here yet. The Foreman’s briefs and replies appear here as it works.</p>}
         {shown.map((s) =>
           s.kind === 'brief-card'
-            // Keyed on `answered` too, so a brief folds back to its headline the moment you answer it.
-            ? <BriefCard key={`${s.id}:${s.brief.answered}`} slug={job.slug} brief={s.brief} now={now} />
+            // It folds back to its headline itself the moment you answer it (no remount, no refetch).
+            ? <BriefCard key={s.id} slug={job.slug} brief={s.brief} now={now} />
             : <ThreadItemView key={s.id} item={s.item} now={now} steer={s.item.kind === 'you' ? steerStateOf(s.item.steerId, state.steers, run) : null} />,
         )}
         {/* Steered just now: shown at once, until the conversation (refetched a moment later) has it. */}
@@ -109,6 +112,8 @@ function JobThread({ job }: { job: Job }) {
         <JobCards slug={job.slug} now={now} />
         <LiveRow run={run} />
       </section>
+      {/* The gate card: pinned above the composer while the Foreman waits for your decision. */}
+      {thread.detail && <GateSlot job={job} detail={thread.detail} now={now} reload={thread.reload} />}
       <Composer key={job.slug} slug={job.slug} detail={thread.detail} run={run} />
     </>
   );

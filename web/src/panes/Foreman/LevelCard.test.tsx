@@ -10,7 +10,10 @@ import { LevelChip } from './LevelChip';
 
 // Invented job; no real job names.
 const RULES: RulesLevel = { level: 2, floor: 0, reasons: ['Not obviously a one-line change, so L2.'], floorReasons: [], triggers: [], fromDiff: false, changedFiles: null };
-const OPTIONS = { level: 2 as const, flow: 'small', skip: ['refine'], provided: { plan: '/tmp/fw-test/plan.md' }, notes: 'Keep it small.', review_rounds: 2, manual_test: false };
+const MODELS = { foreman: 'claude-opus-5-5', build: 'claude-sonnet-5-5', checks: 'claude-haiku-5-5' };
+const OPTIONS = { level: 2 as const, flow: 'small', skip: ['refine'], provided: { plan: '/tmp/fw-test/plan.md' }, notes: 'Keep it small.', review_rounds: 2, manual_test: false, models: MODELS };
+// What a level change keeps (as the gate card's level chip does): everything but the level's own stages, reviewers and Fable points.
+const KEPT = { provided: { plan: '/tmp/fw-test/plan.md' }, notes: 'Keep it small.', review_rounds: 2, manual_test: false, models: MODELS };
 const detail = (extra: Partial<JobDetail> = {}): JobDetail => ({ slug: 'alpha', thread: [], threadMore: false, options: OPTIONS, rulesLevel: RULES, ...extra });
 
 function setup(jobExtra: Partial<Job>, { post = vi.fn(async () => ({ ok: true, options: {}, summary: [] })), det = detail() } = {}) {
@@ -83,8 +86,8 @@ describe('LevelCard', () => {
   it('Use posts the job’s options with the new level and says what changed', async () => {
     const { post } = setup({ level: 2, suggestedLevel: 3 });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Use L3' })); });
-    // The provided documents, notes and fix rounds are kept; the level brings its own stages and reviewers.
-    expect(post).toHaveBeenCalledWith('/api/job/alpha/options', { options: { provided: { plan: '/tmp/fw-test/plan.md' }, notes: 'Keep it small.', review_rounds: 2, level: 3 } });
+    // The provided documents, notes, fix rounds, manual test and models are kept; the level brings its own stages and reviewers.
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/options', { options: { ...KEPT, level: 3 } });
     const c = card()!;
     expect(within(c).getByRole('status')).toHaveTextContent('Level set to L3 Large, from the next stage. L2→L3 adds: product interview, Fable at plan + review, Stickler + Fuse + Mason + Stopwatch + Painter lenses.');
     fireEvent.click(within(c).getByRole('button', { name: 'Got it' }));
@@ -112,7 +115,7 @@ describe('Level chip (job header)', () => {
     expect(within(pop).getByRole('button', { name: '✓ L2 Standard (now)' })).toBeDisabled();
     expect(within(pop).getByRole('button', { name: 'Use L0 Tweak' })).toHaveFocus();
     await act(async () => { fireEvent.click(within(pop).getByRole('button', { name: 'Use L1 Small' })); });
-    expect(post).toHaveBeenCalledWith('/api/job/alpha/options', { options: { provided: { plan: '/tmp/fw-test/plan.md' }, notes: 'Keep it small.', review_rounds: 2, level: 1 } });
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/options', { options: { ...KEPT, level: 1 } });
     expect(within(pop).getByRole('status')).toHaveTextContent('Level set to L1 Small, from the next stage. L2→L1 drops: spec, investigation, spec update, Locksmith + Gauge lenses.');
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();

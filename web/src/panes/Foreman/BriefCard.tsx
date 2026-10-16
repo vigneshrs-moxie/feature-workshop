@@ -67,6 +67,13 @@ function DetailFold({ slug, file }: { slug: string; file: string }) {
 export function BriefCard({ slug, brief, now }: { slug: string; brief: ShownBrief; now: Date }) {
   const { item, answered, detailFile } = brief;
   const [open, setOpen] = useState(!answered);
+  // Answering it folds it back to its headline (and a brief that is open again opens): followed
+  // here, not by remounting the card, so a brief you opened doesn't fetch itself again.
+  const [wasAnswered, setWasAnswered] = useState(answered);
+  if (wasAnswered !== answered) {
+    setWasAnswered(answered);
+    setOpen(!answered);
+  }
   const doc = useDoc(slug, open ? item.file : null);
   const stage = stageLabel(item.stage);
   const label = `Brief #${item.number}${stage ? ` · ${stage}` : ''}`;

@@ -53,15 +53,22 @@ export async function sendGate(api: ApiClient, slug: string, body: GateRequest):
 
 /**
  * Change a job's level (POST /api/job/:slug/options), from the next stage. The new level brings its
- * own stages, reviewers, testing, Fable points and models (the same defaults the consequence line
- * describes); the documents you provided, your notes and the fix rounds are kept. The dashboard
- * audits it, and the conversation says "Level changed from L2 Standard to L3 Large".
+ * own stages, reviewers and Fable points (the same defaults the consequence line describes); the
+ * documents you provided, your notes, the fix rounds, whether you test it by hand and the job's
+ * models are kept, exactly as the gate card's level chip does (server.js chipOptions). The
+ * dashboard audits it, and the conversation says "Level changed from L2 Standard to L3 Large".
  */
 export async function setJobLevel(api: ApiClient, slug: string, current: JobOptions | null | undefined, level: LevelNumber): Promise<OptionsResult> {
   const keep: JobOptions = {};
   if (current?.provided && typeof current.provided === 'object') keep.provided = current.provided;
   if (typeof current?.notes === 'string') keep.notes = current.notes;
   if (typeof current?.review_rounds === 'number') keep.review_rounds = current.review_rounds;
+  if (typeof current?.manual_test === 'boolean') keep.manual_test = current.manual_test;
+  const models = Object.fromEntries((['foreman', 'build', 'checks'] as const).flatMap((r) => {
+    const id = current?.models?.[r];
+    return typeof id === 'string' && id ? [[r, id]] : [];
+  }));
+  if (Object.keys(models).length) keep.models = models;
   return api.post<OptionsResult>(`${job(slug)}/options`, { options: { ...keep, level } });
 }
 

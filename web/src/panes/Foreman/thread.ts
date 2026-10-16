@@ -1,6 +1,6 @@
 // Pure helpers for the Foreman pane's thread: joining pages by stable id, pairing a brief with its
 // detail file, and deciding which briefs are answered. No React, no fetching (see useJobThread.ts).
-import type { BriefItem, Extras, Run, Steer, SteerState, ThreadItem } from '../../api/types';
+import type { BriefItem, Extras, Run, Steer, SteerState, ThreadItem, YouItem } from '../../api/types';
 
 /**
  * Join the older pages ("load older") with the newest page, oldest first, each id once.
@@ -30,29 +30,67 @@ export interface ShownBrief {
   item: BriefItem;
   /** The sibling detail file, if the job has one. */
   detailFile: string | null;
-  /** You answered it (sent a message after it) or a newer brief replaced it. */
+  /** A gate reply was sent for it, a newer brief replaced it, or (older briefs) you answered it in a message. */
   answered: boolean;
 }
 
 export type ShownItem = { kind: 'brief-card'; id: string; brief: ShownBrief } | { kind: 'item'; id: string; item: ThreadItem };
 
+/** What the job's detail says about answers: the briefs a gate reply went for, and the brief the gate card is open on. */
+export interface AnswerFacts {
+  /** Brief numbers a gate reply was sent for (or is held for until the usage limit resets). */
+  answeredBriefs?: number[] | null;
+  /** The brief the Foreman waits on right now (gate.briefNumber; null when it isn't waiting). */
+  openBrief?: number | null;
+}
+
+// The gate card's next-step chips each add one of these lines (dashboard/lib/compose.js chipLine).
+const OPTION_LINE = /^Option change for the next step:/;
+
+/** Whether a message is only option lines from the gate card's chips: a process choice, never an answer. */
+export function isOptionOnly(text: string): boolean {
+  const lines = String(text ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+  return lines.length > 0 && lines.every((l) => OPTION_LINE.test(l));
+}
+
+// The kinds of reply that decide a brief (the classic page's approve, changes and stop buttons).
+const DECIDING = new Set(['approve', 'changes', 'stop']);
+
+/**
+ * Whether one of your later messages answers brief n. Option lines alone never do. A message
+ * sent from the gate card for this brief does. For the brief the gate card is open on, only a
+ * deciding reply does (a plain message, a steer or a question leaves the gate open); for older
+ * briefs, from before gate cards, any message after it does, as it always did.
+ */
+function youAnswers(x: YouItem, n: number, openBrief: number | null): boolean {
+  if (isOptionOnly(x.text)) return false;
+  if (x.gateBrief === n) return true;
+  if (n !== openBrief) return true;
+  return DECIDING.has(x.sendKind ?? '');
+}
+
 /**
  * What the thread shows, in order. Detail files are folded into their brief (matched by number)
  * instead of showing as briefs of their own; one whose brief isn't loaded yet stays hidden until it is.
+ * A brief is answered when a gate reply went for it (answeredBriefs), a newer brief exists, or a
+ * later message of yours answers it (youAnswers).
  */
-export function shownItems(items: ThreadItem[]): ShownItem[] {
+export function shownItems(items: ThreadItem[], facts: AnswerFacts = {}): ShownItem[] {
   const details = new Map<number, string>();
   for (const it of items) {
     if (it.kind !== 'brief') continue;
     const m = DETAIL_FILE.exec(it.file);
     if (m) details.set(Number(m[1]), it.file);
   }
+  const done = new Set(facts.answeredBriefs ?? []);
+  const openBrief = facts.openBrief ?? null;
   const out: ShownItem[] = [];
   items.forEach((it, i) => {
     if (it.kind !== 'brief') { out.push({ kind: 'item', id: it.id, item: it }); return; }
     if (isDetailFile(it.file)) return;
     const later = items.slice(i + 1);
-    const answered = later.some((x) => x.kind === 'you' || (x.kind === 'brief' && !isDetailFile(x.file)));
+    const answered = done.has(it.number)
+      || later.some((x) => (x.kind === 'brief' && !isDetailFile(x.file)) || (x.kind === 'you' && youAnswers(x, it.number, openBrief)));
     out.push({ kind: 'brief-card', id: it.id, brief: { item: it, detailFile: details.get(it.number) ?? null, answered } });
   });
   return out;

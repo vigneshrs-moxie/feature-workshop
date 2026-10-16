@@ -64,6 +64,7 @@ before(async () => {
   await writeJob('checks-job');
   await writeJob('notes-job');
   await writeJob('dropped-job');
+  await writeJob('edit-job');
   // notes.md and a brief that are symlinks to a file outside the job folder: never followed.
   const linkDir = await writeJob('link-job');
   await fs.writeFile(path.join(root, 'secret.md'), 'Not for the dashboard.\n');
@@ -361,4 +362,22 @@ test('notes: PUT writes notes.md in the job folder, capped and token-checked; GE
   assert.ok(notes.every((e) => !('text' in e)), 'the words themselves aren’t audited');
   const thread = (await get('/api/job/notes-job')).thread.filter((t) => t.kind === 'note' && t.notes);
   assert.equal(thread.length, 1, 'two saves in a row: one line');
+});
+
+test('gate: “Edit, then approve” sends your edited text instead of the composed one; the chips still change the options', async () => {
+  assert.equal((await write('POST', '/api/job/edit-job/gate', { kind: 'approve', briefNumber: 2, text: 42 })).body.error, 'The edited reply must be text.');
+  assert.equal((await write('POST', '/api/job/edit-job/gate', { kind: 'message', briefNumber: 2, text: 'Hello.' })).body.error, 'Only an approval can carry an edited reply.');
+  assert.deepEqual(await sendsFor('edit-job'), [], 'refusals send nothing');
+  const edited = 'Option change for the next step: ask Fable at plan\n\nI approve. Name the button “Copy ID”.';
+  const r = await write('POST', '/api/job/edit-job/gate', { kind: 'approve', briefNumber: 2, chips: [{ kind: 'fable', point: 'plan' }], text: `  ${edited}\n` });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.sent, true);
+  assert.equal(r.body.text, edited);
+  assert.deepEqual((await readJson(featuresDir, 'edit-job', 'options.json')).fable_checks, ['plan']);
+  const [sent] = await sendsFor('edit-job');
+  assert.equal(sent.kind, 'approve');
+  assert.equal(sent.gateBrief, 2);
+  assert.ok(sent.text.endsWith(edited));
+  assert.deepEqual((await get('/api/job/edit-job')).answeredBriefs, [2]);
+  await stopReply('edit-job');
 });

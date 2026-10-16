@@ -626,7 +626,12 @@ function readGateBody(body) {
   if (chips.length > MAX_CHIPS) throw new HttpError(400, `Chips: at most ${MAX_CHIPS}.`);
   // Chips change how the next stage runs; a stop has no next stage.
   if (kind === 'stop' && chips.length) throw new HttpError(400, 'A stop can’t carry option changes.');
-  return { kind, briefNumber, note, answers, verdicts, chips, startAfterReset: body.startAfterReset === true };
+  // "Edit, then approve": the reply as you edited it, sent instead of the composed one (the chips
+  // still change the options). Approvals only; the same 20,000 characters as /send.
+  if (body.text !== undefined && body.text !== null && typeof body.text !== 'string') throw new HttpError(400, 'The edited reply must be text.');
+  const edited = str(body.text ?? '').trim() || null;
+  if (edited && kind !== 'approve') throw new HttpError(400, 'Only an approval can carry an edited reply.');
+  return { kind, briefNumber, note, answers, verdicts, chips, edited, startAfterReset: body.startAfterReset === true };
 }
 
 // The status fields composeReply reads, without the ones the job's records leave empty (null).
@@ -885,7 +890,8 @@ async function routePost(urlPath, req, res) {
   }
   if ((m = /^\/api\/job\/([^/]+)\/gate$/.exec(urlPath))) {
     // A decision from the gate card: answers, verdicts, next-step chips and a note, composed into
-    // the reply here (composeReply, as the page previews it). Chips that change an option patch
+    // the reply here (composeReply, as the page previews it; or the text you edited, for "Edit, then
+    // approve"). Chips that change an option patch
     // options.json first. With a reply in progress nothing is sent: the text comes back for the
     // composer to hold. With the usage limit reached, startAfterReset holds it until the reset.
     const f = await featureBySlug(m[1]);
@@ -903,7 +909,7 @@ async function routePost(urlPath, req, res) {
     // A message needs something of yours in it (the reply would otherwise only list open decisions).
     if (g.kind === 'message' && !g.note.trim() && !chips.length && !Object.keys(g.answers).length && !Object.keys(g.verdicts).length) throw new HttpError(400, 'The message is empty.');
     const options = chipOptions(f.options, chips);
-    const text = composeReply({ kind: g.kind, status: present(statusForCompose(f)), answers: g.answers, verdicts: g.verdicts, note: g.note, chips });
+    const text = g.edited ?? composeReply({ kind: g.kind, status: present(statusForCompose(f)), answers: g.answers, verdicts: g.verdicts, note: g.note, chips });
     if (!text) throw new HttpError(400, 'The message is empty.');
     const reply = { ok: true, text, chipsDropped: g.chips.length - chips.length, ...(options ? { options, summary: describeOptions(options) } : {}) };
     const drive = await driveState(f);

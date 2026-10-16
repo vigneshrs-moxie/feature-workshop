@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { BriefItem, ThreadItem } from '../../api/types';
-import { extraLines, formatCost, isActiveRun, liveLabel, mergeThread, olderStillJoins, shownItems } from './thread';
+import type { BriefItem, ThreadItem, YouItem } from '../../api/types';
+import { extraLines, formatCost, isActiveRun, isOptionOnly, liveLabel, mergeThread, olderStillJoins, shownItems } from './thread';
 
-const you = (id: string, text = id): ThreadItem => ({ id, kind: 'you', at: null, text });
+const you = (id: string, text = id, extra: Partial<YouItem> = {}): ThreadItem => ({ id, kind: 'you', at: null, text, ...extra });
 const brief = (n: number, stage: string, extra: Partial<BriefItem> = {}): BriefItem => ({
   id: `brief:briefs/${n}-${stage}.md`, kind: 'brief', at: null, number: n, stage, file: `briefs/${n}-${stage}.md`, headline: `Headline ${n}`, point: null, ...extra,
 });
@@ -30,6 +30,32 @@ describe('thread helpers', () => {
       [2, true, 'briefs/2-detail.md'], // a newer brief replaced it
       [3, false, null], // waiting for you
     ]);
+  });
+
+  it('knows a message that is only option lines from the gate card', () => {
+    expect(isOptionOnly('Option change for the next step: skip test')).toBe(true);
+    expect(isOptionOnly('Option change for the next step: skip test\n\nOption change for the next step: ask Fable at plan\n')).toBe(true);
+    expect(isOptionOnly('Option change for the next step: skip test\n\nAlso check the CSV.')).toBe(false);
+    expect(isOptionOnly('   ')).toBe(false);
+  });
+
+  it('a brief is answered by a gate reply (answeredBriefs), a newer brief, or, for older briefs, a later message that isn’t only option lines', () => {
+    const answered = (items: ThreadItem[], facts = {}) => shownItems(items, facts).flatMap((s) => (s.kind === 'brief-card' ? [[s.brief.item.number, s.brief.answered]] : []));
+    const chipsOnly = you('y-opt', 'Option change for the next step: skip test');
+    // An option-only message never answers a brief, old or open.
+    expect(answered([brief(1, 'spec'), chipsOnly])).toEqual([[1, false]]);
+    expect(answered([brief(2, 'plan'), chipsOnly], { openBrief: 2 })).toEqual([[2, false]]);
+    // A gate reply sent for the brief (answeredBriefs) answers it, wherever it sits.
+    expect(answered([brief(2, 'plan')], { answeredBriefs: [2], openBrief: 2 })).toEqual([[2, true]]);
+    // On the brief the gate card is open on, a plain message or a steer leaves it open...
+    expect(answered([brief(2, 'plan'), you('q', 'Is the CSV in scope?', { sendKind: 'message' }), you('s', 'also this', { sendKind: 'steer' })], { openBrief: 2 })).toEqual([[2, false]]);
+    // ...a deciding reply (the classic page's approve, changes, stop) or one sent for it answers it.
+    expect(answered([brief(2, 'plan'), you('a', 'I approve.', { sendKind: 'approve' })], { openBrief: 2 })).toEqual([[2, true]]);
+    expect(answered([brief(2, 'plan'), you('g', 'My answers to brief 2: …', { sendKind: 'message', gateBrief: 2 })], { openBrief: 2 })).toEqual([[2, true]]);
+    // Older briefs (no gate open on them) keep the old rule: any later message of yours.
+    expect(answered([brief(1, 'spec'), you('m', 'Looks good')], { openBrief: 2 })).toEqual([[1, true]]);
+    // A newer brief still replaces one.
+    expect(answered([brief(1, 'spec'), chipsOnly, brief(2, 'plan')], { openBrief: 2 })).toEqual([[1, true], [2, false]]);
   });
 
   it('also finds briefs/<n>-<stage>-detail.md, and hides a detail whose brief is not loaded', () => {

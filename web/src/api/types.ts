@@ -502,6 +502,8 @@ export interface GateRequest {
   confirmNoTerminal?: boolean;
   /** With the usage limit reached: hold the reply and send it when the limit resets. */
   startAfterReset?: boolean;
+  /** "Edit, then approve": the reply as you edited it, sent instead of the composed one (approvals only). */
+  text?: string;
 }
 
 /**

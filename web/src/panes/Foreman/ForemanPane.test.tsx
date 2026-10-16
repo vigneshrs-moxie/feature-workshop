@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../../api/client';
-import type { Job, JobDetail, ThreadItem } from '../../api/types';
+import type { Gate, Job, JobDetail, ThreadItem } from '../../api/types';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { ev, job, snapshot } from '../../state/test-fixtures';
 import { ForemanPane } from './ForemanPane';
@@ -27,7 +27,7 @@ const detail = (extra: Partial<JobDetail> = {}): JobDetail => ({ slug: 'alpha', 
 
 type Routes = Record<string, unknown | (() => unknown)>;
 
-function setup({ routes = {}, jobs = [ALPHA], slug = 'alpha' }: { routes?: Routes; jobs?: Job[]; slug?: string | null } = {}) {
+function setup({ routes = {}, jobs = [ALPHA], slug = 'alpha', post = vi.fn() }: { routes?: Routes; jobs?: Job[]; slug?: string | null; post?: ReturnType<typeof vi.fn> } = {}) {
   const all: Routes = {
     '/api/job/alpha': detail(),
     '/api/job/alpha/doc?file=briefs%2F1-spec.md': { file: 'briefs/1-spec.md', name: 'Brief 1', html: '<p>The whole spec brief.</p>' },
@@ -42,7 +42,7 @@ function setup({ routes = {}, jobs = [ALPHA], slug = 'alpha' }: { routes?: Route
   });
   const store: Store = createStore();
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs }) });
-  const api = { get } as unknown as ApiClient;
+  const api = { get, post } as unknown as ApiClient;
   const utils = render(<WorkshopContext.Provider value={{ store, api }}><ForemanPane slug={slug} /></WorkshopContext.Provider>);
   return { ...utils, get, store, all };
 }
@@ -144,6 +144,39 @@ describe('Foreman pane', () => {
     const now = screen.getByRole('article', { name: 'Brief #2 · Plan' });
     expect(within(now).getByRole('button', { name: /Brief #2/ })).toHaveAttribute('aria-expanded', 'false');
     expect(within(now).getByText('Plan needs your yes')).toBeInTheDocument();
+  });
+
+  it('pins the gate card above the composer; the brief stays open for a plain message and folds once a gate reply answers it', async () => {
+    const gate: Gate = {
+      briefNumber: 2, briefFile: 'briefs/2-plan.md', headline: 'Plan needs your yes', stage: 'plan', nextStage: 'implement', nextProposed: 'Build step 1',
+      questions: [], decided: [], versions: null, raisedVersions: null, stale: false, waitingSince: at(8), runActive: false, parked: false,
+      level: null, suggestedLevel: null, levelReason: null, usage: null,
+    };
+    const asked = { id: 'you:qqq', kind: 'you' as const, at: at(9), text: 'Is the CSV in scope?', sendKind: 'message' };
+    const post = vi.fn(async () => { throw new ApiError(409, 'The Foreman has moved on to brief 3 since this card was shown. Nothing was sent; decide on the new brief.', { code: 'stale-brief', briefNumber: 3 }); });
+    const { get, all } = setup({ post, routes: { '/api/job/alpha': detail({ gate, answeredBriefs: [], thread: [...THREAD, asked] }) } });
+    const card = await screen.findByRole('region', { name: 'Plan needs your yes' });
+    // After the conversation, before the composer.
+    const conversation = screen.getByRole('region', { name: 'Conversation' });
+    const composer = screen.getByRole('region', { name: 'Message the Foreman' });
+    expect(conversation.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(card.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // A plain question leaves the brief the card is open on unanswered.
+    const brief = screen.getByRole('article', { name: 'Brief #2 · Plan' });
+    await within(brief).findByText('The whole plan brief.');
+    expect(within(brief).queryByText('Answered')).toBeNull();
+
+    // A refused approval (the Foreman moved on) fetches the job again and says so.
+    const before = get.mock.calls.filter(([p]) => p === '/api/job/alpha').length;
+    all['/api/job/alpha'] = detail({ gate, answeredBriefs: [2], thread: [...THREAD, asked] });
+    await act(async () => { fireEvent.click(within(card).getByRole('button', { name: 'Approve and start Build' })); });
+    expect(screen.getByRole('alert')).toHaveTextContent('moved on to brief 3');
+    await waitFor(() => expect(get.mock.calls.filter(([p]) => p === '/api/job/alpha').length).toBe(before + 1));
+    // Now answered from a gate card: the card goes and the brief folds, without fetching it again.
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Plan needs your yes' })).toBeNull());
+    expect(within(brief).getByText('Answered')).toBeInTheDocument();
+    expect(within(brief).getByRole('button', { name: /Brief #2/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(get.mock.calls.filter(([p]) => p === '/api/job/alpha/doc?file=briefs%2F2-plan.md')).toHaveLength(1);
   });
 
   it('refetches the open thread after a resync, catching up thread events lost in the gap', async () => {

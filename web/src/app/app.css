@@ -689,6 +689,77 @@ a:hover { text-decoration: underline; }
 .level-pop-list button:disabled:not([aria-current='true']) { color: var(--text-3); cursor: not-allowed; }
 .level-pop .level-done { margin-top: var(--space-2); }
 
+/* The gate card is a question card too (.perm-card[data-ask='question']): its colours come from there. */
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.link-button:hover { color: var(--accent-strong); }
+.link-button:disabled { color: var(--text-3); cursor: not-allowed; }
+.composer-gate { display: block; }
+.gate-card { margin-top: var(--space-3); }
+.gate-head { margin-bottom: var(--space-2); }
+.gate-meta { flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-1); }
+.gate-parked { border-color: var(--border-3); color: var(--text-1); font-weight: var(--weight-medium); }
+.gate-next { margin: 0 0 var(--space-1); font-size: var(--text-sm); }
+.gate-usage, .gate-stale-note { margin: var(--space-1) 0 0; }
+.gate-running { margin: var(--space-1) 0 0; font-size: var(--text-sm); }
+.gate-question .answer-label { overflow-wrap: anywhere; }
+.gate-rec { margin-left: var(--space-1); color: var(--text-1); font-weight: var(--weight-medium); }
+.answer-other { flex-wrap: wrap; cursor: default; }
+.answer-other:hover { background: transparent; }
+.answer-other-pick { display: flex; align-items: flex-start; gap: var(--space-2); cursor: pointer; }
+.answer-other .text-input { flex: 1; min-width: 180px; }
+.gate-subhead { margin: 0 0 var(--space-1); font-size: var(--text-sm); }
+.gate-decided { margin: 0 0 var(--space-2); }
+.gate-decided-list { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.gate-decision { padding: var(--space-2); border: 1px solid var(--border-2); border-radius: var(--radius-md); font-size: var(--text-sm); }
+.gate-decision.is-changed { border-color: var(--accent); }
+.gate-decision-text { margin: 0 0 var(--space-1); }
+.gate-changed { color: var(--text-1); font-weight: var(--weight-medium); }
+.gate-override { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); }
+.gate-override .field { align-self: stretch; }
+.gate-decided-note { margin: var(--space-1) 0 0; font-size: var(--text-sm); }
+.gate-actions { align-items: center; }
+.gate-more .gate-menu { top: auto; bottom: calc(100% + var(--space-1)); }
+.gate-note, .gate-stop { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
+.gate-stop .perm-warn { margin: 0; }
+.gate-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin-top: var(--space-3); padding-top: var(--space-2); border-top: 1px solid var(--border-1); }
+.gate-chips-label { margin-right: var(--space-1); font-size: var(--text-sm); }
+.gate-chip { height: 24px; padding: 0 var(--space-2); border-radius: var(--chip-radius); font-size: var(--text-sm); }
+.gate-chip[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); color: var(--text-1); font-weight: var(--weight-medium); }
+.gate-chip[aria-disabled='true'] { opacity: .5; cursor: not-allowed; }
+.gate-hint { margin: var(--space-1) 0 0; font-size: var(--text-sm); }
+.gate-lines { margin-top: var(--space-2); }
+.gate-lines-head { margin: 0 0 var(--space-1); font-size: var(--text-sm); }
+.gate-lines-text { margin: 0; }
+.gate-card .how { margin: var(--space-3) 0 0; }
+/* Plan changed since it was proposed: greyed out, and the approvals are off (the words say so too). */
+.gate-card.is-stale { filter: grayscale(1); }
+.gate-card.is-stale .gate-question, .gate-card.is-stale .gate-decided { opacity: .6; }
+.gate-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-2);
+  border-radius: var(--card-radius);
+  background: var(--bg-2);
+  font-size: var(--text-sm);
+}
+.gate-notice.is-ok { border-color: var(--status-ok); }
+.gate-notice.is-problem { border-color: var(--status-error); }
+.gate-notice-text { flex: 1; min-width: 200px; margin: 0; }
+.gate-notice-lines { flex-basis: 100%; order: 3; margin: 0; padding-left: var(--space-4); color: var(--text-2); }
+
 .toast {
   position: fixed;
   right: var(--space-4);

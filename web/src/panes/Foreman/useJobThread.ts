@@ -17,6 +17,8 @@ export interface JobThread {
   loadingOlder: boolean;
   error: string | null;
   loadOlder(): void;
+  /** Fetch the newest page and the job's details again now (the gate card does after a refusal). */
+  reload(): void;
 }
 
 interface Pages {
@@ -36,6 +38,7 @@ export function useJobThread(slug: string, version: number): JobThread {
   const { api } = useWorkshop();
   const [pages, setPages] = useState<Pages>(() => empty(slug));
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const [reloads, setReloads] = useState(0);
   const current = pages.slug === slug ? pages : empty(slug);
   const ref = useRef(current);
   ref.current = current;
@@ -62,7 +65,9 @@ export function useJobThread(slug: string, version: number): JobThread {
       },
     );
     return () => { cancelled = true; };
-  }, [api, slug, version]);
+  }, [api, slug, version, reloads]);
+
+  const reload = useCallback(() => setReloads((n) => n + 1), []);
 
   const loadOlder = useCallback(() => {
     const p = ref.current;
@@ -93,5 +98,6 @@ export function useJobThread(slug: string, version: number): JobThread {
     loadingOlder,
     error: current.error,
     loadOlder,
+    reload,
   };
 }
