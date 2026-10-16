@@ -107,7 +107,7 @@ test('driver: a steered message reaches the live session mid-reply: queued, deli
   await until(driver, run.id, ['running']);
 
   const s = await driver.steer(run.id, 'Use the smaller table instead.');
-  assert.equal(s.state, 'queued');
+  assert.ok(['queued', 'delivered'].includes(s.state), s.state); // handed over before the audit write, so possibly already delivered
   assert.equal(s.slug, 'a');
   await steerReaches(driver, s.id, 'delivered');
   while (!sessions[0].received.length) await sleep(2);
@@ -278,6 +278,55 @@ test('driver: Stop marks a delivered message cancelled when Claude Code says it 
   assert.equal(ended.steers[0].state, 'cancelled');
 });
 
+test('driver: a delivered message the reply never answered ends up unanswered, not "delivered" forever', async () => {
+  // A Stop on a Claude Code too old to return a cancelQueued receipt, and a reply that errors.
+  for (const ending of ['stop-no-receipt', 'error']) {
+    const state = await tmpState();
+    const { queryFn } = sdkLikeSession(async function* ({ next, isInterrupted }) {
+      yield init('s-steer-6');
+      await next();
+      if (ending === 'error') throw new Error('Claude Code exited');
+      while (!isInterrupted()) await sleep(5);
+      yield { type: 'result', subtype: 'error_during_execution', is_error: true, result: '', total_cost_usd: 0.1, permission_denials: [] };
+    });
+    const driver = new Driver({ queryFn, state, projectsDir: '/nonexistent' });
+    driver.idleGraceMs = 30;
+    const run = await driver.start({ featureDir: '/f/g', slug: 'g', title: 'G', cwd: '/repo', text: 'go' });
+    await until(driver, run.id, ['running']);
+    const s = await driver.steer(run.id, 'Also this.');
+    await steerReaches(driver, s.id, 'delivered');
+    if (ending !== 'error') await driver.stop(run.id);
+    const ended = await until(driver, run.id, ['stopped', 'error', 'done']);
+    assert.equal(ended.steers[0].state, 'unanswered', ending);
+  }
+});
+
+test('driver: a steered message is handed over without waiting for the audit write', async () => {
+  const state = await tmpState();
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const audit = state.audit.bind(state);
+  state.audit = async (entry) => { if (entry.action === 'steer') await held; return audit(entry); };
+  const { queryFn } = sdkLikeSession(async function* ({ next }) {
+    yield init('s-steer-7');
+    const m = await next();
+    if (!m) return;
+    yield say(`Got: ${m.message.content}`);
+    yield done('ok');
+    yield idle;
+  });
+  const driver = new Driver({ queryFn, state, projectsDir: '/nonexistent' });
+  driver.idleGraceMs = 30;
+  const run = await driver.start({ featureDir: '/f/h', slug: 'h', title: 'H', cwd: '/repo', text: 'go' });
+  await until(driver, run.id, ['running']);
+  const steering = driver.steer(run.id, 'Quick one.');
+  const id = driver.runs.get(run.id).steers[0].id;
+  await steerReaches(driver, id, 'delivered'); // while the audit write is still held
+  release();
+  assert.notEqual((await steering).state, 'cancelled');
+  await until(driver, run.id, ['done', 'error']);
+});
+
 test('demo Foreman: steering works in demo mode (the pretend Foreman answers it at its next step)', async () => {
   const featuresDir = await tmp('workshop-steer-features-');
   const state = await tmpState();
@@ -413,7 +462,7 @@ test('server: POST /api/runs/:id/steer adds to a reply in progress; its states a
   const events = collectEvents(snap.seq, snap.epoch, (e) => e.type === 'steer' && e.data.state === 'acted-on');
   const steered = await write(`/api/runs/${runId}/steer`, { text: 'Leave the README alone.' });
   assert.equal(steered.status, 200, JSON.stringify(steered.body));
-  assert.equal(steered.body.steer.state, 'queued');
+  assert.ok(['queued', 'delivered'].includes(steered.body.steer.state), steered.body.steer.state);
   assert.equal(steered.body.steer.runId, runId);
   const seen = await events;
   const mine = seen.filter((e) => e.type === 'steer' && e.data.id === steered.body.steer.id);

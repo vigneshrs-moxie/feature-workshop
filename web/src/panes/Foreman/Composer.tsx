@@ -97,6 +97,8 @@ function SendPreview({ slug, initial, model, models, onSent, onClose }: {
   );
 }
 
+const FINISHED_FIRST = 'The reply finished before your message got there. It’s still in the box: press Send to send it as a new message.';
+
 export function Composer({ slug, detail, run }: { slug: string; detail: JobDetail | null; run: Run | null }) {
   const { api, store } = useWorkshop();
   const { meta } = useWorkshopState();
@@ -135,12 +137,12 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
     try {
       const r = await api.post<{ steer: Steer }>(`/api/runs/${encodeURIComponent(run.id)}/steer`, { text: draft });
       store.dispatch({ type: 'steer', steer: r.steer });
-      setDraft(null);
+      // Accepted, but the reply ended before it was handed over: keep the draft to send anew.
+      if (r.steer?.state === 'cancelled') setError(FINISHED_FIRST);
+      else setDraft(null);
     } catch (err) {
       // The reply ended meanwhile: keep the draft, it goes as a new message instead.
-      setError(err instanceof ApiError && err.status === 404
-        ? 'The reply finished before your message got there. It’s still in the box: press Send to send it as a new message.'
-        : message(err));
+      setError(err instanceof ApiError && err.status === 404 ? FINISHED_FIRST : message(err));
     } finally {
       setBusy(null);
     }

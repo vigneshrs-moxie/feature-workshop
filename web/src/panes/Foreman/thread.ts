@@ -85,6 +85,7 @@ export const STEER_LABELS: Record<SteerState, { label: string; hint: string }> =
   delivered: { label: 'Delivered', hint: 'The Foreman has your message. It reads it at its next step.' },
   'acted-on': { label: 'Acted on', hint: 'The Foreman has read your message and replied with it in mind.' },
   cancelled: { label: 'Not delivered', hint: 'The reply stopped before the Foreman read this message. Send it again if you still need it.' },
+  unanswered: { label: 'Not answered', hint: 'The Foreman got this message, but the reply ended before it answered. Send it again if you still need it.' },
 };
 
 /**

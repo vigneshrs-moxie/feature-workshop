@@ -165,9 +165,10 @@ export interface Settings {
 
 /**
  * Where a message you steered into a reply in progress is (dashboard/lib/driver.js): accepted by the
- * dashboard, handed to Claude Code, answered by the Foreman, or never read (the reply stopped first).
+ * dashboard, handed to Claude Code, answered by the Foreman, never read (the reply stopped first), or
+ * handed over but never answered (the reply ended first).
  */
-export type SteerState = 'queued' | 'delivered' | 'acted-on' | 'cancelled';
+export type SteerState = 'queued' | 'delivered' | 'acted-on' | 'cancelled' | 'unanswered';
 
 /** A steered message (POST /api/runs/:id/steer, 'steer' events, Run.steers). */
 export interface Steer {

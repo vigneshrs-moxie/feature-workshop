@@ -24,6 +24,8 @@
 //              with the uuids of the messages they answer (user_message_uuids); with a Claude Code
 //              too old to stamp, the first message the Foreman writes after it was delivered
 //   cancelled  never read: the reply stopped or ended first
+//   unanswered handed over, but the reply ended (an error, or a Stop Claude Code gave no receipt
+//              for) before the Foreman answered it
 // The input still closes when the reply finishes (or you click Stop).
 
 import { EventEmitter } from 'node:events';
@@ -97,7 +99,7 @@ export class Driver extends EventEmitter {
       // mode: the permission setting in force; permissionMode: the mode Claude Code reports.
       mode: run.mode ?? 'hands-off', permissionMode: run.permissionMode ?? null,
       autoUnavailable: run.autoUnavailable ?? null, autoBlocked: run.autoBlocked ?? 0,
-      // Messages you steered into this reply, with where each one is (queued, delivered, acted-on, cancelled).
+      // Messages you steered into this reply, with where each one is (queued, delivered, acted-on, cancelled, unanswered).
       steers: (run.steers ?? []).map(viewSteer),
     };
   }
@@ -207,6 +209,8 @@ export class Driver extends EventEmitter {
     } finally {
       clearTimeout(run.idleTimer);
       closeInput();
+      // Handed over but never answered: the reply is over, so it won't be now.
+      for (const s of run.steers) if (s.state === 'delivered') this.#steerState(run, s, 'unanswered');
       this.#dropPending(run, { behavior: 'deny', message: 'The reply ended before this was decided.' }, 'run-ended');
       run.endedAt = new Date().toISOString();
       const reply = (run.lastText ?? run.resultText ?? '').slice(0, 8000) || undefined;
@@ -525,9 +529,11 @@ export class Driver extends EventEmitter {
     if (run.steers.length > 50) run.steers.shift();
     run.inbox.push(s);
     this.emit('steer', viewSteer(s));
+    // Hand it over first: waiting on the disk write would delay it, and the reply could go idle
+    // (and cancel it) meanwhile.
+    run.wake?.();
     // Shown in the job's conversation like any message you sent (lib/thread.js).
     await this.state.audit({ action: 'steer', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, steerId: s.id, text });
-    run.wake?.();
     return viewSteer(s);
   }
 

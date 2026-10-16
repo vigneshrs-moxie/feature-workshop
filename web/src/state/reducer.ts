@@ -123,7 +123,7 @@ function dropPermission(state: WorkshopState, id: string, slug: string | null): 
 }
 
 // Steer states only move forward; a late copy (the POST's answer after the events) never undoes one.
-const STEER_RANK: Record<SteerState, number> = { queued: 0, delivered: 1, 'acted-on': 2, cancelled: 2 };
+const STEER_RANK: Record<SteerState, number> = { queued: 0, delivered: 1, 'acted-on': 2, cancelled: 2, unanswered: 2 };
 
 function withSteers(steers: Record<string, Steer>, list: Steer[]): Record<string, Steer> {
   let out = steers;

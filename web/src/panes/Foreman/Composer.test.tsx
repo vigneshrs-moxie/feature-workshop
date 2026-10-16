@@ -112,6 +112,16 @@ describe('Composer', () => {
     expect(box()).toHaveValue('Late thought');
   });
 
+  it('keeps the draft when the steer was accepted but cancelled before it was handed over', async () => {
+    const steer: Steer = { id: 'st-2', runId: 'run-1', slug: 'alpha', text: 'Late thought', state: 'cancelled' };
+    const post = vi.fn(async () => ({ steer }));
+    setup({ run: RUNNING, post });
+    fireEvent.change(box(), { target: { value: 'Late thought' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Steer' })); });
+    expect(screen.getByRole('alert')).toHaveTextContent('press Send');
+    expect(box()).toHaveValue('Late thought');
+  });
+
   it('Stop posts to the run and keeps your draft', async () => {
     const post = vi.fn(async () => ({ ok: true }));
     const { rerenderWith } = setup({ run: RUNNING, post });
