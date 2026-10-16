@@ -4,7 +4,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { normalize, defaultsFor, skippedFor, describeOptions, readOptions, writeOptions, FLOWS, LEVELS, flowFor, levelFor, foremanModel, levelsForClient, OPUS, FABLE, SONNET, HAIKU } from '../lib/options.js';
+import { normalize, defaultsFor, skippedFor, describeOptions, readOptions, writeOptions, FLOWS, LEVELS, flowFor, levelFor, foremanModel, levelsForClient, levelChangeLine, OPUS, FABLE, SONNET, HAIKU } from '../lib/options.js';
+import { buildThread } from '../lib/thread.js';
 
 test('job options: flows bring their defaults; your choices win', () => {
   const quick = normalize({ flow: 'quick' });
@@ -139,6 +140,28 @@ test('levels for the page: each with its hint, models, skipped stages and review
   assert.ok(list[0].skip.includes('plan') && !list[3].skip.length);
   list[0].skip.push('x');
   assert.ok(!LEVELS[0].skip.includes('x'), 'a copy, not the table itself');
+  // Whether you try it yourself and the Fable points, for the page's "L1→L2 adds: …" line.
+  assert.deepEqual(list.map((l) => l.manualTest), [false, true, true, true]);
+  assert.deepEqual(list[3].fable, ['plan', 'review']);
+  list[3].fable.push('x');
+  assert.ok(!LEVELS[3].fable.includes('x'), 'a copy');
+});
+
+test('levels: an options change that moves the level says so in the conversation', () => {
+  assert.equal(levelChangeLine(1, 2), 'Level changed from L1 Small to L2 Standard.');
+  assert.equal(levelChangeLine(null, 3), 'Level changed from none yet to L3 Large.');
+  assert.equal(levelChangeLine(2, null), 'Level changed from L2 Standard to none (the Foreman suggests one).');
+  assert.equal(levelChangeLine(2, 2), null, 'same level');
+  assert.equal(levelChangeLine(undefined, 2), null, 'an older audit line: the level before isn’t known');
+  const options = normalize({ level: 3 });
+  const [changed, kept, old] = buildThread({ audit: [
+    { at: '2026-10-16T10:00:00Z', action: 'options', slug: 'a', options, was: 2 },
+    { at: '2026-10-16T10:01:00Z', action: 'options', slug: 'a', options, was: 3 },
+    { at: '2026-10-16T10:02:00Z', action: 'options', slug: 'a', options },
+  ] });
+  assert.equal(changed.text, 'You changed how this job runs (from the next stage): Level changed from L2 Standard to L3 Large. Level: L3 Large (large flow). Reviewers: Head inspector, Locksmith, Gauge, Stickler, Fuse, Mason, Stopwatch, Painter, at most 1 fix round. The human tests it by hand on their computer before review. Fable checks: Before you approve the plan, When the review is wrapped up.');
+  assert.ok(kept.text.startsWith('You changed how this job runs (from the next stage): Level: L3 Large'));
+  assert.ok(old.text.startsWith('You changed how this job runs (from the next stage): Level: L3 Large'));
 });
 
 test('job options: describeOptions leads with the level', () => {

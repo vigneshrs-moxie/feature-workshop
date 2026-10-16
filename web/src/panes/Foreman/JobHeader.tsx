@@ -3,8 +3,9 @@
 //   Mark done or dropped… (the classic options, in a sheet), Reopen, Options and the job's classic
 //   page (decision D4), and this job's own permission setting (POST /api/job/:slug/policy).
 // ⌘K offers the same actions (app/commands.ts); both call app/jobActions.ts.
+// The level chip (LevelChip.tsx) shows the job's level and changes it.
 import { useEffect, useRef, useState } from 'react';
-import type { Job, PolicyId, Run } from '../../api/types';
+import type { Job, JobOptions, PolicyId, Run } from '../../api/types';
 import { reopenJob, setJobPolicy } from '../../app/jobActions';
 import { classicHref } from '../../app/router';
 import { useUi } from '../../app/ui';
@@ -13,6 +14,7 @@ import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { jobHueStyle } from '../../theme/hue';
 import { GROUP_HINTS, GROUP_LABELS } from '../Jobs/jobStatus';
+import { LevelChip } from './LevelChip';
 import { formatCost, isActiveRun } from './thread';
 
 const KIND_LABELS: Record<string, string> = { feature: 'Feature', bug: 'Bug fix' };
@@ -149,9 +151,11 @@ export interface JobHeaderProps {
   policyOverride?: PolicyId | null;
   run?: Run | null;
   worktree?: string | null;
+  /** The job's options.json (from its detail), kept when the level chip changes the level. */
+  options?: JobOptions | null;
 }
 
-export function JobHeader({ job, branch, dir, policyOverride, run, worktree }: JobHeaderProps) {
+export function JobHeader({ job, branch, dir, policyOverride, run, worktree, options }: JobHeaderProps) {
   const now = useNow();
   const kind = job.kind ? KIND_LABELS[job.kind] ?? job.kind : null;
   const repo = job.repo?.name ?? null;
@@ -167,6 +171,7 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree }: J
       <div className="job-header-line">
         <span className="hue-dot" style={jobHueStyle(job.slug)} aria-hidden="true" />
         <h2 className="pane-title job-title">{job.title || job.slug}</h2>
+        <LevelChip job={job} options={options} />
         <JobMenu job={job} dir={dir} policyOverride={policyOverride} run={run} worktree={worktree} />
       </div>
       <p className="job-facts muted">

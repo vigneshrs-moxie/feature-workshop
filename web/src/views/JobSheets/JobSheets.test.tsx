@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../../api/client';
 import type { HistoryList, Job } from '../../api/types';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
-import { job, snapshot } from '../../state/test-fixtures';
+import { job, LEVELS, snapshot } from '../../state/test-fixtures';
 import { CloseJobSheet } from './CloseJobSheet';
 import { LAST_REPO_KEY, NewJobSheet } from './NewJobSheet';
 
@@ -29,7 +29,7 @@ function setup({ get, post = vi.fn(async () => ({ slug: 'sketch-the-export-butto
   get?: ReturnType<typeof vi.fn>; post?: ReturnType<typeof vi.fn>; jobs?: Job[];
 } = {}) {
   const store: Store = createStore();
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', models: MODELS }, jobs }) });
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', models: MODELS, levels: LEVELS }, jobs }) });
   const getFn = get ?? vi.fn(async (path: string) => {
     if (path === '/api/repos') return { repos: REPOS };
     if (path.startsWith('/api/history')) return HISTORY;
@@ -58,7 +58,8 @@ describe('NewJobSheet', () => {
     fireEvent.click(within(dialog).getByRole('radio', { name: /Fable 5.1/ }));
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Start job' })); });
     expect(post).toHaveBeenCalledWith('/api/jobs', {
-      description: 'Add a sample export button', kind: 'bug', repoPath: '/tmp/fw-test/sample-two', model: 'claude-fable-5-1', options: {}, fromSession: undefined,
+      // "export" sounds like more than one small change: the rules suggest L2, and it was never changed.
+      description: 'Add a sample export button', kind: 'bug', repoPath: '/tmp/fw-test/sample-two', model: 'claude-fable-5-1', options: { level: 2 }, fromSession: undefined,
     });
     expect(onClose).toHaveBeenCalled();
     expect(window.location.hash).toBe('#/job/sketch-the-export-button');
@@ -127,6 +128,58 @@ describe('NewJobSheet', () => {
     wrap(<NewJobSheet onClose={onClose} />);
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('NewJobSheet: the level', () => {
+  const describeAs = (text: string) => fireEvent.change(screen.getByRole('textbox', { name: /What should the crew build/ }), { target: { value: text } });
+  const radio = (label: string) => within(screen.getByRole('radiogroup', { name: 'Level' })).getByRole('radio', { name: new RegExp(`^${label}`) });
+
+  it('offers the four levels with their hints, nothing picked before you type', () => {
+    const { onClose, wrap } = setup();
+    wrap(<NewJobSheet onClose={onClose} />);
+    const group = screen.getByRole('radiogroup', { name: 'Level' });
+    expect(within(group).getAllByRole('radio')).toHaveLength(4);
+    expect(within(group).getAllByRole('radio').every((r) => !(r as HTMLInputElement).checked)).toBe(true);
+    expect(radio('L2 Standard')).toHaveAccessibleName(expect.stringContaining('the tester, you try it, 3–4 reviewers'));
+    expect(screen.queryByText(/^Suggested:/)).toBeNull();
+  });
+
+  it('pre-selects the rules’ suggestion as you type, until you pick one yourself', async () => {
+    const { post, onClose, wrap } = setup();
+    wrap(<NewJobSheet onClose={onClose} />);
+    describeAs('Fix the typo in the footer');
+    expect(radio('L0 Tweak')).toBeChecked();
+    expect(screen.getByText(/^Suggested: L0 Tweak — A small tweak/)).toBeInTheDocument();
+    describeAs('Let managers change roles');
+    expect(radio('L3 Large')).toBeChecked();
+    expect(screen.getByText(/^Suggested: L3 Large — Touches sign-in, roles or permissions/)).toBeInTheDocument();
+    // Your own pick: the suggestion no longer moves it.
+    fireEvent.click(radio('L1 Small'));
+    expect(radio('L1 Small')).toBeChecked();
+    describeAs('Fix the typo in the footer and the header');
+    expect(radio('L1 Small')).toBeChecked();
+    expect(screen.getByText(/You picked another level; it’s kept as you type\./)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Repository' })).toHaveValue('/tmp/fw-test/sample-one'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Start job' })); });
+    expect(post).toHaveBeenCalledWith('/api/jobs', expect.objectContaining({ description: 'Fix the typo in the footer and the header', options: { level: 1 } }));
+  });
+
+  it('notes when your pick is under the rules’ floor', () => {
+    const { onClose, wrap } = setup();
+    wrap(<NewJobSheet onClose={onClose} />);
+    describeAs('Let managers change roles');
+    expect(screen.queryByText(/The rules suggest at least/)).toBeNull();
+    fireEvent.click(radio('L1 Small'));
+    expect(screen.getByText('The rules suggest at least L3 because it touches sign-in, roles or permissions; the Foreman will ask before building.')).toBeInTheDocument();
+    fireEvent.click(radio('L3 Large'));
+    expect(screen.queryByText(/The rules suggest at least/)).toBeNull();
+  });
+
+  it('explains levels in its How this works fold', () => {
+    const { onClose, wrap } = setup();
+    wrap(<NewJobSheet onClose={onClose} />);
+    expect(screen.getByText(/set how much process the job gets/)).toBeInTheDocument();
   });
 });
 

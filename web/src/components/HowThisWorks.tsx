@@ -1,15 +1,19 @@
 // The folded "How this works" box each pane carries for teammates new to the tool. Open until you
-// close it; whether it's open is remembered per pane in this browser (localStorage).
+// close it (or folded until you open it, for a card's box: defaultOpen false); whether it's open
+// is remembered per box in this browser (localStorage).
 import { useState, type ReactNode } from 'react';
 
 const key = (id: string) => `fw.how.${id}`;
 
-function readOpen(id: string): boolean {
-  try { return localStorage.getItem(key(id)) !== 'closed'; } catch { return true; }
+function readOpen(id: string, defaultOpen: boolean): boolean {
+  try {
+    const v = localStorage.getItem(key(id));
+    return v === null ? defaultOpen : v !== 'closed';
+  } catch { return defaultOpen; }
 }
 
-export function HowThisWorks({ id, children }: { id: string; children: ReactNode }) {
-  const [open, setOpen] = useState(() => readOpen(id));
+export function HowThisWorks({ id, children, defaultOpen = true }: { id: string; children: ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(() => readOpen(id, defaultOpen));
   return (
     <details
       className="how"

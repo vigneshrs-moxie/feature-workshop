@@ -50,6 +50,8 @@ export interface RulesLevel {
   floor: number;
   /** Plain sentences, one per reason. */
   reasons: string[];
+  /** Only the reasons that set the floor (dashboards from before this send none). */
+  floorReasons?: string[];
   /** Ids of the risk triggers that fired ('migrations', 'auth', ...). */
   triggers: string[];
   /** Whether the branch's changed paths were read too (the job page only, once a worktree exists). */
@@ -327,6 +329,42 @@ export interface LevelInfo {
   skip: string[];
   /** Its default reviewers: agent ids, or 'auto' (the Foreman picks the usual ones). */
   reviewers: string[] | 'auto';
+  /** You try it yourself before review, by default at this level. */
+  manualTest?: boolean;
+  /** Fable second-look points by default ('plan', 'review', ...). */
+  fable?: string[];
+}
+
+/** One reviewer (lens) the job options can name (meta.jobOptions.reviewers, lib/options.js REVIEWERS). */
+export interface ReviewerInfo {
+  id: string;
+  /** Its friendly name: "Locksmith". */
+  label: string;
+  what?: string;
+  model?: string;
+}
+
+/** A job's options.json as the dashboard reads it (lib/options.js); only what the new UI reads is typed. */
+export interface JobOptions {
+  schema_version?: number;
+  level?: LevelNumber | null;
+  flow?: string;
+  skip?: string[];
+  provided?: Record<string, string>;
+  reviewers?: string[] | 'auto';
+  review_rounds?: number;
+  manual_test?: boolean;
+  fable_checks?: string[];
+  models?: { foreman?: string; build?: string; checks?: string };
+  notes?: string;
+  [key: string]: unknown;
+}
+
+/** POST /api/job/:slug/options: the options as saved, and the plain lines describing them. */
+export interface OptionsResult {
+  ok: true;
+  options: JobOptions;
+  summary: string[];
 }
 
 export interface Meta {
@@ -337,6 +375,8 @@ export interface Meta {
   settings?: Settings;
   /** L0–L3 with their hints, for the level picker. */
   levels?: LevelInfo[];
+  /** The job options' lists (the classic Options page's); the new UI reads the reviewers' names. */
+  jobOptions?: { reviewers?: ReviewerInfo[]; [key: string]: unknown };
   [key: string]: unknown;
 }
 
@@ -432,6 +472,9 @@ export interface JobDetail {
   levelReason?: string | null;
   rulesLevel?: RulesLevel | null;
   parked?: boolean;
+  /** Its options.json (null: none yet), and the plain lines describing it. */
+  options?: JobOptions | null;
+  optionsSummary?: string[] | null;
   /** The gate card's content; null when the Foreman isn't waiting for you. */
   gate?: Gate | null;
   /** Brief numbers a gate reply was already sent for. */

@@ -1,16 +1,20 @@
 // Start a new job: what to build or fix, the repository (from GET /api/repos, or any folder path),
 // the kind, the Foreman model, and optionally a past Claude Code conversation to start from (GET
 // /api/history?q=...): a fresh Foreman reading a summary of it, or that conversation continued.
-// POST /api/jobs; the job then opens. Job options (stages, reviewers) keep their defaults; change
-// them afterwards with the job's Options (classic view).
-import { useEffect, useId, useState } from 'react';
-import type { HistoryList, HistoryRow, ModelChoice, Repo } from '../../api/types';
+// POST /api/jobs; the job then opens. The level (L0–L3, decision D5) starts at the rules' instant
+// suggestion from the description and follows it as you type, until you pick one yourself; it is
+// sent as options.level, and the level's defaults set the stages and reviewers. Change it later
+// from the level chip in the job header.
+import { useEffect, useId, useMemo, useState } from 'react';
+import type { HistoryList, HistoryRow, LevelNumber, ModelChoice, Repo } from '../../api/types';
 import { navigate } from '../../app/router';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { Sheet } from '../../components/Sheet';
+import { suggestFromDescription } from '../../lib/levels';
 import { readStored, writeStored } from '../../lib/stored';
 import { relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
+import { LevelPicker } from './LevelPicker';
 
 export const LAST_REPO_KEY = 'fw.newJob.repo';
 const OTHER = '__other';
@@ -135,6 +139,10 @@ export function NewJobSheet({ onClose }: { onClose: () => void }) {
   const [from, setFrom] = useState<HistoryRow | null>(null);
   const [fromMode, setFromMode] = useState<'summary' | 'continue'>('summary');
   const [canContinue, setCanContinue] = useState(false);
+  // Your own pick; until there is one, the level follows the rules' suggestion as you type.
+  const [picked, setPicked] = useState<LevelNumber | null>(null);
+  const suggestion = useMemo(() => suggestFromDescription(description), [description]);
+  const level: LevelNumber | null = picked ?? suggestion?.level ?? null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const descId = useId();
@@ -179,7 +187,8 @@ export function NewJobSheet({ onClose }: { onClose: () => void }) {
     setError(null);
     try {
       const fromSession = from ? { id: from.id, mode: fromMode } : undefined;
-      const r = await api.post<{ slug: string }>('/api/jobs', { description: text, kind, repoPath, model: model || undefined, options: {}, fromSession });
+      const options = level !== null ? { level } : {};
+      const r = await api.post<{ slug: string }>('/api/jobs', { description: text, kind, repoPath, model: model || undefined, options, fromSession });
       writeStored(LAST_REPO_KEY, repoPath);
       onClose();
       if (r?.slug) navigate({ name: 'job', slug: r.slug });
@@ -193,7 +202,9 @@ export function NewJobSheet({ onClose }: { onClose: () => void }) {
     <Sheet title="Start a new job" onClose={onClose} busy={busy} className="new-job-sheet">
       <HowThisWorks id="new-job">
         <p>Describe the job in a line and pick where it runs. A Foreman (a Claude Code session) starts on it straight away: it writes up what it will do and asks you before any code changes. Pushes and pull requests always ask you too.</p>
-        <p>Its <strong>options</strong> (stages, reviewers, notes) start at the usual defaults; change them later with <strong>Options</strong> in the job menu. To pick up something you already discussed with Claude Code, open <strong>Start from a past conversation</strong>.</p>
+        <p><strong>Levels</strong> set how much process the job gets. <strong>L0 Tweak</strong>: one build, the checks, and you look at the diff. <strong>L1 Small</strong>: a quick plan you approve, one reviewer. <strong>L2 Standard</strong>: a short spec and plan, the tester, 3–4 reviewers. <strong>L3 Large</strong>: the full workflow, every reviewer and Fable second looks. Each level shows what runs next to it.</p>
+        <p>As you type, the rules suggest a level from your description (no AI involved): risky areas such as sign-in, data scoping or migrations need at least L2 or L3. Pick another level any time; after that the suggestion no longer changes your pick. If you pick below what the rules suggest, the Foreman asks before building. The Foreman also suggests a level in its first brief; if it differs, a card in the conversation lets you choose. Change it later with the level chip in the job header.</p>
+        <p>The level sets the job’s <strong>options</strong> (stages, reviewers); fine-tune them later with <strong>Options</strong> in the job menu. To pick up something you already discussed with Claude Code, open <strong>Start from a past conversation</strong>.</p>
       </HowThisWorks>
       <form onSubmit={(e) => { e.preventDefault(); void submit(); }}>
         <fieldset className="sheet-fields" disabled={busy}>
@@ -220,6 +231,8 @@ export function NewJobSheet({ onClose }: { onClose: () => void }) {
               <input type="radio" name="kind" value="bug" checked={kind === 'bug'} onChange={() => setKind('bug')} /> Bug fix
             </label>
           </div>
+
+          <LevelPicker levels={meta?.levels} value={level} suggestion={suggestion} byHand={picked !== null} onPick={setPicked} disabled={busy} />
 
           <label className="field sheet-field" htmlFor={repoId}><span>Repository</span></label>
           <select

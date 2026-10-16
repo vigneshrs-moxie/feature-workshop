@@ -6,6 +6,24 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { suggestLevel, changedPaths, RISK_TRIGGERS } from '../lib/levels.js';
+import * as shared from '../lib/level-rules.js';
+
+test('levels: the rules live in level-rules.js, which the new UI imports, so it has no Node built-ins', async () => {
+  assert.equal(suggestLevel, shared.suggestLevel, 'levels.js re-exports the very same function');
+  assert.equal(RISK_TRIGGERS, shared.RISK_TRIGGERS);
+  const src = await fs.readFile(new URL('../lib/level-rules.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /^\s*import\b/m, 'no imports at all: it must bundle for the browser as it is');
+});
+
+test('levels: floorReasons are only the reasons that set the floor', () => {
+  const r = suggestLevel({ description: 'Let managers change roles on the people page' });
+  assert.equal(r.floor, 3);
+  assert.equal(r.floorReasons.length, 2);
+  assert.ok(r.floorReasons.every((s) => /so at least L\d\.$/.test(s)));
+  assert.deepEqual(r.reasons.slice(0, -1), r.floorReasons, 'the size reason comes last');
+  assert.deepEqual(suggestLevel({ description: 'Fix the typo in the footer' }).floorReasons, []);
+  assert.equal(suggestLevel({ description: 'Add a new column to the ticket list' }).floorReasons.length, 1, 'a table or column: at least L2');
+});
 
 test('levels: size words decide when nothing risky is mentioned', () => {
   assert.equal(suggestLevel({ description: 'Fix the typo in the footer' }).level, 0);

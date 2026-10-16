@@ -1,7 +1,7 @@
 // What the job menu and ⌘K do to a job, in one place so both behave the same. Each call is one
 // dashboard route (dashboard/server.js); the live events that follow bring the page up to date.
 import type { ApiClient } from '../api/client';
-import type { Closed, GateRequest, GateResult, JobPolicyResult, PolicyId, Usage } from '../api/types';
+import type { Closed, GateRequest, GateResult, JobOptions, JobPolicyResult, LevelNumber, OptionsResult, PolicyId, Usage } from '../api/types';
 import type { Store } from '../state/store';
 
 const job = (slug: string) => `/api/job/${encodeURIComponent(slug)}`;
@@ -49,6 +49,20 @@ export async function setJobPolicy(api: ApiClient, store: Store, slug: string, d
  */
 export async function sendGate(api: ApiClient, slug: string, body: GateRequest): Promise<GateResult> {
   return api.post<GateResult>(`${job(slug)}/gate`, body);
+}
+
+/**
+ * Change a job's level (POST /api/job/:slug/options), from the next stage. The new level brings its
+ * own stages, reviewers, testing, Fable points and models (the same defaults the consequence line
+ * describes); the documents you provided, your notes and the fix rounds are kept. The dashboard
+ * audits it, and the conversation says "Level changed from L2 Standard to L3 Large".
+ */
+export async function setJobLevel(api: ApiClient, slug: string, current: JobOptions | null | undefined, level: LevelNumber): Promise<OptionsResult> {
+  const keep: JobOptions = {};
+  if (current?.provided && typeof current.provided === 'object') keep.provided = current.provided;
+  if (typeof current?.notes === 'string') keep.notes = current.notes;
+  if (typeof current?.review_rounds === 'number') keep.review_rounds = current.review_rounds;
+  return api.post<OptionsResult>(`${job(slug)}/options`, { options: { ...keep, level } });
 }
 
 /** Carry on now: start the jobs paused by the usage limit again. Returns how many started. */

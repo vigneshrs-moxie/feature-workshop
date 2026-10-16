@@ -669,7 +669,7 @@ function chipOptions(current, chips) {
 async function saveChipOptions(f, options) {
   if (!options) return;
   await writeOptions(f.dir, options, { title: f.options?.title ?? f.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
-  await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options, via: 'gate' });
+  await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options, via: 'gate', was: f.options?.level ?? null });
   cached = null;
 }
 
@@ -1021,7 +1021,8 @@ async function routePost(urlPath, req, res) {
     let options;
     try { options = normalizeOptions(body.options ?? {}, { previous: f.options }); } catch (err) { throw new HttpError(400, err.message); }
     await writeOptions(f.dir, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
-    await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options });
+    // was: the level before, so the conversation can say "Level changed from L2 Standard to L3 Large".
+    await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options, was: f.options?.level ?? null });
     cached = null;
     return sendJson(res, 200, { ok: true, options, summary: describeOptions(options) });
   }

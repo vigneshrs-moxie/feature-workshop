@@ -50,6 +50,14 @@ function setup({ routes = {}, jobs = [ALPHA], slug = 'alpha' }: { routes?: Route
 afterEach(() => { localStorage.clear(); });
 
 describe('Foreman pane', () => {
+  it('shows the LevelCard in the conversation when the Foreman suggests another level', async () => {
+    setup({ jobs: [{ ...ALPHA, level: 2, suggestedLevel: 3, levelReason: 'Touches office visibility.' }] });
+    const conversation = screen.getByRole('region', { name: 'Conversation' });
+    const c = await within(conversation).findByRole('region', { name: 'The Foreman suggests L3 Large' });
+    expect(c).toHaveTextContent('L3 · Touches office visibility.');
+    expect(screen.getByRole('button', { name: 'L2 Standard' })).toBeInTheDocument();
+  });
+
   it('shows the job header: title, kind, repo, branch, cost and status', async () => {
     setup();
     expect(screen.getByRole('heading', { name: 'Job alpha' })).toBeInTheDocument();
@@ -58,6 +66,7 @@ describe('Foreman pane', () => {
     expect(screen.getByText('fix/sample')).toBeInTheDocument();
     expect(screen.getByText('$1.50')).toHaveAttribute('title', 'What this job has cost so far.');
     expect(screen.getByText('Needs you')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'No level yet' })).toHaveAttribute('aria-haspopup', 'dialog');
     await screen.findByText('Spec is ready');
   });
 

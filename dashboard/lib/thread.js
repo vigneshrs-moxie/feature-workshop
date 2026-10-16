@@ -9,7 +9,7 @@
 // ?before=<id>.
 
 import { createHash } from 'node:crypto';
-import { describeOptions } from './options.js';
+import { describeOptions, levelChangeLine } from './options.js';
 
 export const PAGE = 60;
 
@@ -71,7 +71,11 @@ export function buildThread({ briefs = [], audit = [], autoResume = true }) {
     else if (e.action === 'takeover') note('You took this job over from the terminal.');
     else if (e.action === 'close') note(`You marked this job ${e.as === 'dropped' ? 'dropped' : 'done'}${e.note ? ` (“${e.note}”)` : ''}${e.worktreeRemoved ? `, and removed its worktree (${e.worktreeRemoved}); the branch is kept` : ''}.`);
     else if (e.action === 'reopen') note(e.how === 'message' ? 'Reopened: you sent the Foreman a message.' : 'You reopened this job.');
-    else if (e.action === 'options') note(`You changed how this job runs (from the next stage): ${describeOptions(e.options).join(' ')}`);
+    else if (e.action === 'options') {
+      // `was`: the level before the change (audit lines from before it was recorded have none).
+      const changed = levelChangeLine(e.was, e.options?.level);
+      note(`You changed how this job runs (from the next stage): ${changed ? `${changed} ` : ''}${describeOptions(e.options).join(' ')}`);
+    }
   }
   thread.sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')));
   // Two identical audit lines (same moment, same words) would share an id: number the repeats.

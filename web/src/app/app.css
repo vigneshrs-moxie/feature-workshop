@@ -636,6 +636,59 @@ a:hover { text-decoration: underline; }
 
 .closed-note { margin: var(--space-1) 0 0; font-size: var(--text-sm); }
 
+/* ---------- Levels: the New job picker, the LevelCard, the header's level chip ---------- */
+
+.level-picker .rule-option-kind .chip { font-weight: var(--weight-regular); }
+.level-suggested { margin-top: var(--space-1); }
+.level-floor { margin: var(--space-2) 0 0; }
+
+/* The LevelCard is a question card (.perm-card[data-ask='question']): its colours come from there. */
+.level-card-head { margin: 0 0 var(--space-2); }
+.level-sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-2); margin: 0 0 var(--space-2); }
+.level-source { padding: var(--space-2); border: 1px solid var(--border-2); border-radius: var(--radius-md); font-size: var(--text-sm); }
+.level-source dt { margin-bottom: var(--space-1); font-size: var(--text-xs); }
+.level-source dd { margin: 0; }
+.level-chosen { margin: 0; font-size: var(--text-sm); }
+.level-consequence { margin: var(--space-2) 0 0; font-size: var(--text-sm); }
+.level-done { margin: 0; font-size: var(--text-sm); }
+.level-card .how { margin-top: var(--space-2); }
+
+.level-menu { position: relative; flex: none; }
+.level-chip { height: 22px; background: var(--bg-3); color: var(--text-1); font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.level-chip:hover { background: var(--bg-4); }
+.level-chip[aria-expanded='true'] { border-color: var(--accent); }
+.level-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--space-1));
+  z-index: 10;
+  width: min(360px, 80vw);
+  padding: var(--space-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-md);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-2);
+  font-size: var(--text-sm);
+}
+.level-pop p { margin: 0 0 var(--space-1); }
+.level-pop-list { display: flex; flex-direction: column; gap: 2px; margin: var(--space-1) 0 0; padding: var(--space-1) 0 0; list-style: none; border-top: 1px solid var(--border-1); }
+.level-pop-list button {
+  display: block;
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.level-pop-list button:enabled:hover { background: var(--bg-3); }
+.level-pop-list button[aria-current='true'] { color: var(--accent); cursor: default; }
+.level-pop-list button:disabled:not([aria-current='true']) { color: var(--text-3); cursor: not-allowed; }
+.level-pop .level-done { margin-top: var(--space-2); }
+
 .toast {
   position: fixed;
   right: var(--space-4);

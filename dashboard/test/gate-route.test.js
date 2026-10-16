@@ -236,11 +236,12 @@ test('gate: composes the reply, patches options from the chips, sends it with it
   const opt = audit.find((e) => e.action === 'options' && e.slug === 'gate-job');
   assert.equal(opt.via, 'gate');
   assert.equal(opt.options.level, 2);
+  assert.equal(opt.was, 1, 'the level before, for the conversation note');
 
   const job = await get('/api/job/gate-job');
   assert.deepEqual(job.answeredBriefs, [2]);
   assert.ok(job.thread.some((t) => t.kind === 'you' && t.gateBrief === 2 && t.sendKind === 'approve'));
-  assert.ok(job.thread.some((t) => t.kind === 'note' && t.text.startsWith('You changed how this job runs')));
+  assert.ok(job.thread.some((t) => t.kind === 'note' && t.text.startsWith('You changed how this job runs (from the next stage): Level changed from L1 Small to L2 Standard. Level: L2 Standard')));
 });
 
 test('gate: with a reply in progress nothing is sent; the text comes back and the options are saved; /send refuses', async () => {

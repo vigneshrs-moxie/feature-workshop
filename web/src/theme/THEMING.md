@@ -105,6 +105,9 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `.brief-card` | a brief (`.is-answered` once answered; `.brief-head`, `.brief-headline`, `.brief-body`, `.brief-state`) |
 | `.problem`, `.live-row`, `.decision`, `.blocked-line`, `.auto-fold` | a problem card, the live row, a decision line, a blocked line, the folded routine steps |
 | `.perm-card` | a permission or question card (`.question-card` on questions, `.is-risky` when Claude Code flags the step); `.perm-head`, `.perm-headline`, `.perm-preview`, `.perm-actions`, `.ask-label` |
+| `.level-card` | the LevelCard: also a `.perm-card` with `data-ask="question"`, so it takes the question card's look; `.level-sources`, `.level-source` (rules and Foreman side by side), `.level-chosen`, `.level-consequence`, `.level-done` |
+| `.level-chip`, `.level-pop` | the job header's level chip (also a `.chip`) and its panel (`.level-pop-list`, the current level `aria-current`) |
+| `.level-picker` | the New job sheet's level choice (`.rule-option` rows), `.level-suggested`, `.level-floor` (the under-the-floor note, a `.perm-warn`) |
 | `.composer` | the message box at the foot of the Foreman pane; `.composer-input`, `.composer-bar` |
 | `.palette` | the ⌘K command palette; `.palette-input`, `.palette-option` (`.is-active`), `.palette-foot` |
 | `.sheet`, `.sheet-backdrop` | every sheet (New job, Mark done, keys, Always allow, Send preview); `.sheet-title`, `.sheet-actions` |

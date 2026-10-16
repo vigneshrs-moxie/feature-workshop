@@ -267,11 +267,26 @@ export function describeOptions(o) {
 
 /**
  * The levels as the page needs them (meta.levels): kept small. skip and reviewers are the level's
- * defaults, so the page can say what moving between levels adds ("L1→L2 adds: …").
+ * defaults, so the page can say what moving between levels adds ("L1→L2 adds: …"); so are
+ * manualTest (you try it yourself) and fable (Fable second-look points).
  */
 export function levelsForClient() {
   return LEVELS.map((l) => ({
     level: l.level, label: levelLabel(l.level), name: l.name, hint: l.hint, flow: l.flow, models: { ...l.models },
     skip: [...l.skip], reviewers: Array.isArray(l.reviewers) ? [...l.reviewers] : l.reviewers,
+    manualTest: l.manualTest, fable: [...l.fable],
   }));
+}
+
+/**
+ * The line an options change opens with in the job's conversation when it changed the level:
+ * "Level changed from L2 Standard to L3 Large." (or "from none yet"). Null when the level stayed
+ * the same, or the earlier level isn't known (`was` undefined: an audit line from before this).
+ */
+export function levelChangeLine(was, now) {
+  if (was === undefined) return null;
+  const before = isLevel(was) ? was : null;
+  const after = isLevel(now) ? now : null;
+  if (before === after) return null;
+  return `Level changed from ${before === null ? 'none yet' : levelLabel(before)} to ${after === null ? 'none (the Foreman suggests one)' : levelLabel(after)}.`;
 }

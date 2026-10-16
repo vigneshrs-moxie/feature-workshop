@@ -1,5 +1,33 @@
 // Invented jobs and helpers for the store tests. No real job names.
-import type { Job, LiveEvent, Permission, Snapshot } from '../api/types';
+import type { Job, LevelInfo, LiveEvent, Permission, ReviewerInfo, Snapshot } from '../api/types';
+
+/** meta.levels as the dashboard sends them (lib/options.js levelsForClient). */
+const OPUS = 'claude-opus-5-5';
+const SONNET = 'claude-sonnet-5-5';
+export const REVIEWERS: ReviewerInfo[] = [
+  { id: 'feature-reviewer', label: 'Head inspector' }, { id: 'feature-review-permissions', label: 'Locksmith' },
+  { id: 'feature-review-tests', label: 'Gauge' }, { id: 'feature-review-conventions', label: 'Stickler' },
+  { id: 'feature-review-errors', label: 'Fuse' }, { id: 'feature-review-db', label: 'Mason' },
+  { id: 'feature-review-performance', label: 'Stopwatch' }, { id: 'feature-review-ui', label: 'Painter' },
+];
+export const LEVELS: LevelInfo[] = [
+  {
+    level: 0, label: 'L0 Tweak', name: 'Tweak', flow: 'quick', hint: 'One build, then the checks (npm run check/build); you look at the diff. No plan to approve.',
+    models: { foreman: OPUS, build: SONNET, checks: SONNET }, skip: ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'test', 'review'], reviewers: [], manualTest: false, fable: [],
+  },
+  {
+    level: 1, label: 'L1 Small', name: 'Small', flow: 'quick', hint: 'A quick plan you approve, then build, checks, you try it, one reviewer.',
+    models: { foreman: OPUS, build: OPUS, checks: OPUS }, skip: ['spec', 'refine', 'investigate', 'spec-update'], reviewers: ['feature-reviewer'], manualTest: true, fable: [],
+  },
+  {
+    level: 2, label: 'L2 Standard', name: 'Standard', flow: 'small', hint: 'A short spec and plan you approve, build in steps, the tester, you try it, 3–4 reviewers.',
+    models: { foreman: OPUS, build: OPUS, checks: SONNET }, skip: ['refine'], reviewers: 'auto', manualTest: true, fable: [],
+  },
+  {
+    level: 3, label: 'L3 Large', name: 'Large', flow: 'large', hint: 'Spec, product interview, investigation, a plan you approve, build in steps, the tester, you try it, every reviewer plus Fable.',
+    models: { foreman: OPUS, build: OPUS, checks: SONNET }, skip: [], reviewers: REVIEWERS.map((r) => r.id), manualTest: true, fable: ['plan', 'review'],
+  },
+];
 
 export function job(slug: string, group: Job['group'], extra: Partial<Job> = {}): Job {
   return { slug, title: `Job ${slug}`, group, permissions: 0, ...extra };
