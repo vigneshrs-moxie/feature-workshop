@@ -10,7 +10,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
@@ -192,4 +192,39 @@ test('server: a stream from an earlier dashboard run is told to resync', async (
   const { event } = await waitForEvent('since=3&epoch=00000000', () => true);
   assert.equal(event.type, 'resync');
   assert.equal(event.data.reason, 'restarted');
+});
+
+test('server: meta lists the levels; an L3 job starts an Opus Foreman and writes schema 2 options', async () => {
+  const { body: snap } = await getJson('/api/snapshot');
+  assert.deepEqual(snap.meta.levels.map((l) => l.label), ['L0 Tweak', 'L1 Small', 'L2 Standard', 'L3 Large']);
+  assert.ok(snap.meta.levels.every((l) => l.hint && l.flow));
+
+  const repo = path.join(root, 'level-repo');
+  await fs.mkdir(repo);
+  execFileSync('git', ['-C', repo, 'init', '-q'], { stdio: 'pipe' });
+  const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': snap.meta.token }, body: JSON.stringify(body) });
+
+  const bad = await post('/api/jobs', { description: 'Add audit columns to visits', repoPath: repo, options: { level: 9 } });
+  assert.equal(bad.status, 400, 'a level outside 0–3 is refused');
+
+  // The pretend Foreman answers in demo mode; nothing real runs.
+  const res = await post('/api/jobs', { description: 'Add audit columns to visits', repoPath: repo, options: { level: 3 } });
+  assert.equal(res.status, 200);
+  const { slug } = await res.json();
+  const options = JSON.parse(await fs.readFile(path.join(featuresDir, slug, 'options.json'), 'utf8'));
+  assert.equal(options.schema_version, 2);
+  assert.equal(options.level, 3);
+  assert.equal(options.flow, 'large', 'an old skill still reads a flow');
+  const audit = (await fs.readFile(path.join(root, 'state', 'audit.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+  const started = audit.find((a) => a.action === 'new-job' && a.slug === slug);
+  assert.equal(started.model, 'claude-opus-5-5', 'L3 never starts a Fable Foreman');
+
+  // Changing the options later: the level and review rounds up to 3 are kept.
+  const saved = await post(`/api/job/${slug}/options`, { options: { level: 2, review_rounds: 3 } });
+  assert.equal(saved.status, 200);
+  const back = await saved.json();
+  assert.equal(back.options.level, 2);
+  assert.equal(back.options.flow, 'small');
+  assert.equal(back.options.review_rounds, 3);
+  assert.equal(back.summary[0], 'Level: L2 Standard (small flow).');
 });

@@ -222,12 +222,27 @@ export interface Usage {
   [key: string]: unknown;
 }
 
+/** One workflow level, L0 Tweak to L3 Large (meta.levels, lib/options.js LEVELS). */
+export interface LevelInfo {
+  level: 0 | 1 | 2 | 3;
+  /** "L2 Standard". */
+  label: string;
+  name: string;
+  /** One line: what runs at this level. */
+  hint: string;
+  /** The flow an un-updated skill reads for it. */
+  flow: 'quick' | 'small' | 'large';
+  models: { foreman: string; build: string; checks: string };
+}
+
 export interface Meta {
   token: string;
   demo?: boolean;
   /** The Foreman models you can choose, the everyday one first. */
   models?: ModelChoice[];
   settings?: Settings;
+  /** L0–L3 with their hints, for the level picker. */
+  levels?: LevelInfo[];
   [key: string]: unknown;
 }
 

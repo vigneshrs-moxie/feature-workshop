@@ -99,7 +99,7 @@ export function optionsFields(catalog, o, { open = false } = {}) {
         <label><input type="radio" name="reviewersMode" value="auto"${checked(reviewersAuto)}> The usual ones for this kind of change (the Foreman picks)</label>
         <label><input type="radio" name="reviewersMode" value="list"${checked(!reviewersAuto)}> Only these:</label>
         <div class="checks reviewer-list">${catalog.reviewers.map((r) => `<label title="${esc(r.what)}"><input type="checkbox" name="reviewers" value="${esc(r.id)}"${checked(!reviewersAuto && cur.reviewers.includes(r.id))}> ${esc(r.label)} <small>${esc(r.what)} · ${esc(r.model)}</small></label>`).join('')}</div>
-        <label class="field inline"><span>Fix rounds after review</span><select name="review_rounds"><option value="1"${cur.review_rounds === 1 ? ' selected' : ''}>1</option><option value="2"${cur.review_rounds === 2 ? ' selected' : ''}>2</option></select></label>
+        <label class="field inline"><span>Fix rounds after review</span><select name="review_rounds"><option value="1"${cur.review_rounds === 1 ? ' selected' : ''}>1</option><option value="2"${cur.review_rounds === 2 ? ' selected' : ''}>2</option><option value="3"${cur.review_rounds === 3 ? ' selected' : ''}>3</option></select></label>
       </fieldset>
       <label class="check-line"><input type="checkbox" name="manual_test"${checked(cur.manual_test)}> I’ll try it myself on my computer before review (the <b>Try it on your computer</b> panel)</label>
       <fieldset class="field checks"><legend>Ask Fable for a second look</legend>

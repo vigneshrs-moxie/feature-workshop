@@ -29,7 +29,7 @@ import { LimitWatch } from './lib/limits.js';
 import { LocalRunner } from './lib/local.js';
 import { History, historyMarkdown } from './lib/history.js';
 import { removeWorktree, checkWorktree } from './lib/close.js';
-import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions } from './lib/options.js';
+import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions, foremanModel, levelsForClient } from './lib/options.js';
 import { isWebAppPath, serveWebApp } from './lib/web-app.js';
 import { EventLog, resumePoint, openStream } from './lib/events.js';
 import { groupCards } from './lib/snapshot.js';
@@ -438,6 +438,8 @@ async function meta() {
     featuresDir: FEATURES_DIR, crewModels: await crewModels(), demo: DEMO, models: MODELS, readDirs: await readDirs(),
     settings: await state.getSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT },
     jobOptions: { flows: Object.entries(FLOWS).map(([id, f]) => ({ id, label: f.label, note: f.note, model: f.model, defaults: defaultsFor(id) })), skippable: SKIPPABLE, providable: PROVIDABLE, reviewers: REVIEWERS, fablePoints: FABLE_POINTS },
+    // L0–L3 with their one-line "what runs" hints, for the level picker.
+    levels: levelsForClient(),
   };
 }
 
@@ -715,7 +717,7 @@ async function routePost(urlPath, req, res) {
     const f = await featureBySlug(m[1]);
     if (!f) throw new HttpError(404, 'No job by that name.');
     let options;
-    try { options = normalizeOptions(body.options ?? {}); } catch (err) { throw new HttpError(400, err.message); }
+    try { options = normalizeOptions(body.options ?? {}, { previous: f.options }); } catch (err) { throw new HttpError(400, err.message); }
     await writeOptions(f.dir, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
     await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options });
     cached = null;
@@ -831,7 +833,8 @@ async function routePost(urlPath, req, res) {
     if (!repo.ok) throw new HttpError(400, repo.reason);
     let options;
     try { options = normalizeOptions(body.options ?? {}); } catch (err) { throw new HttpError(400, err.message); }
-    const model = MODELS.some((x) => x.id === body.model) ? body.model : FLOWS[options.flow]?.model ?? OPUS;
+    // The one you picked, else the job's models.foreman, else Opus: never Fable because the job is L3.
+    const model = foremanModel(body.model, options, MODELS.map((x) => x.id));
     const kind = body.kind === 'bug' ? 'bug' : 'feature';
     // Starting from a past conversation: a fresh Foreman reads an extract of it (history.md), or
     // a copy of the conversation itself becomes the Foreman (the original is never changed).
