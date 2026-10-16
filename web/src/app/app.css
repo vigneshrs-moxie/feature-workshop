@@ -44,7 +44,7 @@ a:hover { text-decoration: underline; }
 
 .pane { min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4); }
 .pane-jobs { background: var(--bg-1); border-right: 1px solid var(--border-1); }
-.pane-foreman { background: var(--bg-0); }
+.pane-foreman { background: var(--bg-0); padding-bottom: 0; } /* the sticky composer sits flush: nothing peeks out under it */
 .pane-preview { background: var(--bg-1); border-left: 1px solid var(--border-1); }
 .foreman-column { max-width: var(--foreman-max); margin: 0 auto; }
 
@@ -287,6 +287,7 @@ a:hover { text-decoration: underline; }
 .auto-fold { color: var(--text-3); font-size: var(--text-sm); }
 .auto-fold summary { cursor: pointer; }
 .auto-fold summary:hover { color: var(--text-2); }
+.auto-fold summary .thread-time { margin-left: var(--space-2); }
 .auto-steps { margin: var(--space-1) 0 0 var(--space-5); }
 .auto-steps li { padding: 2px 0; }
 

@@ -31,10 +31,26 @@ function useDoc(slug: string, file: string | null): Doc | null {
   return doc?.key === key ? doc.doc : { state: 'loading' };
 }
 
-function DocBody({ doc, what }: { doc: Doc | null; what: string }) {
+const plainText = (html: string) =>
+  html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+
+/**
+ * A brief's first line is normally its headline (the dashboard reads the headline from it), which
+ * the card already shows above the body: leave that first paragraph out, so it isn't said twice.
+ * Only when the paragraph is the headline plus at most a short tag such as "(demo)".
+ */
+export function withoutLeadHeadline(html: string, headline: string): string {
+  const want = plainText(headline);
+  const m = /^\s*<p>([\s\S]*?)<\/p>\s*/.exec(html);
+  if (!want || !m) return html;
+  const lead = plainText(m[1]);
+  return lead.startsWith(want) && lead.length - want.length <= 20 ? html.slice(m[0].length) : html;
+}
+
+function DocBody({ doc, what, headline }: { doc: Doc | null; what: string; headline?: string }) {
   if (!doc || doc.state === 'loading') return <p className="muted">Loading the {what}…</p>;
   if (doc.state === 'error') return <p className="thread-error" role="alert">Couldn’t load the {what}: {doc.message}</p>;
-  return <ServerHtml html={doc.html} />;
+  return <ServerHtml html={headline ? withoutLeadHeadline(doc.html, headline) : doc.html} />;
 }
 
 function DetailFold({ slug, file }: { slug: string; file: string }) {
@@ -75,7 +91,7 @@ export function BriefCard({ slug, brief, now }: { slug: string; brief: ShownBrie
         <p className="brief-headline">{headline}</p>
       </header>
       <div id={bodyId} className="brief-body" hidden={!open}>
-        {open && <DocBody doc={doc} what="brief" />}
+        {open && <DocBody doc={doc} what="brief" headline={headline} />}
         {detailFile && <DetailFold slug={slug} file={detailFile} />}
       </div>
       <ExtrasLines item={item} />

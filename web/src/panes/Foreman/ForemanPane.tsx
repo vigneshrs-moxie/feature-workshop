@@ -40,11 +40,32 @@ function JobThread({ job }: { job: Job }) {
   }, [setCurrent, job.slug, run, dir, worktree, policyOverride]);
   useEffect(() => () => setCurrent(null), [setCurrent]);
 
-  // Open a job at its newest message.
-  const end = useRef<HTMLDivElement>(null);
+  // Open a job at its newest message, and keep following it as replies, cards and steered messages
+  // arrive, unless you've scrolled up to read (then it stays where you are). The whole pane
+  // scrolls, so it goes to the very bottom: there the sticky composer covers nothing.
+  const threadEl = useRef<HTMLElement>(null);
   const loaded = thread.detail !== null;
   useEffect(() => {
-    if (loaded) end.current?.scrollIntoView?.({ block: 'end' });
+    const el = threadEl.current;
+    const pane = el?.closest<HTMLElement>('.pane');
+    if (!el || !pane) return;
+    let follow = true;
+    let pinned = -1; // where we last put it: a scroll event for that may arrive after more content did
+    const toEnd = () => {
+      if (!follow) return;
+      pane.scrollTop = pane.scrollHeight;
+      pinned = pane.scrollTop;
+    };
+    // Stop following only when you scroll up from there; start again when you're back at the bottom.
+    const onScroll = () => {
+      if (pane.scrollHeight - pane.scrollTop - pane.clientHeight < 96) follow = true;
+      else if (pane.scrollTop < pinned - 2) follow = false;
+    };
+    pane.addEventListener('scroll', onScroll, { passive: true });
+    const grew = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(toEnd);
+    grew?.observe(el.parentElement ?? el); // the column: the thread, and the composer's notes under it
+    toEnd();
+    return () => { pane.removeEventListener('scroll', onScroll); grew?.disconnect(); };
   }, [loaded]);
 
   return (
@@ -58,7 +79,7 @@ function JobThread({ job }: { job: Job }) {
         <p>How much asks you depends on the job’s permission setting (job menu, or Settings for all jobs). In <strong>Auto mode</strong> Claude Code’s safety model decides most steps; anything it blocks shows as a dim ⊘ line. Pushes, pull requests, rm -rf and migrations always ask, and org or force pushes are refused.</p>
         <p>The <strong>Job menu</strong> marks the job done or dropped (nothing is deleted; <strong>Reopen</strong> brings it back), links to its options and its classic page, and sets its own permission setting. <strong>⌘K</strong> (Ctrl+K) lists the same actions and more; press <strong>?</strong> for the keys.</p>
       </HowThisWorks>
-      <section className="thread" aria-label="Conversation" aria-busy={thread.loading || thread.loadingOlder}>
+      <section ref={threadEl} className="thread" aria-label="Conversation" aria-busy={thread.loading || thread.loadingOlder}>
         {thread.more && (
           <button
             type="button"
@@ -83,7 +104,6 @@ function JobThread({ job }: { job: Job }) {
         {justSteered.map((s) => <YouMessage key={s.id} text={s.text} at={s.queuedAt ?? null} now={now} steer={s.state} steered />)}
         <JobCards slug={job.slug} now={now} />
         <LiveRow run={run} />
-        <div ref={end} />
       </section>
       <Composer key={job.slug} slug={job.slug} detail={thread.detail} run={run} />
     </>

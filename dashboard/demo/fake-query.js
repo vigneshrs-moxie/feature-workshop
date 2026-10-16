@@ -217,7 +217,12 @@ function result(sessionId, isError, text = '', denials = []) {
 async function advance(dir, { stopping, changes, allowed }) {
   const file = path.join(dir, 'status.json');
   let s = {};
-  try { s = JSON.parse(await fs.readFile(file, 'utf8')); } catch { s = { schema_version: 1, slug: path.basename(dir), title: path.basename(dir), route: 'small', stage: 'spec' }; }
+  try { s = JSON.parse(await fs.readFile(file, 'utf8')); } catch {
+    // A new job: title it from what you typed (options.json), as the real Foreman would.
+    let about = {};
+    try { about = JSON.parse(await fs.readFile(path.join(dir, 'options.json'), 'utf8')); } catch { /* none */ }
+    s = { schema_version: 1, slug: path.basename(dir), title: about.title || path.basename(dir), kind: about.kind, route: 'small', stage: 'spec' };
+  }
   const now = new Date().toISOString();
   if (stopping) {
     Object.assign(s, { stage_state: 'done', waiting_for: null, waiting_since: null, questions: [], next_proposed: 'Stopped by request', updated_at: now });
