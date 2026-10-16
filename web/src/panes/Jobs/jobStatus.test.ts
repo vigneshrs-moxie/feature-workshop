@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { job } from '../../state/test-fixtures';
 import { jobStatus } from './jobStatus';
-import { STAGE_INFO, stageHint, stageLabel } from './stages';
+import { STAGE_NAMES } from '../../theme/tokens';
+import { STAGE_INFO, stageFamily, stageHint, stageLabel } from './stages';
 
 const now = new Date(2026, 9, 15, 15, 0);
 
@@ -55,5 +56,19 @@ describe('stages', () => {
     const dashboard = [...src.matchAll(/\{ id: '([^']+)', label: '([^']+)'/g)].map((m) => [m[1], m[2]]);
     expect(dashboard.length).toBeGreaterThan(5);
     expect(Object.entries(STAGE_INFO).map(([id, s]) => [id, s.label])).toEqual(dashboard);
+  });
+
+  it('puts every stage in one of the six themed families, in workflow order', () => {
+    expect(stageFamily('spec')).toBe('spec');
+    expect(stageFamily('refine')).toBe('spec');
+    expect(stageFamily('spec-update')).toBe('spec');
+    expect(stageFamily('investigate')).toBe('investigate');
+    expect(stageFamily('plan')).toBe('plan');
+    expect(stageFamily('implement')).toBe('build');
+    expect(stageFamily('test')).toBe('test');
+    for (const ship of ['review', 'pr1', 'pr2', 'staging-qa', 'pr3']) expect(stageFamily(ship)).toBe('review');
+    expect(stageFamily('mystery')).toBe('spec');
+    expect(stageFamily(null)).toBe('spec');
+    for (const id of Object.keys(STAGE_INFO)) expect(STAGE_NAMES).toContain(stageFamily(id));
   });
 });

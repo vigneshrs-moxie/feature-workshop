@@ -9,6 +9,7 @@ import { autoBlockedReason, autoModeOf, HARD_LINES_NOTE, POLICIES } from '../../
 import { sentence } from '../../components/permissions/rules';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
+import { ThemePicker } from './ThemePicker';
 
 type Load = { state: 'loading' } | { state: 'ready'; list: RulesList } | { state: 'error'; message: string };
 
@@ -127,13 +128,14 @@ export function SettingsView() {
   }, [api, rulesVersion, mine, policy]);
 
   return (
-    <main className="pane pane-foreman" aria-label="Settings">
+    <main className="pane pane-foreman" data-pane="settings" aria-label="Settings">
       <div className="foreman-column settings">
         <h2 className="pane-title">Settings</h2>
         <HowThisWorks id="settings">
           <p><strong>Permissions</strong> decide how much the Foreman and its crew may do without asking you. <strong>Routine steps automatic</strong> is the default. <strong>Auto mode</strong> lets Claude Code’s own safety model judge each step; what it blocks is listed in the conversation as a dim line, so nothing is hidden. A change applies at once, also to replies already running. {HARD_LINES_NOTE}</p>
           <p>When a permission card asks you about a step, <strong>Always allow…</strong> saves a rule so steps exactly like it run without asking. Each rule covers only what it says: one exact command, commands starting with the same words, one file, one folder, one website or one connection tool. Anything else still asks.</p>
           <p>Rules apply to every job the dashboard runs, and only there: they aren’t added to your Claude Code settings, so your terminal sessions are unaffected. They’re not used while “ask about everything” is on, or for steps Claude Code flags as risky. Remove a rule here and those steps ask again.</p>
+          <p><strong>Theme</strong> changes how the Workshop looks and nothing else; it’s remembered in this browser.</p>
         </HowThisWorks>
         <PolicyChoice />
         <section aria-label="Always allow rules">
@@ -161,6 +163,7 @@ export function SettingsView() {
             </>
           )}
         </section>
+        <ThemePicker />
       </div>
     </main>
   );

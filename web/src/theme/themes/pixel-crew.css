@@ -1,0 +1,9 @@
+/* Theme: pixel-crew — the cute retro vibe, modernised: a pixel font for headings and chips only
+   (body text stays readable), chunky 2px borders, 8-bit-style status glyphs drawn in CSS, a
+   16-colour console palette, a subtle dither pattern on the panes. Fonts bundle locally under
+   web/public (no CDN; the CSP allows no inline styles).
+   Scope every rule under html[data-theme="pixel-crew"]. Override the semantic tokens first
+   (--group-*, --ask-*, --stage-*, --chip-radius, --card-radius, --pane-pattern, --font-heading),
+   then decorate the hooks in theme/THEMING.md. Looks only: layout and components stay the same.
+   Stub: the theme agent fills this in. */
+html[data-theme="pixel-crew"] {}

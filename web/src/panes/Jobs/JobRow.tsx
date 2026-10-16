@@ -6,7 +6,7 @@ import { jobHref } from '../../app/router';
 import { fullTime, relativeTime } from '../../lib/time';
 import { jobHueStyle } from '../../theme/hue';
 import { jobStatus } from './jobStatus';
-import { stageHint, stageLabel } from './stages';
+import { stageFamily, stageHint, stageLabel } from './stages';
 
 export interface JobRowProps {
   job: Job;
@@ -26,7 +26,7 @@ export function JobRow({ job, selected, now, rail = false }: JobRowProps) {
   if (rail) {
     const name = [title, status.label, stage, ago && `updated ${/^\d+[mhd]$/.test(ago) ? `${ago} ago` : ago}`].filter(Boolean).join(' · ');
     return (
-      <a className="job-rail-item" href={jobHref(job.slug)} aria-current={selected ? 'page' : undefined} aria-label={name} title={`${name}. ${status.hint}`}>
+      <a className="job-rail-item" data-group={status.group} href={jobHref(job.slug)} aria-current={selected ? 'page' : undefined} aria-label={name} title={`${name}. ${status.hint}`}>
         {dot}
         {glyph}
       </a>
@@ -34,7 +34,7 @@ export function JobRow({ job, selected, now, rail = false }: JobRowProps) {
   }
 
   return (
-    <a className="job-row" href={jobHref(job.slug)} aria-current={selected ? 'page' : undefined} title={`Open ${title}: its conversation with the Foreman.`}>
+    <a className="job-row" data-group={status.group} href={jobHref(job.slug)} aria-current={selected ? 'page' : undefined} title={`Open ${title}: its conversation with the Foreman.`}>
       <span className="job-row-line">
         {dot}
         <span className="job-row-title">{title}</span>
@@ -43,11 +43,11 @@ export function JobRow({ job, selected, now, rail = false }: JobRowProps) {
         )}
       </span>
       <span className="job-row-line job-row-meta">
-        <span className={`job-status status-${status.group}`} title={status.hint}>
+        <span className={`job-status status-${status.group}`} data-group={status.group} title={status.hint}>
           {glyph}
           <span className="job-status-label">{status.label}</span>
         </span>
-        {stage && <span className="stage-chip" title={stageHint(job.stage)}>{stage}</span>}
+        {stage && <span className="stage-chip" data-stage={stageFamily(job.stage)} title={stageHint(job.stage)}>{stage}</span>}
       </span>
     </a>
   );

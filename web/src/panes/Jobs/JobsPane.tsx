@@ -29,7 +29,7 @@ export function JobsPane({ selected }: { selected: string | null }) {
   if (rail) {
     const needs = needsYouCount(state);
     return (
-      <nav className="pane pane-jobs is-rail" aria-label="Jobs">
+      <nav className="pane pane-jobs is-rail" data-pane="jobs" aria-label="Jobs">
         <button
           type="button"
           className="btn btn-quiet rail-toggle"
@@ -45,7 +45,7 @@ export function JobsPane({ selected }: { selected: string | null }) {
           </span>
         )}
         {JOB_GROUPS.map((g) => (groups[g].length ? (
-          <section key={g} className="rail-group" aria-label={GROUP_LABELS[g]}>
+          <section key={g} className="rail-group" data-group={g} aria-label={GROUP_LABELS[g]}>
             <ul>
               {groups[g].map((j) => (
                 <li key={j.slug}><JobRow job={j} selected={j.slug === selected} now={now} rail /></li>
@@ -58,7 +58,7 @@ export function JobsPane({ selected }: { selected: string | null }) {
   }
 
   return (
-    <nav className="pane pane-jobs" aria-label="Jobs">
+    <nav className="pane pane-jobs" data-pane="jobs" aria-label="Jobs">
       <div className="pane-head">
         <h2 className="pane-title">Jobs</h2>
         <button
@@ -79,8 +79,8 @@ export function JobsPane({ selected }: { selected: string | null }) {
       </HowThisWorks>
       {state.status === 'ready' && state.jobs.length === 0 && <p className="muted">No jobs yet.</p>}
       {JOB_GROUPS.map((g) => (groups[g].length ? (
-        <section key={g} className="job-group" aria-label={GROUP_LABELS[g]}>
-          <h3 className="job-group-title" title={GROUP_HINTS[g]}>
+        <section key={g} className="job-group" data-group={g} aria-label={GROUP_LABELS[g]}>
+          <h3 className="job-group-title" data-group={g} title={GROUP_HINTS[g]}>
             <span><span className={`glyph status-${g}`} aria-hidden="true">{GROUP_GLYPHS[g]}</span> {GROUP_LABELS[g]}</span>
             <span className="count">{groups[g].length}</span>
           </h3>

@@ -6,6 +6,9 @@
 //
 // tokens.css is generated from this file (the Vite plugin in vite.config.ts rewrites it whenever it
 // differs, and a test fails if the committed copy is out of date). Edit this file, never tokens.css.
+//
+// Themes (theme/themes/<id>.css, picked by theme/theme.ts) override the *semantic* tokens at the
+// foot of this file under html[data-theme="<id>"]; see theme/THEMING.md.
 
 export interface ThemeInput {
   /** Hue of the neutral greys (a hint of blue at 260). */
@@ -112,6 +115,60 @@ export const STATIC_TOKENS: Record<string, string> = {
   'preview-w': '40%',
 };
 
+/** The five job groups (dashboard/lib/snapshot.js), the four kinds of ask, and the six stage families. */
+export const GROUP_NAMES = ['needs-you', 'running', 'paused', 'idle', 'done'] as const;
+export const ASK_NAMES = ['permission', 'question', 'hardline', 'blocked'] as const;
+export const STAGE_NAMES = ['spec', 'investigate', 'plan', 'build', 'test', 'review'] as const;
+
+/**
+ * Semantic tokens: what a theme restyles (theme/THEMING.md). Each points at a base token, so the
+ * default look is exactly what it was before themes existed; a theme overrides these under its
+ * html[data-theme="<id>"] and the components follow, since app.css reads only these.
+ *   --group-<g>-fg/-bg/-line   a job group's text (glyph + label), tint and edge colour
+ *   --ask-<k>-fg/-bg/-line     a card's label, background and border/stripe, per kind of ask
+ *   --stage-<s>-fg/-bg         a stage chip's text and background
+ *   --chip-radius, --card-radius, --pane-pattern (a background image or none), --font-heading
+ */
+export function semanticTokens(): Record<string, string> {
+  const out: Record<string, string> = {};
+  const groups: Record<(typeof GROUP_NAMES)[number], [string, string, string]> = {
+    'needs-you': ['var(--status-warn)', 'var(--status-warn-bg)', 'var(--status-warn)'],
+    running: ['var(--status-info)', 'var(--status-info-bg)', 'var(--status-info)'],
+    paused: ['var(--status-paused)', 'var(--status-paused-bg)', 'var(--status-paused)'],
+    idle: ['var(--text-2)', 'var(--bg-3)', 'var(--border-2)'],
+    done: ['var(--status-ok)', 'var(--status-ok-bg)', 'var(--status-ok)'],
+  };
+  for (const g of GROUP_NAMES) {
+    const [fg, bg, line] = groups[g];
+    out[`group-${g}-fg`] = fg;
+    out[`group-${g}-bg`] = bg;
+    out[`group-${g}-line`] = line;
+  }
+  // Today every card has the accent border and a text-2 label; a blocked line is dim.
+  const asks: Record<(typeof ASK_NAMES)[number], [string, string, string]> = {
+    permission: ['var(--text-2)', 'var(--bg-2)', 'var(--accent)'],
+    question: ['var(--text-2)', 'var(--bg-2)', 'var(--accent)'],
+    hardline: ['var(--text-2)', 'var(--bg-2)', 'var(--accent)'],
+    blocked: ['var(--text-3)', 'transparent', 'var(--border-2)'],
+  };
+  for (const k of ASK_NAMES) {
+    const [fg, bg, line] = asks[k];
+    out[`ask-${k}-fg`] = fg;
+    out[`ask-${k}-bg`] = bg;
+    out[`ask-${k}-line`] = line;
+  }
+  // Today every stage chip is the same quiet outline.
+  for (const s of STAGE_NAMES) {
+    out[`stage-${s}-fg`] = 'var(--text-2)';
+    out[`stage-${s}-bg`] = 'transparent';
+  }
+  out['chip-radius'] = 'var(--radius-sm)';
+  out['card-radius'] = 'var(--radius-lg)';
+  out['pane-pattern'] = 'none';
+  out['font-heading'] = 'var(--font-display)';
+  return out;
+}
+
 /** With reduced motion, only fades remain: no movement or scaling, and pulses stop (see app.css). */
 export const REDUCED_MOTION_TOKENS: Record<string, string> = {
   'motion-shift': '0px',
@@ -128,7 +185,7 @@ export function tokensCss(): string {
   return [
     '/* Generated from tokens.ts by the Vite plugin in vite.config.ts. Do not edit by hand. */',
     '',
-    block(':root, [data-theme="dark"]', { ...STATIC_TOKENS, ...colorTokens(DARK) }).replace('{\n', '{\n  color-scheme: dark;\n'),
+    block(':root, [data-theme="dark"]', { ...STATIC_TOKENS, ...colorTokens(DARK), ...semanticTokens() }).replace('{\n', '{\n  color-scheme: dark;\n'),
     '',
     '@media (prefers-reduced-motion: reduce) {',
     block(':root', REDUCED_MOTION_TOKENS, '  '),

@@ -5,7 +5,7 @@ import { classicHref } from '../../app/router';
 
 export function PreviewPane({ slug }: { slug: string | null }) {
   return (
-    <aside className="pane pane-preview" aria-label="Preview">
+    <aside className="pane pane-preview" data-pane="preview" aria-label="Preview">
       <h2 className="pane-title">Preview</h2>
       <HowThisWorks id="preview">
         <p>Later this pane shows the app, the diff, tests and a terminal beside the conversation. Until then, these links open the same things in the classic view.</p>

@@ -1,0 +1,8 @@
+/* Theme: blueprint — architect's blueprint: deep blue paper with a faint grid, white/chalk line
+   art, cards like taped index cards with coloured sticky-tab statuses, clean geometric caps for
+   headings. Nods to "Workshop / Foreman / crew".
+   Scope every rule under html[data-theme="blueprint"]. Override the semantic tokens first
+   (--group-*, --ask-*, --stage-*, --chip-radius, --card-radius, --pane-pattern, --font-heading),
+   then decorate the hooks in theme/THEMING.md. Looks only: layout and components stay the same.
+   Stub: the theme agent fills this in. */
+html[data-theme="blueprint"] {}

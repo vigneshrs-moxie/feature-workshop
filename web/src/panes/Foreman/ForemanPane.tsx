@@ -115,7 +115,7 @@ export function ForemanPane({ slug }: { slug: string | null }) {
   const job = jobBySlug(state, slug);
   const now = useNow();
   return (
-    <main className="pane pane-foreman" aria-label="Foreman">
+    <main className="pane pane-foreman" data-pane="foreman" aria-label="Foreman">
       <div className="foreman-column">
         {job ? (
           <JobThread key={job.slug} job={job} />

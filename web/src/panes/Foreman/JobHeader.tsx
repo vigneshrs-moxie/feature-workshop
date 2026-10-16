@@ -170,7 +170,7 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree }: J
         <JobMenu job={job} dir={dir} policyOverride={policyOverride} run={run} worktree={worktree} />
       </div>
       <p className="job-facts muted">
-        <span className={`status status-${job.group}`} title={GROUP_HINTS[job.group]}>{GROUP_LABELS[job.group] ?? job.group}</span>
+        <span className={`status status-${job.group}`} data-group={job.group} title={GROUP_HINTS[job.group]}>{GROUP_LABELS[job.group] ?? job.group}</span>
         {kind && <span title="What kind of job this is.">{kind}</span>}
         {repo && <span title="The repository this job works in.">{repo}</span>}
         {br && <span className="num" title="The git branch this job builds on.">{br}</span>}

@@ -2,12 +2,30 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { colorTokens, DARK, oklch, STATIC_TOKENS, tokensCss } from './tokens';
+import { ASK_NAMES, colorTokens, DARK, GROUP_NAMES, oklch, semanticTokens, STAGE_NAMES, STATIC_TOKENS, tokensCss } from './tokens';
 
 describe('design tokens', () => {
   it('the committed tokens.css matches tokens.ts (run `npm run web:build` to regenerate)', () => {
     const file = fileURLToPath(new URL('./tokens.css', import.meta.url));
     expect(readFileSync(file, 'utf8')).toBe(tokensCss());
+  });
+
+  it('gives every group, kind of ask and stage its semantic tokens, pointing at base tokens', () => {
+    const s = semanticTokens();
+    const base = new Set([...Object.keys(STATIC_TOKENS), ...Object.keys(colorTokens(DARK))]);
+    for (const g of GROUP_NAMES) for (const v of ['fg', 'bg', 'line']) expect(s[`group-${g}-${v}`]).toBeTruthy();
+    for (const k of ASK_NAMES) for (const v of ['fg', 'bg', 'line']) expect(s[`ask-${k}-${v}`]).toBeTruthy();
+    for (const st of STAGE_NAMES) for (const v of ['fg', 'bg']) expect(s[`stage-${st}-${v}`]).toBeTruthy();
+    for (const k of ['chip-radius', 'card-radius', 'pane-pattern', 'font-heading']) expect(s[k]).toBeTruthy();
+    // The defaults keep the old look: each value is a base token (or a plain keyword), never a new colour.
+    for (const [k, v] of Object.entries(s)) {
+      const ref = /^var\(--([a-z0-9-]+)\)$/.exec(v);
+      if (ref) expect(base.has(ref[1]), `${k} points at an unknown token ${ref[1]}`).toBe(true);
+      else expect(['none', 'transparent'], `${k} = ${v}`).toContain(v);
+    }
+    expect(s['group-needs-you-fg']).toBe('var(--status-warn)');
+    expect(s['pane-pattern']).toBe('none');
+    expect(tokensCss()).toContain('--group-needs-you-fg: var(--status-warn);');
   });
 
   it('formats oklch compactly', () => {

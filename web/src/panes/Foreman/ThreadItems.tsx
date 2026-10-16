@@ -94,6 +94,7 @@ export function ThreadItemView({ item, now, steer = null }: { item: ThreadItem; 
       return (
         <p
           className={`thread-item thread-line blocked-line by-${item.by}`}
+          data-ask="blocked"
           title={item.by === 'auto'
             ? 'Auto mode’s safety model refused this step by itself, so it never came to you. The Foreman was told and carries on without it.'
             : 'The dashboard refuses this step in every setting (a hard line). The Foreman was told and carries on without it.'}

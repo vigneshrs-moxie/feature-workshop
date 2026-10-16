@@ -1,0 +1,9 @@
+/* Every theme, one file each, all loaded at once; only the one named by html[data-theme] applies.
+   A theme restyles the semantic tokens and hooks listed in theme/THEMING.md, nothing else.
+   Register a new theme here and in theme/theme.ts (THEMES). */
+@import './default.css';
+@import './neon-arcade.css';
+@import './blueprint.css';
+@import './pixel-crew.css';
+@import './sunset-paper.css';
+@import './candy-pop.css';

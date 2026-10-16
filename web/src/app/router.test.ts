@@ -17,6 +17,11 @@ describe('hash router', () => {
     ['#/settings', { name: 'settings' }],
     ['#/settings/', { name: 'settings' }],
     ['#/settings/x', { name: 'home' }],
+    // A query after the hash (the theme preview) changes nothing about the route.
+    ['#/?theme=blueprint', { name: 'home' }],
+    ['#/settings?theme=blueprint', { name: 'settings' }],
+    ['#/job/alpha?theme=blueprint', { name: 'job', slug: 'alpha' }],
+    ['#/job/alpha/id/FR-001?theme=blueprint', { name: 'job', slug: 'alpha' }],
   ])('%s', (hash, route) => {
     expect(parseHash(hash)).toEqual(route);
   });

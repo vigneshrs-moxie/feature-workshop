@@ -69,7 +69,7 @@ export function QuestionCard({ permission: p, now, showJob = false }: { permissi
   const ready = questions.length > 0 && answers.every(([, a]) => a);
 
   return (
-    <article className="thread-item perm-card question-card" aria-label={`Question: ${questions[0]?.question ?? 'from the Foreman'}`}>
+    <article className="thread-item perm-card question-card" data-ask="question" aria-label={`Question: ${questions[0]?.question ?? 'from the Foreman'}`}>
       <CardHead p={p} now={now} showJob={showJob} verb={questions.length === 1 ? 'asks you' : `asks you ${questions.length} questions`} />
       <form
         onSubmit={(e) => { e.preventDefault(); if (ready) void send({ decision: 'allow', answers: Object.fromEntries(answers) }); }}

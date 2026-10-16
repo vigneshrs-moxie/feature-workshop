@@ -1,0 +1,8 @@
+/* Theme: candy-pop — dark charcoal with saturated pastel pops (bubblegum, mint, lemon, sky),
+   pill-shaped chips, playful Memphis dots and squiggles as faint pane backgrounds, rounded
+   everything. The most "fun" one while staying tidy.
+   Scope every rule under html[data-theme="candy-pop"]. Override the semantic tokens first
+   (--group-*, --ask-*, --stage-*, --chip-radius, --card-radius, --pane-pattern, --font-heading),
+   then decorate the hooks in theme/THEMING.md. Looks only: layout and components stay the same.
+   Stub: the theme agent fills this in. */
+html[data-theme="candy-pop"] {}

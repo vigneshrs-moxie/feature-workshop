@@ -4,12 +4,14 @@
 //   #/job/<slug>/id/<id>  the same job: the dashboard links requirement IDs (FR-001...) in
 //                 replies and briefs this way; the job stays open (the ID itself is ignored for now)
 //   #/settings    Settings (your "Always allow" rules) in the middle pane
-// Anything else falls back to #/.
+// Anything else falls back to #/. A query after the hash (#/?theme=x, read by theme/theme.ts)
+// is ignored here, so it changes nothing about the route.
 import { useEffect, useState } from 'react';
 
 export type Route = { name: 'home' } | { name: 'settings' } | { name: 'job'; slug: string };
 
-export function parseHash(hash: string): Route {
+export function parseHash(rawHash: string): Route {
+  const hash = rawHash.replace(/\?.*$/, '');
   if (/^#\/settings\/?$/.test(hash)) return { name: 'settings' };
   const m = /^#\/job\/([^/?#]+)(?:\/id\/[^/?#]+)?\/?$/.exec(hash);
   if (m) {

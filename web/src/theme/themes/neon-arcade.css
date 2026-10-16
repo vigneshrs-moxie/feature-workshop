@@ -1,0 +1,7 @@
+/* Theme: neon-arcade — deep ink-navy night, electric magenta + cyan + lime accents, soft glows on
+   active things (never on text), hue-lit job dots, group headers as neon signs.
+   Scope every rule under html[data-theme="neon-arcade"]. Override the semantic tokens first
+   (--group-*, --ask-*, --stage-*, --chip-radius, --card-radius, --pane-pattern, --font-heading),
+   then decorate the hooks in theme/THEMING.md. Looks only: layout and components stay the same.
+   Stub: the theme agent fills this in. */
+html[data-theme="neon-arcade"] {}

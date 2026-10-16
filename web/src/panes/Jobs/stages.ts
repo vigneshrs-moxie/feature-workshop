@@ -26,3 +26,27 @@ export function stageHint(id: string | null | undefined): string {
   const info = STAGE_INFO[id];
   return info ? `Stage: ${info.label}. ${info.tip}` : `Stage: ${id}.`;
 }
+
+/** The six stage families themes colour (--stage-<family>-fg/-bg), in workflow order. */
+export type StageFamily = 'spec' | 'investigate' | 'plan' | 'build' | 'test' | 'review';
+
+const FAMILY: Record<string, StageFamily> = {
+  spec: 'spec',
+  refine: 'spec',
+  'spec-update': 'spec',
+  investigate: 'investigate',
+  plan: 'plan',
+  implement: 'build',
+  test: 'test',
+  review: 'review',
+  // Shipping stages (the PRs and staging QA) are reviews of the finished work.
+  pr1: 'review',
+  pr2: 'review',
+  'staging-qa': 'review',
+  pr3: 'review',
+};
+
+/** Which family a stage id belongs to, for the chip's data-stage hook. Unknown ids count as 'spec'. */
+export function stageFamily(id: string | null | undefined): StageFamily {
+  return (id && FAMILY[id]) || 'spec';
+}

@@ -1,4 +1,7 @@
-/* The shell's styles. Every value comes from tokens.css (generated from theme/tokens.ts). */
+/* The shell's styles. Every value comes from tokens.css (generated from theme/tokens.ts).
+   Job groups, kinds of ask, stage chips, radii, the pane pattern and the heading font read the
+   semantic tokens (--group-*, --ask-*, --stage-*, --chip-radius, --card-radius, --pane-pattern,
+   --font-heading), which a theme under theme/themes/ overrides. Hooks are listed in theme/THEMING.md. */
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -14,7 +17,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3 { margin: 0; font-family: var(--font-display); font-weight: var(--weight-bold); }
+h1, h2, h3 { margin: 0; font-family: var(--font-heading); font-weight: var(--weight-bold); }
 p { margin: 0 0 var(--space-2); }
 ul { margin: 0; padding: 0; list-style: none; }
 
@@ -42,7 +45,7 @@ a:hover { text-decoration: underline; }
   min-height: 0;
 }
 
-.pane { min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4); }
+.pane { min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4); background-image: var(--pane-pattern); }
 .pane-jobs { background: var(--bg-1); border-right: 1px solid var(--border-1); }
 .pane-foreman { background: var(--bg-0); padding-bottom: 0; } /* the sticky composer sits flush: nothing peeks out under it */
 .pane-preview { background: var(--bg-1); border-left: 1px solid var(--border-1); }
@@ -76,7 +79,7 @@ a:hover { text-decoration: underline; }
 .chip {
   padding: 0 var(--space-2);
   border: 1px solid var(--border-2);
-  border-radius: var(--radius-sm);
+  border-radius: var(--chip-radius);
   color: var(--text-2);
   font-size: var(--text-xs);
 }
@@ -154,14 +157,21 @@ a:hover { text-decoration: underline; }
 .job-status { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; white-space: nowrap; }
 .job-status-label { overflow: hidden; text-overflow: ellipsis; }
 
+/* Stage chips: data-stage names the family (spec, investigate, plan, build, test, review). */
 .stage-chip {
   flex: none;
   padding: 0 var(--space-1);
   border: 1px solid var(--border-2);
-  border-radius: var(--radius-sm);
-  color: var(--text-2);
+  border-radius: var(--chip-radius);
+  color: var(--stage-spec-fg);
+  background: var(--stage-spec-bg);
   font-size: var(--text-xs);
 }
+.stage-chip[data-stage='investigate'] { color: var(--stage-investigate-fg); background: var(--stage-investigate-bg); }
+.stage-chip[data-stage='plan'] { color: var(--stage-plan-fg); background: var(--stage-plan-bg); }
+.stage-chip[data-stage='build'] { color: var(--stage-build-fg); background: var(--stage-build-bg); }
+.stage-chip[data-stage='test'] { color: var(--stage-test-fg); background: var(--stage-test-bg); }
+.stage-chip[data-stage='review'] { color: var(--stage-review-fg); background: var(--stage-review-bg); }
 
 .rail-toggle { height: 24px; padding: 0 var(--space-2); font-family: var(--font-mono); }
 
@@ -171,9 +181,9 @@ a:hover { text-decoration: underline; }
 .rail-needs {
   min-width: 20px;
   padding: 0 var(--space-1);
-  border-radius: var(--radius-sm);
-  background: var(--status-warn-bg);
-  color: var(--status-warn);
+  border-radius: var(--chip-radius);
+  background: var(--group-needs-you-bg);
+  color: var(--group-needs-you-fg);
   font-size: var(--text-xs);
   text-align: center;
 }
@@ -212,12 +222,14 @@ a:hover { text-decoration: underline; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .alert-settings-note { flex-basis: 100%; margin: var(--space-1) 0 0; color: var(--status-warn); }
 
+/* Job status colour (glyph, label, group header, header pill), one token per group. Rows and
+   group headers also carry data-group for a theme's tints, stripes and signs. */
 .status { font-weight: var(--weight-medium); }
-.status-needs-you { color: var(--status-warn); }
-.status-running { color: var(--status-info); }
-.status-paused { color: var(--status-paused); }
-.status-idle { color: var(--text-2); }
-.status-done { color: var(--status-ok); }
+.status-needs-you { color: var(--group-needs-you-fg); }
+.status-running { color: var(--group-running-fg); }
+.status-paused { color: var(--group-paused-fg); }
+.status-idle { color: var(--group-idle-fg); }
+.status-done { color: var(--group-done-fg); }
 
 .classic-links li { margin-bottom: var(--space-2); }
 
@@ -266,13 +278,13 @@ a:hover { text-decoration: underline; }
 .thread-time { margin-left: auto; color: var(--text-3); font-size: var(--text-xs); }
 .thread-line .thread-time { margin-left: var(--space-1); }
 
-.you { align-self: flex-end; max-width: 85%; padding: var(--space-2) var(--space-3); border-radius: var(--radius-lg); background: var(--accent-soft); }
+.you { align-self: flex-end; max-width: 85%; padding: var(--space-2) var(--space-3); border-radius: var(--card-radius); background: var(--accent-soft); }
 .you-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .reply, .brief-card, .problem, .live-row {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border-1);
-  border-radius: var(--radius-lg);
+  border-radius: var(--card-radius);
   background: var(--bg-1);
 }
 .problem { border-color: var(--status-error); background: var(--status-error-bg); }
@@ -310,7 +322,7 @@ a:hover { text-decoration: underline; }
 .brief-toggle:hover .brief-label { color: var(--text-1); }
 .brief-chevron { width: 1em; font-family: var(--font-mono); }
 .brief-label { font-weight: var(--weight-medium); }
-.brief-state { padding: 0 var(--space-1); border-radius: var(--radius-sm); background: var(--status-ok-bg); color: var(--status-ok); font-size: var(--text-xs); }
+.brief-state { padding: 0 var(--space-1); border-radius: var(--chip-radius); background: var(--status-ok-bg); color: var(--status-ok); font-size: var(--text-xs); }
 .brief-headline { margin: var(--space-1) 0 0; font-weight: var(--weight-medium); color: var(--text-1); }
 .brief-body { margin-top: var(--space-2); }
 .brief-detail { margin-top: var(--space-2); border-top: 1px solid var(--border-1); padding-top: var(--space-2); }
@@ -373,14 +385,21 @@ a:hover { text-decoration: underline; }
 .pending-job { margin: var(--space-3) 0 0; font-size: var(--text-base); }
 .needs-you-inbox { margin-top: var(--space-4); }
 
+/* Cards carry data-ask: permission | question | hardline; a blocked line carries data-ask="blocked".
+   The border reads the kind's -line token (a theme may add a stripe from it), the label its -fg. */
 .perm-card {
   padding: var(--space-3);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-lg);
-  background: var(--bg-2);
+  border: 1px solid var(--ask-permission-line);
+  border-radius: var(--card-radius);
+  background: var(--ask-permission-bg);
   box-shadow: var(--shadow-1);
 }
+.perm-card[data-ask='question'] { border-color: var(--ask-question-line); background: var(--ask-question-bg); }
+.perm-card[data-ask='hardline'] { border-color: var(--ask-hardline-line); background: var(--ask-hardline-bg); }
 .perm-card.is-risky { border-color: var(--status-warn); }
+.perm-card .ask-label { color: var(--ask-permission-fg); }
+.perm-card[data-ask='hardline'] .ask-label { color: var(--ask-hardline-fg); }
+.blocked-line { color: var(--ask-blocked-fg); background: var(--ask-blocked-bg); }
 .perm-head { margin-bottom: var(--space-1); font-size: var(--text-sm); }
 .perm-who { display: flex; align-items: baseline; gap: var(--space-1); margin: 0; color: var(--text-2); }
 .perm-who strong { color: var(--text-1); font-weight: var(--weight-medium); }
@@ -469,6 +488,8 @@ a:hover { text-decoration: underline; }
 .rule-row-main { flex: 1; min-width: 0; }
 .rule-row-label { margin: 0; overflow-wrap: anywhere; }
 .rule-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin: 2px 0 0; font-size: var(--text-sm); }
+.theme-picker { margin-top: var(--space-5); }
+.theme-hint { margin: var(--space-2) 0 0; font-size: var(--text-sm); }
 
 /* ---------- Composer (Send, Steer, Stop) ---------- */
 
@@ -514,7 +535,7 @@ a:hover { text-decoration: underline; }
 .check { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); font-size: var(--text-sm); }
 
 /* A steered message's delivery state: always words, the colour only backs them up. */
-.steer-state { padding: 0 var(--space-2); border-radius: var(--radius-sm); font-size: var(--text-xs); color: var(--text-2); background: var(--bg-3); }
+.steer-state { padding: 0 var(--space-2); border-radius: var(--chip-radius); font-size: var(--text-xs); color: var(--text-2); background: var(--bg-3); }
 .steer-delivered { color: var(--status-info); background: var(--status-info-bg); }
 .steer-acted-on { color: var(--status-ok); background: var(--status-ok-bg); }
 .steer-cancelled, .steer-unanswered { color: var(--status-warn); background: var(--status-warn-bg); }

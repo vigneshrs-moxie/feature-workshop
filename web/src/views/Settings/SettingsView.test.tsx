@@ -112,4 +112,20 @@ describe('Settings: permissions', () => {
     act(() => store.dispatch({ type: 'event', event: ev(11, 'settings', null, { policy: 'ask-all', jobPolicy: {} }) }));
     expect(screen.getByRole('radio', { name: /Ask about everything/ })).toBeChecked();
   });
+
+  it('offers every theme with a description, and a pick applies at once and is remembered', async () => {
+    document.documentElement.setAttribute('data-theme', 'default');
+    setup([{ rules: [], active: true, unreadable: null }]);
+    const picker = screen.getByRole('group', { name: 'How the Workshop looks' });
+    const radios = within(picker).getAllByRole('radio');
+    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop']);
+    expect(within(picker).getByRole('radio', { name: /^Default/ })).toBeChecked();
+    expect(within(picker).getByText(/Ink-navy night/)).toBeInTheDocument();
+    fireEvent.click(within(picker).getByRole('radio', { name: /Candy pop/ }));
+    expect(document.documentElement.getAttribute('data-theme')).toBe('candy-pop');
+    expect(localStorage.getItem('workshop.theme')).toBe('candy-pop');
+    expect(within(picker).getByRole('radio', { name: /Candy pop/ })).toBeChecked();
+    expect(screen.getByText(/changes only how things look/)).toBeInTheDocument();
+    document.documentElement.removeAttribute('data-theme');
+  });
 });

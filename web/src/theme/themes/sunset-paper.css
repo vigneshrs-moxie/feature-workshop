@@ -1,0 +1,8 @@
+/* Theme: sunset-paper — the LIGHT theme: warm cream paper, coral / amber / teal / plum inks, big
+   rounded corners, bold colour blocks on group headers, generous whitespace. Daytime-friendly.
+   Remember to flip color-scheme to light and re-set the base bg/text/border tokens too.
+   Scope every rule under html[data-theme="sunset-paper"]. Override the semantic tokens first
+   (--group-*, --ask-*, --stage-*, --chip-radius, --card-radius, --pane-pattern, --font-heading),
+   then decorate the hooks in theme/THEMING.md. Looks only: layout and components stay the same.
+   Stub: the theme agent fills this in. */
+html[data-theme="sunset-paper"] {}

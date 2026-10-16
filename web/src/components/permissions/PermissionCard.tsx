@@ -60,18 +60,18 @@ export function PermissionCard({ permission: p, now, showJob = false }: { permis
   const draft = p.draft && p.draft.options?.length ? p.draft : null;
 
   return (
-    <article className={`thread-item perm-card${risky ? ' is-risky' : ''}`} aria-label={`Permission: ${plain.headline}`}>
+    <article className={`thread-item perm-card${risky ? ' is-risky' : ''}`} data-ask={p.hardLine ? 'hardline' : 'permission'} aria-label={`Permission: ${plain.headline}`}>
       <CardHead p={p} now={now} showJob={showJob} verb="wants to" />
       <h3 className="perm-headline">{plain.headline}</h3>
       {plain.detail && <p className="perm-detail">{plain.detail}</p>}
       {plain.preview && <pre className="perm-preview">{plain.preview}</pre>}
       {p.hardLine ? (
         <p className="perm-reason muted" title="Hard lines ask you every time, whatever your permission setting, and can’t be always allowed.">
-          <span className="chip">Hard line</span> {p.hardLine.reason}
+          <span className="chip ask-label">Hard line</span> {p.hardLine.reason}
         </p>
       ) : p.decisionReason && (
         <p className="perm-reason muted" title={p.fromAutoMode ? 'Auto mode’s safety model couldn’t decide this one by itself, so it asks you.' : 'Why Claude Code asked about this one.'}>
-          {p.fromAutoMode ? <><span className="chip">Auto mode</span> </> : 'Why it asks: '}{p.decisionReason}
+          {p.fromAutoMode ? <><span className="chip ask-label">Auto mode</span> </> : 'Why it asks: '}{p.decisionReason}
         </p>
       )}
       {risky && <p className="perm-warn" role="note"><span aria-hidden="true">⚠ </span>Take a careful look: this may be hard to undo.</p>}

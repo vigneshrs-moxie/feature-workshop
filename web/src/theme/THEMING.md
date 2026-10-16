@@ -1,0 +1,122 @@
+# Theming the Workshop
+
+A theme is one CSS file, `web/src/theme/themes/<id>.css`, with every rule scoped under
+`html[data-theme="<id>"]`. It is registered in `theme.ts` (`THEMES`: id, label, one-line
+description) and loaded by `themes/index.css`. Which theme is on is decided at startup by
+`theme.ts`: `?theme=<id>` in the address (before or after the hash: `/next/?theme=x` or
+`#/?theme=x`), else localStorage `workshop.theme`, else `default`. The picker in Settings
+saves to localStorage and applies live.
+
+**The rule: a theme changes looks only.** Colour, type, radii, borders, backgrounds, patterns,
+shadows, decoration with pseudo-elements, and motion within the limits below. It never moves,
+hides, adds or re-orders anything, never changes text, and never changes what a control does.
+Layout and components are identical in every theme.
+
+Limits every theme keeps:
+- Status always has a text label next to its colour; colour only backs the words up.
+- Text contrast at or above APCA Lc 60 on its background; focus rings stay visible.
+- Motion is transform/opacity only, 300 ms or less, and stops under `prefers-reduced-motion`.
+- The job's own hue dot (`.hue-dot`, from `hue.ts`) stays.
+- Fonts are system fonts or bundled under `web/public`; no CDN. The CSP forbids inline styles
+  and scripts, so everything lives in the CSS file.
+- The **needs-you** colour is the loudest on screen and nothing else may use it.
+
+## Semantic tokens
+
+Generated into `tokens.css` from `tokens.ts` (`semanticTokens()`). Their defaults point at base
+tokens so the default theme looks exactly as before; a theme overrides them under its scope.
+Base tokens (`--bg-*`, `--text-*`, `--border-*`, `--accent*`, `--status-*`, `--font-*`,
+`--radius-*`, `--space-*`, `--shadow-*`) may be overridden too, for a whole new palette.
+
+### Job groups (`--group-<group>-fg` / `-bg` / `-line`)
+
+| Group | Meaning | Shared hue family |
+| --- | --- | --- |
+| `needs-you` | waiting for you: a permission click, a question, a go-ahead | hot pink / magenta |
+| `running` | the Foreman or its crew are working now | cyan / teal |
+| `paused` | stopped by the Claude usage limit | amber |
+| `idle` | nothing happening, nothing asked | lavender / blue-grey |
+| `done` | finished, marked done or dropped | green |
+
+- `-fg`: the text colour of the status glyph and label, the group header and the header pill.
+- `-bg`: a tint for the group (rows, header blocks, the Needs-you count in the rail).
+- `-line`: an edge colour (stripes, underlines, sticky tabs, neon outlines).
+
+### Kinds of ask (`--ask-<kind>-fg` / `-bg` / `-line`)
+
+| Kind | Meaning | Shared hue family |
+| --- | --- | --- |
+| `permission` | allow / deny a step | orange |
+| `question` | the Foreman asks you to choose | violet |
+| `hardline` | push, PR, rm -rf, migrations: always asks, can't be always-allowed | red |
+| `blocked` | refused by auto mode or a hard line without a card | slate grey |
+
+- `-line`: the card's border; a theme may also draw a stripe from it.
+- `-bg`: the card's background. `-fg`: the label (`.ask-label` chip: "Hard line", "Auto mode").
+
+### Stages (`--stage-<family>-fg` / `-bg`)
+
+`spec`, `investigate`, `plan`, `build`, `test`, `review`, in workflow order: give them a walk
+of distinct soft hues. `stageFamily()` in `panes/Jobs/stages.ts` maps the dashboard's ids onto
+these: refine and spec-update are `spec`, implement is `build`, the PRs and staging QA are
+`review`.
+
+### Shape, pattern, type
+
+| Token | Meaning | Default |
+| --- | --- | --- |
+| `--chip-radius` | radius of every chip (`.chip`, `.stage-chip`, `.brief-state`, `.steer-state`, `.rail-needs`) | `var(--radius-sm)` |
+| `--card-radius` | radius of every card in the thread (`.reply`, `.brief-card`, `.problem`, `.live-row`, `.perm-card`, `.you`) | `var(--radius-lg)` |
+| `--pane-pattern` | an optional `background-image` on each pane (a grid, dither, dots) | `none` |
+| `--font-heading` | the font of `h1`–`h3` (the brand, pane titles, job title, card headlines) | `var(--font-display)` |
+
+## Hooks
+
+Stable class names and data attributes a theme may target. Their meaning is fixed; do not rename.
+
+### Data attributes
+
+| Hook | On | Values |
+| --- | --- | --- |
+| `data-theme` | `html` | the theme id |
+| `data-group` | `.job-row`, `.job-rail-item`, `.job-status`, `.job-group`, `.job-group-title`, `.rail-group`, the header `.status` pill | `needs-you` `running` `paused` `idle` `done` |
+| `data-ask` | `.perm-card` (permission and question cards), `.blocked-line` | `permission` `question` `hardline` `blocked` |
+| `data-stage` | `.stage-chip` | `spec` `investigate` `plan` `build` `test` `review` |
+| `data-pane` | the three panes (`.pane`) | `jobs` `foreman` `preview`, and `settings` when Settings fills the middle |
+
+### Class names
+
+| Class | What it is |
+| --- | --- |
+| `.app` | the whole shell |
+| `.topbar` | the top bar; `.brand` its title, `.needs` the "n need you" text, `.conn` the connection state |
+| `.usage-banner` | the usage-limit banner under the top bar (`.usage-limited` while paused, `.usage-warn` the heads-up) |
+| `.pane`, `.pane-jobs`, `.pane-foreman`, `.pane-preview` | the three panes; `.panes-rail` on their parent when Jobs is a rail |
+| `.pane-head`, `.pane-title` | a pane's header row and its `h2` title |
+| `.job-group`, `.job-group-title` | a group in the Jobs pane and its heading (glyph, label, count) |
+| `.job-row`, `.job-row-title`, `.job-row-meta`, `.job-status`, `.job-status-label` | one job in the list and its parts |
+| `.job-rail-item`, `.rail-group`, `.rail-needs` | the same in the icon rail |
+| `.hue-dot`, `.glyph` | the job's own colour dot; a status glyph |
+| `.stage-chip` | the stage chip on a job row |
+| `.job-header`, `.job-title`, `.job-facts`, `.status` | the open job's header, title, facts line and status pill |
+| `.thread`, `.thread-item`, `.thread-meta`, `.who`, `.thread-time` | the conversation and the parts every item shares |
+| `.reply` | a reply from the Foreman |
+| `.you` | your message (`.is-steer` when it joined a running reply; `.steer-state` its delivery chip) |
+| `.brief-card` | a brief (`.is-answered` once answered; `.brief-head`, `.brief-headline`, `.brief-body`, `.brief-state`) |
+| `.problem`, `.live-row`, `.decision`, `.blocked-line`, `.auto-fold` | a problem card, the live row, a decision line, a blocked line, the folded routine steps |
+| `.perm-card` | a permission or question card (`.question-card` on questions, `.is-risky` when Claude Code flags the step); `.perm-head`, `.perm-headline`, `.perm-preview`, `.perm-actions`, `.ask-label` |
+| `.composer` | the message box at the foot of the Foreman pane; `.composer-input`, `.composer-bar` |
+| `.palette` | the ⌘K command palette; `.palette-input`, `.palette-option` (`.is-active`), `.palette-foot` |
+| `.sheet`, `.sheet-backdrop` | every sheet (New job, Mark done, keys, Always allow, Send preview); `.sheet-title`, `.sheet-actions` |
+| `.settings` | the Settings view; `.settings-heading`, `.rule-options`, `.rule-option` (`.is-picked`), `.rule-list` |
+| `.theme-picker`, `.theme-option`, `.theme-hint` | the theme picker in Settings |
+| `.btn`, `.btn-primary`, `.btn-danger`, `.btn-quiet`, `.chip`, `.kbd`, `.text-input`, `.text-area`, `.select` | controls |
+| `.how` | a "How this works" fold |
+| `.toast` | the error toast |
+
+## Adding a theme
+
+1. Add it to `THEMES` in `theme.ts` (id, label, one-line description).
+2. Create `themes/<id>.css` with a comment header, every rule under `html[data-theme="<id>"]`.
+3. Add `@import './<id>.css';` to `themes/index.css`.
+4. `npm run web:test` checks the file exists, is scoped, and is imported.

@@ -1,0 +1,4 @@
+/* Theme: default — the base look as tokens.css defines it. Nothing to override here on purpose:
+   the base stylesheet (app/app.css) already reads every semantic token with its default value.
+   Scope: html[data-theme="default"]. See theme/THEMING.md for the tokens and hooks. */
+html[data-theme="default"] {}
