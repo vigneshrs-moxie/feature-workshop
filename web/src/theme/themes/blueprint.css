@@ -164,12 +164,14 @@ html[data-theme="blueprint"] .job-group-title {
   color: var(--text-2);
   background: repeating-linear-gradient(90deg, var(--bp-chalk-2) 0 4px, transparent 4px 7px) 0 100% / 100% 1px no-repeat;
 }
-html[data-theme="blueprint"] .job-group-title[data-group="needs-you"] { color: var(--group-needs-you-fg); background-image: repeating-linear-gradient(90deg, var(--group-needs-you-line) 0 4px, transparent 4px 7px); }
-html[data-theme="blueprint"] .job-group-title[data-group="running"] { color: var(--group-running-fg); background-image: repeating-linear-gradient(90deg, var(--group-running-line) 0 4px, transparent 4px 7px); }
-html[data-theme="blueprint"] .job-group-title[data-group="paused"] { color: var(--group-paused-fg); background-image: repeating-linear-gradient(90deg, var(--group-paused-line) 0 4px, transparent 4px 7px); }
-html[data-theme="blueprint"] .job-group-title[data-group="idle"] { color: var(--group-idle-fg); background-image: repeating-linear-gradient(90deg, var(--group-idle-line) 0 4px, transparent 4px 7px); }
-html[data-theme="blueprint"] .job-group-title[data-group="done"] { color: var(--group-done-fg); background-image: repeating-linear-gradient(90deg, var(--group-done-line) 0 4px, transparent 4px 7px); }
-html[data-theme="blueprint"] .job-group-title .count { color: var(--text-2); }
+/* Each group header wears the same sticky tab as its rows, so the colour reads as a block. */
+html[data-theme="blueprint"] .job-group-title[data-group="needs-you"] { color: var(--group-needs-you-fg); background-color: var(--group-needs-you-bg); background-image: repeating-linear-gradient(90deg, var(--group-needs-you-line) 0 4px, transparent 4px 7px); }
+html[data-theme="blueprint"] .job-group-title[data-group="running"] { color: var(--group-running-fg); background-color: var(--group-running-bg); background-image: repeating-linear-gradient(90deg, var(--group-running-line) 0 4px, transparent 4px 7px); }
+html[data-theme="blueprint"] .job-group-title[data-group="paused"] { color: var(--group-paused-fg); background-color: var(--group-paused-bg); background-image: repeating-linear-gradient(90deg, var(--group-paused-line) 0 4px, transparent 4px 7px); }
+html[data-theme="blueprint"] .job-group-title[data-group="idle"] { color: var(--group-idle-fg); background-color: var(--group-idle-bg); background-image: repeating-linear-gradient(90deg, var(--group-idle-line) 0 4px, transparent 4px 7px); }
+html[data-theme="blueprint"] .job-group-title[data-group="done"] { color: var(--group-done-fg); background-color: var(--group-done-bg); background-image: repeating-linear-gradient(90deg, var(--group-done-line) 0 4px, transparent 4px 7px); }
+html[data-theme="blueprint"] .job-group-title[data-group] { border-radius: var(--radius-md) var(--radius-md) 0 0; }
+html[data-theme="blueprint"] .job-group-title .count { color: var(--text-1); font-weight: var(--weight-medium); }
 
 /* Each row is tinted by its group and wears a sticky tab on its left edge. */
 html[data-theme="blueprint"] .job-row {
@@ -195,7 +197,7 @@ html[data-theme="blueprint"] .job-row-time { color: var(--text-2); }
 /* The job's own dot gets a chalk ring, like a pin on the plan. */
 html[data-theme="blueprint"] .hue-dot { box-shadow: 0 0 0 1px var(--bp-chalk-2); }
 
-html[data-theme="blueprint"] .stage-chip { border-color: transparent; font-weight: var(--weight-medium); letter-spacing: .02em; }
+html[data-theme="blueprint"] .stage-chip { border-color: color-mix(in oklch, currentColor 40%, transparent); font-weight: var(--weight-medium); letter-spacing: .02em; }
 html[data-theme="blueprint"] .chip { border-color: var(--bp-chalk-2); color: var(--text-1); }
 
 /* The icon rail keeps the tabs. */
@@ -275,8 +277,10 @@ html[data-theme="blueprint"] .problem::after {
 html[data-theme="blueprint"] .perm-card[data-ask="question"]::after { background: var(--ask-question-line); }
 html[data-theme="blueprint"] .perm-card[data-ask="hardline"]::after { background: var(--ask-hardline-line); }
 html[data-theme="blueprint"] .problem::after { background: var(--bp-red); }
-html[data-theme="blueprint"] .perm-card { border-top: 2px solid var(--ask-permission-line); }
-html[data-theme="blueprint"] .perm-card[data-ask="question"] { border-top-color: var(--ask-question-line); }
+/* Every ask carries its kind down the left edge as well as across the top: orange for a
+   permission, violet for a question, red for a hard line. */
+html[data-theme="blueprint"] .perm-card { border-top: 2px solid var(--ask-permission-line); box-shadow: inset 4px 0 0 var(--ask-permission-line), 0 1px 2px oklch(0 0 0 / .35), 0 6px 14px oklch(.1 .06 255 / .5); }
+html[data-theme="blueprint"] .perm-card[data-ask="question"] { border-top-color: var(--ask-question-line); box-shadow: inset 4px 0 0 var(--ask-question-line), 0 1px 2px oklch(0 0 0 / .35), 0 6px 14px oklch(.1 .06 255 / .5); }
 html[data-theme="blueprint"] .perm-card[data-ask="hardline"] { border-top-color: var(--ask-hardline-line); box-shadow: inset 4px 0 0 var(--ask-hardline-line), 0 1px 2px oklch(0 0 0 / .35), 0 6px 14px oklch(.1 .06 255 / .5); }
 html[data-theme="blueprint"] .perm-card.is-risky { border-color: var(--bp-card-edge); border-top-color: var(--bp-amber); }
 html[data-theme="blueprint"] .perm-card.is-risky::after { background: var(--bp-amber); }
@@ -305,13 +309,17 @@ html[data-theme="blueprint"] .problem .who { color: var(--bp-red-ink); }
 html[data-theme="blueprint"] .reply a, html[data-theme="blueprint"] .brief-card a, html[data-theme="blueprint"] .perm-card a { color: oklch(.45 .14 255); text-decoration: underline; }
 html[data-theme="blueprint"] .reply .chip, html[data-theme="blueprint"] .brief-card .chip, html[data-theme="blueprint"] .perm-card .chip { border-color: var(--bp-ink-line); color: var(--bp-ink-2); }
 html[data-theme="blueprint"] .perm-card .ask-label {
-  border-color: currentColor;
+  border-color: var(--ask-permission-line);
+  background: oklch(.74 .17 55 / .16);
   font-family: var(--font-heading);
   text-transform: uppercase;
   letter-spacing: .08em;
   font-weight: var(--weight-medium);
 }
-html[data-theme="blueprint"] .perm-card[data-ask="hardline"] .ask-label { background: oklch(.68 .21 25 / .14); }
+html[data-theme="blueprint"] .perm-card[data-ask="question"] .ask-label { border-color: var(--ask-question-line); background: oklch(.7 .16 300 / .16); color: var(--ask-question-fg); }
+html[data-theme="blueprint"] .perm-card[data-ask="hardline"] .ask-label { border-color: var(--ask-hardline-line); background: oklch(.68 .21 25 / .16); }
+html[data-theme="blueprint"] .perm-card .perm-who strong { color: var(--bp-ink); }
+html[data-theme="blueprint"] .perm-card .perm-headline { color: var(--bp-ink); }
 html[data-theme="blueprint"] .brief-state { color: oklch(.42 .14 150); background: oklch(.7 .16 150 / .22); font-weight: var(--weight-medium); }
 html[data-theme="blueprint"] .brief-detail { border-top-color: var(--bp-ink-line); }
 html[data-theme="blueprint"] .reply .typing span { background: var(--bp-ink-2); }
@@ -431,12 +439,21 @@ html[data-theme="blueprint"] .sheet .kbd, html[data-theme="blueprint"] .palette 
 html[data-theme="blueprint"] .sheet .check { color: var(--bp-ink-2); }
 html[data-theme="blueprint"] .sheet .key-row dt { color: var(--bp-ink-2); }
 html[data-theme="blueprint"] .sheet .prose code, html[data-theme="blueprint"] .sheet .preview-text { background: var(--bp-ink-tint); color: var(--bp-ink); }
+/* The "How this works" fold inside a sheet is ink on paper, not chalk. */
+html[data-theme="blueprint"] .sheet .how, html[data-theme="blueprint"] .perm-card .how { border-color: var(--bp-ink-line); background: var(--bp-ink-tint); color: var(--bp-ink-2); }
+html[data-theme="blueprint"] .sheet .how summary, html[data-theme="blueprint"] .perm-card .how summary { color: var(--bp-ink-2); }
+html[data-theme="blueprint"] .sheet .how summary:hover, html[data-theme="blueprint"] .perm-card .how summary:hover,
+html[data-theme="blueprint"] .sheet .how strong, html[data-theme="blueprint"] .perm-card .how strong { color: var(--bp-ink); }
+html[data-theme="blueprint"] .sheet a, html[data-theme="blueprint"] .palette a { color: oklch(.45 .14 255); text-decoration: underline; }
+html[data-theme="blueprint"] .sheet .sheet-fine strong, html[data-theme="blueprint"] .sheet .field strong { color: var(--bp-ink); }
 
 html[data-theme="blueprint"] .palette-input { color: var(--bp-ink); border-bottom: 1px solid var(--bp-ink-line); font-family: var(--font-heading); letter-spacing: .02em; }
 html[data-theme="blueprint"] .palette-input::placeholder { color: var(--bp-ink-3); }
 html[data-theme="blueprint"] .palette-input:focus-visible { border-bottom-color: var(--bg-0); }
 html[data-theme="blueprint"] .palette-list { background: repeating-linear-gradient(transparent 0 21px, var(--bp-rule) 21px 22px) 0 0 / 100% 22px; }
-html[data-theme="blueprint"] .palette-option.is-active { background: var(--bp-ink-tint); box-shadow: inset 3px 0 0 var(--bg-0); }
+/* The active row is run over with a pencil-yellow highlighter. */
+html[data-theme="blueprint"] .palette-option.is-active { background: oklch(.9 .16 95 / .32); box-shadow: inset 3px 0 0 oklch(.82 .17 92); }
+html[data-theme="blueprint"] .palette-option.is-active .kbd { background: oklch(1 0 0 / .7); }
 html[data-theme="blueprint"] .palette-section {
   font-family: var(--font-heading);
   text-transform: uppercase;
@@ -454,9 +471,15 @@ html[data-theme="blueprint"] .settings-heading {
   color: var(--text-1);
   background: linear-gradient(var(--bp-chalk-2), var(--bp-chalk-2)) 0 100% / 100% 1px no-repeat;
 }
-html[data-theme="blueprint"] .rule-option { border-color: var(--bp-chalk-3); background: oklch(1 0 0 / .03); }
-html[data-theme="blueprint"] .rule-option.is-picked { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
-html[data-theme="blueprint"] .rule-option input[type="radio"] { accent-color: var(--accent); }
+html[data-theme="blueprint"] .rule-option { border-color: var(--bp-chalk-3); background: oklch(1 0 0 / .03); border-radius: 0 var(--radius-md) var(--radius-md) 0; box-shadow: inset 3px 0 0 var(--bp-chalk-3); }
+html[data-theme="blueprint"] .rule-option.is-picked { border-color: var(--focus-ring); background: oklch(.9 .16 95 / .12); box-shadow: inset 3px 0 0 var(--focus-ring); }
+html[data-theme="blueprint"] .rule-option input[type="radio"] { accent-color: var(--focus-ring); }
+html[data-theme="blueprint"] .rule-option .chip { border-color: var(--bp-chalk-2); }
+/* Inside a sheet the same options sit on paper: navy ink, not pencil yellow. */
+html[data-theme="blueprint"] .sheet .rule-option { box-shadow: none; border-radius: var(--radius-md); }
+html[data-theme="blueprint"] .sheet .rule-option.is-picked { border-color: var(--bg-0); background: var(--bp-ink-tint); box-shadow: inset 0 0 0 1px var(--bg-0); }
+html[data-theme="blueprint"] .sheet .rule-option input[type="radio"] { accent-color: var(--bg-0); }
+html[data-theme="blueprint"] .sheet .rule-option .chip { border-color: var(--bp-ink-line); }
 html[data-theme="blueprint"] .rule-list { border-color: var(--bp-chalk-2); }
 html[data-theme="blueprint"] .rule-row + .rule-row { border-top-color: var(--bp-chalk-3); }
 html[data-theme="blueprint"] .theme-option { transition: transform var(--dur-fast) var(--ease-out); }
