@@ -56,6 +56,11 @@ describe('Composer', () => {
     expect(localStorage.getItem(draftKey('alpha'))).toBeNull();
   });
 
+  it('starts on the job’s current session model, else the everyday Opus: never Fable unless you pick it', () => {
+    setup({ detail: { ...DETAIL, drive: { mode: 'none', model: null } } });
+    expect(screen.getByRole('combobox')).toHaveValue('claude-opus-5-5');
+  });
+
   it('keeps each job’s draft across job switches', () => {
     const { rerenderWith } = setup();
     fireEvent.change(box(), { target: { value: 'Draft for alpha' } });

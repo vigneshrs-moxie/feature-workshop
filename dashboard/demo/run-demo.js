@@ -47,18 +47,22 @@ const toolUse = (name, input) => ({ type: 'tool_use', id: `tu_${++msgCounter}`, 
 const toolResult = (sessionId, at) => ({ type: 'user', sessionId, timestamp: at, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'x', content: 'ok' }] } });
 const jsonl = (rows) => rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
 
+// The Foreman's model in the demo's session logs: Opus, as at every level (Fable only if you pick it).
+// The composer's Foreman model starts on the job's current session model, so this is what it shows.
+const FOREMAN_MODEL = 'claude-opus-5-5';
+
 async function writeSession({ sessionId, featureDir, prompt, startAgo, conductorTurns, workers, cost }) {
   const rows = [
     { type: 'queue-operation', operation: 'enqueue', sessionId, timestamp: iso(startAgo), content: `${prompt} Private folder: ${featureDir}` },
   ];
   for (const t of conductorTurns) {
     if (t.dispatch) {
-      rows.push(assistant(sessionId, iso(t.ago), 'claude-fable-5-1',
+      rows.push(assistant(sessionId, iso(t.ago), FOREMAN_MODEL,
         [toolUse('Agent', { subagent_type: t.dispatch, description: t.description, prompt: `Private folder: ${featureDir}` })], usage(t.out ?? 900, 60000, 8000)));
       // `waiting`: the Foreman is still waiting for this worker, so no result yet.
       if (!t.waiting) rows.push(toolResult(sessionId, iso(t.ago - 1000)));
     } else {
-      rows.push(assistant(sessionId, iso(t.ago), 'claude-fable-5-1', [{ type: 'text', text: t.text ?? 'Brief.' }], usage(t.out ?? 1500, 90000), 'end_turn'));
+      rows.push(assistant(sessionId, iso(t.ago), FOREMAN_MODEL, [{ type: 'text', text: t.text ?? 'Brief.' }], usage(t.out ?? 1500, 90000), 'end_turn'));
     }
   }
   if (cost) rows.push({ type: 'cost-state', sessionId, totalCostUSD: cost.total, modelUsage: cost.byModel });

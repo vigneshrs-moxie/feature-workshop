@@ -333,8 +333,16 @@ html[data-theme="blueprint"] .reply .typing span { background: var(--bp-ink-2); 
 /* Ink-on-paper for rendered Markdown, code and tables on the cream cards and sheets (replies,
    briefs, permission cards, sheets). The Docs tab's page (.doc-page) sits on the blue sheet itself,
    so it keeps the chalk .prose look of the pane around it. A code block is chalk on blue, never
-   painted with the inline-code ink. */
-html[data-theme="blueprint"] :is(.reply, .brief-card, .perm-card, .sheet) .prose { --row-alt: oklch(.4 .1 255 / .05); }
+   painted with the inline-code ink. The page's text tokens turn to ink here too, so headings, bold
+   lead-ins ("What happened", "Next:"), list markers and rules read on the cream. */
+html[data-theme="blueprint"] :is(.reply, .brief-card, .perm-card, .sheet) .prose {
+  --row-alt: oklch(.4 .1 255 / .05);
+  --text-1: var(--bp-ink);
+  --text-2: var(--bp-ink-2);
+  --border-1: var(--bp-ink-line);
+  --border-2: var(--bp-ink-line);
+  --border-3: var(--bp-ink-line);
+}
 html[data-theme="blueprint"] :is(.reply, .brief-card, .perm-card, .sheet) .prose code { background: var(--bp-ink-tint); color: var(--bp-ink); }
 html[data-theme="blueprint"] :is(.reply, .brief-card, .perm-card, .sheet) .prose pre { background: var(--bg-1); color: var(--bp-chalk); border: 1px solid var(--bp-ink-line); }
 html[data-theme="blueprint"] .reply .prose pre code, html[data-theme="blueprint"] .brief-card .prose pre code,
