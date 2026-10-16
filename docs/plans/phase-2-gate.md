@@ -73,10 +73,6 @@ git -C ~/Projects/claude-feature-workflow diff 9ceba3c..main
 - The L0 diff shows without red and green colours.
 - From phase 1: the usage-limit pause isn't in the demo, and Try it locally, Costs and History search still open the classic view.
 
-## Wording for you to decide
-
-In the New job sheet, the Fable choice for the Foreman model says: "Best judgment, highest cost and quickest to use up your limits. For large or risky jobs." That last sentence suggests picking Fable for L3. **Proposed** (not applied): replace it with "Only if you want it: the Foreman is Opus at every level, and Fable already takes second looks at L3."
-
 ## Appendix: choices made while building
 
 - The Foreman never starts on Fable because a job is large; Fable only takes second looks.
@@ -88,3 +84,4 @@ In the New job sheet, the Fable choice for the Foreman model says: "Best judgmen
 - Other guidance keeps the card open; only Approve, Revise and Stop decide a brief.
 - Replies to an old brief, or approvals of a plan that changed, are refused with a plain message. An approval held for the usage-limit reset is never sent after a later message of yours.
 - The demo uses its own copies of the skill and agent files, so it never reads your Claude folder.
+- Fable Foreman note reworded (approved 2026-10-16)

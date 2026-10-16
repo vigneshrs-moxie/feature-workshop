@@ -58,7 +58,7 @@ const TOKEN = crypto.randomBytes(24).toString('hex');
 
 const MODELS = [
   { id: 'claude-opus-5-5', label: 'Opus 5.5', note: 'The everyday Foreman: strong and much cheaper than Fable. Asks Fable for a second look where your job options say.' },
-  { id: 'claude-fable-5-1', label: 'Fable 5.1', note: 'Best judgment, highest cost and quickest to use up your limits. For large or risky jobs.' },
+  { id: 'claude-fable-5-1', label: 'Fable 5.1', note: 'Best judgment, highest cost and quickest to use up your limits. Only if you want it: the Foreman is Opus at every level, and Fable already takes second looks at L3.' },
   { id: 'claude-haiku-5-5', label: 'Haiku 5.5', note: 'Cheapest. For trying the dashboard out, not real jobs.' },
 ];
 
