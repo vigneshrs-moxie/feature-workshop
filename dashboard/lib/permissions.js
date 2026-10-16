@@ -1,7 +1,10 @@
 // Turns a tool-permission request into plain words for an Approve/Deny card.
-// Inputs come from Claude Code; everything here is display text, escaped by the page.
+// Inputs come from Claude Code; everything here is display text, escaped by the page. The one
+// exception is previewHtml: a Markdown file being written, rendered by the dashboard's sanitising
+// renderer (lib/markdown.js), so the new UI can show it as a page next to its source.
 
 import path from 'node:path';
+import { renderMarkdown } from './markdown.js';
 
 const cut = (s, n) => {
   const t = String(s ?? '');
@@ -16,6 +19,7 @@ export function describePermission(toolName, input = {}, opts = {}) {
   let detail = null;
   let preview = null;
   let risk = 'normal';
+  let previewHtml = null;
 
   switch (toolName) {
     case 'Bash':
@@ -35,6 +39,7 @@ export function describePermission(toolName, input = {}, opts = {}) {
     case 'Write':
       headline = `Create or overwrite a file: ${rel(file)}`;
       preview = cut(input.content, 2500);
+      if (/\.(md|markdown)$/i.test(String(file ?? ''))) previewHtml = renderMarkdown(preview);
       break;
     case 'NotebookEdit':
       headline = `Change a notebook: ${rel(file)}`;
@@ -69,5 +74,5 @@ export function describePermission(toolName, input = {}, opts = {}) {
   }
   if (opts.blockedPath) detail = [detail, `It touches a folder outside the project: ${opts.blockedPath}`].filter(Boolean).join(' ');
   if (opts.defaultToNo) risk = 'high';
-  return { headline, detail, preview, risk };
+  return previewHtml === null ? { headline, detail, preview, risk } : { headline, detail, preview, previewHtml, risk };
 }

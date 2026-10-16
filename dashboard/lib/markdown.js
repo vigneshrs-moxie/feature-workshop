@@ -30,6 +30,25 @@ export function createRenderer() {
     }
   });
 
+  // Task lists ("- [ ] to do", "- [x] done") show a ticked or empty box instead of the brackets.
+  // The box is fixed markup (a disabled checkbox), never text from the document.
+  md.core.ruler.push('workshop_tasks', (state) => {
+    const toks = state.tokens;
+    for (let i = 2; i < toks.length; i++) {
+      const inline = toks[i];
+      if (inline.type !== 'inline' || toks[i - 1].type !== 'paragraph_open' || toks[i - 2].type !== 'list_item_open') continue;
+      const first = inline.children?.[0];
+      const m = first?.type === 'text' ? /^\[([ xX])\]\s+/.exec(first.content) : null;
+      if (!m) continue;
+      const done = m[1] !== ' ';
+      first.content = first.content.slice(m[0].length);
+      const box = new state.Token('html_inline', '', 0);
+      box.content = `<input class="task-box" type="checkbox" disabled${done ? ' checked' : ''} aria-label="${done ? 'Done' : 'Not done'}"> `;
+      inline.children.unshift(box);
+      toks[i - 2].attrJoin('class', 'task-item');
+    }
+  });
+
   const escape = md.utils.escapeHtml;
   md.renderer.rules.text = (tokens, idx, _opts, env) => {
     const tok = tokens[idx];

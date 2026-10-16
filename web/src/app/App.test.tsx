@@ -46,6 +46,9 @@ describe('App shell', () => {
     renderApp(snapshot());
     expect(await screen.findByRole('heading', { name: 'Job beta' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /^Job beta/ })).toHaveAttribute('aria-current', 'page');
+    // The Preview pane opens on Docs; its Classic view tab has the job's classic page.
+    expect(screen.getByRole('tab', { name: 'Docs' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: 'Classic view' }));
     expect(screen.getByRole('link', { name: 'Open this job in classic view' })).toHaveAttribute('href', '/#/job/beta');
     act(() => { window.location.hash = '#/'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     expect(screen.getByText('Pick a job on the left to see its conversation.')).toBeInTheDocument();

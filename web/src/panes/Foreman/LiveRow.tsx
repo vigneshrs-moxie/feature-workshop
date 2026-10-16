@@ -2,6 +2,7 @@
 // it's doing (its last tool step) and the last thing it wrote, updated by 'run' events. Gone once
 // the reply ends; the finished reply then appears in the thread.
 import type { Run } from '../../api/types';
+import { ShortMarkdown } from '../../components/InlineText';
 import { isActiveRun, liveLabel } from './thread';
 
 export function LiveRow({ run }: { run: Run | null | undefined }) {
@@ -17,7 +18,7 @@ export function LiveRow({ run }: { run: Run | null | undefined }) {
       {run.lastAction && (
         <p className="live-action muted" title="The step the Foreman is on right now.">{run.lastAction}</p>
       )}
-      {text && <p className="live-text" title="The latest thing the Foreman wrote. The full reply appears here when it finishes.">{text}</p>}
+      {text && <div className="live-text" title="The latest thing the Foreman wrote. The full reply appears here when it finishes."><ShortMarkdown text={text} /></div>}
     </section>
   );
 }

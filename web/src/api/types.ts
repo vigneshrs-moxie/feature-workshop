@@ -221,7 +221,8 @@ export interface Permission {
   /** Who asks: a crew member's agent type, or null for the Foreman itself. */
   agentType?: string | null;
   input?: Record<string, unknown> & { questions?: AskedQuestion[]; command?: string };
-  plain?: { headline: string; detail?: string | null; preview?: string | null; risk?: string; [key: string]: unknown };
+  /** previewHtml: a Markdown file being written, rendered and sanitised by the dashboard. */
+  plain?: { headline: string; detail?: string | null; preview?: string | null; previewHtml?: string | null; risk?: string; [key: string]: unknown };
   decisionReason?: string | null;
   /** Claude Code flagged it as risky: "Always allow" isn't offered. */
   defaultToNo?: boolean;
@@ -591,5 +592,34 @@ export interface ThreadPage {
 export interface JobDoc {
   file: string;
   name: string;
+  html: string;
+  /** The file as written (Markdown or JSON), for the source view and Copy as markdown. */
+  text?: string;
+  type?: 'md' | 'json';
+  updatedAt?: string | null;
+  size?: number;
+}
+
+/** The Docs tab's groups, in the order the dashboard lists them. */
+export type DocGroup = 'plan' | 'briefs' | 'review' | 'notes' | 'other';
+
+/** One entry of GET /api/job/:slug/docs. `file` is 'spec' for the product spec in the repository. */
+export interface JobDocEntry {
+  file: string;
+  name: string;
+  group: DocGroup;
+  version: string | null;
+  updatedAt: string | null;
+  size: number;
+  type: 'md' | 'json';
+}
+
+/** GET /api/job/:slug/docs: every document of the job, grouped. */
+export interface JobDocList {
+  docs: JobDocEntry[];
+}
+
+/** POST /api/job/:slug/render { text }: Markdown you're writing, rendered and sanitised. */
+export interface RenderedMarkdown {
   html: string;
 }

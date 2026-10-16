@@ -33,10 +33,13 @@ export interface Ui {
   closeSheet(): void;
   current: CurrentJob | null;
   setCurrent(current: CurrentJob | null): void;
+  /** Goes up by one each time something asks for the Preview pane's Docs tab (⌘K "Open docs"). */
+  docsRequest: number;
+  openDocs(): void;
 }
 
 const noop = () => {};
-const NO_UI: Ui = { sheet: null, openSheet: noop, closeSheet: noop, current: null, setCurrent: noop };
+const NO_UI: Ui = { sheet: null, openSheet: noop, closeSheet: noop, current: null, setCurrent: noop, docsRequest: 0, openDocs: noop };
 
 const UiContext = createContext<Ui>(NO_UI);
 
@@ -51,6 +54,8 @@ export function UiProvider({ children, initialSheet = null }: { children: ReactN
   const [current, setCurrentState] = useState<CurrentJob | null>(null);
   const setCurrent = useCallback((c: CurrentJob | null) => setCurrentState((prev) => (sameCurrent(prev, c) ? prev : c)), []);
   const closeSheet = useCallback(() => setSheet(null), []);
-  const value = useMemo<Ui>(() => ({ sheet, openSheet: setSheet, closeSheet, current, setCurrent }), [sheet, closeSheet, current, setCurrent]);
+  const [docsRequest, setDocsRequest] = useState(0);
+  const openDocs = useCallback(() => setDocsRequest((n) => n + 1), []);
+  const value = useMemo<Ui>(() => ({ sheet, openSheet: setSheet, closeSheet, current, setCurrent, docsRequest, openDocs }), [sheet, closeSheet, current, setCurrent, docsRequest, openDocs]);
   return <UiContext.Provider value={value}>{children}</UiContext.Provider>;
 }

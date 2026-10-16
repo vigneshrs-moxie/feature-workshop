@@ -34,6 +34,8 @@ export interface CommandHandlers {
   reopen(slug: string): void;
   /** Open the job drawer: the job's notes and options. */
   jobDrawer(slug: string): void;
+  /** Show the Preview pane's Docs tab: every document of the open job. */
+  openDocs(): void;
   setPolicy(slug: string, policy: PolicyId | null): void;
   settings(): void;
   /** Open a page of the classic view (decision D4). */
@@ -129,6 +131,11 @@ function jobCommands(ctx: CommandContext, h: CommandHandlers, job: Job): Command
     id: 'job-drawer', label: 'Job notes and options', section: 'This job', keywords: 'notes options settings level flow stages skip reviewers models fable',
     hint: `Open ${title}’s notes (notes.md, read by the Foreman every session) and its options: level, stages, reviewers, testing, Fable, models.`,
     run: () => h.jobDrawer(job.slug),
+  });
+  out.push({
+    id: 'open-docs', label: 'Open docs', section: 'This job', keywords: 'documents spec plan findings review brief read files',
+    hint: `Show every document the crew wrote for ${title} (spec, plans, briefs, reviews, notes) as a clean page, in the Preview pane’s Docs tab.`,
+    run: h.openDocs,
   });
   out.push({
     id: 'classic-job', label: 'Open this job in classic view', section: 'This job', keywords: 'details costs try local',

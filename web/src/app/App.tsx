@@ -96,6 +96,8 @@ function Sheets({ route }: { route: Route }) {
     markDone: (s) => ui.openSheet({ kind: 'close-job', slug: s, worktree: ui.current?.slug === s ? ui.current.worktree : undefined }),
     reopen: (s) => attempt(reopenJob(api, s)),
     jobDrawer: (s) => ui.openSheet({ kind: 'job-drawer', slug: s }),
+    // After the palette has closed and given focus back, so the Docs tab can take it.
+    openDocs: () => setTimeout(ui.openDocs, 0),
     setPolicy: (s, policy: PolicyId | null) => attempt(setJobPolicy(api, store, s, ui.current?.slug === s ? ui.current.dir : null, policy)),
     settings: () => navigate({ name: 'settings' }),
     classic: (href) => { window.location.href = href; },

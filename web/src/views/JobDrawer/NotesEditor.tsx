@@ -1,10 +1,46 @@
 // The job drawer's Notes tab: the job's notes.md, loaded with GET /api/job/:slug/notes and saved
 // whole with PUT (at most 20,000 characters; the dashboard refuses more). Tells the drawer when
-// there are unsaved changes, so closing it asks first.
+// there are unsaved changes, so closing it asks first. Preview shows the text as you have it now
+// (saved or not) as a clean page: the dashboard renders it with the same sanitising renderer as
+// every document (POST /api/job/:slug/render; nothing is saved by previewing).
 import { useEffect, useId, useState } from 'react';
-import { loadJobNotes, saveJobNotes } from '../../app/jobActions';
+import { loadJobNotes, renderPreview, saveJobNotes } from '../../app/jobActions';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
+import { ServerHtml } from '../../panes/Foreman/ServerHtml';
 import { useWorkshop } from '../../state/store';
+
+type Preview = { text: string; state: 'loading' } | { text: string; state: 'ready'; html: string } | { text: string; state: 'error'; message: string };
+
+/** The notes as a page: rendered by the dashboard for exactly this text. */
+function NotesPreview({ slug, text }: { slug: string; text: string }) {
+  const { api } = useWorkshop();
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [tries, setTries] = useState(0);
+  useEffect(() => {
+    if (!text.trim()) return;
+    let cancelled = false;
+    setPreview({ text, state: 'loading' });
+    renderPreview(api, slug, text).then(
+      (html) => { if (!cancelled) setPreview({ text, state: 'ready', html }); },
+      (err) => { if (!cancelled) setPreview({ text, state: 'error', message: message(err) }); },
+    );
+    return () => { cancelled = true; };
+  }, [api, slug, text, tries]);
+  if (!text.trim()) return <p className="muted drawer-notes-preview">Nothing to preview yet. Choose Edit to write the notes.</p>;
+  const p = preview?.text === text ? preview : null;
+  return (
+    <div className="drawer-notes-preview" aria-label="Notes preview" role="region">
+      {(!p || p.state === 'loading') && <p className="muted" role="status">Getting the preview…</p>}
+      {p?.state === 'error' && (
+        <>
+          <p className="thread-error" role="alert">Couldn’t show the preview: {p.message}</p>
+          <button type="button" className="btn" onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for the preview again.">Try again</button>
+        </>
+      )}
+      {p?.state === 'ready' && <ServerHtml html={p.html} />}
+    </div>
+  );
+}
 
 export const NOTES_HINT = 'The Foreman reads these notes at the start of every session; they shape how it works, never approve anything.';
 
@@ -24,6 +60,7 @@ export function NotesEditor({ slug, max, onDirtyChange }: { slug: string; max: n
   const [error, setError] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
   const [tries, setTries] = useState(0);
+  const [mode, setMode] = useState<'edit' | 'preview'>('edit');
 
   useEffect(() => {
     let cancelled = false;
@@ -77,8 +114,14 @@ export function NotesEditor({ slug, max, onDirtyChange }: { slug: string; max: n
   return (
     <div className="drawer-notes">
       <p className="muted drawer-hint">{NOTES_HINT}</p>
+      <div className="notes-mode doc-view-toggle" role="group" aria-label="Notes view">
+        <button type="button" className="btn btn-quiet" aria-pressed={mode === 'edit'} onClick={() => setMode('edit')} title="Write the notes, in Markdown.">Edit</button>
+        <button type="button" className="btn btn-quiet" aria-pressed={mode === 'preview'} onClick={() => setMode('preview')} title="See the notes as a clean page, exactly as you have them now (saved or not). Nothing is saved by previewing.">Preview</button>
+      </div>
+      {mode === 'preview' && <NotesPreview slug={slug} text={text} />}
       <label className="sr-only" htmlFor={id}>Notes for the Foreman (notes.md)</label>
       <textarea
+        hidden={mode !== 'edit'}
         id={id}
         className="text-area drawer-notes-input"
         rows={14}

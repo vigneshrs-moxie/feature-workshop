@@ -5,8 +5,25 @@ import { useRef, useState } from 'react';
 import type { Permission } from '../../api/types';
 import { jobHref } from '../../app/router';
 import { fullTime, relativeTime } from '../../lib/time';
+import { ServerHtml } from '../../panes/Foreman/ServerHtml';
+import { InlineText } from '../InlineText';
 import { AlwaysAllowSheet } from './AlwaysAllowSheet';
 import { useAnswer } from './useAnswer';
+
+/** A Markdown file it wants to write: shown as a page (the dashboard rendered it), or as its source. */
+function MarkdownPreview({ html, source }: { html: string; source: string }) {
+  const [raw, setRaw] = useState(false);
+  return (
+    <div className="perm-md">
+      <div className="perm-md-bar">
+        <button type="button" className="link-button" aria-pressed={raw} onClick={() => setRaw((r) => !r)} title={raw ? 'Show the file as a formatted page.' : 'Show exactly what it will write, as Markdown source.'}>
+          {raw ? 'Show as page' : 'Show source'}
+        </button>
+      </div>
+      {raw ? <pre className="perm-preview">{source}</pre> : <ServerHtml html={html} className="perm-preview-page" />}
+    </div>
+  );
+}
 
 export function CardHead({ p, now, showJob, verb }: { p: Permission; now: Date; showJob: boolean; verb: string }) {
   const who = p.agentType ? p.agentType : 'The Foreman';
@@ -63,8 +80,8 @@ export function PermissionCard({ permission: p, now, showJob = false }: { permis
     <article className={`thread-item perm-card${risky ? ' is-risky' : ''}`} data-ask={p.hardLine ? 'hardline' : 'permission'} aria-label={`Permission: ${plain.headline}`}>
       <CardHead p={p} now={now} showJob={showJob} verb="wants to" />
       <h3 className="perm-headline">{plain.headline}</h3>
-      {plain.detail && <p className="perm-detail">{plain.detail}</p>}
-      {plain.preview && <pre className="perm-preview">{plain.preview}</pre>}
+      {plain.detail && <p className="perm-detail"><InlineText text={plain.detail} /></p>}
+      {plain.preview && (plain.previewHtml ? <MarkdownPreview html={plain.previewHtml} source={plain.preview} /> : <pre className="perm-preview">{plain.preview}</pre>)}
       {p.hardLine ? (
         <p className="perm-reason muted" title="Hard lines ask you every time, whatever your permission setting, and can’t be always allowed.">
           <span className="chip ask-label">Hard line</span> {p.hardLine.reason}

@@ -7,6 +7,9 @@
 // plan moves to v3 a moment after start), a gate parked 5 hours, and a job with no level yet (the
 // LevelCard). Settings warns that the skill is out of date: the demo reads its own pre-levels copy
 // of job-options.md (set WORKSHOP_SKILLS_DIR to a folder with a current one to see it go away).
+//
+// Docs tab (phase 2.1): Customer merge has a full set of documents (spec, findings, a plan with a
+// table, code and a task list, test plan, Fable's second look, notes) and Widget Export a review.
 
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -135,6 +138,7 @@ async function makeRepo() {
     'AC-003: with more than 10,000 widgets, the message explains the limit.',
     'AC-004: non-admins don’t see the button.', '',
   ].join('\n'));
+  await fs.writeFile(path.join(ACME, 'docs', 'plans', '2026-10-14-customer-merge-product-spec.md'), CUSTOMER_MERGE_SPEC);
   await fs.writeFile(path.join(ACME, 'app', 'widgets.js'), 'export function listWidgets(db) {\n  return db.all(\'select * from widgets\');\n}\n');
   git('add', '-A'); git('commit', '-q', '-m', 'Start the demo app');
   BASE = git('rev-parse', '--short', 'HEAD');
@@ -190,8 +194,10 @@ async function build() {
       'findings.md': '# Findings (demo)\n\n## Summary\nThe widgets page already loads every row, so FR-001 needs no new query. FR-002 touches the export button only.\n\n## Spec impact\n- AC-003 should say what happens with more than 10,000 rows (became D-005).\n',
       'implementation-plan.md': '# Implementation plan (demo)\n\n| Step | What | Covers |\n|---|---|---|\n| S1 | CSV builder | FR-001, AC-001 |\n| S2 | Export button | FR-002, AC-002 |\n| S3 | Row limit message | FR-003, AC-003, AC-004 |\n',
       'test-plan.md': '# Test plan (demo)\n\n- AC-001: unit test for the CSV builder\n- AC-002: the button downloads a file\n- AC-003: 10,001 rows shows the limit message\n',
-      'review.md': '# Review (demo)\n\n- **R-2 (major):** the file name ignores the time zone (FR-002).\n- **R-3 (major):** no test for an empty table (AC-001).\n',
+      'review.md': WIDGET_REVIEW,
       'review/permissions.md': '# Permissions lens (demo)\n\nOnly admins see the export button, as FR-002 requires. No findings.\n',
+      'review/errors.md': '# Errors lens (demo)\n\n## R-2 (major): the file name’s date\n\nThe name is built from the server’s clock, so after 5pm in California it names tomorrow.\n\n```js\nconst name = `widgets-${new Date().toISOString().slice(0, 10)}.csv`;\n```\n\n**Fix:** take the date from the browser and send it with the request.\n',
+      'notes.md': '## For the Foreman\n\n- Keep the CSV header row exactly as the spec says.\n- Ask before adding Excel: the office said CSV only (D-004).\n',
     },
   });
   await writeSession({
@@ -333,10 +339,145 @@ const planArtifacts = (v) => [
   { name: 'Test plan', path: 'test-plan.md', version: String(v) },
 ];
 const planFiles = (v) => ({
-  'findings.md': '# Findings v1 (demo)\n\nThe change fits in one page, its query and its tests.\n',
-  'implementation-plan.md': `# Implementation plan v${v} (demo)\n\n| Step | What |\n|---|---|\n| S1 | The data |\n| S2 | The page |\n| S3 | The tests |\n`,
-  'test-plan.md': `# Test plan v${v} (demo)\n\n- One check per acceptance criterion (5 in all)\n`,
+  'findings.md': '# Findings v1 (demo)\n\n## Summary\n\nThe change fits in one page, its query and its tests.\n\n## Where it lands\n\n- `app/src/tickets/TicketFilters.tsx`: the filter bar\n- `app/src/tickets/query.ts`: the tickets query\n',
+  'implementation-plan.md': [
+    `# Implementation plan v${v} (demo)`, '', `**Findings:** v1 · **Test plan:** v${v}`, '',
+    '## Steps', '', '| Step | What | Files | Covers |', '|---|---|---|---|',
+    '| S1 | The data | `app/src/tickets/query.ts` | FR-001 |', '| S2 | The page | `app/src/tickets/TicketFilters.tsx` | FR-002, AC-001 |', '| S3 | The tests | `app/src/tickets/*.test.ts` | AC-001–AC-005 |', '',
+    '## S1 · The query', '', '```ts', 'export function byTags(tags: string[]) {', '  return tags.length ? sql`and tags @> ${tags}` : sql``;', '}', '```', '',
+    '## Checks', '', '- [x] `npm run check` and `npm run build` after every step', `- [ ] The tester runs test plan v${v}`, '',
+  ].join('\n'),
+  'test-plan.md': `# Test plan v${v} (demo)\n\n| Check | Covers | How |\n|---|---|---|\n| T1 | AC-001 | Pick one tag: only tickets with it show |\n| T2 | AC-002 | Two tags combine with AND |\n| T3 | AC-003 | Clearing the tags shows every ticket |\n`,
 });
+
+// Invented documents for the Docs tab: a full plan (headings, a table, code, a task list) and a review.
+const CUSTOMER_MERGE_SPEC = `# Customer merge: product spec (demo)
+
+**Version:** 0.4 · **Status:** DRAFT · **Level:** L3 Large
+
+## Problem
+
+Office managers find the same customer twice (a typo in the name, a second phone number) and today can only ask support to fix it.
+
+## Requirements
+
+| ID | Requirement |
+|---|---|
+| FR-001 | An office manager can merge two customer records into one. |
+| FR-002 | Visits, invoices and notes move to the record that is kept. |
+| FR-003 | When both have a phone number, the most recently updated one wins. |
+| FR-004 | A merge can be undone for 30 days. |
+| FR-005 | Only office managers and admins see Merge. |
+
+## Acceptance criteria
+
+- AC-001: after a merge, the customer page shows every visit from both records.
+- AC-002: links to the merged-away record open the kept one.
+- AC-003: Undo within 30 days restores both records exactly.
+- AC-004: technicians don’t see Merge.
+`;
+
+const CUSTOMER_MERGE_PLAN = `# Implementation plan v2: Customer merge
+
+**Spec:** v0.4 · **Findings:** v1 · **Test plan:** v2 · **Level:** L3 Large
+
+## Summary
+
+Merge two customer records into one. The older record keeps its ID; the other points at it through a new \`merged_into\` column, so a merge can be undone for 30 days (D-003).
+
+## Steps
+
+| Step | What | Files | Covers |
+|---|---|---|---|
+| S1 | Migration: add \`merged_into\` and \`merged_at\` | \`db/migrations/0042_customer_merge.sql\` | FR-001, D-003 |
+| S2 | Merge service: pick the winner, move visits and invoices | \`app/src/customers/merge.ts\` | FR-002, FR-003 |
+| S3 | Undo within 30 days | \`app/src/customers/unmerge.ts\` | FR-004, AC-003 |
+| S4 | Merge screen for office managers | \`app/src/customers/MergeDialog.tsx\` | FR-005, AC-001, AC-004 |
+
+## S1 · The migration
+
+Runs in batches of 1,000 (question 2), after a dry run on a copy of the database (Fable’s second look).
+
+\`\`\`sql
+alter table customers
+  add column merged_into bigint references customers(id),
+  add column merged_at timestamptz;
+create index customers_merged_into_idx on customers (merged_into);
+\`\`\`
+
+## S2 · Picking the winner
+
+\`\`\`ts
+export function pickWinner(a: Customer, b: Customer): Customer {
+  // Question 1: the most recently updated record wins a phone number tie.
+  return a.updatedAt >= b.updatedAt ? a : b;
+}
+\`\`\`
+
+The move runs in one transaction: if it fails halfway, nothing is half-merged.
+
+## Checks
+
+- [x] \`npm run check\` and \`npm run build\` after every step
+- [x] \`npm run test:db\` on a copy for S1
+- [ ] The tester runs test plan v2 (6 checks)
+- [ ] You try a merge and an undo on the demo data
+
+## Risks
+
+> A merge touches invoices. The permissions and database reviewers both look at S2 before it ships.
+
+---
+
+*Rulings so far:* none.
+`;
+
+const CUSTOMER_MERGE_FILES = {
+  'findings.md': '# Findings v1 (demo)\n\n## Summary\n\nCustomers are referenced from visits, invoices, notes and the map. Nothing deletes a customer today, so a merge has to be new.\n\n## Spec impact\n\n- FR-004 (undo) needs the old record kept, not deleted: hence `merged_into`.\n- AC-002 means every customer link has to follow `merged_into`.\n\n## Files\n\n| Area | File |\n|---|---|\n| Customers | `app/src/customers/` |\n| Invoices | `app/src/billing/invoices.ts` |\n| Migrations | `db/migrations/` |\n',
+  'implementation-plan.md': CUSTOMER_MERGE_PLAN,
+  'test-plan.md': '# Test plan v2 (demo)\n\n| Check | Covers | How |\n|---|---|---|\n| T1 | AC-001 | Merge two seeded customers; the kept one lists every visit |\n| T2 | AC-002 | Open the merged-away customer’s link |\n| T3 | AC-003 | Undo; both records are back exactly |\n| T4 | AC-004 | Sign in as a technician: no Merge button |\n| T5 | FR-003 | Two phone numbers: the newer one wins |\n| T6 | S1 | The migration’s dry run on a copy reports 0 errors |\n',
+  'fable/005-plan.md': '# Fable second look at plan v2 (demo)\n\n**Verdict:** go ahead, with two changes (both now in plan v2).\n\n1. **A merge must be reversible.** Keep the merged-away record with `merged_into` instead of deleting it (now D-003).\n2. **Dry-run the migration.** Run S1 on a copy of the database first and compare row counts.\n\n> Nothing else stood out. I look again when the review is wrapped up.\n',
+  'notes.md': '## For the Foreman\n\n- Ask Priya before changing anything in invoices.\n- Keep old customer links working (AC-002).\n',
+};
+
+const WIDGET_REVIEW = `# Review v1: Widget Export
+
+**Spec:** v0.3 · **Plan:** v2 · **Reviewers:** 7 · **Result:** 0 blockers, 2 majors, 3 minors
+
+## Findings
+
+| ID | Severity | Lens | Finding | Where |
+|---|---|---|---|---|
+| R-1 | minor | conventions | The button says “Export”; the spec says “Export CSV” | \`app/widgets.js:4\` |
+| R-2 | major | errors | The file name uses the server’s date, not yours (FR-002) | \`app/csv.js:3\` |
+| R-3 | major | tests | No test for an empty widgets table (AC-001) | \`app/csv.test.js\` |
+| R-4 | minor | ui | The 10,000-row message has no link to the filters | \`app/widgets.js:9\` |
+| R-5 | minor | performance | Builds the whole CSV in memory | \`app/csv.js:1\` |
+
+## R-2 · The file name’s date
+
+The name is built on the server:
+
+\`\`\`js
+const name = \`widgets-\${new Date().toISOString().slice(0, 10)}.csv\`;
+\`\`\`
+
+After 5pm in California this names tomorrow. **Suggested fix:** take the date from the browser and send it with the request.
+
+## R-3 · An empty table
+
+\`toCsv([])\` returns an empty string, so the download has no header row; AC-001 asks for one.
+
+## What’s fine
+
+- Only admins see the button (FR-002); the permissions lens found nothing.
+- The 10,000-row limit is enforced on the server, not only in the page.
+
+## Next
+
+- [ ] A small fix round for R-2 and R-3 (your call: question 1)
+- [ ] PR #1, after your go-ahead
+`;
 const planBrief = ({ title, v, spec, fable = null, decided }) => [
   `**${title} · plan v${v} ready** · spec v${spec} · plan v${v} · test plan v${v}`, '',
   '**What happened**', `- Spec v${spec}, findings v1, plan v${v} (3 steps) and test plan v${v} (5 checks).`, ...(fable ? [fable] : []), '',
@@ -442,7 +583,8 @@ async function levelJobs() {
         { stage: 'plan', text: '**Customer merge · plan v1 ready**\n\nDemo brief.' },
         { stage: 'plan', text: planBrief({ title: 'Customer merge', v: 2, spec: '0.4', decided, fable: '- **Fable second look at plan v2** (feature-fable-check): 2 points: a merge must be reversible (now D-003), and the migration needs a dry run on a copy. Both are in plan v2. Fable looks again when the review is wrapped up.' }) },
       ],
-      files: planFiles(2),
+      // The Docs tab's showcase: a full plan, findings, test plan, Fable's second look and notes.
+      files: CUSTOMER_MERGE_FILES,
     });
     await options('customer-merge', 3, description);
   }

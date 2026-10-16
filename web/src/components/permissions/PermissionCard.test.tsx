@@ -46,6 +46,22 @@ describe('PermissionCard', () => {
     }
   });
 
+  it('a Markdown file it wants to write shows as a page, with its source one click away', () => {
+    setup([bash({
+      toolName: 'Write', input: { file_path: '/w/plan.md', content: '# Plan\n\n- one' },
+      plain: { headline: 'Create or overwrite a file: plan.md', preview: '# Plan\n\n- one', previewHtml: '<h1 id="h-plan">Plan</h1>\n<ul>\n<li>one</li>\n</ul>\n', risk: 'normal' },
+    })]);
+    const card = screen.getByRole('article', { name: 'Permission: Create or overwrite a file: plan.md' });
+    expect(within(card).getByRole('heading', { name: 'Plan' })).toBeInTheDocument();
+    expect(card).not.toHaveTextContent('# Plan');
+    const toggle = within(card).getByRole('button', { name: 'Show source' });
+    expect(toggle).toHaveAttribute('title');
+    fireEvent.click(toggle);
+    expect(card.querySelector('pre.perm-preview')!.textContent).toBe('# Plan\n\n- one');
+    fireEvent.click(within(card).getByRole('button', { name: 'Show as page' }));
+    expect(within(card).getByRole('heading', { name: 'Plan' })).toBeInTheDocument();
+  });
+
   it('Allow once sends allow and the card goes at once', async () => {
     const { post, store } = setup([bash()]);
     fireEvent.click(screen.getByRole('button', { name: 'Allow once' }));

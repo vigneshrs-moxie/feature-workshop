@@ -6,6 +6,7 @@
 // this same suggestion only (remembered per job in this browser), so a new suggestion shows again.
 import type { Job, JobDetail, LevelNumber } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
+import { InlineText } from '../../components/InlineText';
 import { isLevel, levelCardKey, levelCardView, levelChange, levelLabel, lensNames } from '../../lib/levels';
 import { useStored } from '../../lib/stored';
 import { useWorkshopState } from '../../state/store';
@@ -62,7 +63,7 @@ export function LevelCard({ job, detail }: { job: Job; detail: JobDetail | null 
             </div>
             <div className="level-source" title="The Foreman proposes a level in its first brief, with a one-line reason.">
               <dt className="muted">Foreman</dt>
-              <dd>{foreman !== null ? <><strong>L{foreman}</strong> · {facts.levelReason ?? 'No reason given.'}</> : 'It suggests one with its first brief.'}</dd>
+              <dd>{foreman !== null ? <><strong>L{foreman}</strong> · {facts.levelReason ? <InlineText text={facts.levelReason} /> : 'No reason given.'}</> : 'It suggests one with its first brief.'}</dd>
             </div>
           </dl>
           <p className="level-chosen muted" title="The level the job runs at now. It changes only when you pick one.">

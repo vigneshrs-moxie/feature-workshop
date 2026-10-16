@@ -13,6 +13,7 @@ import { ApiError } from '../../api/client';
 import type { Gate, GateRequest, GateResult, Job, JobDetail } from '../../api/types';
 import { sendGate, stopRun } from '../../app/jobActions';
 import { HowThisWorks } from '../../components/HowThisWorks';
+import { InlineText } from '../../components/InlineText';
 import { composeGate, type GateKind } from '../../lib/compose';
 import {
   answersFor, approveLabel, chipsFor, chipViews, decidedKey, emptyOverride, gateDraftKey, gateRequest, initialChoices,
@@ -326,8 +327,8 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
             </span>
           )}
         </p>
-        <h3 className="perm-headline" id={headId}>{gate.headline ?? 'The Foreman waits for your decision'}</h3>
-        {gate.nextProposed && <p className="muted gate-next" title="What the Foreman proposes to do once you approve.">Next, as proposed: {gate.nextProposed}</p>}
+        <h3 className="perm-headline" id={headId}>{gate.headline ? <InlineText text={gate.headline} /> : 'The Foreman waits for your decision'}</h3>
+        {gate.nextProposed && <p className="muted gate-next" title="What the Foreman proposes to do once you approve.">Next, as proposed: <InlineText text={gate.nextProposed} /></p>}
         {gate.usage && <p className="perm-warn gate-usage" title="Claude’s usage limit, for a next stage that uses a lot of it.">{gate.usage}</p>}
         {stale && (
           <p className="perm-warn gate-stale-note" role="status">
@@ -345,12 +346,12 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
         const otherId = `${group}-other`;
         return (
           <fieldset key={q.id} className="question gate-question" disabled={busy}>
-            <legend>{i + 1}. {q.text}</legend>
+            <legend>{i + 1}. <InlineText text={q.text} /></legend>
             {q.options.map((o) => (
               <label key={o.id} className="answer-option" title={o.id === q.recommendation ? 'The Foreman recommends this answer; it’s picked for you. Pick another to change it.' : 'Answer with this option.'}>
                 <input type="radio" name={group} value={o.id} checked={c.choices[q.id] === o.id} onChange={() => setChoice(q.id, o.id)} />
                 <span className="answer-label">
-                  {o.id}) {o.label}
+                  {o.id}) <InlineText text={o.label} />
                   {o.id === q.recommendation && <> <span className="chip gate-rec">Recommended</span></>}
                 </span>
               </label>
@@ -387,9 +388,9 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
                 <li key={key} className={`gate-decision${over ? ' is-changed' : ''}`}>
                   <p className="gate-decision-text">
                     {over && <><span className="chip gate-changed">Changed</span> </>}
-                    <strong>{d.decision}</strong>
-                    {d.reason && <span className="muted"> — {d.reason}</span>}
-                    {d.where && <span className="muted"> ({d.where})</span>}
+                    <strong><InlineText text={d.decision} /></strong>
+                    {d.reason && <span className="muted"> — <InlineText text={d.reason} /></span>}
+                    {d.where && <span className="muted"> (<InlineText text={d.where} />)</span>}
                   </p>
                   {over ? (
                     <div className="gate-override">

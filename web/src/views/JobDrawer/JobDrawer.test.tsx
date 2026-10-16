@@ -153,6 +153,45 @@ describe('Job drawer · notes', () => {
     expect(await screen.findByRole('tab', { name: 'Notes' })).toBeInTheDocument(); // the unsaved mark is gone
   });
 
+  it('Preview shows the notes as you have them now as a clean page, rendered by the dashboard; Edit goes back with your text kept', async () => {
+    const post = vi.fn(async (path: string, body: { text: string }) => {
+      if (path === '/api/job/alpha/render') return { html: `<h2 id="h-rules">Rules</h2>\n<p>${body.text.split('\n').at(-1)}</p>\n` };
+      throw new ApiError(404, 'Not found');
+    });
+    const { put } = setup({ post });
+    const box = await notesBox();
+    const edit = screen.getByRole('button', { name: 'Edit' });
+    const preview = screen.getByRole('button', { name: 'Preview' });
+    expect(edit).toHaveAttribute('aria-pressed', 'true');
+    expect(preview).toHaveAttribute('title');
+    fireEvent.change(box, { target: { value: '## Rules\nKeep the CSV header.' } });
+    fireEvent.click(preview);
+    expect(preview).toHaveAttribute('aria-pressed', 'true');
+    const region = await screen.findByRole('region', { name: 'Notes preview' });
+    expect(await within(region).findByRole('heading', { name: 'Rules' })).toBeInTheDocument();
+    expect(region).toHaveTextContent('Keep the CSV header.');
+    expect(region).not.toHaveTextContent('##');
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/render', { text: '## Rules\nKeep the CSV header.' });
+    expect(box).not.toBeVisible();
+    expect(put).not.toHaveBeenCalled(); // previewing saves nothing
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+    fireEvent.click(edit);
+    expect(screen.queryByRole('region', { name: 'Notes preview' })).toBeNull();
+    expect(box).toBeVisible();
+    expect(box).toHaveValue('## Rules\nKeep the CSV header.');
+  });
+
+  it('Preview of empty notes says there is nothing yet, and a refused preview says why', async () => {
+    setup({ notes: { text: '', updatedAt: null }, post: vi.fn(async () => { throw new ApiError(413, 'Too long to preview.'); }) });
+    const box = await notesBox();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(screen.getByText(/Nothing to preview yet/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(box, { target: { value: 'Something.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t show the preview: Too long to preview.');
+  });
+
   it('won’t save over the cap and says by how much', async () => {
     const { put } = setup();
     const box = await notesBox();

@@ -3,6 +3,7 @@
 // answers is ready once every question has an answer; "Don't answer…" says no, with a note.
 import { useState } from 'react';
 import type { AskedQuestion, Permission } from '../../api/types';
+import { InlineText } from '../InlineText';
 import { CardHead, DenyBox } from './PermissionCard';
 import { useAnswer } from './useAnswer';
 
@@ -24,15 +25,15 @@ function QuestionGroup({ q, i, pick, onChange, disabled }: { q: AskedQuestion; i
   return (
     <fieldset className="question" disabled={disabled}>
       <legend>
-        {q.header ? <span className="chip">{q.header}</span> : null} {q.question}
+        {q.header ? <span className="chip">{q.header}</span> : null} <InlineText text={q.question} />
       </legend>
       {multi && <p className="muted question-hint">Pick any that apply.</p>}
       {(q.options ?? []).map((o) => (
         <label key={o.label} className="answer-option" title={multi ? 'Tick this answer; you can pick more than one.' : 'Pick this answer.'}>
           <input type={multi ? 'checkbox' : 'radio'} name={name} checked={pick.picked.includes(o.label)} onChange={() => toggle(o.label)} />
           <span>
-            <span className="answer-label">{o.label}</span>
-            {o.description && <span className="answer-desc muted">{o.description}</span>}
+            <span className="answer-label"><InlineText text={o.label} /></span>
+            {o.description && <span className="answer-desc muted"><InlineText text={o.description} /></span>}
           </span>
         </label>
       ))}

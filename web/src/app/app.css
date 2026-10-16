@@ -31,6 +31,8 @@ a:hover { text-decoration: underline; }
   border-radius: var(--radius-sm);
 }
 
+[hidden] { display: none !important; }
+
 .muted { color: var(--text-2); }
 .count, .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
@@ -234,6 +236,72 @@ a:hover { text-decoration: underline; }
 
 .classic-links li { margin-bottom: var(--space-2); }
 
+/* ---------- Preview pane: tabs and the Docs tab ---------- */
+
+.preview-tabs { display: flex; gap: var(--space-1); margin: 0 calc(-1 * var(--space-4)) var(--space-3); padding: 0 var(--space-4); border-bottom: 1px solid var(--border-1); }
+.preview-tab {
+  padding: var(--space-1) var(--space-3);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+.preview-tab:hover { color: var(--text-1); }
+.preview-tab[aria-selected='true'] { border-bottom-color: var(--accent); color: var(--text-1); font-weight: var(--weight-medium); }
+.docs-tab > .how { margin-bottom: var(--space-3); }
+.doc-empty { padding: var(--space-2) 0; }
+.doc-empty p { margin-bottom: var(--space-1); }
+.doc-list-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); font-size: var(--text-sm); }
+.doc-group { margin-bottom: var(--space-3); }
+.doc-group-title { margin: 0 0 2px; padding: 0 var(--space-2); color: var(--text-2); font-family: var(--font-sans); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: .06em; text-transform: uppercase; }
+.doc-items { display: flex; flex-direction: column; gap: 1px; }
+.doc-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--row-h);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.doc-item:hover { background: var(--bg-3); }
+.doc-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.doc-spacer { flex: 1; }
+.doc-version, .doc-type { flex: none; font-size: var(--text-xs); }
+.doc-time { flex: none; color: var(--text-3); font-size: var(--text-xs); }
+.doc-reader-head { margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-1); }
+.doc-back { margin-left: calc(-1 * var(--space-2)); }
+.doc-back-arrow { margin-right: var(--space-1); }
+.doc-title { margin: var(--space-2) 0 2px; font-size: var(--text-md); }
+.doc-facts { margin: 0 0 var(--space-2); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.doc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.doc-view-toggle { display: inline-flex; border: 1px solid var(--border-2); border-radius: var(--radius-md); overflow: hidden; }
+.doc-view-toggle .btn { border: 0; border-radius: 0; }
+.doc-view-toggle .btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--text-1); font-weight: var(--weight-medium); }
+.doc-copied { margin: var(--space-1) 0 0; }
+.doc-page { font-size: var(--text-base); line-height: 1.6; }
+.doc-source {
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  background: var(--bg-0);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- Foreman pane ---------- */
 
 .job-header { margin-bottom: var(--space-3); }
@@ -335,28 +403,72 @@ a:hover { text-decoration: underline; }
 
 .live-row { border-style: dashed; }
 .live-action { margin: 0 0 var(--space-1); font-size: var(--text-sm); }
-.live-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.live-text { margin: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
 .typing { display: inline-flex; gap: 3px; }
 .typing span { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: typing 1s ease-in-out infinite; }
 .typing span:nth-child(2) { animation-delay: .15s; }
 .typing span:nth-child(3) { animation-delay: .3s; }
 @keyframes typing { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
 
-/* Rendered Markdown from the dashboard (replies, briefs, detail files). */
-.prose { overflow-wrap: anywhere; }
+/* Rendered Markdown from the dashboard: replies, briefs, detail files, the Docs tab, the notes
+   Preview and a Markdown file on a permission card. Theme tokens only; a theme may restyle any of it. */
+.prose { overflow-wrap: anywhere; line-height: 1.55; }
+.prose > :first-child { margin-top: 0; }
 .prose > :last-child { margin-bottom: 0; }
-.prose h1, .prose h2, .prose h3, .prose h4 { margin: var(--space-3) 0 var(--space-1); font-size: var(--text-md); }
-.prose > h1:first-child, .prose > h2:first-child, .prose > h3:first-child { margin-top: 0; }
-.prose ul, .prose ol { margin: 0 0 var(--space-2); padding-left: var(--space-5); list-style: revert; }
+.prose :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6) { max-width: 72ch; }
+.prose p { margin: 0 0 var(--space-3); }
+.prose :is(h1, h2, h3, h4, h5, h6) { margin: var(--space-5) 0 var(--space-2); font-family: var(--font-heading); font-weight: var(--weight-bold); line-height: 1.3; color: var(--text-1); }
+.prose h1 { font-size: var(--text-lg); }
+.prose h2 { font-size: calc(var(--text-md) + 2px); padding-bottom: var(--space-1); border-bottom: 1px solid var(--border-1); }
+.prose h3 { font-size: var(--text-md); }
+.prose h4 { font-size: var(--text-base); }
+.prose :is(h5, h6) { font-size: var(--text-sm); color: var(--text-2); letter-spacing: .02em; }
+.prose strong { font-weight: var(--weight-bold); color: var(--text-1); }
+.prose a { color: var(--accent-strong); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.prose a.id-link { font-family: var(--font-mono); font-size: .92em; text-decoration: none; white-space: nowrap; }
+.prose a.id-link:hover { text-decoration: underline; }
+.prose :is(ul, ol) { margin: 0 0 var(--space-3); padding-left: 1.5em; list-style: revert; }
 .prose li { margin: 2px 0; }
-.prose code { font-family: var(--font-mono); font-size: .92em; padding: 0 3px; border-radius: var(--radius-sm); background: var(--bg-3); }
-.prose pre { margin: 0 0 var(--space-2); padding: var(--space-2); overflow: auto; border-radius: var(--radius-md); background: var(--bg-2); }
-.prose pre code { padding: 0; background: none; }
-.prose blockquote { margin: 0 0 var(--space-2); padding-left: var(--space-3); border-left: 2px solid var(--border-3); color: var(--text-2); }
-.prose .table-wrap { overflow-x: auto; margin-bottom: var(--space-2); }
-.prose table { border-collapse: collapse; font-size: var(--text-sm); }
-.prose th, .prose td { padding: var(--space-1) var(--space-2); border: 1px solid var(--border-2); text-align: left; }
-.prose .id-link { font-family: var(--font-mono); font-size: .92em; }
+.prose li > p { margin: 0 0 var(--space-1); }
+.prose li > :is(ul, ol) { margin: 2px 0 var(--space-1); }
+.prose li::marker { color: var(--text-2); }
+.prose li.task-item { list-style: none; }
+.prose .task-box { margin: 0 .45em 0 -1.35em; vertical-align: -1px; accent-color: var(--accent); }
+.prose code { padding: 1px 4px; border: 1px solid var(--border-1); border-radius: var(--radius-sm); background: var(--bg-3); font-family: var(--font-mono); font-size: .9em; }
+.prose pre {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  overflow: auto;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  background: var(--bg-0);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre;
+}
+/* Code inside a block is plain: themes style inline `.prose code`, which must not paint every line
+   of a block. html[data-theme] makes this outrank a theme's `.prose code` rule. */
+.prose pre code, html[data-theme] .prose pre > code { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; font-size: inherit; white-space: inherit; }
+.prose blockquote { margin: 0 0 var(--space-3); padding: 2px 0 2px var(--space-3); border-left: 3px solid var(--border-3); color: var(--text-2); }
+.prose blockquote > :last-child { margin-bottom: 0; }
+.prose hr { margin: var(--space-5) 0; border: 0; border-top: 1px solid var(--border-2); }
+.prose img { max-width: 100%; }
+.prose .table-wrap { margin: 0 0 var(--space-3); overflow-x: auto; border: 1px solid var(--border-2); border-radius: var(--radius-md); }
+/* Tables keep words and paths whole and scroll sideways when they don't fit. */
+.prose table { min-width: 100%; border-collapse: collapse; font-size: var(--text-sm); line-height: 1.45; overflow-wrap: normal; }
+.prose :is(td, th) code { white-space: nowrap; }
+.prose :is(th, td) { padding: var(--space-1) var(--space-3); border: 0; border-bottom: 1px solid var(--border-1); text-align: left; vertical-align: top; }
+.prose :is(th, td) + :is(th, td) { border-left: 1px solid var(--border-1); }
+.prose th { background: var(--bg-3); color: var(--text-1); font-weight: var(--weight-medium); white-space: nowrap; }
+.prose tbody tr:nth-child(even) { background: var(--border-1); }
+.prose tbody tr:last-child :is(th, td) { border-bottom: 0; }
+.prose .json-doc { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Short Foreman text shown clean (components/InlineText.tsx): headlines, questions, reasons. */
+.inline-code { padding: 0 3px; border-radius: var(--radius-sm); background: var(--bg-3); font-family: var(--font-mono); font-size: .9em; }
+.short-line { display: block; }
+.short-heading { color: var(--text-1); }
+.short-quote { padding-left: var(--space-2); border-left: 2px solid var(--border-3); color: var(--text-2); }
 
 /* ---------- Permission and question cards ---------- */
 
@@ -407,6 +519,8 @@ a:hover { text-decoration: underline; }
 .perm-job { margin: 2px 0 0; }
 .perm-headline { margin: 0 0 var(--space-2); font-size: var(--text-md); }
 .perm-detail { color: var(--text-2); }
+.perm-md-bar { display: flex; justify-content: flex-end; margin-bottom: 2px; font-size: var(--text-sm); }
+.perm-preview-page { max-height: 240px; margin: 0 0 var(--space-2); padding: var(--space-2) var(--space-3); overflow: auto; border-radius: var(--radius-md); background: var(--bg-0); font-size: var(--text-sm); }
 .perm-preview {
   max-height: 240px;
   margin: 0 0 var(--space-2);
@@ -521,6 +635,8 @@ a:hover { text-decoration: underline; }
 .drawer-body > .how { margin-top: var(--space-4); }
 .drawer-hint { margin: 0 0 var(--space-3); font-size: var(--text-sm); }
 .drawer-notes-input { min-height: 240px; font-family: var(--font-mono); font-size: var(--text-sm); }
+.notes-mode { margin-bottom: var(--space-2); }
+.drawer-notes-preview { min-height: 240px; padding: var(--space-3); overflow: auto; border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--bg-1); }
 .drawer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
 .drawer-count { color: var(--text-3); font-size: var(--text-xs); }
 .drawer-count.is-over { color: var(--status-error); font-weight: var(--weight-medium); }

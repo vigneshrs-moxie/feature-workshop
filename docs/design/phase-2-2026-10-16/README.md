@@ -16,4 +16,17 @@ Levels, gate cards and the job drawer, taken from the demo: a pretend Foreman, i
 | 10–14 | `10-gate-l2-chips-neon-arcade.png` … `14-gate-l2-chips-candy-pop.png` | Image 03's card in Neon arcade, Blueprint, Pixel crew, Sunset paper and Candy pop. |
 | 15 | `15-drawer-options-end.png` | The end of the Options tab: the Foreman's model shown read only with its note, and room under the last row so the Save row covers nothing. |
 
+## Docs tab (phase 2.1)
+
+Every document of a job as a clean page, in the Preview pane. Images 17–28 are the Preview pane alone (576 px wide), cut just under the document.
+
+| # | File | What it shows |
+|---|---|---|
+| 16 | `16-docs-list.png` | Customer merge's documents, grouped: Plan & spec (with versions), Briefs (newest first), Review, Notes and Other (the two JSON files). |
+| 17–22 | `17-docs-plan-default.png` … `22-docs-plan-candy-pop.png` | Customer merge's implementation plan v2 as a page: headings, the steps table, SQL and TypeScript code blocks, a task list, a quote and a rule. Default, Neon arcade, Blueprint, Pixel crew, Sunset paper, Candy pop. |
+| 23–28 | `23-docs-review-default.png` … `28-docs-review-candy-pop.png` | Widget Export's review: the findings table, a code block, linked IDs (R-2, FR-002) and the open next steps. Same six themes. |
+| 29 | `29-docs-plan-source.png` | The same plan with Source picked: the Markdown exactly as written. |
+| 30 | `30-drawer-notes-preview.png` | Job drawer, Notes with Preview picked: unsaved notes (a heading, bold, a table) rendered by the dashboard. |
+| 31 | `31-palette-open-docs.png` | ⌘K "Open docs" from the Classic view tab. Picking it brings back Docs with focus on the first document. |
+
 To take them again, run the demo (`npm run web:build && PORT=4479 npm run demo`), then open http://127.0.0.1:4479/next/. Every case above is seeded except 01, where you type the description yourself.

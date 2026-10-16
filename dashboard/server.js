@@ -38,6 +38,7 @@ import { suggestLevel, changedPaths } from './lib/levels.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs } from './lib/gate.js';
 import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
 import { skillChecker } from './lib/skill-check.js';
+import { DOC_MAX_BYTES, DocError, describeDoc, jsonHtml, listJobDocs, readJobDoc } from './lib/docs.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -701,6 +702,8 @@ async function saveChipOptions(f, options) {
 // ---------- A job's notes (notes.md in its private folder) ----------
 
 const NOTES_MAX = 20000;
+// The most text POST /api/job/:slug/render previews at once (characters).
+const RENDER_MAX = 100000;
 const notesFile = (f) => path.join(f.dir, 'notes.md');
 
 // No notes yet: empty. A notes.md that is a symlink (or not a plain file) isn't followed: 404.
@@ -853,22 +856,33 @@ async function routeGet(urlPath, url, req, res) {
     }
     if (!sub) return sendJson(res, 200, await jobDetail(f));
     if (sub === '/notes') return sendJson(res, 200, await readNotes(f));
+    if (sub === '/docs') {
+      // The Docs tab's list: every document of the job, grouped, with versions and times (lib/docs.js).
+      const specPath = specFile(f);
+      return sendJson(res, 200, { docs: await listJobDocs(f.dir, { spec: specPath ? { path: specPath, version: f.spec?.version ?? null } : null, recorded: f.recordedArtifacts }) });
+    }
     if (sub === '/doc') {
+      // One document, rendered (sanitised, lib/markdown.js) and as its source text. Inside the job
+      // folder only: no way out, no symlinks, .md and .json only, at most DOC_MAX_BYTES (lib/docs.js).
       const file = url.searchParams.get('file') ?? '';
-      let text = null;
-      let name = file;
+      let doc;
+      let name;
       if (file === 'spec') {
         const p = specFile(f);
         name = 'Product spec';
-        try { text = p ? await fsp.readFile(p, 'utf8') : null; } catch { text = null; }
-      } else if (/\.(md|json)$/.test(file)) {
-        text = await readInside(f.dir, file, { noLink: true }); // a symlinked file isn't followed: 404
-        const brief = /^briefs\/(\d+)-(.+)\.md$/.exec(file);
-        name = f.artifacts.find((a) => a.file === file)?.name ?? (brief ? `Brief #${Number(brief[1])} · ${brief[2].replace(/-/g, ' ')}` : file);
+        const st = p ? await fsp.stat(p).catch(() => null) : null;
+        if (!st?.isFile()) throw new HttpError(404, 'That file isn’t there (yet).');
+        if (st.size > DOC_MAX_BYTES) throw new HttpError(413, `The spec is too big to show here (at most ${Math.round(DOC_MAX_BYTES / 1024)} KB). Open it in your editor instead.`);
+        const text = await fsp.readFile(p, 'utf8').catch(() => null);
+        if (text === null) throw new HttpError(404, 'That file isn’t there (yet).');
+        doc = { text, updatedAt: st.mtime.toISOString(), size: st.size };
+      } else {
+        try { doc = await readJobDoc(f.dir, file); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
+        name = f.artifacts.find((a) => a.file === file)?.name ?? describeDoc(file).name;
       }
-      if (text === null) throw new HttpError(404, 'That file isn’t there (yet).');
-      const html = file.endsWith('.json') ? `<pre>${text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))}</pre>` : renderMarkdown(text, { idHref: idHref(f) });
-      return sendJson(res, 200, { file, name, html, vscode: file === 'spec' ? specFile(f) : path.join(f.dir, file) });
+      const type = file.endsWith('.json') ? 'json' : 'md';
+      const html = type === 'json' ? jsonHtml(doc.text) : renderMarkdown(doc.text, { idHref: idHref(f) });
+      return sendJson(res, 200, { file, name, type, html, text: doc.text, updatedAt: doc.updatedAt, size: doc.size, vscode: file === 'spec' ? specFile(f) : path.join(f.dir, file) });
     }
     if ((m = /^\/ids\/([^/]+)$/.exec(sub))) {
       const id = decodeURIComponent(m[1]);
@@ -899,6 +913,15 @@ async function routePost(urlPath, req, res) {
   checkWrite(req.headers, { port: PORT, token: TOKEN });
   const body = await readBody(req);
   let m;
+  if ((m = /^\/api\/job\/([^/]+)\/render$/.exec(urlPath))) {
+    // Markdown you are writing (the drawer's notes Preview), rendered by the same sanitising renderer
+    // as every document. Nothing is saved or sent anywhere; a POST only so the text isn't in a URL.
+    const f = await featureBySlug(m[1]);
+    if (!f) throw new HttpError(404, 'No job by that name.');
+    if (typeof body.text !== 'string') throw new HttpError(400, 'The text to preview must be text.');
+    if (body.text.length > RENDER_MAX) throw new HttpError(413, `Too long to preview (at most ${RENDER_MAX.toLocaleString('en')} characters).`);
+    return sendJson(res, 200, { html: renderMarkdown(body.text, { idHref: idHref(f) }) });
+  }
   if ((m = /^\/api\/job\/([^/]+)\/send$/.exec(urlPath))) {
     const f = await featureBySlug(m[1]);
     if (!f) throw new HttpError(404, 'No job by that name.');

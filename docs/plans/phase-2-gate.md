@@ -12,6 +12,7 @@
 - **Safeguards.** A card greys out if the plan changes after it appears. A decision left 4 hours shows "parked 4h" and alerts once. Nothing is approved for you.
 - **Job drawer** (job menu → Notes and options, or ⌘K): notes and every option. Provided documents are still edited in the classic view.
 - **Settings warning** when your installed /feature skill doesn't know levels yet. The skill update itself is committed locally, not installed (see below).
+- **Docs tab** (Preview pane, or ⌘K "Open docs"): every document the crew writes for the job, grouped (Plan & spec, Briefs, Review, Notes, Other) with versions and times, shown as a clean page; Source and Copy as markdown for the Markdown itself. Notes in the drawer get Preview. Short Foreman text on cards (headlines, questions, reasons) and a Markdown file a permission card shows come out formatted too, never as raw `##` or `**`. Screenshots 16–31.
 
 ## How to try it
 
@@ -59,7 +60,7 @@ git -C ~/Projects/claude-feature-workflow diff 9ceba3c..main
 
 ## Tests (real run, 2026-10-16)
 
-`npm test` 213 / 213 · `npm run web:test` 312 / 312 · `npx tsc --noEmit -p web` clean · `npm run web:build` builds. No test calls Claude.
+`npm test` 222 / 222 · `npm run web:test` 334 / 334 · `npx tsc --noEmit -p web` clean · `npm run web:build` builds. No test calls Claude. (With the Docs tab; before it, 213 and 312.)
 
 **Demo walk:** headless Chrome clicked through 18 flows; every flow below passed, with no console errors: the New job sheet at each of the four levels; L0 end to end; L1 approve; L2 approve with an override, Ask Fable and L↑; Skip next at the build gate; Edit, then approve; Revise with feedback; Other guidance; Stop job; stale card; parked card and row; parked alert remembered; drawer notes save; drawer options save; LevelCard Use; Settings warning.
 

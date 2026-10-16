@@ -4,6 +4,7 @@
 // section underneath, read only when you open it. Rulings and proof lines show only if present.
 import { useEffect, useState } from 'react';
 import type { JobDoc } from '../../api/types';
+import { InlineText } from '../../components/InlineText';
 import { fullTime, relativeTime } from '../../lib/time';
 import { useWorkshop } from '../../state/store';
 import { stageLabel } from '../Jobs/stages';
@@ -95,7 +96,7 @@ export function BriefCard({ slug, brief, now }: { slug: string; brief: ShownBrie
           {answered && <span className="brief-state">Answered</span>}
           {item.at && <time className="thread-time num" dateTime={item.at} title={fullTime(item.at)}>{relativeTime(item.at, now)}</time>}
         </button>
-        <p className="brief-headline">{headline}</p>
+        <p className="brief-headline"><InlineText text={headline} /></p>
       </header>
       <div id={bodyId} className="brief-body" hidden={!open}>
         {open && <DocBody doc={doc} what="brief" headline={headline} />}

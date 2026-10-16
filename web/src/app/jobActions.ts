@@ -1,7 +1,7 @@
 // What the job menu and ⌘K do to a job, in one place so both behave the same. Each call is one
 // dashboard route (dashboard/server.js); the live events that follow bring the page up to date.
 import type { ApiClient } from '../api/client';
-import type { Closed, GateRequest, GateResult, JobNotes, JobOptions, JobPolicyResult, LevelNumber, OptionsResult, PolicyId, Usage } from '../api/types';
+import type { Closed, GateRequest, GateResult, JobDoc, JobDocEntry, JobDocList, JobNotes, JobOptions, JobPolicyResult, LevelNumber, OptionsResult, PolicyId, RenderedMarkdown, Usage } from '../api/types';
 import type { Store } from '../state/store';
 
 const job = (slug: string) => `/api/job/${encodeURIComponent(slug)}`;
@@ -83,6 +83,26 @@ export async function loadJobNotes(api: ApiClient, slug: string): Promise<JobNot
 /** Replace a job's notes.md (PUT, at most 20,000 characters); answers with the notes as saved. */
 export async function saveJobNotes(api: ApiClient, slug: string, text: string): Promise<JobNotes> {
   return api.put<JobNotes>(`${job(slug)}/notes`, { text });
+}
+
+/** Every document of a job (the Docs tab's list), grouped, with versions and times. */
+export async function loadJobDocs(api: ApiClient, slug: string): Promise<JobDocEntry[]> {
+  const r = await api.get<JobDocList>(`${job(slug)}/docs`);
+  return Array.isArray(r?.docs) ? r.docs : [];
+}
+
+/** One document of a job: rendered (sanitised by the dashboard) and its source text. */
+export async function loadJobDoc(api: ApiClient, slug: string, file: string): Promise<JobDoc> {
+  return api.get<JobDoc>(`${job(slug)}/doc?file=${encodeURIComponent(file)}`);
+}
+
+/**
+ * Markdown you're writing, rendered by the dashboard's own sanitising renderer (POST, so the text
+ * stays out of URLs and logs; nothing is saved). At most 100,000 characters.
+ */
+export async function renderPreview(api: ApiClient, slug: string, text: string): Promise<string> {
+  const r = await api.post<RenderedMarkdown>(`${job(slug)}/render`, { text });
+  return String(r?.html ?? '');
 }
 
 /** Carry on now: start the jobs paused by the usage limit again. Returns how many started. */

@@ -11,7 +11,7 @@ const classic = { home: () => '/#/', job: (s: string) => `/#/job/${s}`, costs: (
 function handlers(): CommandHandlers {
   return {
     openJob: vi.fn(), newJob: vi.fn(), stop: vi.fn(), focusComposer: vi.fn(), markDone: vi.fn(), reopen: vi.fn(),
-    setPolicy: vi.fn(), jobDrawer: vi.fn(), settings: vi.fn(), classic: vi.fn(), showKeys: vi.fn(),
+    setPolicy: vi.fn(), jobDrawer: vi.fn(), openDocs: vi.fn(), settings: vi.fn(), classic: vi.fn(), showKeys: vi.fn(),
   };
 }
 
@@ -77,6 +77,19 @@ describe('commandsFor', () => {
     expect(ids(filterCommands(list, 'reviewers'))).toEqual(['job-drawer']);
     // No job open: no drawer to offer.
     expect(ids(commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: null, current: null, onSettings: false, classic }, h))).not.toContain('job-drawer');
+  });
+
+  it('offers “Open docs” for the open job only, showing the Docs tab', () => {
+    const h = handlers();
+    const list = commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: 'alpha', current: { slug: 'alpha', run: null }, onSettings: false, classic }, h);
+    const entry = list.find((c) => c.id === 'open-docs')!;
+    expect(entry.label).toBe('Open docs');
+    expect(entry.hint).toMatch(/clean page/);
+    entry.run();
+    expect(h.openDocs).toHaveBeenCalledTimes(1);
+    expect(ids(filterCommands(list, 'docs'))).toEqual(['open-docs']);
+    expect(ids(filterCommands(list, 'plan'))).toContain('open-docs');
+    expect(ids(commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: null, current: null, onSettings: false, classic }, h))).not.toContain('open-docs');
   });
 
   it('offers the job’s permission settings other than the one in force, and not auto mode when it isn’t available', () => {
