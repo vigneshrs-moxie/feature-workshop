@@ -9,6 +9,8 @@ import { agentInfo } from './stages.js';
 import { readOptions, skippedFor } from './options.js';
 import { estimateCost, calibrationFactors } from './cost.js';
 import { locateJob } from './locate.js';
+import { suggestLevel } from './levels.js';
+import { versionsFrom } from './gate.js';
 
 const ARTIFACT_FILES = [
   ['Workflow status', 'workflow-status.md'],
@@ -267,6 +269,25 @@ async function readFeatureFolder(dir) {
   const route = status?.route ?? ws?.route ?? null;
   const options = await readOptions(dir);
 
+  // The brief the Foreman is on: the one status.json names, else the newest brief file (detail
+  // files left out). statusBriefFile is set only when status.json names it: its versions are known.
+  const isDetail = (b) => /(^|-)detail$/.test(b.stage);
+  const named = status?.brief ?? null;
+  const namedPath = named?.path ? path.resolve(dir, named.path) : null;
+  const namedFile = named
+    ? briefs.find((b) => namedPath && path.join(dir, b.file) === namedPath) ?? briefs.find((b) => !isDetail(b) && named.number && b.number === named.number) ?? null
+    : null;
+  const current = named ? namedFile : briefs.filter((b) => !isDetail(b)).at(-1) ?? null;
+  const currentStat = current ? await statOrNull(path.join(dir, current.file)) : null;
+  const currentBrief = named || current ? {
+    number: named?.number ?? current?.number ?? null,
+    file: current?.file ?? null,
+    headline: named?.headline ?? null,
+    at: currentStat?.mtime.toISOString() ?? null,
+  } : null;
+  // The rules' level from the description alone (no git here: this runs for every job on every refresh).
+  const description = options?.title ?? status?.title ?? ws?.title ?? slug;
+
   return {
     slug,
     dir,
@@ -301,6 +322,20 @@ async function readFeatureFolder(dir) {
     statusRepo: status?.repo?.path ?? null, statusBranch: status?.branch ?? null, statusWorktree: status?.worktree ?? null,
     wsRepository: ws?.repository ?? null,
     sessionId: status?.sessionId ?? null,
+    // Levels: the one chosen (options.json), the Foreman's suggestion and reason (status.json),
+    // and the rules' suggestion from the description (lib/levels.js; changed paths are added on the job page).
+    level: options?.level ?? null,
+    suggestedLevel: status?.suggestedLevel ?? null,
+    levelReason: status?.levelReason ?? null,
+    description,
+    rulesLevel: { ...suggestLevel({ description }), fromDiff: false, changedFiles: null },
+    baseBranch: status?.repo?.baseBranch ?? null,
+    // The gate: the brief the Foreman waits on, since when (waiting_since, else that brief's file
+    // time), and the versions status.json names now (null without status.json).
+    currentBrief,
+    statusBriefFile: named ? namedFile?.file ?? null : null,
+    gateWaitingSince: status?.waitingSince ?? currentBrief?.at ?? waitingSince,
+    versions: versionsFrom(status),
     updatedAt: status?.updatedAt ?? wsStat?.mtime.toISOString() ?? null,
     sources: { workflowStatus: Boolean(ws?.ok), statusJson: Boolean(status) },
     warnings: [...(ws?.warnings ?? []), ...(sj?.warnings ?? [])],

@@ -29,7 +29,90 @@ export interface Job {
   closed?: Closed | null;
   /** Marked done or dropped earlier, but it changed since, so it's back among the open jobs. */
   closedEarlier?: Closed | null;
+  /** The level chosen for the job (options.json; null: none yet). */
+  level?: LevelNumber | null;
+  /** The Foreman's suggested level and its one-line reason (status.json, with its first brief). */
+  suggestedLevel?: LevelNumber | null;
+  levelReason?: string | null;
+  /** The rules' suggestion (lib/levels.js): from the description here, plus changed paths on the job page. */
+  rulesLevel?: RulesLevel | null;
+  /** Its gate has waited past the parking time (4 hours): still under Needs you, shown as parked. */
+  parked?: boolean;
   [key: string]: unknown;
+}
+
+export type LevelNumber = 0 | 1 | 2 | 3;
+
+/** The rules' level suggestion (dashboard/lib/levels.js suggestLevel), no model involved. */
+export interface RulesLevel {
+  level: LevelNumber;
+  /** The lowest level a risk trigger allows (0: none fired). */
+  floor: number;
+  /** Plain sentences, one per reason. */
+  reasons: string[];
+  /** Ids of the risk triggers that fired ('migrations', 'auth', ...). */
+  triggers: string[];
+  /** Whether the branch's changed paths were read too (the job page only, once a worktree exists). */
+  fromDiff: boolean;
+  /** How many files the branch changes (null when not read). */
+  changedFiles: number | null;
+}
+
+/** Spec and artifact versions as status.json names them: { spec: '0.3', artifacts: { 'implementation-plan': '2' } }. */
+export interface Versions {
+  spec: string | null;
+  artifacts: Record<string, string | null>;
+}
+
+/** One of the Foreman's questions in its brief (status.json `questions`, at most three). */
+export interface GateQuestion {
+  id: string;
+  text: string;
+  recommendation: string | null;
+  options: { id: string; label: string }[];
+}
+
+/** Something the Foreman decided on your behalf (status.json `decided_on_your_behalf`). */
+export interface DecidedItem {
+  id: string | null;
+  decision: string;
+  reason: string | null;
+  where: string | null;
+  confirmed: boolean;
+}
+
+/**
+ * What the Foreman waits for you to decide (GET /api/job/:slug `gate`, dashboard/lib/gate.js);
+ * null when it isn't waiting.
+ */
+export interface Gate {
+  briefNumber: number | null;
+  /** The brief's file in the job folder, e.g. briefs/002-plan.md. */
+  briefFile: string | null;
+  headline: string | null;
+  stage: string | null;
+  /** The stage that runs after this one (skipped stages left out). */
+  nextStage: string | null;
+  nextProposed: string | null;
+  questions: GateQuestion[];
+  /** decided_on_your_behalf: the "Also decided" list. */
+  decided: DecidedItem[];
+  /** The versions status.json names now; compare with the brief item's versions (at raise time). */
+  versions: Versions | null;
+  waitingSince: string | null;
+  parked: boolean;
+  level: LevelNumber | null;
+  suggestedLevel: LevelNumber | null;
+  levelReason: string | null;
+  /** One line about Claude's usage limit when the next stage is build, test or review and the limit is reached or close. */
+  usage: string | null;
+}
+
+/** 'gate-stale' event data: a gate waited past the parking time (sent once per job and brief). */
+export interface GateStale {
+  job: string;
+  briefNumber: number | null;
+  waitingSince: string | null;
 }
 
 /** How a job was marked: done or dropped, with your note. */
@@ -288,6 +371,8 @@ export interface BriefItem extends ItemBase {
   file: string;
   headline: string | null;
   point: string | null;
+  /** The versions it was raised at: only on the brief status.json names (null for older ones). */
+  versions?: Versions | null;
 }
 /** steerId: set when you steered it into a reply in progress (its delivery state is in the store). */
 export interface YouItem extends ItemBase { kind: 'you'; text: string; sendKind?: string; steerId?: string; runId?: string }
@@ -326,6 +411,16 @@ export interface JobDetail {
   /** The permission setting in force for this job, and its own one (null: it follows yours). */
   policy?: PolicyId;
   policyOverride?: PolicyId | null;
+  /** Levels, as on Job; rulesLevel here also reads the branch's changed paths when it can. */
+  level?: LevelNumber | null;
+  suggestedLevel?: LevelNumber | null;
+  levelReason?: string | null;
+  rulesLevel?: RulesLevel | null;
+  parked?: boolean;
+  /** The gate card's content; null when the Foreman isn't waiting for you. */
+  gate?: Gate | null;
+  /** Brief numbers a gate reply was already sent for. */
+  answeredBriefs?: number[];
   [key: string]: unknown;
 }
 

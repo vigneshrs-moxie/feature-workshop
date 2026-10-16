@@ -18,7 +18,10 @@ const POLICY_LABELS = { 'hands-off': 'Routine steps automatic', 'ask-all': 'Ask 
 const hash = (entry) => createHash('sha1').update(JSON.stringify(entry)).digest('hex').slice(0, 12);
 
 /**
- * briefs: [{ number, stage, file, at, headline, point }]. audit: the job's audit entries, oldest
+ * briefs: [{ number, stage, file, at, headline, point, versions }]. versions: the spec and artifact
+ * versions status.json named when this brief was raised ({ spec, artifacts: { name: version } }),
+ * known only for the brief status.json names now; null for older briefs. Never part of the id.
+ * audit: the job's audit entries, oldest
  * first (all of them, so ids don't depend on how far back was read). autoResume: whether jobs
  * carry on by themselves after a usage limit (changes one note's wording).
  * Replies carry their markdown in `reply`; the caller renders the ones it sends.
@@ -26,7 +29,7 @@ const hash = (entry) => createHash('sha1').update(JSON.stringify(entry)).digest(
 export function buildThread({ briefs = [], audit = [], autoResume = true }) {
   const thread = [];
   for (const b of briefs) {
-    thread.push({ id: `brief:${b.file}`, kind: 'brief', at: b.at ?? null, number: b.number, stage: b.stage, file: b.file, headline: b.headline ?? null, point: b.point ?? null });
+    thread.push({ id: `brief:${b.file}`, kind: 'brief', at: b.at ?? null, number: b.number, stage: b.stage, file: b.file, headline: b.headline ?? null, point: b.point ?? null, versions: b.versions ?? null });
   }
   let autoGroup = null;
   for (const e of audit) {

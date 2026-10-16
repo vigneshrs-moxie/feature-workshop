@@ -34,6 +34,8 @@ import { isWebAppPath, serveWebApp } from './lib/web-app.js';
 import { EventLog, resumePoint, openStream } from './lib/events.js';
 import { groupCards } from './lib/snapshot.js';
 import { buildThread, pageThread } from './lib/thread.js';
+import { suggestLevel, changedPaths } from './lib/levels.js';
+import { GATE_PARK_MS, GateParking, isGateWaiting, gateView, answeredBriefs } from './lib/gate.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -168,10 +170,71 @@ async function features() {
   const list = await loadFeatures({ featuresDir: FEATURES_DIR, sessionIndex, overrides, knownRepos: await repoList() });
   // Jobs you marked done or dropped (kept in the dashboard's own state; the job's records are untouched).
   for (const f of list) f.closed = saved[f.dir]?.closed ?? null;
+  for (const f of list) noteRaisedVersions(f);
   cached = { at: Date.now(), list };
   return list;
 }
 const featureBySlug = async (slug) => (await features()).find((f) => f.slug === slug) ?? null;
+
+// The spec and artifact versions each brief was raised at: what status.json named the first time
+// this dashboard saw it name that brief. Kept in memory only (a restart starts over from what
+// status.json says then). The gate card compares them with the versions now (gate.versions).
+const raisedVersions = new Map();
+function noteRaisedVersions(f) {
+  if (!f.statusBriefFile || !f.versions) return;
+  const key = `${f.dir}\n${f.statusBriefFile}`;
+  if (!raisedVersions.has(key)) raisedVersions.set(key, structuredClone(f.versions));
+}
+const versionsRaisedFor = (f, file) => raisedVersions.get(`${f.dir}\n${file}`) ?? null;
+
+// A marked done or dropped job that hasn't changed since: off the board, no gate.
+const closedOff = (f) => Boolean(f.closed && !(f.updatedAt && f.updatedAt > f.closed.at));
+
+// Gates left waiting too long (lib/gate.js): reported once per job and brief with a 'gate-stale'
+// event, and shown as parked on the job's row (it stays under Needs you). WORKSHOP_GATE_PARK_MS
+// shortens the 4 hours for tests and the demo. What was reported is kept in memory only.
+const PARK_MS = Number(process.env.WORKSHOP_GATE_PARK_MS) > 0 ? Number(process.env.WORKSHOP_GATE_PARK_MS) : GATE_PARK_MS;
+const parking = new GateParking({ thresholdMs: PARK_MS });
+const gateParked = (f) => isGateWaiting(f) && !closedOff(f) && parking.isParked(f.slug, f.currentBrief?.number ?? null);
+async function checkParkedGates() {
+  const list = await features();
+  const waiting = list.filter((f) => isGateWaiting(f) && !closedOff(f) && !driver.activeRunFor({ featureDir: f.dir }));
+  const due = parking.due(waiting.map((f) => ({ slug: f.slug, briefNumber: f.currentBrief?.number ?? null, waitingSince: f.gateWaitingSince, f })));
+  let any = false;
+  for (const g of due) {
+    // Answered from a gate card already (the Foreman just hasn't written its next brief): not untouched.
+    if (g.briefNumber && answeredBriefs(await state.auditFor(g.f.dir, Infinity)).includes(g.briefNumber)) continue;
+    parking.mark(g);
+    any = true;
+    events.emit('gate-stale', g.slug, { job: g.slug, briefNumber: g.briefNumber, waitingSince: g.waitingSince });
+  }
+  if (any) { cached = null; broadcast('change', { at: Date.now() }); }
+}
+// Checked every minute (more often when the time is shortened); the timer never keeps the process alive.
+function startGateParking() {
+  let checking = false;
+  setInterval(() => {
+    if (checking) return;
+    checking = true;
+    checkParkedGates().catch((err) => console.error(err)).finally(() => { checking = false; });
+  }, Math.min(60_000, Math.max(200, Math.floor(PARK_MS / 4)))).unref();
+}
+
+// The paths changed on a job's branch (for the rules' level), only for the job page. Cached per
+// job by worktree, base and status.json's updated_at, and at most a minute old, so git runs at most
+// about once a minute per open job, never for the snapshot.
+const DIFF_TTL_MS = 60_000;
+const diffCache = new Map();
+async function changedPathsFor(f) {
+  const base = f.baseSha ?? f.baseBranch;
+  if (!f.worktree || !base) return null;
+  const key = `${f.worktree}\n${base}\n${f.updatedAt ?? ''}`;
+  const hit = diffCache.get(f.dir);
+  if (hit && hit.key === key && Date.now() - hit.at < DIFF_TTL_MS) return hit.paths;
+  const paths = await changedPaths(f.worktree, base);
+  diffCache.set(f.dir, { key, at: Date.now(), paths });
+  return paths;
+}
 
 // Claude Code terminals open in this job's repository or worktree right now.
 async function terminalsFor(f) {
@@ -252,9 +315,13 @@ function boardCard(f, run) {
     cost: { totalUsd: Math.max(f.cost.totalUsd, active?.costUsd ?? 0), source: f.cost.source },
     progress: { done: f.stageState === 'done' ? ids.length : Math.max(0, at), total: ids.length },
     updatedAt: f.updatedAt, sources: f.sources, permissions: pendingList.length, limitPaused, limitAuto: limits.autoResume,
+    // Levels: chosen (options.json), the Foreman's suggestion (status.json), the rules' (description only here).
+    level: f.level, suggestedLevel: f.suggestedLevel, levelReason: f.levelReason, rulesLevel: f.rulesLevel,
+    // A gate left waiting past the parking time: still Needs you, with a "parked" chip.
+    parked: !active && gateParked(f),
     // Marked done or dropped: off the board, unless something is going on or the job changed since.
     ...(f.closed && !active && !running.length && !(f.updatedAt && f.updatedAt > f.closed.at)
-      ? { closed: f.closed, needsYou: false, working: false, quiet: false, waitingFor: null, stageState: f.closed.as === 'done' ? 'done' : 'idle' }
+      ? { closed: f.closed, needsYou: false, working: false, quiet: false, waitingFor: null, parked: false, stageState: f.closed.as === 'done' ? 'done' : 'idle' }
       : f.closed ? { closedEarlier: f.closed } : {}),
   };
 }
@@ -274,6 +341,7 @@ function startingCards(list) {
         firstQuestion: null, questions: 0, unconfirmed: 0, headline: null, nextProposed: null,
         cost: { totalUsd: r.costUsd ?? 0, source: 'claude-code' }, progress: { done: 0, total: 11 }, updatedAt: r.startedAt,
         sources: { workflowStatus: false, statusJson: false }, permissions: pending.length, starting: true,
+        level: null, suggestedLevel: null, levelReason: null, rulesLevel: null, parked: false,
       };
     });
 }
@@ -314,7 +382,9 @@ async function threadPage(f, audit, { before = null } = {}) {
   for (const b of f.briefs) {
     const st = await fsp.stat(path.join(f.dir, b.file)).catch(() => null);
     const parsed = parseBrief((await readInside(f.dir, b.file)) ?? '');
-    briefs.push({ number: b.number, stage: b.stage, file: b.file, at: st?.mtime.toISOString() ?? null, headline: parsed.headline, point: parsed.happened[0] ?? parsed.next ?? null });
+    // Versions only on the brief status.json names (as first seen); older briefs have none.
+    const versions = b.file === f.statusBriefFile ? versionsRaisedFor(f, b.file) ?? f.versions : null;
+    briefs.push({ number: b.number, stage: b.stage, file: b.file, at: st?.mtime.toISOString() ?? null, headline: parsed.headline, point: parsed.happened[0] ?? parsed.next ?? null, versions });
   }
   const page = pageThread(buildThread({ briefs, audit, autoResume: limits.autoResume }), { before });
   if (!page) return null;
@@ -355,9 +425,29 @@ async function jobDetail(f) {
     questions: f.questions, decided: f.decidedOnYourBehalf, headsUp,
   });
 
+  // The rules' level with the branch's changed paths added, once there's a worktree and a base
+  // (git runs here only, cached: see changedPathsFor). Without them, the description alone.
+  const paths = await changedPathsFor(f);
+  const rulesLevel = paths ? { ...suggestLevel({ description: f.description, paths }), fromDiff: true, changedFiles: paths.length } : f.rulesLevel;
+
+  // The gate card: what the Foreman waits for you to decide (null when it isn't waiting).
+  let gate = null;
+  if (isGateWaiting(f) && !closedOff(f)) {
+    const cb = f.currentBrief;
+    let headline = cb?.headline ?? null;
+    if (!headline && cb?.file) headline = parseBrief(cb.file === latestBrief?.path ? latestBrief.text : (await readInside(f.dir, cb.file)) ?? '').headline ?? null;
+    gate = gateView(
+      { ...f, decided: f.decidedOnYourBehalf, waitingSince: f.gateWaitingSince },
+      { brief: cb ? { ...cb, headline } : null, parked: gateParked(f), usage: limits.view() },
+    );
+  }
+
   const page = await threadPage(f, audit);
   return {
     ...boardCard(f, run),
+    rulesLevel, gate,
+    // Briefs a gate reply was already sent for (audit 'send' lines with gateBrief).
+    answeredBriefs: answeredBriefs(audit),
     dir: f.dir, repoPath: f.repoPath, branch: f.branch, worktree: f.worktree, baseSha: f.baseSha, prs: f.prs,
     options: f.options, optionsSummary: f.options ? describeOptions(f.options) : null,
     spec: f.spec, specFile: specFile(f), currentText: f.currentText, questionsFull: f.questions, decidedOnYourBehalf: f.decidedOnYourBehalf,
@@ -977,6 +1067,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 await limits.load();
+startGateParking();
 watch(FEATURES_DIR, featureFileChanged);
 watch(PROJECTS_DIR);
 server.listen(PORT, HOST, () => {

@@ -113,6 +113,14 @@ describe('reducer: events', () => {
     expect(s.threadVersions).toEqual({ alpha: 2 });
   });
 
+  it('gate-stale: marks the job parked at once, refetches its page, and asks for a fresh snapshot', () => {
+    const s = run(hydrated(), { type: 'event', event: ev(11, 'gate-stale', 'alpha', { job: 'alpha', briefNumber: 2, waitingSince: '2026-10-16T08:00:00Z' }) });
+    expect(s.jobs.find((j) => j.slug === 'alpha')?.parked).toBe(true);
+    expect(s.jobs.find((j) => j.slug === 'beta')?.parked).toBeUndefined();
+    expect(s.threadVersions).toEqual({ alpha: 1 });
+    expect(s.jobsStale).toBe(true);
+  });
+
   it('live-only and unknown events move seq without marking jobs stale', () => {
     const s = run(hydrated(), { type: 'event', event: ev(11, 'local', 'alpha', { chunk: 'x' }) }, { type: 'event', event: ev(12, 'something-new') });
     expect(s.seq).toBe(12);

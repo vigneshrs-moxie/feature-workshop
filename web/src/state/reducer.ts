@@ -78,7 +78,7 @@ export const initialState: WorkshopState = {
 // Event types that can change which group a job is in, or what its row shows. 'run' is not here:
 // the driver sends one on many SDK messages while a job replies, so a run only marks jobs stale
 // when it starts, ends or changes status (see the 'run' case below).
-const MOVES_JOBS = new Set(['permission', 'permission-gone', 'thread', 'change', 'usage']);
+const MOVES_JOBS = new Set(['permission', 'permission-gone', 'thread', 'change', 'usage', 'gate-stale']);
 
 const asObject = (d: unknown): Record<string, unknown> => (d && typeof d === 'object' ? (d as Record<string, unknown>) : {});
 
@@ -196,6 +196,14 @@ function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
       return next;
     case 'thread':
       if (e.job) next.threadVersions = { ...state.threadVersions, [e.job]: (state.threadVersions[e.job] ?? 0) + 1 };
+      return next;
+    case 'gate-stale':
+      // A gate left waiting past the parking time (4 hours): the row says parked at once (it stays
+      // under Needs you), and the job's page refetches so its gate card says so too.
+      if (e.job) {
+        next.threadVersions = { ...state.threadVersions, [e.job]: (state.threadVersions[e.job] ?? 0) + 1 };
+        next.jobs = patchJob(state.jobs, e.job, (j) => ({ ...j, parked: true }));
+      }
       return next;
     default:
       // 'change', 'local', 'local-state' and types this page doesn't know yet: only the seq moves.

@@ -9,6 +9,17 @@ const PR_STATES = ['not_started', 'open', 'changes_requested', 'approved', 'merg
 
 const str = (v) => (typeof v === 'string' && v.trim() ? v : null);
 const arr = (v) => (Array.isArray(v) ? v : []);
+// The Foreman's one-line reason for the level it suggests; longer text is cut, not refused.
+export const LEVEL_REASON_MAX = 400;
+
+// suggested_level (optional, schema 1): the level L0–L3 the Foreman proposes in its first brief.
+// Missing or null is fine; anything but a whole number 0–3 becomes null with a warning.
+function suggestedLevel(v, warnings) {
+  if (v === null || v === undefined) return null;
+  if (Number.isInteger(v) && v >= 0 && v <= 3) return v;
+  warnings.push(`suggested_level: unexpected value "${String(v).slice(0, 40)}"; expected 0, 1, 2 or 3`);
+  return null;
+}
 
 function oneOf(value, allowed, field, warnings) {
   if (value === null || value === undefined) return null;
@@ -92,5 +103,7 @@ export function parseStatusJson(text) {
     sessionId: str(raw.session_id),
     cwd: str(raw.cwd),
     updatedAt: str(raw.updated_at),
+    suggestedLevel: suggestedLevel(raw.suggested_level, warnings),
+    levelReason: str(raw.level_reason)?.trim().slice(0, LEVEL_REASON_MAX) ?? null,
   };
 }

@@ -7,6 +7,9 @@
 //   idle       nothing is happening and nothing is asked of you
 //   done       finished, or marked done or dropped
 //
+// A gate left waiting past the parking time (lib/gate.js) is not a group of its own: the card's
+// `parked` flag is set and it stays under needs-you, so the ask isn't hidden (decision D3).
+//
 // Takes a card as built for /api/features (boardCard in server.js).
 
 export const GROUPS = ['needs-you', 'running', 'paused', 'idle', 'done'];
