@@ -114,6 +114,7 @@
   --card-radius: var(--radius-lg);
   --pane-pattern: none;
   --font-heading: var(--font-display);
+  --row-alt: var(--border-1);
   --crew-skin: #f6d6ae;
   --crew-skin-shade: #dcae7c;
   --crew-blush: #f59a8b;

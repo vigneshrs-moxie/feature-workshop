@@ -10,9 +10,13 @@ import { InlineText } from '../InlineText';
 import { AlwaysAllowSheet } from './AlwaysAllowSheet';
 import { useAnswer } from './useAnswer';
 
-/** A Markdown file it wants to write: shown as a page (the dashboard rendered it), or as its source. */
-function MarkdownPreview({ html, source }: { html: string; source: string }) {
-  const [raw, setRaw] = useState(false);
+/**
+ * A Markdown file it wants to write: shown as a page (the dashboard rendered it), or as its source.
+ * Instructions files (CLAUDE.md, AGENTS.md, SKILL.md, .claude/) and files outside the job's folder
+ * start on the source (the dashboard says so with previewStart), so you read exactly what it writes.
+ */
+function MarkdownPreview({ html, source, startOnSource }: { html: string; source: string; startOnSource: boolean }) {
+  const [raw, setRaw] = useState(startOnSource);
   return (
     <div className="perm-md">
       <div className="perm-md-bar">
@@ -80,15 +84,28 @@ export function PermissionCard({ permission: p, now, showJob = false }: { permis
     <article className={`thread-item perm-card${risky ? ' is-risky' : ''}`} data-ask={p.hardLine ? 'hardline' : 'permission'} aria-label={`Permission: ${plain.headline}`}>
       <CardHead p={p} now={now} showJob={showJob} verb="wants to" />
       <h3 className="perm-headline">{plain.headline}</h3>
+      {/* Only the tool's own description is formatted; the path and the preview are shown exactly as written. */}
       {plain.detail && <p className="perm-detail"><InlineText text={plain.detail} /></p>}
-      {plain.preview && (plain.previewHtml ? <MarkdownPreview html={plain.previewHtml} source={plain.preview} /> : <pre className="perm-preview">{plain.preview}</pre>)}
+      {plain.blockedPath && (
+        <p className="perm-detail perm-blocked" title="This step reaches a folder outside the job’s project, so it asks you first.">
+          It touches a folder outside the project: <code className="inline-code perm-path">{plain.blockedPath}</code>
+        </p>
+      )}
+      {plain.preview && (plain.previewHtml
+        ? <MarkdownPreview html={plain.previewHtml} source={plain.preview} startOnSource={plain.previewStart === 'source'} />
+        : <pre className="perm-preview">{plain.preview}</pre>)}
+      {plain.preview && plain.previewCut ? (
+        <p className="perm-cut muted" title="Only the start is shown here, so the card stays short. The whole step is what you approve.">
+          Shortened: first {plain.previewCut.toLocaleString('en')} characters
+        </p>
+      ) : null}
       {p.hardLine ? (
         <p className="perm-reason muted" title="Hard lines ask you every time, whatever your permission setting, and can’t be always allowed.">
           <span className="chip ask-label">Hard line</span> {p.hardLine.reason}
         </p>
       ) : p.decisionReason && (
         <p className="perm-reason muted" title={p.fromAutoMode ? 'Auto mode’s safety model couldn’t decide this one by itself, so it asks you.' : 'Why Claude Code asked about this one.'}>
-          {p.fromAutoMode ? <><span className="chip ask-label">Auto mode</span> </> : 'Why it asks: '}{p.decisionReason}
+          {p.fromAutoMode ? <><span className="chip ask-label">Auto mode</span> </> : 'Why it asks: '}<InlineText text={p.decisionReason} />
         </p>
       )}
       {risky && <p className="perm-warn" role="note"><span aria-hidden="true">⚠ </span>Take a careful look: this may be hard to undo.</p>}

@@ -3,6 +3,7 @@
 // answers is ready once every question has an answer; "Don't answer…" says no, with a note.
 import { useState } from 'react';
 import type { AskedQuestion, Permission } from '../../api/types';
+import { plainInline } from '../../lib/inlineMarkdown';
 import { InlineText } from '../InlineText';
 import { CardHead, DenyBox } from './PermissionCard';
 import { useAnswer } from './useAnswer';
@@ -52,7 +53,7 @@ function QuestionGroup({ q, i, pick, onChange, disabled }: { q: AskedQuestion; i
             className="text-input"
             value={pick.otherText}
             onChange={(e) => onChange({ ...pick, other: true, picked: multi ? pick.picked : [], otherText: e.target.value })}
-            aria-label={`Your own answer to: ${q.question}`}
+            aria-label={`Your own answer to: ${plainInline(q.question)}`}
             title="Answer in your own words instead."
           />
         </span>
@@ -70,7 +71,7 @@ export function QuestionCard({ permission: p, now, showJob = false }: { permissi
   const ready = questions.length > 0 && answers.every(([, a]) => a);
 
   return (
-    <article className="thread-item perm-card question-card" data-ask="question" aria-label={`Question: ${questions[0]?.question ?? 'from the Foreman'}`}>
+    <article className="thread-item perm-card question-card" data-ask="question" aria-label={`Question: ${questions[0]?.question ? plainInline(questions[0].question) : 'from the Foreman'}`}>
       <CardHead p={p} now={now} showJob={showJob} verb={questions.length === 1 ? 'asks you' : `asks you ${questions.length} questions`} />
       <form
         onSubmit={(e) => { e.preventDefault(); if (ready) void send({ decision: 'allow', answers: Object.fromEntries(answers) }); }}

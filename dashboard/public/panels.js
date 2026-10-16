@@ -23,6 +23,7 @@ export function permissionCard(p, { agentName, showJob = true, compact = false }
   const explain = `<b>Allow once:</b> it does exactly this, one time.${p.canAllowForRun ? ' <b>Allow for this reply:</b> it won’t ask again for this kind of action until this reply is finished.' : ''} <b>Deny:</b> it doesn’t do this and carries on without it. Nothing is saved to your Claude Code settings.`;
   return `<article class="perm gbox${risky ? ' risky' : ''}${compact ? ' compact' : ''}" data-perm="${esc(p.id)}">${head}
     ${p.plain.detail ? `<p class="perm-detail">${esc(p.plain.detail)}</p>` : ''}
+    ${p.plain.blockedPath ? `<p class="perm-detail">It touches a folder outside the project: <code>${esc(p.plain.blockedPath)}</code></p>` : ''}
     ${p.plain.preview ? `<pre class="perm-preview">${esc(p.plain.preview)}</pre>` : ''}
     ${risky ? '<p class="perm-warn">Take a careful look: this may be hard to undo.</p>' : ''}
     <div class="perm-actions">

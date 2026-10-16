@@ -1,9 +1,11 @@
 // The thread's other items: your messages, the Foreman's replies, folds of routine steps it took
 // by itself, problems, short notes, your permission decisions, and steps refused without a card
-// (by auto mode or a hard line), shown as dim lines. Text you or the Foreman typed is
-// always shown as plain text; only the dashboard-rendered reply HTML goes through ServerHtml.
+// (by auto mode or a hard line), shown as dim lines. Text you typed is always shown as plain
+// text; short AI-written reasons go through InlineText (React elements, no HTML); only the
+// dashboard-rendered reply HTML goes through ServerHtml.
 import type { AutoItem, SteerState, ThreadItem } from '../../api/types';
 import { settingsHref } from '../../app/router';
+import { InlineText } from '../../components/InlineText';
 import { fullTime, relativeTime } from '../../lib/time';
 import { ExtrasLines } from './ExtrasLines';
 import { ServerHtml } from './ServerHtml';
@@ -28,7 +30,7 @@ function AutoFold({ item, now }: { item: AutoItem; now: Date }) {
           <li key={i}>
             <span>{s.headline}</span>
             {s.who && s.who !== 'conductor' ? <span className="muted"> · {s.who}</span> : null}
-            {s.reason ? <span className="muted" title="Why this counted as routine."> · {s.reason}</span> : null}
+            {s.reason ? <span className="muted" title="Why this counted as routine."> · <InlineText text={s.reason} /></span> : null}
             {s.rule ? <> · <a href={settingsHref()} title="One of your “Always allow” rules let this run. See or remove it in Settings.">see rule</a></> : null}
           </li>
         ))}
@@ -102,7 +104,7 @@ export function ThreadItemView({ item, now, steer = null }: { item: ThreadItem; 
           <span className="glyph" aria-hidden="true">⊘</span> {item.text}
           {item.who && item.who !== 'conductor' ? <span> · {item.who}</span> : null}
           {item.preview ? <> · <code className="blocked-preview">{item.preview}</code></> : null}
-          {item.reason ? <span> · {item.reason}</span> : null}
+          {item.reason ? <span> · <InlineText text={item.reason} /></span> : null}
           {' '}<When at={item.at} now={now} />
         </p>
       );

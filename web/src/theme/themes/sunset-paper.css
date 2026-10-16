@@ -29,6 +29,7 @@ html[data-theme="sunset-paper"] {
   --bg-3: oklch(.93 .03 75);             /* buttons, hover rows: warm sand */
   --bg-4: oklch(.895 .04 70);            /* a pressed or hovered button */
   --border-1: oklch(.5 .06 60 / .14);
+  --row-alt: oklch(.5 .06 60 / .06);
   --border-2: oklch(.5 .06 60 / .24);
   --border-3: oklch(.5 .06 60 / .4);
   --text-1: oklch(.27 .035 40);          /* espresso */

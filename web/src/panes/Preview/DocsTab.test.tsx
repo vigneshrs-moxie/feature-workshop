@@ -5,6 +5,7 @@ import type { JobDoc, JobDocEntry } from '../../api/types';
 import { UiProvider, useUi } from '../../app/ui';
 import { createStore, WorkshopContext } from '../../state/store';
 import { job, snapshot } from '../../state/test-fixtures';
+import { ServerHtml } from '../Foreman/ServerHtml';
 import { DocsTab } from './DocsTab';
 import { groupDocs, sizeLabel, versionLabel } from './docs';
 import { PreviewPane } from './PreviewPane';
@@ -95,10 +96,10 @@ describe('Docs tab', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /^Implementation plan/ })).toHaveFocus());
   });
 
-  it('Source shows the Markdown as written, Page the clean page; the choice is remembered', async () => {
+  it('Source shows the Markdown as written, Page the clean page; each document opens on its page again', async () => {
     setup();
     fireEvent.click(await screen.findByRole('button', { name: /^Implementation plan/ }));
-    const reader = await screen.findByRole('article', { name: 'Implementation plan' });
+    let reader = await screen.findByRole('article', { name: 'Implementation plan' });
     await within(reader).findByRole('table');
     const page = within(reader).getByRole('button', { name: 'Page' });
     const source = within(reader).getByRole('button', { name: 'Source' });
@@ -107,9 +108,19 @@ describe('Docs tab', () => {
     expect(source).toHaveAttribute('aria-pressed', 'true');
     expect(within(reader).queryByRole('table')).toBeNull();
     expect(reader.querySelector('pre.doc-source')!.textContent).toBe(PLAN.text);
-    expect(localStorage.getItem('fw.docs.view')).toBe('source');
     fireEvent.click(page);
     expect(within(reader).getByRole('table')).toBeInTheDocument();
+    // Source again, then another document and back: both open on their page; nothing is stored.
+    fireEvent.click(within(reader).getByRole('button', { name: 'Source' }));
+    fireEvent.click(within(reader).getByRole('button', { name: /All documents/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Review/ }));
+    const review = await screen.findByRole('article', { name: 'review.md' });
+    expect(within(review).getByRole('button', { name: 'Page' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(within(review).getByRole('button', { name: /All documents/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Implementation plan/ }));
+    reader = await screen.findByRole('article', { name: 'Implementation plan' });
+    expect(within(reader).getByRole('button', { name: 'Page' })).toHaveAttribute('aria-pressed', 'true');
+    expect(await within(reader).findByRole('table')).toBeInTheDocument();
     expect(localStorage.getItem('fw.docs.view')).toBeNull();
   });
 
@@ -158,19 +169,103 @@ describe('Docs tab', () => {
 describe('Preview pane', () => {
   function Opener() {
     const ui = useUi();
-    return <button type="button" onClick={ui.openDocs}>open docs</button>;
+    return <button type="button" onClick={() => ui.openDocs()}>open docs</button>;
   }
 
-  function renderPane(slug: string | null) {
+  function renderPane(slug: string | null, doc: (file: string) => JobDoc = () => PLAN) {
+    const store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'idle'), job('beta', 'idle')] }) });
+    const get = vi.fn(async (p: string) => {
+      if (p.endsWith('/docs')) return { docs: DOCS };
+      const m = /\/doc\?file=(.+)$/.exec(p);
+      return doc(m ? decodeURIComponent(m[1]) : '');
+    });
+    const api = { get } as unknown as ApiClient;
+    const tree = (s: string | null) => (
+      <WorkshopContext.Provider value={{ store, api }}>
+        <UiProvider><Opener /><PreviewPane slug={s} /></UiProvider>
+      </WorkshopContext.Provider>
+    );
+    const utils = render(tree(slug));
+    return { ...utils, get, show: (s: string | null) => utils.rerender(tree(s)) };
+  }
+
+  // A plan with every kind of link a document can hold.
+  const LINKED: JobDoc = {
+    ...PLAN,
+    html: '<h1 id="h-plan">Plan</h1><p><a href="#s1">Jump to S1</a> · <a href="#nowhere">Missing</a> · <a href="review.md">The review</a> · '
+      + '<a href="other.md">Not a doc</a> · <a href="../outside.md">Outside</a> · <a href="src/app.ts">Code</a> · '
+      + '<a href="#/job/alpha/id/FR-001" class="id-link">FR-001</a> · <a href="https://example.com/x" target="_blank" rel="noopener noreferrer">Web</a></p>'
+      + '<h2 id="h-s1">S1</h2><p>Step one.</p>',
+  };
+  const linkedDocs = (file: string): JobDoc => (file === 'implementation-plan.md' ? LINKED : { file, name: file, type: 'md', html: `<p>${file} body</p>`, text: file, updatedAt: NOW, size: 10 });
+
+  async function openLinkedPlan() {
+    const utils = renderPane('alpha', linkedDocs);
+    fireEvent.click(await screen.findByRole('button', { name: /^Implementation plan/ }));
+    const reader = await screen.findByRole('article', { name: 'Implementation plan' });
+    await within(reader).findByRole('link', { name: 'Jump to S1' });
+    return { ...utils, reader };
+  }
+
+  it('a #section link scrolls to that heading on the page; the route stays on the job', async () => {
+    window.location.hash = '#/job/alpha';
+    const { reader } = await openLinkedPlan();
+    const link = within(reader).getByRole('link', { name: 'Jump to S1' });
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    link.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    expect(window.location.hash).toBe('#/job/alpha');
+    expect(within(reader).getByRole('heading', { name: 'S1' })).toHaveFocus();
+    fireEvent.click(within(reader).getByRole('link', { name: 'Missing' }));
+    expect(within(reader).getByRole('status')).toHaveTextContent('That section isn’t on this page.');
+    // A dashboard route (an ID link) is left to the router.
+    const id = new MouseEvent('click', { bubbles: true, cancelable: true });
+    within(reader).getByRole('link', { name: 'FR-001' }).dispatchEvent(id);
+    expect(id.defaultPrevented).toBe(false);
+    window.location.hash = '';
+  });
+
+  it('a link to another of the job’s documents opens it in the Docs tab; anything else is blocked with a hint', async () => {
+    const { reader } = await openLinkedPlan();
+    fireEvent.click(within(reader).getByRole('link', { name: 'Not a doc' }));
+    expect(await screen.findByText(/The link points to other\.md, which isn’t one of this job’s documents/)).toBeInTheDocument();
+    expect(screen.getByRole('article', { name: 'Implementation plan' })).toBeInTheDocument();
+    fireEvent.click(within(reader).getByRole('link', { name: 'Outside' }));
+    expect(within(reader).getByText(/points outside this job’s folder/)).toBeInTheDocument();
+    fireEvent.click(within(reader).getByRole('link', { name: 'Code' }));
+    expect(within(reader).getByText(/isn’t one of this job’s documents, so it doesn’t open here/)).toBeInTheDocument();
+    fireEvent.click(within(reader).getByRole('link', { name: 'The review' }));
+    const review = await screen.findByRole('article', { name: 'review.md' });
+    expect(await within(review).findByText('review.md body')).toBeInTheDocument();
+    expect(screen.queryByText(/The link points to/)).toBeNull();
+  });
+
+  it('a link in a reply elsewhere opens the document in the Docs tab, from the Classic view tab too', async () => {
     const store = createStore();
     store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'idle')] }) });
-    const api = { get: vi.fn(async (p: string) => (p.endsWith('/docs') ? { docs: DOCS } : PLAN)) } as unknown as ApiClient;
-    return render(
+    const api = { get: vi.fn(async (p: string) => (p.endsWith('/docs') ? { docs: DOCS } : linkedDocs(decodeURIComponent(p.split('file=')[1] ?? '')))) } as unknown as ApiClient;
+    render(
       <WorkshopContext.Provider value={{ store, api }}>
-        <UiProvider><Opener /><PreviewPane slug={slug} /></UiProvider>
+        <UiProvider><ServerHtml html={'<p><a href="./notes.md">notes</a></p>'} /><PreviewPane slug="alpha" /></UiProvider>
       </WorkshopContext.Provider>,
     );
-  }
+    await screen.findByRole('button', { name: /^Implementation plan/ });
+    fireEvent.click(screen.getByRole('tab', { name: 'Classic view' }));
+    fireEvent.click(screen.getByRole('link', { name: 'notes' }));
+    expect(screen.getByRole('tab', { name: 'Docs' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('article', { name: 'notes.md' })).toBeInTheDocument();
+  });
+
+  it('opening another job keeps the tab you chose (an old Open docs request isn’t replayed)', async () => {
+    const { show } = renderPane('alpha');
+    await screen.findByRole('button', { name: /^Implementation plan/ });
+    fireEvent.click(screen.getByRole('button', { name: 'open docs' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Classic view' }));
+    show('beta');
+    expect(screen.getByRole('tab', { name: 'Classic view' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Docs' })).toHaveAttribute('aria-selected', 'false');
+  });
 
   it('opens on Docs; the Classic view tab keeps the classic links; arrow keys move between tabs', async () => {
     renderPane('alpha');

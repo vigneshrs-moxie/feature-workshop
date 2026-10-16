@@ -166,6 +166,8 @@ export function semanticTokens(): Record<string, string> {
   out['card-radius'] = 'var(--radius-lg)';
   out['pane-pattern'] = 'none';
   out['font-heading'] = 'var(--font-display)';
+  // Every other row of a table in a rendered document: a faint tint (the default's border-1 is one).
+  out['row-alt'] = 'var(--border-1)';
   return out;
 }
 

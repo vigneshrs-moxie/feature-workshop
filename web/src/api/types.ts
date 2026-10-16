@@ -221,8 +221,16 @@ export interface Permission {
   /** Who asks: a crew member's agent type, or null for the Foreman itself. */
   agentType?: string | null;
   input?: Record<string, unknown> & { questions?: AskedQuestion[]; command?: string };
-  /** previewHtml: a Markdown file being written, rendered and sanitised by the dashboard. */
-  plain?: { headline: string; detail?: string | null; preview?: string | null; previewHtml?: string | null; risk?: string; [key: string]: unknown };
+  /**
+   * detail: the tool's own description (AI-written). blockedPath: a folder outside the project it
+   * touches, shown exactly as written. previewCut: the preview was cut to this many characters.
+   * previewHtml: a Markdown file being written, rendered and sanitised by the dashboard;
+   * previewStart 'source': show its exact source first (instructions files, or outside the job folder).
+   */
+  plain?: {
+    headline: string; detail?: string | null; blockedPath?: string | null; preview?: string | null; previewCut?: number | null;
+    previewHtml?: string | null; previewStart?: 'source' | 'page' | null; risk?: string; [key: string]: unknown;
+  };
   decisionReason?: string | null;
   /** Claude Code flagged it as risky: "Always allow" isn't offered. */
   defaultToNo?: boolean;

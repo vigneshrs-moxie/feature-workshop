@@ -2,13 +2,14 @@
 // plans, briefs, reviews, Fable's second looks, notes and the job's own records), listed by group
 // with its version and when it changed (GET /api/job/:slug/docs). Picking one shows it as a clean
 // page, rendered and sanitised by the dashboard (GET /api/job/:slug/doc, shown with ServerHtml);
-// Source shows the Markdown as written. Read only: nothing here changes a file.
+// Source shows the Markdown as written (each document opens on its page again). A link in a
+// document to another of the job's documents opens that one here (ServerHtml, ui.openDocs(file)).
+// Read only: nothing here changes a file.
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type { JobDoc, JobDocEntry } from '../../api/types';
 import { loadJobDoc, loadJobDocs } from '../../app/jobActions';
 import { classicHref } from '../../app/router';
 import { HowThisWorks } from '../../components/HowThisWorks';
-import { useStored } from '../../lib/stored';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop } from '../../state/store';
 import { ServerHtml } from '../Foreman/ServerHtml';
@@ -18,8 +19,8 @@ type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'e
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-/** The page or its source; remembered in this browser for every document. */
-export const DOC_VIEW_KEY = 'fw.docs.view';
+/** The folder of a document inside the job folder, which its relative links start from. */
+const folderOf = (file: string) => (file === 'spec' || !file.includes('/') ? '' : file.slice(0, file.lastIndexOf('/')));
 
 function When({ at, now }: { at: string | null | undefined; now: Date }) {
   if (!at) return null;
@@ -68,8 +69,8 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
   const { api } = useWorkshop();
   const [load, setLoad] = useState<Load<JobDoc>>({ state: 'loading' });
   const [tries, setTries] = useState(0);
-  const [view, setView] = useStored(DOC_VIEW_KEY);
-  const source = view === 'source';
+  // Page or Source, for this document only: the next one opens on its page again.
+  const [source, setSource] = useState(false);
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null);
   const back = useRef<HTMLButtonElement>(null);
   const changed = entry?.updatedAt ?? null;
@@ -114,8 +115,8 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
         </p>
         <div className="doc-actions">
           <div className="doc-view-toggle" role="group" aria-label="Show as">
-            <button type="button" className="btn btn-quiet" aria-pressed={!source} onClick={() => setView(null)} title="Show the document as a formatted page.">Page</button>
-            <button type="button" className="btn btn-quiet" aria-pressed={source} onClick={() => setView('source')} title={doc?.type === 'json' ? 'Show the JSON exactly as written.' : 'Show the Markdown source exactly as written.'}>Source</button>
+            <button type="button" className="btn btn-quiet" aria-pressed={!source} onClick={() => setSource(false)} title="Show the document as a formatted page.">Page</button>
+            <button type="button" className="btn btn-quiet" aria-pressed={source} onClick={() => setSource(true)} title={doc?.type === 'json' ? 'Show the JSON exactly as written.' : 'Show the Markdown source exactly as written.'}>Source</button>
           </div>
           <button type="button" className="btn btn-quiet" disabled={!doc || typeof doc.text !== 'string'} onClick={() => void copy(text)} title={doc?.type === 'json' ? 'Copy the JSON as written.' : 'Copy the document’s Markdown, to paste it somewhere else.'}>
             {doc?.type === 'json' ? 'Copy JSON' : 'Copy as markdown'}
@@ -134,12 +135,12 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
       )}
       {doc && (source
         ? <pre className="doc-source" tabIndex={0} aria-label={`${name}, source`}>{text}</pre>
-        : <ServerHtml html={String(doc.html ?? '')} className="doc-page" />)}
+        : <ServerHtml html={String(doc.html ?? '')} className="doc-page" base={folderOf(file)} />)}
     </article>
   );
 }
 
-export function DocsTab({ slug, changedAt, focusRequest = 0, active = true }: { slug: string; changedAt?: string | null; focusRequest?: number; active?: boolean }) {
+export function DocsTab({ slug, changedAt, focusRequest = 0, requestFile = null, active = true }: { slug: string; changedAt?: string | null; focusRequest?: number; requestFile?: string | null; active?: boolean }) {
   const { api } = useWorkshop();
   const now = useNow();
   const [load, setLoad] = useState<Load<JobDocEntry[]>>({ state: 'loading' });
@@ -160,13 +161,34 @@ export function DocsTab({ slug, changedAt, focusRequest = 0, active = true }: { 
 
   // ⌘K "Open docs" (a request made after this job's tab opened): back to the list, focus on its
   // first document (or the Docs tab when there is none) once the tab shows and the list is loaded.
+  // A link to another document (requestFile): that document, once the list is loaded, when it is
+  // one of this job's; otherwise the link isn't followed and a line says why.
   const seenRequest = useRef(focusRequest);
   const focusPending = useRef(false);
+  const filePending = useRef<string | null>(null);
+  const [linkHint, setLinkHint] = useState<string | null>(null);
   if (focusRequest !== seenRequest.current) {
     seenRequest.current = focusRequest;
-    focusPending.current = true;
-    if (file !== null) setFile(null);
+    if (requestFile) {
+      filePending.current = requestFile;
+    } else {
+      focusPending.current = true;
+      if (file !== null) setFile(null);
+      if (linkHint !== null) setLinkHint(null);
+    }
   }
+  useEffect(() => {
+    const wanted = filePending.current;
+    if (!wanted || load.state === 'loading') return;
+    filePending.current = null;
+    if (load.state === 'ready' && load.value.some((d) => d.file === wanted)) {
+      setLinkHint(null);
+      lastPicked.current = wanted;
+      setFile(wanted);
+    } else {
+      setLinkHint(`The link points to ${wanted}, which isn’t one of this job’s documents, so it didn’t open.`);
+    }
+  });
   useEffect(() => {
     if (!focusPending.current || !active || file !== null || load.state === 'loading') return;
     focusPending.current = false;
@@ -174,8 +196,9 @@ export function DocsTab({ slug, changedAt, focusRequest = 0, active = true }: { 
   });
 
   const reload = useCallback(() => setTries((n) => n + 1), []);
-  const pick = (f: string) => { lastPicked.current = f; setFile(f); };
+  const pick = (f: string) => { lastPicked.current = f; setLinkHint(null); setFile(f); };
   const backToList = () => {
+    setLinkHint(null);
     setFile(null);
     // Focus goes back to the document you were reading.
     setTimeout(() => {
@@ -189,7 +212,7 @@ export function DocsTab({ slug, changedAt, focusRequest = 0, active = true }: { 
   const how = (
     <HowThisWorks id="docs-tab">
       <p>Every document the crew writes for this job, shown as a clean page.</p>
-      <p>The spec, findings and plans are under <strong>Plan &amp; spec</strong>, the Foreman’s briefs under <strong>Briefs</strong>, the reviewers’ findings and Fable’s second looks under <strong>Review</strong>, and your notes under <strong>Notes</strong>. A version shows when the job’s records name one. <strong>Source</strong> shows the Markdown exactly as written, <strong>Copy as markdown</strong> copies it. Nothing here changes a file: the Foreman and its crew write them, and your notes are edited in the job drawer.</p>
+      <p>The spec, findings and plans are under <strong>Plan &amp; spec</strong>, the Foreman’s briefs under <strong>Briefs</strong>, the reviewers’ findings and Fable’s second looks under <strong>Review</strong>, and your notes under <strong>Notes</strong>. A version shows when the job’s records name one. <strong>Source</strong> shows the Markdown exactly as written, <strong>Copy as markdown</strong> copies it. A link in a document to another of the job’s documents opens it here. Nothing here changes a file: the Foreman and its crew write them, and your notes are edited in the job drawer.</p>
     </HowThisWorks>
   );
 
@@ -202,15 +225,18 @@ export function DocsTab({ slug, changedAt, focusRequest = 0, active = true }: { 
       </div>
     );
   }
+  const hint = linkHint && <p className="link-hint doc-link-hint" role="status">{linkHint}</p>;
   if (file) {
     return (
       <div className="docs-tab">
-        <DocReader slug={slug} file={file} entry={docs.find((d) => d.file === file) ?? null} now={now} onBack={backToList} />
+        {hint}
+        <DocReader key={file} slug={slug} file={file} entry={docs.find((d) => d.file === file) ?? null} now={now} onBack={backToList} />
       </div>
     );
   }
   return (
     <div className="docs-tab">
+      {hint}
       {how}
       {docs.length === 0 ? (
         <div className="doc-empty">

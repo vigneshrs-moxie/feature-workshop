@@ -35,6 +35,7 @@ html[data-theme="blueprint"] {
   --bg-3: oklch(.385 .09 255);
   --bg-4: oklch(.425 .09 255);
   --border-1: oklch(1 0 0 / .18);
+  --row-alt: oklch(1 0 0 / .05);
   --border-2: oklch(1 0 0 / .3);
   --border-3: oklch(1 0 0 / .45);
   --text-1: var(--bp-chalk);
@@ -329,12 +330,17 @@ html[data-theme="blueprint"] .brief-state { color: oklch(.42 .14 150); backgroun
 html[data-theme="blueprint"] .brief-detail { border-top-color: var(--bp-ink-line); }
 html[data-theme="blueprint"] .reply .typing span { background: var(--bp-ink-2); }
 
-/* Ink-on-paper for rendered Markdown, code and tables. */
-html[data-theme="blueprint"] .reply .prose code, html[data-theme="blueprint"] .brief-card .prose code, html[data-theme="blueprint"] .perm-card .prose code { background: var(--bp-ink-tint); color: var(--bp-ink); }
-html[data-theme="blueprint"] .reply .prose pre, html[data-theme="blueprint"] .brief-card .prose pre { background: var(--bg-1); color: var(--bp-chalk); border: 1px solid var(--bp-ink-line); }
-html[data-theme="blueprint"] .reply .prose pre code, html[data-theme="blueprint"] .brief-card .prose pre code { background: none; color: inherit; }
-html[data-theme="blueprint"] .reply .prose blockquote, html[data-theme="blueprint"] .brief-card .prose blockquote { border-left-color: var(--bp-ink-line); color: var(--bp-ink-2); }
-html[data-theme="blueprint"] .reply .prose th, html[data-theme="blueprint"] .reply .prose td, html[data-theme="blueprint"] .brief-card .prose th, html[data-theme="blueprint"] .brief-card .prose td { border-color: var(--bp-ink-line); }
+/* Ink-on-paper for rendered Markdown, code and tables on the cream cards and sheets (replies,
+   briefs, permission cards, sheets). The Docs tab's page (.doc-page) sits on the blue sheet itself,
+   so it keeps the chalk .prose look of the pane around it. A code block is chalk on blue, never
+   painted with the inline-code ink. */
+html[data-theme="blueprint"] :is(.reply, .brief-card, .perm-card, .sheet) .prose { --row-alt: oklch(.4 .1 255 / .05); }
+html[data-theme="blueprint"] :is(.reply, .brief-card, .perm-card, .sheet) .prose code { background: var(--bp-ink-tint); color: var(--bp-ink); }
+html[data-theme="blueprint"] :is(.reply, .brief-card, .perm-card, .sheet) .prose pre { background: var(--bg-1); color: var(--bp-chalk); border: 1px solid var(--bp-ink-line); }
+html[data-theme="blueprint"] .reply .prose pre code, html[data-theme="blueprint"] .brief-card .prose pre code,
+html[data-theme="blueprint"] .perm-card .prose pre code, html[data-theme="blueprint"] .sheet .prose pre code { background: none; color: inherit; }
+html[data-theme="blueprint"] :is(.reply, .brief-card, .perm-card, .sheet) .prose blockquote { border-left-color: var(--bp-ink-line); color: var(--bp-ink-2); }
+html[data-theme="blueprint"] :is(.reply, .brief-card, .perm-card, .sheet) .prose :is(th, td) { border-color: var(--bp-ink-line); }
 html[data-theme="blueprint"] .perm-preview { background: var(--bg-1); color: var(--bp-chalk); border: 1px solid var(--bp-ink-line); }
 html[data-theme="blueprint"] .perm-warn { background: oklch(.75 .17 80 / .22); color: oklch(.42 .13 70); }
 html[data-theme="blueprint"] .perm-card .field-problem, html[data-theme="blueprint"] .perm-card .btn-danger { color: var(--bp-red-ink); }

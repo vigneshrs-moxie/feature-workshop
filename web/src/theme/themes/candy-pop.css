@@ -29,6 +29,7 @@ html[data-theme="candy-pop"] {
   --bg-3: oklch(.29 .016 310);
   --bg-4: oklch(.33 .018 310);
   --border-1: oklch(1 0 0 / .08);
+  --row-alt: oklch(1 0 0 / .04);
   --border-2: oklch(1 0 0 / .14);
   --border-3: oklch(1 0 0 / .24);
   --text-1: oklch(.97 .008 330);

@@ -5,7 +5,7 @@
 // InlineText: one line (a headline, a question, a reason); a leading "## " or "- " is dropped.
 // ShortMarkdown: a few lines (the live row's latest text): headings, bullets and quotes as lines.
 import type { ReactNode } from 'react';
-import { parseInline, readLine, withoutBlockMark, type InlinePiece } from '../lib/inlineMarkdown';
+import { parseInline, shortLines, withoutBlockMark, type InlinePiece } from '../lib/inlineMarkdown';
 
 function pieces(list: InlinePiece[], key = ''): ReactNode[] {
   return list.map((p, i) => {
@@ -26,13 +26,12 @@ export function InlineText({ text }: { text: string | null | undefined }) {
   return <>{pieces(parseInline(withoutBlockMark(text)))}</>;
 }
 
+/** The first few lines (SHORT_MAX_LINES); code from a ``` block shown as code, exactly as written. */
 export function ShortMarkdown({ text }: { text: string }) {
-  const lines = String(text ?? '').split(/\r?\n/).filter((l) => !/^\s*```/.test(l));
   return (
     <>
-      {lines.map((raw, i) => {
-        const l = readLine(raw);
-        if (l.kind === 'rule' || (l.kind === 'text' && !l.text.trim())) return null;
+      {shortLines(text).map((l, i) => {
+        if (l.kind === 'code') return <span key={i} className="short-line short-code"><code className="inline-code">{l.text}</code></span>;
         const body = pieces(parseInline(l.text), `${i}:`);
         if (l.kind === 'heading') return <span key={i} className="short-line short-heading"><strong>{body}</strong></span>;
         if (l.kind === 'bullet') return <span key={i} className="short-line short-bullet"><span aria-hidden="true">• </span>{body}</span>;

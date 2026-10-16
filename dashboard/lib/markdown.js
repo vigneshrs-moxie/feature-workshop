@@ -15,7 +15,14 @@ function slugify(s) {
 
 export function createRenderer() {
   const md = new MarkdownIt({ html: false, linkify: true, typographer: false, breaks: false });
-  md.validateLink = (url) => SAFE_LINK.test(url.trim()) || !/^[a-z][a-z0-9+.-]*:/i.test(url.trim());
+  // A link with a scheme must be a safe one; "//host" (and "/\host", which browsers read the same way;
+  // markdown-it hands it over as "/%5Chost") would leave the dashboard for another site without
+  // saying so, so it is dropped too.
+  md.validateLink = (url) => {
+    const u = url.trim();
+    if (/^(?:[\\/]|%5c){2}/i.test(u)) return false;
+    return SAFE_LINK.test(u) || !/^[a-z][a-z0-9+.-]*:/i.test(u);
+  };
 
   // Mark text tokens that sit inside links so IDs aren't nested inside another link.
   md.core.ruler.push('workshop_ids', (state) => {
@@ -58,17 +65,23 @@ export function createRenderer() {
     return html.replace(ID_PATTERN, (id) => `<a class="id-link" href="${escape(env.idHref(id))}" data-id="${id}">${id}</a>`);
   };
 
-  // Headings get anchors; links open in a new tab and never send a referrer.
+  // Headings get anchors (h-<slug>; a repeated heading gets -2, -3, …), so "#section" links in a
+  // document can find them (the page's ServerHtml scrolls to them). Links with a scheme (the web,
+  // mail, the editor) open in a new tab and never send a referrer.
   md.renderer.rules.heading_open = (tokens, idx, opts, env, self) => {
     const inline = tokens[idx + 1];
     const text = inline?.children?.map((c) => c.content).join('') ?? '';
-    tokens[idx].attrSet('id', `h-${slugify(text)}`);
+    const seen = (env.headingIds ??= new Map());
+    const id = `h-${slugify(text)}`;
+    const n = (seen.get(id) ?? 0) + 1;
+    seen.set(id, n);
+    tokens[idx].attrSet('id', n === 1 ? id : `${id}-${n}`);
     return self.renderToken(tokens, idx, opts);
   };
   const defaultLinkOpen = md.renderer.rules.link_open ?? ((tokens, idx, opts, _env, self) => self.renderToken(tokens, idx, opts));
   md.renderer.rules.link_open = (tokens, idx, opts, env, self) => {
     const href = tokens[idx].attrGet('href') ?? '';
-    if (/^https?:/i.test(href)) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
       tokens[idx].attrSet('target', '_blank');
       tokens[idx].attrSet('rel', 'noopener noreferrer');
     }

@@ -38,7 +38,7 @@ import { suggestLevel, changedPaths } from './lib/levels.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs } from './lib/gate.js';
 import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
 import { skillChecker } from './lib/skill-check.js';
-import { DOC_MAX_BYTES, DocError, describeDoc, jsonHtml, listJobDocs, readJobDoc } from './lib/docs.js';
+import { DOC_MAX_BYTES, DocError, describeDoc, jsonHtml, listJobDocs, readJobDoc, servableSpec } from './lib/docs.js';
 import { PlayBook, PlayError, PLAY_EVENTS, SECRET_IDS, ledgerView, parseReviewFindings, playSettings, validatePlayPatch } from './lib/play.js';
 
 const HOST = '127.0.0.1';
@@ -427,9 +427,13 @@ function specFile(f) {
   return f.repoPath ? path.resolve(f.repoPath, p) : null;
 }
 
+// The spec when the dashboard may show it: a .md inside the job's repository or its own folder
+// (status.json, which names it, is written by the AI; lib/docs.js servableSpec). Else null.
+const shownSpec = (f) => servableSpec(specFile(f), [f.repoPath, f.dir]);
+
 async function jobDocs(f) {
   const docs = [];
-  const spec = specFile(f);
+  const spec = await shownSpec(f);
   if (spec) { try { docs.push({ name: 'Product spec', file: 'spec', text: await fsp.readFile(spec, 'utf8'), isSpec: true }); } catch { /* not readable */ } }
   for (const a of f.artifacts) {
     const text = await readInside(f.dir, a.file);
@@ -894,17 +898,19 @@ async function routeGet(urlPath, url, req, res) {
     if (sub === '/notes') return sendJson(res, 200, await readNotes(f));
     if (sub === '/docs') {
       // The Docs tab's list: every document of the job, grouped, with versions and times (lib/docs.js).
-      const specPath = specFile(f);
+      const specPath = await shownSpec(f);
       return sendJson(res, 200, { docs: await listJobDocs(f.dir, { spec: specPath ? { path: specPath, version: f.spec?.version ?? null } : null, recorded: f.recordedArtifacts }) });
     }
     if (sub === '/doc') {
       // One document, rendered (sanitised, lib/markdown.js) and as its source text. Inside the job
       // folder only: no way out, no symlinks, .md and .json only, at most DOC_MAX_BYTES (lib/docs.js).
+      // The spec ('spec') only when it is a .md inside the job's repository or folder (shownSpec).
       const file = url.searchParams.get('file') ?? '';
       let doc;
       let name;
+      let specPath = null;
       if (file === 'spec') {
-        const p = specFile(f);
+        const p = (specPath = await shownSpec(f));
         name = 'Product spec';
         const st = p ? await fsp.stat(p).catch(() => null) : null;
         if (!st?.isFile()) throw new HttpError(404, 'That file isn’t there (yet).');
@@ -916,9 +922,9 @@ async function routeGet(urlPath, url, req, res) {
         try { doc = await readJobDoc(f.dir, file); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
         name = f.artifacts.find((a) => a.file === file)?.name ?? describeDoc(file).name;
       }
-      const type = file.endsWith('.json') ? 'json' : 'md';
+      const type = /\.json$/i.test(file) ? 'json' : 'md';
       const html = type === 'json' ? jsonHtml(doc.text) : renderMarkdown(doc.text, { idHref: idHref(f) });
-      return sendJson(res, 200, { file, name, type, html, text: doc.text, updatedAt: doc.updatedAt, size: doc.size, vscode: file === 'spec' ? specFile(f) : path.join(f.dir, file) });
+      return sendJson(res, 200, { file, name, type, html, text: doc.text, updatedAt: doc.updatedAt, size: doc.size, vscode: file === 'spec' ? specPath : path.join(f.dir, file) });
     }
     if ((m = /^\/ids\/([^/]+)$/.exec(sub))) {
       const id = decodeURIComponent(m[1]);

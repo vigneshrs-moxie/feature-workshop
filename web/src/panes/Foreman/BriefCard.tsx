@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import type { JobDoc } from '../../api/types';
 import { InlineText } from '../../components/InlineText';
+import { plainInline } from '../../lib/inlineMarkdown';
 import { fullTime, relativeTime } from '../../lib/time';
 import { useWorkshop } from '../../state/store';
 import { stageLabel } from '../Jobs/stages';
@@ -32,26 +33,32 @@ function useDoc(slug: string, file: string | null): Doc | null {
   return doc?.key === key ? doc.doc : { state: 'loading' };
 }
 
-const plainText = (html: string) =>
-  html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+// The words of a bit of the dashboard's HTML: tags off, the entities it writes turned back.
+const htmlWords = (html: string) =>
+  html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
 
 /**
  * A brief's first line is normally its headline (the dashboard reads the headline from it), which
- * the card already shows above the body: leave that first paragraph out, so it isn't said twice.
- * Only when the paragraph is the headline plus at most a short tag such as "(demo)".
+ * the card already shows above the body: leave that first paragraph (or # / ## heading) out, so it
+ * isn't said twice. Compared as plain words (the headline's **marks** off, the HTML's tags off), and
+ * only when it is the headline plus at most a short tag such as "(demo)".
  */
 export function withoutLeadHeadline(html: string, headline: string): string {
-  const want = plainText(headline);
-  const m = /^\s*<p>([\s\S]*?)<\/p>\s*/.exec(html);
+  const want = plainInline(headline).replace(/\s+/g, ' ').trim();
+  const m = /^\s*<(p|h1|h2)(?:\s[^>]*)?>([\s\S]*?)<\/\1>\s*/.exec(html);
   if (!want || !m) return html;
-  const lead = plainText(m[1]);
+  const lead = htmlWords(m[2]);
   return lead.startsWith(want) && lead.length - want.length <= 20 ? html.slice(m[0].length) : html;
 }
 
-function DocBody({ doc, what, headline }: { doc: Doc | null; what: string; headline?: string }) {
+/** The folder of a document inside the job folder ('' at the top): where its links start from. */
+const folderOf = (file: string | null | undefined) => (file && file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : '');
+
+function DocBody({ doc, what, headline, file }: { doc: Doc | null; what: string; headline?: string; file?: string | null }) {
   if (!doc || doc.state === 'loading') return <p className="muted">Loading the {what}…</p>;
   if (doc.state === 'error') return <p className="thread-error" role="alert">Couldn’t load the {what}: {doc.message}</p>;
-  return <ServerHtml html={headline ? withoutLeadHeadline(doc.html, headline) : doc.html} />;
+  return <ServerHtml html={headline ? withoutLeadHeadline(doc.html, headline) : doc.html} base={folderOf(file)} />;
 }
 
 function DetailFold({ slug, file }: { slug: string; file: string }) {
@@ -60,7 +67,7 @@ function DetailFold({ slug, file }: { slug: string; file: string }) {
   return (
     <details className="brief-detail" onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
       <summary title="Show the longer explanation the Foreman wrote to go with this brief.">More detail</summary>
-      {open && <DocBody doc={doc} what="detail" />}
+      {open && <DocBody doc={doc} what="detail" file={file} />}
     </details>
   );
 }
@@ -99,7 +106,7 @@ export function BriefCard({ slug, brief, now }: { slug: string; brief: ShownBrie
         <p className="brief-headline"><InlineText text={headline} /></p>
       </header>
       <div id={bodyId} className="brief-body" hidden={!open}>
-        {open && <DocBody doc={doc} what="brief" headline={headline} />}
+        {open && <DocBody doc={doc} what="brief" headline={headline} file={item.file} />}
         {detailFile && <DetailFold slug={slug} file={detailFile} />}
       </div>
       <ExtrasLines item={item} />

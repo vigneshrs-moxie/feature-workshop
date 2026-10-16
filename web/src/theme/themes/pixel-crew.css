@@ -56,6 +56,7 @@ html[data-theme="pixel-crew"] {
   --bg-3: oklch(.31 .045 290);
   --bg-4: oklch(.36 .05 290);
   --border-1: oklch(.36 .05 290);
+  --row-alt: oklch(1 0 0 / .04);
   --border-2: oklch(.46 .06 290);
   --border-3: oklch(.64 .07 290);
   --text-1: var(--pc-cream);

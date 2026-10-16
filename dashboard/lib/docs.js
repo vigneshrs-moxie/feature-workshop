@@ -122,7 +122,8 @@ export async function listJobDocs(dir, { spec = null, recorded = [] } = {}) {
 /**
  * Read one document inside the job folder: { text, updatedAt, size }. Refuses (DocError) a path that
  * leaves the folder, goes through a symlink (the file or a folder on the way), isn't a plain .md or
- * .json file, or is bigger than maxBytes.
+ * .json file, is hidden (any part of its path starts with a dot, as the list leaves those out), or
+ * is bigger than maxBytes.
  */
 export async function readJobDoc(dir, rel, { maxBytes = DOC_MAX_BYTES } = {}) {
   const file = String(rel ?? '');
@@ -130,6 +131,7 @@ export async function readJobDoc(dir, rel, { maxBytes = DOC_MAX_BYTES } = {}) {
   const root = path.resolve(dir);
   const abs = path.resolve(root, file);
   if (!abs.startsWith(root + path.sep) || file.includes('\0')) throw new DocError(404, 'That file isn’t there (yet).');
+  if (file.split(/[\\/]/).some((part) => part.startsWith('.'))) throw new DocError(404, 'That file isn’t there (yet).');
   const st = await fs.lstat(abs).catch(() => null);
   if (!st?.isFile()) throw new DocError(404, 'That file isn’t there (yet).');
   // A folder on the way that is a symlink would lead outside: compare the real paths.
@@ -139,6 +141,25 @@ export async function readJobDoc(dir, rel, { maxBytes = DOC_MAX_BYTES } = {}) {
   const text = await fs.readFile(abs, 'utf8').catch(() => null);
   if (text === null) throw new DocError(404, 'That file isn’t there (yet).');
   return { text, updatedAt: st.mtime.toISOString(), size: st.size };
+}
+
+/**
+ * The product spec's real path when it may be shown, else null. Its path comes from status.json,
+ * which the AI writes, so it is shown only when it is a .md file whose real path (symlinks followed)
+ * lies inside one of `roots` (the job's repository and its own folder).
+ */
+export async function servableSpec(specPath, roots = []) {
+  if (!specPath || !/\.md$/i.test(String(specPath)) || String(specPath).includes('\0')) return null;
+  const real = await fs.realpath(specPath).catch(() => null);
+  if (!real || !/\.md$/i.test(real)) return null;
+  const st = await fs.stat(real).catch(() => null);
+  if (!st?.isFile()) return null;
+  for (const r of roots) {
+    if (!r) continue;
+    const realRoot = await fs.realpath(r).catch(() => null);
+    if (realRoot && real.startsWith(realRoot + path.sep)) return real;
+  }
+  return null;
 }
 
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

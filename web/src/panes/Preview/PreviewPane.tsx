@@ -43,9 +43,12 @@ export function PreviewPane({ slug }: { slug: string | null }) {
   const tabRefs = useRef<Record<PreviewTab, HTMLButtonElement | null>>({ docs: null, classic: null });
   const job = jobBySlug(state, slug);
 
-  // ⌘K "Open docs": this tab, with focus on the documents (DocsTab takes it).
+  // ⌘K "Open docs" or a link to a document: this tab, with focus on the documents (DocsTab takes
+  // it). Each request is handled once, so opening another job doesn't switch back to Docs.
+  const handledRequest = useRef(ui.docsRequest);
   useEffect(() => {
-    if (!ui.docsRequest) return;
+    if (ui.docsRequest === handledRequest.current) return;
+    handledRequest.current = ui.docsRequest;
     setTab('docs');
     if (!slug) tabRefs.current.docs?.focus();
   }, [ui.docsRequest, slug]);
@@ -84,7 +87,7 @@ export function PreviewPane({ slug }: { slug: string | null }) {
       </div>
       <section id="preview-panel-docs" role="tabpanel" aria-labelledby="preview-tab-docs" hidden={tab !== 'docs'}>
         {slug
-          ? <DocsTab key={slug} slug={slug} changedAt={job?.updatedAt ?? null} focusRequest={ui.docsRequest} active={tab === 'docs'} />
+          ? <DocsTab key={slug} slug={slug} changedAt={job?.updatedAt ?? null} focusRequest={ui.docsRequest} requestFile={ui.docsFile} active={tab === 'docs'} />
           : <p className="muted doc-empty">Open a job to read its documents here: the spec, plans, briefs and reviews, each as a clean page.</p>}
       </section>
       <section id="preview-panel-classic" role="tabpanel" aria-labelledby="preview-tab-classic" hidden={tab !== 'classic'}>

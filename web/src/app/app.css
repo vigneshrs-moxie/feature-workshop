@@ -460,15 +460,20 @@ a:hover { text-decoration: underline; }
 .prose :is(th, td) { padding: var(--space-1) var(--space-3); border: 0; border-bottom: 1px solid var(--border-1); text-align: left; vertical-align: top; }
 .prose :is(th, td) + :is(th, td) { border-left: 1px solid var(--border-1); }
 .prose th { background: var(--bg-3); color: var(--text-1); font-weight: var(--weight-medium); white-space: nowrap; }
-.prose tbody tr:nth-child(even) { background: var(--border-1); }
+.prose tbody tr:nth-child(even) { background: var(--row-alt); }
 .prose tbody tr:last-child :is(th, td) { border-bottom: 0; }
 .prose .json-doc { white-space: pre-wrap; overflow-wrap: anywhere; }
+.prose :is(h1, h2, h3, h4, h5, h6)[tabindex="-1"]:focus { outline: none; }
+.prose :is(h1, h2, h3, h4, h5, h6)[tabindex="-1"]:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* A link in a rendered document that doesn't open here says why underneath (ServerHtml, DocsTab). */
+.link-hint { margin: var(--space-1) 0 var(--space-2); font-size: var(--text-sm); }
 
 /* Short Foreman text shown clean (components/InlineText.tsx): headlines, questions, reasons. */
 .inline-code { padding: 0 3px; border-radius: var(--radius-sm); background: var(--bg-3); font-family: var(--font-mono); font-size: .9em; }
 .short-line { display: block; }
 .short-heading { color: var(--text-1); }
 .short-quote { padding-left: var(--space-2); border-left: 2px solid var(--border-3); color: var(--text-2); }
+.short-code code { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ---------- Permission and question cards ---------- */
 
@@ -519,6 +524,9 @@ a:hover { text-decoration: underline; }
 .perm-job { margin: 2px 0 0; }
 .perm-headline { margin: 0 0 var(--space-2); font-size: var(--text-md); }
 .perm-detail { color: var(--text-2); }
+/* A path on a card is shown exactly as written, whole, and may wrap anywhere. */
+.perm-path { overflow-wrap: anywhere; }
+.perm-cut { margin: calc(var(--space-1) * -1) 0 var(--space-2); font-size: var(--text-xs); }
 .perm-md-bar { display: flex; justify-content: flex-end; margin-bottom: 2px; font-size: var(--text-sm); }
 .perm-preview-page { max-height: 240px; margin: 0 0 var(--space-2); padding: var(--space-2) var(--space-3); overflow: auto; border-radius: var(--radius-md); background: var(--bg-0); font-size: var(--text-sm); }
 .perm-preview {

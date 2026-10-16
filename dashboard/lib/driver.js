@@ -465,7 +465,7 @@ export class Driver extends EventEmitter {
       suggestions: (opts.suggestions ?? []).map((s) => ({ ...s, destination: 'session' })),
       // "Always allow…": saved rules never apply to questions, hard lines or steps Claude Code flagged as risky.
       draft: toolName === 'AskUserQuestion' || opts.defaultToNo || hard ? null : draftRule(toolName, input, opts.suggestions ?? []),
-      plain: describePermission(toolName, input, { cwd: run.cwd, blockedPath: opts.blockedPath, defaultToNo: opts.defaultToNo }),
+      plain: describePermission(toolName, input, { cwd: run.cwd, featureDir: run.featureDir, blockedPath: opts.blockedPath, defaultToNo: opts.defaultToNo, renderPreview: true }),
       createdAt: new Date().toISOString(),
       originalInput: input,
     };

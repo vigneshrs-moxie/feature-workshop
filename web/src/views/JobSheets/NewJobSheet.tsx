@@ -10,6 +10,7 @@ import type { HistoryList, HistoryRow, LevelNumber, ModelChoice, Repo } from '..
 import { navigate } from '../../app/router';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { Sheet } from '../../components/Sheet';
+import { plainInline } from '../../lib/inlineMarkdown';
 import { suggestFromDescription } from '../../lib/levels';
 import { readStored, writeStored } from '../../lib/stored';
 import { relativeTime, useNow } from '../../lib/time';
@@ -59,7 +60,7 @@ function PastConversation({ picked, onPick, mode, onMode, canContinue }: {
       <fieldset className="from-session">
         <legend>Starting from a past conversation</legend>
         <p className="from-what">
-          <strong>{picked.title}</strong>
+          <strong>{plainInline(picked.title)}</strong>
           <span className="muted"> · {relativeTime(picked.lastAt, now) || 'unknown time'}{picked.messages ? ` · ${picked.messages} message${picked.messages === 1 ? '' : 's'}` : ''}{picked.branch ? ` · branch ${picked.branch}` : ''}</span>
           <button type="button" className="btn btn-quiet" onClick={() => onPick(null, canContinue)} title="Don’t start from this conversation after all.">Remove</button>
         </p>
@@ -112,10 +113,10 @@ function PastConversation({ picked, onPick, mode, onMode, canContinue }: {
             {search.list.rows.slice(0, SHOWN_ROWS).map((r) => (
               <li key={r.id} className="history-row">
                 <span className="history-row-main">
-                  <span className="history-title">{r.title}</span>
+                  <span className="history-title">{plainInline(r.title)}</span>
                   <span className="muted history-meta">{[relativeTime(r.lastAt, now), r.repo ? r.repo.split('/').pop() : 'no repository', r.messages ? `${r.messages} messages` : ''].filter(Boolean).join(' · ')}</span>
                 </span>
-                <button type="button" className="btn" onClick={() => onPick(r, search.list.canContinue)} aria-label={`Use “${r.title}”`} title="Start this job from that conversation. You choose how on the next step.">Use this</button>
+                <button type="button" className="btn" onClick={() => onPick(r, search.list.canContinue)} aria-label={`Use “${plainInline(r.title)}”`} title="Start this job from that conversation. You choose how on the next step.">Use this</button>
               </li>
             ))}
           </ul>

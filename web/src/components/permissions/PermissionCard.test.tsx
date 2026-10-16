@@ -62,6 +62,35 @@ describe('PermissionCard', () => {
     expect(within(card).getByRole('heading', { name: 'Plan' })).toBeInTheDocument();
   });
 
+  it('an instructions file (or one outside the job folder) starts on its exact source, and says when it was shortened', () => {
+    const content = '# Rules\n\n__pycache__ and **all** of it';
+    setup([bash({
+      toolName: 'Write', input: { file_path: '/repo/CLAUDE.md', content },
+      plain: { headline: 'Create or overwrite a file: CLAUDE.md', preview: content, previewCut: 2500, previewStart: 'source', previewHtml: '<h1 id="h-rules">Rules</h1>', risk: 'normal' },
+    })]);
+    const card = screen.getByRole('article', { name: 'Permission: Create or overwrite a file: CLAUDE.md' });
+    expect(card.querySelector('pre.perm-preview')!.textContent).toBe(content);
+    expect(within(card).queryByRole('heading', { name: 'Rules' })).toBeNull();
+    expect(within(card).getByRole('button', { name: 'Show as page' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(card).getByText('Shortened: first 2,500 characters')).toHaveAttribute('title');
+  });
+
+  it('never alters a path or a command: the folder outside the project is shown as written; only the description is formatted', () => {
+    setup([bash({
+      input: { command: 'rm -rf __pycache__ && echo a*b*c' },
+      decisionReason: 'Touches **another** folder',
+      plain: { headline: 'Run a command in the terminal', detail: 'Clean **the** cache', blockedPath: '/tmp/__pycache__/a*b*c_[x](y)', preview: 'rm -rf __pycache__ && echo a*b*c', risk: 'normal' },
+    })]);
+    const card = screen.getByRole('article', { name: 'Permission: Run a command in the terminal' });
+    expect(card.querySelector('.perm-path')!.textContent).toBe('/tmp/__pycache__/a*b*c_[x](y)');
+    expect(card.querySelector('.perm-path')!.tagName).toBe('CODE');
+    expect(card.querySelector('pre.perm-preview')!.textContent).toBe('rm -rf __pycache__ && echo a*b*c');
+    expect(card.querySelector('.perm-detail strong')).toHaveTextContent('the');
+    expect(card.querySelector('.perm-reason strong')).toHaveTextContent('another');
+    expect(card).not.toHaveTextContent('**');
+    expect(card).not.toHaveTextContent('Shortened');
+  });
+
   it('Allow once sends allow and the card goes at once', async () => {
     const { post, store } = setup([bash()]);
     fireEvent.click(screen.getByRole('button', { name: 'Allow once' }));
@@ -194,6 +223,12 @@ describe('QuestionCard', () => {
     expect(screen.getByRole('radio', { name: 'Blue' })).not.toBeChecked();
     fireEvent.click(screen.getByRole('button', { name: 'Send answers' }));
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/permissions/q1', { decision: 'allow', answers: { 'Which colour?': 'Teal' } }));
+  });
+
+  it('names the card and the own-answer box in plain words, without the question’s marks', () => {
+    setup([question({ input: { questions: [{ question: '## Keep **`merge_into`** or *drop* it?', options: [{ label: 'Keep' }] }] } })]);
+    expect(screen.getByRole('article', { name: 'Question: Keep merge_into or drop it?' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Your own answer to: Keep merge_into or drop it?' })).toBeInTheDocument();
   });
 
   it('Don’t answer… says no, with a note', async () => {

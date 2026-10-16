@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { inlinePlain, parseInline, readLine, withoutBlockMark } from '../lib/inlineMarkdown';
+import { inlinePlain, parseInline, plainInline, readLine, shortLines, SHORT_MAX_LINES, withoutBlockMark } from '../lib/inlineMarkdown';
 import { InlineText, ShortMarkdown } from './InlineText';
 
 describe('parseInline', () => {
@@ -19,6 +19,42 @@ describe('parseInline', () => {
     expect(parseInline('[x](javascript:alert(1))').some((p) => p.kind === 'link')).toBe(false);
     expect(parseInline('merged_into_id and 2 * 3 * 4')).toEqual([{ kind: 'text', text: 'merged_into_id and 2 * 3 * 4' }]);
     expect(parseInline('\\*not em\\*')).toEqual([{ kind: 'text', text: '*not em*' }]);
+  });
+
+  it('never puts emphasis inside a name: __pycache__, __init__.py, a*b*c, snake_case', () => {
+    for (const s of [
+      '__pycache__', 'rm -rf __pycache__/', 'edit __init__.py now', 'a*b*c', 'x = a*b*c;', 'glob src/*.ts and lib/*.js',
+      'src/**/a.ts and lib/**/b.ts', 'my__var__name', 'merged_into_id', 'path/_tmp_/x',
+    ]) {
+      expect(parseInline(s), s).toEqual([{ kind: 'text', text: s }]);
+    }
+    // Marks around words still work.
+    expect(parseInline('a __bold move__ here')[1]).toEqual({ kind: 'strong', children: [{ kind: 'text', text: 'bold move' }] });
+    expect(parseInline('an *aside* here')[1]).toEqual({ kind: 'em', children: [{ kind: 'text', text: 'aside' }] });
+  });
+
+  it('plainInline gives the words only, for titles and aria labels', () => {
+    expect(plainInline('## **Plan v2** ready: run `npm test` [here](https://example.com)')).toBe('Plan v2 ready: run npm test here');
+    expect(plainInline('Keep __pycache__ out')).toBe('Keep __pycache__ out');
+    expect(plainInline(null)).toBe('');
+  });
+
+  it('shortLines keeps the first few lines, code from fences as written, table cells without pipes', () => {
+    const lines = shortLines('## Plan\n\n```sh\nnpm run **build**\n```\n| Step | What |\n|---|:--:|\n| S1 | Data |\n---\nDone.');
+    expect(lines).toEqual([
+      { kind: 'heading', text: 'Plan' }, { kind: 'code', text: 'npm run **build**' },
+      { kind: 'text', text: 'Step · What' }, { kind: 'text', text: 'S1 · Data' }, { kind: 'text', text: 'Done.' },
+    ]);
+    const many = Array.from({ length: 50 }, (_, i) => `line ${i}\n`).join('\n');
+    expect(shortLines(many)).toHaveLength(SHORT_MAX_LINES);
+    expect(shortLines(many).at(-1)).toEqual({ kind: 'text', text: `line ${SHORT_MAX_LINES - 1}` });
+    // A huge unbroken text is read only up to a bound, quickly.
+    const started = performance.now();
+    const huge = shortLines('*a _b `c '.repeat(100_000));
+    expect(huge).toHaveLength(1);
+    expect(huge[0].text.length).toBeLessThanOrEqual(400);
+    parseInline(huge[0].text);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 
   it('reads a line’s block mark', () => {
@@ -48,10 +84,20 @@ describe('InlineText and ShortMarkdown', () => {
     expect(a).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
-  it('ShortMarkdown shows a few lines with headings, bullets and quotes, and no fences or rules', () => {
+  it('ShortMarkdown shows a few lines with headings, bullets and quotes, and no fence marks or rules', () => {
     const { container } = render(<div><ShortMarkdown text={'## Plan\n- **S1** the data\n> careful\n```\n---\nDone.'} /></div>);
-    expect(container.textContent).toBe('Plan• S1 the datacarefulDone.');
+    // An unclosed fence: what follows it is code, shown as written (a "---" in code is not a rule).
+    expect(container.textContent).toBe('Plan• S1 the datacareful---Done.');
     expect(container.querySelector('.short-heading strong')).toHaveTextContent('Plan');
-    expect(container.querySelectorAll('.short-line')).toHaveLength(4);
+    expect(container.querySelectorAll('.short-line')).toHaveLength(5);
+    expect(container.querySelectorAll('.short-code code')).toHaveLength(2);
+  });
+
+  it('ShortMarkdown shows code from a fence as code, never formatted, and a table without pipes', () => {
+    const { container } = render(<div><ShortMarkdown text={'Run:\n```\nrm -rf __pycache__ **x**\n```\n| a | b |\n|---|---|\n| 1 | 2 |'} /></div>);
+    expect(container.querySelector('.short-code code')!.textContent).toBe('rm -rf __pycache__ **x**');
+    expect(container.querySelector('strong')).toBeNull();
+    expect(container.textContent).not.toContain('|');
+    expect(container.textContent).toContain('1 · 2');
   });
 });

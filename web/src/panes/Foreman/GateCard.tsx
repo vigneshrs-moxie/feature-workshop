@@ -20,6 +20,7 @@ import {
   openDecisions, openGate, OTHER, placeGateReply, readGateMemo, readReopenedMemo, reopenMemo, toggleChip, unansweredQuestion,
   verdictsFor, type ChipId, type GateChoices,
 } from '../../lib/gateCard';
+import { plainInline } from '../../lib/inlineMarkdown';
 import { isLevel, levelChange, lensNames } from '../../lib/levels';
 import { readStored, useStored, writeStored } from '../../lib/stored';
 import { clockTime, fullTime, relativeTime } from '../../lib/time';
@@ -310,7 +311,7 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
 
   const resetAt = usage?.resetsAt ? clockTime(usage.resetsAt, now) : '';
   const waited = waitedText(gate.waitingSince, now);
-  const approveHint = `${approve}. Sends your answers, confirms the decisions you didn’t override, adds the chips’ lines, and says “At these versions”.${gate.nextProposed ? ` The Foreman goes ahead with: ${gate.nextProposed}.` : ''}`;
+  const approveHint = `${approve}. Sends your answers, confirms the decisions you didn’t override, adds the chips’ lines, and says “At these versions”.${gate.nextProposed ? ` The Foreman goes ahead with: ${plainInline(gate.nextProposed)}.` : ''}`;
   const staleHint = 'Off: the plan changed since this card was raised, so this approval would be for an old version.';
 
   return (

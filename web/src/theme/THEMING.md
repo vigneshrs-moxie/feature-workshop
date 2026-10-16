@@ -69,6 +69,7 @@ these: refine and spec-update are `spec`, implement is `build`, the PRs and stag
 | `--card-radius` | radius of every card in the thread (`.reply`, `.brief-card`, `.problem`, `.live-row`, `.perm-card`, `.you`) | `var(--radius-lg)` |
 | `--pane-pattern` | an optional `background-image` on each pane (a grid, dither, dots) | `none` |
 | `--font-heading` | the font of `h1`–`h3` (the brand, pane titles, job title, card headlines) | `var(--font-display)` |
+| `--row-alt` | the faint tint on every other row of a table in a rendered document (`.prose`); keep it subtle | `var(--border-1)` |
 
 ### The crew (`--crew-*`)
 

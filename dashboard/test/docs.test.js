@@ -44,6 +44,7 @@ before(async () => {
   await fs.mkdir(jobDir, { recursive: true });
   await fs.writeFile(path.join(jobDir, 'status.json'), JSON.stringify({
     schema_version: 1, slug: 'doc-job', title: 'Doc job', route: 'small', stage: 'plan', stage_state: 'waiting_for_you', waiting_for: 'approval',
+    repo: { path: dirs.repo },
     spec: { path: path.join(dirs.repo, 'docs', 'plans', 'spec.md'), version: '0.3', status: 'DRAFT' },
     artifacts: [{ name: 'Implementation plan', path: 'implementation-plan.md', version: '2' }, { name: 'Quick plan', path: path.join(jobDir, 'quick-plan.md'), version: '1' }],
     updated_at: '2026-10-16T09:00:00Z',
@@ -59,9 +60,11 @@ before(async () => {
   await put('briefs/002-plan-detail.md', 'More.\n');
   await put('handoff.md', '# Handoff\n');
   await put('.hidden.md', 'hidden\n');
+  await put('.private/secret.md', '# Not for the dashboard\n');
   await put('picture.png', 'not a doc');
   await put('big.md', 'x'.repeat(DOC_MAX_BYTES + 10));
   await put('bad.json', '{ not json');
+  await put('extra.JSON', '{"a":1}');
   // Symlinks: a file pointing outside, and a folder pointing outside.
   await fs.symlink(path.join(outside, 'secret.md'), path.join(jobDir, 'linked.md'));
   await fs.symlink(outside, path.join(jobDir, 'fable-link'));
@@ -72,6 +75,26 @@ before(async () => {
   await fs.mkdir(job2, { recursive: true });
   await fs.writeFile(path.join(job2, 'status.json'), JSON.stringify({ schema_version: 1, slug: 'link-dir-job', title: 'Link dir', stage: 'review', stage_state: 'working', updated_at: '2026-10-16T09:00:00Z' }));
   await fs.symlink(outside, path.join(job2, 'review'));
+  // Specs the dashboard must not show (status.json, which names the spec, is AI-written): one outside
+  // the repository and the job folder, one that isn't Markdown, one a symlink from inside the repo to
+  // a file outside it.
+  await fs.writeFile(path.join(outside, 'notes.txt'), 'Not for the dashboard\n');
+  await fs.mkdir(path.join(dirs.repo, 'docs', 'specs'), { recursive: true });
+  await fs.symlink(path.join(outside, 'secret.md'), path.join(dirs.repo, 'docs', 'specs', 'linked-spec.md'));
+  for (const [slug, specPath] of [
+    ['spec-outside', path.join(outside, 'secret.md')],
+    ['spec-not-md', path.join(outside, 'notes.txt')],
+    ['spec-linked', path.join(dirs.repo, 'docs', 'specs', 'linked-spec.md')],
+    ['spec-in-job', 'own-spec.md'],
+  ]) {
+    const dir = path.join(featuresDir, slug);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({
+      schema_version: 1, slug, title: slug, stage: 'spec', stage_state: 'working', updated_at: '2026-10-16T09:00:00Z',
+      repo: { path: dirs.repo }, spec: { path: slug === 'spec-in-job' ? path.join(dir, specPath) : specPath, version: '0.1' },
+    }));
+    if (slug === 'spec-in-job') await fs.writeFile(path.join(dir, specPath), '# Own spec\n');
+  }
 
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
@@ -154,6 +177,10 @@ test('docs lib: reading refuses traversal, symlinks, other types and big files',
   await refused('status.json\0.md', 404);
   await refused('big.md', 413);
   await refused('missing.md', 404);
+  // Hidden files and folders are refused, as the list leaves them out.
+  await refused('.hidden.md', 404);
+  await refused('.private/secret.md', 404);
+  await refused('briefs/.x.md', 404);
   const ok = await readJobDoc(jobDir, 'notes.md');
   assert.equal(ok.text, 'Keep it small.\n');
   assert.equal(ok.size, 15);
@@ -172,12 +199,42 @@ test('markdown: task lists get fixed checkboxes; nothing from the text becomes m
   assert.match(renderMarkdown('[ ] not in a list'), /<p>\[ \] not in a list<\/p>/);
 });
 
-test('permissions: a Markdown file being written also comes rendered (sanitised); other writes do not', () => {
-  const md = describePermission('Write', { file_path: '/w/plan.md', content: '# Plan\n\n<script>x</script>' });
+test('markdown: links: headings get anchors, //host is dropped, every link with a scheme opens in a new tab', () => {
+  const html = renderMarkdown('# Plan\n\n## Steps\n\n## Steps\n\n[a](//evil.test/x) [b](/\\evil.test) [c](https://example.com) [d](mailto:a@b.test) [e](#steps) [f](findings.md)');
+  assert.match(html, /<h1 id="h-plan">Plan<\/h1>/);
+  assert.match(html, /<h2 id="h-steps">Steps<\/h2>\n<h2 id="h-steps-2">Steps<\/h2>/);
+  assert.doesNotMatch(html, /href="\/[\\/%]/, 'protocol-relative links are not links');
+  assert.match(html, /<a href="https:\/\/example\.com" target="_blank" rel="noopener noreferrer">c<\/a>/);
+  assert.match(html, /<a href="mailto:a@b\.test" target="_blank" rel="noopener noreferrer">d<\/a>/);
+  assert.match(html, /<a href="#steps">e<\/a>/);
+  assert.match(html, /<a href="findings\.md">f<\/a>/);
+  // Heading ids start again for every document.
+  assert.match(renderMarkdown('## Steps'), /<h2 id="h-steps">/);
+});
+
+test('permissions: a Markdown file being written comes rendered (sanitised) only for the card; other writes never', () => {
+  const md = describePermission('Write', { file_path: '/w/plan.md', content: '# Plan\n\n<script>x</script>' }, { renderPreview: true });
   assert.match(md.previewHtml, /<h1 id="h-plan">Plan<\/h1>/);
   assert.doesNotMatch(md.previewHtml, /<script/);
   assert.equal(md.preview, '# Plan\n\n<script>x</script>');
-  assert.equal(describePermission('Write', { file_path: '/w/a.js', content: '# x' }).previewHtml, undefined);
+  assert.equal(describePermission('Write', { file_path: '/w/plan.md', content: '# Plan' }).previewHtml, undefined, 'the audit lines render nothing');
+  assert.equal(describePermission('Write', { file_path: '/w/a.js', content: '# x' }, { renderPreview: true }).previewHtml, undefined);
+});
+
+test('permissions: instructions files and files outside the job folder start on their source; a cut preview says so', () => {
+  const job = '/home/u/.claude/feature-work/merge';
+  const start = (file) => describePermission('Write', { file_path: file, content: '# x' }, { featureDir: job, cwd: '/repo', renderPreview: true }).previewStart ?? 'page';
+  assert.equal(start(`${job}/implementation-plan.md`), 'page');
+  assert.equal(start(`${job}/briefs/003-build.md`), 'page');
+  for (const file of [`${job}/CLAUDE.md`, `${job}/notes/AGENTS.md`, '/repo/skills/x/SKILL.md', `${job}/.claude/rules.md`, '/repo/.claude/agents/a.md', '/home/u/.claude/CLAUDE.md', '/repo/docs/plans/spec.md', 'docs/plan.md', '/home/u/.claude/feature-work/other/plan.md']) {
+    assert.equal(start(file), 'source', file);
+  }
+  assert.equal(describePermission('Write', { file_path: `${job}/plan.md`, content: '# x' }).previewStart, 'source', 'no job folder known: source');
+  const long = describePermission('Write', { file_path: `${job}/plan.md`, content: 'x'.repeat(3000) }, { featureDir: job });
+  assert.equal(long.previewCut, 2500);
+  assert.equal(long.preview, `${'x'.repeat(2500)}…`);
+  assert.equal(describePermission('Write', { file_path: `${job}/plan.md`, content: 'short' }, { featureDir: job }).previewCut, undefined);
+  assert.equal(describePermission('Bash', { command: 'y'.repeat(4001) }).previewCut, 4000);
 });
 
 test('route /docs: the job’s documents, grouped, with versions', async () => {
@@ -215,12 +272,33 @@ test('route /doc: html, text and time; refuses traversal, symlinks, types and si
   for (const [file, want] of [
     ['../link-dir-job/status.json', 404], ['../../outside/secret.md', 404], [path.join(outside, 'secret.md'), 404],
     ['linked.md', 404], ['fable-link/secret.md', 404], ['briefs/003-linked.md', 404], ['picture.png', 400], ['big.md', 413], ['', 400],
+    ['.private/secret.md', 404],
   ]) {
     const r = await getJson(docUrl('doc-job', file));
     assert.equal(r.status, want, file);
     assert.doesNotMatch(JSON.stringify(r.body), /Not for the dashboard/, file);
   }
   assert.equal((await getJson(docUrl('link-dir-job', 'review/secret.md'))).status, 404, 'through a symlinked folder');
+  // The type is read whatever the case of the extension.
+  const upper = await getJson(docUrl('doc-job', 'extra.JSON'));
+  assert.equal(upper.status, 200);
+  assert.equal(upper.body.type, 'json');
+  assert.match(upper.body.html, /^<pre class="json-doc">/);
+});
+
+test('route /doc and /docs: the spec only when it is a .md inside the job’s repository or its folder', async () => {
+  for (const slug of ['spec-outside', 'spec-not-md', 'spec-linked']) {
+    const one = await getJson(docUrl(slug, 'spec'));
+    assert.equal(one.status, 404, slug);
+    assert.doesNotMatch(JSON.stringify(one.body), /Not for the dashboard/, slug);
+    const list = await getJson(`/api/job/${slug}/docs`);
+    assert.equal(list.status, 200, slug);
+    assert.ok(!list.body.docs.some((d) => d.file === 'spec'), `${slug}: not listed`);
+  }
+  const own = await getJson(docUrl('spec-in-job', 'spec'));
+  assert.equal(own.status, 200);
+  assert.equal(own.body.text, '# Own spec\n');
+  assert.ok((await getJson('/api/job/spec-in-job/docs')).body.docs.some((d) => d.file === 'spec'));
 });
 
 test('route /render: renders with the sanitising renderer, needs the token, capped', async () => {

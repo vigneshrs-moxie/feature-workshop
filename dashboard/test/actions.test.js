@@ -76,7 +76,11 @@ test('describePermission: plain words for common tools', () => {
   assert.equal(edit.headline, 'Change a file: app/x.ts');
   assert.equal(edit.preview, '- a\n+ b');
   assert.equal(describePermission('mcp__github__create_pr', {}).headline, 'Use “create_pr” from the github connection');
-  assert.match(describePermission('Read', { file_path: '/x' }, { blockedPath: '/etc' }).detail, /outside the project: \/etc/);
+  // The folder outside the project comes as its own field, exactly as given, never mixed into detail.
+  const outside = describePermission('Bash', { command: 'ls', description: 'List **it**' }, { blockedPath: '/etc/__pycache__/a*b' });
+  assert.equal(outside.blockedPath, '/etc/__pycache__/a*b');
+  assert.equal(outside.detail, 'List **it**');
+  assert.equal(describePermission('Read', { file_path: '/x' }).blockedPath, undefined);
 });
 
 // ---------- Markdown ----------

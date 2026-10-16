@@ -33,6 +33,7 @@ html[data-theme="neon-arcade"] {
   --bg-3: oklch(.25 .048 275);
   --bg-4: oklch(.29 .05 275);
   --border-1: oklch(.8 .12 220 / .12);
+  --row-alt: oklch(.8 .12 220 / .05);
   --border-2: oklch(.8 .12 220 / .2);
   --border-3: oklch(.8 .12 220 / .34);
 
