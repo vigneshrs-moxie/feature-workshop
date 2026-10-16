@@ -23,6 +23,8 @@ html[data-theme="neon-arcade"] {
   --na-magenta: oklch(.76 .24 345);
   --na-lime: oklch(.88 .2 130);
   --na-violet: oklch(.76 .16 300);
+  /* Violet for words (labels, legends, palette sections): lighter than the tube so it clears Lc 60. */
+  --na-violet-text: oklch(.84 .14 300);
 
   /* Ink-navy night. */
   --bg-0: oklch(.14 .04 275);
@@ -36,7 +38,7 @@ html[data-theme="neon-arcade"] {
 
   --text-1: oklch(.97 .012 250);
   --text-2: oklch(.8 .035 265);
-  --text-3: oklch(.68 .05 270);
+  --text-3: oklch(.78 .05 270);
 
   --accent: var(--na-cyan);
   --accent-strong: oklch(.9 .12 200);
@@ -63,8 +65,8 @@ html[data-theme="neon-arcade"] {
   --shadow-2: 0 2px 4px oklch(0 0 0 / .4), 0 16px 48px oklch(.05 .05 275 / .7);
 
   /* Job groups. */
-  --group-needs-you-fg: oklch(.82 .22 345);
-  --group-needs-you-bg: oklch(.76 .24 345 / .13);
+  --group-needs-you-fg: oklch(.87 .19 345);
+  --group-needs-you-bg: oklch(.76 .24 345 / .14);
   --group-needs-you-line: var(--na-magenta);
   --group-running-fg: var(--na-cyan);
   --group-running-bg: oklch(.84 .14 200 / .12);
@@ -72,8 +74,8 @@ html[data-theme="neon-arcade"] {
   --group-paused-fg: oklch(.87 .16 82);
   --group-paused-bg: oklch(.86 .16 82 / .12);
   --group-paused-line: oklch(.82 .17 78);
-  --group-idle-fg: oklch(.8 .08 290);
-  --group-idle-bg: oklch(.8 .08 290 / .1);
+  --group-idle-fg: oklch(.82 .08 290);
+  --group-idle-bg: oklch(.8 .08 290 / .08);
   --group-idle-line: oklch(.7 .1 290);
   --group-done-fg: oklch(.87 .18 150);
   --group-done-bg: oklch(.86 .18 150 / .12);
@@ -86,10 +88,10 @@ html[data-theme="neon-arcade"] {
   --ask-question-fg: oklch(.84 .14 300);
   --ask-question-bg: oklch(.19 .05 285);
   --ask-question-line: var(--na-violet);
-  --ask-hardline-fg: oklch(.8 .2 22);
+  --ask-hardline-fg: oklch(.85 .17 22);
   --ask-hardline-bg: oklch(.19 .05 275);
   --ask-hardline-line: oklch(.7 .22 22);
-  --ask-blocked-fg: oklch(.7 .02 260);
+  --ask-blocked-fg: oklch(.78 .02 260);
   --ask-blocked-bg: transparent;
   --ask-blocked-line: oklch(.6 .02 260);
 
@@ -117,8 +119,8 @@ html[data-theme="neon-arcade"] {
   --font-heading: "Avenir Next", "Inter Display", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   /* A faint cyan grid, the arcade floor. */
   --pane-pattern:
-    linear-gradient(oklch(.84 .14 200 / .045) 1px, transparent 1px),
-    linear-gradient(90deg, oklch(.84 .14 200 / .045) 1px, transparent 1px);
+    linear-gradient(oklch(.84 .14 200 / .07) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(.84 .14 200 / .07) 1px, transparent 1px);
 }
 
 html[data-theme="neon-arcade"] ::selection { background: oklch(.84 .14 200 / .35); }
@@ -138,7 +140,7 @@ html[data-theme="neon-arcade"] .pane-preview { border-left-color: var(--border-2
 
 html[data-theme="neon-arcade"] .topbar {
   position: relative;
-  background: linear-gradient(90deg, oklch(.19 .06 300), oklch(.17 .05 260) 50%, oklch(.18 .05 220));
+  background: linear-gradient(90deg, oklch(.22 .08 310), oklch(.18 .06 270) 45%, oklch(.19 .06 215));
   border-bottom-color: transparent;
 }
 /* A three-colour neon strip under the top bar. */
@@ -162,7 +164,18 @@ html[data-theme="neon-arcade"] .brand {
   background-clip: text;
   color: transparent;
 }
-html[data-theme="neon-arcade"] .needs { color: var(--text-2); }
+/* "n need you" is the needs-you count, so it wears the needs-you magenta: a small lit sign. */
+html[data-theme="neon-arcade"] .needs {
+  padding: 1px var(--space-2);
+  border: 1px solid var(--group-needs-you-line);
+  border-radius: 999px;
+  color: var(--group-needs-you-fg);
+  font-weight: var(--weight-medium);
+  background: var(--group-needs-you-bg);
+  box-shadow: 0 0 10px oklch(.76 .24 345 / .45);
+}
+html[data-theme="neon-arcade"] .topbar .btn { background: oklch(1 0 0 / .06); border-color: oklch(1 0 0 / .14); }
+html[data-theme="neon-arcade"] .topbar .btn:hover { background: oklch(1 0 0 / .1); }
 html[data-theme="neon-arcade"] .conn-live .conn-dot { box-shadow: 0 0 6px var(--status-ok); }
 html[data-theme="neon-arcade"] .conn-reconnecting .conn-dot { box-shadow: 0 0 6px var(--status-warn); }
 
@@ -215,6 +228,9 @@ html[data-theme="neon-arcade"] .job-row {
 html[data-theme="neon-arcade"] .job-row[data-group="needs-you"] { --row-line: var(--group-needs-you-line); --row-tint: var(--group-needs-you-bg); }
 html[data-theme="neon-arcade"] .job-row[data-group="running"] { --row-line: var(--group-running-line); --row-tint: var(--group-running-bg); }
 html[data-theme="neon-arcade"] .job-row[data-group="paused"] { --row-line: var(--group-paused-line); --row-tint: var(--group-paused-bg); }
+/* Idle and done rows keep the stripe (the colour language stays complete) but no tint: they are the quiet ones. */
+html[data-theme="neon-arcade"] .job-row[data-group="idle"] { --row-line: color-mix(in oklch, var(--group-idle-line) 60%, transparent); }
+html[data-theme="neon-arcade"] .job-row[data-group="done"] { --row-line: color-mix(in oklch, var(--group-done-line) 60%, transparent); }
 html[data-theme="neon-arcade"] .job-row:hover { background: var(--bg-3); text-decoration: none; }
 html[data-theme="neon-arcade"] .job-row[aria-current="page"] {
   background: var(--accent-soft);
@@ -303,7 +319,7 @@ html[data-theme="neon-arcade"] .who { letter-spacing: .02em; }
 html[data-theme="neon-arcade"] .brief-card { border-color: oklch(.76 .16 300 / .45); }
 html[data-theme="neon-arcade"] .brief-card:not(.is-answered) { box-shadow: 0 0 0 1px oklch(.76 .16 300 / .2), 0 0 16px oklch(.76 .16 300 / .2); }
 html[data-theme="neon-arcade"] .brief-card.is-answered { background: oklch(.17 .042 275 / .6); box-shadow: none; }
-html[data-theme="neon-arcade"] .brief-label { color: var(--na-violet); }
+html[data-theme="neon-arcade"] .brief-label { color: var(--na-violet-text); font-weight: var(--weight-medium); }
 html[data-theme="neon-arcade"] .brief-state { padding: 0 var(--space-2); border: 1px solid oklch(.86 .18 150 / .5); }
 html[data-theme="neon-arcade"] .brief-headline { font-family: var(--font-heading); font-size: var(--text-md); }
 
@@ -364,7 +380,7 @@ html[data-theme="neon-arcade"] .perm-card .ask-label {
   box-shadow: 0 0 8px color-mix(in oklch, var(--ask-line) 40%, transparent);
 }
 
-html[data-theme="neon-arcade"] .question legend { color: var(--na-violet); }
+html[data-theme="neon-arcade"] .question legend { color: var(--na-violet-text); }
 html[data-theme="neon-arcade"] .answer-option:hover { background: oklch(.76 .16 300 / .12); }
 html[data-theme="neon-arcade"] .answer-option input { accent-color: var(--na-violet); }
 
@@ -386,7 +402,16 @@ html[data-theme="neon-arcade"] .btn-primary {
   box-shadow: 0 0 12px oklch(.84 .14 200 / .35);
 }
 html[data-theme="neon-arcade"] .btn-primary:hover { background: linear-gradient(135deg, var(--accent-strong), oklch(.92 .2 130)); box-shadow: 0 0 18px oklch(.84 .14 200 / .55); }
-html[data-theme="neon-arcade"] .btn-danger { border-color: oklch(.74 .2 22 / .7); color: oklch(.82 .18 22); background: transparent; }
+/* A primary button that is off (Steer with nothing typed) is unlit: outlined in dim cyan, not a muddy gradient. */
+html[data-theme="neon-arcade"] .btn-primary:disabled,
+html[data-theme="neon-arcade"] .btn-primary:disabled:hover {
+  opacity: 1;
+  border-color: oklch(.84 .14 200 / .35);
+  background: oklch(.84 .14 200 / .08);
+  color: oklch(.84 .14 200 / .7);
+  box-shadow: none;
+}
+html[data-theme="neon-arcade"] .btn-danger { border-color: oklch(.74 .2 22 / .7); color: oklch(.86 .16 22); background: transparent; }
 html[data-theme="neon-arcade"] .btn-danger:hover { background: var(--status-error-bg); box-shadow: 0 0 0 1px oklch(.74 .2 22 / .4), 0 0 10px oklch(.74 .2 22 / .3); }
 html[data-theme="neon-arcade"] .btn-toggle[aria-pressed="true"] .toggle-state { color: var(--na-lime); }
 
@@ -421,8 +446,15 @@ html[data-theme="neon-arcade"] .rule-list { border-color: var(--border-2); backg
 html[data-theme="neon-arcade"] .rule-row + .rule-row { border-top-color: var(--border-1); }
 html[data-theme="neon-arcade"] .theme-picker { padding-top: var(--space-4); border-top: 1px solid var(--border-2); }
 
-html[data-theme="neon-arcade"] .how { border-color: var(--border-2); background: oklch(.84 .14 200 / .05); }
-html[data-theme="neon-arcade"] .how summary:hover { color: var(--na-cyan); }
+/* "How this works" folds: a violet-washed note with a violet title, so they read as help, not as another card. */
+html[data-theme="neon-arcade"] .how {
+  border-color: oklch(.76 .16 300 / .35);
+  background: linear-gradient(135deg, oklch(.76 .16 300 / .1), oklch(.84 .14 200 / .05));
+  box-shadow: inset 3px 0 0 oklch(.76 .16 300 / .7);
+}
+html[data-theme="neon-arcade"] .how summary { color: var(--na-violet-text); font-weight: var(--weight-medium); }
+html[data-theme="neon-arcade"] .how summary:hover { color: var(--text-1); }
+html[data-theme="neon-arcade"] .how strong { color: var(--text-1); }
 
 /* ---------- Composer ---------- */
 
@@ -467,12 +499,12 @@ html[data-theme="neon-arcade"] .palette-option.is-active {
   background: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--na-cyan), 0 0 0 1px oklch(.84 .14 200 / .3);
 }
-html[data-theme="neon-arcade"] .palette-section { color: var(--na-violet); letter-spacing: .06em; text-transform: uppercase; }
+html[data-theme="neon-arcade"] .palette-section { color: var(--na-violet-text); letter-spacing: .06em; text-transform: uppercase; }
 html[data-theme="neon-arcade"] .palette-foot { border-top-color: var(--border-2); }
 
 html[data-theme="neon-arcade"] .sheet-title { font-size: var(--text-sm); }
 html[data-theme="neon-arcade"] .from-session, html[data-theme="neon-arcade"] .history-results { border-color: var(--border-2); }
-html[data-theme="neon-arcade"] .from-session legend { color: var(--na-violet); }
+html[data-theme="neon-arcade"] .from-session legend { color: var(--na-violet-text); }
 
 /* ---------- Usage-limit banner: an amber strip ---------- */
 
