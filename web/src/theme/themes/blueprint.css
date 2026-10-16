@@ -1,8 +1,487 @@
-/* Theme: blueprint — architect's blueprint: deep blue paper with a faint grid, white/chalk line
-   art, cards like taped index cards with coloured sticky-tab statuses, clean geometric caps for
-   headings. Nods to "Workshop / Foreman / crew".
-   Scope every rule under html[data-theme="blueprint"]. Override the semantic tokens first
-   (--group-*, --ask-*, --stage-*, --chip-radius, --card-radius, --pane-pattern, --font-heading),
-   then decorate the hooks in theme/THEMING.md. Looks only: layout and components stay the same.
-   Stub: the theme agent fills this in. */
-html[data-theme="blueprint"] {}
+/* Theme: blueprint — an architect's blueprint. Deep blue paper with a faint drafting grid, chalk
+   line art for the frame (top bar, jobs list, composer), and the Foreman's thread as cream index
+   cards taped to the sheet, each with a coloured sticky tab for its kind of ask. Headings are set
+   in clean geometric caps (Futura / Avenir Next, both ship with macOS; Jost or Century Gothic
+   elsewhere; system-ui last). Nods to "Workshop / Foreman / crew": the title block, the ruler
+   along the top bar, the tape, the tabs, the status stamp.
+   Every rule is scoped under html[data-theme="blueprint"]. Looks only: nothing moves, nothing
+   is added or hidden, no control changes. Motion is transform/opacity, 300 ms or less, and stops
+   under prefers-reduced-motion. Status always keeps its text label; the needs-you magenta is the
+   loudest colour and nothing else uses it. */
+
+html[data-theme="blueprint"] {
+  /* The theme's own palette: blue paper, chalk, cream card stock and navy ink. */
+  --bp-paper: oklch(.965 .018 85);
+  --bp-paper-dim: oklch(.93 .018 85);
+  --bp-rule: oklch(.72 .07 240 / .22);
+  --bp-ink: oklch(.26 .06 255);
+  --bp-ink-2: oklch(.42 .06 255);
+  --bp-ink-3: oklch(.48 .05 255);
+  --bp-ink-line: oklch(.3 .07 255 / .22);
+  --bp-ink-tint: oklch(.4 .1 255 / .1);
+  --bp-chalk: oklch(.97 .008 240);
+  --bp-chalk-2: oklch(1 0 0 / .42);
+  --bp-chalk-3: oklch(1 0 0 / .22);
+  --bp-tape: oklch(.94 .03 95 / .5);
+  --bp-card-edge: oklch(.8 .03 85);
+  --bp-red: oklch(.68 .21 25);
+  --bp-red-ink: oklch(.5 .2 25);
+  --bp-amber: oklch(.75 .17 80);
+
+  /* Base tokens: the blue paper and chalk type. */
+  --bg-0: oklch(.29 .09 255);
+  --bg-1: oklch(.315 .09 255);
+  --bg-2: oklch(.345 .09 255);
+  --bg-3: oklch(.385 .09 255);
+  --bg-4: oklch(.425 .09 255);
+  --border-1: oklch(1 0 0 / .18);
+  --border-2: oklch(1 0 0 / .3);
+  --border-3: oklch(1 0 0 / .45);
+  --text-1: var(--bp-chalk);
+  --text-2: oklch(.86 .03 240);
+  --text-3: oklch(.77 .04 240);
+  --accent: oklch(.82 .11 215);
+  --accent-strong: oklch(.88 .1 215);
+  --accent-soft: oklch(1 0 0 / .13);
+  --on-accent: oklch(.22 .07 255);
+  --focus-ring: oklch(.9 .16 95);
+  --status-ok: oklch(.86 .15 150);
+  --status-ok-bg: oklch(.86 .15 150 / .16);
+  --status-warn: oklch(.87 .15 80);
+  --status-warn-bg: oklch(.87 .15 80 / .16);
+  --status-error: oklch(.82 .15 25);
+  --status-error-bg: oklch(.82 .15 25 / .18);
+  --status-info: oklch(.86 .11 205);
+  --status-info-bg: oklch(.86 .11 205 / .16);
+  --status-paused: oklch(.82 .02 250);
+  --status-paused-bg: oklch(.82 .02 250 / .14);
+  --job-hue-l: .8;
+  --job-hue-c: .14;
+  --shadow-1: 0 1px 1px oklch(0 0 0 / .25), 0 3px 8px oklch(.15 .06 255 / .45);
+  --shadow-2: 0 2px 3px oklch(0 0 0 / .3), 0 14px 32px oklch(.1 .06 255 / .6);
+
+  /* Drafting shapes: squared-off corners, as on a plan. */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 5px;
+  --chip-radius: 2px;
+  --card-radius: 3px;
+
+  /* The faint grid on every pane: fine lines every 16px, heavier every 80px. */
+  --pane-pattern:
+    linear-gradient(oklch(1 0 0 / .09) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(1 0 0 / .09) 1px, transparent 1px),
+    linear-gradient(oklch(1 0 0 / .05) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(1 0 0 / .05) 1px, transparent 1px);
+
+  /* Geometric caps for headings. */
+  --font-heading: "Futura", "Avenir Next", "Jost", "Century Gothic", "URW Gothic", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Job groups: the shared hue language, as chalk on blue. */
+  --group-needs-you-fg: oklch(.84 .19 345);
+  --group-needs-you-bg: oklch(.8 .22 345 / .2);
+  --group-needs-you-line: oklch(.8 .24 345);
+  --group-running-fg: oklch(.88 .12 200);
+  --group-running-bg: oklch(.86 .13 200 / .16);
+  --group-running-line: oklch(.86 .14 200);
+  --group-paused-fg: oklch(.88 .15 80);
+  --group-paused-bg: oklch(.87 .16 80 / .16);
+  --group-paused-line: oklch(.87 .17 80);
+  --group-idle-fg: oklch(.84 .06 285);
+  --group-idle-bg: oklch(.8 .07 285 / .14);
+  --group-idle-line: oklch(.78 .08 285);
+  --group-done-fg: oklch(.87 .15 150);
+  --group-done-bg: oklch(.85 .16 150 / .16);
+  --group-done-line: oklch(.85 .17 150);
+
+  /* Kinds of ask: the cards are cream index cards, so the labels are dark ink of each hue and
+     the lines (border, sticky tab) are the full colour. */
+  --ask-permission-fg: oklch(.5 .16 55);
+  --ask-permission-bg: var(--bp-paper);
+  --ask-permission-line: oklch(.74 .17 55);
+  --ask-question-fg: oklch(.48 .17 300);
+  --ask-question-bg: var(--bp-paper);
+  --ask-question-line: oklch(.7 .16 300);
+  --ask-hardline-fg: var(--bp-red-ink);
+  --ask-hardline-bg: var(--bp-paper);
+  --ask-hardline-line: var(--bp-red);
+  --ask-blocked-fg: oklch(.78 .02 250);
+  --ask-blocked-bg: transparent;
+  --ask-blocked-line: oklch(.7 .02 250);
+
+  /* Stages: a rainbow walk in workflow order, as tinted chips on blue. */
+  --stage-spec-fg: oklch(.88 .1 10);
+  --stage-spec-bg: oklch(.8 .15 10 / .2);
+  --stage-investigate-fg: oklch(.9 .12 60);
+  --stage-investigate-bg: oklch(.8 .15 60 / .2);
+  --stage-plan-fg: oklch(.93 .13 95);
+  --stage-plan-bg: oklch(.85 .15 95 / .2);
+  --stage-build-fg: oklch(.9 .13 150);
+  --stage-build-bg: oklch(.82 .15 150 / .2);
+  --stage-test-fg: oklch(.9 .1 210);
+  --stage-test-bg: oklch(.82 .13 210 / .2);
+  --stage-review-fg: oklch(.88 .1 295);
+  --stage-review-bg: oklch(.78 .14 295 / .22);
+}
+
+/* ---------- The sheet: grid, title block, ruler ---------- */
+
+html[data-theme="blueprint"] .pane { background-size: 16px 16px, 16px 16px, 80px 80px, 80px 80px; }
+html[data-theme="blueprint"] .pane-jobs { border-right: 1px solid var(--bp-chalk-2); }
+html[data-theme="blueprint"] .pane-preview { border-left: 1px solid var(--bp-chalk-2); }
+
+/* The top bar is the drawing's title block: a chalk rule with ruler ticks above it. */
+html[data-theme="blueprint"] .topbar {
+  border-bottom: 1px solid var(--bp-chalk-2);
+  background:
+    repeating-linear-gradient(90deg, var(--bp-chalk-3) 0 1px, transparent 1px 8px) 0 100% / 100% 4px no-repeat,
+    repeating-linear-gradient(90deg, var(--bp-chalk-2) 0 1px, transparent 1px 40px) 0 100% / 100% 7px no-repeat,
+    var(--bg-1);
+}
+html[data-theme="blueprint"] .brand,
+html[data-theme="blueprint"] .pane-title,
+html[data-theme="blueprint"] .sheet-title,
+html[data-theme="blueprint"] .settings-heading {
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  font-weight: var(--weight-medium);
+}
+html[data-theme="blueprint"] .brand { color: var(--bp-chalk); }
+html[data-theme="blueprint"] .pane-title { background: linear-gradient(var(--bp-chalk-2), var(--bp-chalk-2)) 0 100% / 100% 1px no-repeat; }
+html[data-theme="blueprint"] .job-title { text-transform: none; letter-spacing: .02em; background: none; }
+html[data-theme="blueprint"] .needs { color: var(--group-needs-you-fg); font-weight: var(--weight-medium); }
+html[data-theme="blueprint"] .kbd { border-color: var(--bp-chalk-2); background: transparent; color: var(--text-1); }
+
+/* The focus ring is pencil yellow, visible on blue and on paper alike. */
+html[data-theme="blueprint"] :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* ---------- Jobs: chalk lines and sticky tabs ---------- */
+
+html[data-theme="blueprint"] .job-group-title {
+  font-family: var(--font-heading);
+  letter-spacing: .12em;
+  color: var(--text-2);
+  background: repeating-linear-gradient(90deg, var(--bp-chalk-2) 0 4px, transparent 4px 7px) 0 100% / 100% 1px no-repeat;
+}
+html[data-theme="blueprint"] .job-group-title[data-group="needs-you"] { color: var(--group-needs-you-fg); background-image: repeating-linear-gradient(90deg, var(--group-needs-you-line) 0 4px, transparent 4px 7px); }
+html[data-theme="blueprint"] .job-group-title[data-group="running"] { color: var(--group-running-fg); background-image: repeating-linear-gradient(90deg, var(--group-running-line) 0 4px, transparent 4px 7px); }
+html[data-theme="blueprint"] .job-group-title[data-group="paused"] { color: var(--group-paused-fg); background-image: repeating-linear-gradient(90deg, var(--group-paused-line) 0 4px, transparent 4px 7px); }
+html[data-theme="blueprint"] .job-group-title[data-group="idle"] { color: var(--group-idle-fg); background-image: repeating-linear-gradient(90deg, var(--group-idle-line) 0 4px, transparent 4px 7px); }
+html[data-theme="blueprint"] .job-group-title[data-group="done"] { color: var(--group-done-fg); background-image: repeating-linear-gradient(90deg, var(--group-done-line) 0 4px, transparent 4px 7px); }
+html[data-theme="blueprint"] .job-group-title .count { color: var(--text-2); }
+
+/* Each row is tinted by its group and wears a sticky tab on its left edge. */
+html[data-theme="blueprint"] .job-row {
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  box-shadow: inset 3px 0 0 var(--group-idle-line);
+  background: var(--group-idle-bg);
+  transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+html[data-theme="blueprint"] .job-row[data-group="needs-you"] { box-shadow: inset 3px 0 0 var(--group-needs-you-line); background: var(--group-needs-you-bg); }
+html[data-theme="blueprint"] .job-row[data-group="running"] { box-shadow: inset 3px 0 0 var(--group-running-line); background: var(--group-running-bg); }
+html[data-theme="blueprint"] .job-row[data-group="paused"] { box-shadow: inset 3px 0 0 var(--group-paused-line); background: var(--group-paused-bg); }
+html[data-theme="blueprint"] .job-row[data-group="done"] { box-shadow: inset 3px 0 0 var(--group-done-line); background: var(--group-done-bg); }
+html[data-theme="blueprint"] .job-row:hover { transform: translateX(2px); background: var(--bg-3); }
+html[data-theme="blueprint"] .job-row[aria-current="page"] {
+  background-image: linear-gradient(oklch(1 0 0 / .1), oklch(1 0 0 / .1));
+  outline: 1px solid var(--bp-chalk-2);
+  outline-offset: -1px;
+}
+html[data-theme="blueprint"] .job-row[aria-current="page"]:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+html[data-theme="blueprint"] .job-status-label { font-weight: var(--weight-medium); }
+html[data-theme="blueprint"] .job-row-time { color: var(--text-2); }
+
+/* The job's own dot gets a chalk ring, like a pin on the plan. */
+html[data-theme="blueprint"] .hue-dot { box-shadow: 0 0 0 1px var(--bp-chalk-2); }
+
+html[data-theme="blueprint"] .stage-chip { border-color: transparent; font-weight: var(--weight-medium); letter-spacing: .02em; }
+html[data-theme="blueprint"] .chip { border-color: var(--bp-chalk-2); color: var(--text-1); }
+
+/* The icon rail keeps the tabs. */
+html[data-theme="blueprint"] .job-rail-item { box-shadow: inset 3px 0 0 var(--group-idle-line); border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+html[data-theme="blueprint"] .job-rail-item[data-group="needs-you"] { box-shadow: inset 3px 0 0 var(--group-needs-you-line); }
+html[data-theme="blueprint"] .job-rail-item[data-group="running"] { box-shadow: inset 3px 0 0 var(--group-running-line); }
+html[data-theme="blueprint"] .job-rail-item[data-group="paused"] { box-shadow: inset 3px 0 0 var(--group-paused-line); }
+html[data-theme="blueprint"] .job-rail-item[data-group="done"] { box-shadow: inset 3px 0 0 var(--group-done-line); }
+html[data-theme="blueprint"] .rail-needs { font-weight: var(--weight-bold); }
+html[data-theme="blueprint"] .rail-group { border-top-color: var(--bp-chalk-2); }
+html[data-theme="blueprint"] .alert-settings { border-top-color: var(--bp-chalk-2); }
+
+/* The status pill in the job header reads as a rubber stamp. */
+html[data-theme="blueprint"] .job-facts .status {
+  padding: 0 var(--space-1);
+  border: 1px solid currentColor;
+  border-radius: var(--chip-radius);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: var(--text-xs);
+  font-family: var(--font-heading);
+}
+html[data-theme="blueprint"] .job-facts { color: var(--text-2); }
+
+/* ---------- The thread: index cards taped to the sheet ---------- */
+
+html[data-theme="blueprint"] .reply,
+html[data-theme="blueprint"] .brief-card,
+html[data-theme="blueprint"] .problem,
+html[data-theme="blueprint"] .perm-card {
+  position: relative;
+  border: 1px solid var(--bp-card-edge);
+  border-top: 2px solid var(--bp-ink-line);
+  background:
+    repeating-linear-gradient(transparent 0 21px, var(--bp-rule) 21px 22px) 0 6px / 100% 22px,
+    var(--bp-paper);
+  color: var(--bp-ink);
+  box-shadow: 0 1px 2px oklch(0 0 0 / .35), 0 6px 14px oklch(.1 .06 255 / .5);
+}
+html[data-theme="blueprint"] .brief-card.is-answered {
+  background: repeating-linear-gradient(transparent 0 21px, var(--bp-rule) 21px 22px) 0 6px / 100% 22px, var(--bp-paper-dim);
+}
+
+/* A piece of tape across the top edge of each card. */
+html[data-theme="blueprint"] .reply::before,
+html[data-theme="blueprint"] .brief-card::before,
+html[data-theme="blueprint"] .problem::before,
+html[data-theme="blueprint"] .perm-card::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 28px;
+  width: 54px;
+  height: 14px;
+  background: var(--bp-tape);
+  border-left: 1px dashed oklch(1 0 0 / .5);
+  border-right: 1px dashed oklch(1 0 0 / .5);
+  transform: rotate(-3deg);
+  pointer-events: none;
+}
+html[data-theme="blueprint"] .brief-card::before { left: auto; right: 28px; transform: rotate(3deg); }
+
+/* A coloured sticky tab hangs from the top edge of each ask, matching its border. */
+html[data-theme="blueprint"] .perm-card::after,
+html[data-theme="blueprint"] .problem::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  right: 18px;
+  width: 44px;
+  height: 11px;
+  background: var(--ask-permission-line);
+  border-radius: 0 0 3px 3px;
+  box-shadow: 0 1px 1px oklch(0 0 0 / .25);
+  pointer-events: none;
+}
+html[data-theme="blueprint"] .perm-card[data-ask="question"]::after { background: var(--ask-question-line); }
+html[data-theme="blueprint"] .perm-card[data-ask="hardline"]::after { background: var(--ask-hardline-line); }
+html[data-theme="blueprint"] .problem::after { background: var(--bp-red); }
+html[data-theme="blueprint"] .perm-card { border-top: 2px solid var(--ask-permission-line); }
+html[data-theme="blueprint"] .perm-card[data-ask="question"] { border-top-color: var(--ask-question-line); }
+html[data-theme="blueprint"] .perm-card[data-ask="hardline"] { border-top-color: var(--ask-hardline-line); box-shadow: inset 4px 0 0 var(--ask-hardline-line), 0 1px 2px oklch(0 0 0 / .35), 0 6px 14px oklch(.1 .06 255 / .5); }
+html[data-theme="blueprint"] .perm-card.is-risky { border-color: var(--bp-card-edge); border-top-color: var(--bp-amber); }
+html[data-theme="blueprint"] .perm-card.is-risky::after { background: var(--bp-amber); }
+/* A hard line stays red even when Claude Code also flags the step as risky. */
+html[data-theme="blueprint"] .perm-card[data-ask="hardline"].is-risky { border-top-color: var(--ask-hardline-line); }
+html[data-theme="blueprint"] .perm-card[data-ask="hardline"].is-risky::after { background: var(--ask-hardline-line); }
+html[data-theme="blueprint"] .problem { border-top: 2px solid var(--bp-red); box-shadow: inset 4px 0 0 var(--bp-red), 0 1px 2px oklch(0 0 0 / .35), 0 6px 14px oklch(.1 .06 255 / .5); }
+
+/* Ink on paper: everything inside a card uses the navy ink scale. */
+html[data-theme="blueprint"] .reply .muted, html[data-theme="blueprint"] .brief-card .muted, html[data-theme="blueprint"] .problem .muted, html[data-theme="blueprint"] .perm-card .muted,
+html[data-theme="blueprint"] .reply .who, html[data-theme="blueprint"] .brief-card .who, html[data-theme="blueprint"] .perm-card .who,
+html[data-theme="blueprint"] .perm-who, html[data-theme="blueprint"] .perm-detail, html[data-theme="blueprint"] .perm-reason,
+html[data-theme="blueprint"] .brief-toggle, html[data-theme="blueprint"] .brief-detail summary,
+html[data-theme="blueprint"] .extras dt, html[data-theme="blueprint"] .extras dd,
+html[data-theme="blueprint"] .answer-desc, html[data-theme="blueprint"] .question-hint,
+html[data-theme="blueprint"] .perm-card .field { color: var(--bp-ink-2); }
+html[data-theme="blueprint"] .reply .thread-time, html[data-theme="blueprint"] .brief-card .thread-time, html[data-theme="blueprint"] .problem .thread-time, html[data-theme="blueprint"] .perm-card .thread-time { color: var(--bp-ink-3); }
+html[data-theme="blueprint"] .perm-who strong, html[data-theme="blueprint"] .brief-headline, html[data-theme="blueprint"] .brief-toggle:hover .brief-label { color: var(--bp-ink); }
+html[data-theme="blueprint"] .who {
+  font-family: var(--font-heading);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  font-size: var(--text-xs);
+}
+html[data-theme="blueprint"] .problem .who { color: var(--bp-red-ink); }
+html[data-theme="blueprint"] .reply a, html[data-theme="blueprint"] .brief-card a, html[data-theme="blueprint"] .perm-card a { color: oklch(.45 .14 255); text-decoration: underline; }
+html[data-theme="blueprint"] .reply .chip, html[data-theme="blueprint"] .brief-card .chip, html[data-theme="blueprint"] .perm-card .chip { border-color: var(--bp-ink-line); color: var(--bp-ink-2); }
+html[data-theme="blueprint"] .perm-card .ask-label {
+  border-color: currentColor;
+  font-family: var(--font-heading);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: var(--weight-medium);
+}
+html[data-theme="blueprint"] .perm-card[data-ask="hardline"] .ask-label { background: oklch(.68 .21 25 / .14); }
+html[data-theme="blueprint"] .brief-state { color: oklch(.42 .14 150); background: oklch(.7 .16 150 / .22); font-weight: var(--weight-medium); }
+html[data-theme="blueprint"] .brief-detail { border-top-color: var(--bp-ink-line); }
+html[data-theme="blueprint"] .reply .typing span { background: var(--bp-ink-2); }
+
+/* Ink-on-paper for rendered Markdown, code and tables. */
+html[data-theme="blueprint"] .reply .prose code, html[data-theme="blueprint"] .brief-card .prose code, html[data-theme="blueprint"] .perm-card .prose code { background: var(--bp-ink-tint); color: var(--bp-ink); }
+html[data-theme="blueprint"] .reply .prose pre, html[data-theme="blueprint"] .brief-card .prose pre { background: var(--bg-1); color: var(--bp-chalk); border: 1px solid var(--bp-ink-line); }
+html[data-theme="blueprint"] .reply .prose pre code, html[data-theme="blueprint"] .brief-card .prose pre code { background: none; color: inherit; }
+html[data-theme="blueprint"] .reply .prose blockquote, html[data-theme="blueprint"] .brief-card .prose blockquote { border-left-color: var(--bp-ink-line); color: var(--bp-ink-2); }
+html[data-theme="blueprint"] .reply .prose th, html[data-theme="blueprint"] .reply .prose td, html[data-theme="blueprint"] .brief-card .prose th, html[data-theme="blueprint"] .brief-card .prose td { border-color: var(--bp-ink-line); }
+html[data-theme="blueprint"] .perm-preview { background: var(--bg-1); color: var(--bp-chalk); border: 1px solid var(--bp-ink-line); }
+html[data-theme="blueprint"] .perm-warn { background: oklch(.75 .17 80 / .22); color: oklch(.42 .13 70); }
+html[data-theme="blueprint"] .perm-card .field-problem, html[data-theme="blueprint"] .perm-card .btn-danger { color: var(--bp-red-ink); }
+html[data-theme="blueprint"] .perm-card .btn-danger { border-color: var(--bp-red); }
+html[data-theme="blueprint"] .perm-card .btn-danger:hover { background: oklch(.68 .21 25 / .14); }
+html[data-theme="blueprint"] .perm-card .btn-quiet { color: var(--bp-ink-2); }
+html[data-theme="blueprint"] .perm-card .btn-quiet:hover { background: var(--bp-ink-tint); color: var(--bp-ink); }
+html[data-theme="blueprint"] .perm-card .btn:not(.btn-quiet):not(.btn-danger) { background: var(--bg-2); border-color: var(--bg-2); color: var(--bp-chalk); }
+html[data-theme="blueprint"] .perm-card .btn:not(.btn-quiet):not(.btn-danger):hover { background: var(--bg-3); }
+html[data-theme="blueprint"] .perm-card .btn-primary { background: var(--bg-0); border-color: var(--bg-0); color: var(--bp-chalk); }
+html[data-theme="blueprint"] .perm-card .btn-primary:hover { background: var(--bg-2); }
+html[data-theme="blueprint"] .answer-option:hover { background: var(--bp-ink-tint); }
+html[data-theme="blueprint"] .answer-option input { accent-color: var(--bg-0); }
+html[data-theme="blueprint"] .perm-card .text-input { background: var(--bg-1); border-color: var(--bg-1); color: var(--bp-chalk); }
+html[data-theme="blueprint"] .question legend { font-family: var(--font-heading); letter-spacing: .02em; }
+html[data-theme="blueprint"] .perm-headline { letter-spacing: .01em; }
+
+/* The live row is the sketch in progress: dashed chalk on the blue, not yet a card. */
+html[data-theme="blueprint"] .live-row { border: 1px dashed var(--bp-chalk-2); background: oklch(1 0 0 / .04); }
+
+/* Your messages are chalk notes in the margin. */
+html[data-theme="blueprint"] .you { background: oklch(1 0 0 / .08); box-shadow: inset 0 0 0 1px var(--bp-chalk-2); }
+html[data-theme="blueprint"] .you .who { color: var(--text-1); }
+html[data-theme="blueprint"] .steer-state { background: oklch(1 0 0 / .12); color: var(--text-1); }
+html[data-theme="blueprint"] .steer-delivered { color: var(--group-running-fg); background: var(--group-running-bg); }
+html[data-theme="blueprint"] .steer-acted-on { color: var(--group-done-fg); background: var(--group-done-bg); }
+html[data-theme="blueprint"] .steer-cancelled, html[data-theme="blueprint"] .steer-unanswered { color: var(--group-paused-fg); background: var(--group-paused-bg); }
+
+/* Decisions, blocked lines and the fold of routine steps: chalk annotations. */
+html[data-theme="blueprint"] .decision { color: var(--text-2); }
+html[data-theme="blueprint"] .blocked-line .glyph { text-decoration: line-through; }
+html[data-theme="blueprint"] .blocked-line { background: linear-gradient(var(--ask-blocked-line), var(--ask-blocked-line)) 0 0 / 2px 100% no-repeat; }
+html[data-theme="blueprint"] .auto-fold { color: var(--text-2); }
+
+/* ---------- Composer: a notes strip under the sheet ---------- */
+
+html[data-theme="blueprint"] .composer {
+  border-top: 1px solid var(--bp-chalk-2);
+  background:
+    linear-gradient(var(--bp-chalk-3), var(--bp-chalk-3)) 0 3px / 100% 1px no-repeat,
+    var(--bg-0);
+}
+html[data-theme="blueprint"] .text-area {
+  border: 1px solid var(--bp-chalk-2);
+  background: repeating-linear-gradient(transparent 0 20px, oklch(1 0 0 / .1) 20px 21px) 0 8px / 100% 21px, var(--bg-1);
+}
+html[data-theme="blueprint"] .text-area:focus-visible, html[data-theme="blueprint"] .text-input:focus-visible { border-color: var(--focus-ring); }
+html[data-theme="blueprint"] .text-input, html[data-theme="blueprint"] .select { border-color: var(--bp-chalk-2); }
+html[data-theme="blueprint"] .btn { border-color: var(--bp-chalk-2); background: oklch(1 0 0 / .07); }
+html[data-theme="blueprint"] .btn:hover { background: oklch(1 0 0 / .14); }
+html[data-theme="blueprint"] .btn-quiet { border-color: transparent; background: transparent; }
+html[data-theme="blueprint"] .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+html[data-theme="blueprint"] .btn-primary:hover { background: var(--accent-strong); }
+html[data-theme="blueprint"] .btn-danger { background: transparent; border-color: var(--status-error); }
+html[data-theme="blueprint"] .composer-note { color: var(--text-2); }
+
+/* ---------- ⌘K palette and sheets: index cards pulled from the drawer ---------- */
+
+html[data-theme="blueprint"] .palette,
+html[data-theme="blueprint"] .sheet {
+  position: relative;
+  border: 1px solid var(--bp-card-edge);
+  border-top: 3px solid var(--bg-0);
+  background: var(--bp-paper);
+  color: var(--bp-ink);
+  box-shadow: var(--shadow-2);
+}
+html[data-theme="blueprint"] .sheet::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 72px;
+  height: 16px;
+  margin-left: -36px;
+  background: var(--bp-tape);
+  border-left: 1px dashed oklch(1 0 0 / .6);
+  border-right: 1px dashed oklch(1 0 0 / .6);
+  transform: rotate(-2deg);
+  pointer-events: none;
+}
+html[data-theme="blueprint"] .sheet-backdrop { background: oklch(.12 .06 255 / .7); }
+html[data-theme="blueprint"] .sheet .muted, html[data-theme="blueprint"] .palette .muted,
+html[data-theme="blueprint"] .sheet .field, html[data-theme="blueprint"] .sheet-fine, html[data-theme="blueprint"] .sheet legend,
+html[data-theme="blueprint"] .sheet .seg-label, html[data-theme="blueprint"] .sheet .rule-option-value,
+html[data-theme="blueprint"] .sheet .from-search summary, html[data-theme="blueprint"] .sheet .history-meta,
+html[data-theme="blueprint"] .palette-section, html[data-theme="blueprint"] .palette-foot, html[data-theme="blueprint"] .palette-empty { color: var(--bp-ink-2); }
+html[data-theme="blueprint"] .sheet .from-search summary:hover { color: var(--bp-ink); }
+html[data-theme="blueprint"] .sheet-title { color: var(--bp-ink); background: linear-gradient(var(--bp-ink-line), var(--bp-ink-line)) 0 100% / 100% 1px no-repeat; }
+html[data-theme="blueprint"] .sheet .rule-option, html[data-theme="blueprint"] .sheet .seg-option, html[data-theme="blueprint"] .sheet .from-session,
+html[data-theme="blueprint"] .sheet .history-results, html[data-theme="blueprint"] .sheet .history-row + .history-row { border-color: var(--bp-ink-line); }
+html[data-theme="blueprint"] .sheet .rule-option.is-picked, html[data-theme="blueprint"] .sheet .seg-option.is-picked { border-color: var(--bg-0); background: var(--bp-ink-tint); box-shadow: inset 0 0 0 1px var(--bg-0); }
+html[data-theme="blueprint"] .sheet input[type="radio"], html[data-theme="blueprint"] .sheet input[type="checkbox"] { accent-color: var(--bg-0); }
+html[data-theme="blueprint"] .sheet .text-input, html[data-theme="blueprint"] .sheet .text-area, html[data-theme="blueprint"] .sheet .select { background: var(--bg-1); border-color: var(--bg-1); color: var(--bp-chalk); }
+html[data-theme="blueprint"] .sheet .text-area { background-image: repeating-linear-gradient(transparent 0 20px, oklch(1 0 0 / .1) 20px 21px); }
+html[data-theme="blueprint"] .sheet .btn, html[data-theme="blueprint"] .palette .btn { background: var(--bg-2); border-color: var(--bg-2); color: var(--bp-chalk); }
+html[data-theme="blueprint"] .sheet .btn:hover, html[data-theme="blueprint"] .palette .btn:hover { background: var(--bg-3); }
+html[data-theme="blueprint"] .sheet .btn-primary { background: var(--bg-0); border-color: var(--bg-0); color: var(--bp-chalk); }
+html[data-theme="blueprint"] .sheet .btn-primary:hover { background: var(--bg-2); }
+html[data-theme="blueprint"] .sheet .btn-quiet { background: transparent; border-color: transparent; color: var(--bp-ink-2); }
+html[data-theme="blueprint"] .sheet .btn-quiet:hover { background: var(--bp-ink-tint); color: var(--bp-ink); }
+html[data-theme="blueprint"] .sheet .btn-danger { background: transparent; border-color: var(--bp-red); color: var(--bp-red-ink); }
+html[data-theme="blueprint"] .sheet .btn-danger:hover { background: oklch(.68 .21 25 / .14); }
+html[data-theme="blueprint"] .sheet .field-problem { color: var(--bp-red-ink); }
+html[data-theme="blueprint"] .sheet .chip, html[data-theme="blueprint"] .palette .chip { border-color: var(--bp-ink-line); color: var(--bp-ink-2); }
+html[data-theme="blueprint"] .sheet .kbd, html[data-theme="blueprint"] .palette .kbd { border-color: var(--bp-ink-line); background: oklch(1 0 0 / .5); color: var(--bp-ink-2); }
+html[data-theme="blueprint"] .sheet .check { color: var(--bp-ink-2); }
+html[data-theme="blueprint"] .sheet .key-row dt { color: var(--bp-ink-2); }
+html[data-theme="blueprint"] .sheet .prose code, html[data-theme="blueprint"] .sheet .preview-text { background: var(--bp-ink-tint); color: var(--bp-ink); }
+
+html[data-theme="blueprint"] .palette-input { color: var(--bp-ink); border-bottom: 1px solid var(--bp-ink-line); font-family: var(--font-heading); letter-spacing: .02em; }
+html[data-theme="blueprint"] .palette-input::placeholder { color: var(--bp-ink-3); }
+html[data-theme="blueprint"] .palette-input:focus-visible { border-bottom-color: var(--bg-0); }
+html[data-theme="blueprint"] .palette-list { background: repeating-linear-gradient(transparent 0 21px, var(--bp-rule) 21px 22px) 0 0 / 100% 22px; }
+html[data-theme="blueprint"] .palette-option.is-active { background: var(--bp-ink-tint); box-shadow: inset 3px 0 0 var(--bg-0); }
+html[data-theme="blueprint"] .palette-section {
+  font-family: var(--font-heading);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+}
+html[data-theme="blueprint"] .palette-foot { border-top-color: var(--bp-ink-line); }
+
+/* The job menu stays on the blue, a chalk-framed list. */
+html[data-theme="blueprint"] .job-menu-list { border-color: var(--bp-chalk-2); }
+
+/* ---------- Settings: the specification sheet ---------- */
+
+html[data-theme="blueprint"] .settings-heading {
+  font-family: var(--font-heading);
+  color: var(--text-1);
+  background: linear-gradient(var(--bp-chalk-2), var(--bp-chalk-2)) 0 100% / 100% 1px no-repeat;
+}
+html[data-theme="blueprint"] .rule-option { border-color: var(--bp-chalk-3); background: oklch(1 0 0 / .03); }
+html[data-theme="blueprint"] .rule-option.is-picked { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+html[data-theme="blueprint"] .rule-option input[type="radio"] { accent-color: var(--accent); }
+html[data-theme="blueprint"] .rule-list { border-color: var(--bp-chalk-2); }
+html[data-theme="blueprint"] .rule-row + .rule-row { border-top-color: var(--bp-chalk-3); }
+html[data-theme="blueprint"] .theme-option { transition: transform var(--dur-fast) var(--ease-out); }
+html[data-theme="blueprint"] .theme-option:hover { transform: translateX(2px); }
+html[data-theme="blueprint"] .how { border-color: var(--bp-chalk-3); background: oklch(1 0 0 / .05); }
+
+/* ---------- Usage banner: caution tape ---------- */
+
+html[data-theme="blueprint"] .usage-limited {
+  border-bottom: 1px solid var(--group-paused-line);
+  background:
+    repeating-linear-gradient(-45deg, var(--group-paused-line) 0 10px, oklch(.2 .05 255) 10px 20px) 0 100% / 100% 5px no-repeat,
+    var(--group-paused-bg);
+}
+html[data-theme="blueprint"] .usage-limited .usage-text strong { color: var(--group-paused-fg); }
+html[data-theme="blueprint"] .usage-warn { background: oklch(1 0 0 / .06); border-bottom-color: var(--bp-chalk-2); }
+
+/* ---------- Toast and connection ---------- */
+
+html[data-theme="blueprint"] .toast { background: var(--bp-paper); color: var(--bp-ink); border-top: 3px solid var(--status-error); }
+html[data-theme="blueprint"] .conn-dot { box-shadow: 0 0 0 1px var(--bp-chalk-2); }
+
+/* ---------- Motion stops under reduced motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="blueprint"] .job-row, html[data-theme="blueprint"] .theme-option { transition: none; }
+  html[data-theme="blueprint"] .job-row:hover, html[data-theme="blueprint"] .theme-option:hover { transform: none; }
+}
