@@ -582,6 +582,31 @@ html[data-theme="candy-pop"] .btn-primary { color: var(--candy-ink); }
 html[data-theme="candy-pop"] .btn-danger { color: var(--candy-cherry); }
 html[data-theme="candy-pop"] .topbar .btn { color: var(--accent-strong); }
 
+/* The crew (play/play.css): pastel paints from the candy jar. No bubblegum: that is needs-you's. */
+html[data-theme="candy-pop"] {
+  --crew-ink: var(--candy-ink);
+  --crew-feet: oklch(.34 .04 320);
+  --crew-shadow: oklch(0 0 0 / .4);
+  --crew-glass: oklch(.92 .06 220);
+  --crew-zzz: var(--candy-sky);
+  --crew-spark: var(--candy-lemon);
+  --crew-ok: var(--candy-mint);
+  --crew-c-clay: var(--candy-tangerine);
+  --crew-c-amber: var(--candy-lemon);
+  --crew-c-amber-deep: oklch(.8 .14 80);
+  --crew-c-plum: var(--candy-grape);
+  --crew-c-plum-deep: oklch(.7 .14 300);
+  --crew-c-tweed: var(--candy-peach);
+  --crew-c-tweed-deep: oklch(.7 .09 50);
+  --crew-c-blueprint: var(--candy-sky);
+  --crew-c-blueprint-deep: oklch(.7 .12 235);
+  --crew-c-moss: oklch(.86 .14 135);
+  --crew-c-teal: oklch(.84 .1 190);
+  --crew-c-steel: var(--candy-slate);
+  --crew-c-forest: var(--candy-mint);
+  --crew-c-forest-deep: oklch(.72 .12 165);
+}
+
 /* Reduced motion: the small lifts and slides stop. */
 @media (prefers-reduced-motion: reduce) {
   html[data-theme="candy-pop"] .btn,

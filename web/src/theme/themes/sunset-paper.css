@@ -405,6 +405,33 @@ html[data-theme="sunset-paper"] .usage-warn { background: var(--bg-3); color: va
 html[data-theme="sunset-paper"] :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 html[data-theme="sunset-paper"] .btn:focus-visible { border-radius: 999px; }
 
+/* ---------- The crew (play/play.css): warm inks on cream paper, a soft brown shadow ---------- */
+
+html[data-theme="sunset-paper"] {
+  --crew-skin-shade: oklch(.72 .08 60);
+  --crew-ink: oklch(.28 .04 40);
+  --crew-feet: oklch(.38 .05 40);
+  --crew-shadow: oklch(.4 .06 50 / .2);
+  --crew-paper: oklch(.995 .008 85);
+  --crew-line: oklch(.6 .03 60);
+  --crew-metal: oklch(.7 .02 70);
+  --crew-zzz: oklch(.5 .14 300);
+  --crew-c-clay: oklch(.66 .17 35);
+  --crew-c-amber: oklch(.8 .15 75);
+  --crew-c-amber-deep: oklch(.66 .14 65);
+  --crew-c-plum: oklch(.56 .15 310);
+  --crew-c-plum-deep: oklch(.44 .13 310);
+  --crew-c-tweed: oklch(.64 .08 65);
+  --crew-c-tweed-deep: oklch(.5 .07 60);
+  --crew-c-blueprint: oklch(.56 .13 250);
+  --crew-c-blueprint-deep: oklch(.44 .12 255);
+  --crew-c-moss: oklch(.64 .14 140);
+  --crew-c-teal: oklch(.6 .1 190);
+  --crew-c-steel: oklch(.62 .03 250);
+  --crew-c-forest: oklch(.56 .11 165);
+  --crew-c-forest-deep: oklch(.44 .09 165);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html[data-theme="sunset-paper"] .job-row,
   html[data-theme="sunset-paper"] .job-row .glyph,

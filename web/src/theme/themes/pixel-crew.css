@@ -613,6 +613,41 @@ html[data-theme="pixel-crew"] .usage-warn { box-shadow: inset 6px 0 0 var(--bord
 
 html[data-theme="pixel-crew"] :focus-visible { outline: 3px solid var(--pc-gold); outline-offset: 2px; }
 
+/* ---------- The crew (play/play.css): the same 16-colour palette, a hard pixel shadow ---------- */
+/* No pink on the crew: that colour is only for needs-you. */
+
+html[data-theme="pixel-crew"] {
+  --crew-skin: oklch(.88 .07 60);
+  --crew-skin-shade: oklch(.74 .09 55);
+  --crew-ink: var(--pc-ink);
+  --crew-feet: var(--pc-dusk);
+  --crew-shadow: var(--pc-shadow);
+  --crew-paper: var(--pc-cream);
+  --crew-shine: var(--pc-cream);
+  --crew-glass: var(--pc-cyan);
+  --crew-metal: var(--pc-fog);
+  --crew-gold: var(--pc-gold);
+  --crew-ok: var(--pc-green);
+  --crew-danger: var(--pc-red);
+  --crew-spark: var(--pc-gold);
+  --crew-zzz: var(--pc-blue);
+  --crew-c-clay: var(--pc-orange);
+  --crew-c-amber: var(--pc-gold);
+  --crew-c-amber-deep: oklch(.7 .15 70);
+  --crew-c-plum: var(--pc-violet);
+  --crew-c-plum-deep: oklch(.6 .17 300);
+  --crew-c-tweed: oklch(.66 .1 60);
+  --crew-c-tweed-deep: oklch(.5 .09 55);
+  --crew-c-blueprint: var(--pc-blue);
+  --crew-c-blueprint-deep: oklch(.58 .16 255);
+  --crew-c-moss: var(--pc-lime);
+  --crew-c-teal: var(--pc-cyan);
+  --crew-c-steel: var(--pc-slate);
+  --crew-c-forest: var(--pc-green);
+  --crew-c-forest-deep: oklch(.6 .15 155);
+}
+html[data-theme="pixel-crew"] .crew { shape-rendering: crispEdges; }
+
 /* ---------- Reduced motion: the press-down keeps no transition ---------- */
 
 @media (prefers-reduced-motion: reduce) {

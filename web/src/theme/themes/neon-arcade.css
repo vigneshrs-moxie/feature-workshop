@@ -525,6 +525,33 @@ html[data-theme="neon-arcade"] .toast { box-shadow: var(--shadow-2), 0 0 18px ok
 /* Lime focus rings read on every surface here, including magenta rows and cyan buttons. */
 html[data-theme="neon-arcade"] :focus-visible { outline-color: var(--na-lime); }
 
+/* ---------- The crew (play/play.css): neon-lit paints, a cyan glow for a shadow ---------- */
+/* No magenta on the crew: that colour is only for needs-you. */
+html[data-theme="neon-arcade"] {
+  --crew-ink: oklch(.18 .05 280);
+  --crew-feet: oklch(.32 .06 280);
+  --crew-shadow: oklch(.84 .14 200 / .28);
+  --crew-glass: oklch(.92 .07 200);
+  --crew-metal: oklch(.8 .04 250);
+  --crew-zzz: var(--na-cyan);
+  --crew-spark: var(--na-lime);
+  --crew-ok: var(--na-lime);
+  --crew-c-clay: oklch(.72 .19 40);
+  --crew-c-amber: oklch(.86 .17 85);
+  --crew-c-amber-deep: oklch(.74 .16 70);
+  --crew-c-plum: oklch(.68 .2 300);
+  --crew-c-plum-deep: oklch(.55 .2 295);
+  --crew-c-tweed: oklch(.72 .1 70);
+  --crew-c-tweed-deep: oklch(.55 .09 65);
+  --crew-c-blueprint: oklch(.66 .18 262);
+  --crew-c-blueprint-deep: oklch(.52 .19 265);
+  --crew-c-moss: oklch(.8 .2 135);
+  --crew-c-teal: oklch(.78 .14 200);
+  --crew-c-steel: oklch(.7 .05 260);
+  --crew-c-forest: oklch(.72 .17 160);
+  --crew-c-forest-deep: oklch(.56 .14 162);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html[data-theme="neon-arcade"] .glyph.status-running { animation: none; }
   html[data-theme="neon-arcade"] .btn,

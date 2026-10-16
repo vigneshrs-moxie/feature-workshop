@@ -169,6 +169,53 @@ export function semanticTokens(): Record<string, string> {
   return out;
 }
 
+/**
+ * The crew's colours (play/CrewMember.tsx, play/play.css), the palette of the original rig
+ * (dashboard/public/crew.js). A theme restyles any of them under html[data-theme="<id>"].
+ *   materials: skin, ink (faces), feet, shadow, glass, metal, wood, paper, shine, the tools' own colours
+ *   --crew-c-*: the 14 paint colours the crew wear (each member's body and hat pick two, play.css)
+ */
+export const CREW_TOKENS: Record<string, string> = {
+  'crew-skin': '#f6d6ae',
+  'crew-skin-shade': '#dcae7c',
+  'crew-blush': '#f59a8b',
+  'crew-ink': '#2a2440',
+  'crew-tongue': '#f08080',
+  'crew-feet': '#3b3456',
+  'crew-shadow': 'rgb(0 0 0 / .32)',
+  'crew-shine': '#ffffff',
+  'crew-paper': '#ffffff',
+  'crew-line': '#9aa3b8',
+  'crew-glass': '#c9eeff',
+  'crew-glass-line': '#7fb8d6',
+  'crew-metal': '#a9b2c6',
+  'crew-wood': '#9a6232',
+  'crew-blueprint': '#3a72d8',
+  'crew-blueprint-dark': '#22467a',
+  'crew-clay': '#d9643a',
+  'crew-gold': '#f2b415',
+  'crew-gold-dark': '#b97b06',
+  'crew-ok': '#2fae4a',
+  'crew-danger': '#e2453f',
+  'crew-brush': '#e8554f',
+  'crew-spark': '#ffd23a',
+  'crew-zzz': '#8fa6ff',
+  'crew-c-clay': '#ea6a3a',
+  'crew-c-amber': '#f8b830',
+  'crew-c-amber-deep': '#d48a10',
+  'crew-c-plum': '#a256c4',
+  'crew-c-plum-deep': '#763799',
+  'crew-c-tweed': '#b38a50',
+  'crew-c-tweed-deep': '#7f5f30',
+  'crew-c-blueprint': '#3a72d8',
+  'crew-c-blueprint-deep': '#2850a8',
+  'crew-c-moss': '#4fb04a',
+  'crew-c-teal': '#22aaa2',
+  'crew-c-steel': '#8890a8',
+  'crew-c-forest': '#2f9a5c',
+  'crew-c-forest-deep': '#1f7044',
+};
+
 /** With reduced motion, only fades remain: no movement or scaling, and pulses stop (see app.css). */
 export const REDUCED_MOTION_TOKENS: Record<string, string> = {
   'motion-shift': '0px',
@@ -185,7 +232,7 @@ export function tokensCss(): string {
   return [
     '/* Generated from tokens.ts by the Vite plugin in vite.config.ts. Do not edit by hand. */',
     '',
-    block(':root, [data-theme="dark"]', { ...STATIC_TOKENS, ...colorTokens(DARK), ...semanticTokens() }).replace('{\n', '{\n  color-scheme: dark;\n'),
+    block(':root, [data-theme="dark"]', { ...STATIC_TOKENS, ...colorTokens(DARK), ...semanticTokens(), ...CREW_TOKENS }).replace('{\n', '{\n  color-scheme: dark;\n'),
     '',
     '@media (prefers-reduced-motion: reduce) {',
     block(':root', REDUCED_MOTION_TOKENS, '  '),

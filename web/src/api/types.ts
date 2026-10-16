@@ -438,6 +438,8 @@ export interface Meta {
   jobOptions?: JobOptionLists;
   /** Whether the installed /feature skill knows levels (dashboard/lib/skill-check.js). */
   skill?: SkillStatus;
+  /** Each crew member's model and effort from its agent file (~/.claude/agents/<type>.md), read only; no Foreman. */
+  crewModels?: Record<string, { model: string | null; effort: string | null }>;
   [key: string]: unknown;
 }
 

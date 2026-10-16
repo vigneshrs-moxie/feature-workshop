@@ -510,6 +510,36 @@ html[data-theme="blueprint"] .usage-warn { background: oklch(1 0 0 / .06); borde
 html[data-theme="blueprint"] .toast { background: var(--bp-paper); color: var(--bp-ink); border-top: 3px solid var(--status-error); }
 html[data-theme="blueprint"] .conn-dot { box-shadow: 0 0 0 1px var(--bp-chalk-2); }
 
+/* ---------- The crew (play/play.css): chalk pastels on blue paper, a chalk shadow ---------- */
+
+html[data-theme="blueprint"] {
+  --crew-skin: oklch(.93 .035 75);
+  --crew-skin-shade: oklch(.8 .05 65);
+  --crew-ink: var(--bp-ink);
+  --crew-feet: oklch(.24 .06 255);
+  --crew-shadow: oklch(1 0 0 / .14);
+  --crew-paper: var(--bp-paper);
+  --crew-glass: oklch(.93 .04 220);
+  --crew-metal: oklch(.84 .02 240);
+  --crew-blueprint: oklch(.6 .12 245);
+  --crew-blueprint-dark: oklch(.42 .1 250);
+  --crew-zzz: var(--bp-chalk);
+  --crew-c-clay: oklch(.74 .12 40);
+  --crew-c-amber: oklch(.88 .12 88);
+  --crew-c-amber-deep: oklch(.76 .12 75);
+  --crew-c-plum: oklch(.74 .1 305);
+  --crew-c-plum-deep: oklch(.6 .11 300);
+  --crew-c-tweed: oklch(.76 .07 70);
+  --crew-c-tweed-deep: oklch(.6 .07 65);
+  --crew-c-blueprint: oklch(.78 .09 235);
+  --crew-c-blueprint-deep: oklch(.62 .1 245);
+  --crew-c-moss: oklch(.8 .12 140);
+  --crew-c-teal: oklch(.78 .09 195);
+  --crew-c-steel: oklch(.76 .03 250);
+  --crew-c-forest: oklch(.74 .1 165);
+  --crew-c-forest-deep: oklch(.58 .09 165);
+}
+
 /* ---------- Motion stops under reduced motion ---------- */
 
 @media (prefers-reduced-motion: reduce) {

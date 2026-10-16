@@ -70,6 +70,21 @@ these: refine and spec-update are `spec`, implement is `build`, the PRs and stag
 | `--pane-pattern` | an optional `background-image` on each pane (a grid, dither, dots) | `none` |
 | `--font-heading` | the font of `h1`–`h3` (the brand, pane titles, job title, card headlines) | `var(--font-display)` |
 
+### The crew (`--crew-*`)
+
+The Play layer's characters (`play/CrewMember.tsx`, styled in `play/play.css`) take every colour
+from `--crew-*` tokens, generated from `CREW_TOKENS` in `tokens.ts` (the original rig's palette,
+used by the default theme). Every other theme restyles them in its own file.
+
+- Materials: `--crew-skin`, `-skin-shade`, `-blush`, `-ink` (faces), `-tongue`, `-feet`, `-shadow`,
+  `-shine` (highlights), `-paper`, `-line`, `-glass`, `-glass-line`, `-metal`, `-wood`; the tools'
+  own colours `-blueprint`, `-blueprint-dark`, `-clay`, `-gold`, `-gold-dark`, `-ok`, `-danger`,
+  `-brush`; the effects `-spark` (working sparks) and `-zzz` (asleep).
+- Paints: `--crew-c-clay`, `-amber`, `-amber-deep`, `-plum`, `-plum-deep`, `-tweed`, `-tweed-deep`,
+  `-blueprint`, `-blueprint-deep`, `-moss`, `-teal`, `-steel`, `-forest`, `-forest-deep`. Each member
+  wears two (body `--crew-paint`, hat `--crew-hat`, set in `play.css`); shades are mixed from them.
+- Keep the needs-you hue off the crew: it stays the only thing on screen in that colour.
+
 ## Hooks
 
 Stable class names and data attributes a theme may target. Their meaning is fixed; do not rename.
@@ -124,6 +139,8 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `.theme-picker`, `.theme-option`, `.theme-hint` | the theme picker in Settings |
 | `.btn`, `.btn-primary`, `.btn-danger`, `.btn-quiet`, `.chip`, `.kbd`, `.text-input`, `.text-area`, `.select` | controls |
 | `.how` | a "How this works" fold |
+| `.crew` | a crew member (an inline `svg`): `.crew-<agent type>`, `.is-<state>` (`working` `waiting` `idle` `asleep` `celebrating` `walking`), `.m-<motion>` (`strike` `write` `scan` `shake`), `.is-animated` (Full mode) or `.is-still`; parts `.rig`, `.head`, `.hat`, `.arm-l`, `.arm-r`, `.tool`, `.feet`, `.shadow`, `.fx`. Restyle colours through `--crew-*` only |
+| `.play-settings` | Settings → Play (`.play-options`, `.play-quest-done`, `.play-legend`, `.play-sounds` with `.is-off` outside Full mode) |
 | `.toast` | the error toast |
 
 ## Adding a theme
