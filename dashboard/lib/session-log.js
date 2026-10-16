@@ -49,6 +49,7 @@ export function parseSessionLog(text) {
     messages: new Map(),
     cliCost: null, // { totalUsd, byModel: { model: usd } } from the latest cost-state line
     dispatches: [], // Agent/Task tool calls: { toolUseId, agentType, description, at }
+    prLinks: [], // PRs created in the session (pr-link lines): { url, number, at }
     lastAction: null, // { text, at }
     lastStopReason: null,
     lastMessageId: null,
@@ -81,6 +82,8 @@ export function parseSessionLog(text) {
 
     if (d.type === 'queue-operation' && d.operation === 'enqueue' && !out.firstPrompt) {
       out.firstPrompt = d.content ?? null;
+    } else if (d.type === 'pr-link' && typeof d.prUrl === 'string') {
+      if (!out.prLinks.some((p) => p.url === d.prUrl)) out.prLinks.push({ url: d.prUrl, number: d.prNumber ?? null, at: d.timestamp ?? null });
     } else if (d.type === 'user' && d.message) {
       const c = d.message.content;
       if (!out.firstPrompt && !d.isMeta) out.firstPrompt = lastTextOf(c);

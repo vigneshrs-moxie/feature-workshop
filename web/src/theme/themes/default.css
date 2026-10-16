@@ -1,5 +1,13 @@
-/* Theme: default — the base look as tokens.css defines it. Nothing to override here on purpose:
-   the base stylesheet (app/app.css) already reads every semantic token with its default value.
-   The crew (play/play.css) wears the original rig's colours, the --crew-* defaults in tokens.ts.
+/* Theme: default — the base look as tokens.css defines it. The base stylesheet (app/app.css)
+   already reads every semantic token with its default value, so only the crew is touched here.
+   The crew (play/play.css) wears the original rig's colours, the --crew-* defaults in tokens.ts,
+   except its ambers, golds and sparks: those sat on the needs-you hue (--status-warn, oklch hue
+   80), which must stay the only thing on screen in that colour. Here they are brass (hue ~100).
    Scope: html[data-theme="default"]. See theme/THEMING.md for the tokens and hooks. */
-html[data-theme="default"] {}
+html[data-theme="default"] {
+  --crew-c-amber: oklch(.8 .12 100);
+  --crew-c-amber-deep: oklch(.64 .11 98);
+  --crew-gold: oklch(.79 .13 102);
+  --crew-gold-dark: oklch(.58 .1 98);
+  --crew-spark: oklch(.9 .14 105);
+}

@@ -301,6 +301,14 @@ export interface CrewStats {
   majors: number;
 }
 
+/** GET /api/play with Play mode Off: only that (nothing is read or built). */
+export interface PlayOff {
+  mode: 'off';
+}
+
+/** What GET /api/play answers. */
+export type PlayResponse = PlayView | PlayOff;
+
 /** GET /api/play (dashboard/lib/play.js ledgerView). Personal: from this machine's data only. */
 export interface PlayView {
   schema: number;

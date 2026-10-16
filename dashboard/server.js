@@ -40,6 +40,7 @@ import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
 import { skillChecker } from './lib/skill-check.js';
 import { DOC_MAX_BYTES, DocError, describeDoc, jsonHtml, listJobDocs, readJobDoc, servableSpec } from './lib/docs.js';
 import { PlayBook, PlayError, PLAY_EVENTS, SECRET_IDS, ledgerView, parseReviewFindings, playSettings, validatePlayPatch } from './lib/play.js';
+import { parseStatusJson } from './lib/status-json.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -211,36 +212,65 @@ state.on('audit', noteAnswered);
 
 // ---------- Play (lib/play.js): crew met, quests done, achievements, secrets ----------
 // Built from local data only, kept in play.json next to the dashboard's other state, refreshed a
-// moment after an audit line or a job file changes. A new achievement is a 'play' event (none
-// while Play mode is Off). Never a model call.
-async function reviewOf(f) {
-  const file = path.join(f.dir, 'review.md');
+// moment after an audit line or a job file changes (each audit line folded in as it is written,
+// one job re-read when its files change). A new achievement is a 'play' event. Never a model call.
+// Play mode Off means nothing: no refresh, no events, GET /api/play says only { mode: 'off' }.
+// The play settings live here in memory, read once at start and changed by POST /api/settings.
+let playNow = (await state.getSettings()).play;
+const playOn = () => playNow.mode !== 'off';
+
+// review.md per job, read again only when its size or time changed.
+const reviewCache = new Map();
+async function reviewOf(dir) {
+  const file = path.join(dir, 'review.md');
   try {
     const st = await fsp.stat(file);
     if (!st.isFile() || st.size > DOC_MAX_BYTES) return null;
+    const hit = reviewCache.get(file);
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.value;
     const counts = parseReviewFindings(await fsp.readFile(file, 'utf8'));
-    return counts ? { at: st.mtime.toISOString(), counts } : null;
+    const value = counts ? { at: st.mtime.toISOString(), counts } : null;
+    reviewCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, value });
+    return value;
   } catch {
+    reviewCache.delete(file);
     return null;
   }
 }
-async function playInput() {
-  const [audit, settings, list] = await Promise.all([state.auditAll(), state.getSettings(), features()]);
-  const jobs = await Promise.all(list.map(async (f) => ({
-    slug: f.slug, dir: f.dir, kind: f.kind, level: f.level, prs: f.prs, updatedAt: f.updatedAt,
-    workers: (f.activity ?? []).filter((a) => a.who !== 'conductor').map((a) => ({ agentType: a.who, startedAt: a.startedAt ?? null, lastAt: a.lastAt ?? null })),
-    review: await reviewOf(f),
-  })));
-  return { audit, jobs, play: playSettings(settings.play) };
+const playJobOf = async (f) => ({
+  slug: f.slug, dir: f.dir, kind: f.kind, level: f.level, prs: f.prs, updatedAt: f.updatedAt,
+  // When the Foreman's first session began (Speedrun), and the PRs its logs say were created, with when.
+  startedAt: f.firstSessionAt ?? null, prLinks: f.prLinks ?? [],
+  workers: (f.activity ?? []).filter((a) => a.who !== 'conductor').map((a) => ({ agentType: a.who, startedAt: a.startedAt ?? null, lastAt: a.lastAt ?? null })),
+  review: await reviewOf(f.dir),
+});
+// Every job: the cached list when it is fresh (fresh: true asks for that only), else a full read.
+async function playJobs({ fresh }) {
+  const list = fresh ? (cached && Date.now() - cached.at < 1500 ? cached.list : null) : await features();
+  return list ? Promise.all(list.map(playJobOf)) : null;
+}
+// One job whose files changed: its status.json and review.md again, the rest as last read.
+async function playJobFiles(folder, known) {
+  const dir = known?.dir ?? path.join(FEATURES_DIR, folder);
+  let status = null;
+  try { const sj = parseStatusJson(await fsp.readFile(path.join(dir, 'status.json'), 'utf8')); status = sj?.ok ? sj : null; } catch { status = null; }
+  if (!known && !status) return null; // not a job (yet): the next full read finds it
+  const base = known ?? { slug: folder, dir, kind: status?.kind ?? null, level: null, startedAt: null, prLinks: [], workers: [] };
+  return { ...base, ...(status ? { prs: status.prs ?? null, updatedAt: status.updatedAt ?? base.updatedAt ?? null } : {}), review: await reviewOf(dir) };
 }
 const playbook = new PlayBook({
   dir: state.dir,
-  collect: playInput,
-  onUnlock: (achievement) => {
-    state.getSettings().then((s) => { if (s.play.mode !== 'off') events.emit('play', null, { achievement }); }).catch(() => {});
+  isOn: playOn,
+  sources: {
+    readAudit: () => state.auditAll(),
+    auditStat: async () => { try { const st = await fsp.stat(state.auditFile); return { size: st.size, ino: st.ino }; } catch { return null; } },
+    jobs: playJobs,
+    job: playJobFiles,
+    settings: () => playNow,
   },
+  onUnlock: (achievement) => { if (playOn()) events.emit('play', null, { achievement }); },
 });
-state.on('audit', () => playbook.schedule());
+state.on('audit', (e) => { playbook.noteAudit(e); playbook.schedule(); });
 
 // The jobs for the timer: the cached full list when it is fresh, else a light read of each job
 // folder (status.json, brief files; no session logs, no git), so the timer stays cheap.
@@ -833,7 +863,8 @@ const GET = {
   },
   '/api/runs': async () => ({ runs: driver.list(), permissions: driver.pendingPermissions() }),
   // The play ledger (lib/play.js ledgerView): crew met, quests done, achievements, secrets found.
-  '/api/play': async () => ledgerView(await playbook.current(), (await state.getSettings()).play),
+  // Play mode Off: only that, nothing read or built.
+  '/api/play': async () => (playOn() ? ledgerView(await playbook.current(), playNow) : { mode: 'off' }),
   // Your "Always allow" rules. active: false while your (global) setting is "ask about everything"
   // (then they wait). It describes your setting only: jobOverrides counts the jobs whose own
   // setting makes the rules apply differently there (on for them, or off for them).
@@ -1053,10 +1084,16 @@ async function routePost(urlPath, req, res) {
       let patch;
       try { patch = validatePlayPatch(body.play); } catch (err) { if (err instanceof PlayError) throw new HttpError(400, err.message); throw err; }
       const was = (await state.getSettings()).play;
-      await state.setSettings({ play: playSettings({ ...was, ...patch }) });
+      const next = playSettings({ ...was, ...patch });
+      await state.setSettings({ play: next });
+      playNow = next;
+      // Off: stop and forget. Back on: one refresh to catch up, with no unlock events (like a
+      // rebuild: it only finds what was earned meanwhile). A new quest rule: refreshed, muted too.
+      if (next.mode === 'off') playbook.forget();
+      else if (was.mode === 'off') playbook.refresh({ muted: true }).catch((err) => console.error('play ledger:', err));
+      else if (next.questDone !== was.questDone) playbook.schedule(0, { muted: true });
       await state.audit({ action: 'settings', play: patch });
       settingsChanged();
-      if (patch.questDone && patch.questDone !== was.questDone) playbook.schedule(0);
       if (body.policy === undefined && body.recheckAuto !== true) return sendJson(res, 200, await state.getSettings());
     }
     // recheckAuto: forget that auto mode wasn't available, so the next reply that asks for it tries again.
@@ -1262,14 +1299,14 @@ async function routePost(urlPath, req, res) {
     const kind = secret ? null : typeof body.kind === 'string' ? body.kind : '';
     if (secret && !SECRET_IDS.includes(id)) throw new HttpError(400, 'Unknown secret.');
     if (!secret && !(Object.hasOwn(PLAY_EVENTS, kind) && PLAY_EVENTS[kind].includes(id))) throw new HttpError(400, 'Unknown play event.');
-    if ((await state.getSettings()).play.mode === 'off') return sendJson(res, 200, { recorded: false, reason: 'Play mode is off.' });
+    if (!playOn()) return sendJson(res, 200, { recorded: false, reason: 'Play mode is off.' });
     const ledger = await playbook.current();
     const already = secret ? Boolean(ledger?.secrets?.[id]) : Boolean(ledger?.themes?.[id]);
     if (!already) {
       await state.audit(secret ? { action: 'play-secret', id } : { action: 'play-event', kind, id });
       await playbook.refresh();
     }
-    const view = ledgerView(playbook.ledger, (await state.getSettings()).play);
+    const view = ledgerView(playbook.ledger, playNow);
     return sendJson(res, 200, { recorded: !already, secrets: view.secrets, themesTried: view.themesTried });
   }
   if (urlPath === '/api/jobs') {
@@ -1398,7 +1435,7 @@ state.on('audit', (e) => { if (e.featureDir) threadChanged(e.slug ?? path.basena
 function featureFileChanged(_type, filename) {
   // fs.watch names the file relative to the jobs folder: its first part is the job's folder name.
   const slug = filename ? String(filename).split(path.sep)[0] : null;
-  if (slug && !slug.startsWith('.')) { threadChanged(slug, 'files'); playbook.schedule(); }
+  if (slug && !slug.startsWith('.')) { threadChanged(slug, 'files'); playbook.noteJob(slug); playbook.schedule(); }
 }
 
 function watch(dir, onFile = null) {
@@ -1451,8 +1488,8 @@ server.listen(PORT, HOST, () => {
   console.log(`  jobs:     ${FEATURES_DIR}`);
   console.log(`  sessions: ${PROJECTS_DIR}`);
   if (DEMO) console.log('  demo mode: a pretend Foreman answers; nothing real runs.');
-  // The play ledger: read play.json, or rebuild it from the audit log when it is missing.
-  playbook.refresh().catch((err) => console.error('play ledger:', err));
+  // The play ledger: read play.json, or rebuild it from the audit log when it is missing. Not while Play is Off.
+  if (playOn()) playbook.refresh().catch((err) => console.error('play ledger:', err));
 });
 
 // Stopping the dashboard pauses any reply in progress; sessions stay resumable.

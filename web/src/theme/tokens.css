@@ -115,6 +115,8 @@
   --pane-pattern: none;
   --font-heading: var(--font-display);
   --row-alt: var(--border-1);
+  --crew-shade-base: #000000;
+  --crew-font: ui-rounded, system-ui, sans-serif;
   --crew-skin: #f6d6ae;
   --crew-skin-shade: #dcae7c;
   --crew-blush: #f59a8b;

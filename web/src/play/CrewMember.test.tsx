@@ -83,9 +83,11 @@ describe('<CrewMember>', () => {
     }
   });
 
-  it('names itself after the crew member when no label is given; an empty label makes it decoration', () => {
-    render(<CrewMember type="feature-implementer" />);
-    expect(screen.getByRole('img', { name: 'Builder' })).toBeInTheDocument();
+  it('names itself "<Name>, <mood>" when no label is given; an empty label makes it decoration', () => {
+    render(<CrewMember type="feature-implementer" state="working" />);
+    expect(screen.getByRole('img', { name: 'Builder, working' })).toBeInTheDocument();
+    render(<CrewMember type="conductor" />);
+    expect(screen.getByRole('img', { name: 'Foreman, idle' })).toBeInTheDocument();
     const { container } = render(<CrewMember type="feature-tester" label="" />);
     const svg = container.querySelector('svg')!;
     expect(svg).toHaveAttribute('aria-hidden', 'true');
@@ -118,6 +120,26 @@ describe('<CrewMember>', () => {
     expect(container.querySelector('.confetti')).not.toBeNull();
     rerender(<CrewMember type="feature-implementer" state="idle" />);
     expect(container.querySelector('.fx')?.childElementCount).toBe(0);
+  });
+
+  it('draws nothing with Play mode Off; follows Full (moving) and Subtle (still) when not told', () => {
+    reducedMotion(false);
+    const provider = (mode: 'off' | 'subtle' | 'full') => {
+      const store = createStore();
+      store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', settings: { policy: 'hands-off', play: { mode, questDone: 'first-pr', sounds: false } } } }) });
+      return ({ children }: { children: ReactNode }) => <WorkshopContext.Provider value={{ store, api: {} as ApiClient }}>{children}</WorkshopContext.Provider>;
+    };
+    const off = render(<CrewMember type="feature-tester" state="working" />, { wrapper: provider('off') });
+    expect(off.container.innerHTML).toBe('');
+    const subtle = render(<CrewMember type="feature-tester" state="working" />, { wrapper: provider('subtle') });
+    expect(subtle.container.querySelector('svg')).toHaveClass('is-still');
+    const full = render(<CrewMember type="feature-tester" state="working" />, { wrapper: provider('full') });
+    expect(full.container.querySelector('svg')).toHaveClass('is-animated');
+  });
+
+  it('celebrating holds the tool up beside the head, upright in its grip', () => {
+    const { container } = render(<CrewMember type="feature-implementer" state="celebrating" />);
+    expect(container.querySelector('.arm-r .tool > .grip')?.childElementCount).toBeGreaterThan(0);
   });
 
   it('takes every colour from --crew-* tokens', () => {

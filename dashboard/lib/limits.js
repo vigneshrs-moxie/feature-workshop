@@ -114,10 +114,12 @@ export class LimitWatch extends EventEmitter {
     if (!this.limit) return { resumed: [] };
     this.queue.push(...this.limit.jobs.filter((j) => !this.queue.some((q) => q.featureDir === j.featureDir)));
     const jobs = this.limit.jobs.map((j) => j.slug);
+    // The job folders too: the play ledger's Comeback matches a job exactly by its folder.
+    const featureDirs = this.limit.jobs.map((j) => j.featureDir).filter((d) => typeof d === 'string');
     this.limit = null;
     this.#watch();
     await this.#save();
-    await this.state.audit({ action: 'usage-limit-resumed', how, jobs });
+    await this.state.audit({ action: 'usage-limit-resumed', how, jobs, featureDirs });
     this.emit('change');
     return this.#drain(how);
   }

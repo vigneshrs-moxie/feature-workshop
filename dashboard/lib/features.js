@@ -390,6 +390,10 @@ export async function loadFeatures({ featuresDir, sessionIndex, now = Date.now()
   for (const f of features) {
     const s = sessions[f.dir] ?? [];
     f.sessionIds = s.map((x) => x.parsed.sessionId);
+    // For the play ledger: when the Foreman's first session began, and the PRs the logs say were
+    // created (Claude Code's pr-link lines), with when.
+    f.firstSessionAt = s.map((x) => x.parsed.firstAt).filter(Boolean).sort()[0] ?? null;
+    f.prLinks = s.flatMap((x) => [x.parsed, ...(x.subagents ?? []).map((sub) => sub.parsed)]).flatMap((p) => p?.prLinks ?? []);
     // The Foreman's own session (the newest one), used to reply from the dashboard.
     const newest = [...s].sort((a, b) => (b.parsed.lastAt ?? '').localeCompare(a.parsed.lastAt ?? ''))[0];
     f.conductorSession = newest ? {

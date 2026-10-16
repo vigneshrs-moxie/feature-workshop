@@ -4,15 +4,19 @@
 //   type      the agent type ('feature-tester'); an unknown one gets a plain look
 //   state     working · waiting · idle · asleep · celebrating · walking (the mood: eyes, mouth, pose)
 //   size      width and height in px (Subtle callers keep it small)
-//   label     the accessible name (default: the crew member's name); '' draws it as decoration
-//   animated  move (Full mode). Off, or with reduced motion asked for, it holds a still pose that
-//             still shows the mood. Callers pass usePlay().animated.
+//   label     the accessible name (default: "<Name>, <mood>", e.g. "Builder, working"); '' draws it
+//             as decoration (then the caller shows the name in text)
+//   animated  move (default: Full mode, from usePlay). Otherwise, or with reduced motion asked
+//             for, it holds a still pose that still shows the mood.
+//
+// With Play mode Off it draws nothing (returns null), so callers needn't check. Outside a
+// WorkshopContext (tests, isolated previews) it always draws.
 //
 // Colours come from --crew-* tokens (theme/tokens.ts, restyled per theme); animations live in
 // play/play.css and only run on .crew.is-animated.
 import { crewInfo, MOTION, type CrewState } from './crew';
 import { Effects, Eyes, HATS, Mouth, TOOLS } from './crewParts';
-import { usePrefersReducedMotion } from './usePlay';
+import { usePlayIfAny, usePrefersReducedMotion } from './usePlay';
 
 export interface CrewMemberProps {
   type: string;
@@ -25,13 +29,18 @@ export interface CrewMemberProps {
 
 const C = (name: string) => `var(--crew-${name})`;
 
-export function CrewMember({ type, state = 'idle', size = 48, label, animated = false, className }: CrewMemberProps) {
+/** The accessible name a crew member gets by default: "Builder, working". */
+export const crewLabel = (type: string, state: CrewState) => `${crewInfo(type).name}, ${state}`;
+
+export function CrewMember({ type, state = 'idle', size = 48, label, animated, className }: CrewMemberProps) {
   const reduced = usePrefersReducedMotion();
+  const play = usePlayIfAny();
+  if (play && !play.on) return null;
   const member = crewInfo(type);
   const key = member.number ? member.type : 'unknown';
   const motion = MOTION[member.tool];
-  const moving = animated && !reduced;
-  const name = label ?? member.name;
+  const moving = (animated ?? play?.animated ?? false) && !reduced;
+  const name = label ?? crewLabel(type, state);
   const decorative = name === '';
   const classes = ['crew', `crew-${key}`, `is-${state}`, `m-${motion}`, moving ? 'is-animated' : 'is-still', className].filter(Boolean).join(' ');
   return (
@@ -69,7 +78,7 @@ export function CrewMember({ type, state = 'idle', size = 48, label, animated = 
         </g>
         <g className="arm arm-r">
           <path d="M75 64 83 86" stroke={C('paint-arm')} strokeWidth="9.5" strokeLinecap="round" />
-          <g className="tool" transform="translate(84.5 87)">{TOOLS[member.tool]}</g>
+          <g className="tool" transform="translate(84.5 87)"><g className="grip">{TOOLS[member.tool]}</g></g>
           <circle cx="84" cy="87.5" r="5.4" fill={C('skin')} stroke={C('skin-shade')} strokeWidth="1" />
         </g>
       </g>

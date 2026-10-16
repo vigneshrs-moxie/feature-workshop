@@ -19,10 +19,11 @@
 .crew {
   --crew-paint: var(--crew-c-steel);
   --crew-hat: var(--crew-c-steel);
-  --crew-paint-shade: color-mix(in srgb, var(--crew-paint) 70%, #000);
-  --crew-paint-arm: color-mix(in srgb, var(--crew-paint) 86%, #000);
-  --crew-hat-shade: color-mix(in srgb, var(--crew-hat) 72%, #000);
+  --crew-paint-shade: color-mix(in srgb, var(--crew-paint) 70%, var(--crew-shade-base));
+  --crew-paint-arm: color-mix(in srgb, var(--crew-paint) 86%, var(--crew-shade-base));
+  --crew-hat-shade: color-mix(in srgb, var(--crew-hat) 72%, var(--crew-shade-base));
 }
+.crew .zzz { font-family: var(--crew-font); font-weight: 900; }
 .crew-conductor { --crew-paint: var(--crew-c-clay); --crew-hat: var(--crew-c-amber); }
 .crew-feature-spec-writer { --crew-paint: var(--crew-c-plum); --crew-hat: var(--crew-c-plum-deep); }
 .crew-feature-investigator { --crew-paint: var(--crew-c-tweed); --crew-hat: var(--crew-c-tweed-deep); }
@@ -44,7 +45,11 @@
 .crew .sweat { opacity: 0; }
 .crew.is-asleep .head { transform: rotate(8deg) translateY(1px); }
 .crew.is-celebrating .arm-l { transform: rotate(150deg); }
-.crew.is-celebrating .arm-r { transform: rotate(-150deg); }
+/* The tool arm goes up beside the head, not over it, and the tool is held upright (leaning out)
+   so it never covers the face. .grip turns about the hand. */
+.crew.is-celebrating .arm-r { transform: rotate(-120deg); }
+.crew .grip { transform-box: view-box; transform-origin: 0 0; }
+.crew.is-celebrating .grip { transform: rotate(130deg); }
 .crew.is-still.is-waiting .arm-l { transform: rotate(140deg); }
 .crew.is-still.is-working.m-strike .arm-r { transform: rotate(-40deg); }
 .crew.is-still.is-working.m-write .arm-r { transform: rotate(-16deg); }

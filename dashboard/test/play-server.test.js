@@ -18,6 +18,8 @@ const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'se
 
 let root, stateDir, featuresDir, dirs, child, base, token;
 const output = [];
+const SESSION = '0f1e2d3c-4b5a-4968-8776-655443322110';
+const PR_AT = new Date(2026, 9, 15, 12).toISOString();
 
 async function freePort() {
   const s = net.createServer();
@@ -62,15 +64,28 @@ before(async () => {
   stateDir = path.join(root, 'state');
   dirs = { projects: path.join(root, 'projects'), agents: path.join(root, 'agents'), skills: path.join(root, 'skills'), home: path.join(root, 'home') };
   for (const d of [featuresDir, stateDir, ...Object.values(dirs)]) await fs.mkdir(d, { recursive: true });
-  // One job whose first PR exists (a quest done) with a clean review, one still going.
+  // One job whose first PR exists (a quest done) with a clean first lens review, one still going.
   const done = path.join(featuresDir, 'shipped-job');
   await fs.mkdir(done, { recursive: true });
   await fs.writeFile(path.join(done, 'status.json'), JSON.stringify({
-    schema_version: 1, slug: 'shipped-job', title: 'Shipped job', route: 'small', stage: 'pr1', stage_state: 'working',
-    // Local noon, so it is never a Night Owl, whatever the time zone.
-    prs: [{ number: 1, url: 'https://github.com/example/repo/pull/1', state: 'open' }], updated_at: new Date(2026, 9, 15, 12).toISOString(),
+    schema_version: 1, slug: 'shipped-job', title: 'Shipped job', route: 'small', stage: 'pr1', stage_state: 'working', session_id: SESSION,
+    prs: [{ number: 1, url: 'https://github.com/example/repo/pull/1', state: 'open' }], updated_at: new Date(2026, 9, 15, 13).toISOString(),
   }, null, 2));
-  await fs.writeFile(path.join(done, 'review.md'), '# Review v2\n\n**Result:** 0 blockers, 0 majors, 0 minors\n');
+  await fs.writeFile(path.join(done, 'review.md'), '# Review v1\n\n**Result:** 0 blockers, 0 majors, 0 minors\n');
+  // Its Foreman session: started at 11:00 local, the PR created at noon (so never a Night Owl,
+  // whatever the time zone), and one review lens (the Fuse) that ran.
+  const proj = path.join(dirs.projects, '-tmp-repo');
+  await fs.mkdir(path.join(proj, SESSION, 'subagents'), { recursive: true });
+  const line = (o) => JSON.stringify({ sessionId: SESSION, cwd: '/tmp/repo', ...o });
+  await fs.writeFile(path.join(proj, `${SESSION}.jsonl`), [
+    line({ type: 'user', timestamp: new Date(2026, 9, 15, 11).toISOString(), message: { role: 'user', content: '/feature shipped-job' } }),
+    line({ type: 'pr-link', timestamp: PR_AT, prUrl: 'https://github.com/example/repo/pull/1', prNumber: 1, prRepository: 'example/repo' }),
+  ].join('\n') + '\n');
+  await fs.writeFile(path.join(proj, SESSION, 'subagents', 'agent-a1.jsonl'), [
+    line({ type: 'user', isSidechain: true, timestamp: new Date(2026, 9, 15, 11, 30).toISOString(), message: { role: 'user', content: 'Review the change.' } }),
+    line({ type: 'assistant', isSidechain: true, timestamp: new Date(2026, 9, 15, 11, 40).toISOString(), message: { id: 'm1', role: 'assistant', model: 'claude-sonnet-4-5', content: [{ type: 'text', text: 'Done.' }], stop_reason: 'end_turn' } }),
+  ].join('\n') + '\n');
+  await fs.writeFile(path.join(proj, SESSION, 'subagents', 'agent-a1.meta.json'), JSON.stringify({ agentType: 'feature-review-errors', description: 'Errors lens' }));
   const going = path.join(featuresDir, 'going-job');
   await fs.mkdir(going, { recursive: true });
   await fs.writeFile(path.join(going, 'status.json'), JSON.stringify({ schema_version: 1, slug: 'going-job', title: 'Going job', stage: 'plan', stage_state: 'working', updated_at: '2026-10-15T10:00:00Z' }, null, 2));
@@ -143,6 +158,8 @@ test('GET /api/play: the quest done and the clean review, from the job records',
   assert.equal(v.mode, 'subtle');
   assert.equal(v.quests.done, 1);
   assert.equal(v.quests.recent[0].slug, 'shipped-job');
+  assert.equal(v.quests.recent[0].doneAt, PR_AT, 'when the session log says the PR was created');
+  assert.ok(v.crew['feature-review-errors'], 'the lens that ran is met');
   const got = v.achievements.filter((a) => a.unlockedAt).map((a) => a.id).sort();
   assert.deepEqual(got, ['clean-sweep', 'first-quest']);
   assert.equal(v.achievements.filter((a) => !a.secret).length, 10);
@@ -196,6 +213,37 @@ test('with Play mode Off nothing is recorded', async () => {
   assert.equal((await write('/api/play/secret', { id: 'nope' })).status, 400, 'still checked');
   await write('/api/settings', { play: { mode: 'subtle' } });
   assert.deepEqual((await getJson('/api/play')).secrets.found, ['teapot']);
+});
+
+test('Play mode Off is nothing: GET says only that, play.json is left alone; back on, it catches up without unlock events', async () => {
+  const file = path.join(stateDir, 'play.json');
+  await getJson('/api/play');
+  await new Promise((r) => setTimeout(r, 1800)); // let any refresh already scheduled finish
+  await write('/api/settings', { play: { mode: 'off' } });
+  const before = await fs.readFile(file, 'utf8');
+  assert.deepEqual(await getJson('/api/play'), { mode: 'off' });
+
+  // An L3 job reaches its first PR while Play is Off.
+  const boss = path.join(featuresDir, 'boss-job');
+  await fs.mkdir(boss, { recursive: true });
+  await fs.writeFile(path.join(boss, 'options.json'), JSON.stringify({ schema: 2, level: 3 }));
+  await fs.writeFile(path.join(boss, 'status.json'), JSON.stringify({
+    schema_version: 1, slug: 'boss-job', title: 'Boss job', stage: 'pr1', stage_state: 'working',
+    prs: [{ number: 1, url: 'https://github.com/example/repo/pull/2', state: 'open' }], updated_at: new Date(2026, 9, 15, 14).toISOString(),
+  }, null, 2));
+  await new Promise((r) => setTimeout(r, 1800)); // longer than the refresh delay
+  assert.equal(await fs.readFile(file, 'utf8'), before, 'nothing rebuilt or written while Off');
+  assert.deepEqual(await getJson('/api/play'), { mode: 'off' });
+
+  // On again: one refresh finds the quest, and no 'play' event announces what was missed.
+  const { epoch } = await getJson('/api/snapshot');
+  await write('/api/settings', { play: { mode: 'subtle' } });
+  const v = await getJson('/api/play');
+  assert.equal(v.quests.done, 2);
+  assert.ok(v.achievements.find((a) => a.id === 'boss-slayer').unlockedAt);
+  await new Promise((r) => setTimeout(r, 1800));
+  const ids = (await eventsSince(epoch)).filter((e) => e.type === 'play').map((e) => e.data.achievement.id);
+  assert.ok(!ids.includes('boss-slayer'), `play events: ${ids}`);
 });
 
 test('play.json lost: rebuilt from the audit log at start, with the same unlocks', async () => {

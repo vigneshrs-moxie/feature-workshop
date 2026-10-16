@@ -176,8 +176,11 @@ export function semanticTokens(): Record<string, string> {
  * (dashboard/public/crew.js). A theme restyles any of them under html[data-theme="<id>"].
  *   materials: skin, ink (faces), feet, shadow, glass, metal, wood, paper, shine, the tools' own colours
  *   --crew-c-*: the 14 paint colours the crew wear (each member's body and hat pick two, play.css)
+ *   --crew-shade-base: what the paints' shades are mixed toward; --crew-font: the sleeping z's
  */
 export const CREW_TOKENS: Record<string, string> = {
+  'crew-shade-base': '#000000',
+  'crew-font': 'ui-rounded, system-ui, sans-serif',
   'crew-skin': '#f6d6ae',
   'crew-skin-shade': '#dcae7c',
   'crew-blush': '#f59a8b',

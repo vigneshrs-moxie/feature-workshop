@@ -222,7 +222,7 @@ export function Effects({ state, motion }: { state: CrewState; motion: Motion })
   }
   if (state === 'asleep') {
     return (
-      <g className="zzz" fill={v('zzz')} fontFamily="ui-rounded, system-ui, sans-serif" fontWeight="900" aria-hidden="true">
+      <g className="zzz" fill={v('zzz')} aria-hidden="true">
         <text className="z1" x="80" y="26" fontSize="10">z</text>
         <text className="z2" x="87" y="17" fontSize="13">z</text>
         <text className="z3" x="95" y="7" fontSize="16">Z</text>

@@ -74,8 +74,9 @@ these: refine and spec-update are `spec`, implement is `build`, the PRs and stag
 ### The crew (`--crew-*`)
 
 The Play layer's characters (`play/CrewMember.tsx`, styled in `play/play.css`) take every colour
-from `--crew-*` tokens, generated from `CREW_TOKENS` in `tokens.ts` (the original rig's palette,
-used by the default theme). Every other theme restyles them in its own file.
+from `--crew-*` tokens, generated from `CREW_TOKENS` in `tokens.ts` (the original rig's palette).
+The default theme moves the ambers, golds and sparks to brass (`default.css`); every other theme
+restyles them in its own file.
 
 - Materials: `--crew-skin`, `-skin-shade`, `-blush`, `-ink` (faces), `-tongue`, `-feet`, `-shadow`,
   `-shine` (highlights), `-paper`, `-line`, `-glass`, `-glass-line`, `-metal`, `-wood`; the tools'
@@ -83,7 +84,9 @@ used by the default theme). Every other theme restyles them in its own file.
   `-brush`; the effects `-spark` (working sparks) and `-zzz` (asleep).
 - Paints: `--crew-c-clay`, `-amber`, `-amber-deep`, `-plum`, `-plum-deep`, `-tweed`, `-tweed-deep`,
   `-blueprint`, `-blueprint-deep`, `-moss`, `-teal`, `-steel`, `-forest`, `-forest-deep`. Each member
-  wears two (body `--crew-paint`, hat `--crew-hat`, set in `play.css`); shades are mixed from them.
+  wears two (body `--crew-paint`, hat `--crew-hat`, set in `play.css`); shades are mixed from them
+  toward `--crew-shade-base` (black by default).
+- Type: `--crew-font` (the sleeping z's).
 - Keep the needs-you hue off the crew: it stays the only thing on screen in that colour.
 
 ## Hooks

@@ -32,6 +32,25 @@ describe('crew tokens', () => {
     }
   });
 
+  it('Default keeps the crew’s ambers, golds and sparks off the needs-you hue (status-warn, 80)', () => {
+    const css = read('../theme/themes/default.css').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toContain('html[data-theme="default"]');
+    const warnHue = 80;
+    for (const k of ['crew-c-amber', 'crew-c-amber-deep', 'crew-gold', 'crew-gold-dark', 'crew-spark']) {
+      const m = new RegExp(`--${k}:\\s*oklch\\(\\s*[\\d.]+\\s+[\\d.]+\\s+([\\d.]+)\\s*\\)`).exec(css);
+      expect(m, k).not.toBeNull();
+      expect(Math.abs(Number(m![1]) - warnHue), k).toBeGreaterThanOrEqual(15);
+    }
+  });
+
+  it('play.css takes its shade base and font from tokens: no literal black or font names', () => {
+    const css = read('./play.css').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).not.toMatch(/#000\b|\bblack\b/);
+    expect(css).toContain('var(--crew-shade-base)');
+    expect(css).toContain('var(--crew-font)');
+    expect(read('./crewParts.tsx')).not.toMatch(/fontFamily=/);
+  });
+
   it('play.css animates only .is-animated, and nothing under reduced motion', () => {
     const css = read('./play.css').replace(/\/\*[\s\S]*?\*\//g, '');
     const rules = [...css.matchAll(/([^{}]+)\{[^{}]*\banimation\s*:[^{}]*\}/g)].map((m) => m[1].trim());
