@@ -84,8 +84,8 @@ export const EXPLORER_THEMES = ['neon-arcade', 'blueprint', 'pixel-crew', 'sunse
  * the Konami code (the 'konami' secret), Gold after GOLD_QUESTS quests done.
  */
 export const HIDDEN_THEMES = { crt: 'crt', gold: 'gold' };
-/** Themes the page can say you tried (web/src/theme/theme.ts THEMES): Default, the five, the hidden two. */
-export const THEME_IDS = ['default', ...EXPLORER_THEMES, ...Object.keys(HIDDEN_THEMES)];
+/** Themes the page can say you tried (web/src/theme/theme.ts THEMES): Default, the five, Glass, the hidden two. */
+export const THEME_IDS = ['default', ...EXPLORER_THEMES, 'glass', ...Object.keys(HIDDEN_THEMES)];
 /** The 13 easter eggs (design doc section 5). Only these ids can be recorded. */
 export const SECRET_IDS = [
   'konami', 'hammertime', 'sandwich', 'rm-rf', 'git-blame', 'teapot', 'console',
@@ -164,7 +164,7 @@ export const ACHIEVEMENTS = [
   { id: 'bug-hunter', name: 'Bug Hunter', howTo: `Finish ${BUG_HUNTER_COUNT} bug quests.`, secret: false },
   { id: 'night-owl', name: 'Night Owl', howTo: 'Finish a quest between midnight and 4am.', secret: false },
   { id: 'comeback', name: 'Comeback', howTo: 'Finish a job on the same day it carried on after a usage-limit pause.', secret: false },
-  { id: 'explorer', name: 'Explorer', howTo: 'Try all five themes besides Default.', secret: false },
+  { id: 'explorer', name: 'Explorer', howTo: 'Try the five original themes besides Default: Neon arcade, Blueprint, Pixel crew, Sunset paper and Candy pop.', secret: false },
   { id: 'collector', name: 'Collector', howTo: `Meet all ${CREW_TYPES.length} crew members.`, secret: false },
   ...SECRET_IDS.map((id) => ({ id: `secret-${id}`, name: SECRET_NAMES[id][0], howTo: SECRET_NAMES[id][1], secret: true })),
 ];

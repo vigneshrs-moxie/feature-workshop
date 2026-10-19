@@ -17,10 +17,10 @@ function setup() {
 afterEach(() => { setThemeUnlocks({}); localStorage.clear(); document.documentElement.removeAttribute('data-theme'); });
 
 describe('theme picker and the hidden themes', () => {
-  it('lists the six; CRT Terminal and Gold only once unlocked, each with an “Unlocked” tag', () => {
+  it('lists the seven; CRT Terminal and Gold only once unlocked, each with an “Unlocked” tag', () => {
     setup();
     const radios = () => screen.getAllByRole('radio').map((r) => (r as HTMLInputElement).value);
-    expect(radios()).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop']);
+    expect(radios()).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass']);
     expect(screen.queryByText('CRT Terminal')).toBeNull();
     expect(screen.queryByText('Unlocked')).toBeNull();
 
@@ -31,7 +31,7 @@ describe('theme picker and the hidden themes', () => {
     expect(within(crt).getByText('Unlocked')).toHaveAttribute('title');
 
     act(() => setThemeUnlocks({ crt: true, gold: true }));
-    expect(radios()).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'crt', 'gold']);
+    expect(radios()).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass', 'crt', 'gold']);
     expect(screen.getAllByText('Unlocked')).toHaveLength(2);
   });
 

@@ -13,9 +13,9 @@ afterEach(() => {
 });
 
 describe('theme resolution', () => {
-  it('registers the default, the five themes from the brief and the two hidden ones, each with a one-line description', () => {
-    expect(THEME_IDS).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'crt', 'gold']);
-    expect(ORIGINAL_THEME_IDS).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop']);
+  it('registers the default, the five themes from the brief, Glass and the two hidden ones, each with a one-line description', () => {
+    expect(THEME_IDS).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass', 'crt', 'gold']);
+    expect(ORIGINAL_THEME_IDS).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass']);
     expect(HIDDEN_THEME_IDS).toEqual(['crt', 'gold']);
     expect(THEMES.find((t) => t.id === 'crt')?.label).toBe('CRT Terminal');
     for (const t of THEMES) {

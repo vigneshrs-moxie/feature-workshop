@@ -7,6 +7,7 @@
 @import './pixel-crew.css';
 @import './sunset-paper.css';
 @import './candy-pop.css';
+@import './glass.css';
 /* The hidden themes (Play layer): applied only once the play ledger unlocks them (theme.ts). */
 @import './crt.css';
 @import './gold.css';

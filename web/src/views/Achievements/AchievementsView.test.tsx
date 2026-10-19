@@ -21,7 +21,7 @@ const visible = (got: Record<string, string>): Achievement[] =>
     ['bug-hunter', 'Bug Hunter', 'Finish 10 bug quests.'],
     ['night-owl', 'Night Owl', 'Finish a quest between midnight and 4am.'],
     ['comeback', 'Comeback', 'Finish a job on the same day it carried on after a usage-limit pause.'],
-    ['explorer', 'Explorer', 'Try all five themes besides Default.'],
+    ['explorer', 'Explorer', 'Try the five original themes besides Default: Neon arcade, Blueprint, Pixel crew, Sunset paper and Candy pop.'],
     ['collector', 'Collector', 'Meet all 15 crew members.'],
   ].map(([id, name, howTo]) => ({ id, name, howTo, secret: false, unlockedAt: got[id] ?? null }));
 

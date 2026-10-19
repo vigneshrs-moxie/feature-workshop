@@ -47,7 +47,7 @@ A quest is done when the job's first PR is created (status.json `prs[0]` gets a 
 | Bug Hunter | Finish 10 bug quests. |
 | Night Owl | Finish a quest between midnight and 4am. |
 | Comeback | Finish a job on the same day it carried on after a usage-limit pause. |
-| Explorer | Try all five themes besides Default. |
+| Explorer | Try the five original themes besides Default: Neon arcade, Blueprint, Pixel crew, Sunset paper and Candy pop (Glass came later and isn’t needed). |
 | Collector | Meet all 15 crew members. |
 
 ## The secrets (not shown on the page)

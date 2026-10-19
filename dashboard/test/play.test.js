@@ -504,7 +504,7 @@ test('ledgerView: counts, quests and the Gold unlock after 10 quests', () => {
 });
 
 test('hidden themes: CRT Terminal from the Konami secret, Gold at 10 quests, nothing before', () => {
-  assert.deepEqual(THEME_IDS, ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'crt', 'gold']);
+  assert.deepEqual(THEME_IDS, ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass', 'crt', 'gold']);
   assert.deepEqual(PLAY_EVENTS.theme, THEME_IDS, 'both can be reported as tried');
   assert.deepEqual(unlocksOf(null), { crt: false, gold: false });
   assert.deepEqual(unlocksOf(build({})), { crt: false, gold: false });

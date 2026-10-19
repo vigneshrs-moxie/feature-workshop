@@ -34,12 +34,13 @@ export const THEMES: readonly ThemeInfo[] = [
   { id: 'pixel-crew', label: 'Pixel crew', description: 'Retro console vibe: pixel headings and chips, chunky borders, a 16-colour palette.' },
   { id: 'sunset-paper', label: 'Sunset paper', description: 'Light and warm: cream paper with coral, amber, teal and plum inks and big rounded corners.' },
   { id: 'candy-pop', label: 'Candy pop', description: 'Dark charcoal with pastel pops, pill chips and faint Memphis dots on the panes.' },
+  { id: 'glass', label: 'Glass', description: 'Frosted glass panes over a slow aurora: thin bright edges, soft glows and big rounded corners.' },
   { id: 'crt', label: 'CRT Terminal', description: 'Phosphor green on a near-black tube, monospace type and faint scanlines.', unlock: 'crt' },
   { id: 'gold', label: 'Gold', description: 'Warm dark walnut with polished gold accents, for ten quests done.', unlock: 'gold' },
 ];
 
 export const THEME_IDS: readonly string[] = THEMES.map((t) => t.id);
-/** The themes everyone has: Default and the five that shipped with it. */
+/** The themes everyone has: Default, the five that shipped with it, and Glass. */
 export const ORIGINAL_THEME_IDS: readonly string[] = THEMES.filter((t) => !t.unlock).map((t) => t.id);
 /** The hidden themes, each opened by its unlock. */
 export const HIDDEN_THEME_IDS: readonly string[] = THEMES.filter((t) => t.unlock).map((t) => t.id);
