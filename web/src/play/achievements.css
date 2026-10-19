@@ -76,7 +76,7 @@
   flex-direction: column;
   align-items: flex-end;
   gap: var(--space-2);
-  width: min(340px, calc(40vw - var(--space-8)));
+  width: min(400px, calc(40vw - var(--space-8)));
   pointer-events: none;
 }
 .toast ~ .play-toasts { bottom: calc(var(--space-4) + 64px); }
@@ -86,7 +86,7 @@
   align-items: flex-start;
   gap: var(--space-3);
   width: 100%;
-  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-2) var(--space-3) var(--space-3);
   border: 1px solid var(--border-3);
   border-radius: var(--card-radius);
   background: var(--bg-2);
@@ -99,7 +99,7 @@
 .play-toast-badge { position: relative; display: flex; flex: none; }
 .play-toast-body { flex: 1; min-width: 0; }
 .play-toast-label { margin: 0; color: var(--text-2); font-size: var(--text-xs); letter-spacing: .06em; text-transform: uppercase; }
-.play-toast-name { margin: 1px 0; color: var(--text-1); font-family: var(--font-heading); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.play-toast-name { margin: 2px 0; color: var(--text-1); font-family: var(--font-heading); font-size: var(--text-md); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
 .play-toast-line { margin: 0; color: var(--text-2); font-size: var(--text-sm); }
 .play-toast-close { flex: none; width: 24px; height: 24px; padding: 0; font-size: var(--text-md); line-height: 1; }
 .play-toasts-more { margin: 0; padding: 0 var(--space-2); border-radius: var(--chip-radius); background: var(--bg-2); font-size: var(--text-xs); pointer-events: auto; }

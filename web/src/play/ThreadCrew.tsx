@@ -11,6 +11,7 @@ import { foremanMood, handoffLine, liveCrew, nameList } from './crewLines';
 import { foremanLine, KNOCK_GAP_MS, KNOCKS, showScene } from './eggs';
 import { usePlayIfAny } from './usePlay';
 import { useFindSecret } from './useSecret';
+import { CREW_SIZE, crewSize } from './crewSizes';
 
 const hint = (type: string) => {
   const c = crewInfo(type);
@@ -23,7 +24,7 @@ export const CrewTag = memo(function CrewTag({ type, state = 'idle', text, size 
   if (play && !play.on) return null;
   return (
     <span className="crew-tag" title={hint(type)}>
-      <CrewMember type={type} state={state} size={size ?? (play?.full ? 24 : 20)} label="" />
+      <CrewMember type={type} state={state} size={size ?? crewSize(CREW_SIZE.tag, play?.full)} label="" />
       <span className="crew-tag-text">{text ?? crewInfo(type).name}</span>
     </span>
   );
@@ -33,7 +34,7 @@ export const CrewTag = memo(function CrewTag({ type, state = 'idle', text, size 
 export const HandoffSummary = memo(function HandoffSummary({ types }: { types: string[] }) {
   const play = usePlayIfAny();
   if ((play && !play.on) || !types.length) return null;
-  const size = play?.full ? 24 : 20;
+  const size = crewSize(CREW_SIZE.handoff, play?.full);
   const text = types.length === 1 ? handoffLine(types[0]) : `${nameList(types)} started work`;
   return (
     <span className="crew-handoff">
@@ -53,7 +54,7 @@ export function LiveCrewFaces({ job, run, usage, where }: { job: Job | null | un
   const play = usePlayIfAny();
   const who = liveCrew(job, run, usage);
   if ((play && !play.on) || !who) return null;
-  const size = play?.full ? 30 : 26;
+  const size = crewSize(CREW_SIZE.live, play?.full);
   const foreman = who.types.length === 1 && who.types[0] === 'conductor';
   if ((where === 'lead' && !foreman) || (where === 'tail' && foreman)) return null;
   // The Foreman before its name ('lead') is decoration: the row says "Foreman" and what it is doing
@@ -77,7 +78,7 @@ export function ForemanFace({ job, usage }: { job: Job; usage?: Usage | null }) 
   if (play && !play.on) return null;
   return (
     <span className="foreman-knock" onClick={knock}>
-      <CrewMember type="conductor" state={mood} size={28} className="foreman-face" />
+      <CrewMember type="conductor" state={mood} size={CREW_SIZE.foreman} className="foreman-face" />
     </span>
   );
 }
@@ -108,7 +109,7 @@ export function ReviewLineup({ types }: { types: string[] }) {
     <ul className="crew-lineup" aria-label={`Reviewers on this round: ${nameList(types, types.length)}`}>
       {types.map((t) => (
         <li key={t} title={hint(t)}>
-          <CrewMember type={t} state="idle" size={24} label={crewInfo(t).name} />
+          <CrewMember type={t} state="idle" size={CREW_SIZE.lineup} label={crewInfo(t).name} />
         </li>
       ))}
     </ul>

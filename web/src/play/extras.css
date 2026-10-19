@@ -50,17 +50,17 @@
 
 /* ---------- Boss fight ---------- */
 
-.boss-fight { max-width: 26rem; margin-top: var(--space-2); }
-.boss-text { margin: 0 0 3px; color: var(--text-1); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.boss-fight { max-width: 32rem; margin-top: var(--space-3); }
+.boss-text { margin: 0 0 var(--space-1); color: var(--text-1); font-size: var(--text-base); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
 .boss-glyph { color: var(--status-ok); font-weight: var(--weight-bold); }
-.boss-bar { display: block; height: 8px; overflow: hidden; border: 1px solid var(--border-2); border-radius: 4px; background: var(--bg-2); }
+.boss-bar { display: block; height: 14px; overflow: hidden; border: 1px solid var(--border-2); border-radius: 7px; background: var(--bg-2); }
 .boss-bar-fill { display: block; height: 100%; background: var(--status-error); transition: width 600ms var(--ease-out); }
 .boss-fight.is-defeated .boss-bar { border-style: dashed; }
 
 /* ---------- Stamina ---------- */
 
 .stamina { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-2); font-size: var(--text-sm); white-space: nowrap; }
-.stamina-bar { display: block; width: 44px; height: 8px; overflow: hidden; border: 1px solid var(--border-2); border-radius: 4px; background: var(--bg-2); }
+.stamina-bar { display: block; width: 64px; height: 10px; overflow: hidden; border: 1px solid var(--border-2); border-radius: 5px; background: var(--bg-2); }
 .stamina-fill { display: block; height: 100%; background: var(--status-ok); }
 .stamina.is-warning .stamina-fill { background: var(--status-warn); }
 .stamina.is-resting .stamina-bar { border-style: dashed; }

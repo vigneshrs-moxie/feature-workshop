@@ -9,6 +9,7 @@ import { ApiError, type ApiClient } from '../../api/client';
 import type { Gate, Job, JobDetail, PlayMode, ThreadItem } from '../../api/types';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job, permission, snapshot } from '../../state/test-fixtures';
+import { CREW_SIZE, crewSize } from '../../play/crewSizes';
 import { ForemanPane } from './ForemanPane';
 
 const NOW = new Date(Date.UTC(2026, 9, 15, 13, 0));
@@ -109,17 +110,20 @@ describe('the crew in the conversation: Off', () => {
   });
 });
 
+// Every size the crew are drawn at in Subtle: the first of a spot's pair, or its one size.
+const SUBTLE_SIZES = Object.values(CREW_SIZE).map((v) => crewSize(v, false));
+
 const crews = (el: ParentNode) => [...el.querySelectorAll<SVGSVGElement>('svg.crew')];
 
 describe('the crew in the conversation: Subtle (the default)', () => {
-  it('draws the crew still and small, each beside its name', async () => {
+  it('draws the crew still, at the Subtle sizes, each beside its name', async () => {
     const { container } = setup({ mode: 'subtle' });
     await loaded();
     const all = crews(container);
     expect(all.length).toBeGreaterThan(8);
     for (const svg of all) {
       expect(svg).toHaveClass('is-still');
-      expect(Number(svg.getAttribute('width'))).toBeLessThanOrEqual(28);
+      expect(SUBTLE_SIZES).toContain(Number(svg.getAttribute('width')));
       // Named: an image with an accessible name, or decoration next to words naming it.
       if (svg.getAttribute('aria-hidden') === 'true') {
         expect(svg.closest('.crew-tag, .crew-handoff, .live-crew')?.textContent?.trim().length, svg.className.baseVal).toBeGreaterThan(2);
@@ -169,7 +173,7 @@ describe('the crew in the conversation: Subtle (the default)', () => {
     const lineup = screen.getByRole('list', { name: 'Reviewers on this round: Fuse and Mason' });
     const faces = within(lineup).getAllByRole('img');
     expect(faces.map((f) => f.getAttribute('aria-label'))).toEqual(['Fuse', 'Mason']);
-    for (const f of faces) expect(Number(f.getAttribute('width'))).toBe(24);
+    for (const f of faces) expect(Number(f.getAttribute('width'))).toBe(CREW_SIZE.lineup);
     expect(lineup.querySelector('li')).toHaveAttribute('title', 'Fuse: Review: errors and edge cases.');
     // Painter started after the brief: not on this round.
     expect(within(lineup).queryByRole('img', { name: 'Painter' })).toBeNull();

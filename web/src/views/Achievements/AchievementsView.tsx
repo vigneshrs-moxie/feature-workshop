@@ -10,6 +10,7 @@ import { HowThisWorks } from '../../components/HowThisWorks';
 import { fullTime } from '../../lib/time';
 import { AchievementBadge } from '../../play/AchievementBadge';
 import { usePlayLedger } from '../../play/usePlayLedger';
+import { MEDAL_SIZE } from '../../play/crewSizes';
 
 /** Quests done that unlock the Gold theme (dashboard/lib/play.js GOLD_QUESTS). */
 export const GOLD_QUESTS = 10;
@@ -24,7 +25,7 @@ function Badge({ a }: { a: Achievement }) {
   const got = Boolean(a.unlockedAt);
   return (
     <li className={`ach-badge ${got ? 'is-unlocked' : 'is-locked'}`} data-achievement={a.id}>
-      <AchievementBadge id={a.id} unlocked={got} size={44} />
+      <AchievementBadge id={a.id} unlocked={got} size={MEDAL_SIZE.list} />
       <div className="ach-text">
         <h3 className="ach-name">{a.name}</h3>
         <p className="ach-how">{a.howTo}</p>
@@ -48,7 +49,7 @@ function Secrets({ view }: { view: PlayView }) {
         <ul className="ach-grid ach-secret-list">
           {found.map((a) => (
             <li key={a.id} className="ach-badge is-unlocked is-secret" data-achievement={a.id}>
-              <AchievementBadge id={a.id} size={44} />
+              <AchievementBadge id={a.id} size={MEDAL_SIZE.list} />
               <div className="ach-text">
                 <h4 className="ach-name">{a.name}</h4>
                 <p className="ach-state is-unlocked" title={fullTime(a.unlockedAt)}>Found {unlockDate(a.unlockedAt!)}</p>

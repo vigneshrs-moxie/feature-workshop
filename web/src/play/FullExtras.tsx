@@ -16,6 +16,7 @@ import { nameList, workersNow } from './crewLines';
 import { backAt, bossView, questTrack, staminaOf } from './extrasModel';
 import { usePlayIfAny } from './usePlay';
 import { usePlayLedger } from './usePlayLedger';
+import { CREW_SIZE } from './crewSizes';
 
 const useFull = () => {
   const play = usePlayIfAny();
@@ -103,7 +104,7 @@ export function SleepingCrew({ job, usage }: { job: Job; usage?: Usage | null })
   return (
     <>
       <span className="live-crew sleeping-crew">
-        {types.map((t) => <CrewMember key={t} type={t} state="asleep" size={30} label="" />)}
+        {types.map((t) => <CrewMember key={t} type={t} state="asleep" size={CREW_SIZE.sleeping} label="" />)}
       </span>
       {' '}{who} are asleep{back ? ` · ${back}` : ' until Claude’s usage limit resets'}.
     </>

@@ -25,6 +25,8 @@ import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
 import { PlayToasts } from '../play/PlayToasts';
 import { StaminaBar } from '../play/FullExtras';
+import { CrewMember } from '../play/CrewMember';
+import { CREW_SIZE } from '../play/crewSizes';
 import { usePlay } from '../play/usePlay';
 import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
 import { reopenJob, setJobPolicy, stopRun } from './jobActions';
@@ -51,7 +53,10 @@ function TopBar({ onRetry, onCrew = false }: { onRetry: () => void; onCrew?: boo
   const conn = CONNECTION[state.connection];
   return (
     <header className="topbar">
+      {/* Play: the Foreman as the workshop's mascot, waving while something needs you. */}
+      {play.on && <CrewMember type="conductor" state={needs > 0 ? 'waiting' : 'idle'} size={CREW_SIZE.mascot} label="" className="brand-mascot" />}
       <h1 className="brand">Feature Workshop</h1>
+      {play.on && <span className="brand-tagline" aria-hidden="true">Your crew, your features, your turn</span>}
       {state.meta?.demo ? <span className="chip" title="Demo mode: a pretend Foreman answers and nothing real runs.">Demo</span> : null}
       {state.status === 'ready' && (
         <button type="button" className="btn" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job: describe it, pick the repository, kind and Foreman model (key: c).">

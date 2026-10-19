@@ -19,6 +19,7 @@ import { clearScenes } from './eggs';
 import { Scenes } from './Scenes';
 import { playBlip } from './sound';
 import { usePlay } from './usePlay';
+import { MEDAL_SIZE } from './crewSizes';
 
 export const TOAST_MS = 5000;
 export const MAX_VISIBLE = 3;
@@ -103,7 +104,7 @@ function Toast({ item, onDone }: { item: ToastItem; onDone: (key: number) => voi
       onBlur={() => setHeld(false)}
     >
       <span className="play-toast-badge">
-        <AchievementBadge id={item.badge} size={34} />
+        <AchievementBadge id={item.badge} size={MEDAL_SIZE.toast} />
         {c.burst && <Burst c={c} />}
       </span>
       <div className="play-toast-body">

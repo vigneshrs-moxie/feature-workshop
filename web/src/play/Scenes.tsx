@@ -6,6 +6,7 @@
 import { useEffect } from 'react';
 import { CrewMember } from './CrewMember';
 import { endScene, SCENE_MS, useScenes, type Scene, type SceneKind } from './eggs';
+import { CREW_SIZE } from './crewSizes';
 
 const CAST: Record<SceneKind, { types: string[]; label: string }> = {
   hammertime: { types: ['feature-implementer'], label: 'Hammer time' },
@@ -26,7 +27,7 @@ function SceneCard({ scene }: { scene: Scene }) {
       <span className="scene-cast" aria-hidden="true">
         {cast.types.map((t, i) => (
           <span key={t} className={`scene-actor actor-${i}`}>
-            <CrewMember type={t} state={scene.kind === 'git-blame' ? 'waiting' : 'celebrating'} size={scene.kind === 'git-blame' ? 30 : 40} label="" animated={false} />
+            <CrewMember type={t} state={scene.kind === 'git-blame' ? 'waiting' : 'celebrating'} size={scene.kind === 'git-blame' ? CREW_SIZE.sceneGroup : CREW_SIZE.scene} label="" animated={false} />
           </span>
         ))}
       </span>

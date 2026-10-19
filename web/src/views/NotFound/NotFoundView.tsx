@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { hrefFor } from '../../app/router';
 import { CrewMember } from '../../play/CrewMember';
 import { useFindSecret } from '../../play/useSecret';
+import { CREW_SIZE } from '../../play/crewSizes';
 
 export function NotFoundView({ hash }: { hash: string }) {
   const find = useFindSecret();
@@ -14,7 +15,7 @@ export function NotFoundView({ hash }: { hash: string }) {
       <div className="foreman-column not-found">
         <h2 className="pane-title">Page not found</h2>
         <div className="not-found-scene">
-          <span className="not-found-sleuth"><CrewMember type="feature-investigator" state="walking" size={64} label="Sleuth, searching" animated={false} /></span>
+          <span className="not-found-sleuth"><CrewMember type="feature-investigator" state="walking" size={CREW_SIZE.notFound} label="Sleuth, searching" animated={false} /></span>
         </div>
         <p>
           The Sleuth searched every corner for <code className="inline-code not-found-path">{hash}</code> and found only footprints.

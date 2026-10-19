@@ -16,6 +16,7 @@ import { CrewMember } from '../../play/CrewMember';
 import { usePlay, type PlayState } from '../../play/usePlay';
 import { usePlayLedger } from '../../play/usePlayLedger';
 import { useWorkshopState } from '../../state/store';
+import { CREW_SIZE } from '../../play/crewSizes';
 
 const MIN = 60_000;
 
@@ -91,7 +92,7 @@ function DexCard({ member, stats, meta, play, now }: { member: CrewInfo; stats: 
             <span className={`chip dex-rarity rarity-${rarity}`} title={RARITY_HINT[rarity]}>{RARITY_LABEL[rarity]}</span>
           </div>
           <div className="dex-portrait">
-            <CrewMember type={member.type} state={met && active && play.animated ? 'working' : 'idle'} size={76} label="" silhouette={!met} />
+            <CrewMember type={member.type} state={met && active && play.animated ? 'working' : 'idle'} size={CREW_SIZE.dex} label="" silhouette={!met} />
           </div>
           <h3 className="dex-name">{member.name}</h3>
           <p className="dex-role muted">{member.role}</p>

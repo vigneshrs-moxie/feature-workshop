@@ -7,6 +7,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { filterCommands, type Command } from '../app/commands';
 import { CrewMember } from '../play/CrewMember';
 import { paletteEgg, type PaletteEgg } from '../play/eggs';
+import { CREW_SIZE } from '../play/crewSizes';
 
 /** How long the Locksmith's door stays over the palette. */
 export const DOOR_MS = 1400;
@@ -115,7 +116,7 @@ export function CommandPalette({ commands, onClose, onEgg }: { commands: Command
         {shown.length === 0 && !door && <p className="muted palette-empty" role="status">Nothing matches “{query}”. Try fewer words.</p>}
         {door && (
           <div className="palette-door" role="status">
-            <CrewMember type="feature-review-permissions" state="waiting" size={44} label="Locksmith" animated={false} />
+            <CrewMember type="feature-review-permissions" state="waiting" size={CREW_SIZE.door} label="Locksmith" animated={false} />
             <p className="palette-door-line">Hard line. Nice try.</p>
           </div>
         )}
