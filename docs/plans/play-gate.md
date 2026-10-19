@@ -1,6 +1,28 @@
 # Play layer · Gate review (2026-10-19)
 
-**In one line:** the crew are back. Characters on handoff lines and the live row, a Crew-dex, achievements and quests, and in Full mode a quest track, a boss fight for L3 reviews and stamina. Thirteen easter eggs are hidden around the page. All of it runs on local data only and is switched by one setting (Full · Subtle · Off). Built on `redesign/play` (off `redesign/phase-2`); not pushed or merged.
+**In one line:** the crew are back. Characters on handoff lines and the live row, a Crew-dex, achievements and quests, and in Full mode a quest track (now the trail, see Round 2), a boss fight for L3 reviews and stamina. Thirteen easter eggs are hidden around the page. All of it runs on local data only and is switched by one setting (Full · Subtle · Off). Built on `redesign/play` (off `redesign/phase-2`); not pushed or merged.
+
+## Round 2: the workshop floor (2026-10-19)
+
+**Asked for:** the Play parts a little bigger, a glassy modern theme, and the crew bigger and shown in more places, so the page is as fun as the classic one and easier to follow while building. Built on `redesign/play-floor` (off `redesign/play`). Plan: `docs/plans/play-floor-2026-10-19.md`. Screenshots: `docs/design/play-floor-2026-10-19/` (README there).
+
+- **The workshop floor:** home with no job open, Play on.
+  - The Foreman, big, in a portrait frame, says what to do next: "10 jobs need you. Longest wait first:", with a link for each of up to four jobs (what it needs, how long it has waited). When nothing needs you, it says who is at work.
+  - The cards waiting for your answer come next, above the floor, so nothing stands between you and them.
+  - Then a card for every open job, with its trail. Click one to open it.
+- **The trail**, in every job (Subtle and Full). It replaces the quest track.
+  - The stages are a path. The crew member for the current one stands on it, in the job's mood, with a "!" when it's your move.
+  - One line says in plain words what is happening and what comes next: "Your move: the Foreman is waiting for your go-ahead on Plan. Then: Builder builds it." or "Now: Builder is building. Next: Tester runs the checks."
+  - After the goal (PR #1), the Foreman stands at the flag. The line keeps following the job, with "The quest is done" under it.
+  - Full adds the difficulty stars and two trees.
+- **The crew in the Jobs list:** every row starts with its job's crew member, with a "!" when it needs you. They stay still even in Full, so the list stays calm. The pane is 40 px wider to make room.
+- **Bigger:**
+  - Everything Play draws is about 1.4× bigger, from one size scale (`web/src/play/crewSizes.ts`). Full is a little bigger than Subtle.
+  - Bigger toasts (still only over the Preview pane), Crew-dex cards, medals, and the boss and stamina bars.
+  - The Foreman is the mascot by "Feature Workshop", with "Your crew, your features, your turn".
+- **Glass theme:** frosted, translucent panes over a slow aurora, with thin bright edges and big rounded corners. Everyone has it. Explorer still counts the five original themes and now names them.
+- **Kept:** Off is still the phase 2 page exactly; no model calls; nothing over a gate card, permission card or the composer; reduced motion holds everything still.
+- **Tests (real run):** `npm test` 283/283, `npm run web:test` 551/551, `tsc` clean, the build 514 kB. Demo walk: 34/34 checks, no console errors.
 
 ## What's built
 
@@ -10,7 +32,7 @@
 - **Achievements and quests** (⌘K or the Crew-dex): ten you can see, thirteen secret. A quest is a finished job, counted once; reopening a job and finishing it again never awards twice. Achievements reward finished work, never approvals. Toasts sit bottom-right over the Preview pane, never over a gate card, a permission card or the message box. They go by themselves after about 5 s.
 - **Hidden themes:** CRT Terminal (the Konami code) and Gold (ten quests). The dashboard decides when they unlock; editing the browser's storage can't open them.
 - **Full-mode extras:**
-  - **Quest track:** under the title, with the level as difficulty (★–★★★★) and the stages as a path. It finishes by the quest rule you picked.
+  - **Difficulty stars** on the trail (★–★★★★; round 2 grew the quest track into the trail, shown in Subtle too). The quest finishes by the rule you picked.
   - **Boss fight:** under an L3 review brief, with findings as hit points (blocker 5, major 3, minor 1). It drains as fix rounds land and is defeated once no blockers or majors are left; minors are yours to decide.
   - **Stamina:** in the top bar, drawn from Claude's usage limit, using the measured percentage when Claude gives one.
   - **Sleeping crew:** during a usage pause, the crew sleep. They show a time to wake up only when jobs will carry on by themselves.

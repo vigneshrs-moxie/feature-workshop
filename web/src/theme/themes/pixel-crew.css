@@ -654,3 +654,9 @@ html[data-theme="pixel-crew"] .crew { shape-rendering: crispEdges; }
 @media (prefers-reduced-motion: reduce) {
   html[data-theme="pixel-crew"] .btn { transition: none; }
 }
+
+/* The pixel face draws "fi" and "fl" as broken ligatures ("first" read "Arst"): spell them out. */
+html[data-theme="pixel-crew"] h1,
+html[data-theme="pixel-crew"] h2,
+html[data-theme="pixel-crew"] h3,
+html[data-theme="pixel-crew"] .floor-say { font-variant-ligatures: none; }

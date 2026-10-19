@@ -50,6 +50,17 @@ describe('jobTrail', () => {
     expect([dropped.lead, dropped.mood]).toEqual(['Dropped', 'idle']);
   });
 
+  it('past the goal while the job carries on: the line follows the job, the Foreman at the goal, the quest done', () => {
+    const t = trail(job('a', 'needs-you', { level: 3, stage: 'pr1', waitingFor: 'approval' }), true);
+    expect([t.who, t.mood, t.ask, t.lead]).toEqual(['conductor', 'waiting', true, 'Your move']);
+    expect(t.now).toBe('the Foreman is waiting for your go-ahead on PR #1.');
+    expect(t.next).toBe('The quest is done: its goal is reached. This is what comes after.');
+    const running = trail(job('a', 'running', { level: 3, stage: 'pr2' }), true);
+    expect([running.lead, running.now]).toEqual(['Now', 'The Foreman is opening PR #2.']);
+    // Marked done though the quest rule didn't count it: finished, without the quest's words.
+    expect(trail(job('a', 'done', { level: 2, stage: 'plan', closed: { as: 'done', at: at(14, 0) } }), false).now).toBe('This job is finished.');
+  });
+
   it('no level yet: the Standard stages, without difficulty stars', () => {
     const t = trail(job('a', 'running', { level: null, stage: 'spec' }));
     expect(t.stars).toBeNull();

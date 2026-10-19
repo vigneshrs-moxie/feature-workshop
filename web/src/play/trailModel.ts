@@ -89,7 +89,7 @@ export function jobTrail(job: Job, { levels, done, usage, now = new Date() }: Tr
   const at = track.stops.findIndex((s) => s.state === 'current');
   const upcoming = at >= 0 ? track.stops[at + 1] ?? null : track.stops.find((s) => s.state === 'next') ?? null;
   const nextPhrase = upcoming ? stagePhrase(upcoming.id) : null;
-  const atStage = (stage && STAGE_CHARACTER[stage]) || 'conductor';
+  const atStage = track.finished ? 'conductor' : (stage && STAGE_CHARACTER[stage]) || 'conductor';
   const status = jobStatus(job, now);
   const dropped = job.group === 'done' && (job.closed as { as?: string } | null | undefined)?.as === 'dropped';
   const base = { stops: track.stops, finished: track.finished, stars: leveled ? track.stars : null, difficulty: leveled ? track.difficulty : null };
@@ -97,16 +97,19 @@ export function jobTrail(job: Job, { levels, done, usage, now = new Date() }: Tr
   if (dropped) {
     return { ...base, who: 'conductor', mood: 'idle', ask: false, lead: 'Dropped', now: 'You dropped this job. Reopen it from the job menu to carry on.', next: null };
   }
-  if (track.finished || job.group === 'done') {
-    return { ...base, who: 'conductor', mood: 'celebrating', ask: false, lead: 'Done', now: 'The quest is complete. Nice work, crew.', next: null };
+  if (job.group === 'done') {
+    return { ...base, who: 'conductor', mood: 'celebrating', ask: false, lead: 'Done', now: track.finished ? 'The quest is complete. Nice work, crew.' : 'This job is finished.', next: null };
   }
+  // Past the goal while the job carries on (PR #2 and on): the line follows the job, the Foreman
+  // stands at the goal, and the line under it says the quest itself is done.
+  const after = track.finished ? 'The quest is done: its goal is reached. This is what comes after.' : null;
   if (usagePaused(job, usage)) {
     const who = workersNow(job)[0] ?? atStage;
     const doing = stage && DOING[stage] ? ` ${DOING[stage]}` : '';
-    return { ...base, who, mood: 'asleep', ask: false, lead: 'Paused', now: `Claude’s usage limit stopped the crew (${status.label}).`, next: `Then: ${named(who)} carries on${doing}.` };
+    return { ...base, who, mood: 'asleep', ask: false, lead: 'Paused', now: `Claude’s usage limit stopped the crew (${status.label}).`, next: after ?? `Then: ${named(who)} carries on${doing}.` };
   }
   if (job.group === 'needs-you') {
-    const then = nextPhrase ? `Then: ${nextPhrase}.` : null;
+    const then = after ?? (nextPhrase ? `Then: ${nextPhrase}.` : null);
     const what = status.label === 'Go-ahead'
       ? `the Foreman is waiting for your go-ahead${stage ? ` on ${stageLabel(stage)}` : ''}.`
       : status.label === 'Question'
@@ -117,15 +120,16 @@ export function jobTrail(job: Job, { levels, done, usage, now = new Date() }: Tr
     return { ...base, who: atStage, mood: 'waiting', ask: true, lead: 'Your move', now: what, next: then };
   }
   if (job.group === 'running') {
-    if (job.starting) return { ...base, who: 'conductor', mood: 'thinking', ask: false, lead: 'Now', now: 'The Foreman is reading your request.', next: nextPhrase ? `Next: ${nextPhrase}.` : null };
+    const next = after ?? (nextPhrase ? `Next: ${nextPhrase}.` : null);
+    if (job.starting) return { ...base, who: 'conductor', mood: 'thinking', ask: false, lead: 'Now', now: 'The Foreman is reading your request.', next };
     const who = workersNow(job)[0] ?? atStage;
     const doing = stage && DOING[stage] ? DOING[stage] : 'working';
-    return { ...base, who, mood: 'working', ask: false, lead: 'Now', now: `${Named(who)} is ${doing}.`, next: nextPhrase ? `Next: ${nextPhrase}.` : null };
+    return { ...base, who, mood: 'working', ask: false, lead: 'Now', now: `${Named(who)} is ${doing}.`, next };
   }
   const stopped = status.label === 'Stopped';
   return {
     ...base, who: atStage, mood: 'idle', ask: false, lead: stopped ? 'Stopped' : 'Idle',
     now: stopped ? 'You stopped the last reply. Write to the Foreman to carry on.' : 'Nothing is happening right now. Write to the Foreman to carry on.',
-    next: nextPhrase ? `Next: ${nextPhrase}.` : null,
+    next: after ?? (nextPhrase ? `Next: ${nextPhrase}.` : null),
   };
 }
