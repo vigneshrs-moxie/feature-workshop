@@ -19,9 +19,10 @@ describe('trail.css', () => {
     expect(uncommented).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|oklch\(|hsl\(/i);
   });
 
-  it('on a narrow pane keeps only the current stop’s and the goal’s names (a container query)', () => {
+  it('on a narrow pane shows only the current stop’s and the goal’s names (a container query), clipping the rest so screen readers still have them', () => {
     expect(uncommented).toMatch(/\.job-trail\s*\{[^}]*container-type:\s*inline-size/);
-    expect(uncommented).toMatch(/@container \(max-width: \d+px\)\s*\{\s*\.trail-stop:not\(\.is-here, \.is-goal\) \.trail-label\s*\{\s*visibility:\s*hidden/);
+    expect(uncommented).toMatch(/@container \(max-width: \d+px\)\s*\{\s*\.trail-stop:not\(\.is-here, \.is-goal\) \.trail-label\s*\{[^}]*clip: rect\(0 0 0 0\)/);
+    expect(uncommented).not.toMatch(/visibility:\s*hidden|display:\s*none[^}]*trail-label/);
   });
 
   it('moves nothing by itself (the crew’s own motion follows the Play mode)', () => {

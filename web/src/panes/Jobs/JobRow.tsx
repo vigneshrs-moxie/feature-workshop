@@ -42,7 +42,7 @@ export function JobRow({ job, selected, now, rail = false }: JobRowProps) {
 
   return (
     <a className={crew ? 'job-row has-crew' : 'job-row'} data-group={status.group} href={jobHref(job.slug)} aria-current={selected ? 'page' : undefined} title={`Open ${title}: its conversation with the Foreman.`}>
-      {crew && <RowCrew job={job} />}
+      {crew && <RowCrew job={job} now={now} />}
       <span className="job-row-line">
         {dot}
         <span className="job-row-title">{title}</span>

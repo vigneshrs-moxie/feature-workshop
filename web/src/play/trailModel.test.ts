@@ -54,9 +54,13 @@ describe('jobTrail', () => {
     const t = trail(job('a', 'needs-you', { level: 3, stage: 'pr1', waitingFor: 'approval' }), true);
     expect([t.who, t.mood, t.ask, t.lead]).toEqual(['conductor', 'waiting', true, 'Your move']);
     expect(t.now).toBe('the Foreman is waiting for your go-ahead on PR #1.');
-    expect(t.next).toBe('The quest is done: its goal is reached. This is what comes after.');
+    expect(t.next).toBe('Then: The Foreman opens PR #2. The quest itself is already done.');
     const running = trail(job('a', 'running', { level: 3, stage: 'pr2' }), true);
-    expect([running.lead, running.now]).toEqual(['Now', 'The Foreman is opening PR #2.']);
+    expect([running.lead, running.now, running.next]).toEqual(['Now', 'The Foreman is opening PR #2.', 'Next: Tester checks staging. The quest itself is already done.']);
+    // Idle after the last stage: no made-up next stage.
+    expect(trail(job('a', 'idle', { level: 3, stage: 'pr3' }), true).next).toBe('The quest itself is already done.');
+    // A skipped stage after the goal is passed over.
+    expect(trail(job('a', 'running', { level: 3, stage: 'pr2', skipped: ['staging-qa'] }), true).next).toBe('Next: The Foreman opens PR #3. The quest itself is already done.');
     // Marked done though the quest rule didn't count it: finished, without the quest's words.
     expect(trail(job('a', 'done', { level: 2, stage: 'plan', closed: { as: 'done', at: at(14, 0) } }), false).now).toBe('This job is finished.');
   });
@@ -66,6 +70,45 @@ describe('jobTrail', () => {
     expect(t.stars).toBeNull();
     expect(t.difficulty).toBeNull();
     expect(t.stops.map((s) => s.id)).toEqual(['spec', 'investigate', 'plan', 'implement', 'test', 'review', 'pr1']);
+  });
+
+  it('skips what the job’s own options skip, in the path and in what comes next', () => {
+    const t = trail(job('a', 'needs-you', { level: 2, stage: 'implement', waitingFor: 'approval', skipped: ['test'] }));
+    expect(t.stops.map((s) => s.id)).not.toContain('test');
+    expect(t.next).toBe('Then: Head inspector and the reviewers look at the change.');
+  });
+
+  it('no level chosen: the path of the Foreman’s or the rules’ suggestion, and no stars', () => {
+    const suggested = trail(job('a', 'needs-you', { level: null, suggestedLevel: 1, stage: 'plan', waitingFor: 'approval' }));
+    expect(suggested.stops.map((s) => s.id)).toEqual(['plan', 'implement', 'test', 'review', 'pr1']);
+    expect(suggested.next).toBe('Then: Builder builds it.');
+    expect(suggested.stars).toBeNull();
+    // Nothing suggested yet: no next stage named, since it may never run.
+    expect(trail(job('a', 'needs-you', { level: null, stage: 'spec', waitingFor: 'approval' })).next).toBeNull();
+  });
+
+  it('a job starting up: the Foreman reads the request, then suggests a level', () => {
+    const t = trail(job('a', 'running', { level: null, stage: 'spec', starting: true }));
+    expect([t.who, t.mood, t.now, t.next]).toEqual(['conductor', 'thinking', 'The Foreman is reading your request.', 'Next: it suggests a level and writes its first brief.']);
+  });
+
+  it('your turn, and several permissions', () => {
+    expect(trail(job('a', 'needs-you', { level: 2, stage: 'plan' })).now).toBe('the Foreman is waiting for your reply.');
+    expect(trail(job('a', 'needs-you', { level: 2, stage: 'plan', permissions: 2 })).now).toBe('the Foreman wants your permission for a step. Allow or deny it below.');
+  });
+
+  it('on a floor card, points to where the ask is: above, or in the job', () => {
+    const card = (extra: Parameters<typeof job>[2]) => jobTrail(job('a', 'needs-you', { level: 2, stage: 'plan', ...extra }), { levels: LEVELS, now: NOW, where: 'card' })!.now;
+    expect(card({ waitingFor: 'answers' })).toBe('the Foreman asked you something. Open the job to answer it.');
+    expect(card({ permissions: 1 })).toBe('the Foreman wants your permission for a step. Allow or deny it above, or open the job.');
+  });
+
+  it('paused with automatic carry-on off, or with a reply held for the reset: says what you do, and what runs then', () => {
+    const paused = job('a', 'paused', { level: 1, stage: 'test', limitPaused: at(15, 42), limitAuto: false });
+    expect(trail(paused).next).toBe('Then: press Carry on now once it resets (automatic carry-on is off), and Tester carries on running the checks.');
+    const usage = { limited: true, blocking: true, autoResume: true, jobs: [{ slug: 'a', title: 'A', held: true }] };
+    const held = jobTrail(job('a', 'paused', { level: 1, stage: 'test', limitPaused: at(15, 42) }), { levels: LEVELS, now: NOW, usage: usage as never })!;
+    expect(held.next).toBe('Then: your held reply goes to the Foreman, and Head inspector and the reviewers look at the change.');
   });
 
   it('names each stage by who does it', () => {

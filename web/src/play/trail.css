@@ -49,7 +49,8 @@
 .job-trail.is-full .trail-field::before { left: 6px; }
 .job-trail.is-full .trail-field::after { right: 6px; transform: scale(.8); transform-origin: 50% 100%; }
 
-.trail-stars { position: absolute; top: var(--space-2); right: var(--space-3); color: var(--crew-gold); font-size: var(--text-md); letter-spacing: .08em; line-height: 1; }
+/* The difficulty, at the end of the Now line (Full), never on the field where a crew member may stand. */
+.trail-stars { float: right; margin-left: var(--space-2); color: var(--crew-gold); font-size: var(--text-md); letter-spacing: .08em; line-height: 1.4; }
 
 /* ---------- The road and its stops ---------- */
 
@@ -95,7 +96,7 @@
   padding: 0 6px;
   overflow: hidden;
   border-radius: var(--chip-radius);
-  color: var(--text-2);
+  color: var(--text-1);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
   text-overflow: ellipsis;
@@ -115,8 +116,8 @@
   height: 22px;
   border: 2px solid var(--bg-2);
   border-radius: 50%;
-  background: var(--group-needs-you-line);
-  color: var(--text-1);
+  background: var(--group-needs-you-fg);
+  color: var(--bg-1);
   font-size: var(--text-sm);
   font-weight: var(--weight-bold);
   line-height: 18px;
@@ -136,9 +137,10 @@
 .job-trail[data-group="idle"] .trail-lead { color: var(--group-idle-fg); }
 .trail-next { margin: 2px 0 0; color: var(--text-2); }
 
-/* A floor card, or a narrow pane: only the current stop and the goal keep their names. */
-.job-trail.is-card .trail-stop:not(.is-here, .is-goal) .trail-label { visibility: hidden; }
+/* A floor card, or a narrow pane: only the current stop and the goal show their names (the others
+   stay for screen readers, clipped out of sight). */
+.job-trail.is-card .trail-stop:not(.is-here, .is-goal) .trail-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @container (max-width: 520px) {
-  .trail-stop:not(.is-here, .is-goal) .trail-label { visibility: hidden; }
+  .trail-stop:not(.is-here, .is-goal) .trail-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .job-trail.is-full .trail-field::before, .job-trail.is-full .trail-field::after { display: none; }
 }

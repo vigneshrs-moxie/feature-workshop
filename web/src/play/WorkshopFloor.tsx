@@ -17,7 +17,7 @@ import { useWorkshopState } from '../state/store';
 import { jobHueStyle } from '../theme/hue';
 import { CrewMember } from './CrewMember';
 import { CREW_SIZE } from './crewSizes';
-import { floorJobs, floorSpeech } from './floorModel';
+import { closedText, floorJobs, floorSpeech } from './floorModel';
 import { JobTrail } from './JobTrail';
 import { usePlayIfAny } from './usePlay';
 
@@ -29,13 +29,13 @@ function FloorCard({ job, now }: { job: Job; now: Date }) {
       <div className="floor-card-head">
         <span className="hue-dot" style={jobHueStyle(job.slug)} aria-hidden="true" />
         {/* The whole card opens the job (the link's box covers it); its name is the job's title. */}
-        <h3 className="floor-card-title"><a href={jobHref(job.slug)} title={`Open ${title}: its conversation with the Foreman.`}>{title}</a></h3>
+        <h4 className="floor-card-title"><a href={jobHref(job.slug)} title={`Open ${title}: its conversation with the Foreman.`}>{title}</a></h4>
         <span className={`job-status status-${status.group}`} data-group={status.group} title={status.hint}>
           <span className={`glyph status-${status.group}`} aria-hidden="true">{status.glyph}</span>
           <span className="job-status-label">{status.label}</span>
         </span>
       </div>
-      <JobTrail job={job} variant="card" />
+      <JobTrail job={job} now={now} variant="card" />
     </li>
   );
 }
@@ -48,7 +48,7 @@ export function WorkshopFloor() {
   if (!play?.on) return null;
   const speech = floorSpeech(jobs, usage, now);
   const open = floorJobs(jobs);
-  const done = jobs.length - open.length;
+  const closed = closedText(jobs);
   return (
     <div className="workshop-floor">
       <section className="floor-foreman" aria-label="The Foreman">
@@ -86,7 +86,7 @@ export function WorkshopFloor() {
       {open.length > 0 && (
         <section className="floor-jobs" aria-label="On the floor">
           <h3 className="settings-heading" title="Every open job, with its trail: the stages it runs and who is on the current one.">On the floor</h3>
-          <p className="muted floor-hint">Pick a job to open its conversation.{done > 0 ? ` ${done === 1 ? '1 finished job is' : `${done} finished jobs are`} in the list on the left.` : ''}</p>
+          <p className="muted floor-hint">Pick a job to open its conversation.{closed ? ` ${closed} in the list on the left.` : ''}</p>
           <ul className="floor-grid">
             {open.map((j) => <FloorCard key={j.slug} job={j} now={now} />)}
           </ul>

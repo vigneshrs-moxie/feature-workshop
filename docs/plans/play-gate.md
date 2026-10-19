@@ -20,9 +20,18 @@
   - Everything Play draws is about 1.4× bigger, from one size scale (`web/src/play/crewSizes.ts`). Full is a little bigger than Subtle.
   - Bigger toasts (still only over the Preview pane), Crew-dex cards, medals, and the boss and stamina bars.
   - The Foreman is the mascot by "Feature Workshop", with "Your crew, your features, your turn".
-- **Glass theme:** frosted, translucent panes over a slow aurora, with thin bright edges and big rounded corners. Everyone has it. Explorer still counts the five original themes and now names them.
+- **Glass theme:** frosted, translucent panes over a soft aurora, with thin bright edges and big rounded corners. Everyone has it. Explorer still counts the five original themes and now names them.
 - **Kept:** Off is still the phase 2 page exactly; no model calls; nothing over a gate card, permission card or the composer; reduced motion holds everything still.
-- **Tests (real run):** `npm test` 283/283, `npm run web:test` 551/551, `tsc` clean, the build 514 kB. Demo walk: 34/34 checks, no console errors.
+- **Tests (real run):** `npm test` 283/283, `npm run web:test` 563/563, `tsc` clean, the build 515 kB. Demo walk: 34/34 checks, no console errors.
+- **Independent review:** 1 blocker, 5 majors and 14 minors. All are fixed.
+  - **Blocker:** in Glass, the composer's blur trapped the full-screen "Send…" dialog inside the composer, with its Send button off screen. The blur now sits only where nothing can hold a dialog. A real-browser check found the dialog fills the screen and its button can be clicked, and a test guards where the blur may go.
+  - **Majors:**
+    - The build dropped Glass's blur in Chrome. A test now runs the build's minifier on it.
+    - The trail ignored a job's own skipped stages and guessed a next stage for jobs with no level.
+    - Floor cards said "below" where nothing is below.
+    - The rail's needs-you count had low contrast in Glass.
+    - A paused job with automatic carry-on off said the crew "carries on" by itself.
+  - **Minors:** labels kept for screen readers, card headings, odd "waiting yesterday" wording, dropped jobs counted as finished, the stars moved off the crew, one clock per list, the hooks added to THEMING.md, and the missing tests.
 
 ## What's built
 

@@ -193,8 +193,8 @@
   height: 14px;
   border: 1.5px solid var(--bg-1);
   border-radius: 50%;
-  background: var(--group-needs-you-line);
-  color: var(--text-1);
+  background: var(--group-needs-you-fg);
+  color: var(--bg-1);
   font-size: 9px;
   font-weight: var(--weight-bold);
   line-height: 11px;

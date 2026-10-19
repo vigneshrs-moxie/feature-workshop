@@ -191,7 +191,7 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree, det
         <JobMenu job={job} dir={dir} policyOverride={policyOverride} run={run} worktree={worktree} />
       </div>
       {/* Play: the trail (the stages as a path, who is on the current one, and what happens next). */}
-      <JobTrail job={job} />
+      <JobTrail job={job} now={now} />
       <p className="job-facts muted">
         <span className={`status status-${job.group}`} data-group={job.group} title={GROUP_HINTS[job.group]}>{GROUP_LABELS[job.group] ?? job.group}</span>
         {kind && <span title="What kind of job this is.">{kind}</span>}

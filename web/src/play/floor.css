@@ -72,7 +72,8 @@
 .floor-card-title a:focus-visible { outline: none; }
 /* The link's box covers the whole card, so a click anywhere on it opens the job. */
 .floor-card-title a::after { content: ""; position: absolute; inset: 0; z-index: 3; border-radius: inherit; }
-.floor-card .job-status { flex: none; font-size: var(--text-sm); }
+/* Above the link's box, so its hover hint still shows. */
+.floor-card .job-status { position: relative; z-index: 4; flex: none; font-size: var(--text-sm); }
 .floor-card .job-trail { margin: var(--space-2) 0 0; }
 
 @media (prefers-reduced-motion: reduce) {

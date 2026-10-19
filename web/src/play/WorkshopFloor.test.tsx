@@ -8,10 +8,10 @@ import type { Job, PlayMode } from '../api/types';
 import { ForemanPane } from '../panes/Foreman/ForemanPane';
 import { createStore, WorkshopContext } from '../state/store';
 import { job, LEVELS, permission, snapshot } from '../state/test-fixtures';
-import { askOf, floorJobs, floorSpeech } from './floorModel';
+import { askOf, closedText, floorJobs, floorSpeech, waited } from './floorModel';
 
 const NOW = new Date(2026, 9, 16, 15, 0);
-const at = (h: number, m: number) => new Date(2026, 9, 16, h, m).toISOString();
+const at = (h: number, m: number, sec = 0) => new Date(2026, 9, 16, h, m, sec).toISOString();
 
 const JOBS: Job[] = [
   job('newer', 'needs-you', { title: 'Widget export', stage: 'review', waitingFor: 'answers', waitingSince: at(14, 13), level: 2 }),
@@ -59,7 +59,7 @@ describe('the workshop floor', () => {
     floor('full');
     const onFloor = screen.getByRole('region', { name: 'On the floor' });
     expect(onFloor).toHaveTextContent('1 finished job is in the list on the left.');
-    const titles = within(onFloor).getAllByRole('heading', { level: 3 }).slice(1).map((h) => h.textContent);
+    const titles = within(onFloor).getAllByRole('heading', { level: 4 }).map((h) => h.textContent);
     expect(titles).toEqual(['Customer notes', 'Widget export', 'Bulk archive', 'Dark mode']);
     const busy = within(onFloor).getByRole('link', { name: 'Bulk archive' }).closest('li')!;
     expect(busy).toHaveAttribute('data-group', 'running');
@@ -93,6 +93,24 @@ describe('floorModel', () => {
   it('orders the open jobs: needs you (longest wait first), running, paused, idle', () => {
     const paused = job('zz', 'paused', { limitPaused: at(15, 42) });
     expect(floorJobs([...JOBS, paused]).map((j) => j.slug)).toEqual(['older', 'newer', 'busy', 'zz', 'rest']);
+  });
+
+  it('says how long in words that read: “47m”, “since yesterday”', () => {
+    expect(waited(job('a', 'needs-you', { waitingSince: at(14, 13) }), NOW)).toBe('47m');
+    expect(waited(job('a', 'needs-you', { waitingSince: new Date(2026, 9, 15, 9, 0).toISOString() }), NOW)).toBe('since yesterday');
+    expect(waited(job('a', 'needs-you', { waitingSince: at(14, 59, 50) }), NOW)).toBe('');
+  });
+
+  it('counts finished and dropped jobs apart', () => {
+    const dropped = job('d', 'done', { closed: { as: 'dropped', at: at(9, 0) } });
+    expect(closedText([JOBS[4]])).toBe('1 finished job is');
+    expect(closedText([JOBS[4], dropped])).toBe('1 finished and 1 dropped jobs are');
+    expect(closedText([JOBS[0]])).toBe('');
+  });
+
+  it('the Foreman’s other moods: asleep in a usage pause, idle when nothing runs', () => {
+    expect(floorSpeech([job('p', 'paused', { limitPaused: at(15, 42) })], null, NOW)).toMatchObject({ mood: 'asleep', say: 'Nothing needs you. The crew are asleep until Claude’s usage limit resets (1 job).' });
+    expect(floorSpeech([job('i', 'idle')], null, NOW)).toMatchObject({ mood: 'idle', say: 'Nothing needs you and nothing is running. Open a job to carry on, or start a new one.' });
   });
 
   it('names at most four asks and counts the rest', () => {

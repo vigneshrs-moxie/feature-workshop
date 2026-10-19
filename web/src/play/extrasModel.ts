@@ -51,6 +51,8 @@ export function questTrack(job: Job, levels?: LevelInfo[] | null, done?: boolean
   if (!isLevel(job.level)) return null;
   const level = job.level;
   const skip = new Set(levels?.find((l) => l.level === level)?.skip ?? DEFAULT_SKIP[level]);
+  // The job's own skipped stages too (its options' Skip list and route: the card's `skipped`).
+  if (Array.isArray(job.skipped)) for (const id of job.skipped) if (typeof id === 'string') skip.add(id);
   const stage = typeof job.stage === 'string' ? job.stage : null;
   const pastGoal = stage !== null && AFTER_GOAL.has(stage);
   const finished = done ?? (job.group === 'done' || pastGoal);

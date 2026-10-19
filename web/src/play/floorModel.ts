@@ -16,10 +16,21 @@ const time = (iso: unknown) => (typeof iso === 'string' && Number.isFinite(Date.
 /** When a job started waiting for you (its gate's time, else its last change). */
 const waitingFrom = (job: Job) => (job.waitingSince ? time(job.waitingSince) : time(job.updatedAt));
 
-/** "5h", "47m": how long, for "waiting 47m"; '' when unknown. */
-function waited(job: Job, now: Date): string {
+/** How long a job has waited, for after "waiting": "47m", "5h", "since yesterday", "since Oct 12"; '' when unknown or just now. */
+export function waited(job: Job, now: Date): string {
   const ago = relativeTime(job.waitingSince ?? job.updatedAt ?? null, now);
-  return ago && ago !== 'just now' ? ago : '';
+  if (!ago || ago === 'just now') return '';
+  return /^\d+[mhd]$/.test(ago) ? ago : `since ${ago}`;
+}
+
+/** The closed jobs, said in words for the floor: "1 finished job is", "2 finished and 1 dropped job are". */
+export function closedText(jobs: readonly Job[]): string {
+  const closed = jobs.filter((j) => j.group === 'done');
+  const dropped = closed.filter((j) => (j.closed as { as?: string } | null | undefined)?.as === 'dropped').length;
+  const finished = closed.length - dropped;
+  if (!closed.length) return '';
+  const parts = [finished && `${finished} finished`, dropped && `${dropped} dropped`].filter(Boolean).join(' and ');
+  return `${parts} job${closed.length === 1 ? ' is' : 's are'}`;
 }
 
 /** What a job needs from you, in a few words: "give the go-ahead on Plan". */

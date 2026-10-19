@@ -78,21 +78,49 @@ export interface TrailInputs {
   done?: boolean;
   usage?: Usage | null;
   now?: Date;
+  /** Where the line is read: under the job's title (its cards are below) or on a floor card. */
+  where?: 'header' | 'card';
 }
 
-/** The job's trail. A job with no level yet walks the Standard (L2) stages, without difficulty stars. */
-export function jobTrail(job: Job, { levels, done, usage, now = new Date() }: TrailInputs = {}): Trail | null {
-  const leveled = isLevel(job.level);
-  const track = questTrack(leveled ? job : { ...job, level: 2 }, levels, done);
+/** The stages after the quest's goal, in order. */
+const AFTER_GOAL: readonly string[] = ['pr1', 'pr2', 'staging-qa', 'pr3'];
+
+/** The level a job's path is drawn for: its own, else the Foreman's suggestion, else the rules'. */
+function pathLevel(job: Job) {
+  if (isLevel(job.level)) return job.level;
+  if (isLevel(job.suggestedLevel)) return job.suggestedLevel;
+  const rules = job.rulesLevel?.level;
+  return isLevel(rules) ? rules : null;
+}
+
+/**
+ * The job's trail. Its path skips what the job's level and its own options skip (job.skipped). A
+ * job with no level, suggested or chosen, walks the Standard (L2) stages, without difficulty stars
+ * and without naming a next stage it may never run.
+ */
+export function jobTrail(job: Job, { levels, done, usage, now = new Date(), where = 'header' }: TrailInputs = {}): Trail | null {
+  const level = pathLevel(job);
+  const track = questTrack({ ...job, level: level ?? 2 }, levels, done);
   if (!track) return null;
   const stage = typeof job.stage === 'string' ? job.stage : null;
+  const skipped = new Set(Array.isArray(job.skipped) ? job.skipped.filter((x): x is string => typeof x === 'string') : []);
   const at = track.stops.findIndex((s) => s.state === 'current');
   const upcoming = at >= 0 ? track.stops[at + 1] ?? null : track.stops.find((s) => s.state === 'next') ?? null;
-  const nextPhrase = upcoming ? stagePhrase(upcoming.id) : null;
+  // Past the goal, what comes next is after it (PR #2, staging QA, PR #3), unless skipped.
+  const afterGoal = track.finished && stage && AFTER_GOAL.includes(stage)
+    ? AFTER_GOAL.slice(AFTER_GOAL.indexOf(stage) + 1).find((s) => !skipped.has(s)) ?? null
+    : null;
+  const nextStage = track.finished ? afterGoal : level === null ? null : upcoming?.id ?? null;
+  const nextPhrase = nextStage ? stagePhrase(nextStage) : null;
   const atStage = track.finished ? 'conductor' : (stage && STAGE_CHARACTER[stage]) || 'conductor';
   const status = jobStatus(job, now);
   const dropped = job.group === 'done' && (job.closed as { as?: string } | null | undefined)?.as === 'dropped';
-  const base = { stops: track.stops, finished: track.finished, stars: leveled ? track.stars : null, difficulty: leveled ? track.difficulty : null };
+  const base = { stops: track.stops, finished: track.finished, stars: isLevel(job.level) ? track.stars : null, difficulty: isLevel(job.level) ? track.difficulty : null };
+  // The line after "Now" or "Your move": the next stage, and past the goal, that the quest is done.
+  const following = (word: 'Next' | 'Then') => {
+    if (track.finished) return nextPhrase ? `${word}: ${nextPhrase}. The quest itself is already done.` : 'The quest itself is already done.';
+    return nextPhrase ? `${word}: ${nextPhrase}.` : null;
+  };
 
   if (dropped) {
     return { ...base, who: 'conductor', mood: 'idle', ask: false, lead: 'Dropped', now: 'You dropped this job. Reopen it from the job menu to carry on.', next: null };
@@ -100,36 +128,40 @@ export function jobTrail(job: Job, { levels, done, usage, now = new Date() }: Tr
   if (job.group === 'done') {
     return { ...base, who: 'conductor', mood: 'celebrating', ask: false, lead: 'Done', now: track.finished ? 'The quest is complete. Nice work, crew.' : 'This job is finished.', next: null };
   }
-  // Past the goal while the job carries on (PR #2 and on): the line follows the job, the Foreman
-  // stands at the goal, and the line under it says the quest itself is done.
-  const after = track.finished ? 'The quest is done: its goal is reached. This is what comes after.' : null;
   if (usagePaused(job, usage)) {
     const who = workersNow(job)[0] ?? atStage;
     const doing = stage && DOING[stage] ? ` ${DOING[stage]}` : '';
-    return { ...base, who, mood: 'asleep', ask: false, lead: 'Paused', now: `Claude’s usage limit stopped the crew (${status.label}).`, next: after ?? `Then: ${named(who)} carries on${doing}.` };
+    const auto = job.limitAuto !== false && usage?.autoResume !== false;
+    const held = Boolean(usage?.jobs?.find((j) => j.slug === job.slug)?.held);
+    // A reply held for the reset ("Approve, start after reset") starts the next stage; otherwise they carry on where they were.
+    const then = held ? `your held reply goes to the Foreman${nextPhrase ? `, and ${lower(nextPhrase)}` : ''}` : `${named(who)} carries on${doing}`;
+    const next = auto ? `Then: ${then}.` : `Then: press Carry on now once it resets (automatic carry-on is off), and ${then}.`;
+    return { ...base, who, mood: 'asleep', ask: false, lead: 'Paused', now: `Claude’s usage limit stopped the crew (${status.label}).`, next };
   }
   if (job.group === 'needs-you') {
-    const then = after ?? (nextPhrase ? `Then: ${nextPhrase}.` : null);
+    const card = where === 'card';
     const what = status.label === 'Go-ahead'
       ? `the Foreman is waiting for your go-ahead${stage ? ` on ${stageLabel(stage)}` : ''}.`
       : status.label === 'Question'
-        ? 'the Foreman asked you something. Answer it below.'
+        ? `the Foreman asked you something. ${card ? 'Open the job to answer it.' : 'Answer it below.'}`
         : status.label === 'Your turn'
           ? 'the Foreman is waiting for your reply.'
-          : 'the Foreman wants your permission for a step. Allow or deny it below.';
-    return { ...base, who: atStage, mood: 'waiting', ask: true, lead: 'Your move', now: what, next: then };
+          : `the Foreman wants your permission for a step. ${card ? 'Allow or deny it above, or open the job.' : 'Allow or deny it below.'}`;
+    return { ...base, who: atStage, mood: 'waiting', ask: true, lead: 'Your move', now: what, next: following('Then') };
   }
   if (job.group === 'running') {
-    const next = after ?? (nextPhrase ? `Next: ${nextPhrase}.` : null);
-    if (job.starting) return { ...base, who: 'conductor', mood: 'thinking', ask: false, lead: 'Now', now: 'The Foreman is reading your request.', next };
+    if (job.starting) return { ...base, who: 'conductor', mood: 'thinking', ask: false, lead: 'Now', now: 'The Foreman is reading your request.', next: 'Next: it suggests a level and writes its first brief.' };
     const who = workersNow(job)[0] ?? atStage;
     const doing = stage && DOING[stage] ? DOING[stage] : 'working';
-    return { ...base, who, mood: 'working', ask: false, lead: 'Now', now: `${Named(who)} is ${doing}.`, next };
+    return { ...base, who, mood: 'working', ask: false, lead: 'Now', now: `${Named(who)} is ${doing}.`, next: following('Next') };
   }
   const stopped = status.label === 'Stopped';
   return {
     ...base, who: atStage, mood: 'idle', ask: false, lead: stopped ? 'Stopped' : 'Idle',
     now: stopped ? 'You stopped the last reply. Write to the Foreman to carry on.' : 'Nothing is happening right now. Write to the Foreman to carry on.',
-    next: after ?? (nextPhrase ? `Next: ${nextPhrase}.` : null),
+    next: following('Next'),
   };
 }
+
+/** "The Foreman opens PR #1" → "the Foreman opens PR #1" (mid-sentence). */
+const lower = (phrase: string) => (phrase.startsWith('The ') ? `t${phrase.slice(1)}` : phrase);
