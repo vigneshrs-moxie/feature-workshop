@@ -14,6 +14,12 @@
 // Play layer: Widget Export's conversation starts with the routine steps that handed each stage to
 // its worker (widgetThread), so the crew show on handoff lines and the review brief's lineup. For
 // the Crew-dex: Report Scheduler has a lens review (blockers and majors), and two secrets are found.
+//
+// Play layer, the whole quest (step 8): Invoice Merge is an L3 job whose checks have passed. Say go
+// and every lens reviews it (a blocker, two majors and a minor: the boss fight, in Play mode Full);
+// go again for the fix round (boss defeated, with only the minor left); go again for PR #1, and once
+// more to open it: its link is recorded, so the quest is done (Settings → Play → "the first PR is
+// created"). With "I mark the job done" instead, the quest is done when you mark it done (⌘K).
 
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -542,6 +548,45 @@ async function levelJobs() {
       ].join('\n') }],
     });
     await options('invoice-footer-typo', 0, description);
+  }
+
+  // L3 with its checks passed: the next go starts the review, and the quest (see the top).
+  {
+    const description = 'Merge duplicate invoices for the same customer and month';
+    await feature('invoice-merge', {
+      status: {
+        title: 'Invoice Merge', kind: 'feature', route: 'large', stage: 'test', stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: iso(11 * MIN),
+        brief: { number: 6, path: 'briefs/006-test.md', headline: 'Invoice Merge · checks pass' },
+        questions: [], decided_on_your_behalf: [], next_proposed: 'The review: all eight lenses',
+        spec: { path: `${ACME}/docs/plans/2026-10-12-invoice-merge-product-spec.md`, version: '0.3', status: 'APPROVED' },
+        branch: 'feature/invoice-merge', repo, prs: [{ number: 1, label: 'fork → org branch', url: null, state: 'not_started' }],
+        session_id: 'demo-sess-0010', ...suggestion(description, 3), updated_at: iso(11 * MIN),
+      },
+      briefs: [
+        { stage: 'spec', text: '**Invoice Merge · spec v0.1 ready**\n\nDemo brief.' },
+        { stage: 'refine', text: '**Invoice Merge · product interview done**\n\nDemo brief.' },
+        { stage: 'investigate', text: '**Invoice Merge · investigate done**\n\nDemo brief.' },
+        { stage: 'plan', text: '**Invoice Merge · plan v2 approved**\n\nDemo brief.' },
+        { stage: 'implement', text: '**Invoice Merge · built (S1–S4)**\n\nDemo brief.' },
+        { stage: 'test', text: '**Invoice Merge · checks pass**\n\n**What happened**\n- The Tester ran test plan v2: 9 of 9 checks pass.\n\n**Next:** the review, with all eight lenses (L3).' },
+      ],
+    });
+    await options('invoice-merge', 3, description);
+    // Its Foreman session so far, so a reply carries on in it.
+    await writeSession({
+      sessionId: 'demo-sess-0010', featureDir: path.join(FEATURES, 'invoice-merge'), prompt: `/feature ${description}`, startAgo: 40 * HOUR,
+      conductorTurns: [
+        { dispatch: 'feature-spec-writer', description: 'Draft spec', ago: 40 * HOUR }, { ago: 39 * HOUR },
+        { dispatch: 'feature-investigator', description: 'Investigate', ago: 30 * HOUR }, { ago: 29 * HOUR },
+        { dispatch: 'feature-planner', description: 'Plan', ago: 20 * HOUR }, { ago: 19 * HOUR },
+        { dispatch: 'feature-implementer', description: 'Implement S1–S4', ago: 3 * HOUR }, { ago: 2 * HOUR },
+        { dispatch: 'feature-tester', description: 'Run checks', ago: 30 * MIN }, { ago: 11 * MIN },
+      ],
+      workers: [
+        { type: 'feature-implementer', description: 'Implement S1–S4', model: 'claude-opus-5-5', startAgo: 3 * HOUR, endAgo: 2.2 * HOUR, finished: true, steps: [['Edit', { file_path: `${ACME}/app/src/invoices/merge.ts` }]] },
+        { type: 'feature-tester', description: 'Run checks', model: 'claude-sonnet-5-5', startAgo: 30 * MIN, endAgo: 12 * MIN, finished: true, steps: [['Bash', { description: 'npm run check' }]] },
+      ],
+    });
   }
 
   // L1 at its quick-plan card: one question.

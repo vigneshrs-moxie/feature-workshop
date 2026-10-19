@@ -10,7 +10,14 @@
 //       you try it, review. L3 the same, plus the product interview and Fable's second looks.
 //   No level yet: the spec first, with the Foreman's suggested level (the rules' level-rules.js)
 //   in its brief, so the LevelCard has something to show. Its first brief always names one.
-// Before each pretend dispatch it writes a `working` status, as the real Foreman does.
+// Before each pretend dispatch it writes a `working` status, as the real Foreman does, and hands
+// the work over with an Agent step, so the dashboard allows it as routine ("Start a helper: …") and
+// the Play layer meets that crew member.
+//
+// The review writes review.md. At L3 its first round raises a blocker, two majors and a minor (the
+// Play layer's boss fight); approving it runs a fix round, whose second round leaves only the minor
+// (boss defeated). Below L3 the first round has one minor. Approving PR #1 "opens" it: status.json
+// gets its link, so a quest is done when that is the Settings → Play rule.
 //
 // It reacts to the gate card's option lines in your reply ("Option change for the next step: …"):
 // skip (the stage is left out), lighter / heavier (acknowledged; at L0 "heavier implement" brings
@@ -37,6 +44,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { suggestLevel } from '../lib/level-rules.js';
+import { parseReviewFindings } from '../lib/play.js';
 import { FABLE_POINTS, flowFor, isLevel, levelLabel, OPUS, REVIEWERS, skippedFor } from '../lib/options.js';
 import { STAGES as STAGE_LIST } from '../lib/stages.js';
 
@@ -161,7 +169,12 @@ export function makeFakeQuery({ featuresDir, autoAvailable = !process.env.WORKSH
       // The pretend crew, one dispatch at a time, each after a `working` status.
       for (const d of plan?.dispatches ?? []) {
         await plan.working(d);
-        yield say(d.say, [{ type: 'tool_use', id: `t-${randomUUID().slice(0, 8)}`, name: 'Agent', input: { subagent_type: d.agent, description: d.description } }]);
+        const id = `t-${randomUUID().slice(0, 8)}`;
+        const agent = { subagent_type: d.agent, description: d.description, prompt: `${d.description}. Private folder: ${dir}` };
+        yield say(d.say, [{ type: 'tool_use', id, name: 'Agent', input: agent }]);
+        const handed = await useTool('Agent', agent, { id });
+        yield* queue.splice(0);
+        if (handed.behavior !== 'allow') { yield say(`Okay, not starting ${d.description.toLowerCase()}.`); continue; }
         for (const line of d.lines ?? []) {
           await nap(450);
           yield say(line);
@@ -355,6 +368,34 @@ const QUICK_QUESTION = { id: '1', text: 'Where should the change go?', recommend
 // The review lenses a level runs by default ("auto": the usual four for this kind of change).
 const AUTO_LENSES = ['feature-reviewer', 'feature-review-permissions', 'feature-review-tests', 'feature-review-conventions'];
 const lensName = (id) => REVIEWERS.find((r) => r.id === id)?.label ?? id;
+const hashOf = (text) => [...String(text)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+
+// review.md's first round: at L3 a blocker, two majors and a minor (a boss to fight), else one minor.
+function reviewRoundOne(title, lenses, boss) {
+  const by = (id, fallback) => lensName(lenses.includes(id) ? id : fallback);
+  const rows = boss
+    ? [
+        ['R-1', 'blocker', by('feature-review-permissions', lenses[0]), 'A non-admin can reach the merge endpoint directly.', 'open'],
+        ['R-2', 'major', by('feature-review-db', lenses[0]), 'The merge isn’t in one transaction: a failure halfway leaves two half-customers.', 'open'],
+        ['R-3', 'major', by('feature-review-errors', lenses[0]), 'Merging a customer into itself throws instead of saying no.', 'open'],
+        ['R-4', 'minor', by('feature-review-ui', lenses[0]), 'The confirm button says “OK” rather than what it does.', 'open'],
+      ]
+    : [['R-1', 'minor', lensName(lenses[0]), 'One message could be clearer.', 'open']];
+  const counts = boss ? '1 blocker, 2 majors, 1 minor' : '0 blockers, 0 majors, 1 minor';
+  return [
+    `# Review: ${title} (demo)`, '', '## Round 1', '', `**Result:** ${counts}`, '',
+    '| ID | Severity | Lens | Finding | Status |', '|---|---|---|---|---|',
+    ...rows.map((r) => `| ${r.join(' | ')} |`), '',
+  ].join('\n');
+}
+const REVIEW_ROUND_TWO = [
+  '## Round 2', '', '**Result:** 0 blockers, 0 majors, 1 minor', '',
+  '| ID | Severity | Lens | Finding | Status |', '|---|---|---|---|---|',
+  '| R-1 | blocker | Locksmith | A non-admin can reach the merge endpoint directly. | Fixed |',
+  '| R-2 | major | Mason | The merge isn’t in one transaction. | Fixed |',
+  '| R-3 | major | Fuse | Merging a customer into itself throws. | Fixed |',
+  '| R-4 | minor | Painter | The confirm button says “OK” rather than what it does. | open |', '',
+].join('\n');
 
 /**
  * Work out what this reply does to the job in `dir`. Returns
@@ -372,7 +413,8 @@ async function planReply(dir, reply, { sessionId }) {
     schema_version: 1, slug, title: options?.title || slug, kind: options?.kind ?? 'feature', route: 'small', stage: 'spec',
     ...(options?.repo ? { repo: { path: options.repo, base_branch: 'main' } } : {}),
   };
-  s.session_id = s.session_id ?? sessionId;
+  // The session this reply runs in, as the real Foreman records it (a fresh one when the old one had no log).
+  s.session_id = sessionId;
   const title = s.title ?? slug;
   const chosen = isLevel(options?.level) ? options.level : null;
   const level = chosen ?? (isLevel(s.suggested_level) ? s.suggested_level : null);
@@ -512,6 +554,44 @@ async function planReply(dir, reply, { sessionId }) {
     return out;
   }
 
+  // A review that still has blockers or majors: a fix round, then a second review round.
+  if (stage === 'review') {
+    const text = await fs.readFile(path.join(dir, 'review.md'), 'utf8').catch(() => '');
+    const open = parseReviewFindings(text);
+    if (open && open.blockers + open.majors > 0) {
+      dispatch('review', 'feature-implementer', 'Fix round', 'The Builder is fixing R-1 to R-3.', ['Builder: three fix commits on the branch.']);
+      dispatch('review', 'feature-reviewer', 'Review round 2', 'The Head inspector is checking the fixes.', ['Head inspector: R-1 to R-3 fixed; R-4 (minor) left for you.']);
+      out.finish = async () => {
+        await fs.writeFile(path.join(dir, 'review.md'), `${text.trimEnd()}\n\n${REVIEW_ROUND_TWO}`);
+        const headline = `${title} · review round 2 done`;
+        await writeBrief(dir, s, {
+          stage: 'review', headline,
+          lines: ['**What happened**\n- The fix round fixed R-1 to R-3; the second review round found nothing new: 0 blockers, 0 majors, 1 minor (R-4, yours to decide).', '\n**Next:** PR #1 (opening it needs its own yes).'],
+          next: 'PR #1: push the branch to your fork and open it (each needs your yes)',
+        });
+        done(headline);
+      };
+      return out;
+    }
+  }
+
+  // PR #1 approved: "open" it (the demo pushes nothing), so status.json has its link.
+  if (stage === 'pr1' && !s.prs?.[0]?.url) {
+    out.finish = async () => {
+      const number = 100 + (hashOf(slug) % 800);
+      const url = `https://github.com/example/acme-portal/pull/${number}`;
+      s.prs = [{ number: 1, label: 'fork → org branch', url, state: 'open' }, ...(s.prs ?? []).slice(1)];
+      const headline = `${title} · PR #1 open`;
+      await writeBrief(dir, s, {
+        stage: 'pr1', headline,
+        lines: [`**What happened**\n- PR #1 is open: ${url}`, '\n**Next:** PR #2, once PR #1 is merged.'],
+        next: 'PR #2 (needs your yes)',
+      });
+      done(headline);
+    };
+    return out;
+  }
+
   const next = STAGES.slice(at(stage) + 1).find((x) => !skipped.has(x)) ?? null;
   const self = chip('self');
   if (self && self.stage === next) {
@@ -553,11 +633,18 @@ async function planReply(dir, reply, { sessionId }) {
     dispatch('review', lenses[0], 'Review', `${lenses.length} reviewer${lenses.length === 1 ? '' : 's'} are looking at the change.`, lenses.map((id) => `${lensName(id)}: no blockers.`));
     if (fable.includes('review')) dispatch('review', 'feature-fable-check', 'Fable second look at the review', 'Fable is taking a second look at the review.', ['Fable: agrees with the review; one wording note.']);
     out.finish = async () => {
+      const boss = level === 3;
+      await fs.writeFile(path.join(dir, 'review.md'), reviewRoundOne(title, lenses, boss));
       const headline = `${title} · review done`;
+      const found = boss ? '1 blocker, 2 majors, 1 minor' : '0 blockers, 1 minor';
       await writeBrief(dir, s, {
         stage: 'review', headline,
-        lines: [`**What happened**\n- ${lenses.map(lensName).join(', ')} looked at the change: 0 blockers, 1 minor.`, ...(fable.includes('review') ? ['- **Fable second look at the review:** agrees; one wording note, taken.'] : []), '\n**Next:** PR #1 (opening it needs its own yes).'],
-        next: 'PR #1: push the branch to your fork and open it (each needs your yes)',
+        lines: [
+          `**What happened**\n- ${lenses.map(lensName).join(', ')} looked at the change: ${found}.`,
+          ...(fable.includes('review') ? ['- **Fable second look at the review:** agrees; one wording note, taken.'] : []),
+          boss ? '\n**Next:** a fix round for R-1 to R-3, then a second review round. R-4 (minor) is yours to decide.' : '\n**Next:** PR #1 (opening it needs its own yes).',
+        ],
+        next: boss ? 'Fix round for R-1 to R-3, then review round 2' : 'PR #1: push the branch to your fork and open it (each needs your yes)',
       });
       done(headline);
     };

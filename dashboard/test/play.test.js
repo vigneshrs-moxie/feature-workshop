@@ -938,3 +938,36 @@ test('easter eggs the dashboard serves: the Hex Sommelier commit, the crew heade
   for (const v of Object.values(h)) assert.match(v, /^[\x20-\x7e]+$/);
   assert.equal(TEAPOT.status, 418);
 });
+
+test('PlayBook: a muted refresh keeps quiet only about what came before it; a job marked done just after is still news', async () => {
+  const dir = await tempDir();
+  try {
+    const M = Date.parse(plus(T0, 60));
+    let clock = Date.parse(plus(T0, 30));
+    const input = { audit: [{ at: plus(T0, 10), action: 'close', as: 'done', featureDir: `${DIR}/old`, slug: 'old' }], jobs: [job('old', { level: 1 })] };
+    const quests = [];
+    const unlocked = [];
+    const book = new PlayBook({ dir, sources: fakeSources(input), now: () => clock, onQuest: (q) => quests.push(q.slug), onUnlock: (a) => unlocked.push(a.id) });
+    await book.refresh();
+    assert.equal(Object.keys(book.ledger.quests).length, 0, 'under "first PR" a close is no quest');
+
+    // The rule changes to "I mark the job done" at M; a job is marked done a second later, while
+    // the muted refresh is still to run.
+    clock = M;
+    input.play = { questDone: 'marked-done' };
+    book.schedule(0, { muted: true });
+    const close = { at: new Date(M + 1000).toISOString(), action: 'close', as: 'done', featureDir: `${DIR}/new`, slug: 'new' };
+    input.audit.push(close);
+    book.noteAudit(close);
+    input.jobs.push(job('new', { level: 1 }));
+    book.noteJob('new');
+    clock = M + 2000;
+    await wait(30);
+    await book.current();
+    assert.equal(Object.keys(book.ledger.quests).length, 2, 'both count now');
+    assert.deepEqual(quests, ['new'], 'only the one marked done after the change is celebrated');
+    assert.deepEqual(unlocked, [], 'First Quest went to the old one, from before: quiet');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

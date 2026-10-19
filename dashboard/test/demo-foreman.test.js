@@ -11,6 +11,7 @@ import { State } from '../lib/state.js';
 import { Driver } from '../lib/driver.js';
 import { defaultsForLevel, writeOptions } from '../lib/options.js';
 import { makeFakeQuery, readReply } from '../demo/fake-query.js';
+import { parseReviewFindings } from '../lib/play.js';
 
 const PACE = 0.02;
 
@@ -206,5 +207,41 @@ test('demo Foreman: raising the level once the build has started asks which stag
   assert.equal(asked.stage, 'implement');
   assert.match(asked.brief.headline, /^Which stages should I add at L3 Large/);
   assert.equal(asked.waiting_for, 'answers');
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test('demo Foreman, L3 review: a boss round, a fix round that leaves only the minor, then PR #1 gets its link', async () => {
+  const { root, featuresDir, driver } = await setup();
+  const { dir } = await newJob(featuresDir, 'invoice-merge', 'Merge duplicate invoices', 3);
+  await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({
+    schema_version: 1, slug: 'invoice-merge', title: 'Invoice merge', route: 'large', stage: 'test', stage_state: 'waiting_for_you', waiting_for: 'approval',
+    brief: { number: 6, path: 'briefs/006-test.md', headline: 'Invoice merge · test done' }, session_id: 'demo-l3', prs: [{ number: 1, url: null, state: 'not_started' }],
+  }));
+  const go = (text = 'I approve. Go ahead with the next stage') => reply(driver, dir, text, { sessionId: 'demo-l3' });
+  const findings = async () => parseReviewFindings(await fs.readFile(path.join(dir, 'review.md'), 'utf8'));
+
+  const one = await go();
+  assert.equal(one.status.stage, 'review');
+  assert.deepEqual(await findings().then((f) => [f.blockers, f.majors, f.minors]), [1, 2, 1]);
+  assert.match(one.status.next_proposed, /Fix round/);
+
+  const two = await go();
+  assert.equal(two.status.stage, 'review', 'a fix round stays in the review');
+  assert.deepEqual(await findings().then((f) => [f.blockers, f.majors, f.minors, f.round]), [0, 0, 1, 2]);
+  assert.match(two.status.next_proposed, /PR #1/);
+
+  const pr = await go();
+  assert.equal(pr.status.stage, 'pr1');
+  assert.equal(pr.status.prs[0].url, null, 'ready, not opened yet');
+  const open = await go();
+  assert.equal(open.status.stage, 'pr1');
+  assert.match(open.status.prs[0].url, /^https:\/\/github\.com\/example\/acme-portal\/pull\/\d+$/);
+  assert.equal(open.status.prs[0].state, 'open');
+
+  // Each worker was handed the work with an Agent step the dashboard allowed as routine.
+  const audit = (await fs.readFile(path.join(root, 'state', 'audit.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+  const helpers = audit.filter((e) => e.tool === 'Agent').map((e) => e.headline);
+  assert.ok(helpers.includes('Start a helper: feature-implementer'), helpers.join(' · '));
+  assert.ok(helpers.includes('Start a helper: feature-reviewer'));
   await fs.rm(root, { recursive: true, force: true });
 });

@@ -879,7 +879,9 @@ export const JOBS_EVERY_MS = 60_000;
  * isOn(): Play mode isn't Off. While it is Off, schedule() does nothing and nothing is folded (the
  * next refresh reads everything again). onUnlock(achievement) is called for each achievement a
  * refresh unlocks: not on a rebuild from scratch (it only finds what was already earned) and not on
- * a muted refresh (refresh({ muted: true }): Play turned back on, or the quest rule changed).
+ * a muted refresh (refresh({ muted: true }): Play turned back on, or the quest rule changed) for
+ * anything from before the mute was asked for. What happens after it (a job marked done a moment
+ * after the rule changed) is still news, even when it is read in the muted refresh.
  * onQuest(quest) likewise for each quest a refresh finds done (newlyDone), before its achievements;
  * onBoss({ slug, at, hp }) for each L3 review boss a refresh finds defeated (newlyDefeated), and
  * onReview({ slug }) for each job whose review round changed (so a page showing its boss refetches).
@@ -904,6 +906,9 @@ export class PlayBook {
     this.againMuted = false;
     this.timer = null;
     this.timerMuted = false;
+    this.timerMutedAt = null;
+    // A muted refresh keeps quiet only about what happened before this time (ms).
+    this.muteAt = null;
     // What has been read so far.
     this.fold = null;
     this.auditSeen = null; // { size, ino } at the last look
@@ -938,6 +943,7 @@ export class PlayBook {
     clearTimeout(this.timer);
     this.timer = null;
     this.timerMuted = false;
+    this.timerMutedAt = null;
     this.fold = null;
     this.auditSeen = null;
     this.pending = [];
@@ -968,7 +974,9 @@ export class PlayBook {
    * Bring the ledger up to date (merged with what it held) and save it when it changed. One at a
    * time: refreshes asked for meanwhile are folded into one more run (muted if any of them was).
    */
-  async refresh({ muted = false } = {}) {
+  async refresh({ muted = false, mutedAt = null } = {}) {
+    // mutedAt: when the mute was asked for (a muted schedule passes its own), else now.
+    if (muted) this.muteAt = Math.max(this.muteAt ?? 0, mutedAt ?? ms(this.now()) ?? Date.now());
     if (this.running) { this.again = true; this.againMuted ||= muted; return this.running; }
     this.running = (async () => {
       try {
@@ -997,7 +1005,10 @@ export class PlayBook {
     await this.#readJobs(gen);
     // Play went Off while reading (forget() dropped what was read): build nothing, save nothing.
     if (gen !== this.generation || !this.isOn() || !this.fold) return;
-    const next = ledgerFrom({ fold: this.fold, jobs: [...this.jobs.values()], play: this.sources.settings(), now: this.now(), previous: before });
+    // Muted, a quest whose time isn't known is stamped with the mute's time, not now: it (and what it
+    // unlocks) is from before the mute, so it stays quiet.
+    const now = muted && this.muteAt ? this.muteAt : this.now();
+    const next = ledgerFrom({ fold: this.fold, jobs: [...this.jobs.values()], play: this.sources.settings(), now, previous: before });
     // Unchanged, and play.json has it: nothing to write. A failed write is tried again here.
     if (before && sameLedger(before, next) && !this.unsaved) return;
     // The ledger in memory first: a failed write must not lose it (GET /api/play still answers).
@@ -1009,11 +1020,13 @@ export class PlayBook {
       this.unsaved = true;
       this.log('play ledger: could not save play.json:', err);
     }
-    if (!before || muted) return;
-    for (const q of newlyDone(before, next)) { try { this.onQuest(q); } catch { /* a listener's problem */ } }
-    for (const b of newlyDefeated(before, next)) { try { this.onBoss(b); } catch { /* a listener's problem */ } }
-    for (const slug of reviewsChanged(before, next)) { try { this.onReview({ slug }); } catch { /* a listener's problem */ } }
-    for (const a of newlyUnlocked(before, next)) { try { this.onUnlock(a); } catch { /* a listener's problem */ } }
+    if (!before) return;
+    // Muted: only what happened after the mute was asked for is news.
+    const news = (at) => !muted || (ms(at) ?? 0) > (this.muteAt ?? Infinity);
+    for (const q of newlyDone(before, next)) if (news(q.doneAt)) { try { this.onQuest(q); } catch { /* a listener's problem */ } }
+    for (const b of newlyDefeated(before, next)) if (news(b.at)) { try { this.onBoss(b); } catch { /* a listener's problem */ } }
+    if (!muted) for (const slug of reviewsChanged(before, next)) { try { this.onReview({ slug }); } catch { /* a listener's problem */ } }
+    for (const a of newlyUnlocked(before, next)) if (news(a.unlockedAt)) { try { this.onUnlock(a); } catch { /* a listener's problem */ } }
   }
 
   // The audit: everything at the first build, or when audit.jsonl shrank or was replaced; else the
@@ -1071,11 +1084,15 @@ export class PlayBook {
     if (!this.isOn()) return;
     clearTimeout(this.timer);
     this.timerMuted ||= muted;
+    // The mute starts when it is asked for, not when the timer fires.
+    if (muted) this.timerMutedAt = Math.max(this.timerMutedAt ?? 0, ms(this.now()) ?? Date.now());
     this.timer = setTimeout(() => {
       const quiet = this.timerMuted;
+      const mutedAt = this.timerMutedAt;
       this.timer = null;
       this.timerMuted = false;
-      if (this.isOn()) this.refresh({ muted: quiet }).catch((err) => this.log('play ledger:', err));
+      this.timerMutedAt = null;
+      if (this.isOn()) this.refresh({ muted: quiet, mutedAt }).catch((err) => this.log('play ledger:', err));
     }, delayMs);
     this.timer.unref?.();
   }
