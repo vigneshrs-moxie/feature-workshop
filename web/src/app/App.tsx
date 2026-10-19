@@ -20,7 +20,9 @@ import { NewJobSheet } from '../views/JobSheets/NewJobSheet';
 import { SettingsView } from '../views/Settings/SettingsView';
 import { CrewDexView } from '../views/CrewDex/CrewDexView';
 import { AchievementsView } from '../views/Achievements/AchievementsView';
+import { NotFoundView } from '../views/NotFound/NotFoundView';
 import { PlayLedgerProvider } from '../play/PlayLedger';
+import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
 import { PlayToasts } from '../play/PlayToasts';
 import { StaminaBar } from '../play/FullExtras';
 import { usePlay } from '../play/usePlay';
@@ -96,6 +98,7 @@ function Sheets({ route }: { route: Route }) {
   const state = useWorkshopState();
   const ui = useUi();
   const play = usePlay();
+  const eggs = usePaletteEggs();
   const [problem, setProblem] = useState<string | null>(null);
   const slug = route.name === 'job' ? route.slug : null;
 
@@ -151,6 +154,7 @@ function Sheets({ route }: { route: Route }) {
         <CommandPalette
           commands={commandsFor({ state, slug, current: ui.current, onSettings: route.name === 'settings', onCrew: route.name === 'crew', onAchievements: route.name === 'achievements', play: play.on, classic: classicHref }, handlers)}
           onClose={ui.closeSheet}
+          onEgg={eggs}
         />
       )}
       {sheet?.kind === 'new-job' && <NewJobSheet onClose={ui.closeSheet} />}
@@ -171,6 +175,8 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   // The Crew-dex and Achievements are part of Play: with Play mode Off, #/crew and #/achievements show the same as #/.
   const crew = route.name === 'crew' && play.on;
   const achievements = route.name === 'achievements' && play.on;
+  // A #/ address that isn't a page: the Sleuth looks for it (Play on), else #/'s view.
+  const lost = route.name === 'not-found' && play.on ? route.hash : null;
   if (state.status !== 'ready') {
     return (
       <div className="app">
@@ -198,10 +204,11 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       <Sheets route={route} />
       <div className={rail ? 'panes panes-rail' : 'panes'}>
         <JobsPane selected={slug} />
-        {route.name === 'settings' ? <SettingsView /> : crew ? <CrewDexView /> : achievements ? <AchievementsView /> : <ForemanPane slug={slug} />}
+        {route.name === 'settings' ? <SettingsView /> : crew ? <CrewDexView /> : achievements ? <AchievementsView /> : lost !== null ? <NotFoundView hash={lost} /> : <ForemanPane slug={slug} />}
         <PreviewPane slug={slug} />
       </div>
       <PlayToasts />
+      <PlayEggs />
     </div>
   );
 }

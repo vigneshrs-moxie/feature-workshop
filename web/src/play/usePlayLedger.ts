@@ -6,7 +6,7 @@
 //
 // The shell fetches it once for the whole page (<PlayLedgerProvider>, play/PlayLedger.tsx), which
 // also hands the unlocks to the theme picker; a view rendered on its own (a test) fetches its own.
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { PlayResponse, PlayView } from '../api/types';
 import { useWorkshop, useWorkshopState } from '../state/store';
 import { playOf } from './settings';
@@ -48,7 +48,8 @@ export function useLedgerFetch(enabled = true): Ledger {
     return () => { cancelled = true; };
   }, [api, enabled, known, mode, playVersion, generatedAt, tries]);
 
-  return { load: mode === 'off' ? { state: 'off' } : load, retry: () => setTries((n) => n + 1) };
+  const retry = useCallback(() => setTries((n) => n + 1), []);
+  return { load: mode === 'off' ? { state: 'off' } : load, retry };
 }
 
 /** The page's one ledger, from <PlayLedgerProvider>. */

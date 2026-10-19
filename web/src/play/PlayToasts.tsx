@@ -7,6 +7,7 @@
 // (aria-live). Each has a burst round its badge, small in Subtle (play/celebrate.ts); in Full with
 // Sounds on, each batch that arrives together plays one blip, for the biggest of them.
 // A boss defeated (an L3 review drained to nothing) is a Full-mode extra: toasted only in Full.
+// The easter eggs' short scenes (play/Scenes.tsx) show here too, above the toasts.
 // Events already in the page when it mounts are never toasted, so nothing celebrates on load, and
 // a restarted dashboard's resync drops the old run's events (state/reducer.ts), so none come back.
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
@@ -14,6 +15,7 @@ import type { PlayNews } from '../api/types';
 import { useWorkshopState } from '../state/store';
 import { AchievementBadge } from './AchievementBadge';
 import { burstPieces, celebrate, type Celebration, type CelebrationKind } from './celebrate';
+import { Scenes } from './Scenes';
 import { playBlip } from './sound';
 import { usePlay } from './usePlay';
 
@@ -153,6 +155,7 @@ export function PlayToasts() {
   const waiting = queue.length - visible.length;
   return (
     <section className="play-toasts at-bottom-end" aria-label="Achievements and quests" aria-live="polite" aria-relevant="additions">
+      <Scenes />
       {visible.map((t) => <Toast key={t.key} item={t} onDone={done} />)}
       {waiting > 0 && <p className="play-toasts-more muted">{waiting} more</p>}
     </section>

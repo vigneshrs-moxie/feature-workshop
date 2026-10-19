@@ -9,22 +9,25 @@ describe('hash router', () => {
     ['#/job/alpha', { name: 'job', slug: 'alpha' }],
     ['#/job/alpha/', { name: 'job', slug: 'alpha' }],
     ['#/job/with%20space', { name: 'job', slug: 'with space' }],
-    ['#/job/', { name: 'home' }],
-    ['#/job/a/b', { name: 'home' }],
+    ['#/job/', { name: 'not-found', hash: '#/job/' }],
+    ['#/job/a/b', { name: 'not-found', hash: '#/job/a/b' }],
     ['#/job/alpha/id/FR-001', { name: 'job', slug: 'alpha' }],
-    ['#/job/%E0%A4%A', { name: 'home' }],
-    ['#/costs', { name: 'home' }],
+    ['#/job/%E0%A4%A', { name: 'not-found', hash: '#/job/%E0%A4%A' }],
+    ['#/costs', { name: 'not-found', hash: '#/costs' }],
     ['#/settings', { name: 'settings' }],
     ['#/settings/', { name: 'settings' }],
-    ['#/settings/x', { name: 'home' }],
+    ['#/settings/x', { name: 'not-found', hash: '#/settings/x' }],
     ['#/crew', { name: 'crew' }],
     ['#/crew/', { name: 'crew' }],
     ['#/crew?theme=pixel-crew', { name: 'crew' }],
-    ['#/crew/x', { name: 'home' }],
+    ['#/crew/x', { name: 'not-found', hash: '#/crew/x' }],
     ['#/achievements', { name: 'achievements' }],
     ['#/achievements/', { name: 'achievements' }],
     ['#/achievements?theme=gold', { name: 'achievements' }],
-    ['#/achievements/x', { name: 'home' }],
+    ['#/achievements/x', { name: 'not-found', hash: '#/achievements/x' }],
+    ['#/nowhere?theme=crt', { name: 'not-found', hash: '#/nowhere' }],
+    // An in-page anchor is not a route.
+    ['#h-summary', { name: 'home' }],
     // A query after the hash (the theme preview) changes nothing about the route.
     ['#/?theme=blueprint', { name: 'home' }],
     ['#/settings?theme=blueprint', { name: 'settings' }],
@@ -41,6 +44,7 @@ describe('hash router', () => {
     expect(hrefFor({ name: 'settings' })).toBe('#/settings');
     expect(hrefFor({ name: 'crew' })).toBe('#/crew');
     expect(hrefFor({ name: 'achievements' })).toBe('#/achievements');
+    expect(hrefFor({ name: 'not-found', hash: '#/nowhere' })).toBe('#/nowhere');
   });
 
   it('links into the classic view at /', () => {

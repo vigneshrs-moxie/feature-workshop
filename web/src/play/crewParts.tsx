@@ -1,9 +1,10 @@
 // The crew rig's parts as SVG elements, ported shape for shape from dashboard/public/crew.js:
-// seven hats, fourteen tools (drawn with the hand at 0,0), eyes, mouths and effects per mood.
+// seven hats (and four for special days and nights), fourteen tools (drawn with the hand at 0,0), eyes, mouths and effects per mood.
 // Every colour is a --crew-* custom property (theme/tokens.ts CREW_TOKENS; themes restyle them),
 // so nothing here is a fixed colour. Static shapes only: nothing takes text or markup from outside.
 import type { ReactElement } from 'react';
 import type { CrewState, HatId, Motion, ToolId } from './crew';
+import type { ExtraHat } from './eggs';
 
 const v = (name: string) => `var(--crew-${name})`;
 const HAT = v('hat');
@@ -68,6 +69,40 @@ export const HATS: Record<HatId, ReactElement> = {
       <path d="M38.5 31Q60 24.5 81.5 31V35.5Q60 29 38.5 35.5Z" fill={HAT_SHADE} />
       <path d="M36.5 34.5Q60 27.5 83.5 34.5L90.5 41.5Q60 34 29.5 41.5Z" fill={HAT} opacity=".94" />
       <path d="M42 36Q60 31.5 78 36" stroke={SHINE} strokeWidth="1.4" opacity=".35" fill="none" />
+    </>
+  ),
+};
+
+/** The hats worn instead of their own on a few dates, and nightcaps after midnight (play/eggs.ts extraHat). */
+export const EXTRA_HATS: Record<ExtraHat, ReactElement> = {
+  witch: (
+    <>
+      <ellipse cx="60" cy="31" rx="31" ry="6" fill={v('feet')} />
+      <path d="M44 30 58 2Q61 -1 63 3L76 30Z" fill={v('feet')} />
+      <path d="M45.5 26.5H74.5L76 30H44Z" fill={v('c-plum')} />
+      <rect x="57" y="25.6" width="6" height="5.4" rx="1" fill={v('gold')} />
+    </>
+  ),
+  santa: (
+    <>
+      <path d="M40 31C40 16 52 9 64 11Q82 14 88 32L82 33Q76 22 66 20 50 19 50 31Z" fill={v('danger')} />
+      <rect x="37" y="28" width="46" height="8" rx="4" fill={PAPER} />
+      <circle cx="87" cy="34" r="5.2" fill={PAPER} />
+    </>
+  ),
+  party: (
+    <>
+      <path d="M47 32 60 3 73 32Z" fill={v('c-teal')} />
+      <path d="M51.5 22 66 18.5M55 14 64.5 11.5M49 28 70 23.5" stroke={v('spark')} strokeWidth="2.6" strokeLinecap="round" />
+      <circle cx="60" cy="3.5" r="4" fill={v('gold')} />
+      <path d="M47 32Q60 35 73 32" stroke={HAT_SHADE} strokeWidth="1.4" fill="none" />
+    </>
+  ),
+  nightcap: (
+    <>
+      <path d="M38.5 33C38 18 50 12 62 14Q78 17 92 42L86 44Q76 26 66 25 52 25 50 33Z" fill={v('zzz')} />
+      <rect x="36" y="29.5" width="48" height="7" rx="3.5" fill={PAPER} opacity=".92" />
+      <circle cx="90" cy="45" r="4.6" fill={PAPER} />
     </>
   ),
 };

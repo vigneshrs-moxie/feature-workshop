@@ -3,12 +3,14 @@
 // moves them (CrewMember follows the mode). Each character sits beside words that name it, or is
 // an image named "<Name>, <mood>" with a tooltip. Callers never put these in a gate card, a
 // permission card or the composer.
-import { memo } from 'react';
+import { memo, useCallback, useRef } from 'react';
 import type { Job, Run, Usage } from '../api/types';
 import { crewInfo, type CrewState } from './crew';
 import { CrewMember } from './CrewMember';
 import { foremanMood, handoffLine, liveCrew, nameList } from './crewLines';
+import { foremanLine, KNOCK_GAP_MS, KNOCKS, showScene } from './eggs';
 import { usePlayIfAny } from './usePlay';
+import { useFindSecret } from './useSecret';
 
 const hint = (type: string) => {
   const c = crewInfo(type);
@@ -70,7 +72,32 @@ export function LiveCrewFaces({ job, run, usage, where }: { job: Job | null | un
 /** The Foreman by the job's title, in a mood that follows the job (waiting on you, at work, asleep in a usage pause…). */
 export function ForemanFace({ job, usage }: { job: Job; usage?: Usage | null }) {
   const mood = foremanMood(job, usage);
-  return <CrewMember type="conductor" state={mood} size={28} className="foreman-face" />;
+  const knock = useKnocks();
+  const play = usePlayIfAny();
+  if (play && !play.on) return null;
+  return (
+    <span className="foreman-knock" onClick={knock}>
+      <CrewMember type="conductor" state={mood} size={28} className="foreman-face" />
+    </span>
+  );
+}
+
+// Knocks on the Foreman: KNOCKS clicks, each within KNOCK_GAP_MS of the last, get a one-liner
+// (a scene with the toasts) and are a secret found. The next seven get the next line.
+let lines = 0;
+function useKnocks() {
+  const find = useFindSecret();
+  const knocks = useRef({ n: 0, at: 0 });
+  return useCallback(() => {
+    const now = Date.now();
+    const k = knocks.current;
+    k.n = now - k.at <= KNOCK_GAP_MS ? k.n + 1 : 1;
+    k.at = now;
+    if (k.n < KNOCKS) return;
+    k.n = 0;
+    void find('foreman-clicks');
+    showScene('foreman', foremanLine(lines++));
+  }, [find]);
 }
 
 /** A review brief's lineup: the lenses that looked at the change, named on hover. */

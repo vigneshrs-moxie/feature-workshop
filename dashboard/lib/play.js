@@ -91,8 +91,45 @@ export const SECRET_IDS = [
   'konami', 'hammertime', 'sandwich', 'rm-rf', 'git-blame', 'teapot', 'console',
   'headers', 'sleuth-404', 'hex-sommelier', 'foreman-clicks', 'friday-push', 'seasonal-hats',
 ];
+/** Secrets the page may report itself (POST /api/play/secret); the dashboard finds the rest. */
+export const PAGE_SECRETS = SECRET_IDS.filter((id) => !['teapot', 'headers', 'hex-sommelier'].includes(id));
 /** Things the page may report (POST /api/play/event): kind → allowed ids. */
 export const PLAY_EVENTS = { theme: THEME_IDS };
+
+// ---------- Easter eggs the dashboard itself serves (design doc section 5) ----------
+
+/** Short hashes a Hex Sommelier appreciates. */
+export const HEX_PREFIXES = ['c0ffee', 'dead', 'beef', 'f00d'];
+const HEX_RE = new RegExp(`^(${HEX_PREFIXES.join('|')})`, 'i');
+
+/** The first commit (oldest) whose hash starts with a Hex Sommelier prefix: { short, at }, or null. */
+export function hexCommit(commits) {
+  let best = null;
+  for (const c of commits ?? []) {
+    const sha = String(c?.sha ?? c?.short ?? '');
+    if (!HEX_RE.test(sha) || !ms(c.date)) continue;
+    if (!best || ms(c.date) < ms(best.at)) best = { short: sha.slice(0, 7), at: c.date };
+  }
+  return best;
+}
+
+/**
+ * The response headers Play mode adds (none while it is Off): the crew's names, the Clacks
+ * Overhead (GNU Terry Pratchett) and a note for whoever reads headers. names: the crew in order.
+ */
+export function crewHeaders(names) {
+  return {
+    'X-Crew': names.join(', '),
+    'X-Clacks-Overhead': 'GNU Terry Pratchett',
+    'X-Crew-Note': 'Psst. The kettle is on: GET /api/teapot?from=headers',
+  };
+}
+
+/** GET /api/teapot (Play on): a real 418, and its tiny body. */
+export const TEAPOT = Object.freeze({
+  status: 418, error: 'I’m a teapot', short: true, stout: true, handle: 'here', spout: 'here',
+  brewing: 'Earl Grey, hot', rfc: 'RFC 2324, section 2.3.2',
+});
 
 const SPEEDRUN_MS = 15 * 60 * 1000;
 const BUG_HUNTER_COUNT = 10;
@@ -431,9 +468,10 @@ export class AuditFold {
  * The ledger from local data.
  *   audit     every audit.jsonl entry, oldest first
  *   jobs      [{ slug, dir, kind, level, prs, updatedAt, startedAt?, prLinks?: [{ url, at }],
- *               workers: [{ agentType, startedAt, lastAt }], review: { at, counts } | null }]
+ *               workers: [{ agentType, startedAt, lastAt }], review: { at, counts } | null,
+ *               hexCommit?: { short, at } | null }]
  *             (startedAt: the job's first session line; prLinks: the PRs its session logs say were
- *             created, with when; counts: parseReviewFindings)
+ *             created, with when; counts: parseReviewFindings; hexCommit: hexCommit of its branch)
  *   play      the play settings (playSettings)
  *   now       a Date or ms: the time quests found right now are stamped with when nothing better is known
  *   previous  the ledger from play.json, or null to rebuild from scratch. What it holds is kept:
@@ -473,6 +511,8 @@ export function ledgerFrom({ fold = new AuditFold(), jobs = [], play = PLAY_DEFA
   };
   const secrets = { ...(prev?.secrets ?? {}) };
   for (const [id, at] of Object.entries(fold.secrets)) secrets[id] = minAt(secrets[id], at);
+  // Hex Sommelier: a commit on a job's branch whose hash starts with c0ffee, dead, beef or f00d.
+  for (const j of jobs) if (j?.hexCommit?.at && ms(j.hexCommit.at)) secrets['hex-sommelier'] = minAt(secrets['hex-sommelier'], j.hexCommit.at);
   const themes = { ...(prev?.themes ?? {}) };
   for (const [id, at] of Object.entries(fold.themes)) themes[id] = minAt(themes[id], at);
   let foremanAt = fold.foremanAt;

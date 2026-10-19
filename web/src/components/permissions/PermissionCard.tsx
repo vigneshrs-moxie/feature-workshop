@@ -6,6 +6,7 @@ import type { Permission } from '../../api/types';
 import { jobHref } from '../../app/router';
 import { fullTime, relativeTime } from '../../lib/time';
 import { ServerHtml } from '../../panes/Foreman/ServerHtml';
+import { FridayEyebrow } from '../../play/FridayEyebrow';
 import { InlineText } from '../InlineText';
 import { AlwaysAllowSheet } from './AlwaysAllowSheet';
 import { useAnswer } from './useAnswer';
@@ -133,6 +134,8 @@ export function PermissionCard({ permission: p, now, showJob = false }: { permis
           )}
         </div>
       )}
+      {/* Play: a look from the Locksmith on a Friday-afternoon push, under the buttons. */}
+      <FridayEyebrow permission={p} now={now} />
       {sheet && draft && <AlwaysAllowSheet permission={p} draft={draft} onClose={() => { setSheet(false); alwaysBtn.current?.focus(); }} />}
     </article>
   );

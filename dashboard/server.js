@@ -39,7 +39,7 @@ import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, g
 import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
 import { skillChecker } from './lib/skill-check.js';
 import { DOC_MAX_BYTES, DocError, describeDoc, jsonHtml, listJobDocs, readJobDoc, servableSpec } from './lib/docs.js';
-import { PlayBook, PlayError, PLAY_EVENTS, SECRET_IDS, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from './lib/play.js';
+import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, crewHeaders, hexCommit, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from './lib/play.js';
 import { parseStatusJson } from './lib/status-json.js';
 
 const HOST = '127.0.0.1';
@@ -238,12 +238,28 @@ async function reviewOf(dir) {
     return null;
   }
 }
+// The Hex Sommelier commit on a job's branch (hexCommit), read again only when the branch moved.
+const hexCache = new Map();
+async function hexCommitOf(f) {
+  const codeDir = f.worktree && fs.existsSync(f.worktree) ? f.worktree : f.repoPath;
+  if (!codeDir || !f.branch) return null;
+  const key = `${codeDir}|${f.branch}|${f.baseSha ?? ''}`;
+  const head = await git.headOf(codeDir, f.branch);
+  if (!head) return null;
+  const hit = hexCache.get(key);
+  if (hit && hit.head === head) return hit.value;
+  let value = null;
+  try { value = hexCommit(await git.commits(codeDir, { base: f.baseSha ?? null, head: f.branch, limit: 500 })); } catch { value = null; }
+  hexCache.set(key, { head, value });
+  return value;
+}
 const playJobOf = async (f) => ({
   slug: f.slug, dir: f.dir, kind: f.kind, level: f.level, prs: f.prs, updatedAt: f.updatedAt,
   // When the Foreman's first session began (Speedrun), and the PRs its logs say were created, with when.
   startedAt: f.firstSessionAt ?? null, prLinks: f.prLinks ?? [],
   workers: (f.activity ?? []).filter((a) => a.who !== 'conductor').map((a) => ({ agentType: a.who, startedAt: a.startedAt ?? null, lastAt: a.lastAt ?? null })),
   review: await reviewOf(f.dir),
+  hexCommit: await hexCommitOf(f),
 });
 // Every job: the cached list when it is fresh (fresh: true asks for that only), else a full read.
 async function playJobs({ fresh }) {
@@ -278,6 +294,14 @@ const playbook = new PlayBook({
   onReview: (review) => { if (playOn()) events.emit('play', review.slug ?? null, { review }); },
 });
 state.on('audit', (e) => { playbook.noteAudit(e); playbook.schedule(); });
+/** An easter egg found (Play on): one audit line the first time, so a rebuilt ledger finds it again. True when it was new. */
+async function recordSecret(id) {
+  if (!playOn()) return false;
+  if ((await playbook.current())?.secrets?.[id]) return false;
+  await state.audit({ action: 'play-secret', id });
+  await playbook.refresh();
+  return true;
+}
 
 // The jobs for the timer: the cached full list when it is fresh, else a light read of each job
 // folder (status.json, brief files; no session logs, no git), so the timer stays cheap.
@@ -591,8 +615,11 @@ const SECURITY_HEADERS = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
 };
+// Play mode's easter-egg headers (the crew's names, the Clacks Overhead); none while it is Off.
+const CREW_HEADERS = crewHeaders(Object.values(AGENTS).map((a) => a.name));
+const playHeaders = () => (playOn() ? CREW_HEADERS : {});
 function send(res, status, body, type = 'text/plain; charset=utf-8', extra = {}) {
-  res.writeHead(status, { ...SECURITY_HEADERS, 'Content-Type': type, ...extra });
+  res.writeHead(status, { ...SECURITY_HEADERS, ...playHeaders(), 'Content-Type': type, ...extra });
   res.end(body);
 }
 const sendJson = (res, status, data) => send(res, status, JSON.stringify(data), TYPES['.json']);
@@ -894,6 +921,16 @@ const GET = {
 
 async function routeGet(urlPath, url, req, res) {
   if (GET[urlPath]) return sendJson(res, 200, await GET[urlPath]());
+  if (urlPath === '/api/teapot' && playOn()) {
+    // A real 418. Found from this browser or a terminal (never from another site's page), it is a
+    // secret; come from the X-Crew-Note header (?from=headers), so is that one.
+    const site = req.headers['sec-fetch-site'];
+    if (!site || site === 'same-origin' || site === 'none') {
+      await recordSecret('teapot');
+      if (url.searchParams.get('from') === 'headers') await recordSecret('headers');
+    }
+    return sendJson(res, 418, TEAPOT);
+  }
   const day = new Date().toISOString().slice(0, 10);
   if (urlPath === '/api/costs/export.csv') return send(res, 200, costCsv(await features()), TYPES['.csv'], { 'Content-Disposition': `attachment; filename="feature-costs-${day}.csv"` });
   if (urlPath === '/api/costs/export.md') return send(res, 200, costMarkdown(await features()), TYPES['.md'], { 'Content-Disposition': `attachment; filename="feature-costs-${day}.md"` });
@@ -1301,10 +1338,11 @@ async function routePost(urlPath, req, res) {
   if (urlPath === '/api/play/secret' || urlPath === '/api/play/event') {
     // An easter egg found, or something the page saw you do (a theme tried), from fixed lists only.
     // Recorded once, as an audit line, so the ledger can always be rebuilt. Nothing while Play is Off.
+    // The teapot, the headers and the Hex Sommelier are the dashboard's to find, never the page's.
     const secret = urlPath === '/api/play/secret';
     const id = typeof body.id === 'string' ? body.id : '';
     const kind = secret ? null : typeof body.kind === 'string' ? body.kind : '';
-    if (secret && !SECRET_IDS.includes(id)) throw new HttpError(400, 'Unknown secret.');
+    if (secret && !PAGE_SECRETS.includes(id)) throw new HttpError(400, 'Unknown secret.');
     if (!secret && !(Object.hasOwn(PLAY_EVENTS, kind) && PLAY_EVENTS[kind].includes(id))) throw new HttpError(400, 'Unknown play event.');
     if (!playOn()) return sendJson(res, 200, { recorded: false, reason: 'Play mode is off.' });
     const ledger = await playbook.current();

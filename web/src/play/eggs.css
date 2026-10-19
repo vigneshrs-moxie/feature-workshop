@@ -1,0 +1,86 @@
+/* The easter eggs (play/eggs.ts): the scenes shown with the play toasts, the Locksmith's door over
+   the palette, the Friday eyebrow on a git push card, the Sleuth's search on the not-found page.
+   Theme tokens only. Every motion is under 1.5 s and nothing moves under reduced motion: each
+   keeps a still pose and its words. */
+
+/* ---------- Scenes (play/Scenes.tsx) ---------- */
+
+.play-scene { align-items: center; }
+.scene-cast { display: flex; flex: none; align-items: flex-end; gap: 2px; }
+.scene-actor { display: block; }
+.scene-line { color: var(--text-1); }
+
+/* Hammer time: a side-step and a bounce. */
+.scene-hammertime .scene-actor { animation: egg-dance 1.3s var(--ease-out) both; }
+@keyframes egg-dance {
+  0%, 100% { transform: none; }
+  20% { transform: translateX(-6px) rotate(-8deg); }
+  40% { transform: translateX(6px) rotate(8deg) translateY(-4px); }
+  60% { transform: translateX(-6px) rotate(-8deg); }
+  80% { transform: translateX(6px) rotate(8deg) translateY(-4px); }
+}
+
+/* git blame: they turn to point at whoever is next to them. */
+.scene-git-blame .actor-1 .crew, .scene-git-blame .actor-3 .crew { transform: scaleX(-1); }
+.scene-git-blame .scene-actor { animation: egg-point 1.2s var(--ease-out) both; }
+.scene-git-blame .actor-1 { animation-delay: 150ms; }
+.scene-git-blame .actor-2 { animation-delay: 300ms; }
+.scene-git-blame .actor-3 { animation-delay: 450ms; }
+@keyframes egg-point { 0%, 100% { transform: none; } 50% { transform: translateY(-3px) rotate(-4deg); } }
+
+/* The Konami code: the screen flickers on. */
+.scene-konami .scene-line { font-family: var(--font-mono); }
+.scene-konami .scene-cast { animation: egg-flicker 900ms steps(6) both; }
+@keyframes egg-flicker { 0% { opacity: 0; } 30% { opacity: .9; } 45% { opacity: .2; } 60%, 100% { opacity: 1; } }
+
+/* ---------- rm -rf /: the Locksmith's door over the palette ---------- */
+
+.palette-door {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-top: 4px solid var(--border-3);
+  border-radius: var(--card-radius);
+  background: var(--bg-3);
+  animation: egg-slam 260ms var(--ease-out) both;
+}
+.palette-door-line { margin: 0; color: var(--text-1); font-family: var(--font-heading); font-weight: var(--weight-bold); }
+@keyframes egg-slam { 0% { transform: translateY(-40%); opacity: 0; } 70% { transform: translateY(4%); opacity: 1; } 100% { transform: none; } }
+
+/* ---------- The Foreman, knocked on (seven times) ---------- */
+
+.foreman-knock { display: contents; }
+
+/* ---------- Friday, after 4pm: a git push ---------- */
+
+.perm-friday { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-2) 0 0; font-size: var(--text-sm); }
+.perm-friday-face { position: relative; display: block; flex: none; }
+.perm-friday-brow {
+  position: absolute;
+  top: 30%;
+  left: 52%;
+  width: 9px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--crew-ink);
+  transform: rotate(-24deg) translateY(-2px);
+}
+
+/* ---------- Not found (#/<anything else>, Play on): the Sleuth searching ---------- */
+
+.not-found { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); }
+.not-found-scene { display: flex; align-items: flex-end; gap: var(--space-2); min-height: 72px; }
+.not-found-sleuth { animation: egg-search 1.4s var(--ease-out) both; }
+@keyframes egg-search {
+  0% { transform: translateX(-24px); }
+  45% { transform: translateX(24px); }
+  55% { transform: translateX(24px) scaleX(-1); }
+  100% { transform: none; }
+}
+.not-found-path { overflow-wrap: anywhere; }
+
+@media (prefers-reduced-motion: reduce) {
+  .scene-hammertime .scene-actor, .scene-git-blame .scene-actor, .scene-konami .scene-cast,
+  .palette-door, .not-found-sleuth { animation: none; }
+}

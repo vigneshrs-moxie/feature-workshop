@@ -18,6 +18,12 @@ export async function isGitRepo(dir) {
   try { return (await git(dir, ['rev-parse', '--show-toplevel'])).trim(); } catch { return null; }
 }
 
+// The commit a branch or ref points at (full sha), or null when it can't be read.
+export async function headOf(dir, ref) {
+  if (!REF.test(ref)) return null;
+  try { return (await git(dir, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])).trim() || null; } catch { return null; }
+}
+
 // Commits in base..head, newest first.
 export async function commits(dir, { base, head = 'HEAD', limit = 100 }) {
   if (!REF.test(head) || (base && !REF.test(base))) throw new Error('Unexpected branch or commit name');

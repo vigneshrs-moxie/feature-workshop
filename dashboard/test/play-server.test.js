@@ -169,18 +169,37 @@ test('GET /api/play: the quest done and the clean review, from the job records',
 });
 
 test('POST /api/play/secret: token and fixed ids only, recorded once', async () => {
-  assert.equal((await write('/api/play/secret', { id: 'teapot' }, { auth: false })).status, 403);
+  assert.equal((await write('/api/play/secret', { id: 'sandwich' }, { auth: false })).status, 403);
   assert.equal((await write('/api/play/secret', { id: 'free-xp' })).status, 400);
-  assert.equal((await write('/api/play/secret', { id: { toString: 'teapot' } })).status, 400);
-  const first = await write('/api/play/secret', { id: 'teapot' });
+  assert.equal((await write('/api/play/secret', { id: { toString: 'sandwich' } })).status, 400);
+  // The dashboard's own finds are never the page's to claim.
+  for (const id of ['teapot', 'headers', 'hex-sommelier']) assert.equal((await write('/api/play/secret', { id })).status, 400, id);
+  const first = await write('/api/play/secret', { id: 'sandwich' });
   assert.equal(first.status, 200);
   assert.equal(first.body.recorded, true);
-  assert.deepEqual(first.body.secrets, { found: ['teapot'], total: 13 });
-  assert.equal((await write('/api/play/secret', { id: 'teapot' })).body.recorded, false, 'only once');
+  assert.deepEqual(first.body.secrets, { found: ['sandwich'], total: 13 });
+  assert.equal((await write('/api/play/secret', { id: 'sandwich' })).body.recorded, false, 'only once');
   const audit = (await fs.readFile(path.join(stateDir, 'audit.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   assert.equal(audit.filter((e) => e.action === 'play-secret').length, 1);
   const v = await getJson('/api/play');
-  assert.ok(v.achievements.find((a) => a.id === 'secret-teapot').unlockedAt);
+  assert.ok(v.achievements.find((a) => a.id === 'secret-sandwich').unlockedAt);
+});
+
+test('GET /api/teapot: a real 418; the crew headers point at it, and following them finds two secrets', async () => {
+  const meta = await fetch(`${base}/api/meta`);
+  assert.equal(meta.headers.get('x-clacks-overhead'), 'GNU Terry Pratchett');
+  assert.match(meta.headers.get('x-crew'), /^Foreman, Scribe, Sleuth, .*Oracle$/);
+  assert.match(meta.headers.get('x-crew-note'), /\/api\/teapot\?from=headers/);
+  // From another site's page: still a teapot, but nothing is recorded.
+  const cross = await fetch(`${base}/api/teapot?from=headers`, { headers: { 'Sec-Fetch-Site': 'cross-site' } });
+  assert.equal(cross.status, 418);
+  assert.deepEqual((await getJson('/api/play')).secrets.found, ['sandwich']);
+  const plain = await fetch(`${base}/api/teapot`);
+  assert.equal(plain.status, 418);
+  assert.deepEqual(await plain.json(), { status: 418, error: 'I’m a teapot', short: true, stout: true, handle: 'here', spout: 'here', brewing: 'Earl Grey, hot', rfc: 'RFC 2324, section 2.3.2' });
+  assert.deepEqual((await getJson('/api/play')).secrets.found, ['sandwich', 'teapot']);
+  assert.equal((await fetch(`${base}/api/teapot?from=headers`)).status, 418);
+  assert.deepEqual((await getJson('/api/play')).secrets.found, ['sandwich', 'teapot', 'headers']);
 });
 
 test('POST /api/play/event: themes tried, from the fixed list; all five make an Explorer and a play event', async () => {
@@ -199,6 +218,7 @@ test('POST /api/play/event: themes tried, from the fixed list; all five make an 
   const play = (await eventsSince(epoch)).filter((e) => e.type === 'play' && e.data.achievement);
   const ids = play.map((e) => e.data.achievement.id);
   assert.ok(ids.includes('explorer'), `play events: ${ids}`);
+  assert.ok(ids.includes('secret-sandwich'));
   assert.ok(ids.includes('secret-teapot'));
   const explorer = play.find((e) => e.data.achievement.id === 'explorer').data.achievement;
   assert.equal(explorer.name, 'Explorer');
@@ -211,8 +231,13 @@ test('with Play mode Off nothing is recorded', async () => {
   assert.equal(r.status, 200);
   assert.equal(r.body.recorded, false);
   assert.equal((await write('/api/play/secret', { id: 'nope' })).status, 400, 'still checked');
+  // No teapot and no crew headers either: Off is the dashboard as it was.
+  const pot = await fetch(`${base}/api/teapot`);
+  assert.equal(pot.status, 404);
+  assert.equal(pot.headers.get('x-crew'), null);
+  assert.equal(pot.headers.get('x-clacks-overhead'), null);
   await write('/api/settings', { play: { mode: 'subtle' } });
-  assert.deepEqual((await getJson('/api/play')).secrets.found, ['teapot']);
+  assert.deepEqual((await getJson('/api/play')).secrets.found, ['sandwich', 'teapot', 'headers']);
 });
 
 test('Play mode Off is nothing: GET says only that, play.json is left alone; back on, it catches up without unlock events', async () => {

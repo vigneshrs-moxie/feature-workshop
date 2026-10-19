@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   ACHIEVEMENTS, CREW_TYPES, EXPLORER_THEMES, GOLD_QUESTS, LENS_TYPES, PLAY_DEFAULTS, PLAY_EVENTS, PLAY_SCHEMA, PlayBook, PlayError,
-  SECRET_IDS, THEME_IDS, BOSS_WEIGHTS, bossHp, buildLedger, jobKey, ledgerView, lensType, newlyDefeated, newlyDone, newlyUnlocked, parseReviewFindings, playSettings, reviewsChanged,
+  PAGE_SECRETS, SECRET_IDS, TEAPOT, THEME_IDS, BOSS_WEIGHTS, bossHp, crewHeaders, hexCommit, buildLedger, jobKey, ledgerView, lensType, newlyDefeated, newlyDone, newlyUnlocked, parseReviewFindings, playSettings, reviewsChanged,
   themeUnlocked, unlocksOf, validatePlayPatch,
 } from '../lib/play.js';
 import { parseSessionLog } from '../lib/session-log.js';
@@ -918,4 +918,23 @@ test('PlayBook: Clean Sweep is never awarded for a later round, after Off and On
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+test('easter eggs the dashboard serves: the Hex Sommelier commit, the crew headers, the teapot', () => {
+  const c = (sha, date) => ({ sha, short: sha.slice(0, 7), date });
+  assert.equal(hexCommit([c('a1b2c3d4', T0), c('123dead0', T0)]), null, 'a prefix, not anywhere in the hash');
+  assert.deepEqual(hexCommit([c('f00d1234aa', plus(T0, 9)), c('C0FFEE99bb', plus(T0, 3)), c('beefcafe00', 'never')]), { short: 'C0FFEE9', at: plus(T0, 3) });
+  assert.equal(hexCommit(null), null);
+  // Found on a job's branch: the secret, stamped with the commit's time; kept once found.
+  const found = build({ jobs: [job('a', { hexCommit: { short: 'dead123', at: plus(T0, 5) } })] });
+  assert.equal(found.secrets['hex-sommelier'], plus(T0, 5));
+  assert.ok(found.achievements['secret-hex-sommelier']);
+  assert.equal(build({ jobs: [job('a')], previous: found }).secrets['hex-sommelier'], plus(T0, 5));
+  // The page can report only the secrets it sees; the dashboard finds the other three.
+  assert.deepEqual(SECRET_IDS.filter((id) => !PAGE_SECRETS.includes(id)), ['teapot', 'headers', 'hex-sommelier']);
+  const h = crewHeaders(['Foreman', 'Scribe']);
+  assert.deepEqual(h, { 'X-Crew': 'Foreman, Scribe', 'X-Clacks-Overhead': 'GNU Terry Pratchett', 'X-Crew-Note': 'Psst. The kettle is on: GET /api/teapot?from=headers' });
+  // Header values must be plain ASCII.
+  for (const v of Object.values(h)) assert.match(v, /^[\x20-\x7e]+$/);
+  assert.equal(TEAPOT.status, 418);
 });

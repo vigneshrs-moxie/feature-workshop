@@ -6,11 +6,13 @@
 //   #/settings    Settings (your "Always allow" rules) in the middle pane
 //   #/crew        the Crew-dex in the middle pane (Play mode only; with Play Off it shows #/'s view)
 //   #/achievements  your achievements in the middle pane (Play mode only, like the Crew-dex)
-// Anything else falls back to #/. A query after the hash (#/?theme=x, read by theme/theme.ts)
-// is ignored here, so it changes nothing about the route.
+// Any other #/… is not a page: with Play on the Sleuth looks for it (views/NotFound), with Play
+// Off it shows #/'s view. No hash, "#", "#/" or an in-page "#section" is #/. A query after the hash (#/?theme=x,
+// read by theme/theme.ts) is ignored here, so it changes nothing about the route.
 import { useEffect, useState } from 'react';
 
-export type Route = { name: 'home' } | { name: 'settings' } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string };
+export type Route = { name: 'home' } | { name: 'settings' } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
+  | { name: 'not-found'; hash: string };
 
 export function parseHash(rawHash: string): Route {
   const hash = rawHash.replace(/\?.*$/, '');
@@ -22,15 +24,17 @@ export function parseHash(rawHash: string): Route {
     try {
       const slug = decodeURIComponent(m[1]);
       if (slug) return { name: 'job', slug };
-    } catch { /* a malformed escape: fall through to home */ }
+    } catch { /* a malformed escape: not a page */ }
   }
-  return { name: 'home' };
+  if (!hash.startsWith('#/') || hash === '#/') return { name: 'home' };
+  return { name: 'not-found', hash };
 }
 
 export function hrefFor(route: Route): string {
   if (route.name === 'job') return `#/job/${encodeURIComponent(route.slug)}`;
   if (route.name === 'crew') return '#/crew';
   if (route.name === 'achievements') return '#/achievements';
+  if (route.name === 'not-found') return route.hash;
   return route.name === 'settings' ? '#/settings' : '#/';
 }
 

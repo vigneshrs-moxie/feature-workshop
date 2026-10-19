@@ -59,6 +59,18 @@ The user asked for fun back: the crew, a Crew-dex, game-like elements and techni
 
 Held: PR-number badges (#404, #500, #1337), until the PR process is standardized.
 
+How they are found (step 7, 2026-10-19). The page reports only the ten it sees; the dashboard finds the teapot, the headers and the Hex Sommelier itself, and refuses those three from the page.
+- **Palette phrases** run on Enter when typed exactly (any case); they are never listed. `rm -rf /` shows the door in place of the list, then closes the palette.
+- **Teapot:** visiting `/api/teapot` counts from this browser or a terminal, never from another site's page (`Sec-Fetch-Site`).
+- **Headers:** the headers carry `X-Crew-Note`, pointing at `/api/teapot?from=headers`. Following it is how "read the headers" is found.
+- **Console:** the console art ends with a hint to type `crew.hello()`. Calling it counts.
+- **404:** only an unknown `#/…` address. An in-page `#section` link still shows home. With Play Off, both show home as before.
+- **Hex Sommelier:** read from each job's branch on the full job read, again only when the branch has moved.
+- **Seasonal hats:** Halloween (Oct 31), Christmas (Dec 24–26), New Year (Dec 31–Jan 1). Nightcaps from midnight to 5am don't count as the secret.
+- **Scenes** (hammer time, the sandwich, git blame, the Foreman's line, CRT unlocked) show with the toasts. Their motion is under 1.5 s, and they stay still under reduced motion.
+- **Konami:** picks CRT Terminal, which goes on once the ledger confirms the unlock.
+- **Off:** with Play Off, none of the eggs do anything: no headers, no teapot (404), no `crew` in the console.
+
 ## 6. Steps (one commit each, branch `redesign/play` off `redesign/phase-2`)
 
 1. Play settings and ledger: Play mode setting, the quest-done setting, `play.json`, achievement engine from the audit log (pure, node-tested, no model).

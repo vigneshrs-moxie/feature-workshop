@@ -10,15 +10,20 @@
 //             for, it holds a still pose that still shows the mood.
 //   silhouette  draw only their outline in --crew-silhouette (the Crew-dex's "not met yet"); never moves
 //
+// On a few dates they wear the season's hat instead of their own (Halloween, Christmas, New Year),
+// and nightcaps from midnight to 5am (play/eggs.ts): seeing a seasonal one is a secret found.
+//
 // With Play mode Off it draws nothing (returns null), so callers needn't check. Outside a
 // WorkshopContext (tests, isolated previews) it always draws.
 //
 // Colours come from --crew-* tokens (theme/tokens.ts, restyled per theme); animations live in
 // play/play.css and only run on .crew.is-animated.
-import { memo } from 'react';
+import { memo, useEffect } from 'react';
 import { crewInfo, MOTION, type CrewState } from './crew';
-import { Effects, Eyes, HATS, Mouth, TOOLS } from './crewParts';
+import { Effects, EXTRA_HATS, Eyes, HATS, Mouth, TOOLS } from './crewParts';
+import { crewNow, extraHat } from './eggs';
 import { usePlayIfAny, usePrefersReducedMotion } from './usePlay';
+import { useFindSecret } from './useSecret';
 
 export interface CrewMemberProps {
   type: string;
@@ -39,6 +44,11 @@ export const crewLabel = (type: string, state: CrewState) => `${crewInfo(type).n
 export const CrewMember = memo(function CrewMember({ type, state = 'idle', size = 48, label, animated, silhouette = false, className }: CrewMemberProps) {
   const reduced = usePrefersReducedMotion();
   const play = usePlayIfAny();
+  const find = useFindSecret();
+  // A silhouette keeps its own hat: it isn't anyone yet.
+  const extra = silhouette ? null : extraHat(crewNow());
+  const seasonal = extra !== null && extra !== 'nightcap';
+  useEffect(() => { if (seasonal) void find('seasonal-hats'); }, [seasonal, find]);
   if (play && !play.on) return null;
   const member = crewInfo(type);
   const key = member.number ? member.type : 'unknown';
@@ -78,7 +88,7 @@ export const CrewMember = memo(function CrewMember({ type, state = 'idle', size 
           <ellipse cx="73.2" cy="47.5" rx="4.3" ry="2.6" fill={C('blush')} opacity=".75" />
           <Eyes state={state} />
           <Mouth state={state} />
-          <g className="hat">{HATS[member.hat]}</g>
+          <g className={extra ? `hat hat-${extra}` : 'hat'}>{extra ? EXTRA_HATS[extra] : HATS[member.hat]}</g>
         </g>
         <g className="arm arm-r">
           <path d="M75 64 83 86" stroke={C('paint-arm')} strokeWidth="9.5" strokeLinecap="round" />

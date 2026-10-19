@@ -5,6 +5,7 @@ import './app/app.css';
 import './play/play.css';
 import './play/achievements.css';
 import './play/extras.css';
+import './play/eggs.css';
 import './theme/themes/index.css';
 import { App } from './app/App';
 import { initTheme } from './theme/theme';
