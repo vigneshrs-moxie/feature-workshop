@@ -49,7 +49,7 @@
 .job-trail.is-full .trail-field::before { left: 6px; }
 .job-trail.is-full .trail-field::after { right: 6px; transform: scale(.8); transform-origin: 50% 100%; }
 
-.trail-stars { position: absolute; top: var(--space-2); left: var(--space-3); color: var(--crew-gold); font-size: var(--text-md); letter-spacing: .08em; line-height: 1; }
+.trail-stars { position: absolute; top: var(--space-2); right: var(--space-3); color: var(--crew-gold); font-size: var(--text-md); letter-spacing: .08em; line-height: 1; }
 
 /* ---------- The road and its stops ---------- */
 

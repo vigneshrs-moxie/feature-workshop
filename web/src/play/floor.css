@@ -1,0 +1,81 @@
+/* The workshop floor (play/WorkshopFloor.tsx): the Foreman pane with no job open, Play on. The
+   Foreman in a portrait frame with what to do next, the cards waiting for you, then a card for
+   every open job with its trail. Theme tokens only. The only motion is a small lift on hover,
+   under 300 ms, and none under reduced motion. Status is never colour alone: each card says it in
+   words, and the asks name what each job needs. */
+
+.workshop-floor { display: grid; gap: var(--space-6); padding-bottom: var(--space-8); }
+
+/* ---------- The Foreman's word ---------- */
+
+.floor-foreman {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border-2);
+  border-radius: var(--card-radius);
+  background: var(--bg-1);
+  box-shadow: var(--shadow-1);
+}
+/* The portrait frame. */
+.floor-foreman-face {
+  flex: none;
+  box-sizing: content-box;
+  padding: var(--space-1);
+  border: 2px solid var(--border-3);
+  border-radius: var(--card-radius);
+  background: color-mix(in srgb, var(--crew-c-amber) 16%, var(--bg-2));
+}
+.floor-bubble { flex: 1; min-width: 0; }
+.floor-eyebrow { margin: 0; color: var(--accent-strong); font-size: var(--text-xs); font-weight: var(--weight-bold); letter-spacing: .12em; text-transform: uppercase; }
+.floor-say { margin: 2px 0 var(--space-3); color: var(--text-1); font-family: var(--font-heading); font-size: var(--text-lg); font-weight: var(--weight-bold); line-height: 1.25; }
+
+.floor-asks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.floor-ask {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--space-2);
+  height: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1.5px solid var(--group-needs-you-line);
+  border-radius: var(--radius-lg);
+  background: var(--group-needs-you-bg);
+  color: var(--text-1);
+  transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.floor-ask:hover { text-decoration: none; transform: translateY(-1px); }
+.floor-ask-arrow { grid-row: 1 / span 2; padding-top: 3px; color: var(--group-needs-you-fg); font-size: var(--text-xs); }
+.floor-ask-title { overflow: hidden; font-weight: var(--weight-bold); text-overflow: ellipsis; white-space: nowrap; }
+.floor-ask-what { color: var(--text-2); font-size: var(--text-sm); }
+.floor-more { margin: var(--space-2) 0 0; }
+
+/* ---------- On the floor: a card per open job ---------- */
+
+.floor-hint { margin: 0 0 var(--space-3); }
+.floor-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.floor-card {
+  position: relative;
+  padding: var(--space-3);
+  border: 1px solid var(--border-2);
+  border-radius: var(--card-radius);
+  background: var(--bg-1);
+  transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.floor-card:hover { border-color: var(--border-3); box-shadow: var(--shadow-1); transform: translateY(-2px); }
+.floor-card[data-group="needs-you"] { border-color: var(--group-needs-you-line); }
+.floor-card:has(.floor-card-title a:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.floor-card-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.floor-card-title { flex: 1; min-width: 0; margin: 0; overflow: hidden; font-size: var(--text-md); text-overflow: ellipsis; white-space: nowrap; }
+.floor-card-title a { color: var(--text-1); }
+.floor-card-title a:hover { text-decoration: none; }
+.floor-card-title a:focus-visible { outline: none; }
+/* The link's box covers the whole card, so a click anywhere on it opens the job. */
+.floor-card-title a::after { content: ""; position: absolute; inset: 0; z-index: 3; border-radius: inherit; }
+.floor-card .job-status { flex: none; font-size: var(--text-sm); }
+.floor-card .job-trail { margin: var(--space-2) 0 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .floor-ask, .floor-card { transition: none; }
+  .floor-ask:hover, .floor-card:hover { transform: none; }
+}

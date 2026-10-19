@@ -51,7 +51,8 @@ describe('App shell', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Classic view' }));
     expect(screen.getByRole('link', { name: 'Open this job in classic view' })).toHaveAttribute('href', '/#/job/beta');
     act(() => { window.location.hash = '#/'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
-    expect(screen.getByText('Pick a job on the left to see its conversation.')).toBeInTheDocument();
+    // Back home: the workshop floor (Play is on by default).
+    expect(screen.getByRole('region', { name: 'On the floor' })).toBeInTheDocument();
   });
 
   it('updates live from the stream', async () => {

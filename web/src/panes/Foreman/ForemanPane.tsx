@@ -1,7 +1,7 @@
 // Foreman pane: the open job's header and its conversation with the Foreman, oldest first, with
 // "Load older" at the top, then the permission and question cards waiting for you, and the live
 // row at the foot while it replies. With no job open it lists every card waiting for you (Needs
-// you). The composer sits under the conversation: Send, Steer and Stop (Composer.tsx).
+// you); with Play on, that is part of the workshop floor (play/WorkshopFloor.tsx). The composer sits under the conversation: Send, Steer and Stop (Composer.tsx).
 import { useEffect, useMemo, useRef } from 'react';
 import type { Job } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
@@ -11,6 +11,7 @@ import { useNow } from '../../lib/time';
 import { reviewLineup } from '../../play/crewLines';
 import { usePlay } from '../../play/usePlay';
 import { usePlayLedger } from '../../play/usePlayLedger';
+import { WorkshopFloor } from '../../play/WorkshopFloor';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
 import { BriefCard } from './BriefCard';
@@ -151,6 +152,9 @@ export function ForemanPane({ slug }: { slug: string | null }) {
   const state = useWorkshopState();
   const job = jobBySlug(state, slug);
   const now = useNow();
+  const play = usePlay();
+  // No job open, Play on: the workshop floor (the Foreman, the cards waiting for you, every open job).
+  const floor = !slug && state.status === 'ready' && play.on;
   return (
     <main className="pane pane-foreman" data-pane="foreman" aria-label="Foreman">
       <div className="foreman-column">
@@ -160,11 +164,12 @@ export function ForemanPane({ slug }: { slug: string | null }) {
           <>
             <h2 className="pane-title">Foreman</h2>
             <HowThisWorks id="foreman"><p>{HOW}</p></HowThisWorks>
-            {!slug && <p className="muted">Pick a job on the left to see its conversation.</p>}
+            {!slug && !floor && <p className="muted">Pick a job on the left to see its conversation.</p>}
             {slug && state.status === 'ready' && (state.runs[slug]
               ? <p className="muted" role="status">Starting the job… It appears here in a moment.</p>
               : <p className="muted">There’s no job called “{slug}”. It may have been renamed or removed.</p>)}
-            {!slug && state.status === 'ready' && (
+            {floor && <WorkshopFloor />}
+            {!slug && state.status === 'ready' && !floor && (
               <section className="needs-you-inbox" aria-label="Waiting for your answer">
                 <h3 className="settings-heading" title="Every permission and question waiting for you, across all jobs. You can answer them here or in each job.">Waiting for your answer</h3>
                 <NeedsYouCards now={now} />

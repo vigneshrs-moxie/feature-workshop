@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../../api/client';
-import type { Gate, Job, JobDetail, ThreadItem } from '../../api/types';
+import type { Gate, Job, JobDetail, PlayMode, ThreadItem } from '../../api/types';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { ev, job, snapshot } from '../../state/test-fixtures';
 import { ForemanPane } from './ForemanPane';
@@ -27,7 +27,7 @@ const detail = (extra: Partial<JobDetail> = {}): JobDetail => ({ slug: 'alpha', 
 
 type Routes = Record<string, unknown | (() => unknown)>;
 
-function setup({ routes = {}, jobs = [ALPHA], slug = 'alpha', post = vi.fn() }: { routes?: Routes; jobs?: Job[]; slug?: string | null; post?: ReturnType<typeof vi.fn> } = {}) {
+function setup({ routes = {}, jobs = [ALPHA], slug = 'alpha', post = vi.fn(), mode }: { routes?: Routes; jobs?: Job[]; slug?: string | null; post?: ReturnType<typeof vi.fn>; mode?: PlayMode } = {}) {
   const all: Routes = {
     '/api/job/alpha': detail(),
     '/api/job/alpha/doc?file=briefs%2F1-spec.md': { file: 'briefs/1-spec.md', name: 'Brief 1', html: '<p>The whole spec brief.</p>' },
@@ -41,7 +41,7 @@ function setup({ routes = {}, jobs = [ALPHA], slug = 'alpha', post = vi.fn() }: 
     return typeof r === 'function' ? (r as () => unknown)() : r;
   });
   const store: Store = createStore();
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs }) });
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, ...(mode ? { meta: { token: 't', settings: { policy: 'hands-off', play: { mode, questDone: 'first-pr', sounds: false } } } } : {}) }) });
   const api = { get, post } as unknown as ApiClient;
   const utils = render(<WorkshopContext.Provider value={{ store, api }}><ForemanPane slug={slug} /></WorkshopContext.Provider>);
   return { ...utils, get, store, all };
@@ -228,9 +228,10 @@ describe('Foreman pane', () => {
     expect(screen.getByText('Newest message')).toBeInTheDocument();
   });
 
-  it('asks you to pick a job, or says the job is unknown', () => {
-    setup({ slug: null });
+  it('Play Off: asks you to pick a job (Play on shows the workshop floor instead: play/WorkshopFloor.test.tsx)', () => {
+    setup({ slug: null, mode: 'off' });
     expect(screen.getByText('Pick a job on the left to see its conversation.')).toBeInTheDocument();
+    expect(document.querySelector('.workshop-floor')).toBeNull();
   });
 
   it('shows the job’s waiting cards at the foot of its conversation, live', async () => {
