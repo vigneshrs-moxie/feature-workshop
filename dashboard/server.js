@@ -238,20 +238,29 @@ async function reviewOf(dir) {
     return null;
   }
 }
-// The Hex Sommelier commit on a job's branch (hexCommit), read again only when the branch moved.
-const hexCache = new Map();
+// The Hex Sommelier commit on a job's branch (hexCommit). Looked for only on a full job read (at most
+// every JOBS_EVERY_MS), one job at a time, and not at all once the secret is found; a branch's
+// commits are read again only when its head moved. Only the job's own commits count (base..branch,
+// never the history it started from): with no base known, it isn't looked at.
+const hexCache = new Map(); // codeDir|branch|base -> { head, value }
+const hexKnown = new Map(); // job folder -> what the last full read found (the quick reads reuse it)
 async function hexCommitOf(f) {
+  const base = f.baseSha ?? f.baseBranch;
   const codeDir = f.worktree && fs.existsSync(f.worktree) ? f.worktree : f.repoPath;
-  if (!codeDir || !f.branch) return null;
-  const key = `${codeDir}|${f.branch}|${f.baseSha ?? ''}`;
+  if (!codeDir || !f.branch || !base) return null;
+  const key = `${codeDir}|${f.branch}|${base}`;
   const head = await git.headOf(codeDir, f.branch);
   if (!head) return null;
   const hit = hexCache.get(key);
   if (hit && hit.head === head) return hit.value;
   let value = null;
-  try { value = hexCommit(await git.commits(codeDir, { base: f.baseSha ?? null, head: f.branch, limit: 500 })); } catch { value = null; }
+  try { value = hexCommit(await git.commits(codeDir, { base, head: f.branch, limit: 500 })); } catch { value = null; }
   hexCache.set(key, { head, value });
   return value;
+}
+async function lookForHex(list) {
+  if (playbook.ledger?.secrets?.['hex-sommelier']) return;
+  for (const f of list) hexKnown.set(f.dir, await hexCommitOf(f).catch(() => null));
 }
 const playJobOf = async (f) => ({
   slug: f.slug, dir: f.dir, kind: f.kind, level: f.level, prs: f.prs, updatedAt: f.updatedAt,
@@ -259,11 +268,12 @@ const playJobOf = async (f) => ({
   startedAt: f.firstSessionAt ?? null, prLinks: f.prLinks ?? [],
   workers: (f.activity ?? []).filter((a) => a.who !== 'conductor').map((a) => ({ agentType: a.who, startedAt: a.startedAt ?? null, lastAt: a.lastAt ?? null })),
   review: await reviewOf(f.dir),
-  hexCommit: await hexCommitOf(f),
+  hexCommit: hexKnown.get(f.dir) ?? null,
 });
 // Every job: the cached list when it is fresh (fresh: true asks for that only), else a full read.
 async function playJobs({ fresh }) {
   const list = fresh ? (cached && Date.now() - cached.at < 1500 ? cached.list : null) : await features();
+  if (list && !fresh) await lookForHex(list);
   return list ? Promise.all(list.map(playJobOf)) : null;
 }
 // One job whose files changed: its status.json and review.md again, the rest as last read.

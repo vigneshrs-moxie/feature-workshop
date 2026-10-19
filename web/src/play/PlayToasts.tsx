@@ -15,6 +15,7 @@ import type { PlayNews } from '../api/types';
 import { useWorkshopState } from '../state/store';
 import { AchievementBadge } from './AchievementBadge';
 import { burstPieces, celebrate, type Celebration, type CelebrationKind } from './celebrate';
+import { clearScenes } from './eggs';
 import { Scenes } from './Scenes';
 import { playBlip } from './sound';
 import { usePlay } from './usePlay';
@@ -146,7 +147,8 @@ export function PlayToasts() {
     if (blip && celebrate(blip, play).sound) playBlip(blip);
   }, [playNews, play, jobs, epoch]);
 
-  useEffect(() => { if (!play.on) setQueue([]); }, [play.on]);
+  // Off: nothing waits to come back (nor a scene) when Play is turned on again.
+  useEffect(() => { if (!play.on) { setQueue([]); clearScenes(); } }, [play.on]);
 
   const [done] = useState(() => (key: number) => setQueue((q) => q.filter((t) => t.key !== key)));
 

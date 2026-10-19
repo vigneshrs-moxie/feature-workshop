@@ -20,6 +20,21 @@ describe('eggs.css', () => {
     for (const t of times) expect(t).toBeLessThan(1500);
   });
 
+  it('ends every staggered motion within 1.5 s, its delay included', () => {
+    const delays = [...uncommented.matchAll(/([^{}]+)\{[^}]*animation-delay:\s*(\d+)ms/g)].map(([, sel, ms]) => [sel.trim().split(/\s+/)[0], Number(ms)] as const);
+    expect(delays.length).toBeGreaterThan(0);
+    for (const [scope, delay] of delays) {
+      const rule = new RegExp(`${scope.replace('.', '\\.')}[^{]*\\{[^}]*animation:\\s*egg-[\\w-]+\\s+([\\d.]+)(m?s)`).exec(uncommented);
+      expect(rule, scope).not.toBeNull();
+      const duration = Number(rule![1]) * (rule![2] === 's' ? 1000 : 1);
+      expect(duration + delay, scope).toBeLessThan(1500);
+    }
+  });
+
+  it('never loops: no infinite animations', () => {
+    expect(uncommented).not.toMatch(/infinite/);
+  });
+
   it('holds everything still under reduced motion', () => {
     const animated = [...uncommented.matchAll(/([^{}]+)\{[^}]*animation:\s*egg-/g)].map(([, sel]) => sel.trim());
     const still = /@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\{\s*animation:\s*none/.exec(uncommented)?.[1] ?? '';

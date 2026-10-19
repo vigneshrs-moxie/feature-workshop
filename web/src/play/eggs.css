@@ -1,7 +1,7 @@
 /* The easter eggs (play/eggs.ts): the scenes shown with the play toasts, the Locksmith's door over
    the palette, the Friday eyebrow on a git push card, the Sleuth's search on the not-found page.
-   Theme tokens only. Every motion is under 1.5 s and nothing moves under reduced motion: each
-   keeps a still pose and its words. */
+   Theme tokens only. Every motion plays once and is over within 1.5 s, delays included (the crew
+   in them hold a still pose: CrewMember animated={false}); nothing moves under reduced motion. */
 
 /* ---------- Scenes (play/Scenes.tsx) ---------- */
 
@@ -22,10 +22,10 @@
 
 /* git blame: they turn to point at whoever is next to them. */
 .scene-git-blame .actor-1 .crew, .scene-git-blame .actor-3 .crew { transform: scaleX(-1); }
-.scene-git-blame .scene-actor { animation: egg-point 1.2s var(--ease-out) both; }
-.scene-git-blame .actor-1 { animation-delay: 150ms; }
-.scene-git-blame .actor-2 { animation-delay: 300ms; }
-.scene-git-blame .actor-3 { animation-delay: 450ms; }
+.scene-git-blame .scene-actor { animation: egg-point 1s var(--ease-out) both; }
+.scene-git-blame .actor-1 { animation-delay: 100ms; }
+.scene-git-blame .actor-2 { animation-delay: 200ms; }
+.scene-git-blame .actor-3 { animation-delay: 300ms; }
 @keyframes egg-point { 0%, 100% { transform: none; } 50% { transform: translateY(-3px) rotate(-4deg); } }
 
 /* The Konami code: the screen flickers on. */

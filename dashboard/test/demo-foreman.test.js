@@ -245,3 +245,21 @@ test('demo Foreman, L3 review: a boss round, a fix round that leaves only the mi
   assert.ok(helpers.includes('Start a helper: feature-reviewer'));
   await fs.rm(root, { recursive: true, force: true });
 });
+
+test('demo Foreman: a hand-off you deny runs nothing; the job stays as it was', async () => {
+  const { root, featuresDir, driver } = await setup();
+  driver.removeAllListeners('permission');
+  driver.on('permission', (p) => driver.decide(p.id, { decision: p.toolName === 'Agent' ? 'deny' : 'allow' }));
+  const { dir } = await newJob(featuresDir, 'invoice-merge', 'Merge duplicate invoices', 3);
+  const before = {
+    schema_version: 1, slug: 'invoice-merge', title: 'Invoice merge', route: 'large', stage: 'test', stage_state: 'waiting_for_you', waiting_for: 'approval',
+    brief: { number: 6, path: 'briefs/006-test.md', headline: 'Invoice merge · test done' }, session_id: 'demo-l3',
+  };
+  await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify(before));
+  const { status } = await reply(driver, dir, 'I approve. Go ahead with the next stage', { sessionId: 'demo-l3' });
+  assert.equal(status.stage, 'test');
+  assert.equal(status.stage_state, 'waiting_for_you');
+  assert.equal(status.brief.number, 6, 'no new brief');
+  await assert.rejects(fs.access(path.join(dir, 'review.md')), 'no review was written');
+  await fs.rm(root, { recursive: true, force: true });
+});

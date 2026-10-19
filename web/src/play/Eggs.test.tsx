@@ -90,6 +90,17 @@ describe('the Konami code', () => {
     expect(await screen.findByText(/CRT Terminal unlocked/)).toBeInTheDocument();
   });
 
+  it('survives the page changing under it halfway through', async () => {
+    const { secrets } = renderApp('subtle');
+    await screen.findByRole('navigation', { name: 'Jobs' });
+    press(KONAMI.slice(0, 5));
+    act(() => { window.location.hash = '#/job/alpha'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    await screen.findByRole('heading', { name: /Alpha/ });
+    press(KONAMI.slice(5));
+    await flush();
+    expect(secrets()).toEqual(['konami']);
+  });
+
   it('typed into a field it is just typing', async () => {
     const { secrets } = renderApp('subtle');
     await screen.findByRole('navigation', { name: 'Jobs' });
@@ -180,6 +191,8 @@ describe('⌘K phrases', () => {
     const scene = document.querySelector('[data-scene="sandwich"]')!;
     expect(scene).toHaveTextContent('Okay.');
     expect(scene.closest('.play-toasts')).not.toBeNull();
+    // The scene's own keyframes move it once; its crew hold a still pose (no looping).
+    expect(scene.querySelector('.crew.is-animated')).toBeNull();
   });
 });
 
@@ -189,7 +202,7 @@ describe('not found', () => {
     const { secrets } = renderApp('subtle');
     expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
     expect(screen.getByRole('main', { name: 'Page not found' })).toHaveTextContent('#/nowhere');
-    expect(screen.getByRole('img', { name: 'Sleuth, searching' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Sleuth, searching' })).not.toHaveClass('is-animated');
     expect(screen.getByRole('link', { name: 'Back to the Workshop' })).toHaveAttribute('href', '#/');
     await flush();
     expect(secrets()).toEqual(['sleuth-404']);
@@ -224,6 +237,18 @@ describe('the Foreman, knocked on', () => {
     for (let i = 0; i < 6; i++) fireEvent.click(face());
     act(() => { vi.advanceTimersByTime(2000); });
     fireEvent.click(face());
+    expect(document.querySelector('[data-scene="foreman"]')).toBeNull();
+  });
+
+  it('a scene left when Play goes Off never comes back when it is turned on again', () => {
+    const fake = fakeApi();
+    const store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: settings('subtle') }) });
+    render(<WorkshopContext.Provider value={{ store, api: fake.api as unknown as ApiClient }}><ForemanFace job={alpha} /><PlayToasts /></WorkshopContext.Provider>);
+    for (let i = 0; i < 7; i++) fireEvent.click(face());
+    expect(document.querySelector('[data-scene="foreman"]')).not.toBeNull();
+    act(() => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: settings('off') }) }); });
+    act(() => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: settings('subtle') }) }); });
     expect(document.querySelector('[data-scene="foreman"]')).toBeNull();
   });
 

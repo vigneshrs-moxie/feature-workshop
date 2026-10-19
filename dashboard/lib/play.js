@@ -997,7 +997,9 @@ export class PlayBook {
     return this.running;
   }
 
-  async #build(muted) {
+  async #build(asked) {
+    let muted = asked;
+    const startedAt = ms(this.now()) ?? Date.now();
     if (!this.loaded) await this.load();
     const before = this.ledger;
     const gen = this.generation;
@@ -1005,6 +1007,13 @@ export class PlayBook {
     await this.#readJobs(gen);
     // Play went Off while reading (forget() dropped what was read): build nothing, save nothing.
     if (gen !== this.generation || !this.isOn() || !this.fold) return;
+    // A mute asked for while this pass was reading (the quest rule changed under it): this pass
+    // builds with the new settings, so it is muted too, from when that mute was asked for.
+    const lateMute = Math.max(this.muteAt ?? 0, this.timerMutedAt ?? 0);
+    if (!muted && lateMute >= startedAt) {
+      muted = true;
+      this.muteAt = lateMute;
+    }
     // Muted, a quest whose time isn't known is stamped with the mute's time, not now: it (and what it
     // unlocks) is from before the mute, so it stays quiet.
     const now = muted && this.muteAt ? this.muteAt : this.now();

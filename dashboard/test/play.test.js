@@ -971,3 +971,37 @@ test('PlayBook: a muted refresh keeps quiet only about what came before it; a jo
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test('PlayBook: the quest rule changed while a refresh is reading: that refresh is muted too', async () => {
+  const dir = await tempDir();
+  try {
+    const input = { audit: [{ at: plus(T0, 10), action: 'close', as: 'done', featureDir: `${DIR}/old`, slug: 'old' }], jobs: [job('old', { level: 1 })] };
+    const sources = fakeSources(input);
+    const full = sources.jobs;
+    let gate = null;
+    sources.jobs = async (o) => { if (!o.fresh && gate) await gate; return full(o); };
+    let clock = Date.parse(plus(T0, 30));
+    const quests = [];
+    const unlocked = [];
+    const book = new PlayBook({ dir, sources, now: () => clock, jobsEveryMs: 0, onQuest: (q) => quests.push(q.slug), onUnlock: (a) => unlocked.push(a.id) });
+    await book.refresh();
+    // A plain refresh starts and is held in its job read; the rule changes (muted, as server.js asks).
+    let release;
+    gate = new Promise((r) => { release = r; });
+    clock = Date.parse(plus(T0, 60));
+    const running = book.refresh();
+    await wait(10);
+    clock += 1000;
+    input.play = { questDone: 'marked-done' };
+    book.schedule(0, { muted: true });
+    release();
+    gate = null;
+    await running;
+    await wait(30);
+    await book.current();
+    assert.equal(Object.keys(book.ledger.quests).length, 1, 'the old close counts under the new rule');
+    assert.deepEqual([quests, unlocked], [[], []], 'but nothing from before is celebrated');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

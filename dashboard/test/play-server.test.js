@@ -193,6 +193,8 @@ test('GET /api/teapot: a real 418; the crew headers point at it, and following t
   // From another site's page: still a teapot, but nothing is recorded.
   const cross = await fetch(`${base}/api/teapot?from=headers`, { headers: { 'Sec-Fetch-Site': 'cross-site' } });
   assert.equal(cross.status, 418);
+  // Nor from a page on another port of this machine.
+  assert.equal((await fetch(`${base}/api/teapot?from=headers`, { headers: { 'Sec-Fetch-Site': 'same-site' } })).status, 418);
   assert.deepEqual((await getJson('/api/play')).secrets.found, ['sandwich']);
   const plain = await fetch(`${base}/api/teapot`);
   assert.equal(plain.status, 418);

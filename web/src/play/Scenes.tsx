@@ -1,6 +1,7 @@
 // The easter eggs' short scenes (play/eggs.ts showScene), drawn with the play toasts: bottom-right,
 // over the Preview pane, never over the composer, a gate card or a permission card. Each is a crew
-// member (or a few) doing something for under 1.5 s, holding still under reduced motion, with its
+// member (or a few) doing something for under 1.5 s, once (the crew hold a still pose; the scene's
+// own keyframes move them), holding still under reduced motion, with its
 // words read out politely. It goes by itself after a few seconds, or with Dismiss.
 import { useEffect } from 'react';
 import { CrewMember } from './CrewMember';
@@ -25,7 +26,7 @@ function SceneCard({ scene }: { scene: Scene }) {
       <span className="scene-cast" aria-hidden="true">
         {cast.types.map((t, i) => (
           <span key={t} className={`scene-actor actor-${i}`}>
-            <CrewMember type={t} state={scene.kind === 'git-blame' ? 'waiting' : 'celebrating'} size={scene.kind === 'git-blame' ? 30 : 40} label="" animated />
+            <CrewMember type={t} state={scene.kind === 'git-blame' ? 'waiting' : 'celebrating'} size={scene.kind === 'git-blame' ? 30 : 40} label="" animated={false} />
           </span>
         ))}
       </span>

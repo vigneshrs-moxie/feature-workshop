@@ -174,7 +174,14 @@ export function makeFakeQuery({ featuresDir, autoAvailable = !process.env.WORKSH
         yield say(d.say, [{ type: 'tool_use', id, name: 'Agent', input: agent }]);
         const handed = await useTool('Agent', agent, { id });
         yield* queue.splice(0);
-        if (handed.behavior !== 'allow') { yield say(`Okay, not starting ${d.description.toLowerCase()}.`); continue; }
+        if (handed.behavior !== 'allow') {
+          // Not handed over: nothing ran, so the stage doesn't move. Back as it was, and stop.
+          await plan.restore();
+          const stopped = `Okay, not starting ${d.description.toLowerCase()}. Nothing ran; the job is as it was. Tell me how you'd like to go on.`;
+          yield say(stopped);
+          yield result(sessionId, false, stopped, denials);
+          return;
+        }
         for (const line of d.lines ?? []) {
           await nap(450);
           yield say(line);

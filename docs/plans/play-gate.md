@@ -15,6 +15,7 @@
   - **Stamina:** in the top bar, drawn from Claude's usage limit, using the measured percentage when Claude gives one.
   - **Sleeping crew:** during a usage pause, the crew sleep. They show a time to wake up only when jobs will carry on by themselves.
   - **Celebrations and sounds:** a small burst in Subtle and a bigger one in Full. Sounds are opt-in, one blip per batch of toasts.
+- **Scenes:** the eggs' short scenes move once, for under 1.5 s with delays included, then hold still. Nothing moves under reduced motion.
 - **Easter eggs (13):** listed under "The secrets" below; the page never explains them.
 
 ## How to try it
@@ -59,20 +60,20 @@ A quest is done when the job's first PR is created (status.json `prs[0]` gets a 
 | Nice Try | ⌘K `rm -rf /`: the Locksmith's door, "Hard line. Nice try." |
 | Not It | ⌘K `git blame`: the crew point at each other. |
 | Short and Stout | `GET /api/teapot`: a real 418. Counts from this browser or a terminal, never from another site's page. |
-| Clacks Overhead | Every response has `X-Crew`, `X-Clacks-Overhead: GNU Terry Pratchett` and an `X-Crew-Note` pointing at `/api/teapot?from=headers`. Following it finds this one. |
+| Clacks Overhead | Every ordinary response (not the live event stream) has `X-Crew`, `X-Clacks-Overhead: GNU Terry Pratchett` and an `X-Crew-Note` pointing at `/api/teapot?from=headers`. Following it finds this one. |
 | Behind the Curtain | The DevTools console shows the crew and a hint; `crew.hello()` answers. |
 | Lost and Found | A `#/` address that isn't a page: the Sleuth looks for it. |
-| Hex Sommelier | A commit on a job's branch whose hash starts with `c0ffee`, `dead`, `beef` or `f00d`. The dashboard finds it. |
+| Hex Sommelier | A commit on a job's branch (its own commits, base..branch) whose hash starts with `c0ffee`, `dead`, `beef` or `f00d`. The dashboard looks on its full job read, about once a minute, one job at a time, and stops once it has been found. |
 | Seven Knocks | Seven quick clicks on the Foreman by a job's title: a one-liner. |
 | Friday Deploy | A `git push` permission card on a Friday from 4pm: the Locksmith raises an eyebrow under the buttons. It never changes the decision. |
 | Hat Season | Seasonal hats on Halloween, Christmas and New Year. Nightcaps from midnight to 5am don't count. |
 
-The page can report only the ten it sees. The dashboard refuses the teapot, the headers and the Hex Sommelier from the page.
+The page can report only the ten it sees: a POST for the teapot, the headers or the Hex Sommelier is refused. The teapot and the headers are found by visiting the address, which any page of the dashboard could do too. Another site's page can't (`Sec-Fetch-Site`), except in browsers too old to send that header. For two joke secrets that's acceptable.
 
 ## Tests (real run, 2026-10-19)
 
-- `npm test`: 281 / 281
-- `npm run web:test`: 521 / 521
+- `npm test`: 283 / 283
+- `npm run web:test`: 525 / 525
 - `npx tsc --noEmit -p web`: clean
 - `npm run web:build`: builds (504 kB, see below)
 - No test calls Claude.
@@ -85,7 +86,9 @@ The page can report only the ten it sees. The dashboard refuses the teapot, the 
 - each ⌘K phrase, the Foreman's knocks, the 404, the teapot, the console and the Konami code;
 - all eight themes.
 
-**Reviews:** an independent review after steps 2, 4 and 6; the step 8 review comes next. The step 6 review found two major problems: old toasts came back after a restart, and the boss fight rarely drained. It also found seven minor ones. All are fixed except the hidden-theme flash (below).
+**Reviews:** an independent review after steps 2, 4, 6 and 8.
+- **Step 6:** two major problems (old toasts came back after a restart; the boss fight rarely drained) and seven minor ones. All are fixed except the hidden-theme flash (below).
+- **Step 8**, covering steps 7 and 8: two major problems (scenes kept moving past 1.5 s, even in Subtle; the Hex Sommelier ran git for every job on every refresh) and seven minor ones. All are fixed, or worded more exactly here.
 
 ## Known gaps
 
@@ -95,13 +98,16 @@ The page can report only the ten it sees. The dashboard refuses the teapot, the 
 - **Bundle size:** the bundle is 504 kB, just over Vite's 500 kB warning. It's one local bundle, so nothing is split.
 - **Boss Slayer in the demo:** the demo's Report Scheduler is a finished L3 job, so Boss Slayer is already earned when the demo starts. Finishing Invoice Merge shows only "Quest done".
 - **Push prompts in the demo:** the pretend Foreman reads "push" in the PR #1 approval as a request to push, so that step also asks before a push and shows a refused force push. That behaviour is from phase 2.
-- **Test gaps:** some from the step 6 review are still open: no server test that boss events reach the live stream, and no server test of a reopened job. The demo walk covers Off across the whole page.
+- **Test gaps:**
+  - From the step 6 review: no server test that boss events reach the live stream, and no server test of a reopened job.
+  - From the step 8 review: no server test of the Hex Sommelier's git reading (the pure part is tested).
+  - The demo walk covers Off across the whole page.
 - **Real jobs:** no real job has run with Play on yet.
 
 ## Appendix: choices made while building
 
 - **Boss defeat** (your call, 2026-10-19): the boss falls once no blockers or majors are left. A review that never had either has no boss.
-- **Mutes:** turning Play back on, or changing the quest rule, celebrates nothing from before. Something that happens a moment later, like a job marked done right after the rule changes, still gets its toast.
+- **Mutes:** turning Play back on, or changing the quest rule, celebrates nothing from before. That holds even if a refresh is already reading when you change it. Something that happens a moment later, like a job marked done right after the rule changes, still gets its toast.
 - **Konami:** it picks CRT Terminal, which goes on once the ledger confirms the unlock, so the page never decides an unlock by itself.
 - **404:** only an unknown `#/…` address shows the Sleuth's page. An in-page `#section` link still shows home.
-- **The demo:** the pretend Foreman now hands work over with an Agent step the dashboard allows as routine, so the crew are met live. It writes `review.md` and records PR #1's link.
+- **The demo:** the pretend Foreman now hands work over with an Agent step the dashboard allows as routine, so the crew are met live. If you deny that step, nothing runs and the job stays as it was. It writes `review.md` and records PR #1's link.
