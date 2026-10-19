@@ -1,63 +1,23 @@
-// The Full-mode extras (Play layer step 6). Each draws nothing unless Play mode is Full, so Subtle
+// The Full-mode extras (Play layer step 6; the quest track grew into the trail, play/JobTrail.tsx). Each draws nothing unless Play mode is Full, so Subtle
 // and Off are exactly as before; with reduced motion asked for, everything holds still. Every one
 // has words as well as a picture, and a hover hint. None of them ever sits in a gate card, a
 // permission card or the composer.
-//   <QuestTrack job />     in the job header: difficulty stars and the stages as a path, the current
-//                          stage's crew member standing on it (only the stars on a narrow pane)
 //   <BossFight review />   under an L3 job's review brief: its findings as a health bar
 //   <StaminaBar />         in the top bar: Claude's usage limit as Fresh, Warning or Resting
 //   <SleepingCrew />       the live row during a usage pause: the crew asleep, back at 3:42pm
 import type { Job, ReviewBoss, Usage } from '../api/types';
 import { useNow } from '../lib/time';
 import { useWorkshopState } from '../state/store';
-import { crewInfo } from './crew';
 import { CrewMember } from './CrewMember';
 import { nameList, workersNow } from './crewLines';
-import { backAt, bossView, questTrack, staminaOf } from './extrasModel';
+import { backAt, bossView, staminaOf } from './extrasModel';
 import { usePlayIfAny } from './usePlay';
-import { usePlayLedger } from './usePlayLedger';
 import { CREW_SIZE } from './crewSizes';
 
 const useFull = () => {
   const play = usePlayIfAny();
   return Boolean(play?.on && play.full);
 };
-
-const TRACK_HINT = 'The quest track (Play mode Full): the job’s level as difficulty, and the stages this level runs as a path with whoever is on the current stage standing on it. A quest is done by the Settings → Play rule (by default, when its first PR is created).';
-
-export function QuestTrack({ job }: { job: Job }) {
-  const full = useFull();
-  const { meta } = useWorkshopState();
-  // The page's shared ledger only: the track never fetches one of its own.
-  const { load } = usePlayLedger(false);
-  if (!full) return null;
-  // Done by the Settings → Play rule, as the ledger counts it (no ledger, or one from before, says nothing).
-  const slugs = load.state === 'ready' ? load.view.quests.slugs : undefined;
-  const track = questTrack(job, meta?.levels, slugs ? slugs.includes(job.slug) : undefined);
-  if (!track) return null;
-  const current = track.stops.find((s) => s.state === 'current');
-  return (
-    <div className="quest-track" title={TRACK_HINT}>
-      <span className="quest-stars" aria-hidden="true">{track.stars}</span>
-      <span className="sr-only">{track.difficulty}</span>
-      <ol className="quest-path" aria-label={`Quest track${current ? `: now at ${current.label}` : track.finished ? ': done' : ''}`}>
-        {track.stops.map((s, i) => (
-          <li key={s.id} className={`quest-stop is-${s.state}${i === track.stops.length - 1 ? ' is-goal' : ''}`}>
-            {s.state === 'current' && track.who && (
-              <span className="quest-who"><CrewMember type={track.who} state="working" size={22} label={crewInfo(track.who).name} /></span>
-            )}
-            {track.finished && i === track.stops.length - 1 && (
-              <span className="quest-who"><CrewMember type="conductor" state="celebrating" size={22} label="Foreman, celebrating" /></span>
-            )}
-            <span className="quest-dot" aria-hidden="true">{s.state === 'done' ? '✓' : i === track.stops.length - 1 ? '⚑' : ''}</span>
-            <span className="quest-label">{s.label}</span>
-            <span className="sr-only">{s.state === 'done' ? ', done' : s.state === 'current' ? ', now' : ''}</span>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
 
 const BOSS_HINT = 'The boss fight (Play mode Full, L3 reviews): the review’s findings as hit points (blockers 5, majors 3, minors 1), draining as fix rounds land. It is defeated once the blockers and majors are fixed; minors left over are yours. From review.md only; it costs no usage and never rewards approving.';
 

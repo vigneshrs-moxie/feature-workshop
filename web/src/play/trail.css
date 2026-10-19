@@ -1,0 +1,144 @@
+/* The job's trail (play/JobTrail.tsx), the classic page's meadow brought back: a field with a road
+   of stops, the crew member for the current stage standing on it, then the "Now / Next" line.
+   Theme tokens only. A theme may set the field's own colours (optional; the defaults are mixed
+   from its paints):
+     --trail-sky, --trail-ground   the field, top to bottom
+     --trail-road, --trail-road-done   the road between stops, before and after it is walked
+     --trail-tree, --trail-trunk   the two trees at the ends (Full mode)
+   Status is never colour alone: done stops carry a tick, the current one its crew member and a
+   bold name, the goal a flag, and the line under the field says it all in words. Nothing here
+   moves; the crew's own motion follows the Play mode, and stops under reduced motion. */
+
+.job-trail {
+  --trail-sky: color-mix(in srgb, var(--crew-c-blueprint) 10%, var(--bg-1));
+  --trail-ground: color-mix(in srgb, var(--crew-c-moss) 26%, var(--bg-1));
+  --trail-road: color-mix(in srgb, var(--crew-c-tweed) 55%, var(--bg-3));
+  --trail-road-done: color-mix(in srgb, var(--status-ok) 70%, var(--trail-road));
+  --trail-tree: color-mix(in srgb, var(--crew-c-forest) 80%, var(--bg-1));
+  --trail-trunk: var(--crew-c-tweed-deep);
+  /* The crew member's size (JobTrail sets it from crewSizes.ts); their feet land on the road. */
+  --trail-crew: 56px;
+  container-type: inline-size;
+  margin: var(--space-2) 0 var(--space-3);
+}
+
+.trail-field {
+  position: relative;
+  padding: calc(var(--trail-crew) * .92 + 14px) var(--space-4) var(--space-2);
+  border: 1px solid var(--border-1);
+  border-radius: var(--card-radius);
+  background: linear-gradient(180deg, var(--trail-sky) 0%, var(--trail-ground) 78%);
+}
+.job-trail.is-card .trail-field { padding: calc(var(--trail-crew) * .92 + 12px) var(--space-3) var(--space-1); }
+/* Room for the trees at the ends. */
+.job-trail.is-full.is-header .trail-field { padding-right: 40px; padding-left: 40px; }
+
+/* Full mode: a tree at each end of the field. */
+.job-trail.is-full .trail-field::before,
+.job-trail.is-full .trail-field::after {
+  content: "";
+  position: absolute;
+  bottom: 30px;
+  width: 26px;
+  height: 38px;
+  background:
+    radial-gradient(circle at 50% 36%, var(--trail-tree) 0 11px, transparent 11.5px),
+    linear-gradient(var(--trail-trunk), var(--trail-trunk)) 50% 100% / 4px 14px no-repeat;
+  pointer-events: none;
+}
+.job-trail.is-full .trail-field::before { left: 6px; }
+.job-trail.is-full .trail-field::after { right: 6px; transform: scale(.8); transform-origin: 50% 100%; }
+
+.trail-stars { position: absolute; top: var(--space-2); left: var(--space-3); color: var(--crew-gold); font-size: var(--text-md); letter-spacing: .08em; line-height: 1; }
+
+/* ---------- The road and its stops ---------- */
+
+.trail-path { position: relative; z-index: 1; display: flex; margin: 0; padding: 0; list-style: none; }
+.trail-stop { position: relative; display: flex; flex: 1 1 0; flex-direction: column; align-items: center; min-width: 0; }
+/* The road from the stop before. */
+.trail-stop::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  right: 50%;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--trail-road);
+  transform: translateY(-50%);
+}
+.trail-stop:first-child::before { display: none; }
+.trail-stop.is-done::before, .trail-stop.is-current::before { background: var(--trail-road-done); }
+
+.trail-dot {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-3);
+  border-radius: 50%;
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-size: 11px;
+  font-weight: var(--weight-bold);
+  line-height: 16px;
+  text-align: center;
+}
+.trail-stop.is-done .trail-dot { border-color: var(--status-ok); background: var(--status-ok); color: var(--crew-ink); }
+.trail-stop.is-current .trail-dot { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.trail-stop.is-goal .trail-dot { border-radius: 5px; }
+
+.trail-label {
+  max-width: 100%;
+  margin-top: 4px;
+  padding: 0 6px;
+  overflow: hidden;
+  border-radius: var(--chip-radius);
+  color: var(--text-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trail-stop.is-here .trail-label { border: 1px solid var(--border-3); background: var(--bg-3); color: var(--text-1); font-weight: var(--weight-bold); }
+
+/* The crew member standing on the stop: feet on the road. */
+.trail-who { position: absolute; z-index: 2; top: calc(10px - var(--trail-crew) * .92); left: 50%; display: flex; transform: translateX(-50%); }
+/* The job needs you: a "!" over their head (the line below says so in words). */
+.trail-ask {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--bg-2);
+  border-radius: 50%;
+  background: var(--group-needs-you-line);
+  color: var(--text-1);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  line-height: 18px;
+  text-align: center;
+  transform: translateX(-50%);
+  box-shadow: var(--shadow-1);
+}
+
+/* ---------- Now / Next ---------- */
+
+.trail-now { margin: var(--space-2) 0 0; color: var(--text-1); font-size: var(--text-md); }
+.job-trail.is-card .trail-now { font-size: var(--text-base); }
+.trail-lead { color: var(--group-running-fg); }
+.job-trail.is-ask .trail-lead { color: var(--group-needs-you-fg); }
+.job-trail[data-group="paused"] .trail-lead { color: var(--group-paused-fg); }
+.job-trail[data-group="done"] .trail-lead { color: var(--group-done-fg); }
+.job-trail[data-group="idle"] .trail-lead { color: var(--group-idle-fg); }
+.trail-next { margin: 2px 0 0; color: var(--text-2); }
+
+/* A floor card, or a narrow pane: only the current stop and the goal keep their names. */
+.job-trail.is-card .trail-stop:not(.is-here, .is-goal) .trail-label { visibility: hidden; }
+@container (max-width: 520px) {
+  .trail-stop:not(.is-here, .is-goal) .trail-label { visibility: hidden; }
+  .job-trail.is-full .trail-field::before, .job-trail.is-full .trail-field::after { display: none; }
+}

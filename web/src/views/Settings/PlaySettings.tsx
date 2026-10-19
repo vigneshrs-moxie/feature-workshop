@@ -8,8 +8,8 @@ import { playOf } from '../../play/settings';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 
 export const PLAY_MODE_CHOICES: { id: PlayMode; label: string; note: string; hint: string }[] = [
-  { id: 'full', label: 'Full', note: 'The crew moves, plus quest tracks, boss fights, stamina and short celebrations.', hint: 'Everything in Subtle, animated, with the game extras. Sounds can be turned on below.' },
-  { id: 'subtle', label: 'Subtle', note: 'The crew stands still and small beside the work; achievements and the Crew-dex are on.', hint: 'Quiet: still characters, achievements, the Crew-dex and the easter eggs.' },
+  { id: 'full', label: 'Full', note: 'The crew moves, plus difficulty stars, boss fights, stamina and short celebrations.', hint: 'Everything in Subtle, animated, with the game extras. Sounds can be turned on below.' },
+  { id: 'subtle', label: 'Subtle', note: 'The crew stand still beside the work: on each job’s trail, in the job list and the conversation; achievements and the Crew-dex are on.', hint: 'Quiet: still characters, achievements, the Crew-dex and the easter eggs.' },
   { id: 'off', label: 'Off', note: 'No crew, achievements or secrets: the Workshop exactly as it was.', hint: 'Turns the whole Play layer off. Nothing else changes.' },
 ];
 
@@ -43,7 +43,7 @@ export function PlaySettings() {
       <h3 className="settings-heading">Play</h3>
       <HowThisWorks id="play">
         <p><strong>Play</strong> adds the workshop crew, achievements, a Crew-dex and a few secrets on top of the work. It is personal: everything is worked out on this computer from what the dashboard already records, it never asks Claude anything and costs no usage.</p>
-        <p><strong>Subtle</strong> (the default) shows the crew still and small. <strong>Full</strong> animates them and adds quest tracks, boss fights for large reviews, stamina for your usage limit and short celebrations. <strong>Off</strong> turns all of it off.</p>
+        <p><strong>Subtle</strong> (the default) shows the crew still. <strong>Full</strong> animates them and adds difficulty stars, boss fights for large reviews, stamina for your usage limit and short celebrations. <strong>Off</strong> turns all of it off.</p>
         <p>Achievements reward finished work, never clicks: approving something earns nothing. A job counts as a finished quest once, by the rule you pick below; reopening it and finishing again doesn’t count twice. Nothing play-related ever stands between you and a card or the message box.</p>
       </HowThisWorks>
       <fieldset className="rule-options play-options" disabled={busy}>

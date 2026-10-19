@@ -5,8 +5,8 @@
 //   (POST /api/job/:slug/policy).
 // ⌘K offers the same actions (app/commands.ts); both call app/jobActions.ts.
 // The level chip (LevelChip.tsx) shows the job's level and changes it.
-// With Play on, the Foreman character stands by the title, its mood following the job; in Full
-// mode the quest track sits under the title line.
+// With Play on, the Foreman character stands by the title, its mood following the job, and the
+// trail sits under the title line (play/JobTrail.tsx).
 import { useEffect, useRef, useState } from 'react';
 import type { Job, PolicyId, Run } from '../../api/types';
 import { reopenJob, setJobPolicy } from '../../app/jobActions';
@@ -18,7 +18,7 @@ import { useWorkshop, useWorkshopState } from '../../state/store';
 import { jobHueStyle } from '../../theme/hue';
 import { GROUP_HINTS, GROUP_LABELS } from '../Jobs/jobStatus';
 import { ForemanFace } from '../../play/ThreadCrew';
-import { QuestTrack } from '../../play/FullExtras';
+import { JobTrail } from '../../play/JobTrail';
 import { LevelChip } from './LevelChip';
 import { formatCost, isActiveRun } from './thread';
 
@@ -190,8 +190,8 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree, det
         <LevelChip job={job} ready={detailLoaded} />
         <JobMenu job={job} dir={dir} policyOverride={policyOverride} run={run} worktree={worktree} />
       </div>
-      {/* Play, Full mode only: the quest track (difficulty and the stages as a path). */}
-      <QuestTrack job={job} />
+      {/* Play: the trail (the stages as a path, who is on the current one, and what happens next). */}
+      <JobTrail job={job} />
       <p className="job-facts muted">
         <span className={`status status-${job.group}`} data-group={job.group} title={GROUP_HINTS[job.group]}>{GROUP_LABELS[job.group] ?? job.group}</span>
         {kind && <span title="What kind of job this is.">{kind}</span>}

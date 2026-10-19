@@ -1,4 +1,4 @@
-// The Full-mode extras on the page: the quest track in the job header, the boss fight under an L3
+// The Full-mode extras on the page: the trail in the job header (Subtle too, without the stars), the boss fight under an L3
 // job's latest review brief, stamina in the top bar and the crew asleep in a usage pause. Nothing
 // of it renders in Subtle or Off; with reduced motion everything holds still. Invented jobs only.
 import { render, screen, within } from '@testing-library/react';
@@ -9,6 +9,7 @@ import { LiveRow } from '../panes/Foreman/LiveRow';
 import { ForemanPane } from '../panes/Foreman/ForemanPane';
 import { createStore, WorkshopContext, type Store } from '../state/store';
 import { job, LEVELS, snapshot } from '../state/test-fixtures';
+import { CREW_SIZE } from './crewSizes';
 import { StaminaBar } from './FullExtras';
 
 const NOW = new Date(2026, 9, 16, 15, 0);
@@ -58,30 +59,47 @@ const briefCard = (n: number) => screen.getByRole('article', { name: `Brief #${n
 beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW); stubReducedMotion(false); });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); localStorage.clear(); });
 
-describe('quest track (Full)', () => {
-  it('shows the level as difficulty and the stages as a path, the current stage’s crew member on it', async () => {
+describe('the trail in the job header (Play on)', () => {
+  it('Full: the level as difficulty, the stages as a path, the current stage’s crew member on it, a “!” when it needs you', async () => {
     const { container } = pane('full');
     await loaded();
-    const track = container.querySelector('.job-header .quest-track')!;
-    expect(track).not.toBeNull();
-    expect(track.querySelector('.quest-stars')).toHaveTextContent('★★★★');
-    expect(track).toHaveTextContent('Difficulty: L3 Large');
-    expect(track).toHaveAttribute('title', expect.stringContaining('quest track'));
-    const path = within(track as HTMLElement).getByRole('list', { name: 'Quest track: now at Review' });
+    const trail = container.querySelector('.job-header .job-trail')!;
+    expect(trail).toHaveClass('is-full', 'is-ask');
+    expect(trail.querySelector('.trail-stars')).toHaveTextContent('★★★★');
+    expect(trail).toHaveTextContent('Difficulty: L3 Large');
+    expect(trail).toHaveAttribute('title', expect.stringContaining('The trail'));
+    const path = within(trail as HTMLElement).getByRole('list', { name: 'Stages: now at Review' });
     const stops = within(path).getAllByRole('listitem');
-    expect(stops.map((s) => s.querySelector('.quest-label')!.textContent)).toEqual(['Spec', 'Refine', 'Investigate', 'Plan', 'Build', 'Test', 'Review', 'PR #1']);
-    expect(stops[6]).toHaveClass('is-current');
+    expect(stops.map((s) => s.querySelector('.trail-label')!.textContent)).toEqual(['Spec', 'Refine', 'Investigate', 'Plan', 'Build', 'Test', 'Review', 'PR #1']);
+    expect(stops[6]).toHaveClass('is-current', 'is-here');
     expect(stops[6]).toHaveTextContent(', now');
-    expect(within(stops[6]).getByRole('img', { name: 'Head inspector' })).toHaveClass('is-animated');
+    const who = within(stops[6]).getByRole('img', { name: 'Head inspector, waiting' });
+    expect(who).toHaveClass('is-animated');
+    expect(who).toHaveAttribute('width', String(CREW_SIZE.trail[1]));
+    expect(stops[6].querySelector('.trail-ask')).toHaveTextContent('!');
     expect(stops[0]).toHaveTextContent('✓');
     expect(stops[7]).toHaveClass('is-goal', 'is-next');
+    expect(trail.querySelector('.trail-now')).toHaveTextContent('Your move: the Foreman is waiting for your reply.');
+    expect(trail.querySelector('.trail-next')).toHaveTextContent('Then: The Foreman opens PR #1, the quest’s goal.');
+  });
+
+  it('Subtle: the same trail and line, the crew still, no difficulty stars', async () => {
+    const { container } = pane('subtle');
+    await loaded();
+    const trail = container.querySelector('.job-header .job-trail')!;
+    expect(trail).not.toHaveClass('is-full');
+    expect(trail.querySelector('.trail-stars')).toBeNull();
+    const who = within(trail as HTMLElement).getByRole('img', { name: 'Head inspector, waiting' });
+    expect(who).toHaveClass('is-still');
+    expect(who).toHaveAttribute('width', String(CREW_SIZE.trail[0]));
+    expect(trail.querySelector('.trail-now')).toHaveTextContent('Your move:');
   });
 
   it('holds still with reduced motion', async () => {
     stubReducedMotion(true);
     const { container } = pane('full');
     await loaded();
-    expect(container.querySelector('.quest-track svg.crew')).toHaveClass('is-still');
+    expect(container.querySelector('.job-trail svg.crew')).toHaveClass('is-still');
   });
 });
 
@@ -119,10 +137,11 @@ describe('boss fight (Full, L3 review)', () => {
 
 describe('Subtle and Off draw none of it', () => {
   for (const mode of ['subtle', 'off'] as PlayMode[]) {
-    it(`${mode}: no quest track, no boss, no stamina, no ledger fetched for them`, async () => {
+    it(`${mode}: no boss, no stamina, no difficulty, no ledger fetched for them`, async () => {
       const { container, get } = pane(mode);
       await loaded();
-      expect(container.querySelector('.quest-track, .boss-fight, .stamina')).toBeNull();
+      expect(container.querySelector('.boss-fight, .stamina, .trail-stars')).toBeNull();
+      if (mode === 'off') expect(container.querySelector('.job-trail')).toBeNull();
       expect(container).not.toHaveTextContent('Difficulty');
       expect(get).not.toHaveBeenCalledWith('/api/play');
       expect(screen.queryByText('Full mode extras:', { exact: false })).toBeNull();
