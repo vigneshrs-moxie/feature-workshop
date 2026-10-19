@@ -48,6 +48,17 @@ describe('quest track', () => {
     // No stage yet: nobody stands anywhere.
     expect(questTrack(job('a', 'idle', { level: 2 }), LEVELS)!.who).toBeNull();
   });
+  it('takes done from the ledger when it says (the Settings → Play rule)', () => {
+    // First PR created and counted: done, though the stage is still PR #1.
+    const atGoal = questTrack(job('a', 'running', { level: 2, stage: 'pr1' }), LEVELS, true)!;
+    expect(atGoal.finished).toBe(true);
+    expect(atGoal.stops.every((s) => s.state === 'done')).toBe(true);
+    // "I mark the job done": past the first PR but not marked yet, standing at the goal.
+    const waiting = questTrack(job('a', 'running', { level: 2, stage: 'pr2' }), LEVELS, false)!;
+    expect(waiting.finished).toBe(false);
+    expect(states(waiting).slice(-2)).toEqual(['Review:done', 'PR #1:current']);
+    expect(waiting.who).not.toBeNull();
+  });
 });
 
 describe('boss fight', () => {
@@ -57,9 +68,16 @@ describe('boss fight', () => {
     expect(bossView(r({ majors: 2, minors: 3, hp: 9, startHp: 9 }))!.text).toBe('Boss: 9 of 9 hit points left · 2 majors, 3 minors');
     expect(findingsText({ blockers: 0, majors: 0, minors: 1 })).toBe('1 minor');
   });
-  it('is defeated at zero; nothing to show without a review', () => {
-    expect(bossView(r({ hp: 0, startHp: 12, defeatedAt: '2026-10-16T11:00:00.000Z' }))).toMatchObject({ defeated: true, left: 0, share: 0, text: 'Boss defeated' });
+  it('is defeated once the blockers and majors are fixed; minors left over are yours', () => {
+    expect(bossView(r({ hp: 0, startHp: 12, hadBoss: true, defeatedAt: '2026-10-16T11:00:00.000Z' }))).toMatchObject({ defeated: true, left: 0, share: 0, text: 'Boss defeated' });
+    expect(bossView(r({ minors: 2, hp: 2, startHp: 12, hadBoss: true }))).toMatchObject({ defeated: true, share: 0, text: 'Boss defeated · 2 minors left for you' });
+    // A dashboard from before hadBoss: its defeat time says there was one.
+    expect(bossView(r({ hp: 0, startHp: 12, defeatedAt: '2026-10-16T11:00:00.000Z' }))!.defeated).toBe(true);
+  });
+  it('shows no boss without a review, or when no round raised a blocker or a major', () => {
     expect(bossView(null)).toBeNull();
+    expect(bossView(r({ hp: 0, startHp: 0, hadBoss: false }))).toBeNull();
+    expect(bossView(r({ minors: 3, hp: 3, startHp: 3, hadBoss: false }))).toBeNull();
     // A later round that raised more than the first: the bar never overflows.
     expect(bossView(r({ blockers: 3, hp: 15, startHp: 12 }))!.share).toBe(1);
   });
@@ -69,19 +87,34 @@ describe('stamina', () => {
   const NOW = new Date(2026, 9, 16, 15, 0);
   const at = (h: number, m: number) => new Date(2026, 9, 16, h, m).toISOString();
   const usage = (extra: Partial<Usage>): Usage => ({ limited: false, blocking: false, label: null, resetsAt: null, ...extra });
-  it('Fresh, Warning, or Resting until the reset, from the snapshot’s usage (never a made-up percentage)', () => {
+  it('Fresh, Warning, or Resting until the reset, from the snapshot’s usage', () => {
     expect(staminaOf(usage({}), NOW)).toMatchObject({ state: 'fresh', label: 'Fresh', fill: 1 });
     expect(staminaOf(null, NOW).state).toBe('fresh');
     const warn = staminaOf(usage({ warning: { label: '5-hour limit', percent: 91, resetsAt: at(15, 42) } }), NOW);
     expect(warn).toMatchObject({ state: 'warning', label: 'Warning' });
     expect(warn.label).not.toMatch(/\d/);
     expect(warn.hint).toContain('3:42pm');
-    expect(staminaOf(usage({ limited: true, resetsAt: at(15, 42) }), NOW)).toMatchObject({ state: 'resting', label: 'Resting until 3:42pm', fill: 0 });
+    // The bar is what is left of the limit when Claude said how much is used.
+    expect(warn.fill).toBeCloseTo(0.09);
+    expect(staminaOf(usage({ warning: { label: '5-hour limit', percent: null, resetsAt: null } }), NOW).fill).toBe(0.35);
+    const auto = { limited: true, autoResume: true, resetKnown: true, resetsAt: at(15, 42) };
+    expect(staminaOf(usage(auto), NOW)).toMatchObject({ state: 'resting', label: 'Resting until 3:42pm', fill: 0 });
     expect(staminaOf(usage({ limited: true }), NOW).label).toBe('Resting');
   });
+  it('promises a time only when the jobs carry on by themselves then, as the usage banner does', () => {
+    const off = staminaOf(usage({ limited: true, autoResume: false, resetKnown: true, resetsAt: at(15, 42) }), NOW);
+    expect(off.label).toBe('Resting');
+    expect(off.hint).toContain('Carry on now');
+    const unknown = staminaOf(usage({ limited: true, autoResume: true, resetKnown: false, resetsAt: at(15, 42) }), NOW);
+    expect(unknown.label).toBe('Resting');
+    expect(unknown.hint).toContain('tries again at about 3:42pm');
+  });
   it('a pause says when the crew are back', () => {
-    expect(backAt(usage({ limited: true, resetsAt: at(15, 42) }), NOW)).toBe('back at 3:42pm (in 42m)');
-    expect(backAt(usage({ limited: true, resetsAt: at(17, 5) }), NOW)).toBe('back at 5:05pm (in 2h 5m)');
-    expect(backAt(usage({ limited: true }), NOW)).toBe('');
+    const auto = { limited: true, autoResume: true, resetKnown: true };
+    expect(backAt(usage({ ...auto, resetsAt: at(15, 42) }), NOW)).toBe('back at 3:42pm (in 42m)');
+    expect(backAt(usage({ ...auto, resetsAt: at(17, 5) }), NOW)).toBe('back at 5:05pm (in 2h 5m)');
+    expect(backAt(usage(auto), NOW)).toBe('');
+    expect(backAt(usage({ ...auto, resetKnown: false, resetsAt: at(15, 42) }), NOW)).toBe('the dashboard tries again at about 3:42pm');
+    expect(backAt(usage({ limited: true, autoResume: false, resetKnown: true, resetsAt: at(15, 42) }), NOW)).toBe('waiting for Carry on now (automatic carry-on is off)');
   });
 });

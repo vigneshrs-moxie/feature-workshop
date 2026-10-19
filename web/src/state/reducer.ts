@@ -155,9 +155,11 @@ function withSettings(state: WorkshopState, settings: Settings): WorkshopState {
 function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
   if (!e || e.v !== 2 || typeof e.type !== 'string') return state;
   if (e.type === 'resync') {
-    // Carry on from the dashboard's current point; the snapshot fetched next fills in the rest.
+    // Carry on from the dashboard's current point; the snapshot fetched next fills in the rest. A new
+    // epoch is a restarted dashboard: the old run's play news goes now, so none of it is toasted again.
     const d = asObject(e.data);
-    return { ...state, resyncNeeded: true, seq: Number.isInteger(e.seq) ? e.seq : state.seq, epoch: typeof d.epoch === 'string' ? d.epoch : state.epoch };
+    const epoch = typeof d.epoch === 'string' ? d.epoch : state.epoch;
+    return { ...state, resyncNeeded: true, seq: Number.isInteger(e.seq) ? e.seq : state.seq, epoch, playNews: epoch === state.epoch ? state.playNews : [] };
   }
   if (!Number.isInteger(e.seq) || e.seq <= state.seq) return state; // already applied (a replay overlap)
   const next: WorkshopState = { ...state, seq: e.seq, jobsStale: state.jobsStale || MOVES_JOBS.has(e.type) };

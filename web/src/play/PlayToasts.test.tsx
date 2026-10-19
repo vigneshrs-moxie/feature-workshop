@@ -118,11 +118,13 @@ describe('play toasts', () => {
 });
 
 describe('celebrations', () => {
-  it('Subtle: a plain toast, no burst and no sound, even with sounds on', () => {
+  it('Subtle: a small burst and no sound, even with sounds on', () => {
     const { news } = setup({ mode: 'subtle', sounds: true });
     news({ quest: quest('alpha') });
-    expect(toasts()[0]).not.toHaveClass('has-burst');
-    expect(document.querySelector('.play-burst')).toBeNull();
+    expect(toasts()[0]).toHaveClass('has-burst');
+    const subtle = document.querySelectorAll('.play-burst-piece').length;
+    expect(subtle).toBeGreaterThan(0);
+    expect(subtle).toBeLessThan(celebrate('quest', { on: true, full: true, reducedMotion: false, sounds: false }).pieces);
     expect(playBlip).not.toHaveBeenCalled();
   });
 
@@ -137,11 +139,35 @@ describe('celebrations', () => {
     expect(playBlip).not.toHaveBeenCalled();
   });
 
-  it('Full with Sounds on: the kind’s blip, once per toast as it shows', () => {
+  it('Full with Sounds on: the kind’s blip as each toast arrives', () => {
     const { news } = setup({ mode: 'full', sounds: true });
     news({ quest: quest('alpha') });
     news({ achievement: ach('first-quest', 'First Quest') });
     expect(vi.mocked(playBlip).mock.calls).toEqual([['quest'], ['achievement']]);
+  });
+
+  it('Full with Sounds on: toasts that arrive together play one blip, for the biggest of them', () => {
+    const { store } = setup({ mode: 'full', sounds: true });
+    act(() => {
+      store.dispatch({ type: 'event', event: ev(11, 'play', null, { achievement: ach('first-quest', 'First Quest') }) });
+      store.dispatch({ type: 'event', event: ev(12, 'play', null, { quest: quest('alpha') }) });
+      store.dispatch({ type: 'event', event: ev(13, 'play', null, { boss: { slug: 'alpha', at: '2026-10-16T10:00:00.000Z', hp: 12 } }) });
+    });
+    expect(toasts()).toHaveLength(3);
+    expect(vi.mocked(playBlip).mock.calls).toEqual([['boss']]);
+  });
+
+  it('a restarted dashboard never toasts the old run’s news again; the new run’s are toasted', () => {
+    const { store, news } = setup({ mode: 'full', sounds: true });
+    news({ quest: quest('alpha') });
+    fireEvent.click(screen.getByRole('button', { name: /Dismiss/ }));
+    expect(toasts()).toHaveLength(0);
+    act(() => { store.dispatch({ type: 'event', event: ev(1, 'resync', null, { reason: 'restarted', epoch: 'bbbb' }) }); });
+    expect(toasts()).toHaveLength(0);
+    expect(playBlip).toHaveBeenCalledTimes(1);
+    act(() => { store.dispatch({ type: 'event', event: ev(2, 'play', null, { achievement: ach('first-quest', 'First Quest') }) }); });
+    expect(toasts()).toHaveLength(1);
+    expect(toasts()[0]).toHaveTextContent('First Quest');
   });
 
   it('Full under reduced motion: no burst (the words stay)', () => {
@@ -164,7 +190,7 @@ describe('celebrations', () => {
     expect(t).toHaveClass('is-boss', 'has-burst');
     expect(t).toHaveTextContent('Boss defeated');
     expect(t).toHaveTextContent('Alpha feature');
-    expect(t).toHaveTextContent('all 12 hit points of findings fixed');
+    expect(t).toHaveTextContent('blockers and majors are all fixed');
     expect(t.querySelector('.play-burst.burst-boss')).not.toBeNull();
     expect(playBlip).toHaveBeenCalledWith('boss');
     expect(toastOf({ seq: 1, boss }, () => undefined, false)).toBeNull();
@@ -180,7 +206,9 @@ describe('celebrations', () => {
 
   it('celebrate(kind) decides from the settings alone', () => {
     const base = { on: true, full: false, reducedMotion: false, sounds: false };
-    expect(celebrate('quest', base)).toEqual({ kind: 'quest', burst: false, pieces: 0, sound: false });
+    expect(celebrate('quest', base)).toMatchObject({ kind: 'quest', burst: true, sound: false });
+    expect(celebrate('quest', base).pieces).toBeLessThan(celebrate('quest', { ...base, full: true }).pieces);
+    expect(celebrate('quest', { ...base, reducedMotion: true })).toMatchObject({ burst: false, pieces: 0 });
     expect(celebrate('quest', { ...base, full: true })).toMatchObject({ burst: true, sound: false });
     expect(celebrate('quest', { ...base, full: true }).pieces).toBeGreaterThan(celebrate('achievement', { ...base, full: true }).pieces);
     expect(celebrate('achievement', { ...base, full: true, sounds: true })).toMatchObject({ burst: true, sound: true });

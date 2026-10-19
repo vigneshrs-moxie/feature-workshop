@@ -15,19 +15,24 @@ import { CrewMember } from './CrewMember';
 import { nameList, workersNow } from './crewLines';
 import { backAt, bossView, questTrack, staminaOf } from './extrasModel';
 import { usePlayIfAny } from './usePlay';
+import { usePlayLedger } from './usePlayLedger';
 
 const useFull = () => {
   const play = usePlayIfAny();
   return Boolean(play?.on && play.full);
 };
 
-const TRACK_HINT = 'The quest track (Play mode Full): the job’s level as difficulty, and the stages this level runs as a path with whoever is on the current stage standing on it. A quest is done when its first PR is created (Settings → Play).';
+const TRACK_HINT = 'The quest track (Play mode Full): the job’s level as difficulty, and the stages this level runs as a path with whoever is on the current stage standing on it. A quest is done by the Settings → Play rule (by default, when its first PR is created).';
 
 export function QuestTrack({ job }: { job: Job }) {
   const full = useFull();
   const { meta } = useWorkshopState();
+  // The page's shared ledger only: the track never fetches one of its own.
+  const { load } = usePlayLedger(false);
   if (!full) return null;
-  const track = questTrack(job, meta?.levels);
+  // Done by the Settings → Play rule, as the ledger counts it (no ledger, or one from before, says nothing).
+  const slugs = load.state === 'ready' ? load.view.quests.slugs : undefined;
+  const track = questTrack(job, meta?.levels, slugs ? slugs.includes(job.slug) : undefined);
   if (!track) return null;
   const current = track.stops.find((s) => s.state === 'current');
   return (
@@ -53,7 +58,7 @@ export function QuestTrack({ job }: { job: Job }) {
   );
 }
 
-const BOSS_HINT = 'The boss fight (Play mode Full, L3 reviews): the review’s findings as hit points (blockers 5, majors 3, minors 1), draining as fix rounds land. From review.md only; it costs no usage and never rewards approving.';
+const BOSS_HINT = 'The boss fight (Play mode Full, L3 reviews): the review’s findings as hit points (blockers 5, majors 3, minors 1), draining as fix rounds land. It is defeated once the blockers and majors are fixed; minors left over are yours. From review.md only; it costs no usage and never rewards approving.';
 
 export function BossFight({ review }: { review: ReviewBoss | null | undefined }) {
   const full = useFull();

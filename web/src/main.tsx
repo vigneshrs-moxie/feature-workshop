@@ -9,7 +9,9 @@ import './theme/themes/index.css';
 import { App } from './app/App';
 import { initTheme } from './theme/theme';
 
-// The theme goes on <html> before anything renders, so the first paint is already in it.
+// The theme goes on <html> before anything renders, so the first paint is already in it. A hidden
+// theme (CRT Terminal, Gold) is the exception: it waits for the play ledger to say it is unlocked
+// (theme/theme.ts), so the default shows for a moment first; nothing in the browser can unlock it.
 initTheme();
 
 const root = document.getElementById('root');

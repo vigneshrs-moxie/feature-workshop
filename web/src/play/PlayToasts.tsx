@@ -4,14 +4,16 @@
 // sheet or drawer. It has the badge, the name and one line on how it was earned; it fades in
 // quickly, goes by itself after about 5 s (held while you point at it or focus it) and has a
 // Dismiss button. Up to three show at once, the rest wait their turn. Read out politely
-// (aria-live). Full mode adds a small burst and, with Sounds on, a blip (play/celebrate.ts).
+// (aria-live). Each has a burst round its badge, small in Subtle (play/celebrate.ts); in Full with
+// Sounds on, each batch that arrives together plays one blip, for the biggest of them.
 // A boss defeated (an L3 review drained to nothing) is a Full-mode extra: toasted only in Full.
-// Events already in the page when it mounts are never toasted, so nothing celebrates on load.
+// Events already in the page when it mounts are never toasted, so nothing celebrates on load, and
+// a restarted dashboard's resync drops the old run's events (state/reducer.ts), so none come back.
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { PlayNews } from '../api/types';
 import { useWorkshopState } from '../state/store';
 import { AchievementBadge } from './AchievementBadge';
-import { burstPieces, celebrate, type Celebration } from './celebrate';
+import { burstPieces, celebrate, type Celebration, type CelebrationKind } from './celebrate';
 import { playBlip } from './sound';
 import { usePlay } from './usePlay';
 
@@ -29,6 +31,20 @@ export interface ToastItem {
 
 const LEVEL = (n: number | null) => (Number.isInteger(n) ? `L${n} ` : '');
 
+const celebrationKind = (t: ToastItem): CelebrationKind => (t.kind === 'quest' || t.kind === 'boss' ? t.kind : 'achievement');
+// Which blip a batch plays: its biggest moment.
+const BLIP_RANK: Record<CelebrationKind, number> = { achievement: 0, quest: 1, boss: 2 };
+
+/** The one blip for toasts that arrived together (the biggest kind among them), or null for none. */
+export function batchBlip(items: ToastItem[]): CelebrationKind | null {
+  let best: CelebrationKind | null = null;
+  for (const t of items) {
+    const k = celebrationKind(t);
+    if (best === null || BLIP_RANK[k] > BLIP_RANK[best]) best = k;
+  }
+  return best;
+}
+
 /** What a 'play' event says as a toast (null: nothing to show). full: Full mode (a boss only shows then). */
 export function toastOf(news: PlayNews, titleOf: (slug: string) => string | undefined, full = false): ToastItem | null {
   if (news.boss) {
@@ -36,7 +52,7 @@ export function toastOf(news: PlayNews, titleOf: (slug: string) => string | unde
     const b = news.boss;
     return {
       key: news.seq, kind: 'boss', badge: 'boss-slayer', label: 'Boss defeated', name: titleOf(b.slug) ?? b.slug,
-      line: `The review came back clean: all ${b.hp} hit points of findings fixed.`,
+      line: 'The review’s blockers and majors are all fixed.',
     };
   }
   if (news.quest) {
@@ -67,11 +83,8 @@ function Burst({ c }: { c: Celebration }) {
 function Toast({ item, onDone }: { item: ToastItem; onDone: (key: number) => void }) {
   const play = usePlay();
   // Decided once, when the toast appears.
-  const [c] = useState(() => celebrate(item.kind === 'quest' || item.kind === 'boss' ? item.kind : 'achievement', play));
+  const [c] = useState(() => celebrate(celebrationKind(item), play));
   const [held, setHeld] = useState(false);
-  useEffect(() => {
-    if (c.sound) playBlip(c.kind);
-  }, [c]);
   useEffect(() => {
     if (held) return;
     const t = setTimeout(() => onDone(item.key), TOAST_MS);
@@ -124,8 +137,12 @@ export function PlayToasts() {
     if (!play.on) return;
     const titleOf = (slug: string) => jobs.find((j) => j.slug === slug)?.title;
     const items = fresh.map((n) => toastOf(n, titleOf, play.full)).filter((t): t is ToastItem => t !== null);
-    if (items.length) setQueue((q) => [...q, ...items]);
-  }, [playNews, play.on, play.full, jobs, epoch]);
+    if (!items.length) return;
+    setQueue((q) => [...q, ...items]);
+    // One blip per batch, here rather than per toast, so three at once never play over each other.
+    const blip = batchBlip(items);
+    if (blip && celebrate(blip, play).sound) playBlip(blip);
+  }, [playNews, play, jobs, epoch]);
 
   useEffect(() => { if (!play.on) setQueue([]); }, [play.on]);
 

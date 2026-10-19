@@ -141,6 +141,13 @@ describe('reducer: events', () => {
     expect(fresh.seq).toBe(3);
   });
 
+  it('resync from a restarted dashboard drops the old run’s play news; the same run keeps it', () => {
+    const before = run(hydrated(), { type: 'event', event: ev(40, 'play', null, { achievement: { id: 'first-quest', name: 'First Quest', howTo: 'x', secret: false } }) });
+    expect(before.playNews).toHaveLength(1);
+    expect(reducer(before, { type: 'event', event: ev(2, 'resync', null, { epoch: 'bbbb' }) }).playNews).toEqual([]);
+    expect(reducer(before, { type: 'event', event: ev(41, 'resync', null, { epoch: 'aaaa' }) }).playNews).toHaveLength(1);
+  });
+
   it('refetches every thread after a resync or a dashboard restart, but not on an ordinary snapshot', () => {
     let s = hydrated();
     expect(s.threadEpoch).toBe(0);

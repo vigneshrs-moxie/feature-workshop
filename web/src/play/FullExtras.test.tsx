@@ -143,7 +143,7 @@ describe('stamina (Full, top bar)', () => {
     expect(warn.container).toHaveTextContent('Stamina: Warning');
     expect(warn.container).not.toHaveTextContent('92');
     warn.unmount();
-    const rest = bar('full', { limited: true, blocking: true, resetsAt: at(15, 42) });
+    const rest = bar('full', { limited: true, blocking: true, autoResume: true, resetKnown: true, resetsAt: at(15, 42) });
     expect(rest.container.querySelector('.stamina')).toHaveClass('is-resting');
     expect(rest.container).toHaveTextContent('Stamina: Resting until 3:42pm');
     expect(rest.container.querySelector('.stamina')).toHaveAttribute('title', expect.stringContaining('crew are asleep'));
@@ -157,8 +157,8 @@ describe('stamina (Full, top bar)', () => {
 
 describe('the crew asleep in a usage pause (Full)', () => {
   const paused = job('boss', 'paused', { limitPaused: at(14, 50), nowDoing: [{ who: 'feature-tester', name: 'Tester' }] });
-  const row = (mode: PlayMode) => {
-    const usage: Usage = { limited: true, blocking: true, label: '5-hour limit', resetsAt: at(15, 42), jobs: [{ slug: 'boss', title: 'Invoice merge' }] };
+  const row = (mode: PlayMode, extra: Partial<Usage> = {}) => {
+    const usage: Usage = { limited: true, blocking: true, label: '5-hour limit', resetsAt: at(15, 42), autoResume: true, resetKnown: true, jobs: [{ slug: 'boss', title: 'Invoice merge' }], ...extra };
     return render(<WorkshopContext.Provider value={{ store: store(mode, [paused], usage), api: {} as ApiClient }}><LiveRow run={null} job={paused} usage={usage} /></WorkshopContext.Provider>);
   };
 
@@ -169,6 +169,13 @@ describe('the crew asleep in a usage pause (Full)', () => {
     const faces = [...line.querySelectorAll('svg.crew')];
     expect(faces.map((f) => f.getAttribute('data-crew'))).toEqual(['conductor', 'feature-tester']);
     for (const f of faces) expect(f).toHaveAttribute('data-state', 'asleep');
+  });
+
+  it('Full, automatic carry-on off: no wake-up time promised', () => {
+    const { container } = row('full', { autoResume: false });
+    const line = container.querySelector('.live-row.is-paused')!;
+    expect(line).toHaveTextContent('are asleep · waiting for Carry on now (automatic carry-on is off).');
+    expect(line).not.toHaveTextContent('3:42pm');
   });
 
   it('Subtle keeps the line it had', () => {

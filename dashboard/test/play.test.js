@@ -69,6 +69,16 @@ test('review.md: the summary line, else the findings table, else "No findings"',
   // Rows taken back (dropped, false positive) are not findings.
   const taken = parseReviewFindings('| ID | Severity | Lens | Finding | Status |\n|---|---|---|---|---|\n| R-1 | major | errors | x | open |\n| R-2 | blocker | db | y | dropped |\n| R-3 | minor | ui | z | False positive |\n');
   assert.deepEqual([taken.total, taken.majors, taken.blockers], [1, 1, 0]);
+  // Rows a fix round dealt with (Status fixed or resolved) are not findings left; "fixed" elsewhere in a row is just words.
+  const fixed = parseReviewFindings('| ID | Severity | Finding | Status |\n|---|---|---|---|\n| R-1 | major | x | **Fixed** in round 2 |\n| R-2 | blocker | y | Resolved |\n| R-3 | minor | fixed-width buffer overflows | open |\n');
+  assert.deepEqual([fixed.blockers, fixed.majors, fixed.minors], [0, 0, 1]);
+  // A file that adds each round under its own heading is read from the latest round.
+  const rounds = parseReviewFindings('# Review\n\n## Round 1\n\n**Result:** 1 blocker, 2 majors, 3 minors\n\n## Round 2\n\n**Result:** 0 blockers, 0 majors, 1 minor\n');
+  assert.deepEqual([rounds.blockers, rounds.majors, rounds.minors, rounds.round], [0, 0, 1, 2]);
+  const tables = parseReviewFindings('## Second round\n\n| ID | Severity |\n|---|---|\n| R-4 | minor |\n\n## First round\n\n| ID | Severity |\n|---|---|\n| R-1 | blocker |\n');
+  assert.deepEqual([tables.blockers, tables.minors], [0, 1]);
+  // A title version with the rounds under it: the latest round that says something.
+  assert.equal(parseReviewFindings('# Review v3\n\nThe lenses ran again.\n\n## Round 1\n\nResult: 2 blockers\n\n## Round 2\n\nResult: 1 blocker\n').blockers, 1);
   assert.equal(lensType('performance'), 'feature-review-performance');
   assert.equal(lensType('spec'), 'feature-reviewer');
   assert.equal(lensType('nonsense'), null);
@@ -219,7 +229,7 @@ test('boss fight: an L3 review’s findings as hit points, draining by round; de
   const l3 = (at, text, extra = {}) => job('boss', { level: 3, stage: 'review', workers: lens, review: review(at, text), ...extra });
   const r1 = build({ jobs: [l3(plus(T0, 10), '# Review v1\n\n**Result:** 1 blocker, 2 majors, 1 minor')] });
   assert.deepEqual([r1.reviews[key].hp, r1.reviews[key].peak, r1.reviews[key].bossDefeatedAt], [12, 12, null]);
-  assert.deepEqual(ledgerView(r1).reviews.boss, { at: plus(T0, 10), blockers: 1, majors: 2, minors: 1, hp: 12, startHp: 12, defeatedAt: null });
+  assert.deepEqual(ledgerView(r1).reviews.boss, { at: plus(T0, 10), blockers: 1, majors: 2, minors: 1, hp: 12, startHp: 12, hadBoss: true, defeatedAt: null });
   // Round 2 lands: 1 blocker, 1 major left (8 of 12).
   const r2 = build({ jobs: [l3(plus(T0, 40), '# Review v2\n\n**Result:** 1 blocker, 1 major, 0 minors')], previous: r1 });
   assert.deepEqual([r2.reviews[key].hp, r2.reviews[key].peak], [8, 12]);
@@ -231,7 +241,14 @@ test('boss fight: an L3 review’s findings as hit points, draining by round; de
   const r3 = build({ jobs: [l3(plus(T0, 70), '# Review v3\n\n**Result:** No findings.')], previous: r2 });
   assert.equal(r3.reviews[key].bossDefeatedAt, plus(T0, 70));
   assert.deepEqual(newlyDefeated(r2, r3), [{ slug: 'boss', at: plus(T0, 70), hp: 12 }]);
-  assert.deepEqual(ledgerView(r3).reviews.boss, { at: plus(T0, 70), blockers: 0, majors: 0, minors: 0, hp: 0, startHp: 12, defeatedAt: plus(T0, 70) });
+  assert.deepEqual(ledgerView(r3).reviews.boss, { at: plus(T0, 70), blockers: 0, majors: 0, minors: 0, hp: 0, startHp: 12, hadBoss: true, defeatedAt: plus(T0, 70) });
+  // Defeated once the blockers and majors are fixed: minors left over go to you and don't keep it alive.
+  const minorsLeft = build({ jobs: [l3(plus(T0, 70), '# Review v3\n\n**Result:** 0 blockers, 0 majors, 2 minors')], previous: r2 });
+  assert.equal(minorsLeft.reviews[key].bossDefeatedAt, plus(T0, 70));
+  assert.deepEqual(newlyDefeated(r2, minorsLeft), [{ slug: 'boss', at: plus(T0, 70), hp: 12 }]);
+  // A first round with minors only: no boss to fight, nothing to defeat.
+  const onlyMinors = build({ jobs: [l3(plus(T0, 10), '# Review v1\n\n**Result:** 0 blockers, 0 majors, 3 minors')] });
+  assert.deepEqual([onlyMinors.reviews[key].bossDefeatedAt, ledgerView(onlyMinors).reviews.boss.hadBoss], [null, false]);
   // A later round with findings again never takes it back, nor fires again.
   const r4 = build({ jobs: [l3(plus(T0, 90), '# Review v4\n\n**Result:** 0 blockers, 0 majors, 1 minor')], previous: r3 });
   assert.equal(r4.reviews[key].bossDefeatedAt, plus(T0, 70));

@@ -339,6 +339,8 @@ export interface ReviewBoss {
   minors: number;
   hp: number;
   startHp: number;
+  /** A round raised a blocker or a major: there was a boss to fight (dashboards from before send none). */
+  hadBoss?: boolean;
   defeatedAt: string | null;
 }
 
@@ -364,7 +366,13 @@ export interface PlayView {
   crew: Record<string, CrewStats>;
   crewMet: number;
   crewTotal: number;
-  quests: { done: number; bugs: number; recent: { slug: string; doneAt: string; kind: 'feature' | 'bug'; level: number | null }[] };
+  quests: {
+    done: number;
+    bugs: number;
+    recent: { slug: string; doneAt: string; kind: 'feature' | 'bug'; level: number | null }[];
+    /** Every done quest's slug (dashboards from before the quest track send none). */
+    slugs?: string[];
+  };
   achievements: Achievement[];
   secrets: { found: string[]; total: number };
   themesTried: string[];

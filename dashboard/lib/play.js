@@ -171,18 +171,53 @@ const SUMMARY_LABEL = /^[\s>*_#-]*(result|summary|verdict)\b/i;
 const NO_FINDINGS = /\b(no|zero) findings\b|\bnothing (was )?found\b/i;
 // A findings-table row taken back: dropped, or a false positive.
 const TAKEN_BACK = /\b(dropped|false[ -]positives?)\b/i;
+// A findings-table Status cell for a finding a fix round dealt with.
+const FIXED_STATUS = /^[\s*_`]*(fixed|resolved)\b/i;
+// A heading that names a review round: "## Round 2", "## Second round", "# Review v3".
+const ROUND_HEADING = /\bround\s*#?\s*(\d{1,3}|one|two|three|four|five)\b|\b(first|second|third|fourth|fifth)\s+(?:review\s+)?round\b|\bv(\d{1,3})\b/i;
 
 /**
  * The findings a combined lens review (review.md) reports: { blockers, majors, minors, total, byLens }
  * (byLens: { [agentType]: { blockers, majors, minors } }, from a findings table with a Lens
  * column), or null when the file says nothing countable or is a pre-PR diff check. Reads
  * "0 blockers, 2 majors, 3 minors" (from a Result/summary line first), else counts a table's
- * Severity column (rows marked dropped or false positive left out), else "No findings" on a
- * Result/summary line is zero.
+ * Severity column (rows marked dropped or false positive, or with a Status of fixed or resolved,
+ * left out), else "No findings" on a Result/summary line is zero. A file that adds each round under
+ * its own heading ("## Round 2") is read from the latest round's part, so a fix round's result
+ * replaces the first round's.
  */
 export function parseReviewFindings(text) {
   if (typeof text !== 'string' || !text.trim() || PRE_PR_CHECK.test(text)) return null;
   const lines = text.split('\n');
+  let found = null;
+  for (const part of roundParts(lines)) if ((found = countFindings(part))) break;
+  found ??= countFindings(lines);
+  if (!found) return null;
+  const { counts, byLens } = found;
+  return { ...counts, total: counts.blockers + counts.majors + counts.minors, byLens, ...reviewRound(lines, text) };
+}
+
+/** The parts under each round heading (to the next one), the latest round first (of equals, the later one). */
+function roundParts(lines) {
+  const heads = [];
+  lines.forEach((l, i) => {
+    const t = l.trim();
+    if (!t.startsWith('#')) return;
+    const m = ROUND_HEADING.exec(t);
+    if (!m) return;
+    const word = m[1] ?? m[2];
+    const n = m[3] ? Number(m[3]) : /^\d/.test(word) ? Number(word) : ROUND_WORDS[word.toLowerCase()];
+    if (Number.isInteger(n)) heads.push({ i, n });
+  });
+  return heads
+    .map((h, k) => ({ n: h.n, i: h.i, part: lines.slice(h.i, heads[k + 1]?.i ?? lines.length) }))
+    .sort((a, b) => b.n - a.n || b.i - a.i)
+    .map((h) => h.part);
+}
+
+/** countFindings(lines): { counts, byLens } from a summary line, a findings table or "No findings"; null when nothing says. */
+function countFindings(lines) {
+  const text = lines.join('\n');
   // Result/summary lines: labelled ones, and the first line under a Result/Summary heading.
   const summaryLines = [];
   for (let i = 0; i < lines.length; i++) {
@@ -202,7 +237,7 @@ export function parseReviewFindings(text) {
   };
   const summary = { blockers: counted('blocker'), majors: counted('major'), minors: counted('minor') };
 
-  // A findings table: a header row with a Severity column (and maybe a Lens column).
+  // A findings table: a header row with a Severity column (and maybe Lens and Status columns).
   const table = { blockers: 0, majors: 0, minors: 0 };
   const byLens = {};
   let rows = 0;
@@ -214,11 +249,12 @@ export function parseReviewFindings(text) {
     if (!cols) {
       const lower = cells.map((c) => c.toLowerCase());
       const sev = lower.indexOf('severity');
-      cols = sev >= 0 ? { sev, lens: lower.indexOf('lens') } : { sev: -1, lens: -1 };
+      cols = sev >= 0 ? { sev, lens: lower.indexOf('lens'), status: lower.indexOf('status') } : { sev: -1, lens: -1, status: -1 };
       continue;
     }
     if (cols.sev < 0 || cells.every((c) => /^:?-{2,}:?$/.test(c))) continue;
     if (cells.some((c) => TAKEN_BACK.test(c))) continue;
+    if (cols.status >= 0 && FIXED_STATUS.test(cells[cols.status] ?? '')) continue;
     const sev = SEVERITY(cells[cols.sev]);
     if (!sev) continue;
     rows++;
@@ -230,17 +266,12 @@ export function parseReviewFindings(text) {
     }
   }
 
-  let counts;
   if (summary.blockers !== null || summary.majors !== null || summary.minors !== null) {
-    counts = { blockers: summary.blockers ?? 0, majors: summary.majors ?? 0, minors: summary.minors ?? 0 };
-  } else if (rows) {
-    counts = table;
-  } else if (summaryLines.some((l) => NO_FINDINGS.test(l))) {
-    counts = { blockers: 0, majors: 0, minors: 0 };
-  } else {
-    return null;
+    return { counts: { blockers: summary.blockers ?? 0, majors: summary.majors ?? 0, minors: summary.minors ?? 0 }, byLens };
   }
-  return { ...counts, total: counts.blockers + counts.majors + counts.minors, byLens, ...reviewRound(lines, text) };
+  if (rows) return { counts: table, byLens };
+  if (summaryLines.some((l) => NO_FINDINGS.test(l))) return { counts: { blockers: 0, majors: 0, minors: 0 }, byLens };
+  return null;
 }
 
 const ROUND_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, first: 1, second: 2, third: 3, fourth: 4, fifth: 5 };
@@ -302,6 +333,8 @@ const emptyCounts = () => ({ blockers: 0, majors: 0, minors: 0 });
 export const BOSS_WEIGHTS = Object.freeze({ blockers: 5, majors: 3, minors: 1 });
 /** A review round's findings as the boss's hit points. */
 export const bossHp = (c) => (c?.blockers ?? 0) * BOSS_WEIGHTS.blockers + (c?.majors ?? 0) * BOSS_WEIGHTS.majors + (c?.minors ?? 0) * BOSS_WEIGHTS.minors;
+/** The hit points that keep the boss alive: its blockers and majors (fix rounds deal with those; minors go to you). */
+export const bossHeavyHp = (c) => (c?.blockers ?? 0) * BOSS_WEIGHTS.blockers + (c?.majors ?? 0) * BOSS_WEIGHTS.majors;
 
 /**
  * What the audit log says for the ledger, folded in one entry at a time (PlayBook folds each new
@@ -581,9 +614,10 @@ function questRecord(slug, dir, doneAt, doneAtExact, kind, level, d, rule) {
  * the boss fight's "Boss defeated", not this).
  *
  * The boss fight (Full mode, L3 reviews): hp is a round's findings weighted (BOSS_WEIGHTS), peak the
- * heaviest round seen (the first round, unless a later one raised more), and bossDefeatedAt when an
- * L3 job's review.md came back with nothing after a round that had findings: set once, kept for
- * good, so the celebration never fires twice.
+ * heaviest round seen (the first round, unless a later one raised more), heavyPeak the most
+ * blocker and major hit points any round had, and bossDefeatedAt when an L3 job's review.md came
+ * back with no blockers or majors after a round that had some (minors left over go to you and don't
+ * keep the boss alive): set once, kept for good, so the celebration never fires twice.
  */
 function reviewRecord(was, review, lensRan, roundOne, nowIso, level = null) {
   const counts = review.counts;
@@ -600,11 +634,12 @@ function reviewRecord(was, review, lensRan, roundOne, nowIso, level = null) {
   if (!first && lensRan) first = roundOne ? { at, blockers: counts.blockers, majors: counts.majors, minors: counts.minors, total: counts.total } : { unknown: true };
   const hp = bossHp(counts);
   const peak = Math.max(hp, was?.peak ?? 0, first && !first.unknown ? bossHp(first) : 0);
-  const bossDefeatedAt = was?.bossDefeatedAt ?? (level === 3 && hp === 0 && peak > 0 ? at : null);
+  const heavyPeak = Math.max(bossHeavyHp(counts), was?.heavyPeak ?? 0, first && !first.unknown ? bossHeavyHp(first) : 0);
+  const bossDefeatedAt = was?.bossDefeatedAt ?? (level === 3 && bossHeavyHp(counts) === 0 && heavyPeak > 0 ? at : null);
   return {
     blockers: counts.blockers, majors: counts.majors, minors: counts.minors, total: counts.total, at, byLens, byLensMax, first,
     cleanAt: first && !first.unknown && first.total === 0 ? first.at : null,
-    hp, peak, bossDefeatedAt,
+    hp, peak, heavyPeak, bossDefeatedAt,
   };
 }
 
@@ -658,7 +693,8 @@ export function newlyUnlocked(before, next) {
  * What GET /api/play sends: crew met with stats, quests done, achievements (an easter egg's only
  * once found: the rest are just counted), secrets found, themes tried, what is unlocked, and each
  * job's latest review round by slug for the boss fight ({ blockers, majors, minors, hp, startHp,
- * defeatedAt }: hp now, startHp the heaviest round seen).
+ * hadBoss, defeatedAt }: hp now, startHp the heaviest round seen, hadBoss once a round raised a
+ * blocker or a major).
  */
 export function ledgerView(ledger, play = PLAY_DEFAULTS) {
   const l = ledger ?? { crew: {}, quests: {}, reviews: {}, achievements: {}, secrets: {}, themes: {} };
@@ -710,7 +746,7 @@ export function ledgerView(ledger, play = PLAY_DEFAULTS) {
     const hp = typeof r.hp === 'number' ? r.hp : bossHp(r);
     reviews[slug] = {
       at: r.at, blockers: r.blockers ?? 0, majors: r.majors ?? 0, minors: r.minors ?? 0, hp,
-      startHp: Math.max(hp, r.peak ?? 0), defeatedAt: r.bossDefeatedAt ?? null,
+      startHp: Math.max(hp, r.peak ?? 0), hadBoss: (r.heavyPeak ?? 0) > 0 || Boolean(r.bossDefeatedAt), defeatedAt: r.bossDefeatedAt ?? null,
     };
   }
   return {
@@ -719,6 +755,8 @@ export function ledgerView(ledger, play = PLAY_DEFAULTS) {
     quests: {
       done: quests.length, bugs: quests.filter((q) => q.kind === 'bug').length,
       recent: quests.slice(0, 50).map((q) => ({ slug: q.slug, doneAt: q.doneAt, kind: q.kind, level: q.level })),
+      // Every done quest's slug, for the quest track (a quest is done by the Settings → Play rule).
+      slugs: [...new Set(quests.map((q) => q.slug).filter(Boolean))],
     },
     achievements,
     secrets: { found, total: SECRET_IDS.length },

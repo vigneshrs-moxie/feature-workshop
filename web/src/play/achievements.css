@@ -1,8 +1,9 @@
 /* Achievements, the play toasts and the celebration burst (the Play layer; play/AchievementBadge.tsx,
    play/PlayToasts.tsx, views/Achievements). Colours come from tokens only, so every theme restyles
    them through its own palette (the medal is the crew's gold, the ribbons the accent). Hooks: THEMING.md.
-   Motion: the toast fades and rises in (rise-in, 240 ms); in Full mode a burst flies out of the
-   badge (under 1.2 s). Under reduced motion the toast only fades and the burst is not drawn. */
+   Motion: the toast fades and rises in (rise-in, 240 ms); a burst flies out of the badge (under
+   1.2 s; a few pieces in Subtle, more in Full). Under reduced motion the toast only fades and the
+   burst is not drawn. */
 
 /* ---------- The medal ---------- */
 
@@ -103,7 +104,7 @@
 .play-toast-close { flex: none; width: 24px; height: 24px; padding: 0; font-size: var(--text-md); line-height: 1; }
 .play-toasts-more { margin: 0; padding: 0 var(--space-2); border-radius: var(--chip-radius); background: var(--bg-2); font-size: var(--text-xs); pointer-events: auto; }
 
-/* ---------- The celebration burst (Full mode) ---------- */
+/* ---------- The celebration burst (small in Subtle, full in Full) ---------- */
 
 .play-burst { position: absolute; top: 40%; left: 50%; width: 0; height: 0; pointer-events: none; }
 .play-burst-piece {
