@@ -178,6 +178,29 @@
 .live-row.is-paused { opacity: .85; }
 .foreman-face { margin: -8px 0; cursor: default; }
 
+/* A job's crew member at the start of its row in the Jobs list (play/RowCrew.tsx). */
+/* The Jobs pane grows by the crew's width, so the rows keep room for their words. */
+.panes:has(.job-row.has-crew) { --jobs-w: 304px; --jobs-w-max: 320px; }
+.job-row.has-crew { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: var(--space-2); }
+.job-row.has-crew > .job-row-line { grid-column: 2; }
+.job-row.has-crew > .job-row-meta { padding-left: calc(8px + var(--space-2)); }
+.row-crew { position: relative; grid-row: 1 / span 2; display: flex; margin: -2px 0; }
+.row-crew-ask {
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--bg-1);
+  border-radius: 50%;
+  background: var(--group-needs-you-line);
+  color: var(--text-1);
+  font-size: 9px;
+  font-weight: var(--weight-bold);
+  line-height: 11px;
+  text-align: center;
+}
+
 /* The Foreman as the mascot by the brand (Play on), and the classic page's tagline beside it. */
 .brand-mascot { margin: -6px -2px -6px 0; }
 .brand-tagline { color: var(--text-2); font-size: var(--text-xs); letter-spacing: .04em; white-space: nowrap; }

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
-import type { Job } from '../../api/types';
+import type { Job, PlayMode } from '../../api/types';
 import { createStore, WorkshopContext } from '../../state/store';
 import { job, snapshot } from '../../state/test-fixtures';
 import { jobHue } from '../../theme/hue';
@@ -90,5 +90,40 @@ describe('Jobs pane', () => {
     renderPane(JOBS);
     for (const b of screen.getAllByRole('button')) expect(b).toHaveAttribute('title');
     for (const a of screen.getAllByRole('link')) expect(a).toHaveAttribute('title');
+  });
+});
+
+describe('the crew in the Jobs list (Play)', () => {
+  function withMode(mode: PlayMode) {
+    const store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: JOBS, meta: { token: 't', settings: { policy: 'hands-off', play: { mode, questDone: 'first-pr', sounds: false } } } }) });
+    return render(<WorkshopContext.Provider value={{ store, api: {} as ApiClient }}><JobsPane selected={null} /></WorkshopContext.Provider>);
+  }
+
+  it('each row shows its job’s crew member in the job’s mood, as decoration, with a “!” when it needs you', () => {
+    withMode('subtle');
+    const crewOf = (name: RegExp) => screen.getByRole('link', { name }).querySelector('.row-crew')!;
+    expect(crewOf(/^Job alpha/)).toHaveAttribute('aria-hidden', 'true');
+    expect(crewOf(/^Job alpha/).querySelector('svg.crew')).toHaveAttribute('data-crew', 'feature-planner');
+    expect(crewOf(/^Job alpha/).querySelector('svg.crew')).toHaveAttribute('data-state', 'waiting');
+    expect(crewOf(/^Job alpha/).querySelector('.row-crew-ask')).toHaveTextContent('!');
+    expect(crewOf(/^Job beta/).querySelector('svg.crew')).toHaveAttribute('data-state', 'working');
+    expect(crewOf(/^Job beta/).querySelector('.row-crew-ask')).toBeNull();
+    expect(crewOf(/^Job gamma/).querySelector('svg.crew')).toHaveAttribute('data-state', 'asleep');
+    expect(crewOf(/^Job omega/).querySelector('svg.crew')).toHaveAttribute('data-state', 'celebrating');
+    // The row still says it all in words.
+    expect(screen.getByRole('link', { name: /^Job alpha/ })).toHaveTextContent('Permission');
+  });
+
+  it('keeps them still in Full, so a long list stays calm', () => {
+    const { container } = withMode('full');
+    const all = [...container.querySelectorAll('.row-crew svg.crew')];
+    expect(all).toHaveLength(JOBS.length);
+    for (const svg of all) expect(svg).toHaveClass('is-still');
+  });
+
+  it('Off: the rows exactly as before', () => {
+    const { container } = withMode('off');
+    expect(container.querySelector('.row-crew, .has-crew')).toBeNull();
   });
 });

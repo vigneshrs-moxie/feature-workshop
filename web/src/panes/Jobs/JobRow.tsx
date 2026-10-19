@@ -1,9 +1,11 @@
 // One job in the Jobs pane: hue dot, title, then the status glyph and label, the stage chip and how
-// long ago it last changed. In the icon rail it shrinks to the hue dot and glyph, with the rest in
+// long ago it last changed. With Play on, its crew member stands at the start of the row (RowCrew). In the icon rail it shrinks to the hue dot and glyph, with the rest in
 // its hover hint and its accessible name.
 import type { Job } from '../../api/types';
 import { jobHref } from '../../app/router';
 import { fullTime, relativeTime } from '../../lib/time';
+import { RowCrew } from '../../play/RowCrew';
+import { usePlayIfAny } from '../../play/usePlay';
 import { jobHueStyle } from '../../theme/hue';
 import { jobStatus } from './jobStatus';
 import { stageFamily, stageHint, stageLabel } from './stages';
@@ -26,6 +28,7 @@ export function JobRow({ job, selected, now, rail = false }: JobRowProps) {
   const glyph = <span className={`glyph status-${status.group}`} aria-hidden="true">{status.glyph}</span>;
   // A decision left waiting past the parking time (decision D3): still under Needs you, marked parked.
   const parked = Boolean(job.parked) && job.group === 'needs-you';
+  const crew = Boolean(usePlayIfAny()?.on);
 
   if (rail) {
     const name = [title, status.label, parked && 'parked 4h', stage, ago && `updated ${/^\d+[mhd]$/.test(ago) ? `${ago} ago` : ago}`].filter(Boolean).join(' · ');
@@ -38,7 +41,8 @@ export function JobRow({ job, selected, now, rail = false }: JobRowProps) {
   }
 
   return (
-    <a className="job-row" data-group={status.group} href={jobHref(job.slug)} aria-current={selected ? 'page' : undefined} title={`Open ${title}: its conversation with the Foreman.`}>
+    <a className={crew ? 'job-row has-crew' : 'job-row'} data-group={status.group} href={jobHref(job.slug)} aria-current={selected ? 'page' : undefined} title={`Open ${title}: its conversation with the Foreman.`}>
+      {crew && <RowCrew job={job} />}
       <span className="job-row-line">
         {dot}
         <span className="job-row-title">{title}</span>
