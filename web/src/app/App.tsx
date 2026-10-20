@@ -1,13 +1,14 @@
 // The shell: top bar, the usage-limit banner, then Jobs | Foreman | Preview, plus the sheets (⌘K,
 // New job, Mark done, the keys list, the job drawer with notes and options) and the page keys. Owns the store, the API client and the
 // live sync; tests pass their own (a fake fetch and a fake EventSource).
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createApi, type ApiClient } from '../api/client';
 import type { PolicyId } from '../api/types';
 import { ForemanPane } from '../panes/Foreman/ForemanPane';
 import { useAlerts } from '../alerts/useAlerts';
 import { CommandPalette } from '../components/CommandPalette';
 import { UsageBanner } from '../components/UsageBanner';
+import { PaneResizer, usePreviewWidth } from '../components/PaneResizer';
 import { JobsPane, useJobsRail } from '../panes/Jobs/JobsPane';
 import { PreviewPane } from '../panes/Preview/PreviewPane';
 import { createLiveSync, type EventSourceLike, type LiveSync } from '../state/live';
@@ -175,6 +176,9 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   const route = useRoute();
   const [rail] = useJobsRail();
   const play = usePlay();
+  // The Preview pane's width, if you dragged the handle between it and the middle pane.
+  const [previewWidth] = usePreviewWidth();
+  const panes = useRef<HTMLDivElement>(null);
   useAlerts(state);
   const slug = route.name === 'job' ? route.slug : null;
   // The Crew-dex and Achievements are part of Play: with Play mode Off, #/crew and #/achievements show the same as #/.
@@ -207,10 +211,11 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       <TopBar onRetry={onRetry} onCrew={crew} />
       <div className="banner-slot"><UsageBanner /></div>
       <Sheets route={route} />
-      <div className={rail ? 'panes panes-rail' : 'panes'}>
+      <div ref={panes} className={rail ? 'panes panes-rail' : 'panes'} style={previewWidth ? ({ '--preview-w': `${previewWidth}px` } as CSSProperties) : undefined}>
         <JobsPane selected={slug} />
         {route.name === 'settings' ? <SettingsView /> : crew ? <CrewDexView /> : achievements ? <AchievementsView /> : lost !== null ? <NotFoundView hash={lost} /> : <ForemanPane slug={slug} />}
         <PreviewPane slug={slug} />
+        <PaneResizer panes={panes} />
       </div>
       <PlayToasts />
       <PlayEggs />

@@ -20,6 +20,7 @@
   - Everything Play draws is about 1.4× bigger, from one size scale (`web/src/play/crewSizes.ts`). Full is a little bigger than Subtle.
   - Bigger toasts (still only over the Preview pane), Crew-dex cards, medals, and the boss and stamina bars.
   - The Foreman is the mascot by "Feature Workshop", with "Your crew, your features, your turn".
+- **Resizable Preview pane** (asked for after the review, for every mode): drag the edge between the middle pane and the Preview pane. The Preview pane keeps at least 320 px and the middle pane at least 400 px. The width is remembered in this browser; a double-click or Enter puts the usual 40% back, and ← → move it from the keyboard. Checked by dragging in headless Chrome: 10/10.
 - **Glass theme:** frosted, translucent panes over a soft aurora, with thin bright edges and big rounded corners. Everyone has it. Explorer still counts the five original themes and now names them.
 - **Kept:** Off is still the phase 2 page exactly; no model calls; nothing over a gate card, permission card or the composer; reduced motion holds everything still.
 - **Tests (real run):** `npm test` 283/283, `npm run web:test` 563/563, `tsc` clean, the build 515 kB. Demo walk: 34/34 checks, no console errors.

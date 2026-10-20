@@ -122,6 +122,7 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `.topbar` | the top bar; `.brand` its title, `.needs` the "n need you" text, `.conn` the connection state |
 | `.usage-banner` | the usage-limit banner under the top bar (`.usage-limited` while paused, `.usage-warn` the heads-up) |
 | `.pane`, `.pane-jobs`, `.pane-foreman`, `.pane-preview` | the three panes; `.panes-rail` on their parent when Jobs is a rail |
+| `.pane-resizer` | the handle between the middle pane and the Preview pane (`components/PaneResizer.tsx`; a focusable `role="separator"`, `.is-dragging` while dragged; its line is its `::after`). The Preview pane's width is `--preview-w` on `.panes`, clamped by `--preview-min` and `--middle-min` |
 | `.pane-head`, `.pane-title` | a pane's header row and its `h2` title |
 | `.job-group`, `.job-group-title` | a group in the Jobs pane and its heading (glyph, label, count) |
 | `.job-row`, `.job-row-title`, `.job-row-meta`, `.job-status`, `.job-status-label` | one job in the list and its parts |

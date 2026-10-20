@@ -43,9 +43,46 @@ a:hover { text-decoration: underline; }
 
 .panes {
   display: grid;
-  grid-template-columns: clamp(var(--jobs-w-min), var(--jobs-w), var(--jobs-w-max)) minmax(0, 1fr) var(--preview-w);
+  grid-template-columns: clamp(var(--jobs-w-min), var(--jobs-w), var(--jobs-w-max)) minmax(0, 1fr) var(--preview-col);
   min-height: 0;
+  position: relative;
+  /* The Preview pane's width: --preview-w (40%, or what you dragged it to: components/PaneResizer.tsx),
+     never under --preview-min and never leaving the middle pane under --middle-min. Keep both in
+     step with PREVIEW_MIN and MIDDLE_MIN there. 100% is the panes' width (it resolves in the grid). */
+  --preview-min: 320px;
+  --middle-min: 400px;
+  --jobs-reserve: var(--jobs-w-max);
+  --preview-col: clamp(var(--preview-min), var(--preview-w), max(var(--preview-min), 100% - var(--jobs-reserve) - var(--middle-min)));
 }
+
+/* The handle between the middle pane and the Preview pane, centred on the Preview pane's edge. */
+.pane-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Until measured: the usual 40% edge. */
+  right: calc(40% - 4px);
+  z-index: 6;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.pane-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.pane-resizer:hover::after, .pane-resizer.is-dragging::after { background: var(--accent); }
+.pane-resizer:focus-visible { outline: none; }
+.pane-resizer:focus-visible::after { background: var(--focus-ring); }
+/* While dragging: the cursor everywhere, no text selected, and frames don't swallow the pointer. */
+body.is-resizing-panes { cursor: col-resize; user-select: none; }
+body.is-resizing-panes iframe { pointer-events: none; }
 
 .pane { min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4); background-image: var(--pane-pattern); }
 .pane-jobs { background: var(--bg-1); border-right: 1px solid var(--border-1); }
@@ -179,7 +216,7 @@ a:hover { text-decoration: underline; }
 .rail-toggle { height: 24px; padding: 0 var(--space-2); font-family: var(--font-mono); }
 
 /* The icon rail: the pane shrinks to dots and glyphs. */
-.panes-rail { grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--preview-w); }
+.panes-rail { grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--preview-col); --jobs-reserve: var(--rail-w); }
 .pane-jobs.is-rail { align-items: center; gap: var(--space-2); padding: var(--space-2) 0; }
 .rail-needs {
   min-width: 20px;
