@@ -121,6 +121,9 @@ html[data-theme="candy-pop"] {
   --group-idle-fg: var(--candy-lavender);
   --group-idle-bg: var(--candy-lavender-tint);
   --group-idle-line: oklch(.86 .07 285 / .55);
+  --group-shipping-fg: var(--candy-grape);
+  --group-shipping-bg: var(--candy-grape-tint);
+  --group-shipping-line: var(--candy-grape);
   --group-done-fg: var(--candy-mint);
   --group-done-bg: var(--candy-mint-tint);
   --group-done-line: var(--candy-mint);
@@ -220,15 +223,6 @@ html[data-theme="candy-pop"] .brand {
   color: transparent;
 }
 html[data-theme="candy-pop"] .brand:hover { text-decoration: none; }
-/* "n need you" is needs-you news, so it borrows the bubblegum, as a solid pill in ink. */
-html[data-theme="candy-pop"] .needs {
-  padding: 1px var(--space-2);
-  border-radius: 999px;
-  background: var(--candy-bubblegum);
-  color: var(--candy-ink);
-  font-family: var(--font-rounded);
-  font-weight: var(--weight-bold);
-}
 html[data-theme="candy-pop"] .conn { color: var(--text-2); }
 html[data-theme="candy-pop"] .conn-dot { box-shadow: 0 0 0 3px oklch(1 0 0 / .08); }
 /* The New job button in the top bar wears the grape soda. */

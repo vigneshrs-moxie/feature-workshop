@@ -32,6 +32,7 @@ const FLOW: FlowView = {
       { slug: 'beta', title: 'Job beta', branch: 'feature/beta', worktree: null, position: 'staging', reached: 3, vsMain: { ahead: 4, behind: 0 }, vsStaging: null, unpushed: 0, forkBehind: 0, dirty: null, pushed: true, orgBranch: true,
         pr1: { number: 135, title: 'Beta', url: 'https://github.com/Moxie/moxie-portal/pull/135', state: 'merged', head: 'feature/beta', base: 'feature/beta', review: null, checks: 'passing', mergedAt: null, updatedAt: null },
         pr2: { number: 136, title: 'Beta', url: 'https://github.com/Moxie/moxie-portal/pull/136', state: 'merged', head: 'feature/beta', base: 'staging', review: 'approved', checks: 'passing', mergedAt: null, updatedAt: null } },
+      { slug: 'gamma', title: 'Job gamma', branch: 'feature/gamma', worktree: null, position: 'main', reached: 4, vsMain: { ahead: 0, behind: 0 }, vsStaging: null, unpushed: 0, forkBehind: 0, dirty: null, pushed: true, orgBranch: true, pr1: null, pr2: null },
     ],
   }],
 };
@@ -52,36 +53,108 @@ function renderApp({ jobs = [job('alpha', 'needs-you', { waitingFor: 'approval',
 
 afterEach(() => { cleanup(); window.location.hash = ''; localStorage.clear(); });
 
-describe('Home: the flow map', () => {
-  it('is the landing page: full width, one lane per job with where its work is, its counts and its PRs', async () => {
-    const { get } = renderApp();
-    const map = await screen.findByRole('list', { name: 'Jobs in moxie-portal' });
+const LANDED = { reached: true, at: null, by: 'pr1-merged' as const, landed: 'main' as const };
+const MAP_JOBS = (): Job[] => [job('alpha', 'needs-you', { waitingFor: 'approval', stage: 'plan', waitingSince: '2026-10-21T09:00:00Z' }), job('beta', 'running'), job('gamma', 'done', { finish: LANDED })];
+
+describe('Home: the flow map as rows', () => {
+  it('is the landing page: one row per job under its group, with the ship track, the words, the counts and the next hint', async () => {
+    const { get } = renderApp({ jobs: MAP_JOBS() });
+    const needs = await screen.findByRole('list', { name: 'Needs you jobs in moxie-portal' });
     expect(get).toHaveBeenCalledWith('/api/flow');
     expect(screen.queryByRole('navigation', { name: 'Jobs' })).toBeNull();
-    const alpha = within(map).getByRole('listitem', { name: 'Job alpha: On your fork' });
+    // The headings, in order, with their counts; Done folded.
+    const repo = screen.getByRole('region', { name: 'moxie-portal' });
+    expect(within(repo).getAllByRole('heading', { level: 4 }).map((h) => h.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['Needs you 1', 'Running 1', '▸ Done 1']);
+    expect(screen.queryByRole('list', { name: 'Done jobs in moxie-portal' })).toBeNull();
+    // Alpha's row.
+    const alpha = within(needs).getAllByRole('listitem')[0];
     expect(within(alpha).getByRole('link', { name: 'Job alpha' })).toHaveAttribute('href', '#/job/alpha');
-    expect(within(alpha).getByText('main ↑10 ↓2')).toHaveAttribute('title', expect.stringMatching(/2 commits behind it/));
-    expect(within(alpha).getByText('1 not pushed')).toBeInTheDocument();
-    expect(within(alpha).getByText('3 uncommitted')).toBeInTheDocument();
-    const pr1 = within(alpha).getByRole('link', { name: /PR #1 #141 open · checks failing/ });
+    expect(alpha.querySelector('.map-row-words')).toHaveTextContent('On your fork · PR #1 (#141) open, checks failing · main ↑10 ↓2 · 1 not pushed · 3 uncommitted');
+    const pr1 = within(alpha).getByRole('link', { name: 'PR #1 (#141)' });
     expect(pr1).toHaveAttribute('href', 'https://github.com/Moxie/moxie-portal/pull/141');
     expect(pr1).toHaveAttribute('target', '_blank');
-    expect(within(map).getByRole('listitem', { name: 'Job beta: In staging' })).toBeInTheDocument();
-    expect(screen.getByText('102 commits waiting for release')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Release #158 open/ })).toBeInTheDocument();
-    expect(within(screen.getByRole('list', { name: 'Jobs in staging' })).getByRole('link', { name: 'Job beta' })).toBeInTheDocument();
+    expect(alpha.querySelector('.map-row-hint')).toHaveTextContent('Give the go-ahead on Plan');
+    // The track: five stops, filled to the fork (a disc), the rest rings, the flag on the Moxie branch (the default finish line), said in words too.
+    expect(within(alpha).getByText('Ship track: on your fork, stop 2 of 5. Finish line: moxie branch.')).toHaveClass('sr-only');
+    const stops = [...alpha.querySelectorAll('.ship-stop')];
+    expect(stops.map((s) => s.className)).toEqual(['ship-stop is-filled', 'ship-stop is-here', 'ship-stop is-empty has-flag', 'ship-stop is-empty', 'ship-stop is-empty']);
+    expect(stops[2]).toHaveAttribute('title', 'Moxie branch: not yet. The finish line.');
+    expect(within(alpha).getByText('main ↑10 ↓2', { exact: false })).toHaveAttribute('title', expect.stringMatching(/2 commits behind it/));
+    // Beta's row, under Running.
+    const beta = within(screen.getByRole('list', { name: 'Running jobs in moxie-portal' })).getAllByRole('listitem')[0];
+    expect(beta.querySelector('.map-row-words')).toHaveTextContent('In staging · PR #2 (#136) merged · main ↑4 ↓0');
+    expect(beta.querySelector('.map-row-hint')).toHaveTextContent('Nothing to do: the Foreman is working');
+    // The repo's release train, and the jobs aboard.
+    expect(repo.querySelector('.release-line')).toHaveTextContent('staging: 102 commits waiting · release #158 open · last release 2026-10-20 (#139)');
+    expect(screen.getByRole('link', { name: 'release #158 open' })).toHaveAttribute('href', 'https://github.com/Moxie/moxie-portal/pull/158');
+    fireEvent.click(screen.getByRole('button', { name: /1 aboard/ }));
+    expect(within(screen.getByRole('list', { name: 'Jobs in staging, moxie-portal' })).getByRole('link', { name: 'Job beta' })).toBeInTheDocument();
+    // The what-needs-you band stays.
     expect(screen.getByRole('region', { name: 'The Foreman' })).toBeInTheDocument();
   });
 
-  it('Refresh asks the dashboard to read the branches and PRs now; a flow event updates the map', async () => {
+  it('Done opens on a click and stays open; the chips filter with counts; Show hides the counts', async () => {
+    renderApp({ jobs: MAP_JOBS() });
+    await screen.findByRole('list', { name: 'Needs you jobs in moxie-portal' });
+    fireEvent.click(screen.getByRole('button', { name: /Done 1/ }));
+    expect(localStorage.getItem('fw.home.map.done')).toBe('open');
+    const done = screen.getByRole('list', { name: 'Done jobs in moxie-portal' });
+    expect(within(done).getByRole('link', { name: 'Job gamma' })).toBeInTheDocument();
+    expect(done.querySelector('.map-row-hint')).toHaveTextContent('In main');
+    // Chips: one repo, so no repo chip.
+    const chips = within(screen.getByRole('group', { name: 'Which jobs' })).getAllByRole('button');
+    expect(chips.map((b) => b.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['All 3', 'Needs you 1', 'Shipping 0']);
+    fireEvent.click(chips[1]);
+    expect(localStorage.getItem('fw.home.map.chip')).toBe('needs-you');
+    expect(screen.getByRole('link', { name: 'Job alpha' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Job beta' })).toBeNull();
+    fireEvent.click(chips[0]);
+    expect(screen.getByRole('link', { name: 'Job beta' })).toBeInTheDocument();
+    // Show: counts off takes the muted suffix away; branches on shows the branch.
+    const show = within(screen.getByRole('group', { name: 'Show' }));
+    fireEvent.click(show.getByRole('button', { name: 'counts' }));
+    expect(screen.queryByText('main ↑10 ↓2', { exact: false })).toBeNull();
+    fireEvent.click(show.getByRole('button', { name: 'branches' }));
+    expect(screen.getByText('feature/alpha')).toBeInTheDocument();
+    expect(localStorage.getItem('fw.home.map.show')).toBe('branches');
+  });
+
+  it('keys: j and k move the highlight, Enter opens the job, o its newest PR, / jumps to the chips, 2 picks Needs you', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    renderApp({ jobs: MAP_JOBS() });
+    await screen.findByRole('list', { name: 'Needs you jobs in moxie-portal' });
+    const row = (slug: string) => document.querySelector(`.map-row[data-slug="${slug}"]`)!;
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(row('alpha')).toHaveAttribute('aria-current', 'true');
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(row('beta')).toHaveAttribute('aria-current', 'true');
+    expect(row('alpha')).not.toHaveAttribute('aria-current');
+    fireEvent.keyDown(document.body, { key: 'j' }); // Done is folded: beta stays the last row
+    expect(row('beta')).toHaveAttribute('aria-current', 'true');
+    fireEvent.keyDown(document.body, { key: 'k' });
+    expect(row('alpha')).toHaveAttribute('aria-current', 'true');
+    fireEvent.keyDown(document.body, { key: 'o' });
+    expect(open).toHaveBeenCalledWith('https://github.com/Moxie/moxie-portal/pull/141', '_blank', 'noreferrer');
+    fireEvent.keyDown(document.body, { key: '/' });
+    expect(screen.getByRole('button', { name: /^All/ })).toHaveFocus();
+    fireEvent.keyDown(document.body, { key: '2' });
+    expect(localStorage.getItem('fw.home.map.chip')).toBe('needs-you');
+    expect(document.querySelector('.map-keys')).toHaveTextContent('j Highlight the next row · k Highlight the previous row · Enter Open the highlighted job · o Open its newest PR on GitHub · / Jump to the filter chips · 1 / 2 / 3 / 4 Pick that filter chip');
+    fireEvent.keyDown(document.body, { key: 'Enter' });
+    expect(window.location.hash).toBe('#/job/alpha');
+    open.mockRestore();
+  });
+
+  it('Refresh asks the dashboard to read the branches and PRs now; a flow event updates the rows', async () => {
     const { post, streams } = renderApp();
-    await screen.findByRole('list', { name: 'Jobs in moxie-portal' });
+    await screen.findByRole('list', { name: 'Needs you jobs in moxie-portal' });
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/flow/refresh', {}));
     expect(await screen.findByText('Reading branches and PRs…')).toBeInTheDocument();
     const moved: FlowView = { ...FLOW, refreshing: false, repos: [{ ...FLOW.repos[0], lanes: [{ ...FLOW.repos[0].lanes[0], position: 'org', reached: 2 }] }] };
     act(() => { streams[0].onmessage?.(new MessageEvent('message', { data: JSON.stringify(ev(11, 'flow', null, moved)) })); });
-    expect(screen.getByRole('listitem', { name: 'Job alpha: On the moxie branch' })).toBeInTheDocument();
+    expect(document.querySelector('.map-row[data-slug="alpha"] .map-row-where')).toHaveTextContent('On the moxie branch');
+    expect(screen.getByText('Ship track: on the moxie branch, stop 3 of 5. Finish line: moxie branch.')).toBeInTheDocument();
   });
 });
 
@@ -101,7 +174,8 @@ describe('Home: the Table', () => {
     fireEvent.click(screen.getByRole('button', { name: /^All/ }));
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search jobs' }), { target: { value: 'feature/beta' } });
     expect(titles()).toEqual(['Job beta']);
-    expect(within(table).getByText('In staging')).toBeInTheDocument();
+    expect(within(table).getByText('In staging · PR #2 (#136) merged')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Shipping/ })).toBeInTheDocument();
   });
 });
 

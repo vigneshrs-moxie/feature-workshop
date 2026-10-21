@@ -1,6 +1,7 @@
-// One job in the Jobs pane: hue dot, title, then the status glyph and label, the stage chip (a
-// shipping job shows where its work is instead) and how long ago it last changed. With Play on, its crew member stands at the start of the row (RowCrew). In the icon rail it shrinks to the hue dot and glyph, with the rest in
-// its hover hint and its accessible name.
+// One job in the Jobs pane (Light, §12): crew member (Play on), hue dot, title and the age on the
+// right; under them one status word, the stage chip only when the job needs you (so only the rows
+// that want something carry a chip), and a shipping job's muted "where" instead. In the icon rail
+// it shrinks to the hue dot and glyph, with the rest in its hover hint and its accessible name.
 import type { Job } from '../../api/types';
 import { jobHref } from '../../app/router';
 import { fullTime, relativeTime } from '../../lib/time';
@@ -23,7 +24,7 @@ export function JobRow({ job, selected, now, rail = false }: JobRowProps) {
   const status = jobStatus(job, now);
   const title = job.title || job.slug;
   const shipping = job.group === 'shipping';
-  const stage = job.group === 'done' || shipping ? '' : stageLabel(job.stage);
+  const stage = job.group === 'needs-you' ? stageLabel(job.stage) : '';
   // Past the finish line: where the work is, in a muted word, instead of a stage chip.
   const where = shipping ? shippingWhere(job) : '';
   const ago = relativeTime(job.updatedAt, now);

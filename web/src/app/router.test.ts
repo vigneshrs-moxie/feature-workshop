@@ -17,6 +17,10 @@ describe('hash router', () => {
     ['#/settings', { name: 'settings' }],
     ['#/settings/', { name: 'settings' }],
     ['#/settings/x', { name: 'not-found', hash: '#/settings/x' }],
+    ['#/settings/workflow', { name: 'settings', section: 'workflow' }],
+    ['#/settings/notifications/', { name: 'settings', section: 'notifications' }],
+    ['#/settings/rules?theme=glass', { name: 'settings', section: 'rules' }],
+    ['#/settings/Workflow', { name: 'not-found', hash: '#/settings/Workflow' }],
     ['#/crew', { name: 'crew' }],
     ['#/crew/', { name: 'crew' }],
     ['#/crew?theme=pixel-crew', { name: 'crew' }],
@@ -42,6 +46,8 @@ describe('hash router', () => {
     expect(parseHash(jobHref('a b/c'))).toEqual({ name: 'job', slug: 'a b/c' });
     expect(hrefFor({ name: 'home' })).toBe('#/');
     expect(hrefFor({ name: 'settings' })).toBe('#/settings');
+    expect(hrefFor({ name: 'settings', section: 'look' })).toBe('#/settings/look');
+    expect(parseHash(hrefFor({ name: 'settings', section: 'play' }))).toEqual({ name: 'settings', section: 'play' });
     expect(hrefFor({ name: 'crew' })).toBe('#/crew');
     expect(hrefFor({ name: 'achievements' })).toBe('#/achievements');
     expect(hrefFor({ name: 'not-found', hash: '#/nowhere' })).toBe('#/nowhere');

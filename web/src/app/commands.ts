@@ -179,7 +179,7 @@ export function commandsFor(ctx: CommandContext, h: CommandHandlers): Command[] 
   }
 
   if (!ctx.onSettings) {
-    out.push({ id: 'settings', label: 'Settings', section: 'Go to', keys: 'go-settings', keywords: 'permissions rules always allow', hint: 'Your permission setting and your “Always allow” rules.', run: h.settings });
+    out.push({ id: 'settings', label: 'Settings', section: 'Go to', keys: 'go-settings', keywords: 'permissions notifications look theme text size keys workflow finish line play rules always allow', hint: 'Permissions, notifications, look, keys, workflow, Play and your “Always allow” rules.', run: h.settings });
   }
   if (ctx.play && !ctx.onCrew) {
     out.push({ id: 'crew-dex', label: 'Crew-dex', section: 'Go to', keys: 'go-crew', keywords: 'crew play collection characters met secrets achievements', hint: 'Every crew member: who you have met and what they have done on your jobs.', run: h.crewDex });

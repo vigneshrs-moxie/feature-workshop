@@ -49,6 +49,12 @@ const CONNECTION: Record<Connection, { label: string; hint: string }> = {
   reconnecting: { label: 'Reconnecting…', hint: 'The connection to the dashboard dropped. This page catches up by itself when it’s back.' },
 };
 
+/** A top-bar link's words: the full ones, and a short form that CSS shows under 1100 px (the name stays the full one). */
+function Words({ long, short }: { long: string; short: string }) {
+  return <><span className="topbar-long">{long}</span><span className="topbar-short" aria-hidden="true">{short}</span></>;
+}
+
+/** The top bar. One count only: the Desk button's badge (what waits for you); the connection state is a word with its dot. */
 function TopBar({ onRetry, onCrew = false, slug = null }: { onRetry: () => void; onCrew?: boolean; slug?: string | null }) {
   const state = useWorkshopState();
   const ui = useUi();
@@ -76,19 +82,14 @@ function TopBar({ onRetry, onCrew = false, slug = null }: { onRetry: () => void;
         aria-keyshortcuts="Meta+K Control+K"
         title={`Search every action you can take right now (${paletteKeyLabel()}). Press ? for the list of keys.`}
       >
-        <span aria-hidden="true">Actions</span> <kbd className="kbd">{paletteKeyLabel()}</kbd>
+        <span className="topbar-long" aria-hidden="true">Actions</span> <kbd className="kbd">{paletteKeyLabel()}</kbd>
       </button>
       <span className="spacer" />
       {/* Play, Full mode only: Claude's usage limit as stamina. */}
       {state.status === 'ready' && <StaminaBar />}
       {state.status === 'ready' && (
-        <span className="needs" title="How many jobs are waiting for you." aria-live="polite">
-          {needs === 0 ? 'Nothing needs you' : `${needs} need${needs === 1 ? 's' : ''} you`}
-        </span>
-      )}
-      {desk > 0 && (
-        <a className="btn btn-quiet desk-link" href={hrefFor({ name: 'desk' })} title="The Desk: every decision waiting for you, one at a time.">
-          Desk <span className="home-view-count">{desk}</span>
+        <a className="btn btn-quiet desk-link" href={hrefFor({ name: 'desk' })} title={desk === 0 ? 'The Desk: nothing is waiting for you right now.' : `The Desk: ${desk === 1 ? 'one decision is' : `${desk} decisions are`} waiting for you, one at a time (key: g d).`}>
+          Desk {desk > 0 && <span className="home-view-count" title={`${desk} waiting for you`}>{desk}</span>}
         </a>
       )}
       <span className={`conn conn-${state.connection}`} title={conn.hint} role="status">
@@ -99,11 +100,11 @@ function TopBar({ onRetry, onCrew = false, slug = null }: { onRetry: () => void;
         <button type="button" className="btn btn-quiet" onClick={onRetry} title="Fetch everything from the dashboard again now.">Refresh</button>
       )}
       {play.on && (
-        <a className="btn btn-quiet" href={crewDexHref()} aria-current={onCrew ? 'page' : undefined} title="The Crew-dex: every crew member, who you have met and what they have done on your jobs (Play mode).">Crew-dex</a>
+        <a className="btn btn-quiet" href={crewDexHref()} aria-current={onCrew ? 'page' : undefined} aria-label="Crew-dex" title="The Crew-dex: every crew member, who you have met and what they have done on your jobs (Play mode; key: g x)."><Words long="Crew-dex" short="Crew" /></a>
       )}
-      <a className="btn btn-quiet" href={settingsHref()} title="Your settings: the “Always allow” rules you’ve saved, and removing them.">Settings</a>
+      <a className="btn btn-quiet" href={settingsHref()} aria-label="Settings" title="Settings: permissions, notifications, look, keys, workflow, Play and your “Always allow” rules (key: g s)."><Words long="Settings" short="⚙" /></a>
       {/* The same page in the classic view (the job you have open, else its home); its New view button brings you back. */}
-      <a className="btn btn-quiet" href={slug ? classicHref.job(slug) : classicHref.home()} title="Open this page in the classic view: Costs, History, Try it on your computer and the job’s Details live there. Its New view button (key: n) brings you back.">Classic view</a>
+      <a className="btn btn-quiet" href={slug ? classicHref.job(slug) : classicHref.home()} aria-label="Classic view" title="Open this page in the classic view: Costs, History, Try it on your computer and the job’s Details live there. Its New view button (key: n) brings you back."><Words long="Classic view" short="Classic" /></a>
     </header>
   );
 }
@@ -164,10 +165,11 @@ function Sheets({ route }: { route: Route }) {
     'go-settings': () => navigate({ name: 'settings' }),
     'go-crew': () => { if (!play.on) return false; navigate({ name: 'crew' }); },
   });
+  // On the Desk and in Settings, j and k are theirs (the queue, the sections).
   useKeyScope('rows', {
     'next-job': () => stepJob(1),
     'prev-job': () => stepJob(-1),
-  }, route.name !== 'desk');
+  }, route.name !== 'desk' && route.name !== 'settings');
   useKeyScope('job', {
     'notes': () => { if (slug) ui.openSheet({ kind: 'job-drawer', slug }); },
     'write': () => focusComposer(),
@@ -265,7 +267,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       <Sheets route={route} />
       <div ref={panes} className={rail ? 'panes panes-rail' : 'panes'} style={previewWidth ? ({ '--preview-w': `${previewWidth}px` } as CSSProperties) : undefined}>
         <JobsPane selected={slug} />
-        {route.name === 'settings' ? <SettingsView /> : crew ? <CrewDexView /> : achievements ? <AchievementsView /> : lost !== null ? <NotFoundView hash={lost} /> : <ForemanPane slug={slug} />}
+        {route.name === 'settings' ? <SettingsView section={route.section} /> : crew ? <CrewDexView /> : achievements ? <AchievementsView /> : lost !== null ? <NotFoundView hash={lost} /> : <ForemanPane slug={slug} />}
         <PreviewPane slug={slug} />
         <PaneResizer panes={panes} />
       </div>

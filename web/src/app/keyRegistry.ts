@@ -2,8 +2,8 @@
 //
 // A view registers the keys it answers for with useKeyScope(scope, handlers, active) while it is
 // mounted; App installs the single document listener (useKeyListener). A key goes to the
-// highest-priority active scope that binds it (desk > gate > job > rows > table > settings > sheet
-// > global), so the Desk's j and k win over the page's. Rules, the same everywhere:
+// highest-priority active scope that binds it (desk > gate > job > map > rows > table > settings >
+// sheet > global), so the Desk's j and k win over the page's, and the Map's over the Jobs list's. Rules, the same everywhere:
 //   - single-letter keys never fire while you type in a field, or while a dialog is open;
 //   - ⌘, Ctrl and Alt belong to the browser, except bindings declared with Mod (⌘K, ⌘Enter);
 //   - a held key never repeats (except where the binding says so: the Table's arrows);
@@ -14,10 +14,10 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { readKeysSetting } from './keysSetting';
 
-export type KeyScope = 'global' | 'rows' | 'job' | 'gate' | 'desk' | 'table' | 'settings' | 'sheet';
+export type KeyScope = 'global' | 'rows' | 'job' | 'gate' | 'desk' | 'map' | 'table' | 'settings' | 'sheet';
 
 /** Highest priority first: the scope that gets the key when several bind it. */
-export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'gate', 'job', 'rows', 'table', 'settings', 'sheet', 'global'];
+export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'gate', 'job', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
 
 /** Each scope in the ? sheet: its title and where its keys work, in plain words. */
 export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
@@ -26,6 +26,7 @@ export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
   job: { title: 'The open job', where: 'With a job open in the Foreman pane.' },
   gate: { title: 'The gate card', where: 'While a gate card waits for your decision, on the job or on the Desk.' },
   desk: { title: 'The Desk', where: 'On the Desk, while something waits for you.' },
+  map: { title: 'The Map', where: 'On Home → Map.' },
   table: { title: 'The Table', where: 'With the focus on a job in the Table.' },
   settings: { title: 'Settings', where: 'On the Settings page.' },
   sheet: { title: 'In ⌘K', where: 'While the command palette is open.' },
@@ -72,6 +73,8 @@ export const KEYS = {
   'gate-revise': { keys: ['r'], label: 'Revise with feedback', scope: 'gate' },
   'gate-guidance': { keys: ['o'], label: 'Other guidance', scope: 'gate' },
   'gate-answer': { keys: ['1', '2', '3'], label: 'Pick that answer to the first unanswered question', scope: 'gate' },
+  'gate-adjust': { keys: ['.'], label: 'Open or close “Adjust the next step”', scope: 'gate' },
+  'gate-decided': { keys: ['v'], label: 'Open or close the decisions made for you', scope: 'gate', where: 'Only when the card has some.' },
   // The Desk
   'desk-next': { keys: ['j'], label: 'Next decision', scope: 'desk' },
   'desk-prev': { keys: ['k'], label: 'Previous decision', scope: 'desk' },
@@ -79,11 +82,23 @@ export const KEYS = {
   'desk-up': { keys: ['ArrowUp'], label: 'Previous decision', scope: 'desk', where: 'Inside the queue.', always: true },
   'desk-open': { keys: ['o'], label: 'Open the job', scope: 'desk' },
   'desk-approve': { keys: ['a'], label: 'Approve, or Allow once', scope: 'desk', where: 'Never for a hard line, a risky step or a question.' },
-  'desk-deny': { keys: ['d'], label: 'Deny a permission', scope: 'desk' },
+  'desk-deny': { keys: ['d'], label: 'Deny a permission', scope: 'desk', where: 'On a nudge: put it away.' },
+  'desk-brief': { keys: ['b'], label: 'Show or hide the brief', scope: 'desk', where: 'On a go-ahead.' },
+  // The Map (Home)
+  'map-next': { keys: ['j'], label: 'Highlight the next row', scope: 'map' },
+  'map-prev': { keys: ['k'], label: 'Highlight the previous row', scope: 'map' },
+  'map-open': { keys: ['Enter'], label: 'Open the highlighted job', scope: 'map' },
+  'map-pr': { keys: ['o'], label: 'Open its newest PR on GitHub', scope: 'map' },
+  'map-filter': { keys: ['/'], label: 'Jump to the filter chips', scope: 'map' },
+  'map-chip': { keys: ['1', '2', '3', '4'], label: 'Pick that filter chip: All, Needs you, Shipping, the first repo', scope: 'map' },
   // The Table
   'table-down': { keys: ['ArrowDown'], label: 'The next job', scope: 'table', always: true, repeats: true },
   'table-up': { keys: ['ArrowUp'], label: 'The previous job', scope: 'table', always: true, repeats: true },
   'table-open': { keys: ['Enter'], label: 'Open the job', scope: 'table', always: true, listOnly: true },
+  // Settings
+  'settings-next': { keys: ['j'], label: 'The next section', scope: 'settings' },
+  'settings-prev': { keys: ['k'], label: 'The previous section', scope: 'settings' },
+  'settings-find': { keys: ['/'], label: 'Find a setting', scope: 'settings' },
   // In ⌘K
   'sheet-move': { keys: ['ArrowDown', 'ArrowUp'], label: 'Move in the list', scope: 'sheet', always: true, listOnly: true },
   'sheet-run': { keys: ['Enter'], label: 'Run the highlighted action', scope: 'sheet', always: true, listOnly: true },

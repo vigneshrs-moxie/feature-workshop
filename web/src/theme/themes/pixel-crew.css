@@ -100,6 +100,9 @@ html[data-theme="pixel-crew"] {
   --group-idle-fg: var(--pc-lilac);
   --group-idle-bg: oklch(.82 .07 285 / .12);
   --group-idle-line: oklch(.66 .08 285);
+  --group-shipping-fg: var(--pc-blue);
+  --group-shipping-bg: oklch(.78 .14 245 / .14);
+  --group-shipping-line: var(--pc-blue);
   --group-done-fg: var(--pc-green);
   --group-done-bg: oklch(.83 .18 150 / .14);
   --group-done-line: var(--pc-green);
@@ -244,7 +247,6 @@ html[data-theme="pixel-crew"] .brand::before {
     2px 10px var(--pc-orange), 4px 10px var(--pc-ink), 6px 10px var(--pc-ink), 8px 10px var(--pc-ink), 10px 10px var(--pc-orange),
     4px 12px var(--pc-orange), 6px 12px var(--pc-orange), 8px 12px var(--pc-orange);
 }
-html[data-theme="pixel-crew"] .needs { color: var(--pc-pink); font-family: var(--pc-hud-font); font-size: calc(11px * var(--ui-scale, 1)); text-transform: uppercase; }
 html[data-theme="pixel-crew"] .conn { font-family: var(--pc-hud-font); font-size: calc(10px * var(--ui-scale, 1)); text-transform: uppercase; }
 html[data-theme="pixel-crew"] .conn-dot { border-radius: 0; box-shadow: 1px 1px 0 var(--pc-shadow); }
 

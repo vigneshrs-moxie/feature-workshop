@@ -44,7 +44,7 @@ describe('Jobs pane', () => {
     expect(row.querySelector('.stage-chip')).toBeNull();
   });
 
-  it('shows each row’s hue dot, status glyph and label, stage chip and time', () => {
+  it('shows each row’s hue dot, status glyph and label, the stage chip only when it needs you, and the time', () => {
     renderPane(JOBS);
     const row = screen.getByRole('link', { name: /^Job alpha/ });
     expect(row).toHaveTextContent('Job alpha4m◆PermissionPlan');
@@ -53,7 +53,8 @@ describe('Jobs pane', () => {
     expect(within(row).getByText('4m').closest('time')).toHaveAttribute('dateTime', iso(14, 56));
     expect(within(row).getByText('Permission').parentElement).toHaveAttribute('title', expect.stringMatching(/permission/));
     expect(screen.getByRole('link', { name: /^Job beta/ })).toHaveTextContent('Working');
-    expect(screen.getByRole('link', { name: /^Job beta/ })).toHaveTextContent('Build');
+    expect(screen.getByRole('link', { name: /^Job beta/ })).not.toHaveTextContent('Build'); // running: no stage chip
+    expect(screen.getByRole('link', { name: /^Job beta/ }).querySelector('.stage-chip')).toBeNull();
   });
 
   it('marks a decision left 4 hours as parked, still under Needs you (row and rail)', () => {
@@ -134,5 +135,11 @@ describe('the crew in the Jobs list (Play)', () => {
   it('Off: the rows exactly as before', () => {
     const { container } = withMode('off');
     expect(container.querySelector('.row-crew, .has-crew')).toBeNull();
+  });
+
+  it('carries no alert switches: they live in Settings → Notifications, “In this browser”', () => {
+    renderPane(JOBS);
+    expect(document.querySelector('[data-alerts-control]')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Chime/ })).toBeNull();
   });
 });

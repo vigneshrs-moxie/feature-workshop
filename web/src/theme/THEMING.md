@@ -143,7 +143,7 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | Class | What it is |
 | --- | --- |
 | `.app` | the whole shell |
-| `.topbar` | the top bar; `.brand` its title, `.needs` the "n need you" text, `.conn` the connection state |
+| `.topbar` | the top bar; `.brand` its title, `.desk-link` the Desk button with its count, `.conn` the connection state; `.topbar-long` / `.topbar-short` a link's full and short words (the short one under 1100 px) |
 | `.usage-banner` | the usage-limit banner under the top bar (`.usage-limited` while paused, `.usage-warn` the heads-up) |
 | `.pane`, `.pane-jobs`, `.pane-foreman`, `.pane-preview` | the three panes; `.panes-rail` on their parent when Jobs is a rail |
 | `.pane-resizer` | the handle between the middle pane and the Preview pane (`components/PaneResizer.tsx`; a focusable `role="separator"`, `.is-dragging` while dragged; its line is its `::after`). The Preview pane's width is `--preview-w` on `.panes`, clamped by `--preview-min` and `--middle-min` |
@@ -175,7 +175,9 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `.docs-tab` | the Docs tab: `.doc-list`, `.doc-list-head`, `.doc-group`, `.doc-group-title`, `.doc-item` (one document: `.doc-name`, `.doc-version`, `.doc-type`, `.doc-time`), `.doc-empty`; the reader `.doc-reader` with `.doc-reader-head`, `.doc-back`, `.doc-title`, `.doc-facts`, `.doc-actions`, `.doc-view-toggle` (Page / Source, `aria-pressed`), `.doc-page` (the `.prose` page), `.doc-source` (the Markdown as written) |
 | `.inline-code`, `.short-line` | short Foreman text shown clean on cards and the live row (`.short-heading`, `.short-quote`) |
 | `.skill-warning` | Settings' warning that the installed /feature skill predates levels (also a `.perm-warn`) |
-| `.settings` | the Settings view; `.settings-heading`, `.rule-options`, `.rule-option` (`.is-picked`), `.rule-list` |
+| `.settings` | the Settings view (`views/Settings/SettingsView.tsx`): `.settings-layout` holds the `.settings-rail` (the `.settings-search-input`, then `.settings-rail-row`s with `.settings-rail-name` and `.settings-rail-value`, `.is-current` on the open one; `.settings-hits` with `.settings-hit`s while you search) and the `.settings-section` (`data-section`); `.settings-heading`, `.settings-subheading`, `.rule-options`, `.rule-option` (`.is-picked`), `.rule-list`. A control the search jumped to carries `.is-found` on its `[data-setting]` for a moment. Under 900 px the rail is a row of chips |
+| `.workflow-settings` | Settings → Workflow: `.finish-line` (the `.rule-option`s), `.workflow-choice` (a `.home-seg` of Auto / Always / Off and `.settings-note-under`) |
+| `.alert-settings` | this browser's alerts, a sub-block of Settings → Notifications (`.alert-settings-title`, `.alert-settings-lead`, `.alert-settings-row` with the `.btn-toggle`s, `.alert-settings-note`) |
 | `.look-settings` | Settings → Look (`views/Settings/LookSettings.tsx`): `.look-heading` its sub-headings; `.text-size` with `.text-size-btn` (`.is-on`, `aria-pressed`) and the live `.text-sample`; `.follow-system` (a `.rule-option` with a checkbox) |
 | `.theme-picker`, `.theme-option`, `.theme-hint` | the theme picker in Settings: a swatch grid in two groups (`.theme-group`, `.theme-group-title`, `.theme-grid`); each `.theme-option` (`.is-picked`, `.is-hidden-theme`) holds a `.theme-swatch` carrying its own `data-theme`, drawn from that theme's tokens (`theme/swatches.css`, generated from every theme file by `swatchSheet.ts`: the token block and the `body` background, re-scoped), then the name, the word `.theme-chosen` on the chosen one and `.theme-description` |
 | `.btn`, `.btn-primary`, `.btn-danger`, `.btn-quiet`, `.chip`, `.kbd`, `.text-input`, `.text-area`, `.select` | controls |

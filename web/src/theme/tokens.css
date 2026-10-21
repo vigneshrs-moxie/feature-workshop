@@ -84,6 +84,9 @@
   --group-idle-fg: var(--text-2);
   --group-idle-bg: var(--bg-3);
   --group-idle-line: var(--border-2);
+  --group-shipping-fg: var(--status-info);
+  --group-shipping-bg: var(--status-info-bg);
+  --group-shipping-line: var(--status-info);
   --group-done-fg: var(--status-ok);
   --group-done-bg: var(--status-ok-bg);
   --group-done-line: var(--status-ok);

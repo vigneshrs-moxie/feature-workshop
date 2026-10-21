@@ -10,11 +10,20 @@ import os from 'node:os';
 import { playSettings } from './play.js';
 import { notifySettings } from './notify.js';
 import { DEFAULT_FINISH_LINE, finishLineOf } from './finish.js';
+import { WORKFLOW_CHOICES } from './options.js';
 
-/** The workflow settings with defaults filled in: { finishLine } (lib/finish.js). */
+/** Screens (wireframes) and Clarify questions for new jobs: Auto (the workflow decides), Always, or Off (lib/options.js). */
+export { WORKFLOW_CHOICES };
+export const workflowChoiceOf = (raw) => (WORKFLOW_CHOICES.includes(raw) ? raw : 'auto');
+
+/**
+ * The workflow settings with defaults filled in (Settings → Workflow): { finishLine } (lib/finish.js),
+ * and for new jobs `wireframes` and `clarify` ('auto' | 'always' | 'off', default auto); a new job's
+ * options.json copies those two (lib/options.js normalize).
+ */
 export function workflowSettings(raw = {}) {
   const w = raw && typeof raw === 'object' ? raw : {};
-  return { finishLine: finishLineOf(w.finishLine) };
+  return { finishLine: finishLineOf(w.finishLine), wireframes: workflowChoiceOf(w.wireframes), clarify: workflowChoiceOf(w.clarify) };
 }
 
 // Settings from before the finish line kept the quest rule under play.questDone. The first read
@@ -80,7 +89,8 @@ export class State extends EventEmitter {
   //   autoMode   { available: true | false | null (not tried yet), reason, checkedAt }
   //   play       { mode: 'subtle' | 'full' | 'off', sounds } (lib/play.js)
   //   notify     notifications outside the browser: levels, quiet hours (lib/notify.js)
-  //   workflow   { finishLine }: what counts as done (lib/finish.js)
+  //   workflow   { finishLine, wireframes, clarify }: what counts as done (lib/finish.js), and the
+  //              screens and clarify defaults for new jobs
   async getSettings() {
     if (!this.settings) {
       let raw;

@@ -20,6 +20,7 @@ const FILTERS: { id: TableFilter; label: string; hint: string }[] = [
   { id: 'running', label: 'Running', hint: 'The Foreman or its crew are working on it now.' },
   { id: 'idle', label: 'Idle', hint: 'Nothing happening and nothing asked of you.' },
   { id: 'review', label: 'In review', hint: 'It has a PR open on GitHub.' },
+  { id: 'shipping', label: 'Shipping', hint: 'Past the finish line you set, on its way to main; nothing asks you anything.' },
   { id: 'done', label: 'Done', hint: 'Finished, or marked done or dropped.' },
 ];
 
@@ -30,7 +31,7 @@ const COLUMNS: { key: SortKey | null; label: string; hint: string }[] = [
   { key: 'level', label: 'Level', hint: 'L0 Tweak to L3 Large.' },
   { key: 'stage', label: 'Stage', hint: 'The workflow stage it is on.' },
   { key: 'status', label: 'Status', hint: 'What it is doing or waiting for, as in the Jobs list.' },
-  { key: 'where', label: 'Where', hint: 'How far its work has got: your worktree, your fork, the Moxie branch, staging, main.' },
+  { key: 'where', label: 'Where', hint: 'How far its work has got, in the map’s words: your worktree, your fork, the Moxie branch, staging, main, and the PR it is on.' },
   { key: 'main', label: 'vs main', hint: 'Commits ahead of (↑) and behind (↓) main. Behind means main has moved on since the branch started.' },
   { key: null, label: 'PR #1', hint: 'Your fork → the Moxie branch.' },
   { key: null, label: 'PR #2', hint: 'The Moxie branch → staging (or into main where there is no staging).' },
@@ -112,7 +113,7 @@ export function TableView({ rows, now }: { rows: TableRow[]; now: Date }) {
                 <td>{r.level === null ? <span className="muted">—</span> : `L${r.level}`}</td>
                 <td>{r.stage || <span className="muted">—</span>}</td>
                 <td><span className={`job-status status-${r.group}`} title={r.statusHint}>{r.status}</span></td>
-                <td>{r.where || <span className="muted">—</span>}</td>
+                <td className="table-where">{r.where || <span className="muted">—</span>}</td>
                 <td>{r.vsMain ? <span className={`flow-count${r.vsMain.behind > 0 ? ' is-behind' : ''}`} title={countsWords(r.vsMain, 'main')}>{countsText(r.vsMain)}</span> : <span className="muted">—</span>}</td>
                 <td><PrCell pr={r.pr1} /></td>
                 <td><PrCell pr={r.pr2} /></td>

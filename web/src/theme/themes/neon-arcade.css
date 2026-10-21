@@ -78,6 +78,9 @@ html[data-theme="neon-arcade"] {
   --group-idle-fg: oklch(.82 .08 290);
   --group-idle-bg: oklch(.8 .08 290 / .08);
   --group-idle-line: oklch(.7 .1 290);
+  --group-shipping-fg: oklch(.82 .16 265);
+  --group-shipping-bg: oklch(.78 .17 265 / .12);
+  --group-shipping-line: oklch(.76 .18 265);
   --group-done-fg: oklch(.87 .18 150);
   --group-done-bg: oklch(.86 .18 150 / .12);
   --group-done-line: oklch(.82 .2 150);
@@ -164,16 +167,6 @@ html[data-theme="neon-arcade"] .brand {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-}
-/* "n need you" is the needs-you count, so it wears the needs-you magenta: a small lit sign. */
-html[data-theme="neon-arcade"] .needs {
-  padding: 1px var(--space-2);
-  border: 1px solid var(--group-needs-you-line);
-  border-radius: 999px;
-  color: var(--group-needs-you-fg);
-  font-weight: var(--weight-medium);
-  background: var(--group-needs-you-bg);
-  box-shadow: 0 0 10px oklch(.76 .24 345 / .45);
 }
 html[data-theme="neon-arcade"] .topbar .btn { background: oklch(1 0 0 / .06); border-color: oklch(1 0 0 / .14); }
 html[data-theme="neon-arcade"] .topbar .btn:hover { background: oklch(1 0 0 / .1); }

@@ -28,6 +28,9 @@ export const MODEL_CHOICES = [
   { id: HAIKU, label: 'Haiku 5.5', note: 'Cheapest; for simple checks and trying things out.' },
 ];
 export const SCHEMA_VERSION = 2;
+/** Screens (wireframes) and Clarify questions on a job: Auto (the workflow decides), Always, or Off (Settings → Workflow sets the default for new jobs). */
+export const WORKFLOW_CHOICES = ['auto', 'always', 'off'];
+const workflowChoice = (v) => (WORKFLOW_CHOICES.includes(v) ? v : null);
 
 // The Foreman is Opus for every flow and level. Fable takes short second looks (fable_checks);
 // it is never started as the Foreman just because a job is large.
@@ -143,6 +146,7 @@ export function defaultsFor(flow = 'auto') {
   return {
     schema_version: SCHEMA_VERSION, level, flow: FLOWS[flow] ? flow : 'auto', skip: [...f.skip], provided: {}, reviewers: Array.isArray(f.reviewers) ? [...f.reviewers] : f.reviewers,
     review_rounds: 1, manual_test: f.manualTest, fable_checks: [...f.fable], models: { ...(level === null ? DEFAULT_MODELS : LEVELS[level].models) }, notes: '',
+    wireframes: 'auto', clarify: 'auto',
   };
 }
 
@@ -153,6 +157,7 @@ export function defaultsForLevel(level) {
   return {
     schema_version: SCHEMA_VERSION, level, flow: l.flow, skip: [...l.skip], provided: {}, reviewers: Array.isArray(l.reviewers) ? [...l.reviewers] : l.reviewers,
     review_rounds: 1, manual_test: l.manualTest, fable_checks: [...l.fable], models: { ...l.models }, notes: '',
+    wireframes: 'auto', clarify: 'auto',
   };
 }
 
@@ -177,8 +182,10 @@ function levelInput(v) {
  *
  * The level wins over the flow: `flow` is always flowFor(level). Without a level, a schema 1 flow
  * maps to one (quick → L1, small → L2, large → L3; auto → none) and keeps that flow's defaults.
+ * workflow: the Settings → Workflow defaults for a new job ({ wireframes, clarify }, lib/state.js
+ * workflowSettings); a job keeps its own choice (input, else previous) over them, and Auto failing all.
  */
-export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previous = null } = {}) {
+export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previous = null, workflow = null } = {}) {
   let level = levelInput(input.level);
   if (level === null && input.level === undefined && isLevel(previous?.level) && flowFor(previous.level) === input.flow) level = previous.level;
   const out = level !== null ? defaultsForLevel(level) : defaultsFor(input.flow);
@@ -212,6 +219,9 @@ export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previo
     for (const role of ['foreman', 'build', 'checks']) if (modelAllowed(role, previous.models[role])) out.models[role] = previous.models[role];
   }
   out.notes = typeof input.notes === 'string' ? input.notes.trim().slice(0, 1000) : '';
+  // Screens (wireframes) and Clarify questions: the job's own choice, else what it had, else the
+  // default for new jobs (Settings → Workflow), else Auto.
+  for (const k of ['wireframes', 'clarify']) out[k] = workflowChoice(input[k]) ?? workflowChoice(previous?.[k]) ?? workflowChoice(workflow?.[k]) ?? 'auto';
   out.skip = ids(SKIPPABLE).filter((s) => out.skip.includes(s)); // workflow order
   return out;
 }
@@ -293,6 +303,8 @@ export function describeOptions(o) {
   lines.push(`Reviewers: ${o.skip.includes('review') ? 'none' : o.reviewers === 'auto' ? 'the usual ones for this kind of change' : o.reviewers.map((r) => name(REVIEWERS, r)).join(', ')}${o.skip.includes('review') ? '' : `, at most ${o.review_rounds} fix round${o.review_rounds === 1 ? '' : 's'}`}.`);
   if (o.manual_test) lines.push('The human tests it by hand on their computer before review.');
   lines.push(`Fable checks: ${o.fable_checks.length ? o.fable_checks.map((x) => name(FABLE_POINTS, x)).join(', ') : 'none'}.`);
+  if (o.wireframes && o.wireframes !== 'auto') lines.push(`Screens (wireframes): ${o.wireframes === 'always' ? 'always, before the plan' : 'off'}.`);
+  if (o.clarify && o.clarify !== 'auto') lines.push(`Clarify questions before the spec: ${o.clarify === 'always' ? 'always' : 'off'}.`);
   if (o.notes) lines.push(`Notes: ${o.notes}`);
   if (o.from_session) lines.push(o.from_session.mode === 'continue'
     ? `Started by continuing an earlier conversation (session ${o.from_session.id}): the earlier messages are background, not approvals.`

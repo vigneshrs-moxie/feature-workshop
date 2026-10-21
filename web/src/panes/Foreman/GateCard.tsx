@@ -1,7 +1,11 @@
-// The gate card (design doc section 3): pinned above the composer while the Foreman waits for your
-// decision on a brief. It shows the brief's questions (the recommendation picked), the decisions
-// made on your behalf (each one can be overridden), buttons that say what they do, and chips that
-// change how the next stage runs. Everything goes in one reply through POST /api/job/:slug/gate:
+// The gate card (design doc section 3, lighter in plan §4): pinned above the composer while the
+// Foreman waits for your decision on a brief. It shows the brief's questions (the recommendation
+// picked), one primary button, Approve (key a), with Edit then approve, Revise and Other guidance
+// as plain links on one line; "Adjust the next step" (key .), a disclosure holding the chips that
+// change how the next stage runs and the exact lines they add; the decisions made on your behalf
+// folded to one line (key v opens them; each one can be overridden); and, while Approve is off, a
+// visible list of why (an open question, an override with nothing said, a changed plan) that
+// empties as you resolve them. Everything goes in one reply through POST /api/job/:slug/gate:
 // the dashboard composes it (composeReply, the same words the card previews), saves the chips'
 // option changes, and sends it; or, while the Foreman is still working, gives the text back, which
 // waits in the composer with the brief it answers. Nothing is ever approved automatically.
@@ -172,7 +176,23 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
   const next = gate.nextStage ? stageLabel(gate.nextStage) : null;
   const stage = stageLabel(gate.stage);
   // Only chips that apply to this next stage name anything (a pressed one that no longer applies is left out).
-  const approve = approveLabel(gate, c.chips.filter((id) => views.some((v) => v.id === id && v.enabled)));
+  const chosen = c.chips.filter((id) => views.some((v) => v.id === id && v.enabled));
+  const approve = approveLabel(gate, chosen);
+  // Why Approve is off, in plain words (the Kingdom Inspection pattern): the list empties as you resolve them.
+  const offReasons: string[] = [];
+  if (stale) offReasons.push('The plan changed since this card was raised, so this approval would be for an old version. Ask for changes, or wait for the new brief.');
+  const missingOverride = emptyOverride(gate, c);
+  if (missingOverride) offReasons.push(`Say what “${missingOverride.decision}” should be instead, or undo that override.`);
+  const openQuestion = unansweredQuestion(gate, c);
+  if (openQuestion !== null) offReasons.push(`Question ${openQuestion} has no answer. Pick one, or write your own.`);
+  const approveOff = offReasons.length > 0;
+  // The two disclosures, remembered in this browser (closed until you open them).
+  const [adjustRaw, setAdjustRaw] = useStored('fw.gate.adjust');
+  const adjustOpen = adjustRaw === 'open';
+  const setAdjustOpen = (on: boolean) => setAdjustRaw(on ? 'open' : 'closed');
+  const [decidedRaw, setDecidedRaw] = useStored('fw.gate.decided');
+  const decidedOpen = decidedRaw === 'open';
+  const setDecidedOpen = (on: boolean) => setDecidedRaw(on ? 'open' : 'closed');
 
   // The ⋯ menu: closes on Escape (focus back on ⋯) or a click elsewhere.
   useEffect(() => {
@@ -325,6 +345,8 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
       if (!q || !o) return false;
       setChoice(q.id, o.id);
     },
+    'gate-adjust': () => setAdjustOpen(!adjustOpen),
+    'gate-decided': () => { if (!decided.length) return false; setDecidedOpen(!decidedOpen); },
   }, !busy);
 
   const resetAt = usage?.resetsAt ? clockTime(usage.resetsAt, now) : '';
@@ -397,63 +419,77 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
       })}
 
       {decided.length > 0 && (
-        <section className="gate-decided" aria-labelledby={`${uid}-dec`}>
-          <h4 className="gate-subhead muted" id={`${uid}-dec`}>Also decided on your behalf</h4>
-          <ul className="gate-decided-list">
-            {decided.map((d) => {
-              const key = decidedKey(d);
-              const over = key in c.overrides;
-              return (
-                <li key={key} className={`gate-decision${over ? ' is-changed' : ''}`}>
-                  <p className="gate-decision-text">
-                    {over && <><span className="chip gate-changed">Changed</span> </>}
-                    <strong><InlineText text={d.decision} /></strong>
-                    {d.reason && <span className="muted"> — <InlineText text={d.reason} /></span>}
-                    {d.where && <span className="muted"> (<InlineText text={d.where} />)</span>}
-                  </p>
-                  {over ? (
-                    <div className="gate-override">
-                      <label className="field">
-                        <span>What should it be instead?</span>
-                        <textarea className="text-area" rows={2} value={c.overrides[key]} onChange={(e) => setOverride(key, e.target.value)} disabled={busy} title="Your decision instead. It goes in your reply as “changed”." />
-                      </label>
-                      <button type="button" className="link-button" onClick={() => undoOverride(key)} disabled={busy} title="Keep the Foreman’s decision after all: approving confirms it.">Undo override</button>
-                    </div>
-                  ) : (
-                    <button type="button" className="link-button" onClick={() => override(key)} disabled={busy} title="Change this decision: say what it should be instead. Your reply then lists it as changed, not confirmed.">Override</button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-          <p className="muted gate-decided-note">Approving confirms the ones you don’t override.</p>
-        </section>
+        <details className="gate-decided" open={decidedOpen}>
+          <summary className="gate-fold" onClick={(e) => { e.preventDefault(); setDecidedOpen(!decidedOpen); }} title="The decisions the Foreman made for you with this brief. Open them to read each one and override any of them; approving confirms the rest.">
+            {decided.length === 1 ? '1 decision' : `${decided.length} decisions`} made for you · review <Kbd id="gate-decided" />
+          </summary>
+          <section className="gate-decided-body" aria-label="Decided on your behalf">
+            <ul className="gate-decided-list">
+              {decided.map((d) => {
+                const key = decidedKey(d);
+                const over = key in c.overrides;
+                return (
+                  <li key={key} className={`gate-decision${over ? ' is-changed' : ''}`}>
+                    <p className="gate-decision-text">
+                      {over && <><span className="chip gate-changed">Changed</span> </>}
+                      <strong><InlineText text={d.decision} /></strong>
+                      {d.reason && <span className="muted"> — <InlineText text={d.reason} /></span>}
+                      {d.where && <span className="muted"> (<InlineText text={d.where} />)</span>}
+                    </p>
+                    {over ? (
+                      <div className="gate-override">
+                        <label className="field">
+                          <span>What should it be instead?</span>
+                          <textarea className="text-area" rows={2} value={c.overrides[key]} onChange={(e) => setOverride(key, e.target.value)} disabled={busy} title="Your decision instead. It goes in your reply as “changed”." />
+                        </label>
+                        <button type="button" className="link-button" onClick={() => undoOverride(key)} disabled={busy} title="Keep the Foreman’s decision after all: approving confirms it.">Undo override</button>
+                      </div>
+                    ) : (
+                      <button type="button" className="link-button" onClick={() => override(key)} disabled={busy} title="Change this decision: say what it should be instead. Your reply then lists it as changed, not confirmed.">Override</button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="muted gate-decided-note">Approving confirms the ones you don’t override.</p>
+          </section>
+        </details>
       )}
 
+      {approveOff && (
+        <div className="gate-off" role="status" aria-labelledby={`${uid}-off`}>
+          <p className="gate-off-head" id={`${uid}-off`}>Approve is off:</p>
+          <ul className="gate-off-list">
+            {offReasons.map((r) => <li key={r}>{r}</li>)}
+          </ul>
+        </div>
+      )}
       <div className="perm-actions gate-actions">
-        <button type="button" className="btn btn-primary" disabled={busy || stale} onClick={() => void act('approve')} title={stale ? staleHint : approveHint}>
+        <button type="button" className="btn btn-primary" disabled={busy || approveOff} onClick={() => void act('approve')} title={approveOff ? `Off: ${offReasons[0]}` : approveHint}>
           {approve}{oneKeyGateApprove(gate, job.waitingFor) && <Kbd id="gate-approve" />}
-        </button>
-        <button ref={editBtn} type="button" className="btn" disabled={busy || stale} onClick={openEdit} title={stale ? staleHint : 'See the whole reply exactly as the Foreman will receive it, edit it, then send it as your approval.'}>
-          Edit, then approve<Kbd id="gate-edit" />
-        </button>
-        <button type="button" className="btn" disabled={busy} aria-expanded={mode === 'changes'} onClick={() => openMode('changes')} title="Ask for changes: the Foreman stays in this stage and revises. Nothing is approved.">
-          Revise with feedback<Kbd id="gate-revise" />
-        </button>
-        <button type="button" className="btn" disabled={busy} aria-expanded={mode === 'message'} onClick={() => openMode('message')} title="Tell the Foreman something else: a question or guidance. Nothing is approved.">
-          Other guidance<Kbd id="gate-guidance" />
         </button>
         {limited && (
           <button
             type="button"
             className="btn"
-            disabled={busy || stale}
+            disabled={busy || approveOff}
             onClick={() => void act('approve', { startAfterReset: true })}
-            title={stale ? staleHint : `Approve now; the reply is held and goes to the Foreman when Claude’s usage limit resets${resetAt ? ` (around ${resetAt})` : ''}.`}
+            title={approveOff ? `Off: ${offReasons[0]}` : `Approve now; the reply is held and goes to the Foreman when Claude’s usage limit resets${resetAt ? ` (around ${resetAt})` : ''}.`}
           >
             Approve, start after reset
           </button>
         )}
+        <span className="gate-links">
+          <button ref={editBtn} type="button" className="link-button" disabled={busy || stale} onClick={openEdit} title={stale ? staleHint : 'See the whole reply exactly as the Foreman will receive it, edit it, then send it as your approval.'}>
+            Edit, then approve<Kbd id="gate-edit" />
+          </button>
+          <button type="button" className="link-button" disabled={busy} aria-expanded={mode === 'changes'} onClick={() => openMode('changes')} title="Ask for changes: the Foreman stays in this stage and revises. Nothing is approved.">
+            Revise with feedback<Kbd id="gate-revise" />
+          </button>
+          <button type="button" className="link-button" disabled={busy} aria-expanded={mode === 'message'} onClick={() => openMode('message')} title="Tell the Foreman something else: a question or guidance. Nothing is approved.">
+            Other guidance<Kbd id="gate-guidance" />
+          </button>
+        </span>
         <div className="job-menu gate-more" ref={menuBox}>
           <button
             ref={moreBtn}
@@ -558,42 +594,45 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
         </div>
       )}
 
-      <div className="gate-chips" role="group" aria-labelledby={`${uid}-chips`}>
-        <span className="muted gate-chips-label" id={`${uid}-chips`} title="These change only the next stage (or the level from the next stage on). Each adds one line to your reply.">
-          Next step only{next ? ` (${next})` : ''}:
-        </span>
-        {views.map((v) => {
-          const on = v.enabled && c.chips.includes(v.id);
-          return (
-            <button
-              key={v.id}
-              type="button"
-              className="btn gate-chip"
-              aria-label={v.name}
-              aria-pressed={on}
-              aria-disabled={!v.enabled || busy ? true : undefined}
-              onClick={() => { if (v.enabled && !busy) toggle(v.id); }}
-              title={v.hint}
-            >
-              {on ? '✓ ' : ''}{v.label}
-            </button>
-          );
-        })}
-      </div>
-      {level === null && (
-        <p className="muted gate-hint">
-          L↑ and L↓ need a level.{' '}
-          <button type="button" className="link-button" onClick={openLevelChip} title="Open the level chip in the job header to pick this job’s level.">Pick a level first</button>
-        </p>
-      )}
-      {/* A stop carries no option changes, so its lines aren't shown while you stop. */}
-      {chipLines.length > 0 && mode !== 'stop' && (
-        <div className="gate-lines" aria-live="polite">
-          <p className="muted gate-lines-head">Added to your reply, exactly:</p>
-          <pre className="perm-preview gate-lines-text">{chipLines.join('\n')}</pre>
-          {consequence && <p className="muted level-consequence">{consequence}.</p>}
+      <details className="gate-adjust" open={adjustOpen}>
+        <summary className="gate-fold" onClick={(e) => { e.preventDefault(); setAdjustOpen(!adjustOpen); }} title="Change only the next step (or the level from the next step on): skip it, lighter, heavier, a Fable second look, do it yourself, L↑ or L↓. Each adds one line to your reply.">
+          Adjust the next step{next ? ` (${next})` : ''} <span aria-hidden="true">▾</span> <Kbd id="gate-adjust" />
+          {chosen.length > 0 && <span className="chip gate-chosen">{chosen.length === 1 ? '1 chosen' : `${chosen.length} chosen`}</span>}
+        </summary>
+        <div className="gate-chips" role="group" aria-label={`Next step only${next ? ` (${next})` : ''}`}>
+          {views.map((v) => {
+            const on = v.enabled && c.chips.includes(v.id);
+            return (
+              <button
+                key={v.id}
+                type="button"
+                className="btn gate-chip"
+                aria-label={v.name}
+                aria-pressed={on}
+                aria-disabled={!v.enabled || busy ? true : undefined}
+                onClick={() => { if (v.enabled && !busy) toggle(v.id); }}
+                title={v.hint}
+              >
+                {on ? '✓ ' : ''}{v.label}
+              </button>
+            );
+          })}
         </div>
-      )}
+        {level === null && (
+          <p className="muted gate-hint">
+            L↑ and L↓ need a level.{' '}
+            <button type="button" className="link-button" onClick={openLevelChip} title="Open the level chip in the job header to pick this job’s level.">Pick a level first</button>
+          </p>
+        )}
+        {/* A stop carries no option changes, so its lines aren't shown while you stop. */}
+        {chipLines.length > 0 && mode !== 'stop' && (
+          <div className="gate-lines" aria-live="polite">
+            <p className="muted gate-lines-head">Added to your reply, exactly:</p>
+            <pre className="perm-preview gate-lines-text">{chipLines.join('\n')}</pre>
+            {consequence && <p className="muted level-consequence">{consequence}.</p>}
+          </div>
+        )}
+      </details>
 
       {askTerminal && (
         <label className="check" title="Claude Code is open in this repository in a terminal. Two Foremen on one job would trip over each other.">
@@ -604,8 +643,8 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
 
       <HowThisWorks id="gate-card" defaultOpen={false}>
         <p>The Foreman has briefed you and waits for your decision. Nothing goes ahead, and nothing is ever approved for you, until you press one of these.</p>
-        <p><strong>Approve</strong> (its label says what it approves and what starts) sends your answers to the questions, confirms the decisions made on your behalf that you didn’t override, and names the versions you approved. <strong>Edit, then approve</strong> shows that reply in full so you can change the words first. <strong>Revise with feedback</strong> asks for changes: the Foreman stays in this stage. <strong>Other guidance</strong> sends a question or a note without approving; the card stays open. Approve needs an answer to every question (a recommended answer is picked for you). <strong>Approve, start after reset</strong> appears when Claude’s usage limit is reached: your approval waits and goes when it resets. <strong>Stop job</strong> is under ⋯ and asks you to type the job’s name.</p>
-        <p><strong>Override</strong> on an “Also decided” item marks it changed, with what it should be instead. The chips change <strong>only the next step</strong>: skip it, make it lighter or heavier, ask Fable for a second look, do it yourself, or move the level up or down from there. Each adds one line to your reply, shown under the chips, and saves the job’s options where there is one.</p>
+        <p><strong>Approve</strong> (its label says what it approves and what starts) sends your answers to the questions, confirms the decisions made on your behalf that you didn’t override, and names the versions you approved. <strong>Edit, then approve</strong> shows that reply in full so you can change the words first. <strong>Revise with feedback</strong> asks for changes: the Foreman stays in this stage. <strong>Other guidance</strong> sends a question or a note without approving; the card stays open. Approve needs an answer to every question (a recommended answer is picked for you); while it is off, the card lists why, and the list empties as you resolve each point. <strong>Approve, start after reset</strong> appears when Claude’s usage limit is reached: your approval waits and goes when it resets. <strong>Stop job</strong> is under ⋯ and asks you to type the job’s name.</p>
+        <p><strong>Decisions made for you</strong> is folded to one line: open it to read each one, and <strong>Override</strong> marks one changed, with what it should be instead. <strong>Adjust the next step</strong> holds the chips, which change <strong>only the next step</strong>: skip it, make it lighter or heavier, ask Fable for a second look, do it yourself, or move the level up or down from there. Each adds one line to your reply, shown there exactly, and saves the job’s options where there is one.</p>
         <p>If the plan changes after the card appears, it greys out (“Plan changed since this was proposed”) so you can’t approve an old version. If the Foreman is still working, your reply waits in the message box until it finishes. A decision left 4 hours shows as parked.</p>
       </HowThisWorks>
 

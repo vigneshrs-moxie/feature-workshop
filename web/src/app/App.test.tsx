@@ -39,7 +39,33 @@ describe('App shell', () => {
     expect(within(needs).getByRole('link', { name: /^Job alpha/ })).toHaveAttribute('href', '#/job/alpha');
     expect(screen.getByRole('region', { name: 'Running' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Paused' })).toBeNull();
-    expect(screen.getByText('1 needs you')).toBeInTheDocument();
+    // The top bar carries one count: the Desk button's badge (no loose "n need you" text).
+    const bar = document.querySelector<HTMLElement>('.topbar')!;
+    expect(within(bar).getByRole('link', { name: /^Desk/ })).toHaveAttribute('href', '#/desk');
+    expect(within(bar).queryByText(/needs? you/)).toBeNull();
+    // Every right-hand link keeps its full name while a short form stands in under 1100 px.
+    for (const name of ['Settings', 'Classic view', 'Crew-dex']) expect(within(bar).getByRole('link', { name })).toBeInTheDocument();
+    expect(within(bar).getByRole('link', { name: 'Settings' }).querySelector('.topbar-short')).toHaveTextContent('⚙');
+  });
+
+  it('opens Settings on a section from the hash; j and k move between sections, / finds a setting', async () => {
+    window.location.hash = '#/settings/keys';
+    renderApp(snapshot());
+    expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Keys' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^Keys/ })).toHaveAttribute('aria-current', 'page');
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(window.location.hash).toBe('#/settings/workflow');
+    act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(screen.getByRole('region', { name: 'Workflow' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Keys' })).toBeNull();
+    fireEvent.keyDown(document.body, { key: 'k' });
+    expect(window.location.hash).toBe('#/settings/keys');
+    fireEvent.keyDown(document.body, { key: '/' });
+    expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Find a setting' }));
+    // While typing in the box, j is a letter, not a key.
+    fireEvent.keyDown(document.activeElement!, { key: 'j' });
+    expect(window.location.hash).toBe('#/settings/keys');
   });
 
   it('opens a job from the hash, with a link to its classic page', async () => {

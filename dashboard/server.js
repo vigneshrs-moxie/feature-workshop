@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { loadFeatures, loadGateStates, SessionIndex } from './lib/features.js';
 import { STAGES, AGENTS } from './lib/stages.js';
 import { PRICES, PRICES_AS_OF, whatIfConductor, costCsv, costMarkdown } from './lib/cost.js';
-import { State } from './lib/state.js';
+import { State, WORKFLOW_CHOICES } from './lib/state.js';
 import { Driver, Busy } from './lib/driver.js';
 import { renderMarkdown, indexIds } from './lib/markdown.js';
 import * as git from './lib/git.js';
@@ -34,6 +34,7 @@ import { isWebAppPath, serveWebApp } from './lib/web-app.js';
 import { EventLog, resumePoint, openStream } from './lib/events.js';
 import { groupCards } from './lib/snapshot.js';
 import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from './lib/finish.js';
+import { NUDGE_IDS, nudgesFor } from './lib/nudges.js';
 import { buildThread, pageThread } from './lib/thread.js';
 import { suggestLevel, changedPaths } from './lib/levels.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs } from './lib/gate.js';
@@ -217,6 +218,8 @@ async function features() {
   const list = await loadFeatures({ featuresDir: FEATURES_DIR, sessionIndex, overrides, knownRepos: await repoList() });
   // Jobs you marked done or dropped (kept in the dashboard's own state; the job's records are untouched).
   for (const f of list) f.closed = saved[f.dir]?.closed ?? null;
+  // Hand-off nudges you dismissed on this job (lib/nudges.js), kept in the same record.
+  for (const f of list) f.dismissedNudges = Array.isArray(saved[f.dir]?.dismissedNudges) ? saved[f.dir].dismissedNudges : [];
   for (const f of list) noteRaisedVersions(f);
   cached = { at: Date.now(), list };
   return list;
@@ -485,6 +488,9 @@ function boardCard(f, run) {
   }
   // Marked done or dropped, and nothing has happened since: off the board.
   const off = Boolean(f.closed) && !active && !running.length && !(f.updatedAt && f.updatedAt > f.closed.at);
+  // The finish line (lib/finish.js): crossed or not, by what, and where the work has landed.
+  const lane = flowLanes.get(f.slug) ?? null;
+  const finish = finishLineReached({ prs: f.prs, closed: off ? f.closed : null }, lane, finishLineNow);
   return {
     slug: f.slug, title: f.title, kind: f.kind, kindGuessed: f.kindGuessed, project: f.project, route: f.route, skipped: f.skipped,
     stage: f.stage, stageState: active ? 'working' : pausedHere ? 'paused' : notRunning ? 'idle' : f.stageState, paused: pausedHere, waitingFor: pendingList.length ? 'permission' : f.waitingFor,
@@ -501,8 +507,9 @@ function boardCard(f, run) {
     level: f.level, suggestedLevel: f.suggestedLevel, levelReason: f.levelReason, rulesLevel: f.rulesLevel,
     // A gate left waiting past the parking time: still Needs you, with a "parked" chip.
     parked: gateParked(f, active),
-    // The finish line (lib/finish.js): crossed or not, by what, and where the work has landed.
-    finish: finishLineReached({ prs: f.prs, closed: off ? f.closed : null }, flowLanes.get(f.slug) ?? null, finishLineNow),
+    finish,
+    // The PR hand-offs waiting on someone (lib/nudges.js): the Desk's nudge items.
+    nudges: nudgesFor({ stage: f.stage, prs: f.prs, closed: off ? f.closed : null, finish }, lane, { dismissed: f.dismissedNudges }),
     // Marked done or dropped: off the board, unless something is going on or the job changed since.
     ...(off
       ? { closed: f.closed, needsYou: false, working: false, quiet: false, waitingFor: null, parked: false, stageState: f.closed.as === 'done' ? 'done' : 'idle' }
@@ -1144,6 +1151,31 @@ async function routePost(urlPath, req, res) {
     const run = await startSend(f, out, { kind, gateBrief });
     return sendJson(res, 200, { run });
   }
+  if ((m = /^\/api\/job\/([^/]+)\/nudge\/([\w-]+)\/(dismiss|yes)$/.exec(urlPath))) {
+    // A hand-off nudge on the Desk (lib/nudges.js). dismiss: remembered for this job, so it isn't
+    // shown again. yes: the nudge's one sentence goes to the job's Foreman exactly as a message from
+    // the box does (sendPlan, startSend), audited as a 'send' of kind 'nudge' plus a 'nudge' line.
+    const f = await featureBySlug(m[1]);
+    if (!f) throw new HttpError(404, 'No job by that name.');
+    const id = m[2];
+    if (!NUDGE_IDS.includes(id)) throw new HttpError(404, 'No nudge by that name.');
+    if (m[3] === 'dismiss') {
+      const saved = await state.sessionFor(f.dir);
+      const dismissed = [...new Set([...(Array.isArray(saved?.dismissedNudges) ? saved.dismissedNudges : []), id])];
+      await state.setSession(f.dir, { dismissedNudges: dismissed });
+      await state.audit({ action: 'nudge-dismissed', featureDir: f.dir, slug: f.slug, nudge: id });
+      cached = null;
+      return sendJson(res, 200, { ok: true, dismissed });
+    }
+    const nudge = nudgesFor({ stage: f.stage, prs: f.prs, closed: f.closed }, flowLanes.get(f.slug) ?? null, { finishLine: finishLineNow }).find((n) => n.id === id);
+    if (!nudge) throw new HttpError(409, 'That nudge no longer applies: the PRs have moved on. Nothing was sent.', { code: 'stale-nudge' });
+    if (!nudge.action) throw new HttpError(400, 'That nudge is a link to GitHub; there is nothing to send.');
+    const drive = await driveState(f);
+    const out = sendPlan(f, drive, body, nudge.action.send);
+    const run = await startSend(f, out, { kind: 'nudge' });
+    await state.audit({ action: 'nudge', featureDir: f.dir, slug: f.slug, nudge: id, text: nudge.action.send, runId: run.id });
+    return sendJson(res, 200, { ok: true, sent: true, text: nudge.action.send, run });
+  }
   if ((m = /^\/api\/job\/([^/]+)\/gate$/.exec(urlPath))) {
     // A decision from the gate card: answers, verdicts, next-step chips and a note, composed into
     // the reply here (composeReply, as the page previews it; or the text you edited, for "Edit, then
@@ -1220,16 +1252,21 @@ async function routePost(urlPath, req, res) {
       settingsChanged();
       return sendJson(res, 200, await state.getSettings());
     }
-    // workflow: the finish line (lib/finish.js): what counts as done, everywhere.
+    // workflow: the finish line (lib/finish.js): what counts as done, everywhere; and the screens
+    // (wireframes) and clarify defaults a new job's options.json starts with (lib/state.js).
     if (body.workflow !== undefined) {
       const w = body.workflow;
       if (!w || typeof w !== 'object' || Array.isArray(w)) throw new HttpError(400, 'The workflow settings must be an object.');
-      for (const k of Object.keys(w)) if (k !== 'finishLine') throw new HttpError(400, `Unknown workflow setting: ${String(k).slice(0, 40)}.`);
-      if (!FINISH_LINES.includes(w.finishLine)) throw new HttpError(400, 'The finish line is PR #1 open, PR #1 merged, in staging, in main, or when you mark it done.');
+      const keys = Object.keys(w);
+      for (const k of keys) if (!['finishLine', 'wireframes', 'clarify'].includes(k)) throw new HttpError(400, `Unknown workflow setting: ${String(k).slice(0, 40)}.`);
+      if (!keys.length) throw new HttpError(400, 'Send a workflow setting to change: finishLine, wireframes or clarify.');
+      if (w.finishLine !== undefined && !FINISH_LINES.includes(w.finishLine)) throw new HttpError(400, 'The finish line is PR #1 open, PR #1 merged, in staging, in main, or when you mark it done.');
+      for (const k of ['wireframes', 'clarify']) if (w[k] !== undefined && !WORKFLOW_CHOICES.includes(w[k])) throw new HttpError(400, `${k === 'wireframes' ? 'Screens' : 'Clarify questions'} for new jobs: Auto, Always or Off.`);
       const was = (await state.getSettings()).workflow;
-      await state.setSettings({ workflow: { ...was, finishLine: w.finishLine } });
-      finishLineNow = w.finishLine;
-      if (w.finishLine !== was.finishLine) {
+      const next = { ...was, ...w };
+      await state.setSettings({ workflow: next });
+      finishLineNow = next.finishLine;
+      if (next.finishLine !== was.finishLine) {
         // Every card's group may move: the pages fetch again. The ledger counts quests by the new
         // line, muted (what it finds was earned before). Nothing already past the line is told again.
         cached = null;
@@ -1238,7 +1275,7 @@ async function routePost(urlPath, req, res) {
         playbook.schedule(0, { muted: true });
         finishBefore.clear();
       }
-      await state.audit({ action: 'settings', workflow: { finishLine: w.finishLine } });
+      await state.audit({ action: 'settings', workflow: w });
       settingsChanged();
       return sendJson(res, 200, await state.getSettings());
     }
@@ -1481,7 +1518,8 @@ async function routePost(urlPath, req, res) {
     const repo = await checkRepo(str(body.repoPath, 1000));
     if (!repo.ok) throw new HttpError(400, repo.reason);
     let options;
-    try { options = normalizeOptions(body.options ?? {}); } catch (err) { throw new HttpError(400, err.message); }
+    // A new job starts with Settings → Workflow's screens and clarify defaults, unless you chose here.
+    try { options = normalizeOptions(body.options ?? {}, { workflow: (await state.getSettings()).workflow }); } catch (err) { throw new HttpError(400, err.message); }
     // The one you picked, else the job's models.foreman, else Opus: never Fable because the job is L3.
     const model = foremanModel(body.model, options, MODELS.map((x) => x.id));
     const kind = body.kind === 'bug' ? 'bug' : 'feature';

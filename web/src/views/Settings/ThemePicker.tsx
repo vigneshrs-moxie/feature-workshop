@@ -66,7 +66,7 @@ export function ThemePicker() {
   };
 
   return (
-    <section className="theme-picker" aria-label="Theme">
+    <section className="theme-picker" aria-label="Theme" data-setting="theme">
       <h4 className="look-heading">Theme</h4>
       <fieldset className="rule-options theme-options">
         <legend className="sr-only">How the Workshop looks</legend>

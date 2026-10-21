@@ -87,6 +87,9 @@ html[data-theme="sunset-paper"] {
   --group-idle-fg: oklch(.42 .09 285);
   --group-idle-bg: oklch(.68 .1 285 / .22);
   --group-idle-line: oklch(.62 .11 285);
+  --group-shipping-fg: oklch(.46 .12 250);
+  --group-shipping-bg: oklch(.6 .12 250 / .14);
+  --group-shipping-line: oklch(.5 .12 250);
   --group-done-fg: oklch(.45 .13 150);
   --group-done-bg: oklch(.65 .14 150 / .16);
   --group-done-line: oklch(.52 .14 150);
@@ -153,7 +156,6 @@ html[data-theme="sunset-paper"] .topbar::after {
   pointer-events: none;
 }
 html[data-theme="sunset-paper"] .brand { color: var(--accent-strong); font-size: var(--text-md); }
-html[data-theme="sunset-paper"] .needs { color: var(--group-needs-you-fg); font-weight: var(--weight-bold); }
 html[data-theme="sunset-paper"] .conn-live .conn-dot { box-shadow: 0 0 0 3px var(--status-ok-bg); }
 
 /* ---------- Panes: cream, with the paper's tooth ---------- */

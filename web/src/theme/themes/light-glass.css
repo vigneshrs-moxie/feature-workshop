@@ -93,6 +93,9 @@ html[data-theme="light-glass"] {
   --group-idle-fg: oklch(.42 .05 275);
   --group-idle-bg: oklch(.5 .05 275 / .1);
   --group-idle-line: oklch(.5 .05 275 / .45);
+  --group-shipping-fg: oklch(.46 .12 250);
+  --group-shipping-bg: oklch(.6 .12 250 / .12);
+  --group-shipping-line: oklch(.52 .12 250 / .75);
   --group-done-fg: oklch(.44 .13 160);
   --group-done-bg: oklch(.6 .14 160 / .12);
   --group-done-line: oklch(.52 .14 160 / .75);
@@ -182,15 +185,6 @@ html[data-theme="light-glass"] .topbar {
   box-shadow: var(--glass-highlight);
 }
 html[data-theme="light-glass"] .brand { font-weight: 650; letter-spacing: -.01em; }
-/* "n need you" is needs-you news, so it borrows the pink, as a soft pill. */
-html[data-theme="light-glass"] .needs {
-  padding: 1px var(--space-2);
-  border: 1px solid oklch(.58 .2 355 / .55);
-  border-radius: 999px;
-  background: var(--group-needs-you-bg);
-  color: var(--group-needs-you-fg);
-  font-weight: var(--weight-bold);
-}
 html[data-theme="light-glass"] .conn-dot { box-shadow: 0 0 8px currentColor; }
 
 /* ---------- Panes: frosted sheets of white glass ---------- */
@@ -415,3 +409,5 @@ html[data-theme="light-glass"] .play-toast {
 
 /* Home's sticky header (home/home.css): a solid float, so the map doesn't show through it while it scrolls. */
 html[data-theme="light-glass"] .home-head { background: var(--glass-float); }
+/* The job header stays still while the conversation scrolls under it (app.css): the same solid float. */
+html[data-theme="light-glass"] .pane-foreman .job-header { background: var(--glass-float); border-bottom-color: var(--glass-edge); }

@@ -92,6 +92,9 @@ html[data-theme="blueprint"] {
   --group-idle-fg: oklch(.84 .06 285);
   --group-idle-bg: oklch(.8 .07 285 / .14);
   --group-idle-line: oklch(.78 .08 285);
+  --group-shipping-fg: oklch(.86 .12 245);
+  --group-shipping-bg: oklch(.84 .13 245 / .16);
+  --group-shipping-line: oklch(.84 .14 245);
   --group-done-fg: oklch(.87 .15 150);
   --group-done-bg: oklch(.85 .16 150 / .16);
   --group-done-line: oklch(.85 .17 150);
@@ -151,7 +154,6 @@ html[data-theme="blueprint"] .settings-heading {
 html[data-theme="blueprint"] .brand { color: var(--bp-chalk); }
 html[data-theme="blueprint"] .pane-title { background: linear-gradient(var(--bp-chalk-2), var(--bp-chalk-2)) 0 100% / 100% 1px no-repeat; }
 html[data-theme="blueprint"] .job-title { text-transform: none; letter-spacing: .02em; background: none; }
-html[data-theme="blueprint"] .needs { color: var(--group-needs-you-fg); font-weight: var(--weight-medium); }
 html[data-theme="blueprint"] .kbd { border-color: var(--bp-chalk-2); background: transparent; color: var(--text-1); }
 
 /* The focus ring is pencil yellow, visible on blue and on paper alike. */

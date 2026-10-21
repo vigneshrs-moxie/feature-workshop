@@ -1,11 +1,12 @@
 // Home: the landing page, full width. Three views of the same jobs, switched at the top (or by
 // address: #/ the map, #/table, #/desk):
-//   Map    where each job's work is on its way to staging and main (FlowMap)
+//   Map    where each job's work is on its way to staging and main, one row per job (FlowMap)
 //   Table  the jobs as rows to sort, filter and search (TableView)
 //   Desk   every decision waiting for you, one at a time (DeskView)
 // With the map: the Foreman's "what needs you" and the cards waiting for an answer (a band above it,
 // beside it on a wide screen).
-// The header says when the branches and PRs were last read, and Refresh reads them now.
+// The map's tools line (and the Table's header) say when the branches and PRs were last read, and
+// Refresh reads them now.
 import { useMemo } from 'react';
 import { hrefFor } from '../app/router';
 import { useUi } from '../app/ui';
@@ -59,6 +60,7 @@ export function HomeView({ view }: { view: View }) {
   const rows = useMemo(() => tableRows(state.jobs, flow, now), [state.jobs, flow, now]);
   const desk = useMemo(() => deskQueue(state.jobs, state.permissions), [state.jobs, state.permissions]);
   const read = flow?.fetchedAt ? `Branches and PRs read ${relativeTime(flow.fetchedAt, now)}` : 'Branches and PRs not read yet';
+  const finishLine = state.meta?.settings?.workflow?.finishLine;
 
   return (
     <main className="home" aria-label="Home">
@@ -71,14 +73,8 @@ export function HomeView({ view }: { view: View }) {
             </a>
           ))}
         </nav>
-        {view === 'map' && (
-          <div className="home-seg" role="group" aria-label="Which jobs">
-            <button type="button" className={`home-seg-btn${filter === 'open' ? ' is-on' : ''}`} aria-pressed={filter === 'open'} onClick={() => setFilter('open')} title="Jobs that aren’t done.">Open jobs</button>
-            <button type="button" className={`home-seg-btn${filter === 'all' ? ' is-on' : ''}`} aria-pressed={filter === 'all'} onClick={() => setFilter('all')} title="Also the jobs closed in the last 30 days: their work may still be on its way to main.">With recently closed</button>
-          </div>
-        )}
         <span className="spacer" />
-        {view !== 'desk' && (
+        {view === 'table' && (
           <>
             <span className="muted home-read" role="status" title={flow?.nextFetchAt ? `The next read is due ${relativeTime(flow.nextFetchAt, now) || 'soon'}. Local counts are redone every minute.` : undefined}>
               {flow?.refreshing ? 'Reading branches and PRs…' : read}
@@ -95,11 +91,12 @@ export function HomeView({ view }: { view: View }) {
           {view === 'map' && (
             <>
               <HowThisWorks id="home-map">
-                <p>Each row is a job; its work travels left to right: <strong>your worktree</strong> → <strong>your fork</strong> → <strong>PR #1</strong> → <strong>the Moxie branch</strong> → <strong>PR #2</strong> → <strong>staging</strong> → <strong>the release PR</strong> → <strong>main</strong>. The box it has reached is marked. Each PR says whether it is open, approved or merged, and whether its checks pass; click it to open it on GitHub.</p>
-                <p><strong>main ↑3 ↓2</strong> means the branch has 3 commits main doesn’t, and main has 2 it doesn’t: main moved on, so bring it in before the next push. <strong>not pushed</strong> and <strong>uncommitted</strong> count what is only on your machine.</p>
-                <p>The branches are fetched and the PRs read every 10 minutes (read-only); the counts are redone every minute. Refresh reads them now.</p>
+                <p>One row per job, under <strong>Needs you</strong>, <strong>Running</strong>, <strong>Idle</strong>, <strong>Shipping</strong> (past the finish line you set, waiting on other people) and <strong>Done</strong> (folded; click it to open). The dots are the ship track: <strong>worktree · fork · Moxie branch · staging · main</strong>, filled as far as the work has got, with the flag ⚑ on your finish line (Settings → Workflow). The words under it say the same, with the PR it is on (click it to open it on GitHub); the sentence on the right is what to do next.</p>
+                <p><strong>main ↑3 ↓2</strong> means the branch has 3 commits main doesn’t, and main has 2 it doesn’t: main moved on, so bring it in before the next push. <strong>not pushed</strong> and <strong>uncommitted</strong> count what is only on your machine. Each repo’s line is its release train: how many commits wait in staging, the open release PR, the last release.</p>
+                <p>Keys: <strong>j</strong> and <strong>k</strong> move the highlight, <strong>Enter</strong> opens the job, <strong>o</strong> its newest PR, <strong>/</strong> jumps to the chips, <strong>1</strong>–<strong>4</strong> pick them. The branches are fetched and the PRs read every 10 minutes (read-only); the counts are redone every minute. Refresh reads them now.</p>
               </HowThisWorks>
-              {repos.length ? <FlowMap repos={repos} now={now} /> : (
+              <FlowMap repos={repos} now={now} finishLine={finishLine} withClosed={filter === 'all'} setWithClosed={(on) => setFilter(on ? 'all' : 'open')} read={read} refreshing={Boolean(flow?.refreshing)} onRefresh={() => void refresh()} />
+              {!repos.length && (
                 <p className="muted home-empty">{flow ? 'No job has a repository and a branch yet. They show here once their Foreman sets one up.' : 'Opening the map…'}</p>
               )}
             </>

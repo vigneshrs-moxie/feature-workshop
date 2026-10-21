@@ -37,14 +37,14 @@ npm run web:build
 You talk to the **Foreman** and nobody else. It gives you a plain-language overview of each job, you approve, reject or advise, and routine steps happen without bothering you.
 
 **Home** (the new view's landing page, three views at the top):
-- **Map:** one lane per job, left to right the way its work travels. Your worktree → your fork → PR #1 → the Moxie branch → PR #2 → staging → the release PR → main. Each lane shows:
-  - the job's branch and status;
-  - how far ahead of and behind `main` it is (behind means: bring main in before the next push);
-  - commits not pushed and files not committed;
-  - each PR's state and checks (click one to open it on GitHub).
+- **Map:** one row per job, under **Needs you · Running · Idle · Shipping · Done** inside each repo's section (Done folded until you open it). Each row shows:
+  - its crew member and title;
+  - the **ship track**: five dots, worktree · fork · Moxie branch · staging · main, filled as far as the work has got, with the flag ⚑ on the finish line you chose;
+  - one line of words under it ("On your fork · PR #1 (#141) open, checks failing"; the PR opens on GitHub), with the counts as a muted suffix (`main ↑3 ↓0 · 2 not pushed`; behind means: bring main in before the next push);
+  - one sentence on the right saying what to do next ("Push 2 commits", "Merge PR #1 on GitHub", "Waiting for a review on PR #2 · 3d", "Nothing to do: waiting for the release").
 
-  Staging says how many commits wait for the next release. The branches are fetched and the PRs read every 10 minutes (read-only: `git fetch` and `gh`), or now with **Refresh**.
-- **Table:** the same jobs as rows to sort, filter (Needs you, Running, In review, …) and search.
+  The repo's line is its release train: how many commits wait in staging, the open release PR, the last release, and the jobs aboard. Filter chips with counts (All · Needs you · Shipping · a repo), **With recently closed**, and **Show: counts · branches** sit above the rows. Keys: **j / k** move the highlight, **Enter** opens the job, **o** its newest PR, **/** jumps to the chips, **1–4** pick them. The branches are fetched and the PRs read every 10 minutes (read-only: `git fetch` and `gh`), or now with **Refresh**.
+- **Table:** the same jobs as rows to sort, filter (Needs you, Running, In review, Shipping, …) and search; its Where column uses the map's words.
 - **Desk:** every decision waiting for you across all jobs, one at a time, oldest first.
   - **j / k:** next or previous.
   - **a:** approve the go-ahead or allow the permission once.
@@ -52,6 +52,8 @@ You talk to the **Foreman** and nobody else. It gives you a plain-language overv
   - **o:** open the job.
 
   Hard lines and risky steps are never one-key approved.
+
+**Settings** (the gear in the top bar, or `g s`) is one page in sections, a rail on the left and one section at a time on the right: **Permissions · Notifications · Look · Keys · Workflow · Play · Rules**. Each rail row shows the section's current value in one line ("Glass · Text M", "Finish line: PR #1 merged", "3 rules"), so you can read your setup without opening anything. `j` and `k` move between sections, `/` goes to **Find a setting**, which searches every control by name and jumps to it. `#/settings/<section>` opens a section directly. **Workflow** holds the finish line (below) and what a new job starts with: **Screens (wireframes)** and **Clarify questions**, each Auto, Always or Off; Auto draws screens at L2 and L3 when the spec names one, and asks clarify questions when the request leaves a product decision open. A job can change its own under Notes and options. The in-browser alert switches (a notification and a chime while the tab is in the background) live under Notifications as **In this browser**.
 
 **Finish line** (Settings → Workflow): one setting says what counts as a job being done: PR #1 open, PR #1 merged (the default: your part is over, the rest waits on other people), in staging, in main, or only when you mark it done. Marking a job done always counts. Crossing the line is the celebration (the Play quest, the Done notification); a job past it moves to **Shipping** in the Jobs list, where its row says where the work is ("On the Moxie branch", "In staging") and nothing asks you anything. Reaching staging or main after the line is a quiet "Landed" notification, never with a sound. **Done** is in main, or marked done.
 

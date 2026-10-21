@@ -16,7 +16,7 @@ export function TextSizePicker() {
   const [size, setSize] = useTextSize();
   const base = Math.round(13 * TEXT_SCALES[size] * 10) / 10;
   return (
-    <fieldset className="text-size">
+    <fieldset className="text-size" data-setting="text-size">
       <legend className="look-heading">Text size</legend>
       <div className="text-size-options">
         {TEXT_SIZES.map((id) => (
@@ -52,7 +52,7 @@ export function FollowSystem() {
   const [stored] = useStored(THEME_KEY);
   const chosen = stored ?? readStored(THEME_KEY) ?? DEFAULT_THEME;
   return (
-    <label className="rule-option follow-system">
+    <label className="rule-option follow-system" data-setting="follow-system">
       <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} />
       <span className="rule-option-body">
         <span className="rule-option-kind">Follow the system</span>

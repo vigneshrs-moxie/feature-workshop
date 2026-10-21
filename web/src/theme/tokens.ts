@@ -129,8 +129,8 @@ export const STATIC_TOKENS: Record<string, string> = {
   'preview-w': '40%',
 };
 
-/** The five job groups (dashboard/lib/snapshot.js), the four kinds of ask, and the six stage families. */
-export const GROUP_NAMES = ['needs-you', 'running', 'paused', 'idle', 'done'] as const;
+/** The six job groups (dashboard/lib/snapshot.js), the four kinds of ask, and the six stage families. */
+export const GROUP_NAMES = ['needs-you', 'running', 'paused', 'idle', 'shipping', 'done'] as const;
 export const ASK_NAMES = ['permission', 'question', 'hardline', 'blocked'] as const;
 export const STAGE_NAMES = ['spec', 'investigate', 'plan', 'build', 'test', 'review'] as const;
 
@@ -150,6 +150,8 @@ export function semanticTokens(): Record<string, string> {
     running: ['var(--status-info)', 'var(--status-info-bg)', 'var(--status-info)'],
     paused: ['var(--status-paused)', 'var(--status-paused-bg)', 'var(--status-paused)'],
     idle: ['var(--text-2)', 'var(--bg-3)', 'var(--border-2)'],
+    // Past the finish line, not in main yet: a cool blue, like Running, since both mean "moving".
+    shipping: ['var(--status-info)', 'var(--status-info-bg)', 'var(--status-info)'],
     done: ['var(--status-ok)', 'var(--status-ok-bg)', 'var(--status-ok)'],
   };
   for (const g of GROUP_NAMES) {

@@ -5,7 +5,7 @@ import { useKeysSetting } from '../../app/keysSetting';
 import { Sheet } from '../../components/Sheet';
 
 /** The groups in the order they read best: everywhere first, then the places. */
-const GROUP_ORDER: readonly KeyScope[] = ['global', 'rows', 'job', 'gate', 'desk', 'table', 'settings', 'sheet'];
+const GROUP_ORDER: readonly KeyScope[] = ['global', 'rows', 'job', 'gate', 'desk', 'map', 'table', 'settings', 'sheet'];
 
 export function KeysSheet({ onClose }: { onClose: () => void }) {
   const [{ enabled }] = useKeysSetting();

@@ -291,7 +291,8 @@ describe('Foreman pane: auto mode', () => {
     const post = vi.fn(async () => ({ policy: 'auto', policyOverride: 'auto', globalPolicy: 'hands-off', autoMode: { available: null, reason: null, checkedAt: null } }));
     render(<WorkshopContext.Provider value={{ store, api: { get, post } as unknown as ApiClient }}><ForemanPane slug="alpha" /></WorkshopContext.Provider>);
     await screen.findByText('Spec is ready');
-    expect(screen.getByText('Routine steps automatic')).toHaveAttribute('title', expect.stringMatching(/your global setting/));
+    // The facts line is quiet: the default setting (yours, routine steps automatic) isn't repeated there.
+    expect(screen.queryByText('Routine steps automatic')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Job menu/ }));
     const group = screen.getByRole('group', { name: 'Permissions for this job' });
     const follow = within(group).getByRole('menuitemradio', { name: /Follow my setting \(Routine steps automatic\)/ });

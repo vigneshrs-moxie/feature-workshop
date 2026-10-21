@@ -5,7 +5,8 @@
 //   #/job/<slug>  that job's thread in the Foreman pane
 //   #/job/<slug>/id/<id>  the same job: the dashboard links requirement IDs (FR-001...) in
 //                 replies and briefs this way; the job stays open (the ID itself is ignored for now)
-//   #/settings    Settings (your "Always allow" rules) in the middle pane
+//   #/settings    Settings in the middle pane, on its first section (Permissions)
+//   #/settings/<section>  Settings on that section: permissions, notifications, look, keys, workflow, play, rules
 //   #/crew        the Crew-dex in the middle pane (Play mode only; with Play Off it shows #/'s view)
 //   #/achievements  your achievements in the middle pane (Play mode only, like the Crew-dex)
 // Any other #/… is not a page: with Play on the Sleuth looks for it (views/NotFound), with Play
@@ -13,12 +14,19 @@
 // read by theme/theme.ts) is ignored here, so it changes nothing about the route.
 import { useEffect, useState } from 'react';
 
-export type Route = { name: 'home' } | { name: 'table' } | { name: 'desk' } | { name: 'settings' } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
+/** The Settings page's sections, in the rail's order (views/Settings/sections.ts has their words). */
+export const SETTINGS_SECTIONS = ['permissions', 'notifications', 'look', 'keys', 'workflow', 'play', 'rules'] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+export const isSettingsSection = (v: string): v is SettingsSection => (SETTINGS_SECTIONS as readonly string[]).includes(v);
+
+export type Route = { name: 'home' } | { name: 'table' } | { name: 'desk' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
   | { name: 'not-found'; hash: string };
 
 export function parseHash(rawHash: string): Route {
   const hash = rawHash.replace(/\?.*$/, '');
   if (/^#\/settings\/?$/.test(hash)) return { name: 'settings' };
+  const sec = /^#\/settings\/([a-z-]+)\/?$/.exec(hash);
+  if (sec && isSettingsSection(sec[1])) return { name: 'settings', section: sec[1] };
   if (/^#\/crew\/?$/.test(hash)) return { name: 'crew' };
   if (/^#\/table\/?$/.test(hash)) return { name: 'table' };
   if (/^#\/desk\/?$/.test(hash)) return { name: 'desk' };
@@ -41,10 +49,11 @@ export function hrefFor(route: Route): string {
   if (route.name === 'table') return '#/table';
   if (route.name === 'desk') return '#/desk';
   if (route.name === 'not-found') return route.hash;
-  return route.name === 'settings' ? '#/settings' : '#/';
+  if (route.name === 'settings') return route.section ? `#/settings/${route.section}` : '#/settings';
+  return '#/';
 }
 
-export const settingsHref = () => hrefFor({ name: 'settings' });
+export const settingsHref = (section?: SettingsSection) => hrefFor({ name: 'settings', section });
 
 export const crewDexHref = () => hrefFor({ name: 'crew' });
 

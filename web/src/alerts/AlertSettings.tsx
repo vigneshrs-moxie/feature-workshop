@@ -1,4 +1,7 @@
-// The two alert switches at the foot of the Jobs pane: browser notifications and the chime.
+// Settings → Notifications → "In this browser": this browser's own alerts when a job newly needs
+// you while the tab is in the background: a browser notification and a short chime. Remembered in
+// this browser (fw.alerts.notify, fw.alerts.chime: alerts.ts), unlike the dashboard's macOS
+// notifications above it, which are the same everywhere.
 import { useState } from 'react';
 import { useStored } from '../lib/stored';
 import { alertOutputs, askNotifyPermission, CHIME_KEY, notifySupport, NOTIFY_KEY } from './alerts';
@@ -37,8 +40,10 @@ export function AlertSettings() {
         : 'Turn on notifications: when a job needs you while you’re in another tab or window, your computer shows one. Your browser asks once for permission.';
 
   return (
-    <div className="alert-settings" data-alerts-control>
-      <span className="alert-settings-title">Alerts</span>
+    <div className="alert-settings" data-alerts-control data-setting="alerts-browser">
+      <h4 className="settings-subheading alert-settings-title">In this browser</h4>
+      <p className="muted alert-settings-lead">When a job newly needs you while this tab is in the background: a browser notification, a short chime, or both. Remembered in this browser only.</p>
+      <div className="alert-settings-row">
       <button
         type="button"
         className="btn btn-quiet btn-toggle"
@@ -58,6 +63,7 @@ export function AlertSettings() {
       >
         Chime <span className="toggle-state">{chimeOn ? 'On' : 'Off'}</span>
       </button>
+      </div>
       {note && <p className="alert-settings-note" role="status">{note}</p>}
     </div>
   );

@@ -283,6 +283,18 @@ async function build() {
     },
   });
 
+  // 4b. PR #1 open from the fork, waiting for your own review and merge: the demo flow (fake-flow.js)
+  // gives it an open PR #1, so the Desk gets a "Self-review and merge PR #1" nudge (lib/nudges.js);
+  // Dark Mode Toggle above gets "Ask Raj for a review?".
+  await feature('visit-reminders', {
+    status: {
+      title: 'Visit Reminders', route: 'small', stage: 'pr1', stage_state: 'blocked', waiting_for: null,
+      next_proposed: 'Waiting for you to review and merge PR #1', branch: 'feature/visit-reminders', repo: { path: '/demo/field-app' },
+      prs: [{ number: 1, label: 'fork → org branch', url: 'https://github.com/example/acme-portal/pull/44', state: 'open' }],
+      updated_at: iso(9 * HOUR),
+    },
+  });
+
   // 5. Finished by the Foreman's record, and in staging on the demo flow map (PR #2 merged, the release
   // not yet): past the finish line and landed in staging, so it shows under Shipping ("In staging").
   await feature('report-scheduler', {

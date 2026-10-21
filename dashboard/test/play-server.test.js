@@ -137,7 +137,7 @@ function eventsSince(epoch, ms = 400) {
 test('play settings: Subtle and no sounds by default, in meta and the snapshot; the old quest rule moved to the finish line', async () => {
   const meta = await getJson('/api/meta');
   assert.deepEqual(meta.settings.play, { mode: 'subtle', sounds: false });
-  assert.deepEqual(meta.settings.workflow, { finishLine: 'pr1-open' }, 'play.questDone first-pr → workflow.finishLine pr1-open');
+  assert.deepEqual(meta.settings.workflow, { finishLine: 'pr1-open', wireframes: 'auto', clarify: 'auto' }, 'play.questDone first-pr → workflow.finishLine pr1-open; screens and clarify default to Auto');
   assert.deepEqual(meta.finishLines.map((f) => f.id), ['pr1-open', 'pr1-merged', 'staging', 'main', 'marked']);
   assert.ok(meta.finishLines.every((f) => f.label && f.hint));
   const snap = await getJson('/api/snapshot');
@@ -167,7 +167,12 @@ test('finish line: saved through POST /api/settings { workflow }, checked, and a
   const epoch = (await getJson('/api/snapshot')).epoch;
   const set = await write('/api/settings', { workflow: { finishLine: 'pr1-merged' } });
   assert.equal(set.status, 200);
-  assert.deepEqual(set.body.workflow, { finishLine: 'pr1-merged' });
+  assert.deepEqual(set.body.workflow, { finishLine: 'pr1-merged', wireframes: 'auto', clarify: 'auto' });
+  // Screens and clarify defaults for new jobs: checked, saved beside the finish line, which stays.
+  for (const bad of [{ wireframes: 'sometimes' }, { clarify: true }, {}]) assert.equal((await write('/api/settings', { workflow: bad })).status, 400, JSON.stringify(bad));
+  const defaults = await write('/api/settings', { workflow: { wireframes: 'always', clarify: 'off' } });
+  assert.deepEqual(defaults.body.workflow, { finishLine: 'pr1-merged', wireframes: 'always', clarify: 'off' });
+  await write('/api/settings', { workflow: { wireframes: 'auto', clarify: 'auto' } });
   assert.equal((await getJson('/api/meta')).settings.workflow.finishLine, 'pr1-merged');
   // An open PR #1 is no longer past the line: the card and its group follow.
   const cards = (await getJson('/api/features')).features;

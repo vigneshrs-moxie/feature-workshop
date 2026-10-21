@@ -24,6 +24,10 @@ describe('design tokens', () => {
       else expect(['none', 'transparent'], `${k} = ${v}`).toContain(v);
     }
     expect(s['group-needs-you-fg']).toBe('var(--status-warn)');
+    // Shipping (past the finish line, not in main): a cool blue like status-info, so .status-shipping needs no fallback.
+    expect(GROUP_NAMES).toContain('shipping');
+    expect(s['group-shipping-fg']).toBe('var(--status-info)');
+    expect(tokensCss()).toContain('--group-shipping-line: var(--status-info);');
     expect(s['pane-pattern']).toBe('none');
     expect(tokensCss()).toContain('--group-needs-you-fg: var(--status-warn);');
   });

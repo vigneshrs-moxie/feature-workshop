@@ -41,7 +41,7 @@ export function PlaySettings() {
         <p><strong>Subtle</strong> (the default) shows the crew still. <strong>Full</strong> animates them and adds difficulty stars, boss fights for large reviews, stamina for your usage limit and short celebrations. <strong>Off</strong> turns all of it off.</p>
         <p>Achievements reward finished work, never clicks: approving something earns nothing. A job counts as a finished quest once, when it crosses the finish line you set under Workflow (or you mark it done); reopening it and finishing again doesn’t count twice. Nothing play-related ever stands between you and a card or the message box.</p>
       </HowThisWorks>
-      <fieldset className="rule-options play-options" disabled={busy}>
+      <fieldset className="rule-options play-options" disabled={busy} data-setting="play-mode">
         <legend className="sr-only">Play mode</legend>
         {PLAY_MODE_CHOICES.map((m) => (
           <label key={m.id} className={`rule-option${play.mode === m.id ? ' is-picked' : ''}`} title={m.hint}>
@@ -55,6 +55,7 @@ export function PlaySettings() {
       </fieldset>
       <label
         className={`check play-sounds${soundsOff ? ' is-off' : ''}`}
+        data-setting="play-sounds"
         title={soundsOff ? 'Sounds play only in Full mode. Pick Full above to turn them on.' : 'Short chiptune blips for unlocks and finished quests. Off unless you turn them on.'}
       >
         <input type="checkbox" checked={play.sounds && !soundsOff} disabled={busy || soundsOff} onChange={(e) => void save({ sounds: e.currentTarget.checked })} />

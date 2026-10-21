@@ -13,7 +13,7 @@ export function KeysSettings() {
   return (
     <section className="keys-settings" aria-label="Keys">
       <h3 className="settings-heading">Keyboard shortcuts</h3>
-      <fieldset className="rule-options">
+      <fieldset className="rule-options" data-setting="keys-enabled">
         <legend className="sr-only">Keyboard shortcuts</legend>
         {CHOICES.map((c) => (
           <label key={c.label} className={`rule-option${enabled === c.on ? ' is-picked' : ''}`} title={c.hint}>
@@ -25,7 +25,7 @@ export function KeysSettings() {
           </label>
         ))}
       </fieldset>
-      <label className={`check${enabled ? '' : ' is-off'}`} title={enabled ? 'A small key beside each button that has one.' : 'Hints show only while the shortcuts are on.'}>
+      <label className={`check${enabled ? '' : ' is-off'}`} title={enabled ? 'A small key beside each button that has one.' : 'Hints show only while the shortcuts are on.'} data-setting="keys-hints">
         <input type="checkbox" checked={hints && enabled} disabled={!enabled} onChange={(e) => set({ hints: e.currentTarget.checked })} />
         <span>Show key hints on buttons</span>
       </label>

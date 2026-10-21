@@ -43,6 +43,9 @@
   --group-idle-fg: var(--text-2);
   --group-idle-bg: var(--bg-3);
   --group-idle-line: var(--border-2);
+  --group-shipping-fg: var(--status-info);
+  --group-shipping-bg: var(--status-info-bg);
+  --group-shipping-line: var(--status-info);
   --group-done-fg: var(--status-ok);
   --group-done-bg: var(--status-ok-bg);
   --group-done-line: var(--status-ok);
@@ -131,6 +134,9 @@
   --group-idle-fg: oklch(.82 .08 290);
   --group-idle-bg: oklch(.8 .08 290 / .08);
   --group-idle-line: oklch(.7 .1 290);
+  --group-shipping-fg: oklch(.82 .16 265);
+  --group-shipping-bg: oklch(.78 .17 265 / .12);
+  --group-shipping-line: oklch(.76 .18 265);
   --group-done-fg: oklch(.87 .18 150);
   --group-done-bg: oklch(.86 .18 150 / .12);
   --group-done-line: oklch(.82 .2 150);
@@ -262,6 +268,9 @@
   --group-idle-fg: oklch(.84 .06 285);
   --group-idle-bg: oklch(.8 .07 285 / .14);
   --group-idle-line: oklch(.78 .08 285);
+  --group-shipping-fg: oklch(.86 .12 245);
+  --group-shipping-bg: oklch(.84 .13 245 / .16);
+  --group-shipping-line: oklch(.84 .14 245);
   --group-done-fg: oklch(.87 .15 150);
   --group-done-bg: oklch(.85 .16 150 / .16);
   --group-done-line: oklch(.85 .17 150);
@@ -384,6 +393,9 @@
   --group-idle-fg: var(--pc-lilac);
   --group-idle-bg: oklch(.82 .07 285 / .12);
   --group-idle-line: oklch(.66 .08 285);
+  --group-shipping-fg: var(--pc-blue);
+  --group-shipping-bg: oklch(.78 .14 245 / .14);
+  --group-shipping-line: var(--pc-blue);
   --group-done-fg: var(--pc-green);
   --group-done-bg: oklch(.83 .18 150 / .14);
   --group-done-line: var(--pc-green);
@@ -497,6 +509,9 @@
   --group-idle-fg: oklch(.42 .09 285);
   --group-idle-bg: oklch(.68 .1 285 / .22);
   --group-idle-line: oklch(.62 .11 285);
+  --group-shipping-fg: oklch(.46 .12 250);
+  --group-shipping-bg: oklch(.6 .12 250 / .14);
+  --group-shipping-line: oklch(.5 .12 250);
   --group-done-fg: oklch(.45 .13 150);
   --group-done-bg: oklch(.65 .14 150 / .16);
   --group-done-line: oklch(.52 .14 150);
@@ -637,6 +652,9 @@
   --group-idle-fg: var(--candy-lavender);
   --group-idle-bg: var(--candy-lavender-tint);
   --group-idle-line: oklch(.86 .07 285 / .55);
+  --group-shipping-fg: var(--candy-grape);
+  --group-shipping-bg: var(--candy-grape-tint);
+  --group-shipping-line: var(--candy-grape);
   --group-done-fg: var(--candy-mint);
   --group-done-bg: var(--candy-mint-tint);
   --group-done-line: var(--candy-mint);
@@ -759,6 +777,9 @@
   --group-idle-fg: oklch(.84 .05 275);
   --group-idle-bg: oklch(.84 .05 275 / .1);
   --group-idle-line: oklch(.84 .05 275 / .45);
+  --group-shipping-fg: oklch(.85 .1 250);
+  --group-shipping-bg: oklch(.85 .1 250 / .1);
+  --group-shipping-line: oklch(.8 .11 250 / .7);
   --group-done-fg: oklch(.86 .14 160);
   --group-done-bg: oklch(.86 .14 160 / .1);
   --group-done-line: oklch(.86 .14 160 / .7);
@@ -865,6 +886,9 @@
   --group-idle-fg: var(--text-2);
   --group-idle-bg: var(--bg-3);
   --group-idle-line: var(--border-2);
+  --group-shipping-fg: var(--status-info);
+  --group-shipping-bg: var(--status-info-bg);
+  --group-shipping-line: var(--status-info);
   --group-done-fg: var(--status-ok);
   --group-done-bg: var(--status-ok-bg);
   --group-done-line: var(--status-ok);
@@ -979,6 +1003,9 @@
   --group-idle-fg: oklch(.42 .05 275);
   --group-idle-bg: oklch(.5 .05 275 / .1);
   --group-idle-line: oklch(.5 .05 275 / .45);
+  --group-shipping-fg: oklch(.46 .12 250);
+  --group-shipping-bg: oklch(.6 .12 250 / .12);
+  --group-shipping-line: oklch(.52 .12 250 / .75);
   --group-done-fg: oklch(.44 .13 160);
   --group-done-bg: oklch(.6 .14 160 / .12);
   --group-done-line: oklch(.52 .14 160 / .75);
@@ -1093,6 +1120,9 @@
   --group-idle-fg: oklch(.8 .05 255);
   --group-idle-bg: oklch(.8 .05 255 / .08);
   --group-idle-line: oklch(.66 .06 255);
+  --group-shipping-fg: oklch(.85 .12 250);
+  --group-shipping-bg: oklch(.84 .12 250 / .12);
+  --group-shipping-line: oklch(.78 .13 250);
   --group-done-fg: oklch(.86 .15 170);
   --group-done-bg: oklch(.85 .15 170 / .12);
   --group-done-line: oklch(.78 .15 170);
@@ -1222,6 +1252,9 @@
   --group-idle-fg: oklch(.78 .04 265);
   --group-idle-bg: oklch(.78 .04 265 / .08);
   --group-idle-line: oklch(.62 .05 265);
+  --group-shipping-fg: oklch(.82 .1 240);
+  --group-shipping-bg: oklch(.78 .1 240 / .12);
+  --group-shipping-line: oklch(.7 .11 240);
   --group-done-fg: oklch(.84 .12 150);
   --group-done-bg: oklch(.8 .13 150 / .12);
   --group-done-line: oklch(.72 .13 150);

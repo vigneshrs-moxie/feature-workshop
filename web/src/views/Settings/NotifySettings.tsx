@@ -2,7 +2,10 @@
 // you with this tab closed or the browser hidden. Saved on the dashboard (POST /api/settings
 // { notify }); the history (GET /api/notifications) refetches when a new one arrives (the
 // 'notification' event). A notification only opens the page: it never approves or sends anything.
+// "In this browser" (alerts/AlertSettings.tsx) is this browser's own notification and chime, kept here.
+// Send a test and the history come last.
 import { useEffect, useId, useState } from 'react';
+import { AlertSettings } from '../../alerts/AlertSettings';
 import type { NotificationsView, NotifyLevel, NotifyMode, NotifySettings as Notify, Settings } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
@@ -15,7 +18,7 @@ export const NOTIFY_DEFAULTS: Notify = {
   skipWhenWatching: true,
 };
 
-const LEVELS: { id: NotifyLevel; label: string; hint: string }[] = [
+export const LEVELS: { id: NotifyLevel; label: string; hint: string }[] = [
   { id: 'needs', label: 'Needs you', hint: 'A go-ahead, a question or a permission is waiting; also a decision left 4 hours.' },
   { id: 'problem', label: 'Problems', hint: 'A reply ended with an error, or Claude’s usage limit paused the work.' },
   { id: 'done', label: 'Done', hint: 'Reached the finish line you set, or you marked it done. Landing in staging or main after that is told without a sound.' },
@@ -76,11 +79,11 @@ export function NotifySettings() {
           macOS hasn’t allowed terminal-notifier yet, so notifications go through the built-in notifier for now (a click can’t open the job). Turn it on once: <strong>System Settings → Notifications → terminal-notifier → Allow notifications</strong>, then Send a test.
         </p>
       )}
-      <label className="drawer-check" title="All notifications from the dashboard, on or off.">
+      <label className="drawer-check" title="All notifications from the dashboard, on or off." data-setting="notify-enabled">
         <input type="checkbox" checked={n.enabled} onChange={(e) => void save({ enabled: e.target.checked })} />
         <span>Send notifications to macOS</span>
       </label>
-      <table className="notify-levels">
+      <table className="notify-levels" data-setting="notify-levels">
         <caption className="sr-only">How each kind of notification reaches you</caption>
         <tbody>
           {LEVELS.map((l) => (
@@ -100,7 +103,7 @@ export function NotifySettings() {
           ))}
         </tbody>
       </table>
-      <div className="notify-quiet">
+      <div className="notify-quiet" data-setting="notify-quiet">
         <label className="drawer-check" title="Quiet hours: only problems show, without a sound.">
           <input type="checkbox" checked={n.quiet.on} disabled={!n.enabled} onChange={(e) => void save({ quiet: { ...n.quiet, on: e.target.checked } })} />
           <span>Quiet hours from</span>
@@ -109,16 +112,17 @@ export function NotifySettings() {
         <span>to</span>
         <input type="time" aria-label="Quiet hours end" value={n.quiet.to} disabled={!n.enabled} onChange={(e) => { if (e.target.value) void save({ quiet: { ...n.quiet, to: e.target.value } }); }} title="When quiet hours end." />
       </div>
-      <label className="drawer-check" title="Nothing pops while this page is in front of you: it already shows what changed.">
+      <label className="drawer-check" title="Nothing pops while this page is in front of you: it already shows what changed." data-setting="notify-watching">
         <input type="checkbox" checked={n.skipWhenWatching} disabled={!n.enabled} onChange={(e) => void save({ skipWhenWatching: e.target.checked })} />
         <span>Not while I’m looking at the dashboard</span>
       </label>
-      <div className="perm-actions">
+      <AlertSettings />
+      <div className="perm-actions" data-setting="notify-test">
         <button type="button" className="btn" onClick={() => void test()} title="Send a test notification to macOS now, even while you’re looking at this page.">Send a test</button>
         {tested && <span className="muted" role="status">{tested}</span>}
       </div>
       {error && <p className="perm-warn" role="alert">{error}</p>}
-      <details className="how notify-history">
+      <details className="how notify-history" data-setting="notify-history">
         <summary title="The last 50 notifications, sent or not, newest first.">History ({view?.history.length ?? 0})</summary>
         {view?.history.length ? (
           <ol>

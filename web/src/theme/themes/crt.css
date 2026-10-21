@@ -77,6 +77,9 @@ html[data-theme="crt"] {
   --group-idle-fg: oklch(.8 .05 255);
   --group-idle-bg: oklch(.8 .05 255 / .08);
   --group-idle-line: oklch(.66 .06 255);
+  --group-shipping-fg: oklch(.85 .12 250);
+  --group-shipping-bg: oklch(.84 .12 250 / .12);
+  --group-shipping-line: oklch(.78 .13 250);
   --group-done-fg: oklch(.86 .15 170);
   --group-done-bg: oklch(.85 .15 170 / .12);
   --group-done-line: oklch(.78 .15 170);
@@ -174,7 +177,6 @@ html[data-theme="crt"] .brand::after {
   background: var(--crt-green);
   box-shadow: 0 0 6px var(--crt-glow);
 }
-html[data-theme="crt"] .needs { padding: 0 var(--space-2); border: 1px solid var(--group-needs-you-line); color: var(--group-needs-you-fg); background: var(--group-needs-you-bg); }
 html[data-theme="crt"] .topbar .btn { border-color: var(--border-2); background: transparent; }
 html[data-theme="crt"] .topbar .btn:hover { background: var(--accent-soft); }
 

@@ -24,9 +24,9 @@ test('checkRepo: only absolute paths to real git repositories', async () => {
 });
 
 test('state: the workflow settings, and the quest rule moved to the finish line once', async () => {
-  assert.deepEqual(workflowSettings(undefined), { finishLine: 'pr1-merged' });
-  assert.deepEqual(workflowSettings({ finishLine: 'staging' }), { finishLine: 'staging' });
-  assert.deepEqual(workflowSettings({ finishLine: 'whenever' }), { finishLine: 'pr1-merged' });
+  assert.deepEqual(workflowSettings(undefined), { finishLine: 'pr1-merged', wireframes: 'auto', clarify: 'auto' });
+  assert.deepEqual(workflowSettings({ finishLine: 'staging' }), { finishLine: 'staging', wireframes: 'auto', clarify: 'auto' });
+  assert.deepEqual(workflowSettings({ finishLine: 'whenever' }), { finishLine: 'pr1-merged', wireframes: 'auto', clarify: 'auto' });
   // The pure move: play.questDone → workflow.finishLine, and the old field goes.
   assert.deepEqual(migrateSettings({ play: { mode: 'full', questDone: 'first-pr', sounds: true } }), { settings: { play: { mode: 'full', sounds: true }, workflow: { finishLine: 'pr1-open' } }, changed: true });
   assert.deepEqual(migrateSettings({ play: { questDone: 'marked-done' } }).settings, { play: {}, workflow: { finishLine: 'marked' } });

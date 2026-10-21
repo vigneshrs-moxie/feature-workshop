@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { normalize, defaultsFor, skippedFor, describeOptions, readOptions, writeOptions, FLOWS, LEVELS, flowFor, levelFor, foremanModel, levelsForClient, levelChangeLine, optionsAtLevel, OPUS, FABLE, SONNET, HAIKU } from '../lib/options.js';
 import { buildThread } from '../lib/thread.js';
+import { workflowSettings } from '../lib/state.js';
 
 test('job options: flows bring their defaults; your choices win', () => {
   const quick = normalize({ flow: 'quick' });
@@ -23,6 +24,23 @@ test('job options: flows bring their defaults; your choices win', () => {
   assert.deepEqual(mine.fable_checks, ['plan'], 'Fable checks can be asked for on a small job');
   assert.equal(mine.notes, 'keep it small');
   assert.ok(normalize({ reviewers: [] }).skip.includes('review'), 'no reviewers means no review stage');
+});
+
+test('job options: screens and clarify follow the job’s own choice, else Settings → Workflow, else Auto', () => {
+  assert.deepEqual([normalize({}).wireframes, normalize({}).clarify], ['auto', 'auto']);
+  const fromSettings = normalize({ level: 2 }, { workflow: { finishLine: 'main', wireframes: 'always', clarify: 'off' } });
+  assert.equal(fromSettings.wireframes, 'always');
+  assert.equal(fromSettings.clarify, 'off');
+  const own = normalize({ level: 2, wireframes: 'off', clarify: 'sometimes' }, { workflow: { wireframes: 'always', clarify: 'always' } });
+  assert.equal(own.wireframes, 'off', 'the job’s choice wins');
+  assert.equal(own.clarify, 'always', 'an unknown value falls back to the default for new jobs');
+  const kept = normalize({ level: 3 }, { previous: { ...own, level: 2 } });
+  assert.equal(kept.wireframes, 'off', 'a later edit keeps what the job had');
+  assert.equal(optionsAtLevel(own, 0).wireframes, 'off');
+  assert.ok(describeOptions(own).includes('Screens (wireframes): off.'));
+  assert.ok(!describeOptions(normalize({})).some((l) => l.startsWith('Screens')), 'Auto says nothing');
+  assert.deepEqual(workflowSettings({ finishLine: 'main', wireframes: 'off', clarify: 'nope' }), { finishLine: 'main', wireframes: 'off', clarify: 'auto' });
+  assert.deepEqual(workflowSettings(undefined), { finishLine: 'pr1-merged', wireframes: 'auto', clarify: 'auto' });
 });
 
 test('job options: documents you already have skip their stage and must exist', () => {

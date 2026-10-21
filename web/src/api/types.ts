@@ -56,7 +56,27 @@ export interface Job {
   parked?: boolean;
   /** The finish line: crossed or not, by what, and where the work has landed (dashboards from before send none). */
   finish?: JobFinish;
+  /** The PR hand-offs waiting on someone (dashboard/lib/nudges.js): the Desk's nudge items (dashboards from before send none). */
+  nudges?: Nudge[];
   [key: string]: unknown;
+}
+
+export type NudgeId = 'pr1-merge' | 'pr2-open' | 'pr2-review' | 'pr2-merge';
+
+/**
+ * A hand-off nudge (dashboard/lib/nudges.js): one PR step that waits on you (a link to GitHub) or
+ * that the Foreman can take on when you say yes (`action.send` is the sentence it gets, through
+ * POST /api/job/:slug/nudge/:id/yes; …/dismiss puts it away for this job).
+ */
+export interface Nudge {
+  id: NudgeId;
+  kind: 'link' | 'ask';
+  title: string;
+  text: string;
+  link: string | null;
+  action: { send: string } | null;
+  /** The job is past your finish line: the Desk lists it under Shipping, never first. */
+  afterLine: boolean;
 }
 
 export type LevelNumber = 0 | 1 | 2 | 3;
@@ -285,9 +305,15 @@ export interface PlaySettings {
   questDone?: string;
 }
 
-/** settings.workflow: the finish line (dashboard/lib/finish.js). */
+/** Screens (wireframes) and Clarify questions for new jobs: Auto (the workflow decides), Always, or Off. */
+export type WorkflowChoice = 'auto' | 'always' | 'off';
+export const WORKFLOW_CHOICES: WorkflowChoice[] = ['auto', 'always', 'off'];
+
+/** settings.workflow (Settings → Workflow): the finish line (dashboard/lib/finish.js) and the defaults a new job starts with. */
 export interface WorkflowSettings {
   finishLine: FinishLine;
+  wireframes?: WorkflowChoice;
+  clarify?: WorkflowChoice;
 }
 
 /** The dashboard's settings (meta.settings; also sent whole in the 'settings' live event). */

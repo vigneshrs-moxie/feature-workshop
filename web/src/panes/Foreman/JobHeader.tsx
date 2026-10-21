@@ -5,6 +5,8 @@
 //   (POST /api/job/:slug/policy).
 // ⌘K offers the same actions (app/commands.ts); both call app/jobActions.ts.
 // The level chip (LevelChip.tsx) shows the job's level and changes it.
+// The whole header stays still while the conversation scrolls under it (position: sticky on
+// .job-header in app.css, "Job view and Desk (light round 2)"); "How this works" scrolls away.
 // With Play on, the Foreman character stands by the title, its mood following the job, and the
 // trail sits under the title line (play/JobTrail.tsx).
 import { useEffect, useRef, useState } from 'react';
@@ -173,10 +175,12 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree, det
   const kind = job.kind ? KIND_LABELS[job.kind] ?? job.kind : null;
   const repo = job.repo?.name ?? null;
   const br = branch ?? job.repo?.branch ?? null;
-  // source 'none': the dashboard found no cost records yet, so show nothing rather than $0.00.
-  const cost = job.cost?.source === 'none' ? '' : formatCost(job.cost?.totalUsd);
+  // One quiet line of facts (plan §4): the cost only once it is over 10 cents (source 'none': the
+  // dashboard found no cost records yet), the permission setting only when it isn't the default.
+  const cost = job.cost?.source === 'none' || !((job.cost?.totalUsd ?? 0) > 0.1) ? '' : formatCost(job.cost?.totalUsd);
   const costHint = job.cost?.source === 'estimate' ? 'What this job has cost so far (an estimate from its sessions’ token counts).' : 'What this job has cost so far.';
   const policy = useJobPolicy(dir, policyOverride);
+  const policyShown = policy.override !== null || policy.global !== 'hands-off';
   const { usage } = useWorkshopState();
   const closed = job.closed ?? null;
   const ago = closed ? relativeTime(closed.at, now) : '';
@@ -198,9 +202,11 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree, det
         {repo && <span title="The repository this job works in.">{repo}</span>}
         {br && <span className="num" title="The git branch this job builds on.">{br}</span>}
         {cost && <span className="num" title={costHint}>{cost}</span>}
-        <span className="job-policy" title={`How much the Foreman may do without asking you${policy.override ? ' (this job’s own setting)' : ' (your global setting)'}. Change it in the job menu.`}>
-          {policyLabel(policy.effective)}{policy.override ? ' · this job' : ''}
-        </span>
+        {policyShown && (
+          <span className="job-policy" title={`How much the Foreman may do without asking you${policy.override ? ' (this job’s own setting)' : ' (your global setting)'}. Change it in the job menu.`}>
+            {policyLabel(policy.effective)}{policy.override ? ' · this job' : ''}
+          </span>
+        )}
       </p>
       {closed && (
         <p className="closed-note muted" title={`Marked on ${fullTime(closed.at)}. Reopen it from the job menu; sending the Foreman a message reopens it too.`}>

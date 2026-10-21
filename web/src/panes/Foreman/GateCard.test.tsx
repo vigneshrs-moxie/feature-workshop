@@ -4,6 +4,7 @@ import { installKeyListener } from '../../app/keyRegistry';
 import { ApiError, type ApiClient } from '../../api/client';
 import type { Gate, GateResult, Job, JobDetail, Run } from '../../api/types';
 import { gateDraftKey } from '../../lib/gateCard';
+import { writeStored } from '../../lib/stored';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job, LEVELS, REVIEWERS, snapshot } from '../../state/test-fixtures';
 import { Composer, draftKey } from './Composer';
@@ -60,7 +61,13 @@ const button = (name: string | RegExp) => within(card()!).getByRole('button', { 
 
 afterEach(() => { localStorage.clear(); });
 
+/** The two disclosures ("Adjust the next step", the decisions made for you) open, as a reader who opened them once has them. */
+const disclosuresOpen = () => { writeStored('fw.gate.adjust', 'open'); writeStored('fw.gate.decided', 'open'); };
+const offList = () => card()!.querySelector('.gate-off');
+
 describe('GateCard', () => {
+  beforeEach(disclosuresOpen);
+
   it('shows while the Foreman waits on a brief no gate reply answered, and hides otherwise', () => {
     const { show } = setup();
     expect(card()).not.toBeNull();
@@ -107,14 +114,53 @@ describe('GateCard', () => {
   });
 
   it('names what Approve does, from the versions and the next stage', () => {
-    const { show } = setup();
+    const { show } = setup({ det: oneQ() });
     expect(button('Approve quick plan v2 and start Build')).toHaveAttribute('title', expect.stringContaining('The Foreman goes ahead with: Build step 1.'));
-    show(detail({ versions: null, raisedVersions: null, nextStage: null }));
+    show(oneQ({ versions: null, raisedVersions: null, nextStage: null }));
     expect(button('Approve and go ahead')).toBeInTheDocument();
-    show(detail({ stage: 'spec', nextStage: 'refine', versions: { spec: '0.3', artifacts: {} }, raisedVersions: { spec: '0.3', artifacts: {} } }));
+    show(oneQ({ stage: 'spec', nextStage: 'refine', versions: { spec: '0.3', artifacts: {} }, raisedVersions: { spec: '0.3', artifacts: {} } }));
     expect(button('Approve spec v0.3 and start Refine')).toBeInTheDocument();
-    show(detail({ versions: { spec: null, artifacts: { 'implementation-plan': '3', Findings: '1' } }, raisedVersions: { spec: null, artifacts: { 'implementation-plan': '2', Findings: '1' } } }));
+    show(oneQ({ versions: { spec: null, artifacts: { 'implementation-plan': '3', Findings: '1' } }, raisedVersions: { spec: null, artifacts: { 'implementation-plan': '2', Findings: '1' } } }));
     expect(button('Approve plan v2 and start Build'), 'the version it was raised at').toBeInTheDocument();
+  });
+
+  it('has one primary button, Approve; the other decisions are links on one line; Stop stays under ⋯', () => {
+    setup({ det: oneQ() });
+    const c = card()!;
+    expect([...c.querySelectorAll('.btn-primary')].map((b) => b.textContent)).toEqual(['Approve quick plan v2 and start Build']);
+    const links = c.querySelector('.gate-links')!;
+    expect([...links.querySelectorAll('button.link-button')].map((b) => b.textContent)).toEqual(['Edit, then approve', 'Revise with feedback', 'Other guidance']);
+    expect(button('More actions')).toBeInTheDocument();
+    expect(offList(), 'every question answered: nothing is off').toBeNull();
+  });
+
+  it('folds the chips into “Adjust the next step” and the decisions into one line, closed until opened, remembered per browser', () => {
+    localStorage.clear();
+    const { unmount } = setup();
+    const c = card()!;
+    const adjust = c.querySelector<HTMLDetailsElement>('.gate-adjust')!;
+    const decided = c.querySelector<HTMLDetailsElement>('.gate-decided')!;
+    expect(adjust.open).toBe(false);
+    expect(decided.open).toBe(false);
+    expect(adjust.querySelector('summary')).toHaveTextContent('Adjust the next step (Build)');
+    expect(decided.querySelector('summary')).toHaveTextContent('2 decisions made for you · review');
+    fireEvent.click(adjust.querySelector('summary')!);
+    expect(adjust.open).toBe(true);
+    fireEvent.click(button('Heavier (Build)'));
+    expect(adjust.querySelector('summary'), 'the summary counts what is chosen').toHaveTextContent('1 chosen');
+    expect(c).toHaveTextContent('Added to your reply, exactly:');
+    fireEvent.click(adjust.querySelector('summary')!);
+    expect(adjust.open, 'closed again; the chip stays chosen').toBe(false);
+    expect(adjust.querySelector('.gate-chip[aria-pressed="true"]')).toHaveTextContent('Heavier');
+    expect(adjust.querySelector('summary')).toHaveTextContent('1 chosen');
+    fireEvent.click(decided.querySelector('summary')!);
+    expect(decided.open).toBe(true);
+    expect(screen.getByRole('region', { name: 'Decided on your behalf' })).toHaveTextContent('Toast text is “Copied”');
+    unmount();
+    // Remembered: a new card opens the way you left them.
+    setup();
+    expect(card()!.querySelector<HTMLDetailsElement>('.gate-adjust')!.open).toBe(false);
+    expect(card()!.querySelector<HTMLDetailsElement>('.gate-decided')!.open).toBe(true);
   });
 
   it('names only the stage’s own artifact, never the spec or the last one for another stage; says when you do the next part', () => {
@@ -166,17 +212,19 @@ describe('GateCard', () => {
     });
   });
 
-  it('Override flips a decision to changed with your note; an empty one is asked for first', async () => {
+  it('Override flips a decision to changed with your note; with nothing said yet, Approve is off and says why', async () => {
     const { post } = setup({ det: oneQ() });
-    const list = screen.getByRole('region', { name: 'Also decided on your behalf' });
+    const list = screen.getByRole('region', { name: 'Decided on your behalf' });
     expect(within(list).queryByText('Already settled')).toBeNull(); // confirmed ones aren't listed again
     const item = within(list).getByText('Toast text is “Copied”').closest('li')!;
     fireEvent.click(within(item).getByRole('button', { name: 'Override' }));
     expect(item).toHaveTextContent('Changed');
-    await act(async () => { fireEvent.click(button(/^Approve quick plan/)); });
+    expect(button(/^Approve quick plan/)).toBeDisabled();
+    expect(offList()).toHaveTextContent('Approve is off:');
+    expect(offList()).toHaveTextContent('Say what “Toast text is “Copied”” should be instead, or undo that override.');
     expect(post).not.toHaveBeenCalled();
-    expect(within(card()!).getByRole('alert')).toHaveTextContent('Say what “Toast text is “Copied”” should be instead, or undo that override.');
     fireEvent.change(within(item).getByRole('textbox', { name: 'What should it be instead?' }), { target: { value: 'Say “Copied to clipboard”' } });
+    expect(offList(), 'resolved: the list is gone').toBeNull();
     await act(async () => { fireEvent.click(button(/^Approve quick plan/)); });
     expect(post.mock.calls[0][1].verdicts).toEqual({ 'D-1': { verdict: 'confirm' }, 'D-2': { verdict: 'change', note: 'Say “Copied to clipboard”' } });
   });
@@ -244,21 +292,24 @@ describe('GateCard', () => {
     expect(button('Ask Fable')).toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('Approve with a question left unanswered is stopped inline, naming the question', async () => {
+  it('with a question left unanswered, Approve is off and the list names the question; it empties as you answer', async () => {
     const { post } = setup();
     // Question 1 has its recommendation picked; question 2 has no options and nothing written.
-    await act(async () => { fireEvent.click(button(/^Approve quick plan/)); });
-    expect(post).not.toHaveBeenCalled();
-    expect(within(card()!).getByRole('alert')).toHaveTextContent('Question 2 has no answer.');
+    const approve = button(/^Approve quick plan/);
+    expect(approve).toBeDisabled();
+    expect(approve).toHaveAttribute('title', expect.stringContaining('Off: Question 2 has no answer.'));
+    expect(within(card()!).getByRole('status', { name: 'Approve is off:' })).toHaveTextContent('Question 2 has no answer. Pick one, or write your own.');
     fireEvent.click(button('Edit, then approve'));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(within(card()!).getByRole('alert')).toHaveTextContent('Question 2 has no answer.');
     // "Other…" picked on question 1 with nothing written: no answer either.
     fireEvent.change(screen.getByRole('textbox', { name: 'Your answer to question 2' }), { target: { value: 'Copy ID' } });
+    expect(offList(), 'question 2 answered').toBeNull();
     fireEvent.click(within(screen.getByRole('group', { name: '1. Keep the old column?' })).getByRole('radio', { name: 'Other…' }));
-    await act(async () => { fireEvent.click(button(/^Approve quick plan/)); });
-    expect(within(card()!).getByRole('alert')).toHaveTextContent('Question 1 has no answer.');
+    expect(offList()).toHaveTextContent('Question 1 has no answer.');
+    expect(button(/^Approve quick plan/)).toBeDisabled();
     fireEvent.click(within(screen.getByRole('group', { name: '1. Keep the old column?' })).getByRole('radio', { name: /a\) Yes/ }));
+    expect(offList()).toBeNull();
     await act(async () => { fireEvent.click(button(/^Approve quick plan/)); });
     expect(post).toHaveBeenCalledTimes(1);
     expect(post.mock.calls[0][1].answers).toEqual({ 1: { choice: 'a' }, 2: { other: 'Copy ID' } });
@@ -277,6 +328,7 @@ describe('GateCard', () => {
     expect(c).toHaveClass('is-stale');
     expect(c).toHaveTextContent('Plan changed since this was proposed');
     expect(button(/^Approve quick plan/)).toBeDisabled();
+    expect(offList()).toHaveTextContent('The plan changed since this card was raised');
     expect(button('Edit, then approve')).toBeDisabled();
     expect(button('Approve, start after reset')).toBeDisabled();
     expect(button('Revise with feedback')).toBeEnabled();
@@ -606,7 +658,32 @@ describe('the gate card’s keys', () => {
     expect(within(q1).getByRole('radio', { name: /b\) No/ })).toBeChecked();
   });
 
+  it('. and v open and close the two disclosures; v does nothing on a card with no decisions', () => {
+    localStorage.clear();
+    const { show } = setup({ det: oneQ(), jobExtra: { waitingFor: 'approval' } });
+    const adjust = () => card()!.querySelector<HTMLDetailsElement>('.gate-adjust')!;
+    const decided = () => card()!.querySelector<HTMLDetailsElement>('.gate-decided')!;
+    expect(adjust().querySelector('kbd')).toHaveTextContent('.');
+    expect(decided().querySelector('kbd')).toHaveTextContent('v');
+    fireEvent.keyDown(document.body, { key: '.' });
+    expect(adjust().open).toBe(true);
+    fireEvent.keyDown(document.body, { key: 'v' });
+    expect(decided().open).toBe(true);
+    fireEvent.keyDown(document.body, { key: '.' });
+    fireEvent.keyDown(document.body, { key: 'v' });
+    expect(adjust().open).toBe(false);
+    expect(decided().open).toBe(false);
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Your own answer to question 1' }), { key: '.' });
+    expect(adjust().open, 'not while typing').toBe(false);
+    show(oneQ({ decided: [] }));
+    expect(card()!.querySelector('.gate-decided')).toBeNull();
+    const before = localStorage.getItem('fw.gate.decided');
+    fireEvent.keyDown(document.body, { key: 'v' });
+    expect(localStorage.getItem('fw.gate.decided'), 'nothing to open: the key is not taken').toBe(before);
+  });
+
   it('r, o and e open Revise, Other guidance and the edit sheet; nothing while typing in the card', async () => {
+    disclosuresOpen();
     setup({ det: oneQ(), jobExtra: { waitingFor: 'approval' } });
     fireEvent.keyDown(document.body, { key: 'r' });
     expect(button('Revise with feedback')).toHaveAttribute('aria-expanded', 'true');

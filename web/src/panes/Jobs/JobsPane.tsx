@@ -1,9 +1,8 @@
 // Jobs pane: every job, grouped as Needs you / Running / Paused / Idle / Shipping / Done (the
 // dashboard decides the group, see dashboard/lib/snapshot.js). It collapses to a narrow icon rail and remembers that
-// in this browser; the alert switches sit at its foot.
+// in this browser. The in-browser alert switches live in Settings → Notifications ("In this browser").
 import { useMemo } from 'react';
 import { JOB_GROUPS } from '../../api/types';
-import { AlertSettings } from '../../alerts/AlertSettings';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { useStored } from '../../lib/stored';
 import { useNow } from '../../lib/time';
@@ -91,7 +90,6 @@ export function JobsPane({ selected }: { selected: string | null }) {
           </ul>
         </section>
       ) : null))}
-      <AlertSettings />
     </nav>
   );
 }

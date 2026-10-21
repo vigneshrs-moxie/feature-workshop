@@ -75,6 +75,9 @@ html[data-theme="gold"] {
   --group-idle-fg: oklch(.78 .04 265);
   --group-idle-bg: oklch(.78 .04 265 / .08);
   --group-idle-line: oklch(.62 .05 265);
+  --group-shipping-fg: oklch(.82 .1 240);
+  --group-shipping-bg: oklch(.78 .1 240 / .12);
+  --group-shipping-line: oklch(.7 .11 240);
   --group-done-fg: oklch(.84 .12 150);
   --group-done-bg: oklch(.8 .13 150 / .12);
   --group-done-line: oklch(.72 .13 150);
@@ -151,7 +154,6 @@ html[data-theme="gold"] .brand {
   background-clip: text;
   color: transparent;
 }
-html[data-theme="gold"] .needs { padding: 0 var(--space-2); border: 1px solid var(--group-needs-you-line); border-radius: 999px; color: var(--group-needs-you-fg); background: var(--group-needs-you-bg); font-weight: var(--weight-medium); }
 html[data-theme="gold"] .topbar .btn { border-color: var(--border-2); background: oklch(1 0 0 / .03); }
 html[data-theme="gold"] .topbar .btn:hover { border-color: var(--border-3); background: var(--accent-soft); }
 
