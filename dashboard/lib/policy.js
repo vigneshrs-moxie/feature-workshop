@@ -47,6 +47,8 @@ const GH_READ = { auth: ['status'], pr: ['view', 'list', 'status', 'checks', 'di
 // Upper-case variables a command may set; anything else in capitals could change how programs start.
 const SAFE_UPPER_VARS = new Set(['NO_COLOR', 'FORCE_COLOR', 'CI', 'TZ', 'LANG', 'LC_ALL', 'NODE_ENV', 'SKIP_ENV_VALIDATION', 'DEBUG', 'TERM', 'COLUMNS', 'LINES']);
 const CHECK_SCRIPTS = /^(check|lint|typecheck|type-check|build|test|test:unit|format:check|lint:check)$/;
+// db:* scripts that only read or rename migration files (Orbit's db:renumber checks their order).
+export const NOT_DB_SCRIPT = /^db:(renumber|status|check|generate|validate|diff|lint|format)$/;
 const SUB = '\u0000sub\u0000'; // stands in for a $( … ) whose own commands are judged separately
 // ${name}, ${#name}, ${name:-word}, ${name%pat} and the like; not assignments, indirection, flags or @ operators.
 const SIMPLE_PARAM = /^(#?[A-Za-z_][A-Za-z0-9_]*|[0-9#?$*@!-])((:?[-+?])|%{1,2}|#{1,2}|\/{1,2}|:\d+)?/;
@@ -403,6 +405,8 @@ function judgeWords(w, ctx, simple) {
   if ((cmd === 'npm' || cmd === 'pnpm' || cmd === 'yarn') && BUILD_STAGES.has(ctx.stage)) {
     const script = rest[0] === 'run' ? rest[1] : rest[0];
     if (rest[0] === 'test' || (rest[0] === 'run' && CHECK_SCRIPTS.test(script ?? ''))) return /db|e2e|integration|migrat/i.test(simple) ? 'touches a database or runs end-to-end tests' : 'ok';
+    // Scripts named db:* that never touch a database: they read or rename migration files in the worktree.
+    if (rest[0] === 'run' && NOT_DB_SCRIPT.test(script ?? '')) return 'ok';
     return `${cmd} ${rest[0] ?? ''} needs your OK`.trim();
   }
   if (cmd === 'npx' && BUILD_STAGES.has(ctx.stage) && /^(tsc|vitest|eslint|prettier|jest)$/.test(rest[0] ?? '') && !rest.includes('--write') && !rest.includes('--fix')) return 'ok';
@@ -427,6 +431,40 @@ function cdTarget(words, cwd) {
   if (!/^(\/|\.\.?(\/|$)|~(\/|$))/.test(to)) return null;
   return resolvePath(to, cwd);
 }
+
+/**
+ * The simple commands of a command line, each with the folder it runs in (absolute, or null when
+ * unknown) and its words ({ t, dyn }), following cd the way classify() does. Commands inside $( … )
+ * come last, in an unknown folder. null when the line can't be read.
+ * lib/hard-lines.js uses it to see exactly what an rm -rf would delete.
+ */
+export function commandParts(cmd, cwd = null) {
+  const parsed = parseCommand(cmd);
+  if (!parsed) return null;
+  const out = [];
+  let here = cwd;
+  let chainOk = true;
+  let moved = false;
+  for (const part of parsed.parts) {
+    const t = tokenize(part.text);
+    if (!t) return null;
+    out.push({ text: part.text, cwd: here, words: t.words });
+    const to = cdTarget(t.words, here);
+    if (to !== undefined) { here = chainOk && part.sep === '&&' ? to : null; moved = true; }
+    if (part.sep !== '&&') {
+      if (moved) here = null;
+      chainOk = part.sep === ';' || part.sep === null;
+    }
+  }
+  for (const part of parsed.subs) {
+    const t = tokenize(part.text);
+    if (!t) return null;
+    out.push({ text: part.text, cwd: null, words: t.words });
+  }
+  return out;
+}
+
+export { inside as isInside, resolvePath, TEMP_DIRS };
 
 // ---------- Your saved "Always allow" rules (lib/rules.js keeps the list) ----------
 // A rule only ever allows what it describes, never more:

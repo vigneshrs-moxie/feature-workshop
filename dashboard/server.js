@@ -41,6 +41,7 @@ import { skillChecker } from './lib/skill-check.js';
 import { DOC_MAX_BYTES, DocError, describeDoc, jsonHtml, listJobDocs, readJobDoc, servableSpec } from './lib/docs.js';
 import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, crewHeaders, hexCommit, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from './lib/play.js';
 import { parseStatusJson } from './lib/status-json.js';
+import { autoModeEnvironment, remotesOf } from './lib/auto-env.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -122,13 +123,27 @@ const isInside = (p, dir) => {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 };
 
-// Routine steps are handled without asking (see lib/policy.js); everything else comes to you.
-async function policyFor(run, toolName, input, opts) {
-  const mode = await state.policyFor(run.featureDir);
+// What the policy knows about a run's job: its record, repo, worktrees and spec folders.
+async function jobContext(run) {
   const f = (await features()).find((x) => x.dir === run.featureDir);
   const repo = f?.repoPath ?? run.cwd;
   const worktrees = [f?.worktree, f?.statusWorktree, repo && f ? path.join(path.dirname(repo), `orbit-${f.slug}`) : null].filter(Boolean);
   const specDirs = [repo ? path.join(repo, 'docs', 'plans') : null, f?.spec?.path && path.isAbsolute(f.spec.path) ? path.dirname(f.spec.path) : null].filter(Boolean);
+  return { f, repo, worktrees, specDirs };
+}
+
+// The Foreman session's own Claude Code settings: the job's auto mode environment (lib/auto-env.js),
+// so auto mode's safety model knows the job's repo, fork and org remote. Added to your settings.
+async function sessionSettings(run) {
+  const { f, repo, worktrees } = await jobContext(run);
+  const environment = autoModeEnvironment({ title: f?.title ?? run.title, slug: f?.slug ?? run.slug, repoPath: repo, worktrees, featureDir: run.featureDir }, await remotesOf(repo));
+  return environment.length ? { autoMode: { environment } } : null;
+}
+
+// Routine steps are handled without asking (see lib/policy.js); everything else comes to you.
+async function policyFor(run, toolName, input, opts) {
+  const mode = await state.policyFor(run.featureDir);
+  const { f, repo, worktrees, specDirs } = await jobContext(run);
   return classify(toolName, input, {
     mode, stage: f?.stage ?? 'spec', featureDir: run.featureDir, worktrees, repoPath: repo, specDirs,
     cwd: run.cwd, defaultToNo: Boolean(opts?.defaultToNo), rules: await rules.list(),

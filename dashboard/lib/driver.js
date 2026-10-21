@@ -11,7 +11,11 @@
 //     When the account can't use auto mode, Claude Code starts in 'default' instead; the init
 //     message says so and the driver reports it ('auto-mode' event).
 // In every setting a PreToolUse hook (lib/hard-lines.js) forces a card for the hard lines and
-// refuses org and force pushes; the same check runs again here before the policy is asked.
+// refuses org and force pushes; the same check runs again here before the policy is asked. In
+// auto mode a hard line your go-ahead already covers (cover: a push once you approved the PR stage,
+// an rm -rf inside the job's folders) is allowed without a card and logged like a routine step.
+// settingsFor(run) adds Claude Code settings for the session: the job's auto mode environment
+// (lib/auto-env.js), so the safety model knows the job's repo, fork and org remote.
 //
 // Steer (a message you send while the Foreman is still replying): the session's input is a queue.
 // The first message starts the reply; anything you steer joins the queue and is handed to Claude
@@ -57,13 +61,17 @@ export class Driver extends EventEmitter {
    * queryFn: the SDK's query() (injectable for tests).
    * state: State instance. projectsDir: where Claude Code keeps session logs.
    */
-  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null }) {
+  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, settingsFor = null }) {
     super();
     this.queryFn = queryFn;
     // policy(run, toolName, input, opts) -> { auto, reason }: routine requests are allowed without asking.
     this.policy = policy;
     // modeFor(run) -> 'hands-off' | 'ask-all' | 'auto': the permission setting for the run's job.
     this.modeFor = modeFor;
+    // cover(run, toolName, input) -> { reason } | null: an 'ask' hard line your go-ahead covers (auto mode).
+    this.cover = cover;
+    // settingsFor(run) -> Claude Code settings for the session (the SDK's `settings`), or null.
+    this.settingsFor = settingsFor;
     this.state = state;
     this.projectsDir = projectsDir;
     this.cliPath = cliPath;
@@ -186,11 +194,14 @@ export class Driver extends EventEmitter {
       permissionMode: run.requestedMode,
       canUseTool: (toolName, input, opts) => this.#ask(run, toolName, input, opts),
       // The hard lines, in every mode, before Claude Code's own permission check (lib/hard-lines.js).
-      hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [hardLineHook((verdict, input) => this.#onHardLine(run, verdict, input), { check: run.orgPushCheck, cwd: run.cwd })] }] },
+      hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [hardLineHook((verdict, input) => this.#onHardLine(run, verdict, input), { check: run.orgPushCheck, cwd: run.cwd, cover: this.cover ? (tool, input) => this.cover(run, tool, input) : null })] }] },
       abortController: run.abort,
       stderr: (data) => { run.stderr.push(String(data)); if (run.stderr.length > 60) run.stderr.shift(); },
       additionalDirectories: run.additionalDirectories,
     };
+    if (this.settingsFor) {
+      try { const settings = await this.settingsFor(run); if (settings) options.settings = settings; } catch { /* the session starts without them */ }
+    }
     if (run.sessionId) options.resume = run.sessionId;
     if (run.model) options.model = run.model;
     if (this.cliPath) options.pathToClaudeCodeExecutable = this.cliPath;

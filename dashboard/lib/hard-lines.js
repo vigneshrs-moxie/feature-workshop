@@ -5,17 +5,20 @@
 // when a request reaches the dashboard, so neither a saved "Always allow" rule nor the routine
 // list can let one through.
 //
-// TO REVISIT (the user's note, 2026-10-15): today a hard line asks even when your own message
-// told the Foreman to do exactly that ("push it now"). The plan is to let "your own message asked
-// for it" count as the yes for ASK lines. Never for NEVER lines. Keep the whole list here, in this
-// one file, so that change is made in one place.
+// Auto mode (2026-10-21, the user's ask: "don't disturb me until something actually very risky"):
+// an ASK line your own go-ahead already covers doesn't ask again (goAheadCovers below):
+//   git push, gh pr create   once you've approved the PR stage (the job is at PR #1 or later)
+//   rm -rf                   when everything it deletes is inside the job's own folders
+// Merging a PR and database changes still ask, and the NEVER lines are refused, in every mode.
+// The other settings keep asking about every ASK line.
 //
-// ASK: a card, always.
+// ASK: a card (in auto mode, unless your go-ahead covers it).
 //   git push            any push (the remote and branch are on the card)
 //   gh pr create        opening a pull request
 //   gh pr merge         merging one
 //   rm -rf              recursive, forced deletes (-rf, -fr, -r -f, --recursive --force, …)
 //   database changes    package scripts named db:* or *migrat*, and the usual migration tools
+//                       (not db:renumber, db:status and the like, which only read or rename files)
 // NEVER: refused without asking, in every mode.
 //   pushes to the org repo (the "moxie" remote, a github.com/moxie… address, or any other remote
 //   whose push address is one: orgPushCheck() asks git in the job's folder)
@@ -29,7 +32,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 
-import { splitCommand } from './policy.js';
+import { commandParts, isInside, NOT_DB_SCRIPT, resolvePath, splitCommand, TEMP_DIRS } from './policy.js';
 
 /** Remote names and addresses that mean the org repository. Pushing there is never allowed. */
 export const ORG_REMOTES = ['moxie'];
@@ -48,6 +51,7 @@ const WRAPPERS = new Map([
 ]);
 const PKG = new Set(['npm', 'pnpm', 'yarn', 'bun']);
 const DB_SCRIPT = /^db:|migrat/i;
+const isDbScript = (word) => DB_SCRIPT.test(word) && !NOT_DB_SCRIPT.test(word);
 
 // Words of one simple command, quotes removed (good enough here: over-reading only asks more).
 function words(simple) {
@@ -136,7 +140,7 @@ function dbVerdict(cmd, rest) {
   // Any word naming a db:* or migration script, wherever it sits (npm run --silent db:reset,
   // npm --prefix x run db:migrate, pnpm -C dir db:push, yarn workspace api db:push). Over-asking
   // (npm install some-migrate-tool) is fine; missing one is not.
-  if (PKG.has(cmd) && rest.some((a) => DB_SCRIPT.test(a.replace(/^-[^=]*=/, '')))) return DB;
+  if (PKG.has(cmd) && rest.some((a) => isDbScript(a.replace(/^-[^=]*=/, '')))) return DB;
   const tool = cmd === 'npx' || cmd === 'bunx' || (cmd === 'pnpm' && rest[0] === 'exec') || (cmd === 'pnpm' && rest[0] === 'dlx')
     ? rest.filter((a) => !a.startsWith('-') && !['exec', 'dlx'].includes(a)) : [cmd, ...rest];
   const [t, a, b] = tool;
@@ -179,9 +183,11 @@ function judgeRaw(text) {
     const tail = text.slice(text.search(/\bpush\b/)).split(/[\n;&|)`]/)[0].replace(/["'\\]/g, ' ');
     return pushVerdict(words(tail).slice(1));
   }
-  if (/\bgh\b[^\n;&|]*\bpr\s+(create|merge)\b/.test(text)) return { decision: 'ask', line: 'gh-pr', reason: 'Opening or merging a pull request is a hard line: it always asks you.' };
+  const pr = text.match(/\bgh\b[^\n;&|]*\bpr\s+(create|merge)\b/);
+  if (pr) return { decision: 'ask', line: `gh-pr-${pr[1]}`, reason: `gh pr ${pr[1]} is a hard line: it always asks you, whatever the setting.` };
   if (/\brm\b[^\n;&|]*\s-(?:[A-Za-z]*[rR][A-Za-z]*f|[A-Za-z]*f[A-Za-z]*[rR])/.test(text) || /\brm\b[^\n;&|]*--recursive[^\n;&|]*--force|\brm\b[^\n;&|]*--force[^\n;&|]*--recursive/.test(text)) return rmVerdict(['-rf']);
-  if (/\b(npm|pnpm|yarn|bun)\b[^\n;&|]*\b(db:|\S*migrat)/i.test(text) || /\b(prisma\s+(migrate|db\s+push)|drizzle-kit\s+(migrate|push)|supabase\s+(db\s+(push|reset)|migration))\b/.test(text)) return DB;
+  const pkgRuns = text.match(/\b(npm|pnpm|yarn|bun)\b[^\n;&|]*/gi) ?? [];
+  if (pkgRuns.some((seg) => /\S*migrat/i.test(seg) || (seg.match(/\bdb:[\w:-]*/g) ?? []).some(isDbScript)) || /\b(prisma\s+(migrate|db\s+push)|drizzle-kit\s+(migrate|push)|supabase\s+(db\s+(push|reset)|migration))\b/.test(text)) return DB;
   return null;
 }
 
@@ -205,6 +211,59 @@ export function hardLine(toolName, input = {}) {
   // Every push in the command, for orgPushCheck().
   const pushes = verdicts.filter((v) => v?.line === 'git-push').map((v) => ({ remote: v.remote ?? '', dir: v.dir ?? null }));
   return { ...verdict, pushes };
+}
+
+/** The stages after you approve opening PR #1: pushing the job's branch and opening its PRs is that work. */
+export const PR_STAGES = new Set(['pr1', 'pr2', 'staging-qa', 'pr3']);
+
+const PUSH_COVERED = 'Auto mode: you approved the PR stage, which covers pushing the job’s branch to your fork.';
+const PR_COVERED = 'Auto mode: you approved the PR stage, which covers opening its pull request.';
+const RM_COVERED = 'Auto mode: it deletes only inside the job’s own folders.';
+
+// rm -rf whose every target is written out in full and sits strictly inside the job's worktrees,
+// its record folder or a temp folder (never one of those folders itself, never inside a .git).
+function rmInsideJob(words, cwd, ctx) {
+  const w = [...words];
+  while (w.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0].t)) w.shift();
+  if (w[0]?.t !== 'rm' && w[0]?.t !== '/bin/rm') return false; // behind a wrapper: not judged here
+  const roots = [...(ctx.worktrees ?? []), ctx.featureDir, ...TEMP_DIRS].filter(Boolean).map((d) => path.resolve(d));
+  let options = true;
+  const targets = [];
+  for (const x of w.slice(1)) {
+    if (options && x.t === '--') { options = false; continue; }
+    if (options && x.t.startsWith('-') && x.t !== '-') continue;
+    targets.push(x);
+  }
+  return targets.length > 0 && targets.every((x) => {
+    if (x.dyn) return false;
+    const abs = resolvePath(x.t, cwd);
+    if (!abs || abs.split(path.sep).includes('.git')) return false;
+    return roots.some((root) => isInside(abs, root) && abs !== root);
+  });
+}
+
+/**
+ * Auto mode only: does your own go-ahead already cover every hard line in this command, so it
+ * needn't ask again? ctx: { mode, stage, worktrees[], featureDir, cwd } for the job. Returns
+ * { reason } or null. Merges and database changes are never covered; refusals never reach here.
+ */
+export function goAheadCovers(toolName, input = {}, ctx = {}) {
+  if (ctx.mode !== 'auto' || toolName !== 'Bash') return null;
+  const command = String(input?.command ?? '');
+  // Commands handed to another shell can't be seen: those always ask.
+  if (/\b(eval|sh|bash|zsh)\b/.test(command)) return null;
+  const parts = commandParts(command, ctx.cwd ?? null);
+  if (!parts) return null;
+  const reasons = new Set();
+  for (const part of parts) {
+    const verdict = judgeSimple(part.text);
+    if (!verdict) continue;
+    if (verdict.decision !== 'ask') return null;
+    if ((verdict.line === 'git-push' || verdict.line === 'gh-pr-create') && PR_STAGES.has(ctx.stage)) reasons.add(verdict.line === 'git-push' ? PUSH_COVERED : PR_COVERED);
+    else if (verdict.line === 'rm-rf' && rmInsideJob(part.words, part.cwd, ctx)) reasons.add(RM_COVERED);
+    else return null;
+  }
+  return reasons.size ? { reason: [...reasons].join(' ') } : null;
 }
 
 const ORG_PUSH = { decision: 'deny', line: 'org-push', reason: 'That remote points at the org repository, and pushing there is never allowed from the dashboard. Push to your fork (origin) instead.' };
@@ -256,14 +315,20 @@ export function orgPushCheck() {
  * hard line it meets (the driver records refusals). Returns the hook's answer: 'ask' forces a
  * card, 'deny' refuses; anything else is left to the permission setting. check (from
  * orgPushCheck()) looks up where pushes really go; cwd is the job's folder when the hook input
- * has none.
+ * has none. cover(toolName, input) says whether your go-ahead covers an 'ask' one (auto mode,
+ * goAheadCovers()); then the hook doesn't force a card and the setting decides as usual.
  */
-export function hardLineHook(onVerdict = () => {}, { check = orgPushCheck(), cwd = null } = {}) {
+export function hardLineHook(onVerdict = () => {}, { check = orgPushCheck(), cwd = null, cover = null } = {}) {
   return async (input) => {
     if (input?.hook_event_name !== 'PreToolUse') return {};
     let verdict = hardLine(input.tool_name, input.tool_input);
     if (!verdict) return {};
     try { verdict = await check(verdict, input.cwd || cwd); } catch { /* a failed lookup still asks */ }
+    if (verdict.decision === 'ask' && cover) {
+      let covered = null;
+      try { covered = await cover(input.tool_name, input.tool_input); } catch { /* still asks */ }
+      if (covered) return {};
+    }
     try { await onVerdict(verdict, input); } catch { /* recording must not change the answer */ }
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: verdict.decision, permissionDecisionReason: verdict.reason } };
   };
