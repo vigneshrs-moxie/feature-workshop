@@ -178,3 +178,8 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 4. `npm run web:test` checks the file exists, is scoped, and is imported; a hidden theme (and any
    theme besides Default) must also set every token in `REQUIRED_THEME_TOKENS`
    (`themes.test.ts`: the palette, groups, asks, stages, shape, `--row-alt` and the crew's paints).
+5. The classic view (`dashboard/public`) wears the theme too: the build writes `dist/theme.css` with
+   `tokens.css` and, from each theme, only its token blocks (`html[data-theme="<id>"]`), its page
+   background (`html[data-theme="<id>"] body`) and its `@font-face` rules (`classicSheet.ts`). Put a
+   theme's page background on `body` there, not on `.app`, so both views get it. The classic page's
+   own styles read the semantic tokens; its component classes are not hooks.

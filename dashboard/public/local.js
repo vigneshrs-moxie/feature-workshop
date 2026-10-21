@@ -142,6 +142,9 @@ function step(state, n, title, text, actions = '') {
 
 function stepsHtml(v) {
   const out = [];
+  // Steps are numbered as shown: with no database step the app is 2, not 3.
+  const dbN = v.env ? 2 : 1;
+  const appN = dbN + (v.db ? 1 : 0);
   if (v.env) {
     const e = v.env;
     const notes = e.notes.length ? `<br><span class="muted">${e.notes.map(esc).join(' ')}</span>` : '';
@@ -153,29 +156,29 @@ function stepsHtml(v) {
       out.push(step('todo', 1, 'Settings file', `There, but not pointed at port ${esc(v.port)}${e.signInSkipped === false ? ' and sign-in isn’t skipped' : ''}.${notes}`, '<button class="btn small primary" type="button" data-lc="env">Fix it</button>'));
     }
   }
-  if (v.db) out.push(dbStep(v.db));
+  if (v.db) out.push(dbStep(v.db, dbN));
   if (v.app) {
     const s = v.server;
-    if (s?.status === 'running') out.push(step('ok', 3, 'App', `Running at <a href="${esc(v.url)}" target="_blank" rel="noopener">${esc(v.url)}</a>.`, '<button class="btn small" type="button" data-lc="stop">Stop</button>'));
-    else if (s?.status === 'starting') out.push(step('busy', 3, 'App', `Starting on port ${esc(v.port)}…`, '<button class="btn small" type="button" data-lc="stop">Stop</button>'));
-    else out.push(step('todo', 3, 'App', s?.status === 'exited' ? 'It stopped by itself. The app log below says why.' : 'Not running.', '<button class="btn small primary" type="button" data-lc="start">Start</button>'));
+    if (s?.status === 'running') out.push(step('ok', appN, 'App', `Running at <a href="${esc(v.url)}" target="_blank" rel="noopener">${esc(v.url)}</a>.`, '<button class="btn small" type="button" data-lc="stop">Stop</button>'));
+    else if (s?.status === 'starting') out.push(step('busy', appN, 'App', `Starting on port ${esc(v.port)}…`, '<button class="btn small" type="button" data-lc="stop">Stop</button>'));
+    else out.push(step('todo', appN, 'App', s?.status === 'exited' ? 'It stopped by itself. The app log below says why.' : 'Not running.', '<button class="btn small primary" type="button" data-lc="start">Start</button>'));
   }
   return out.join('');
 }
 
-function dbStep(d) {
-  if (!d.available) return step('off', 2, 'Database', esc(d.reason));
-  if (d.busy) return step('busy', 2, 'Database', `Switching ${esc(d.name)}… (progress is in the output below)`);
-  if (d.gone) return step('todo', 2, 'Database', `Your local database <code>${esc(d.name)}</code> isn’t there (a switch may have stopped half-way). The saved original is safe.`, '<button class="btn small primary" type="button" data-lc="db" data-db="original">Put the original back</button>');
+function dbStep(d, n = 2) {
+  if (!d.available) return step('off', n, 'Database', esc(d.reason));
+  if (d.busy) return step('busy', n, 'Database', `Switching ${esc(d.name)}… (progress is in the output below)`);
+  if (d.gone) return step('todo', n, 'Database', `Your local database <code>${esc(d.name)}</code> isn’t there (a switch may have stopped half-way). The saved original is safe.`, '<button class="btn small primary" type="button" data-lc="db" data-db="original">Put the original back</button>');
   const now = d.matches?.kind === 'job'
     ? `Your local database was last matched to <b>${esc(d.matches.title ?? d.matches.slug)}</b>${d.matches.partial ? ' <span class="warn-text">(not finished)</span>' : ''}.`
     : d.matches?.kind === 'original' ? 'Your local database is the original.' : '';
   const conn = d.connections ? ` <span class="muted">${d.connections} connection${d.connections === 1 ? '' : 's'} open (probably your main app); switching needs them closed.</span>` : '';
   const back = d.original.exists ? `<button class="btn small ghost" type="button" data-lc="db" data-db="original">Put the original back</button>` : '';
   const more = d.original.exists ? `<details class="lc-more"><summary>More</summary><button class="linklike" type="button" data-lc="db" data-db="save-original">Make the database as it is now the new original</button><p class="fineprint">Original saved ${esc(when(d.original.savedAt))}.</p></details>` : '';
-  if (d.missing.length) return step('todo', 2, 'Database', `Missing this job’s database changes: ${list(d.missing)}. ${now}${conn}`, `<button class="btn small primary" type="button" data-lc="db" data-db="match">Match this job</button>${back}${more}`);
+  if (d.missing.length) return step('todo', n, 'Database', `Missing this job’s database changes: ${list(d.missing)}. ${now}${conn}`, `<button class="btn small primary" type="button" data-lc="db" data-db="match">Match this job</button>${back}${more}`);
   const extra = d.extra.length ? ` It also has changes from elsewhere (${list(d.extra)}), which is usually fine for testing.` : '';
-  return step('ok', 2, 'Database', `Has everything this job needs.${extra} ${now}${conn}`, `${back}${more}`);
+  return step('ok', n, 'Database', `Has everything this job needs.${extra} ${now}${conn}`, `${back}${more}`);
 }
 
 function presetsHtml(v) {

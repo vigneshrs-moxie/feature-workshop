@@ -32,7 +32,7 @@ import { usePlay } from '../play/usePlay';
 import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
 import { reopenJob, setJobPolicy, stopRun } from './jobActions';
 import { dialogOpen, paletteKeyLabel, usePageKeys } from './keys';
-import { classicHref, crewDexHref, navigate, settingsHref, useRoute, type Route } from './router';
+import { classicHref, crewDexHref, navigate, openFromHash, settingsHref, useRoute, type Route } from './router';
 import { UiProvider, useUi, type SheetState } from './ui';
 
 /** Put the cursor in the message box at the foot of the Foreman pane. */
@@ -46,7 +46,7 @@ const CONNECTION: Record<Connection, { label: string; hint: string }> = {
   reconnecting: { label: 'Reconnecting…', hint: 'The connection to the dashboard dropped. This page catches up by itself when it’s back.' },
 };
 
-function TopBar({ onRetry, onCrew = false }: { onRetry: () => void; onCrew?: boolean }) {
+function TopBar({ onRetry, onCrew = false, slug = null }: { onRetry: () => void; onCrew?: boolean; slug?: string | null }) {
   const state = useWorkshopState();
   const ui = useUi();
   const play = usePlay();
@@ -93,7 +93,8 @@ function TopBar({ onRetry, onCrew = false }: { onRetry: () => void; onCrew?: boo
         <a className="btn btn-quiet" href={crewDexHref()} aria-current={onCrew ? 'page' : undefined} title="The Crew-dex: every crew member, who you have met and what they have done on your jobs (Play mode).">Crew-dex</a>
       )}
       <a className="btn btn-quiet" href={settingsHref()} title="Your settings: the “Always allow” rules you’ve saved, and removing them.">Settings</a>
-      <a className="btn btn-quiet" href={classicHref.home()} title="Open the classic Feature Workshop page.">Classic view</a>
+      {/* The same page in the classic view (the job you have open, else its home); its New view button brings you back. */}
+      <a className="btn btn-quiet" href={slug ? classicHref.job(slug) : classicHref.home()} title="Open this page in the classic view: Costs, History, Try it on your computer and the job’s Details live there. Its New view button (key: n) brings you back.">Classic view</a>
     </header>
   );
 }
@@ -127,6 +128,18 @@ function Sheets({ route }: { route: Route }) {
     classic: (href) => { window.location.href = href; },
     showKeys: () => ui.openSheet({ kind: 'keys' }),
   };
+
+  // ?open=new-job or ?open=options after the page's address (the classic view links here with
+  // them): once the workshop has loaded, open the New job sheet or this job's Notes and options,
+  // then drop it from the address so a reload doesn't open it again.
+  useEffect(() => {
+    if (state.status !== 'ready') return;
+    const open = openFromHash(window.location.hash);
+    if (!open) return;
+    if (open === 'new-job') ui.openSheet({ kind: 'new-job' });
+    else if (slug) ui.openSheet({ kind: 'job-drawer', slug, tab: 'options' });
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${window.location.hash.replace(/\?.*$/, '')}`);
+  }, [state.status, slug]);
 
   usePageKeys({
     palette: () => {
@@ -208,7 +221,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   }
   return (
     <div className="app">
-      <TopBar onRetry={onRetry} onCrew={crew} />
+      <TopBar onRetry={onRetry} onCrew={crew} slug={slug} />
       <div className="banner-slot"><UsageBanner /></div>
       <Sheets route={route} />
       <div ref={panes} className={rail ? 'panes panes-rail' : 'panes'} style={previewWidth ? ({ '--preview-w': `${previewWidth}px` } as CSSProperties) : undefined}>

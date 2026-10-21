@@ -118,8 +118,9 @@ export function sprite(agentType, { state = 'idle', size = 64, label = '' } = {}
 const ICONS = {
   coin: '<circle cx="12" cy="12" r="9" fill="var(--gold)" stroke="var(--gold-dark)" stroke-width="2"/><path d="M12 7.5v9M14.6 9.3c-.6-.8-1.6-1.2-2.7-1.2-1.5 0-2.6.8-2.6 1.9 0 2.6 5.6 1.4 5.6 4.1 0 1.1-1.2 1.9-2.8 1.9-1.2 0-2.3-.5-2.9-1.4" stroke="var(--gold-dark)" stroke-width="1.7" fill="none" stroke-linecap="round"/>',
   calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="#fff" stroke="var(--icon-ink)" stroke-width="2"/><path d="M3.5 10h17" stroke="var(--icon-ink)" stroke-width="2"/><rect x="3.5" y="5" width="17" height="5" rx="2" fill="var(--danger)"/><path d="M8 3v4M16 3v4" stroke="var(--icon-ink)" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="14.5" r="1.3" fill="var(--icon-ink)"/><circle cx="15" cy="14.5" r="1.3" fill="var(--icon-ink)"/>',
-  bang: '<circle cx="12" cy="12" r="10" fill="var(--danger)"/><path d="M12 6.5v7" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/><circle cx="12" cy="17.2" r="1.7" fill="#fff"/>',
-  bolt: '<circle cx="12" cy="12" r="10" fill="var(--ok-green)"/><path d="M13.2 4.8 7.6 13h4.2l-1 6.2 5.6-8.2h-4.2z" fill="#fff"/>',
+  // In the theme's needs-you and running colours, like the new view's status glyphs.
+  bang: '<circle cx="12" cy="12" r="10" fill="var(--needs)"/><path d="M12 6.5v7" stroke="var(--bg-0)" stroke-width="2.8" stroke-linecap="round"/><circle cx="12" cy="17.2" r="1.7" fill="var(--bg-0)"/>',
+  bolt: '<circle cx="12" cy="12" r="10" fill="var(--working)"/><path d="M13.2 4.8 7.6 13h4.2l-1 6.2 5.6-8.2h-4.2z" fill="var(--bg-0)"/>',
   badge: '<path d="M8 13.5 6 21l4-1.8L12 22l2-2.8 4 1.8-2-7.5" fill="var(--danger)"/><circle cx="12" cy="10" r="7.5" fill="var(--gold)" stroke="var(--gold-dark)" stroke-width="2"/><path d="m12 6.4 1.1 2.3 2.5.3-1.8 1.7.5 2.5-2.3-1.2-2.3 1.2.5-2.5-1.8-1.7 2.5-.3z" fill="#fff"/>',
   bell: '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.6 1.8H4.4z" fill="currentColor"/><circle cx="12" cy="20.3" r="2" fill="currentColor"/>',
 };

@@ -14,11 +14,14 @@ You need **Node.js 22+**, **git**, and **Claude Code** installed and logged in (
 git clone https://github.com/vigneshrs-moxie/feature-workshop.git
 cd feature-workshop
 npm install
+npm run web:build
 ```
+
+`npm run web:build` builds the new view (the React app in `web/`); run it again after pulling changes. The dashboard serves the new view at **/next/** and the classic view at **/**. Both show the same jobs live and wear the theme you pick in the new view's Settings; each has a button to the other (**Classic view** / **New view**, on the same page).
 
 **Try it safely first:** `npm run demo` opens the dashboard on invented jobs with a *pretend* Foreman. Every button works and nothing real runs or costs anything. (If the real dashboard is already running, use `PORT=4478 npm run demo`.)
 
-**Use it for real:** `npm start`, then open **http://127.0.0.1:4477**. Stop it with **Ctrl+C**. Stopping the dashboard pauses any reply in progress; nothing is lost.
+**Use it for real:** `npm start`, then open **http://127.0.0.1:4477/next/**. Stop it with **Ctrl+C**. Stopping the dashboard pauses any reply in progress; nothing is lost.
 
 ## How it works, in one minute
 
@@ -93,16 +96,16 @@ Events land in `~/.feature-workshop/hook-events/events.jsonl`. Remove the entrie
 
 ### How much process a job gets
 
-**New job** asks how much process the job should get, and the job page's **How this job runs** lets you change it at any point (from the next stage):
+**New job** asks for the job's **level** (in both views), and you can change it later (the level chip in the new view's job header, or **Notes and options** in its job menu):
 
-| Flow | What runs | Foreman |
-|---|---|---|
-| **Quick** | A short plan in the first reply → you say go → build → checks → you try it → one reviewer → PRs. No spec or plan documents. | Opus |
-| **Small** | Spec → investigate → plan → build → test → review → PRs | Opus |
-| **Large** | Small plus a product interview (refine) | Fable |
-| **Let the Foreman decide** | It sizes the job after the spec | Opus |
+| Level | What runs |
+|---|---|
+| **L0 Tweak** | One build, then the checks; you look at the diff. No plan to approve. |
+| **L1 Small** | A quick plan you approve, then build, checks, you try it, one reviewer. |
+| **L2 Standard** | A short spec and plan you approve, build in steps, the tester, you try it, 3–4 reviewers. |
+| **L3 Large** | Spec, product interview, investigation, a plan you approve, build in steps, the tester, you try it, every reviewer plus Fable. |
 
-Under **Fine-tune**: hand over documents you already have (a spec, findings, a plan, a test plan: give the full path, and that stage is skipped), skip stages, pick exactly which reviewers run and how many fix rounds, say you'll test it yourself, ask Fable for a second look at chosen points, and leave notes for the Foreman. **Have Fable check something** on the job page asks for a one-off Fable look at the plan, the code, the spec or the review. You still approve what gets built before any code changes, and every push and PR.
+Leave it unpicked and the Foreman proposes one in its first brief. **Notes and options** also hands over documents you already have, skips stages, picks reviewers, fix rounds, models and Fable second looks, and keeps notes for the Foreman. You still approve what gets built before any code changes.
 
 The options live in the job's private folder as `options.json`; the Foreman reads them before every stage (this needs the matching workflow update in `~/.claude/skills/feature/`).
 

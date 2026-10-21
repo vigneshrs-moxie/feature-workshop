@@ -1,41 +1,35 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="default">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Feature Workshop</title>
+  <title>Feature Workshop · classic view</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <!-- The new view's theme (tokens and page backgrounds, built by npm run web:build), then this page's own styles. -->
+  <link rel="stylesheet" href="/next/theme.css">
   <link rel="stylesheet" href="styles.css">
+  <script src="theme-boot.js"></script>
   <script type="module" src="app.js"></script>
 </head>
 <body>
   <header class="topbar">
     <a class="title" href="#/" aria-label="Feature Workshop, back to the map">
       <span id="foreman"></span>
-      <span><h1 id="title-text">Feature Workshop</h1><small>Your crew, your features, your turn</small></span>
+      <span class="title-words"><h1 id="title-text">Feature Workshop</h1><small>Your crew, your features, your turn</small></span>
     </a>
     <nav class="top-right" aria-label="Workshop controls">
-      <button class="btn new-job" id="new-job" type="button">+ New job</button>
+      <button class="btn new-job" id="new-job" type="button">New job</button>
       <a class="top-link" href="#/history" title="Turn a past Claude Code conversation into a job">History</a>
-      <a class="top-link" href="#/costs">Costs</a>
-      <a class="top-link" href="#/crew">Crew-dex</a>
+      <a class="top-link" href="#/costs" title="What your jobs have cost, with exports">Costs</a>
+      <a class="top-link" href="#/crew" title="Meet the crew">Crew-dex</a>
       <a class="needs-badge" id="needs-badge" href="#/" data-count="0">
         <span class="num" id="needs-num">0</span><span id="needs-label">need you</span>
       </a>
       <button class="icon-btn" id="alerts" type="button" aria-label="Alerts">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.6 1.8H4.4z" fill="currentColor"/><circle cx="12" cy="20.3" r="2" fill="currentColor"/></svg>
       </button>
-      <button class="clock" id="clock" type="button" title="Switch between 12-hour and 24-hour time">
-        <span class="clock-screen">
-          <span class="clock-time" id="clock-time" aria-hidden="true"></span>
-          <span class="clock-date" id="clock-date"></span>
-        </span>
-        <span class="clock-brand">WORKSHOP·GEAR</span>
-        <span class="visually-hidden" id="clock-label"></span>
-      </button>
-      <button class="icon-btn" id="theme" type="button" aria-label="Theme: automatic">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>
-      </button>
+      <a class="top-link" href="/next/#/settings" title="Theme, permissions, Play and alerts: the new view’s Settings. The theme you pick there is used here too.">Settings</a>
+      <a class="top-link to-new" id="to-new" href="/next/" title="Back to the new view, on the same page (key: n)">New view</a>
     </nav>
   </header>
 

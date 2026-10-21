@@ -74,76 +74,17 @@ export function bindPermissionCards(root, { onDone } = {}) {
   }
 }
 
-// ---------- Job options (shared by New job and the job page) ----------
+// ---------- The level (as on the new view's New job sheet) ----------
 
-/** The options form's fields. catalog: meta.jobOptions. o: the current options (or null for defaults). */
-export function optionsFields(catalog, o, { open = false } = {}) {
-  const flow = o?.flow ?? 'auto';
-  const cur = o ?? catalog.flows.find((f) => f.id === flow).defaults;
-  const checked = (on) => (on ? ' checked' : '');
-  const reviewersAuto = cur.reviewers === 'auto';
-  return `
-    <fieldset class="field flows"><legend>How much process?</legend>
-      ${catalog.flows.map((f) => `<label class="opt"><input type="radio" name="flow" value="${esc(f.id)}"${checked(f.id === flow)}><span><b>${esc(f.label)}</b><small>${esc(f.note)}</small></span></label>`).join('')}
+// L0 Tweak … L3 Large from meta.levels, or none yet: then the Foreman proposes one in its first
+// brief and you pick before anything is built. Stages, reviewers and Fable checks are fine-tuned
+// later in the new view (the job menu → Notes and options), as there.
+function levelFields(levels = []) {
+  return `<fieldset class="field flows"><legend>Level: how much process?</legend>
+      <label class="opt"><input type="radio" name="level" value="" checked><span><b>Let the Foreman suggest one</b><small>It proposes a level in its first brief, from the rules and what it finds. Nothing is built before you pick.</small></span></label>
+      ${levels.map((l) => `<label class="opt"><input type="radio" name="level" value="${esc(String(l.level))}"><span><b>${esc(l.label)}</b><small>${esc(l.hint)}</small></span></label>`).join('')}
     </fieldset>
-    <details class="more-opts"${open ? ' open' : ''}><summary>Fine-tune: documents you have, stages to skip, reviewers, Fable checks</summary>
-      <p class="fineprint">Picking a flow above resets these to its defaults.</p>
-      <fieldset class="field"><legend>I already have…</legend>
-        <p class="fineprint">Give the full path to the file. The crew uses yours instead of writing one, and skips that stage.</p>
-        ${catalog.providable.map((d) => `<label class="field inline"><span>${esc(d.label)}</span><input type="text" name="provided.${esc(d.id)}" value="${esc(cur.provided?.[d.id] ?? '')}" placeholder="/Users/you/…/${esc(d.id.replace('_', '-'))}.md" spellcheck="false"></label>`).join('')}
-      </fieldset>
-      <fieldset class="field checks"><legend>Skip these stages</legend>
-        ${catalog.skippable.map((st) => `<label><input type="checkbox" name="skip" value="${esc(st.id)}"${checked(cur.skip.includes(st.id))}> ${esc(st.label)}</label>`).join('')}
-        <p class="fineprint">You still approve what gets built before any code changes, and every push and PR.</p>
-      </fieldset>
-      <fieldset class="field"><legend>Reviewers</legend>
-        <label><input type="radio" name="reviewersMode" value="auto"${checked(reviewersAuto)}> The usual ones for this kind of change (the Foreman picks)</label>
-        <label><input type="radio" name="reviewersMode" value="list"${checked(!reviewersAuto)}> Only these:</label>
-        <div class="checks reviewer-list">${catalog.reviewers.map((r) => `<label title="${esc(r.what)}"><input type="checkbox" name="reviewers" value="${esc(r.id)}"${checked(!reviewersAuto && cur.reviewers.includes(r.id))}> ${esc(r.label)} <small>${esc(r.what)} · ${esc(r.model)}</small></label>`).join('')}</div>
-        <label class="field inline"><span>Fix rounds after review</span><select name="review_rounds"><option value="1"${cur.review_rounds === 1 ? ' selected' : ''}>1</option><option value="2"${cur.review_rounds === 2 ? ' selected' : ''}>2</option><option value="3"${cur.review_rounds === 3 ? ' selected' : ''}>3</option></select></label>
-      </fieldset>
-      <label class="check-line"><input type="checkbox" name="manual_test"${checked(cur.manual_test)}> I’ll try it myself on my computer before review (the <b>Try it on your computer</b> panel)</label>
-      <fieldset class="field checks"><legend>Ask Fable for a second look</legend>
-        ${catalog.fablePoints.map((x) => `<label><input type="checkbox" name="fable_checks" value="${esc(x.id)}"${checked(cur.fable_checks.includes(x.id))}> ${esc(x.label)}</label>`).join('')}
-        <p class="fineprint">Each check is a short, separate Fable read of just that document or change, not a Fable Foreman. You can also ask for one any time from the job page.</p>
-      </fieldset>
-      <label class="field"><span>Notes for the Foreman (optional)</span><textarea name="notes" rows="2" maxlength="1000" placeholder="e.g. Keep the PR small. Don’t touch the email templates.">${esc(cur.notes ?? '')}</textarea></label>
-    </details>`;
-}
-
-/** Read the options form back into an options object. */
-export function readOptionsForm(form) {
-  const fd = new FormData(form);
-  const provided = {};
-  for (const [k, v] of fd.entries()) if (k.startsWith('provided.') && String(v).trim()) provided[k.slice(9)] = String(v).trim();
-  return {
-    flow: fd.get('flow') ?? 'auto',
-    skip: fd.getAll('skip'),
-    provided,
-    reviewers: fd.get('reviewersMode') === 'list' ? fd.getAll('reviewers') : 'auto',
-    review_rounds: Number(fd.get('review_rounds') ?? 1),
-    manual_test: fd.get('manual_test') === 'on',
-    fable_checks: fd.getAll('fable_checks'),
-    notes: String(fd.get('notes') ?? ''),
-  };
-}
-
-/** Wire the form: picking a flow resets the fine-tuning to its defaults; ticking a reviewer picks "only these". */
-export function bindOptionsForm(form, catalog, { onFlow } = {}) {
-  form.addEventListener('change', (e) => {
-    if (e.target.name === 'flow') {
-      const d = catalog.flows.find((f) => f.id === e.target.value)?.defaults;
-      if (!d) return;
-      for (const box of $$('input[name=skip]', form)) box.checked = d.skip.includes(box.value);
-      for (const box of $$('input[name=fable_checks]', form)) box.checked = d.fable_checks.includes(box.value);
-      for (const box of $$('input[name=reviewers]', form)) box.checked = Array.isArray(d.reviewers) && d.reviewers.includes(box.value);
-      $(`input[name=reviewersMode][value=${d.reviewers === 'auto' ? 'auto' : 'list'}]`, form).checked = true;
-      $('input[name=manual_test]', form).checked = d.manual_test;
-      $('select[name=review_rounds]', form).value = String(d.review_rounds);
-      onFlow?.(catalog.flows.find((f) => f.id === e.target.value));
-    }
-    if (e.target.name === 'reviewers') $('input[name=reviewersMode][value=list]', form).checked = true;
-  });
+    <p class="fineprint">Fine-tune stages, reviewers and Fable checks later in the new view: the job menu → Notes and options.</p>`;
 }
 
 // ---------- Start a job ----------
@@ -163,11 +104,11 @@ export async function openNewJob(meta, { onStarted, from = null, canContinue = f
         <label class="opt"><input type="radio" name="fromMode" value="summary" checked><span><b>Fresh Foreman with a summary</b><small>Recommended. The Foreman reads a short extract (what you asked, the files changed, the branch, how it ended), saved as history.md in the job’s private folder. Cheap, and a clean start.</small></span></label>
         <label class="opt"><input type="radio" name="fromMode" value="continue"${canContinue && from.repo ? '' : ' disabled'}><span><b>Continue that conversation</b><small>${canContinue && from.repo ? `A copy of the conversation becomes the Foreman, so it remembers everything said. Your original stays as it was. Costs more: ${tokens ? `about ${esc(tokens)} tokens` : 'the whole conversation'} re-read on every reply.` : from.repo ? 'Not available here (demo or a custom history folder).' : 'Only for conversations that ran inside a repository.'}</small></span></label>
       </fieldset>` : '';
-  const lastModel = meta.models[0].id; // follows the flow you pick; change it here for this job
+  const lastModel = meta.models[0].id;
   const m = modal(`
     <form class="newjob">
       <h2>Start a new job</h2>
-      <p class="lede">Describe it in a line and pick how much process it gets. Nothing in your code changes until you approve what will be built.${from ? '' : ' <a href="#/history" data-close-to-history>Or start from a past conversation →</a>'}</p>
+      <p class="lede">Describe it in a line and pick its level. Nothing in your code changes until you approve what will be built.${from ? '' : ' <a href="#/history" data-close-to-history>Or start from a past conversation →</a>'}</p>
       ${fromBlock}
       <label class="field"><span>What should the crew build or fix?</span>
         <textarea name="description" rows="2" required minlength="4" maxlength="600" autofocus placeholder="e.g. Add a Copy ID button next to the ticket ID on the admin ticket page">${esc(from ? from.title.slice(0, 600) : '')}</textarea></label>
@@ -178,7 +119,7 @@ export async function openNewJob(meta, { onStarted, from = null, canContinue = f
       <label class="field"><span>Repository</span>
         <select name="repo">${repos.map((r) => `<option value="${esc(r.path)}"${r.path === lastRepo ? ' selected' : ''}>${esc(r.name)} — ${esc(r.path)}</option>`).join('')}<option value="__other"${!repos.length || lastRepo === '__other' ? ' selected' : ''}>Another folder…</option></select></label>
       <label class="field other-repo" ${repos.length && lastRepo !== '__other' ? 'hidden' : ''}><span>Folder path</span><input name="repoPath" type="text" placeholder="/Users/you/Projects/your-repo"></label>
-      ${optionsFields(meta.jobOptions, null)}
+      ${levelFields(meta.levels)}
       <fieldset class="field models"><legend>Foreman model</legend>
         ${meta.models.map((x) => `<label class="opt"><input type="radio" name="model" value="${esc(x.id)}"${x.id === lastModel ? ' checked' : ''}><span><b>${esc(x.label)}</b><small>${esc(x.note)}</small></span></label>`).join('')}
       </fieldset>
@@ -189,9 +130,6 @@ export async function openNewJob(meta, { onStarted, from = null, canContinue = f
   const form = $('form', m.box);
   const sel = $('select[name=repo]', form);
   sel.addEventListener('change', () => { $('.other-repo', form).hidden = sel.value !== '__other'; });
-  let modelTouched = false;
-  form.addEventListener('change', (e) => { if (e.target.name === 'model') modelTouched = true; });
-  bindOptionsForm(form, meta.jobOptions, { onFlow: (f) => { if (!modelTouched) { const r = $(`input[name=model][value="${f.model}"]`, form); if (r) r.checked = true; } } });
   $('[data-close]', form).addEventListener('click', () => m.close());
   $('[data-close-to-history]', form)?.addEventListener('click', () => m.close());
   form.addEventListener('submit', async (e) => {
@@ -203,7 +141,7 @@ export async function openNewJob(meta, { onStarted, from = null, canContinue = f
     btn.textContent = 'Starting…';
     try {
       const fromSession = from ? { id: from.id, mode: fd.get('fromMode') === 'continue' ? 'continue' : 'summary' } : undefined;
-      const res = await postJson('/api/jobs', { description: fd.get('description'), kind: fd.get('kind'), repoPath, model: fd.get('model'), options: readOptionsForm(form), fromSession });
+      const res = await postJson('/api/jobs', { description: fd.get('description'), kind: fd.get('kind'), repoPath, model: fd.get('model'), options: fd.get('level') ? { level: Number(fd.get('level')) } : {}, fromSession });
       prefs.set('lastRepo', repoPath);
       m.close();
       toast(`${icon('bolt', 18)} Job started. The Foreman is reading your request.`, { tone: 'good' });

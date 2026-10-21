@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classicHref, hrefFor, jobHref, parseHash } from './router';
+import { classicHref, hrefFor, jobHref, openFromHash, parseHash } from './router';
 
 describe('hash router', () => {
   it.each([
@@ -50,5 +50,13 @@ describe('hash router', () => {
   it('links into the classic view at /', () => {
     expect(classicHref.job('x y')).toBe('/#/job/x%20y');
     expect(classicHref.costs()).toBe('/#/costs');
+  });
+
+  it('reads what the classic view asks to open after the route', () => {
+    expect(openFromHash('#/?open=new-job')).toBe('new-job');
+    expect(openFromHash('#/job/alpha?open=options')).toBe('options');
+    expect(openFromHash('#/job/alpha?theme=glass&open=options')).toBe('options');
+    expect(parseHash('#/job/alpha?open=options')).toEqual({ name: 'job', slug: 'alpha' });
+    for (const hash of ['#/', '#/job/alpha', '#/?open=settings', '#/?theme=glass', '']) expect(openFromHash(hash)).toBeNull();
   });
 });

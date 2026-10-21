@@ -1,4 +1,4 @@
-import { $, $$, esc, prefs, since, ago, duration, plural, usd, fmtTokens, modelLabel, getJson, postJson, setToken, toast } from './ui.js';
+import { $, $$, esc, prefs, since, ago, duration, plural, usd, fmtTokens, modelLabel, getJson, postJson, setToken, toast, THEMES, HIDDEN_THEMES, newViewHref } from './ui.js';
 import { sprite, icon, renderMap, STAGE_CHARACTER } from './crew.js';
 import { pixelText } from './pixelfont.js';
 import { initJob, showJob, currentJobSlug } from './job.js';
@@ -14,50 +14,54 @@ let seenPermissions = new Set();
 
 const agentName = (type) => (type === 'conductor' ? 'Foreman' : meta?.agents[type]?.name ?? type ?? 'A helper');
 
-// ---------- Clock (Game Boy style) ----------
+// ---------- Theme: the one picked in the new view (theme-boot.js put it on before the page drew) ----------
 
-function startClock() {
-  const timeEl = $('#clock-time');
-  const dateEl = $('#clock-date');
-  const labelEl = $('#clock-label');
-  let use24 = prefs.get('clock24', 'no') === 'yes';
-  const pad = (n) => String(n).padStart(2, '0');
-  const render = () => {
-    const now = new Date();
-    let h = now.getHours();
-    let ampm = '';
-    if (!use24) { ampm = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; }
-    const colon = `<span class="colon">${pixelText(':', { px: 3, label: ':' })}</span>`;
-    timeEl.innerHTML = `${pixelText(use24 ? pad(h) : String(h), { px: 3 })}${colon}${pixelText(pad(now.getMinutes()), { px: 3 })}${colon}${pixelText(pad(now.getSeconds()), { px: 3 })}${ampm ? `<span class="ampm">${pixelText(ampm, { px: 1.6 })}</span>` : ''}`;
-    dateEl.textContent = now.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
-    labelEl.textContent = `Local time ${now.toLocaleTimeString(undefined, { hour12: !use24 })}. Click to switch to ${use24 ? '12' : '24'}-hour time.`;
-  };
-  $('#clock').addEventListener('click', () => { use24 = !use24; prefs.set('clock24', use24 ? 'yes' : 'no'); render(); });
-  render();
-  setTimeout(() => { render(); setInterval(render, 1000); }, 1000 - (Date.now() % 1000));
+// The two hidden themes (the Play layer) go on only once the play ledger says they're unlocked,
+// with Play on, as in the new view. Picking a theme in the new view in another tab shows here too.
+let unlocked = {};
+function applyTheme() {
+  const wanted = new URLSearchParams(location.search).get('theme') || prefs.get('theme', 'default');
+  const ok = THEMES.includes(wanted) || (HIDDEN_THEMES.includes(wanted) && unlocked[wanted] === true);
+  document.documentElement.dataset.theme = ok ? wanted : 'default';
+}
+async function startTheme() {
+  window.addEventListener('storage', (e) => { if (e.key === 'workshop.theme') applyTheme(); });
+  try {
+    const play = await getJson('/api/play');
+    unlocked = play?.mode && play.mode !== 'off' ? play.unlocks ?? {} : {};
+  } catch { unlocked = {}; }
+  applyTheme();
 }
 
-// ---------- Theme ----------
+// ---------- Back to the new view, on the same page ----------
 
-function startTheme() {
-  const btn = $('#theme');
-  const order = ['auto', 'light', 'dark'];
-  const names = { auto: 'automatic (follows your system)', light: 'day', dark: 'night' };
-  const forced = new URLSearchParams(location.search).get('theme'); // ?theme=light|dark previews without saving
-  let theme = order.includes(forced) ? forced : prefs.get('theme', 'auto');
-  const apply = () => {
-    if (theme === 'auto') delete document.documentElement.dataset.theme;
-    else document.documentElement.dataset.theme = theme;
-    btn.setAttribute('aria-label', `Theme: ${names[theme]}. Click to change.`);
-    btn.title = `Theme: ${names[theme]}`;
-  };
-  btn.addEventListener('click', () => { theme = order[(order.indexOf(theme) + 1) % order.length]; prefs.set('theme', theme); apply(); });
-  apply();
+function startNewViewLink() {
+  const link = $('#to-new');
+  const paint = () => { link.href = newViewHref(location.hash); };
+  window.addEventListener('hashchange', paint);
+  paint();
+  // n: back to the new view (not while typing, and not with a modifier key).
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'n' || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+    if (e.target.closest?.('input, textarea, select, [contenteditable="true"]') || document.body.classList.contains('has-modal')) return;
+    location.href = newViewHref(location.hash);
+  });
 }
 
 // ---------- What is going on with a job (shared by the board and the job page) ----------
 
-const PILL = { needs: 'Your turn', working: 'Working', blocked: 'Blocked', done: 'Done', idle: 'Resting' };
+const PILL = { needs: 'Your turn', working: 'Working', blocked: 'Idle', done: 'Done', idle: 'Idle' };
+/** The status word on a job's pill, the same as the new view's (web/src/panes/Jobs/jobStatus.ts). */
+export function pillLabel(f, tone) {
+  if (f.starting) return 'Starting';
+  if (f.closed) return f.closed.as === 'done' ? 'Done' : 'Dropped';
+  if (tone === 'needs') {
+    if (f.waitingFor === 'permission') return (f.permissions ?? 0) > 1 ? `${f.permissions} permissions` : 'Permission';
+    return f.waitingFor === 'answers' ? 'Question' : f.waitingFor === 'approval' ? 'Go-ahead' : 'Your turn';
+  }
+  if (f.limitPaused) return 'Paused';
+  return PILL[tone] ?? 'Idle';
+}
 const VERB = {
   conductor: 'is checking the work', 'feature-spec-writer': 'is writing the spec', 'feature-investigator': 'is investigating the code',
   'feature-planner': 'is drawing up the plan', 'feature-implementer': 'is building', 'feature-tester': 'is running the checks',
@@ -89,9 +93,9 @@ export function situation(f) {
   if (f.limitPaused) return { tone: 'idle', main: '<b>Paused</b> for Claude’s usage limit.', detail: f.limitAuto ? `It carries on by itself at about ${clockTime(f.limitPaused)}.` : 'Automatic carry-on is off: use “Carry on now” at the top of the page once the limit has reset.', crew: [], bubble: null };
   if (f.paused) return { tone: 'idle', main: '<b>Paused.</b> Nothing is running.', detail: 'You paused this from the workshop. Send the Foreman a message to carry on.', crew: [], bubble: null };
   if (f.stageState === 'working') return { tone: 'working', main: '<b>The crew</b> is working', detail: f.nextProposed, crew: [], bubble: 'dots' };
-  if (f.stageState === 'blocked') return { tone: 'blocked', main: '<b>Blocked:</b> waiting on someone else', detail: f.nextProposed, crew: [], bubble: null };
+  if (f.stageState === 'blocked') return { tone: 'blocked', main: '<b>Waiting</b> on someone else', detail: f.nextProposed, crew: [], bubble: null };
   if (f.stageState === 'done') return { tone: 'done', main: '<b>Done!</b> This job is finished.', detail: null, crew: [], bubble: 'badge' };
-  return { tone: 'idle', main: '<b>Resting.</b> Nothing is running.', detail: f.nextProposed ? `Next: ${f.nextProposed}` : null, crew: [], bubble: null };
+  return { tone: 'idle', main: '<b>Idle.</b> Nothing is running.', detail: f.nextProposed ? `Next: ${f.nextProposed}` : null, crew: [], bubble: null };
 }
 
 const clockTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -210,7 +214,7 @@ function card(f) {
   const coins = `<span class="coins" title="${esc(f.cost.source === 'estimate' ? 'Cost so far, estimated from token counts' : 'Cost so far')}">${icon('coin', 18)}${esc(usd(f.cost.totalUsd, f.cost.source))}</span>`;
   const flags = f.unconfirmed ? `<p class="say-flag">★ ${esc(plural(f.unconfirmed, 'thing'))} decided for you. Please check.</p>` : '';
   return `<a class="route gbox state-${sit.tone}" href="#/job/${encodeURIComponent(f.slug)}" data-key="${esc(f.slug)}">
-    <div class="route-head"><span class="types">${type}${size}</span><h3>${esc(f.title)}</h3><span class="pill pill-${sit.tone}"><i class="led" aria-hidden="true"></i>${esc(f.starting ? 'Starting' : PILL[sit.tone])}</span></div>
+    <div class="route-head"><span class="types">${type}${size}</span><h3>${esc(f.title)}</h3><span class="pill pill-${sit.tone}"><i class="led" aria-hidden="true"></i>${esc(pillLabel(f, sit.tone))}</span></div>
     ${f.repo?.branch ? `<p class="route-sub">branch <code>${esc(f.repo.branch)}</code></p>` : !f.repo && !f.starting ? '<p class="route-sub warn-text">Repository not known yet: open the job to pick it</p>' : ''}
     ${renderMap(meta.stages, f, sit, { agentName, size: 104, coins })}
     <div class="say gbox say-${sit.tone}">
@@ -253,8 +257,8 @@ const HOWTO = () => `<details class="howto gbox" id="howto"${prefs.get('howto', 
   <div class="howto-body">
     <div>${sprite('conductor', { size: 64 })}<p><strong>You talk to the Foreman.</strong> Start a job with <b>New job</b> (or <code>/feature</code> in Claude Code). The Foreman hands each stage to a crew member and checks their work.</p></div>
     <div>${sprite('feature-planner', { size: 64, state: 'working' })}<p><strong>Each card is one job.</strong> The crew walks the path from Spec to PR 3 and stops after each stage so you can check it.</p></div>
-    <div>${sprite('feature-reviewer', { size: 64, state: 'waiting' })}<p><strong>Red card with “!”: your turn.</strong> Open it to answer, approve, or click Allow or Deny for something a worker wants to do.</p></div>
-    <div>${sprite('feature-implementer', { size: 64, state: 'asleep' })}<p><strong>Green: working. Grey: resting. Gold: done.</strong> Nothing changes in your code without your click. <a href="#/crew">Meet the crew</a>.</p></div>
+    <div>${sprite('feature-reviewer', { size: 64, state: 'waiting' })}<p><strong>A card with “!”: your turn.</strong> Open it to answer, approve, or click Allow or Deny for something a worker wants to do.</p></div>
+    <div>${sprite('feature-implementer', { size: 64, state: 'asleep' })}<p><strong>Each job says where it is in words: Working, Go-ahead, Question, Idle or Done.</strong> Nothing changes in your code without your click. <a href="#/crew">Meet the crew</a>.</p></div>
   </div>
 </details>`;
 
@@ -351,7 +355,7 @@ function renderCrew() {
   const busy = new Set(board.features.flatMap((f) => f.nowDoing.map((a) => a.who)));
   $('#app').innerHTML = `<section class="crewdex">
     <a class="back" href="#/">◀ Back to the map</a>
-    <div class="crew-head gbox"><h2 class="display">Crew-dex</h2><p>Everyone in the workshop. Hover over a crew member to see them at work. A green light means they’re on a job right now.</p></div>
+    <div class="crew-head gbox"><h2 class="display">Crew-dex</h2><p>Everyone in the workshop. Hover over a crew member to see them at work. “Working now” means they’re on a job right now.</p></div>
     <ol class="crew-grid">${order.map((type, i) => {
       const a = meta.agents[type];
       const m = meta.crewModels[type];
@@ -444,13 +448,12 @@ let soon = null;
 const refreshSoon = () => { clearTimeout(soon); soon = setTimeout(refresh, 250); };
 
 async function init() {
-  startClock();
+  startNewViewLink();
   startTheme();
-  $('#foreman').innerHTML = sprite('conductor', { size: 52, label: 'Foreman', state: 'idle' });
-  $('#title-text').innerHTML = pixelText('Feature Workshop', { px: 3 });
+  $('#foreman').innerHTML = sprite('conductor', { size: 30, label: 'Foreman', state: 'idle' });
   meta = await getJson('/api/meta');
   setToken(meta.token);
-  initJob({ meta, agentName, situation, pillText: (tone) => PILL[tone], walk });
+  initJob({ meta, agentName, situation, pillText: (tone, f) => pillLabel(f, tone), walk });
   $('#new-job').addEventListener('click', () => openNewJob(meta, { onStarted: (res) => { location.hash = `#/job/${encodeURIComponent(res.slug)}`; refreshSoon(); } }));
   const bell = $('#alerts');
   const paintBell = () => { bell.classList.toggle('on', alerts.notify || alerts.sound); bell.setAttribute('aria-label', `Alerts: ${alerts.notify || alerts.sound ? 'on' : 'off'}. Click to change.`); };

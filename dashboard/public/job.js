@@ -2,7 +2,7 @@
 
 import { $, $$, esc, since, ago, duration, when, plural, usd, fmtTokens, modelLabel, vscodeHref, prefs, getJson, postJson, toast, modal } from './ui.js';
 import { sprite, renderMap, stageShort, STAGE_CHARACTER } from './crew.js';
-import { permissionCard, bindPermissionCards, optionsFields, readOptionsForm, bindOptionsForm } from './panels.js';
+import { permissionCard, bindPermissionCards } from './panels.js';
 import { composeReply } from '/shared/compose.js';
 import { mountLocal } from './local.js';
 
@@ -101,7 +101,7 @@ function skeleton(d) {
 
 function renderTop(d) {
   const sit = ctx.situation(d);
-  const pill = `<span class="pill pill-${sit.tone}"><i class="led" aria-hidden="true"></i>${esc(ctx.pillText(sit.tone))}</span>`;
+  const pill = `<span class="pill pill-${sit.tone}"><i class="led" aria-hidden="true"></i>${esc(ctx.pillText(sit.tone, d))}</span>`;
   const where = d.repoPath
     ? `<span title="${esc(d.locate?.source ? `Found from ${d.locate.source}` : '')}"><b>${esc(d.repoPath.split('/').pop())}</b></span>${d.branch ? `<span>branch <code>${esc(d.branch)}</code>${d.locate?.branchExists === false ? ' <span class="muted">(not created yet)</span>' : ''}</span>` : ''}${d.worktree ? `<a href="${esc(vscodeHref(d.worktree))}">Open the job’s worktree in VS Code</a>` : `<a href="${esc(vscodeHref(d.repoPath))}">Open in VS Code</a>`}<button type="button" class="linklike" data-change-repo>Change</button>`
     : '<span class="warn-text">Repository not known yet</span><button type="button" class="linklike" data-change-repo>Choose it</button>';
@@ -127,39 +127,13 @@ function renderOptions(d) {
   const closed = d.closedEarlier ? `<p class="notice closed-note">You marked this job ${d.closedEarlier.as === 'done' ? 'done' : 'dropped'} ${esc(when(d.closedEarlier.at))}, but it has changed since, so it’s back on the board. <button class="btn small" type="button" data-opts="reopen">Keep it open</button></p>`
     : d.closed ? `<p class="notice closed-note"><b>${d.closed.as === 'done' ? 'Marked done' : 'Dropped'}</b> ${esc(when(d.closed.at))}${d.closed.note ? `: “${esc(d.closed.note)}”` : ''}.${d.closed.worktreeRemoved ? ` Its worktree was removed; the branch is kept.` : ''} It’s off the board, in Finished. <button class="btn small" type="button" data-opts="reopen">Reopen</button></p>` : '';
   setHtml('#job-opts', `${closed}<h3>How this job runs</h3>
-    ${lines ? `<ul>${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : `<p class="muted">No options set: the Foreman follows its usual flow${d.route ? ` (${esc(d.route)})` : ''}. Set them to skip stages, pick reviewers or ask for Fable checks.</p>`}
+    ${lines ? `<ul>${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : `<p class="muted">No options set: the Foreman follows its usual flow${d.route ? ` (${esc(d.route)})` : ''}. Set them in the new view to change the level, skip stages, pick reviewers or ask for Fable checks.</p>`}
     <div class="opts-actions">
-      <button class="btn small" type="button" data-opts="edit">${lines ? 'Change' : 'Set options'}</button>
+      <a class="btn small" href="/next/#/job/${encodeURIComponent(d.slug)}?open=options" title="Opens Notes and options for this job in the new view: the level, stages, reviewers, models and notes.">${lines ? 'Change' : 'Set options'} in the new view</a>
       <button class="btn small ghost" type="button" data-opts="fable">Have Fable check something</button>
       ${d.closed ? '' : '<button class="btn small ghost" type="button" data-opts="close" title="Take it off the board when it’s finished, waiting on someone else’s merge, or not going ahead">Mark as done…</button>'}
     </div>
     <p class="fineprint">Changes take effect from the next stage; the Foreman reads them before every stage.</p>`);
-}
-
-function editOptions(d) {
-  const catalog = ctx.meta.jobOptions;
-  const m = modal(`<form class="newjob"><h2>How this job runs</h2>${optionsFields(catalog, d.options, { open: true })}
-    <p class="form-error" role="alert" hidden></p>
-    <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Save</button></div></form>`, { label: 'How this job runs' });
-  const form = $('form', m.box);
-  bindOptionsForm(form, catalog);
-  $('[data-close]', form).addEventListener('click', () => m.close());
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const btn = $('button[type=submit]', form);
-    btn.disabled = true;
-    try {
-      await postJson(`/api/job/${encodeURIComponent(d.slug)}/options`, { options: readOptionsForm(form) });
-      m.close();
-      toast('Saved. The Foreman follows these from the next stage.', { tone: 'good' });
-      showJob(d.slug, { quiet: true });
-    } catch (err) {
-      const box = $('.form-error', form);
-      box.hidden = false;
-      box.textContent = err.message;
-      btn.disabled = false;
-    }
-  });
 }
 
 function closeJob(d) {
@@ -345,17 +319,22 @@ function quickRow() {
     <button type="button" class="chip-btn" data-quick="risks">Any risks?</button></div>`;
 }
 
+// The permission setting in force, in the new view's words (web/src/components/permissions/policies.ts).
+// The buttons change your global setting, like Settings in the new view; a job with its own setting
+// is changed from that job's menu in the new view.
+const POLICY_LABEL = { 'ask-all': 'Ask about everything', 'hands-off': 'Routine steps automatic', auto: 'Auto mode' };
+const POLICY_NOTE = {
+  'ask-all': 'Every step that needs permission comes to you as a card.',
+  'hands-off': 'Reading, the job’s own records and (once you approve a plan) building and checks in its worktree run by themselves. Everything else asks.',
+  auto: 'Claude Code’s safety model judges each step and asks you only about what it can’t decide. Hard lines still ask.',
+};
+
 function policyLine(d) {
-  // The buttons below change your global setting, so a job with its own setting gets none.
-  if (d.policyOverride) {
-    const what = { auto: 'Auto mode: Claude Code’s safety model decides each step; pushes, PRs, deletes and migrations still ask you.', 'ask-all': 'You approve every step.' }[d.policyOverride]
-      ?? 'Routine steps run on their own; you’re asked only about risky ones.';
-    return `<p class="policy-line">${what} This job has its own setting; change it in the new view (/next).</p>`;
-  }
-  if (d.policy === 'auto') return '<p class="policy-line">Auto mode: Claude Code’s safety model decides each step; pushes, PRs, deletes and migrations still ask you. Change it in the new view (/next). <button type="button" class="linklike" data-policy="ask-all">Ask me about every step instead</button></p>';
-  return d.policy === 'ask-all'
-    ? '<p class="policy-line">You approve every step. <button type="button" class="linklike" data-policy="hands-off">Let routine steps run on their own</button></p>'
-    : '<p class="policy-line">Routine steps run on their own; you’re asked only about risky ones. <button type="button" class="linklike" data-policy="ask-all">Ask me about every step instead</button></p>';
+  const policy = POLICY_LABEL[d.policy] ? d.policy : 'hands-off';
+  const now = `<b>${POLICY_LABEL[policy]}.</b> ${POLICY_NOTE[policy]}`;
+  if (d.policyOverride) return `<p class="policy-line">${now} This job has its own setting: <a href="/next/#/job/${encodeURIComponent(d.slug)}">change it in the new view</a>.</p>`;
+  const others = Object.keys(POLICY_LABEL).filter((p) => p !== policy && !(p === 'auto' && d.autoMode?.available === false));
+  return `<p class="policy-line">${now} Switch to ${others.map((p) => `<button type="button" class="linklike" data-policy="${p}">${POLICY_LABEL[p]}</button>`).join(' or ')}.</p>`;
 }
 
 function terminalOpenNote(d) {
@@ -616,7 +595,7 @@ function bindStatic() {
   bindIdLinks($('#job-thread'));
   root.addEventListener('click', async (e) => {
     const opt = e.target.closest('[data-opts]');
-    if (opt) return ({ edit: editOptions, fable: askFable, close: closeJob, reopen: reopenJob })[opt.dataset.opts]?.(current);
+    if (opt) return ({ fable: askFable, close: closeJob, reopen: reopenJob })[opt.dataset.opts]?.(current);
     const q = e.target.closest('[data-quick]');
     if (q) return reviewAndSend(current, 'message', QUICK[q.dataset.quick]);
     const brief = e.target.closest('[data-brief]');
@@ -646,7 +625,7 @@ function bindStatic() {
     }
     const pol = e.target.closest('[data-policy]');
     if (pol) {
-      try { await postJson('/api/settings', { policy: pol.dataset.policy }); toast(pol.dataset.policy === 'ask-all' ? 'You’ll be asked about every step.' : 'Routine steps now run on their own.', { tone: 'good' }); showJob(current.slug, { quiet: true }); }
+      try { await postJson('/api/settings', { policy: pol.dataset.policy }); toast(`Permission setting: ${POLICY_LABEL[pol.dataset.policy] ?? pol.dataset.policy}.`, { tone: 'good' }); showJob(current.slug, { quiet: true }); }
       catch (err) { toast(esc(err.message), { tone: 'bad' }); }
     }
   });

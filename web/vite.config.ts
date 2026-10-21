@@ -9,6 +9,7 @@ import { defineConfig } from 'vitest/config';
 import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { tokensCss } from './src/theme/tokens.ts';
+import { classicThemeCss } from './src/theme/classicSheet.ts';
 
 const target = process.env.WORKSHOP_URL || 'http://127.0.0.1:4477';
 
@@ -25,9 +26,25 @@ function themeTokens(): Plugin {
   };
 }
 
+// Writes dist/theme.css for the classic view (dashboard/public/index.html links /next/theme.css), so
+// it wears the theme you picked here: the tokens, each theme's page-level rules and its fonts, in
+// the order themes/index.css imports them (src/theme/classicSheet.ts).
+function classicTheme(): Plugin {
+  const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+  return {
+    name: 'workshop-classic-theme',
+    apply: 'build',
+    generateBundle() {
+      const themes = [...read('./src/theme/themes/index.css').matchAll(/@import\s+'\.\/([\w-]+\.css)'/g)].map((m) => m[1]);
+      const files = [{ name: 'tokens.css', css: read('./src/theme/tokens.css') }, ...themes.map((f) => ({ name: `themes/${f}`, css: read(`./src/theme/themes/${f}`) }))];
+      this.emitFile({ type: 'asset', fileName: 'theme.css', source: classicThemeCss(files) });
+    },
+  };
+}
+
 export default defineConfig({
   base: '/next/',
-  plugins: [themeTokens(), react()],
+  plugins: [themeTokens(), classicTheme(), react()],
   build: {
     outDir: 'dist',
     emptyOutDir: true,

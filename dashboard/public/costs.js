@@ -31,7 +31,7 @@ export async function showCosts(meta) {
     <section class="gbox pad"><h3>What if the Foreman ran on another model?</h3>
       <p class="muted">The Foreman (conductor) is often the biggest cost. These columns re-price the same tokens on each model, which makes comparing setups easy. A different model would also use a different number of tokens, so treat them as a guide.</p>
       <div class="table-wrap"><table><thead><tr><th>Job</th><th>Foreman, actual</th>${Object.values(meta.prices.models).map((m) => `<th>On ${esc(m.label)}</th>`).join('')}</tr></thead><tbody>
-        ${jobs.filter((j) => j.whatIf).map((j) => `<tr><td>${esc(j.title)}</td><td>${esc(usd(j.whatIf.actual))} <small class="muted">${esc(j.whatIf.actualModels.join(', '))}</small></td>${Object.keys(meta.prices.models).map((k) => `<td>≈${esc(usd(j.whatIf.alternatives[k]))}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="6" class="muted">No Foreman sessions found yet.</td></tr>'}
+        ${jobs.filter((j) => j.whatIf).map((j) => `<tr><td>${esc(j.title)}</td><td>${esc(usd(j.whatIf.actual))} <small class="muted">${esc(j.whatIf.actualModels.join(', '))}</small></td>${Object.keys(meta.prices.models).map((k) => `<td>${esc(usd(j.whatIf.alternatives[k], 'estimate'))}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="6" class="muted">No Foreman sessions found yet.</td></tr>'}
       </tbody></table></div>
     </section>
   </section>`;

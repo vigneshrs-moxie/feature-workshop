@@ -50,9 +50,26 @@ describe('App shell', () => {
     expect(screen.getByRole('tab', { name: 'Docs' })).toHaveAttribute('aria-selected', 'true');
     fireEvent.click(screen.getByRole('tab', { name: 'Classic view' }));
     expect(screen.getByRole('link', { name: 'Open this job in classic view' })).toHaveAttribute('href', '/#/job/beta');
+    // The top bar's Classic view opens the same job there; its New view button brings you back.
+    expect(within(document.querySelector<HTMLElement>('.topbar')!).getByRole('link', { name: 'Classic view' })).toHaveAttribute('href', '/#/job/beta');
     act(() => { window.location.hash = '#/'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     // Back home: the workshop floor (Play is on by default).
     expect(screen.getByRole('region', { name: 'On the floor' })).toBeInTheDocument();
+  });
+
+  it('opens what the classic view asks for (?open=), once, and drops it from the address', async () => {
+    window.location.hash = '#/job/beta?open=options';
+    renderApp(snapshot());
+    expect(await screen.findByRole('dialog', { name: 'Notes and options' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Options' })).toHaveAttribute('aria-selected', 'true');
+    expect(window.location.hash).toBe('#/job/beta');
+  });
+
+  it('opens the New job sheet from ?open=new-job', async () => {
+    window.location.hash = '#/?open=new-job';
+    renderApp(snapshot());
+    expect(await screen.findByRole('dialog', { name: /new job/i })).toBeInTheDocument();
+    expect(within(document.querySelector<HTMLElement>('.topbar')!).getByRole('link', { name: 'Classic view' })).toHaveAttribute('href', '/#/');
   });
 
   it('updates live from the stream', async () => {

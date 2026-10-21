@@ -10,6 +10,18 @@ export const prefs = {
   set(key, value) { try { localStorage.setItem(`workshop.${key}`, value); } catch { /* ignore */ } },
 };
 
+// The new view's themes (web/src/theme/theme.ts): the ones everyone has, and the two the play
+// ledger unlocks. theme-boot.js keeps its own copy of THEMES; a test checks all three agree.
+export const THEMES = ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass'];
+export const HIDDEN_THEMES = ['crt', 'gold'];
+
+/** The new view's address for where you are here (a location hash): the same job, the Crew-dex, or home. */
+export function newViewHref(hash = '') {
+  const m = /^#\/job\/([^/?]+)/.exec(hash);
+  if (m) return `/next/#/job/${m[1]}`;
+  return /^#\/crew\/?$/.test(hash) ? '/next/#/crew' : '/next/';
+}
+
 export function duration(ms) {
   const mins = Math.max(0, Math.round(ms / 60000));
   if (mins < 1) return 'just now';

@@ -46,6 +46,16 @@ export const achievementsHref = () => hrefFor({ name: 'achievements' });
 
 export const jobHref = (slug: string) => hrefFor({ name: 'job', slug });
 
+/**
+ * What the address asks to open once the page has loaded: ?open=new-job (the New job sheet) or
+ * ?open=options (the job's Notes and options), after the hash route. The classic view links here
+ * with them. null for anything else.
+ */
+export function openFromHash(rawHash: string): 'new-job' | 'options' | null {
+  const open = new URLSearchParams(/\?(.*)$/.exec(rawHash)?.[1] ?? '').get('open');
+  return open === 'new-job' || open === 'options' ? open : null;
+}
+
 /** Links into the old UI at / for features not rebuilt yet (decision D4). */
 export const classicHref = {
   home: () => '/#/',
