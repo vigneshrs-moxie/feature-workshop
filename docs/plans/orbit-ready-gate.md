@@ -53,7 +53,7 @@
   - an `rm -rf` whose every target is written out and sits inside the job's own worktree, its record folder or a temp folder.
 - The job's auto mode trust lines (`dashboard/lib/auto-env.js`), with tests: the job's repo and worktrees, your fork (`origin`) and the Moxie org repo (PRs only; the dashboard still refuses direct pushes and force pushes), and the job's record folder.
 
-**Waiting for your yes:** two small hookups that switch those rules on. Claude Code's own auto mode safety check refused to let me make them without your explicit OK, because they let some hard lines through without a card:
+**Switched on (your yes, 2026-10-21):** the two hookups. Claude Code's own auto mode safety check had refused them until you approved, because they let some hard lines through without a card:
 1. `dashboard/lib/driver.js`: in auto mode, when a hard line is covered by your go-ahead, allow it and log it under "Handled for you" instead of showing a card.
 2. `dashboard/server.js`: pass the coverage check and the job's trust lines to each Foreman session.
 
@@ -74,7 +74,7 @@ Org pushes and force pushes stay refused. On your history that is **1 card** whe
 
 ## What's next (each needs your yes)
 
-1. The two auto mode hookups above.
+1. ~~The two auto mode hookups above.~~ Done.
 2. Merge `redesign/orbit-ready` into `main`. It carries phase 1, phase 2, themes, Play, the floor and this round.
 3. Push the skill repo's two level commits (optional), and run `install.sh`, which backs up your current skills first.
 4. Set the permission setting to **Auto mode** (Settings → Permissions).

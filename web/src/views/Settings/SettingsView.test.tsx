@@ -114,7 +114,7 @@ describe('Settings: permissions', () => {
     expect(radios.map((r) => (r.closest('label') as HTMLElement).querySelector('.rule-option-kind')?.textContent)).toEqual(['Ask about everything', 'Routine steps automaticDefault', 'Auto mode']);
     expect(within(group).getByRole('radio', { name: /Routine steps automatic/ })).toBeChecked();
     for (const r of radios) expect(r.closest('label')).toHaveAttribute('title');
-    expect(document.querySelector('.policy-hard-lines')).toHaveTextContent(/always ask you, and pushes to the org repo or force pushes are refused/);
+    expect(document.querySelector('.policy-hard-lines')).toHaveTextContent(/ask you, and pushes to the org repo or force pushes are refused/);
     await screen.findByText(/No rules yet/);
   });
 

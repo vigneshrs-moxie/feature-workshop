@@ -119,7 +119,7 @@ function pushVerdict(args, dir = null) {
   if (ORG_REMOTES.includes(remote) || ORG_URL.test(remote)) return { decision: 'deny', line: 'org-push', reason: 'Pushing to the org repository is never allowed from the dashboard. Push to your fork (origin) instead.' };
   // remote ('' when the command names none) and dir (git -C) let orgPushCheck() look up where a
   // remote with another name really points.
-  return { decision: 'ask', line: 'git-push', reason: 'Pushing is a hard line: it always asks you, whatever the setting.', remote, dir };
+  return { decision: 'ask', line: 'git-push', reason: 'Pushing is a hard line: it asks you before it runs.', remote, dir };
 }
 
 function rmVerdict(args) {
@@ -131,10 +131,10 @@ function rmVerdict(args) {
     else if (a === '--force') f = true;
     else if (/^-[A-Za-z]+$/.test(a)) { if (/[rR]/.test(a)) r = true; if (a.includes('f')) f = true; }
   }
-  return r && f ? { decision: 'ask', line: 'rm-rf', reason: 'Deleting with rm -rf is a hard line: it always asks you, whatever the setting.' } : null;
+  return r && f ? { decision: 'ask', line: 'rm-rf', reason: 'Deleting with rm -rf is a hard line: it asks you before it runs.' } : null;
 }
 
-const DB = { decision: 'ask', line: 'database', reason: 'Database migrations are a hard line: they always ask you, whatever the setting.' };
+const DB = { decision: 'ask', line: 'database', reason: 'Database migrations are a hard line: they ask you before they run.' };
 
 function dbVerdict(cmd, rest) {
   // Any word naming a db:* or migration script, wherever it sits (npm run --silent db:reset,
@@ -170,7 +170,7 @@ function judgeWords(w) {
   }
   if (cmd === 'gh') {
     const [group, action] = ghSub(rest);
-    if (group === 'pr' && (action === 'create' || action === 'merge')) return { decision: 'ask', line: `gh-pr-${action}`, reason: `gh pr ${action} is a hard line: it always asks you, whatever the setting.` };
+    if (group === 'pr' && (action === 'create' || action === 'merge')) return { decision: 'ask', line: `gh-pr-${action}`, reason: `gh pr ${action} is a hard line: it asks you before it runs.` };
     return null;
   }
   if (cmd === 'rm') return rmVerdict(rest);
@@ -184,7 +184,7 @@ function judgeRaw(text) {
     return pushVerdict(words(tail).slice(1));
   }
   const pr = text.match(/\bgh\b[^\n;&|]*\bpr\s+(create|merge)\b/);
-  if (pr) return { decision: 'ask', line: `gh-pr-${pr[1]}`, reason: `gh pr ${pr[1]} is a hard line: it always asks you, whatever the setting.` };
+  if (pr) return { decision: 'ask', line: `gh-pr-${pr[1]}`, reason: `gh pr ${pr[1]} is a hard line: it asks you before it runs.` };
   if (/\brm\b[^\n;&|]*\s-(?:[A-Za-z]*[rR][A-Za-z]*f|[A-Za-z]*f[A-Za-z]*[rR])/.test(text) || /\brm\b[^\n;&|]*--recursive[^\n;&|]*--force|\brm\b[^\n;&|]*--force[^\n;&|]*--recursive/.test(text)) return rmVerdict(['-rf']);
   const pkgRuns = text.match(/\b(npm|pnpm|yarn|bun)\b[^\n;&|]*/gi) ?? [];
   if (pkgRuns.some((seg) => /\S*migrat/i.test(seg) || (seg.match(/\bdb:[\w:-]*/g) ?? []).some(isDbScript)) || /\b(prisma\s+(migrate|db\s+push)|drizzle-kit\s+(migrate|push)|supabase\s+(db\s+(push|reset)|migration))\b/.test(text)) return DB;

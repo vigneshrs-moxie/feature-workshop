@@ -244,12 +244,12 @@ describe('PermissionCard: hard lines and auto mode', () => {
   it('a hard line says so and offers no way to stop it asking', () => {
     setup([bash({
       input: { command: 'git push -u origin feature/x' }, plain: { headline: 'Run a command in the terminal', preview: 'git push -u origin feature/x' },
-      hardLine: { line: 'git-push', reason: 'Pushing is a hard line: it always asks you, whatever the setting.' },
+      hardLine: { line: 'git-push', reason: 'Pushing is a hard line: it asks you before it runs.' },
       canAllowForRun: false, draft: null,
     })]);
     const card = screen.getByRole('article', { name: 'Permission: Run a command in the terminal' });
     expect(within(card).getByText('Hard line')).toBeInTheDocument();
-    expect(within(card).getByText(/always asks you, whatever the setting/).closest('p')).toHaveAttribute('title');
+    expect(within(card).getByText(/asks you before it runs/).closest('p')).toHaveAttribute('title');
     expect(within(card).getByRole('button', { name: 'Allow once' })).toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: 'Always allow…' })).toBeNull();
     expect(within(card).queryByRole('button', { name: 'Allow for this reply' })).toBeNull();

@@ -199,14 +199,16 @@ export class Driver extends EventEmitter {
       stderr: (data) => { run.stderr.push(String(data)); if (run.stderr.length > 60) run.stderr.shift(); },
       additionalDirectories: run.additionalDirectories,
     };
-    if (this.settingsFor) {
-      try { const settings = await this.settingsFor(run); if (settings) options.settings = settings; } catch { /* the session starts without them */ }
-    }
     if (run.sessionId) options.resume = run.sessionId;
     if (run.model) options.model = run.model;
     if (this.cliPath) options.pathToClaudeCodeExecutable = this.cliPath;
 
     try {
+      if (this.settingsFor) {
+        try { const settings = await this.settingsFor(run); if (settings) options.settings = settings; } catch { /* the session starts without them */ }
+        // Stopped while the settings were read: there is no session to interrupt, so don't start one.
+        if (run.stopRequested) throw new Error('Stopped before it started.');
+      }
       const q = this.queryFn({ prompt: input(), options });
       run.query = q;
       run.status = 'running';
@@ -439,6 +441,15 @@ export class Driver extends EventEmitter {
     return result;
   }
 
+  // Allowed without a card (a routine step, a saved rule, or a hard line your go-ahead covers), and logged.
+  async #autoAllow(run, toolName, input, opts, verdict) {
+    const plain = describePermission(toolName, input, { cwd: run.cwd });
+    run.autoAllowed = (run.autoAllowed ?? 0) + 1;
+    await this.state.audit({ action: 'auto-allowed', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, tool: toolName, agentType: await this.#agentType(run, opts.agentID), headline: plain.headline, preview: (plain.preview ?? '').slice(0, 300) || undefined, reason: verdict.reason, rule: verdict.rule ?? undefined });
+    this.emit('run', this.view(run));
+    return { behavior: 'allow', updatedInput: input };
+  }
+
   async #askInner(run, toolName, input, opts) {
     // Hard lines first (the hook already did this; checked again in case it didn't run): a refusal
     // never asks, and an "ask" one is never settled by the routine list or a saved rule.
@@ -448,16 +459,17 @@ export class Driver extends EventEmitter {
       await this.#recordRefusal(run, toolName, input, hard, opts.toolUseID, opts.agentID);
       return { behavior: 'deny', message: hard.reason };
     }
+    // Auto mode: a hard line your own go-ahead already covers (lib/hard-lines.js goAheadCovers).
+    // Never a saved rule or the routine list: those don't apply to hard lines.
+    if (hard && this.cover) {
+      let covered = null;
+      try { covered = await this.cover(run, toolName, input); } catch { covered = null; }
+      if (covered) return this.#autoAllow(run, toolName, input, opts, { reason: covered.reason });
+    }
     if (this.policy && toolName !== 'AskUserQuestion' && !hard) {
       let verdict = null;
       try { verdict = await this.policy(run, toolName, input, opts); } catch { verdict = null; }
-      if (verdict?.auto) {
-        const plain = describePermission(toolName, input, { cwd: run.cwd });
-        run.autoAllowed = (run.autoAllowed ?? 0) + 1;
-        await this.state.audit({ action: 'auto-allowed', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, tool: toolName, agentType: await this.#agentType(run, opts.agentID), headline: plain.headline, preview: (plain.preview ?? '').slice(0, 300) || undefined, reason: verdict.reason, rule: verdict.rule ?? undefined });
-        this.emit('run', this.view(run));
-        return { behavior: 'allow', updatedInput: input };
-      }
+      if (verdict?.auto) return this.#autoAllow(run, toolName, input, opts, verdict);
     }
     const req = {
       id: randomUUID(), runId: run.id, slug: run.slug, featureDir: run.featureDir, title: run.title,

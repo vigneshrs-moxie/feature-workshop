@@ -42,6 +42,7 @@ import { DOC_MAX_BYTES, DocError, describeDoc, jsonHtml, listJobDocs, readJobDoc
 import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, crewHeaders, hexCommit, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from './lib/play.js';
 import { parseStatusJson } from './lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from './lib/auto-env.js';
+import { goAheadCovers } from './lib/hard-lines.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -76,7 +77,10 @@ const HOOK_SCRIPT = path.join(HERE, 'hooks', 'record.mjs');
 const queryFn = DEMO
   ? (await import('./demo/fake-query.js')).makeFakeQuery({ featuresDir: FEATURES_DIR })
   : (await import('@anthropic-ai/claude-agent-sdk')).query;
-const driver = new Driver({ queryFn, state, projectsDir: PROJECTS_DIR, cliPath: process.env.WORKSHOP_CLAUDE_PATH || null, policy: policyFor, modeFor: (run) => state.policyFor(run.featureDir) });
+const driver = new Driver({
+  queryFn, state, projectsDir: PROJECTS_DIR, cliPath: process.env.WORKSHOP_CLAUDE_PATH || null,
+  policy: policyFor, modeFor: (run) => state.policyFor(run.featureDir), cover: goAheadFor, settingsFor: sessionSettings,
+});
 // Whether auto mode works for this account, as the last reply that asked for it found out.
 driver.on('auto-mode', ({ available, reason = null }) => {
   (async () => {
@@ -134,9 +138,25 @@ async function jobContext(run) {
 
 // The Foreman session's own Claude Code settings: the job's auto mode environment (lib/auto-env.js),
 // so auto mode's safety model knows the job's repo, fork and org remote. Added to your settings.
+// Auto mode: does your go-ahead already cover this hard line (lib/hard-lines.js goAheadCovers)?
+async function goAheadFor(run, toolName, input) {
+  const { f, worktrees } = await jobContext(run);
+  return goAheadCovers(toolName, input, { mode: await state.policyFor(run.featureDir), stage: f?.stage ?? null, worktrees, featureDir: run.featureDir, cwd: run.cwd });
+}
+
+// Each repo's remotes, asked of git at most once a minute (they rarely change; every reply needs them).
+const remotesCache = new Map();
+function cachedRemotes(repo) {
+  const hit = remotesCache.get(repo);
+  if (hit && Date.now() - hit.at < 60_000) return hit.remotes;
+  const remotes = remotesOf(repo);
+  remotesCache.set(repo, { at: Date.now(), remotes });
+  return remotes;
+}
+
 async function sessionSettings(run) {
   const { f, repo, worktrees } = await jobContext(run);
-  const environment = autoModeEnvironment({ title: f?.title ?? run.title, slug: f?.slug ?? run.slug, repoPath: repo, worktrees, featureDir: run.featureDir }, await remotesOf(repo));
+  const environment = autoModeEnvironment({ title: f?.title ?? run.title, slug: f?.slug ?? run.slug, repoPath: repo, worktrees, featureDir: run.featureDir }, await cachedRemotes(repo));
   return environment.length ? { autoMode: { environment } } : null;
 }
 

@@ -130,3 +130,82 @@ test('auto env: reads the push remotes from git', async () => {
   assert.deepEqual(await remotesOf(path.join(repo, 'missing')), []);
   assert.deepEqual(await remotesOf(null), []);
 });
+
+// ---------- through the driver ----------
+
+import { Driver } from '../lib/driver.js';
+import { State } from '../lib/state.js';
+import { makeFakeQuery } from '../demo/fake-query.js';
+
+const until = (driver, runId, statuses) => new Promise((resolve) => {
+  const on = (r) => { if (r.id === runId && statuses.includes(r.status)) { driver.off('run', on); resolve(r); } };
+  driver.on('run', on);
+});
+
+test('driver: in auto mode a covered push runs without a card and is logged; other settings still ask', async () => {
+  const featuresDir = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-goahead-'));
+  for (const mode of ['auto', 'hands-off']) {
+    const state = new State(await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-goahead-state-')));
+    let settings = null;
+    const driver = new Driver({
+      queryFn: (args) => { settings = args.options.settings ?? null; return makeFakeQuery({ featuresDir })(args); },
+      state, projectsDir: '/nonexistent',
+      policy: async () => ({ auto: true, reason: 'Your saved rule: anything.' }), modeFor: async () => mode,
+      cover: async (run, tool, input) => goAheadCovers(tool, input, { mode, stage: 'pr1', worktrees: [], featureDir: run.featureDir, cwd: run.cwd }),
+      settingsFor: async () => ({ autoMode: { environment: ['**Trusted repo (this job)**: x'] } }),
+    });
+    driver.idleGraceMs = 30;
+    const cards = [];
+    driver.on('permission', (p) => { cards.push(p); setTimeout(() => driver.decide(p.id, { decision: 'allow' }), 5); });
+    const run = await driver.start({ featureDir: `/f/${mode}`, slug: mode, title: mode, cwd: '/repo', text: 'Please push the branch.' });
+    const done = await until(driver, run.id, ['done', 'error', 'stopped']);
+    assert.equal(done.status, 'done', `${mode}: ${done.error}`);
+    assert.deepEqual(settings, { autoMode: { environment: ['**Trusted repo (this job)**: x'] } }, 'the session gets the job’s settings');
+    const pushCard = cards.find((c) => c.input?.command?.startsWith('git push -u origin'));
+    const audit = await state.auditFor(`/f/${mode}`);
+    const allowed = audit.find((e) => e.action === 'auto-allowed' && /git push -u origin/.test(e.preview ?? ''));
+    if (mode === 'auto') {
+      // The hook stepped aside, so auto mode's safety model judged it (here, the pretend one allowed it).
+      assert.equal(pushCard, undefined, 'auto: no card for the covered push');
+    } else {
+      assert.ok(pushCard, 'hands-off: the push still asks');
+      assert.equal(allowed, undefined, 'a saved rule never allows a hard line');
+    }
+    const refused = audit.filter((e) => e.action === 'hard-line-refused');
+    assert.equal(refused.length, 1, `${mode}: the force push is still refused`);
+  }
+});
+
+// When Claude Code itself asks (your own "ask" rule for git push in ~/.claude/settings.json), the
+// request reaches the dashboard: a covered hard line is allowed and logged; an uncovered one asks.
+test('driver: a covered hard line that Claude Code asks about is allowed and logged under Handled for you', async () => {
+  const state = new State(await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-goahead-state-')));
+  const decisions = {};
+  const queryFn = ({ prompt, options }) => {
+    const gen = (async function* () {
+      await prompt[Symbol.asyncIterator]().next();
+      yield { type: 'system', subtype: 'init', session_id: 's-g', permissionMode: 'auto' };
+      const ask = (id, command) => options.canUseTool('Bash', { command }, { signal: new AbortController().signal, toolUseID: id, requestId: id, decisionReason: 'Your ask rule: Bash(git push *)' });
+      decisions.push = await ask('t1', 'git push -u origin feature/x');
+      decisions.merge = await Promise.race([ask('t2', 'gh pr merge 12'), new Promise((r) => setTimeout(() => r('card'), 300))]);
+      yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0 };
+    })();
+    gen.interrupt = async () => {};
+    return gen;
+  };
+  const driver = new Driver({
+    queryFn, state, projectsDir: '/nonexistent', modeFor: async () => 'auto',
+    cover: async (run, tool, input) => goAheadCovers(tool, input, { mode: 'auto', stage: 'pr1', worktrees: [], featureDir: run.featureDir, cwd: run.cwd }),
+  });
+  driver.idleGraceMs = 30;
+  const cards = [];
+  driver.on('permission', (p) => { cards.push(p); setTimeout(() => driver.decide(p.id, { decision: 'deny' }), 400); });
+  const run = await driver.start({ featureDir: '/f/g', slug: 'g', title: 'G', cwd: '/repo', text: 'go' });
+  await until(driver, run.id, ['done', 'error']);
+  assert.equal(decisions.push.behavior, 'allow');
+  assert.equal(decisions.merge, 'card', 'a merge still waits for you');
+  assert.deepEqual(cards.map((c) => c.hardLine?.line), ['gh-pr-merge']);
+  const allowed = (await state.auditFor('/f/g')).filter((e) => e.action === 'auto-allowed');
+  assert.equal(allowed.length, 1);
+  assert.match(allowed[0].reason, /approved the PR stage/);
+});

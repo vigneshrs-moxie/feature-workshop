@@ -101,7 +101,7 @@ export function PermissionCard({ permission: p, now, showJob = false }: { permis
         </p>
       ) : null}
       {p.hardLine ? (
-        <p className="perm-reason muted" title="Hard lines ask you every time, whatever your permission setting, and can’t be always allowed.">
+        <p className="perm-reason muted" title="Hard lines ask you before they run (in auto mode, unless your go-ahead covers them) and can’t be always allowed.">
           <span className="chip ask-label">Hard line</span> {p.hardLine.reason}
         </p>
       ) : p.decisionReason && (

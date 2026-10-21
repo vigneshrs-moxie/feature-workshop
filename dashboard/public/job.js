@@ -326,7 +326,7 @@ const POLICY_LABEL = { 'ask-all': 'Ask about everything', 'hands-off': 'Routine 
 const POLICY_NOTE = {
   'ask-all': 'Every step that needs permission comes to you as a card.',
   'hands-off': 'Reading, the job’s own records and (once you approve a plan) building and checks in its worktree run by themselves. Everything else asks.',
-  auto: 'Claude Code’s safety model judges each step and asks you only about what it can’t decide. Hard lines still ask.',
+  auto: 'Claude Code’s safety model judges each step and asks you only about what it can’t decide or what is very risky: merging, database changes, deleting outside the job, and pushes before you approve the PR stage.',
 };
 
 function policyLine(d) {
