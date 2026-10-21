@@ -64,7 +64,7 @@ export function NotifySettings() {
   }
 
   return (
-    <section aria-label="Notifications" className="notify-settings">
+    <section aria-label="Notifications" className="notify-settings" aria-busy={busy}>
       <h3 className="settings-heading" title="Notifications from the dashboard itself, so they reach you when this tab is closed or the browser is hidden.">Notifications</h3>
       <HowThisWorks id="notify-settings">
         <p>The dashboard tells macOS when something needs you, goes wrong or gets done, so you hear about it in any app, even with this tab closed. While you’re looking at the dashboard nothing pops (the page shows it already). A notification only opens the page: deciding stays here.</p>
@@ -77,7 +77,7 @@ export function NotifySettings() {
         </p>
       )}
       <label className="drawer-check" title="All notifications from the dashboard, on or off.">
-        <input type="checkbox" checked={n.enabled} disabled={busy} onChange={(e) => void save({ enabled: e.target.checked })} />
+        <input type="checkbox" checked={n.enabled} onChange={(e) => void save({ enabled: e.target.checked })} />
         <span>Send notifications to macOS</span>
       </label>
       <table className="notify-levels">
@@ -90,7 +90,7 @@ export function NotifySettings() {
                 <div className="home-seg" role="radiogroup" aria-label={`${l.label}: how it reaches you`}>
                   {MODES.map((m) => (
                     <label key={m.id} className={`home-seg-btn${n.levels[l.id] === m.id ? ' is-on' : ''}`} title={`${l.label}: ${m.label.toLowerCase()}.`}>
-                      <input className="sr-only" type="radio" name={`${id}-${l.id}`} checked={n.levels[l.id] === m.id} disabled={busy || !n.enabled} onChange={() => void save({ levels: { ...n.levels, [l.id]: m.id } })} />
+                      <input className="sr-only" type="radio" name={`${id}-${l.id}`} checked={n.levels[l.id] === m.id} disabled={!n.enabled} onChange={() => void save({ levels: { ...n.levels, [l.id]: m.id } })} />
                       {m.label}
                     </label>
                   ))}
@@ -102,15 +102,15 @@ export function NotifySettings() {
       </table>
       <div className="notify-quiet">
         <label className="drawer-check" title="Quiet hours: only problems show, without a sound.">
-          <input type="checkbox" checked={n.quiet.on} disabled={busy || !n.enabled} onChange={(e) => void save({ quiet: { ...n.quiet, on: e.target.checked } })} />
+          <input type="checkbox" checked={n.quiet.on} disabled={!n.enabled} onChange={(e) => void save({ quiet: { ...n.quiet, on: e.target.checked } })} />
           <span>Quiet hours from</span>
         </label>
-        <input type="time" aria-label="Quiet hours start" value={n.quiet.from} disabled={busy || !n.enabled} onChange={(e) => { if (e.target.value) void save({ quiet: { ...n.quiet, from: e.target.value } }); }} title="When quiet hours start." />
+        <input type="time" aria-label="Quiet hours start" value={n.quiet.from} disabled={!n.enabled} onChange={(e) => { if (e.target.value) void save({ quiet: { ...n.quiet, from: e.target.value } }); }} title="When quiet hours start." />
         <span>to</span>
-        <input type="time" aria-label="Quiet hours end" value={n.quiet.to} disabled={busy || !n.enabled} onChange={(e) => { if (e.target.value) void save({ quiet: { ...n.quiet, to: e.target.value } }); }} title="When quiet hours end." />
+        <input type="time" aria-label="Quiet hours end" value={n.quiet.to} disabled={!n.enabled} onChange={(e) => { if (e.target.value) void save({ quiet: { ...n.quiet, to: e.target.value } }); }} title="When quiet hours end." />
       </div>
       <label className="drawer-check" title="Nothing pops while this page is in front of you: it already shows what changed.">
-        <input type="checkbox" checked={n.skipWhenWatching} disabled={busy || !n.enabled} onChange={(e) => void save({ skipWhenWatching: e.target.checked })} />
+        <input type="checkbox" checked={n.skipWhenWatching} disabled={!n.enabled} onChange={(e) => void save({ skipWhenWatching: e.target.checked })} />
         <span>Not while I’m looking at the dashboard</span>
       </label>
       <div className="perm-actions">

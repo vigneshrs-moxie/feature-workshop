@@ -175,7 +175,7 @@ export function sortRows(rows: readonly TableRow[], key: SortKey, dir: 'asc' | '
 // ---------- the Desk ----------
 
 export type DeskItem =
-  | { kind: 'gate'; key: string; slug: string; title: string; what: string; since: string | null }
+  | { kind: 'gate'; key: string; slug: string; title: string; what: string; since: string | null; waitingFor: string }
   | { kind: 'permission' | 'question'; key: string; slug: string; title: string; what: string; since: string | null; permission: Permission };
 
 /**
@@ -187,7 +187,7 @@ export function deskQueue(jobs: readonly Job[], permissions: readonly Permission
   for (const j of jobs) {
     if (j.group !== 'needs-you' || j.waitingFor === 'permission' || !j.waitingFor) continue;
     const what = j.waitingFor === 'answers' ? 'Answer the Foreman’s questions' : j.waitingFor === 'approval' ? `Go-ahead${j.stage ? ` on ${stageLabel(j.stage)}` : ''}` : 'Reply to the Foreman';
-    items.push({ kind: 'gate', key: `gate:${j.slug}`, slug: j.slug, title: j.title || j.slug, what, since: typeof j.waitingSince === 'string' ? j.waitingSince : null });
+    items.push({ kind: 'gate', key: `gate:${j.slug}`, slug: j.slug, title: j.title || j.slug, what, since: typeof j.waitingSince === 'string' ? j.waitingSince : null, waitingFor: j.waitingFor });
   }
   for (const p of permissions) {
     const job = jobs.find((j) => j.slug === p.slug);
@@ -202,9 +202,13 @@ export function deskQueue(jobs: readonly Job[], permissions: readonly Permission
   return items.sort((a, b) => t(a.since) - t(b.since));
 }
 
-/** Whether a Desk item may be approved with one key: never a hard line or a step flagged risky. */
+/**
+ * Whether a Desk item may be approved with one key: a go-ahead with no questions, or a permission
+ * that is neither a hard line nor flagged risky. Never the Foreman's questions (a recommended answer
+ * still has to be read), nor a crew question. DeskView also checks the card itself for questions.
+ */
 export function oneKeyApprove(item: DeskItem): boolean {
-  if (item.kind === 'gate') return true;
+  if (item.kind === 'gate') return item.waitingFor === 'approval';
   if (item.kind === 'question') return false;
   return !item.permission.hardLine && !item.permission.defaultToNo;
 }

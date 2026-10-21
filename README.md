@@ -36,6 +36,30 @@ npm run web:build
 
 You talk to the **Foreman** and nobody else. It gives you a plain-language overview of each job, you approve, reject or advise, and routine steps happen without bothering you.
 
+**Home** (the new view's landing page, three views at the top):
+- **Map:** one lane per job, left to right the way its work travels. Your worktree → your fork → PR #1 → the Moxie branch → PR #2 → staging → the release PR → main. Each lane shows:
+  - the job's branch and status;
+  - how far ahead of and behind `main` it is (behind means: bring main in before the next push);
+  - commits not pushed and files not committed;
+  - each PR's state and checks (click one to open it on GitHub).
+
+  Staging says how many commits wait for the next release. The branches are fetched and the PRs read every 10 minutes (read-only: `git fetch` and `gh`), or now with **Refresh**.
+- **Table:** the same jobs as rows to sort, filter (Needs you, Running, In review, …) and search.
+- **Desk:** every decision waiting for you across all jobs, one at a time, oldest first.
+  - **j / k:** next or previous.
+  - **a:** approve the go-ahead or allow the permission once.
+  - **d:** deny.
+  - **o:** open the job.
+
+  Hard lines and risky steps are never one-key approved.
+
+**Notifications outside the browser** (Settings → Notifications):
+- **What sends them:** the dashboard itself, through macOS, so they reach you with the tab closed. That covers what needs you, problems (an error, the usage limit), and jobs reaching staging or main.
+- **What you can set:** each kind with a sound, silent or off; quiet hours; nothing while you're looking at the dashboard.
+- **Clicking one:** it opens that job.
+
+They need `brew install terminal-notifier`. macOS asks once: allow it in **System Settings → Notifications → terminal-notifier**. Until then the built-in notifier shows them, but a click can't open the job.
+
 **The job page, top to bottom:**
 - **The Foreman's overview:** where the job stands, what it needs from you, what to watch out for, and what's next. It comes from the Foreman's own latest brief (or, for older jobs, from the job's record), so you don't have to open plan or test files. **Ask the Foreman for a fresh overview** asks it directly.
 - **Heads-ups** the dashboard spots itself: the repository isn't known yet, the job's branch is checked out in your main folder (the Foreman builds in its own worktree, which needs that branch free), or Claude Code is open in this repository in a terminal.

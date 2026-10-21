@@ -47,12 +47,22 @@ const PRESENCE_EVERY_MS = 20_000;
 /** Tell the dashboard you're looking at the page, while you are. */
 export function usePresence(post: (path: string, body: unknown) => Promise<unknown>) {
   useEffect(() => {
-    const ping = () => { if (pageInView()) Promise.resolve().then(() => post('/api/presence', { visible: true })).catch(() => {}); };
+    const say = (visible: boolean) => Promise.resolve().then(() => post('/api/presence', { visible })).catch(() => {});
+    const ping = () => { if (pageInView()) void say(true); };
+    // Leaving the page (another tab, another app): notifications may pop again at once.
+    const left = () => { if (!pageInView()) void say(false); };
     ping();
     const timer = setInterval(ping, PRESENCE_EVERY_MS);
     window.addEventListener('focus', ping);
-    document.addEventListener('visibilitychange', ping);
-    return () => { clearInterval(timer); window.removeEventListener('focus', ping); document.removeEventListener('visibilitychange', ping); };
+    window.addEventListener('blur', left);
+    const onVisibility = () => (pageInView() ? ping() : left());
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', ping);
+      window.removeEventListener('blur', left);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [post]);
 }
 
@@ -73,7 +83,8 @@ export function useAlerts(state: WorkshopState) {
     const fresh = newAlerts(before, state);
     if (!fresh.length) return;
     if (readStored(CHIME_KEY) === 'on') alertOutputs.chime();
-    const macOS = state.meta?.settings?.notify?.enabled === true;
+    // The dashboard's own notifications tell you only where they can reach macOS (not in the demo).
+    const macOS = state.meta?.settings?.notify?.enabled === true && Boolean(state.meta?.notifyMethod);
     if (readStored(NOTIFY_KEY) === 'on' && !macOS && !pageInView()) for (const a of fresh) alertOutputs.notify(a);
   }, [state]);
 }

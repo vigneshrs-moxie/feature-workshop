@@ -4,9 +4,10 @@
 // next one opens.
 //
 // Keys (not while typing, and not with a dialog open):
-//   j / ↓  next          k / ↑  previous          o  open the job
+//   j  next          k  previous          o  open the job          (↓ and ↑ too, in the queue)
 //   a      approve (a gate's go-ahead, or Allow once): never for a hard line, a step Claude Code
-//          flagged as risky, or a question (those you answer on the card)
+//          flagged as risky, or a question (the Foreman's or the crew's: you answer those on the card)
+// After a decision the next item opens and its card takes the focus. A held key never repeats.
 //   d      deny a permission (opens its note)
 import { useEffect, useRef, useState } from 'react';
 import type { Job } from '../api/types';
@@ -57,10 +58,19 @@ export function DeskView({ items, now }: { items: DeskItem[]; now: Date }) {
   lastIndex.current = index;
   const panel = useRef<HTMLDivElement>(null);
   const job = current ? jobs.find((j) => j.slug === current.slug) ?? null : null;
+  // The one you decided on left the queue: the next one's card takes the focus.
+  const shownKey = current?.key ?? null;
+  const decided = currentKey !== null && !items.some((i) => i.key === currentKey);
+  useEffect(() => {
+    if (decided && shownKey) { setCurrentKey(shownKey); panel.current?.focus(); }
+  }, [decided, shownKey]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target) || document.querySelector('[aria-modal="true"]')) return;
+      if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || typing(e.target) || document.querySelector('[aria-modal="true"]')) return;
+      // Arrows only move the queue while it has the focus (elsewhere they scroll, or work a menu).
+      const inQueue = e.target instanceof Element && Boolean(e.target.closest('.desk-queue'));
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !inQueue) return;
       const key = e.key.toLowerCase();
       const move = (by: number) => { const next = items[Math.max(0, Math.min(items.length - 1, index + by))]; if (next) setCurrentKey(next.key); };
       // The card's own buttons: the gate's Approve, a permission's Allow once or Deny….
@@ -69,7 +79,8 @@ export function DeskView({ items, now }: { items: DeskItem[]; now: Date }) {
       if (key === 'j' || e.key === 'ArrowDown') move(1);
       else if (key === 'k' || e.key === 'ArrowUp') move(-1);
       else if (key === 'o' && current) navigate({ name: 'job', slug: current.slug });
-      else if (key === 'a' && current && oneKeyApprove(current)) click(current.kind === 'gate' ? '.gate-actions > .btn-primary:not(:disabled)' : '.perm-actions > .btn-primary:not(:disabled)');
+      // A gate card that still asks questions is answered on the card, whatever the job says.
+      else if (key === 'a' && current && oneKeyApprove(current) && !panel.current?.querySelector('.gate-question')) click(current.kind === 'gate' ? '.gate-actions > .btn-primary:not(:disabled)' : '.perm-actions > .btn-primary:not(:disabled)');
       else if (key === 'd' && current && current.kind === 'permission') click('.perm-actions > .btn-danger:not(:disabled)');
       else handled = false;
       if (handled) { e.preventDefault(); e.stopPropagation(); }
@@ -108,7 +119,7 @@ export function DeskView({ items, now }: { items: DeskItem[]; now: Date }) {
         </ol>
         <p className="muted desk-keys">j / k: next and previous · a: approve · d: deny · o: open the job</p>
       </nav>
-      <section className="desk-current" aria-label={current ? `${current.title}: ${current.what}` : 'Decision'} ref={panel}>
+      <section className="desk-current" aria-label={current ? `${current.title}: ${current.what}` : 'Decision'} ref={panel} tabIndex={-1}>
         {current && (
           <>
             <header className="desk-current-head">

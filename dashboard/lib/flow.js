@@ -169,13 +169,20 @@ export function laneOf(job, jf, repoFacts) {
   const pr1 = twoStep ? pickPr(prs.filter((p) => p.base === jf?.branch && fromFork(p))) : null;
   const toStaging = hasStaging ? pickPr(prs.filter((p) => p.base === 'staging')) : null;
   const toMain = pickPr(prs.filter((p) => p.base === 'main'));
-  const pr2 = toStaging ?? (!hasStaging ? toMain : null);
+  let pr2 = toStaging ?? (!hasStaging ? toMain : null);
+  // A new round of work: a PR #1 opened (or merged) after the last merge into staging. That merge
+  // was an earlier round's; this round hasn't reached staging yet, so it isn't the arrow's PR now.
+  const newRound = pr1 && pr2?.state === 'merged' && pr1.number > pr2.number && pr1.state !== 'closed';
+  if (newRound) pr2 = null;
   let position = 'local';
   if (jf?.fork?.exists) position = 'fork';
-  if (twoStep && (pr1?.state === 'merged' || jf?.org?.exists)) position = 'org';
-  if (hasStaging && toStaging?.state === 'merged') position = 'staging';
-  if (hasStaging && toStaging?.state === 'merged' && toStaging.mergeCommit && repoFacts.inMain?.[toStaging.mergeCommit]) position = 'main';
-  if (!hasStaging && toMain?.state === 'merged') position = 'main';
+  if ((twoStep && (pr1?.state === 'merged' || jf?.org?.exists)) || (repoFacts.org && !repoFacts.fork && jf?.org?.exists)) position = 'org';
+  if (newRound) position = pr1.state === 'merged' ? 'org' : jf?.fork?.exists ? 'fork' : position;
+  else {
+    if (hasStaging && toStaging?.state === 'merged') position = 'staging';
+    if (hasStaging && toStaging?.state === 'merged' && toStaging.mergeCommit && repoFacts.inMain?.[toStaging.mergeCommit]) position = 'main';
+    if (!hasStaging && toMain?.state === 'merged') position = 'main';
+  }
   return {
     slug: job.slug, title: job.title ?? null, branch: jf?.branch ?? job.branch ?? null, worktree: jf?.worktree ?? null,
     position, reached: POSITIONS.indexOf(position),
@@ -220,26 +227,49 @@ export class FlowWatch extends EventEmitter {
     this.running = null;
     this.again = null;
     this.timers = [];
+    this.fetching = false; // a network refresh is under way (local recounts don't count)
+    this.nextFetch = null; // the timer for the next network refresh
+    this.lastSent = null;
   }
 
   view() {
-    return { repos: this.repos, fetchedAt: this.fetchedAt, checkedAt: this.checkedAt, refreshing: Boolean(this.running), nextFetchAt: this.fetchedAt ? new Date(Date.parse(this.fetchedAt) + this.networkEveryMs).toISOString() : null };
+    return { repos: this.repos, fetchedAt: this.fetchedAt, checkedAt: this.checkedAt, refreshing: this.fetching, nextFetchAt: this.fetchedAt ? new Date(Date.parse(this.fetchedAt) + this.networkEveryMs).toISOString() : null };
   }
 
-  /** Refresh now. network: also fetch and read PRs. One at a time; a request during one runs after it. */
+  // 'flow' only when what the page shows changed (local recounts every minute usually change nothing).
+  #emit() {
+    const v = this.view();
+    const key = JSON.stringify({ r: v.repos, f: v.fetchedAt, x: v.refreshing });
+    if (key === this.lastSent) return;
+    this.lastSent = key;
+    this.emit('flow', v);
+  }
+
+  /** Refresh now. network: also fetch and read PRs. One at a time; a request during one runs after it. Never rejects. */
   refresh({ network = false } = {}) {
     if (this.running) {
       this.again = { network: network || Boolean(this.again?.network) };
       return this.running;
     }
-    this.running = this.#refresh(network).finally(() => {
+    if (network) { this.fetching = true; this.#scheduleFetch(); }
+    this.running = this.#refresh(network).catch((err) => { this.emit('problem', err); }).finally(() => {
       this.running = null;
+      if (network) this.fetching = false;
+      this.#emit();
       const next = this.again;
       this.again = null;
       if (next) this.refresh(next);
     });
-    this.emit('flow', this.view());
+    this.#emit();
     return this.running;
+  }
+
+  // The next network refresh is due networkEveryMs after this one (a Refresh restarts the wait).
+  #scheduleFetch() {
+    if (!this.started) return;
+    clearTimeout(this.nextFetch);
+    this.nextFetch = setTimeout(() => this.refresh({ network: true }), this.networkEveryMs);
+    this.nextFetch.unref?.();
   }
 
   async #refresh(network) {
@@ -261,15 +291,16 @@ export class FlowWatch extends EventEmitter {
     const at = new Date(this.now()).toISOString();
     this.checkedAt = at;
     if (network) this.fetchedAt = at;
-    this.emit('flow', { ...this.view(), refreshing: false });
   }
 
+  /** A local pass first (the map shows at once), then the network; then every 10 min and every minute. */
   start() {
+    this.started = true;
+    this.refresh({ network: false });
     this.refresh({ network: true });
-    this.timers.push(setInterval(() => this.refresh({ network: true }), this.networkEveryMs));
     this.timers.push(setInterval(() => this.refresh({ network: false }), this.localEveryMs));
     for (const t of this.timers) t.unref?.();
   }
 
-  stop() { for (const t of this.timers) clearInterval(t); this.timers = []; }
+  stop() { this.started = false; clearTimeout(this.nextFetch); for (const t of this.timers) clearInterval(t); this.timers = []; }
 }

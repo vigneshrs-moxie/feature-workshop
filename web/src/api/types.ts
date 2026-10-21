@@ -595,6 +595,8 @@ export interface OptionsResult {
 export interface Meta {
   token: string;
   demo?: boolean;
+  /** How the dashboard's notifications reach macOS here; null where they can't (or in the demo). */
+  notifyMethod?: 'terminal-notifier' | 'osascript' | null;
   /** The Foreman models you can choose, the everyday one first. */
   models?: ModelChoice[];
   settings?: Settings;

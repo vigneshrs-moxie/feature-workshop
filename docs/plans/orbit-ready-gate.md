@@ -107,3 +107,95 @@ Left as they are:
 **After the fixes:**
 - `npm test` 299/299 and `npm run web:test` 575/575;
 - the new view's demo walk-through passes 34/34 with no console errors.
+
+## Round 2: Home, the Desk and notifications (2026-10-21)
+
+**Asked for:**
+- A home page showing where every job is as a flowchart: each box shows its branch and how far ahead or behind main and staging it is, with arrows on into staging and main.
+- Ideas borrowed from the "Kingdom Orchestrator UI" wireframes where they make the work faster.
+- Notifications outside the browser.
+- Usability first.
+
+Plan: `docs/plans/home-map-2026-10-21.md`. Screenshots: `docs/design/home-2026-10-21/`.
+
+**Your choices:**
+- terminal-notifier (installed with brew);
+- Home as the full-width landing page;
+- Desk and Table views;
+- a background refresh every 10 minutes, plus Refresh.
+
+**Taken from the wireframes:**
+- the flow map (their "Prefecture" board);
+- the one-at-a-time decision queue ("King's desk");
+- the table view ("Ledger");
+- notifications with levels, quiet hours, a test and a history ("Messengers").
+
+**Left out:** their naming and look, and the parts you didn't pick (health warnings, a New job per repo row).
+
+- **Home (`#/`), full width.**
+  - **Map · Table · Desk** at the top. The top bar's **Desk** button shows how many decisions wait. The brand goes back Home.
+  - **Map:** one section per repo, one lane per job: worktree → fork → PR #1 → Moxie branch → PR #2 → staging → release PR → main.
+    - **Job boxes:** the crew member, status, stage, branch, **main ↑ahead ↓behind**, commits not pushed, and uncommitted files.
+    - **PR chips:** state, checks and review, linking to GitHub.
+    - **Staging:** "N commits waiting for release" and the open release PR.
+    - **Placing:** where a job is comes from its PRs, because squash merges hide the branch's commits. Checked on your real repo: 10 Orbit jobs placed; staging is 102 commits ahead of main.
+  - **"What needs you":** the Foreman's list and the waiting cards, as a band above the map, or beside it on wide screens.
+- **Table (`#/table`):**
+  - columns: job, repo, branch, level, stage, status, where, vs main, PR #1, PR #2, updated;
+  - sort by any column; filters (All, Needs you, Running, Idle, In review, Done) and search;
+  - ↑/↓ move between rows, Enter opens one;
+  - the sort and filter are remembered.
+- **Desk (`#/desk`):**
+  - **The queue:** every go-ahead, question and permission across all jobs, oldest first.
+  - **Each item:** the job page's own gate or permission card, with the brief one click away.
+  - **Keys:**
+    - j / k: next and previous;
+    - a: approve, or allow once;
+    - d: deny;
+    - o: open the job.
+  - **Limits:** a and d never act while you type or with a dialog open, and never approve a hard line, a step flagged as risky, or a question.
+- **Notifications outside the browser** (`dashboard/lib/notify.js`, Settings → Notifications).
+  - **Levels:**
+    - **Needs you:** a go-ahead, question or permission, or a decision parked 4 h.
+    - **Problems:** an error, or the usage limit.
+    - **Done:** reached staging or main, or marked done.
+  - Each level is sound, silent or off. Quiet hours.
+  - Nothing pops while you're looking at the page (it pings the dashboard while visible). The browser's own notifications step aside meanwhile.
+  - Send a test, and the last 50 kept.
+  - Nothing that was already waiting when the dashboard started gets announced.
+  - **One step for you:** allow terminal-notifier in System Settings → Notifications. Until then each one goes through macOS's built-in notifier, which can't open the job on click, and Settings says so.
+  - **Clicking:** opens the job in your default browser, starting it if needed, in a new tab.
+- **Server:**
+  - `lib/flow.js`: git read-only (a fetch every 10 minutes, local counts every minute and when jobs change) and one `gh pr list` per org repo.
+  - `GET /api/flow`, `POST /api/flow/refresh`, a `flow` event, and invented facts in the demo.
+  - Nothing writes to a repo or to GitHub.
+
+**Tests (real run):**
+- `npm test` 311/311 and `npm run web:test` 585/585.
+- `tsc` clean.
+- Demo walk-through 26/26, including a real test notification to this Mac (shown with the fallback, as terminal-notifier isn't allowed yet), with no console errors.
+
+**Independent review of round 2:** 1 blocker, 6 majors and 9 minors. All are fixed, except one minor that is noted below.
+- **Blocker:** on the Desk, `a` approved a gate that still asked the Foreman's questions (sending the recommended answers unread). Now `a` approves only a plain go-ahead, never questions, and also checks the card itself.
+- **Majors:**
+  - **Later rounds of work:** a PR #1 merged again after the last merge into staging (a later round of work) now shows as on the Moxie branch, not "In staging". Seen on your real `field-ops-collection-rate`.
+  - **Done flood after a bad start:** "Done" notifications compare only against a map whose PRs were read without errors. A start-up while offline no longer floods you.
+  - **Go-ahead notice:** it is now also checked when a reply ends, so it fires when the Foreman closes into a gate.
+  - **Leaving the page:** the page tells the dashboard when you leave it, so notifications pop at once. The browser's own notifications step aside only where the dashboard can actually reach macOS (never in the demo or off a Mac).
+  - **Doubles and extra loads:** one waiting-check at a time (no doubled notices), and one shared job load for the background watchers.
+  - **Fewer flow events:** the flow event goes out only when the map changed, and isn't kept in the replay buffer.
+- **Minors:**
+  - **Notification settings:** keep the focus while saving.
+  - **Desk keys:** they ignore a held key; ↑ and ↓ act only in the queue; the next card takes the focus after a decision.
+  - **Refresh:** restarts the 10-minute wait; "Reading…" shows only for real reads.
+  - **Errors:** a failing refresh never stops the dashboard.
+  - **Start-up:** a local pass first, so the map shows at once.
+  - **Org-only clones:** a clone of the org repo with no fork is placed correctly.
+  - **Notification text:** permission text is cut to 100 characters.
+- **Left as is:** a permission's one-line description still appears in the notification and its history. It's useful, and macOS hides previews on the lock screen if you set it to.
+
+**After the fixes:**
+- `npm test` 315/315 (new: the server's flow routes, a job told once and never at start-up, presence and settings);
+- `npm run web:test` 586/586;
+- `tsc` clean;
+- the demo walk-through passes 26/26.

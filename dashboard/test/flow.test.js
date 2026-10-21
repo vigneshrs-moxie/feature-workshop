@@ -125,6 +125,15 @@ test('flow: laneOf places a job from its PRs and refs', () => {
   assert.equal(place(rf([pr(1, 'feature/x', 'merged'), pr(2, 'staging', 'open')]), jf({ fork: { exists: true } })), 'org');
   assert.equal(place(rf([pr(1, 'feature/x', 'merged'), pr(2, 'staging', 'merged', { mergeCommit: 'm' })]), jf()), 'staging');
   assert.equal(place(rf([pr(2, 'staging', 'merged', { mergeCommit: 'm' })], { inMain: { m: true } }), jf()), 'main');
+  // A new round: PR #1 merged again after the last merge into staging (#129, then #130–#134): that
+  // round is on the org branch, not in staging; the old staging PR is no longer the arrow's.
+  const rounds = rf([pr(129, 'staging', 'merged', { mergeCommit: 'm' }), pr(130, 'feature/x', 'merged'), pr(134, 'feature/x', 'merged')], { inMain: { m: true } });
+  assert.equal(place(rounds, jf({ fork: { exists: true } })), 'org');
+  assert.equal(laneOf({ slug: 'x' }, jf(), rounds).pr2, null);
+  assert.equal(place(rf([pr(129, 'staging', 'merged', { mergeCommit: 'm' }), pr(140, 'feature/x', 'open')]), jf({ fork: { exists: true } })), 'fork', 'a new PR #1 still open');
+  assert.equal(place(rf([pr(129, 'staging', 'merged', { mergeCommit: 'm' }), pr(120, 'feature/x', 'merged')]), jf()), 'staging', 'the merge into staging came after');
+  // A clone of the org repo only (no fork): a branch on the org is on the org branch.
+  assert.equal(place({ org: { slug: 'org/app' }, fork: null, staging: { ref: 's' }, prs: [], inMain: {} }, jf({ org: { exists: true } })), 'org');
   // A repo with no org remote and no staging: fork → main.
   const simple = { org: null, fork: { owner: 'me' }, staging: null, prs: [pr(4, 'main', 'merged')], inMain: {} };
   assert.equal(place(simple, jf({ fork: { exists: true } })), 'main');
@@ -159,4 +168,20 @@ test('flow: FlowWatch refreshes one at a time and emits the view', async () => {
   assert.equal(v.fetchedAt, '2026-10-21T12:00:00.000Z');
   assert.equal(v.nextFetchAt, '2026-10-21T12:10:00.000Z');
   assert.deepEqual(seen.slice(0, 2), [true, false]);
+  // A local recount that changes nothing sends nothing, and never says it is reading.
+  const before = seen.length;
+  await watch.refresh({ network: false });
+  assert.equal(seen.length, before);
+});
+
+test('flow: a failing refresh never rejects, and the next one still runs', async () => {
+  let n = 0;
+  const watch = new FlowWatch({ jobsFor: async () => { n++; if (n === 1) throw new Error('boom'); return []; } });
+  const problems = [];
+  watch.on('problem', (e) => problems.push(e.message));
+  await watch.refresh({ network: true });
+  assert.deepEqual(problems, ['boom']);
+  await watch.refresh({ network: false });
+  assert.equal(n, 2);
+  assert.equal(watch.view().refreshing, false);
 });

@@ -72,6 +72,7 @@ describe('homeModel', () => {
     const q = deskQueue(jobs, perms);
     expect(q.map((i) => i.key)).toEqual(['perm:p2', 'gate:gate', 'perm:p1', 'gate:ask', 'perm:q1']);
     expect(q.find((i) => i.key === 'gate:gate')?.what).toBe('Go-ahead on Plan');
-    expect(q.map(oneKeyApprove)).toEqual([false, true, true, true, false]);
+    // a hard line, a go-ahead, a permission, the Foreman's questions, a crew question
+    expect(q.map(oneKeyApprove)).toEqual([false, true, true, false, false]);
   });
 });

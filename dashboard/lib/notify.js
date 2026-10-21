@@ -133,6 +133,8 @@ export class Notifier {
 
   /** The page is visible (it says so every half minute while it is). */
   seen() { this.watchingAt = this.now().getTime(); }
+  /** The page went to the background: notifications may pop again at once. */
+  unseen() { this.watchingAt = 0; }
   get watching() { return this.now().getTime() - this.watchingAt < WATCHING_MS; }
 
   async method() { return this.methodPromise; }

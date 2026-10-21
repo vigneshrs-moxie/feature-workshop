@@ -221,6 +221,10 @@ async function features() {
   return list;
 }
 const featureBySlug = async (slug) => (await features()).find((f) => f.slug === slug) ?? null;
+// For the background watchers (the flow map, notifications) that all wake on the same change: one
+// load shared between them instead of one each.
+let sharedLoad = null;
+const featuresShared = () => (sharedLoad ??= features().finally(() => { sharedLoad = null; }));
 
 // The spec and artifact versions each brief was raised at (lib/gate.js RaisedVersions), noted
 // whenever the jobs are read. The gate card compares them with the versions now (gate.stale).
@@ -887,6 +891,8 @@ async function meta() {
   return {
     token: TOKEN, stages: STAGES, agents: AGENTS, prices: { asOf: PRICES_AS_OF, models: PRICES },
     featuresDir: FEATURES_DIR, crewModels: await crewModels(), demo: DEMO, models: MODELS, readDirs: await readDirs(),
+    // How notifications reach macOS here (null: they can't, or the demo, which sends only the test).
+    notifyMethod: DEMO ? null : await notifier.method(),
     settings: await state.getSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT },
     jobOptions: { flows: Object.entries(FLOWS).map(([id, f]) => ({ id, label: f.label, note: f.note, model: f.model, defaults: defaultsFor(id) })), skippable: SKIPPABLE, providable: PROVIDABLE, reviewers: REVIEWERS, fablePoints: FABLE_POINTS,
       // The options editor's model choices: the Foreman's (FOREMAN_MODEL_IDS) and the crew's (MODEL_IDS), with names.
@@ -1085,6 +1091,7 @@ async function routePost(urlPath, req, res) {
   if (urlPath === '/api/presence') {
     // The page is visible: notifications that it shows anyway don't pop on macOS meanwhile.
     if (body.visible === true) notifier.seen();
+    else if (body.visible === false) notifier.unseen();
     return sendJson(res, 200, { ok: true });
   }
   if (urlPath === '/api/notifications/test') {
@@ -1534,12 +1541,14 @@ driver.on('run', (run) => { cached = null; broadcast('run', run); events.emit('r
 // Open jobs, and jobs closed in the last 30 days (their work may still be on its way to main).
 const FLOW_CLOSED_DAYS = 30;
 const flow = new FlowWatch({
-  jobsFor: async () => (await features())
+  jobsFor: async () => (await featuresShared())
     .filter((f) => !f.closed || Date.now() - Date.parse(f.closed.at ?? 0) < FLOW_CLOSED_DAYS * 86400000)
     .map((f) => ({ slug: f.slug, title: f.title, branch: f.branch, worktree: f.worktree, repoPath: f.repoPath, stage: f.stage ?? null, closed: f.closed ?? null })),
   gather: DEMO ? (await import('./demo/fake-flow.js')).fakeFlow : gatherRepo,
 });
-flow.on('flow', (view) => { events.emit('flow', null, view); if (!view.refreshing) flowNotices(view); });
+// Live only (not kept for replay): a page that reconnects fetches the map again.
+flow.on('flow', (view) => { events.emit('flow', null, view, { replay: false }); if (!view.refreshing) flowNotices(view); });
+flow.on('problem', (err) => console.error('flow:', err));
 
 // ---------- Notifications outside the browser (lib/notify.js) ----------
 
@@ -1550,8 +1559,19 @@ async function tell(n) {
 // A job that has just started waiting for you (a go-ahead, a question, a reply). Permissions are
 // told as they arrive (below). What was already waiting when the dashboard started never tells.
 let waitingBefore = null;
-async function checkWaiting() {
-  const cards = await boardCards(await features());
+let checking = null;
+let checkAgain = false;
+// One check at a time; a request during one runs once after it (so a job is never told twice).
+function checkWaiting() {
+  if (checking) { checkAgain = true; return checking; }
+  checking = checkWaitingNow().catch(() => {}).finally(() => {
+    checking = null;
+    if (checkAgain) { checkAgain = false; checkWaiting(); }
+  });
+  return checking;
+}
+async function checkWaitingNow() {
+  const cards = await boardCards(await featuresShared());
   const now = new Map(cards.filter((c) => c.needsYou && c.waitingFor !== 'permission').map((c) => [c.slug, c]));
   if (waitingBefore) {
     for (const [slug, c] of now) {
@@ -1562,10 +1582,13 @@ async function checkWaiting() {
   }
   waitingBefore = new Set(now.keys());
 }
-// A job's work reached staging or main (the flow map's position moved on).
+// A job's work reached staging or main (the flow map's position moved on). Only from a repo whose
+// PRs were read without errors: after a refresh that couldn't read them (offline at start-up, gh
+// not signed in), every job would seem to move at once.
 const placeBefore = new Map();
 function flowNotices(view) {
   for (const r of view.repos) {
+    if (!r.prsKnown || r.errors?.length) continue;
     for (const l of r.lanes) {
       const was = placeBefore.get(l.slug);
       placeBefore.set(l.slug, l.position);
@@ -1574,9 +1597,12 @@ function flowNotices(view) {
     }
   }
 }
-driver.on('permission', (p) => tell({ level: 'needs', title: p.title ?? p.slug, body: p.kind === 'question' ? 'A question for you.' : `Permission: ${p.plain?.headline ?? p.toolName}`, slug: p.slug, key: `perm:${p.id}` }));
+driver.on('permission', (p) => tell({ level: 'needs', title: p.title ?? p.slug, body: p.kind === 'question' ? 'A question for you.' : `Permission: ${String(p.plain?.headline ?? p.toolName).slice(0, 100)}`, slug: p.slug, key: `perm:${p.id}` }));
 const toldErrors = new Set();
+const endedRuns = new Set();
 driver.on('run', (run) => {
+  // A reply ended: the job may now wait for your go-ahead (its card shows only once nothing runs).
+  if (!ACTIVE_RUN.has(run.status) && !endedRuns.has(run.id)) { endedRuns.add(run.id); setTimeout(() => checkWaiting(), 1000); }
   if (run.status !== 'error' || toldErrors.has(run.id)) return;
   toldErrors.add(run.id);
   tell({ level: 'problem', title: run.title ?? run.slug, body: 'The reply ended with an error. Open the job to see it.', slug: run.slug, key: `error:${run.id}` });

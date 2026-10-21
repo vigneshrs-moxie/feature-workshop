@@ -128,6 +128,15 @@ describe('Home: the Desk', () => {
     expect(window.location.hash).toBe('#/job/beta');
   });
 
+  it('never sends the Foreman’s questions with one key, even with every answer recommended', async () => {
+    const { post } = renderApp({ hash: '#/desk', jobs: [job('alpha', 'needs-you', { waitingFor: 'answers', waitingSince: '2026-10-21T09:00:00Z' })] });
+    await screen.findByRole('navigation', { name: 'Waiting for your decision' });
+    expect(screen.getByRole('button', { current: true })).toHaveTextContent('Answer the Foreman’s questions');
+    fireEvent.keyDown(document.body, { key: 'a' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(post.mock.calls.filter(([p]) => String(p).includes('/gate'))).toEqual([]);
+  });
+
   it('says so when the desk is clear', async () => {
     renderApp({ hash: '#/desk', jobs: [job('beta', 'running')] });
     expect(await screen.findByRole('heading', { name: 'Desk clear' })).toBeInTheDocument();
