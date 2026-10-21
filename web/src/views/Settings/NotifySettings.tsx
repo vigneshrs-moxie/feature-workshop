@@ -1,0 +1,131 @@
+// Settings → Notifications: what the dashboard tells macOS (dashboard/lib/notify.js), so it reaches
+// you with this tab closed or the browser hidden. Saved on the dashboard (POST /api/settings
+// { notify }); the history (GET /api/notifications) refetches when a new one arrives (the
+// 'notification' event). A notification only opens the page: it never approves or sends anything.
+import { useEffect, useId, useState } from 'react';
+import type { NotificationsView, NotifyLevel, NotifyMode, NotifySettings as Notify, Settings } from '../../api/types';
+import { HowThisWorks } from '../../components/HowThisWorks';
+import { fullTime, relativeTime, useNow } from '../../lib/time';
+import { useWorkshop, useWorkshopState } from '../../state/store';
+
+export const NOTIFY_DEFAULTS: Notify = {
+  enabled: true,
+  levels: { needs: 'sound', problem: 'sound', done: 'silent' },
+  quiet: { on: false, from: '22:00', to: '07:00' },
+  skipWhenWatching: true,
+};
+
+const LEVELS: { id: NotifyLevel; label: string; hint: string }[] = [
+  { id: 'needs', label: 'Needs you', hint: 'A go-ahead, a question or a permission is waiting; also a decision left 4 hours.' },
+  { id: 'problem', label: 'Problems', hint: 'A reply ended with an error, or Claude’s usage limit paused the work.' },
+  { id: 'done', label: 'Done', hint: 'A job’s work reached staging or main, or you marked it done.' },
+];
+const MODES: { id: NotifyMode; label: string }[] = [
+  { id: 'sound', label: 'With a sound' },
+  { id: 'silent', label: 'Silent' },
+  { id: 'off', label: 'Off' },
+];
+const METHOD: Record<string, string> = {
+  'terminal-notifier': 'Sent with terminal-notifier: clicking one opens that job here.',
+  osascript: 'Sent with macOS’s built-in notifier: clicking one can’t open the job. Install terminal-notifier (brew install terminal-notifier) and restart the dashboard for that.',
+};
+
+export function NotifySettings() {
+  const { api, store } = useWorkshop();
+  const { meta, notificationsVersion } = useWorkshopState();
+  const now = useNow();
+  const n: Notify = { ...NOTIFY_DEFAULTS, ...(meta?.settings?.notify as Notify | undefined) };
+  const [view, setView] = useState<NotificationsView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tested, setTested] = useState<string | null>(null);
+  const id = useId();
+
+  useEffect(() => {
+    let live = true;
+    api.get<NotificationsView>('/api/notifications').then((v) => { if (live && Array.isArray(v?.history)) setView(v); }).catch(() => {});
+    return () => { live = false; };
+  }, [api, notificationsVersion]);
+
+  async function save(patch: Partial<Notify>) {
+    setBusy(true);
+    setError(null);
+    try { store.dispatch({ type: 'settings', settings: await api.post<Settings>('/api/settings', { notify: patch }) }); }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    finally { setBusy(false); }
+  }
+  async function test() {
+    setTested(null);
+    try {
+      const e = await api.post<{ sent: boolean; why?: string }>('/api/notifications/test', {});
+      setTested(e.sent ? 'Sent: look at the top right of your screen.' : `Not sent: ${e.why ?? 'macOS didn’t take it.'}`);
+    } catch (err) { setTested(err instanceof Error ? err.message : String(err)); }
+  }
+
+  return (
+    <section aria-label="Notifications" className="notify-settings">
+      <h3 className="settings-heading" title="Notifications from the dashboard itself, so they reach you when this tab is closed or the browser is hidden.">Notifications</h3>
+      <HowThisWorks id="notify-settings">
+        <p>The dashboard tells macOS when something needs you, goes wrong or gets done, so you hear about it in any app, even with this tab closed. While you’re looking at the dashboard nothing pops (the page shows it already). A notification only opens the page: deciding stays here.</p>
+        <p>Each kind can come with a sound, silently, or not at all. In quiet hours only problems show, without a sound; everything still goes into the history below.</p>
+      </HowThisWorks>
+      <p className="muted">{view ? (view.method ? METHOD[view.method] : 'This computer can’t show them: the dashboard needs macOS.') : 'Checking how notifications reach macOS…'}</p>
+      <label className="drawer-check" title="All notifications from the dashboard, on or off.">
+        <input type="checkbox" checked={n.enabled} disabled={busy} onChange={(e) => void save({ enabled: e.target.checked })} />
+        <span>Send notifications to macOS</span>
+      </label>
+      <table className="notify-levels">
+        <caption className="sr-only">How each kind of notification reaches you</caption>
+        <tbody>
+          {LEVELS.map((l) => (
+            <tr key={l.id}>
+              <th scope="row" title={l.hint}>{l.label}<span className="muted notify-level-hint">{l.hint}</span></th>
+              <td>
+                <div className="home-seg" role="radiogroup" aria-label={`${l.label}: how it reaches you`}>
+                  {MODES.map((m) => (
+                    <label key={m.id} className={`home-seg-btn${n.levels[l.id] === m.id ? ' is-on' : ''}`} title={`${l.label}: ${m.label.toLowerCase()}.`}>
+                      <input className="sr-only" type="radio" name={`${id}-${l.id}`} checked={n.levels[l.id] === m.id} disabled={busy || !n.enabled} onChange={() => void save({ levels: { ...n.levels, [l.id]: m.id } })} />
+                      {m.label}
+                    </label>
+                  ))}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="notify-quiet">
+        <label className="drawer-check" title="Quiet hours: only problems show, without a sound.">
+          <input type="checkbox" checked={n.quiet.on} disabled={busy || !n.enabled} onChange={(e) => void save({ quiet: { ...n.quiet, on: e.target.checked } })} />
+          <span>Quiet hours from</span>
+        </label>
+        <input type="time" aria-label="Quiet hours start" value={n.quiet.from} disabled={busy || !n.enabled} onChange={(e) => { if (e.target.value) void save({ quiet: { ...n.quiet, from: e.target.value } }); }} title="When quiet hours start." />
+        <span>to</span>
+        <input type="time" aria-label="Quiet hours end" value={n.quiet.to} disabled={busy || !n.enabled} onChange={(e) => { if (e.target.value) void save({ quiet: { ...n.quiet, to: e.target.value } }); }} title="When quiet hours end." />
+      </div>
+      <label className="drawer-check" title="Nothing pops while this page is in front of you: it already shows what changed.">
+        <input type="checkbox" checked={n.skipWhenWatching} disabled={busy || !n.enabled} onChange={(e) => void save({ skipWhenWatching: e.target.checked })} />
+        <span>Not while I’m looking at the dashboard</span>
+      </label>
+      <div className="perm-actions">
+        <button type="button" className="btn" onClick={() => void test()} title="Send a test notification to macOS now, even while you’re looking at this page.">Send a test</button>
+        {tested && <span className="muted" role="status">{tested}</span>}
+      </div>
+      {error && <p className="perm-warn" role="alert">{error}</p>}
+      <details className="how notify-history">
+        <summary title="The last 50 notifications, sent or not, newest first.">History ({view?.history.length ?? 0})</summary>
+        {view?.history.length ? (
+          <ol>
+            {view.history.map((h, i) => (
+              <li key={`${h.at}-${i}`}>
+                <span className="muted" title={fullTime(h.at)}>{relativeTime(h.at, now)}</span>{' '}
+                <b>{h.title}</b> · {h.body}{' '}
+                <span className="muted">{h.sent ? '· sent' : `· not sent${h.why ? `: ${h.why}` : ''}`}</span>
+              </li>
+            ))}
+          </ol>
+        ) : <p className="muted">Nothing yet.</p>}
+      </details>
+    </section>
+  );
+}

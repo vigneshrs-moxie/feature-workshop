@@ -6,7 +6,8 @@
 //      here, above the floor, so nothing stands between you and them.
 //   3. On the floor: a card for every open job, its trail with its crew member standing on it, and
 //      what it is waiting on. Click one to open it.
-// Draws nothing with Play Off (the pane then shows what phase 2 did).
+// Draws nothing with Play Off (the pane then shows what phase 2 did). compact (Home's side column):
+// the Foreman and the cards waiting for you, without the floor's job cards (the map shows those).
 import type { Job } from '../api/types';
 import { jobHref } from '../app/router';
 import { useUi } from '../app/ui';
@@ -40,7 +41,7 @@ function FloorCard({ job, now }: { job: Job; now: Date }) {
   );
 }
 
-export function WorkshopFloor() {
+export function WorkshopFloor({ compact = false }: { compact?: boolean } = {}) {
   const play = usePlayIfAny();
   const { jobs, usage } = useWorkshopState();
   const ui = useUi();
@@ -50,7 +51,7 @@ export function WorkshopFloor() {
   const open = floorJobs(jobs);
   const closed = closedText(jobs);
   return (
-    <div className="workshop-floor">
+    <div className={`workshop-floor${compact ? ' is-compact' : ''}`}>
       <section className="floor-foreman" aria-label="The Foreman">
         <CrewMember type="conductor" state={speech.mood} size={CREW_SIZE.floorForeman} label={`Foreman, ${speech.mood}`} className="floor-foreman-face" />
         <div className="floor-bubble">
@@ -83,7 +84,7 @@ export function WorkshopFloor() {
         <NeedsYouCards now={now} />
       </section>
 
-      {open.length > 0 && (
+      {!compact && open.length > 0 && (
         <section className="floor-jobs" aria-label="On the floor">
           <h3 className="settings-heading" title="Every open job, with its trail: the stages it runs and who is on the current one.">On the floor</h3>
           <p className="muted floor-hint">Pick a job to open its conversation.{closed ? ` ${closed} in the list on the left.` : ''}</p>

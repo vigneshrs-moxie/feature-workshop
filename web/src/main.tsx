@@ -8,6 +8,7 @@ import './play/extras.css';
 import './play/eggs.css';
 import './play/trail.css';
 import './play/floor.css';
+import './home/home.css';
 import './theme/themes/index.css';
 import { App } from './app/App';
 import { initTheme } from './theme/theme';

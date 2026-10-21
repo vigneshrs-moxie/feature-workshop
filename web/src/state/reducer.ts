@@ -7,7 +7,7 @@
 // the event says outright (a permission card arriving or going, a run's status, the usage limit)
 // are applied straight away so the page reacts without waiting for that.
 
-import type { Achievement, BossDefeated, Job, JobGroup, LiveEvent, Meta, Permission, PlayNews, QuestDone, Run, Settings, Snapshot, Steer, SteerState, Usage } from '../api/types';
+import type { Achievement, BossDefeated, FlowView, Job, JobGroup, LiveEvent, Meta, Permission, PlayNews, QuestDone, Run, Settings, Snapshot, Steer, SteerState, Usage } from '../api/types';
 import { JOB_GROUPS } from '../api/types';
 
 export type Connection = 'connecting' | 'live' | 'reconnecting';
@@ -42,6 +42,10 @@ export interface WorkshopState {
   playVersion: number;
   /** The newest 'play' events heard live (achievements unlocked, quests done), oldest first: the toasts. */
   playNews: PlayNews[];
+  /** The flow map (Home): fetched once it's shown, then kept up by 'flow' events. */
+  flow: FlowView | null;
+  /** Bumped by each 'notification' event: Settings refetches the history. */
+  notificationsVersion: number;
   generatedAt: string | null;
 }
 
@@ -59,6 +63,8 @@ export type Action =
   | { type: 'steer'; steer: Steer }
   /** You changed the usage limit here (Carry on now, the automatic toggle): show it at once. */
   | { type: 'usage'; usage: Usage }
+  /** The flow map, fetched (GET /api/flow) or asked to refresh (POST /api/flow/refresh). */
+  | { type: 'flow'; flow: FlowView }
   | { type: 'connection'; connection: Connection }
   | { type: 'error'; error: string };
 
@@ -81,6 +87,8 @@ export const initialState: WorkshopState = {
   rulesVersion: 0,
   playVersion: 0,
   playNews: [],
+  flow: null,
+  notificationsVersion: 0,
   generatedAt: null,
 };
 
@@ -230,6 +238,13 @@ function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
         next.jobs = patchJob(state.jobs, e.job, (j) => ({ ...j, parked: true }));
       }
       return next;
+    case 'flow':
+      // The flow map changed (a refresh started or finished): sent whole.
+      if (Array.isArray(d.repos)) next.flow = d as unknown as FlowView;
+      return next;
+    case 'notification':
+      next.notificationsVersion = state.notificationsVersion + 1;
+      return next;
     default:
       // 'change', 'local', 'local-state' and types this page doesn't know yet: only the seq moves.
       return next;
@@ -256,6 +271,8 @@ export function reducer(state: WorkshopState, action: Action): WorkshopState {
     case 'usage':
       // Paused jobs may start again: the next snapshot regroups them.
       return action.usage && typeof action.usage === 'object' ? { ...state, usage: action.usage, jobsStale: true } : state;
+    case 'flow':
+      return action.flow && Array.isArray(action.flow.repos) ? { ...state, flow: action.flow } : state;
     case 'connection':
       return state.connection === action.connection ? state : { ...state, connection: action.connection };
     case 'error':

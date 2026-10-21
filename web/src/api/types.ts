@@ -275,7 +275,99 @@ export interface Settings {
   jobPolicy?: Record<string, PolicyId>;
   autoMode?: AutoModeStatus;
   play?: PlaySettings;
+  notify?: NotifySettings;
   [key: string]: unknown;
+}
+
+// ---------- Notifications outside the browser (dashboard/lib/notify.js) ----------
+
+export type NotifyLevel = 'needs' | 'problem' | 'done';
+export type NotifyMode = 'sound' | 'silent' | 'off';
+export interface NotifySettings {
+  enabled: boolean;
+  levels: Record<NotifyLevel, NotifyMode>;
+  quiet: { on: boolean; from: string; to: string };
+  skipWhenWatching: boolean;
+}
+/** One notification, sent or not (GET /api/notifications history, newest first). */
+export interface NotificationEntry {
+  at: string;
+  level: NotifyLevel;
+  title: string;
+  body: string;
+  slug: string | null;
+  sent: boolean;
+  why?: string;
+  test?: boolean;
+}
+export interface NotificationsView {
+  /** How notifications reach macOS here; null: they can't (not a Mac, or nothing to send them with). */
+  method: 'terminal-notifier' | 'osascript' | null;
+  history: NotificationEntry[];
+}
+
+// ---------- The flow map (dashboard/lib/flow.js, GET /api/flow) ----------
+
+/** Where a job's work is: its worktree, your fork, the org's branch, staging, main. */
+export type FlowPosition = 'local' | 'fork' | 'org' | 'staging' | 'main';
+export interface FlowPr {
+  number: number;
+  title: string;
+  url: string | null;
+  state: 'open' | 'draft' | 'merged' | 'closed';
+  head: string;
+  base: string;
+  review: 'approved' | 'changes_requested' | 'review_required' | null;
+  checks: 'passing' | 'pending' | 'failing' | null;
+  mergedAt: string | null;
+  updatedAt: string | null;
+}
+export interface FlowCounts { ahead: number; behind: number }
+export interface FlowLane {
+  slug: string;
+  title: string | null;
+  branch: string | null;
+  worktree: string | null;
+  position: FlowPosition;
+  /** The index of `position` in local → fork → org → staging → main. */
+  reached: number;
+  vsMain: FlowCounts | null;
+  vsStaging: FlowCounts | null;
+  /** Commits not pushed to your fork yet; null when the branch isn't on the fork. */
+  unpushed: number | null;
+  forkBehind: number | null;
+  /** Uncommitted files in the worktree; null without one. */
+  dirty: number | null;
+  pushed: boolean;
+  orgBranch: boolean;
+  /** Fork → the org's branch (PR #1); null in a repo without that step. */
+  pr1: FlowPr | null;
+  /** Into staging (PR #2), or into main where there is no staging. */
+  pr2: FlowPr | null;
+}
+export interface FlowTip { sha: string; at: string; subject: string }
+export interface FlowRepo {
+  repo: string;
+  name: string;
+  org: { remote: string; slug: string | null } | null;
+  fork: { remote: string; slug: string | null } | null;
+  main: { ref: string; tip: FlowTip | null } | null;
+  staging: { ref: string; tip: FlowTip | null; vsMain: FlowCounts | null } | null;
+  /** The open release PR (staging → main), if any. */
+  release: FlowPr | null;
+  /** Whether the PRs were read (false until the first network refresh, or when gh isn't there). */
+  prsKnown: boolean;
+  lanes: FlowLane[];
+  errors: string[];
+}
+export interface FlowView {
+  repos: FlowRepo[];
+  /** The last fetch and PR read (null before the first). */
+  fetchedAt: string | null;
+  /** The last local recount. */
+  checkedAt: string | null;
+  refreshing: boolean;
+  nextFetchAt: string | null;
 }
 
 /** One achievement (dashboard/lib/play.js ACHIEVEMENTS). unlockedAt: null while still to get. */

@@ -168,7 +168,7 @@ describe('Achievements in the shell', () => {
     localStorage.setItem(THEME_KEY, 'gold');
     const { get } = renderApp('subtle', ledger({ unlocks: { crt: true, gold: false } }));
     await waitFor(() => expect(get).toHaveBeenCalledWith('/api/play'));
-    await screen.findByRole('main', { name: 'Foreman' });
+    await screen.findByRole('main', { name: 'Home' });
     expect(document.documentElement.getAttribute('data-theme')).not.toBe('gold');
     expect(currentTheme()).toBe('default');
   });

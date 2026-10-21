@@ -10,7 +10,8 @@ const RULE: Rule = { id: 'r1', tool: 'Bash', kind: 'prefix', value: 'npm run tes
 
 function setup(lists: RulesList[], del: (path: string) => Promise<unknown> = async () => ({ ok: true })) {
   let n = 0;
-  const get = vi.fn(async () => lists[Math.min(n++, lists.length - 1)]);
+  // The Notifications section reads its history (GET /api/notifications); the rest is the rule list.
+  const get = vi.fn(async (path: string) => (path === '/api/notifications' ? { method: null, history: [] } : lists[Math.min(n++, lists.length - 1)]));
   const store: Store = createStore();
   store.dispatch({ type: 'snapshot', snapshot: snapshot() });
   const api = { get, del: vi.fn(del) } as unknown as ApiClient;
@@ -36,7 +37,7 @@ describe('Settings', () => {
     fireEvent.click(remove);
     await waitFor(() => expect(screen.getByText(/No rules yet/)).toBeInTheDocument());
     expect(del).toHaveBeenCalledWith('/api/rules/r1');
-    expect(get).toHaveBeenCalledTimes(2);
+    expect(get.mock.calls.filter(([p]) => p === '/api/rules')).toHaveLength(2);
   });
 
   it('says why when a rule can’t be removed', async () => {
@@ -50,7 +51,7 @@ describe('Settings', () => {
     await screen.findByText(/No rules yet/);
     act(() => store.dispatch({ type: 'event', event: ev(11, 'rules', null, { count: 1 }) }));
     expect(await screen.findByText('Run any command starting with “npm run test:db”')).toBeInTheDocument();
-    expect(get).toHaveBeenCalledTimes(2);
+    expect(get.mock.calls.filter(([p]) => p === '/api/rules')).toHaveLength(2);
   });
 
   it('explains when the rules wait because every step asks', async () => {

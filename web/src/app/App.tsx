@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createApi, type ApiClient } from '../api/client';
 import type { PolicyId } from '../api/types';
 import { ForemanPane } from '../panes/Foreman/ForemanPane';
-import { useAlerts } from '../alerts/useAlerts';
+import { useAlerts, usePresence } from '../alerts/useAlerts';
 import { CommandPalette } from '../components/CommandPalette';
 import { UsageBanner } from '../components/UsageBanner';
 import { PaneResizer, usePreviewWidth } from '../components/PaneResizer';
@@ -32,7 +32,9 @@ import { usePlay } from '../play/usePlay';
 import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
 import { reopenJob, setJobPolicy, stopRun } from './jobActions';
 import { dialogOpen, paletteKeyLabel, usePageKeys } from './keys';
-import { classicHref, crewDexHref, navigate, openFromHash, settingsHref, useRoute, type Route } from './router';
+import { classicHref, crewDexHref, hrefFor, navigate, openFromHash, settingsHref, useRoute, type Route } from './router';
+import { HomeView } from '../home/HomeView';
+import { deskQueue } from '../home/homeModel';
 import { UiProvider, useUi, type SheetState } from './ui';
 
 /** Put the cursor in the message box at the foot of the Foreman pane. */
@@ -51,12 +53,13 @@ function TopBar({ onRetry, onCrew = false, slug = null }: { onRetry: () => void;
   const ui = useUi();
   const play = usePlay();
   const needs = needsYouCount(state);
+  const desk = deskQueue(state.jobs, state.permissions).length;
   const conn = CONNECTION[state.connection];
   return (
     <header className="topbar">
       {/* Play: the Foreman as the workshop's mascot, waving while something needs you. */}
       {play.on && <CrewMember type="conductor" state={needs > 0 ? 'waiting' : 'idle'} size={CREW_SIZE.mascot} label="" className="brand-mascot" />}
-      <h1 className="brand">Feature Workshop</h1>
+      <h1 className="brand"><a href={hrefFor({ name: 'home' })} title="Home: the flow map of every job.">Feature Workshop</a></h1>
       {play.on && <span className="brand-tagline" aria-hidden="true">Your crew, your features, your turn</span>}
       {state.meta?.demo ? <span className="chip" title="Demo mode: a pretend Foreman answers and nothing real runs.">Demo</span> : null}
       {state.status === 'ready' && (
@@ -81,6 +84,11 @@ function TopBar({ onRetry, onCrew = false, slug = null }: { onRetry: () => void;
         <span className="needs" title="How many jobs are waiting for you." aria-live="polite">
           {needs === 0 ? 'Nothing needs you' : `${needs} need${needs === 1 ? 's' : ''} you`}
         </span>
+      )}
+      {desk > 0 && (
+        <a className="btn btn-quiet desk-link" href={hrefFor({ name: 'desk' })} title="The Desk: every decision waiting for you, one at a time.">
+          Desk <span className="home-view-count">{desk}</span>
+        </a>
       )}
       <span className={`conn conn-${state.connection}`} title={conn.hint} role="status">
         <span className="conn-dot" aria-hidden="true" />
@@ -192,13 +200,17 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   // The Preview pane's width, if you dragged the handle between it and the middle pane.
   const [previewWidth] = usePreviewWidth();
   const panes = useRef<HTMLDivElement>(null);
+  const { api } = useWorkshop();
+  const post = useMemo(() => (path: string, body: unknown) => api.post(path, body), [api]);
   useAlerts(state);
+  usePresence(post);
   const slug = route.name === 'job' ? route.slug : null;
   // The Crew-dex and Achievements are part of Play: with Play mode Off, #/crew and #/achievements show the same as #/.
   const crew = route.name === 'crew' && play.on;
   const achievements = route.name === 'achievements' && play.on;
   // A #/ address that isn't a page: the Sleuth looks for it (Play on), else #/'s view.
   const lost = route.name === 'not-found' && play.on ? route.hash : null;
+  const home = route.name === 'home' ? 'map' : route.name === 'table' ? 'table' : route.name === 'desk' ? 'desk' : null;
   if (state.status !== 'ready') {
     return (
       <div className="app">
@@ -216,6 +228,19 @@ function Shell({ onRetry }: { onRetry: () => void }) {
             </>
           )}
         </div>
+      </div>
+    );
+  }
+  // Home (#/, #/table, #/desk): full width, no Jobs or Preview pane.
+  if (home) {
+    return (
+      <div className="app">
+        <TopBar onRetry={onRetry} slug={null} />
+        <div className="banner-slot"><UsageBanner /></div>
+        <Sheets route={route} />
+        <HomeView view={home} />
+        <PlayToasts />
+        <PlayEggs />
       </div>
     );
   }

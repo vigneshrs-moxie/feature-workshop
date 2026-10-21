@@ -1,5 +1,7 @@
 // Hash routes, so the dashboard only ever serves /next/index.html:
-//   #/            no job open
+//   #/            Home: the flow map, full width (home/HomeView.tsx)
+//   #/table       Home's Table: the jobs as rows
+//   #/desk        Home's Desk: every decision waiting for you, one at a time
 //   #/job/<slug>  that job's thread in the Foreman pane
 //   #/job/<slug>/id/<id>  the same job: the dashboard links requirement IDs (FR-001...) in
 //                 replies and briefs this way; the job stays open (the ID itself is ignored for now)
@@ -11,13 +13,15 @@
 // read by theme/theme.ts) is ignored here, so it changes nothing about the route.
 import { useEffect, useState } from 'react';
 
-export type Route = { name: 'home' } | { name: 'settings' } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
+export type Route = { name: 'home' } | { name: 'table' } | { name: 'desk' } | { name: 'settings' } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
   | { name: 'not-found'; hash: string };
 
 export function parseHash(rawHash: string): Route {
   const hash = rawHash.replace(/\?.*$/, '');
   if (/^#\/settings\/?$/.test(hash)) return { name: 'settings' };
   if (/^#\/crew\/?$/.test(hash)) return { name: 'crew' };
+  if (/^#\/table\/?$/.test(hash)) return { name: 'table' };
+  if (/^#\/desk\/?$/.test(hash)) return { name: 'desk' };
   if (/^#\/achievements\/?$/.test(hash)) return { name: 'achievements' };
   const m = /^#\/job\/([^/?#]+)(?:\/id\/[^/?#]+)?\/?$/.exec(hash);
   if (m) {
@@ -34,6 +38,8 @@ export function hrefFor(route: Route): string {
   if (route.name === 'job') return `#/job/${encodeURIComponent(route.slug)}`;
   if (route.name === 'crew') return '#/crew';
   if (route.name === 'achievements') return '#/achievements';
+  if (route.name === 'table') return '#/table';
+  if (route.name === 'desk') return '#/desk';
   if (route.name === 'not-found') return route.hash;
   return route.name === 'settings' ? '#/settings' : '#/';
 }

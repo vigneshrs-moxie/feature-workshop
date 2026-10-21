@@ -11,6 +11,7 @@ import { sentence } from '../../components/permissions/rules';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { PlaySettings } from './PlaySettings';
+import { NotifySettings } from './NotifySettings';
 import { ThemePicker } from './ThemePicker';
 
 type Load = { state: 'loading' } | { state: 'ready'; list: RulesList } | { state: 'error'; message: string };
@@ -151,12 +152,14 @@ export function SettingsView() {
           <p><strong>Permissions</strong> decide how much the Foreman and its crew may do without asking you. <strong>Routine steps automatic</strong> is the default. <strong>Auto mode</strong> lets Claude Code’s own safety model judge each step; what it blocks is listed in the conversation as a dim line, so nothing is hidden. A change applies at once, also to replies already running. {HARD_LINES_NOTE}</p>
           <p>When a permission card asks you about a step, <strong>Always allow…</strong> saves a rule so steps exactly like it run without asking. Each rule covers only what it says: one exact command, commands starting with the same words, one file, one folder, one website or one connection tool. Anything else still asks.</p>
           <p>Rules apply to every job the dashboard runs, and only there: they aren’t added to your Claude Code settings, so your terminal sessions are unaffected. They’re not used while “ask about everything” is on, or for steps Claude Code flags as risky. Remove a rule here and those steps ask again.</p>
+          <p><strong>Notifications</strong> come from the dashboard itself to macOS, so they reach you with this tab closed: what needs you, problems, and jobs reaching staging or main. Each kind with a sound, silent or off, plus quiet hours.</p>
           <p><strong>Theme</strong> changes how the Workshop looks and nothing else; it’s remembered in this browser.</p>
           <p><strong>Play</strong> turns the workshop crew, achievements and secrets on or off (Subtle by default). It has its own explanation below.</p>
           <p>If your installed <code>/feature</code> skill is older than the dashboard (it doesn’t know levels yet), a warning shows at the top of this page with how to update it.</p>
         </HowThisWorks>
         <SkillWarning />
         <PolicyChoice />
+        <NotifySettings />
         <section aria-label="Always allow rules">
           <h3 className="settings-heading">Always allow rules</h3>
           {load.state === 'loading' && <p className="muted">Loading your rules…</p>}

@@ -4,6 +4,10 @@
 //     may show notifications, and the answer is remembered (fw.alerts.notify);
 //   - when something new needs you, play the chime (if on) and show a notification (if allowed and
 //     you're looking at another tab or window; on this page the row and the title already say so).
+//     While the dashboard's own macOS notifications are on (Settings → Notifications) those tell
+//     you instead, so the browser's never doubles them;
+//   - while you're looking at the page it tells the dashboard (POST /api/presence every 20 seconds),
+//     so the macOS notifications don't pop for what you can already see.
 import { useEffect, useRef } from 'react';
 import { readStored, writeStored } from '../lib/stored';
 import { needsYouCount, type WorkshopState } from '../state/reducer';
@@ -38,6 +42,20 @@ export function useAskOnFirstClick() {
   }, []);
 }
 
+const PRESENCE_EVERY_MS = 20_000;
+
+/** Tell the dashboard you're looking at the page, while you are. */
+export function usePresence(post: (path: string, body: unknown) => Promise<unknown>) {
+  useEffect(() => {
+    const ping = () => { if (pageInView()) Promise.resolve().then(() => post('/api/presence', { visible: true })).catch(() => {}); };
+    ping();
+    const timer = setInterval(ping, PRESENCE_EVERY_MS);
+    window.addEventListener('focus', ping);
+    document.addEventListener('visibilitychange', ping);
+    return () => { clearInterval(timer); window.removeEventListener('focus', ping); document.removeEventListener('visibilitychange', ping); };
+  }, [post]);
+}
+
 export function useAlerts(state: WorkshopState) {
   const needs = state.status === 'ready' ? needsYouCount(state) : 0;
   useEffect(() => { document.title = titleFor(needs); }, [needs]);
@@ -55,6 +73,7 @@ export function useAlerts(state: WorkshopState) {
     const fresh = newAlerts(before, state);
     if (!fresh.length) return;
     if (readStored(CHIME_KEY) === 'on') alertOutputs.chime();
-    if (readStored(NOTIFY_KEY) === 'on' && !pageInView()) for (const a of fresh) alertOutputs.notify(a);
+    const macOS = state.meta?.settings?.notify?.enabled === true;
+    if (readStored(NOTIFY_KEY) === 'on' && !macOS && !pageInView()) for (const a of fresh) alertOutputs.notify(a);
   }, [state]);
 }

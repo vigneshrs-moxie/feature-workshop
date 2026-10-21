@@ -30,6 +30,7 @@ afterEach(() => { window.location.hash = ''; localStorage.clear(); });
 
 describe('App shell', () => {
   it('shows the three panes with the jobs grouped', async () => {
+    window.location.hash = '#/job/beta';
     renderApp(snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'running'), job('gamma', 'done')] }));
     expect(await screen.findByRole('navigation', { name: 'Jobs' })).toBeInTheDocument();
     expect(screen.getByRole('main', { name: 'Foreman' })).toBeInTheDocument();
@@ -53,8 +54,10 @@ describe('App shell', () => {
     // The top bar's Classic view opens the same job there; its New view button brings you back.
     expect(within(document.querySelector<HTMLElement>('.topbar')!).getByRole('link', { name: 'Classic view' })).toHaveAttribute('href', '/#/job/beta');
     act(() => { window.location.hash = '#/'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
-    // Back home: the workshop floor (Play is on by default).
-    expect(screen.getByRole('region', { name: 'On the floor' })).toBeInTheDocument();
+    // Back home: the flow map, full width, with the Foreman's "what needs you" (Play is on by default).
+    expect(screen.getByRole('main', { name: 'Home' })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Jobs' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'The Foreman' })).toBeInTheDocument();
   });
 
   it('opens what the classic view asks for (?open=), once, and drops it from the address', async () => {
@@ -73,6 +76,7 @@ describe('App shell', () => {
   });
 
   it('updates live from the stream', async () => {
+    window.location.hash = '#/job/beta';
     const { streams } = renderApp(snapshot());
     await screen.findByRole('navigation', { name: 'Jobs' });
     expect(screen.getByText('Connecting…')).toBeInTheDocument();
@@ -116,7 +120,7 @@ describe('App shell', () => {
 
   it('c opens the new job sheet and ? the keys; j and k step through the jobs, but not while typing', async () => {
     renderApp(snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'idle')] }));
-    await screen.findByRole('navigation', { name: 'Jobs' });
+    await screen.findByRole('main', { name: 'Home' });
     const hop = () => act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
     fireEvent.keyDown(document.body, { key: 'j' });
     expect(window.location.hash).toBe('#/job/alpha');
@@ -149,6 +153,7 @@ describe('App shell', () => {
   });
 
   it('“How this works” boxes start folded, and one you opened stays open', async () => {
+    window.location.hash = '#/job/beta';
     renderApp(snapshot());
     await screen.findByRole('navigation', { name: 'Jobs' });
     const box = () => within(screen.getByRole('navigation', { name: 'Jobs' })).getByText('How this works').closest('details')!;
@@ -156,6 +161,7 @@ describe('App shell', () => {
     act(() => { box().open = true; box().dispatchEvent(new Event('toggle')); });
     expect(localStorage.getItem('fw.how.jobs')).toBe('open');
     cleanup();
+    window.location.hash = '#/job/beta';
     renderApp(snapshot());
     await screen.findByRole('navigation', { name: 'Jobs' });
     expect(box().open).toBe(true);
