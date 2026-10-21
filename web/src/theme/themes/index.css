@@ -8,6 +8,9 @@
 @import './sunset-paper.css';
 @import './candy-pop.css';
 @import './glass.css';
+/* The light twins of Default and Glass (Follow the system pairs them, theme.ts THEME_PAIRS). */
+@import './light.css';
+@import './light-glass.css';
 /* The hidden themes (Play layer): applied only once the play ledger unlocks them (theme.ts). */
 @import './crt.css';
 @import './gold.css';

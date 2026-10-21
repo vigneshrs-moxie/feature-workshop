@@ -12,7 +12,8 @@ import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { PlaySettings } from './PlaySettings';
 import { NotifySettings } from './NotifySettings';
-import { ThemePicker } from './ThemePicker';
+import { LookSettings } from './LookSettings';
+import { KeysSettings } from './KeysSettings';
 
 type Load = { state: 'loading' } | { state: 'ready'; list: RulesList } | { state: 'error'; message: string };
 
@@ -185,8 +186,9 @@ export function SettingsView() {
             </>
           )}
         </section>
-        <ThemePicker />
+        <LookSettings />
         <PlaySettings />
+        <KeysSettings />
       </div>
     </main>
   );

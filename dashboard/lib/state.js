@@ -9,6 +9,27 @@ import path from 'node:path';
 import os from 'node:os';
 import { playSettings } from './play.js';
 import { notifySettings } from './notify.js';
+import { DEFAULT_FINISH_LINE, finishLineOf } from './finish.js';
+
+/** The workflow settings with defaults filled in: { finishLine } (lib/finish.js). */
+export function workflowSettings(raw = {}) {
+  const w = raw && typeof raw === 'object' ? raw : {};
+  return { finishLine: finishLineOf(w.finishLine) };
+}
+
+// Settings from before the finish line kept the quest rule under play.questDone. The first read
+// moves it: 'first-pr' → PR #1 open, 'marked-done' → when I mark it done. Returns the settings to
+// keep and whether anything moved (then they are written back once).
+const QUEST_DONE_TO_FINISH_LINE = { 'first-pr': 'pr1-open', 'marked-done': 'marked' };
+export function migrateSettings(raw) {
+  const s = raw && typeof raw === 'object' ? { ...raw } : {};
+  const old = s.play && typeof s.play === 'object' ? s.play.questDone : undefined;
+  if (old === undefined) return { settings: s, changed: false };
+  const { questDone, ...play } = s.play;
+  s.play = play;
+  if (!s.workflow?.finishLine) s.workflow = { ...(s.workflow ?? {}), finishLine: QUEST_DONE_TO_FINISH_LINE[questDone] ?? DEFAULT_FINISH_LINE };
+  return { settings: s, changed: true };
+}
 
 // Emits 'audit' (the entry as written) after each audit line is saved, so live views can say
 // which job's conversation just changed.
@@ -57,13 +78,21 @@ export class State extends EventEmitter {
   //   policy     'hands-off' (routine steps automatic), 'ask-all' or 'auto' (Claude Code's auto mode)
   //   jobPolicy  { [featureDir]: policy }: jobs that override it
   //   autoMode   { available: true | false | null (not tried yet), reason, checkedAt }
-  //   play       { mode: 'subtle' | 'full' | 'off', questDone: 'first-pr' | 'marked-done', sounds } (lib/play.js)
+  //   play       { mode: 'subtle' | 'full' | 'off', sounds } (lib/play.js)
   //   notify     notifications outside the browser: levels, quiet hours (lib/notify.js)
+  //   workflow   { finishLine }: what counts as done (lib/finish.js)
   async getSettings() {
     if (!this.settings) {
-      try { this.settings = JSON.parse(await fs.readFile(this.settingsFile, 'utf8')); } catch { this.settings = {}; }
+      let raw;
+      try { raw = JSON.parse(await fs.readFile(this.settingsFile, 'utf8')); } catch { raw = {}; }
+      const { settings, changed } = migrateSettings(raw);
+      this.settings = settings;
+      if (changed) { try { await this.#writeJson(this.settingsFile, this.settings); } catch { /* read again next start; the move is harmless to repeat */ } }
     }
-    return { policy: 'hands-off', jobPolicy: {}, autoMode: { available: null, reason: null, checkedAt: null }, ...this.settings, play: playSettings(this.settings.play), notify: notifySettings(this.settings.notify) };
+    return {
+      policy: 'hands-off', jobPolicy: {}, autoMode: { available: null, reason: null, checkedAt: null }, ...this.settings,
+      play: playSettings(this.settings.play), notify: notifySettings(this.settings.notify), workflow: workflowSettings(this.settings.workflow),
+    };
   }
 
   /** The permission setting for one job: its own, else the global one. */

@@ -1,0 +1,417 @@
+/* Theme: light-glass — the Glass look in daylight: frosted white panes floating over a pale aurora
+   of lilac, mint and sky. Thin ink edges, a white top highlight on every card, the same large rounded
+   corners and the system's type. Light glass, so text is deep ink over the colour.
+
+   Every rule is scoped under html[data-theme="light-glass"] and mirrors a rule in glass.css: the two
+   files style the same hooks, with light values here. Looks only: layout, components and text are the
+   ones every theme shares (see theme/THEMING.md). Follow the system pairs it with Glass (theme.ts
+   THEME_PAIRS).
+
+   How the glass works, as in Glass: the aurora is painted once on the page; the panes, cards and
+   pop-ups are translucent fills with a backdrop blur, so the colour shows through them. Here the base
+   --bg-* tokens are translucent ink layers over white glass, so a card (bg-2) on a pane (bg-0) reads
+   as a slightly deeper pane. Anything that floats over other content is near opaque (--glass-float),
+   so nothing behind it shows through the words; the sheet and drawer backdrops, the toasts and the
+   sticky composer blur what is behind them.
+
+   Where the blur may go: exactly where glass.css puts it (the backdrops, the toasts, the composer's
+   ::before), never on a box that can hold a sheet. Only the unprefixed property is written.
+
+   Colour language (shared across themes):
+     needs-you  hot pink         the loudest colour on screen; nothing else uses it
+     running    cyan · paused amber · idle lavender-grey · done mint
+     permission orange · question violet · hard line red · blocked slate
+     stages     peach → amber → mint → cyan → blue → violet, in workflow order
+   Contrast: the panes are 55% white glass over an aurora no lighter than L .88, and every text token
+   below is at or above 4.5:1 on bg-0..4 and on its own chip wherever the aurora is brightest
+   (checked with a WCAG script when the theme was drawn). */
+
+html[data-theme="light-glass"] {
+  color-scheme: light;
+
+  /* ---- The page under the glass ---- */
+  --glass-day: oklch(.975 .008 272);
+  --glass-aurora:
+    radial-gradient(60% 55% at 12% 8%, oklch(.84 .1 268 / .9), transparent 70%),
+    radial-gradient(55% 50% at 88% 18%, oklch(.88 .08 195 / .8), transparent 70%),
+    radial-gradient(70% 60% at 70% 95%, oklch(.85 .1 300 / .85), transparent 70%),
+    radial-gradient(45% 40% at 25% 85%, oklch(.87 .08 225 / .7), transparent 70%);
+  --glass-blur: blur(22px) saturate(150%);
+  --glass-blur-strong: blur(34px) saturate(160%);
+  --glass-edge: oklch(.3 .05 272 / .12);
+  --glass-edge-bright: oklch(.3 .05 272 / .22);
+  --glass-highlight: inset 0 1px 0 oklch(1 0 0 / .85);
+  --glass-pane: oklch(1 0 0 / .55);
+  --glass-pane-side: oklch(1 0 0 / .5);
+  --glass-float: oklch(.99 .004 272 / .95);
+
+  /* ---- Base palette: translucent ink layers over white glass ---- */
+  --bg-0: oklch(1 0 0 / .55);
+  --bg-1: oklch(.3 .05 272 / .035);
+  --bg-2: oklch(.3 .05 272 / .06);
+  --bg-3: oklch(.3 .05 272 / .1);
+  --bg-4: oklch(.3 .05 272 / .15);
+  --border-1: oklch(.3 .05 272 / .1);
+  --row-alt: oklch(.3 .05 272 / .04);
+  --border-2: oklch(.3 .05 272 / .16);
+  --border-3: oklch(.3 .05 272 / .26);
+  --text-1: oklch(.2 .03 272);
+  --text-2: oklch(.38 .03 272);
+  --text-3: oklch(.44 .03 272);
+
+  /* Accent: a deep indigo-to-cyan, so pink stays reserved for needs-you. */
+  --accent: oklch(.46 .15 262);
+  --accent-strong: oklch(.4 .14 255);
+  --accent-soft: oklch(.46 .15 262 / .14);
+  --on-accent: oklch(.985 .005 270);
+  --focus-ring: oklch(.48 .13 205);
+  --glass-gradient: linear-gradient(135deg, oklch(.48 .15 268), oklch(.5 .12 210));
+
+  --status-ok: oklch(.44 .13 160);
+  --status-ok-bg: oklch(.6 .14 160 / .16);
+  --status-warn: oklch(.46 .12 82);
+  --status-warn-bg: oklch(.75 .14 82 / .18);
+  --status-error: oklch(.47 .18 28);
+  --status-error-bg: oklch(.6 .18 28 / .14);
+  --status-info: oklch(.44 .11 210);
+  --status-info-bg: oklch(.6 .11 210 / .16);
+  --status-paused: oklch(.46 .12 82);
+  --status-paused-bg: oklch(.75 .14 82 / .18);
+  --job-hue-l: .5;
+  --job-hue-c: .14;
+
+  /* ---- Job groups ---- */
+  --group-needs-you-fg: oklch(.48 .2 355);
+  --group-needs-you-bg: oklch(.65 .2 355 / .14);
+  --group-needs-you-line: oklch(.58 .2 355);
+  --group-running-fg: oklch(.44 .11 210);
+  --group-running-bg: oklch(.6 .11 210 / .14);
+  --group-running-line: oklch(.55 .12 210 / .8);
+  --group-paused-fg: oklch(.46 .12 82);
+  --group-paused-bg: oklch(.75 .14 82 / .16);
+  --group-paused-line: oklch(.6 .14 82 / .8);
+  --group-idle-fg: oklch(.42 .05 275);
+  --group-idle-bg: oklch(.5 .05 275 / .1);
+  --group-idle-line: oklch(.5 .05 275 / .45);
+  --group-done-fg: oklch(.44 .13 160);
+  --group-done-bg: oklch(.6 .14 160 / .12);
+  --group-done-line: oklch(.52 .14 160 / .75);
+
+  /* ---- Kinds of ask ---- */
+  --ask-permission-fg: oklch(.46 .14 58);
+  --ask-permission-bg: oklch(.7 .14 58 / .1);
+  --ask-permission-line: oklch(.6 .15 58 / .85);
+  --ask-question-fg: oklch(.44 .15 300);
+  --ask-question-bg: oklch(.65 .14 300 / .1);
+  --ask-question-line: oklch(.55 .15 300 / .85);
+  --ask-hardline-fg: oklch(.47 .18 28);
+  --ask-hardline-bg: oklch(.65 .18 28 / .1);
+  --ask-hardline-line: oklch(.55 .19 28);
+  --ask-blocked-fg: oklch(.44 .02 255);
+  --ask-blocked-bg: transparent;
+  --ask-blocked-line: oklch(.5 .02 255 / .6);
+
+  /* ---- Stages ---- */
+  --stage-spec-fg: oklch(.46 .13 45);
+  --stage-spec-bg: oklch(.7 .12 45 / .16);
+  --stage-investigate-fg: oklch(.46 .12 85);
+  --stage-investigate-bg: oklch(.78 .13 85 / .18);
+  --stage-plan-fg: oklch(.44 .12 160);
+  --stage-plan-bg: oklch(.7 .12 160 / .16);
+  --stage-build-fg: oklch(.44 .1 210);
+  --stage-build-bg: oklch(.7 .1 210 / .16);
+  --stage-test-fg: oklch(.44 .12 250);
+  --stage-test-bg: oklch(.65 .12 250 / .16);
+  --stage-review-fg: oklch(.44 .13 300);
+  --stage-review-bg: oklch(.68 .12 300 / .16);
+
+  /* ---- Shape, type, pattern: as Glass ---- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --chip-radius: 999px;
+  --card-radius: 18px;
+  --font-heading: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --pane-pattern: none;
+  --shadow-1: 0 1px 2px oklch(.3 .05 272 / .08), 0 8px 24px oklch(.3 .05 272 / .1);
+  --shadow-2: 0 2px 8px oklch(.3 .05 272 / .1), 0 24px 64px oklch(.3 .05 272 / .18);
+
+  /* ---- The crew: the same jewel tones, a shade deeper for white glass. No pink: that is needs-you's. ---- */
+  --crew-ink: oklch(.22 .03 272);
+  --crew-feet: oklch(.34 .03 272);
+  --crew-shadow: oklch(.3 .05 272 / .2);
+  --crew-paper: oklch(.995 .003 272);
+  --crew-line: oklch(.6 .03 272);
+  --crew-metal: oklch(.72 .02 272);
+  --crew-glass: oklch(.9 .06 210);
+  --crew-glass-line: oklch(.6 .08 210);
+  --crew-zzz: oklch(.5 .12 210);
+  --crew-spark: oklch(.82 .15 90);
+  --crew-ok: oklch(.5 .14 160);
+  --crew-c-clay: oklch(.64 .15 45);
+  --crew-c-amber: oklch(.78 .14 82);
+  --crew-c-amber-deep: oklch(.62 .14 70);
+  --crew-c-plum: oklch(.56 .15 300);
+  --crew-c-plum-deep: oklch(.44 .14 300);
+  --crew-c-tweed: oklch(.6 .07 60);
+  --crew-c-tweed-deep: oklch(.46 .06 55);
+  --crew-c-blueprint: oklch(.56 .14 255);
+  --crew-c-blueprint-deep: oklch(.44 .14 260);
+  --crew-c-moss: oklch(.62 .14 140);
+  --crew-c-teal: oklch(.62 .11 195);
+  --crew-c-steel: oklch(.6 .03 255);
+  --crew-c-forest: oklch(.54 .12 165);
+  --crew-c-forest-deep: oklch(.42 .1 165);
+}
+
+/* ---------- The page: the aurora under everything ---------- */
+
+html[data-theme="light-glass"] body {
+  background-color: var(--glass-day);
+  background-image: var(--glass-aurora);
+  background-attachment: fixed;
+}
+html[data-theme="light-glass"] .app { background: transparent; }
+
+/* ---------- Top bar: a strip of glass ---------- */
+
+html[data-theme="light-glass"] .topbar {
+  background: oklch(1 0 0 / .45);
+  border-bottom: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-highlight);
+}
+html[data-theme="light-glass"] .brand { font-weight: 650; letter-spacing: -.01em; }
+/* "n need you" is needs-you news, so it borrows the pink, as a soft pill. */
+html[data-theme="light-glass"] .needs {
+  padding: 1px var(--space-2);
+  border: 1px solid oklch(.58 .2 355 / .55);
+  border-radius: 999px;
+  background: var(--group-needs-you-bg);
+  color: var(--group-needs-you-fg);
+  font-weight: var(--weight-bold);
+}
+html[data-theme="light-glass"] .conn-dot { box-shadow: 0 0 8px currentColor; }
+
+/* ---------- Panes: frosted sheets of white glass ---------- */
+
+html[data-theme="light-glass"] .pane-jobs,
+html[data-theme="light-glass"] .pane-preview {
+  background: var(--glass-pane-side);
+}
+html[data-theme="light-glass"] .pane-jobs { border-right: 1px solid var(--glass-edge); }
+html[data-theme="light-glass"] .pane-preview { border-left: 1px solid var(--glass-edge); }
+html[data-theme="light-glass"] .pane-foreman { background: var(--glass-pane); }
+html[data-theme="light-glass"] .pane-title { font-weight: 650; letter-spacing: -.01em; }
+
+/* ---------- Controls: glass pills ---------- */
+
+html[data-theme="light-glass"] .btn {
+  border: 1px solid var(--glass-edge);
+  border-radius: 999px;
+  background: oklch(1 0 0 / .55);
+  box-shadow: var(--glass-highlight);
+  color: var(--text-1);
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+html[data-theme="light-glass"] .btn:hover { background: oklch(1 0 0 / .8); border-color: var(--glass-edge-bright); }
+html[data-theme="light-glass"] .btn:active { transform: scale(.98); }
+html[data-theme="light-glass"] .btn-quiet { background: transparent; border-color: transparent; box-shadow: none; color: var(--text-2); }
+html[data-theme="light-glass"] .btn-quiet:hover { background: oklch(.3 .05 272 / .07); color: var(--text-1); }
+html[data-theme="light-glass"] .btn-primary {
+  border-color: transparent;
+  background: var(--glass-gradient);
+  color: var(--on-accent);
+  font-weight: var(--weight-bold);
+  box-shadow: 0 4px 18px oklch(.46 .15 262 / .3), inset 0 1px 0 oklch(1 0 0 / .35);
+}
+html[data-theme="light-glass"] .btn-primary:hover { background: linear-gradient(135deg, oklch(.42 .15 268), oklch(.44 .12 210)); }
+html[data-theme="light-glass"] .btn-danger { border-color: var(--ask-hardline-line); background: transparent; color: var(--status-error); }
+html[data-theme="light-glass"] .btn-danger:hover { background: var(--status-error-bg); }
+
+html[data-theme="light-glass"] .chip,
+html[data-theme="light-glass"] .stage-chip { border-color: var(--glass-edge); background: oklch(1 0 0 / .5); }
+html[data-theme="light-glass"] .stage-chip { border-color: transparent; }
+html[data-theme="light-glass"] .kbd { border-color: var(--glass-edge); background: oklch(1 0 0 / .6); border-radius: 6px; }
+
+html[data-theme="light-glass"] .text-input,
+html[data-theme="light-glass"] .text-area,
+html[data-theme="light-glass"] .select {
+  border: 1px solid var(--glass-edge);
+  border-radius: 12px;
+  background: oklch(1 0 0 / .6);
+  color: var(--text-1);
+}
+html[data-theme="light-glass"] .text-input:focus-visible,
+html[data-theme="light-glass"] .text-area:focus-visible { border-color: var(--focus-ring); box-shadow: 0 0 0 3px oklch(.48 .13 205 / .22); outline: none; }
+
+html[data-theme="light-glass"] :focus-visible { outline-color: var(--focus-ring); }
+
+/* ---------- Jobs pane ---------- */
+
+html[data-theme="light-glass"] .job-group-title { color: var(--text-2); letter-spacing: .08em; }
+html[data-theme="light-glass"] .job-group-title[data-group="needs-you"] { color: var(--group-needs-you-fg); }
+html[data-theme="light-glass"] .job-row {
+  border: 1px solid transparent;
+  border-radius: 14px;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+html[data-theme="light-glass"] .job-row:hover { background: oklch(1 0 0 / .5); border-color: var(--glass-edge); }
+html[data-theme="light-glass"] .job-row[data-group="needs-you"] { background: oklch(.65 .2 355 / .07); }
+html[data-theme="light-glass"] .job-row[aria-current='page'] {
+  background: oklch(1 0 0 / .7);
+  border-color: var(--glass-edge-bright);
+  box-shadow: var(--glass-highlight), 0 6px 20px oklch(.3 .05 272 / .12);
+}
+html[data-theme="light-glass"] .job-row[data-group="needs-you"][aria-current='page'] { border-color: oklch(.58 .2 355 / .6); }
+html[data-theme="light-glass"] .job-row-title { font-weight: var(--weight-medium); }
+html[data-theme="light-glass"] .hue-dot { box-shadow: 0 0 6px currentColor, 0 0 0 1.5px oklch(1 0 0 / .6); }
+html[data-theme="light-glass"] .job-rail-item { border-radius: 12px; }
+html[data-theme="light-glass"] .job-rail-item[aria-current='page'] { background: oklch(1 0 0 / .7); box-shadow: inset 0 0 0 1px var(--glass-edge-bright); }
+/* The "!" over a crew member: bg-1 is see-through here, so white on the deep pink. */
+html[data-theme="light-glass"] .trail-ask,
+html[data-theme="light-glass"] .row-crew-ask { color: oklch(.985 .005 355); }
+html[data-theme="light-glass"] .rail-needs { background: oklch(.52 .2 355); color: oklch(.985 .005 355); }
+
+/* ---------- Job header ---------- */
+
+html[data-theme="light-glass"] .job-title { font-weight: 650; letter-spacing: -.015em; }
+html[data-theme="light-glass"] .status { padding: 1px var(--space-2); border-radius: 999px; background: oklch(1 0 0 / .55); font-weight: var(--weight-bold); }
+html[data-theme="light-glass"] .status[data-group="needs-you"] { background: var(--group-needs-you-bg); }
+html[data-theme="light-glass"] .level-chip { border-radius: 999px; }
+
+/* ---------- Thread: cards of glass ---------- */
+
+html[data-theme="light-glass"] .reply,
+html[data-theme="light-glass"] .brief-card,
+html[data-theme="light-glass"] .live-row,
+html[data-theme="light-glass"] .problem,
+html[data-theme="light-glass"] .you {
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: oklch(1 0 0 / .5);
+  box-shadow: var(--glass-highlight), var(--shadow-1);
+}
+html[data-theme="light-glass"] .you { background: oklch(.46 .15 262 / .1); border-color: oklch(.46 .15 262 / .35); }
+html[data-theme="light-glass"] .brief-card { background: oklch(1 0 0 / .6); }
+html[data-theme="light-glass"] .brief-card.is-answered { background: oklch(1 0 0 / .35); box-shadow: var(--glass-highlight); }
+html[data-theme="light-glass"] .brief-headline { font-size: var(--text-md); font-weight: 650; letter-spacing: -.01em; }
+html[data-theme="light-glass"] .live-row { border-style: dashed; border-color: oklch(.55 .12 210 / .5); }
+html[data-theme="light-glass"] .problem { border-color: var(--ask-hardline-line); background: var(--ask-hardline-bg); }
+html[data-theme="light-glass"] .reply .who { color: var(--group-running-fg); }
+
+html[data-theme="light-glass"] .prose code,
+html[data-theme="light-glass"] .inline-code { border-radius: 6px; background: oklch(.3 .05 272 / .08); }
+html[data-theme="light-glass"] .prose pre { border: 1px solid var(--glass-edge); border-radius: 12px; background: oklch(1 0 0 / .55); }
+html[data-theme="light-glass"] .prose blockquote { border-left: 3px solid var(--accent); }
+html[data-theme="light-glass"] .prose th { background: oklch(.3 .05 272 / .06); }
+
+/* ---------- Ask cards: glass with a coloured edge and glow ---------- */
+
+html[data-theme="light-glass"] .perm-card {
+  border: 1px solid var(--ask-permission-line);
+  border-radius: var(--card-radius);
+  background: linear-gradient(var(--ask-permission-bg), var(--ask-permission-bg)), oklch(1 0 0 / .5);
+  box-shadow: var(--glass-highlight), 0 0 0 1px oklch(.6 .15 58 / .12), 0 10px 30px oklch(.3 .05 272 / .12);
+}
+html[data-theme="light-glass"] .perm-card[data-ask='question'] {
+  border-color: var(--ask-question-line);
+  background: linear-gradient(var(--ask-question-bg), var(--ask-question-bg)), oklch(1 0 0 / .5);
+  box-shadow: var(--glass-highlight), 0 0 24px oklch(.55 .15 300 / .14), 0 10px 30px oklch(.3 .05 272 / .12);
+}
+html[data-theme="light-glass"] .perm-card[data-ask='hardline'] {
+  border-color: var(--ask-hardline-line);
+  background: linear-gradient(var(--ask-hardline-bg), var(--ask-hardline-bg)), oklch(1 0 0 / .5);
+}
+html[data-theme="light-glass"] .perm-headline { font-size: var(--text-md); font-weight: 650; }
+html[data-theme="light-glass"] .perm-preview { border: 1px solid var(--glass-edge); border-radius: 12px; background: oklch(1 0 0 / .55); }
+html[data-theme="light-glass"] .answer-option { border-radius: 12px; }
+html[data-theme="light-glass"] .answer-option:hover { background: oklch(.3 .05 272 / .06); }
+html[data-theme="light-glass"] .answer-option input,
+html[data-theme="light-glass"] .rule-option input { accent-color: var(--accent); }
+
+/* ---------- The composer: frosted, so the conversation blurs as it scrolls under it ---------- */
+
+html[data-theme="light-glass"] .composer {
+  border-top: 1px solid var(--glass-edge);
+  background: transparent;
+}
+/* The frost, behind the composer's contents (the composer is sticky with a z-index, so this stays
+   inside it). Never on .composer itself: its Send preview is a fixed sheet inside it. */
+html[data-theme="light-glass"] .composer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: oklch(.985 .006 272 / .74);
+  backdrop-filter: var(--glass-blur);
+  pointer-events: none;
+}
+
+/* ---------- "How this works" ---------- */
+
+html[data-theme="light-glass"] .how { border: 1px solid var(--glass-edge); border-radius: 14px; background: oklch(1 0 0 / .4); }
+html[data-theme="light-glass"] .how summary { color: var(--text-2); }
+
+/* ---------- Everything that floats: heavy glass ---------- */
+
+html[data-theme="light-glass"] .sheet-backdrop,
+html[data-theme="light-glass"] .drawer-backdrop {
+  background: oklch(.85 .03 272 / .45);
+  backdrop-filter: blur(10px) saturate(140%);
+}
+html[data-theme="light-glass"] .sheet,
+html[data-theme="light-glass"] .palette,
+html[data-theme="light-glass"] .drawer,
+html[data-theme="light-glass"] .job-menu-list,
+html[data-theme="light-glass"] .level-pop-list,
+html[data-theme="light-glass"] .toast {
+  border: 1px solid var(--glass-edge-bright);
+  background: var(--glass-float);
+  box-shadow: var(--glass-highlight), var(--shadow-2);
+}
+/* The toast is fixed and holds nothing that is: it may blur. */
+html[data-theme="light-glass"] .toast { backdrop-filter: var(--glass-blur-strong); }
+html[data-theme="light-glass"] .sheet,
+html[data-theme="light-glass"] .palette { border-radius: 22px; }
+html[data-theme="light-glass"] .job-menu-list,
+html[data-theme="light-glass"] .level-pop-list { border-radius: 14px; }
+html[data-theme="light-glass"] .palette-option { border-radius: 10px; }
+html[data-theme="light-glass"] .palette-option.is-active { background: var(--accent-soft); box-shadow: inset 0 0 0 1px oklch(.46 .15 262 / .5); }
+html[data-theme="light-glass"] .drawer-foot { background: var(--glass-float); }
+html[data-theme="light-glass"] .rule-option { border-radius: 14px; border-color: var(--glass-edge); background: oklch(1 0 0 / .4); }
+html[data-theme="light-glass"] .rule-option.is-picked { border-color: var(--accent); background: var(--accent-soft); }
+html[data-theme="light-glass"] .theme-option.is-picked {
+  border-color: transparent;
+  background: linear-gradient(oklch(.99 .004 272 / .92), oklch(.99 .004 272 / .92)) padding-box, var(--glass-gradient) border-box;
+}
+
+/* ---------- Usage banner ---------- */
+
+html[data-theme="light-glass"] .usage-limited { background: oklch(.75 .14 82 / .18); border-bottom: 1px solid oklch(.6 .14 82 / .5); }
+html[data-theme="light-glass"] .usage-warn { background: oklch(1 0 0 / .45); }
+
+/* ---------- Play: the Crew-dex, achievements and toasts in glass ---------- */
+
+html[data-theme="light-glass"] .dex-face,
+html[data-theme="light-glass"] .ach-badge {
+  border-color: var(--glass-edge);
+  background: oklch(1 0 0 / .5);
+  box-shadow: var(--glass-highlight), var(--shadow-1);
+}
+html[data-theme="light-glass"] .dex-card.is-unmet .dex-face { background: oklch(1 0 0 / .25); box-shadow: none; }
+html[data-theme="light-glass"] .play-toast {
+  border-color: var(--glass-edge-bright);
+  background: var(--glass-float);
+  backdrop-filter: var(--glass-blur-strong);
+  box-shadow: var(--glass-highlight), var(--shadow-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="light-glass"] .btn,
+  html[data-theme="light-glass"] .job-row { transition: none; }
+  html[data-theme="light-glass"] .btn:active { transform: none; }
+}
+
+/* Home's sticky header (home/home.css): a solid float, so the map doesn't show through it while it scrolls. */
+html[data-theme="light-glass"] .home-head { background: var(--glass-float); }

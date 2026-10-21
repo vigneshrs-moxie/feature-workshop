@@ -61,7 +61,13 @@ export function toastOf(news: PlayNews, titleOf: (slug: string) => string | unde
   }
   if (news.quest) {
     const q = news.quest;
-    const how = q.rule === 'marked-done' ? 'you marked it done' : 'its first PR was created';
+    // What crossed the finish line (older dashboards say only the rule it was counted under).
+    const by = q.by ?? (q.rule === 'marked-done' || q.rule === 'marked' ? 'marked' : q.rule === 'first-pr' ? 'pr1-open' : q.rule);
+    const how = by === 'marked' ? 'you marked it done'
+      : by === 'pr1-merged' ? 'PR #1 was merged'
+        : by === 'staging' ? 'it reached staging'
+          : by === 'main' ? 'it reached main'
+            : 'its first PR was created';
     return {
       key: news.seq, kind: 'quest', badge: 'quest', label: 'Quest done', name: titleOf(q.slug) ?? q.slug,
       line: `${LEVEL(q.level)}${q.kind === 'bug' ? 'bug fix' : 'feature'}: ${how}.`.replace(/^./, (c) => c.toUpperCase()),

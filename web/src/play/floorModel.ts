@@ -11,7 +11,7 @@ import { usagePaused } from './crewLines';
 /** How many asks the Foreman names; the rest are counted. */
 export const FLOOR_ASKS = 4;
 
-const GROUP_ORDER: Record<string, number> = { 'needs-you': 0, running: 1, paused: 2, idle: 3, done: 4 };
+const GROUP_ORDER: Record<string, number> = { 'needs-you': 0, running: 1, paused: 2, idle: 3, shipping: 4, done: 5 };
 const time = (iso: unknown) => (typeof iso === 'string' && Number.isFinite(Date.parse(iso)) ? Date.parse(iso) : Number.POSITIVE_INFINITY);
 /** When a job started waiting for you (its gate's time, else its last change). */
 const waitingFrom = (job: Job) => (job.waitingSince ? time(job.waitingSince) : time(job.updatedAt));

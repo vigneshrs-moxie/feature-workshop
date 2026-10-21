@@ -89,6 +89,11 @@
 .trail-stop.is-done .trail-dot { border-color: var(--status-ok); background: var(--status-ok); color: var(--crew-ink); }
 .trail-stop.is-current .trail-dot { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 .trail-stop.is-goal .trail-dot { border-radius: 5px; }
+/* After the finish line: the long tail that waits on other people, drawn smaller and quieter. */
+.trail-stop.is-after { flex-grow: .7; }
+.trail-stop.is-after .trail-dot { width: 14px; height: 14px; margin-top: 3px; font-size: 9px; line-height: 10px; }
+.trail-stop.is-after::before { height: 3px; }
+.trail-stop.is-after .trail-label { color: var(--text-2); font-weight: var(--weight-regular); }
 
 .trail-label {
   max-width: 100%;

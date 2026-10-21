@@ -45,7 +45,7 @@ describe('jobTrail', () => {
   it('done: the Foreman celebrates at the goal; dropped: no party', () => {
     const done = trail(job('a', 'done', { level: 2, stage: 'pr1' }), true);
     expect([done.who, done.mood, done.finished, done.next]).toEqual(['conductor', 'celebrating', true, null]);
-    expect(done.stops.every((s) => s.state === 'done')).toBe(true);
+    expect(done.stops.filter((s) => !s.after).every((s) => s.state === 'done')).toBe(true);
     const dropped = trail(job('a', 'done', { level: 2, stage: 'plan', closed: { as: 'dropped', at: at(14, 0) } }));
     expect([dropped.lead, dropped.mood]).toEqual(['Dropped', 'idle']);
   });
@@ -69,7 +69,19 @@ describe('jobTrail', () => {
     const t = trail(job('a', 'running', { level: null, stage: 'spec' }));
     expect(t.stars).toBeNull();
     expect(t.difficulty).toBeNull();
-    expect(t.stops.map((s) => s.id)).toEqual(['spec', 'investigate', 'plan', 'implement', 'test', 'review', 'pr1']);
+    expect(t.stops.map((s) => s.id)).toEqual(['spec', 'investigate', 'plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3']);
+  });
+
+  it('the finish line moves the goal flag and the “quest’s goal” words; the stops after it are still drawn', () => {
+    const open = (line: 'staging' | 'main' | 'marked') => jobTrail(job('a', 'needs-you', { level: 2, stage: 'pr1', waitingFor: 'approval', finish: { reached: false, at: null, by: null, landed: null } }), { levels: LEVELS, finishLine: line, now: NOW })!;
+    expect(open('staging').stops.find((s) => s.goal)!.id).toBe('pr2');
+    expect(open('staging').next).toBe('Then: The Foreman opens PR #2, the quest’s goal.');
+    expect(open('main').next).toBe('Then: The Foreman opens PR #2.');
+    expect(open('marked').stops.some((s) => s.goal)).toBe(false);
+    // Crossed at PR #1 merged (the default): the Foreman stands at the flag; PR #2 is after the line.
+    const crossed = jobTrail(job('a', 'idle', { level: 2, stage: 'pr1', finish: { reached: true, at: null, by: 'pr1-merged', landed: null } }), { levels: LEVELS, now: NOW })!;
+    expect([crossed.finished, crossed.who, crossed.next]).toEqual([true, 'conductor', 'Next: The Foreman opens PR #2. The quest itself is already done.']);
+    expect(crossed.stops.find((s) => s.id === 'pr2')!.after).toBe(true);
   });
 
   it('skips what the job’s own options skip, in the path and in what comes next', () => {
@@ -80,7 +92,7 @@ describe('jobTrail', () => {
 
   it('no level chosen: the path of the Foreman’s or the rules’ suggestion, and no stars', () => {
     const suggested = trail(job('a', 'needs-you', { level: null, suggestedLevel: 1, stage: 'plan', waitingFor: 'approval' }));
-    expect(suggested.stops.map((s) => s.id)).toEqual(['plan', 'implement', 'test', 'review', 'pr1']);
+    expect(suggested.stops.map((s) => s.id)).toEqual(['plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3']);
     expect(suggested.next).toBe('Then: Builder builds it.');
     expect(suggested.stars).toBeNull();
     // Nothing suggested yet: no next stage named, since it may never run.

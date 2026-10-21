@@ -15,5 +15,5 @@ export function useTrail(job: Job, now: Date, where: 'header' | 'card' = 'header
   const { load } = usePlayLedger(false);
   if (!play?.on) return null;
   const slugs = load.state === 'ready' ? load.view.quests.slugs : undefined;
-  return jobTrail(job, { levels: meta?.levels, done: slugs ? slugs.includes(job.slug) : undefined, usage, now, where });
+  return jobTrail(job, { levels: meta?.levels, done: slugs ? slugs.includes(job.slug) : undefined, finishLine: meta?.settings?.workflow?.finishLine, usage, now, where });
 }

@@ -8,6 +8,7 @@ import { fullTime, relativeTime } from '../../lib/time';
 import { ServerHtml } from '../../panes/Foreman/ServerHtml';
 import { FridayEyebrow } from '../../play/FridayEyebrow';
 import { InlineText } from '../InlineText';
+import { Kbd } from '../Kbd';
 import { AlwaysAllowSheet } from './AlwaysAllowSheet';
 import { useAnswer } from './useAnswer';
 
@@ -115,11 +116,11 @@ export function PermissionCard({ permission: p, now, showJob = false }: { permis
         <DenyBox busy={busy} label="Deny" onDeny={(note) => void send({ decision: 'deny', note })} onCancel={() => setDenying(false)} />
       ) : (
         <div className="perm-actions">
-          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void send({ decision: 'allow' })} title="Let it do exactly this, one time. It asks again next time.">Allow once</button>
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void send({ decision: 'allow' })} title="Let it do exactly this, one time. It asks again next time.">Allow once{!p.hardLine && !p.defaultToNo && <Kbd id="desk-approve" />}</button>
           {p.canAllowForRun && (
             <button type="button" className="btn" disabled={busy} onClick={() => void send({ decision: 'allow-run' })} title="Let it do this kind of step without asking again until this reply is finished. Nothing is saved.">Allow for this reply</button>
           )}
-          <button type="button" className="btn btn-danger" disabled={busy} onClick={() => setDenying(true)} title="Say no. It skips this and carries on; you can tell it why.">Deny…</button>
+          <button type="button" className="btn btn-danger" disabled={busy} onClick={() => setDenying(true)} title="Say no. It skips this and carries on; you can tell it why.">Deny…<Kbd id="desk-deny" /></button>
           {draft && (
             <button
               ref={alwaysBtn}

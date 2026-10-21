@@ -12,12 +12,14 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
 import type { Gate, GateRequest, GateResult, Job, JobDetail } from '../../api/types';
 import { sendGate, stopRun } from '../../app/jobActions';
+import { useKeyScope } from '../../app/keyRegistry';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { InlineText } from '../../components/InlineText';
+import { Kbd } from '../../components/Kbd';
 import { composeGate, type GateKind } from '../../lib/compose';
 import {
   answersFor, approveLabel, chipsFor, chipViews, decidedKey, emptyOverride, gateDraftKey, gateRequest, initialChoices,
-  openDecisions, openGate, OTHER, placeGateReply, readGateMemo, readReopenedMemo, reopenMemo, toggleChip, unansweredQuestion,
+  oneKeyGateApprove, openDecisions, openGate, OTHER, placeGateReply, readGateMemo, readReopenedMemo, reopenMemo, toggleChip, unansweredQuestion,
   verdictsFor, type ChipId, type GateChoices,
 } from '../../lib/gateCard';
 import { plainInline } from '../../lib/inlineMarkdown';
@@ -309,6 +311,22 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
     setMode((now) => (now === m ? null : m));
   }
 
+  // The card's keys (the 'gate' scope): off while a decision is being sent. `a` only where the Desk
+  // would allow one key too; 1–3 answer the first question still open.
+  useKeyScope('gate', {
+    'gate-approve': () => { if (!oneKeyGateApprove(gate, job.waitingFor)) return false; void act('approve'); },
+    'gate-edit': () => { if (stale) return false; openEdit(); },
+    'gate-revise': () => openMode('changes'),
+    'gate-guidance': () => openMode('message'),
+    'gate-answer': (e) => {
+      const n = unansweredQuestion(gate, c);
+      const q = n === null ? null : gate.questions[n - 1];
+      const o = q?.options[Number(e.key) - 1];
+      if (!q || !o) return false;
+      setChoice(q.id, o.id);
+    },
+  }, !busy);
+
   const resetAt = usage?.resetsAt ? clockTime(usage.resetsAt, now) : '';
   const waited = waitedText(gate.waitingSince, now);
   const approveHint = `${approve}. Sends your answers, confirms the decisions you didn’t override, adds the chips’ lines, and says “At these versions”.${gate.nextProposed ? ` The Foreman goes ahead with: ${plainInline(gate.nextProposed)}.` : ''}`;
@@ -414,16 +432,16 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
 
       <div className="perm-actions gate-actions">
         <button type="button" className="btn btn-primary" disabled={busy || stale} onClick={() => void act('approve')} title={stale ? staleHint : approveHint}>
-          {approve}
+          {approve}{oneKeyGateApprove(gate, job.waitingFor) && <Kbd id="gate-approve" />}
         </button>
         <button ref={editBtn} type="button" className="btn" disabled={busy || stale} onClick={openEdit} title={stale ? staleHint : 'See the whole reply exactly as the Foreman will receive it, edit it, then send it as your approval.'}>
-          Edit, then approve
+          Edit, then approve<Kbd id="gate-edit" />
         </button>
         <button type="button" className="btn" disabled={busy} aria-expanded={mode === 'changes'} onClick={() => openMode('changes')} title="Ask for changes: the Foreman stays in this stage and revises. Nothing is approved.">
-          Revise with feedback
+          Revise with feedback<Kbd id="gate-revise" />
         </button>
         <button type="button" className="btn" disabled={busy} aria-expanded={mode === 'message'} onClick={() => openMode('message')} title="Tell the Foreman something else: a question or guidance. Nothing is approved.">
-          Other guidance
+          Other guidance<Kbd id="gate-guidance" />
         </button>
         {limited && (
           <button

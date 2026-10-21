@@ -153,7 +153,7 @@ describe('Settings: permissions', () => {
     setup([{ rules: [], active: true, unreadable: null }]);
     const picker = screen.getByRole('group', { name: 'How the Workshop looks' });
     const radios = within(picker).getAllByRole('radio');
-    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass']);
+    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'candy-pop', 'glass', 'sunset-paper', 'light', 'light-glass']);
     expect(within(picker).getByRole('radio', { name: /^Default/ })).toBeChecked();
     expect(within(picker).getByText(/Ink-navy night/)).toBeInTheDocument();
     fireEvent.click(within(picker).getByRole('radio', { name: /Candy pop/ }));

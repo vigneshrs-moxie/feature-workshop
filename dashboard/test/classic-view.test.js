@@ -9,29 +9,50 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
-import { THEMES, HIDDEN_THEMES, newViewHref } from '../public/ui.js';
+import { THEMES, HIDDEN_THEMES, THEME_PAIRS, TEXT_SIZES, newViewHref } from '../public/ui.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (rel) => fs.readFile(path.join(root, rel), 'utf8');
 
-// theme-boot.js run as the page runs it, with a given address and stored theme.
-async function boot({ search = '', stored = null, storageThrows = false } = {}) {
+// theme-boot.js run as the page runs it, with a given address, stored look and system scheme.
+async function bootAttrs({ search = '', stored = null, textSize = null, follow = null, system = null, storageThrows = false } = {}) {
   const attrs = {};
+  const values = { 'workshop.theme': stored, 'workshop.textSize': textSize, 'workshop.themeFollow': follow };
   const sandbox = {
     location: { search },
     URLSearchParams,
-    localStorage: { getItem: (k) => { if (storageThrows) throw new Error('blocked'); return k === 'workshop.theme' ? stored : null; } },
+    localStorage: { getItem: (k) => { if (storageThrows) throw new Error('blocked'); return values[k] ?? null; } },
     document: { documentElement: { setAttribute: (k, v) => { attrs[k] = v; } } },
   };
+  if (system) sandbox.matchMedia = (q) => ({ matches: q.includes(system) });
   vm.runInNewContext(await read('dashboard/public/theme-boot.js'), sandbox);
-  return attrs['data-theme'];
+  return attrs;
 }
+const boot = async (opts) => (await bootAttrs(opts))['data-theme'];
 
 test('classic: the theme picked in the new view is put on before the page draws', async () => {
   assert.equal(await boot({ stored: 'glass' }), 'glass');
+  assert.equal(await boot({ stored: 'light-glass' }), 'light-glass');
   assert.equal(await boot({ stored: 'sunset-paper', search: '?theme=pixel-crew' }), 'pixel-crew', 'the address wins, as in the new view');
-  for (const stored of [null, 'light', 'dark', 'auto', 'crt', 'gold', 'nonsense']) assert.equal(await boot({ stored }), 'default', String(stored));
+  for (const stored of [null, 'dark', 'auto', 'crt', 'gold', 'nonsense']) assert.equal(await boot({ stored }), 'default', String(stored));
   assert.equal(await boot({ storageThrows: true }), 'default', 'storage blocked: the default');
+});
+
+test('classic: the text size picked in the new view goes on html[data-text] before the page draws', async () => {
+  assert.equal((await bootAttrs({ textSize: 'xl' }))['data-text'], 'xl');
+  for (const textSize of [null, 'huge', 'XL']) assert.equal((await bootAttrs({ textSize }))['data-text'], 'm', String(textSize));
+  assert.equal((await bootAttrs({ storageThrows: true }))['data-text'], 'm');
+});
+
+test('classic: Follow the system swaps the stored theme for its twin by the system scheme, never one from the address', async () => {
+  assert.equal(await boot({ follow: 'on', system: 'light' }), 'light', 'nothing stored: Default follows to Light');
+  assert.equal(await boot({ stored: 'light', follow: 'on', system: 'dark' }), 'default');
+  assert.equal(await boot({ stored: 'glass', follow: 'on', system: 'light' }), 'light-glass');
+  assert.equal(await boot({ stored: 'light-glass', follow: 'on', system: 'dark' }), 'glass');
+  assert.equal(await boot({ stored: 'blueprint', follow: 'on', system: 'light' }), 'blueprint', 'no twin: as chosen');
+  assert.equal(await boot({ stored: 'light', follow: 'off', system: 'dark' }), 'light', 'off: as chosen');
+  assert.equal(await boot({ stored: 'light', follow: 'on' }), 'light', 'no matchMedia: as chosen');
+  assert.equal(await boot({ stored: 'light', follow: 'on', system: 'light', search: '?theme=glass' }), 'glass', 'the address is a request');
 });
 
 test('classic: its theme lists match the new view’s', async () => {
@@ -41,8 +62,19 @@ test('classic: its theme lists match the new view’s', async () => {
   const hidden = entries.filter((m) => m[2]).map((m) => m[1]);
   assert.deepEqual(THEMES, originals);
   assert.deepEqual(HIDDEN_THEMES, hidden);
-  const bootList = /var THEMES = \[([^\]]*)\]/.exec(await read('dashboard/public/theme-boot.js'))[1].split(',').map((x) => x.trim().replace(/'/g, ''));
+  const boot = await read('dashboard/public/theme-boot.js');
+  const bootList = /var THEMES = \[([^\]]*)\]/.exec(boot)[1].split(',').map((x) => x.trim().replace(/'/g, ''));
   assert.deepEqual(bootList, originals);
+  // The dark/light pairs and the text sizes too (web/src/theme/theme.ts THEME_PAIRS, textSize.ts TEXT_SIZES).
+  const pairsOf = (src, name) => [...new RegExp(`${name} = \\[((?:\\s*\\[[^\\]]*\\],?)*)\\s*\\]`).exec(src)[1].matchAll(/\[([^\]]*)\]/g)].map((m) => m[1].split(',').map((x) => x.trim().replace(/'/g, '')));
+  const tsPairs = pairsOf(themeTs, 'export const THEME_PAIRS: readonly \\(readonly \\[dark: string, light: string\\]\\)\\[\\]');
+  assert.deepEqual(tsPairs, [['default', 'light'], ['glass', 'light-glass']]);
+  assert.deepEqual(THEME_PAIRS, tsPairs);
+  assert.deepEqual(pairsOf(boot, 'var PAIRS'), tsPairs);
+  const sizes = /var TEXT_SIZES = \[([^\]]*)\]/.exec(boot)[1].split(',').map((x) => x.trim().replace(/'/g, ''));
+  assert.deepEqual(sizes, ['s', 'm', 'l', 'xl']);
+  assert.deepEqual(TEXT_SIZES, sizes);
+  assert.match(await read('web/src/theme/textSize.ts'), /TEXT_SIZES: readonly TextSize\[\] = \['s', 'm', 'l', 'xl'\]/);
 });
 
 test('classic: New view goes back to the same page', () => {

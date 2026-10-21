@@ -8,20 +8,29 @@ import { fileURLToPath } from 'node:url';
 import { transform } from 'lightningcss';
 import { describe, expect, it } from 'vitest';
 
-const css = readFileSync(fileURLToPath(new URL('./themes/glass.css', import.meta.url)), 'utf8');
-const uncommented = css.replace(/\/\*[\s\S]*?\*\//g, '');
-const scope = 'html[data-theme="glass"] ';
+const read = (id: string) => readFileSync(fileURLToPath(new URL(`./themes/${id}.css`, import.meta.url)), 'utf8');
+const uncomment = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** Every selector of a rule that sets backdrop-filter. */
-function blurred(text: string): string[] {
+function blurred(text: string, scope: string): string[] {
   return [...text.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
     .filter((m) => /(^|[;\s])backdrop-filter\s*:/.test(m[2]))
     .flatMap((m) => m[1].split(',').map((s) => s.trim().replace(scope, '')));
 }
 
-describe('glass.css blur', () => {
+/** Every selector of every rule outside @media, without the theme scope. */
+function hooks(text: string, scope: string): string[] {
+  const flat = text.replace(/@media[^{]*\{((?:[^{}]*\{[^{}]*\})*)[^{}]*\}/g, '');
+  return [...flat.matchAll(/([^{}]+)\{[^{}]*\}/g)].flatMap((m) => m[1].split(',').map((s) => s.trim().replace(scope.trim(), '').trim())).filter(Boolean);
+}
+
+describe.each(['glass', 'light-glass'])('%s.css blur', (id) => {
+  const css = read(id);
+  const uncommented = uncomment(css);
+  const scope = `html[data-theme="${id}"] `;
+
   it('blurs only the backdrops, the toasts and the composer’s ::before, never a box that can hold a sheet', () => {
-    expect(blurred(uncommented).sort()).toEqual(['.composer::before', '.drawer-backdrop', '.play-toast', '.sheet-backdrop', '.toast'].sort());
+    expect(blurred(uncommented, scope).sort()).toEqual(['.composer::before', '.drawer-backdrop', '.play-toast', '.sheet-backdrop', '.toast'].sort());
   });
 
   it('writes only the unprefixed property (the build adds -webkit-)', () => {
@@ -30,7 +39,7 @@ describe('glass.css blur', () => {
 
   it('keeps the unprefixed blur through the build’s minifier, for Chrome and Safari alike', () => {
     const { code } = transform({
-      filename: 'glass.css',
+      filename: `${id}.css`,
       code: Buffer.from(css),
       minify: true,
       // Chrome 120 and Safari 16, as lightningcss encodes versions (major << 16).
@@ -39,5 +48,23 @@ describe('glass.css blur', () => {
     const out = code.toString();
     expect(out).toMatch(/[;{]backdrop-filter:/);
     expect(out).toContain('-webkit-backdrop-filter');
+  });
+});
+
+describe('light-glass.css mirrors glass.css', () => {
+  it('styles every hook Glass styles (and no other), sets the same --glass-* tokens, and is light', () => {
+    const glass = uncomment(read('glass'));
+    const light = uncomment(read('light-glass'));
+    expect(new Set(hooks(light, 'html[data-theme="light-glass"] '))).toEqual(new Set(hooks(glass, 'html[data-theme="glass"] ')));
+    for (const token of ['--glass-float', '--glass-pane', '--glass-pane-side', '--glass-aurora', '--glass-edge', '--glass-edge-bright', '--glass-highlight', '--glass-blur', '--glass-blur-strong', '--glass-gradient']) {
+      expect(light, token).toContain(`${token}:`);
+    }
+    expect(light).toContain('color-scheme: light;');
+    expect(glass).toContain('color-scheme: dark;');
+    // Every floating surface takes --glass-float in both.
+    for (const css of [glass, light]) {
+      for (const hook of ['.sheet', '.palette', '.drawer', '.toast', '.drawer-foot', '.home-head', '.play-toast']) expect(css, hook).toContain(hook);
+      expect(css.match(/var\(--glass-float\)/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
+    }
   });
 });

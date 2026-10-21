@@ -18,7 +18,7 @@ export const NOTIFY_DEFAULTS: Notify = {
 const LEVELS: { id: NotifyLevel; label: string; hint: string }[] = [
   { id: 'needs', label: 'Needs you', hint: 'A go-ahead, a question or a permission is waiting; also a decision left 4 hours.' },
   { id: 'problem', label: 'Problems', hint: 'A reply ended with an error, or Claude’s usage limit paused the work.' },
-  { id: 'done', label: 'Done', hint: 'A job’s work reached staging or main, or you marked it done.' },
+  { id: 'done', label: 'Done', hint: 'Reached the finish line you set, or you marked it done. Landing in staging or main after that is told without a sound.' },
 ];
 const MODES: { id: NotifyMode; label: string }[] = [
   { id: 'sound', label: 'With a sound' },

@@ -3,6 +3,7 @@
 // Terminal and Git tabs arrive in phase 4.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { HowThisWorks } from '../../components/HowThisWorks';
+import { useKeyScope } from '../../app/keyRegistry';
 import { classicHref } from '../../app/router';
 import { useUi } from '../../app/ui';
 import { jobBySlug } from '../../state/reducer';
@@ -53,14 +54,19 @@ export function PreviewPane({ slug }: { slug: string | null }) {
     if (!slug) tabRefs.current.docs?.focus();
   }, [ui.docsRequest, slug]);
 
+  const stepTab = (by: 1 | -1, focus: boolean) => {
+    const at = TABS.findIndex((t) => t.id === tab);
+    const next = TABS[(at + by + TABS.length) % TABS.length].id;
+    setTab(next);
+    if (focus) tabRefs.current[next]?.focus();
+  };
+  // ← and → on the tab bar itself; [ and ] from anywhere on the job (the 'job' scope).
   function onTabKey(e: KeyboardEvent<HTMLButtonElement>) {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
     e.preventDefault();
-    const at = TABS.findIndex((t) => t.id === tab);
-    const next = TABS[(at + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length].id;
-    setTab(next);
-    tabRefs.current[next]?.focus();
+    stepTab(e.key === 'ArrowRight' ? 1 : -1, true);
   }
+  useKeyScope('job', { 'preview-prev': () => stepTab(-1, false), 'preview-next': () => stepTab(1, false) }, slug !== null);
 
   return (
     <aside className="pane pane-preview" data-pane="preview" aria-label="Preview">

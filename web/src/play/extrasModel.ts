@@ -3,7 +3,8 @@
 // review's findings as hit points, from the play ledger) and stamina (Claude's usage limit, from the
 // snapshot's usage). Pure: no React, no fetching, nothing from a model. The components are in
 // FullExtras.tsx and draw nothing unless Play mode is Full.
-import type { Job, LevelInfo, LevelNumber, ReviewBoss, Usage } from '../api/types';
+import type { FinishLine, Job, LevelInfo, LevelNumber, ReviewBoss, Usage } from '../api/types';
+import { DEFAULT_FINISH_LINE } from '../api/types';
 import { clockTime } from '../lib/time';
 import { isLevel, levelLabel } from '../lib/levels';
 import { stageLabel } from '../panes/Jobs/stages';
@@ -11,10 +12,19 @@ import { STAGE_CHARACTER } from './crew';
 
 // ---------- Quest track ----------
 
-/** The stages a quest runs through, in order, to its goal: the first PR (a quest is done then). */
+/** The stages a quest runs through, in order, up to PR #1 (the Foreman's own loop). */
 export const QUEST_STAGES: readonly string[] = ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'implement', 'test', 'review', 'pr1'];
-// Stages after the first PR: the quest is done by then.
-const AFTER_GOAL = new Set(['pr2', 'staging-qa', 'pr3']);
+/** The shipping stages after PR #1, in order: drawn after the goal when the finish line is before them. */
+export const SHIPPING_STAGES: readonly string[] = ['pr2', 'staging-qa', 'pr3'];
+/** The stop the finish line puts the goal flag on; null for "when I mark it done" (no flag). */
+export function goalStop(finishLine: FinishLine | null | undefined): string | null {
+  switch (finishLine ?? DEFAULT_FINISH_LINE) {
+    case 'pr1-open': case 'pr1-merged': return 'pr1';
+    case 'staging': return 'pr2';
+    case 'main': return 'pr3';
+    default: return null;
+  }
+}
 /** Each level's skipped stages when meta.levels doesn't say (dashboard/lib/options.js LEVELS). */
 const DEFAULT_SKIP: Record<LevelNumber, string[]> = {
   0: ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'test', 'review'],
@@ -27,44 +37,69 @@ const DEFAULT_SKIP: Record<LevelNumber, string[]> = {
 export const difficultyStars = (level: LevelNumber) => '★'.repeat(level + 1);
 
 export type StopState = 'done' | 'current' | 'next';
-export interface QuestStop { id: string; label: string; state: StopState }
+export interface QuestStop {
+  id: string;
+  label: string;
+  state: StopState;
+  /** The finish line's stop: the flag. */
+  goal: boolean;
+  /** After the finish line: drawn smaller, the long tail that waits on other people. */
+  after: boolean;
+  /** The crew member stands here. */
+  here: boolean;
+}
 
 export interface QuestTrack {
   level: LevelNumber;
   stars: string;
   /** "Difficulty: L2 Standard". */
   difficulty: string;
-  /** The stages this level runs, skipped ones left out ("Spec update" only while it is the stage). */
+  /** The stages this level runs, skipped ones left out ("Spec update" only while it is the stage), then the shipping stages. */
   stops: QuestStop[];
-  /** Who stands on the current stop (the stage's character); the Foreman at the goal once done. */
+  /** Who stands on the stop marked `here` (the stage's character); the Foreman at the goal once done. */
   who: string | null;
-  /** The quest is done (by the Settings → Play rule): every stop passed. */
+  /** The quest is done: the finish line crossed (the card's `finish`), or the ledger says so. */
   finished: boolean;
+  /** The goal stop's id (the finish line), or null with "when I mark it done". */
+  goal: string | null;
 }
 
 /**
- * The job's quest track, or null when it has no level yet. done: whether the play ledger counts the
- * quest done (Settings → Play: its first PR created, or you marked it done); without the ledger, a
- * job past the first PR or marked done is taken as done.
+ * The job's quest track, or null when it has no level yet. finished comes from the card's `finish`
+ * (the dashboard's finish line) when it has one, else from `done` (whether the play ledger counts the
+ * quest), else a job marked done or past PR #1 is taken as done. finishLine puts the goal flag on
+ * its stop (PR #1, PR #2 for staging, PR #3 for main; none for "when I mark it done"). The stops
+ * after the goal are still drawn, smaller, so the crew member can stand on PR #2 while it is open.
  */
-export function questTrack(job: Job, levels?: LevelInfo[] | null, done?: boolean): QuestTrack | null {
+export function questTrack(job: Job, levels?: LevelInfo[] | null, done?: boolean, finishLine?: FinishLine | null): QuestTrack | null {
   if (!isLevel(job.level)) return null;
   const level = job.level;
   const skip = new Set(levels?.find((l) => l.level === level)?.skip ?? DEFAULT_SKIP[level]);
   // The job's own skipped stages too (its options' Skip list and route: the card's `skipped`).
   if (Array.isArray(job.skipped)) for (const id of job.skipped) if (typeof id === 'string') skip.add(id);
   const stage = typeof job.stage === 'string' ? job.stage : null;
-  const pastGoal = stage !== null && AFTER_GOAL.has(stage);
-  const finished = done ?? (job.group === 'done' || pastGoal);
+  const pastPr1 = stage !== null && SHIPPING_STAGES.includes(stage);
+  const finished = job.finish?.reached ?? done ?? (job.group === 'done' || pastPr1);
   // The current stage always shows, even one this level would skip (the job's own options can differ).
-  const ids = QUEST_STAGES.filter((s) => s === stage || (!skip.has(s) && s !== 'spec-update'));
-  // Past the first PR but not done yet ("I mark the job done"): standing at the goal.
-  const at = finished ? ids.length : pastGoal ? ids.length - 1 : stage ? ids.indexOf(stage) : -1;
+  const ids = [
+    ...QUEST_STAGES.filter((s) => s === stage || (!skip.has(s) && s !== 'spec-update')),
+    ...SHIPPING_STAGES.filter((s) => s === stage || !skip.has(s)),
+  ];
+  const goal = goalStop(finishLine);
+  const goalAt = goal ? ids.indexOf(goal) : -1;
+  // Where the work is: the job's stage. Finished with no stage known: at the goal, else the end.
+  const stageAt = stage ? ids.indexOf(stage) : -1;
+  const at = stageAt >= 0 ? stageAt : finished ? (goalAt >= 0 ? goalAt : ids.length - 1) : -1;
+  // Finished and not yet past the goal: the Foreman stands at the goal, every stop up to it passed.
+  const atGoal = finished && goalAt >= 0 && at <= goalAt;
+  const here = atGoal ? goalAt : at;
   const stops = ids.map((id, i): QuestStop => ({
-    id, label: stageLabel(id), state: finished || (at >= 0 && i < at) ? 'done' : i === at ? 'current' : 'next',
+    id, label: stageLabel(id),
+    state: atGoal ? (i <= goalAt ? 'done' : 'next') : at >= 0 && i < at ? 'done' : i === at ? (finished && goalAt < 0 && !stage ? 'done' : 'current') : 'next',
+    goal: i === goalAt, after: goalAt >= 0 && i > goalAt, here: i === here && here >= 0,
   }));
-  const who = finished ? 'conductor' : at >= 0 && stage ? STAGE_CHARACTER[stage] ?? 'conductor' : null;
-  return { level, stars: difficultyStars(level), difficulty: `Difficulty: ${levelLabel(level, levels)}`, stops, who, finished };
+  const who = atGoal ? 'conductor' : at >= 0 && stage ? STAGE_CHARACTER[stage] ?? 'conductor' : finished ? 'conductor' : null;
+  return { level, stars: difficultyStars(level), difficulty: `Difficulty: ${levelLabel(level, levels)}`, stops, who, finished, goal };
 }
 
 // ---------- Boss fight ----------

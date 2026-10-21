@@ -15,6 +15,30 @@ Until then, and always with Play mode Off, a hidden id in the address or localSt
 like an unknown one; the dashboard also refuses to record one as tried (409). They are full
 themes like the others and keep every rule below.
 
+**Light twins and Follow the system.** Two themes come as a dark/light pair, Default ↔ Light and
+Glass ↔ Light glass (`THEME_PAIRS` in `theme.ts`; the classic page's copies in `dashboard/public/ui.js`
+and `theme-boot.js` must match, a test checks). With Settings → Look → Follow the system on
+(localStorage `workshop.themeFollow` = `on`, off by default), `prefers-color-scheme` picks the member
+of the chosen theme's pair, now and whenever the system changes; a theme with no twin is left as
+chosen, and `?theme=` in the address is never swapped. Every `ThemeInfo` says its `scheme`
+(`dark` or `light`), which must match the file's `color-scheme`; the picker groups by it. A light
+theme re-tunes the status colours for its pale ground so every status word is at or above 4.5:1
+(WCAG) on `--bg-0`..`--bg-4` and on its own chip background; `light.css` and `light-glass.css` were
+checked that way. Both Glass themes define `--glass-float`, `--glass-pane` and `--glass-pane-side`
+and put `--glass-float` on everything that floats over other content (sheets, the palette, the
+drawer and its Save row, menus, toasts, Home's sticky header), so nothing shows through the words;
+`light-glass.css` styles exactly the hooks `glass.css` does, with light values (a test compares).
+
+**Text size.** Settings → Look → Text size (S, M, L, XL; `theme/textSize.ts`, localStorage
+`workshop.textSize`, applied before the first paint like the theme) sets `html[data-text]`, and
+`tokens.css` maps it to one factor, `--ui-scale` (.875, 1, 1.125, 1.25). Every type token
+(`--text-xs`..`--text-xl`), `--row-h` and `--topbar-h` are written `calc(<N>px * var(--ui-scale, 1))`,
+so type and row heights follow it; the widths (`--jobs-w`, `--preview-w`, `--foreman-max`, `--rail-w`)
+do not. A theme that sets a type size or a type-bound line height in px writes the same calc
+(Pixel crew's headings: `font-size: calc(17px * var(--ui-scale, 1))`), and never a raw px, so the
+setting reaches every theme. The classic page gets both through `theme.css` (`classicSheet.ts` keeps
+the `html[data-text]` rules) and `theme-boot.js`.
+
 **The rule: a theme changes looks only.** Colour, type, radii, borders, backgrounds, patterns,
 shadows, decoration with pseudo-elements, and motion within the limits below. It never moves,
 hides, adds or re-orders anything, never changes text, and never changes what a control does.
@@ -152,7 +176,8 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `.inline-code`, `.short-line` | short Foreman text shown clean on cards and the live row (`.short-heading`, `.short-quote`) |
 | `.skill-warning` | Settings' warning that the installed /feature skill predates levels (also a `.perm-warn`) |
 | `.settings` | the Settings view; `.settings-heading`, `.rule-options`, `.rule-option` (`.is-picked`), `.rule-list` |
-| `.theme-picker`, `.theme-option`, `.theme-hint` | the theme picker in Settings |
+| `.look-settings` | Settings → Look (`views/Settings/LookSettings.tsx`): `.look-heading` its sub-headings; `.text-size` with `.text-size-btn` (`.is-on`, `aria-pressed`) and the live `.text-sample`; `.follow-system` (a `.rule-option` with a checkbox) |
+| `.theme-picker`, `.theme-option`, `.theme-hint` | the theme picker in Settings: a swatch grid in two groups (`.theme-group`, `.theme-group-title`, `.theme-grid`); each `.theme-option` (`.is-picked`, `.is-hidden-theme`) holds a `.theme-swatch` carrying its own `data-theme`, drawn from that theme's tokens (`theme/swatches.css`, generated from every theme file by `swatchSheet.ts`: the token block and the `body` background, re-scoped), then the name, the word `.theme-chosen` on the chosen one and `.theme-description` |
 | `.btn`, `.btn-primary`, `.btn-danger`, `.btn-quiet`, `.chip`, `.kbd`, `.text-input`, `.text-area`, `.select` | controls |
 | `.how` | a "How this works" fold |
 | `.crew` | a crew member (an inline `svg`): `.crew-<agent type>`, `.is-<state>` (`working` `waiting` `idle` `asleep` `celebrating` `walking` `thinking`), `.m-<motion>` (`strike` `write` `scan` `shake`), `.is-animated` (Full mode) or `.is-still`; parts `.rig`, `.head`, `.hat`, `.arm-l`, `.arm-r`, `.tool` (`.grip` inside), `.feet`, `.shadow`, `.fx`; `.is-silhouette` when not met yet. Restyle colours through `--crew-*` only |
@@ -179,6 +204,10 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 4. `npm run web:test` checks the file exists, is scoped, and is imported; a hidden theme (and any
    theme besides Default) must also set every token in `REQUIRED_THEME_TOKENS`
    (`themes.test.ts`: the palette, groups, asks, stages, shape, `--row-alt` and the crew's paints).
+   Say its `scheme` in `THEMES`; a light theme sets `color-scheme: light`. If it is the light or
+   dark twin of another, add the pair to `THEME_PAIRS` and to the classic page's copies
+   (`dashboard/public/ui.js`, `theme-boot.js`). Run `npm run web:build` once: it regenerates
+   `swatches.css` (the picker's swatch for the new theme) and `tokens.css`.
 5. The classic view (`dashboard/public`) wears the theme too: the build writes `dist/theme.css` with
    `tokens.css` and, from each theme, only its token blocks (`html[data-theme="<id>"]`), its page
    background (`html[data-theme="<id>"] body`) and its `@font-face` rules (`classicSheet.ts`). Put a

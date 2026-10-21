@@ -210,3 +210,47 @@ describe('Job drawer in the shell', () => {
     expect(screen.getByRole('dialog', { name: 'Notes and options' })).toBeInTheDocument();
   });
 });
+
+describe('Keys through the registry', () => {
+  it('g then a letter goes to a page; with keys off only ⌘K is left', async () => {
+    renderApp(snapshot({ jobs: [job('alpha', 'needs-you')] }));
+    await screen.findByRole('main', { name: 'Home' });
+    fireEvent.keyDown(document.body, { key: 'g' });
+    fireEvent.keyDown(document.body, { key: 't' });
+    expect(window.location.hash).toBe('#/table');
+    fireEvent.keyDown(document.body, { key: 'g' });
+    fireEvent.keyDown(document.body, { key: 's' });
+    expect(window.location.hash).toBe('#/settings');
+    fireEvent.keyDown(document.body, { key: 'g' });
+    fireEvent.keyDown(document.body, { key: 'h' });
+    expect(window.location.hash).toBe('#/');
+    localStorage.setItem('fw.keys', JSON.stringify({ enabled: false, hints: true }));
+    fireEvent.keyDown(document.body, { key: 'c' });
+    expect(screen.queryByRole('dialog', { name: 'Start a new job' })).toBeNull();
+    fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
+    expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
+  });
+
+  it('on a job: n opens Notes and options, i puts the cursor in the message box, [ and ] move the Preview tabs', async () => {
+    window.location.hash = '#/job/alpha';
+    const get = vi.fn(async (path: string) => (path === '/api/job/alpha/notes' ? { text: '', updatedAt: null } : { slug: 'alpha', thread: [], threadMore: false, options: null }));
+    const api = { snapshot: vi.fn(async () => snapshot({ jobs: [job('alpha', 'idle')] })), setToken: vi.fn(), get, post: vi.fn(), put: vi.fn() } as unknown as ApiClient;
+    render(<App api={api} openStream={() => new FakeStream()} />);
+    await screen.findByRole('heading', { name: 'Job alpha' });
+    expect(screen.getByRole('button', { name: 'New job' }).querySelector('kbd')).toHaveTextContent('c');
+    fireEvent.keyDown(document.body, { key: ']' });
+    expect(screen.getByRole('tab', { name: 'Classic view' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(document.body, { key: '[' });
+    expect(screen.getByRole('tab', { name: 'Docs' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(document.body, { key: 'i' });
+    const composer = screen.getByRole('textbox', { name: /Your message to the Foreman/ });
+    expect(composer).toHaveFocus();
+    fireEvent.keyDown(composer, { key: 'n' }); // typing: nothing opens
+    expect(screen.queryByRole('dialog')).toBeNull();
+    composer.blur();
+    fireEvent.keyDown(document.body, { key: 'n' });
+    expect(screen.getByRole('dialog', { name: 'Notes and options' })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});

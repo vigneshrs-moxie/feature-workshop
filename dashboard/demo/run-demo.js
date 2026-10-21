@@ -269,7 +269,8 @@ async function build() {
     workflowStatus: wsDoc({ title: 'Saved Filters', slug: 'saved-filters', route: 'SMALL — reuse existing filter rules', stage: 'investigate · presented for review', next: '/feature-plan saved-filters' }),
   });
 
-  // 4. Blocked on someone else.
+  // 4. Blocked on someone else: PR #1 merged, PR #2 open. Past the default finish line (PR #1 merged),
+  // so it shows under Shipping ("On the Moxie branch"); the demo flow (fake-flow.js) puts it on the org branch.
   await feature('dark-mode-toggle', {
     status: {
       title: 'Dark Mode Toggle', route: 'small', stage: 'pr2', stage_state: 'blocked', waiting_for: null,
@@ -282,7 +283,8 @@ async function build() {
     },
   });
 
-  // 5. Finished.
+  // 5. Finished by the Foreman's record, and in staging on the demo flow map (PR #2 merged, the release
+  // not yet): past the finish line and landed in staging, so it shows under Shipping ("In staging").
   await feature('report-scheduler', {
     status: { title: 'Report Scheduler', route: 'large', stage: 'pr3', stage_state: 'done', next_proposed: 'Released', updated_at: iso(5 * 24 * HOUR), repo: { path: '/demo/field-app' },
       prs: [1, 2, 3].map((n) => ({ number: n, state: 'merged', url: `https://github.com/example/acme-portal/pull/${30 + n}` })) },

@@ -1,9 +1,11 @@
 // The Table (Home): the same jobs as the map, as rows you can sort, filter and search. Click a job
 // (or press Enter on it) to open it; ↑ and ↓ move between rows. The sort and filter are remembered
 // in this browser.
-import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { FlowPr } from '../api/types';
+import { useKeyScope } from '../app/keyRegistry';
 import { jobHref } from '../app/router';
+import { KeyLegend } from '../components/Kbd';
 import { useStored } from '../lib/stored';
 import { relativeTime } from '../lib/time';
 import { jobHueStyle } from '../theme/hue';
@@ -56,14 +58,16 @@ export function TableView({ rows, now }: { rows: TableRow[]; now: Date }) {
   function sortBy(key: SortKey) {
     setSort(`${key}:${key === sortKey && sortDir === 'asc' ? 'desc' : 'asc'}`);
   }
-  // ↑ and ↓ move between the rows' job links.
-  function onKey(e: KeyboardEvent<HTMLTableSectionElement>) {
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  // ↑ and ↓ move between the rows' job links while the focus is in the table (the 'table' scope).
+  const step = (e: KeyboardEvent, by: 1 | -1) => {
+    if (!(e.target instanceof Node) || !body.current?.contains(e.target)) return false;
     const links = [...(body.current?.querySelectorAll<HTMLAnchorElement>('a.table-job') ?? [])];
     const at = links.indexOf(document.activeElement as HTMLAnchorElement);
-    const next = links[Math.max(0, Math.min(links.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))];
-    if (next) { e.preventDefault(); next.focus(); }
-  }
+    const next = links[Math.max(0, Math.min(links.length - 1, at + by))];
+    if (!next) return false;
+    next.focus();
+  };
+  useKeyScope('table', { 'table-down': (e) => step(e, 1), 'table-up': (e) => step(e, -1) });
 
   return (
     <div className="home-table">
@@ -96,7 +100,7 @@ export function TableView({ rows, now }: { rows: TableRow[]; now: Date }) {
               ))}
             </tr>
           </thead>
-          <tbody ref={body} onKeyDown={onKey}>
+          <tbody ref={body}>
             {shown.map((r) => (
               <tr key={r.slug} data-group={r.group}>
                 <th scope="row">
@@ -119,6 +123,7 @@ export function TableView({ rows, now }: { rows: TableRow[]; now: Date }) {
         </table>
         {shown.length === 0 && <p className="muted home-empty">No jobs match. Try another filter or clear the search.</p>}
       </div>
+      <KeyLegend ids={['table-down', 'table-up', 'table-open']} className="table-keys" />
     </div>
   );
 }

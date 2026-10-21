@@ -47,12 +47,8 @@ export function konamiStep(at: number, key: string): number {
   return k === KONAMI[0] ? (at === 2 ? 2 : 1) : 0;
 }
 
-/** A key typed into a field (text, a textarea, a select or anything editable) is never part of a code. */
-export function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  return target.matches('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
-}
+/** A key typed into a field (text, a textarea, a select or anything editable) is never part of a code: the page's one guard. */
+export { isTypingTarget } from '../app/keyRegistry';
 
 // ---------- Seasonal hats and nightcaps ----------
 

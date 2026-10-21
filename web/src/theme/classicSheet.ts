@@ -7,8 +7,11 @@
 // The Vite plugin in vite.config.ts writes it to dist/theme.css on every build.
 import postcss, { type AtRule, type ChildNode, type Container, type Rule } from 'postcss';
 
-/** A selector that styles the page itself: the root, the html element, or the body, for one theme or all. */
-const PAGE_SELECTOR = /^(:root|html|\[data-theme="[\w-]+"\]|html\[data-theme="[\w-]+"\])( body)?$/;
+/**
+ * A selector that styles the page itself: the root, the html element (bare, or with its theme or
+ * text size attribute), or the body, for one theme or all.
+ */
+const PAGE_SELECTOR = /^(:root|html|\[data-theme="[\w-]+"\]|html\[data-(theme|text)="[\w-]+"\])( body)?$/;
 
 const keepRule = (rule: Rule) => rule.selectors.every((s) => PAGE_SELECTOR.test(s.trim()));
 

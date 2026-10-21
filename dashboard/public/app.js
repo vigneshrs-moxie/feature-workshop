@@ -1,4 +1,4 @@
-import { $, $$, esc, prefs, since, ago, duration, plural, usd, fmtTokens, modelLabel, getJson, postJson, setToken, toast, THEMES, HIDDEN_THEMES, newViewHref } from './ui.js';
+import { $, $$, esc, prefs, since, ago, duration, plural, usd, fmtTokens, modelLabel, getJson, postJson, setToken, toast, THEMES, HIDDEN_THEMES, followTheme, applyTextSize, newViewHref } from './ui.js';
 import { sprite, icon, renderMap, STAGE_CHARACTER } from './crew.js';
 import { pixelText } from './pixelfont.js';
 import { initJob, showJob, currentJobSlug } from './job.js';
@@ -17,15 +17,21 @@ const agentName = (type) => (type === 'conductor' ? 'Foreman' : meta?.agents[typ
 // ---------- Theme: the one picked in the new view (theme-boot.js put it on before the page drew) ----------
 
 // The two hidden themes (the Play layer) go on only once the play ledger says they're unlocked,
-// with Play on, as in the new view. Picking a theme in the new view in another tab shows here too.
+// with Play on, as in the new view. Picking a theme, a text size or Follow the system in the new
+// view in another tab shows here too. A theme from the address is never swapped for its twin.
 let unlocked = {};
 function applyTheme() {
-  const wanted = new URLSearchParams(location.search).get('theme') || prefs.get('theme', 'default');
+  const fromUrl = new URLSearchParams(location.search).get('theme');
+  const wanted = fromUrl || prefs.get('theme', 'default');
   const ok = THEMES.includes(wanted) || (HIDDEN_THEMES.includes(wanted) && unlocked[wanted] === true);
-  document.documentElement.dataset.theme = ok ? wanted : 'default';
+  document.documentElement.dataset.theme = fromUrl && ok ? wanted : followTheme(ok ? wanted : 'default');
 }
 async function startTheme() {
-  window.addEventListener('storage', (e) => { if (e.key === 'workshop.theme') applyTheme(); });
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'workshop.theme' || e.key === 'workshop.themeFollow') applyTheme();
+    if (e.key === 'workshop.textSize') applyTextSize();
+  });
+  if (typeof matchMedia === 'function') matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
   try {
     const play = await getJson('/api/play');
     unlocked = play?.mode && play.mode !== 'off' ? play.unlocks ?? {} : {};

@@ -144,6 +144,16 @@ test('snapshot: each job lands in one group', () => {
   assert.equal(groupFor({ closed: { as: 'dropped' }, stageState: 'idle' }), 'done');
   assert.equal(groupFor({ stageState: 'idle' }), 'idle');
   assert.equal(groupFor({ stageState: 'working', working: false }), 'idle');
+  // The finish line (lib/finish.js): past it is Shipping, in main is Done; what needs you still wins.
+  assert.equal(groupFor({ stageState: 'idle', finish: { reached: true, by: 'pr1-merged', landed: null } }), 'shipping');
+  assert.equal(groupFor({ stageState: 'done', finish: { reached: true, by: 'pr1-merged', landed: 'staging' } }), 'shipping', 'the Foreman’s "done" is not the end while the work is in staging');
+  assert.equal(groupFor({ stageState: 'idle', finish: { reached: true, by: 'main', landed: 'main' } }), 'done');
+  assert.equal(groupFor({ stageState: 'idle', finish: { reached: false, by: null, landed: 'main' } }), 'done', 'in main is done whatever the setting');
+  assert.equal(groupFor({ needsYou: true, finish: { reached: true, landed: null } }), 'needs-you');
+  assert.equal(groupFor({ working: true, finish: { reached: true, landed: null } }), 'running');
+  assert.equal(groupFor({ permissions: 1, finish: { reached: true, landed: 'main' } }), 'needs-you');
+  assert.equal(groupFor({ closed: { as: 'done' }, finish: { reached: true, by: 'marked', landed: null } }), 'done');
+  assert.equal(groupFor({ stageState: 'idle', finish: { reached: false, landed: null } }), 'idle');
 });
 
 test('snapshot: cards are ordered by group, keeping their order inside one', () => {

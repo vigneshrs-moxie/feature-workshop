@@ -12,11 +12,14 @@ import './home/home.css';
 import './theme/themes/index.css';
 import { App } from './app/App';
 import { initTheme } from './theme/theme';
+import { initTextSize } from './theme/textSize';
 
-// The theme goes on <html> before anything renders, so the first paint is already in it. A hidden
-// theme (CRT Terminal, Gold) is the exception: it waits for the play ledger to say it is unlocked
-// (theme/theme.ts), so the default shows for a moment first; nothing in the browser can unlock it.
+// The theme and the text size go on <html> before anything renders, so the first paint is already
+// in them. A hidden theme (CRT Terminal, Gold) is the exception: it waits for the play ledger to say
+// it is unlocked (theme/theme.ts), so the default shows for a moment first; nothing in the browser
+// can unlock it.
 initTheme();
+initTextSize();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Missing #root element in index.html');

@@ -53,8 +53,10 @@ You talk to the **Foreman** and nobody else. It gives you a plain-language overv
 
   Hard lines and risky steps are never one-key approved.
 
+**Finish line** (Settings → Workflow): one setting says what counts as a job being done: PR #1 open, PR #1 merged (the default: your part is over, the rest waits on other people), in staging, in main, or only when you mark it done. Marking a job done always counts. Crossing the line is the celebration (the Play quest, the Done notification); a job past it moves to **Shipping** in the Jobs list, where its row says where the work is ("On the Moxie branch", "In staging") and nothing asks you anything. Reaching staging or main after the line is a quiet "Landed" notification, never with a sound. **Done** is in main, or marked done.
+
 **Notifications outside the browser** (Settings → Notifications):
-- **What sends them:** the dashboard itself, through macOS, so they reach you with the tab closed. That covers what needs you, problems (an error, the usage limit), and jobs reaching staging or main.
+- **What sends them:** the dashboard itself, through macOS, so they reach you with the tab closed. That covers what needs you, problems (an error, the usage limit), and jobs crossing the finish line (then landing in staging or main, quietly).
 - **What you can set:** each kind with a sound, silent or off; quiet hours; nothing while you're looking at the dashboard.
 - **Clicking one:** it opens that job.
 

@@ -5,12 +5,13 @@
   --font-sans: "Inter", "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-display: "Inter Display", "Inter", "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --text-xs: 11px;
-  --text-sm: 12px;
-  --text-base: 13px;
-  --text-md: 15px;
-  --text-lg: 20px;
-  --text-xl: 28px;
+  --ui-scale: 1;
+  --text-xs: calc(11px * var(--ui-scale, 1));
+  --text-sm: calc(12px * var(--ui-scale, 1));
+  --text-base: calc(13px * var(--ui-scale, 1));
+  --text-md: calc(15px * var(--ui-scale, 1));
+  --text-lg: calc(20px * var(--ui-scale, 1));
+  --text-xl: calc(28px * var(--ui-scale, 1));
   --leading: 1.45;
   --weight-regular: 400;
   --weight-medium: 500;
@@ -33,8 +34,8 @@
   --ease-out: cubic-bezier(.16, 1, .3, 1);
   --motion-shift: 4px;
   --motion-scale-from: .96;
-  --topbar-h: 40px;
-  --row-h: 32px;
+  --topbar-h: calc(40px * var(--ui-scale, 1));
+  --row-h: calc(32px * var(--ui-scale, 1));
   --jobs-w: 264px;
   --jobs-w-min: 240px;
   --jobs-w-max: 280px;
@@ -157,6 +158,20 @@
   --crew-c-steel: #8890a8;
   --crew-c-forest: #2f9a5c;
   --crew-c-forest-deep: #1f7044;
+}
+
+/* Text size (theme/textSize.ts): html[data-text] sets the one factor every type token reads. */
+html[data-text="s"] {
+  --ui-scale: .875;
+}
+html[data-text="m"] {
+  --ui-scale: 1;
+}
+html[data-text="l"] {
+  --ui-scale: 1.125;
+}
+html[data-text="xl"] {
+  --ui-scale: 1.25;
 }
 
 @media (prefers-reduced-motion: reduce) {

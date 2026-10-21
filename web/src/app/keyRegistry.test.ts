@@ -1,0 +1,174 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  activeScopes, handleKey, installKeyListener, isTypingTarget, keyLabel, keysText, registerKeys, resetChord, type KeyHandlers,
+} from './keyRegistry';
+import { writeKeysSetting } from './keysSetting';
+
+function press(target: EventTarget, init: KeyboardEventInit) {
+  const e = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+  Object.defineProperty(e, 'target', { value: target });
+  return e;
+}
+
+const regs: { unregister(): void }[] = [];
+function on(scope: Parameters<typeof registerKeys>[0], handlers: KeyHandlers, active = true) {
+  const reg = registerKeys(scope, { current: handlers }, active);
+  regs.push(reg);
+  return reg;
+}
+
+beforeEach(() => { localStorage.clear(); resetChord(); });
+afterEach(() => { for (const r of regs.splice(0)) r.unregister(); document.body.innerHTML = ''; });
+
+describe('the key registry', () => {
+  it('runs the page keys outside text fields and marks the event handled', () => {
+    const next = vi.fn(); const prev = vi.fn(); const newJob = vi.fn(); const keys = vi.fn();
+    on('rows', { 'next-job': next, 'prev-job': prev });
+    on('global', { 'new-job': newJob, 'keys': keys });
+    expect(handleKey(press(document.body, { key: 'j' }))).toBe(true);
+    expect(handleKey(press(document.body, { key: 'k' }))).toBe(true);
+    expect(handleKey(press(document.body, { key: 'c' }))).toBe(true);
+    const q = press(document.body, { key: '?', shiftKey: true });
+    expect(handleKey(q)).toBe(true);
+    expect(q.defaultPrevented).toBe(true);
+    expect([next, prev, newJob, keys].map((f) => f.mock.calls.length)).toEqual([1, 1, 1, 1]);
+    expect(handleKey(press(document.body, { key: 'z' }))).toBe(false);
+  });
+
+  it('the highest-priority active scope gets the key; a parked scope lets it through', () => {
+    const rows = vi.fn(); const desk = vi.fn();
+    on('rows', { 'next-job': rows });
+    const d = on('desk', { 'desk-next': desk });
+    handleKey(press(document.body, { key: 'j' }));
+    expect(desk).toHaveBeenCalledTimes(1);
+    expect(rows).not.toHaveBeenCalled();
+    d.setActive(false);
+    handleKey(press(document.body, { key: 'j' }));
+    expect(rows).toHaveBeenCalledTimes(1);
+    expect(activeScopes().has('desk')).toBe(false);
+  });
+
+  it('a handler that answers false passes the key on to the next scope', () => {
+    const rows = vi.fn();
+    on('rows', { 'next-job': rows });
+    on('desk', { 'desk-next': () => false });
+    handleKey(press(document.body, { key: 'j' }));
+    expect(rows).toHaveBeenCalledTimes(1);
+  });
+
+  it('single-letter keys are ignored while you type, and while a dialog is open; ⌘K is not', () => {
+    const next = vi.fn(); const palette = vi.fn();
+    on('rows', { 'next-job': next });
+    on('global', { 'palette': palette });
+    const area = document.body.appendChild(document.createElement('textarea'));
+    const input = document.body.appendChild(document.createElement('input'));
+    const select = document.body.appendChild(document.createElement('select'));
+    for (const t of [area, input, select]) expect(handleKey(press(t, { key: 'j' }))).toBe(false);
+    expect(handleKey(press(area, { key: 'k', metaKey: true }))).toBe(true);
+    expect(handleKey(press(document.body, { key: 'K', ctrlKey: true }))).toBe(true);
+    expect(palette).toHaveBeenCalledTimes(2);
+    const dialog = document.body.appendChild(document.createElement('div'));
+    dialog.setAttribute('aria-modal', 'true');
+    expect(handleKey(press(document.body, { key: 'j' }))).toBe(false);
+    expect(handleKey(press(document.body, { key: 'k', metaKey: true }))).toBe(true);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('a checkbox is not a text field', () => {
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    expect(isTypingTarget(box)).toBe(false);
+    expect(isTypingTarget(document.createElement('textarea'))).toBe(true);
+    expect(isTypingTarget(null)).toBe(false);
+  });
+
+  it('keys with ⌘, Ctrl or Alt held belong to the browser unless declared with Mod', () => {
+    const newJob = vi.fn(); const next = vi.fn();
+    on('global', { 'new-job': newJob });
+    on('rows', { 'next-job': next });
+    expect(handleKey(press(document.body, { key: 'c', metaKey: true }))).toBe(false);
+    expect(handleKey(press(document.body, { key: 'j', altKey: true }))).toBe(false);
+    expect(handleKey(press(document.body, { key: 'j', ctrlKey: true }))).toBe(false);
+    expect(newJob).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('g then a letter within 1.5 s is a chord; a late or unknown second key does nothing', () => {
+    const table = vi.fn(); const next = vi.fn();
+    on('global', { 'go-table': table });
+    on('rows', { 'next-job': next });
+    const g = press(document.body, { key: 'g' });
+    expect(handleKey(g, 1000)).toBe(true);
+    expect(g.defaultPrevented).toBe(true);
+    expect(handleKey(press(document.body, { key: 't' }), 2000)).toBe(true);
+    expect(table).toHaveBeenCalledTimes(1);
+    // Too late: t on its own is nothing.
+    handleKey(press(document.body, { key: 'g' }), 3000);
+    expect(handleKey(press(document.body, { key: 't' }), 4600)).toBe(false);
+    expect(table).toHaveBeenCalledTimes(1);
+    // g then j: not a chord, and j does not step jobs either.
+    handleKey(press(document.body, { key: 'g' }), 5000);
+    handleKey(press(document.body, { key: 'j' }), 5100);
+    expect(next).not.toHaveBeenCalled();
+    handleKey(press(document.body, { key: 'j' }), 5200);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('a higher scope that binds the same key wins: the Desk’s o over the gate’s', () => {
+    const guidance = vi.fn(); const open = vi.fn();
+    on('gate', { 'gate-guidance': guidance });
+    on('desk', { 'desk-open': open });
+    handleKey(press(document.body, { key: 'o' }), 1000);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(guidance).not.toHaveBeenCalled();
+  });
+
+  it('a held key never repeats, except where the binding says so', () => {
+    const next = vi.fn(); const down = vi.fn();
+    on('rows', { 'next-job': next });
+    on('table', { 'table-down': down });
+    handleKey(press(document.body, { key: 'j', repeat: true }));
+    expect(next).not.toHaveBeenCalled();
+    handleKey(press(document.body, { key: 'ArrowDown', repeat: true }));
+    expect(down).toHaveBeenCalledTimes(1);
+  });
+
+  it('with keys off only the always-on bindings run: ⌘K and the arrows in a list, never a chord', () => {
+    const next = vi.fn(); const palette = vi.fn(); const down = vi.fn(); const table = vi.fn();
+    on('rows', { 'next-job': next });
+    on('global', { 'palette': palette, 'go-table': table });
+    on('desk', { 'desk-down': down });
+    writeKeysSetting({ enabled: false });
+    expect(handleKey(press(document.body, { key: 'j' }))).toBe(false);
+    expect(handleKey(press(document.body, { key: 'g' }))).toBe(false);
+    expect(handleKey(press(document.body, { key: 't' }))).toBe(false);
+    expect(handleKey(press(document.body, { key: 'ArrowDown' }))).toBe(true);
+    expect(handleKey(press(document.body, { key: 'k', metaKey: true }))).toBe(true);
+    expect([next, table, down, palette].map((f) => f.mock.calls.length)).toEqual([0, 0, 1, 1]);
+    writeKeysSetting({ enabled: true });
+    expect(handleKey(press(document.body, { key: 'j' }))).toBe(true);
+  });
+
+  it('refuses a handler registered under the wrong scope', () => {
+    expect(() => registerKeys('rows', { current: { 'desk-next': () => {} } })).toThrow(/desk scope/);
+  });
+
+  it('the installed listener answers keydown on the document, and stops when taken off', () => {
+    const next = vi.fn();
+    on('rows', { 'next-job': next });
+    const off = installKeyListener();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true, cancelable: true }));
+    expect(next).toHaveBeenCalledTimes(1);
+    off();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true, cancelable: true }));
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('labels keys for the screen: Mod as Ctrl off a Mac, arrows as arrows, Esc short', () => {
+    expect(keyLabel('Mod+K')).toMatch(/^(⌘K|Ctrl\+K)$/);
+    expect(keyLabel('ArrowDown')).toBe('↓');
+    expect(keyLabel('Escape')).toBe('Esc');
+    expect(keyLabel('g h')).toBe('g h');
+    expect(keysText('gate-answer')).toBe('1 / 2 / 3');
+  });
+});

@@ -12,6 +12,9 @@ const LEVELS = [
 ] as unknown as LevelInfo[];
 
 const states = (t: ReturnType<typeof questTrack>) => t!.stops.map((s) => `${s.label}:${s.state}`);
+/** The stops up to and including PR #1 (the shipping stops after it are the same for every level). */
+const toPr1 = (t: ReturnType<typeof questTrack>) => states(t).slice(0, t!.stops.findIndex((s) => s.id === 'pr1') + 1);
+const SHIPPING = ['PR #2:next', 'Staging QA:next', 'PR #3:next'];
 
 describe('quest track', () => {
   it('shows the level as difficulty, L0 ★ to L3 ★★★★', () => {
@@ -22,16 +25,18 @@ describe('quest track', () => {
 
   it('runs the stages this level runs, skipped ones hidden, the current stage’s crew member on it', () => {
     const l2 = questTrack(job('a', 'running', { level: 2, stage: 'implement' }), LEVELS)!;
-    expect(states(l2)).toEqual(['Spec:done', 'Investigate:done', 'Plan:done', 'Build:current', 'Test:next', 'Review:next', 'PR #1:next']);
+    expect(states(l2)).toEqual(['Spec:done', 'Investigate:done', 'Plan:done', 'Build:current', 'Test:next', 'Review:next', 'PR #1:next', ...SHIPPING]);
     expect(l2.who).toBe('feature-implementer');
     expect(l2.finished).toBe(false);
     const l0 = questTrack(job('a', 'running', { level: 0, stage: 'implement' }), LEVELS)!;
-    expect(states(l0)).toEqual(['Build:current', 'PR #1:next']);
+    expect(toPr1(l0)).toEqual(['Build:current', 'PR #1:next']);
     const l3 = questTrack(job('a', 'running', { level: 3, stage: 'review' }), LEVELS)!;
-    expect(l3.stops.map((s) => s.id)).toEqual(['spec', 'refine', 'investigate', 'plan', 'implement', 'test', 'review', 'pr1']);
+    expect(l3.stops.map((s) => s.id)).toEqual(['spec', 'refine', 'investigate', 'plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3']);
     expect(l3.who).toBe('feature-reviewer');
     // Without meta.levels the dashboard's defaults apply.
-    expect(states(questTrack(job('a', 'running', { level: 1, stage: 'test' }))!)).toEqual(['Plan:done', 'Build:done', 'Test:current', 'Review:next', 'PR #1:next']);
+    expect(toPr1(questTrack(job('a', 'running', { level: 1, stage: 'test' }))!)).toEqual(['Plan:done', 'Build:done', 'Test:current', 'Review:next', 'PR #1:next']);
+    // The job's own skipped shipping stages are left out too.
+    expect(questTrack(job('a', 'running', { level: 1, stage: 'test', skipped: ['staging-qa'] }))!.stops.map((s) => s.id)).not.toContain('staging-qa');
   });
 
   it('shows Spec update, or a stage this level would skip, only while it is the stage', () => {
@@ -39,25 +44,55 @@ describe('quest track', () => {
     expect(questTrack(job('a', 'running', { level: 2, stage: 'refine' }), LEVELS)!.stops.map((s) => s.id)).toContain('refine');
   });
 
-  it('is finished past the first PR or once the job is done, the Foreman at the goal', () => {
+  it('is finished past PR #1 or once the job is done; the goal flag sits on PR #1 by default', () => {
+    // Past the goal while the work goes on: the stops up to the flag passed, the Foreman on PR #2 (after the line).
     const past = questTrack(job('a', 'running', { level: 2, stage: 'pr2' }), LEVELS)!;
     expect(past.finished).toBe(true);
-    expect(past.stops.every((s) => s.state === 'done')).toBe(true);
+    expect(past.goal).toBe('pr1');
+    expect(states(past).slice(-4)).toEqual(['PR #1:done', 'PR #2:current', 'Staging QA:next', 'PR #3:next']);
+    expect(past.stops.map((s) => s.goal)).toEqual([false, false, false, false, false, false, true, false, false, false]);
+    expect(past.stops.filter((s) => s.after).map((s) => s.id)).toEqual(['pr2', 'staging-qa', 'pr3']);
+    expect(past.stops.find((s) => s.here)!.id).toBe('pr2');
     expect(past.who).toBe('conductor');
     expect(questTrack(job('a', 'done', { level: 1, stage: 'review' }), LEVELS)!.finished).toBe(true);
     // No stage yet: nobody stands anywhere.
     expect(questTrack(job('a', 'idle', { level: 2 }), LEVELS)!.who).toBeNull();
   });
-  it('takes done from the ledger when it says (the Settings → Play rule)', () => {
-    // First PR created and counted: done, though the stage is still PR #1.
-    const atGoal = questTrack(job('a', 'running', { level: 2, stage: 'pr1' }), LEVELS, true)!;
+  it('takes finished from the card’s finish line first, then the ledger', () => {
+    // PR #1 merged (the default line) while the stage is still PR #1: done, the Foreman at the flag.
+    const atGoal = questTrack(job('a', 'running', { level: 2, stage: 'pr1', finish: { reached: true, at: null, by: 'pr1-merged', landed: null } }), LEVELS)!;
     expect(atGoal.finished).toBe(true);
-    expect(atGoal.stops.every((s) => s.state === 'done')).toBe(true);
-    // "I mark the job done": past the first PR but not marked yet, standing at the goal.
-    const waiting = questTrack(job('a', 'running', { level: 2, stage: 'pr2' }), LEVELS, false)!;
+    expect(atGoal.stops.filter((s) => !s.after).every((s) => s.state === 'done')).toBe(true);
+    expect(atGoal.stops.find((s) => s.here)!.id).toBe('pr1');
+    expect(atGoal.who).toBe('conductor');
+    // The ledger says done, with no finish on the card (an older dashboard).
+    expect(questTrack(job('a', 'running', { level: 2, stage: 'pr1' }), LEVELS, true)!.finished).toBe(true);
+    // Not crossed yet (the line is PR #1 merged, the PR is open): standing at the goal, waiting.
+    const waiting = questTrack(job('a', 'running', { level: 2, stage: 'pr1', finish: { reached: false, at: null, by: null, landed: null } }), LEVELS, true)!;
     expect(waiting.finished).toBe(false);
-    expect(states(waiting).slice(-2)).toEqual(['Review:done', 'PR #1:current']);
-    expect(waiting.who).not.toBeNull();
+    expect(states(waiting).slice(-5)).toEqual(['Review:done', 'PR #1:current', ...SHIPPING]);
+    expect(waiting.who).toBe('conductor');
+  });
+  it('puts the goal flag on the stop the finish line names, and none for “when I mark it done”', () => {
+    const at = (line: Parameters<typeof questTrack>[3]) => questTrack(job('a', 'running', { level: 2, stage: 'pr2' }), LEVELS, undefined, line)!;
+    expect(at('pr1-open').goal).toBe('pr1');
+    expect(at('pr1-merged').goal).toBe('pr1');
+    expect(at('staging').goal).toBe('pr2');
+    expect(at('main').goal).toBe('pr3');
+    expect(at('marked').goal).toBeNull();
+    // In staging: PR #2 is the goal, PR #2 open is the current stop, nothing after the line yet.
+    const staging = questTrack(job('a', 'running', { level: 2, stage: 'pr2', finish: { reached: false, at: null, by: null, landed: null } }), LEVELS, undefined, 'staging')!;
+    expect(staging.finished).toBe(false);
+    expect(staging.stops.find((s) => s.goal)!.state).toBe('current');
+    expect(staging.stops.filter((s) => s.after).map((s) => s.id)).toEqual(['staging-qa', 'pr3']);
+    // In main: every stop is before the line.
+    expect(at('main').stops.some((s) => s.after)).toBe(false);
+    // Marked done at Plan: no flag, the crew stand where the work is, the stops before passed.
+    const marked = questTrack(job('a', 'done', { level: 2, stage: 'plan', closed: { as: 'done' }, finish: { reached: true, at: '2026-10-21T12:00:00Z', by: 'marked', landed: null } }), LEVELS, undefined, 'marked')!;
+    expect(marked.finished).toBe(true);
+    expect(marked.stops.some((s) => s.goal || s.after)).toBe(false);
+    expect(states(marked).slice(0, 4)).toEqual(['Spec:done', 'Investigate:done', 'Plan:current', 'Build:next']);
+    expect(marked.stops.find((s) => s.here)!.id).toBe('plan');
   });
 });
 

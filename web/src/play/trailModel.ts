@@ -2,13 +2,13 @@
 // a path (the quest track's, extrasModel.ts), who stands on the current stop and in what mood, and
 // a "Now / Next" line in plain words saying what is happening and whose move it is. Pure: no React,
 // no fetching, nothing from a model, and nothing here reads how you answered anything.
-import type { Job, LevelInfo, Usage } from '../api/types';
+import type { FinishLine, Job, LevelInfo, Usage } from '../api/types';
 import { isLevel } from '../lib/levels';
 import { jobStatus } from '../panes/Jobs/jobStatus';
 import { stageLabel } from '../panes/Jobs/stages';
 import { crewInfo, STAGE_CHARACTER, type CrewState } from './crew';
 import { usagePaused, workersNow } from './crewLines';
-import { questTrack, type QuestStop } from './extrasModel';
+import { goalStop, questTrack, type QuestStop } from './extrasModel';
 
 /** What the crew member on each stage is doing there: "Builder is building". */
 const DOING: Record<string, string> = {
@@ -36,7 +36,7 @@ const DOES: Record<string, string> = {
   implement: 'builds it',
   test: 'runs the checks',
   review: 'and the reviewers look at the change',
-  pr1: 'opens PR #1, the quest’s goal',
+  pr1: 'opens PR #1',
   pr2: 'opens PR #2',
   'staging-qa': 'checks staging',
   pr3: 'opens PR #3',
@@ -46,11 +46,11 @@ const DOES: Record<string, string> = {
 const named = (type: string) => (type === 'conductor' ? 'the Foreman' : crewInfo(type).name);
 const Named = (type: string) => (type === 'conductor' ? 'The Foreman' : crewInfo(type).name);
 
-/** "Tester runs the checks" for a stage id; the stage's own name for one we don't know. */
-export function stagePhrase(stage: string): string {
+/** "Tester runs the checks" for a stage id (", the quest’s goal" on the finish line's stop); the stage's own name for one we don't know. */
+export function stagePhrase(stage: string, goal: string | null = goalStop(undefined)): string {
   const who = STAGE_CHARACTER[stage];
   const does = DOES[stage];
-  return who && does ? `${Named(who)} ${does}` : stageLabel(stage);
+  return who && does ? `${Named(who)} ${does}${stage === goal ? ', the quest’s goal' : ''}` : stageLabel(stage);
 }
 
 export interface Trail {
@@ -60,7 +60,7 @@ export interface Trail {
   mood: CrewState;
   /** The job needs you: a "!" over their head, and the line is your move. */
   ask: boolean;
-  /** The quest is done (by the Settings → Play rule). */
+  /** The quest is done: the finish line crossed. */
   finished: boolean;
   /** Difficulty stars and words, when the job has a level. */
   stars: string | null;
@@ -76,14 +76,13 @@ export interface TrailInputs {
   levels?: LevelInfo[] | null;
   /** Whether the play ledger counts the quest done (as for the quest track); unknown without it. */
   done?: boolean;
+  /** The finish line (settings.workflow.finishLine): where the goal flag goes. */
+  finishLine?: FinishLine | null;
   usage?: Usage | null;
   now?: Date;
   /** Where the line is read: under the job's title (its cards are below) or on a floor card. */
   where?: 'header' | 'card';
 }
-
-/** The stages after the quest's goal, in order. */
-const AFTER_GOAL: readonly string[] = ['pr1', 'pr2', 'staging-qa', 'pr3'];
 
 /** The level a job's path is drawn for: its own, else the Foreman's suggestion, else the rules'. */
 function pathLevel(job: Job) {
@@ -98,21 +97,17 @@ function pathLevel(job: Job) {
  * job with no level, suggested or chosen, walks the Standard (L2) stages, without difficulty stars
  * and without naming a next stage it may never run.
  */
-export function jobTrail(job: Job, { levels, done, usage, now = new Date(), where = 'header' }: TrailInputs = {}): Trail | null {
+export function jobTrail(job: Job, { levels, done, finishLine, usage, now = new Date(), where = 'header' }: TrailInputs = {}): Trail | null {
   const level = pathLevel(job);
-  const track = questTrack({ ...job, level: level ?? 2 }, levels, done);
+  const track = questTrack({ ...job, level: level ?? 2 }, levels, done, finishLine);
   if (!track) return null;
   const stage = typeof job.stage === 'string' ? job.stage : null;
-  const skipped = new Set(Array.isArray(job.skipped) ? job.skipped.filter((x): x is string => typeof x === 'string') : []);
   const at = track.stops.findIndex((s) => s.state === 'current');
+  // What comes next: the stop after the current one, or after the goal once the quest is done there.
   const upcoming = at >= 0 ? track.stops[at + 1] ?? null : track.stops.find((s) => s.state === 'next') ?? null;
-  // Past the goal, what comes next is after it (PR #2, staging QA, PR #3), unless skipped.
-  const afterGoal = track.finished && stage && AFTER_GOAL.includes(stage)
-    ? AFTER_GOAL.slice(AFTER_GOAL.indexOf(stage) + 1).find((s) => !skipped.has(s)) ?? null
-    : null;
-  const nextStage = track.finished ? afterGoal : level === null ? null : upcoming?.id ?? null;
-  const nextPhrase = nextStage ? stagePhrase(nextStage) : null;
-  const atStage = track.finished ? 'conductor' : (stage && STAGE_CHARACTER[stage]) || 'conductor';
+  const nextStage = level === null && !track.finished ? null : upcoming?.id ?? null;
+  const nextPhrase = nextStage ? stagePhrase(nextStage, track.goal) : null;
+  const atStage = track.who ?? (stage && STAGE_CHARACTER[stage]) ?? 'conductor';
   const status = jobStatus(job, now);
   const dropped = job.group === 'done' && (job.closed as { as?: string } | null | undefined)?.as === 'dropped';
   const base = { stops: track.stops, finished: track.finished, stars: isLevel(job.level) ? track.stars : null, difficulty: isLevel(job.level) ? track.difficulty : null };

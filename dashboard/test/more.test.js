@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { checkRepo } from '../lib/repos.js';
-import { State } from '../lib/state.js';
+import { State, migrateSettings, workflowSettings } from '../lib/state.js';
 import { Driver } from '../lib/driver.js';
 import { makeFakeQuery } from '../demo/fake-query.js';
 
@@ -21,6 +21,28 @@ test('checkRepo: only absolute paths to real git repositories', async () => {
   assert.equal(ok.ok, true);
   assert.equal(await fs.realpath(ok.path), await fs.realpath(dir), 'a subfolder resolves to the repository root');
   await fs.rm(dir, { recursive: true, force: true });
+});
+
+test('state: the workflow settings, and the quest rule moved to the finish line once', async () => {
+  assert.deepEqual(workflowSettings(undefined), { finishLine: 'pr1-merged' });
+  assert.deepEqual(workflowSettings({ finishLine: 'staging' }), { finishLine: 'staging' });
+  assert.deepEqual(workflowSettings({ finishLine: 'whenever' }), { finishLine: 'pr1-merged' });
+  // The pure move: play.questDone → workflow.finishLine, and the old field goes.
+  assert.deepEqual(migrateSettings({ play: { mode: 'full', questDone: 'first-pr', sounds: true } }), { settings: { play: { mode: 'full', sounds: true }, workflow: { finishLine: 'pr1-open' } }, changed: true });
+  assert.deepEqual(migrateSettings({ play: { questDone: 'marked-done' } }).settings, { play: {}, workflow: { finishLine: 'marked' } });
+  assert.deepEqual(migrateSettings({ play: { questDone: 'first-pr' }, workflow: { finishLine: 'main' } }).settings, { play: {}, workflow: { finishLine: 'main' } }, 'a finish line already chosen wins');
+  assert.deepEqual(migrateSettings({ policy: 'ask-all' }), { settings: { policy: 'ask-all' }, changed: false });
+  // Through the file: read once, written back once, and read as the new shape afterwards.
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-state-'));
+  await fs.writeFile(path.join(dir, 'settings.json'), JSON.stringify({ policy: 'hands-off', play: { mode: 'subtle', questDone: 'marked-done', sounds: false } }));
+  const s = await new State(dir).getSettings();
+  assert.equal(s.workflow.finishLine, 'marked');
+  assert.deepEqual(s.play, { mode: 'subtle', sounds: false });
+  const saved = JSON.parse(await fs.readFile(path.join(dir, 'settings.json'), 'utf8'));
+  assert.deepEqual(saved.workflow, { finishLine: 'marked' });
+  assert.equal(saved.play.questDone, undefined);
+  const fresh = new State(await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-state-')));
+  assert.equal((await fresh.getSettings()).workflow.finishLine, 'pr1-merged', 'the default with no file');
 });
 
 test('state: remembers sessions, takeovers and the last reply per job', async () => {

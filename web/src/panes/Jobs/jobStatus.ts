@@ -16,6 +16,7 @@ export const GROUP_LABELS: Record<JobGroup, string> = {
   running: 'Running',
   paused: 'Paused',
   idle: 'Idle',
+  shipping: 'Shipping',
   done: 'Done',
 };
 
@@ -24,6 +25,7 @@ export const GROUP_GLYPHS: Record<JobGroup, string> = {
   running: '◐',
   paused: '‖',
   idle: '○',
+  shipping: '↗',
   done: '✓',
 };
 
@@ -32,8 +34,20 @@ export const GROUP_HINTS: Record<JobGroup, string> = {
   running: 'Jobs the Foreman or its crew are working on right now.',
   paused: 'Jobs stopped by the Claude usage limit. They carry on when it resets.',
   idle: 'Jobs where nothing is happening and nothing is asked of you. Send a message to carry on.',
-  done: 'Finished jobs, and jobs you marked done or dropped. Their conversations stay readable.',
+  shipping: 'Jobs past the finish line you set, on their way to main. Nothing asks you anything; the row says where each one is.',
+  done: 'Jobs in main, and jobs you marked done or dropped. Their conversations stay readable.',
 };
+
+/** Where a shipping job's work is, in a few words: "On the Moxie branch", "In staging"; '' when unknown. */
+export function shippingWhere(job: Job): string {
+  const f = job.finish;
+  if (!f) return '';
+  if (f.landed === 'main') return 'In main';
+  if (f.landed === 'staging') return 'In staging';
+  if (f.by === 'pr1-merged') return 'On the Moxie branch';
+  if (f.by === 'pr1-open') return 'PR #1 open';
+  return '';
+}
 
 const closedAs = (job: Job): string | null => {
   const c = job.closed as { as?: string } | undefined;
@@ -63,6 +77,10 @@ export function jobStatus(job: Job, now: Date = new Date()): JobStatus {
       return job.limitAuto === false
         ? { group, glyph, label: `limit resets ${at}`, hint: `The Claude usage limit stopped this job. The limit resets at ${at}; send a message then to carry on (automatic resume is off).` }
         : { group, glyph, label: `resumes ${at}`, hint: `The Claude usage limit stopped this job. It carries on by itself when the limit resets at ${at}.` };
+    }
+    case 'shipping': {
+      const where = shippingWhere(job);
+      return { group, glyph, label: 'Shipping', hint: `Past the finish line you set${where ? `: ${where.replace(/^./, (c) => c.toLowerCase())}` : ''}. It waits on other people now; nothing is asked of you.` };
     }
     case 'done':
       return closedAs(job) === 'dropped'

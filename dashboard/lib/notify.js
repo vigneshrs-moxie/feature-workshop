@@ -5,7 +5,8 @@
 // Three levels, each sound, silent or off (settings `notify`):
 //   needs    something waits for you: a go-ahead, a question, a permission, a decision parked 4 h
 //   problem  a reply ended in an error, or the usage limit stopped the work
-//   done     a job's work reached staging or main, or you marked it done
+//   done     a job crossed the finish line you set (lib/finish.js), or you marked it done; reaching
+//            staging or main after that is a quiet "Landed" (never with a sound)
 // Quiet hours (off by default): only problems show, silently; the rest is kept in the history.
 // While you're looking at the dashboard (the page says when it's visible), nothing pops: the page
 // shows it already. Every notification, sent or not, goes into the history (the last 50).
@@ -156,10 +157,14 @@ export class Notifier {
     }
   }
 
-  /** One notification: { level, title, body, slug, key, test }. Returns the history entry. */
-  async notify({ level, title, body = '', slug = null, key = null, test = false }) {
+  /**
+   * One notification: { level, title, body, slug, key, test, quiet }. quiet: shown without a sound
+   * even when the level has one (the "Landed" marks). Returns the history entry.
+   */
+  async notify({ level, title, body = '', slug = null, key = null, test = false, quiet = false }) {
     const now = this.now();
     const verdict = test ? { send: true, sound: true, why: null } : decide(level, await this.settings(), { now, watching: this.watching, demo: this.demo });
+    if (quiet) verdict.sound = false;
     const method = await this.method();
     const url = `${this.baseUrl}/next/${slug ? `#/job/${encodeURIComponent(slug)}` : '#/'}`;
     let sent = false;
@@ -181,7 +186,7 @@ export class Notifier {
         } else if (!sent) why = 'macOS didn’t take it.';
       }
     }
-    const entry = { at: now.toISOString(), level, title, body, slug, sent, why: why ?? undefined, test: test || undefined };
+    const entry = { at: now.toISOString(), level, title, body, slug, sent, why: why ?? undefined, test: test || undefined, quiet: quiet || undefined };
     await this.#remember(entry);
     return entry;
   }

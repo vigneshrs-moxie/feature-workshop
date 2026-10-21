@@ -26,21 +26,22 @@ const prJob = (slug, extra = {}) => job(slug, { prs: PR, ...extra });
 // A job whose first PR the session log says was created at `at` (an exact finish time).
 const prJobAt = (slug, at, extra = {}) => prJob(slug, { updatedAt: at, prLinks: [{ url: PR[0].url, number: 7, at }], ...extra });
 const unlocked = (ledger) => Object.keys(ledger.achievements).sort();
-const build = (input) => buildLedger({ now: plus(T0, 600), ...input });
+// Built under the old quest rule (PR #1 open) unless a test says otherwise: these fixtures' PRs are open.
+const build = (input) => buildLedger({ now: plus(T0, 600), finishLine: 'pr1-open', ...input });
 
 // ---------- Settings ----------
 
-test('play settings: defaults are Subtle, first PR, no sounds; bad stored values fall back', () => {
-  assert.deepEqual(playSettings(undefined), { mode: 'subtle', questDone: 'first-pr', sounds: false });
-  assert.deepEqual(PLAY_DEFAULTS, { mode: 'subtle', questDone: 'first-pr', sounds: false });
-  assert.deepEqual(playSettings({ mode: 'full', questDone: 'marked-done', sounds: true }), { mode: 'full', questDone: 'marked-done', sounds: true });
+test('play settings: defaults are Subtle and no sounds; bad stored values fall back; the quest rule is gone', () => {
+  assert.deepEqual(playSettings(undefined), { mode: 'subtle', sounds: false });
+  assert.deepEqual(PLAY_DEFAULTS, { mode: 'subtle', sounds: false });
+  assert.deepEqual(playSettings({ mode: 'full', questDone: 'marked-done', sounds: true }), { mode: 'full', sounds: true }, 'the old quest rule is dropped (it moved to the finish line)');
   assert.deepEqual(playSettings({ mode: 'loud', questDone: 'whenever', sounds: 'yes' }), PLAY_DEFAULTS);
 });
 
 test('play settings: a change from the page takes only known fields with allowed values', () => {
   assert.deepEqual(validatePlayPatch({ mode: 'off' }), { mode: 'off' });
-  assert.deepEqual(validatePlayPatch({ questDone: 'marked-done', sounds: true }), { questDone: 'marked-done', sounds: true });
-  for (const bad of [null, [], 'full', {}, { mode: 'FULL' }, { mode: 'party' }, { questDone: 'merged' }, { sounds: 1 }, { xp: 10 }]) {
+  assert.deepEqual(validatePlayPatch({ mode: 'subtle', sounds: true }), { mode: 'subtle', sounds: true });
+  for (const bad of [null, [], 'full', {}, { mode: 'FULL' }, { mode: 'party' }, { questDone: 'merged' }, { questDone: 'marked-done' }, { sounds: 1 }, { xp: 10 }]) {
     assert.throws(() => validatePlayPatch(bad), PlayError, JSON.stringify(bad));
   }
 });
@@ -105,37 +106,69 @@ test('quests: by default a job is done when its first PR is created, stamped wit
   assert.equal(fixed.quests[jobKey('a', `${DIR}/a`)].doneAt, plus(T0, 10));
   assert.equal(fixed.quests[jobKey('a', `${DIR}/a`)].doneAtExact, true);
   assert.equal(Object.keys(fixed.quests).length, 1);
-  // Marking a job without a PR done is not a quest under this rule.
+  // Marking a job without a PR done always counts, whatever the finish line.
   const closed = build({ jobs: [job('b')], audit: [{ at: T0, action: 'close', as: 'done', featureDir: `${DIR}/b`, slug: 'b' }] });
-  assert.deepEqual(closed.quests, {});
+  assert.equal(closed.quests[jobKey('b', `${DIR}/b`)].by, 'marked');
+  assert.equal(closed.quests[jobKey('b', `${DIR}/b`)].rule, 'pr1-open');
 });
 
-test('quests: with "I mark the job done", the first close as done counts; a PR alone or a drop does not', () => {
-  const play = { questDone: 'marked-done' };
-  assert.deepEqual(build({ play, jobs: [prJob('a')] }).quests, {});
-  const dropped = build({ play, jobs: [job('a')], audit: [{ at: T0, action: 'close', as: 'dropped', featureDir: `${DIR}/a`, slug: 'a' }] });
+test('quests: the finish line further on (PR #1 merged, staging) counts from the flow lane or status.json, at the merge time', () => {
+  const MERGED = plus(T0, 40);
+  const laneAt = (position, extra = {}) => ({ slug: 'a', position, reached: ['local', 'fork', 'org', 'staging', 'main'].indexOf(position), pr1: { number: 7, state: position === 'fork' ? 'open' : 'merged', mergedAt: position === 'fork' ? null : MERGED }, pr2: null, ...extra });
+  // PR #1 open is not merged.
+  assert.deepEqual(build({ finishLine: 'pr1-merged', jobs: [prJob('a')], lanes: [laneAt('fork')] }).quests, {});
+  const merged = build({ finishLine: 'pr1-merged', jobs: [prJob('a')], lanes: [laneAt('org')] });
+  const q = merged.quests[jobKey('a', `${DIR}/a`)];
+  assert.equal(q.doneAt, MERGED, 'when PR #1 was merged');
+  assert.equal(q.doneAtExact, true);
+  assert.deepEqual([q.rule, q.by], ['pr1-merged', 'pr1-merged']);
+  assert.equal(merged.finishLine, 'pr1-merged');
+  // A whole flow view works too; a lane for another job doesn't count.
+  assert.equal(Object.keys(build({ finishLine: 'pr1-merged', jobs: [prJob('a')], lanes: { repos: [{ lanes: [laneAt('org')] }] } }).quests).length, 1);
+  assert.deepEqual(build({ finishLine: 'pr1-merged', jobs: [prJob('a')], lanes: [{ ...laneAt('org'), slug: 'b' }] }).quests, {});
+  // No lane (the map hasn't read the repo): status.json saying PR #1 is merged is enough, with a guessed time.
+  const fromStatus = build({ finishLine: 'pr1-merged', jobs: [prJob('a', { prs: [{ ...PR[0], state: 'merged' }], updatedAt: plus(T0, 50) })] });
+  assert.equal(fromStatus.quests[jobKey('a', `${DIR}/a`)].doneAt, plus(T0, 50));
+  assert.equal(fromStatus.quests[jobKey('a', `${DIR}/a`)].doneAtExact, false);
+  // In staging: PR #2 merged.
+  const STAGED = plus(T0, 90);
+  assert.deepEqual(build({ finishLine: 'staging', jobs: [prJob('a')], lanes: [laneAt('org')] }).quests, {});
+  const staged = build({ finishLine: 'staging', jobs: [prJob('a')], lanes: [laneAt('staging', { pr2: { number: 9, state: 'merged', mergedAt: STAGED } })] });
+  assert.equal(staged.quests[jobKey('a', `${DIR}/a`)].doneAt, STAGED);
+  assert.equal(staged.quests[jobKey('a', `${DIR}/a`)].by, 'staging');
+  // The ledger is built from the default when no finish line is given.
+  assert.equal(buildLedger({ now: plus(T0, 600), jobs: [prJob('a')] }).finishLine, 'pr1-merged');
+  assert.deepEqual(buildLedger({ now: plus(T0, 600), jobs: [prJob('a')] }).quests, {}, 'an open PR #1 is not the default finish line');
+});
+
+test('quests: with "when I mark it done", the first close as done counts; a PR alone or a drop does not', () => {
+  const finishLine = 'marked';
+  assert.deepEqual(build({ finishLine, jobs: [prJob('a')] }).quests, {});
+  const dropped = build({ finishLine, jobs: [job('a')], audit: [{ at: T0, action: 'close', as: 'dropped', featureDir: `${DIR}/a`, slug: 'a' }] });
   assert.deepEqual(dropped.quests, {});
-  const l = build({ play, jobs: [job('a')], audit: [{ at: plus(T0, 5), action: 'close', as: 'done', featureDir: `${DIR}/a`, slug: 'a' }] });
+  const l = build({ finishLine, jobs: [job('a')], audit: [{ at: plus(T0, 5), action: 'close', as: 'done', featureDir: `${DIR}/a`, slug: 'a' }] });
   assert.equal(l.quests[jobKey('a', `${DIR}/a`)].doneAt, plus(T0, 5));
-  assert.equal(l.quests[jobKey('a', `${DIR}/a`)].rule, 'marked-done');
-  // A job marked done whose folder is gone still counts (the audit remembers it).
-  const gone = build({ play, jobs: [], audit: [{ at: plus(T0, 5), action: 'close', as: 'done', featureDir: `${DIR}/old`, slug: 'old' }] });
+  assert.equal(l.quests[jobKey('a', `${DIR}/a`)].rule, 'marked');
+  assert.equal(l.quests[jobKey('a', `${DIR}/a`)].by, 'marked');
+  // A job marked done whose folder is gone still counts (the audit remembers it), under any finish line.
+  const gone = build({ finishLine, jobs: [], audit: [{ at: plus(T0, 5), action: 'close', as: 'done', featureDir: `${DIR}/old`, slug: 'old' }] });
   assert.equal(Object.keys(gone.quests).length, 1);
+  assert.equal(Object.keys(build({ jobs: [], audit: [{ at: plus(T0, 5), action: 'close', as: 'done', featureDir: `${DIR}/old`, slug: 'old' }] }).quests).length, 1);
 });
 
 test('quests: counted once per job; reopening and finishing again never awards it twice', () => {
-  const play = { questDone: 'marked-done' };
+  const finishLine = 'marked';
   const d = `${DIR}/a`;
   const audit = [
     { at: T0, action: 'close', as: 'done', featureDir: d, slug: 'a' },
     { at: plus(T0, 60), action: 'reopen', featureDir: d, slug: 'a', how: 'button' },
     { at: plus(T0, 120), action: 'close', as: 'done', featureDir: d, slug: 'a' },
   ];
-  const first = build({ play, jobs: [job('a')], audit });
+  const first = build({ finishLine, jobs: [job('a')], audit });
   assert.equal(Object.keys(first.quests).length, 1);
   assert.equal(first.quests[jobKey('a', d)].doneAt, T0, 'the first finish');
   // Built again on top of itself, and with the rule switched: still one quest, still the first time.
-  const again = build({ play: { questDone: 'first-pr' }, jobs: [prJob('a', { updatedAt: plus(T0, 200) })], audit, previous: first });
+  const again = build({ finishLine: 'pr1-open', jobs: [prJob('a', { updatedAt: plus(T0, 200) })], audit, previous: first });
   assert.equal(Object.keys(again.quests).length, 1);
   assert.equal(again.quests[jobKey('a', d)].doneAt, T0);
   // A quest stays done when its PR disappears from status.json later.
@@ -374,7 +407,7 @@ test('Night Owl: a quest done between midnight and 4am (local time)', () => {
   assert.equal(guessed.achievements['night-owl'], undefined);
   assert.ok(guessed.achievements['first-quest']);
   // "I mark the job done": the close time is exact.
-  const marked = build({ play: { questDone: 'marked-done' }, jobs: [job('a')], audit: [{ at: local(2026, 10, 16, 1), action: 'close', as: 'done', featureDir: `${DIR}/a`, slug: 'a' }] });
+  const marked = build({ finishLine: 'marked', jobs: [job('a')], audit: [{ at: local(2026, 10, 16, 1), action: 'close', as: 'done', featureDir: `${DIR}/a`, slug: 'a' }] });
   assert.ok(marked.achievements['night-owl']);
 });
 
@@ -493,7 +526,7 @@ test('ledgerView: counts, quests and the Gold unlock after 10 quests', () => {
   const jobs = Array.from({ length: 10 }, (_, i) => prJob(`j${i}`, { kind: i < 3 ? 'bug' : 'feature', updatedAt: plus(T0, i) }));
   const v = ledgerView(build({ jobs }), { mode: 'full' });
   assert.equal(v.mode, 'full');
-  assert.equal(v.questDone, 'first-pr');
+  assert.equal(v.finishLine, 'pr1-open');
   assert.equal(v.quests.done, 10);
   assert.equal(v.quests.bugs, 3);
   assert.equal(v.quests.recent[0].slug, 'j9', 'newest first');
@@ -504,7 +537,7 @@ test('ledgerView: counts, quests and the Gold unlock after 10 quests', () => {
 });
 
 test('hidden themes: CRT Terminal from the Konami secret, Gold at 10 quests, nothing before', () => {
-  assert.deepEqual(THEME_IDS, ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass', 'crt', 'gold']);
+  assert.deepEqual(THEME_IDS, ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass', 'light', 'light-glass', 'crt', 'gold']);
   assert.deepEqual(PLAY_EVENTS.theme, THEME_IDS, 'both can be reported as tried');
   assert.deepEqual(unlocksOf(null), { crt: false, gold: false });
   assert.deepEqual(unlocksOf(build({})), { crt: false, gold: false });
@@ -545,7 +578,7 @@ test('Explorer stays about the five original themes: the hidden two neither coun
 test('newlyDone lists the quests the new ledger adds, once', () => {
   const before = build({ jobs: [prJob('a')] });
   const after = build({ jobs: [prJob('a'), prJob('b', { kind: 'bug', level: 1 })], previous: before });
-  assert.deepEqual(newlyDone(before, after).map((q) => [q.slug, q.kind, q.level, q.rule]), [['b', 'bug', 1, 'first-pr']]);
+  assert.deepEqual(newlyDone(before, after).map((q) => [q.slug, q.kind, q.level, q.rule, q.by]), [['b', 'bug', 1, 'pr1-open', 'pr1-open']]);
   assert.deepEqual(newlyDone(after, build({ jobs: [prJob('a'), prJob('b')], previous: after })), []);
 });
 
@@ -566,6 +599,9 @@ function fakeSources(input) {
     },
     job: async (folder, known) => { calls.job.push(folder); return input.jobs.find((j) => path.basename(j.dir) === folder) ?? known; },
     settings: () => input.play ?? PLAY_DEFAULTS,
+    // The finish line: the old quest rule (PR #1 open) unless a test says otherwise.
+    workflow: () => input.workflow ?? { finishLine: 'pr1-open' },
+    flow: () => input.lanes ?? [],
   };
   return s;
 }
@@ -785,8 +821,8 @@ test('PlayBook: while Play is Off nothing is scheduled or folded; turning it on 
     assert.ok(book.ledger.achievements['boss-slayer']);
     assert.deepEqual(heard, [], 'no unlock events for what was found on the way back');
 
-    // A muted schedule (the quest rule changed) folds in with a plain one and stays muted.
-    input.play = { questDone: 'marked-done' };
+    // A muted schedule (the finish line changed) folds in with a plain one and stays muted.
+    input.workflow = { finishLine: 'marked' };
     input.audit.push({ at: plus(T0, 5), action: 'close', as: 'done', featureDir: `${DIR}/b`, slug: 'b' });
     book.noteAudit(input.audit.at(-1));
     input.jobs.push(job('b', { level: 0 }));
@@ -944,17 +980,18 @@ test('PlayBook: a muted refresh keeps quiet only about what came before it; a jo
   try {
     const M = Date.parse(plus(T0, 60));
     let clock = Date.parse(plus(T0, 30));
-    const input = { audit: [{ at: plus(T0, 10), action: 'close', as: 'done', featureDir: `${DIR}/old`, slug: 'old' }], jobs: [job('old', { level: 1 })] };
+    // An open PR #1 is no quest while the finish line is PR #1 merged.
+    const input = { audit: [], jobs: [prJob('old', { level: 1 })], workflow: { finishLine: 'pr1-merged' } };
     const quests = [];
     const unlocked = [];
     const book = new PlayBook({ dir, sources: fakeSources(input), now: () => clock, onQuest: (q) => quests.push(q.slug), onUnlock: (a) => unlocked.push(a.id) });
     await book.refresh();
-    assert.equal(Object.keys(book.ledger.quests).length, 0, 'under "first PR" a close is no quest');
+    assert.equal(Object.keys(book.ledger.quests).length, 0, 'under "PR #1 merged" an open PR is no quest');
 
-    // The rule changes to "I mark the job done" at M; a job is marked done a second later, while
-    // the muted refresh is still to run.
+    // The finish line moves to "PR #1 open" at M; a job is marked done a second later, while the
+    // muted refresh is still to run.
     clock = M;
-    input.play = { questDone: 'marked-done' };
+    input.workflow = { finishLine: 'pr1-open' };
     book.schedule(0, { muted: true });
     const close = { at: new Date(M + 1000).toISOString(), action: 'close', as: 'done', featureDir: `${DIR}/new`, slug: 'new' };
     input.audit.push(close);
@@ -972,10 +1009,10 @@ test('PlayBook: a muted refresh keeps quiet only about what came before it; a jo
   }
 });
 
-test('PlayBook: the quest rule changed while a refresh is reading: that refresh is muted too', async () => {
+test('PlayBook: the finish line changed while a refresh is reading: that refresh is muted too', async () => {
   const dir = await tempDir();
   try {
-    const input = { audit: [{ at: plus(T0, 10), action: 'close', as: 'done', featureDir: `${DIR}/old`, slug: 'old' }], jobs: [job('old', { level: 1 })] };
+    const input = { audit: [], jobs: [prJob('old', { level: 1 })], workflow: { finishLine: 'pr1-merged' } };
     const sources = fakeSources(input);
     const full = sources.jobs;
     let gate = null;
@@ -992,7 +1029,7 @@ test('PlayBook: the quest rule changed while a refresh is reading: that refresh 
     const running = book.refresh();
     await wait(10);
     clock += 1000;
-    input.play = { questDone: 'marked-done' };
+    input.workflow = { finishLine: 'pr1-open' };
     book.schedule(0, { muted: true });
     release();
     gate = null;

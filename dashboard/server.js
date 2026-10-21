@@ -33,6 +33,7 @@ import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, FOREMAN_MO
 import { isWebAppPath, serveWebApp } from './lib/web-app.js';
 import { EventLog, resumePoint, openStream } from './lib/events.js';
 import { groupCards } from './lib/snapshot.js';
+import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from './lib/finish.js';
 import { buildThread, pageThread } from './lib/thread.js';
 import { suggestLevel, changedPaths } from './lib/levels.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs } from './lib/gate.js';
@@ -260,6 +261,10 @@ state.on('audit', noteAnswered);
 // The play settings live here in memory, read once at start and changed by POST /api/settings.
 let playNow = (await state.getSettings()).play;
 const playOn = () => playNow.mode !== 'off';
+// The finish line (Settings → Workflow, lib/finish.js): what counts as done, for every card's
+// `finish`, the Jobs list's groups, the play ledger's quests and the Done notification. Read once at
+// start (the old play.questDone is moved by state.js), changed by POST /api/settings { workflow }.
+let finishLineNow = (await state.getSettings()).workflow.finishLine;
 
 // review.md per job, read again only when its size or time changed.
 const reviewCache = new Map();
@@ -335,6 +340,8 @@ const playbook = new PlayBook({
     jobs: playJobs,
     job: playJobFiles,
     settings: () => playNow,
+    workflow: () => ({ finishLine: finishLineNow }),
+    flow: () => [...flowLanes.values()],
   },
   onUnlock: (achievement) => { if (playOn()) events.emit('play', null, { achievement }); },
   // A quest done: the page celebrates it (a toast), from the ledger alone.
@@ -456,6 +463,8 @@ function stillRunning(f, a, active) {
   return !ended || !a.lastAt || a.lastAt > ended.at;
 }
 let runEnds = {};
+// Each job's flow lane (lib/flow.js laneOf) by slug, from the last map refresh: where its PRs are.
+let flowLanes = new Map();
 
 function boardCard(f, run) {
   const ids = STAGES.map((s) => s.id).filter((id) => !f.skipped.includes(id));
@@ -474,6 +483,8 @@ function boardCard(f, run) {
   if (active && !nowDoing.length) {
     nowDoing.push({ who: 'conductor', name: 'Foreman', doing: active.lastAction ?? 'Reading your message', since: active.startedAt });
   }
+  // Marked done or dropped, and nothing has happened since: off the board.
+  const off = Boolean(f.closed) && !active && !running.length && !(f.updatedAt && f.updatedAt > f.closed.at);
   return {
     slug: f.slug, title: f.title, kind: f.kind, kindGuessed: f.kindGuessed, project: f.project, route: f.route, skipped: f.skipped,
     stage: f.stage, stageState: active ? 'working' : pausedHere ? 'paused' : notRunning ? 'idle' : f.stageState, paused: pausedHere, waitingFor: pendingList.length ? 'permission' : f.waitingFor,
@@ -490,8 +501,10 @@ function boardCard(f, run) {
     level: f.level, suggestedLevel: f.suggestedLevel, levelReason: f.levelReason, rulesLevel: f.rulesLevel,
     // A gate left waiting past the parking time: still Needs you, with a "parked" chip.
     parked: gateParked(f, active),
+    // The finish line (lib/finish.js): crossed or not, by what, and where the work has landed.
+    finish: finishLineReached({ prs: f.prs, closed: off ? f.closed : null }, flowLanes.get(f.slug) ?? null, finishLineNow),
     // Marked done or dropped: off the board, unless something is going on or the job changed since.
-    ...(f.closed && !active && !running.length && !(f.updatedAt && f.updatedAt > f.closed.at)
+    ...(off
       ? { closed: f.closed, needsYou: false, working: false, quiet: false, waitingFor: null, parked: false, stageState: f.closed.as === 'done' ? 'done' : 'idle' }
       : f.closed ? { closedEarlier: f.closed } : {}),
   };
@@ -894,6 +907,8 @@ async function meta() {
     // How notifications reach macOS here (null: they can't, or the demo, which sends only the test).
     notifyMethod: DEMO ? null : await notifier.method(),
     settings: await state.getSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT },
+    // The finish line's choices (lib/finish.js), with their words, for Settings → Workflow.
+    finishLines: FINISH_LINES.map((id) => ({ id, ...FINISH_LINE_INFO[id] })),
     jobOptions: { flows: Object.entries(FLOWS).map(([id, f]) => ({ id, label: f.label, note: f.note, model: f.model, defaults: defaultsFor(id) })), skippable: SKIPPABLE, providable: PROVIDABLE, reviewers: REVIEWERS, fablePoints: FABLE_POINTS,
       // The options editor's model choices: the Foreman's (FOREMAN_MODEL_IDS) and the crew's (MODEL_IDS), with names.
       models: { foreman: FOREMAN_MODEL_IDS, crew: MODEL_IDS, choices: MODEL_CHOICES }, notesMax: NOTES_MAX },
@@ -1205,7 +1220,29 @@ async function routePost(urlPath, req, res) {
       settingsChanged();
       return sendJson(res, 200, await state.getSettings());
     }
-    // play: Play mode, when a quest counts as done, sounds (lib/play.js validatePlayPatch).
+    // workflow: the finish line (lib/finish.js): what counts as done, everywhere.
+    if (body.workflow !== undefined) {
+      const w = body.workflow;
+      if (!w || typeof w !== 'object' || Array.isArray(w)) throw new HttpError(400, 'The workflow settings must be an object.');
+      for (const k of Object.keys(w)) if (k !== 'finishLine') throw new HttpError(400, `Unknown workflow setting: ${String(k).slice(0, 40)}.`);
+      if (!FINISH_LINES.includes(w.finishLine)) throw new HttpError(400, 'The finish line is PR #1 open, PR #1 merged, in staging, in main, or when you mark it done.');
+      const was = (await state.getSettings()).workflow;
+      await state.setSettings({ workflow: { ...was, finishLine: w.finishLine } });
+      finishLineNow = w.finishLine;
+      if (w.finishLine !== was.finishLine) {
+        // Every card's group may move: the pages fetch again. The ledger counts quests by the new
+        // line, muted (what it finds was earned before). Nothing already past the line is told again.
+        cached = null;
+        broadcast('change', { at: Date.now() });
+        events.emit('change', null, { at: Date.now() });
+        playbook.schedule(0, { muted: true });
+        finishBefore.clear();
+      }
+      await state.audit({ action: 'settings', workflow: { finishLine: w.finishLine } });
+      settingsChanged();
+      return sendJson(res, 200, await state.getSettings());
+    }
+    // play: Play mode and sounds (lib/play.js validatePlayPatch).
     if (body.play !== undefined) {
       let patch;
       try { patch = validatePlayPatch(body.play); } catch (err) { if (err instanceof PlayError) throw new HttpError(400, err.message); throw err; }
@@ -1214,10 +1251,9 @@ async function routePost(urlPath, req, res) {
       await state.setSettings({ play: next });
       playNow = next;
       // Off: stop and forget. Back on: one refresh to catch up, with no unlock events (like a
-      // rebuild: it only finds what was earned meanwhile). A new quest rule: refreshed, muted too.
+      // rebuild: it only finds what was earned meanwhile).
       if (next.mode === 'off') playbook.forget();
       else if (was.mode === 'off') playbook.refresh({ muted: true }).catch((err) => console.error('play ledger:', err));
-      else if (next.questDone !== was.questDone) playbook.schedule(0, { muted: true });
       await state.audit({ action: 'settings', play: patch });
       settingsChanged();
       if (body.policy === undefined && body.recheckAuto !== true) return sendJson(res, 200, await state.getSettings());
@@ -1546,8 +1582,16 @@ const flow = new FlowWatch({
     .map((f) => ({ slug: f.slug, title: f.title, branch: f.branch, worktree: f.worktree, repoPath: f.repoPath, stage: f.stage ?? null, closed: f.closed ?? null })),
   gather: DEMO ? (await import('./demo/fake-flow.js')).fakeFlow : gatherRepo,
 });
-// Live only (not kept for replay): a page that reconnects fetches the map again.
-flow.on('flow', (view) => { events.emit('flow', null, view, { replay: false }); if (!view.refreshing) flowNotices(view); });
+// Live only (not kept for replay): a page that reconnects fetches the map again. The lanes are kept
+// for each card's `finish`; when one moved, the cards' groups may have, so the pages fetch again.
+flow.on('flow', (view) => {
+  const lanes = new Map(view.repos.flatMap((r) => r.lanes.map((l) => [l.slug, l])));
+  const moved = [...lanes].some(([slug, l]) => flowLanes.get(slug)?.position !== l.position) || [...flowLanes.keys()].some((slug) => !lanes.has(slug));
+  flowLanes = lanes;
+  if (moved) { cached = null; broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); }
+  events.emit('flow', null, view, { replay: false });
+  if (!view.refreshing) flowNotices(view).catch((err) => console.error('flow notices:', err));
+});
 flow.on('problem', (err) => console.error('flow:', err));
 
 // ---------- Notifications outside the browser (lib/notify.js) ----------
@@ -1582,18 +1626,55 @@ async function checkWaitingNow() {
   }
   waitingBefore = new Set(now.keys());
 }
-// A job's work reached staging or main (the flow map's position moved on). Only from a repo whose
-// PRs were read without errors: after a refresh that couldn't read them (offline at start-up, gh
-// not signed in), every job would seem to move at once.
-const placeBefore = new Map();
-function flowNotices(view) {
+// The finish line (lib/finish.js) and the flow map. "Done" is told once, when a job crosses the
+// line you set, whatever crossed it (a PR merged, Mark done); reaching staging or main after that
+// is a quiet "Landed" (no sound, only while Done isn't off); never twice for one job and one place.
+// Only from a repo whose PRs were read without errors: after a refresh that couldn't read them
+// (offline at start-up, gh not signed in), every job would seem to move at once. What was already
+// past the line when the dashboard started is never told (finishTold is seeded at the first look).
+const finishBefore = new Map(); // slug → { reached, landed } at the last look
+const finishTold = new Map(); // slug → Set of 'done' | 'staging' | 'main'
+const toldOf = (slug) => { if (!finishTold.has(slug)) finishTold.set(slug, new Set()); return finishTold.get(slug); };
+function doneWords(finish, repoName) {
+  if (finish.by === 'marked') return 'Marked done.';
+  if (finish.by === 'pr1-open') return 'PR #1 is open: the finish line you set.';
+  if (finish.by === 'pr1-merged') return `PR #1 merged: it’s on ${repoName ? `${repoName}’s` : 'the'} Moxie branch, the finish line you set.`;
+  if (finish.by === 'staging') return `In staging${repoName ? ` (${repoName})` : ''}: the finish line you set.`;
+  return `Released: it’s in ${repoName ? `${repoName}’s` : ''} main, the finish line you set.`;
+}
+// One look at a job: tells what is new since the last look. first: the first look seeds, tells nothing.
+function noteFinish({ slug, title, finish, repoName }) {
+  const was = finishBefore.get(slug);
+  finishBefore.set(slug, { reached: finish.reached, landed: finish.landed });
+  const told = toldOf(slug);
+  if (was === undefined) {
+    if (finish.reached) told.add('done');
+    if (finish.landed) { told.add('staging'); if (finish.landed === 'main') told.add('main'); }
+    return;
+  }
+  if (finish.reached && !was.reached && !told.has('done')) {
+    told.add('done');
+    // The crossing itself was a landing too: one notification, not two.
+    if (finish.landed && finish.by === finish.landed) told.add(finish.landed);
+    tell({ level: 'done', title, body: doneWords(finish, repoName), slug, key: `finish:${slug}` });
+  }
+  if (!finish.reached || !finish.landed) return;
+  for (const place of finish.landed === 'main' ? ['staging', 'main'] : ['staging']) {
+    if (told.has(place)) continue;
+    told.add(place);
+    if (place !== finish.landed) continue; // staging passed on the way to main: say main only
+    const body = place === 'main' ? `Landed in main${repoName ? ` (${repoName})` : ''}: released.` : `Landed in staging${repoName ? ` (${repoName})` : ''}, waiting for the release.`;
+    tell({ level: 'done', title, body, slug, key: `landed:${slug}:${place}`, quiet: true });
+  }
+}
+async function flowNotices(view) {
+  const jobs = new Map((await featuresShared()).map((f) => [f.slug, f]));
   for (const r of view.repos) {
     if (!r.prsKnown || r.errors?.length) continue;
     for (const l of r.lanes) {
-      const was = placeBefore.get(l.slug);
-      placeBefore.set(l.slug, l.position);
-      if (was === undefined || was === l.position || !['staging', 'main'].includes(l.position)) continue;
-      tell({ level: 'done', title: l.title ?? l.slug, body: l.position === 'main' ? `Released: it’s in ${r.name}’s main.` : `In staging (${r.name}), waiting for the release.`, slug: l.slug, key: `flow:${l.slug}` });
+      const f = jobs.get(l.slug);
+      const finish = finishLineReached({ prs: f?.prs ?? null, closed: f?.closed ?? null }, l, finishLineNow);
+      noteFinish({ slug: l.slug, title: l.title ?? f?.title ?? l.slug, finish, repoName: r.name });
     }
   }
 }
@@ -1608,9 +1689,15 @@ driver.on('run', (run) => {
   tell({ level: 'problem', title: run.title ?? run.slug, body: 'The reply ended with an error. Open the job to see it.', slug: run.slug, key: `error:${run.id}` });
 });
 driver.on('usage-limit', ({ run }) => tell({ level: 'problem', title: 'Usage limit reached', body: `Work is paused until Claude’s limit resets${run?.title ? ` (${run.title})` : ''}.`, slug: run?.slug ?? null, key: 'usage-limit' }));
+// Marked done: the finish line crossed by hand (unless this job was already told).
 state.on('audit', (e) => {
-  if (e.action !== 'close' || e.as !== 'done') return;
-  featureBySlug(e.slug).then((f) => tell({ level: 'done', title: f?.title ?? e.slug, body: 'Marked done.', slug: e.slug ?? null, key: `close:${e.slug}` })).catch(() => {});
+  if (e.action !== 'close' || e.as !== 'done' || !e.slug) return;
+  featureBySlug(e.slug).then((f) => {
+    const finish = finishLineReached({ prs: f?.prs ?? null, closed: { as: 'done', at: e.at } }, flowLanes.get(e.slug) ?? null, finishLineNow);
+    const was = finishBefore.get(e.slug);
+    if (was === undefined) finishBefore.set(e.slug, { reached: false, landed: finish.landed }); // never seen: still news
+    noteFinish({ slug: e.slug, title: f?.title ?? e.slug, finish, repoName: f?.repoPath ? path.basename(f.repoPath) : null });
+  }).catch(() => {});
 });
 // Jobs changed: recount locally (no network), at most every 15 seconds.
 let flowLocalAt = 0;

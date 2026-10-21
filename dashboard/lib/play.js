@@ -12,9 +12,9 @@
 // While Play mode is Off nothing here runs (the server neither schedules nor answers).
 //
 // Rules a later step must keep:
-//   - A quest is a job reaching "done", by the Settings → Play rule: its first PR is created
-//     (status.json prs[0] has a URL; the default) or you mark the job done. Counted once per job
-//     (slug + folder): reopening it and finishing again never awards it twice.
+//   - A quest is a job crossing the finish line (Settings → Workflow, lib/finish.js): PR #1 open or
+//     merged, in staging, in main, or only when you mark it done; marking it done always counts.
+//     Counted once per job (slug + folder): reopening it and finishing again never awards it twice.
 //   - Once unlocked, an achievement stays unlocked, whatever happens to the job later.
 //   - Crew are met only by working: a worker in a session log, a dispatch the dashboard allowed by
 //     itself (auto-allowed), or an audit line the worker's own step caused (auto-allowed,
@@ -28,14 +28,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { AGENTS } from './stages.js';
 import { REVIEWERS } from './options.js';
+import { DEFAULT_FINISH_LINE, finishLineOf, finishLineReached } from './finish.js';
 
 export const PLAY_SCHEMA = 1;
 
 // ---------- Settings (settings.json `play`) ----------
 
 export const PLAY_MODES = ['subtle', 'full', 'off'];
-export const QUEST_DONE_RULES = ['first-pr', 'marked-done'];
-export const PLAY_DEFAULTS = Object.freeze({ mode: 'subtle', questDone: 'first-pr', sounds: false });
+export const PLAY_DEFAULTS = Object.freeze({ mode: 'subtle', sounds: false });
 
 export class PlayError extends Error {}
 
@@ -44,7 +44,6 @@ export function playSettings(raw) {
   const p = raw && typeof raw === 'object' ? raw : {};
   return {
     mode: PLAY_MODES.includes(p.mode) ? p.mode : PLAY_DEFAULTS.mode,
-    questDone: QUEST_DONE_RULES.includes(p.questDone) ? p.questDone : PLAY_DEFAULTS.questDone,
     sounds: typeof p.sounds === 'boolean' ? p.sounds : PLAY_DEFAULTS.sounds,
   };
 }
@@ -58,8 +57,7 @@ export function validatePlayPatch(patch) {
       if (!PLAY_MODES.includes(v)) throw new PlayError('Play mode: pick Full, Subtle or Off.');
       out.mode = v;
     } else if (k === 'questDone') {
-      if (!QUEST_DONE_RULES.includes(v)) throw new PlayError('A quest counts as done when the first PR is created, or when you mark the job done.');
-      out.questDone = v;
+      throw new PlayError('When a quest counts as done is the finish line now (Settings → Workflow).');
     } else if (k === 'sounds') {
       if (typeof v !== 'boolean') throw new PlayError('Sounds: on or off.');
       out.sounds = v;
@@ -84,8 +82,8 @@ export const EXPLORER_THEMES = ['neon-arcade', 'blueprint', 'pixel-crew', 'sunse
  * the Konami code (the 'konami' secret), Gold after GOLD_QUESTS quests done.
  */
 export const HIDDEN_THEMES = { crt: 'crt', gold: 'gold' };
-/** Themes the page can say you tried (web/src/theme/theme.ts THEMES): Default, the five, Glass, the hidden two. */
-export const THEME_IDS = ['default', ...EXPLORER_THEMES, 'glass', ...Object.keys(HIDDEN_THEMES)];
+/** Themes the page can say you tried (web/src/theme/theme.ts THEMES): Default, the five, Glass, Light, Light glass, the hidden two. */
+export const THEME_IDS = ['default', ...EXPLORER_THEMES, 'glass', 'light', 'light-glass', ...Object.keys(HIDDEN_THEMES)];
 /** The 13 easter eggs (design doc section 5). Only these ids can be recorded. */
 export const SECRET_IDS = [
   'konami', 'hammertime', 'sandwich', 'rm-rf', 'git-blame', 'teapot', 'console',
@@ -495,11 +493,17 @@ function firstPrAt(pr, links) {
   return hits.length ? hits.map((l) => l.at).reduce(minAt) : null;
 }
 
-/** buildLedger from an AuditFold (not changed: the ledger gets its own copies). */
-export function ledgerFrom({ fold = new AuditFold(), jobs = [], play = PLAY_DEFAULTS, now = Date.now(), previous = null } = {}) {
+/**
+ * buildLedger from an AuditFold (not changed: the ledger gets its own copies). finishLine: the
+ * Settings → Workflow rule (lib/finish.js); lanes: the flow map's lanes (lib/flow.js laneOf), or a
+ * whole flow view, for where each job's PRs are; without them only status.json and Mark done tell.
+ */
+export function ledgerFrom({ fold = new AuditFold(), jobs = [], now = Date.now(), previous = null, finishLine = DEFAULT_FINISH_LINE, lanes = [] } = {}) {
   const nowIso = iso(ms(now) ?? Date.now());
-  const rule = playSettings(play).questDone;
+  const rule = finishLineOf(finishLine);
   const prev = previous && previous.schema === PLAY_SCHEMA ? previous : null;
+  const laneList = Array.isArray(lanes) ? lanes : Array.isArray(lanes?.repos) ? lanes.repos.flatMap((r) => r.lanes ?? []) : [];
+  const laneOf = (slug) => laneList.find((l) => l?.slug === slug) ?? null;
 
   // --- What the audit says, per job folder (copies: the jobs below add start times) ---
   const byDir = new Map([...fold.byDir].map(([dir, d]) => [dir, { ...d }]));
@@ -570,34 +574,39 @@ export function ledgerFrom({ fold = new AuditFold(), jobs = [], play = PLAY_DEFA
       reviews[key] = reviewRecord(reviews[key], job.review, lensRan, roundOne, nowIso, levelOf(job, d));
     }
 
-    const exactPrAt = rule === 'first-pr' ? firstPrAt(job.prs?.[0], job.prLinks) : null;
+    // The finish line (lib/finish.js): the job's PRs, its flow lane, and its first Mark done.
+    const finish = finishLineReached({ prs: job.prs, closed: d.firstDoneClose ? { as: 'done', at: d.firstDoneClose } : null }, laneOf(job.slug), rule);
+    const exactPrAt = finish.by === 'pr1-open' ? firstPrAt(job.prs?.[0], job.prLinks) : null;
     if (quests[key]) {
       // Counted once, whatever happens to the job later; only a guessed time is put right.
       const q = quests[key];
-      if (q.rule === 'first-pr' && q.doneAtExact === false && exactPrAt) quests[key] = { ...q, doneAt: exactPrAt, doneAtExact: true };
+      if ((q.by ?? q.rule) === 'pr1-open' || q.rule === 'first-pr') {
+        if (q.doneAtExact === false && exactPrAt) quests[key] = { ...q, doneAt: exactPrAt, doneAtExact: true };
+      }
       continue;
     }
+    if (!finish.reached) continue;
     let doneAt = null;
     let exact = true;
-    if (rule === 'first-pr') {
-      if (job.prs?.[0]?.url) {
-        // When the PR was created, from the session log; else status.json's time (or now), marked
-        // as a guess so the time-of-day achievements leave it out.
-        doneAt = exactPrAt ?? minAt(job.updatedAt && ms(job.updatedAt) ? job.updatedAt : null, nowIso) ?? nowIso;
-        exact = Boolean(exactPrAt);
-      }
-    } else if (d.firstDoneClose) {
+    if (finish.by === 'marked') {
       doneAt = d.firstDoneClose;
+    } else if (finish.by === 'pr1-open') {
+      // When the PR was created, from the session log; else status.json's time (or now), marked
+      // as a guess so the time-of-day achievements leave it out.
+      doneAt = exactPrAt ?? minAt(job.updatedAt && ms(job.updatedAt) ? job.updatedAt : null, nowIso) ?? nowIso;
+      exact = Boolean(exactPrAt);
+    } else {
+      // A PR's merge time when the map knows it; else a guess, as above.
+      doneAt = finish.at && ms(finish.at) ? finish.at : minAt(job.updatedAt && ms(job.updatedAt) ? job.updatedAt : null, nowIso) ?? nowIso;
+      exact = Boolean(finish.at && ms(finish.at));
     }
-    if (doneAt) quests[key] = questRecord(job.slug, job.dir, doneAt, exact, job.kind, levelOf(job, d), d, rule);
+    quests[key] = questRecord(job.slug, job.dir, doneAt, exact, job.kind, levelOf(job, d), d, rule, finish.by);
   }
-  // Jobs marked done whose folder is gone (only the audit remembers them), when that is the rule.
-  if (rule === 'marked-done') {
-    for (const [dir, d] of byDir) {
-      const key = jobKey(d.slug, dir);
-      if (quests[key] || seenJobs.has(key) || !d.firstDoneClose) continue;
-      quests[key] = questRecord(d.slug, dir, d.firstDoneClose, true, null, d.level, d, rule);
-    }
+  // Jobs marked done whose folder is gone (only the audit remembers them): marking always counts.
+  for (const [dir, d] of byDir) {
+    const key = jobKey(d.slug, dir);
+    if (quests[key] || seenJobs.has(key) || !d.firstDoneClose) continue;
+    quests[key] = questRecord(d.slug, dir, d.firstDoneClose, true, null, d.level, d, rule, 'marked');
   }
 
   // --- Merge the crew with what was met before ---
@@ -628,7 +637,7 @@ export function ledgerFrom({ fold = new AuditFold(), jobs = [], play = PLAY_DEFA
     if (!achievements[id]) achievements[id] = { unlockedAt: at };
   }
 
-  return { schema: PLAY_SCHEMA, builtAt: nowIso, questDone: rule, crew, quests, reviews, achievements, secrets, themes };
+  return { schema: PLAY_SCHEMA, builtAt: nowIso, finishLine: rule, crew, quests, reviews, achievements, secrets, themes };
 }
 
 function levelOf(job, d) {
@@ -636,10 +645,11 @@ function levelOf(job, d) {
   return Number.isInteger(d.level) ? d.level : null;
 }
 
-function questRecord(slug, dir, doneAt, doneAtExact, kind, level, d, rule) {
+// rule: the finish line it was counted under; by: what crossed it (the line's place, or 'marked').
+function questRecord(slug, dir, doneAt, doneAtExact, kind, level, d, rule, by) {
   return {
     slug: slug || baseName(dir), featureDir: dir, doneAt, doneAtExact, kind: kind === 'bug' ? 'bug' : 'feature',
-    level: Number.isInteger(level) ? level : null, startedAt: d.startedAt ?? null, rule,
+    level: Number.isInteger(level) ? level : null, startedAt: d.startedAt ?? null, rule, by,
   };
 }
 
@@ -790,12 +800,12 @@ export function ledgerView(ledger, play = PLAY_DEFAULTS) {
     };
   }
   return {
-    schema: PLAY_SCHEMA, mode: p.mode, questDone: p.questDone,
+    schema: PLAY_SCHEMA, mode: p.mode, finishLine: finishLineOf(l.finishLine),
     crew, crewMet: Object.keys(crew).length, crewTotal: CREW_TYPES.length,
     quests: {
       done: quests.length, bugs: quests.filter((q) => q.kind === 'bug').length,
       recent: quests.slice(0, 50).map((q) => ({ slug: q.slug, doneAt: q.doneAt, kind: q.kind, level: q.level })),
-      // Every done quest's slug, for the quest track (a quest is done by the Settings → Play rule).
+      // Every done quest's slug, for the quest track (a quest is done at the finish line, Settings → Workflow).
       slugs: [...new Set(quests.map((q) => q.slug).filter(Boolean))],
     },
     achievements,
@@ -826,7 +836,7 @@ export function newlyDone(before, next) {
   const had = before?.quests ?? {};
   return Object.entries(next?.quests ?? {})
     .filter(([key]) => !had[key])
-    .map(([, q]) => ({ slug: q.slug, doneAt: q.doneAt, kind: q.kind, level: q.level, rule: q.rule }))
+    .map(([, q]) => ({ slug: q.slug, doneAt: q.doneAt, kind: q.kind, level: q.level, rule: q.rule, by: q.by ?? null }))
     .sort((a, b) => ms(a.doneAt) - ms(b.doneAt));
 }
 
@@ -875,11 +885,13 @@ export const JOBS_EVERY_MS = 60_000;
  *   - Play turned Off (forget()) stops a refresh already running: each pass checks isOn(), and a
  *     read that finishes after forget() keeps nothing (a generation count), so nothing is saved.
  * sources: { readAudit() → entries, auditStat() → { size, ino } | null, jobs({ fresh }) → jobs | null,
- *            job(folder, known) → job | null, settings() → the play settings }
+ *            job(folder, known) → job | null, settings() → the play settings,
+ *            workflow() → { finishLine } (lib/finish.js; the default without it),
+ *            flow() → the flow map's lanes or view (lib/flow.js; none without it) }
  * isOn(): Play mode isn't Off. While it is Off, schedule() does nothing and nothing is folded (the
  * next refresh reads everything again). onUnlock(achievement) is called for each achievement a
  * refresh unlocks: not on a rebuild from scratch (it only finds what was already earned) and not on
- * a muted refresh (refresh({ muted: true }): Play turned back on, or the quest rule changed) for
+ * a muted refresh (refresh({ muted: true }): Play turned back on, or the finish line changed) for
  * anything from before the mute was asked for. What happens after it (a job marked done a moment
  * after the rule changed) is still news, even when it is read in the muted refresh.
  * onQuest(quest) likewise for each quest a refresh finds done (newlyDone), before its achievements;
@@ -1007,7 +1019,7 @@ export class PlayBook {
     await this.#readJobs(gen);
     // Play went Off while reading (forget() dropped what was read): build nothing, save nothing.
     if (gen !== this.generation || !this.isOn() || !this.fold) return;
-    // A mute asked for while this pass was reading (the quest rule changed under it): this pass
+    // A mute asked for while this pass was reading (the finish line changed under it): this pass
     // builds with the new settings, so it is muted too, from when that mute was asked for.
     const lateMute = Math.max(this.muteAt ?? 0, this.timerMutedAt ?? 0);
     if (!muted && lateMute >= startedAt) {
@@ -1017,7 +1029,10 @@ export class PlayBook {
     // Muted, a quest whose time isn't known is stamped with the mute's time, not now: it (and what it
     // unlocks) is from before the mute, so it stays quiet.
     const now = muted && this.muteAt ? this.muteAt : this.now();
-    const next = ledgerFrom({ fold: this.fold, jobs: [...this.jobs.values()], play: this.sources.settings(), now, previous: before });
+    const next = ledgerFrom({
+      fold: this.fold, jobs: [...this.jobs.values()], now, previous: before,
+      finishLine: this.sources.workflow?.()?.finishLine, lanes: this.sources.flow?.() ?? [],
+    });
     // Unchanged, and play.json has it: nothing to write. A failed write is tried again here.
     if (before && sameLedger(before, next) && !this.unsaved) return;
     // The ledger in memory first: a failed write must not lose it (GET /api/play still answers).

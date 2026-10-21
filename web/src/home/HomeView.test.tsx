@@ -6,6 +6,7 @@ import { App } from '../app/App';
 import type { EventSourceLike } from '../state/live';
 import { createStore, WorkshopContext } from '../state/store';
 import { ev, job, permission, snapshot } from '../state/test-fixtures';
+import { writeKeysSetting } from '../app/keysSetting';
 import { NotifySettings } from '../views/Settings/NotifySettings';
 
 class FakeStream implements EventSourceLike {
@@ -104,6 +105,23 @@ describe('Home: the Table', () => {
   });
 });
 
+describe('Home: the Table’s keys', () => {
+  it('↓ and ↑ move between the jobs while the focus is in the table; the footer says so', async () => {
+    renderApp({ hash: '#/table' });
+    await screen.findByRole('table');
+    const links = screen.getAllByRole('link', { name: /^Job (alpha|beta)$/ });
+    expect(links.length).toBe(2);
+    links[0].focus();
+    fireEvent.keyDown(links[0], { key: 'ArrowDown' });
+    expect(links[1]).toHaveFocus();
+    fireEvent.keyDown(links[1], { key: 'ArrowUp' });
+    expect(links[0]).toHaveFocus();
+    fireEvent.keyDown(document.body, { key: 'ArrowDown' }); // outside the table: nothing
+    expect(links[0]).toHaveFocus();
+    expect(document.querySelector('.table-keys')).toHaveTextContent('↓ The next job · ↑ The previous job · Enter Open the job');
+  });
+});
+
 describe('Home: the Desk', () => {
   it('queues every decision; j moves on, a allows a permission once, and a hard line is never one-key approved', async () => {
     const perms: Permission[] = [
@@ -135,6 +153,38 @@ describe('Home: the Desk', () => {
     fireEvent.keyDown(document.body, { key: 'a' });
     await new Promise((r) => setTimeout(r, 50));
     expect(post.mock.calls.filter(([p]) => String(p).includes('/gate'))).toEqual([]);
+  });
+
+  it('arrows move the queue only from inside it, a held key never repeats; keys off leaves the arrows and takes the hints', async () => {
+    const perms: Permission[] = [
+      { ...permission('p1', 'beta'), createdAt: '2026-10-21T08:00:00Z' },
+      { ...permission('p2', 'beta'), createdAt: '2026-10-21T09:00:00Z', plain: { headline: 'Read a file' } },
+      { ...permission('p3', 'beta'), createdAt: '2026-10-21T10:00:00Z', plain: { headline: 'Write a file' } },
+    ];
+    const { post } = renderApp({ hash: '#/desk', permissions: perms, jobs: [job('beta', 'running')] });
+    const queue = await screen.findByRole('navigation', { name: 'Waiting for your decision' });
+    const current = () => within(queue).getByRole('button', { current: true });
+    const items = within(queue).getAllByRole('button');
+    expect(current()).toHaveTextContent('Run a command');
+    fireEvent.keyDown(document.body, { key: 'ArrowDown' }); // outside the queue: scrolls, nothing more
+    expect(current()).toHaveTextContent('Run a command');
+    fireEvent.keyDown(items[0], { key: 'ArrowDown' });
+    expect(current()).toHaveTextContent('Read a file');
+    fireEvent.keyDown(document.body, { key: 'j', repeat: true });
+    expect(current()).toHaveTextContent('Read a file');
+    expect(queue.querySelector('.desk-keys')).toHaveTextContent('j Next decision · k Previous decision · a Approve, or Allow once · d Deny a permission · o Open the job');
+    expect(screen.getByRole('button', { name: 'Allow once' }).querySelector('kbd')).toHaveTextContent('a');
+    expect(screen.getByRole('button', { name: 'Deny…' }).querySelector('kbd')).toHaveTextContent('d');
+    expect(screen.getByRole('link', { name: 'Open the job' }).querySelector('kbd')).toHaveTextContent('o');
+
+    act(() => writeKeysSetting({ enabled: false }));
+    fireEvent.keyDown(document.body, { key: 'a' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(post).not.toHaveBeenCalledWith(expect.stringMatching(/permissions/), expect.anything());
+    fireEvent.keyDown(items[1], { key: 'ArrowUp' });
+    expect(current()).toHaveTextContent('Run a command');
+    expect(queue.querySelector('.desk-keys')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Allow once' }).querySelector('kbd')).toBeNull();
   });
 
   it('says so when the desk is clear', async () => {

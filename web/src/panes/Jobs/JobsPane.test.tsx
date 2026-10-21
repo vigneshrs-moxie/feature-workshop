@@ -22,6 +22,7 @@ const JOBS = [
   job('beta', 'running', { stage: 'implement', updatedAt: iso(14, 59) }),
   job('gamma', 'paused', { stage: 'test', limitPaused: iso(15, 42), updatedAt: iso(12, 0) }),
   job('delta', 'idle', { stage: 'spec' }),
+  job('sigma', 'shipping', { stage: 'pr2', updatedAt: iso(9, 0), finish: { reached: true, at: null, by: 'pr1-merged', landed: null } }),
   job('omega', 'done', { stage: 'pr3', closed: { as: 'done' } }),
 ];
 
@@ -32,7 +33,15 @@ describe('Jobs pane', () => {
   it('groups jobs in order, each group with its count', () => {
     renderPane(JOBS);
     const titles = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
-    expect(titles).toEqual(['◆ Needs you1', '◐ Running1', '‖ Paused1', '○ Idle1', '✓ Done1']);
+    expect(titles).toEqual(['◆ Needs you1', '◐ Running1', '‖ Paused1', '○ Idle1', '↗ Shipping1', '✓ Done1']);
+  });
+
+  it('a shipping row says where the work is instead of a stage chip', () => {
+    renderPane(JOBS);
+    const row = screen.getByRole('link', { name: /^Job sigma/ });
+    expect(within(row).getByText('Shipping')).toBeInTheDocument();
+    expect(within(row).getByText('On the Moxie branch')).toHaveClass('muted');
+    expect(row.querySelector('.stage-chip')).toBeNull();
   });
 
   it('shows each row’s hue dot, status glyph and label, stage chip and time', () => {

@@ -31,7 +31,8 @@ import { CREW_SIZE } from '../play/crewSizes';
 import { usePlay } from '../play/usePlay';
 import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
 import { reopenJob, setJobPolicy, stopRun } from './jobActions';
-import { dialogOpen, paletteKeyLabel, usePageKeys } from './keys';
+import { dialogOpen, paletteKeyLabel, useKeyListener, useKeyScope } from './keyRegistry';
+import { Kbd } from '../components/Kbd';
 import { classicHref, crewDexHref, hrefFor, navigate, openFromHash, settingsHref, useRoute, type Route } from './router';
 import { HomeView } from '../home/HomeView';
 import { deskQueue } from '../home/homeModel';
@@ -64,7 +65,7 @@ function TopBar({ onRetry, onCrew = false, slug = null }: { onRetry: () => void;
       {state.meta?.demo ? <span className="chip" title="Demo mode: a pretend Foreman answers and nothing real runs.">Demo</span> : null}
       {state.status === 'ready' && (
         <button type="button" className="btn" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job: describe it, pick the repository, kind and Foreman model (key: c).">
-          New job
+          New job <Kbd id="new-job" />
         </button>
       )}
       <button
@@ -149,16 +150,28 @@ function Sheets({ route }: { route: Route }) {
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${window.location.hash.replace(/\?.*$/, '')}`);
   }, [state.status, slug]);
 
-  usePageKeys({
-    palette: () => {
+  // The page's keys (app/keyRegistry.ts). The Desk's own j and k win while it has something waiting.
+  useKeyScope('global', {
+    'palette': () => {
       if (ui.sheet?.kind === 'palette') ui.closeSheet();
       else if (!dialogOpen()) ui.openSheet({ kind: 'palette' });
     },
-    nextJob: () => stepJob(1),
-    previousJob: () => stepJob(-1),
-    newJob: () => { if (state.status === 'ready') ui.openSheet({ kind: 'new-job' }); },
-    showKeys: () => ui.openSheet({ kind: 'keys' }),
+    'keys': () => ui.openSheet({ kind: 'keys' }),
+    'new-job': () => { if (state.status === 'ready') ui.openSheet({ kind: 'new-job' }); },
+    'go-home': () => navigate({ name: 'home' }),
+    'go-table': () => navigate({ name: 'table' }),
+    'go-desk': () => navigate({ name: 'desk' }),
+    'go-settings': () => navigate({ name: 'settings' }),
+    'go-crew': () => { if (!play.on) return false; navigate({ name: 'crew' }); },
   });
+  useKeyScope('rows', {
+    'next-job': () => stepJob(1),
+    'prev-job': () => stepJob(-1),
+  }, route.name !== 'desk');
+  useKeyScope('job', {
+    'notes': () => { if (slug) ui.openSheet({ kind: 'job-drawer', slug }); },
+    'write': () => focusComposer(),
+  }, slug !== null && state.status === 'ready');
 
   function stepJob(by: 1 | -1) {
     const list = jobsInOrder(state);
@@ -200,6 +213,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   // The Preview pane's width, if you dragged the handle between it and the middle pane.
   const [previewWidth] = usePreviewWidth();
   const panes = useRef<HTMLDivElement>(null);
+  useKeyListener();
   const { api } = useWorkshop();
   const post = useMemo(() => (path: string, body: unknown) => api.post(path, body), [api]);
   useAlerts(state);

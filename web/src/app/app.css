@@ -269,7 +269,9 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .status-running { color: var(--group-running-fg); }
 .status-paused { color: var(--group-paused-fg); }
 .status-idle { color: var(--group-idle-fg); }
+.status-shipping { color: var(--group-shipping-fg, var(--status-info)); }
 .status-done { color: var(--group-done-fg); }
+.job-row-where { font-size: var(--text-xs); white-space: nowrap; }
 
 .classic-links li { margin-bottom: var(--space-2); }
 
@@ -881,6 +883,18 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .key-row { display: flex; align-items: baseline; gap: var(--space-3); padding: var(--space-1) 0; }
 .key-row dt { flex: none; width: 96px; }
 .key-row dd { margin: 0; }
+.key-row .key-where { display: block; font-size: var(--text-xs); }
+.key-group + .key-group { margin-top: var(--space-3); }
+.key-group-title { margin: 0; font-size: var(--text-base); color: var(--text-2); }
+.key-group-title .muted { font-weight: var(--weight-regular); }
+.key-group-where { margin: 0 0 var(--space-1); font-size: var(--text-xs); }
+.keys-sheet .keys-off { margin: 0 0 var(--space-2); }
+/* A key hint on a button (components/Kbd.tsx): quieter than the ⌘K badge. */
+.key-hint { margin-left: var(--space-1); background: var(--bg-3); border-color: var(--border-2); color: var(--text-3); font-size: var(--text-xs); border-radius: var(--radius-sm); }
+.key-legend { margin: var(--space-3) 0 0; font-size: var(--text-xs); }
+.key-legend .kbd { background: var(--bg-3); color: var(--text-3); }
+.keys-settings .check { margin-top: var(--space-2); }
+.keys-settings .settings-note { margin: var(--space-2) 0 0; font-size: var(--text-sm); }
 
 .closed-note { margin: var(--space-1) 0 0; font-size: var(--text-sm); }
 

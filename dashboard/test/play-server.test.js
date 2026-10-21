@@ -64,6 +64,9 @@ before(async () => {
   stateDir = path.join(root, 'state');
   dirs = { projects: path.join(root, 'projects'), agents: path.join(root, 'agents'), skills: path.join(root, 'skills'), home: path.join(root, 'home') };
   for (const d of [featuresDir, stateDir, ...Object.values(dirs)]) await fs.mkdir(d, { recursive: true });
+  // Settings from before the finish line: the old quest rule "first PR" moves to finishLine 'pr1-open'
+  // at start, so an open PR #1 is a quest done here, as it was.
+  await fs.writeFile(path.join(stateDir, 'settings.json'), JSON.stringify({ policy: 'hands-off', play: { mode: 'subtle', questDone: 'first-pr', sounds: false } }));
   // One job whose first PR exists (a quest done) with a clean first lens review, one still going.
   const done = path.join(featuresDir, 'shipped-job');
   await fs.mkdir(done, { recursive: true });
@@ -89,6 +92,13 @@ before(async () => {
   const going = path.join(featuresDir, 'going-job');
   await fs.mkdir(going, { recursive: true });
   await fs.writeFile(path.join(going, 'status.json'), JSON.stringify({ schema_version: 1, slug: 'going-job', title: 'Going job', stage: 'plan', stage_state: 'working', updated_at: '2026-10-15T10:00:00Z' }, null, 2));
+  // One whose PR #1 is merged and nothing runs on: past the finish line, waiting on other people (Shipping).
+  const merged = path.join(featuresDir, 'merged-job');
+  await fs.mkdir(merged, { recursive: true });
+  await fs.writeFile(path.join(merged, 'status.json'), JSON.stringify({
+    schema_version: 1, slug: 'merged-job', title: 'Merged job', stage: 'pr2', stage_state: 'blocked',
+    prs: [{ number: 1, url: 'https://github.com/example/repo/pull/2', state: 'merged' }], updated_at: new Date(2026, 9, 14, 9).toISOString(),
+  }, null, 2));
   await start();
 });
 
@@ -124,11 +134,51 @@ function eventsSince(epoch, ms = 400) {
   });
 }
 
-test('play settings: Subtle, first PR and no sounds by default, in meta and the snapshot', async () => {
+test('play settings: Subtle and no sounds by default, in meta and the snapshot; the old quest rule moved to the finish line', async () => {
   const meta = await getJson('/api/meta');
-  assert.deepEqual(meta.settings.play, { mode: 'subtle', questDone: 'first-pr', sounds: false });
+  assert.deepEqual(meta.settings.play, { mode: 'subtle', sounds: false });
+  assert.deepEqual(meta.settings.workflow, { finishLine: 'pr1-open' }, 'play.questDone first-pr → workflow.finishLine pr1-open');
+  assert.deepEqual(meta.finishLines.map((f) => f.id), ['pr1-open', 'pr1-merged', 'staging', 'main', 'marked']);
+  assert.ok(meta.finishLines.every((f) => f.label && f.hint));
   const snap = await getJson('/api/snapshot');
-  assert.deepEqual(snap.meta.settings.play, { mode: 'subtle', questDone: 'first-pr', sounds: false });
+  assert.deepEqual(snap.meta.settings.play, { mode: 'subtle', sounds: false });
+  const saved = JSON.parse(await fs.readFile(path.join(stateDir, 'settings.json'), 'utf8'));
+  assert.equal(saved.play.questDone, undefined, 'written back without the old field');
+  assert.deepEqual(saved.workflow, { finishLine: 'pr1-open' });
+});
+
+test('finish line: every card says whether it crossed it; a job past it is Shipping', async () => {
+  const cards = (await getJson('/api/features')).features;
+  assert.deepEqual(cards.find((c) => c.slug === 'shipped-job').finish, { reached: true, at: null, by: 'pr1-open', landed: null });
+  assert.deepEqual(cards.find((c) => c.slug === 'merged-job').finish, { reached: true, at: null, by: 'pr1-open', landed: null });
+  assert.deepEqual(cards.find((c) => c.slug === 'going-job').finish, { reached: false, at: null, by: null, landed: null });
+  const jobs = (await getJson('/api/snapshot')).jobs;
+  assert.equal(jobs.find((j) => j.slug === 'merged-job').group, 'shipping');
+  assert.equal(jobs.find((j) => j.slug === 'shipped-job').group, 'running', 'its review lens is still at work: running outranks shipping');
+  assert.notEqual(jobs.find((j) => j.slug === 'going-job').group, 'shipping');
+});
+
+test('finish line: saved through POST /api/settings { workflow }, checked, and announced', async () => {
+  for (const bad of [{ finishLine: 'whenever' }, { line: 'main' }, 'main', [], null]) {
+    const r = await write('/api/settings', { workflow: bad });
+    assert.equal(r.status, 400, JSON.stringify(bad));
+    assert.ok(r.body.error);
+  }
+  const epoch = (await getJson('/api/snapshot')).epoch;
+  const set = await write('/api/settings', { workflow: { finishLine: 'pr1-merged' } });
+  assert.equal(set.status, 200);
+  assert.deepEqual(set.body.workflow, { finishLine: 'pr1-merged' });
+  assert.equal((await getJson('/api/meta')).settings.workflow.finishLine, 'pr1-merged');
+  // An open PR #1 is no longer past the line: the card and its group follow.
+  const cards = (await getJson('/api/features')).features;
+  assert.equal(cards.find((c) => c.slug === 'shipped-job').finish.reached, false);
+  assert.deepEqual(cards.find((c) => c.slug === 'merged-job').finish, { reached: true, at: null, by: 'pr1-merged', landed: null }, 'status.json says PR #1 is merged');
+  assert.equal((await getJson('/api/snapshot')).jobs.find((j) => j.slug === 'merged-job').group, 'shipping');
+  const seen = await eventsSince(epoch, 300);
+  assert.ok(seen.some((e) => e.type === 'settings' && e.data.workflow?.finishLine === 'pr1-merged'), 'the settings event carries it');
+  assert.ok(seen.some((e) => e.type === 'change'), 'the pages fetch the jobs again');
+  // Back, for the tests that follow.
+  await write('/api/settings', { workflow: { finishLine: 'pr1-open' } });
 });
 
 test('play settings: saved through POST /api/settings, checked, and announced', async () => {
@@ -140,23 +190,23 @@ test('play settings: saved through POST /api/settings, checked, and announced', 
   }
   const set = await write('/api/settings', { play: { mode: 'full', sounds: true } });
   assert.equal(set.status, 200);
-  assert.deepEqual(set.body.play, { mode: 'full', questDone: 'first-pr', sounds: true });
+  assert.deepEqual(set.body.play, { mode: 'full', sounds: true });
   assert.equal(set.body.policy, 'hands-off', 'the permission setting is untouched');
-  const both = await write('/api/settings', { play: { questDone: 'marked-done' }, policy: 'ask-all' });
+  const both = await write('/api/settings', { play: { sounds: false }, policy: 'ask-all' });
   assert.equal(both.status, 200);
   assert.equal(both.body.policy, 'ask-all');
-  assert.equal(both.body.play.questDone, 'marked-done');
+  assert.equal(both.body.play.sounds, false);
   assert.equal((await getJson('/api/meta')).settings.play.mode, 'full');
   const saved = JSON.parse(await fs.readFile(path.join(stateDir, 'settings.json'), 'utf8'));
-  assert.deepEqual(saved.play, { mode: 'full', questDone: 'marked-done', sounds: true });
+  assert.deepEqual(saved.play, { mode: 'full', sounds: false });
   // Back to the defaults for the tests that follow.
-  await write('/api/settings', { play: { mode: 'subtle', questDone: 'first-pr', sounds: false }, policy: 'hands-off' });
+  await write('/api/settings', { play: { mode: 'subtle', sounds: false }, policy: 'hands-off' });
 });
 
 test('GET /api/play: the quest done and the clean review, from the job records', async () => {
   const v = await getJson('/api/play');
   assert.equal(v.mode, 'subtle');
-  assert.equal(v.quests.done, 1);
+  assert.equal(v.quests.done, 2, 'shipped-job and merged-job, both past PR #1 open');
   assert.equal(v.quests.recent[0].slug, 'shipped-job');
   assert.equal(v.quests.recent[0].doneAt, PR_AT, 'when the session log says the PR was created');
   assert.ok(v.crew['feature-review-errors'], 'the lens that ran is met');
@@ -266,7 +316,7 @@ test('Play mode Off is nothing: GET says only that, play.json is left alone; bac
   const { epoch } = await getJson('/api/snapshot');
   await write('/api/settings', { play: { mode: 'subtle' } });
   const v = await getJson('/api/play');
-  assert.equal(v.quests.done, 2);
+  assert.equal(v.quests.done, 3);
   assert.ok(v.achievements.find((a) => a.id === 'boss-slayer').unlockedAt);
   await new Promise((r) => setTimeout(r, 1800));
   const news = (await eventsSince(epoch)).filter((e) => e.type === 'play');
@@ -319,6 +369,7 @@ test('a quest done while Play is on is a play event with the quest, for the page
   }
   assert.ok(quest, 'a play event for the quest');
   assert.equal(quest.job, 'fresh-quest');
-  assert.equal(quest.data.quest.rule, 'first-pr');
+  assert.equal(quest.data.quest.rule, 'pr1-open');
+  assert.equal(quest.data.quest.by, 'pr1-open');
   assert.ok(quest.data.quest.doneAt);
 });

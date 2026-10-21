@@ -3,15 +3,18 @@
 // card for a go-ahead or the Foreman's questions, the permission or question card). Decide, and the
 // next one opens.
 //
-// Keys (not while typing, and not with a dialog open):
+// Keys (the 'desk' scope of app/keyRegistry.ts, which wins over the page's j and k; not while
+// typing, not with a dialog open, and a held key never repeats):
 //   j  next          k  previous          o  open the job          (↓ and ↑ too, in the queue)
 //   a      approve (a gate's go-ahead, or Allow once): never for a hard line, a step Claude Code
 //          flagged as risky, or a question (the Foreman's or the crew's: you answer those on the card)
-// After a decision the next item opens and its card takes the focus. A held key never repeats.
 //   d      deny a permission (opens its note)
+// After a decision the next item opens and its card takes the focus.
 import { useEffect, useRef, useState } from 'react';
 import type { Job } from '../api/types';
+import { useKeyScope, type KeyId } from '../app/keyRegistry';
 import { jobHref, navigate } from '../app/router';
+import { Kbd, KeyLegend } from '../components/Kbd';
 import { Card } from '../components/permissions/PendingCards';
 import { relativeTime } from '../lib/time';
 import { GateSlot } from '../panes/Foreman/GateCard';
@@ -23,7 +26,7 @@ import { useWorkshopState } from '../state/store';
 import { jobHueStyle } from '../theme/hue';
 import { type DeskItem, oneKeyApprove } from './homeModel';
 
-const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+const DESK_KEYS: readonly KeyId[] = ['desk-next', 'desk-prev', 'desk-approve', 'desk-deny', 'desk-open'];
 
 function DeskGate({ job, now }: { job: Job; now: Date }) {
   const state = useWorkshopState();
@@ -65,30 +68,25 @@ export function DeskView({ items, now }: { items: DeskItem[]; now: Date }) {
     if (decided && shownKey) { setCurrentKey(shownKey); panel.current?.focus(); }
   }, [decided, shownKey]);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || typing(e.target) || document.querySelector('[aria-modal="true"]')) return;
-      // Arrows only move the queue while it has the focus (elsewhere they scroll, or work a menu).
-      const inQueue = e.target instanceof Element && Boolean(e.target.closest('.desk-queue'));
-      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !inQueue) return;
-      const key = e.key.toLowerCase();
-      const move = (by: number) => { const next = items[Math.max(0, Math.min(items.length - 1, index + by))]; if (next) setCurrentKey(next.key); };
-      // The card's own buttons: the gate's Approve, a permission's Allow once or Deny….
-      const click = (selector: string) => panel.current?.querySelector<HTMLButtonElement>(selector)?.click();
-      let handled = true;
-      if (key === 'j' || e.key === 'ArrowDown') move(1);
-      else if (key === 'k' || e.key === 'ArrowUp') move(-1);
-      else if (key === 'o' && current) navigate({ name: 'job', slug: current.slug });
-      // A gate card that still asks questions is answered on the card, whatever the job says.
-      else if (key === 'a' && current && oneKeyApprove(current) && !panel.current?.querySelector('.gate-question')) click(current.kind === 'gate' ? '.gate-actions > .btn-primary:not(:disabled)' : '.perm-actions > .btn-primary:not(:disabled)');
-      else if (key === 'd' && current && current.kind === 'permission') click('.perm-actions > .btn-danger:not(:disabled)');
-      else handled = false;
-      if (handled) { e.preventDefault(); e.stopPropagation(); }
-    }
-    // In the capture phase, so the page's own j and k (step through jobs) don't run here.
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [items, index, current]);
+  const move = (by: number) => { const next = items[Math.max(0, Math.min(items.length - 1, index + by))]; if (next) setCurrentKey(next.key); };
+  // Arrows only move the queue while it has the focus (elsewhere they scroll, or work a menu).
+  const inQueue = (e: KeyboardEvent) => e.target instanceof Element && Boolean(e.target.closest('.desk-queue'));
+  // The card's own buttons: the gate's Approve, a permission's Allow once or Deny….
+  const click = (selector: string) => panel.current?.querySelector<HTMLButtonElement>(selector)?.click();
+  // The Desk's scope stays on while the queue is empty too, so j and k don't leave for another job.
+  useKeyScope('desk', {
+    'desk-next': () => move(1),
+    'desk-prev': () => move(-1),
+    'desk-down': (e) => (inQueue(e) ? move(1) : false),
+    'desk-up': (e) => (inQueue(e) ? move(-1) : false),
+    'desk-open': () => { if (current) navigate({ name: 'job', slug: current.slug }); },
+    // A gate card that still asks questions is answered on the card, whatever the job says.
+    'desk-approve': () => {
+      if (!current || !oneKeyApprove(current) || panel.current?.querySelector('.gate-question')) return;
+      click(current.kind === 'gate' ? '.gate-actions > .btn-primary:not(:disabled)' : '.perm-actions > .btn-primary:not(:disabled)');
+    },
+    'desk-deny': () => { if (current?.kind === 'permission') click('.perm-actions > .btn-danger:not(:disabled)'); },
+  });
 
   if (!items.length) {
     return (
@@ -117,7 +115,7 @@ export function DeskView({ items, now }: { items: DeskItem[]; now: Date }) {
             </li>
           ))}
         </ol>
-        <p className="muted desk-keys">j / k: next and previous · a: approve · d: deny · o: open the job</p>
+        <KeyLegend ids={DESK_KEYS} className="desk-keys" />
       </nav>
       <section className="desk-current" aria-label={current ? `${current.title}: ${current.what}` : 'Decision'} ref={panel} tabIndex={-1}>
         {current && (
@@ -125,7 +123,7 @@ export function DeskView({ items, now }: { items: DeskItem[]; now: Date }) {
             <header className="desk-current-head">
               <span className="muted">{index + 1} of {items.length}</span>
               <h3>{current.title}</h3>
-              <a className="btn btn-quiet" href={jobHref(current.slug)} title="Open the whole job: its conversation, documents and options (key: o).">Open the job</a>
+              <a className="btn btn-quiet" href={jobHref(current.slug)} title="Open the whole job: its conversation, documents and options (key: o).">Open the job <Kbd id="desk-open" /></a>
             </header>
             {current.kind === 'gate'
               ? (job ? <DeskGate key={current.key} job={job} now={now} /> : <p className="muted">This job isn’t in the list any more.</p>)

@@ -42,19 +42,22 @@ describe('homeModel', () => {
       { ...job('b', 'needs-you'), title: 'Bravo', level: 2, stage: 'plan', updatedAt: '2026-10-21T10:00:00Z' },
       { ...job('a', 'running'), title: 'Alpha', level: 0, stage: 'implement', updatedAt: '2026-10-21T11:00:00Z' },
       { ...job('c', 'idle'), title: 'Charlie', level: null, updatedAt: '2026-10-20T11:00:00Z' },
+      { ...job('d', 'shipping'), title: 'Delta', level: 1, stage: 'pr2', updatedAt: '2026-10-19T11:00:00Z', finish: { reached: true, at: null, by: 'pr1-merged', landed: null } },
     ];
     const rows = tableRows(jobs, flow([lane('a', { position: 'fork', reached: 1, pr1: pr(5, 'open'), vsMain: { ahead: 1, behind: 3 } }), lane('b')]));
     expect(rows.find((r) => r.slug === 'a')).toMatchObject({ repo: 'app', where: 'On your fork', inReview: true, level: 0, stage: 'Build' });
     expect(rows.find((r) => r.slug === 'c')).toMatchObject({ where: '', vsMain: null, inReview: false });
     expect(filterRows(rows, 'review').map((r) => r.slug)).toEqual(['a']);
     expect(filterRows(rows, 'needs-you').map((r) => r.slug)).toEqual(['b']);
+    expect(filterRows(rows, 'shipping').map((r) => r.slug)).toEqual(['d']);
+    expect(filterRows(rows, 'done').map((r) => r.slug)).toEqual([]);
     expect(filterRows(rows, 'all', 'charl').map((r) => r.slug)).toEqual(['c']);
     expect(filterRows(rows, 'all', 'feature/b').map((r) => r.slug)).toEqual(['b']);
-    expect(sortRows(rows, 'job', 'asc').map((r) => r.slug)).toEqual(['a', 'b', 'c']);
-    expect(sortRows(rows, 'status', 'asc').map((r) => r.slug)).toEqual(['b', 'a', 'c']);
-    expect(sortRows(rows, 'updated', 'desc').map((r) => r.slug)).toEqual(['a', 'b', 'c']);
+    expect(sortRows(rows, 'job', 'asc').map((r) => r.slug)).toEqual(['a', 'b', 'c', 'd']);
+    expect(sortRows(rows, 'status', 'asc').map((r) => r.slug)).toEqual(['b', 'a', 'c', 'd']); // shipping after idle, before done
+    expect(sortRows(rows, 'updated', 'desc').map((r) => r.slug)).toEqual(['a', 'b', 'c', 'd']);
     expect(sortRows(rows, 'main', 'desc')[0].slug).toBe('a'); // the most behind first
-    expect(sortRows(rows, 'level', 'asc').map((r) => r.slug)).toEqual(['a', 'b', 'c']); // no level sorts last
+    expect(sortRows(rows, 'level', 'asc').map((r) => r.slug)).toEqual(['a', 'd', 'b', 'c']); // no level sorts last
   });
 
   it('queues every decision for the Desk, oldest first, and never one-key-approves a hard line or a question', () => {

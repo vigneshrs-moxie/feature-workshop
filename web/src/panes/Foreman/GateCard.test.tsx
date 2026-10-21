@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { installKeyListener } from '../../app/keyRegistry';
 import { ApiError, type ApiClient } from '../../api/client';
 import type { Gate, GateResult, Job, JobDetail, Run } from '../../api/types';
 import { gateDraftKey } from '../../lib/gateCard';
@@ -570,5 +571,50 @@ describe('Composer and gate replies', () => {
     expect(screen.getByRole('button', { name: 'Steer' })).toBeEnabled();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Steer' })); });
     expect(post).toHaveBeenCalledWith('/api/runs/r1/steer', { text: 'I approve. Go ahead.' });
+  });
+});
+
+describe('the gate card’s keys', () => {
+  let off = () => {};
+  beforeEach(() => { off = installKeyListener(); });
+  afterEach(() => off());
+  const hint = (b: HTMLElement) => b.querySelector('kbd')?.textContent ?? null;
+
+  it('a approves a card with no questions on a job waiting for a go-ahead, and the buttons show their keys', async () => {
+    const { post } = setup({ det: detail({ questions: [] }), jobExtra: { waitingFor: 'approval' } });
+    expect(hint(button(/^Approve quick plan/))).toBe('a');
+    expect(hint(button('Edit, then approve'))).toBe('e');
+    expect(hint(button('Revise with feedback'))).toBe('r');
+    expect(hint(button('Other guidance'))).toBe('o');
+    await act(async () => { fireEvent.keyDown(document.body, { key: 'a' }); });
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post.mock.calls[0][1].kind).toBe('approve');
+  });
+
+  it('a never approves while the card asks questions; 1–3 pick an answer to the first open one', async () => {
+    const { post } = setup({ det: detail({ questions: [{ ...QUESTIONS[0], recommendation: null }, QUESTIONS[1]] }), jobExtra: { waitingFor: 'answers' } });
+    expect(hint(button(/^Approve quick plan/))).toBeNull();
+    fireEvent.keyDown(document.body, { key: 'a' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(post).not.toHaveBeenCalled();
+    const q1 = screen.getByRole('group', { name: '1. Keep the old column?' });
+    expect(within(q1).getByRole('radio', { name: /b\) No/ })).not.toBeChecked();
+    fireEvent.keyDown(document.body, { key: '2' });
+    expect(within(q1).getByRole('radio', { name: /b\) No/ })).toBeChecked();
+    // Question 1 answered: the first open one is now question 2, which has no options.
+    fireEvent.keyDown(document.body, { key: '1' });
+    expect(within(q1).getByRole('radio', { name: /b\) No/ })).toBeChecked();
+  });
+
+  it('r, o and e open Revise, Other guidance and the edit sheet; nothing while typing in the card', async () => {
+    setup({ det: oneQ(), jobExtra: { waitingFor: 'approval' } });
+    fireEvent.keyDown(document.body, { key: 'r' });
+    expect(button('Revise with feedback')).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Your own answer to question 1' }), { key: 'o' });
+    expect(button('Other guidance')).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.keyDown(document.body, { key: 'o' });
+    expect(button('Other guidance')).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.keyDown(document.body, { key: 'e' });
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 });

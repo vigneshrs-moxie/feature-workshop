@@ -68,7 +68,7 @@ export type MapFilter = 'open' | 'all';
 export interface MapLane { lane: FlowLane; job: Job | null }
 export interface MapRepo { repo: FlowRepo; lanes: MapLane[] }
 
-const GROUP_RANK: Record<string, number> = { 'needs-you': 0, running: 1, paused: 2, idle: 3, done: 4 };
+const GROUP_RANK: Record<string, number> = { 'needs-you': 0, running: 1, paused: 2, idle: 3, shipping: 4, done: 5 };
 
 /**
  * The map's repos and lanes. open: only jobs not done; all: the closed ones the map still knows
@@ -91,7 +91,7 @@ export function mapRepos(flow: FlowView | null, jobs: readonly Job[], filter: Ma
 
 // ---------- the Table ----------
 
-export type TableFilter = 'all' | 'needs-you' | 'running' | 'idle' | 'review' | 'done';
+export type TableFilter = 'all' | 'needs-you' | 'running' | 'idle' | 'review' | 'shipping' | 'done';
 export type SortKey = 'job' | 'repo' | 'level' | 'stage' | 'status' | 'where' | 'main' | 'updated';
 
 export interface TableRow {

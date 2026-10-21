@@ -27,8 +27,10 @@ afterEach(() => { localStorage.clear(); document.documentElement.removeAttribute
 describe('playOf', () => {
   it('fills in the defaults, so a dashboard without them reads as Subtle', () => {
     expect(playOf(undefined)).toEqual(PLAY_DEFAULTS);
-    expect(playOf({ policy: 'hands-off' })).toEqual({ mode: 'subtle', questDone: 'first-pr', sounds: false });
-    expect(playOf({ policy: 'hands-off', play: { mode: 'full', questDone: 'marked-done', sounds: true } })).toEqual({ mode: 'full', questDone: 'marked-done', sounds: true });
+    expect(playOf({ policy: 'hands-off' })).toEqual({ mode: 'subtle', sounds: false });
+    expect(playOf({ policy: 'hands-off', play: { mode: 'full', sounds: true } })).toEqual({ mode: 'full', sounds: true });
+    // The quest rule from an older dashboard is ignored: the finish line (Settings → Workflow) decides now.
+    expect(playOf({ policy: 'hands-off', play: { mode: 'full', questDone: 'marked-done', sounds: true } })).toEqual({ mode: 'full', sounds: true });
   });
 });
 
@@ -45,14 +47,10 @@ describe('Settings → Play', () => {
     expect(screen.getByText(/approving something earns nothing/)).toBeInTheDocument();
   });
 
-  it('asks when a quest counts as done: the first PR (default) or when you mark the job done', async () => {
-    const { post, store } = setup({ policy: 'hands-off' });
-    const group = screen.getByRole('group', { name: 'A quest counts as done when…' });
-    expect(within(group).getByRole('radio', { name: /the first PR is created/ })).toBeChecked();
-    fireEvent.click(within(group).getByRole('radio', { name: /I mark the job done/ }));
-    await waitFor(() => expect(within(group).getByRole('radio', { name: /I mark the job done/ })).toBeChecked());
-    expect(post).toHaveBeenCalledWith('/api/settings', { play: { questDone: 'marked-done' } });
-    expect(store.getState().meta?.settings?.play?.questDone).toBe('marked-done');
+  it('no longer asks when a quest counts as done: that is the finish line, under Workflow', () => {
+    setup({ policy: 'hands-off' });
+    expect(screen.queryByRole('group', { name: /quest counts as done/ })).toBeNull();
+    expect(screen.getByText(/finish line you set under Workflow/)).toBeInTheDocument();
   });
 
   it('sounds are only for Full mode: off and disabled in Subtle, available once Full is picked', async () => {
@@ -77,7 +75,7 @@ describe('Settings → Play', () => {
 
   it('follows a change made elsewhere (the settings event)', () => {
     const { store } = setup({ policy: 'hands-off' });
-    act(() => store.dispatch({ type: 'event', event: ev(11, 'settings', null, { policy: 'hands-off', play: { mode: 'off', questDone: 'first-pr', sounds: false } }) }));
+    act(() => store.dispatch({ type: 'event', event: ev(11, 'settings', null, { policy: 'hands-off', play: { mode: 'off', sounds: false } }) }));
     expect(screen.getByRole('radio', { name: /Off/ })).toBeChecked();
   });
 });
@@ -91,7 +89,7 @@ describe('Theme picker → the play ledger', () => {
   });
 
   it('records nothing with Play mode Off, and the pick still applies', async () => {
-    const { post } = setup({ policy: 'hands-off', play: { mode: 'off', questDone: 'first-pr', sounds: false } }, undefined, <ThemePicker />);
+    const { post } = setup({ policy: 'hands-off', play: { mode: 'off', sounds: false } }, undefined, <ThemePicker />);
     fireEvent.click(screen.getByRole('radio', { name: /Candy pop/ }));
     await Promise.resolve();
     expect(post).not.toHaveBeenCalled();

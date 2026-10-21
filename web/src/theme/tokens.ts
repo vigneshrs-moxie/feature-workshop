@@ -21,6 +21,18 @@ export interface ThemeInput {
 
 export const DARK: ThemeInput = { baseHue: 260, accentHue: 275, contrast: 1 };
 
+/**
+ * Text size (Settings → Look, theme/textSize.ts): one factor, --ui-scale, set by html[data-text].
+ * The type tokens, --row-h and --topbar-h are written as calc(<N>px * var(--ui-scale)), so the
+ * whole UI's type and row heights follow it; the pane widths (--jobs-w, --preview-w, --foreman-max)
+ * stay as they are. A theme that sets a type size in px writes the same calc (see THEMING.md).
+ */
+export const TEXT_SCALES = { s: 0.875, m: 1, l: 1.125, xl: 1.25 } as const;
+export type TextSizeId = keyof typeof TEXT_SCALES;
+
+/** `<N>px` scaled by the text size: calc(<N>px * var(--ui-scale, 1)). */
+export const scaled = (px: number) => `calc(${px}px * var(--ui-scale, 1))`;
+
 /** Status hues. Status is always shown with text as well; colour only supports it. */
 export const STATUS_HUES = { ok: 155, warn: 80, error: 25, info: 235 } as const;
 
@@ -73,12 +85,14 @@ export const STATIC_TOKENS: Record<string, string> = {
   'font-sans': '"Inter", "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   'font-display': '"Inter Display", "Inter", "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif',
   'font-mono': '"Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace',
-  'text-xs': '11px',
-  'text-sm': '12px',
-  'text-base': '13px',
-  'text-md': '15px',
-  'text-lg': '20px',
-  'text-xl': '28px',
+  // Each type size scales with the text size setting (--ui-scale, 1 at the medium setting).
+  'ui-scale': '1',
+  'text-xs': scaled(11),
+  'text-sm': scaled(12),
+  'text-base': scaled(13),
+  'text-md': scaled(15),
+  'text-lg': scaled(20),
+  'text-xl': scaled(28),
   'leading': '1.45',
   'weight-regular': '400',
   'weight-medium': '500',
@@ -104,9 +118,9 @@ export const STATIC_TOKENS: Record<string, string> = {
   'ease-out': 'cubic-bezier(.16, 1, .3, 1)',
   'motion-shift': '4px',
   'motion-scale-from': '.96',
-  // Layout.
-  'topbar-h': '40px',
-  'row-h': '32px',
+  // Layout. The two heights follow the text size; the widths do not.
+  'topbar-h': scaled(40),
+  'row-h': scaled(32),
   'jobs-w': '264px',
   'jobs-w-min': '240px',
   'jobs-w-max': '280px',
@@ -242,6 +256,9 @@ export function tokensCss(): string {
     '/* Generated from tokens.ts by the Vite plugin in vite.config.ts. Do not edit by hand. */',
     '',
     block(':root, [data-theme="dark"]', { ...STATIC_TOKENS, ...colorTokens(DARK), ...semanticTokens(), ...CREW_TOKENS }).replace('{\n', '{\n  color-scheme: dark;\n'),
+    '',
+    '/* Text size (theme/textSize.ts): html[data-text] sets the one factor every type token reads. */',
+    ...Object.entries(TEXT_SCALES).map(([id, scale]) => block(`html[data-text="${id}"]`, { 'ui-scale': num(scale) })),
     '',
     '@media (prefers-reduced-motion: reduce) {',
     block(':root', REDUCED_MOTION_TOKENS, '  '),

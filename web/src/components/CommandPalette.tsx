@@ -5,6 +5,7 @@
 // listed or hinted at. "rm -rf /" gets the Locksmith's door over the palette before it closes.
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { filterCommands, type Command } from '../app/commands';
+import { Kbd } from './Kbd';
 import { CrewMember } from '../play/CrewMember';
 import { paletteEgg, type PaletteEgg } from '../play/eggs';
 import { CREW_SIZE } from '../play/crewSizes';
@@ -108,7 +109,7 @@ export function CommandPalette({ commands, onClose, onEgg }: { commands: Command
             >
               <span className="palette-label">{c.label}</span>
               <span className="palette-section muted">{c.section}</span>
-              {c.keys && <kbd className="kbd">{c.keys}</kbd>}
+              {c.keys && <Kbd id={c.keys} className="palette-key" />}
               <span id={`${optionId(i)}-hint`} className="sr-only">{c.hint}</span>
             </li>
           ))}

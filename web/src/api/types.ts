@@ -4,8 +4,24 @@
 
 import type { ComposeAnswers, ComposeStatus, ComposeVerdicts, GateChip, GateKind } from '../lib/compose';
 
-export type JobGroup = 'needs-you' | 'running' | 'paused' | 'idle' | 'done';
-export const JOB_GROUPS: JobGroup[] = ['needs-you', 'running', 'paused', 'idle', 'done'];
+export type JobGroup = 'needs-you' | 'running' | 'paused' | 'idle' | 'shipping' | 'done';
+export const JOB_GROUPS: JobGroup[] = ['needs-you', 'running', 'paused', 'idle', 'shipping', 'done'];
+
+/** The finish line (Settings → Workflow, dashboard/lib/finish.js): what counts as done. */
+export type FinishLine = 'pr1-open' | 'pr1-merged' | 'staging' | 'main' | 'marked';
+export const FINISH_LINES: FinishLine[] = ['pr1-open', 'pr1-merged', 'staging', 'main', 'marked'];
+export const DEFAULT_FINISH_LINE: FinishLine = 'pr1-merged';
+/** What crossed the line: the line's own place, or Mark done. */
+export type FinishBy = Exclude<FinishLine, 'marked'> | 'marked';
+/** A card's `finish` (dashboard/lib/finish.js finishLineReached): the web never works this out itself. */
+export interface JobFinish {
+  reached: boolean;
+  /** When it was crossed, if known (a PR's merge time, the Mark done time). */
+  at: string | null;
+  by: FinishBy | null;
+  /** Where the work has landed past the line, whatever the setting. */
+  landed: 'staging' | 'main' | null;
+}
 
 export interface Job {
   slug: string;
@@ -38,6 +54,8 @@ export interface Job {
   rulesLevel?: RulesLevel | null;
   /** Its gate has waited past the parking time (4 hours): still under Needs you, shown as parked. */
   parked?: boolean;
+  /** The finish line: crossed or not, by what, and where the work has landed (dashboards from before send none). */
+  finish?: JobFinish;
   [key: string]: unknown;
 }
 
@@ -257,15 +275,19 @@ export interface AutoModeStatus {
 
 /** Play mode (Settings → Play): Subtle is the default; Off is the Workshop without the Play layer. */
 export type PlayMode = 'subtle' | 'full' | 'off';
-/** When a job counts as a finished quest: its first PR is created (the default), or you mark it done. */
-export type QuestDoneRule = 'first-pr' | 'marked-done';
 
 /** settings.play (dashboard/lib/play.js playSettings). */
 export interface PlaySettings {
   mode: PlayMode;
-  questDone: QuestDoneRule;
   /** Chiptune blips, Full mode only; off unless you turn them on. */
   sounds: boolean;
+  /** Dashboards from before the finish line sent the quest rule here; it is ignored now. */
+  questDone?: string;
+}
+
+/** settings.workflow: the finish line (dashboard/lib/finish.js). */
+export interface WorkflowSettings {
+  finishLine: FinishLine;
 }
 
 /** The dashboard's settings (meta.settings; also sent whole in the 'settings' live event). */
@@ -276,6 +298,7 @@ export interface Settings {
   autoMode?: AutoModeStatus;
   play?: PlaySettings;
   notify?: NotifySettings;
+  workflow?: WorkflowSettings;
   [key: string]: unknown;
 }
 
@@ -398,13 +421,15 @@ export interface CrewStats {
   majors: number;
 }
 
-/** A quest just done (dashboard/lib/play.js newlyDone), by the Settings → Play rule it was counted under. */
+/** A quest just done (dashboard/lib/play.js newlyDone): the finish line it was counted under, and what crossed it. */
 export interface QuestDone {
   slug: string;
   doneAt: string;
   kind: 'feature' | 'bug';
   level: number | null;
-  rule: QuestDoneRule;
+  /** The finish line (older ledgers: the old quest rule, 'first-pr' or 'marked-done'). */
+  rule: FinishLine | 'first-pr' | 'marked-done';
+  by?: FinishBy | null;
 }
 
 /** An L3 review's boss defeated (dashboard/lib/play.js newlyDefeated): once per job. hp: what it started with. */
@@ -455,7 +480,9 @@ export type PlayResponse = PlayView | PlayOff;
 export interface PlayView {
   schema: number;
   mode: PlayMode;
-  questDone: QuestDoneRule;
+  /** The finish line the quests were counted under (dashboards from before send questDone instead). */
+  finishLine?: FinishLine;
+  questDone?: string;
   /** By agent type; only the crew met so far. */
   crew: Record<string, CrewStats>;
   crewMet: number;
@@ -600,6 +627,8 @@ export interface Meta {
   /** The Foreman models you can choose, the everyday one first. */
   models?: ModelChoice[];
   settings?: Settings;
+  /** The finish line's choices with their words, for Settings → Workflow (dashboard/lib/finish.js). */
+  finishLines?: { id: FinishLine; label: string; hint: string }[];
   /** L0–L3 with their hints, for the level picker. */
   levels?: LevelInfo[];
   /** The job options' lists (lib/options.js), for the options editor and the reviewers' names. */

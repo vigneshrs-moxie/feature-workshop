@@ -160,7 +160,7 @@ describe('usePlay', () => {
 
   it('Subtle by default: on, still', () => {
     const { result } = renderHook(() => usePlay(), { wrapper: wrapper() });
-    expect(result.current).toMatchObject({ mode: 'subtle', on: true, full: false, animated: false, sounds: false, questDone: 'first-pr' });
+    expect(result.current).toMatchObject({ mode: 'subtle', on: true, full: false, animated: false, sounds: false });
   });
 
   it('Full animates unless reduced motion is asked for; Off is off', () => {

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { job } from '../../state/test-fixtures';
-import { jobStatus } from './jobStatus';
+import { jobStatus, shippingWhere } from './jobStatus';
 import { STAGE_NAMES } from '../../theme/tokens';
 import { STAGE_INFO, stageFamily, stageHint, stageLabel } from './stages';
 
@@ -11,7 +11,7 @@ const now = new Date(2026, 9, 15, 15, 0);
 
 describe('jobStatus', () => {
   it('always gives a glyph and a text label', () => {
-    for (const g of ['needs-you', 'running', 'paused', 'idle', 'done'] as const) {
+    for (const g of ['needs-you', 'running', 'paused', 'idle', 'shipping', 'done'] as const) {
       const s = jobStatus(job('x', g), now);
       expect(s.glyph).toBeTruthy();
       expect(s.label).toBeTruthy();
@@ -40,6 +40,18 @@ describe('jobStatus', () => {
     expect(jobStatus(job('x', 'idle', { stageState: 'paused' }), now).label).toBe('Stopped');
     expect(jobStatus(job('x', 'done', { closed: { as: 'dropped' } }), now).label).toBe('Dropped');
     expect(jobStatus(job('x', 'done', { closed: { as: 'done' } }), now).label).toBe('Done');
+  });
+
+  it('shipping: past the finish line, and where the work is in a few words', () => {
+    const fin = (by: 'pr1-open' | 'pr1-merged' | 'staging', landed: 'staging' | 'main' | null = null) => ({ reached: true, at: null, by, landed });
+    const s = jobStatus(job('x', 'shipping', { finish: fin('pr1-merged') }), now);
+    expect([s.label, s.glyph]).toEqual(['Shipping', '↗']);
+    expect(s.hint).toBe('Past the finish line you set: on the Moxie branch. It waits on other people now; nothing is asked of you.');
+    expect(shippingWhere(job('x', 'shipping', { finish: fin('pr1-merged') }))).toBe('On the Moxie branch');
+    expect(shippingWhere(job('x', 'shipping', { finish: fin('pr1-open') }))).toBe('PR #1 open');
+    expect(shippingWhere(job('x', 'shipping', { finish: fin('pr1-merged', 'staging') }))).toBe('In staging');
+    expect(shippingWhere(job('x', 'shipping'))).toBe('');
+    expect(jobStatus(job('x', 'shipping'), now).hint).toBe('Past the finish line you set. It waits on other people now; nothing is asked of you.');
   });
 });
 

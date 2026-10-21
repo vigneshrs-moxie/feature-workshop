@@ -7,6 +7,7 @@ import { isActiveRun } from '../panes/Foreman/thread';
 import { GROUP_LABELS } from '../panes/Jobs/jobStatus';
 import { jobsByGroup, jobBySlug, type WorkshopState } from '../state/reducer';
 import { JOB_GROUPS } from '../api/types';
+import type { KeyId } from './keyRegistry';
 import type { CurrentJob } from './ui';
 
 export type CommandSection = 'This job' | 'Jobs' | 'Go to';
@@ -17,8 +18,8 @@ export interface Command {
   /** The hover hint, and what a screen reader hears after the label. */
   hint: string;
   section: CommandSection;
-  /** The key that does the same outside ⌘K, when there is one. */
-  keys?: string;
+  /** The key that does the same outside ⌘K, when there is one (app/keyRegistry.ts). */
+  keys?: KeyId;
   /** Extra words the search matches. */
   keywords?: string;
   run: () => void;
@@ -91,7 +92,7 @@ function jobCommands(ctx: CommandContext, h: CommandHandlers, job: Job): Command
     });
   } else {
     out.push({
-      id: 'write', label: 'Write to the Foreman', section: 'This job', keywords: 'message send composer',
+      id: 'write', label: 'Write to the Foreman', section: 'This job', keys: 'write', keywords: 'message send composer',
       hint: 'Jump to the message box at the foot of the conversation.',
       run: h.focusComposer,
     });
@@ -138,7 +139,7 @@ function jobCommands(ctx: CommandContext, h: CommandHandlers, job: Job): Command
   }
 
   out.push({
-    id: 'job-drawer', label: 'Job notes and options', section: 'This job', keywords: 'notes options settings level flow stages skip reviewers models fable',
+    id: 'job-drawer', label: 'Job notes and options', section: 'This job', keys: 'notes', keywords: 'notes options settings level flow stages skip reviewers models fable',
     hint: `Open ${title}’s notes (notes.md, read by the Foreman every session) and its options: level, stages, reviewers, testing, Fable, models.`,
     run: () => h.jobDrawer(job.slug),
   });
@@ -163,7 +164,7 @@ export function commandsFor(ctx: CommandContext, h: CommandHandlers): Command[] 
 
   if (state.status === 'ready') {
     out.push({
-      id: 'new-job', label: 'New job…', section: 'Jobs', keys: 'c', keywords: 'start create',
+      id: 'new-job', label: 'New job…', section: 'Jobs', keys: 'new-job', keywords: 'start create',
       hint: 'Start a job: describe it, pick the repository, kind and Foreman model.',
       run: h.newJob,
     });
@@ -178,10 +179,10 @@ export function commandsFor(ctx: CommandContext, h: CommandHandlers): Command[] 
   }
 
   if (!ctx.onSettings) {
-    out.push({ id: 'settings', label: 'Settings', section: 'Go to', keywords: 'permissions rules always allow', hint: 'Your permission setting and your “Always allow” rules.', run: h.settings });
+    out.push({ id: 'settings', label: 'Settings', section: 'Go to', keys: 'go-settings', keywords: 'permissions rules always allow', hint: 'Your permission setting and your “Always allow” rules.', run: h.settings });
   }
   if (ctx.play && !ctx.onCrew) {
-    out.push({ id: 'crew-dex', label: 'Crew-dex', section: 'Go to', keywords: 'crew play collection characters met secrets achievements', hint: 'Every crew member: who you have met and what they have done on your jobs.', run: h.crewDex });
+    out.push({ id: 'crew-dex', label: 'Crew-dex', section: 'Go to', keys: 'go-crew', keywords: 'crew play collection characters met secrets achievements', hint: 'Every crew member: who you have met and what they have done on your jobs.', run: h.crewDex });
   }
   if (ctx.play && !ctx.onAchievements) {
     out.push({ id: 'achievements', label: 'Achievements', section: 'Go to', keywords: 'play badges rewards secrets unlocked trophies', hint: 'Your achievements: what you have unlocked by finishing work, and the secrets you have found.', run: h.achievements });
@@ -190,7 +191,7 @@ export function commandsFor(ctx: CommandContext, h: CommandHandlers): Command[] 
     { id: 'classic-home', label: 'Classic view', section: 'Go to', keywords: 'old board', hint: 'Open the classic Feature Workshop page.', run: () => h.classic(ctx.classic.home()) },
     { id: 'classic-costs', label: 'Costs (classic view)', section: 'Go to', keywords: 'spend money', hint: 'What your jobs have cost, on the classic Costs page.', run: () => h.classic(ctx.classic.costs()) },
     { id: 'classic-history', label: 'History search (classic view)', section: 'Go to', keywords: 'past conversations', hint: 'Search your past Claude conversations on the classic History page.', run: () => h.classic(ctx.classic.history()) },
-    { id: 'keys', label: 'Keyboard shortcuts', section: 'Go to', keys: '?', keywords: 'help keys', hint: 'List the keys that work on this page.', run: h.showKeys },
+    { id: 'keys', label: 'Keyboard shortcuts', section: 'Go to', keys: 'keys', keywords: 'help keys', hint: 'List the keys that work on this page.', run: h.showKeys },
   );
   return out;
 }

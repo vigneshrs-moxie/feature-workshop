@@ -1,22 +1,52 @@
-// The list of keys (?), from app/keys.ts.
-import { KEY_LIST } from '../../app/keys';
+// The list of keys (?), generated from app/keyRegistry.ts: every binding grouped by where it
+// works, the groups not on this page marked, and a note when keys are off (Settings → Keys).
+import { KEY_IDS, KEYS, keyDef, keyLabel, SCOPES, useKeyRegistry, type KeyId, type KeyScope } from '../../app/keyRegistry';
+import { useKeysSetting } from '../../app/keysSetting';
 import { Sheet } from '../../components/Sheet';
 
+/** The groups in the order they read best: everywhere first, then the places. */
+const GROUP_ORDER: readonly KeyScope[] = ['global', 'rows', 'job', 'gate', 'desk', 'table', 'settings', 'sheet'];
+
 export function KeysSheet({ onClose }: { onClose: () => void }) {
+  const [{ enabled }] = useKeysSetting();
+  const { active } = useKeyRegistry();
+  const groups = GROUP_ORDER.map((scope) => ({ scope, ids: KEY_IDS.filter((id) => KEYS[id].scope === scope) })).filter((g) => g.ids.length);
   return (
     <Sheet title="Keyboard shortcuts" onClose={onClose} className="keys-sheet">
-      <dl className="key-list">
-        {KEY_LIST.map((k) => (
-          <div key={k.keys} className="key-row">
-            <dt><kbd className="kbd">{k.keys}</kbd></dt>
-            <dd>{k.what}</dd>
-          </div>
-        ))}
-      </dl>
-      <p className="muted sheet-fine">Single-letter keys don’t work while you’re typing in a box: click outside it, or press Esc in a menu first. Keys for approving and revising briefs come with gate cards.</p>
+      {!enabled && (
+        <p className="perm-warn keys-off" role="note">
+          Keyboard shortcuts are off (Settings → Keys). Only Esc, Enter, the arrows inside a list or menu, {keyLabel('Mod+K')} and {keyLabel('Mod+Enter')} work.
+        </p>
+      )}
+      {groups.map(({ scope, ids }) => (
+        <section key={scope} className="key-group" aria-label={SCOPES[scope].title}>
+          <h4 className="key-group-title">
+            {SCOPES[scope].title}
+            {!active.has(scope) && scope !== 'sheet' && <> <span className="muted">(not on this page)</span></>}
+          </h4>
+          <p className="muted key-group-where">Where it works: {SCOPES[scope].where}</p>
+          <dl className="key-list">
+            {ids.map((id) => <KeyRow key={id} id={id} />)}
+          </dl>
+        </section>
+      ))}
+      <p className="muted sheet-fine">Single-letter keys don’t work while you’re typing in a box: click outside it, or press Esc in a menu first. Turn them off, or hide the hints on buttons, in Settings → Keys.</p>
       <div className="sheet-actions">
         <button type="button" className="btn" onClick={onClose} title="Close this list (Esc).">Close</button>
       </div>
     </Sheet>
+  );
+}
+
+function KeyRow({ id }: { id: KeyId }) {
+  const def = keyDef(id);
+  return (
+    <div className="key-row">
+      <dt>{def.keys.map((k, i) => <span key={k}>{i > 0 && <span className="muted"> / </span>}<kbd className="kbd">{keyLabel(k)}</kbd></span>)}</dt>
+      <dd>
+        {def.label}
+        {def.where && <span className="muted key-where">{def.where}</span>}
+      </dd>
+    </div>
   );
 }

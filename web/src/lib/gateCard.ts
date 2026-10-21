@@ -340,3 +340,12 @@ export function placeGateReply(draft: string, reply: string, memo: GateDraftMemo
 }
 
 export const KIND_WORDS: Record<GateKind, string> = { approve: 'an approval', changes: 'changes asked for', message: 'guidance', stop: 'a stop' };
+
+/**
+ * Whether a gate may be approved with one key (the Desk's `a`, the card's `a`): the job waits for a
+ * go-ahead, the card asks no questions (a recommended answer still has to be read), and the plan
+ * hasn't changed since. Never for the Foreman's questions.
+ */
+export function oneKeyGateApprove(gate: Pick<Gate, 'questions' | 'stale'>, waitingFor: string | null | undefined): boolean {
+  return waitingFor === 'approval' && !gate.stale && (gate.questions?.length ?? 0) === 0;
+}

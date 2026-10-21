@@ -1,6 +1,6 @@
 // <JobTrail job variant />: the job's trail (Play, round 2), the classic page's meadow brought back.
-// The stages it runs are a path of stops (done ones ticked, the goal a flag); the crew member for
-// the current stage stands on it, big, in the job's mood: waiting with a "!" when it needs you, at
+// The stages it runs are a path of stops (done ones ticked, the finish line's stop a flag, the stops
+// after the line smaller); the crew member for the current stage stands on it, big, in the job's mood: waiting with a "!" when it needs you, at
 // work, asleep in a usage pause, celebrating at the end. Under it, one line in plain words says
 // what is happening and whose move it is ("Your move: …", "Now: Builder is building."), then
 // what comes next.
@@ -21,7 +21,7 @@ import { CREW_SIZE, crewSize } from './crewSizes';
 import { usePlayIfAny } from './usePlay';
 import { useTrail } from './useTrail';
 
-const HINT = 'The trail (Play mode): the stages this job runs, with whoever is on the current stage standing on it. A quest is done by the Settings → Play rule (by default, when its first PR is created).';
+const HINT = 'The trail (Play mode): the stages this job runs, with whoever is on the current stage standing on it. The flag is the finish line you set (Settings → Workflow); the quest is done when the job crosses it.';
 
 export function JobTrail({ job, now, variant = 'header' }: { job: Job; now: Date; variant?: 'header' | 'card' }) {
   const play = usePlayIfAny();
@@ -31,17 +31,15 @@ export function JobTrail({ job, now, variant = 'header' }: { job: Job; now: Date
   const title = job.title || job.slug;
   const size = crewSize(variant === 'card' ? CREW_SIZE.floorCard : CREW_SIZE.trail, full);
   const current = trail.stops.find((s) => s.state === 'current');
-  const last = trail.stops.length - 1;
   const name = crewInfo(trail.who).name;
   return (
     <section className={`job-trail is-${variant}${full ? ' is-full' : ''}${trail.ask ? ' is-ask' : ''}`} data-group={job.group} aria-label={variant === 'card' ? `Trail: ${title}` : 'Trail'} title={HINT} style={{ '--trail-crew': `${size}px` } as CSSProperties}>
       <div className="trail-field">
         <ol className="trail-path" aria-label={`Stages${current ? `: now at ${current.label}` : trail.finished ? ': done' : ''}`}>
-          {trail.stops.map((s, i) => {
-            const goal = i === last;
-            const here = s.state === 'current' || (trail.finished && goal);
+          {trail.stops.map((s) => {
+            const { goal, here } = s;
             return (
-              <li key={s.id} className={`trail-stop is-${s.state}${goal ? ' is-goal' : ''}${here ? ' is-here' : ''}`} title={s.label}>
+              <li key={s.id} className={`trail-stop is-${s.state}${goal ? ' is-goal' : ''}${s.after ? ' is-after' : ''}${here ? ' is-here' : ''}`} title={s.after ? `${s.label} (after the finish line)` : goal ? `${s.label} (the finish line)` : s.label}>
                 {here && (
                   <span className="trail-who">
                     {trail.ask && <span className="trail-ask" aria-hidden="true">!</span>}
@@ -50,7 +48,7 @@ export function JobTrail({ job, now, variant = 'header' }: { job: Job; now: Date
                 )}
                 <span className="trail-dot" aria-hidden="true">{s.state === 'done' ? '✓' : goal ? '⚑' : ''}</span>
                 <span className="trail-label">{s.label}</span>
-                <span className="sr-only">{s.state === 'done' ? ', done' : s.state === 'current' ? ', now' : ''}</span>
+                <span className="sr-only">{s.state === 'done' ? ', done' : s.state === 'current' ? ', now' : ''}{goal ? ', the finish line' : s.after ? ', after the line' : ''}</span>
               </li>
             );
           })}

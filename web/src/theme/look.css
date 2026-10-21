@@ -1,0 +1,70 @@
+/* Settings → Look (views/Settings/LookSettings.tsx): the theme swatch grid, the text size buttons with
+   their sample line, and Follow the system. Theme tokens only. Each swatch is drawn from its own
+   theme's tokens: swatches.css (generated, theme/swatchSheet.ts) puts every theme's custom properties
+   on .theme-swatch[data-theme="<id>"], so var(--bg-0), var(--text-1), … inside a swatch are that
+   theme's, whatever the page wears. */
+@import './swatches.css';
+
+.look-settings { margin-top: var(--space-5); }
+.look-settings > .settings-heading { font-size: var(--text-md); color: var(--text-1); }
+.look-heading { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--text-2); }
+.look-heading:first-of-type { margin-top: 0; }
+
+/* ---------- Theme: a swatch grid in two groups ---------- */
+
+.theme-options { gap: var(--space-3); }
+.theme-group-title { margin: 0 0 var(--space-1); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); }
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(132px * var(--ui-scale, 1)), 1fr)); gap: var(--space-2); }
+.theme-option { flex-direction: column; align-items: stretch; gap: var(--space-2); padding: var(--space-2); }
+/* The radio is read by assistive tech and the keyboard; the card shows its state (a ring, the word). */
+.theme-option input[type='radio'] { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.theme-option { position: relative; }
+.theme-option:has(input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.theme-option .rule-option-body { gap: 2px; }
+.theme-option .rule-option-kind { flex-wrap: wrap; gap: var(--space-1); font-size: var(--text-sm); }
+.theme-option .theme-description { font-size: var(--text-xs); line-height: 1.35; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.theme-chosen { color: var(--accent-strong); font-weight: var(--weight-bold); }
+
+/* The swatch: a tiny window in the theme's own colours (tokens from swatches.css). */
+.theme-swatch {
+  display: grid;
+  grid-template-columns: 28% 1fr;
+  grid-template-rows: 18% 1fr;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-md);
+  background: var(--bg-0);
+  color: var(--text-1);
+}
+.theme-option.is-picked .theme-swatch { box-shadow: 0 0 0 2px var(--bg-0), 0 0 0 4px var(--accent); }
+.swatch-bar { grid-column: 1 / -1; background: var(--bg-1); border-bottom: 1px solid var(--border-1); }
+.swatch-side { background: var(--bg-1); border-right: 1px solid var(--border-1); }
+.swatch-main { display: grid; place-items: start; padding: 10% 8%; }
+.swatch-card { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 6px; border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-2); }
+.swatch-line { display: block; height: 3px; border-radius: 2px; background: var(--text-1); }
+.swatch-line.is-2 { width: 55%; background: var(--text-3); }
+.swatch-line.is-1 { width: 80%; }
+.swatch-dots { display: flex; gap: 3px; margin-top: 1px; }
+.swatch-dots > i { display: block; width: 6px; height: 6px; border-radius: 50%; }
+.swatch-dots .is-accent { background: var(--accent); }
+.swatch-dots .is-needs { background: var(--group-needs-you-fg); }
+.swatch-dots .is-running { background: var(--group-running-fg); }
+.swatch-dots .is-done { background: var(--group-done-fg); }
+
+/* ---------- Text size ---------- */
+
+.text-size { margin: 0; padding: 0; border: 0; }
+.text-size-options { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.text-size-btn { min-width: calc(40px * var(--ui-scale, 1)); justify-content: center; font-weight: var(--weight-medium); }
+.text-size-btn.is-on { border-color: var(--accent); background: var(--accent-soft); color: var(--text-1); }
+.text-sample { margin: var(--space-2) 0 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-2); font-size: var(--text-base); line-height: var(--leading); }
+.text-sample .muted { display: block; font-size: var(--text-sm); }
+
+/* ---------- Follow the system ---------- */
+
+.follow-system { margin-top: var(--space-2); }
+.follow-system input[type='checkbox'] { margin-top: 3px; accent-color: var(--accent); }
+
+/* The look section's hint line, under everything. */
+.theme-hint { margin: var(--space-3) 0 0; }

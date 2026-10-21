@@ -1,16 +1,27 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { installKeyListener, registerKeys } from '../app/keyRegistry';
 import type { Command } from '../app/commands';
 import { CommandPalette } from './CommandPalette';
 
 const cmd = (id: string, label: string, extra: Partial<Command> = {}): Command => ({ id, label, hint: `Hint for ${label}.`, section: 'Go to', run: vi.fn(), ...extra });
 
 function setup() {
-  const commands = [cmd('new-job', 'New job…', { section: 'Jobs', keys: 'c' }), cmd('settings', 'Settings'), cmd('classic-costs', 'Costs (classic view)')];
+  const commands = [cmd('new-job', 'New job…', { section: 'Jobs', keys: 'new-job' }), cmd('settings', 'Settings'), cmd('classic-costs', 'Costs (classic view)')];
   const onClose = vi.fn();
   render(<CommandPalette commands={commands} onClose={onClose} />);
   return { commands, onClose, box: screen.getByRole('combobox', { name: 'Search actions' }) };
 }
+
+// The page's key listener is on and its global keys registered, as in the app, so each command's
+// key shows beside it.
+let off = () => {};
+beforeEach(() => {
+  const uninstall = installKeyListener();
+  const reg = registerKeys('global', { current: { 'new-job': () => {} } });
+  off = () => { reg.unregister(); uninstall(); };
+});
+afterEach(() => off());
 
 describe('CommandPalette', () => {
   it('is an ARIA combobox over a listbox, focused, with the first action highlighted', () => {

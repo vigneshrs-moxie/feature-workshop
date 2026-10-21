@@ -1,5 +1,5 @@
-// One job in the Jobs pane: hue dot, title, then the status glyph and label, the stage chip and how
-// long ago it last changed. With Play on, its crew member stands at the start of the row (RowCrew). In the icon rail it shrinks to the hue dot and glyph, with the rest in
+// One job in the Jobs pane: hue dot, title, then the status glyph and label, the stage chip (a
+// shipping job shows where its work is instead) and how long ago it last changed. With Play on, its crew member stands at the start of the row (RowCrew). In the icon rail it shrinks to the hue dot and glyph, with the rest in
 // its hover hint and its accessible name.
 import type { Job } from '../../api/types';
 import { jobHref } from '../../app/router';
@@ -7,7 +7,7 @@ import { fullTime, relativeTime } from '../../lib/time';
 import { RowCrew } from '../../play/RowCrew';
 import { usePlayIfAny } from '../../play/usePlay';
 import { jobHueStyle } from '../../theme/hue';
-import { jobStatus } from './jobStatus';
+import { jobStatus, shippingWhere } from './jobStatus';
 import { stageFamily, stageHint, stageLabel } from './stages';
 
 const PARKED_HINT = 'A decision has waited for you for more than 4 hours. Nothing goes ahead until you decide; nothing is approved for you.';
@@ -22,7 +22,10 @@ export interface JobRowProps {
 export function JobRow({ job, selected, now, rail = false }: JobRowProps) {
   const status = jobStatus(job, now);
   const title = job.title || job.slug;
-  const stage = job.group === 'done' ? '' : stageLabel(job.stage);
+  const shipping = job.group === 'shipping';
+  const stage = job.group === 'done' || shipping ? '' : stageLabel(job.stage);
+  // Past the finish line: where the work is, in a muted word, instead of a stage chip.
+  const where = shipping ? shippingWhere(job) : '';
   const ago = relativeTime(job.updatedAt, now);
   const dot = <span className="hue-dot" style={jobHueStyle(job.slug)} aria-hidden="true" />;
   const glyph = <span className={`glyph status-${status.group}`} aria-hidden="true">{status.glyph}</span>;
@@ -31,7 +34,7 @@ export function JobRow({ job, selected, now, rail = false }: JobRowProps) {
   const crew = Boolean(usePlayIfAny()?.on);
 
   if (rail) {
-    const name = [title, status.label, parked && 'parked 4h', stage, ago && `updated ${/^\d+[mhd]$/.test(ago) ? `${ago} ago` : ago}`].filter(Boolean).join(' · ');
+    const name = [title, status.label, parked && 'parked 4h', stage, where, ago && `updated ${/^\d+[mhd]$/.test(ago) ? `${ago} ago` : ago}`].filter(Boolean).join(' · ');
     return (
       <a className="job-rail-item" data-group={status.group} href={jobHref(job.slug)} aria-current={selected ? 'page' : undefined} aria-label={name} title={`${name}. ${status.hint}`}>
         {dot}
@@ -56,6 +59,7 @@ export function JobRow({ job, selected, now, rail = false }: JobRowProps) {
           <span className="job-status-label">{status.label}</span>
         </span>
         {stage && <span className="stage-chip" data-stage={stageFamily(job.stage)} title={stageHint(job.stage)}>{stage}</span>}
+        {where && <span className="muted job-row-where" title="Where this job’s work is on its way to main.">{where}</span>}
         {parked && <span className="chip gate-parked job-row-parked" title={PARKED_HINT}>parked 4h</span>}
       </span>
     </a>

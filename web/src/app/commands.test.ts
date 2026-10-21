@@ -28,7 +28,7 @@ describe('commandsFor', () => {
     const state = stateWith([job('alpha', 'idle'), job('beta', 'needs-you')]);
     const list = commandsFor({ state, slug: null, current: null, onSettings: false, classic }, handlers());
     expect(ids(list)).toEqual(['new-job', 'open:beta', 'open:alpha', 'settings', 'classic-home', 'classic-costs', 'classic-history', 'keys']);
-    expect(list.find((c) => c.id === 'new-job')?.keys).toBe('c');
+    expect(list.find((c) => c.id === 'new-job')?.keys).toBe('new-job');
   });
 
   it('offers Stop and Steer while the open job replies, and no Mark done', () => {

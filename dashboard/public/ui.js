@@ -11,9 +11,25 @@ export const prefs = {
 };
 
 // The new view's themes (web/src/theme/theme.ts): the ones everyone has, and the two the play
-// ledger unlocks. theme-boot.js keeps its own copy of THEMES; a test checks all three agree.
-export const THEMES = ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass'];
+// ledger unlocks; the dark/light pairs Follow the system switches between; the four text sizes
+// (web/src/theme/textSize.ts). theme-boot.js keeps its own copy of each; a test checks all agree.
+export const THEMES = ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass', 'light', 'light-glass'];
 export const HIDDEN_THEMES = ['crt', 'gold'];
+export const THEME_PAIRS = [['default', 'light'], ['glass', 'light-glass']];
+export const TEXT_SIZES = ['s', 'm', 'l', 'xl'];
+
+/** `id` as Follow the system shows it: its pair's member for the system's colour scheme while 'workshop.themeFollow' is on. */
+export function followTheme(id) {
+  if (prefs.get('themeFollow', 'off') !== 'on' || typeof matchMedia !== 'function') return id;
+  const pair = THEME_PAIRS.find((p) => p.includes(id));
+  return pair ? pair[matchMedia('(prefers-color-scheme: light)').matches ? 1 : 0] : id;
+}
+
+/** Puts the text size picked in the new view ('workshop.textSize') on html[data-text]; medium when unset. */
+export function applyTextSize() {
+  const size = prefs.get('textSize', 'm');
+  document.documentElement.dataset.text = TEXT_SIZES.includes(size) ? size : 'm';
+}
 
 /** The new view's address for where you are here (a location hash): the same job, the Crew-dex, or home. */
 export function newViewHref(hash = '') {
