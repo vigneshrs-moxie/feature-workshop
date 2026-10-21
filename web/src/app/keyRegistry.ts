@@ -5,6 +5,8 @@
 // highest-priority active scope that binds it (desk > gate > job > map > rows > table > settings >
 // sheet > global), so the Desk's j and k win over the page's, and the Map's over the Jobs list's. Rules, the same everywhere:
 //   - single-letter keys never fire while you type in a field, or while a dialog is open;
+//   - Enter and Space with the focus on a button, link, fold, option or tab belong to that control;
+//     only an `always` binding of them runs there;
 //   - ⌘, Ctrl and Alt belong to the browser, except bindings declared with Mod (⌘K, ⌘Enter);
 //   - a held key never repeats (except where the binding says so: the Table's arrows);
 //   - `g` then a letter within 1.5 s is a chord (g h home, g t table…);
@@ -73,7 +75,7 @@ export const KEYS = {
   'gate-approve': { keys: ['a'], label: 'Approve', scope: 'gate', where: 'Only when the card asks no questions and the plan hasn’t changed.' },
   'gate-edit': { keys: ['e'], label: 'Edit, then approve', scope: 'gate' },
   'gate-revise': { keys: ['r'], label: 'Revise with feedback', scope: 'gate' },
-  'gate-guidance': { keys: ['o'], label: 'Other guidance', scope: 'gate' },
+  'gate-guidance': { keys: ['o'], label: 'Other guidance', scope: 'gate', where: 'On the job only: on the Desk, o opens the job.' },
   'gate-answer': { keys: ['1', '2', '3'], label: 'Pick that answer to the first unanswered question', scope: 'gate' },
   'gate-adjust': { keys: ['.'], label: 'Open or close “Adjust the next step”', scope: 'gate' },
   'gate-decided': { keys: ['v'], label: 'Open or close the decisions made for you', scope: 'gate', where: 'Only when the card has some.' },
@@ -202,13 +204,21 @@ function tokenOf(e: KeyboardEvent): string {
   return e.key.length === 1 && /[a-z]/i.test(e.key) && !e.shiftKey ? e.key.toLowerCase() : e.key;
 }
 
+/** A control Enter and Space already work: a button, a link, a fold's summary, an option or a tab. */
+const CONTROL = 'button, a, summary, [role="button"], [role="option"], [role="tab"]';
+const onControl = (target: EventTarget | null) => target instanceof Element && target.closest(CONTROL) !== null;
+
 /** Runs the first active binding for `token`; true when one took it. */
 function runToken(token: string, e: KeyboardEvent, enabled: boolean): boolean {
+  // Enter or Space with the focus on a control belongs to that control (Refresh, New job, a
+  // fold…): a page binding of either never fires there, unless it is one any web page has (always).
+  const taken = (token === 'Enter' || token === ' ') && onControl(e.target);
   for (const reg of ordered()) {
     for (const [id, run] of Object.entries(reg.handlers.current) as [KeyId, KeyHandler | undefined][]) {
       const def = keyDef(id);
       if (!run || def.listOnly || !def.keys.includes(token)) continue;
       if (!enabled && !def.always) continue;
+      if (taken && !def.always) continue;
       if (e.repeat && !def.repeats) return true; // a held key: swallowed, never repeated
       if (run(e) === false) continue;
       return true;

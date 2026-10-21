@@ -2,9 +2,10 @@
 // frame the dashboard talks to. Invented pages only; no iframe here (ScreensTab.test has it).
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  clearWireframes, frameMounted, gotoScreen, mountFrame, parseFeedbackMessage, parseWireframesMessage, receive, requestFeedback, reviewable,
-  screensFromJson, screenWord, wireframesReport,
+  clearWireframes, frameMounted, gotoScreen, isEscapeMessage, mountFrame, parseFeedbackMessage, parseWireframesMessage, receive, requestFeedback, reviewable,
+  screensFromJson, screenWord, takeScreensRequest, wireframesReport,
 } from './wireframes';
+import { SCREENS_ORIGIN } from '../../state/test-fixtures';
 
 const REPORT = {
   type: 'wireframes', version: '2', current: 'c-entry',
@@ -17,6 +18,24 @@ const REPORT = {
 };
 
 afterEach(() => { clearWireframes(); });
+
+describe('the escape message and the open-at-a-section request', () => {
+  it('knows the page’s Esc message and nothing else', () => {
+    expect(isEscapeMessage({ type: 'wireframes-escape' })).toBe(true);
+    expect(isEscapeMessage({ type: 'wireframes' })).toBe(false);
+    expect(isEscapeMessage('wireframes-escape')).toBe(false);
+    expect(isEscapeMessage(null)).toBe(false);
+  });
+
+  it('a request is taken once, by the first tab that asks, however late; never request 0', () => {
+    expect(takeScreensRequest(0)).toBe(false);
+    expect(takeScreensRequest(1), 'a tab mounted after the request still finds it').toBe(true);
+    expect(takeScreensRequest(1), 'the next tab does not replay it').toBe(false);
+    expect(takeScreensRequest(2)).toBe(true);
+    clearWireframes();
+    expect(takeScreensRequest(2), 'tests start clean').toBe(true);
+  });
+});
 
 describe('the page’s messages', () => {
   it('reads a wireframes report and keeps only what the contract names', () => {
@@ -74,19 +93,24 @@ describe('the frame', () => {
     expect(wireframesReport('alpha')).toBeNull();
   });
 
-  it('sends goto and feedback requests to the mounted frame only, same origin', async () => {
+  it('sends goto and feedback requests to the mounted frame only, to the page’s own origin', async () => {
     const win = fakeWindow();
     const focus = vi.fn();
     expect(gotoScreen('alpha', 's-list'), 'no frame yet').toBe(false);
-    const unmount = mountFrame('alpha', () => win, focus);
+    // A frame with no origin known posts nothing: never to '*'.
+    const blind = mountFrame('alpha', () => win, focus);
+    expect(gotoScreen('alpha', 's-list')).toBe(false);
+    expect(win.postMessage).not.toHaveBeenCalled();
+    blind();
+    const unmount = mountFrame('alpha', () => win, focus, SCREENS_ORIGIN);
     expect(frameMounted('alpha')).toBe(true);
     expect(frameMounted('beta')).toBe(false);
     expect(gotoScreen('alpha', 's-list')).toBe(true);
-    expect(win.postMessage).toHaveBeenCalledWith({ type: 'wireframes-goto', key: 's-list' }, window.location.origin);
+    expect(win.postMessage).toHaveBeenCalledWith({ type: 'wireframes-goto', key: 's-list' }, SCREENS_ORIGIN);
     expect(gotoScreen('beta', 's-list'), 'another job’s page isn’t shown here').toBe(false);
     // Feedback: the request goes out; the page's answer settles it.
     const p = requestFeedback('alpha');
-    expect(win.postMessage).toHaveBeenCalledWith({ type: 'wireframes-feedback' }, window.location.origin);
+    expect(win.postMessage).toHaveBeenCalledWith({ type: 'wireframes-feedback' }, SCREENS_ORIGIN);
     expect(receive('alpha', { type: 'wireframes-feedback', version: '2', text: 'Pick A for c-entry' })).toBe(true);
     await expect(p).resolves.toEqual({ version: '2', text: 'Pick A for c-entry' });
     unmount();
@@ -97,7 +121,7 @@ describe('the frame', () => {
   it('gives up on a page that doesn’t answer', async () => {
     vi.useFakeTimers();
     try {
-      const unmount = mountFrame('alpha', fakeWindow, () => {});
+      const unmount = mountFrame('alpha', fakeWindow, () => {}, SCREENS_ORIGIN);
       const p = requestFeedback('alpha', 50);
       const outcome = p.then(() => 'answered', (e: Error) => e.message);
       await vi.advanceTimersByTimeAsync(60);

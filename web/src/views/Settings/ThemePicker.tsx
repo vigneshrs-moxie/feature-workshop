@@ -9,7 +9,7 @@
 // with an "Unlocked" tag.
 import { playOf } from '../../play/settings';
 import { useWorkshop, useWorkshopState } from '../../state/store';
-import { type ColorScheme, type ThemeInfo, useAvailableThemes, useTheme } from '../../theme/theme';
+import { type ColorScheme, type ThemeInfo, useAvailableThemes, useChosenTheme, useTheme } from '../../theme/theme';
 
 const GROUPS: { scheme: ColorScheme; title: string }[] = [
   { scheme: 'dark', title: 'Dark' },
@@ -34,7 +34,10 @@ function Swatch({ id }: { id: string }) {
 }
 
 export function ThemePicker() {
-  const [theme, setTheme] = useTheme();
+  const [, setTheme] = useTheme();
+  // "Chosen" is the theme you picked, not the one on screen: with Follow the system on, a dark
+  // system shows Default while Light is the choice (and stays marked).
+  const theme = useChosenTheme();
   const themes = useAvailableThemes();
   const { api } = useWorkshop();
   const { meta } = useWorkshopState();

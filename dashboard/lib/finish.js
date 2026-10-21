@@ -44,6 +44,9 @@ function reachedOf(lane) {
 
 const prState = (p) => String(p?.state ?? '').toLowerCase();
 const counts = (p) => p && ['open', 'draft', 'merged'].includes(prState(p));
+// status.json's PR #1: its state decides when it has one (closed without merging, or not_started,
+// is no open PR); an older record with only a url counts as open.
+const statusCounts = (p) => Boolean(p) && (p.state == null || p.state === '' ? Boolean(p.url) : counts(p));
 
 /**
  * Whether the job crossed the finish line, and where its work has landed.
@@ -63,7 +66,7 @@ export function finishLineReached(card, lane, setting) {
 
   const places = {
     'pr1-open': {
-      hit: counts(lane?.pr1) || Boolean(pr1Status?.url) || prState(pr1Status) === 'merged' || reached >= 2,
+      hit: counts(lane?.pr1) || statusCounts(pr1Status) || reached >= 2,
       at: null,
     },
     'pr1-merged': {

@@ -1,11 +1,15 @@
 // The Preview pane's Screens tab, and the body of the full-width view (#/job/<slug>/screens): the
-// wireframes page the Painter drew (GET /api/job/:slug/wireframes) in a sandboxed iframe, with a
-// small bar above it: the section in view, the page's version, Open full screen, Copy feedback and
-// what happened. The page keeps its own keys (J K 1 2 3 A B N Esc) and its own notes (its
-// localStorage); the dashboard only tells it where to go and asks for its feedback text
+// wireframes page the Painter drew, served by the dashboard's screens server from its own origin
+// (meta.wireframesOrigin, <origin>/job/<slug>/wireframes), in a sandboxed iframe, with a small bar
+// above it: the section in view, the page's version, Open full screen, Copy feedback and what
+// happened. The page is a model-written HTML file, so it never shares this origin: its script can't
+// reach this document, storage or the token, and every message is checked against its origin both
+// ways. The page keeps its own keys (J K 1 2 3 A B N Esc) and its own notes (its localStorage, in
+// its origin); the dashboard only tells it where to go and asks for its feedback text
 // (panes/Preview/wireframes.ts). Copy feedback copies that text and, while the Foreman waits for
 // your decision, adds it to your message to the Foreman so the reply carries your review.
-// Keys: Enter (with nothing else focused) steps into the page; Esc inside it steps back out.
+// Keys: Enter (with nothing else focused) steps into the page; Esc inside it steps back out (the
+// page posts 'wireframes-escape'; a cross-origin frame's keys can't be heard here).
 // Nothing here changes a file or asks a model.
 import { useEffect, useRef, useState } from 'react';
 import type { Job } from '../../api/types';
@@ -14,23 +18,38 @@ import { screensHref } from '../../app/router';
 import { useUi } from '../../app/ui';
 import { Kbd } from '../../components/Kbd';
 import { readStored, writeStored } from '../../lib/stored';
+import { useWorkshopState } from '../../state/store';
 import { draftKey } from '../Foreman/Composer';
 import { versionLabel } from './docs';
-import { gotoScreen, mountFrame, receive, requestFeedback, useWireframes } from './wireframes';
+import { gotoScreen, isEscapeMessage, mountFrame, receive, requestFeedback, takeScreensRequest, useWireframes } from './wireframes';
 
-/** The page's address for a job: same origin, its own content security policy (dashboard/server.js). */
-export const wireframesUrl = (slug: string) => `/api/job/${encodeURIComponent(slug)}/wireframes`;
+/** The page's address for a job: on the screens server's own origin (meta.wireframesOrigin), under its own content security policy (dashboard/server.js). */
+export const wireframesUrl = (origin: string, slug: string) => `${origin.replace(/\/+$/, '')}/job/${encodeURIComponent(slug)}/wireframes`;
+
+/** What the Screens tab says when the dashboard named no screens origin (an older dashboard behind a newer page). */
+export const NO_ORIGIN = 'The dashboard didn’t say where it serves the screens from. Restart the dashboard and reload this page.';
 
 /** Whether the Foreman waits for your decision on this job (a gate, not a permission): the feedback then joins your reply. */
 export const gateWaiting = (job: Job | null | undefined) => Boolean(job?.needsYou && (job.waitingFor === 'approval' || job.waitingFor === 'answers'));
 
-/** The composer's draft with the feedback added once, after what is already there. */
-export function addFeedbackToDraft(slug: string, text: string): boolean {
+/** The feedback block's marker lines in the draft: the text sits between them, so a later copy replaces it. */
+export const feedbackMarkers = (version: string | null) => ({ start: `--- Screens feedback${version ? ` (v${version})` : ''} ---`, end: '--- end ---' });
+const FEEDBACK_BLOCK = /--- Screens feedback(?: \([^)\n]*\))? ---\n[\s\S]*?\n--- end ---/;
+
+/**
+ * The composer's draft with the feedback in it, once: added after what is already there, between
+ * marker lines; a block from an earlier copy (a changed verdict, an older version) is replaced.
+ * False when nothing changed.
+ */
+export function addFeedbackToDraft(slug: string, text: string, version: string | null = null): boolean {
   const feedback = text.trim();
   if (!feedback) return false;
+  const { start, end } = feedbackMarkers(version);
+  const block = `${start}\n${feedback}\n${end}`;
   const prev = readStored(draftKey(slug)) ?? '';
-  if (prev.includes(feedback)) return false;
-  writeStored(draftKey(slug), prev.trim() ? `${prev.replace(/\s+$/, '')}\n\n${feedback}` : feedback);
+  if (prev.includes(block)) return false;
+  const next = FEEDBACK_BLOCK.test(prev) ? prev.replace(FEEDBACK_BLOCK, block) : prev.trim() ? `${prev.replace(/\s+$/, '')}\n\n${block}` : block;
+  writeStored(draftKey(slug), next);
   return true;
 }
 
@@ -48,46 +67,38 @@ export function ScreensTab({ slug, job, active, full = false }: {
   full?: boolean;
 }) {
   const ui = useUi();
+  const origin = useWorkshopState().meta?.wireframesOrigin ?? null;
   const frame = useRef<HTMLIFrameElement>(null);
   const firstButton = useRef<HTMLButtonElement>(null);
   const report = useWireframes(slug);
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState(false);
-  const [loaded, setLoaded] = useState(false);
   // A section asked for before the page had posted anything: sent once it has.
   const wanted = useRef<string | null>(null);
 
-  // This is the frame for this job; messages from its window (same origin) are the page's.
+  // This is the frame for this job; messages from its window, from the page's origin, are the page's.
+  // Its Esc (posted, since a cross-origin frame's keys can't be heard here): back to the bar.
   useEffect(() => {
-    const unmount = mountFrame(slug, () => frame.current?.contentWindow ?? null, () => frame.current?.focus());
+    const unmount = mountFrame(slug, () => frame.current?.contentWindow ?? null, () => frame.current?.focus(), origin);
     const onMessage = (e: MessageEvent) => {
       if (!frame.current?.contentWindow || e.source !== frame.current.contentWindow) return;
-      if (e.origin !== window.location.origin) return;
+      if (!origin || e.origin !== origin) return;
+      if (isEscapeMessage(e.data)) {
+        firstButton.current?.focus();
+        setNotice({ tone: 'ok', text: 'Back on the page. Enter steps into the screens again.' });
+        return;
+      }
       receive(slug, e.data);
     };
     window.addEventListener('message', onMessage);
     return () => { window.removeEventListener('message', onMessage); unmount(); };
-  }, [slug]);
-
-  // Esc inside the page (same origin, so its keys can be heard here): back to the bar.
-  useEffect(() => {
-    if (!loaded) return;
-    const win = frame.current?.contentWindow;
-    if (!win) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      firstButton.current?.focus();
-      setNotice({ tone: 'ok', text: 'Back on the page. Enter steps into the screens again.' });
-    };
-    try { win.addEventListener('keydown', onKey); } catch { return; }
-    return () => { try { win.removeEventListener('keydown', onKey); } catch { /* the page is gone */ } };
-  }, [loaded, slug]);
+  }, [slug, origin]);
 
   // A request to open the screens at a section (the gate card's chips, the Docs list): go there.
-  const seenRequest = useRef(ui.screensRequest);
+  // Taken once, by the first tab to see it, including one mounted after it (the Desk's chips open
+  // the full view, whose tab mounts then; panes/Preview/wireframes.ts takeScreensRequest).
   useEffect(() => {
-    if (ui.screensRequest === seenRequest.current) return;
-    seenRequest.current = ui.screensRequest;
+    if (!takeScreensRequest(ui.screensRequest)) return;
     if (!ui.screensKey) return;
     if (!gotoScreen(slug, ui.screensKey) || !report) wanted.current = ui.screensKey;
   }, [ui.screensRequest, ui.screensKey, slug, report]);
@@ -111,10 +122,10 @@ export function ScreensTab({ slug, job, active, full = false }: {
     setBusy(true);
     setNotice(null);
     try {
-      const { text } = await requestFeedback(slug);
+      const { text, version } = await requestFeedback(slug);
       let copied = true;
       try { await navigator.clipboard.writeText(text); } catch { copied = false; }
-      const added = gateWaiting(job) && addFeedbackToDraft(slug, text);
+      const added = gateWaiting(job) && addFeedbackToDraft(slug, text, version);
       setNotice(copied
         ? { tone: 'ok', text: added ? 'Copied, and added to your message to the Foreman.' : 'Copied.' }
         : added ? { tone: 'ok', text: 'Added to your message to the Foreman (this browser didn’t allow copying).' }
@@ -149,15 +160,19 @@ export function ScreensTab({ slug, job, active, full = false }: {
         </button>
       </div>
       {notice && <p className={`screens-status ${notice.tone === 'ok' ? 'muted' : 'field-problem'}`} role={notice.tone === 'ok' ? 'status' : 'alert'}>{notice.text}</p>}
-      <iframe
-        ref={frame}
-        className="screens-frame"
-        title={title}
-        src={wireframesUrl(slug)}
-        sandbox="allow-scripts allow-same-origin"
-        referrerPolicy="no-referrer"
-        onLoad={() => setLoaded(true)}
-      />
+      {origin ? (
+        // allow-same-origin keeps the page's notes in ITS origin's storage, which can't reach this one.
+        <iframe
+          ref={frame}
+          className="screens-frame"
+          title={title}
+          src={wireframesUrl(origin, slug)}
+          sandbox="allow-scripts allow-same-origin"
+          referrerPolicy="no-referrer"
+        />
+      ) : (
+        <p className="field-problem" role="alert">{NO_ORIGIN}</p>
+      )}
     </div>
   );
 }

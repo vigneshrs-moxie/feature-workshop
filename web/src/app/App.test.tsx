@@ -94,7 +94,8 @@ describe('App shell', () => {
     expect(screen.queryByRole('complementary', { name: 'Preview' })).toBeNull();
     expect(within(view).getByRole('link', { name: /Back to the job/ })).toHaveAttribute('href', '#/job/beta');
     expect(view).toHaveTextContent('Job beta');
-    expect(view.querySelector('iframe.screens-frame')).toHaveAttribute('src', '/api/job/beta/wireframes');
+    // From the screens server's own origin (meta.wireframesOrigin), never this one.
+    expect(view.querySelector('iframe.screens-frame')).toHaveAttribute('src', 'http://127.0.0.1:4478/job/beta/wireframes');
     expect(within(view).getByRole('button', { name: 'Copy feedback' })).toBeInTheDocument();
     expect(within(view).queryByRole('link', { name: 'Open full screen' })).toBeNull();
     // The top bar's Classic view link is this job's.

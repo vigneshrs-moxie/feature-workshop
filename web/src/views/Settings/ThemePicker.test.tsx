@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
 import { createStore, WorkshopContext } from '../../state/store';
 import { snapshot } from '../../state/test-fixtures';
-import { currentTheme, setThemeUnlocks } from '../../theme/theme';
+import { currentTheme, setThemeUnlocks, THEME_FOLLOW_KEY, THEME_KEY } from '../../theme/theme';
 import { ThemePicker } from './ThemePicker';
 
 function setup() {
@@ -14,7 +14,12 @@ function setup() {
   return { post };
 }
 
-afterEach(() => { setThemeUnlocks({}); localStorage.clear(); document.documentElement.removeAttribute('data-theme'); });
+afterEach(() => { setThemeUnlocks({}); localStorage.clear(); document.documentElement.removeAttribute('data-theme'); vi.unstubAllGlobals(); });
+
+/** A system that prefers `scheme`, for Follow the system (theme.ts systemScheme asks matchMedia). */
+function systemPrefers(scheme: 'dark' | 'light') {
+  vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('light') ? scheme === 'light' : scheme === 'dark', addEventListener() {}, removeEventListener() {} }));
+}
 
 const DARK = ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'candy-pop', 'glass'];
 const LIGHT = ['sunset-paper', 'light', 'light-glass'];
@@ -58,6 +63,26 @@ describe('theme picker and the hidden themes', () => {
     expect(within(option('light-glass')).getByText('Chosen')).toBeInTheDocument();
     expect(option('default')).not.toHaveClass('is-picked');
     expect(within(option('light-glass')).getByText(/Frosted white panes/)).toBeInTheDocument();
+  });
+
+  it('with Follow the system on, Chosen is the theme you picked, not the pair member on screen', () => {
+    systemPrefers('dark');
+    localStorage.setItem(THEME_FOLLOW_KEY, 'on');
+    setup();
+    const option = (name: RegExp) => screen.getByRole('radio', { name }).closest('label')!;
+    const light = /^Light( Chosen)?The Default look/; // the radio's name: label, the Chosen mark, description
+    fireEvent.click(screen.getByRole('radio', { name: light }));
+    // A dark system shows Default (Light's pair member) while Light is the choice.
+    expect(currentTheme()).toBe('default');
+    expect(localStorage.getItem(THEME_KEY)).toBe('light');
+    expect(option(light)).toHaveClass('is-picked');
+    expect(within(option(light)).getByText('Chosen')).toBeInTheDocument();
+    expect(option(/^Default/)).not.toHaveClass('is-picked');
+    expect(screen.getAllByText('Chosen')).toHaveLength(1);
+    // A theme with no pair is shown as chosen and is on screen.
+    fireEvent.click(screen.getByRole('radio', { name: /Blueprint/ }));
+    expect(currentTheme()).toBe('blueprint');
+    expect(within(option(/Blueprint/)).getByText('Chosen')).toBeInTheDocument();
   });
 
   it('picking an unlocked hidden theme puts it on and tells the ledger it was tried', async () => {

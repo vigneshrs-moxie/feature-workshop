@@ -79,7 +79,9 @@ describe('Settings → Look', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /Follow the system/ }));
     expect(localStorage.getItem(THEME_FOLLOW_KEY)).toBe('on');
     expect(currentTheme(), 'Default follows a light system to Light').toBe('light');
-    expect(screen.getByRole('radio', { name: /^Light Chosen/ })).toBeChecked();
+    // The picker marks the choice (Default), not the twin on screen.
+    expect(screen.getByRole('radio', { name: /^Default Chosen/ })).toBeChecked();
+    expect(screen.queryByRole('radio', { name: /^Light Chosen/ })).toBeNull();
     expect(localStorage.getItem(THEME_KEY), 'the choice itself is not rewritten').toBeNull();
 
     // The system turns dark: the listener initTheme installed re-applies, back to Default.

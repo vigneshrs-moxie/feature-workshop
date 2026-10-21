@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
 import type { Permission, PlayMode } from '../api/types';
 import { App } from '../app/App';
+import { writeKeysSetting } from '../app/keysSetting';
 import { CommandPalette, DOOR_MS } from '../components/CommandPalette';
 import { PermissionCard } from '../components/permissions/PermissionCard';
 import type { EventSourceLike } from '../state/live';
@@ -119,6 +120,20 @@ describe('the Konami code', () => {
     await flush();
     expect(secrets()).toEqual([]);
     expect(document.documentElement).not.toHaveAttribute('data-theme', 'crt');
+  });
+
+  it('with the page’s keys turned off (Settings → Keys) it is off too; back on, it works again', async () => {
+    const { secrets } = renderApp('subtle');
+    await screen.findByRole('main', { name: 'Home' });
+    writeKeysSetting({ enabled: false });
+    press(KONAMI);
+    await flush();
+    expect(secrets()).toEqual([]);
+    expect(document.documentElement).not.toHaveAttribute('data-theme', 'crt');
+    writeKeysSetting({ enabled: true });
+    press(KONAMI);
+    await flush();
+    expect(secrets()).toEqual(['konami']);
   });
 });
 

@@ -1108,7 +1108,14 @@ body.is-resizing-panes iframe { pointer-events: none; }
 
 /* The job header stays still while the conversation scrolls under it (.pane-foreman is the
    scroller). It eats the pane's top padding so the title keeps its room when stuck; "How this
-   works" scrolls away under it. The composer and the gate card stay at the bottom as before. */
+   works" scrolls away under it. The composer and the gate card stay at the bottom as before.
+   --job-header-h is the room the stuck header takes (its two lines and padding; the trail, with
+   Play on, is a little more): the pane and anything focusable in the thread scroll clear of it,
+   so the focus (Tab, a link found with the keyboard) never lands under the header. */
+.pane-foreman {
+  --job-header-h: calc(var(--space-3) + var(--text-md) * 1.5 + var(--space-1) + var(--text-sm) * 1.5 + var(--space-2) + 1px + var(--space-2));
+  scroll-padding-top: var(--job-header-h);
+}
 .pane-foreman .job-header {
   position: sticky;
   top: 0;
@@ -1118,6 +1125,7 @@ body.is-resizing-panes iframe { pointer-events: none; }
   background: var(--bg-0);
   border-bottom: 1px solid var(--border-1);
 }
+.pane-foreman .thread :is(a, button, summary, input, textarea, select, [tabindex]) { scroll-margin-top: var(--job-header-h); }
 
 /* The gate card: one primary button, the rest as links on one line; why Approve is off, in words. */
 .gate-links { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); font-size: var(--text-sm); }

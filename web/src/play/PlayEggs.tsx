@@ -6,6 +6,7 @@
 //   the console       crew art and a hint; crew.hello() answers (and is a secret found)
 // usePaletteEggs() is what ⌘K's exact phrases do (the palette draws the Locksmith's door itself).
 import { useCallback, useEffect } from 'react';
+import { readKeysSetting } from '../app/keysSetting';
 import { writeStored } from '../lib/stored';
 import { useWorkshop } from '../state/store';
 import { applyTheme, THEME_KEY, themeUnlocks } from '../theme/theme';
@@ -27,6 +28,8 @@ export function PlayEggs() {
     if (!play.on) return;
     let at = 0;
     const onKey = (e: KeyboardEvent) => {
+      // With the page's keys turned off (Settings → Keys) this one is off too: it is a page key.
+      if (!readKeysSetting().enabled) { at = 0; return; }
       if (e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) { at = 0; return; }
       at = konamiStep(at, e.key);
       if (at < KONAMI.length) return;

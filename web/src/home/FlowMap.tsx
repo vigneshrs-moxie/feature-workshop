@@ -69,7 +69,7 @@ export function ShipTrack({ lane, repo, finishLine }: { lane: FlowLane; repo: Fl
 
 function PrLink({ label, pr, repo }: { label: string; pr: FlowPr; repo: FlowRepo }) {
   const text = `${label} (#${pr.number})`;
-  const tip = `${label === 'PR #1' ? 'Your fork → the Moxie branch' : label === 'PR #2' ? `The Moxie branch → ${repo.staging?.ref ?? 'staging'}` : `Into ${repo.main?.ref ?? 'main'}`}: ${pr.title || prText(pr)}.${pr.url ? ' Opens on GitHub.' : ''}`;
+  const tip = `${label === 'PR #1' ? 'Your fork → the Moxie branch' : label === 'PR #2' ? `The Moxie branch → ${repo.staging?.ref ?? repo.main?.ref ?? 'main'}` : `Into ${repo.main?.ref ?? 'main'}`}: ${pr.title || prText(pr)}.${pr.url ? ' Opens on GitHub.' : ''}`;
   return pr.url
     ? <a className={`map-pr is-${prTone(pr)}`} href={pr.url} target="_blank" rel="noreferrer" title={tip}>{text}</a>
     : <span className={`map-pr is-${prTone(pr)}`} title={tip}>{text}</span>;

@@ -221,6 +221,23 @@ export function useTheme(): [string, (id: string) => void] {
   return [theme, set];
 }
 
+/**
+ * The theme you chose: what this browser remembers (a locked or unknown id reads as the default).
+ * Not always the one on screen: with Follow the system on, the screen shows its pair's member for
+ * the system's scheme. The picker marks this one as chosen.
+ */
+export function chosenTheme(): string {
+  const stored = readStored(THEME_KEY);
+  return isThemeAvailable(stored, unlocked) ? stored : DEFAULT_THEME;
+}
+
+/** chosenTheme(), live: a pick anywhere, or an unlock, shows up at once. */
+export function useChosenTheme(): string {
+  const [stored] = useStored(THEME_KEY);
+  const u = useSyncExternalStore(subscribe, themeUnlocks, themeUnlocks);
+  return isThemeAvailable(stored, u) ? stored : DEFAULT_THEME;
+}
+
 /** Follow the system: whether it is on, and a setter that remembers it and re-applies the theme now. */
 export function useThemeFollow(): [boolean, (on: boolean) => void] {
   const [stored, setStored] = useStored(THEME_FOLLOW_KEY);

@@ -73,7 +73,7 @@ export function JobsPane({ selected }: { selected: string | null }) {
       <HowThisWorks id="jobs">
         <p>Every job, sorted by what it needs. <strong>Needs you</strong> is waiting for your answer or a permission click; <strong>Running</strong> is working now; <strong>Paused</strong> hit the Claude usage limit and says when it resumes; <strong>Idle</strong> is waiting for your next message; <strong>Shipping</strong> is past the finish line you set (Settings → Workflow) and on its way to main, with the row saying where it is; <strong>Done</strong> is in main or marked done, and still readable.</p>
         <p>Each row shows the job’s colour dot (only to help you spot it), its status in words, the stage it’s at and how long ago it last changed. Hover anything for more.</p>
-        <p>The tab title shows how many jobs need you. Under <strong>Alerts</strong> you can turn on browser notifications and a chime for when a job newly needs you. The « button shrinks this list to icons.</p>
+        <p>The tab title shows how many jobs need you. Under <strong>Settings → Notifications → In this browser</strong> you can turn on browser notifications and a chime for when a job newly needs you. The « button shrinks this list to icons.</p>
         <p><strong>New job</strong> at the top starts one (key: <strong>c</strong>). Keys <strong>j</strong> and <strong>k</strong> step through this list; <strong>⌘K</strong> (Ctrl+K) searches every job and action.</p>
       </HowThisWorks>
       {state.status === 'ready' && state.jobs.length === 0 && <p className="muted">No jobs yet.</p>}

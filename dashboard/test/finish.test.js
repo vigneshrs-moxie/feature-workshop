@@ -54,6 +54,13 @@ test('finish line: PR #1 open counts an open or draft PR #1, from the lane or st
   assert.deepEqual(finishLineReached(card(), open, 'pr1-open'), { reached: true, at: null, by: 'pr1-open', landed: null });
   assert.equal(finishLineReached(card(), lane('fork', { pr1: { number: 1, state: 'draft' } }), 'pr1-open').reached, true);
   assert.equal(finishLineReached(card(), lane('fork', { pr1: { number: 1, state: 'closed' } }), 'pr1-open').reached, false, 'closed without merging is not open');
+  // The same with status.json's record as the skill writes it (url set, state closed): still not open.
+  const closedRecord = card({ prs: [{ number: 1, label: 'fork → org branch', url: 'https://github.com/o/r/pull/7', state: 'closed' }] });
+  assert.equal(finishLineReached(closedRecord, lane('fork', { pr1: { number: 1, state: 'closed' } }), 'pr1-open').reached, false, 'a closed PR in status.json is not open');
+  assert.equal(finishLineReached(closedRecord, null, 'pr1-open').reached, false, 'nor without a lane');
+  assert.equal(finishLineReached(card({ prs: [{ number: 1, url: 'https://github.com/o/r/pull/7', state: 'not_started' }] }), null, 'pr1-open').reached, false, 'not_started is no PR');
+  assert.equal(finishLineReached(card({ prs: [{ number: 1, url: 'https://github.com/o/r/pull/7' }] }), null, 'pr1-open').reached, true, 'an older record with only a url counts as open');
+  assert.equal(finishLineReached(card({ prs: [{ number: 1, url: 'https://github.com/o/r/pull/7', state: 'draft' }] }), null, 'pr1-open').reached, true);
   assert.equal(finishLineReached(card(), open, 'pr1-merged').reached, false, 'open is not merged');
   // No lane yet (the map hasn't read this repo): status.json's first PR is enough.
   assert.equal(finishLineReached(card({ prs: [{ number: 1, url: 'https://github.com/o/r/pull/7', state: 'open' }] }), null, 'pr1-open').reached, true);

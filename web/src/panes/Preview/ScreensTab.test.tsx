@@ -1,8 +1,11 @@
-// The Screens tab: the page in a sandboxed iframe, the bar above it, Copy feedback through
-// postMessage (copied, and added to your message while a gate waits), the Enter and Esc keys, and
-// the tab's place in the Preview pane (only for a job with screens). The iframe never loads here
-// (jsdom fetches nothing); its window is stubbed. Invented jobs only.
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+// The Screens tab: the page in a sandboxed iframe from the screens server's own origin
+// (meta.wireframesOrigin), the bar above it, Copy feedback through postMessage (copied, and added to
+// your message between marker lines while a gate waits), the Enter key and the page's Esc message,
+// a request to open a section (also one made before the tab mounted), and the tab's place in the
+// Preview pane (only for a job with screens). Messages from any other origin are ignored. The
+// iframe never loads here (jsdom fetches nothing); its window is stubbed. Invented jobs only.
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
 import type { Job } from '../../api/types';
@@ -10,10 +13,10 @@ import { installKeyListener } from '../../app/keyRegistry';
 import { UiProvider, useUi } from '../../app/ui';
 import { readStored, writeStored } from '../../lib/stored';
 import { createStore, WorkshopContext } from '../../state/store';
-import { job, snapshot } from '../../state/test-fixtures';
+import { job, SCREENS_ORIGIN, snapshot } from '../../state/test-fixtures';
 import { draftKey } from '../Foreman/Composer';
 import { PreviewPane } from './PreviewPane';
-import { addFeedbackToDraft, gateWaiting, ScreensTab, wireframesUrl } from './ScreensTab';
+import { addFeedbackToDraft, gateWaiting, NO_ORIGIN, ScreensTab, wireframesUrl } from './ScreensTab';
 import { clearWireframes, frameMounted } from './wireframes';
 
 const WITH_SCREENS: Partial<Job> = { wireframes: { version: '2' } };
@@ -22,31 +25,32 @@ const REPORT = {
   screens: [{ key: 's-list', name: 'The list', kind: 'screen', status: 'fix', choice: '' }, { key: 'c-entry', name: 'Where the button goes', kind: 'choice', status: '', choice: '' }],
 };
 
-function setup({ jobExtra = WITH_SCREENS, active = true, full = false }: { jobExtra?: Partial<Job>; active?: boolean; full?: boolean } = {}) {
+function setup({ jobExtra = WITH_SCREENS, active = true, full = false, origin = SCREENS_ORIGIN }: { jobExtra?: Partial<Job>; active?: boolean; full?: boolean; origin?: string | null } = {}) {
   const store = createStore();
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'needs-you', jobExtra)] }) });
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 'tok-1', ...(origin ? { wireframesOrigin: origin } : {}) }, jobs: [job('alpha', 'needs-you', jobExtra)] }) });
   const api = { get: vi.fn() } as unknown as ApiClient;
   const utils = render(
     <WorkshopContext.Provider value={{ store, api }}>
       <UiProvider><ScreensTab slug="alpha" job={store.getState().jobs[0]} active={active} full={full} /></UiProvider>
     </WorkshopContext.Provider>,
   );
-  const iframe = utils.container.querySelector('iframe')!;
-  return { ...utils, iframe, win: iframe.contentWindow! };
+  const iframe = utils.container.querySelector('iframe');
+  return { ...utils, iframe: iframe!, win: iframe?.contentWindow as Window };
 }
 
-/** A message from the page: from the iframe's own window, same origin (anything else is ignored). */
-const fromPage = (win: Window, data: unknown, origin = window.location.origin) => {
+/** A message from the page: from the iframe's own window, from the screens server's origin (anything else is ignored). */
+const fromPage = (win: Window, data: unknown, origin = SCREENS_ORIGIN) => {
   act(() => { window.dispatchEvent(new MessageEvent('message', { data, source: win, origin })); });
 };
 
-afterEach(() => { localStorage.clear(); clearWireframes(); vi.restoreAllMocks(); });
+// Unmount first: a tab still mounted when the module is cleared would take the cleared request again.
+afterEach(() => { cleanup(); localStorage.clear(); clearWireframes(); vi.restoreAllMocks(); });
 
 describe('ScreensTab', () => {
-  it('shows the page in a sandboxed iframe at its own route, with the bar and the version', () => {
+  it('shows the page in a sandboxed iframe from the screens server’s own origin, with the bar and the version', () => {
     const { iframe, container } = setup();
-    expect(iframe).toHaveAttribute('src', '/api/job/alpha/wireframes');
-    expect(wireframesUrl('a b')).toBe('/api/job/a%20b/wireframes');
+    expect(iframe).toHaveAttribute('src', 'http://127.0.0.1:4478/job/alpha/wireframes');
+    expect(wireframesUrl('http://127.0.0.1:4478/', 'a b')).toBe('http://127.0.0.1:4478/job/a%20b/wireframes');
     expect(iframe).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin');
     expect(iframe).toHaveAttribute('title', 'Job alpha: screens');
     const bar = screen.getByRole('group', { name: 'Screens' });
@@ -58,9 +62,18 @@ describe('ScreensTab', () => {
     expect(container.querySelector('.screens-tab')).not.toHaveClass('is-full');
   });
 
-  it('shows the section in view from the page’s report, ignoring other windows and origins', () => {
+  it('says so, with no iframe, when the dashboard named no screens origin', () => {
+    const { container } = setup({ origin: null });
+    expect(container.querySelector('iframe')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent(NO_ORIGIN);
+    expect(frameMounted('alpha')).toBe(true);
+  });
+
+  it('shows the section in view from the page’s report, ignoring other windows and origins (the dashboard’s own included)', () => {
     const { win } = setup();
     fromPage(win, REPORT, 'https://elsewhere.example');
+    expect(screen.getByRole('group', { name: 'Screens' })).toHaveTextContent('Loading the screens…');
+    fromPage(win, REPORT, window.location.origin);
     expect(screen.getByRole('group', { name: 'Screens' })).toHaveTextContent('Loading the screens…');
     act(() => { window.dispatchEvent(new MessageEvent('message', { data: REPORT, source: window, origin: window.location.origin })); });
     expect(screen.getByRole('group', { name: 'Screens' })).toHaveTextContent('Loading the screens…');
@@ -77,16 +90,29 @@ describe('ScreensTab', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: write }, configurable: true });
     writeStored(draftKey('alpha'), 'Hello Foreman');
     fireEvent.click(screen.getByRole('button', { name: 'Copy feedback' }));
-    expect(post).toHaveBeenCalledWith({ type: 'wireframes-feedback' }, window.location.origin);
+    expect(post).toHaveBeenCalledWith({ type: 'wireframes-feedback' }, SCREENS_ORIGIN);
     fromPage(win, { type: 'wireframes-feedback', version: '2', text: 'Pick A for c-entry\ns-list: needs change: the empty state' });
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Copied, and added to your message to the Foreman.'));
     expect(write).toHaveBeenCalledWith('Pick A for c-entry\ns-list: needs change: the empty state');
-    expect(readStored(draftKey('alpha'))).toBe('Hello Foreman\n\nPick A for c-entry\ns-list: needs change: the empty state');
+    const block = (text: string, v = '2') => `--- Screens feedback (v${v}) ---\n${text}\n--- end ---`;
+    expect(readStored(draftKey('alpha'))).toBe(`Hello Foreman\n\n${block('Pick A for c-entry\ns-list: needs change: the empty state')}`);
     // Asked again with the same text: copied, not added twice.
     fireEvent.click(screen.getByRole('button', { name: 'Copy feedback' }));
     fromPage(win, { type: 'wireframes-feedback', version: '2', text: 'Pick A for c-entry\ns-list: needs change: the empty state' });
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Copied.'));
-    expect(readStored(draftKey('alpha'))).toBe('Hello Foreman\n\nPick A for c-entry\ns-list: needs change: the empty state');
+    expect(readStored(draftKey('alpha'))).toBe(`Hello Foreman\n\n${block('Pick A for c-entry\ns-list: needs change: the empty state')}`);
+    // A changed verdict replaces the block (between its marker lines), never a second one.
+    writeStored(draftKey('alpha'), `${readStored(draftKey('alpha'))}\n\nAnd one more thing.`);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy feedback' }));
+    fromPage(win, { type: 'wireframes-feedback', version: '2', text: 'Pick B for c-entry\ns-list: good' });
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Copied, and added to your message to the Foreman.'));
+    expect(readStored(draftKey('alpha'))).toBe(`Hello Foreman\n\n${block('Pick B for c-entry\ns-list: good')}\n\nAnd one more thing.`);
+    // A new version's feedback replaces the old version's block too.
+    expect(addFeedbackToDraft('alpha', 'Pick B for c-entry', '3')).toBe(true);
+    expect(readStored(draftKey('alpha'))).toBe(`Hello Foreman\n\n${block('Pick B for c-entry', '3')}\n\nAnd one more thing.`);
+    // No version: the marker says so plainly.
+    expect(addFeedbackToDraft('beta', 'Pick A for c-entry')).toBe(true);
+    expect(readStored(draftKey('beta'))).toBe('--- Screens feedback ---\nPick A for c-entry\n--- end ---');
   });
 
   it('Copy feedback only copies when nothing waits for you, and says so when the browser refuses', async () => {
@@ -101,7 +127,7 @@ describe('ScreensTab', () => {
     expect(addFeedbackToDraft('alpha', '   ')).toBe(false);
   });
 
-  it('Enter with nothing focused steps into the page; Esc inside it comes back to the bar', () => {
+  it('Enter with nothing focused steps into the page; the page’s Esc message comes back to the bar', () => {
     const off = installKeyListener();
     try {
       const { iframe, win } = setup();
@@ -113,9 +139,12 @@ describe('ScreensTab', () => {
       (document.activeElement as HTMLElement).blur();
       fireEvent.keyDown(document.body, { key: 'Enter' });
       expect(focus).toHaveBeenCalledTimes(1);
-      // The page has loaded: Esc inside its window brings focus back to the bar's first button.
-      fireEvent.load(iframe);
-      act(() => { win.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+      // Esc inside the page: the page posts it (its keys can't be heard across origins). From
+      // anywhere but the page's origin it is ignored.
+      fromPage(win, { type: 'wireframes-escape' }, window.location.origin);
+      expect(screen.getByRole('button', { name: 'Copy feedback' })).not.toHaveFocus();
+      expect(screen.queryByRole('status')).toBeNull();
+      fromPage(win, { type: 'wireframes-escape' });
       expect(screen.getByRole('button', { name: 'Copy feedback' })).toHaveFocus();
       expect(screen.getByRole('status')).toHaveTextContent('Back on the page.');
     } finally {
@@ -139,10 +168,48 @@ describe('ScreensTab', () => {
     const post = vi.spyOn(win, 'postMessage');
     fireEvent.click(screen.getByRole('button', { name: 'go' }));
     // Sent right away (the frame is there), and again once the page has posted, in case it wasn't ready.
-    expect(post).toHaveBeenCalledWith({ type: 'wireframes-goto', key: 'c-entry' }, window.location.origin);
+    expect(post).toHaveBeenCalledWith({ type: 'wireframes-goto', key: 'c-entry' }, SCREENS_ORIGIN);
     post.mockClear();
     fromPage(win, REPORT);
-    expect(post).toHaveBeenCalledWith({ type: 'wireframes-goto', key: 'c-entry' }, window.location.origin);
+    expect(post).toHaveBeenCalledWith({ type: 'wireframes-goto', key: 'c-entry' }, SCREENS_ORIGIN);
+  });
+
+  it('a request made before the tab mounted (the Desk’s screen chips open the full view) is sent by the tab that mounts next, once', () => {
+    function Desk() {
+      const ui = useUi();
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => { ui.openScreens('c-entry'); setOpen(true); }}>chip</button>
+          {open && <ScreensTab slug="alpha" job={null} active full />}
+        </>
+      );
+    }
+    const store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'needs-you', WITH_SCREENS)] }) });
+    const { container, unmount } = render(
+      <WorkshopContext.Provider value={{ store, api: { get: vi.fn() } as unknown as ApiClient }}>
+        <UiProvider><Desk /></UiProvider>
+      </WorkshopContext.Provider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'chip' }));
+    const win = container.querySelector('iframe')!.contentWindow!;
+    const post = vi.spyOn(win, 'postMessage');
+    // The page reports: the request made before the tab existed goes to it now.
+    fromPage(win, REPORT);
+    expect(post).toHaveBeenCalledWith({ type: 'wireframes-goto', key: 'c-entry' }, SCREENS_ORIGIN);
+    expect(post).toHaveBeenCalledTimes(1);
+    unmount();
+    // A tab mounted later again (back on the job) doesn't replay that request.
+    const { container: again } = render(
+      <WorkshopContext.Provider value={{ store, api: { get: vi.fn() } as unknown as ApiClient }}>
+        <UiProvider><ScreensTab slug="alpha" job={null} active /></UiProvider>
+      </WorkshopContext.Provider>,
+    );
+    const win2 = again.querySelector('iframe')!.contentWindow!;
+    const post2 = vi.spyOn(win2, 'postMessage');
+    fromPage(win2, REPORT);
+    expect(post2).not.toHaveBeenCalled();
   });
 
   it('the full-width view has no Open full screen link', () => {

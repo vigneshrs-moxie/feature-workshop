@@ -7,8 +7,9 @@
 <!-- An invented wireframes page for the demo. It follows the feature-wireframe skill's contract with
      the Feature Workshop (skills/feature-wireframe/SKILL.md, "Inside the Feature Workshop"): inside an
      iframe it posts { type: "wireframes", version, current, screens } on load and on every change,
-     answers { type: "wireframes-goto", key } and { type: "wireframes-feedback" }, and keeps verdicts,
-     picks and notes in localStorage. Nothing here loads from the network. -->
+     answers { type: "wireframes-goto", key } and { type: "wireframes-feedback" }, posts
+     { type: "wireframes-escape" } on Esc outside a notes box, and keeps verdicts, picks and notes in
+     localStorage. Nothing here loads from the network. -->
 <style>
   :root { color-scheme: light dark; --fg: #1d1d1f; --mute: #6b6b70; --line: #d9d9de; --bg: #f7f7f9; --card: #fff; --accent: #2a5bd7; }
   @media (prefers-color-scheme: dark) { :root { --fg: #ececf0; --mute: #9a9aa3; --line: #3a3a42; --bg: #16161a; --card: #1f1f25; --accent: #7aa2ff; } }
@@ -158,6 +159,13 @@
     const seen = new IntersectionObserver((entries) => { for (const e of entries) if (e.isIntersecting) markCurrent(e.target); }, { rootMargin: "-40% 0px -50% 0px" });
     sections.forEach((s) => seen.observe(s));
   }
+
+  // Esc: in a notes box it leaves the box; anywhere else, inside the Workshop, it hands the keyboard back.
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (e.target.tagName === "TEXTAREA") { e.target.blur(); return; }
+    if (FRAMED) { try { window.parent.postMessage({ type: "wireframes-escape" }, "*"); } catch {} }
+  });
 
   if (FRAMED) {
     window.addEventListener("message", (e) => {

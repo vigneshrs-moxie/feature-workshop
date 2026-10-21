@@ -1,12 +1,15 @@
 // The wireframes page's side of the Screens tab. The page (wireframes.html, drawn by the
-// feature-wireframe skill and served by GET /api/job/:slug/wireframes) runs in an iframe and talks
-// to the dashboard with postMessage, the contract in the skill's SKILL.md ("Inside the Feature
-// Workshop"):
+// feature-wireframe skill and served by the dashboard's screens server from ITS OWN ORIGIN,
+// meta.wireframesOrigin, so its script can't reach this document, storage or token) runs in an
+// iframe and talks to the dashboard with postMessage, the contract in the skill's SKILL.md
+// ("Inside the Feature Workshop"):
 //   - it posts { type: 'wireframes', version, current, screens: [{ key, name, kind, status, choice }] }
 //     on load, when the section in view changes, and after a verdict or pick;
 //   - it answers { type: 'wireframes-goto', key } by scrolling to that section;
 //   - it answers { type: 'wireframes-feedback' } with { type: 'wireframes-feedback', version, text },
-//     the Copy feedback text (the lines the Foreman understands: "Pick A for c-entry", "s-list: needs change: …").
+//     the Copy feedback text (the lines the Foreman understands: "Pick A for c-entry", "s-list: needs change: …");
+//   - it posts { type: 'wireframes-escape' } on Esc outside its notes box (the keyboard steps back out).
+// Every message is checked against that origin, both ways: nothing is read from, or posted to, anywhere else.
 // This module keeps the latest report per job, the one frame showing a job's page (ScreensTab
 // mounts it), and sends the two messages. The gate card reads the report for its screen chips.
 // Everything the page sends is data from a file on disk, checked here before it is kept; nothing is
@@ -65,6 +68,9 @@ export function parseWireframesMessage(data: unknown): WireframesReport | null {
   return { version: versionOf(m.version), current: current || null, screens };
 }
 
+/** Whether this is the page's Esc message (the reader wants the keyboard back on the dashboard). */
+export const isEscapeMessage = (data: unknown) => Boolean(data) && typeof data === 'object' && (data as { type?: unknown }).type === 'wireframes-escape';
+
 /** A 'wireframes-feedback' answer from the page, or null for anything else. */
 export function parseFeedbackMessage(data: unknown): WireframesFeedback | null {
   if (!data || typeof data !== 'object' || (data as { type?: unknown }).type !== 'wireframes-feedback') return null;
@@ -113,6 +119,8 @@ interface Frame {
   slug: string;
   window: () => Window | null;
   focus: () => void;
+  /** The page's origin (meta.wireframesOrigin): the only place messages go to. Null: nothing is posted. */
+  origin: string | null;
 }
 
 let frame: Frame | null = null;
@@ -122,9 +130,9 @@ const listeners = new Set<() => void>();
 let version = 0;
 const notify = () => { version++; for (const l of [...listeners]) l(); };
 
-/** ScreensTab: this is the frame showing `slug`'s page. Returns the function that forgets it. */
-export function mountFrame(slug: string, win: () => Window | null, focus: () => void): () => void {
-  const f: Frame = { slug, window: win, focus };
+/** ScreensTab: this is the frame showing `slug`'s page, served from `origin`. Returns the function that forgets it. */
+export function mountFrame(slug: string, win: () => Window | null, focus: () => void, origin: string | null = null): () => void {
+  const f: Frame = { slug, window: win, focus, origin };
   frame = f;
   notify();
   return () => { if (frame === f) { frame = null; notify(); } };
@@ -134,7 +142,7 @@ export function mountFrame(slug: string, win: () => Window | null, focus: () => 
 export const frameMounted = (slug: string) => frame?.slug === slug;
 
 /**
- * A message from the frame (ScreensTab checks it came from its iframe, same origin). A report is
+ * A message from the frame (ScreensTab checks it came from its iframe, from the page's origin). A report is
  * kept for the gate card; a feedback answer settles the request waiting for it. True when it was one of the two.
  */
 export function receive(slug: string, data: unknown): boolean {
@@ -155,8 +163,23 @@ export function receive(slug: string, data: unknown): boolean {
 function post(slug: string, message: object): boolean {
   if (!frameMounted(slug)) return false;
   const win = frame?.window() ?? null;
-  if (!win) return false;
-  try { win.postMessage(message, window.location.origin); return true; } catch { return false; }
+  const origin = frame?.origin ?? null;
+  if (!win || !origin) return false;
+  try { win.postMessage(message, origin); return true; } catch { return false; }
+}
+
+// ---------- The open-at-a-section request ----------
+// ui.openScreens(key) counts a request (ui.screensRequest); whichever Screens tab shows the page
+// takes it, once. Kept here, not per tab, so a tab mounted AFTER the request (the Desk's gate card
+// opens the full view, which mounts its tab then) still finds it waiting; a tab mounted later still
+// won't replay an old one.
+let takenRequest = 0;
+
+/** Whether request `n` (ui.screensRequest) is new: true once, for the first tab that asks. */
+export function takeScreensRequest(n: number): boolean {
+  if (n <= 0 || n === takenRequest) return false;
+  takenRequest = n;
+  return true;
 }
 
 /** Ask the page to scroll to a section. False when no frame shows this job. */
@@ -193,7 +216,7 @@ export const wireframesReport = (slug: string) => reports.get(slug) ?? null;
 /** Forget a job's report (the page went away, or tests). */
 export function clearWireframes(slug?: string) {
   if (slug === undefined) reports.clear(); else reports.delete(slug);
-  if (slug === undefined) frame = null;
+  if (slug === undefined) { frame = null; takenRequest = 0; }
   notify();
 }
 

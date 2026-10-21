@@ -26,7 +26,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { AGENTS } from './stages.js';
+import { AGENTS, AGENT_ALIASES } from './stages.js';
 import { REVIEWERS } from './options.js';
 import { DEFAULT_FINISH_LINE, finishLineOf, finishLineReached } from './finish.js';
 
@@ -73,6 +73,11 @@ export function validatePlayPatch(patch) {
 
 /** All 15 crew members, the Foreman first (lib/stages.js AGENTS). */
 export const CREW_TYPES = Object.keys(AGENTS);
+/**
+ * The crew member an agent type stands for, or null for anyone else: an alias (lib/stages.js
+ * AGENT_ALIASES, feature-wireframer is the Painter at the screens stage) counts as who it is.
+ */
+export const crewType = (type) => { const t = AGENT_ALIASES[type]?.as ?? type; return CREW_TYPES.includes(t) ? t : null; };
 /** The 8 review lenses (lib/options.js REVIEWERS). */
 export const LENS_TYPES = REVIEWERS.map((r) => r.id);
 /** The five themes besides Default that shipped with the Workshop: Explorer is about these only. */
@@ -355,7 +360,7 @@ const DISPATCH_TOOLS = new Set(['Agent', 'Task']);
 function dispatchTarget(e) {
   if (!DISPATCH_TOOLS.has(e.tool) || e.action !== 'auto-allowed') return null;
   const type = typeof e.dispatch === 'string' ? e.dispatch : /Start a helper:\s*([\w-]+)/.exec(String(e.headline ?? ''))?.[1];
-  return CREW_TYPES.includes(type) ? type : null;
+  return crewType(type);
 }
 
 // Audit lines a worker's own step caused, decided without you: allowed or blocked by the dashboard
@@ -397,8 +402,9 @@ export class AuditFold {
     return d;
   }
 
-  #meet(type, at, key, dispatchId = null) {
-    if (!CREW_TYPES.includes(type) || !at) return;
+  #meet(agentType, at, key, dispatchId = null) {
+    const type = crewType(agentType);
+    if (!type || !at) return;
     const c = (this.crew[type] ??= { firstSeen: at, lastSeen: at, jobs: {} });
     c.firstSeen = minAt(c.firstSeen, at);
     c.lastSeen = maxAt(c.lastSeen, at);
@@ -457,7 +463,7 @@ export class AuditFold {
     if (target) this.#meet(target, e.at, key, `${e.at}|${e.toolUseId ?? ''}|${target}`);
     // The worker that took a step: only on lines its own step caused and nothing you answered
     // (a permission you answered by hand carries the asking worker's agentType too: never a meeting).
-    if (WORKER_STEP_ACTIONS.has(e.action) && typeof e.agentType === 'string' && e.agentType !== target) this.#meet(e.agentType, e.at, key);
+    if (WORKER_STEP_ACTIONS.has(e.action) && typeof e.agentType === 'string' && crewType(e.agentType) !== target) this.#meet(e.agentType, e.at, key);
     return this;
   }
 }
@@ -528,8 +534,9 @@ export function ledgerFrom({ fold = new AuditFold(), jobs = [], now = Date.now()
     for (const [k, j] of Object.entries(c.jobs)) jobsOf[k] = { firstSeen: j.firstSeen, audit: j.dispatches.size, workers: 0 };
     crew[type] = { firstSeen: c.firstSeen, lastSeen: c.lastSeen, jobs: jobsOf, time: { totalMs: 0, n: 0 } };
   }
-  const meet = (type, at, key) => {
-    if (!CREW_TYPES.includes(type) || !at) return null;
+  const meet = (agentType, at, key) => {
+    const type = crewType(agentType);
+    if (!type || !at) return null;
     const c = (crew[type] ??= { firstSeen: at, lastSeen: at, jobs: {}, time: { totalMs: 0, n: 0 } });
     c.firstSeen = minAt(c.firstSeen, at);
     c.lastSeen = maxAt(c.lastSeen, at);

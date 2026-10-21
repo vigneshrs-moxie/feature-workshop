@@ -3,7 +3,7 @@ import type { FlowLane, FlowPr, FlowRepo, FlowView, Job } from '../api/types';
 import { job, permission } from '../state/test-fixtures';
 import {
   countsSuffix, countsWords, deskQueue, filterRepos, filterRows, finishStop, groupLanes, knownChip, mapChips, mapRepos, newestPr, nextHint, oneKeyApprove,
-  prPhrase, prText, prTone, releaseLineText, sortRows, tableRows, trackStops, whereLine, whereText,
+  prPhrase, prText, prTone, releaseLineText, simpleRepo, sortRows, tableRows, trackStops, whereLine, whereText,
 } from './homeModel';
 
 const pr = (number: number, state: FlowPr['state'], extra: Partial<FlowPr> = {}): FlowPr => ({ number, title: `PR ${number}`, url: `https://github.com/o/r/pull/${number}`, state, head: 'feature/x', base: 'staging', review: null, checks: null, mergedAt: null, updatedAt: null, ...extra });
@@ -68,9 +68,16 @@ describe('homeModel', () => {
     expect(knownChip(null, chips)).toBe('all');
   });
 
-  it('the ship track: five stops, three on a repo without staging; the finish-line flag on the stop the setting means', () => {
+  it('the ship track: five stops, three without an org remote, four without staging; the finish-line flag on the stop the setting means', () => {
     expect(trackStops(repoOf([]))).toEqual(['local', 'fork', 'org', 'staging', 'main']);
+    expect(trackStops(undefined)).toEqual(['local', 'fork', 'org', 'staging', 'main']);
     expect(trackStops(SIMPLE)).toEqual(['local', 'fork', 'main']);
+    // An org remote without a staging branch: the map places merged PR #1s at the Moxie branch (flow.js), so the track keeps that stop.
+    const NO_STAGING = repoOf([], { staging: null });
+    expect(trackStops(NO_STAGING)).toEqual(['local', 'fork', 'org', 'main']);
+    expect(trackStops(NO_STAGING).indexOf('org')).toBe(2);
+    expect(simpleRepo(NO_STAGING)).toBe(false);
+    expect(simpleRepo(SIMPLE)).toBe(true);
     expect(finishStop('pr1-open')).toBe('org');
     expect(finishStop('pr1-merged')).toBe('org');
     expect(finishStop(undefined)).toBe('org'); // the default
@@ -78,6 +85,12 @@ describe('homeModel', () => {
     expect(finishStop('main')).toBe('main');
     expect(finishStop('marked')).toBeNull();
     expect(finishStop('pr1-merged', SIMPLE)).toBe('main');
+    // A stop the track doesn't draw is main: the flag always stands on a drawn stop.
+    expect(finishStop('staging', SIMPLE)).toBe('main');
+    expect(finishStop('staging', NO_STAGING)).toBe('main');
+    expect(finishStop('pr1-merged', NO_STAGING)).toBe('org');
+    expect(finishStop('main', NO_STAGING)).toBe('main');
+    expect(finishStop('marked', NO_STAGING)).toBeNull();
   });
 
   it('the words line: where, then the PR that matters with its number; the counts as a suffix', () => {

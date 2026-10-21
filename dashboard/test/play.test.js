@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   ACHIEVEMENTS, CREW_TYPES, EXPLORER_THEMES, GOLD_QUESTS, LENS_TYPES, PLAY_DEFAULTS, PLAY_EVENTS, PLAY_SCHEMA, PlayBook, PlayError,
-  PAGE_SECRETS, SECRET_IDS, TEAPOT, THEME_IDS, BOSS_WEIGHTS, bossHp, crewHeaders, hexCommit, buildLedger, jobKey, ledgerView, lensType, newlyDefeated, newlyDone, newlyUnlocked, parseReviewFindings, playSettings, reviewsChanged,
+  PAGE_SECRETS, SECRET_IDS, TEAPOT, THEME_IDS, BOSS_WEIGHTS, bossHp, crewHeaders, crewType, hexCommit, buildLedger, jobKey, ledgerView, lensType, newlyDefeated, newlyDone, newlyUnlocked, parseReviewFindings, playSettings, reviewsChanged,
   themeUnlocked, unlocksOf, validatePlayPatch,
 } from '../lib/play.js';
 import { parseSessionLog } from '../lib/session-log.js';
@@ -458,6 +458,33 @@ test('crew met: auto-allowed dispatches, the session logs and the worker’s own
   assert.equal(v.crew['feature-planner'], undefined, 'a dispatch you said no to');
   assert.equal(v.crew['feature-implementer'].dispatches, 0, 'met by its own step, not dispatched');
   assert.ok(v.crew.conductor, 'someone dispatched them');
+});
+
+test('crew met: the wireframer is the Painter (feature-review-ui) at the screens stage, met through its alias, never a crew member of its own', () => {
+  const d = `${DIR}/a`;
+  assert.equal(crewType('feature-wireframer'), 'feature-review-ui');
+  assert.equal(crewType('feature-review-ui'), 'feature-review-ui');
+  assert.equal(crewType('nobody'), null);
+  assert.ok(!CREW_TYPES.includes('feature-wireframer'), 'the alias is not a 16th crew member');
+  // Dispatched by the dashboard itself ("Start a helper: feature-wireframer") and its own steps.
+  const audit = [
+    { at: T0, action: 'auto-allowed', featureDir: d, slug: 'a', tool: 'Agent', agentType: null, headline: 'Start a helper: feature-wireframer' },
+    { at: plus(T0, 2), action: 'auto-allowed', featureDir: d, slug: 'a', tool: 'Write', agentType: 'feature-wireframer', headline: 'Write wireframes.html' },
+  ];
+  const l = build({ audit, jobs: [job('a', { workers: [{ agentType: 'feature-wireframer', startedAt: T0, lastAt: plus(T0, 10) }] })] });
+  assert.deepEqual(Object.keys(l.crew).sort(), ['conductor', 'feature-review-ui']);
+  const v = ledgerView(l);
+  assert.equal(v.crew['feature-review-ui'].dispatches, 1, 'one dispatch, seen in the audit and the log');
+  assert.equal(v.crew['feature-review-ui'].jobs, 1);
+  assert.equal(v.crew['feature-review-ui'].avgStageMs, 10 * 60000);
+  // From the session log alone (a worker record), the same.
+  const logged = build({ audit: [], jobs: [job('b', { workers: [{ agentType: 'feature-wireframer', startedAt: T0, lastAt: plus(T0, 3) }] })] });
+  assert.ok(logged.crew['feature-review-ui']);
+  assert.equal(logged.crew['feature-wireframer'], undefined);
+  // What was met before under the alias's own name is not carried along.
+  const merged = build({ audit: [], jobs: [job('a')], previous: { ...l, crew: { ...l.crew, 'feature-wireframer': { firstSeen: T0, lastSeen: T0, jobs: {} } } } });
+  assert.equal(merged.crew['feature-wireframer'], undefined);
+  assert.ok(merged.crew['feature-review-ui']);
 });
 
 test('crew met: a dispatch permission you allowed, alone, meets no one', () => {

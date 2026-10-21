@@ -33,12 +33,15 @@ export function job(slug: string, group: Job['group'], extra: Partial<Job> = {})
   return { slug, title: `Job ${slug}`, group, permissions: 0, ...extra };
 }
 
+/** Where the fixtures' dashboard serves a job's screens page from (its own origin, meta.wireframesOrigin). */
+export const SCREENS_ORIGIN = 'http://127.0.0.1:4478';
+
 export function snapshot(extra: Partial<Snapshot> = {}): Snapshot {
   return {
     v: 2,
     seq: 10,
     epoch: 'aaaa',
-    meta: { token: 'tok-1' },
+    meta: { token: 'tok-1', wireframesOrigin: SCREENS_ORIGIN },
     jobs: [job('alpha', 'idle'), job('beta', 'running')],
     needsYou: 0,
     permissions: [],

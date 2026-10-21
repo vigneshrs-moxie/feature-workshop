@@ -8,7 +8,7 @@
 // edited: it is used only when the job starts (later sessions take the composer's model menu).
 import { useEffect, useId, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
-import type { JobDetail, LevelNumber } from '../../api/types';
+import { WORKFLOW_CHOICES, type JobDetail, type LevelNumber, type WorkflowChoice } from '../../api/types';
 import { saveJobOptions } from '../../app/jobActions';
 import { classicHref } from '../../app/router';
 import { bodyFrom, formFrom, levelDefaults, MODEL_ROLES, modelName, optionLists, PROCESS_NOTES_MAX, providedSkips, sameOptions, inOrder, type ModelRole, type OptionsForm } from '../../lib/jobOptions';
@@ -33,6 +33,18 @@ const STAGE_HINTS: Record<string, string> = {
   plan: 'The written implementation plan. Skipping it never skips approval: a quick plan still comes to you.',
   test: 'The crew’s own checks after the build.',
   review: 'The review lenses after the build.',
+};
+
+// The job's Screens and Clarify fields (options.wireframes, options.clarify: Auto, Always or Off).
+// On Always, the dashboard un-skips the stage whatever is ticked (lib/options.js normalize), so the
+// checkbox is off limits here with the reason, instead of a tick that comes back undone.
+type Workflow = Record<'wireframes' | 'clarify', WorkflowChoice | null>;
+const NO_WORKFLOW: Workflow = { wireframes: null, clarify: null };
+const workflowChoice = (v: unknown): WorkflowChoice | null => (WORKFLOW_CHOICES.includes(v as WorkflowChoice) ? (v as WorkflowChoice) : null);
+const ALWAYS_FIELD: Record<string, keyof Workflow> = { wireframe: 'wireframes', clarify: 'clarify' };
+export const ALWAYS_NOTES: Record<keyof Workflow, string> = {
+  wireframes: 'Screens is set to Always on this job, so the Screens stage runs: it can’t be skipped here.',
+  clarify: 'Clarify questions are set to Always on this job, so the Clarify stage runs: it can’t be skipped here.',
 };
 
 /** Under the Foreman's model, shown read only: options.models.foreman is used only when the job starts. */
@@ -64,6 +76,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
   // since isn't overwritten; changedElsewhere: the dashboard refused a save for that reason.
   const [stamp, setStamp] = useState<string | null>(null);
   const [changedElsewhere, setChangedElsewhere] = useState(false);
+  const [workflow, setWorkflow] = useState<Workflow>(NO_WORKFLOW);
   const forceLoad = useRef(false);
 
   const dirty = !!form && !!saved && !sameOptions(form, saved);
@@ -84,6 +97,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
         const f = formFrom(detail?.options ?? null, isLevel(detail?.level) ? detail.level : jobLevel, levels, lists);
         const at = detail?.options?.updated_at;
         setStamp(typeof at === 'string' ? at : null);
+        setWorkflow({ wireframes: workflowChoice(detail?.options?.wireframes), clarify: workflowChoice(detail?.options?.clarify) });
         setChangedElsewhere(false);
         setSaved(f);
         setForm(f);
@@ -115,6 +129,9 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
   const pickLevel = (n: LevelNumber) => edit(keepForeman(levelDefaults(n, levels, lists, { provided: form.provided, notes: form.notes, review_rounds: form.review_rounds, from: form })));
   const resetToLevel = () => edit(keepForeman(levelDefaults(form.level, levels, lists, { provided: form.provided, notes: form.notes, review_rounds: 1 })));
   const lockedSkips = providedSkips(form.provided, lists);
+  // The stages the job's Always settings keep (not at L0, where the dashboard leaves the skip alone).
+  const alwaysField = (stage: string): keyof Workflow | null => (form.level !== 0 && ALWAYS_FIELD[stage] && workflow[ALWAYS_FIELD[stage]] === 'always' ? ALWAYS_FIELD[stage] : null);
+  const alwaysNotes = lists.skippable.map((s) => alwaysField(s.id)).filter((f): f is keyof Workflow => f !== null);
   const lenses = form.reviewers === 'auto' ? [] : form.reviewers;
   const noLenses = form.reviewers !== 'auto' && lenses.length === 0;
   const reviewSkipped = form.skip.includes('review') || noLenses;
@@ -170,14 +187,16 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
         <div className="drawer-checks">
           {lists.skippable.map((s) => {
             const locked = lockedSkips.includes(s.id);
+            const always = alwaysField(s.id);
             return (
-              <label key={s.id} className="check drawer-check" title={locked ? 'You provided this document, so the crew doesn’t write it. Change provided documents in the classic view.' : `Skip ${s.label} for this job. ${STAGE_HINTS[s.id] ?? ''}`}>
-                <input type="checkbox" checked={form.skip.includes(s.id) || locked} disabled={locked} onChange={(e) => edit({ skip: inOrder(toggle(form.skip, s.id, e.target.checked), lists) })} />
-                <span>{s.label}{locked && <span className="muted"> (document provided)</span>}</span>
+              <label key={s.id} className="check drawer-check" title={locked ? 'You provided this document, so the crew doesn’t write it. Change provided documents in the classic view.' : always ? ALWAYS_NOTES[always] : `Skip ${s.label} for this job. ${STAGE_HINTS[s.id] ?? ''}`}>
+                <input type="checkbox" checked={(form.skip.includes(s.id) || locked) && !always} disabled={locked || always !== null} onChange={(e) => edit({ skip: inOrder(toggle(form.skip, s.id, e.target.checked), lists) })} />
+                <span>{s.label}{locked && <span className="muted"> (document provided)</span>}{always && <span className="muted"> (set to Always)</span>}</span>
               </label>
             );
           })}
         </div>
+        {alwaysNotes.map((f) => <p key={f} className="muted drawer-fine">{ALWAYS_NOTES[f]}</p>)}
         <p className="muted drawer-fine">Skipping a stage never skips an approval: every plan still comes to you before anyone acts on it.</p>
       </fieldset>
 

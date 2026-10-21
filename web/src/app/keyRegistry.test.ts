@@ -164,6 +164,38 @@ describe('the key registry', () => {
     expect(next).toHaveBeenCalledTimes(1);
   });
 
+  it('Enter or Space on a button, link, fold, option or tab belongs to that control; only an always binding runs there', () => {
+    const open = vi.fn(); const focus = vi.fn(); const down = vi.fn();
+    on('map', { 'map-open': open });
+    on('job', { 'screens-focus': focus });
+    on('desk', { 'desk-down': down });
+    const button = document.body.appendChild(document.createElement('button'));
+    const inLink = document.body.appendChild(document.createElement('a')).appendChild(document.createElement('span'));
+    const summary = document.body.appendChild(document.createElement('details')).appendChild(document.createElement('summary'));
+    const roleButton = document.body.appendChild(document.createElement('div'));
+    roleButton.setAttribute('role', 'button');
+    const option = document.body.appendChild(document.createElement('div'));
+    option.setAttribute('role', 'option');
+    const tab = document.body.appendChild(document.createElement('div'));
+    tab.setAttribute('role', 'tab');
+    for (const t of [button, inLink, summary, roleButton, option, tab]) {
+      const enter = press(t, { key: 'Enter' });
+      expect(handleKey(enter)).toBe(false);
+      expect(enter.defaultPrevented).toBe(false);
+      expect(handleKey(press(t, { key: ' ' }))).toBe(false);
+    }
+    expect(open).not.toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
+    // An always binding (the arrows in a list) still runs with the focus on a button.
+    expect(handleKey(press(button, { key: 'ArrowDown' }))).toBe(true);
+    expect(down).toHaveBeenCalledTimes(1);
+    // Off a control, Enter goes to the highest scope that binds it, as before.
+    const plain = document.body.appendChild(document.createElement('div'));
+    expect(handleKey(press(plain, { key: 'Enter' }))).toBe(true);
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(open).not.toHaveBeenCalled();
+  });
+
   it('labels keys for the screen: Mod as Ctrl off a Mac, arrows as arrows, Esc short', () => {
     expect(keyLabel('Mod+K')).toMatch(/^(⌘K|Ctrl\+K)$/);
     expect(keyLabel('ArrowDown')).toBe('↓');

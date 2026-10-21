@@ -63,7 +63,7 @@ export interface Job {
   [key: string]: unknown;
 }
 
-export type NudgeId = 'pr1-merge' | 'pr2-open' | 'pr2-review' | 'pr2-merge';
+export type NudgeId = 'pr1-merge' | 'pr2-open' | 'pr2-review' | 'pr2-changes' | 'pr2-merge';
 
 /**
  * A hand-off nudge (dashboard/lib/nudges.js): one PR step that waits on you (a link to GitHub) or
@@ -666,6 +666,8 @@ export interface Meta {
   demo?: boolean;
   /** How the dashboard's notifications reach macOS here; null where they can't (or in the demo). */
   notifyMethod?: 'terminal-notifier' | 'osascript' | null;
+  /** The origin a job's screens page is served from (its own, not the dashboard's): the Screens tab frames <origin>/job/<slug>/wireframes. */
+  wireframesOrigin?: string;
   /** The Foreman models you can choose, the everyday one first. */
   models?: ModelChoice[];
   settings?: Settings;

@@ -26,22 +26,30 @@ export const STOPS: readonly FlowPosition[] = ['local', 'fork', 'org', 'staging'
 
 type RepoShape = Pick<FlowRepo, 'org' | 'staging'> | null | undefined;
 
-/** A repo with no org remote or no staging branch has the short track: worktree → fork → main. No repo given: the full track. */
-export const simpleRepo = (repo: RepoShape): boolean => repo != null && (!repo.org || !repo.staging);
+/**
+ * A repo with no org remote has the one-PR track: worktree → fork → main, and its PR is "the PR"
+ * (no PR #1 and PR #2). No repo given: the full track.
+ */
+export const simpleRepo = (repo: RepoShape): boolean => repo != null && !repo.org;
 
-/** The stops a repo's track draws. */
+/**
+ * The stops a repo's track draws: the Moxie branch whenever the repo has an org remote (the map
+ * places such lanes there, dashboard/lib/flow.js laneOf), staging only when it has a staging branch.
+ */
 export function trackStops(repo: RepoShape): FlowPosition[] {
-  return simpleRepo(repo) ? ['local', 'fork', 'main'] : [...STOPS];
+  if (repo == null) return [...STOPS];
+  return STOPS.filter((stop) => (stop === 'org' ? Boolean(repo.org) : stop === 'staging' ? Boolean(repo.staging) : true));
 }
 
 /**
  * The stop the finish-line flag stands on: PR #1 open or merged → the Moxie branch, staging →
- * staging, main → main, "when I mark it" → none. On the short track the Moxie branch is main.
+ * staging, main → main, "when I mark it" → none. A stop the track doesn't have is main (on the
+ * one-PR track the Moxie branch is main; without a staging branch PR #2 lands in main).
  */
 export function finishStop(setting: FinishLine | null | undefined, repo?: RepoShape): FlowPosition | null {
   const rule = setting ?? DEFAULT_FINISH_LINE;
   const stop: FlowPosition | null = rule === 'marked' ? null : rule === 'staging' ? 'staging' : rule === 'main' ? 'main' : 'org';
-  if (stop === 'org' && simpleRepo(repo)) return 'main';
+  if (stop !== null && !trackStops(repo).includes(stop)) return 'main';
   return stop;
 }
 

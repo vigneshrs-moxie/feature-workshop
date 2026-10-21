@@ -19,7 +19,7 @@ npm run web:build
 
 `npm run web:build` builds the new view (the React app in `web/`); run it again after pulling changes. The dashboard serves the new view at **/next/** and the classic view at **/**. Both show the same jobs live and wear the theme you pick in the new view's Settings; each has a button to the other (**Classic view** / **New view**, on the same page).
 
-**Try it safely first:** `npm run demo` opens the dashboard on invented jobs with a *pretend* Foreman. Every button works and nothing real runs or costs anything. (If the real dashboard is already running, use `PORT=4478 npm run demo`.)
+**Try it safely first:** `npm run demo` opens the dashboard on invented jobs with a *pretend* Foreman. Every button works and nothing real runs or costs anything. (If the real dashboard is already running, use `PORT=4479 npm run demo`: it takes its port and the next one, for the screens server.)
 
 **Use it for real:** `npm start`, then open **http://127.0.0.1:4477/next/**. Stop it with **Ctrl+C**. Stopping the dashboard pauses any reply in progress; nothing is lost.
 
@@ -172,7 +172,7 @@ When a reply run from here hits Claude's 5-hour or weekly limit, every reply sti
 ## What it reads and what it changes
 
 **Reads (never changes):**
-- `~/.claude/feature-work/*/` — each job's `workflow-status.md`, `status.json`, `briefs/`, artifacts, and its `wireframes.html` (the one HTML file it ever serves from a job folder, to the Screens tab only)
+- `~/.claude/feature-work/*/` — each job's `workflow-status.md`, `status.json`, `briefs/`, artifacts, and its `wireframes.html` (the one HTML file ever served from a job folder, by the screens server on its own port, to the Screens tab only)
 - `~/.claude/projects/` — Claude Code session logs, for live activity and cost (never sent anywhere)
 - `~/.claude/agents/*.md` — each worker's model and effort, for the Crew-dex
 - your repositories, read-only with git (`git log`, `git show`) for the Code tab, and the spec file each job names
@@ -201,7 +201,7 @@ When a reply run from here hits Claude's 5-hour or weekly limit, every reply sti
 - Listens on `127.0.0.1` only and rejects requests addressed to any other host name.
 - Anything that changes something needs a secret token that only this page can read, from this page's own address, as JSON. Other websites open in your browser can't press its buttons.
 - Strict content security policy: the page loads only its own files, no outside scripts or styles.
-- A job's screens page (`wireframes.html`, drawn by the wireframe skill) is served under its own policy: it may run its own inline script and styles and load only the fonts and the two pinned libraries its template names; no fetches, no other frames or forms, and only this dashboard may frame it. Nothing else from a job folder is ever served as HTML.
+- A job's screens page (`wireframes.html`, drawn by the wireframe skill) is an HTML file a model wrote, so it is never served from the dashboard's own address: a second, screens-only server on the next port (`WIREFRAMES_PORT`, `PORT` + 1 by default, `127.0.0.1` only) answers `GET /job/<slug>/wireframes` and nothing else, with no token anywhere. The Screens tab frames that address, so the page's script runs in another origin and can't read the dashboard's page, its storage or its token; the two talk only through checked `postMessage` messages. The page keeps its own policy: it may run its own inline script and styles and load only the fonts and the two pinned libraries its template names; no fetches, no other frames or forms, and only this dashboard may frame it. Nothing else from a job folder is ever served as HTML.
 - Markdown is rendered with raw HTML switched off and unsafe links removed.
 - Git is read with fixed commands and checked arguments; files are only read from inside each job's folder or the spec path the job records.
 - The command box runs what you type, as you, in the job's worktree: treat the page like a terminal. Database switches run fixed programs (`createdb`, `dropdb`, `npm run db:migrate -- <name>`) with no shell, only for a Postgres on this computer, and refuse while anything is connected.
@@ -211,6 +211,7 @@ When a reply run from here hits Claude's 5-hour or weekly limit, every reply sti
 | Variable | Default | What it's for |
 |---|---|---|
 | `PORT` | `4477` | The port to listen on |
+| `WIREFRAMES_PORT` | `PORT` + 1 | The screens server's port: a job's `wireframes.html`, served from its own origin so it can't reach the dashboard |
 | `WORKSHOP_FEATURES_DIR` | `~/.claude/feature-work` | Where jobs live |
 | `WORKSHOP_PROJECTS_DIR` | `~/.claude/projects` | Claude Code session logs |
 | `WORKSHOP_AGENTS_DIR` / `WORKSHOP_SKILLS_DIR` | `~/.claude/agents` / `~/.claude/skills` | The workflow's agents and skills |

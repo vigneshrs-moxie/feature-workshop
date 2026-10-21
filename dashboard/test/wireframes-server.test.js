@@ -1,6 +1,7 @@
 // The screens stage's backend: lib/docs.js (wireframesInfo, readWireframes, the Screens group in
-// the Docs list) and GET /api/job/:slug/wireframes, the one route that serves an HTML file from a
-// job folder, with its own content security policy and frame headers. The server runs in demo mode
+// the Docs list) and the screens server, a second origin (WIREFRAMES_PORT, PORT + 1 by default) with
+// one route, GET /job/:slug/wireframes, the only way an HTML file from a job folder is ever served,
+// with its own content security policy; nothing else and no token there. The server runs in demo mode
 // (a pretend Foreman, nothing real runs) on temp folders, so no real job, ~/.claude or
 // ~/.feature-workshop is touched and no Claude usage is spent.
 
@@ -11,13 +12,14 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { DocError, DOC_GROUPS, WIREFRAMES_FILE, listJobDocs, readWireframes, wireframesInfo } from '../lib/docs.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 const PAGE = '<!doctype html><html><head><meta charset="utf-8"><title>Screens (test)</title></head><body><section data-key="s-one" data-screen="One"><h2>One</h2></section><script>window.parent.postMessage({ type: "wireframes", version: "2", current: "s-one", screens: [] }, "*");</script></body></html>\n';
 
-let root, featuresDir, outside, child, base;
+let root, featuresDir, outside, child, base, screens;
 const output = [];
 
 async function freePort() {
@@ -62,10 +64,12 @@ before(async () => {
   await writeJob('other-html', { files: { 'index.html': PAGE } });
 
   const port = await freePort();
+  const screensPort = await freePort();
   base = `http://127.0.0.1:${port}`;
+  screens = `http://127.0.0.1:${screensPort}`;
   child = spawn(process.execPath, [SERVER], {
     env: {
-      ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1',
+      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(screensPort), HOME: dirs.home, WORKSHOP_DEMO: '1',
       WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
       WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
     },
@@ -73,7 +77,7 @@ before(async () => {
   });
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
+    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running') && output.join('').includes('screens:')) { clearTimeout(timer); resolve(); } });
     child.stderr.on('data', (d) => output.push(String(d)));
     child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
   });
@@ -121,8 +125,10 @@ test('docs lib: the Docs list has a Screens group with "Wireframes" and its vers
   assert.ok(!(await listJobDocs(path.join(featuresDir, 'linked-screens'))).some((d) => d.type === 'html'), 'a symlinked page is not listed');
 });
 
-test('GET /api/job/:slug/wireframes serves the page with its own policy and frame headers', async () => {
-  const res = await get('/api/job/with-screens/wireframes');
+test('the screens server serves the page from its own origin, with its own policy, and meta names that origin', async () => {
+  const meta = (await getJson('/api/meta')).body;
+  assert.equal(meta.wireframesOrigin, screens, 'the web frames <wireframesOrigin>/job/<slug>/wireframes');
+  const res = await fetch(`${screens}/job/with-screens/wireframes`);
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('content-type'), 'text/html; charset=utf-8');
   assert.equal(await res.text(), PAGE);
@@ -131,21 +137,45 @@ test('GET /api/job/:slug/wireframes serves the page with its own policy and fram
   assert.ok(csp.includes("script-src 'unsafe-inline' https://cdn.jsdelivr.net"), 'the page’s own script and the template’s two pinned libraries');
   assert.ok(csp.includes("style-src 'unsafe-inline' https://fonts.googleapis.com"), 'its own styles and the template’s fonts');
   assert.ok(csp.includes('img-src data:') && csp.includes('font-src data: https://fonts.gstatic.com'));
-  assert.ok(csp.includes("frame-ancestors 'self'"), 'the dashboard may frame it, nobody else');
+  const { port } = new URL(base);
+  assert.ok(csp.includes(`frame-ancestors http://127.0.0.1:${port} http://localhost:${port}`), `the dashboard may frame it, by either of its names, nobody else: ${csp}`);
   assert.ok(!/connect-src/.test(csp), 'no fetches: default-src none covers it');
-  assert.equal(res.headers.get('x-frame-options'), 'SAMEORIGIN');
+  assert.equal(res.headers.get('x-frame-options'), null, 'frame-ancestors is the one frame header (SAMEORIGIN would refuse the dashboard, another origin)');
   assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(res.headers.get('cache-control'), 'no-store');
+  assert.equal(res.headers.get('referrer-policy'), 'no-referrer');
+  for (const [name, value] of res.headers) assert.ok(!/token/i.test(name) && !/token/i.test(value), `no token in the headers: ${name}`);
+  // The dashboard's own pages may frame that origin and nothing else.
+  const page = await get('/');
+  assert.match(page.headers.get('content-security-policy') ?? '', new RegExp(`frame-src ${screens.replace(/[.]/g, '\\.')}(;|$)`));
 });
 
-test('GET /api/job/:slug/wireframes: 404 without a page, for a symlink, and for any other HTML file', async () => {
-  for (const slug of ['no-screens', 'linked-screens', 'other-html']) {
-    const r = await getJson(`/api/job/${slug}/wireframes`);
-    assert.equal(r.status, 404, slug);
-    assert.match(r.body.error, /no screens yet/);
+test('the screens server answers nothing else: 404 for every other path and method, no token, no other job files; 421 for another host', async () => {
+  for (const p of ['/', '/api/meta', '/api/features', '/api/job/with-screens', '/job/with-screens', '/job/with-screens/wireframes.json', '/job/with-screens/doc?file=wireframes.json', '/next/', '/job/with-screens/wireframes/']) {
+    const r = await fetch(screens + p);
+    assert.equal(r.status, 404, p);
+    assert.ok(!/token/i.test(await r.text()), `no token in the body: ${p}`);
   }
-  assert.equal((await getJson('/api/job/nobody/wireframes')).status, 404);
-  // The document route still refuses HTML: the page is served by its own route only.
+  for (const method of ['POST', 'PUT', 'DELETE']) assert.equal((await fetch(`${screens}/job/with-screens/wireframes`, { method, headers: { 'content-type': 'application/json' }, body: '{}' })).status, 404, method);
+  // fetch won't send another Host, so plain http does (a DNS-rebinding request names another host).
+  const withHost = (host) => new Promise((resolve, reject) => http.get(`${screens}/job/with-screens/wireframes`, { headers: { host } }, (r) => { r.resume(); resolve(r.statusCode); }).on('error', reject));
+  assert.equal(await withHost('evil.example'), 421);
+  assert.equal(await withHost(`localhost:${new URL(screens).port}`), 200, 'localhost is this machine too');
+});
+
+test('the screens server: 404 without a page, for a symlink, and for any other HTML file; the dashboard’s old route is gone (410)', async () => {
+  for (const slug of ['no-screens', 'linked-screens', 'other-html']) {
+    const r = await fetch(`${screens}/job/${slug}/wireframes`);
+    assert.equal(r.status, 404, slug);
+    assert.match((await r.json()).error, /no screens yet/);
+  }
+  assert.equal((await fetch(`${screens}/job/nobody/wireframes`)).status, 404);
+  // The page is never served from the dashboard's own origin any more: a model-written HTML file
+  // there could read the dashboard's document, storage and token.
+  const old = await getJson('/api/job/with-screens/wireframes');
+  assert.equal(old.status, 410);
+  assert.match(old.body.error, /served from its own address/);
+  // The document route still refuses HTML: the page is served by the screens server only.
   const doc = await getJson('/api/job/with-screens/doc?file=wireframes.html');
   assert.equal(doc.status, 400);
   const other = await getJson('/api/job/other-html/doc?file=index.html');

@@ -28,6 +28,8 @@ describe('the ? sheet', () => {
     expect(within(desk).getByText('Approve, or Allow once').closest('.key-row')).toHaveTextContent('Never for a hard line, a risky step or a question.');
     const gate = screen.getByRole('region', { name: 'The gate card' });
     expect(within(gate).getByText(/Pick that answer/).closest('.key-row')).toHaveTextContent('1 / 2 / 3');
+    // The Desk's o (open the job) outranks the gate's: the sheet says so instead of promising it there.
+    expect(within(gate).getByText('Other guidance').closest('.key-row')).toHaveTextContent('On the job only: on the Desk, o opens the job.');
     expect(screen.queryByRole('note')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalledTimes(1);

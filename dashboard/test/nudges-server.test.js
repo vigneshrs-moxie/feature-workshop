@@ -139,4 +139,17 @@ test('server: yes sends the nudge’s sentence to the Foreman as a message, audi
   assert.equal(line.nudge, 'pr2-review');
   assert.equal(line.runId, r.body.run.id);
   assert.ok(detail.audit.some((e) => e.action === 'send' && e.kind === 'nudge' && e.text === you.text), 'the send line, as a gate reply has one');
+  // Sent is remembered: the PRs haven't moved yet (the Foreman has the work), but the nudge doesn't
+  // come back, and a second yes sends nothing.
+  assert.deepEqual((await cardOf('pr2-other')).nudges, [], 'gone from the card as soon as it is sent');
+  const again = await post('/api/job/pr2-other/nudge/pr2-review/yes');
+  assert.equal(again.status, 409);
+  assert.equal(again.body.code, 'nudge-sent');
+  const after = await get('/api/job/pr2-other');
+  assert.equal(after.audit.filter((e) => e.action === 'nudge').length, 1, 'audited once');
+  assert.equal(after.audit.filter((e) => e.action === 'send' && e.kind === 'nudge').length, 1, 'sent once');
+  const sessions = JSON.parse(await fs.readFile(path.join(root, 'state', 'sessions.json'), 'utf8'));
+  const record = Object.entries(sessions).find(([dir]) => dir.endsWith('pr2-other'))?.[1];
+  assert.deepEqual(record?.sentNudges, ['pr2-review'], 'kept in the job’s session record, apart from the dismissed ones');
+  assert.equal(record?.dismissedNudges, undefined);
 });

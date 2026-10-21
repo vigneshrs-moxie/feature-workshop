@@ -50,6 +50,11 @@ import { Notifier, validateNotifyPatch } from './lib/notify.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
+// The screens server: a job's wireframes.html is served from this SECOND origin (PORT + 1 unless
+// WIREFRAMES_PORT says otherwise), so the page's own script can't reach this dashboard's document,
+// storage or token however it was written. The web frames it from meta.wireframesOrigin.
+const WIREFRAMES_PORT = Number(process.env.WIREFRAMES_PORT) || PORT + 1;
+const WIREFRAMES_ORIGIN = `http://${HOST}:${WIREFRAMES_PORT}`;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(HERE, 'public');
 // The new UI, built from web/ (npm run web:build), served at /next.
@@ -218,8 +223,10 @@ async function features() {
   const list = await loadFeatures({ featuresDir: FEATURES_DIR, sessionIndex, overrides, knownRepos: await repoList() });
   // Jobs you marked done or dropped (kept in the dashboard's own state; the job's records are untouched).
   for (const f of list) f.closed = saved[f.dir]?.closed ?? null;
-  // Hand-off nudges you dismissed on this job (lib/nudges.js), kept in the same record.
+  // Hand-off nudges you dismissed on this job, and the ones whose sentence already went to its
+  // Foreman (lib/nudges.js), kept in the same record.
   for (const f of list) f.dismissedNudges = Array.isArray(saved[f.dir]?.dismissedNudges) ? saved[f.dir].dismissedNudges : [];
+  for (const f of list) f.sentNudges = Array.isArray(saved[f.dir]?.sentNudges) ? saved[f.dir].sentNudges : [];
   for (const f of list) noteRaisedVersions(f);
   cached = { at: Date.now(), list };
   return list;
@@ -511,7 +518,7 @@ function boardCard(f, run) {
     parked: gateParked(f, active),
     finish,
     // The PR hand-offs waiting on someone (lib/nudges.js): the Desk's nudge items.
-    nudges: nudgesFor({ stage: f.stage, prs: f.prs, closed: off ? f.closed : null, finish }, lane, { dismissed: f.dismissedNudges }),
+    nudges: nudgesFor({ stage: f.stage, prs: f.prs, closed: off ? f.closed : null, finish }, lane, { dismissed: f.dismissedNudges, sent: f.sentNudges }),
     // Marked done or dropped: off the board, unless something is going on or the job changed since.
     ...(off
       ? { closed: f.closed, needsYou: false, working: false, quiet: false, waitingFor: null, parked: false, stageState: f.closed.as === 'done' ? 'done' : 'idle' }
@@ -682,25 +689,31 @@ function statusForCompose(f) {
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.md': 'text/markdown; charset=utf-8' };
 const SECURITY_HEADERS = {
-  'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+  // frame-src: the one frame this page opens is the screens server (the wireframes page, below).
+  'Content-Security-Policy': `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-src ${WIREFRAMES_ORIGIN}; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`,
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
   'Cache-Control': 'no-store',
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
 };
-// The wireframes page's own policy (GET /api/job/:slug/wireframes): what feature-wireframe's
-// template loads and nothing more. KEEP IN STEP with the skill's template.html and build.py.
+// The wireframes page's own policy (the screens server's GET /job/:slug/wireframes): what
+// feature-wireframe's template loads and nothing more. KEEP IN STEP with the skill's template.html
+// and build.py. frame-ancestors names this dashboard by both names hostAllowed accepts; it is the
+// one frame header (X-Frame-Options would say SAMEORIGIN, which the second origin is not).
 const WIREFRAMES_CSP = [
   "default-src 'none'",
   "script-src 'unsafe-inline' https://cdn.jsdelivr.net",
   "style-src 'unsafe-inline' https://fonts.googleapis.com",
   "img-src data:",
   "font-src data: https://fonts.gstatic.com",
-  "frame-ancestors 'self'",
+  `frame-ancestors http://127.0.0.1:${PORT} http://localhost:${PORT}`,
   "base-uri 'none'",
   "form-action 'none'",
 ].join('; ');
+// The screens server's headers: no token, no Play, no opener or resource policy (the page is a
+// cross-origin frame by design); just the policy above and the plain safety headers.
+const WIREFRAMES_HEADERS = { 'Content-Security-Policy': WIREFRAMES_CSP, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store' };
 // Play mode's easter-egg headers (the crew's names, the Clacks Overhead); none while it is Off.
 const CREW_HEADERS = crewHeaders(Object.values(AGENTS).map((a) => a.name));
 const playHeaders = () => (playOn() ? CREW_HEADERS : {});
@@ -927,6 +940,8 @@ async function meta() {
     featuresDir: FEATURES_DIR, crewModels: await crewModels(), demo: DEMO, models: MODELS, readDirs: await readDirs(),
     // How notifications reach macOS here (null: they can't, or the demo, which sends only the test).
     notifyMethod: DEMO ? null : await notifier.method(),
+    // Where a job's screens page is served from (its own origin): the Screens tab frames <origin>/job/<slug>/wireframes.
+    wireframesOrigin: WIREFRAMES_ORIGIN,
     settings: await state.getSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT },
     // The finish line's choices (lib/finish.js), with their words, for Settings → Workflow.
     finishLines: FINISH_LINES.map((id) => ({ id, ...FINISH_LINE_INFO[id] })),
@@ -1071,15 +1086,9 @@ async function routeGet(urlPath, url, req, res) {
       return sendJson(res, 200, { docs: await listJobDocs(f.dir, { spec: specPath ? { path: specPath, version: f.spec?.version ?? null } : null, recorded: f.recordedArtifacts }) });
     }
     if (sub === '/wireframes') {
-      // The screens the wireframer drew: wireframes.html from the job folder, the one HTML file ever
-      // served from there (lib/docs.js readWireframes), for the Screens tab's iframe. It gets its own
-      // policy: the page may run its own inline script and styles, show data: images and load the
-      // fonts and the two pinned libraries its template names (Google Fonts, Tailwind and Lucide from
-      // jsDelivr), and nothing else: no fetches, no other frames, no forms. Only this dashboard may
-      // frame it (frame-ancestors 'self' and X-Frame-Options), so another site can't show it.
-      let page;
-      try { page = await readWireframes(f.dir); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
-      return send(res, 200, page.html, TYPES['.html'], { 'Content-Security-Policy': WIREFRAMES_CSP, 'X-Frame-Options': 'SAMEORIGIN' });
+      // The screens page is never served from this origin: an HTML file a model wrote would share
+      // the dashboard's document, storage and token. The screens server (below) serves it instead.
+      throw new HttpError(410, `The screens page is served from its own address: ${WIREFRAMES_ORIGIN}/job/<slug>/wireframes (meta.wireframesOrigin).`);
     }
     if (sub === '/doc') {
       // One document, rendered (sanitised, lib/markdown.js) and as its source text. Inside the job
@@ -1180,23 +1189,30 @@ async function routePost(urlPath, req, res) {
     // A hand-off nudge on the Desk (lib/nudges.js). dismiss: remembered for this job, so it isn't
     // shown again. yes: the nudge's one sentence goes to the job's Foreman exactly as a message from
     // the box does (sendPlan, startSend), audited as a 'send' of kind 'nudge' plus a 'nudge' line.
+    // The id is remembered as sent (sentNudges, in the same record) before the message goes: the
+    // nudge's source is the PR state, which changes only once the Foreman has done the work, so
+    // without that it would come straight back and a second yes would send the sentence again.
     const f = await featureBySlug(m[1]);
     if (!f) throw new HttpError(404, 'No job by that name.');
     const id = m[2];
     if (!NUDGE_IDS.includes(id)) throw new HttpError(404, 'No nudge by that name.');
+    const saved = await state.sessionFor(f.dir);
+    const listOf = (key) => (Array.isArray(saved?.[key]) ? saved[key] : []);
     if (m[3] === 'dismiss') {
-      const saved = await state.sessionFor(f.dir);
-      const dismissed = [...new Set([...(Array.isArray(saved?.dismissedNudges) ? saved.dismissedNudges : []), id])];
+      const dismissed = [...new Set([...listOf('dismissedNudges'), id])];
       await state.setSession(f.dir, { dismissedNudges: dismissed });
       await state.audit({ action: 'nudge-dismissed', featureDir: f.dir, slug: f.slug, nudge: id });
       cached = null;
       return sendJson(res, 200, { ok: true, dismissed });
     }
+    if (listOf('sentNudges').includes(id)) throw new HttpError(409, 'That was already sent to the Foreman. Nothing was sent again.', { code: 'nudge-sent' });
     const nudge = nudgesFor({ stage: f.stage, prs: f.prs, closed: f.closed }, flowLanes.get(f.slug) ?? null, { finishLine: finishLineNow }).find((n) => n.id === id);
     if (!nudge) throw new HttpError(409, 'That nudge no longer applies: the PRs have moved on. Nothing was sent.', { code: 'stale-nudge' });
     if (!nudge.action) throw new HttpError(400, 'That nudge is a link to GitHub; there is nothing to send.');
     const drive = await driveState(f);
     const out = sendPlan(f, drive, body, nudge.action.send);
+    await state.setSession(f.dir, { sentNudges: [...listOf('sentNudges'), id] });
+    cached = null;
     const run = await startSend(f, out, { kind: 'nudge' });
     await state.audit({ action: 'nudge', featureDir: f.dir, slug: f.slug, nudge: id, text: nudge.action.send, runId: run.id });
     return sendJson(res, 200, { ok: true, sent: true, text: nudge.action.send, run });
@@ -1293,12 +1309,15 @@ async function routePost(urlPath, req, res) {
       finishLineNow = next.finishLine;
       if (next.finishLine !== was.finishLine) {
         // Every card's group may move: the pages fetch again. The ledger counts quests by the new
-        // line, muted (what it finds was earned before). Nothing already past the line is told again.
+        // line, muted (what it finds was earned before). The Done notices start over: the next look
+        // seeds what is already past the new line (never told again), and a job told Done at the
+        // old line but short of the new one is told again when it gets there.
         cached = null;
         broadcast('change', { at: Date.now() });
         events.emit('change', null, { at: Date.now() });
         playbook.schedule(0, { muted: true });
         finishBefore.clear();
+        finishTold.clear();
       }
       await state.audit({ action: 'settings', workflow: w });
       settingsChanged();
@@ -1841,6 +1860,34 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// The screens server (WIREFRAMES_ORIGIN): one route, GET /job/:slug/wireframes, the job's
+// wireframes.html from its folder (lib/docs.js readWireframes: the one HTML file ever served from
+// there, never a symlink, nothing too big) under the page's own policy. The page may run its own
+// inline script and styles, show data: images and load the fonts and the two pinned libraries its
+// template names, and nothing else: no fetches, no other frames, no forms. Only this dashboard may
+// frame it. Being another origin, its script can't read the dashboard's document, storage or token,
+// and nothing here hands out the token or anything else: every other path is 404.
+const WIREFRAMES_ROUTE = /^\/job\/([^/]+)\/wireframes$/;
+const sendScreens = (res, status, body, type = 'text/plain; charset=utf-8') => { res.writeHead(status, { ...WIREFRAMES_HEADERS, 'Content-Type': type }); res.end(body); };
+const screensServer = http.createServer(async (req, res) => {
+  if (!hostAllowed(req.headers.host)) return sendScreens(res, 421, 'Misdirected request');
+  let urlPath;
+  try { urlPath = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); } catch { return sendScreens(res, 400, 'Bad request'); }
+  const m = req.method === 'GET' ? WIREFRAMES_ROUTE.exec(urlPath) : null;
+  if (!m) return sendScreens(res, 404, 'Not found');
+  try {
+    const f = await featureBySlug(m[1]);
+    if (!f) throw new HttpError(404, 'No job by that name.');
+    let page;
+    try { page = await readWireframes(f.dir); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
+    return sendScreens(res, 200, page.html, TYPES['.html']);
+  } catch (err) {
+    if (err instanceof HttpError) return sendScreens(res, err.status, JSON.stringify({ error: err.message }), TYPES['.json']);
+    console.error(err);
+    return sendScreens(res, 500, JSON.stringify({ error: 'Something went wrong. The details are in the terminal running the dashboard.' }), TYPES['.json']);
+  }
+});
+
 await limits.load();
 await startGateParking();
 await skill.check(); // read once at start; /api/meta re-reads only when the file changes
@@ -1858,12 +1905,18 @@ server.listen(PORT, HOST, () => {
   // What waits for you now: later changes are told as notifications, these never are.
   checkWaiting().catch(() => {});
 });
+// The screens server starts with the dashboard (its own origin; see WIREFRAMES_PORT).
+screensServer.on('error', (err) => { console.error(`screens server (${WIREFRAMES_ORIGIN}):`, err.message); });
+screensServer.listen(WIREFRAMES_PORT, HOST, () => {
+  console.log(`  screens:  ${WIREFRAMES_ORIGIN} (a job’s wireframes page, framed by the dashboard)`);
+});
 
 // Stopping the dashboard pauses any reply in progress; sessions stay resumable.
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     for (const r of driver.list()) if (ACTIVE_RUN.has(r.status)) driver.stop(r.id);
     local.stopAll(); // dev servers and commands started from the page stop with it
+    screensServer.close(); // the screens server stops with the dashboard
     setTimeout(() => process.exit(0), 400);
   });
 }

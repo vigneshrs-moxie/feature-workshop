@@ -6,18 +6,20 @@
 //   pr1-merge   PR #1 open from your fork          → "Self-review and merge PR #1 on GitHub" (a link)
 //   pr2-open    PR #1 merged, no PR #2 yet         → "Open PR #2 to staging?" (yes asks the Foreman)
 //   pr2-review  PR #2 open, no approval yet        → "Ask Raj for a review?" (yes asks the Foreman)
+//   pr2-changes PR #2 open, changes requested      → "Address Raj’s review on PR #2" (a link)
 //   pr2-merge   PR #2 approved, not merged         → "Merge PR #2 on GitHub" (a link)
 //
 // The dashboard never merges or approves anything itself: a link nudge opens GitHub; an ask nudge
 // sends one sentence to the job's Foreman, which does the git work as the skill's pr2 stage does.
 // `afterLine` marks a nudge on a job past your finish line: the Desk lists those under a quieter
-// Shipping heading at the end of its queue, never first. Dismissed ids (per job, in the dashboard's
-// session record) are left out. Pure: nothing here reads a file or calls anything.
+// Shipping heading at the end of its queue, never first. Dismissed ids, and the ids whose sentence
+// already went to the Foreman (both per job, in the dashboard's session record), are left out.
+// Pure: nothing here reads a file or calls anything.
 
 import { finishLineReached } from './finish.js';
 import { STAGE_IDS } from './stages.js';
 
-export const NUDGE_IDS = ['pr1-merge', 'pr2-open', 'pr2-review', 'pr2-merge'];
+export const NUDGE_IDS = ['pr1-merge', 'pr2-open', 'pr2-review', 'pr2-changes', 'pr2-merge'];
 
 const prState = (p) => String(p?.state ?? '').toLowerCase();
 // A draft isn't ready for anyone yet: no nudge until it is marked ready.
@@ -50,9 +52,10 @@ function pastStage(current, stage) {
  *   lane     the job's flow lane (flow.js laneOf), or null when the map doesn't know it
  *   finishLine  the setting (lib/finish.js), used only when the card has no `finish`
  *   dismissed   nudge ids you dismissed on this job
+ *   sent        nudge ids whose sentence already went to this job's Foreman (yes on the Desk)
  * Each: { id, kind: 'link' | 'ask', title, text, link, action: { send } | null, afterLine }.
  */
-export function nudgesFor(card, lane, { finishLine, dismissed = [] } = {}) {
+export function nudgesFor(card, lane, { finishLine, dismissed = [], sent = [] } = {}) {
   if (!card || card.closed?.as === 'dropped') return [];
   const pr1 = prOf(lane, card.prs, 1);
   const pr2 = prOf(lane, card.prs, 2);
@@ -76,12 +79,16 @@ export function nudgesFor(card, lane, { finishLine, dismissed = [] } = {}) {
       add('pr2-merge', 'link', 'Merge PR #2 on GitHub',
         `Raj approved PR #2${num(pr2)}. Merge it on GitHub; the work lands in staging.`,
         { link: pr2.url ?? null });
+    } else if (pr2.review === 'changes_requested') {
+      add('pr2-changes', 'link', 'Address Raj’s review on PR #2',
+        `Raj asked for changes on PR #2${num(pr2)}. Read his review on GitHub, then tell the Foreman what to change.`,
+        { link: pr2.url ?? null });
     } else {
       add('pr2-review', 'ask', 'Ask Raj for a review?',
         `PR #2${num(pr2)} is open and has no approval yet. Yes asks the Foreman to request Raj’s review on it.`,
         { action: { send: 'Please request Raj’s review on PR #2.' } });
     }
   }
-  const gone = new Set(Array.isArray(dismissed) ? dismissed : []);
+  const gone = new Set([...(Array.isArray(dismissed) ? dismissed : []), ...(Array.isArray(sent) ? sent : [])]);
   return out.filter((n) => !gone.has(n.id));
 }

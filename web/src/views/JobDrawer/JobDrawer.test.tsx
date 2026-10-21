@@ -8,7 +8,7 @@ import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job, LEVELS, REVIEWERS, snapshot } from '../../state/test-fixtures';
 import { JobDrawer } from './JobDrawer';
 import { NOTES_HINT } from './NotesEditor';
-import { FOREMAN_MODEL_NOTE, OPTIONS_CHANGED } from './OptionsEditor';
+import { ALWAYS_NOTES, FOREMAN_MODEL_NOTE, OPTIONS_CHANGED } from './OptionsEditor';
 
 // Invented job, notes and paths only.
 const OPUS = 'claude-opus-5-5';
@@ -38,11 +38,13 @@ interface Setup {
   tab?: 'notes' | 'options';
   /** The job's current stage. */
   stage?: string;
+  /** The dashboard's option lists (meta.jobOptions), LISTS unless a test needs more. */
+  lists?: typeof LISTS & { skippable?: { id: string; label: string }[] };
 }
 
-function setup({ options = L1, notes = { text: 'Ask before renaming the API.', updatedAt: null }, post, put, tab, stage }: Setup = {}) {
+function setup({ options = L1, notes = { text: 'Ask before renaming the API.', updatedAt: null }, post, put, tab, stage, lists = LISTS }: Setup = {}) {
   const store: Store = createStore();
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS, jobOptions: LISTS }, jobs: [job('alpha', 'idle', { level: 1, ...(stage ? { stage } : {}) })] }) });
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS, jobOptions: lists }, jobs: [job('alpha', 'idle', { level: 1, ...(stage ? { stage } : {}) })] }) });
   const detail: JobDetail = { slug: 'alpha', thread: [], threadMore: false, level: 1, options };
   const get = vi.fn(async (path: string) => {
     if (path === '/api/job/alpha/notes') { if (notes instanceof Error) throw notes; return notes; }
@@ -394,6 +396,40 @@ describe('Job drawer · options', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(within(drawer()).getByRole('alert')).toHaveTextContent('Your notes and options have unsaved changes');
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('with Screens or Clarify set to Always, that stage’s skip box is off limits, with the reason; Off or Auto leaves it free', async () => {
+    const skippable = [
+      { id: 'clarify', label: 'Clarify (questions before the spec)' }, { id: 'spec', label: 'Spec' }, { id: 'refine', label: 'Refine (product interview)' },
+      { id: 'wireframe', label: 'Screens (wireframes)' }, { id: 'investigate', label: 'Investigate' }, { id: 'spec-update', label: 'Spec update' }, { id: 'plan', label: 'Plan' }, { id: 'test', label: 'Test (the crew’s checks)' }, { id: 'review', label: 'Review' },
+    ];
+    const l2: JobOptions = { ...L1, level: 2, skip: ['refine'], reviewers: 'auto' };
+    const { post, unmount } = await openOptions({ options: { ...l2, wireframes: 'always', clarify: 'always' }, lists: { ...LISTS, skippable } });
+    const screens = screen.getByRole('checkbox', { name: /^Screens \(wireframes\)/ });
+    const clarify = screen.getByRole('checkbox', { name: /^Clarify \(questions before the spec\)/ });
+    expect(screens).toBeDisabled();
+    expect(screens).not.toBeChecked();
+    expect(screens.closest('label')).toHaveTextContent('(set to Always)');
+    expect(screens.closest('label')).toHaveAttribute('title', ALWAYS_NOTES.wireframes);
+    expect(clarify).toBeDisabled();
+    const panel = screen.getByRole('tabpanel', { name: 'Options' });
+    expect(panel).toHaveTextContent(ALWAYS_NOTES.wireframes);
+    expect(panel).toHaveTextContent(ALWAYS_NOTES.clarify);
+    expect(ALWAYS_NOTES.wireframes).toBe('Screens is set to Always on this job, so the Screens stage runs: it can’t be skipped here.');
+    // Other stages are still yours to skip, and what is posted leaves the kept stages out.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
+    await screen.findByText(/The Foreman reads this from its next stage/);
+    expect(post.mock.calls[0][1].options.skip).toEqual(['refine', 'plan']);
+    unmount();
+    // Off (or Auto): the boxes work as before.
+    await openOptions({ options: { ...l2, wireframes: 'off', clarify: 'auto' }, lists: { ...LISTS, skippable } });
+    const free = screen.getByRole('checkbox', { name: /^Screens \(wireframes\)/ });
+    expect(free).toBeEnabled();
+    expect(screen.getByRole('checkbox', { name: /^Clarify/ })).toBeEnabled();
+    expect(screen.getByRole('tabpanel', { name: 'Options' })).not.toHaveTextContent('set to Always');
+    fireEvent.click(free);
+    expect(free).toBeChecked();
   });
 
   it('a job with no options yet starts from its level’s defaults', async () => {
