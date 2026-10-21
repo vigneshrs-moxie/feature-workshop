@@ -21,6 +21,7 @@ import { useWorkshopState } from '../state/store';
 import { DeskView } from './DeskView';
 import { FlowMap } from './FlowMap';
 import { deskQueue, type HomeView as View, type MapFilter, mapRepos, tableRows } from './homeModel';
+import { deskEntries, isShipping } from './nudges';
 import { TableView } from './TableView';
 import { useFlow } from './useFlow';
 
@@ -59,6 +60,8 @@ export function HomeView({ view }: { view: View }) {
   const repos = useMemo(() => mapRepos(flow, state.jobs, filter), [flow, state.jobs, filter]);
   const rows = useMemo(() => tableRows(state.jobs, flow, now), [state.jobs, flow, now]);
   const desk = useMemo(() => deskQueue(state.jobs, state.permissions), [state.jobs, state.permissions]);
+  // The count on the Desk tab: decisions plus the nudges before your finish line.
+  const deskCount = useMemo(() => deskEntries(desk, state.jobs).filter((e) => !isShipping(e)).length, [desk, state.jobs]);
   const read = flow?.fetchedAt ? `Branches and PRs read ${relativeTime(flow.fetchedAt, now)}` : 'Branches and PRs not read yet';
   const finishLine = state.meta?.settings?.workflow?.finishLine;
 
@@ -69,7 +72,7 @@ export function HomeView({ view }: { view: View }) {
           {VIEWS.map((v) => (
             <a key={v.id} className={`home-view${v.id === view ? ' is-on' : ''}`} href={hrefFor({ name: v.route })} aria-current={v.id === view ? 'page' : undefined} title={v.hint}>
               {v.label}
-              {v.id === 'desk' && desk.length > 0 && <span className="home-view-count" aria-label={`${desk.length} waiting`}>{desk.length}</span>}
+              {v.id === 'desk' && deskCount > 0 && <span className="home-view-count" aria-label={`${deskCount} waiting`}>{deskCount}</span>}
             </a>
           ))}
         </nav>

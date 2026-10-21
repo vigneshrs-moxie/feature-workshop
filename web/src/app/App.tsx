@@ -36,6 +36,7 @@ import { Kbd } from '../components/Kbd';
 import { classicHref, crewDexHref, hrefFor, navigate, openFromHash, settingsHref, useRoute, type Route } from './router';
 import { HomeView } from '../home/HomeView';
 import { deskQueue } from '../home/homeModel';
+import { deskEntries, isShipping } from '../home/nudges';
 import { UiProvider, useUi, type SheetState } from './ui';
 
 /** Put the cursor in the message box at the foot of the Foreman pane. */
@@ -60,7 +61,8 @@ function TopBar({ onRetry, onCrew = false, slug = null }: { onRetry: () => void;
   const ui = useUi();
   const play = usePlay();
   const needs = needsYouCount(state);
-  const desk = deskQueue(state.jobs, state.permissions).length;
+  // Decisions waiting, with the nudges before your finish line; the ones after it stay quiet.
+  const desk = deskEntries(deskQueue(state.jobs, state.permissions), state.jobs).filter((e) => !isShipping(e)).length;
   const conn = CONNECTION[state.connection];
   return (
     <header className="topbar">
