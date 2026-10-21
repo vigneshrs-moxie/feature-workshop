@@ -86,6 +86,30 @@ describe('App shell', () => {
     expect(screen.getByRole('region', { name: 'The Foreman' })).toBeInTheDocument();
   });
 
+  it('shows a job’s screens full width at #/job/<slug>/screens, with Back to the job; the job page gets a Screens tab', async () => {
+    window.location.hash = '#/job/beta/screens';
+    renderApp(snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'running', { wireframes: { version: '2' } })] }));
+    const view = await screen.findByRole('main', { name: 'Screens' });
+    expect(screen.queryByRole('navigation', { name: 'Jobs' }), 'full width: no Jobs pane').toBeNull();
+    expect(screen.queryByRole('complementary', { name: 'Preview' })).toBeNull();
+    expect(within(view).getByRole('link', { name: /Back to the job/ })).toHaveAttribute('href', '#/job/beta');
+    expect(view).toHaveTextContent('Job beta');
+    expect(view.querySelector('iframe.screens-frame')).toHaveAttribute('src', '/api/job/beta/wireframes');
+    expect(within(view).getByRole('button', { name: 'Copy feedback' })).toBeInTheDocument();
+    expect(within(view).queryByRole('link', { name: 'Open full screen' })).toBeNull();
+    // The top bar's Classic view link is this job's.
+    expect(within(document.querySelector<HTMLElement>('.topbar')!).getByRole('link', { name: 'Classic view' })).toHaveAttribute('href', '/#/job/beta');
+    // Back on the job: the Preview pane has a Screens tab for it; a job without screens has none.
+    act(() => { window.location.hash = '#/job/beta'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(await screen.findByRole('tab', { name: 'Screens' })).toBeInTheDocument();
+    act(() => { window.location.hash = '#/job/alpha'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    await screen.findByRole('main', { name: 'Foreman' });
+    expect(screen.queryByRole('tab', { name: 'Screens' })).toBeNull();
+    // A job without screens at the screens address says so.
+    act(() => { window.location.hash = '#/job/alpha/screens'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(await screen.findByRole('main', { name: 'Screens' })).toHaveTextContent('This job has no screens yet.');
+  });
+
   it('opens what the classic view asks for (?open=), once, and drops it from the address', async () => {
     window.location.hash = '#/job/beta?open=options';
     renderApp(snapshot());

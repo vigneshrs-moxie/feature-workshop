@@ -13,7 +13,7 @@ import { STAGE_CHARACTER } from './crew';
 // ---------- Quest track ----------
 
 /** The stages a quest runs through, in order, up to PR #1 (the Foreman's own loop). */
-export const QUEST_STAGES: readonly string[] = ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'implement', 'test', 'review', 'pr1'];
+export const QUEST_STAGES: readonly string[] = ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update', 'plan', 'implement', 'test', 'review', 'pr1'];
 /** The shipping stages after PR #1, in order: drawn after the goal when the finish line is before them. */
 export const SHIPPING_STAGES: readonly string[] = ['pr2', 'staging-qa', 'pr3'];
 /** The stop the finish line puts the goal flag on; null for "when I mark it done" (no flag). */
@@ -27,8 +27,8 @@ export function goalStop(finishLine: FinishLine | null | undefined): string | nu
 }
 /** Each level's skipped stages when meta.levels doesn't say (dashboard/lib/options.js LEVELS). */
 const DEFAULT_SKIP: Record<LevelNumber, string[]> = {
-  0: ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'test', 'review'],
-  1: ['spec', 'refine', 'investigate', 'spec-update'],
+  0: ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update', 'plan', 'test', 'review'],
+  1: ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update'],
   2: ['refine'],
   3: [],
 };

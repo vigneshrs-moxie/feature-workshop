@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { JobDoc, JobDocEntry } from '../../api/types';
 import { loadJobDoc, loadJobDocs } from '../../app/jobActions';
 import { classicHref } from '../../app/router';
+import { useUi } from '../../app/ui';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop } from '../../state/store';
@@ -48,11 +49,12 @@ function DocList({ docs, now, onPick, onReload, pickedRef }: { docs: JobDocEntry
                   className="doc-item"
                   data-file={d.file}
                   onClick={() => onPick(d.file)}
-                  title={`Read ${d.name} as a clean page${d.file === 'spec' ? ' (the spec in the repository)' : ` (${d.file})`}.`}
+                  title={d.type === 'html' ? `Open the screens in the Screens tab (${d.file}).` : `Read ${d.name} as a clean page${d.file === 'spec' ? ' (the spec in the repository)' : ` (${d.file})`}.`}
                 >
                   <span className="doc-name">{d.name}</span>
                   {d.version && <span className="chip doc-version" title="The version the job’s records name.">{versionLabel(d.version)}</span>}
                   {d.type === 'json' && <span className="chip doc-type" title="A JSON file: shown indented, as written.">JSON</span>}
+                  {d.type === 'html' && <span className="chip doc-type" title="A page: it opens in the Screens tab.">Page</span>}
                   <span className="doc-spacer" />
                   <When at={d.updatedAt} now={now} />
                 </button>
@@ -142,6 +144,7 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
 
 export function DocsTab({ slug, changedAt, focusRequest = 0, requestFile = null, active = true }: { slug: string; changedAt?: string | null; focusRequest?: number; requestFile?: string | null; active?: boolean }) {
   const { api } = useWorkshop();
+  const ui = useUi();
   const now = useNow();
   const [load, setLoad] = useState<Load<JobDocEntry[]>>({ state: 'loading' });
   const [tries, setTries] = useState(0);
@@ -196,7 +199,11 @@ export function DocsTab({ slug, changedAt, focusRequest = 0, requestFile = null,
   });
 
   const reload = useCallback(() => setTries((n) => n + 1), []);
-  const pick = (f: string) => { lastPicked.current = f; setLinkHint(null); setFile(f); };
+  const pick = (f: string) => {
+    // The wireframes page isn't a document: it opens in the Screens tab.
+    if (load.state === 'ready' && load.value.find((d) => d.file === f)?.type === 'html') { ui.openScreens(); return; }
+    lastPicked.current = f; setLinkHint(null); setFile(f);
+  };
   const backToList = () => {
     setLinkHint(null);
     setFile(null);
@@ -212,7 +219,7 @@ export function DocsTab({ slug, changedAt, focusRequest = 0, requestFile = null,
   const how = (
     <HowThisWorks id="docs-tab">
       <p>Every document the crew writes for this job, shown as a clean page.</p>
-      <p>The spec, findings and plans are under <strong>Plan &amp; spec</strong>, the Foreman’s briefs under <strong>Briefs</strong>, the reviewers’ findings and Fable’s second looks under <strong>Review</strong>, and your notes under <strong>Notes</strong>. A version shows when the job’s records name one. <strong>Source</strong> shows the Markdown exactly as written, <strong>Copy as markdown</strong> copies it. A link in a document to another of the job’s documents opens it here. Nothing here changes a file: the Foreman and its crew write them, and your notes are edited in the job drawer.</p>
+      <p>The spec, findings and plans are under <strong>Plan &amp; spec</strong>, the feature’s screens under <strong>Screens</strong> (the page opens in the Screens tab), the Foreman’s briefs under <strong>Briefs</strong>, the reviewers’ findings and Fable’s second looks under <strong>Review</strong>, and your notes under <strong>Notes</strong>. A version shows when the job’s records name one. <strong>Source</strong> shows the Markdown exactly as written, <strong>Copy as markdown</strong> copies it. A link in a document to another of the job’s documents opens it here. Nothing here changes a file: the Foreman and its crew write them, and your notes are edited in the job drawer.</p>
     </HowThisWorks>
   );
 

@@ -11,6 +11,10 @@ const str = (v) => (typeof v === 'string' && v.trim() ? v : null);
 const arr = (v) => (Array.isArray(v) ? v : []);
 // The Foreman's one-line reason for the level it suggests; longer text is cut, not refused.
 export const LEVEL_REASON_MAX = 400;
+export const MAX_QUESTIONS = 3;
+export const MAX_CLARIFY_QUESTIONS = 5;
+// An option's consequence is one line (status-json.md says under 120 characters); longer text is cut.
+export const CONSEQUENCE_MAX = 200;
 
 // suggested_level (optional, schema 1): the level L0–L3 the Foreman proposes in its first brief.
 // Missing or null is fine; anything but a whole number 0–3 becomes null with a warning.
@@ -41,9 +45,11 @@ export function parseStatusJson(text) {
   const warnings = [];
   if (raw.schema_version !== 1) warnings.push(`schema_version ${raw.schema_version ?? 'missing'}; expected 1`);
 
-  const questions = arr(raw.questions).slice(0, 3).map((q, i) => {
+  // At most three questions per brief; a clarify brief (the questions before the spec) may ask five.
+  // Each option may carry a consequence: one line on what changes if it is picked.
+  const questions = arr(raw.questions).slice(0, raw.stage === 'clarify' ? MAX_CLARIFY_QUESTIONS : MAX_QUESTIONS).map((q, i) => {
     const options = arr(q?.options)
-      .map((o) => ({ id: String(o?.id ?? ''), label: str(o?.label) ?? String(o?.id ?? '') }))
+      .map((o) => ({ id: String(o?.id ?? ''), label: str(o?.label) ?? String(o?.id ?? ''), consequence: str(o?.consequence)?.slice(0, CONSEQUENCE_MAX) ?? null }))
       .filter((o) => o.id);
     return {
       id: String(q?.id ?? i + 1),

@@ -1,6 +1,7 @@
-// Preview pane. Docs (phase 2.1): every document of the open job as a clean page (DocsTab). Classic
-// view: links to the classic page for what isn't rebuilt yet (decision D4). The App, Diff, Tests,
-// Terminal and Git tabs arrive in phase 4.
+// Preview pane. Docs (phase 2.1): every document of the open job as a clean page (DocsTab).
+// Screens (Light, round 3): the wireframes page the Painter drew, in an iframe, only when the job
+// has one (ScreensTab). Classic view: links to the classic page for what isn't rebuilt yet
+// (decision D4). The App, Diff, Tests, Terminal and Git tabs arrive in phase 4.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { useKeyScope } from '../../app/keyRegistry';
@@ -9,11 +10,13 @@ import { useUi } from '../../app/ui';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
 import { DocsTab } from './DocsTab';
+import { ScreensTab } from './ScreensTab';
 
-type PreviewTab = 'docs' | 'classic';
+type PreviewTab = 'docs' | 'screens' | 'classic';
 
 const TABS: { id: PreviewTab; label: string; hint: string }[] = [
   { id: 'docs', label: 'Docs', hint: 'Every document the crew writes for this job (spec, plans, briefs, reviews, notes), shown as a clean page.' },
+  { id: 'screens', label: 'Screens', hint: 'The feature’s screens the Painter drew from the spec, to review before anyone builds: verdicts, picks and notes on the page, Copy feedback for your reply.' },
   { id: 'classic', label: 'Classic view', hint: 'Links to what is still on the classic page: trying it on your computer, costs and history search.' },
 ];
 
@@ -40,9 +43,13 @@ function ClassicLinks({ slug }: { slug: string | null }) {
 export function PreviewPane({ slug }: { slug: string | null }) {
   const ui = useUi();
   const state = useWorkshopState();
-  const [tab, setTab] = useState<PreviewTab>('docs');
-  const tabRefs = useRef<Record<PreviewTab, HTMLButtonElement | null>>({ docs: null, classic: null });
+  const [picked, setTab] = useState<PreviewTab>('docs');
+  const tabRefs = useRef<Partial<Record<PreviewTab, HTMLButtonElement | null>>>({});
   const job = jobBySlug(state, slug);
+  // The Screens tab exists only while the job has a wireframes page.
+  const hasScreens = Boolean(slug && job?.wireframes);
+  const tabs = TABS.filter((t) => t.id !== 'screens' || hasScreens);
+  const tab: PreviewTab = tabs.some((t) => t.id === picked) ? picked : 'docs';
 
   // ⌘K "Open docs" or a link to a document: this tab, with focus on the documents (DocsTab takes
   // it). Each request is handled once, so opening another job doesn't switch back to Docs.
@@ -53,10 +60,17 @@ export function PreviewPane({ slug }: { slug: string | null }) {
     setTab('docs');
     if (!slug) tabRefs.current.docs?.focus();
   }, [ui.docsRequest, slug]);
+  // The gate card's screen chips, "Review the screens" or the Docs list's Wireframes entry: the Screens tab.
+  const handledScreens = useRef(ui.screensRequest);
+  useEffect(() => {
+    if (ui.screensRequest === handledScreens.current) return;
+    handledScreens.current = ui.screensRequest;
+    if (hasScreens) setTab('screens');
+  }, [ui.screensRequest, hasScreens]);
 
   const stepTab = (by: 1 | -1, focus: boolean) => {
-    const at = TABS.findIndex((t) => t.id === tab);
-    const next = TABS[(at + by + TABS.length) % TABS.length].id;
+    const at = tabs.findIndex((t) => t.id === tab);
+    const next = tabs[(at + by + tabs.length) % tabs.length].id;
     setTab(next);
     if (focus) tabRefs.current[next]?.focus();
   };
@@ -72,7 +86,7 @@ export function PreviewPane({ slug }: { slug: string | null }) {
     <aside className="pane pane-preview" data-pane="preview" aria-label="Preview">
       <h2 className="pane-title">Preview</h2>
       <div className="preview-tabs" role="tablist" aria-label="Preview">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.id}
             ref={(el) => { tabRefs.current[t.id] = el; }}
@@ -96,6 +110,12 @@ export function PreviewPane({ slug }: { slug: string | null }) {
           ? <DocsTab key={slug} slug={slug} changedAt={job?.updatedAt ?? null} focusRequest={ui.docsRequest} requestFile={ui.docsFile} active={tab === 'docs'} />
           : <p className="muted doc-empty">Open a job to read its documents here: the spec, plans, briefs and reviews, each as a clean page.</p>}
       </section>
+      {/* Mounted whenever the job has screens (hidden until picked), so the page's report reaches the gate card's chips. */}
+      {hasScreens && slug && (
+        <section id="preview-panel-screens" role="tabpanel" aria-labelledby="preview-tab-screens" hidden={tab !== 'screens'}>
+          <ScreensTab key={slug} slug={slug} job={job} active={tab === 'screens'} />
+        </section>
+      )}
       <section id="preview-panel-classic" role="tabpanel" aria-labelledby="preview-tab-classic" hidden={tab !== 'classic'}>
         <ClassicLinks slug={slug} />
       </section>

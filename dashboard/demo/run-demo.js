@@ -11,6 +11,11 @@
 // Docs tab (phase 2.1): Customer merge has a full set of documents (spec, findings, a plan with a
 // table, code and a task list, test plan, Fable's second look, notes) and Widget Export a review.
 //
+// Screens and Clarify (Light, round 3): Tag filter screens waits at its wireframe gate with an
+// invented wireframes.html (demo/wireframes.html, offline, following the skill's postMessage
+// contract) and wireframes.json, so the Screens tab and the card's screen chips have something to
+// show; Office hours waits at a clarify gate with three questions whose options carry consequences.
+//
 // Play layer: Widget Export's conversation starts with the routine steps that handed each stage to
 // its worker (widgetThread), so the crew show on handoff lines and the review brief's lineup. For
 // the Crew-dex: Report Scheduler has a lens review (blockers and majors), and two secrets are found.
@@ -715,6 +720,69 @@ async function levelJobs() {
       files: planFiles(1),
     });
     await options('customer-notes-tab', 2, description);
+  }
+
+  // L2 at its screens card: the wireframer drew two screens and one design choice (wireframes.html,
+  // an invented page following the skill's postMessage contract); the brief asks for the pick and
+  // one verdict. The Preview pane's Screens tab shows the page; the card's chips jump to each screen.
+  {
+    const description = 'Let office managers filter tickets by tag';
+    await feature('tag-filter-screens', {
+      status: {
+        title: 'Tag filter screens', kind: 'feature', route: 'small', stage: 'wireframe', stage_state: 'waiting_for_you', waiting_for: 'answers', waiting_since: iso(7 * MIN),
+        brief: { number: 2, path: 'briefs/002-wireframe.md', headline: 'Tag filter screens · wireframes v1 ready' },
+        questions: [
+          { id: '1', text: 'Where should the tag picker open? (c-entry)', recommendation: 'a', options: [{ id: 'a', label: 'A: a chip in the filter bar' }, { id: 'b', label: 'B: a column header menu' }] },
+          { id: '2', text: 'Should the picked tags stay when you come back to the page?', recommendation: 'a', options: [{ id: 'a', label: 'Yes, remembered per browser' }, { id: 'b', label: 'No, start clean each time' }] },
+        ],
+        decided_on_your_behalf: [], next_proposed: 'Carry the agreed screens into spec v0.2, then investigate the code (read-only)',
+        spec: { path: `${ACME}/docs/plans/2026-10-15-ticket-tag-filter-product-spec.md`, version: '0.1', status: 'DRAFT' },
+        artifacts: [{ name: 'Wireframes', path: 'wireframes.html', version: '1', based_on: 'spec v0.1' }], repo, ...suggestion(description, 2), updated_at: iso(7 * MIN),
+      },
+      briefs: [
+        { stage: 'spec', text: '**Tag filter screens · spec v0.1 ready**\n\nDemo brief.' },
+        { stage: 'wireframe', text: '**Tag filter screens · wireframes v1 ready**\n\n**What happened**\n- The Painter drew 2 screens from spec v0.1: Tickets with the tag filter, No tickets match.\n- One design choice: where the tag picker opens. A, a chip in the filter bar (recommended: it sits with the other filters); B, a column header menu.\n\n**Decisions for you**\n1. Where should the tag picker open? — Recommended: A.\n2. Should the picked tags stay when you come back? — Recommended: yes.\n\nReview the screens in the Preview pane (Screens). Copy feedback puts your verdicts and notes in your reply.\n\n**Next:** carry the agreed screens into spec v0.2, then investigate the code.\n' },
+      ],
+      files: {
+        'wireframes.html': await fs.readFile(new URL('./wireframes.html', import.meta.url), 'utf8'),
+        'wireframes.json': JSON.stringify({
+          schema_version: 1, version: 1, title: 'Ticket tag filter', fidelity: 'low', url: null, page: 'wireframes.html', source: null, repo: ACME, built_at: iso(8 * MIN),
+          screens: [{ key: 's-filter', name: 'Tickets with the tag filter', states: [] }, { key: 's-empty', name: 'No tickets match', states: [] }],
+          choices: [{ key: 'c-entry', question: 'Where the tag picker opens', options: [{ id: 'A', label: 'A chip in the filter bar', recommended: true }, { id: 'B', label: 'A column header menu', recommended: false }] }],
+          questions: [{ kind: 'decide', text: 'Should the picked tags stay when you leave the page and come back?' }, { kind: 'assumed', text: 'A ticket can have at most five tags.' }],
+        }, null, 2) + '\n',
+      },
+    });
+    await options('tag-filter-screens', 2, description);
+  }
+
+  // L2 at its clarify card: three questions before the spec, each option with what it changes.
+  {
+    const description = 'Show each office’s opening hours on the customer portal';
+    await feature('office-hours', {
+      status: {
+        title: 'Office hours', kind: 'feature', route: 'small', stage: 'clarify', stage_state: 'waiting_for_you', waiting_for: 'answers', waiting_since: iso(4 * MIN),
+        brief: { number: 1, path: 'briefs/001-clarify.md', headline: 'Office hours · three questions before the spec' },
+        questions: [
+          { id: '1', text: 'Which offices?', recommendation: 'a', options: [
+            { id: 'a', label: 'Phoenix only', consequence: 'One office’s hours, kept in one setting; ships this week' },
+            { id: 'b', label: 'Every office', consequence: 'Hours per office in the database; the scoping lens reviews it; likely L3' },
+          ] },
+          { id: '2', text: 'Who edits the hours?', recommendation: 'a', options: [
+            { id: 'a', label: 'Office managers, in Settings', consequence: 'A new Settings section and a permission check' },
+            { id: 'b', label: 'Nobody: a fixed table in the code', consequence: 'A code change for every holiday' },
+          ] },
+          { id: '3', text: 'Holidays?', recommendation: 'b', options: [
+            { id: 'a', label: 'In this job', consequence: 'A dates table and a second screen; adds a week' },
+            { id: 'b', label: 'Later, as its own job', consequence: 'The portal shows the usual hours only' },
+          ] },
+        ],
+        decided_on_your_behalf: [], next_proposed: 'Write spec v0.1 from your answers',
+        repo, ...suggestion(description, 2), updated_at: iso(4 * MIN),
+      },
+      briefs: [{ stage: 'clarify', text: '**Office hours · three questions before the spec**\n\nBefore the Scribe drafts the spec, three choices shape it. Each answer says what it changes.\n\n**Decisions for you**\n1. Which offices? — Recommended: Phoenix only.\n2. Who edits the hours? — Recommended: office managers, in Settings.\n3. Holidays? — Recommended: later, as its own job.\n\n**Next:** spec v0.1 from your answers.\n' }],
+    });
+    await options('office-hours', 2, description);
   }
 
   // No level yet: the Foreman's first brief suggests L3, the rules L2 (the LevelCard shows both).

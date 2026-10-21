@@ -12,10 +12,15 @@ import path from 'node:path';
 /** The largest document shown (bytes). Bigger ones are refused with a plain message. */
 export const DOC_MAX_BYTES = 512 * 1024;
 
-export const DOC_GROUPS = ['plan', 'briefs', 'review', 'notes', 'other'];
+export const DOC_GROUPS = ['plan', 'screens', 'briefs', 'review', 'notes', 'other'];
 
 const SUBFOLDERS = ['briefs', 'review', 'fable'];
 const DOC_FILE = /^[^.][^/\\]*\.(md|json)$/;
+/** The one HTML file served from a job folder: the screens the wireframer drew (GET /api/job/:slug/wireframes). */
+export const WIREFRAMES_FILE = 'wireframes.html';
+export const WIREFRAMES_JSON = 'wireframes.json';
+/** The largest wireframes page served (bytes): a high-fidelity page carries the app's theme and many screens. */
+export const WIREFRAMES_MAX_BYTES = 8 * 1024 * 1024;
 
 // Known files, in the order they show inside their group.
 const KNOWN = [
@@ -31,6 +36,8 @@ const KNOWN = [
   ['workflow-status.md', 'Workflow status', 'notes'],
   ['implementation-log.md', 'Implementation log', 'notes'],
   ['history.md', 'History', 'notes'],
+  [WIREFRAMES_FILE, 'Wireframes', 'screens'],
+  [WIREFRAMES_JSON, 'Wireframes data (wireframes.json)', 'screens'],
   ['status.json', 'Status (status.json)', 'other'],
   ['options.json', 'Options (options.json)', 'other'],
 ];
@@ -97,9 +104,35 @@ async function plainFiles(dir, sub) {
   return out;
 }
 
+/** A plain file (no symlink) inside the job folder: { size, updatedAt }, or null. */
+async function plainFile(dir, name) {
+  const st = await fs.lstat(path.join(dir, name)).catch(() => null);
+  return st?.isFile() ? { size: st.size, updatedAt: st.mtime.toISOString() } : null;
+}
+
+/**
+ * The screens the wireframer drew, when the job has them: { version, updatedAt, size }, else null.
+ * The version is what status.json's artifacts record for wireframes.html (or "Wireframes"), else
+ * what wireframes.json says, else null.
+ */
+export async function wireframesInfo(dir, recorded = []) {
+  const page = await plainFile(dir, WIREFRAMES_FILE);
+  if (!page) return null;
+  const versions = versionIndex(dir, recorded);
+  let version = versions.byFile.get(WIREFRAMES_FILE) ?? versions.byName.get('wireframes') ?? null;
+  if (!version && await plainFile(dir, WIREFRAMES_JSON)) {
+    try {
+      const v = JSON.parse(await fs.readFile(path.join(dir, WIREFRAMES_JSON), 'utf8'))?.version;
+      if (v !== undefined && v !== null && v !== '') version = String(v);
+    } catch { /* no version from a file that isn't JSON */ }
+  }
+  return { version, updatedAt: page.updatedAt, size: page.size };
+}
+
 /**
  * Every document of a job: [{ file, name, group, version, updatedAt, size, type }], grouped in
  * DOC_GROUPS order. `spec` is { path, version } for the product spec in the repository (file 'spec').
+ * The wireframes page (type 'html') is listed under Screens; it is shown through its own route, not /doc.
  */
 export async function listJobDocs(dir, { spec = null, recorded = [] } = {}) {
   const versions = versionIndex(dir, recorded);
@@ -108,11 +141,13 @@ export async function listJobDocs(dir, { spec = null, recorded = [] } = {}) {
     const st = await fs.stat(spec.path).catch(() => null);
     if (st?.isFile()) docs.push({ file: 'spec', name: 'Product spec', group: 'plan', order: -1, version: spec.version ?? null, updatedAt: st.mtime.toISOString(), size: st.size, type: 'md' });
   }
+  const wf = await wireframesInfo(dir, recorded);
+  if (wf) docs.push({ file: WIREFRAMES_FILE, ...describeDoc(WIREFRAMES_FILE), version: wf.version, updatedAt: wf.updatedAt, size: wf.size, type: 'html' });
   const found = [...await plainFiles(dir, null)];
   for (const sub of SUBFOLDERS) found.push(...await plainFiles(dir, sub));
   for (const f of found) {
     const d = describeDoc(f.file);
-    const version = versions.byFile.get(f.file) ?? versions.byName.get(d.name.toLowerCase()) ?? null;
+    const version = versions.byFile.get(f.file) ?? versions.byName.get(d.name.toLowerCase()) ?? (f.file === WIREFRAMES_JSON ? wf?.version ?? null : null);
     docs.push({ ...f, ...d, version, type: f.file.endsWith('.json') ? 'json' : 'md' });
   }
   docs.sort((a, b) => DOC_GROUPS.indexOf(a.group) - DOC_GROUPS.indexOf(b.group) || a.order - b.order || a.name.localeCompare(b.name));
@@ -141,6 +176,24 @@ export async function readJobDoc(dir, rel, { maxBytes = DOC_MAX_BYTES } = {}) {
   const text = await fs.readFile(abs, 'utf8').catch(() => null);
   if (text === null) throw new DocError(404, 'That file isn’t there (yet).');
   return { text, updatedAt: st.mtime.toISOString(), size: st.size };
+}
+
+/**
+ * The wireframes page of a job, the one HTML file served from its folder: { html, updatedAt, size }.
+ * Refuses (DocError 404) when it isn't there, is a symlink or lies outside the folder's real path,
+ * and (413) when it is bigger than maxBytes. Nothing else in the folder is ever served as HTML.
+ */
+export async function readWireframes(dir, { maxBytes = WIREFRAMES_MAX_BYTES } = {}) {
+  const root = path.resolve(dir);
+  const abs = path.join(root, WIREFRAMES_FILE);
+  const st = await fs.lstat(abs).catch(() => null);
+  if (!st?.isFile()) throw new DocError(404, 'This job has no screens yet.');
+  const [realRoot, realFile] = await Promise.all([fs.realpath(root), fs.realpath(abs)]).catch(() => [null, null]);
+  if (!realRoot || !realFile || realFile !== path.join(realRoot, WIREFRAMES_FILE)) throw new DocError(404, 'This job has no screens yet.');
+  if (st.size > maxBytes) throw new DocError(413, `The screens page is too big to show here (${Math.round(st.size / 1024)} KB; at most ${Math.round(maxBytes / 1024)} KB). Open wireframes.html in your browser instead.`);
+  const html = await fs.readFile(abs, 'utf8').catch(() => null);
+  if (html === null) throw new DocError(404, 'This job has no screens yet.');
+  return { html, updatedAt: st.mtime.toISOString(), size: st.size };
 }
 
 /**

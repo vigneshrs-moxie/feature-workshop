@@ -66,6 +66,8 @@ export const KEYS = {
   'write': { keys: ['i'], label: 'Put the cursor in the message box', scope: 'job' },
   'preview-prev': { keys: ['['], label: 'The previous Preview tab', scope: 'job' },
   'preview-next': { keys: [']'], label: 'The next Preview tab', scope: 'job' },
+  'screens-focus': { keys: ['Enter'], label: 'Step into the screens (the page’s own keys then work)', scope: 'job', where: 'With the Screens tab showing and nothing else focused.' },
+  'screens-leave': { keys: ['Escape'], label: 'Step out of the screens, back to the page', scope: 'job', where: 'Inside the screens.', listOnly: true },
   'send': { keys: ['Mod+Enter'], label: 'In the message box: preview and send, or steer a reply in progress', scope: 'job', always: true, listOnly: true },
   // The gate card
   'gate-approve': { keys: ['a'], label: 'Approve', scope: 'gate', where: 'Only when the card asks no questions and the plan hasn’t changed.' },

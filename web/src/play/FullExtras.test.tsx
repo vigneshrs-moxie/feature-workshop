@@ -70,18 +70,18 @@ describe('the trail in the job header (Play on)', () => {
     expect(trail).toHaveAttribute('title', expect.stringContaining('The trail'));
     const path = within(trail as HTMLElement).getByRole('list', { name: 'Stages: now at Review' });
     const stops = within(path).getAllByRole('listitem');
-    expect(stops.map((s) => s.querySelector('.trail-label')!.textContent)).toEqual(['Spec', 'Refine', 'Investigate', 'Plan', 'Build', 'Test', 'Review', 'PR #1', 'PR #2', 'Staging QA', 'PR #3']);
+    expect(stops.map((s) => s.querySelector('.trail-label')!.textContent)).toEqual(['Clarify', 'Spec', 'Refine', 'Screens', 'Investigate', 'Plan', 'Build', 'Test', 'Review', 'PR #1', 'PR #2', 'Staging QA', 'PR #3']);
     // After the finish line (PR #1 by default): drawn smaller.
-    expect(stops[8]).toHaveClass('is-after');
-    expect(stops[7]).not.toHaveClass('is-after');
-    expect(stops[6]).toHaveClass('is-current', 'is-here');
-    expect(stops[6]).toHaveTextContent(', now');
-    const who = within(stops[6]).getByRole('img', { name: 'Head inspector, waiting' });
+    expect(stops[10]).toHaveClass('is-after');
+    expect(stops[9]).not.toHaveClass('is-after');
+    expect(stops[8]).toHaveClass('is-current', 'is-here');
+    expect(stops[8]).toHaveTextContent(', now');
+    const who = within(stops[8]).getByRole('img', { name: 'Head inspector, waiting' });
     expect(who).toHaveClass('is-animated');
     expect(who).toHaveAttribute('width', String(CREW_SIZE.trail[1]));
-    expect(stops[6].querySelector('.trail-ask')).toHaveTextContent('!');
+    expect(stops[8].querySelector('.trail-ask')).toHaveTextContent('!');
     expect(stops[0]).toHaveTextContent('✓');
-    expect(stops[7]).toHaveClass('is-goal', 'is-next');
+    expect(stops[9]).toHaveClass('is-goal', 'is-next');
     expect(trail.querySelector('.trail-now')).toHaveTextContent('Your move: the Foreman is waiting for your reply.');
     expect(trail.querySelector('.trail-next')).toHaveTextContent('Then: The Foreman opens PR #1, the quest’s goal.');
   });

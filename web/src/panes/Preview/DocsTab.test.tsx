@@ -295,3 +295,33 @@ describe('Preview pane', () => {
     expect(screen.getByText(/Open a job to read its documents here/)).toBeInTheDocument();
   });
 });
+
+describe('Docs tab: the screens', () => {
+  it('lists the wireframes page under Screens with its version and a Page chip; picking it opens the Screens tab', async () => {
+    const docs: JobDocEntry[] = [
+      ...DOCS.slice(0, 2),
+      { file: 'wireframes.html', name: 'Wireframes', group: 'screens', version: '2', updatedAt: NOW, size: 5000, type: 'html' },
+      { file: 'wireframes.json', name: 'Wireframes data (wireframes.json)', group: 'screens', version: '2', updatedAt: NOW, size: 400, type: 'json' },
+    ];
+    function Probe() { const ui = useUi(); return <output data-testid="screens-request">{ui.screensRequest}</output>; }
+    const store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'idle', { wireframes: { version: '2' } })] }) });
+    const get = vi.fn(async (path: string) => { if (path === '/api/job/alpha/docs') return { docs }; throw new ApiError(404, 'Not found'); });
+    render(<WorkshopContext.Provider value={{ store, api: { get } as unknown as ApiClient }}><UiProvider><Probe /><DocsTab slug="alpha" /></UiProvider></WorkshopContext.Provider>);
+    const region = await screen.findByRole('region', { name: /^Screens/ });
+    expect(within(region).getByRole('heading')).toHaveAttribute('title', expect.stringContaining('the Screens tab shows the page'));
+    const page = within(region).getByRole('button', { name: /^Wireframes(?!\s*data)/ });
+    expect(page).toHaveTextContent('v2');
+    expect(page).toHaveTextContent('Page');
+    expect(page).toHaveAttribute('title', 'Open the screens in the Screens tab (wireframes.html).');
+    expect(within(region).getByRole('button', { name: /^Wireframes data/ })).toHaveTextContent('JSON');
+    // Groups keep their order: Plan & spec, then Screens.
+    expect(screen.getAllByRole('region').map((r) => r.getAttribute('aria-labelledby'))).toEqual(['doc-group-plan', 'doc-group-screens']);
+    expect(screen.getByTestId('screens-request')).toHaveTextContent('0');
+    fireEvent.click(page);
+    expect(screen.getByTestId('screens-request')).toHaveTextContent('1');
+    // Not a document: no reader opened, no /doc request made.
+    expect(screen.queryByRole('article')).toBeNull();
+    expect(get).not.toHaveBeenCalledWith(expect.stringContaining('/doc?file=wireframes.html'));
+  });
+});

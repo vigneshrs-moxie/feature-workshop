@@ -40,7 +40,7 @@ import { suggestLevel, changedPaths } from './lib/levels.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs } from './lib/gate.js';
 import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
 import { skillChecker } from './lib/skill-check.js';
-import { DOC_MAX_BYTES, DocError, describeDoc, jsonHtml, listJobDocs, readJobDoc, servableSpec } from './lib/docs.js';
+import { DOC_MAX_BYTES, DocError, describeDoc, jsonHtml, listJobDocs, readJobDoc, readWireframes, servableSpec } from './lib/docs.js';
 import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, crewHeaders, hexCommit, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from './lib/play.js';
 import { parseStatusJson } from './lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from './lib/auto-env.js';
@@ -499,6 +499,8 @@ function boardCard(f, run) {
     nowDoing, firstQuestion: f.questions[0]?.text ?? null, questions: f.questions.length,
     unconfirmed: f.decidedOnYourBehalf.filter((d) => !d.confirmed).length,
     headline: f.latestBrief?.headline ?? (f.sources.statusJson ? null : f.currentText) ?? null, nextProposed: f.nextProposed,
+    // The screens the wireframer drew (the Preview pane's Screens tab), with their version; null when none.
+    wireframes: f.wireframes ?? null,
     repo: f.repoPath ? { name: path.basename(f.repoPath), branch: f.branch } : null,
     cost: { totalUsd: Math.max(f.cost.totalUsd, active?.costUsd ?? 0), source: f.cost.source },
     progress: { done: f.stageState === 'done' ? ids.length : Math.max(0, at), total: ids.length },
@@ -687,6 +689,18 @@ const SECURITY_HEADERS = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
 };
+// The wireframes page's own policy (GET /api/job/:slug/wireframes): what feature-wireframe's
+// template loads and nothing more. KEEP IN STEP with the skill's template.html and build.py.
+const WIREFRAMES_CSP = [
+  "default-src 'none'",
+  "script-src 'unsafe-inline' https://cdn.jsdelivr.net",
+  "style-src 'unsafe-inline' https://fonts.googleapis.com",
+  "img-src data:",
+  "font-src data: https://fonts.gstatic.com",
+  "frame-ancestors 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join('; ');
 // Play mode's easter-egg headers (the crew's names, the Clacks Overhead); none while it is Off.
 const CREW_HEADERS = crewHeaders(Object.values(AGENTS).map((a) => a.name));
 const playHeaders = () => (playOn() ? CREW_HEADERS : {});
@@ -1055,6 +1069,17 @@ async function routeGet(urlPath, url, req, res) {
       // The Docs tab's list: every document of the job, grouped, with versions and times (lib/docs.js).
       const specPath = await shownSpec(f);
       return sendJson(res, 200, { docs: await listJobDocs(f.dir, { spec: specPath ? { path: specPath, version: f.spec?.version ?? null } : null, recorded: f.recordedArtifacts }) });
+    }
+    if (sub === '/wireframes') {
+      // The screens the wireframer drew: wireframes.html from the job folder, the one HTML file ever
+      // served from there (lib/docs.js readWireframes), for the Screens tab's iframe. It gets its own
+      // policy: the page may run its own inline script and styles, show data: images and load the
+      // fonts and the two pinned libraries its template names (Google Fonts, Tailwind and Lucide from
+      // jsDelivr), and nothing else: no fetches, no other frames, no forms. Only this dashboard may
+      // frame it (frame-ancestors 'self' and X-Frame-Options), so another site can't show it.
+      let page;
+      try { page = await readWireframes(f.dir); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
+      return send(res, 200, page.html, TYPES['.html'], { 'Content-Security-Policy': WIREFRAMES_CSP, 'X-Frame-Options': 'SAMEORIGIN' });
     }
     if (sub === '/doc') {
       // One document, rendered (sanitised, lib/markdown.js) and as its source text. Inside the job

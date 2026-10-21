@@ -453,7 +453,7 @@ test('options: a level alone is merged with the job’s options; manual test and
   assert.equal(o.level, 1);
   assert.deepEqual(o.models, { foreman: 'claude-opus-5-5', build: 'claude-opus-5-5', checks: 'claude-opus-5-5' });
   assert.equal(o.manual_test, true);
-  assert.deepEqual(o.skip, ['spec', 'refine', 'investigate', 'spec-update']);
+  assert.deepEqual(o.skip, ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update']);
   assert.deepEqual(o.reviewers, ['feature-reviewer']);
   assert.equal(o.notes, 'Keep it small.', 'kept');
   assert.equal(o.review_rounds, 2, 'kept');

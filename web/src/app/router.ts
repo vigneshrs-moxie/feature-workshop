@@ -5,6 +5,7 @@
 //   #/job/<slug>  that job's thread in the Foreman pane
 //   #/job/<slug>/id/<id>  the same job: the dashboard links requirement IDs (FR-001...) in
 //                 replies and briefs this way; the job stays open (the ID itself is ignored for now)
+//   #/job/<slug>/screens  that job's wireframes page full width (views/Screens), with a Back link
 //   #/settings    Settings in the middle pane, on its first section (Permissions)
 //   #/settings/<section>  Settings on that section: permissions, notifications, look, keys, workflow, play, rules
 //   #/crew        the Crew-dex in the middle pane (Play mode only; with Play Off it shows #/'s view)
@@ -20,7 +21,7 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export const isSettingsSection = (v: string): v is SettingsSection => (SETTINGS_SECTIONS as readonly string[]).includes(v);
 
 export type Route = { name: 'home' } | { name: 'table' } | { name: 'desk' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
-  | { name: 'not-found'; hash: string };
+  | { name: 'screens'; slug: string } | { name: 'not-found'; hash: string };
 
 export function parseHash(rawHash: string): Route {
   const hash = rawHash.replace(/\?.*$/, '');
@@ -31,11 +32,11 @@ export function parseHash(rawHash: string): Route {
   if (/^#\/table\/?$/.test(hash)) return { name: 'table' };
   if (/^#\/desk\/?$/.test(hash)) return { name: 'desk' };
   if (/^#\/achievements\/?$/.test(hash)) return { name: 'achievements' };
-  const m = /^#\/job\/([^/?#]+)(?:\/id\/[^/?#]+)?\/?$/.exec(hash);
+  const m = /^#\/job\/([^/?#]+)(?:\/id\/[^/?#]+|\/(screens))?\/?$/.exec(hash);
   if (m) {
     try {
       const slug = decodeURIComponent(m[1]);
-      if (slug) return { name: 'job', slug };
+      if (slug) return m[2] === 'screens' ? { name: 'screens', slug } : { name: 'job', slug };
     } catch { /* a malformed escape: not a page */ }
   }
   if (!hash.startsWith('#/') || hash === '#/') return { name: 'home' };
@@ -44,6 +45,7 @@ export function parseHash(rawHash: string): Route {
 
 export function hrefFor(route: Route): string {
   if (route.name === 'job') return `#/job/${encodeURIComponent(route.slug)}`;
+  if (route.name === 'screens') return `#/job/${encodeURIComponent(route.slug)}/screens`;
   if (route.name === 'crew') return '#/crew';
   if (route.name === 'achievements') return '#/achievements';
   if (route.name === 'table') return '#/table';
@@ -60,6 +62,9 @@ export const crewDexHref = () => hrefFor({ name: 'crew' });
 export const achievementsHref = () => hrefFor({ name: 'achievements' });
 
 export const jobHref = (slug: string) => hrefFor({ name: 'job', slug });
+
+/** The job's wireframes page, full width. */
+export const screensHref = (slug: string) => hrefFor({ name: 'screens', slug });
 
 /**
  * What the address asks to open once the page has loaded: ?open=new-job (the New job sheet) or

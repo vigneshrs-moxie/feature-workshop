@@ -5,8 +5,8 @@ import { job } from '../state/test-fixtures';
 import { backAt, bossView, difficultyStars, findingsText, questTrack, staminaOf } from './extrasModel';
 
 const LEVELS = [
-  { level: 0, label: 'L0 Tweak', skip: ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'test', 'review'] },
-  { level: 1, label: 'L1 Small', skip: ['spec', 'refine', 'investigate', 'spec-update'] },
+  { level: 0, label: 'L0 Tweak', skip: ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update', 'plan', 'test', 'review'] },
+  { level: 1, label: 'L1 Small', skip: ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update'] },
   { level: 2, label: 'L2 Standard', skip: ['refine'] },
   { level: 3, label: 'L3 Large', skip: [] },
 ] as unknown as LevelInfo[];
@@ -25,13 +25,13 @@ describe('quest track', () => {
 
   it('runs the stages this level runs, skipped ones hidden, the current stage’s crew member on it', () => {
     const l2 = questTrack(job('a', 'running', { level: 2, stage: 'implement' }), LEVELS)!;
-    expect(states(l2)).toEqual(['Spec:done', 'Investigate:done', 'Plan:done', 'Build:current', 'Test:next', 'Review:next', 'PR #1:next', ...SHIPPING]);
+    expect(states(l2)).toEqual(['Clarify:done', 'Spec:done', 'Screens:done', 'Investigate:done', 'Plan:done', 'Build:current', 'Test:next', 'Review:next', 'PR #1:next', ...SHIPPING]);
     expect(l2.who).toBe('feature-implementer');
     expect(l2.finished).toBe(false);
     const l0 = questTrack(job('a', 'running', { level: 0, stage: 'implement' }), LEVELS)!;
     expect(toPr1(l0)).toEqual(['Build:current', 'PR #1:next']);
     const l3 = questTrack(job('a', 'running', { level: 3, stage: 'review' }), LEVELS)!;
-    expect(l3.stops.map((s) => s.id)).toEqual(['spec', 'refine', 'investigate', 'plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3']);
+    expect(l3.stops.map((s) => s.id)).toEqual(['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3']);
     expect(l3.who).toBe('feature-reviewer');
     // Without meta.levels the dashboard's defaults apply.
     expect(toPr1(questTrack(job('a', 'running', { level: 1, stage: 'test' }))!)).toEqual(['Plan:done', 'Build:done', 'Test:current', 'Review:next', 'PR #1:next']);
@@ -50,7 +50,7 @@ describe('quest track', () => {
     expect(past.finished).toBe(true);
     expect(past.goal).toBe('pr1');
     expect(states(past).slice(-4)).toEqual(['PR #1:done', 'PR #2:current', 'Staging QA:next', 'PR #3:next']);
-    expect(past.stops.map((s) => s.goal)).toEqual([false, false, false, false, false, false, true, false, false, false]);
+    expect(past.stops.map((s) => s.goal)).toEqual([false, false, false, false, false, false, false, false, true, false, false, false]);
     expect(past.stops.filter((s) => s.after).map((s) => s.id)).toEqual(['pr2', 'staging-qa', 'pr3']);
     expect(past.stops.find((s) => s.here)!.id).toBe('pr2');
     expect(past.who).toBe('conductor');
@@ -91,7 +91,7 @@ describe('quest track', () => {
     const marked = questTrack(job('a', 'done', { level: 2, stage: 'plan', closed: { as: 'done' }, finish: { reached: true, at: '2026-10-21T12:00:00Z', by: 'marked', landed: null } }), LEVELS, undefined, 'marked')!;
     expect(marked.finished).toBe(true);
     expect(marked.stops.some((s) => s.goal || s.after)).toBe(false);
-    expect(states(marked).slice(0, 4)).toEqual(['Spec:done', 'Investigate:done', 'Plan:current', 'Build:next']);
+    expect(states(marked).slice(0, 6)).toEqual(['Clarify:done', 'Spec:done', 'Screens:done', 'Investigate:done', 'Plan:current', 'Build:next']);
     expect(marked.stops.find((s) => s.here)!.id).toBe('plan');
   });
 });

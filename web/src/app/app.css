@@ -1134,6 +1134,28 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .gate-chosen { margin-left: var(--space-1); border-color: var(--accent); color: var(--text-1); }
 .gate-card .gate-chips { margin-top: var(--space-2); padding-top: 0; border-top: 0; }
 .gate-decided-body { margin-top: var(--space-2); }
+/* A question's options: the consequence of each answer, one muted line under it (clarify briefs). */
+.answer-consequence { display: block; margin-top: 2px; font-size: var(--text-sm); }
+/* The wireframe gate: one row of screen chips above the questions, each a jump into the Screens tab. */
+.gate-screens { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin: 0 0 var(--space-3); }
+.gate-screens-label { margin-right: var(--space-1); font-size: var(--text-sm); }
+.gate-screen { height: 24px; padding: 0 var(--space-2); border-radius: var(--chip-radius); font-size: var(--text-sm); }
+.gate-screen-word { margin-left: var(--space-1); color: var(--text-2); font-weight: var(--weight-regular); }
+.gate-screens .link-button { font-size: var(--text-sm); }
+
+/* ---------- Preview pane: the Screens tab and the full-width view ---------- */
+
+.screens-tab { display: flex; flex-direction: column; gap: var(--space-2); min-height: 0; }
+.screens-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+.screens-current { color: var(--text-1); font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.screens-status { margin: 0; font-size: var(--text-sm); }
+.screens-frame { display: block; width: 100%; height: min(70vh, 900px); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-1); }
+.screens-frame:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.screens-view { display: flex; flex-direction: column; gap: var(--space-3); min-height: 0; padding: var(--space-3) var(--space-4) var(--space-4); }
+.screens-view-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.screens-view-title { margin: 0; }
+.screens-tab.is-full { flex: 1; min-height: 0; }
+.screens-tab.is-full .screens-frame { flex: 1; height: auto; min-height: 400px; }
 
 /* The Desk: three columns from 1200 px (queue · the item · decided today and the job). */
 .desk { grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); }

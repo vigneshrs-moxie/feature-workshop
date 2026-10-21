@@ -13,18 +13,18 @@ export const REVIEWERS: ReviewerInfo[] = [
 export const LEVELS: LevelInfo[] = [
   {
     level: 0, label: 'L0 Tweak', name: 'Tweak', flow: 'quick', hint: 'One build, then the checks (npm run check/build); you look at the diff. No plan to approve.',
-    models: { foreman: OPUS, build: SONNET, checks: SONNET }, skip: ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'test', 'review'], reviewers: [], manualTest: false, fable: [],
+    models: { foreman: OPUS, build: SONNET, checks: SONNET }, skip: ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update', 'plan', 'test', 'review'], reviewers: [], manualTest: false, fable: [],
   },
   {
-    level: 1, label: 'L1 Small', name: 'Small', flow: 'quick', hint: 'A quick plan you approve, then build, checks, you try it, one reviewer.',
-    models: { foreman: OPUS, build: OPUS, checks: OPUS }, skip: ['spec', 'refine', 'investigate', 'spec-update'], reviewers: ['feature-reviewer'], manualTest: true, fable: [],
+    level: 1, label: 'L1 Small', name: 'Small', flow: 'quick', hint: 'A quick plan you approve, then build, checks, you try it, one reviewer. Clarify questions and screens only when asked.',
+    models: { foreman: OPUS, build: OPUS, checks: OPUS }, skip: ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update'], reviewers: ['feature-reviewer'], manualTest: true, fable: [],
   },
   {
-    level: 2, label: 'L2 Standard', name: 'Standard', flow: 'small', hint: 'A short spec and plan you approve, build in steps, the tester, you try it, 3–4 reviewers.',
+    level: 2, label: 'L2 Standard', name: 'Standard', flow: 'small', hint: 'Clarify questions, a short spec, screens when it has them, a plan you approve, build in steps, the tester, you try it, 3–4 reviewers.',
     models: { foreman: OPUS, build: OPUS, checks: SONNET }, skip: ['refine'], reviewers: 'auto', manualTest: true, fable: [],
   },
   {
-    level: 3, label: 'L3 Large', name: 'Large', flow: 'large', hint: 'Spec, product interview, investigation, a plan you approve, build in steps, the tester, you try it, every reviewer plus Fable.',
+    level: 3, label: 'L3 Large', name: 'Large', flow: 'large', hint: 'Clarify questions, spec, product interview, screens when it has them, investigation, a plan you approve, build in steps, the tester, you try it, every reviewer plus Fable.',
     models: { foreman: OPUS, build: OPUS, checks: SONNET }, skip: [], reviewers: REVIEWERS.map((r) => r.id), manualTest: true, fable: ['plan', 'review'],
   },
 ];

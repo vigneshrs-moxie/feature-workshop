@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installKeyListener } from '../../app/keyRegistry';
+import { UiProvider } from '../../app/ui';
 import { ApiError, type ApiClient } from '../../api/client';
+import { clearWireframes, mountFrame, receive } from '../Preview/wireframes';
 import type { Gate, GateResult, Job, JobDetail, Run } from '../../api/types';
 import { gateDraftKey } from '../../lib/gateCard';
 import { writeStored } from '../../lib/stored';
@@ -38,18 +40,20 @@ const oneQ = (gate: Partial<Gate> = {}, extra: Partial<JobDetail> = {}) => detai
 const SENT: GateResult = { ok: true, sent: true, text: 'sent text' };
 const MODELS = [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }];
 
-function setup({ det = detail(), post = vi.fn(async (): Promise<unknown> => SENT), jobExtra = {}, composer = false, limited = false, run = null }: {
-  det?: JobDetail; post?: ReturnType<typeof vi.fn>; jobExtra?: Partial<Job>; composer?: boolean; limited?: boolean; run?: Run | null;
+function setup({ det = detail(), post = vi.fn(async (): Promise<unknown> => SENT), get = vi.fn(), jobExtra = {}, composer = false, limited = false, run = null }: {
+  det?: JobDetail; post?: ReturnType<typeof vi.fn>; get?: ReturnType<typeof vi.fn>; jobExtra?: Partial<Job>; composer?: boolean; limited?: boolean; run?: Run | null;
 } = {}) {
   const store: Store = createStore();
   const usage = { limited, blocking: limited, label: limited ? 'five-hour limit' : null, resetsAt: limited ? '2026-10-16T15:42:00.000Z' : null };
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS, models: MODELS, jobOptions: { reviewers: REVIEWERS } }, jobs: [job('alpha', 'needs-you', { level: 1, ...jobExtra })], usage }) });
-  const api = { get: vi.fn(), post } as unknown as ApiClient;
+  const api = { get, post } as unknown as ApiClient;
   const reload = vi.fn();
   const view = (d: JobDetail) => (
     <WorkshopContext.Provider value={{ store, api }}>
-      <GateSlot job={store.getState().jobs[0]} detail={d} now={new Date()} reload={reload} />
-      {composer && <Composer slug="alpha" detail={d} run={run} />}
+      <UiProvider>
+        <GateSlot job={store.getState().jobs[0]} detail={d} now={new Date()} reload={reload} />
+        {composer && <Composer slug="alpha" detail={d} run={run} />}
+      </UiProvider>
     </WorkshopContext.Provider>
   );
   const utils = render(view(det));
@@ -693,5 +697,89 @@ describe('the gate card’s keys', () => {
     expect(button('Other guidance')).toHaveAttribute('aria-expanded', 'true');
     fireEvent.keyDown(document.body, { key: 'e' });
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+});
+
+// ---------- Clarify (consequences) and the screens stage ----------
+
+describe('GateCard: clarify questions with consequences', () => {
+  beforeEach(disclosuresOpen);
+
+  it('shows each option’s consequence as one muted line under it, and nothing when there is none', () => {
+    const questions: Gate['questions'] = [{
+      id: '1', text: 'Which offices?', recommendation: 'a',
+      options: [
+        { id: 'a', label: 'Phoenix only', consequence: 'One office rule; ships this week' },
+        { id: 'b', label: 'All offices', consequence: 'Needs the scoping lens; L3' },
+        { id: 'c', label: 'Later' },
+      ],
+    }];
+    setup({ det: detail({ stage: 'clarify', nextStage: 'spec', headline: 'Three questions before the spec', questions }) });
+    const c = screen.getByRole('region', { name: 'Three questions before the spec' });
+    expect(c).toHaveTextContent('Brief 2 · Clarify');
+    const q = within(c).getByRole('group', { name: '1. Which offices?' });
+    const lines = [...q.querySelectorAll('.answer-consequence')];
+    expect(lines.map((l) => l.textContent)).toEqual(['One office rule; ships this week', 'Needs the scoping lens; L3']);
+    expect(lines[0]).toHaveClass('muted');
+    expect(lines[0]).toHaveAttribute('title', 'What changes if you pick this answer.');
+    expect(within(q).getByRole('radio', { name: /a\) Phoenix only/ })).toBeChecked();
+    expect(within(q).getByRole('radio', { name: /c\) Later/ }).closest('label')!.querySelector('.answer-consequence')).toBeNull();
+    // Approve names the next stage as any gate does.
+    expect(within(c).getByRole('button', { name: /^Approve/ })).toHaveTextContent('start Spec');
+  });
+});
+
+describe('GateCard: the screens stage', () => {
+  beforeEach(disclosuresOpen);
+  afterEach(() => { clearWireframes(); window.location.hash = ''; });
+
+  const WIREFRAMES_JSON = JSON.stringify({ version: 1, screens: [{ key: 's-list', name: 'The list', states: [] }], choices: [{ key: 'c-entry', question: 'Where the button goes', options: [] }] });
+  const screensGate = (): JobDetail => detail({ stage: 'wireframe', nextStage: 'investigate', headline: 'Wireframes v1 ready', questions: [QUESTIONS[0]] });
+  const row = () => screen.getByRole('group', { name: 'The screens' });
+
+  it('lists the screens from wireframes.json before the Screens tab has loaded the page; each chip opens the screens there', async () => {
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/job/alpha/doc?file=wireframes.json') return { file: 'wireframes.json', name: 'Wireframes data', type: 'json', html: '', text: WIREFRAMES_JSON };
+      throw new Error(`unexpected ${path}`);
+    });
+    setup({ det: screensGate(), get, jobExtra: { wireframes: { version: '1' } } });
+    const chips = await within(row()).findAllByRole('button', { name: /The list|Where the button goes/ });
+    expect(chips.map((b) => b.textContent)).toEqual(['The list', 'Where the button goes']);
+    expect(chips[1]).toHaveAttribute('title', expect.stringContaining('Design choice: Where the button goes'));
+    expect(within(row()).getByRole('button', { name: 'Review the screens' })).toBeInTheDocument();
+    // The questions (the picks, as the Foreman writes them) show as on any card.
+    expect(screen.getByRole('group', { name: '1. Keep the old column?' })).toBeInTheDocument();
+    // No Screens tab shows this job here (the Desk): the chip opens the full-width screens page.
+    fireEvent.click(chips[0]);
+    expect(window.location.hash).toBe('#/job/alpha/screens');
+  });
+
+  it('uses the page’s own report once it has posted: each chip says what you marked', async () => {
+    const get = vi.fn(async () => { throw new Error('not asked'); });
+    const unmount = mountFrame('alpha', () => null, () => {});
+    act(() => {
+      receive('alpha', { type: 'wireframes', version: '2', current: 's-list', screens: [
+        { key: 'overview', name: 'What this adds', kind: 'overview', status: '', choice: '' },
+        { key: 's-list', name: 'The list', kind: 'screen', status: 'fix', choice: '' },
+        { key: 'c-entry', name: 'Where the button goes', kind: 'choice', status: '', choice: 'A' },
+      ] });
+    });
+    setup({ det: screensGate(), get, jobExtra: { wireframes: { version: '2' } } });
+    expect(row()).toHaveTextContent('Screens v2:');
+    const chips = within(row()).getAllByRole('button', { name: /The list|Where the button goes/ });
+    expect(chips.map((b) => b.textContent)).toEqual(['The list· Needs change', 'Where the button goes· Pick A']);
+    expect(within(row()).queryByRole('button', { name: /What this adds/ }), 'the overview is not a screen').toBeNull();
+    expect(get).not.toHaveBeenCalled();
+    // A Screens tab shows the job: the chip stays on this page (the tab takes the request).
+    fireEvent.click(chips[0]);
+    expect(window.location.hash).toBe('');
+    unmount();
+  });
+
+  it('shows no row on a wireframe gate when the job has no page yet, nor on other stages', () => {
+    const { show } = setup({ det: screensGate(), get: vi.fn(async () => { throw new Error('not asked'); }) });
+    expect(screen.queryByRole('group', { name: 'The screens' })).toBeNull();
+    show(detail({ questions: [QUESTIONS[0]] }));
+    expect(screen.queryByRole('group', { name: 'The screens' })).toBeNull();
   });
 });

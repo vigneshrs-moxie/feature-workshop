@@ -56,9 +56,14 @@ describe('the crew roster', () => {
   });
 
   it('stands a crew member at every stage', () => {
-    for (const stage of ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3']) {
+    for (const stage of ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update', 'plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3']) {
       expect(CREW_TYPES).toContain(STAGE_CHARACTER[stage]);
     }
+    // The wireframer worker is drawn as the Painter; the crew stays 15.
+    expect(crewInfo('feature-wireframer').name).toBe('Painter');
+    expect(STAGE_CHARACTER.wireframe).toBe('feature-review-ui');
+    expect(STAGE_CHARACTER.clarify).toBe('conductor');
+    expect(CREW_TYPES).toHaveLength(15);
   });
 
   it('an unknown helper gets a plain look and its type as its name', () => {

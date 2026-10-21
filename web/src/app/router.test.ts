@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classicHref, hrefFor, jobHref, openFromHash, parseHash } from './router';
+import { classicHref, hrefFor, jobHref, openFromHash, parseHash, screensHref } from './router';
 
 describe('hash router', () => {
   it.each([
@@ -12,6 +12,11 @@ describe('hash router', () => {
     ['#/job/', { name: 'not-found', hash: '#/job/' }],
     ['#/job/a/b', { name: 'not-found', hash: '#/job/a/b' }],
     ['#/job/alpha/id/FR-001', { name: 'job', slug: 'alpha' }],
+    ['#/job/alpha/screens', { name: 'screens', slug: 'alpha' }],
+    ['#/job/alpha/screens/', { name: 'screens', slug: 'alpha' }],
+    ['#/job/alpha/screens?theme=glass', { name: 'screens', slug: 'alpha' }],
+    ['#/job/alpha/screens/x', { name: 'not-found', hash: '#/job/alpha/screens/x' }],
+    ['#/job/alpha/pictures', { name: 'not-found', hash: '#/job/alpha/pictures' }],
     ['#/job/%E0%A4%A', { name: 'not-found', hash: '#/job/%E0%A4%A' }],
     ['#/costs', { name: 'not-found', hash: '#/costs' }],
     ['#/settings', { name: 'settings' }],
@@ -48,6 +53,8 @@ describe('hash router', () => {
     expect(hrefFor({ name: 'settings' })).toBe('#/settings');
     expect(hrefFor({ name: 'settings', section: 'look' })).toBe('#/settings/look');
     expect(parseHash(hrefFor({ name: 'settings', section: 'play' }))).toEqual({ name: 'settings', section: 'play' });
+    expect(screensHref('a b')).toBe('#/job/a%20b/screens');
+    expect(parseHash(screensHref('a b'))).toEqual({ name: 'screens', slug: 'a b' });
     expect(hrefFor({ name: 'crew' })).toBe('#/crew');
     expect(hrefFor({ name: 'achievements' })).toBe('#/achievements');
     expect(hrefFor({ name: 'not-found', hash: '#/nowhere' })).toBe('#/nowhere');

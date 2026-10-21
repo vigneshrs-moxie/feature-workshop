@@ -111,18 +111,18 @@ describe('Level chip (job header)', () => {
   it('shows the level, with what runs and moving up or down in its hint and panel', async () => {
     const { post } = setup({ level: 2, suggestedLevel: 2 });
     const chip = screen.getByRole('button', { name: 'L2 Standard' });
-    expect(chip).toHaveAttribute('title', expect.stringContaining('A short spec and plan you approve'));
+    expect(chip).toHaveAttribute('title', expect.stringContaining('Clarify questions, a short spec, screens when it has them'));
     expect(chip).toHaveAttribute('title', expect.stringContaining('Up: L2→L3 adds: product interview'));
     expect(chip).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(chip);
     const pop = screen.getByRole('dialog', { name: 'This job’s level' });
     expect(pop).toHaveTextContent('Up: L2→L3 adds: product interview, Fable at plan + review, Fuse + Mason + Stopwatch + Painter lenses.');
-    expect(pop).toHaveTextContent('Down: L2→L1 drops: spec, investigation, spec update, tester, Locksmith + Gauge + Stickler lenses.');
+    expect(pop).toHaveTextContent('Down: L2→L1 drops: clarify questions, spec, screens, investigation, spec update, tester, Locksmith + Gauge + Stickler lenses.');
     expect(within(pop).getByRole('button', { name: '✓ L2 Standard (now)' })).toBeDisabled();
     expect(within(pop).getByRole('button', { name: 'Use L0 Tweak' })).toHaveFocus();
     await act(async () => { fireEvent.click(within(pop).getByRole('button', { name: 'Use L1 Small' })); });
     expect(post).toHaveBeenCalledWith('/api/job/alpha/options', { level: 1 });
-    expect(within(pop).getByRole('status')).toHaveTextContent('Level set to L1 Small, from the next stage. L2→L1 drops: spec, investigation, spec update, tester, Locksmith + Gauge + Stickler lenses.');
+    expect(within(pop).getByRole('status')).toHaveTextContent('Level set to L1 Small, from the next stage. L2→L1 drops: clarify questions, spec, screens, investigation, spec update, tester, Locksmith + Gauge + Stickler lenses.');
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(chip).toHaveFocus();

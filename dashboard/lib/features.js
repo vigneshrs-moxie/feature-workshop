@@ -11,6 +11,7 @@ import { estimateCost, calibrationFactors } from './cost.js';
 import { locateJob } from './locate.js';
 import { suggestLevel } from './levels.js';
 import { versionsFrom } from './gate.js';
+import { wireframesInfo } from './docs.js';
 
 const ARTIFACT_FILES = [
   ['Workflow status', 'workflow-status.md'],
@@ -302,6 +303,8 @@ async function readFeatureFolder(dir) {
   const options = await readOptions(dir);
 
   const gate = await gateFields(dir, status, briefs, waitingSince);
+  // The screens the wireframer drew (wireframes.html), with their version; null when there are none.
+  const wireframes = await wireframesInfo(dir, status?.artifacts?.length ? status.artifacts : ws?.artifacts ?? []);
   // The rules' level from the description alone (no git here: this runs for every job on every refresh).
   const description = options?.title ?? status?.title ?? ws?.title ?? slug;
 
@@ -335,6 +338,7 @@ async function readFeatureFolder(dir) {
     history: ws?.history ?? [],
     artifacts,
     recordedArtifacts: status?.artifacts?.length ? status.artifacts : ws?.artifacts ?? [],
+    wireframes,
     recordText, recordAt: wsStat?.mtime.toISOString() ?? null, statusSummary: status?.summary ?? null,
     statusRepo: status?.repo?.path ?? null, statusBranch: status?.branch ?? null, statusWorktree: status?.worktree ?? null,
     wsRepository: ws?.repository ?? null,

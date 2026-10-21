@@ -48,8 +48,8 @@ function versionsLine(status) {
 // job-options.md ("Option lines from the gate card") defines. This file is also served to the
 // browser on its own (/shared/compose.js), so the stage lists live here. KEEP IN STEP with
 // STAGES in stages.js and SKIPPABLE / FABLE_POINTS in options.js (a test checks it).
-export const CHIP_STAGES = ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'implement', 'test', 'review'];
-export const CHIP_SKIPPABLE = ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'test', 'review'];
+export const CHIP_STAGES = ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update', 'plan', 'implement', 'test', 'review'];
+export const CHIP_SKIPPABLE = ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update', 'plan', 'test', 'review'];
 export const CHIP_POINTS = ['spec', 'plan', 'review', 'pr'];
 export const CHIP_KINDS = ['skip', 'lighter', 'heavier', 'fable', 'self', 'level'];
 export const MAX_CHIPS = 8;

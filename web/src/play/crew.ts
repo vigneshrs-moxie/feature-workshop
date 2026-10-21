@@ -87,9 +87,12 @@ const BY_TYPE = new Map(CREW.map((c) => [c.type, c]));
 /** "#001" … "#015". */
 export const dexNumber = (n: number) => `#${String(n).padStart(3, '0')}`;
 
+/** Workers drawn by an existing character: the wireframer is the Painter (dashboard/lib/stages.js AGENT_ALIASES). */
+const ALIASES: Record<string, string> = { 'feature-wireframer': 'feature-review-ui' };
+
 /** A crew member by agent type; an unknown helper gets a plain look and its type as the name. */
 export function crewInfo(type: string | null | undefined): CrewInfo {
-  const known = type ? BY_TYPE.get(type) : undefined;
+  const known = type ? BY_TYPE.get(ALIASES[type] ?? type) : undefined;
   if (known) return known;
   return { type: type || 'unknown', number: 0, name: type || 'Helper', role: 'Other agent', hat: 'cap', tool: 'clipboard', bio: '', model: 'sonnet' };
 }
@@ -143,6 +146,8 @@ export function crewModelName(
 
 /** The character who stands at each stage. */
 export const STAGE_CHARACTER: Record<string, string> = {
+  // Clarify is the Foreman's own questions; the Painter (the ui lens) draws the screens.
+  clarify: 'conductor', wireframe: 'feature-review-ui',
   spec: 'feature-spec-writer', refine: 'feature-spec-writer', investigate: 'feature-investigator',
   'spec-update': 'feature-spec-writer', plan: 'feature-planner', implement: 'feature-implementer',
   test: 'feature-tester', review: 'feature-reviewer', pr1: 'conductor', pr2: 'conductor',

@@ -72,6 +72,8 @@ describe('stages', () => {
 
   it('puts every stage in one of the six themed families, in workflow order', () => {
     expect(stageFamily('spec')).toBe('spec');
+    expect(stageFamily('clarify'), 'the questions that shape the spec').toBe('spec');
+    expect(stageFamily('wireframe'), 'the screens that go into the spec').toBe('spec');
     expect(stageFamily('refine')).toBe('spec');
     expect(stageFamily('spec-update')).toBe('spec');
     expect(stageFamily('investigate')).toBe('investigate');

@@ -22,6 +22,7 @@ import { SettingsView } from '../views/Settings/SettingsView';
 import { CrewDexView } from '../views/CrewDex/CrewDexView';
 import { AchievementsView } from '../views/Achievements/AchievementsView';
 import { NotFoundView } from '../views/NotFound/NotFoundView';
+import { ScreensView } from '../views/Screens/ScreensView';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
 import { PlayToasts } from '../play/PlayToasts';
@@ -222,7 +223,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   const post = useMemo(() => (path: string, body: unknown) => api.post(path, body), [api]);
   useAlerts(state);
   usePresence(post);
-  const slug = route.name === 'job' ? route.slug : null;
+  const slug = route.name === 'job' || route.name === 'screens' ? route.slug : null;
   // The Crew-dex and Achievements are part of Play: with Play mode Off, #/crew and #/achievements show the same as #/.
   const crew = route.name === 'crew' && play.on;
   const achievements = route.name === 'achievements' && play.on;
@@ -249,14 +250,14 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       </div>
     );
   }
-  // Home (#/, #/table, #/desk): full width, no Jobs or Preview pane.
-  if (home) {
+  // Home (#/, #/table, #/desk) and a job's screens (#/job/<slug>/screens): full width, no Jobs or Preview pane.
+  if (home || route.name === 'screens') {
     return (
       <div className="app">
-        <TopBar onRetry={onRetry} slug={null} />
+        <TopBar onRetry={onRetry} slug={slug} />
         <div className="banner-slot"><UsageBanner /></div>
         <Sheets route={route} />
-        <HomeView view={home} />
+        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : <HomeView view={home ?? 'map'} />}
         <PlayToasts />
         <PlayEggs />
       </div>

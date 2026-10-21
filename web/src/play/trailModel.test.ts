@@ -69,7 +69,7 @@ describe('jobTrail', () => {
     const t = trail(job('a', 'running', { level: null, stage: 'spec' }));
     expect(t.stars).toBeNull();
     expect(t.difficulty).toBeNull();
-    expect(t.stops.map((s) => s.id)).toEqual(['spec', 'investigate', 'plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3']);
+    expect(t.stops.map((s) => s.id)).toEqual(['clarify', 'spec', 'wireframe', 'investigate', 'plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3']);
   });
 
   it('the finish line moves the goal flag and the “quest’s goal” words; the stops after it are still drawn', () => {

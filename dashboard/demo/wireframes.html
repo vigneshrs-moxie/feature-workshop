@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ticket tag filter wireframes (demo)</title>
+<!-- An invented wireframes page for the demo. It follows the feature-wireframe skill's contract with
+     the Feature Workshop (skills/feature-wireframe/SKILL.md, "Inside the Feature Workshop"): inside an
+     iframe it posts { type: "wireframes", version, current, screens } on load and on every change,
+     answers { type: "wireframes-goto", key } and { type: "wireframes-feedback" }, and keeps verdicts,
+     picks and notes in localStorage. Nothing here loads from the network. -->
+<style>
+  :root { color-scheme: light dark; --fg: #1d1d1f; --mute: #6b6b70; --line: #d9d9de; --bg: #f7f7f9; --card: #fff; --accent: #2a5bd7; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #ececf0; --mute: #9a9aa3; --line: #3a3a42; --bg: #16161a; --card: #1f1f25; --accent: #7aa2ff; } }
+  body { margin: 0; padding: 20px 24px 48px; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+  h1 { margin: 0; font-size: 18px; } h2 { margin: 0 0 6px; font-size: 16px; }
+  .meta { color: var(--mute); }
+  nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  nav a { padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg); text-decoration: none; font-size: 13px; }
+  nav a[aria-current="true"] { border-color: var(--accent); }
+  section { margin-bottom: 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .frame { padding: 12px; border: 1px dashed var(--line); border-radius: 8px; background: var(--bg); }
+  .bar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .bar span { padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+  .bar .on { border-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; } td, th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; }
+  .verdict { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+  button { font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); cursor: pointer; }
+  button[aria-pressed="true"] { border-color: var(--accent); font-weight: 600; }
+  textarea { width: 100%; box-sizing: border-box; margin-top: 8px; font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: var(--card); color: var(--fg); }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } .option h3 { margin: 0 0 6px; font-size: 14px; }
+  .rec { color: var(--accent); font-size: 12px; } ol.callouts { margin: 10px 0 0; padding-left: 20px; color: var(--mute); }
+  .copied { color: var(--mute); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ticket tag filter wireframes</h1>
+  <span class="meta">Low-fidelity wireframes for review before building · demo · v1</span>
+  <button id="copy" type="button" title="Copy your verdicts, picks and notes as text for the Foreman">Copy feedback</button>
+  <span id="copied" class="copied" role="status"></span>
+</header>
+<nav id="strip" aria-label="Sections"></nav>
+
+<section data-key="overview">
+  <h2>What this adds</h2>
+  <p>Office managers filter the tickets table by one or more tags. Starts on the Tickets page.</p>
+</section>
+
+<section data-key="s-filter" data-screen="Tickets with the tag filter">
+  <h2>Tickets with the tag filter</h2>
+  <div class="frame">
+    <div class="bar"><span>Status: Open</span><span class="on">Tags: Urgent, Billing</span><span>Office: Phoenix</span></div>
+    <table><tr><th>#</th><th>Title</th><th>Tags</th></tr><tr><td>1041</td><td>Invoice sent twice</td><td>Billing, Urgent</td></tr><tr><td>1038</td><td>Card declined on renewal</td><td>Billing</td></tr></table>
+  </div>
+  <ol class="callouts"><li>Tags combine with AND, like the other filters.</li><li>Clearing the chip shows every ticket again.</li></ol>
+</section>
+
+<section data-key="c-entry" data-choice>
+  <h2>Where the tag picker opens</h2>
+  <div class="pair">
+    <figure class="option" data-option="A" data-label="A chip in the filter bar"><h3>A · A chip in the filter bar <span class="rec">Recommended</span></h3><div class="frame"><div class="bar"><span>Status</span><span class="on">Tags ▾</span></div></div></figure>
+    <figure class="option" data-option="B" data-label="A column header menu"><h3>B · A column header menu</h3><div class="frame"><table><tr><th>Title</th><th>Tags ▾</th></tr></table></div></figure>
+  </div>
+</section>
+
+<section data-key="s-empty" data-screen="No tickets match">
+  <h2>No tickets match</h2>
+  <div class="frame"><p style="margin:0;color:var(--mute)">No tickets have all of these tags. <u>Clear the tag filter</u>.</p></div>
+  <ol class="callouts"><li>The empty state names the filter, so it is clear why the table is empty.</li></ol>
+</section>
+
+<section data-key="questions">
+  <h2>Questions to settle</h2>
+  <ul><li><b>Decide</b> Should the picked tags stay when you leave the page and come back?</li><li><b>Assumed</b> A ticket can have at most five tags.</li></ul>
+</section>
+
+<script>
+(() => {
+  const VERSION = "1";
+  const KEY = "wf-demo-ticket-tag-filter-notes:v" + VERSION;
+  const FRAMED = window.parent !== window;
+  const sections = [...document.querySelectorAll("section[data-key]")];
+  const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+  const state = lsGet(KEY, {});
+  for (const s of sections) state[s.dataset.key] = state[s.dataset.key] || { status: "", choice: "", text: "" };
+  const save = () => lsSet(KEY, state);
+  const title = (s) => s.querySelector("h2").textContent;
+  const kindOf = (s) => (s.dataset.key === "overview" ? "overview" : "screen" in s.dataset ? "screen" : "choice" in s.dataset ? "choice" : s.dataset.key === "questions" ? "questions" : "screen");
+  let current = sections[0];
+
+  function post() {
+    if (!FRAMED) return;
+    try {
+      window.parent.postMessage({
+        type: "wireframes", version: VERSION, current: current.dataset.key,
+        screens: sections.map((s) => ({ key: s.dataset.key, name: s.dataset.screen || title(s), kind: kindOf(s), status: state[s.dataset.key].status || "", choice: state[s.dataset.key].choice || "" })),
+      }, "*");
+    } catch {}
+  }
+
+  const strip = document.getElementById("strip");
+  for (const s of sections) {
+    const a = document.createElement("a");
+    a.href = "#" + s.dataset.key; a.textContent = s.dataset.screen || title(s); a.dataset.key = s.dataset.key;
+    a.addEventListener("click", (e) => { e.preventDefault(); go(s); });
+    strip.appendChild(a);
+  }
+  function markCurrent(s) {
+    const changed = s !== current; current = s;
+    strip.querySelectorAll("a").forEach((a) => a.setAttribute("aria-current", a.dataset.key === s.dataset.key ? "true" : "false"));
+    if (changed) post();
+  }
+  function go(s) { s.scrollIntoView({ block: "start" }); markCurrent(s); }
+
+  // Verdicts on screens, picks on choices, notes on both.
+  for (const s of sections) {
+    const kind = kindOf(s);
+    if (kind === "overview" || kind === "questions") continue;
+    const row = document.createElement("div"); row.className = "verdict";
+    const buttons = kind === "choice" ? [["A", "Pick A"], ["B", "Pick B"]] : [["good", "Good"], ["ask", "Question"], ["fix", "Needs change"]];
+    const field = kind === "choice" ? "choice" : "status";
+    for (const [value, label] of buttons) {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = label;
+      b.setAttribute("aria-pressed", String(state[s.dataset.key][field] === value));
+      b.addEventListener("click", () => {
+        state[s.dataset.key][field] = state[s.dataset.key][field] === value ? "" : value; save();
+        row.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x.textContent === label && state[s.dataset.key][field] === value)));
+        markCurrent(s); post();
+      });
+      row.appendChild(b);
+    }
+    const notes = document.createElement("textarea"); notes.rows = 2; notes.placeholder = "Notes for the Foreman"; notes.value = state[s.dataset.key].text || "";
+    notes.addEventListener("input", () => { state[s.dataset.key].text = notes.value; save(); });
+    s.appendChild(row); s.appendChild(notes);
+  }
+
+  const WORDS = { good: "good", ask: "question", fix: "needs change" };
+  function feedbackText() {
+    const lines = [];
+    for (const s of sections) {
+      const st = state[s.dataset.key]; const name = s.dataset.screen || title(s);
+      if (kindOf(s) === "choice" && st.choice) lines.push(`Pick ${st.choice} for ${s.dataset.key}${st.text ? ": " + st.text : ""}`);
+      else if (st.status) lines.push(`${s.dataset.key} (${name}): ${WORDS[st.status]}${st.text ? ": " + st.text : ""}`);
+      else if (st.text) lines.push(`${s.dataset.key} (${name}): ${st.text}`);
+    }
+    return lines.length ? `Wireframes v${VERSION} feedback\n` + lines.join("\n") : `Wireframes v${VERSION}: nothing marked yet`;
+  }
+  document.getElementById("copy").addEventListener("click", async () => {
+    const out = document.getElementById("copied");
+    try { await navigator.clipboard.writeText(feedbackText()); out.textContent = "Copied"; } catch { out.textContent = "Couldn’t copy; select the text yourself"; }
+  });
+
+  // Which section is in view.
+  if ("IntersectionObserver" in window) {
+    const seen = new IntersectionObserver((entries) => { for (const e of entries) if (e.isIntersecting) markCurrent(e.target); }, { rootMargin: "-40% 0px -50% 0px" });
+    sections.forEach((s) => seen.observe(s));
+  }
+
+  if (FRAMED) {
+    window.addEventListener("message", (e) => {
+      const m = e.data;
+      if (!m || typeof m !== "object") return;
+      if (m.type === "wireframes-goto") { const s = sections.find((x) => x.dataset.key === m.key); if (s) go(s); }
+      else if (m.type === "wireframes-feedback") { try { (e.source || window.parent).postMessage({ type: "wireframes-feedback", version: VERSION, text: feedbackText() }, "*"); } catch {} }
+    });
+    post();
+  }
+  markCurrent(current);
+})();
+</script>
+</body>
+</html>

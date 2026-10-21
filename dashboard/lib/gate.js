@@ -126,7 +126,8 @@ export function gateView(job, { brief = null, raisedVersions = null, parked = fa
     stage: job.stage ?? null,
     nextStage,
     nextProposed: job.nextProposed ?? null,
-    questions: (job.questions ?? []).slice(0, 3),
+    // Three questions, or five on a clarify brief (lib/status-json.js has the same limits).
+    questions: (job.questions ?? []).slice(0, job.stage === 'clarify' ? 5 : 3),
     decided: job.decided ?? [],
     versions,
     raisedVersions: raised,

@@ -58,6 +58,8 @@ export interface Job {
   finish?: JobFinish;
   /** The PR hand-offs waiting on someone (dashboard/lib/nudges.js): the Desk's nudge items (dashboards from before send none). */
   nudges?: Nudge[];
+  /** The screens the wireframer drew (wireframes.html in the job folder), with their version; null or missing when there are none. */
+  wireframes?: JobWireframes | null;
   [key: string]: unknown;
 }
 
@@ -98,18 +100,32 @@ export interface RulesLevel {
   changedFiles: number | null;
 }
 
+/** A job's wireframes page (GET /api/job/:slug/wireframes): its version as the records name it, and when it last changed. */
+export interface JobWireframes {
+  version: string | null;
+  updatedAt?: string | null;
+  size?: number;
+}
+
 /** Spec and artifact versions as status.json names them: { spec: '0.3', artifacts: { 'implementation-plan': '2' } }. */
 export interface Versions {
   spec: string | null;
   artifacts: Record<string, string | null>;
 }
 
-/** One of the Foreman's questions in its brief (status.json `questions`, at most three). */
+/** One answer to a question. `consequence`: one line on what changes if it is picked (always on a clarify brief). */
+export interface GateOption {
+  id: string;
+  label: string;
+  consequence?: string | null;
+}
+
+/** One of the Foreman's questions in its brief (status.json `questions`, at most three; five on a clarify brief). */
 export interface GateQuestion {
   id: string;
   text: string;
   recommendation: string | null;
-  options: { id: string; label: string }[];
+  options: GateOption[];
 }
 
 /** Something the Foreman decided on your behalf (status.json `decided_on_your_behalf`). */
@@ -880,9 +896,12 @@ export interface JobDoc {
 }
 
 /** The Docs tab's groups, in the order the dashboard lists them. */
-export type DocGroup = 'plan' | 'briefs' | 'review' | 'notes' | 'other';
+export type DocGroup = 'plan' | 'screens' | 'briefs' | 'review' | 'notes' | 'other';
 
-/** One entry of GET /api/job/:slug/docs. `file` is 'spec' for the product spec in the repository. */
+/**
+ * One entry of GET /api/job/:slug/docs. `file` is 'spec' for the product spec in the repository.
+ * Type 'html' is the wireframes page (wireframes.html), shown in the Screens tab, not as a document.
+ */
 export interface JobDocEntry {
   file: string;
   name: string;
@@ -890,7 +909,7 @@ export interface JobDocEntry {
   version: string | null;
   updatedAt: string | null;
   size: number;
-  type: 'md' | 'json';
+  type: 'md' | 'json' | 'html';
 }
 
 /** GET /api/job/:slug/docs: every document of the job, grouped. */

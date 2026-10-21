@@ -12,8 +12,10 @@ import { goalStop, questTrack, type QuestStop } from './extrasModel';
 
 /** What the crew member on each stage is doing there: "Builder is building". */
 const DOING: Record<string, string> = {
+  clarify: 'asking a few questions',
   spec: 'writing the spec',
   refine: 'refining the spec',
+  wireframe: 'drawing the screens',
   investigate: 'investigating the code',
   'spec-update': 'updating the spec',
   plan: 'drawing up the plan',
@@ -28,8 +30,10 @@ const DOING: Record<string, string> = {
 
 /** What happens at a stage, said of whoever stands there: "Tester runs the checks". */
 const DOES: Record<string, string> = {
+  clarify: 'asks a few questions',
   spec: 'writes the spec',
   refine: 'refines the spec',
+  wireframe: 'draws the screens',
   investigate: 'investigates the code',
   'spec-update': 'updates the spec',
   plan: 'draws up the plan',

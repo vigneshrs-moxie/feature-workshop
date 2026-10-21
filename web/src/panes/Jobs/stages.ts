@@ -2,8 +2,10 @@
 // dashboard sends only the id); keep the two in step. An unknown id is shown as it is.
 
 export const STAGE_INFO: Record<string, { label: string; tip: string }> = {
+  clarify: { label: 'Clarify', tip: 'A few questions before the spec, each with what your answer changes.' },
   spec: { label: 'Spec', tip: 'Writing down what the feature should do, in product terms.' },
   refine: { label: 'Refine', tip: 'A detailed product interview. Large features only.' },
+  wireframe: { label: 'Screens', tip: 'Drawing the feature’s screens from the spec, for you to review before anyone builds.' },
   investigate: { label: 'Investigate', tip: 'Reading the code to see how the feature fits. No changes.' },
   'spec-update': { label: 'Spec update', tip: 'Adjusting the spec because the code showed something new.' },
   plan: { label: 'Plan', tip: 'The step-by-step implementation plan and test plan.' },
@@ -31,8 +33,11 @@ export function stageHint(id: string | null | undefined): string {
 export type StageFamily = 'spec' | 'investigate' | 'plan' | 'build' | 'test' | 'review';
 
 const FAMILY: Record<string, StageFamily> = {
+  // Clarify and Screens shape the spec (the questions feed it, the agreed screens go into it).
+  clarify: 'spec',
   spec: 'spec',
   refine: 'spec',
+  wireframe: 'spec',
   'spec-update': 'spec',
   investigate: 'investigate',
   plan: 'plan',

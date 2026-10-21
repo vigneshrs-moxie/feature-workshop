@@ -3,6 +3,7 @@ import type { DocGroup, JobDocEntry } from '../../api/types';
 
 export const DOC_GROUPS: { id: DocGroup; label: string; hint: string }[] = [
   { id: 'plan', label: 'Plan & spec', hint: 'The product spec, the findings, and the plans the crew works from.' },
+  { id: 'screens', label: 'Screens', hint: 'The feature’s screens the Painter drew from the spec (the Screens tab shows the page), and what they hold as data.' },
   { id: 'briefs', label: 'Briefs', hint: 'The Foreman’s briefs to you, newest first.' },
   { id: 'review', label: 'Review', hint: 'The reviewers’ findings, the test report and Fable’s second looks.' },
   { id: 'notes', label: 'Notes', hint: 'Your notes for the Foreman and the job’s own records.' },

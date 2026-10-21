@@ -10,7 +10,7 @@ import { workflowSettings } from '../lib/state.js';
 
 test('job options: flows bring their defaults; your choices win', () => {
   const quick = normalize({ flow: 'quick' });
-  assert.deepEqual(quick.skip, ['spec', 'refine', 'investigate', 'spec-update']);
+  assert.deepEqual(quick.skip, ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update']);
   assert.deepEqual(quick.reviewers, ['feature-reviewer']);
   assert.equal(quick.manual_test, true);
   assert.deepEqual(normalize({ flow: 'large' }).fable_checks, ['plan', 'review'], 'large asks Fable for second looks; the Foreman stays Opus');
@@ -43,6 +43,23 @@ test('job options: screens and clarify follow the job’s own choice, else Setti
   assert.deepEqual(workflowSettings(undefined), { finishLine: 'pr1-merged', wireframes: 'auto', clarify: 'auto' });
 });
 
+test('job options: the clarify and wireframe stages follow their fields; L0 and L1 skip both by default', () => {
+  assert.ok(LEVELS[0].skip.includes('clarify') && LEVELS[0].skip.includes('wireframe'), 'L0 never runs them');
+  assert.ok(LEVELS[1].skip.includes('clarify') && LEVELS[1].skip.includes('wireframe'), 'L1 only when asked');
+  assert.ok(!LEVELS[2].skip.includes('clarify') && !LEVELS[2].skip.includes('wireframe') && !LEVELS[3].skip.includes('wireframe'), 'L2 and L3 run both');
+  // Always takes the stage out of the skip list (L1: asked for); Off puts it in (L2); Auto leaves the level's choice.
+  assert.deepEqual(normalize({ level: 1, wireframes: 'always', clarify: 'always' }).skip, ['spec', 'refine', 'investigate', 'spec-update']);
+  assert.deepEqual(normalize({ level: 2, wireframes: 'off', clarify: 'off' }).skip, ['clarify', 'refine', 'wireframe']);
+  assert.deepEqual(normalize({ level: 2 }).skip, ['refine']);
+  assert.deepEqual(normalize({ level: 1 }).skip, ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update']);
+  assert.ok(normalize({ level: 0, wireframes: 'always' }).skip.includes('wireframe'), 'never at L0, whatever the field says');
+  // The Settings → Workflow default for new jobs drives the stage the same way.
+  assert.deepEqual(normalize({ level: 1 }, { workflow: { wireframes: 'always', clarify: 'auto' } }).skip, ['clarify', 'spec', 'refine', 'investigate', 'spec-update']);
+  // The skip list and the levels' hints name them.
+  assert.ok(describeOptions(normalize({ level: 2, clarify: 'off' })).some((l) => l.includes('Clarify (questions before the spec)')));
+  assert.ok(LEVELS[2].hint.includes('Clarify') && LEVELS[2].hint.includes('screens'));
+});
+
 test('job options: documents you already have skip their stage and must exist', () => {
   const exists = (p) => p === '/plans/spec.md';
   const o = normalize({ flow: 'small', provided: { spec: '/plans/spec.md' } }, { exists });
@@ -54,7 +71,7 @@ test('job options: documents you already have skip their stage and must exist', 
 
 test('job options: skipped stages, the plain summary, and the file round trip', async () => {
   assert.deepEqual(skippedFor('small', null), ['refine']);
-  assert.deepEqual(skippedFor('quick', null).sort(), ['investigate', 'refine', 'spec', 'spec-update']);
+  assert.deepEqual(skippedFor('quick', null).sort(), ['clarify', 'investigate', 'refine', 'spec', 'spec-update', 'wireframe']);
   assert.deepEqual(skippedFor('large', { skip: ['review'] }), ['review']);
   const lines = describeOptions(defaultsFor('quick'));
   assert.equal(lines[0], 'Level: L1 Small (quick flow).');

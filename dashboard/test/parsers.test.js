@@ -8,7 +8,7 @@ import { parseWorkflowStatus } from '../lib/workflow-status.js';
 import { parseStatusJson } from '../lib/status-json.js';
 import { parseSessionLog, usageByModel, activityState, quietHint, describeTool, spendSince } from '../lib/session-log.js';
 import { estimateCost, tokensFromUsage, calibrationFactors, toCsv, modelFamily } from '../lib/cost.js';
-import { detectStage, detectState } from '../lib/stages.js';
+import { agentInfo, detectStage, detectState } from '../lib/stages.js';
 import { parseTable } from '../lib/markdown-tables.js';
 
 const FIX = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
@@ -74,6 +74,10 @@ test('stage and state detection', () => {
   assert.equal(detectStage('PR #2 waiting for Raj'), 'pr2');
   assert.equal(detectStage('test · in progress'), 'test');
   assert.equal(detectStage('nothing here'), null);
+  assert.equal(detectStage('Wireframes v2 ready for review'), 'wireframe');
+  assert.equal(detectStage('clarify · waiting for your answers'), 'clarify');
+  assert.deepEqual(agentInfo('feature-wireframer'), { name: 'Painter', role: 'Draws the feature’s screens (wireframes) from the spec', stage: 'wireframe' }, 'the wireframer is the Painter at the screens stage');
+  assert.equal(agentInfo('feature-review-ui').stage, 'review');
   assert.equal(detectState('presented for review'), 'waiting_for_you');
   assert.equal(detectState('implement · in progress'), 'working');
   assert.equal(detectState('stopped by request'), 'done');
@@ -86,6 +90,27 @@ test('markdown table with backticked pipes', () => {
 });
 
 // ---------- status.json ----------
+
+test('status.json: a clarify brief may ask five questions, each option with its consequence', () => {
+  const q = (i) => ({ id: String(i), text: `Question ${i}?`, recommendation: 'a', options: [
+    { id: 'a', label: 'Phoenix only', consequence: 'One office rule; ships this week' },
+    { id: 'b', label: 'All offices', consequence: 'Needs the scoping lens; L3' },
+    { id: 'c', label: 'Later' },
+  ] });
+  const base = { schema_version: 1, slug: 'x', title: 'X', stage_state: 'waiting_for_you', waiting_for: 'answers', questions: [1, 2, 3, 4, 5, 6].map(q) };
+  const clarify = parseStatusJson(JSON.stringify({ ...base, stage: 'clarify' }));
+  assert.equal(clarify.ok, true);
+  assert.equal(clarify.stage, 'clarify');
+  assert.equal(clarify.questions.length, 5, 'five on a clarify brief');
+  assert.deepEqual(clarify.questions[0].options.map((o) => o.consequence), ['One office rule; ships this week', 'Needs the scoping lens; L3', null]);
+  const spec = parseStatusJson(JSON.stringify({ ...base, stage: 'spec' }));
+  assert.equal(spec.questions.length, 3, 'three anywhere else');
+  assert.equal(parseStatusJson(JSON.stringify({ ...base, stage: 'wireframe' })).stage, 'wireframe', 'the screens stage is a known stage');
+  // A consequence that isn't a line of text is dropped, a long one is cut.
+  const odd = parseStatusJson(JSON.stringify({ ...base, stage: 'clarify', questions: [{ id: '1', text: 'Q', options: [{ id: 'a', label: 'A', consequence: 42 }, { id: 'b', label: 'B', consequence: 'x'.repeat(300) }] }] }));
+  assert.equal(odd.questions[0].options[0].consequence, null);
+  assert.equal(odd.questions[0].options[1].consequence.length, 200);
+});
 
 test('status.json: valid file, with limits and unsafe values cleaned', async () => {
   const s = parseStatusJson(await read('status-valid.json'));

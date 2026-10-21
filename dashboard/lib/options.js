@@ -38,7 +38,7 @@ export const FLOWS = {
   quick: {
     label: 'Quick', model: OPUS,
     note: 'Like doing it yourself in Claude Code: a short plan in the first reply, then build, checks, you try it, one reviewer, PR. No spec or plan documents.',
-    skip: ['spec', 'refine', 'investigate', 'spec-update'], reviewers: ['feature-reviewer'], fable: [], manualTest: true,
+    skip: ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update'], reviewers: ['feature-reviewer'], fable: [], manualTest: true,
   },
   small: {
     label: 'Small', model: OPUS,
@@ -58,7 +58,8 @@ export const FLOWS = {
 };
 
 export const SKIPPABLE = [
-  { id: 'spec', label: 'Spec' }, { id: 'refine', label: 'Refine (product interview)' }, { id: 'investigate', label: 'Investigate' },
+  { id: 'clarify', label: 'Clarify (questions before the spec)' }, { id: 'spec', label: 'Spec' }, { id: 'refine', label: 'Refine (product interview)' },
+  { id: 'wireframe', label: 'Screens (wireframes)' }, { id: 'investigate', label: 'Investigate' },
   { id: 'spec-update', label: 'Spec update' }, { id: 'plan', label: 'Plan' }, { id: 'test', label: 'Test (the crew’s checks)' }, { id: 'review', label: 'Review' },
 ];
 // Documents you can hand over instead of having the crew write them; each one skips its stage.
@@ -99,24 +100,24 @@ export const LEVELS = [
   {
     level: 0, name: 'Tweak', flow: 'quick',
     hint: 'One build, then the checks (npm run check/build); you look at the diff. No plan to approve.',
-    skip: ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'test', 'review'], reviewers: [], manualTest: false, fable: [],
+    skip: ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update', 'plan', 'test', 'review'], reviewers: [], manualTest: false, fable: [],
     models: { foreman: OPUS, build: SONNET, checks: SONNET },
   },
   {
     level: 1, name: 'Small', flow: 'quick',
-    hint: 'A quick plan you approve, then build, checks, you try it, one reviewer.',
-    skip: ['spec', 'refine', 'investigate', 'spec-update'], reviewers: ['feature-reviewer'], manualTest: true, fable: [],
+    hint: 'A quick plan you approve, then build, checks, you try it, one reviewer. Clarify questions and screens only when asked.',
+    skip: ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update'], reviewers: ['feature-reviewer'], manualTest: true, fable: [],
     models: { foreman: OPUS, build: OPUS, checks: OPUS },
   },
   {
     level: 2, name: 'Standard', flow: 'small',
-    hint: 'A short spec and plan you approve, build in steps, the tester, you try it, 3–4 reviewers.',
+    hint: 'Clarify questions, a short spec, screens when it has them, a plan you approve, build in steps, the tester, you try it, 3–4 reviewers.',
     skip: ['refine'], reviewers: 'auto', manualTest: true, fable: [],
     models: { foreman: OPUS, build: OPUS, checks: SONNET },
   },
   {
     level: 3, name: 'Large', flow: 'large',
-    hint: 'Spec, product interview, investigation, a plan you approve, build in steps, the tester, you try it, every reviewer plus Fable.',
+    hint: 'Clarify questions, spec, product interview, screens when it has them, investigation, a plan you approve, build in steps, the tester, you try it, every reviewer plus Fable.',
     skip: [], reviewers: ids(REVIEWERS), manualTest: true, fable: ['plan', 'review'],
     models: { foreman: OPUS, build: OPUS, checks: SONNET },
   },
@@ -222,6 +223,12 @@ export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previo
   // Screens (wireframes) and Clarify questions: the job's own choice, else what it had, else the
   // default for new jobs (Settings → Workflow), else Auto.
   for (const k of ['wireframes', 'clarify']) out[k] = workflowChoice(input[k]) ?? workflowChoice(previous?.[k]) ?? workflowChoice(workflow?.[k]) ?? 'auto';
+  // Their stages follow the field: Always takes the stage out of the skip list (never at L0: a tweak
+  // runs neither), Off puts it in; Auto leaves the level's choice as it is.
+  for (const [k, stage] of [['wireframes', 'wireframe'], ['clarify', 'clarify']]) {
+    if (out[k] === 'always' && out.level !== 0) out.skip = out.skip.filter((s) => s !== stage);
+    else if (out[k] === 'off' && !out.skip.includes(stage)) out.skip.push(stage);
+  }
   out.skip = ids(SKIPPABLE).filter((s) => out.skip.includes(s)); // workflow order
   return out;
 }

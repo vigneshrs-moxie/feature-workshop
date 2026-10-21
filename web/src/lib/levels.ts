@@ -51,7 +51,7 @@ export function floorNote(s: Pick<LevelSuggestion, 'floor' | 'triggers'> & { flo
  * stageWord).
  */
 export const STAGE_WORDS: Record<string, string> = {
-  spec: 'spec', refine: 'product interview', investigate: 'investigation', 'spec-update': 'spec update',
+  clarify: 'clarify questions', spec: 'spec', refine: 'product interview', wireframe: 'screens', investigate: 'investigation', 'spec-update': 'spec update',
   plan: 'plan', test: 'tester', review: 'review',
 };
 // Every level runs the checks (L0 in its build, L1 as its test stage, L2 up inside the tester), so
@@ -77,7 +77,7 @@ function lensesAt(info: LevelInfo): string[] {
 }
 
 /** Every stage in workflow order (dashboard/lib/stages.js), to leave out the ones a job has finished. */
-const WORKFLOW = ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3'];
+const WORKFLOW = ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update', 'plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3'];
 // The stage each Fable point belongs to ("pr": before PR #1 opens).
 const FABLE_STAGE: Record<string, string> = { spec: 'spec', plan: 'plan', review: 'review', pr: 'pr1' };
 

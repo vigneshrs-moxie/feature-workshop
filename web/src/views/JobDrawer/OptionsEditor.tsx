@@ -24,8 +24,10 @@ const ROLE_LABELS: Record<ModelRole, { label: string; hint: string }> = {
 };
 
 const STAGE_HINTS: Record<string, string> = {
+  clarify: 'The Foreman’s questions before the spec, each with what your answer changes. Off here, or set Clarify to Off above.',
   spec: 'The written product spec.',
   refine: 'A short product interview to settle open questions in the spec.',
+  wireframe: 'The feature’s screens, drawn from the spec for you to review before the plan. Off here, or set Screens to Off above.',
   investigate: 'A read-only look through the code before planning.',
   'spec-update': 'Updating the spec with what the investigation found.',
   plan: 'The written implementation plan. Skipping it never skips approval: a quick plan still comes to you.',

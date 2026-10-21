@@ -41,10 +41,18 @@ export interface Ui {
   docsRequest: number;
   docsFile: string | null;
   openDocs(file?: string): void;
+  /**
+   * Goes up by one each time something asks for the Preview pane's Screens tab (the wireframes
+   * page): the Docs list's Wireframes entry, the gate card's "Review the screens", or one of its
+   * screen chips (`screensKey`, the section the page should scroll to).
+   */
+  screensRequest: number;
+  screensKey: string | null;
+  openScreens(key?: string): void;
 }
 
 const noop = () => {};
-const NO_UI: Ui = { sheet: null, openSheet: noop, closeSheet: noop, current: null, setCurrent: noop, docsRequest: 0, docsFile: null, openDocs: noop };
+const NO_UI: Ui = { sheet: null, openSheet: noop, closeSheet: noop, current: null, setCurrent: noop, docsRequest: 0, docsFile: null, openDocs: noop, screensRequest: 0, screensKey: null, openScreens: noop };
 
 const UiContext = createContext<Ui>(NO_UI);
 
@@ -62,9 +70,11 @@ export function UiProvider({ children, initialSheet = null }: { children: ReactN
   const [docs, setDocs] = useState<{ n: number; file: string | null }>({ n: 0, file: null });
   // Only a string names a document (a click handler passed straight in hands over its event).
   const openDocs = useCallback((file?: unknown) => setDocs((d) => ({ n: d.n + 1, file: typeof file === 'string' && file ? file : null })), []);
+  const [screens, setScreens] = useState<{ n: number; key: string | null }>({ n: 0, key: null });
+  const openScreens = useCallback((key?: unknown) => setScreens((s) => ({ n: s.n + 1, key: typeof key === 'string' && key ? key : null })), []);
   const value = useMemo<Ui>(
-    () => ({ sheet, openSheet: setSheet, closeSheet, current, setCurrent, docsRequest: docs.n, docsFile: docs.file, openDocs }),
-    [sheet, closeSheet, current, setCurrent, docs, openDocs],
+    () => ({ sheet, openSheet: setSheet, closeSheet, current, setCurrent, docsRequest: docs.n, docsFile: docs.file, openDocs, screensRequest: screens.n, screensKey: screens.key, openScreens }),
+    [sheet, closeSheet, current, setCurrent, docs, openDocs, screens, openScreens],
   );
   return <UiContext.Provider value={value}>{children}</UiContext.Provider>;
 }

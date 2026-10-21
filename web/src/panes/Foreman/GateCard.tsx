@@ -15,8 +15,11 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
 import type { Gate, GateRequest, GateResult, Job, JobDetail } from '../../api/types';
-import { sendGate, stopRun } from '../../app/jobActions';
+import { loadJobDoc, sendGate, stopRun } from '../../app/jobActions';
 import { useKeyScope } from '../../app/keyRegistry';
+import { navigate } from '../../app/router';
+import { useUi } from '../../app/ui';
+import { reviewable, screensFromJson, screenWord, useFrameMounted, useWireframes, type WireframeScreen } from '../Preview/wireframes';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { InlineText } from '../../components/InlineText';
 import { Kbd } from '../../components/Kbd';
@@ -70,6 +73,50 @@ function openLevelChip() {
   if (!chip) return;
   chip.focus();
   if (chip.getAttribute('aria-expanded') !== 'true') chip.click();
+}
+
+/**
+ * The screens stage's card: one row of the page's sections (the screens and the design choices),
+ * each a jump to that section in the Screens tab, with what you marked there in a word once the page
+ * has reported ("Needs change", "Pick A"); before the Screens tab has loaded the page, the same list
+ * from wireframes.json (the skill writes it next to the page). "Review the screens" opens the tab.
+ * Where no Screens tab shows this job (the Desk), the chips open the full-width screens page.
+ */
+function ScreensRow({ slug, hasPage }: { slug: string; hasPage: boolean }) {
+  const { api } = useWorkshop();
+  const ui = useUi();
+  const report = useWireframes(slug);
+  const mounted = useFrameMounted(slug);
+  const [fromJson, setFromJson] = useState<WireframeScreen[] | null>(null);
+  useEffect(() => {
+    if (report || !hasPage) return;
+    let cancelled = false;
+    loadJobDoc(api, slug, 'wireframes.json').then(
+      (doc) => { if (!cancelled) setFromJson(screensFromJson(doc?.text ?? '')); },
+      () => { if (!cancelled) setFromJson([]); },
+    );
+    return () => { cancelled = true; };
+  }, [api, slug, hasPage, report !== null]);
+  const screens = reviewable(report?.screens ?? fromJson ?? []);
+  const open = (key?: string) => {
+    ui.openScreens(key);
+    if (!mounted) navigate({ name: 'screens', slug });
+  };
+  if (!hasPage) return null;
+  return (
+    <div className="gate-screens" role="group" aria-label="The screens">
+      <span className="muted gate-screens-label">Screens{report?.version ? ` v${report.version}` : ''}:</span>
+      {screens.map((s) => {
+        const word = screenWord(s);
+        return (
+          <button key={s.key} type="button" className="btn gate-screen" onClick={() => open(s.key)} title={`${s.kind === 'choice' ? 'Design choice' : 'Screen'}: ${s.name}. Open the Screens tab at this section${word ? ` (you marked it: ${word})` : ''}.`}>
+            {s.name}{word && <span className="gate-screen-word">· {word}</span>}
+          </button>
+        );
+      })}
+      <button type="button" className="link-button" onClick={() => open()} title="Open the Screens tab: review each screen on the page, pick the design choices, and Copy feedback puts your notes in your reply.">Review the screens</button>
+    </div>
+  );
 }
 
 export function GateSlot({ job, detail, now, reload }: { job: Job; detail: JobDetail; now: Date; reload(): void }) {
@@ -382,6 +429,8 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
         )}
       </header>
 
+      {gate.stage === 'wireframe' && <ScreensRow slug={slug} hasPage={Boolean(job.wireframes)} />}
+
       {gate.questions.map((q, i) => {
         const group = `${uid}-q${i}`;
         const otherId = `${group}-other`;
@@ -394,6 +443,7 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
                 <span className="answer-label">
                   {o.id}) <InlineText text={o.label} />
                   {o.id === q.recommendation && <> <span className="chip gate-rec">Recommended</span></>}
+                  {o.consequence && <span className="muted answer-consequence" title="What changes if you pick this answer."><InlineText text={o.consequence} /></span>}
                 </span>
               </label>
             ))}

@@ -1,8 +1,10 @@
 // The workflow's stages and worker characters, in one place.
 
 export const STAGES = [
+  { id: 'clarify', label: 'Clarify', tip: 'A few questions before the spec, each with what your answer changes.' },
   { id: 'spec', label: 'Spec', tip: 'Write down what the feature should do, in product terms.' },
   { id: 'refine', label: 'Refine', tip: 'A detailed product interview. Large features only.' },
+  { id: 'wireframe', label: 'Screens', tip: 'Draw the feature’s screens from the spec, for you to review before anyone builds.' },
   { id: 'investigate', label: 'Investigate', tip: 'Read the code to see how the feature fits. No changes.' },
   { id: 'spec-update', label: 'Spec update', tip: 'Adjust the spec when the code showed something new. Only when needed.' },
   { id: 'plan', label: 'Plan', tip: 'The step-by-step implementation plan and test plan.' },
@@ -36,7 +38,15 @@ export const AGENTS = {
   'feature-fable-check': { name: 'Oracle', role: 'Fable second look at one document or change', stage: null },
 };
 
+// Workers drawn by an existing character: the wireframer is the Painter at the screens stage (the
+// crew stays the same 15 members; lib/play.js CREW_TYPES and the Crew-dex count on that).
+export const AGENT_ALIASES = {
+  'feature-wireframer': { as: 'feature-review-ui', role: 'Draws the feature’s screens (wireframes) from the spec', stage: 'wireframe' },
+};
+
 export function agentInfo(agentType) {
+  const alias = AGENT_ALIASES[agentType];
+  if (alias) return { ...AGENTS[alias.as], role: alias.role, stage: alias.stage };
   return AGENTS[agentType] || { name: agentType || 'Helper', role: 'Other agent', stage: null };
 }
 
@@ -49,6 +59,8 @@ export function skippedStages(route) {
 // "Planning: complete, awaiting review" is the plan stage, not review.
 const STAGE_PATTERNS = [
   ['spec-update', /spec[\s-]update|post-investigation/i],
+  ['clarify', /\bclarify\b/i],
+  ['wireframe', /\bwireframes?\b/i],
   ['refine', /\brefine(ment)?\b/i],
   ['investigate', /\binvestigat/i],
   ['plan', /\bplan(ning)?\b/i],
