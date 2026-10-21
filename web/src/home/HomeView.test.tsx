@@ -205,7 +205,9 @@ describe('Home: the Desk', () => {
     const { post } = renderApp({ hash: '#/desk', permissions: perms });
     const queue = await screen.findByRole('navigation', { name: 'Waiting for your decision' });
     expect(within(queue).getAllByRole('button').map((b) => b.querySelector('.desk-item-what')?.textContent)).toEqual(['Run a command', 'Go-ahead on Plan', 'Push the branch']);
-    expect(screen.getByRole('link', { name: /Desk 3/ })).toHaveAttribute('href', '#/desk');
+    // The count is in the top bar; the Desk tab says it to screen readers only.
+    expect(screen.getByRole('link', { name: 'Desk, 3 waiting' })).toHaveAttribute('href', '#/desk');
+    expect(screen.getByRole('link', { name: 'Desk, 3 waiting' }).querySelector('.home-view-count')).toBeNull();
     fireEvent.keyDown(document.body, { key: 'a' });
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/permissions/p1', expect.objectContaining({ decision: 'allow' })));
     fireEvent.keyDown(document.body, { key: 'j' });

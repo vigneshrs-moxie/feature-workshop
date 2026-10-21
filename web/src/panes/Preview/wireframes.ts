@@ -169,15 +169,15 @@ function post(slug: string, message: object): boolean {
 }
 
 // ---------- The open-at-a-section request ----------
-// ui.openScreens(key) counts a request (ui.screensRequest); whichever Screens tab shows the page
-// takes it, once. Kept here, not per tab, so a tab mounted AFTER the request (the Desk's gate card
-// opens the full view, which mounts its tab then) still finds it waiting; a tab mounted later still
-// won't replay an old one.
+// ui.openScreens(slug, key) counts a request (ui.screensRequest) for one job (ui.screensSlug); the
+// Screens tab showing THAT job's page takes it, once. Kept here, not per tab, so a tab mounted AFTER
+// the request (the Desk's gate card opens the full view, which mounts its tab then) still finds it
+// waiting; a tab mounted later still won't replay an old one; a tab for another job leaves it.
 let takenRequest = 0;
 
-/** Whether request `n` (ui.screensRequest) is new: true once, for the first tab that asks. */
-export function takeScreensRequest(n: number): boolean {
-  if (n <= 0 || n === takenRequest) return false;
+/** Whether request `n` (ui.screensRequest), made for job `requestSlug`, is new for the tab showing `slug`: true once, for the first tab of that job that asks. */
+export function takeScreensRequest(n: number, requestSlug: string | null, slug: string): boolean {
+  if (n <= 0 || n === takenRequest || requestSlug !== slug) return false;
   takenRequest = n;
   return true;
 }

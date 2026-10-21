@@ -47,7 +47,7 @@ describe('theme picker and the hidden themes', () => {
     expect(screen.getAllByText('Unlocked')).toHaveLength(2);
   });
 
-  it('draws each theme as a swatch in its own tokens, the name under it, and marks the chosen one with a word and a ring', () => {
+  it('draws each theme as a swatch in its own tokens, the name under it, and marks the chosen one with a word and a ring; its description is the line under the grid, and every card’s title', () => {
     setup();
     const option = (id: string) => screen.getByRole('radio', { name: new RegExp(`^${id === 'default' ? 'Default' : 'Light glass'}`) }).closest('label')!;
     const swatch = option('default').querySelector('.theme-swatch')!;
@@ -57,12 +57,17 @@ describe('theme picker and the hidden themes', () => {
     expect(option('default')).toHaveClass('is-picked');
     expect(within(option('default')).getByText('Chosen')).toBeInTheDocument();
     expect(screen.getAllByText('Chosen')).toHaveLength(1);
+    // The description is not on the card (the grid is compact): it is the card's title, and the chosen one's line under the grid.
+    expect(option('light-glass')).toHaveAttribute('title', expect.stringMatching(/Frosted white panes/));
+    expect(within(option('light-glass')).queryByText(/Frosted white panes/)).toBeNull();
+    expect(screen.getByTestId('theme-chosen-line')).toHaveTextContent(/^Chosen: Default — The plain dark look/);
     fireEvent.click(screen.getByRole('radio', { name: /^Light glass/ }));
     expect(currentTheme()).toBe('light-glass');
     expect(option('light-glass')).toHaveClass('is-picked');
     expect(within(option('light-glass')).getByText('Chosen')).toBeInTheDocument();
     expect(option('default')).not.toHaveClass('is-picked');
-    expect(within(option('light-glass')).getByText(/Frosted white panes/)).toBeInTheDocument();
+    expect(screen.getByTestId('theme-chosen-line')).toHaveTextContent(/^Chosen: Light glass — Frosted white panes/);
+    expect(screen.getAllByText(/Frosted white panes/)).toHaveLength(1);
   });
 
   it('with Follow the system on, Chosen is the theme you picked, not the pair member on screen', () => {
@@ -70,7 +75,7 @@ describe('theme picker and the hidden themes', () => {
     localStorage.setItem(THEME_FOLLOW_KEY, 'on');
     setup();
     const option = (name: RegExp) => screen.getByRole('radio', { name }).closest('label')!;
-    const light = /^Light( Chosen)?The Default look/; // the radio's name: label, the Chosen mark, description
+    const light = /^Light( Chosen)?$/; // the radio's name: label and the Chosen mark (the description is the card's title)
     fireEvent.click(screen.getByRole('radio', { name: light }));
     // A dark system shows Default (Light's pair member) while Light is the choice.
     expect(currentTheme()).toBe('default');

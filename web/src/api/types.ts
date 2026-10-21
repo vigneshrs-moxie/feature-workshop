@@ -666,8 +666,8 @@ export interface Meta {
   demo?: boolean;
   /** How the dashboard's notifications reach macOS here; null where they can't (or in the demo). */
   notifyMethod?: 'terminal-notifier' | 'osascript' | null;
-  /** The origin a job's screens page is served from (its own, not the dashboard's): the Screens tab frames <origin>/job/<slug>/wireframes. */
-  wireframesOrigin?: string;
+  /** The origin a job's screens page is served from (its own, not the dashboard's): the Screens tab frames <origin>/job/<slug>/wireframes. Null when that server couldn't listen (its port was taken): the tab then frames nothing. */
+  wireframesOrigin?: string | null;
   /** The Foreman models you can choose, the everyday one first. */
   models?: ModelChoice[];
   settings?: Settings;

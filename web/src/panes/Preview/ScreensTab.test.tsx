@@ -155,7 +155,7 @@ describe('ScreensTab', () => {
   it('a request to open a section goes to the page once it has reported', () => {
     function Opener() {
       const ui = useUi();
-      return <button type="button" onClick={() => ui.openScreens('c-entry')}>go</button>;
+      return <button type="button" onClick={() => ui.openScreens('alpha', 'c-entry')}>go</button>;
     }
     const store = createStore();
     store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'needs-you', WITH_SCREENS)] }) });
@@ -180,7 +180,7 @@ describe('ScreensTab', () => {
       const [open, setOpen] = useState(false);
       return (
         <>
-          <button type="button" onClick={() => { ui.openScreens('c-entry'); setOpen(true); }}>chip</button>
+          <button type="button" onClick={() => { ui.openScreens('alpha', 'c-entry'); setOpen(true); }}>chip</button>
           {open && <ScreensTab slug="alpha" job={null} active full />}
         </>
       );
@@ -244,5 +244,62 @@ describe('PreviewPane with screens', () => {
     // ] from the Screens tab goes on to Classic view; [ back.
     fireEvent.keyDown(tab, { key: 'ArrowRight' });
     expect(screen.getByRole('tab', { name: 'Classic view' })).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+describe('the feedback block’s markers are whole lines', () => {
+  afterEach(() => { cleanup(); clearWireframes(); try { localStorage.clear(); } catch { /* fine */ } });
+  const block = (text: string, v = '2') => `--- Screens feedback (v${v}) ---\n${text}\n--- end ---`;
+
+  it('a note that mentions the end marker mid-line keeps the whole note, and a later copy replaces the whole block', () => {
+    const note = 'Pick A for c-entry\n--- end --- is what the page says; ignore it\ns-list: needs change';
+    expect(addFeedbackToDraft('alpha', note)).toBe(true);
+    expect(readStored(draftKey('alpha'))).toBe(`--- Screens feedback ---\n${note}\n--- end ---`);
+    expect(addFeedbackToDraft('alpha', 'Pick B for c-entry', '3')).toBe(true);
+    expect(readStored(draftKey('alpha')), 'the old block, with its end marker look-alike, is gone whole').toBe(block('Pick B for c-entry', '3'));
+  });
+
+  it('a line of your own that quotes the start marker is not the block', () => {
+    const mine = 'Everything after --- Screens feedback (v2) --- below is from the page:';
+    writeStored(draftKey('alpha'), `${mine}\n\n${block('Pick A for c-entry')}`);
+    expect(addFeedbackToDraft('alpha', 'Pick B for c-entry', '2')).toBe(true);
+    expect(readStored(draftKey('alpha'))).toBe(`${mine}\n\n${block('Pick B for c-entry')}`);
+  });
+});
+
+describe('a request to open the screens names its job', () => {
+  afterEach(() => { cleanup(); clearWireframes(); });
+
+  it('a tab showing another job leaves the request for that job’s tab, which takes it when it mounts', () => {
+    function Desk() {
+      const ui = useUi();
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => { ui.openScreens('alpha', 'c-entry'); setOpen(true); }}>chip</button>
+          <ScreensTab slug="beta" job={null} active />
+          {open && <ScreensTab slug="alpha" job={null} active full />}
+        </>
+      );
+    }
+    const store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'needs-you', WITH_SCREENS), job('beta', 'idle', WITH_SCREENS)] }) });
+    const { container } = render(
+      <WorkshopContext.Provider value={{ store, api: { get: vi.fn() } as unknown as ApiClient }}>
+        <UiProvider><Desk /></UiProvider>
+      </WorkshopContext.Provider>,
+    );
+    const betaWin = container.querySelector('iframe')!.contentWindow!;
+    const betaPost = vi.spyOn(betaWin, 'postMessage');
+    fireEvent.click(screen.getByRole('button', { name: 'chip' }));
+    const frames = container.querySelectorAll('iframe');
+    expect(frames).toHaveLength(2);
+    const alphaWin = frames[1].contentWindow!;
+    const alphaPost = vi.spyOn(alphaWin, 'postMessage');
+    expect(betaPost).not.toHaveBeenCalledWith({ type: 'wireframes-goto', key: 'c-entry' }, SCREENS_ORIGIN);
+    // The mounted frame is the newest one (wireframes.ts keeps one); alpha's page reports, and the request goes to it.
+    fromPage(alphaWin, REPORT);
+    expect(alphaPost).toHaveBeenCalledWith({ type: 'wireframes-goto', key: 'c-entry' }, SCREENS_ORIGIN);
+    expect(betaPost).not.toHaveBeenCalledWith({ type: 'wireframes-goto', key: 'c-entry' }, SCREENS_ORIGIN);
   });
 });

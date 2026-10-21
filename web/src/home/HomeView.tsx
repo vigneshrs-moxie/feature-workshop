@@ -7,7 +7,7 @@
 // beside it on a wide screen).
 // The map's tools line (and the Table's header) say when the branches and PRs were last read, and
 // Refresh reads them now.
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { hrefFor } from '../app/router';
 import { useUi } from '../app/ui';
 import { HowThisWorks } from '../components/HowThisWorks';
@@ -60,19 +60,22 @@ export function HomeView({ view }: { view: View }) {
   const repos = useMemo(() => mapRepos(flow, state.jobs, filter), [flow, state.jobs, filter]);
   const rows = useMemo(() => tableRows(state.jobs, flow, now), [state.jobs, flow, now]);
   const desk = useMemo(() => deskQueue(state.jobs, state.permissions), [state.jobs, state.permissions]);
-  // The count on the Desk tab: decisions plus the nudges before your finish line.
+  // How many wait on the Desk (decisions plus the nudges before your finish line): the top bar shows
+  // the number; the Desk tab here only says it to screen readers, so the count is on screen once.
   const deskCount = useMemo(() => deskEntries(desk, state.jobs).filter((e) => !isShipping(e)).length, [desk, state.jobs]);
   const read = flow?.fetchedAt ? `Branches and PRs read ${relativeTime(flow.fetchedAt, now)}` : 'Branches and PRs not read yet';
   const finishLine = state.meta?.settings?.workflow?.finishLine;
+  // One scroller for the three views: a switch (g d, the tabs) starts the next view at its top.
+  const pane = useRef<HTMLElement>(null);
+  useEffect(() => { if (pane.current) pane.current.scrollTop = 0; }, [view]);
 
   return (
-    <main className="home" aria-label="Home">
+    <main ref={pane} className="home" aria-label="Home">
       <header className="home-head">
         <nav className="home-views" aria-label="Views">
           {VIEWS.map((v) => (
-            <a key={v.id} className={`home-view${v.id === view ? ' is-on' : ''}`} href={hrefFor({ name: v.route })} aria-current={v.id === view ? 'page' : undefined} title={v.hint}>
+            <a key={v.id} className={`home-view${v.id === view ? ' is-on' : ''}`} href={hrefFor({ name: v.route })} aria-current={v.id === view ? 'page' : undefined} aria-label={v.id === 'desk' && deskCount > 0 ? `Desk, ${deskCount} waiting` : undefined} title={v.hint}>
               {v.label}
-              {v.id === 'desk' && deskCount > 0 && <span className="home-view-count" aria-label={`${deskCount} waiting`}>{deskCount}</span>}
             </a>
           ))}
         </nav>

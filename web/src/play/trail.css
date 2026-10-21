@@ -6,8 +6,10 @@
      --trail-road, --trail-road-done   the road between stops, before and after it is walked
      --trail-tree, --trail-trunk   the two trees at the ends (Full mode)
    Status is never colour alone: done stops carry a tick, the current one its crew member and a
-   bold name, the goal a flag, and the line under the field says it all in words. Nothing here
-   moves; the crew's own motion follows the Play mode, and stops under reduced motion. */
+   bold name, the goal a flag, and the line under the field says it all in words. Only some stops
+   show their name (JobTrail.tsx: .is-named; the rest, .is-quiet, keep it on hover and for screen
+   readers), and done stops sit closer together so the current region has room. Nothing here moves;
+   the crew's own motion follows the Play mode, and stops under reduced motion. */
 
 .job-trail {
   --trail-sky: color-mix(in srgb, var(--crew-c-blueprint) 10%, var(--bg-1));
@@ -55,7 +57,10 @@
 /* ---------- The road and its stops ---------- */
 
 .trail-path { position: relative; z-index: 1; display: flex; margin: 0; padding: 0; list-style: none; }
-.trail-stop { position: relative; display: flex; flex: 1 1 0; flex-direction: column; align-items: center; min-width: 0; }
+.trail-stop { position: relative; display: flex; flex: 1 1 0; flex-direction: column; align-items: center; min-width: 26px; }
+/* A named stop is never narrower than its name; the done stops before it sit closer together. */
+.trail-stop.is-named { flex: 1 1 auto; }
+.trail-stop.is-done.is-quiet { flex-grow: .8; }
 /* The road from the stop before. */
 .trail-stop::before {
   content: "";
@@ -90,7 +95,7 @@
 .trail-stop.is-current .trail-dot { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 .trail-stop.is-goal .trail-dot { border-radius: 5px; }
 /* After the finish line: the long tail that waits on other people, drawn smaller and quieter. */
-.trail-stop.is-after { flex-grow: .7; }
+.trail-stop.is-after.is-quiet { flex-grow: .7; }
 .trail-stop.is-after .trail-dot { width: 14px; height: 14px; margin-top: 3px; font-size: 9px; line-height: 10px; }
 .trail-stop.is-after::before { height: 3px; }
 .trail-stop.is-after .trail-label { color: var(--text-2); font-weight: var(--weight-regular); }
@@ -142,8 +147,9 @@
 .job-trail[data-group="idle"] .trail-lead { color: var(--group-idle-fg); }
 .trail-next { margin: 2px 0 0; color: var(--text-2); }
 
-/* A floor card, or a narrow pane: only the current stop and the goal show their names (the others
-   stay for screen readers, clipped out of sight). */
+/* A quiet stop (not the current one, the goal or the first after it), a floor card's other stops,
+   or a narrow pane: the name stays for screen readers, clipped out of sight; hover shows it (title). */
+.trail-stop.is-quiet .trail-label,
 .job-trail.is-card .trail-stop:not(.is-here, .is-goal) .trail-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @container (max-width: 520px) {
   .trail-stop:not(.is-here, .is-goal) .trail-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

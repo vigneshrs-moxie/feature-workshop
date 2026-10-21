@@ -65,8 +65,8 @@ export function PreviewPane({ slug }: { slug: string | null }) {
   useEffect(() => {
     if (ui.screensRequest === handledScreens.current) return;
     handledScreens.current = ui.screensRequest;
-    if (hasScreens) setTab('screens');
-  }, [ui.screensRequest, hasScreens]);
+    if (hasScreens && ui.screensSlug === slug) setTab('screens'); // a request for another job is that job's
+  }, [ui.screensRequest, ui.screensSlug, slug, hasScreens]);
 
   const stepTab = (by: 1 | -1, focus: boolean) => {
     const at = tabs.findIndex((t) => t.id === tab);

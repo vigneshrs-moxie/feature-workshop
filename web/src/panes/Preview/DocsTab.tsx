@@ -201,7 +201,7 @@ export function DocsTab({ slug, changedAt, focusRequest = 0, requestFile = null,
   const reload = useCallback(() => setTries((n) => n + 1), []);
   const pick = (f: string) => {
     // The wireframes page isn't a document: it opens in the Screens tab.
-    if (load.state === 'ready' && load.value.find((d) => d.file === f)?.type === 'html') { ui.openScreens(); return; }
+    if (load.state === 'ready' && load.value.find((d) => d.file === f)?.type === 'html') { ui.openScreens(slug); return; }
     lastPicked.current = f; setLinkHint(null); setFile(f);
   };
   const backToList = () => {

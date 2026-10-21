@@ -71,6 +71,10 @@ describe('the trail in the job header (Play on)', () => {
     const path = within(trail as HTMLElement).getByRole('list', { name: 'Stages: now at Review' });
     const stops = within(path).getAllByRole('listitem');
     expect(stops.map((s) => s.querySelector('.trail-label')!.textContent)).toEqual(['Clarify', 'Spec', 'Refine', 'Screens', 'Investigate', 'Plan', 'Build', 'Test', 'Review', 'PR #1', 'PR #2', 'Staging QA', 'PR #3']);
+    // Only the current stop, the goal and the first stop after it show their names; the rest keep theirs for hover and screen readers.
+    expect(stops.filter((s) => s.classList.contains('is-named')).map((s) => s.querySelector('.trail-label')!.textContent)).toEqual(['Review', 'PR #1', 'PR #2']);
+    expect(stops[0]).toHaveClass('is-quiet');
+    expect(stops[0]).toHaveAttribute('title', 'Clarify');
     // After the finish line (PR #1 by default): drawn smaller.
     expect(stops[10]).toHaveClass('is-after');
     expect(stops[9]).not.toHaveClass('is-after');

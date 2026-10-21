@@ -73,6 +73,20 @@ describe('quest track', () => {
     expect(states(waiting).slice(-5)).toEqual(['Review:done', 'PR #1:current', ...SHIPPING]);
     expect(waiting.who).toBe('conductor');
   });
+  it('names only the current stop, the goal and the first stop after it; the rest keep their name for hover and screen readers', () => {
+    const named = (t: ReturnType<typeof questTrack>) => t!.stops.filter((s) => s.named).map((s) => s.id);
+    expect(named(questTrack(job('a', 'running', { level: 3, stage: 'plan' }), LEVELS))).toEqual(['plan', 'pr1', 'pr2']);
+    expect(named(questTrack(job('a', 'running', { level: 3, stage: 'review' }), LEVELS, undefined, 'staging'))).toEqual(['review', 'pr2', 'staging-qa']);
+    // The last stop as the goal: nothing after it to name.
+    expect(named(questTrack(job('a', 'running', { level: 2, stage: 'implement' }), LEVELS, undefined, 'main'))).toEqual(['implement', 'pr3']);
+    // Finished at the goal: the Foreman stands there, so the goal and the next stop are the named ones.
+    expect(named(questTrack(job('a', 'running', { level: 2, stage: 'pr1', finish: { reached: true, at: null, by: 'pr1-merged', landed: null } }), LEVELS))).toEqual(['pr1', 'pr2']);
+    // No flag ("when I mark it done"): only the current stop.
+    expect(named(questTrack(job('a', 'running', { level: 2, stage: 'test' }), LEVELS, undefined, 'marked'))).toEqual(['test']);
+    // No stage yet: nothing is current, the goal and the stop after it still show.
+    expect(named(questTrack(job('a', 'idle', { level: 2 }), LEVELS))).toEqual(['pr1', 'pr2']);
+  });
+
   it('puts the goal flag on the stop the finish line names, and none for “when I mark it done”', () => {
     const at = (line: Parameters<typeof questTrack>[3]) => questTrack(job('a', 'running', { level: 2, stage: 'pr2' }), LEVELS, undefined, line)!;
     expect(at('pr1-open').goal).toBe('pr1');

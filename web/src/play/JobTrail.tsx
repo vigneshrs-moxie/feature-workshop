@@ -10,6 +10,11 @@
 //   variant 'card'    on a workshop-floor card: a smaller crew member, and only the current
 //                     stop and the goal keep their names
 //
+// Stop names: with up to 13 stops the path has no room for every name, so only the current stop
+// (where the crew member stands), the goal and the first stop after it show theirs (QuestStop.named,
+// extrasModel.ts); the rest are a dot with the name on hover (title) and for screen readers. Done
+// stops are drawn closer together than the ones still to come.
+//
 // Draws nothing with Play Off. Subtle holds the crew still; Full moves them (CrewMember follows the
 // mode); reduced motion holds every one still. Never inside a gate card, a permission card or the
 // composer.
@@ -37,9 +42,9 @@ export function JobTrail({ job, now, variant = 'header' }: { job: Job; now: Date
       <div className="trail-field">
         <ol className="trail-path" aria-label={`Stages${current ? `: now at ${current.label}` : trail.finished ? ': done' : ''}`}>
           {trail.stops.map((s) => {
-            const { goal, here } = s;
+            const { goal, here, named } = s;
             return (
-              <li key={s.id} className={`trail-stop is-${s.state}${goal ? ' is-goal' : ''}${s.after ? ' is-after' : ''}${here ? ' is-here' : ''}`} title={s.after ? `${s.label} (after the finish line)` : goal ? `${s.label} (the finish line)` : s.label}>
+              <li key={s.id} className={`trail-stop is-${s.state}${goal ? ' is-goal' : ''}${s.after ? ' is-after' : ''}${here ? ' is-here' : ''}${named ? ' is-named' : ' is-quiet'}`} title={s.after ? `${s.label} (after the finish line)` : goal ? `${s.label} (the finish line)` : s.label}>
                 {here && (
                   <span className="trail-who">
                     {trail.ask && <span className="trail-ask" aria-hidden="true">!</span>}

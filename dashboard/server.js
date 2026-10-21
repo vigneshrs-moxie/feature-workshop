@@ -55,6 +55,9 @@ const PORT = Number(process.env.PORT) || 4477;
 // storage or token however it was written. The web frames it from meta.wireframesOrigin.
 const WIREFRAMES_PORT = Number(process.env.WIREFRAMES_PORT) || PORT + 1;
 const WIREFRAMES_ORIGIN = `http://${HOST}:${WIREFRAMES_PORT}`;
+// Set when the screens server couldn't listen (its port is taken): meta then names no origin, so
+// the Screens tab frames nothing rather than whatever else answers on that port.
+let screensDown = false;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(HERE, 'public');
 // The new UI, built from web/ (npm run web:build), served at /next.
@@ -941,7 +944,8 @@ async function meta() {
     // How notifications reach macOS here (null: they can't, or the demo, which sends only the test).
     notifyMethod: DEMO ? null : await notifier.method(),
     // Where a job's screens page is served from (its own origin): the Screens tab frames <origin>/job/<slug>/wireframes.
-    wireframesOrigin: WIREFRAMES_ORIGIN,
+    // null when that server couldn't listen (screensDown): the tab then shows nothing and says so.
+    wireframesOrigin: screensDown ? null : WIREFRAMES_ORIGIN,
     settings: await state.getSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT },
     // The finish line's choices (lib/finish.js), with their words, for Settings → Workflow.
     finishLines: FINISH_LINES.map((id) => ({ id, ...FINISH_LINE_INFO[id] })),
@@ -1189,9 +1193,12 @@ async function routePost(urlPath, req, res) {
     // A hand-off nudge on the Desk (lib/nudges.js). dismiss: remembered for this job, so it isn't
     // shown again. yes: the nudge's one sentence goes to the job's Foreman exactly as a message from
     // the box does (sendPlan, startSend), audited as a 'send' of kind 'nudge' plus a 'nudge' line.
-    // The id is remembered as sent (sentNudges, in the same record) before the message goes: the
-    // nudge's source is the PR state, which changes only once the Foreman has done the work, so
-    // without that it would come straight back and a second yes would send the sentence again.
+    // The id is remembered as sent (sentNudges, in the same record) once the message has started:
+    // the nudge's source is the PR state, which changes only once the Foreman has done the work, so
+    // without that it would come straight back and a second yes would send the sentence again. Not
+    // before: a start that fails (Busy: a reply began in between; a spawn failure) would otherwise
+    // leave the nudge marked sent, with nothing sent and no audit. A reply that ends in error never
+    // delivered it either, so the id is dropped again then (nudgeRuns, below the 'run' listener).
     const f = await featureBySlug(m[1]);
     if (!f) throw new HttpError(404, 'No job by that name.');
     const id = m[2];
@@ -1211,9 +1218,12 @@ async function routePost(urlPath, req, res) {
     if (!nudge.action) throw new HttpError(400, 'That nudge is a link to GitHub; there is nothing to send.');
     const drive = await driveState(f);
     const out = sendPlan(f, drive, body, nudge.action.send);
-    await state.setSession(f.dir, { sentNudges: [...listOf('sentNudges'), id] });
-    cached = null;
     const run = await startSend(f, out, { kind: 'nudge' });
+    const tracked = { featureDir: f.dir, nudge: id, failed: false };
+    nudgeRuns.set(run.id, tracked);
+    await state.setSession(f.dir, { sentNudges: [...new Set([...listOf('sentNudges'), id])] });
+    cached = null;
+    if (tracked.failed) await unsendNudge(f.dir, id); // the reply already ended in error (a spawn failure): not sent after all
     await state.audit({ action: 'nudge', featureDir: f.dir, slug: f.slug, nudge: id, text: nudge.action.send, runId: run.id });
     return sendJson(res, 200, { ok: true, sent: true, text: nudge.action.send, run });
   }
@@ -1653,6 +1663,26 @@ function notifyChange() {
   changeTimer = setTimeout(() => { cached = null; broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); flowJobsChanged(); checkWaiting().catch(() => {}); }, 700);
 }
 driver.on('run', (run) => { cached = null; broadcast('run', run); events.emit('run', run.slug, run); });
+// Nudges on their way to the Foreman (run id -> the job's folder and the nudge id; the nudge route).
+// A nudge reply that ends in error never delivered its sentence, so the id leaves sentNudges and
+// the nudge comes back on the Desk.
+const nudgeRuns = new Map();
+async function unsendNudge(featureDir, id) {
+  const saved = await state.sessionFor(featureDir);
+  const sent = Array.isArray(saved?.sentNudges) ? saved.sentNudges : [];
+  if (!sent.includes(id)) return;
+  await state.setSession(featureDir, { sentNudges: sent.filter((x) => x !== id) });
+  cached = null;
+  broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() });
+}
+driver.on('run', (run) => {
+  const tracked = run.kind === 'nudge' ? nudgeRuns.get(run.id) : null;
+  if (!tracked || ACTIVE_RUN.has(run.status)) return;
+  nudgeRuns.delete(run.id);
+  if (run.status !== 'error') return;
+  tracked.failed = true;
+  unsendNudge(tracked.featureDir, tracked.nudge).catch((err) => console.error('nudge:', err));
+});
 
 // ---------- The flow map (Home): where each job's work is on its way to main (lib/flow.js) ----------
 
@@ -1905,8 +1935,16 @@ server.listen(PORT, HOST, () => {
   // What waits for you now: later changes are told as notifications, these never are.
   checkWaiting().catch(() => {});
 });
-// The screens server starts with the dashboard (its own origin; see WIREFRAMES_PORT).
-screensServer.on('error', (err) => { console.error(`screens server (${WIREFRAMES_ORIGIN}):`, err.message); });
+// The screens server starts with the dashboard (its own origin; see WIREFRAMES_PORT). When it can't
+// listen (the port is taken), the dashboard runs without it: meta.wireframesOrigin is null, and the
+// 'change' event makes open pages fetch a fresh snapshot (with that meta) so their Screens tab stops
+// framing the port.
+screensServer.on('error', (err) => {
+  screensDown = true;
+  console.error(`screens server: couldn’t listen at ${WIREFRAMES_ORIGIN} (${err.code ?? err.message}); the Screens tab is off. Set WIREFRAMES_PORT to a free port and restart.`);
+  cached = null;
+  notifyChange();
+});
 screensServer.listen(WIREFRAMES_PORT, HOST, () => {
   console.log(`  screens:  ${WIREFRAMES_ORIGIN} (a job’s wireframes page, framed by the dashboard)`);
 });

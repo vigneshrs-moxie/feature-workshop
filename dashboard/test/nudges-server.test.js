@@ -48,6 +48,16 @@ before(async () => {
   await job('pr2-job', pr2);
   await job('pr2-other', pr2);
   await job('plain-job', { stage: 'plan', stage_state: 'working' });
+  // For the Busy test: two jobs whose records name the same Foreman session (sessions.json, which
+  // the dashboard keeps), so a reply on one makes the driver refuse a start on the other.
+  await job('pr2-busy', pr2);
+  await job('pr2-busy-other', pr2);
+  await fs.writeFile(path.join(dirs.state, 'sessions.json'), JSON.stringify({
+    [path.join(featuresDir, 'pr2-busy')]: { sessionId: 'demo-shared-session' },
+    [path.join(featuresDir, 'pr2-busy-other')]: { sessionId: 'demo-shared-session' },
+  }));
+  // For the error test: its folder is made read-only once the dashboard runs, so the reply fails.
+  await job('pr2-error', pr2);
 
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
@@ -152,4 +162,61 @@ test('server: yes sends the nudge’s sentence to the Foreman as a message, audi
   const record = Object.entries(sessions).find(([dir]) => dir.endsWith('pr2-other'))?.[1];
   assert.deepEqual(record?.sentNudges, ['pr2-review'], 'kept in the job’s session record, apart from the dismissed ones');
   assert.equal(record?.dismissedNudges, undefined);
+});
+
+const ACTIVE = ['starting', 'running', 'waiting_permission', 'stopping'];
+const sentNudgesOf = async (slug) => {
+  const sessions = JSON.parse(await fs.readFile(path.join(root, 'state', 'sessions.json'), 'utf8'));
+  return Object.entries(sessions).find(([dir]) => dir.endsWith(`/${slug}`))?.[1]?.sentNudges ?? [];
+};
+
+test('server: yes marks the nudge sent only once its message has started: a Busy Foreman leaves it unsent (409, nothing audited, still on the card)', async () => {
+  // pr2-busy and pr2-busy-other share a Foreman session (seeded above). A reply on the other job is
+  // active in that session, which this job's drive state doesn't see (it looks at the job's own runs),
+  // so the send plan passes and the driver refuses to start the run: Busy, as when a reply begins
+  // between the check and the start.
+  const started = await post('/api/job/pr2-busy-other/send', { text: 'go' });
+  assert.equal(started.status, 200, JSON.stringify(started.body));
+  try {
+    const r = await post('/api/job/pr2-busy/nudge/pr2-review/yes');
+    assert.equal(r.status, 409, JSON.stringify(r.body));
+    assert.match(r.body.error, /already working on a reply/);
+    assert.deepEqual(await sentNudgesOf('pr2-busy'), [], 'not marked sent');
+    assert.equal((await cardOf('pr2-busy')).nudges.length, 1, 'still on the card');
+    const detail = await get('/api/job/pr2-busy');
+    assert.ok(!detail.audit.some((e) => e.action === 'nudge'), 'nothing audited as sent');
+    assert.ok(!detail.audit.some((e) => e.action === 'send'), 'no send line either');
+  } finally {
+    await post(`/api/runs/${started.body.run.id}/stop`);
+  }
+});
+
+test('server: a nudge whose reply ends in error comes back: its id leaves sentNudges, the attempt stays in the audit', async () => {
+  const dir = path.join(root, 'feature-work', 'pr2-error');
+  // Nothing in the job's folder can be written, so the pretend Foreman's first write fails and the reply ends in error.
+  await fs.chmod(path.join(dir, 'status.json'), 0o444);
+  await fs.chmod(path.join(dir, 'briefs'), 0o555);
+  await fs.chmod(dir, 0o555);
+  try {
+    const r = await post('/api/job/pr2-error/nudge/pr2-review/yes');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(await sentNudgesOf('pr2-error'), ['pr2-review'], 'marked sent once the reply started');
+    assert.deepEqual((await cardOf('pr2-error')).nudges, [], 'gone from the card meanwhile');
+    // Let the pretend Foreman through its questions; its write then fails.
+    const ended = await waitFor(async () => {
+      const { runs, permissions } = await get('/api/runs');
+      for (const p of permissions.filter((x) => x.slug === 'pr2-error')) await post(`/api/permissions/${p.id}`, { decision: 'allow' });
+      const run = runs.find((x) => x.id === r.body.run.id);
+      return run && !ACTIVE.includes(run.status) ? run : null;
+    }, 'the reply to end', 30000);
+    assert.equal(ended.status, 'error', JSON.stringify(ended));
+    await waitFor(async () => !(await sentNudgesOf('pr2-error')).includes('pr2-review'), 'the nudge to be unmarked');
+    assert.equal((await cardOf('pr2-error')).nudges.length, 1, 'back on the card');
+    const detail = await get('/api/job/pr2-error');
+    assert.equal(detail.audit.filter((e) => e.action === 'nudge').length, 1, 'the attempt is on record');
+  } finally {
+    await fs.chmod(dir, 0o755);
+    await fs.chmod(path.join(dir, 'briefs'), 0o755);
+    await fs.chmod(path.join(dir, 'status.json'), 0o644);
+  }
 });

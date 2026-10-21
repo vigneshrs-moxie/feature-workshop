@@ -47,6 +47,12 @@ export interface QuestStop {
   after: boolean;
   /** The crew member stands here. */
   here: boolean;
+  /**
+   * The stop's name is shown on the trail: the current stop, the one the crew member stands on, the
+   * goal and the first stop after it. The others keep their name for hover and screen readers only,
+   * so a long path (up to 13 stops) stays readable in the job header.
+   */
+  named: boolean;
 }
 
 export interface QuestTrack {
@@ -93,11 +99,16 @@ export function questTrack(job: Job, levels?: LevelInfo[] | null, done?: boolean
   // Finished and not yet past the goal: the Foreman stands at the goal, every stop up to it passed.
   const atGoal = finished && goalAt >= 0 && at <= goalAt;
   const here = atGoal ? goalAt : at;
-  const stops = ids.map((id, i): QuestStop => ({
-    id, label: stageLabel(id),
-    state: atGoal ? (i <= goalAt ? 'done' : 'next') : at >= 0 && i < at ? 'done' : i === at ? (finished && goalAt < 0 && !stage ? 'done' : 'current') : 'next',
-    goal: i === goalAt, after: goalAt >= 0 && i > goalAt, here: i === here && here >= 0,
-  }));
+  const stops = ids.map((id, i): QuestStop => {
+    const state: StopState = atGoal ? (i <= goalAt ? 'done' : 'next') : at >= 0 && i < at ? 'done' : i === at ? (finished && goalAt < 0 && !stage ? 'done' : 'current') : 'next';
+    const isHere = i === here && here >= 0;
+    const isGoal = i === goalAt;
+    return {
+      id, label: stageLabel(id), state,
+      goal: isGoal, after: goalAt >= 0 && i > goalAt, here: isHere,
+      named: isHere || state === 'current' || isGoal || (goalAt >= 0 && i === goalAt + 1),
+    };
+  });
   const who = atGoal ? 'conductor' : at >= 0 && stage ? STAGE_CHARACTER[stage] ?? 'conductor' : finished ? 'conductor' : null;
   return { level, stars: difficultyStars(level), difficulty: `Difficulty: ${levelLabel(level, levels)}`, stops, who, finished, goal };
 }

@@ -1,8 +1,9 @@
-// The theme picker in Settings → Look: a swatch grid, one radio per theme (theme/theme.ts) in two
-// groups, Dark and Light. Each swatch is drawn from its own theme's tokens (data-theme on the swatch,
-// theme/swatches.css), the name sits under it, and the chosen one is marked with a ring and the word
-// "Chosen". A pick applies as you click and is remembered in this browser. Only looks change; every
-// pane, button and key stays where it is.
+// The theme picker in Settings → Look: a compact swatch grid, one radio per theme (theme/theme.ts)
+// in two groups, Dark and Light. Each swatch is drawn from its own theme's tokens (data-theme on the
+// swatch, theme/swatches.css), the name sits under it, and the chosen one is marked with a ring and
+// the word "Chosen". Each theme's description is the card's title (hover) and, for the chosen one,
+// the line under the grid. A pick applies as you click and is remembered in this browser. Only looks
+// change; every pane, button and key stays where it is.
 // A pick is also told to the dashboard's play ledger (POST /api/play/event, for the Explorer
 // achievement) unless Play mode is Off; that never gets in the way of the pick itself.
 // The hidden themes (CRT Terminal, Gold) are listed only once the play ledger has unlocked them,
@@ -39,6 +40,7 @@ export function ThemePicker() {
   // system shows Default while Light is the choice (and stays marked).
   const theme = useChosenTheme();
   const themes = useAvailableThemes();
+  const chosen = themes.find((t) => t.id === theme) ?? null;
   const { api } = useWorkshop();
   const { meta } = useWorkshopState();
   const playOff = playOf(meta?.settings).mode === 'off';
@@ -62,7 +64,6 @@ export function ThemePicker() {
             {t.id === 'default' && <span className="chip">Default</span>}
             {t.unlock && <span className="chip theme-unlocked" title="A hidden theme you unlocked by playing.">Unlocked</span>}
           </span>
-          <span className="muted theme-description">{t.description}</span>
         </span>
       </label>
     );
@@ -84,6 +85,11 @@ export function ThemePicker() {
           );
         })}
       </fieldset>
+      {chosen && (
+        <p className="muted theme-description" data-testid="theme-chosen-line">
+          <span className="theme-chosen">Chosen:</span> {chosen.label} — {chosen.description}
+        </p>
+      )}
     </section>
   );
 }

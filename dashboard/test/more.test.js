@@ -60,6 +60,19 @@ test('state: remembers sessions, takeovers and the last reply per job', async ()
   assert.equal((await state.auditFor('/f/a')).length, 2);
 });
 
+test('state: writes to one file at the same moment all land (no shared temp file), and the file holds the last picture', async () => {
+  const state = new State(await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-state-')));
+  // A route and a run's first message patch sessions.json together: neither write may fail.
+  await Promise.all([
+    state.setSession('/f/a', { sentNudges: ['pr2-review'] }),
+    state.setSession('/f/a', { sessionId: 's1', cwd: '/r' }),
+    state.setSession('/f/b', { sessionId: 's2' }),
+  ]);
+  const again = new State(state.dir);
+  assert.deepEqual([(await again.sessionFor('/f/a')).sentNudges, (await again.sessionFor('/f/a')).sessionId, (await again.sessionFor('/f/b')).sessionId], [['pr2-review'], 's1', 's2']);
+  assert.deepEqual((await fs.readdir(state.dir)).filter((n) => n.endsWith('.tmp')), [], 'no temp file left behind');
+});
+
 test('demo: the pretend Foreman asks once, then moves the job to its next stage', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-demo-'));
   const dir = path.join(root, 'feature-work', 'widget');

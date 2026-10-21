@@ -3,6 +3,7 @@
 //   audit.jsonl    everything sent or decided from the browser, with the exact words
 // Default folder: ~/.feature-workshop (WORKSHOP_STATE_DIR overrides it).
 
+import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -57,20 +58,35 @@ export class State extends EventEmitter {
     await fs.mkdir(this.dir, { recursive: true, mode: 0o700 });
   }
 
+  // Writes to one file go one after another, each through its own temp file. Two at once (a
+  // route and a run's first message both patching sessions.json) would otherwise write and rename
+  // the same temp file, and the second rename would fail (ENOENT) and end the run in error.
+  #writing = new Map();
   async #writeJson(file, data) {
-    await this.#ensure();
-    const tmp = `${file}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
-    await fs.rename(tmp, file);
+    const text = JSON.stringify(data, null, 2); // this write's picture of the data, taken now
+    const after = this.#writing.get(file) ?? Promise.resolve();
+    const mine = after.catch(() => {}).then(async () => {
+      await this.#ensure();
+      const tmp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
+      await fs.writeFile(tmp, text, { mode: 0o600 });
+      await fs.rename(tmp, file);
+    });
+    this.#writing.set(file, mine);
+    try { await mine; } finally { if (this.#writing.get(file) === mine) this.#writing.delete(file); }
   }
 
   // { [featureDir]: { sessionId, cwd, model, takenOverAt, startedFromWorkshop } }
   async allSessions() {
     if (!this.sessions) {
-      try { this.sessions = JSON.parse(await fs.readFile(this.sessionsFile, 'utf8')); } catch { this.sessions = {}; }
+      // One read, shared by everyone who asks while it is under way: callers patching at the same
+      // moment must patch the same object, or all but the last patch would be lost.
+      this.#loadingSessions ??= fs.readFile(this.sessionsFile, 'utf8').then((text) => JSON.parse(text)).catch(() => ({}));
+      const loaded = await this.#loadingSessions;
+      this.sessions ??= loaded;
     }
     return this.sessions;
   }
+  #loadingSessions = null;
 
   async sessionFor(featureDir) {
     return (await this.allSessions())[featureDir] ?? null;

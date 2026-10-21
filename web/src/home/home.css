@@ -2,7 +2,9 @@
    only. Status is never colour alone: every row says where the work is in words, every PR its
    state, the track's stops by shape (disc, ring, flag). No motion beyond a hover tint. */
 
-.home { display: flex; flex-direction: column; min-height: 0; overflow: auto; background-image: var(--pane-pattern); }
+.home { position: relative; display: flex; flex-direction: column; min-height: 0; overflow: auto; background-image: var(--pane-pattern); }
+/* position: relative: the rows' absolutely placed bits (the flag, the sr-only words) anchor here, not
+   to the page, or they would stretch the window's own scroll range past the pane's. */
 
 .home-head {
   position: sticky; top: 0; z-index: 4;

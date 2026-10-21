@@ -114,7 +114,10 @@
     strip.querySelectorAll("a").forEach((a) => a.setAttribute("aria-current", a.dataset.key === s.dataset.key ? "true" : "false"));
     if (changed) post();
   }
-  function go(s) { s.scrollIntoView({ block: "start" }); markCurrent(s); }
+  // A jump (the strip, or the Workshop's chips) pins its target for a moment: the observer below
+  // would otherwise mark the section that lands in its band, which for a short target is the next one.
+  let pinned = null;
+  function go(s) { s.scrollIntoView({ block: "start" }); pinned = s; setTimeout(() => { if (pinned === s) pinned = null; }, 600); markCurrent(s); }
 
   // Verdicts on screens, picks on choices, notes on both.
   for (const s of sections) {
@@ -156,7 +159,7 @@
 
   // Which section is in view.
   if ("IntersectionObserver" in window) {
-    const seen = new IntersectionObserver((entries) => { for (const e of entries) if (e.isIntersecting) markCurrent(e.target); }, { rootMargin: "-40% 0px -50% 0px" });
+    const seen = new IntersectionObserver((entries) => { if (pinned) return; for (const e of entries) if (e.isIntersecting) markCurrent(e.target); }, { rootMargin: "-40% 0px -50% 0px" });
     sections.forEach((s) => seen.observe(s));
   }
 

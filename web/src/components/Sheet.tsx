@@ -20,7 +20,7 @@ export function Sheet({ title, onClose, busy = false, className = '', children }
   useEffect(() => {
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const first = box.current?.querySelector<HTMLElement>('[data-autofocus]') ?? box.current?.querySelector<HTMLElement>('input, textarea, select, button');
-    first?.focus();
+    first?.focus({ preventScroll: true }); // a long sheet (the ? list) opens at its top, not at its Close button
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !latest.current.busy) { e.preventDefault(); latest.current.onClose(); }
     };

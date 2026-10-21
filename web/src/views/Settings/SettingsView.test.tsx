@@ -273,16 +273,17 @@ describe('Settings: permissions', () => {
 });
 
 describe('Settings: look', () => {
-  it('offers every theme with a description, and a pick applies at once, is remembered, and shows in the rail', async () => {
+  it('offers every theme, each described on hover and the chosen one under the grid; a pick applies at once, is remembered, and shows in the rail', async () => {
     document.documentElement.setAttribute('data-theme', 'default');
     setup([{ rules: [], active: true, unreadable: null }], undefined, 'look');
     const picker = screen.getByRole('group', { name: 'How the Workshop looks' });
     const radios = within(picker).getAllByRole('radio');
     expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'candy-pop', 'glass', 'sunset-paper', 'light', 'light-glass']);
     expect(within(picker).getByRole('radio', { name: /^Default/ })).toBeChecked();
-    expect(within(picker).getByText(/Ink-navy night/)).toBeInTheDocument();
+    expect(within(picker).getByRole('radio', { name: /Neon arcade/ }).closest('label')).toHaveAttribute('title', expect.stringMatching(/Ink-navy night/));
     fireEvent.click(within(picker).getByRole('radio', { name: /Candy pop/ }));
     expect(document.documentElement.getAttribute('data-theme')).toBe('candy-pop');
+    expect(screen.getByTestId('theme-chosen-line')).toHaveTextContent(/^Chosen: Candy pop — /);
     expect(localStorage.getItem('workshop.theme')).toBe('candy-pop');
     expect(within(picker).getByRole('radio', { name: /Candy pop/ })).toBeChecked();
     expect(screen.getByText(/changes only how things look/)).toBeInTheDocument();

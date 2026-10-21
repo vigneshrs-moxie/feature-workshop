@@ -99,7 +99,7 @@ function ScreensRow({ slug, hasPage }: { slug: string; hasPage: boolean }) {
   }, [api, slug, hasPage, report !== null]);
   const screens = reviewable(report?.screens ?? fromJson ?? []);
   const open = (key?: string) => {
-    ui.openScreens(key);
+    ui.openScreens(slug, key);
     if (!mounted) navigate({ name: 'screens', slug });
   };
   if (!hasPage) return null;

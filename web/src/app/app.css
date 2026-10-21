@@ -1065,6 +1065,7 @@ body.is-resizing-panes iframe { pointer-events: none; }
    value in one muted line; one section on the right; "Find a setting" above the rail. Under 900 px
    the rail folds into a row of chips. Tokens only; the current row is told by its edge and the word. */
 .settings { max-width: calc(var(--foreman-max) + 260px); margin: 0 auto; padding-bottom: var(--space-6); }
+.settings { container-type: inline-size; }
 .settings-layout { display: grid; grid-template-columns: minmax(200px, 240px) minmax(0, 1fr); gap: var(--space-6); align-items: start; }
 .settings-rail { position: sticky; top: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .settings-search { display: flex; align-items: center; gap: var(--space-2); }
@@ -1085,6 +1086,15 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .settings-section { min-width: 0; }
 .settings-section > section { margin-top: 0; }
 .settings-section > section > .settings-heading { font-size: var(--text-md); color: var(--text-1); }
+/* A narrow middle pane (the three panes at 1000 px wide): the rail goes above the section, its rows
+   in one wrapped line, so the section keeps the width (it was 80 px beside the rail). */
+@container (max-width: 480px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .settings-rail { position: static; }
+  .settings-rail-list { flex-direction: row; flex-wrap: wrap; }
+  .settings-rail-row { flex: 1 1 150px; }
+  .settings-rail .key-legend { display: none; }
+}
 .settings-section .how { margin-bottom: var(--space-3); }
 .settings-subheading { margin: 0 0 var(--space-1); font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-2); }
 .settings-note-under { margin: var(--space-1) 0 0; font-size: var(--text-sm); }
@@ -1153,9 +1163,13 @@ body.is-resizing-panes iframe { pointer-events: none; }
 
 /* ---------- Preview pane: the Screens tab and the full-width view ---------- */
 
-.screens-tab { display: flex; flex-direction: column; gap: var(--space-2); min-height: 0; }
-.screens-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
-.screens-current { color: var(--text-1); font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.screens-tab { display: flex; flex-direction: column; gap: var(--space-2); min-height: 0; container-type: inline-size; }
+/* One row: the section name gives way first (an ellipsis), the buttons never wrap; on a narrow pane the key hint goes. */
+.screens-bar { display: flex; align-items: center; gap: var(--space-2); min-width: 0; font-size: var(--text-sm); }
+.screens-bar > .btn { flex: none; white-space: nowrap; }
+.screens-bar > .chip { flex: none; }
+.screens-current { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--text-1); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
+@container (max-width: 560px) { .screens-bar .key-hint { display: none; } }
 .screens-status { margin: 0; font-size: var(--text-sm); }
 .screens-frame { display: block; width: 100%; height: min(70vh, 900px); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-1); }
 .screens-frame:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }

@@ -195,3 +195,43 @@ test('the Docs list and the job card say the job has screens, with the version',
   const detail = (await getJson('/api/job/with-screens')).body;
   assert.equal(detail.wireframes.version, '2');
 });
+
+test('with the screens port taken, the dashboard runs without the screens server: meta names no origin, and the terminal says which variable to set', async () => {
+  // Something else owns the port: the Screens tab must not frame it (and exchange messages with it).
+  const blocker = net.createServer((s) => s.end());
+  await new Promise((r) => blocker.listen(0, '127.0.0.1', r));
+  const taken = blocker.address().port;
+  const port = await freePort();
+  const stateDir = path.join(root, 'state-taken');
+  await fs.mkdir(stateDir, { recursive: true });
+  const lines = [];
+  const second = spawn(process.execPath, [SERVER], {
+    env: {
+      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(taken), HOME: path.join(root, 'home'), WORKSHOP_DEMO: '1',
+      WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: path.join(root, 'projects'), WORKSHOP_AGENTS_DIR: path.join(root, 'agents'),
+      WORKSHOP_SKILLS_DIR: path.join(root, 'skills'), WORKSHOP_STATE_DIR: stateDir,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`The second dashboard didn't start:\n${lines.join('')}`)), 15000);
+      const check = () => { const all = lines.join(''); if (all.includes('Feature Workshop running') && all.includes('WIREFRAMES_PORT')) { clearTimeout(timer); resolve(); } };
+      second.stdout.on('data', (d) => { lines.push(String(d)); check(); });
+      second.stderr.on('data', (d) => { lines.push(String(d)); check(); });
+      second.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The second dashboard exited (${code}):\n${lines.join('')}`)); });
+    });
+    const all = lines.join('');
+    assert.match(all, new RegExp(`screens server: couldn’t listen at http://127\\.0\\.0\\.1:${taken} \\(EADDRINUSE\\).*WIREFRAMES_PORT`), all);
+    assert.ok(!all.includes(`screens:  http://127.0.0.1:${taken}`), 'it never says the screens are served there');
+    const meta = await (await fetch(`http://127.0.0.1:${port}/api/meta`)).json();
+    assert.equal(meta.wireframesOrigin, null, 'no origin: the Screens tab frames nothing and says so');
+    const snap = await (await fetch(`http://127.0.0.1:${port}/api/snapshot`)).json();
+    assert.equal(snap.meta.wireframesOrigin, null);
+    // The first dashboard (its own screens port) is untouched.
+    assert.equal((await getJson('/api/meta')).body.wireframesOrigin, screens);
+  } finally {
+    if (second.exitCode === null) { const gone = new Promise((r) => second.once('exit', r)); second.kill('SIGTERM'); await gone; }
+    await new Promise((r) => blocker.close(r));
+  }
+});

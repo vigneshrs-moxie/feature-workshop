@@ -27,13 +27,15 @@ describe('the escape message and the open-at-a-section request', () => {
     expect(isEscapeMessage(null)).toBe(false);
   });
 
-  it('a request is taken once, by the first tab that asks, however late; never request 0', () => {
-    expect(takeScreensRequest(0)).toBe(false);
-    expect(takeScreensRequest(1), 'a tab mounted after the request still finds it').toBe(true);
-    expect(takeScreensRequest(1), 'the next tab does not replay it').toBe(false);
-    expect(takeScreensRequest(2)).toBe(true);
+  it('a request is taken once, by the first tab showing that job that asks, however late; never request 0; never by another job’s tab', () => {
+    expect(takeScreensRequest(0, 'alpha', 'alpha')).toBe(false);
+    expect(takeScreensRequest(1, 'alpha', 'beta'), 'another job’s tab leaves it').toBe(false);
+    expect(takeScreensRequest(1, 'alpha', 'alpha'), 'a tab mounted after the request still finds it').toBe(true);
+    expect(takeScreensRequest(1, 'alpha', 'alpha'), 'the next tab does not replay it').toBe(false);
+    expect(takeScreensRequest(2, null, 'alpha'), 'a request for no job goes to nobody').toBe(false);
+    expect(takeScreensRequest(3, 'alpha', 'alpha')).toBe(true);
     clearWireframes();
-    expect(takeScreensRequest(2), 'tests start clean').toBe(true);
+    expect(takeScreensRequest(3, 'alpha', 'alpha'), 'tests start clean').toBe(true);
   });
 });
 

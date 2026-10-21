@@ -34,7 +34,9 @@ export const gateWaiting = (job: Job | null | undefined) => Boolean(job?.needsYo
 
 /** The feedback block's marker lines in the draft: the text sits between them, so a later copy replaces it. */
 export const feedbackMarkers = (version: string | null) => ({ start: `--- Screens feedback${version ? ` (v${version})` : ''} ---`, end: '--- end ---' });
-const FEEDBACK_BLOCK = /--- Screens feedback(?: \([^)\n]*\))? ---\n[\s\S]*?\n--- end ---/;
+// Whole lines only (^…$ with the m flag): a marker quoted inside one of your own lines, or an end
+// marker followed by more words, is text, not the block's edge.
+const FEEDBACK_BLOCK = /^--- Screens feedback(?: \([^)\n]*\))? ---\n[\s\S]*?\n--- end ---$/m;
 
 /**
  * The composer's draft with the feedback in it, once: added after what is already there, between
@@ -98,10 +100,10 @@ export function ScreensTab({ slug, job, active, full = false }: {
   // Taken once, by the first tab to see it, including one mounted after it (the Desk's chips open
   // the full view, whose tab mounts then; panes/Preview/wireframes.ts takeScreensRequest).
   useEffect(() => {
-    if (!takeScreensRequest(ui.screensRequest)) return;
+    if (!takeScreensRequest(ui.screensRequest, ui.screensSlug, slug)) return;
     if (!ui.screensKey) return;
     if (!gotoScreen(slug, ui.screensKey) || !report) wanted.current = ui.screensKey;
-  }, [ui.screensRequest, ui.screensKey, slug, report]);
+  }, [ui.screensRequest, ui.screensSlug, ui.screensKey, slug, report]);
   useEffect(() => {
     if (wanted.current && report) {
       const key = wanted.current;
@@ -162,6 +164,10 @@ export function ScreensTab({ slug, job, active, full = false }: {
       {notice && <p className={`screens-status ${notice.tone === 'ok' ? 'muted' : 'field-problem'}`} role={notice.tone === 'ok' ? 'status' : 'alert'}>{notice.text}</p>}
       {origin ? (
         // allow-same-origin keeps the page's notes in ITS origin's storage, which can't reach this one.
+        // Every job's page shares that one origin, so its storage is shared too: a page could read or
+        // clear another job's notes. Accepted: the pages are the Painter's own files on this machine,
+        // and the skill's template keys its notes by repo, job and version (wf-<repo>-<slug>-notes:v<n>),
+        // so two jobs' notes never collide by accident.
         <iframe
           ref={frame}
           className="screens-frame"
