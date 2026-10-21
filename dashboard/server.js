@@ -43,6 +43,8 @@ import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, crewHeaders, he
 import { parseStatusJson } from './lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from './lib/auto-env.js';
 import { goAheadCovers } from './lib/hard-lines.js';
+import { FlowWatch, gatherRepo } from './lib/flow.js';
+import { Notifier, validateNotifyPatch } from './lib/notify.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -365,6 +367,7 @@ async function checkParkedGates() {
     parking.mark(g);
     changed = true;
     events.emit('gate-stale', g.slug, { job: g.slug, briefNumber: g.briefNumber, waitingSince: g.waitingSince });
+    tell({ level: 'needs', title: waiting.find((f) => f.slug === g.slug)?.title ?? g.slug, body: 'Your decision has waited 4 hours.', slug: g.slug, key: `parked:${g.slug}` });
   }
   if (changed) {
     await parking.save();
@@ -905,6 +908,10 @@ async function boardCards(list) {
 
 const GET = {
   '/api/meta': meta,
+  // Notifications outside the browser: how they reach macOS here, and the last 50.
+  '/api/notifications': async () => ({ method: await notifier.method(), history: await notifier.list() }),
+  // The flow map (Home): each repo's jobs on their way to staging and main (lib/flow.js).
+  '/api/flow': async () => flow.view(),
   // Everything the new UI needs to draw itself, in one call. `seq` is the newest live event at the
   // moment the snapshot started: open /api/events?v=2&since=<seq>&epoch=<epoch> to carry on from
   // it. Events that also made it into the snapshot may arrive again; applying them twice is harmless.
@@ -1075,6 +1082,21 @@ async function routePost(urlPath, req, res) {
   checkWrite(req.headers, { port: PORT, token: TOKEN });
   const body = await readBody(req);
   let m;
+  if (urlPath === '/api/presence') {
+    // The page is visible: notifications that it shows anyway don't pop on macOS meanwhile.
+    if (body.visible === true) notifier.seen();
+    return sendJson(res, 200, { ok: true });
+  }
+  if (urlPath === '/api/notifications/test') {
+    const entry = await notifier.notify({ level: 'needs', title: 'A test from Feature Workshop', body: 'Notifications reach you here. Clicking one opens the dashboard.', test: true });
+    events.emit('notification', null, entry);
+    return sendJson(res, 200, entry);
+  }
+  if (urlPath === '/api/flow/refresh') {
+    // Fetch both remotes and read the PRs now (read-only), instead of waiting for the next 10-minute refresh.
+    flow.refresh({ network: true }).catch((err) => console.error('flow:', err));
+    return sendJson(res, 202, flow.view());
+  }
   if ((m = /^\/api\/job\/([^/]+)\/render$/.exec(urlPath))) {
     // Markdown you are writing (the drawer's notes Preview), rendered by the same sanitising renderer
     // as every document. Nothing is saved or sent anywhere; a POST only so the text isn't in a URL.
@@ -1168,6 +1190,14 @@ async function routePost(urlPath, req, res) {
     return sendJson(res, 200, { ok: true, repoPath: repo.path });
   }
   if (urlPath === '/api/settings') {
+    // notify: notifications outside the browser (lib/notify.js validateNotifyPatch).
+    if (body.notify !== undefined) {
+      let next;
+      try { next = validateNotifyPatch(body.notify, (await state.getSettings()).notify); } catch (err) { throw new HttpError(400, err.message); }
+      await state.setSettings({ notify: next });
+      settingsChanged();
+      return sendJson(res, 200, await state.getSettings());
+    }
     // play: Play mode, when a quest counts as done, sounds (lib/play.js validatePlayPatch).
     if (body.play !== undefined) {
       let patch;
@@ -1495,9 +1525,74 @@ function broadcast(event, data) {
 let changeTimer = null;
 function notifyChange() {
   clearTimeout(changeTimer);
-  changeTimer = setTimeout(() => { cached = null; broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); }, 700);
+  changeTimer = setTimeout(() => { cached = null; broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); flowJobsChanged(); checkWaiting().catch(() => {}); }, 700);
 }
 driver.on('run', (run) => { cached = null; broadcast('run', run); events.emit('run', run.slug, run); });
+
+// ---------- The flow map (Home): where each job's work is on its way to main (lib/flow.js) ----------
+
+// Open jobs, and jobs closed in the last 30 days (their work may still be on its way to main).
+const FLOW_CLOSED_DAYS = 30;
+const flow = new FlowWatch({
+  jobsFor: async () => (await features())
+    .filter((f) => !f.closed || Date.now() - Date.parse(f.closed.at ?? 0) < FLOW_CLOSED_DAYS * 86400000)
+    .map((f) => ({ slug: f.slug, title: f.title, branch: f.branch, worktree: f.worktree, repoPath: f.repoPath, stage: f.stage ?? null, closed: f.closed ?? null })),
+  gather: DEMO ? (await import('./demo/fake-flow.js')).fakeFlow : gatherRepo,
+});
+flow.on('flow', (view) => { events.emit('flow', null, view); if (!view.refreshing) flowNotices(view); });
+
+// ---------- Notifications outside the browser (lib/notify.js) ----------
+
+const notifier = new Notifier({ dir: state.dir, settings: async () => (await state.getSettings()).notify, baseUrl: `http://${HOST}:${PORT}`, demo: DEMO });
+async function tell(n) {
+  try { events.emit('notification', n.slug ?? null, await notifier.notify(n)); } catch (err) { console.error('notify:', err); }
+}
+// A job that has just started waiting for you (a go-ahead, a question, a reply). Permissions are
+// told as they arrive (below). What was already waiting when the dashboard started never tells.
+let waitingBefore = null;
+async function checkWaiting() {
+  const cards = await boardCards(await features());
+  const now = new Map(cards.filter((c) => c.needsYou && c.waitingFor !== 'permission').map((c) => [c.slug, c]));
+  if (waitingBefore) {
+    for (const [slug, c] of now) {
+      if (waitingBefore.has(slug)) continue;
+      const what = c.waitingFor === 'answers' ? 'The Foreman asked you something.' : c.waitingFor === 'approval' ? 'The Foreman is waiting for your go-ahead.' : 'The Foreman is waiting for your reply.';
+      tell({ level: 'needs', title: c.title, body: what, slug, key: `wait:${slug}` });
+    }
+  }
+  waitingBefore = new Set(now.keys());
+}
+// A job's work reached staging or main (the flow map's position moved on).
+const placeBefore = new Map();
+function flowNotices(view) {
+  for (const r of view.repos) {
+    for (const l of r.lanes) {
+      const was = placeBefore.get(l.slug);
+      placeBefore.set(l.slug, l.position);
+      if (was === undefined || was === l.position || !['staging', 'main'].includes(l.position)) continue;
+      tell({ level: 'done', title: l.title ?? l.slug, body: l.position === 'main' ? `Released: it’s in ${r.name}’s main.` : `In staging (${r.name}), waiting for the release.`, slug: l.slug, key: `flow:${l.slug}` });
+    }
+  }
+}
+driver.on('permission', (p) => tell({ level: 'needs', title: p.title ?? p.slug, body: p.kind === 'question' ? 'A question for you.' : `Permission: ${p.plain?.headline ?? p.toolName}`, slug: p.slug, key: `perm:${p.id}` }));
+const toldErrors = new Set();
+driver.on('run', (run) => {
+  if (run.status !== 'error' || toldErrors.has(run.id)) return;
+  toldErrors.add(run.id);
+  tell({ level: 'problem', title: run.title ?? run.slug, body: 'The reply ended with an error. Open the job to see it.', slug: run.slug, key: `error:${run.id}` });
+});
+driver.on('usage-limit', ({ run }) => tell({ level: 'problem', title: 'Usage limit reached', body: `Work is paused until Claude’s limit resets${run?.title ? ` (${run.title})` : ''}.`, slug: run?.slug ?? null, key: 'usage-limit' }));
+state.on('audit', (e) => {
+  if (e.action !== 'close' || e.as !== 'done') return;
+  featureBySlug(e.slug).then((f) => tell({ level: 'done', title: f?.title ?? e.slug, body: 'Marked done.', slug: e.slug ?? null, key: `close:${e.slug}` })).catch(() => {});
+});
+// Jobs changed: recount locally (no network), at most every 15 seconds.
+let flowLocalAt = 0;
+function flowJobsChanged() {
+  if (Date.now() - flowLocalAt < 15000) return;
+  flowLocalAt = Date.now();
+  flow.refresh({ network: false }).catch(() => {});
+}
 driver.on('permission', (p) => { broadcast('permission', p); events.emit('permission', p.slug, p); });
 driver.on('permission-gone', (p) => { broadcast('permission-gone', p); events.emit('permission-gone', p.slug ?? null, p); });
 // Where a steered message is (queued, delivered, acted-on, cancelled): the new UI only.
@@ -1582,6 +1677,10 @@ server.listen(PORT, HOST, () => {
   if (DEMO) console.log('  demo mode: a pretend Foreman answers; nothing real runs.');
   // The play ledger: read play.json, or rebuild it from the audit log when it is missing. Not while Play is Off.
   if (playOn()) playbook.refresh().catch((err) => console.error('play ledger:', err));
+  // The flow map: fetch and read PRs now, then every 10 minutes; recount locally every minute.
+  flow.start();
+  // What waits for you now: later changes are told as notifications, these never are.
+  checkWaiting().catch(() => {});
 });
 
 // Stopping the dashboard pauses any reply in progress; sessions stay resumable.
