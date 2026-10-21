@@ -117,11 +117,12 @@ export async function gatherRepo({ repo, jobs, fetch = false, prs = null, git: g
     const res = await gh(['pr', 'list', '--repo', orgSlug, '--state', 'all', '--limit', '200', '--json', PR_FIELDS]);
     if (res.ok) { try { prList = JSON.parse(res.out).map(prOf); } catch { errors.push('gh pr list: unreadable output'); } } else errors.push(`gh pr list: ${res.err}`);
   }
-  // Which merged PRs into staging have reached main (their merge commit is in main).
+  // Which of the jobs' merged PRs into staging have reached main (their merge commit is in main).
   const inMain = {};
+  const branches = new Set(jobs.map((j) => j.branch).filter(Boolean));
   if (main) {
     for (const p of prList ?? []) {
-      if (p.state === 'merged' && p.base === 'staging' && p.mergeCommit) inMain[p.mergeCommit] = (await gitFn(repo, ['merge-base', '--is-ancestor', p.mergeCommit, main])).ok;
+      if (p.state === 'merged' && p.base === 'staging' && p.mergeCommit && branches.has(p.head)) inMain[p.mergeCommit] = (await gitFn(repo, ['merge-base', '--is-ancestor', p.mergeCommit, main])).ok;
     }
   }
 

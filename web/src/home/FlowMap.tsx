@@ -94,7 +94,7 @@ function Lane({ lane, job, repo, now, row }: { lane: FlowLane; job: Job | null; 
       <div className="flow-arrow is-plain" aria-hidden="true"><span className="flow-arrow-line" /></div>
       <div className={`flow-box flow-step ${boxState(lane, 'fork')}`}>
         <span className="sr-only">{POSITION_LABELS.fork}: </span>
-        <span className="flow-step-what">{lane.pushed ? (lane.unpushed ? `Pushed, ${lane.unpushed} behind` : 'Pushed') : 'Not pushed yet'}</span>
+        <span className="flow-step-what">{lane.pushed ? 'Pushed' : 'Not pushed yet'}</span>
       </div>
       {simple ? (
         <PrArrow pr={lane.pr2} label="PR" reached={lane.reached >= ORDER.indexOf('main')} />

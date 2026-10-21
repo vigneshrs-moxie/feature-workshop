@@ -58,7 +58,8 @@ export function NotifySettings() {
     setTested(null);
     try {
       const e = await api.post<{ sent: boolean; why?: string }>('/api/notifications/test', {});
-      setTested(e.sent ? 'Sent: look at the top right of your screen.' : `Not sent: ${e.why ?? 'macOS didn’t take it.'}`);
+      setTested(e.sent ? `Sent: look at the top right of your screen.${e.why ? ` ${e.why}` : ''}` : `Not sent: ${e.why ?? 'macOS didn’t take it.'}`);
+      setView(await api.get<NotificationsView>('/api/notifications'));
     } catch (err) { setTested(err instanceof Error ? err.message : String(err)); }
   }
 
@@ -70,6 +71,11 @@ export function NotifySettings() {
         <p>Each kind can come with a sound, silently, or not at all. In quiet hours only problems show, without a sound; everything still goes into the history below.</p>
       </HowThisWorks>
       <p className="muted">{view ? (view.method ? METHOD[view.method] : 'This computer can’t show them: the dashboard needs macOS.') : 'Checking how notifications reach macOS…'}</p>
+      {view?.blocked && (
+        <p className="perm-warn" role="status">
+          macOS hasn’t allowed terminal-notifier yet, so notifications go through the built-in notifier for now (a click can’t open the job). Turn it on once: <strong>System Settings → Notifications → terminal-notifier → Allow notifications</strong>, then Send a test.
+        </p>
+      )}
       <label className="drawer-check" title="All notifications from the dashboard, on or off.">
         <input type="checkbox" checked={n.enabled} disabled={busy} onChange={(e) => void save({ enabled: e.target.checked })} />
         <span>Send notifications to macOS</span>

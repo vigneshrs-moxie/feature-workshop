@@ -909,7 +909,7 @@ async function boardCards(list) {
 const GET = {
   '/api/meta': meta,
   // Notifications outside the browser: how they reach macOS here, and the last 50.
-  '/api/notifications': async () => ({ method: await notifier.method(), history: await notifier.list() }),
+  '/api/notifications': async () => ({ method: await notifier.method(), blocked: notifier.blocked, history: await notifier.list() }),
   // The flow map (Home): each repo's jobs on their way to staging and main (lib/flow.js).
   '/api/flow': async () => flow.view(),
   // Everything the new UI needs to draw itself, in one call. `seq` is the newest live event at the

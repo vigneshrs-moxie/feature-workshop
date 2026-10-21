@@ -303,6 +303,8 @@ export interface NotificationEntry {
 export interface NotificationsView {
   /** How notifications reach macOS here; null: they can't (not a Mac, or nothing to send them with). */
   method: 'terminal-notifier' | 'osascript' | null;
+  /** macOS refused terminal-notifier the last time (its notifications aren't allowed yet); null otherwise. */
+  blocked?: string | null;
   history: NotificationEntry[];
 }
 

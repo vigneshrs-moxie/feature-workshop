@@ -91,12 +91,14 @@ export function decide(level, settings, { now = new Date(), watching = false, de
 // AppleScript string literal.
 const as = (s) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 
+// { ok, err }: err is the command's first line of complaint.
 function exec(cmd, args) {
-  return new Promise((resolve) => execFile(cmd, args, { timeout: 10000, windowsHide: true }, (err) => resolve(!err)));
+  return new Promise((resolve) => execFile(cmd, args, { timeout: 10000, windowsHide: true }, (err, stdout, stderr) => resolve({ ok: !err, err: err ? String(stderr || stdout || err.message).trim().split('\n')[0] : null })));
 }
+const succeeded = (r) => r === true || r?.ok === true;
 
 /** Which way notifications can reach macOS here: 'terminal-notifier', 'osascript' or null. */
-export async function findMethod({ platform = process.platform, which = (c) => exec('/usr/bin/which', [c]) } = {}) {
+export async function findMethod({ platform = process.platform, which = async (c) => succeeded(await exec('/usr/bin/which', [c])) } = {}) {
   if (platform !== 'darwin') return null;
   if (await which('terminal-notifier')) return 'terminal-notifier';
   return (await which('osascript')) ? 'osascript' : null;
@@ -124,6 +126,9 @@ export class Notifier {
     this.history = null;
     this.watchingAt = 0;
     this.file = dir ? path.join(dir, 'notifications.json') : null;
+    // Set when macOS refused terminal-notifier (its notifications aren't allowed yet in System
+    // Settings): notifications then go through the built-in notifier until it works again.
+    this.blocked = null;
   }
 
   /** The page is visible (it says so every half minute while it is). */
@@ -158,8 +163,21 @@ export class Notifier {
     let sent = false;
     let why = verdict.why;
     if (verdict.send) {
-      const cmd = method && commandFor(method, { title: 'Feature Workshop', subtitle: title, body, url, group: key ?? slug ?? undefined, sound: verdict.sound ? SOUNDS[level] ?? 'Glass' : null });
-      if (cmd) { sent = await this.run(cmd[0], cmd[1]); if (!sent) why = 'macOS didn’t take it.'; } else why = 'No way to reach macOS here.';
+      const what = { title: 'Feature Workshop', subtitle: title, body, url, group: key ?? slug ?? undefined, sound: verdict.sound ? SOUNDS[level] ?? 'Glass' : null };
+      const cmd = method && commandFor(method, what);
+      if (!cmd) why = 'No way to reach macOS here.';
+      else {
+        const res = await this.run(cmd[0], cmd[1]);
+        sent = succeeded(res);
+        if (sent && method === 'terminal-notifier') this.blocked = null;
+        if (!sent && method === 'terminal-notifier') {
+          // Not allowed yet (or broken): say so, and show it with the built-in notifier instead.
+          this.blocked = res?.err || 'terminal-notifier couldn’t show it.';
+          const fallback = commandFor('osascript', what);
+          sent = succeeded(await this.run(fallback[0], fallback[1]));
+          why = sent ? 'Shown with macOS’s built-in notifier: terminal-notifier isn’t allowed yet.' : 'macOS didn’t take it.';
+        } else if (!sent) why = 'macOS didn’t take it.';
+      }
     }
     const entry = { at: now.toISOString(), level, title, body, slug, sent, why: why ?? undefined, test: test || undefined };
     await this.#remember(entry);

@@ -409,3 +409,6 @@ html[data-theme="glass"] .play-toast {
   html[data-theme="glass"] .job-row { transition: none; }
   html[data-theme="glass"] .btn:active { transform: none; }
 }
+
+/* Home's sticky header (home/home.css): a solid float, so the map doesn't show through it while it scrolls. */
+html[data-theme="glass"] .home-head { background: var(--glass-float); }

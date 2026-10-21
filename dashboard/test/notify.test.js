@@ -76,6 +76,13 @@ test('notify: Notifier sends, links to the job, and keeps the last 50 in its his
   const test1 = await n.notify({ level: 'needs', title: 'Test', test: true });
   assert.equal(test1.sent, true, 'the test is sent even while you watch');
   for (let i = 0; i < 60; i++) await n.notify({ level: 'done', title: `t${i}` });
+  // macOS refuses terminal-notifier (not allowed yet): shown with the built-in notifier, and said.
+  const refused = new Notifier({ dir: null, settings: async () => ({}), baseUrl: 'x', method: 'terminal-notifier', now: () => at(12),
+    run: async (cmd) => (cmd === 'terminal-notifier' ? { ok: false, err: 'Could not request notification permission: Notifications are not allowed for this application' } : { ok: true, err: null }) });
+  const fell = await refused.notify({ level: 'needs', title: 'Z' });
+  assert.equal(fell.sent, true);
+  assert.match(fell.why, /built-in notifier: terminal-notifier isn’t allowed yet/);
+  assert.match(refused.blocked, /not allowed/);
   const again = new Notifier({ dir, settings: async () => ({}), baseUrl: 'x', method: null });
   const list = await again.list();
   assert.equal(list.length, 50);
