@@ -16,6 +16,9 @@
 // in a dark/light pair, Default ↔ Light and Glass ↔ Light glass. With it on, prefers-color-scheme
 // picks the member of the chosen theme's pair; a theme with no pair (Sunset paper, Blueprint, …)
 // stays as chosen. A theme named in the address is a request and is never swapped. Off by default.
+// Picking a theme is a request too: picking the member of a pair the system wouldn't show now
+// (Light on a dark system) puts that theme on and turns Follow the system off, rather than leaving
+// the screen on its twin as if the pick had not taken.
 import { useCallback, useSyncExternalStore } from 'react';
 import { readStored, useStored, writeStored } from '../lib/stored';
 
@@ -208,15 +211,17 @@ export function useAvailableThemes(): readonly ThemeInfo[] {
 }
 
 /**
- * The theme on screen, and a setter that remembers the choice in this browser and applies it now
- * (through its pair's member for the system's scheme while Follow the system is on).
+ * The theme on screen, and a setter that remembers the choice in this browser and puts it on now.
+ * With Follow the system on, a pick the system's scheme would swap for its twin turns Follow off,
+ * so what you pick is what you see.
  */
 export function useTheme(): [string, (id: string) => void] {
   const theme = useSyncExternalStore(subscribe, currentTheme, () => DEFAULT_THEME);
   const set = useCallback((id: string) => {
     const next = isThemeAvailable(id, unlocked) ? id : DEFAULT_THEME;
     writeStored(THEME_KEY, next);
-    applyTheme(followed(next));
+    if (followed(next) !== next) writeStored(THEME_FOLLOW_KEY, 'off');
+    applyTheme(next);
   }, []);
   return [theme, set];
 }

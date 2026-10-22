@@ -16,7 +16,7 @@ describe('app.css: the sticky job header and the focus', () => {
   it('the header sticks to the top of the Foreman pane', () => {
     const header = block('.pane-foreman .job-header');
     expect(header).toMatch(/position:\s*sticky/);
-    expect(header).toMatch(/top:\s*0/);
+    expect(header, 'flush with the pane edge, over its top padding').toMatch(/top:\s*calc\(-1 \* var\(--space-3\)\)/);
   });
 
   it('the pane sets the header’s height from tokens and scrolls clear of it', () => {

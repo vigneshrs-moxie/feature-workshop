@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
 import { createStore, WorkshopContext } from '../../state/store';
 import { snapshot } from '../../state/test-fixtures';
-import { currentTheme, setThemeUnlocks, THEME_FOLLOW_KEY, THEME_KEY } from '../../theme/theme';
+import { currentTheme, initTheme, setThemeUnlocks, THEME_FOLLOW_KEY, THEME_KEY } from '../../theme/theme';
 import { ThemePicker } from './ThemePicker';
 
 function setup() {
@@ -70,16 +70,17 @@ describe('theme picker and the hidden themes', () => {
     expect(screen.getAllByText(/Frosted white panes/)).toHaveLength(1);
   });
 
-  it('with Follow the system on, Chosen is the theme you picked, not the pair member on screen', () => {
+  it('with Follow the system on, a pick the system would swap is put on and turns Follow off', () => {
     systemPrefers('dark');
     localStorage.setItem(THEME_FOLLOW_KEY, 'on');
     setup();
     const option = (name: RegExp) => screen.getByRole('radio', { name }).closest('label')!;
     const light = /^Light( Chosen)?$/; // the radio's name: label and the Chosen mark (the description is the card's title)
     fireEvent.click(screen.getByRole('radio', { name: light }));
-    // A dark system shows Default (Light's pair member) while Light is the choice.
-    expect(currentTheme()).toBe('default');
+    // A dark system would show Default (Light's twin); the pick wins and Follow the system goes off.
+    expect(currentTheme()).toBe('light');
     expect(localStorage.getItem(THEME_KEY)).toBe('light');
+    expect(localStorage.getItem(THEME_FOLLOW_KEY)).toBe('off');
     expect(option(light)).toHaveClass('is-picked');
     expect(within(option(light)).getByText('Chosen')).toBeInTheDocument();
     expect(option(/^Default/)).not.toHaveClass('is-picked');
@@ -88,6 +89,18 @@ describe('theme picker and the hidden themes', () => {
     fireEvent.click(screen.getByRole('radio', { name: /Blueprint/ }));
     expect(currentTheme()).toBe('blueprint');
     expect(within(option(/Blueprint/)).getByText('Chosen')).toBeInTheDocument();
+  });
+
+  it('clicking the chosen theme while Follow the system shows its twin puts it on and turns Follow off', () => {
+    systemPrefers('dark');
+    localStorage.setItem(THEME_KEY, 'light');
+    localStorage.setItem(THEME_FOLLOW_KEY, 'on');
+    initTheme();
+    setup();
+    expect(currentTheme()).toBe('default');
+    fireEvent.click(screen.getByRole('radio', { name: /^Light Chosen$/ }));
+    expect(currentTheme()).toBe('light');
+    expect(localStorage.getItem(THEME_FOLLOW_KEY)).toBe('off');
   });
 
   it('picking an unlocked hidden theme puts it on and tells the ledger it was tried', async () => {

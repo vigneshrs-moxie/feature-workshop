@@ -55,7 +55,8 @@ export function ThemePicker() {
     const picked = theme === t.id;
     return (
       <label key={t.id} className={`rule-option theme-option${picked ? ' is-picked' : ''}${t.unlock ? ' is-hidden-theme' : ''}`} title={t.description}>
-        <input type="radio" name="theme" value={t.id} checked={picked} onChange={() => pick(t.id)} />
+        {/* A click on the chosen one fires no change; it still puts it on (it may be off screen under Follow the system). */}
+        <input type="radio" name="theme" value={t.id} checked={picked} onChange={() => pick(t.id)} onClick={() => { if (picked) setTheme(t.id); }} />
         <Swatch id={t.id} />
         <span className="rule-option-body">
           <span className="rule-option-kind">

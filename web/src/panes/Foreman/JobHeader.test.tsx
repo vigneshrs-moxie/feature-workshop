@@ -28,7 +28,7 @@ describe('the job header stays still', () => {
   it('is sticky at the top of the Foreman pane, above the thread, on the theme’s background', () => {
     const rule = /\.pane-foreman \.job-header \{([^}]*)\}/.exec(css)?.[1] ?? '';
     expect(rule).toMatch(/position:\s*sticky/);
-    expect(rule).toMatch(/top:\s*0/);
+    expect(rule, 'flush with the pane edge, over its top padding').toMatch(/top:\s*calc\(-1 \* var\(--space-3\)\)/);
     expect(rule).toMatch(/z-index:\s*6/);
     expect(rule).toMatch(/background:\s*var\(--bg-0\)/);
     // The composer keeps its place at the bottom, under the header's layer.

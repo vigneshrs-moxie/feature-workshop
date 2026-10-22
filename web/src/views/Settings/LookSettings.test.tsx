@@ -92,21 +92,23 @@ describe('Settings → Look', () => {
     act(() => { for (const fn of changeListeners) fn(); });
     expect(currentTheme()).toBe('light');
 
-    // Picking Glass while the system is light shows Light glass; the line names the pair.
-    fireEvent.click(screen.getByRole('radio', { name: /^Glass/ }));
-    expect(localStorage.getItem(THEME_KEY)).toBe('glass');
+    // Picking Light glass while the system is light: it is the twin Follow would show, so Follow stays on.
+    fireEvent.click(screen.getByRole('radio', { name: /^Light glass/ }));
     expect(currentTheme()).toBe('light-glass');
+    expect(localStorage.getItem(THEME_FOLLOW_KEY)).toBe('on');
     expect(screen.getByText(/Switches between Glass when your system is dark and Light glass in daylight/)).toBeInTheDocument();
 
-    // A theme with no twin is left alone.
+    // A theme with no twin is left alone, and Follow stays on.
     fireEvent.click(screen.getByRole('radio', { name: /Sunset paper/ }));
     expect(currentTheme()).toBe('sunset-paper');
+    expect(localStorage.getItem(THEME_FOLLOW_KEY)).toBe('on');
     expect(screen.getByText(/Sunset paper has no dark or light twin/)).toBeInTheDocument();
 
-    // Off again: the chosen theme as chosen, whatever the system says.
+    // Picking Glass while the system is light: the pick wins, on screen, and Follow goes off.
     fireEvent.click(screen.getByRole('radio', { name: /^Glass/ }));
-    act(() => { fireEvent.click(screen.getByRole('checkbox', { name: /Follow the system/ })); });
+    expect(localStorage.getItem(THEME_KEY)).toBe('glass');
     expect(localStorage.getItem(THEME_FOLLOW_KEY)).toBe('off');
+    expect(screen.getByRole('checkbox', { name: /Follow the system/ })).not.toBeChecked();
     expect(currentTheme()).toBe('glass');
   });
 });
