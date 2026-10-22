@@ -37,10 +37,21 @@ describe('Walkthrough tab', () => {
     expect(screen.queryByText(/isn’t published yet/)).toBeNull();
   });
 
+  it('Copy link puts the published page’s link on the clipboard', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    setup({ walkthrough: WALK });
+    fireEvent.click(screen.getByRole('tab', { name: 'Walkthrough' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy link' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Link copied.');
+    expect(writeText).toHaveBeenCalledWith(WALK.url);
+  });
+
   it('not published: says notes stay in this browser', () => {
     setup({ walkthrough: { ...WALK, url: null } });
     fireEvent.click(screen.getByRole('tab', { name: 'Walkthrough' }));
     expect(screen.getByText(/isn’t published yet/)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open the published page' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Copy link' })).toBeNull();
   });
 });
