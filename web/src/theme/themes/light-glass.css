@@ -410,4 +410,5 @@ html[data-theme="light-glass"] .play-toast {
 /* Home's sticky header (home/home.css): a solid float, so the map doesn't show through it while it scrolls. */
 html[data-theme="light-glass"] .home-head { background: var(--glass-float); }
 /* The job header stays still while the conversation scrolls under it (app.css): the same solid float. */
-html[data-theme="light-glass"] .pane-foreman .job-header { background: var(--glass-float); border-bottom-color: var(--glass-edge); }
+/* The stuck job header: the float tint over a solid base, so no word of the thread shows through it. */
+html[data-theme="light-glass"] .pane-foreman .job-header { --job-header-line: var(--glass-edge); background: linear-gradient(var(--glass-float), var(--glass-float)), oklch(.99 .004 272); }

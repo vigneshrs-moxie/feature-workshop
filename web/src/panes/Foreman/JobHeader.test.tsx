@@ -35,10 +35,18 @@ describe('the job header stays still', () => {
     expect(/\.composer \{([^}]*)\}/.exec(css)?.[1]).toMatch(/position:\s*sticky;\s*bottom:\s*0;\s*z-index:\s*5/);
   });
 
-  it('is a solid float in both Glass themes', () => {
+  it('is a solid float in both Glass themes: the float tint over an opaque base, so the thread never shows through', () => {
     for (const id of ['glass', 'light-glass']) {
-      expect(theme(id), id).toMatch(new RegExp(`html\\[data-theme="${id}"\\] \\.pane-foreman \\.job-header \\{ background: var\\(--glass-float\\);`));
+      expect(theme(id), id).toMatch(new RegExp(`html\\[data-theme="${id}"\\] \\.pane-foreman \\.job-header \\{[^}]*background: linear-gradient\\(var\\(--glass-float\\), var\\(--glass-float\\)\\), oklch\\([\\d. ]+\\);`));
     }
+  });
+
+  it('keeps a band of its own background under its line, so the thread stops short of it', () => {
+    const rule = /\.pane-foreman \.job-header \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    const line = /\.pane-foreman \.job-header::after \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(rule).toMatch(/padding:[^;]*calc\(var\(--space-2\) \+ 1px \+ var\(--space-3\)\)/);
+    expect(line).toMatch(/bottom:\s*var\(--space-3\)/);
+    expect(line).toMatch(/height:\s*1px/);
   });
 
   it('renders as one header block: the title line, then the facts line (the trail and the lines between them with Play on)', () => {

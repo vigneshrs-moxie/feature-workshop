@@ -170,6 +170,27 @@ export interface JobHeaderProps {
   detailLoaded?: boolean;
 }
 
+/**
+ * Tells the Foreman pane how tall the stuck header really is (--job-header-h on .pane-foreman), so
+ * the pane and anything focused in the thread scroll clear of it. The trail makes it much taller
+ * than its two lines, and it changes with the text size and the window; app.css keeps an estimate
+ * for before the first measure.
+ */
+function useStuckHeight() {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    const pane = el?.closest<HTMLElement>('.pane-foreman');
+    if (!el || !pane || typeof ResizeObserver === 'undefined') return;
+    const set = () => pane.style.setProperty('--job-header-h', `${Math.ceil(el.getBoundingClientRect().height)}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => { ro.disconnect(); pane.style.removeProperty('--job-header-h'); };
+  }, []);
+  return ref;
+}
+
 export function JobHeader({ job, branch, dir, policyOverride, run, worktree, detailLoaded = false }: JobHeaderProps) {
   const now = useNow();
   const kind = job.kind ? KIND_LABELS[job.kind] ?? job.kind : null;
@@ -183,9 +204,10 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree, det
   const policyShown = policy.override !== null || policy.global !== 'hands-off';
   const { usage } = useWorkshopState();
   const closed = job.closed ?? null;
+  const headerRef = useStuckHeight();
   const ago = closed ? relativeTime(closed.at, now) : '';
   return (
-    <header className="job-header">
+    <header className="job-header" ref={headerRef}>
       <div className="job-header-line">
         <span className="hue-dot" style={jobHueStyle(job.slug)} aria-hidden="true" />
         {/* Play: the Foreman, its mood following the job (nothing with Play Off). */}
