@@ -885,6 +885,23 @@ export interface ThreadPage {
   threadMore: boolean;
 }
 
+/**
+ * A document's or brief's Key points, written by the Foreman (summaries/ in the job folder, read by
+ * lib/docs.js readSummary): each part a few short lines, empty when there is nothing to say.
+ */
+export interface DocSummary {
+  outcome: string[];
+  risks: string[];
+  decisions: { text: string; recommendation: string | null }[];
+  changed: string[];
+  written: string | null;
+  /** The version it describes (null for a brief, or when the Foreman named none). */
+  version: string | null;
+  /** It describes another (older) version than the document's own. */
+  stale: boolean;
+  file: string;
+}
+
 /** GET /api/job/:slug/doc?file=<file>: one file from the job's folder, rendered and sanitised. */
 export interface JobDoc {
   file: string;
@@ -895,6 +912,8 @@ export interface JobDoc {
   type?: 'md' | 'json';
   updatedAt?: string | null;
   size?: number;
+  /** Its Key points, when the Foreman wrote them; null when none. */
+  summary?: DocSummary | null;
 }
 
 /** The Docs tab's groups, in the order the dashboard lists them. */
@@ -912,6 +931,8 @@ export interface JobDocEntry {
   updatedAt: string | null;
   size: number;
   type: 'md' | 'json' | 'html';
+  /** Whether its Key points are there: for this version, for an older one, or none. */
+  summary?: 'current' | 'stale' | null;
 }
 
 /** GET /api/job/:slug/docs: every document of the job, grouped. */

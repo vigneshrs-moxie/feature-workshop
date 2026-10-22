@@ -40,7 +40,7 @@ import { suggestLevel, changedPaths } from './lib/levels.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs } from './lib/gate.js';
 import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
 import { skillChecker } from './lib/skill-check.js';
-import { DOC_MAX_BYTES, DocError, describeDoc, jsonHtml, listJobDocs, readJobDoc, readWireframes, servableSpec } from './lib/docs.js';
+import { DOC_MAX_BYTES, DocError, describeDoc, docVersion, jsonHtml, listJobDocs, readJobDoc, readSummary, readWireframes, servableSpec } from './lib/docs.js';
 import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, crewHeaders, hexCommit, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from './lib/play.js';
 import { parseStatusJson } from './lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from './lib/auto-env.js';
@@ -1117,7 +1117,9 @@ async function routeGet(urlPath, url, req, res) {
       }
       const type = /\.json$/i.test(file) ? 'json' : 'md';
       const html = type === 'json' ? jsonHtml(doc.text) : renderMarkdown(doc.text, { idHref: idHref(f) });
-      return sendJson(res, 200, { file, name, type, html, text: doc.text, updatedAt: doc.updatedAt, size: doc.size, vscode: file === 'spec' ? specPath : path.join(f.dir, file) });
+      // Its Key points, when the Foreman wrote them (summaries/, lib/docs.js readSummary): null when none.
+      const summary = await readSummary(f.dir, file, file === 'spec' ? f.spec?.version ?? null : docVersion(f.dir, file, f.recordedArtifacts)).catch(() => null);
+      return sendJson(res, 200, { file, name, type, html, text: doc.text, updatedAt: doc.updatedAt, size: doc.size, vscode: file === 'spec' ? specPath : path.join(f.dir, file), summary });
     }
     if ((m = /^\/ids\/([^/]+)$/.exec(sub))) {
       const id = decodeURIComponent(m[1]);

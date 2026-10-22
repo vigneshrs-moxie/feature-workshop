@@ -97,6 +97,14 @@ async function writeSession({ sessionId, featureDir, prompt, startAgo, conductor
   return files;
 }
 
+/** Demo Key points files (summaries/<stem>.json, skills/feature/status-json.md §3), for a feature's files. */
+function demoSummaries(byStem) {
+  return Object.fromEntries(Object.entries(byStem).map(([stem, parts]) => [
+    `summaries/${stem}.json`,
+    JSON.stringify({ schema_version: 1, written: iso(47 * MIN), outcome: [], risks: [], decisions: [], changed: [], ...parts }, null, 2),
+  ]));
+}
+
 async function feature(slug, { status, workflowStatus, briefs = [], files = {} }) {
   const dir = path.join(FEATURES, slug);
   await fs.mkdir(path.join(dir, 'briefs'), { recursive: true });
@@ -217,6 +225,14 @@ async function build() {
       'review/permissions.md': '# Permissions lens (demo)\n\nOnly admins see the export button, as FR-002 requires. No findings.\n',
       'review/errors.md': '# Errors lens (demo)\n\n## R-2 (major): the file name’s date\n\nThe name is built from the server’s clock, so after 5pm in California it names tomorrow.\n\n```js\nconst name = `widgets-${new Date().toISOString().slice(0, 10)}.csv`;\n```\n\n**Fix:** take the date from the browser and send it with the request.\n',
       'notes.md': '## For the Foreman\n\n- Keep the CSV header row exactly as the spec says.\n- Ask before adding Excel: the office said CSV only (D-004).\n',
+      // Key points (summaries/): the spec's is for v0.2 (shown as older), the test plan has none.
+      ...demoSummaries({
+        'spec.v0.2': { outcome: ['Admins export the widgets list as a CSV file from the widgets page.'], risks: ['No paging today: a very large list could be slow.'], decisions: [{ text: 'CSV only, or Excel too?', recommendation: 'CSV only' }] },
+        findings: { outcome: ['The widgets page already loads every row, so the export needs **no new query**.', 'Only the export button and a CSV builder change.'], risks: ['Over 10,000 rows has no rule in the spec yet (became D-005).'] },
+        'implementation-plan': { outcome: ['Three steps, one commit each: CSV builder, export button, row-limit message.'], risks: ['Step 3 depends on D-005 (the 10,000-row limit) being confirmed.'] },
+        review: { outcome: ['7 reviewers looked: 0 blockers, 2 majors, 3 minors.'], risks: ['R-2: the file name uses the server’s date, so evenings in California name tomorrow.', 'R-3: the limit message isn’t announced to screen readers.'], decisions: [{ text: 'Fix R-2 and R-3 now in a small fix round?', recommendation: 'Yes, fix both now' }] },
+        'briefs/006-review': { outcome: ['Review done: 0 blockers, 2 majors (R-2 file-name date, R-3 screen readers), 3 minors.'], decisions: [{ text: 'Fix R-2 and R-3 now?', recommendation: 'Yes' }, { text: 'Export file name', recommendation: 'widgets-YYYY-MM-DD.csv' }], changed: ['Since the test brief: the review lenses ran; nothing in the code changed.'] },
+      }),
     },
   });
   await writeSession({

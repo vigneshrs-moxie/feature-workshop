@@ -1,9 +1,12 @@
 // A brief from the Foreman: its headline, opened to the full brief while it waits for you, and
 // collapsed back to the headline once you've answered it (or a newer brief replaced it). Click the
-// headline to open or close it any time. If the brief has a detail file it shows as a folded
+// headline to open or close it any time. With a short version from the Foreman (In short: its
+// outcome, risks, decisions and what changed; components/KeyPoints.tsx) that shows first and the
+// whole brief folds under "Read the whole brief". If the brief has a detail file it shows as a folded
 // section underneath, read only when you open it. Rulings and proof lines show only if present.
 import { useEffect, useState } from 'react';
-import type { JobDoc, ReviewBoss } from '../../api/types';
+import type { DocSummary, JobDoc, ReviewBoss } from '../../api/types';
+import { KeyPoints } from '../../components/KeyPoints';
 import { InlineText } from '../../components/InlineText';
 import { plainInline } from '../../lib/inlineMarkdown';
 import { fullTime, relativeTime } from '../../lib/time';
@@ -15,7 +18,7 @@ import { ServerHtml } from './ServerHtml';
 import { ExtrasLines } from './ExtrasLines';
 import type { ShownBrief } from './thread';
 
-type Doc = { state: 'loading' } | { state: 'ready'; html: string } | { state: 'error'; message: string };
+type Doc = { state: 'loading' } | { state: 'ready'; html: string; summary: DocSummary | null } | { state: 'error'; message: string };
 
 function useDoc(slug: string, file: string | null): Doc | null {
   const { api } = useWorkshop();
@@ -26,7 +29,7 @@ function useDoc(slug: string, file: string | null): Doc | null {
     let cancelled = false;
     setDoc({ key, doc: { state: 'loading' } });
     api.get<JobDoc>(`/api/job/${encodeURIComponent(slug)}/doc?file=${encodeURIComponent(file)}`).then(
-      (d) => { if (!cancelled) setDoc({ key, doc: { state: 'ready', html: String(d.html ?? '') } }); },
+      (d) => { if (!cancelled) setDoc({ key, doc: { state: 'ready', html: String(d.html ?? ''), summary: d.summary ?? null } }); },
       (err) => { if (!cancelled) setDoc({ key, doc: { state: 'error', message: err instanceof Error ? err.message : String(err) } }); },
     );
     return () => { cancelled = true; };
@@ -61,6 +64,31 @@ function DocBody({ doc, what, headline, file }: { doc: Doc | null; what: string;
   if (!doc || doc.state === 'loading') return <p className="muted">Loading the {what}…</p>;
   if (doc.state === 'error') return <p className="thread-error" role="alert">Couldn’t load the {what}: {doc.message}</p>;
   return <ServerHtml html={headline ? withoutLeadHeadline(doc.html, headline) : doc.html} base={folderOf(file)} />;
+}
+
+/**
+ * An open brief: its In short box first, and the whole brief folded under it; with no short version
+ * yet, the whole brief as before, and a Summarise button under it.
+ */
+function BriefBody({ slug, doc, headline, file }: { slug: string; doc: Doc | null; headline: string; file: string }) {
+  if (doc?.state !== 'ready') return <DocBody doc={doc} what="brief" headline={headline} file={file} />;
+  if (!doc.summary) {
+    return (
+      <>
+        <DocBody doc={doc} what="brief" headline={headline} file={file} />
+        <KeyPoints summary={null} kind="brief" slug={slug} file={file} />
+      </>
+    );
+  }
+  return (
+    <>
+      <KeyPoints summary={doc.summary} kind="brief" slug={slug} file={file} />
+      <details className="brief-whole">
+        <summary title="Show the brief exactly as the Foreman wrote it.">Read the whole brief</summary>
+        <DocBody doc={doc} what="brief" headline={headline} file={file} />
+      </details>
+    </>
+  );
 }
 
 function DetailFold({ slug, file }: { slug: string; file: string }) {
@@ -114,7 +142,7 @@ export function BriefCard({ slug, brief, now, lenses, boss }: { slug: string; br
         {item.stage === 'review' && boss && <BossFight review={boss} />}
       </header>
       <div id={bodyId} className="brief-body" hidden={!open}>
-        {open && <DocBody doc={doc} what="brief" headline={headline} file={item.file} />}
+        {open && <BriefBody slug={slug} doc={doc} headline={headline} file={item.file} />}
         {detailFile && <DetailFold slug={slug} file={detailFile} />}
       </div>
       <ExtrasLines item={item} />

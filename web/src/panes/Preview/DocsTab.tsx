@@ -13,6 +13,7 @@ import { useUi } from '../../app/ui';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop } from '../../state/store';
+import { KeyPoints } from '../../components/KeyPoints';
 import { ServerHtml } from '../Foreman/ServerHtml';
 import { groupDocs, sizeLabel, versionLabel } from './docs';
 
@@ -55,6 +56,11 @@ function DocList({ docs, now, onPick, onReload, pickedRef }: { docs: JobDocEntry
                   {d.version && <span className="chip doc-version" title="The version the job’s records name.">{versionLabel(d.version)}</span>}
                   {d.type === 'json' && <span className="chip doc-type" title="A JSON file: shown indented, as written.">JSON</span>}
                   {d.type === 'html' && <span className="chip doc-type" title="A page: it opens in the Screens tab.">Page</span>}
+                  {d.summary && (
+                    <span className={`chip doc-kp${d.summary === 'stale' ? ' is-stale' : ''}`} title={d.summary === 'stale' ? 'Its key points describe an older version.' : 'Its key points are at the top: the outcome, risks, your decisions and what changed.'}>
+                      {d.summary === 'stale' ? 'Key points (older)' : 'Key points'}
+                    </span>
+                  )}
                   <span className="doc-spacer" />
                   <When at={d.updatedAt} now={now} />
                 </button>
@@ -66,6 +72,9 @@ function DocList({ docs, now, onPick, onReload, pickedRef }: { docs: JobDocEntry
     </div>
   );
 }
+
+/** The groups whose documents the Foreman summarises (not your notes or the workflow's own logs). */
+const SUMMARISED = new Set(['plan', 'briefs', 'review']);
 
 function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: JobDocEntry | null; file: string; now: Date; onBack: () => void }) {
   const { api } = useWorkshop();
@@ -135,6 +144,7 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
           <button type="button" className="btn" onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for this document again.">Try again</button>
         </div>
       )}
+      {doc && !source && doc.type !== 'json' && (doc.summary || SUMMARISED.has(entry?.group ?? '')) && <KeyPoints summary={doc.summary} kind={file.startsWith('briefs/') ? 'brief' : 'doc'} slug={slug} file={file} version={entry?.version ?? null} />}
       {doc && (source
         ? <pre className="doc-source" tabIndex={0} aria-label={`${name}, source`}>{text}</pre>
         : <ServerHtml html={String(doc.html ?? '')} className="doc-page" base={folderOf(file)} />)}
@@ -219,7 +229,7 @@ export function DocsTab({ slug, changedAt, focusRequest = 0, requestFile = null,
   const how = (
     <HowThisWorks id="docs-tab">
       <p>Every document the crew writes for this job, shown as a clean page.</p>
-      <p>The spec, findings and plans are under <strong>Plan &amp; spec</strong>, the feature’s screens under <strong>Screens</strong> (the page opens in the Screens tab), the Foreman’s briefs under <strong>Briefs</strong>, the reviewers’ findings and Fable’s second looks under <strong>Review</strong>, and your notes under <strong>Notes</strong>. A version shows when the job’s records name one. <strong>Source</strong> shows the Markdown exactly as written, <strong>Copy as markdown</strong> copies it. A link in a document to another of the job’s documents opens it here. Nothing here changes a file: the Foreman and its crew write them, and your notes are edited in the job drawer.</p>
+      <p>The spec, findings and plans are under <strong>Plan &amp; spec</strong>, the feature’s screens under <strong>Screens</strong> (the page opens in the Screens tab), the Foreman’s briefs under <strong>Briefs</strong>, the reviewers’ findings and Fable’s second looks under <strong>Review</strong>, and your notes under <strong>Notes</strong>. A version shows when the job’s records name one. <strong>Key points</strong> at the top of a document are the Foreman’s short summary of it (the outcome, risks and surprises, decisions for you, what changed); where there are none, <strong>Summarise</strong> puts a request for them into your message box. <strong>Source</strong> shows the Markdown exactly as written, <strong>Copy as markdown</strong> copies it. A link in a document to another of the job’s documents opens it here. Nothing here changes a file: the Foreman and its crew write them, and your notes are edited in the job drawer.</p>
     </HowThisWorks>
   );
 

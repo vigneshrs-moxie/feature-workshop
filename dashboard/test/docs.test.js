@@ -70,6 +70,10 @@ before(async () => {
   await fs.symlink(outside, path.join(jobDir, 'fable-link'));
   await fs.mkdir(path.join(jobDir, 'briefs'), { recursive: true });
   await fs.symlink(path.join(outside, 'secret.md'), path.join(jobDir, 'briefs', '003-linked.md'));
+  // Key points (summaries/): the plan's v2 and an older v1.
+  await fs.mkdir(path.join(jobDir, 'summaries'), { recursive: true });
+  await fs.writeFile(path.join(jobDir, 'summaries', 'implementation-plan.v1.json'), JSON.stringify({ schema_version: 1, outcome: ['The first plan.'] }));
+  await fs.writeFile(path.join(jobDir, 'summaries', 'implementation-plan.v2.json'), JSON.stringify({ schema_version: 1, outcome: ['Three steps, one commit each.'], risks: ['Step 2 touches the shared query.'], decisions: [{ text: 'Keep the old column?', recommendation: 'No' }], changed: ['v2: split step 1 in two.'] }));
   // review/ itself a symlink to a folder outside in a second job.
   const job2 = path.join(featuresDir, 'link-dir-job');
   await fs.mkdir(job2, { recursive: true });
@@ -284,6 +288,19 @@ test('route /doc: html, text and time; refuses traversal, symlinks, types and si
   assert.equal(upper.status, 200);
   assert.equal(upper.body.type, 'json');
   assert.match(upper.body.html, /^<pre class="json-doc">/);
+});
+
+test('route /doc and /docs: a document’s Key points come with it, the right version; none is null', async () => {
+  const { body } = await getJson(docUrl('doc-job', 'implementation-plan.md'));
+  assert.deepEqual(body.summary.outcome, ['Three steps, one commit each.']);
+  assert.deepEqual(body.summary.decisions, [{ text: 'Keep the old column?', recommendation: 'No' }]);
+  assert.equal(body.summary.version, '2');
+  assert.equal(body.summary.stale, false);
+  assert.equal((await getJson(docUrl('doc-job', 'notes.md'))).body.summary, null);
+  const list = (await getJson('/api/job/doc-job/docs')).body.docs;
+  assert.equal(list.find((d) => d.file === 'implementation-plan.md').summary, 'current');
+  assert.equal(list.find((d) => d.file === 'notes.md').summary, null);
+  assert.ok(!list.some((d) => d.file.startsWith('summaries/')), 'the summaries are not documents of their own');
 });
 
 test('route /doc and /docs: the spec only when it is a .md inside the job’s repository or its folder', async () => {

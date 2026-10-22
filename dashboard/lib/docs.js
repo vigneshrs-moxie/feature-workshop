@@ -130,12 +130,14 @@ export async function wireframesInfo(dir, recorded = []) {
 }
 
 /**
- * Every document of a job: [{ file, name, group, version, updatedAt, size, type }], grouped in
+ * Every document of a job: [{ file, name, group, version, updatedAt, size, type, summary }], grouped in
  * DOC_GROUPS order. `spec` is { path, version } for the product spec in the repository (file 'spec').
  * The wireframes page (type 'html') is listed under Screens; it is shown through its own route, not /doc.
+ * `summary` is 'current', 'stale' or null: whether its Key points are there (readSummary).
  */
 export async function listJobDocs(dir, { spec = null, recorded = [] } = {}) {
   const versions = versionIndex(dir, recorded);
+  const summaries = await summaryIndex(dir);
   const docs = [];
   if (spec?.path) {
     const st = await fs.stat(spec.path).catch(() => null);
@@ -151,7 +153,7 @@ export async function listJobDocs(dir, { spec = null, recorded = [] } = {}) {
     docs.push({ ...f, ...d, version, type: f.file.endsWith('.json') ? 'json' : 'md' });
   }
   docs.sort((a, b) => DOC_GROUPS.indexOf(a.group) - DOC_GROUPS.indexOf(b.group) || a.order - b.order || a.name.localeCompare(b.name));
-  return docs.map(({ order, ...d }) => d);
+  return docs.map(({ order, ...d }) => ({ ...d, summary: d.type === 'html' ? null : summaryState(summaries, d.file, d.version) }));
 }
 
 /**
@@ -222,4 +224,124 @@ export function jsonHtml(text) {
   let pretty = text;
   try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch { /* shown as written */ }
   return `<pre class="json-doc"><code>${escapeHtml(pretty)}</code></pre>`;
+}
+
+// ---------- Key points: a short summary of each document and brief ----------
+//
+// The Foreman writes one small JSON file per document and version in the job folder's summaries/
+// (skills/feature/status-json.md §3): summaries/<file without .md/.json>[.v<version>].json, e.g.
+// summaries/findings.v1.json, summaries/briefs/006-review.json, summaries/spec.v0.3.json for the
+// product spec. Four parts, each a few short lines: outcome, risks, decisions (with the
+// recommendation) and what changed. Read only; the same rules as the documents: plain files inside
+// the folder, no symlinks, nothing hidden, and small.
+
+export const SUMMARY_DIR = 'summaries';
+export const SUMMARY_MAX_BYTES = 16 * 1024;
+const SUMMARY_LINES = 3;
+const SUMMARY_DECISIONS = 5; // a clarify brief may carry five
+const SUMMARY_LINE_CHARS = 240;
+const SUMMARY_FILE = /^([^.][^/\\]*?)(?:\.v([0-9A-Za-z][0-9A-Za-z.-]{0,30}))?\.json$/;
+
+/** The summary's stem for a document: its path without .md/.json ('spec' for the product spec). */
+export const summaryStem = (file) => String(file ?? '').replace(/\.(md|json)$/i, '');
+
+const cut = (s, n = SUMMARY_LINE_CHARS) => {
+  const t = typeof s === 'string' ? s.replace(/\s+/g, ' ').trim() : '';
+  return t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t;
+};
+const lines = (v) => (Array.isArray(v) ? v.map((x) => cut(x)).filter(Boolean).slice(0, SUMMARY_LINES) : []);
+
+/** A summary file's parts, checked: unknown fields dropped, lines trimmed and capped. Null when there is nothing to show. */
+export function cleanSummary(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const decisions = Array.isArray(raw.decisions)
+    ? raw.decisions
+      .map((d) => (typeof d === 'string' ? { text: cut(d), recommendation: null } : d && typeof d === 'object' ? { text: cut(d.text), recommendation: cut(d.recommendation, 160) || null } : null))
+      .filter((d) => d?.text)
+      .slice(0, SUMMARY_DECISIONS)
+    : [];
+  const out = { outcome: lines(raw.outcome), risks: lines(raw.risks), decisions, changed: lines(raw.changed), written: typeof raw.written === 'string' ? raw.written : null };
+  return out.outcome.length || out.risks.length || out.decisions.length || out.changed.length ? out : null;
+}
+
+/** Natural order for versions: 0.10 after 0.9. */
+const versionCmp = (a, b) => String(a).localeCompare(String(b), 'en', { numeric: true });
+
+/**
+ * Every summary file of a job, by stem: Map<stem, [{ version, file, updatedAt }]>, newest version
+ * last. Reads summaries/ and one level of folders under it (briefs/, review/, fable/); a symlinked
+ * folder or file is skipped.
+ */
+export async function summaryIndex(dir) {
+  const index = new Map();
+  const root = path.join(dir, SUMMARY_DIR);
+  const top = await fs.lstat(root).catch(() => null);
+  if (!top?.isDirectory()) return index;
+  const scan = async (sub) => {
+    let entries;
+    try { entries = await fs.readdir(sub ? path.join(root, sub) : root, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      if (e.isDirectory() && !sub) { if (SUBFOLDERS.includes(e.name)) await scan(e.name); continue; }
+      const m = e.isFile() ? SUMMARY_FILE.exec(e.name) : null;
+      if (!m) continue;
+      const rel = sub ? `${sub}/${e.name}` : e.name;
+      const st = await fs.lstat(path.join(root, rel)).catch(() => null);
+      if (!st?.isFile() || st.size > SUMMARY_MAX_BYTES) continue;
+      const stem = sub ? `${sub}/${m[1]}` : m[1];
+      const list = index.get(stem) ?? [];
+      list.push({ version: m[2] ?? null, file: `${SUMMARY_DIR}/${rel}`, updatedAt: st.mtime.toISOString() });
+      index.set(stem, list);
+    }
+  };
+  await scan(null);
+  for (const list of index.values()) list.sort((a, b) => (a.version === null) - (b.version === null) || versionCmp(a.version ?? '', b.version ?? '') || a.updatedAt.localeCompare(b.updatedAt));
+  return index;
+}
+
+/**
+ * Which summary file goes with a document at `version`: the one for that version; with no version
+ * known, the unversioned one or else the newest. Otherwise the newest there is, marked stale (it
+ * describes an older or other version). { pick, stale } or null.
+ */
+function pickSummary(list, version) {
+  if (!list?.length) return null;
+  const v = version == null ? null : String(version);
+  if (v !== null) {
+    const exact = list.find((s) => s.version === v);
+    if (exact) return { pick: exact, stale: false };
+  } else {
+    const plain = list.find((s) => s.version === null);
+    return { pick: plain ?? list[list.length - 1], stale: false };
+  }
+  const versioned = list.filter((s) => s.version !== null);
+  const newest = versioned.length ? versioned[versioned.length - 1] : list[list.length - 1];
+  // An unversioned summary for a versioned document: shown as is (the Foreman didn't name one).
+  return { pick: newest, stale: newest.version !== null };
+}
+
+/** 'current', 'stale' or null: whether a document has a summary, for the Docs list. */
+export function summaryState(index, file, version) {
+  const p = pickSummary(index.get(summaryStem(file)), version);
+  return p ? (p.stale ? 'stale' : 'current') : null;
+}
+
+/**
+ * The summary of one document (or brief) at `version`: { outcome, risks, decisions, changed,
+ * written, version, stale, file } or null when there is none (or it can't be read or is empty).
+ */
+export async function readSummary(dir, file, version = null, index = null) {
+  const idx = index ?? await summaryIndex(dir);
+  const p = pickSummary(idx.get(summaryStem(file)), version);
+  if (!p) return null;
+  let raw;
+  try { raw = JSON.parse(await fs.readFile(path.join(dir, p.pick.file), 'utf8')); } catch { return null; }
+  const clean = cleanSummary(raw);
+  return clean ? { ...clean, version: p.pick.version, stale: p.stale, file: p.pick.file } : null;
+}
+
+/** The version the job's records name for one document (null when none): as in listJobDocs. */
+export function docVersion(dir, file, recorded = []) {
+  const versions = versionIndex(dir, recorded);
+  return versions.byFile.get(file) ?? versions.byName.get(describeDoc(file).name.toLowerCase()) ?? null;
 }
