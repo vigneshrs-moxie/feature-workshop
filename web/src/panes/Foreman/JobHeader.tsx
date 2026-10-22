@@ -171,24 +171,49 @@ export interface JobHeaderProps {
 }
 
 /**
- * Tells the Foreman pane how tall the stuck header really is (--job-header-h on .pane-foreman), so
- * the pane and anything focused in the thread scroll clear of it. The trail makes it much taller
- * than its two lines, and it changes with the text size and the window; app.css keeps an estimate
- * for before the first measure.
+ * The stuck header's size. It tells the Foreman pane how tall it really is (--job-header-h on
+ * .pane-foreman), so the pane and anything focused in the thread scroll clear of it; app.css keeps
+ * an estimate for before the first measure.
+ * Scrolled down, it goes compact (one slim row: the title, a thin trail, the level and the menu,
+ * then "Your move"). It keeps its full height in the flow as a bottom margin, and turns compact
+ * only once that freed room is scrolled out of sight, so the thread never jumps when it shrinks.
  */
-function useStuckHeight() {
+function useStuckHeader() {
   const ref = useRef<HTMLElement>(null);
+  const [compact, setCompact] = useState(false);
   useEffect(() => {
     const el = ref.current;
     const pane = el?.closest<HTMLElement>('.pane-foreman');
-    if (!el || !pane || typeof ResizeObserver === 'undefined') return;
-    const set = () => pane.style.setProperty('--job-header-h', `${Math.ceil(el.getBoundingClientRect().height)}px`);
-    set();
-    const ro = new ResizeObserver(set);
-    ro.observe(el);
-    return () => { ro.disconnect(); pane.style.removeProperty('--job-header-h'); };
+    if (!el || !pane) return;
+    let full = 0;
+    let slim = 0;
+    let isCompact = false;
+    const measure = () => {
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      if (!h) return; // not laid out (hidden, or no layout at all): keep the estimate
+      if (isCompact) slim = h; else full = h;
+      el.style.marginBottom = isCompact && full > h ? `${full - h}px` : '';
+      pane.style.setProperty('--job-header-h', `${h}px`);
+    };
+    const onScroll = () => {
+      // Until the slim height is known, guess it as a third of the full one.
+      const next = full > 0 && pane.scrollTop >= full - (slim || full / 3);
+      if (next === isCompact) return;
+      isCompact = next;
+      setCompact(next);
+    };
+    measure();
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    ro?.observe(el);
+    pane.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      ro?.disconnect();
+      pane.removeEventListener('scroll', onScroll);
+      pane.style.removeProperty('--job-header-h');
+      el.style.marginBottom = '';
+    };
   }, []);
-  return ref;
+  return { ref, compact };
 }
 
 export function JobHeader({ job, branch, dir, policyOverride, run, worktree, detailLoaded = false }: JobHeaderProps) {
@@ -204,10 +229,10 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree, det
   const policyShown = policy.override !== null || policy.global !== 'hands-off';
   const { usage } = useWorkshopState();
   const closed = job.closed ?? null;
-  const headerRef = useStuckHeight();
+  const { ref: headerRef, compact } = useStuckHeader();
   const ago = closed ? relativeTime(closed.at, now) : '';
   return (
-    <header className="job-header" ref={headerRef}>
+    <header className={`job-header${compact ? ' is-compact' : ''}`} ref={headerRef}>
       <div className="job-header-line">
         <span className="hue-dot" style={jobHueStyle(job.slug)} aria-hidden="true" />
         {/* Play: the Foreman, its mood following the job (nothing with Play Off). */}

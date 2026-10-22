@@ -1,10 +1,10 @@
 // The job header (JobHeader.tsx): still while the conversation scrolls (app.css, "Job view and
 // Desk (light round 2)"), and one quiet facts line (the cost only over 10 cents, the permission
 // setting only when it isn't the default).
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
 import type { Job } from '../../api/types';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
@@ -15,14 +15,14 @@ import { JobHeader } from './JobHeader';
 const css = readFileSync(path.join(process.cwd(), 'src/app/app.css'), 'utf8');
 const theme = (id: string) => readFileSync(path.join(process.cwd(), `src/theme/themes/${id}.css`), 'utf8');
 
-function show(j: Job, settings: Record<string, unknown> = { policy: 'hands-off', jobPolicy: {} }, dir = '/f/alpha') {
+function show(j: Job, settings: Record<string, unknown> = { policy: 'hands-off', jobPolicy: {} }, dir = '/f/alpha', container?: HTMLElement) {
   const store: Store = createStore();
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [j], meta: { token: 't', settings: settings as never } }) });
   const api = { get: async () => ({}), post: async () => ({}) } as unknown as ApiClient;
-  return render(<WorkshopContext.Provider value={{ store, api }}><JobHeader job={j} dir={dir} /></WorkshopContext.Provider>);
+  return render(<WorkshopContext.Provider value={{ store, api }}><JobHeader job={j} dir={dir} /></WorkshopContext.Provider>, container ? { container } : undefined);
 }
 
-afterEach(() => { localStorage.clear(); });
+afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); document.body.innerHTML = ''; });
 
 describe('the job header stays still', () => {
   it('is sticky at the top of the Foreman pane, above the thread, on the theme’s background', () => {
@@ -47,6 +47,34 @@ describe('the job header stays still', () => {
     expect(rule).toMatch(/padding:[^;]*calc\(var\(--space-2\) \+ 1px \+ var\(--space-3\)\)/);
     expect(line).toMatch(/bottom:\s*var\(--space-3\)/);
     expect(line).toMatch(/height:\s*1px/);
+  });
+
+  it('goes compact once the room it frees is scrolled out of sight, and full again back at the top', () => {
+    // jsdom has no layout: the header is 270 px tall, 90 px compact.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const h = this.classList.contains('job-header') ? (this.classList.contains('is-compact') ? 90 : 270) : 0;
+      return { height: h, width: 0, top: 0, left: 0, right: 0, bottom: h, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+    });
+    const pane = document.body.appendChild(document.createElement('div'));
+    pane.className = 'pane-foreman';
+    const { container } = show(job('alpha', 'running'), undefined, undefined, pane);
+    const header = container.querySelector<HTMLElement>('header.job-header')!;
+    expect(pane.style.getPropertyValue('--job-header-h'), 'the real height, for scroll-padding').toBe('270px');
+    const scrollTo = (y: number) => act(() => { pane.scrollTop = y; fireEvent.scroll(pane); });
+
+    scrollTo(100); // the freed room (270 - about 90) would still show: stays full
+    expect(header).not.toHaveClass('is-compact');
+    scrollTo(400);
+    expect(header).toHaveClass('is-compact');
+    scrollTo(0);
+    expect(header).not.toHaveClass('is-compact');
+    expect(header.style.marginBottom).toBe('');
+  });
+
+  it('compact: one slim row (title, thin trail, level, menu) and the "Your move" line; the facts wait', () => {
+    expect(css).toMatch(/\.pane-foreman \.job-header\.is-compact \{[^}]*display: grid/);
+    expect(css).toMatch(/\.job-header\.is-compact :is\([^)]*\.job-facts[^)]*\) \{ display: none; \}/);
+    expect(css).toMatch(/\.job-header\.is-compact \.trail-now \{ grid-area: 2 \/ 1 \/ 3 \/ -1;/);
   });
 
   it('renders as one header block: the title line, then the facts line (the trail and the lines between them with Play on)', () => {
