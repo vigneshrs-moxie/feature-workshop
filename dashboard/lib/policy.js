@@ -19,6 +19,7 @@ export const POLICIES = ['hands-off', 'ask-all', 'auto'];
 const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'TodoWrite', 'TaskOutput', 'SendMessage', 'Agent', 'Task']);
 const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 const BUILD_STAGES = new Set(['implement', 'test', 'review']);
+const PR_STAGES = new Set(['pr1', 'pr2', 'staging-qa', 'pr3']);
 const SPEC_STAGES = new Set(['spec', 'refine', 'spec-update']);
 // Scratch output (check logs and the like) may go to the temp folders.
 const TEMP_DIRS = [...new Set(['/tmp', '/private/tmp', os.tmpdir(), path.join('/private', os.tmpdir())])];
@@ -48,6 +49,45 @@ const GH_READ = { auth: ['status'], pr: ['view', 'list', 'status', 'checks', 'di
 const SAFE_UPPER_VARS = new Set(['NO_COLOR', 'FORCE_COLOR', 'CI', 'TZ', 'LANG', 'LC_ALL', 'NODE_ENV', 'SKIP_ENV_VALIDATION', 'DEBUG', 'TERM', 'COLUMNS', 'LINES']);
 const CHECK_SCRIPTS = /^(check|lint|typecheck|type-check|build|test|test:unit|format:check|lint:check)$/;
 // db:* scripts that only read or rename migration files (Orbit's db:renumber checks their order).
+// The one write to the org repository the Foreman may make (the user's ask, 2026-10-22: "allow the
+// dashboard to create the feature branch on org repo"): creating the job's matching branch through
+// GitHub's create-ref API, which fails when the branch already exists, so it can never move,
+// overwrite or delete one. Pushing to the org stays refused (lib/hard-lines.js).
+export const ORG_REFS_PATH = /^\/?repos\/moxie[\w.-]*\/[\w.-]+\/git\/refs(\/|$)/i;
+const PROTECTED_BRANCH = /^(main|master|staging|develop|production|release([/-].*)?|HEAD)$/i;
+
+/**
+ * gh api arguments (after "api") that write to an org repo's branches: null when they don't touch
+ * them; { branch, sha } for exactly one new branch from a written-out commit; 'other' for anything
+ * else (updating, deleting, a protected name, options we don't read).
+ */
+export function orgRefWrite(args) {
+  let endpoint = null;
+  let method = null;
+  const fields = [];
+  let unknown = false;
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k];
+    let m;
+    if (a === '-X' || a === '--method') method = (args[++k] ?? '').toUpperCase();
+    else if ((m = /^(?:-X|--method=)(.+)$/.exec(a))) method = m[1].toUpperCase();
+    else if (['-f', '-F', '--field', '--raw-field'].includes(a)) fields.push(args[++k] ?? '');
+    else if ((m = /^(?:-[fF]|--(?:raw-)?field=)(.+)$/.exec(a))) fields.push(m[1]);
+    else if (['-q', '--jq', '-t', '--template'].includes(a)) k++; // only shape what's printed
+    else if (['--silent', '--paginate', '-i', '--include'].includes(a) || /^--(jq|template)=/.test(a)) continue;
+    else if (a.startsWith('-')) unknown = true; // --input, -H, --paginate, …
+    else if (endpoint === null) endpoint = a;
+  }
+  if (!endpoint || !ORG_REFS_PATH.test(endpoint)) return null;
+  method ??= fields.length ? 'POST' : 'GET';
+  if (method === 'GET' && !fields.length && !unknown) return null;
+  if (unknown || method !== 'POST' || !/\/git\/refs\/?$/.test(endpoint) || fields.length !== 2) return 'other';
+  const f = Object.fromEntries(fields.map((x) => [x.slice(0, x.indexOf('=')), x.slice(x.indexOf('=') + 1)]));
+  const branch = /^refs\/heads\/([A-Za-z0-9._/-]+)$/.exec(f.ref ?? '')?.[1];
+  if (!branch || branch.includes('..') || PROTECTED_BRANCH.test(branch) || !/^[0-9a-f]{40}$/.test(f.sha ?? '')) return 'other';
+  return { branch, sha: f.sha };
+}
+
 export const NOT_DB_SCRIPT = /^db:(renumber|status|check|generate|validate|diff|lint|format)$/;
 const SUB = '\u0000sub\u0000'; // stands in for a $( … ) whose own commands are judged separately
 // ${name}, ${#name}, ${name:-word}, ${name%pat} and the like; not assignments, indirection, flags or @ operators.
@@ -399,6 +439,10 @@ function judgeWords(w, ctx, simple) {
   if (cmd === 'git') return gitVerdict(rest, ctx);
   if (cmd === 'gh') {
     if (rest.some((a) => a === '--show-token' || a === '-t')) return 'gh showing your token needs your OK';
+    if (rest[0] === 'api') {
+      const write = orgRefWrite(rest.slice(1));
+      if (write && write !== 'other' && (BUILD_STAGES.has(ctx.stage) || PR_STAGES.has(ctx.stage))) return 'ok';
+    }
     const args = rest.filter((a, k) => !(a.startsWith('-') || ['-R', '--repo'].includes(rest[k - 1])));
     return GH_READ[args[0]]?.includes(args[1]) ? 'ok' : `gh ${args.slice(0, 2).join(' ')} needs your OK`.trim();
   }

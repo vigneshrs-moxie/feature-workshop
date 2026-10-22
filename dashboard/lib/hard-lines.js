@@ -23,6 +23,9 @@
 //   pushes to the org repo (the "moxie" remote, a github.com/moxie… address, or any other remote
 //   whose push address is one: orgPushCheck() asks git in the job's folder)
 //   force pushes (--force, -f, --force-with-lease, --force-if-includes, a +refspec, --mirror)
+//   gh api writes to the org repo's branches, except one (policy.js orgRefWrite): creating a new
+//   branch from a written-out commit, never main, staging or a release branch. GitHub refuses
+//   that call when the branch exists, so it can't move or overwrite one (the user's ask, 2026-10-22).
 //
 // Matching reads the command word by word, through && ; | and $( … ), past VAR=value prefixes and
 // wrappers such as sudo, env, command, nohup, time and timeout (and their options' values). When
@@ -32,7 +35,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 
-import { commandParts, isInside, NOT_DB_SCRIPT, resolvePath, splitCommand, TEMP_DIRS } from './policy.js';
+import { commandParts, isInside, NOT_DB_SCRIPT, orgRefWrite, resolvePath, splitCommand, TEMP_DIRS } from './policy.js';
 
 /** Remote names and addresses that mean the org repository. Pushing there is never allowed. */
 export const ORG_REMOTES = ['moxie'];
@@ -134,6 +137,8 @@ function rmVerdict(args) {
   return r && f ? { decision: 'ask', line: 'rm-rf', reason: 'Deleting with rm -rf is a hard line: it asks you before it runs.' } : null;
 }
 
+const ORG_REF = { decision: 'deny', line: 'org-ref-write', reason: 'Changing branches on the org repository is never allowed from the dashboard. Only creating a new feature branch is.' };
+
 const DB = { decision: 'ask', line: 'database', reason: 'Database migrations are a hard line: they ask you before they run.' };
 
 function dbVerdict(cmd, rest) {
@@ -170,6 +175,7 @@ function judgeWords(w) {
   }
   if (cmd === 'gh') {
     const [group, action] = ghSub(rest);
+    if (rest[0] === 'api' && orgRefWrite(rest.slice(1)) === 'other') return ORG_REF;
     if (group === 'pr' && (action === 'create' || action === 'merge')) return { decision: 'ask', line: `gh-pr-${action}`, reason: `gh pr ${action} is a hard line: it asks you before it runs.` };
     return null;
   }
@@ -183,6 +189,7 @@ function judgeRaw(text) {
     const tail = text.slice(text.search(/\bpush\b/)).split(/[\n;&|)`]/)[0].replace(/["'\\]/g, ' ');
     return pushVerdict(words(tail).slice(1));
   }
+  if (/\bgh\b[^\n;&|]*\bapi\b[^\n;&|]*repos\/moxie[^\n;&|]*\/git\/refs/i.test(text) && /\s(-X|--method|-f|-F|--field|--raw-field|--input)\b/.test(text)) return ORG_REF;
   const pr = text.match(/\bgh\b[^\n;&|]*\bpr\s+(create|merge)\b/);
   if (pr) return { decision: 'ask', line: `gh-pr-${pr[1]}`, reason: `gh pr ${pr[1]} is a hard line: it asks you before it runs.` };
   if (/\brm\b[^\n;&|]*\s-(?:[A-Za-z]*[rR][A-Za-z]*f|[A-Za-z]*f[A-Za-z]*[rR])/.test(text) || /\brm\b[^\n;&|]*--recursive[^\n;&|]*--force|\brm\b[^\n;&|]*--force[^\n;&|]*--recursive/.test(text)) return rmVerdict(['-rf']);

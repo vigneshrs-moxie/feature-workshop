@@ -209,3 +209,34 @@ test('driver: a covered hard line that Claude Code asks about is allowed and log
   assert.equal(allowed.length, 1);
   assert.match(allowed[0].reason, /approved the PR stage/);
 });
+
+// ---------- creating the org branch (2026-10-22) ----------
+
+const SHA = 'a'.repeat(40);
+const CREATE = `gh api -X POST repos/Moxie-Pest-Control-Phoenix/moxie-portal/git/refs -f ref=refs/heads/feature/x -f sha=${SHA}`;
+
+test('org branch: creating a new one from a written-out commit is routine once building is approved', () => {
+  assert.equal(hardLine('Bash', { command: CREATE }), null);
+  for (const stage of ['implement', 'review', 'pr1']) {
+    assert.equal(classify('Bash', { command: CREATE }, { ...ctx({ mode: 'hands-off', stage }) }).auto, true, stage);
+  }
+  assert.equal(classify('Bash', { command: CREATE }, ctx({ mode: 'hands-off', stage: 'spec' })).auto, false);
+  assert.equal(classify('Bash', { command: CREATE }, ctx({ mode: 'ask-all', stage: 'pr1' })).auto, false);
+  // Without -X, fields make it a POST; --silent is fine.
+  assert.equal(classify('Bash', { command: `gh api --silent /repos/moxie-x/app/git/refs -f ref=refs/heads/f -f sha=${SHA}` }, ctx({ mode: 'hands-off', stage: 'pr1' })).auto, true);
+});
+
+test('org branch: anything else that writes its branches is refused; reading them is not', () => {
+  for (const command of [
+    `gh api -X PATCH repos/moxie-x/app/git/refs/heads/feature/x -f sha=${SHA} -F force=true`,
+    'gh api -X DELETE repos/moxie-x/app/git/refs/heads/feature/x',
+    `gh api -X POST repos/moxie-x/app/git/refs -f ref=refs/heads/staging -f sha=${SHA}`,
+    `gh api -X POST repos/moxie-x/app/git/refs -f ref=refs/heads/release/1 -f sha=${SHA}`,
+    `gh api -X POST repos/moxie-x/app/git/refs -f ref=refs/tags/v1 -f sha=${SHA}`,
+    'gh api -X POST repos/moxie-x/app/git/refs -f ref=refs/heads/f -f sha=main',
+    'gh api -X POST repos/moxie-x/app/git/refs --input body.json',
+    `sudo gh api -X POST repos/moxie-x/app/git/refs -f ref=refs/heads/f -f sha=${SHA}`,
+  ]) assert.equal(hardLine('Bash', { command })?.line, 'org-ref-write', command);
+  assert.equal(hardLine('Bash', { command: 'gh api repos/moxie-x/app/git/refs/heads/feature/x --jq .object.sha' }), null);
+  assert.equal(hardLine('Bash', { command: 'git push moxie feature/x' }).line, 'org-push');
+});
