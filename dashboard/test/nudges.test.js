@@ -13,7 +13,7 @@ const card = (extra = {}) => ({ stage: 'review', prs: [], closed: null, ...extra
 const ids = (list) => list.map((n) => n.id);
 
 test('the table: one nudge per PR place, in words, with a link or a sentence for the Foreman', () => {
-  assert.deepEqual(NUDGE_IDS, ['pr1-merge', 'pr2-open', 'pr2-review', 'pr2-changes', 'pr2-merge']);
+  assert.deepEqual(NUDGE_IDS, ['pr1-merge', 'pr2-open', 'pr2-review', 'pr2-changes', 'pr2-merge', 'pr1-merged', 'pr2-merged']);
   const cases = [
     [lane('fork', pr(141, 'open', { checks: 'failing' }), null), 'pr1-merge', 'link', 'Self-review and merge PR #1 on GitHub', URL1],
     [lane('org', pr(141, 'merged'), null), 'pr2-open', 'ask', 'Open PR #2 to staging?', 'Please open PR #2 (org branch → staging).'],
@@ -24,7 +24,7 @@ test('the table: one nudge per PR place, in words, with a link or a sentence for
     [lane('org', pr(141, 'merged'), pr(142, 'open', { review: 'approved' })), 'pr2-merge', 'link', 'Merge PR #2 on GitHub', URL2],
   ];
   for (const [l, id, kind, title, target] of cases) {
-    const got = nudgesFor(card({ stage: l.pr2 ? 'pr2' : l.pr1?.state === 'merged' ? 'pr1' : 'pr1' }), l, { finishLine: 'main' });
+    const got = nudgesFor(card({ stage: l.pr2 || l.pr1?.state === 'merged' ? 'pr2' : 'pr1' }), l, { finishLine: 'main' });
     assert.equal(got.length, 1, id);
     const n = got[0];
     assert.equal(n.id, id);
@@ -40,9 +40,9 @@ test('the table: one nudge per PR place, in words, with a link or a sentence for
 
 test('sent ids are left out too: a nudge whose sentence went to the Foreman stays away while the PRs catch up', () => {
   const l = lane('org', pr(141, 'merged'), null);
-  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr1' }), l, { finishLine: 'main' })), ['pr2-open']);
-  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr1' }), l, { finishLine: 'main', sent: ['pr2-open'] })), []);
-  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr1' }), l, { finishLine: 'main', sent: 'pr2-open' })), ['pr2-open'], 'not a list: nothing sent');
+  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr2' }), l, { finishLine: 'main' })), ['pr2-open']);
+  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr2' }), l, { finishLine: 'main', sent: ['pr2-open'] })), []);
+  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr2' }), l, { finishLine: 'main', sent: 'pr2-open' })), ['pr2-open'], 'not a list: nothing sent');
   // Once PR #2 is open the record is harmless: the next nudge is a different id.
   assert.deepEqual(ids(nudgesFor(card({ stage: 'pr2' }), lane('org', pr(141, 'merged'), pr(142, 'open')), { finishLine: 'main', sent: ['pr2-open'] })), ['pr2-review']);
 });
@@ -67,8 +67,8 @@ test('falls back to status.json’s prs when the map has no lane; not_started is
   const merged = [{ number: 1, url: URL1, state: 'merged' }, { number: 2, url: URL2, state: 'open' }];
   assert.deepEqual(ids(nudgesFor(card({ stage: 'pr2', prs: merged }), null, { finishLine: 'main' })), ['pr2-review']);
   assert.deepEqual(ids(nudgesFor(card({ stage: 'pr2', prs: [merged[0]] }), null, { finishLine: 'main' })), ['pr2-open']);
-  // The lane wins over the record when both are there.
-  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr1', prs }), lane('org', pr(141, 'merged'), null), { finishLine: 'main' })), ['pr2-open']);
+  // The lane wins over the record when both are there: merged on GitHub, open in the record.
+  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr1', prs }), lane('org', pr(141, 'merged'), null), { finishLine: 'main' })), ['pr1-merged']);
 });
 
 test('afterLine: a job past the finish line keeps its nudges, marked, whether the card or the setting says so', () => {
@@ -88,4 +88,19 @@ test('dismissed ids are left out; unknown ids in the list are harmless', () => {
   assert.deepEqual(ids(nudgesFor(card({ stage: 'pr2' }), l, { finishLine: 'main', dismissed: ['pr2-review'] })), []);
   assert.deepEqual(ids(nudgesFor(card({ stage: 'pr2' }), l, { finishLine: 'main', dismissed: ['pr1-merge', 'nonsense'] })), ['pr2-review']);
   assert.deepEqual(ids(nudgesFor(card({ stage: 'pr2' }), l, { finishLine: 'main', dismissed: 'pr2-review' })), ['pr2-review'], 'not a list: nothing dismissed');
+});
+
+test('merged on GitHub while the Foreman still waits at that PR: a nudge to tell it, instead of the next step', () => {
+  const at1 = nudgesFor(card({ stage: 'pr1', prs: [{ number: 141, url: URL1, state: 'open' }] }), lane('org', pr(141, 'merged'), null), { finishLine: 'main' });
+  assert.deepEqual(ids(at1), ['pr1-merged']);
+  assert.equal(at1[0].kind, 'ask');
+  assert.match(at1[0].action.send, /PR #1 \(#141\) is already merged on GitHub/);
+  assert.equal(at1[0].link, URL1);
+  // The Foreman has caught up (status.json says merged): the usual next step.
+  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr1', prs: [{ number: 141, state: 'merged' }] }), lane('org', pr(141, 'merged'), null), { finishLine: 'main' })), ['pr2-open']);
+  // Only from GitHub (the lane), never from status.json alone.
+  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr1', prs: [{ number: 141, state: 'merged' }] }), null, { finishLine: 'main' })), ['pr2-open']);
+  const at2 = nudgesFor(card({ stage: 'pr2', prs: [{ state: 'merged' }, { number: 142, state: 'open' }] }), lane('staging', pr(141, 'merged'), pr(142, 'merged')), { finishLine: 'main' });
+  assert.deepEqual(ids(at2), ['pr2-merged']);
+  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr1', prs: [{ state: 'open' }] }), lane('org', pr(141, 'merged'), null), { finishLine: 'main', sent: ['pr1-merged'] })), []);
 });

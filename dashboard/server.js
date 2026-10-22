@@ -1704,7 +1704,10 @@ const flow = new FlowWatch({
 // for each card's `finish`; when one moved, the cards' groups may have, so the pages fetch again.
 flow.on('flow', (view) => {
   const lanes = new Map(view.repos.flatMap((r) => r.lanes.map((l) => [l.slug, l])));
-  const moved = [...lanes].some(([slug, l]) => flowLanes.get(slug)?.position !== l.position) || [...flowLanes.keys()].some((slug) => !lanes.has(slug));
+  // Moved: a lane's place or one of its PRs' state or review (a merge on an org branch that
+  // already existed doesn't move the lane, but it changes the job's nudges).
+  const mark = (l) => l && JSON.stringify([l.position, l.pr1?.state, l.pr2?.state, l.pr2?.review]);
+  const moved = [...lanes].some(([slug, l]) => mark(flowLanes.get(slug)) !== mark(l)) || [...flowLanes.keys()].some((slug) => !lanes.has(slug));
   flowLanes = lanes;
   if (moved) { cached = null; broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); }
   events.emit('flow', null, view, { replay: false });

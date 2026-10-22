@@ -8,6 +8,9 @@
 //   pr2-review  PR #2 open, no approval yet        → "Ask Raj for a review?" (yes asks the Foreman)
 //   pr2-changes PR #2 open, changes requested      → "Address Raj’s review on PR #2" (a link)
 //   pr2-merge   PR #2 approved, not merged         → "Merge PR #2 on GitHub" (a link)
+//   pr1-merged  GitHub has PR #1 merged, the Foreman's status.json doesn't (it is still at pr1)
+//   pr2-merged  the same for PR #2 (at pr2)        → "PR #n is merged: tell the Foreman?" (yes
+//               tells it, so it carries on instead of asking you to merge; 2026-10-22)
 //
 // The dashboard never merges or approves anything itself: a link nudge opens GitHub; an ask nudge
 // sends one sentence to the job's Foreman, which does the git work as the skill's pr2 stage does.
@@ -19,7 +22,7 @@
 import { finishLineReached } from './finish.js';
 import { STAGE_IDS } from './stages.js';
 
-export const NUDGE_IDS = ['pr1-merge', 'pr2-open', 'pr2-review', 'pr2-changes', 'pr2-merge'];
+export const NUDGE_IDS = ['pr1-merge', 'pr2-open', 'pr2-review', 'pr2-changes', 'pr2-merge', 'pr1-merged', 'pr2-merged'];
 
 const prState = (p) => String(p?.state ?? '').toLowerCase();
 // A draft isn't ready for anyone yet: no nudge until it is marked ready.
@@ -64,12 +67,22 @@ export function nudgesFor(card, lane, { finishLine, dismissed = [], sent = [] } 
   const out = [];
   const add = (id, kind, title, text, extra) => out.push({ id, kind, title, text, link: null, action: null, ...extra, afterLine });
 
+  // Merged on GitHub while the Foreman, still at that PR's stage, has it as not merged yet.
+  const unseen = (n, p) => isMerged(p) && card.stage === `pr${n}` && lane?.[`pr${n}`] === p
+    && prState(Array.isArray(card.prs) ? card.prs[n - 1] : null) !== 'merged';
+  for (const n of [1, 2]) {
+    const p = n === 1 ? pr1 : pr2;
+    if (!unseen(n, p)) continue;
+    add(`pr${n}-merged`, 'ask', `PR #${n} is merged: tell the Foreman?`,
+      `GitHub has PR #${n}${num(p)} merged, but the Foreman hasn’t seen it yet. Yes tells it, so it carries on instead of asking you to merge.`,
+      { link: p.url ?? null, action: { send: `PR #${n}${num(p)} is already merged on GitHub (the dashboard just checked). Update status.json and carry on from there; don't ask me to merge it.` } });
+  }
   if (isOpen(pr1)) {
     const checks = pr1.checks === 'failing' ? ' Its checks are failing.' : '';
     add('pr1-merge', 'link', 'Self-review and merge PR #1 on GitHub',
       `PR #1${num(pr1)} is open from your fork to the Moxie branch. Read it over and merge it there; merges stay yours.${checks}`,
       { link: pr1.url ?? null });
-  } else if (isMerged(pr1) && pr2 === null && !pastStage(card.stage, 'pr2') && (lane?.position ?? 'org') === 'org') {
+  } else if (isMerged(pr1) && !unseen(1, pr1) && pr2 === null && !pastStage(card.stage, 'pr2') && (lane?.position ?? 'org') === 'org') {
     add('pr2-open', 'ask', 'Open PR #2 to staging?',
       'PR #1 is merged: your work is on the Moxie branch. Yes asks the Foreman to open PR #2 (Moxie branch → staging).',
       { action: { send: 'Please open PR #2 (org branch → staging).' } });

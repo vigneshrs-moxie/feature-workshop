@@ -16,6 +16,7 @@ import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
 import { BriefCard } from './BriefCard';
 import { GateSlot } from './GateCard';
+import { JobGithub } from './JobGithub';
 import { JobHeader } from './JobHeader';
 import { LevelCard } from './LevelCard';
 import { LiveRow } from './LiveRow';
@@ -146,6 +147,8 @@ function JobThread({ job }: { job: Job }) {
         <JobCards slug={job.slug} now={now} />
         <LiveRow run={run} job={job} usage={state.usage} />
       </section>
+      {/* GitHub at the PR stages: Check GitHub, and "PR #n is merged: tell the Foreman?". */}
+      <JobGithub job={job} />
       {/* The gate card: pinned above the composer while the Foreman waits for your decision. */}
       {thread.detail && <GateSlot job={job} detail={thread.detail} now={now} reload={thread.reload} />}
       <Composer key={job.slug} slug={job.slug} detail={thread.detail} run={run} />

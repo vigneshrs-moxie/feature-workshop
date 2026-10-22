@@ -63,7 +63,7 @@ export interface Job {
   [key: string]: unknown;
 }
 
-export type NudgeId = 'pr1-merge' | 'pr2-open' | 'pr2-review' | 'pr2-changes' | 'pr2-merge';
+export type NudgeId = 'pr1-merge' | 'pr2-open' | 'pr2-review' | 'pr2-changes' | 'pr2-merge' | 'pr1-merged' | 'pr2-merged';
 
 /**
  * A hand-off nudge (dashboard/lib/nudges.js): one PR step that waits on you (a link to GitHub) or

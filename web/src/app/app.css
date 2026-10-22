@@ -1348,3 +1348,11 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .try-more > summary:hover { color: var(--text-1); }
 .try-more[open] > summary { margin-bottom: var(--space-3); }
 .try-more > * + * { margin-top: var(--space-3); }
+
+/* GitHub on the open job (panes/Foreman/JobGithub.tsx): a quiet strip above the gate card. */
+.job-github { margin: var(--space-2) 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--bg-1); }
+.job-github-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); margin: 0; }
+.job-github .ask-label { color: var(--text-2); }
+.job-github-nudge { margin-top: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border-1); }
+.job-github-title, .job-github-text { margin: 0 0 var(--space-1); }
+.job-github .perm-actions a.btn { display: inline-flex; align-items: center; text-decoration: none; }
