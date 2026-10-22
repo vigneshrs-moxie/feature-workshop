@@ -49,7 +49,7 @@ describe('the job header stays still', () => {
     expect(line).toMatch(/height:\s*1px/);
   });
 
-  it('goes compact once the room it frees is scrolled out of sight, and full again back at the top', () => {
+  it('goes compact once the room it frees is scrolled out of sight, and full again on any scroll back up', () => {
     // jsdom has no layout: the header is 270 px tall, 90 px compact.
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       const h = this.classList.contains('job-header') ? (this.classList.contains('is-compact') ? 90 : 270) : 0;
@@ -65,6 +65,12 @@ describe('the job header stays still', () => {
     scrollTo(100); // the freed room (270 - about 90) would still show: stays full
     expect(header).not.toHaveClass('is-compact');
     scrollTo(400);
+    expect(header).toHaveClass('is-compact');
+    scrollTo(600);
+    expect(header).toHaveClass('is-compact');
+    scrollTo(550); // any scroll back up, anywhere: the full header again
+    expect(header).not.toHaveClass('is-compact');
+    scrollTo(700);
     expect(header).toHaveClass('is-compact');
     scrollTo(0);
     expect(header).not.toHaveClass('is-compact');

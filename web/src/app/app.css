@@ -1132,8 +1132,8 @@ body.is-resizing-panes iframe { pointer-events: none; }
   position: sticky;
   top: calc(-1 * var(--space-3)); /* the pane's own top padding: a sticky top of 0 would stop under it and let the thread show through above */
   z-index: 6; /* above the thread and the composer (5); the job menu and the level popover live inside it */
-  margin: calc(-1 * var(--space-3)) 0 0;
-  padding: var(--space-3) 0 calc(var(--space-2) + 1px + var(--space-3));
+  margin: calc(-1 * var(--space-3)) calc(-1 * var(--space-3)) 0; /* reaches into the pane's side padding... */
+  padding: var(--space-3) var(--space-3) calc(var(--space-2) + 1px + var(--space-3)); /* ...so its words keep their place with room inside the box */
   background: var(--bg-0);
 }
 .pane-foreman .job-header::after {

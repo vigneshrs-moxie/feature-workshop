@@ -314,4 +314,40 @@ describe('Foreman pane: auto mode', () => {
     expect(auto).toBeDisabled();
     expect(auto).toHaveAttribute('title', 'Not available: Not on this plan.');
   });
+
+  it('follows new content at the bottom, stops on any scroll up (even near the bottom), and follows again back at the bottom', async () => {
+    const grown = new Set<() => void>();
+    vi.stubGlobal('ResizeObserver', class {
+      cb: () => void;
+      constructor(cb: () => void) { this.cb = cb; }
+      observe() { grown.add(this.cb); }
+      disconnect() { grown.delete(this.cb); }
+    });
+    try {
+      const { container } = setup();
+      await screen.findByRole('region', { name: 'Conversation' });
+      await waitFor(() => expect(grown.size).toBeGreaterThan(0));
+      const pane = container.querySelector<HTMLElement>('.pane-foreman')!;
+      Object.defineProperty(pane, 'scrollHeight', { configurable: true, value: 2000 });
+      Object.defineProperty(pane, 'clientHeight', { configurable: true, value: 500 });
+      let top = 0; // clamped as a browser does: the bottom is 2000 - 500
+      Object.defineProperty(pane, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = Math.max(0, Math.min(1500, v)); } });
+      const grow = () => act(() => { for (const cb of grown) cb(); });
+      const scrollTo = (y: number) => act(() => { pane.scrollTop = y; fireEvent.scroll(pane); });
+      grow();
+      expect(pane.scrollTop, 'opens at the newest message').toBe(1500);
+      scrollTo(1460);
+      Object.defineProperty(pane, 'scrollHeight', { configurable: true, value: 2100 }); // more arrives
+      grow();
+      expect(pane.scrollTop, 'a small scroll up near the bottom is kept').toBe(1460);
+      Object.defineProperty(pane, 'scrollHeight', { configurable: true, value: 2000 });
+      scrollTo(1500); // back at the bottom
+      Object.defineProperty(pane, 'scrollHeight', { configurable: true, value: 2100 });
+      Object.defineProperty(pane, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = Math.max(0, Math.min(1600, v)); } });
+      grow();
+      expect(pane.scrollTop, 'following again').toBe(1600);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

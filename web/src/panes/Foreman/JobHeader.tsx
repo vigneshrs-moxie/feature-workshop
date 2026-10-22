@@ -9,7 +9,7 @@
 // .job-header in app.css, "Job view and Desk (light round 2)"); "How this works" scrolls away.
 // With Play on, the Foreman character stands by the title, its mood following the job, and the
 // trail sits under the title line (play/JobTrail.tsx).
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Job, PolicyId, Run } from '../../api/types';
 import { reopenJob, setJobPolicy } from '../../app/jobActions';
 import { classicHref } from '../../app/router';
@@ -174,35 +174,50 @@ export interface JobHeaderProps {
  * The stuck header's size. It tells the Foreman pane how tall it really is (--job-header-h on
  * .pane-foreman), so the pane and anything focused in the thread scroll clear of it; app.css keeps
  * an estimate for before the first measure.
- * Scrolled down, it goes compact (one slim row: the title, a thin trail, the level and the menu,
- * then "Your move"). It keeps its full height in the flow as a bottom margin, and turns compact
- * only once that freed room is scrolled out of sight, so the thread never jumps when it shrinks.
+ * Scrolling down, it goes compact (one slim row: the title, a thin trail, the level and the menu,
+ * then "Your move"); scrolling up brings the full header back at once. It keeps its full height in
+ * the flow as a bottom margin, and turns compact only once that freed room is scrolled out of
+ * sight, so the thread never jumps when it changes.
  */
 function useStuckHeader() {
   const ref = useRef<HTMLElement>(null);
   const [compact, setCompact] = useState(false);
+  // Shared with the scroll listener: the full and slim heights as last measured, and the state.
+  const sizes = useRef({ full: 0, slim: 0, compact: false });
+  // Measure now (before the browser lays out the next frame), so the footprint is put right in the
+  // same frame as the switch: the thread's follow-the-bottom observer never sees it change.
+  const measure = useCallback(() => {
+    const el = ref.current;
+    const pane = el?.closest<HTMLElement>('.pane-foreman');
+    if (!el || !pane) return;
+    el.style.marginBottom = '';
+    const h = Math.ceil(el.getBoundingClientRect().height);
+    if (!h) return; // not laid out (hidden, or no layout at all): keep the estimate
+    const s = sizes.current;
+    if (s.compact) s.slim = h; else s.full = h;
+    if (s.compact && s.full > h) el.style.marginBottom = `${s.full - h}px`;
+    pane.style.setProperty('--job-header-h', `${h}px`);
+  }, []);
+  useLayoutEffect(measure, [compact, measure]);
   useEffect(() => {
     const el = ref.current;
     const pane = el?.closest<HTMLElement>('.pane-foreman');
     if (!el || !pane) return;
-    let full = 0;
-    let slim = 0;
-    let isCompact = false;
-    const measure = () => {
-      const h = Math.ceil(el.getBoundingClientRect().height);
-      if (!h) return; // not laid out (hidden, or no layout at all): keep the estimate
-      if (isCompact) slim = h; else full = h;
-      el.style.marginBottom = isCompact && full > h ? `${full - h}px` : '';
-      pane.style.setProperty('--job-header-h', `${h}px`);
-    };
+    const s = sizes.current;
+    let lastTop = pane.scrollTop;
     const onScroll = () => {
-      // Until the slim height is known, guess it as a third of the full one.
-      const next = full > 0 && pane.scrollTop >= full - (slim || full / 3);
-      if (next === isCompact) return;
-      isCompact = next;
+      const top = pane.scrollTop;
+      const delta = top - lastTop;
+      lastTop = top;
+      // Slim only while scrolling down past the room it frees (until the slim height is known, a
+      // third of the full one); any scroll back up brings the full header back, wherever you are.
+      // Its footprint in the flow stays the same either way, so the thread never moves.
+      const past = s.full > 0 && top >= s.full - (s.slim || s.full / 3);
+      const next = !past ? false : delta > 0 ? true : delta < -2 ? false : s.compact;
+      if (next === s.compact) return;
+      s.compact = next;
       setCompact(next);
     };
-    measure();
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     ro?.observe(el);
     pane.addEventListener('scroll', onScroll, { passive: true });
@@ -212,7 +227,7 @@ function useStuckHeader() {
       pane.style.removeProperty('--job-header-h');
       el.style.marginBottom = '';
     };
-  }, []);
+  }, [measure]);
   return { ref, compact };
 }
 

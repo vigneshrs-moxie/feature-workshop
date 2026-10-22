@@ -81,15 +81,20 @@ function JobThread({ job }: { job: Job }) {
     if (!el || !pane) return;
     let follow = true;
     let pinned = -1; // where we last put it: a scroll event for that may arrive after more content did
+    let lastTop = pane.scrollTop;
     const toEnd = () => {
       if (!follow) return;
       pane.scrollTop = pane.scrollHeight;
-      pinned = pane.scrollTop;
+      pinned = lastTop = pane.scrollTop;
     };
-    // Stop following only when you scroll up from there; start again when you're back at the bottom.
+    // Stop following as soon as you scroll up, even a little near the bottom (the header grows back
+    // then, and must not be pulled down again); start again when you scroll back down to the bottom.
     const onScroll = () => {
-      if (pane.scrollHeight - pane.scrollTop - pane.clientHeight < 96) follow = true;
-      else if (pane.scrollTop < pinned - 2) follow = false;
+      const top = pane.scrollTop;
+      const up = top < lastTop - 2 && top < pinned - 2;
+      lastTop = top;
+      if (up) follow = false;
+      else if (pane.scrollHeight - top - pane.clientHeight < 96) follow = true;
     };
     pane.addEventListener('scroll', onScroll, { passive: true });
     const grew = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(toEnd);
