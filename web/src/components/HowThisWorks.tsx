@@ -12,11 +12,12 @@ function readOpen(id: string, defaultOpen: boolean): boolean {
   } catch { return defaultOpen; }
 }
 
-export function HowThisWorks({ id, children, defaultOpen = false }: { id: string; children: ReactNode; defaultOpen?: boolean }) {
+/** variant 'icon': a small ? button instead of the "How this works" line (the Preview pane's header). */
+export function HowThisWorks({ id, children, defaultOpen = false, variant = 'line' }: { id: string; children: ReactNode; defaultOpen?: boolean; variant?: 'line' | 'icon' }) {
   const [open, setOpen] = useState(() => readOpen(id, defaultOpen));
   return (
     <details
-      className="how"
+      className={variant === 'icon' ? 'how is-icon' : 'how'}
       open={open}
       onToggle={(e) => {
         const now = (e.currentTarget as HTMLDetailsElement).open;
@@ -25,7 +26,9 @@ export function HowThisWorks({ id, children, defaultOpen = false }: { id: string
         try { localStorage.setItem(key(id), now ? 'open' : 'closed'); } catch { /* storage off: just don't remember */ }
       }}
     >
-      <summary title={open ? 'Hide this explanation. You can open it again any time.' : 'Show a short explanation of what this is and how it works.'}>How this works</summary>
+      <summary title={open ? 'Hide this explanation. You can open it again any time.' : 'Show a short explanation of what this is and how it works.'}>
+        {variant === 'icon' ? <><span aria-hidden="true">?</span><span className="sr-only">How this works</span></> : 'How this works'}
+      </summary>
       <div className="how-body">{children}</div>
     </details>
   );

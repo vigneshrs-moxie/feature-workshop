@@ -62,6 +62,10 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
   const [confirm, setConfirm] = useState<{ what: DbAction; thenStart?: boolean } | null>(null);
   const [where, setWhere] = useState<'app' | 'root'>('app');
   const [command, setCommand] = useState('');
+  // Commands and logs are folded; they open while a command runs.
+  const [moreOpen, setMoreOpen] = useState(false);
+  const cmdRunning = v?.cmd?.status === 'running';
+  useEffect(() => { if (cmdRunning) setMoreOpen(true); }, [cmdRunning]);
   const histAt = useRef(-1);
   const outRef = useRef<HTMLPreElement>(null);
   const logRef = useRef<HTMLPreElement>(null);
@@ -163,24 +167,7 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
 
   return (
     <div className="try-tab">
-      <p className="muted">Run this job’s branch from its own folder, next to your main app, and click around yourself.</p>
       {v.demo && <p className="try-note is-info">Demo mode: the buttons show what would happen; nothing runs.</p>}
-
-      <div className="try-where">
-        <span title={v.app?.dir ?? v.root}>Folder <code>{short(v.app?.dir ?? v.root)}</code></span>
-        {v.branch && <span>Branch <code>{v.branch}</code></span>}
-        {v.port && <span>Port <b>{v.port}</b></span>}
-      </div>
-      <div className="try-open">
-        {btn('open-terminal', 'Open terminal here', async () => { const r = await act('open', { what: 'terminal' }); setNote({ text: `Opened a terminal in ${short(r.dir as string)}.`, tone: 'good' }); })}
-        {btn('open-vscode', 'VS Code', async () => { await act('open', { what: 'vscode' }); setNote({ text: 'Opened in VS Code.', tone: 'good' }); }, 'btn btn-quiet')}
-        {btn('open-finder', 'Finder', async () => { await act('open', { what: 'finder' }); setNote({ text: 'Opened in Finder.', tone: 'good' }); }, 'btn btn-quiet')}
-        <label className="try-term">in{' '}
-          <select value={v.terminalApp ?? 'iTerm'} aria-label="Terminal app" onChange={(e) => run('term', async () => { await act('terminal-app', { name: e.target.value }); setNote({ text: `“Open terminal here” now uses ${e.target.value}.`, tone: 'good' }); })}>
-            <option>iTerm</option><option>Terminal</option>
-          </select>
-        </label>
-      </div>
 
       <div className="try-go">
         {!v.app ? (
@@ -254,46 +241,65 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
         )}
       </ol>
 
-      {v.presets.length > 0 && (
-        <div className="try-presets">
-          <h4 className="kp-label">Quick commands</h4>
-          {v.presets.map((p) => (
-            <button key={p.id} type="button" className="btn" disabled={busy !== null} title={`${p.hint ? `${p.hint}. ` : ''}Runs: ${p.command}`} onClick={() => run('preset', async () => { await act('run', { preset: p.id }); })}>{p.label}</button>
-          ))}
-        </div>
-      )}
+      <div className="try-where">
+        <span title={v.app?.dir ?? v.root}>Folder <code>{short(v.app?.dir ?? v.root)}</code></span>
+        {v.branch && <span>Branch <code>{v.branch}</code></span>}
+        {v.port && <span>Port <b>{v.port}</b></span>}
+      </div>
+      <div className="try-open">
+        {btn('open-terminal', 'Open terminal here', async () => { const r = await act('open', { what: 'terminal' }); setNote({ text: `Opened a terminal in ${short(r.dir as string)}.`, tone: 'good' }); })}
+        {btn('open-vscode', 'VS Code', async () => { await act('open', { what: 'vscode' }); setNote({ text: 'Opened in VS Code.', tone: 'good' }); }, 'btn btn-quiet')}
+        {btn('open-finder', 'Finder', async () => { await act('open', { what: 'finder' }); setNote({ text: 'Opened in Finder.', tone: 'good' }); }, 'btn btn-quiet')}
+        <label className="try-term">in{' '}
+          <select value={v.terminalApp ?? 'iTerm'} aria-label="Terminal app" onChange={(e) => run('term', async () => { await act('terminal-app', { name: e.target.value }); setNote({ text: `“Open terminal here” now uses ${e.target.value}.`, tone: 'good' }); })}>
+            <option>iTerm</option><option>Terminal</option>
+          </select>
+        </label>
+      </div>
 
-      <form className="try-cmd" onSubmit={onSubmit} autoComplete="off">
-        {v.app && v.app.rel !== '.' && (
-          <label>Run in{' '}
-            <select value={where} onChange={(e) => setWhere(e.target.value as 'app' | 'root')}><option value="app">the app folder</option><option value="root">the whole repo</option></select>
-          </label>
-        )}
-        <div className="try-cmd-row">
-          <span aria-hidden="true">$</span>
-          <input type="text" value={command} spellCheck={false} placeholder="Type a command, for example: npm test" aria-label="Command to run in the job’s folder" onChange={(e) => setCommand(e.target.value)} onKeyDown={onCmdKey} />
-          <button type="submit" className="btn btn-primary" disabled={busy !== null || !command.trim()}>Run</button>
-        </div>
-        <p className="muted try-fine">Runs in the job’s folder. Commands can’t ask you questions here; for those, use Open terminal here. ↑ and ↓ bring back earlier commands.</p>
-      </form>
-
-      {v.cmd && (
-        <div className="try-out">
-          <div className="try-out-head">
-            <b>{v.cmd.label ?? v.cmd.command}</b>
-            <span className={`chip is-${v.cmd.status}`}>{v.cmd.status === 'failed' && v.cmd.exitCode != null ? `Failed (exit ${v.cmd.exitCode})` : STATUS_WORDS[v.cmd.status] ?? v.cmd.status}</span>
-            {v.cmd.status === 'running' && v.cmd.stoppable && btn('stop-cmd', 'Stop', async () => { await act('stop-cmd'); }, 'btn btn-danger')}
-            <button type="button" className="btn btn-quiet" onClick={copyOut}>Copy</button>
+      <details className="try-more" open={moreOpen} onToggle={(e) => setMoreOpen((e.currentTarget as HTMLDetailsElement).open)}>
+        <summary>Commands and logs{v.cmd?.status === 'running' ? ' · running' : ''}</summary>
+        {v.presets.length > 0 && (
+          <div className="try-presets">
+            <h4 className="kp-label">Quick commands</h4>
+            {v.presets.map((p) => (
+              <button key={p.id} type="button" className="btn" disabled={busy !== null} title={`${p.hint ? `${p.hint}. ` : ''}Runs: ${p.command}`} onClick={() => run('preset', async () => { await act('run', { preset: p.id }); })}>{p.label}</button>
+            ))}
           </div>
-          <pre ref={outRef} className="try-pre" tabIndex={0} aria-label="Command output">{v.cmd.output}</pre>
-        </div>
-      )}
-      {v.server && (
-        <details className="try-log">
-          <summary>App log</summary>
-          <pre ref={logRef} className="try-pre" tabIndex={0} aria-label="The app’s own output">{v.serverOutput}</pre>
-        </details>
-      )}
+        )}
+
+        <form className="try-cmd" onSubmit={onSubmit} autoComplete="off">
+          {v.app && v.app.rel !== '.' && (
+            <label>Run in{' '}
+              <select value={where} onChange={(e) => setWhere(e.target.value as 'app' | 'root')}><option value="app">the app folder</option><option value="root">the whole repo</option></select>
+            </label>
+          )}
+          <div className="try-cmd-row">
+            <span aria-hidden="true">$</span>
+            <input type="text" value={command} spellCheck={false} placeholder="Type a command, for example: npm test" aria-label="Command to run in the job’s folder" onChange={(e) => setCommand(e.target.value)} onKeyDown={onCmdKey} />
+            <button type="submit" className="btn btn-primary" disabled={busy !== null || !command.trim()}>Run</button>
+          </div>
+          <p className="muted try-fine">Runs in the job’s folder. Commands can’t ask you questions here; for those, use Open terminal here. ↑ and ↓ bring back earlier commands.</p>
+        </form>
+
+        {v.cmd && (
+          <div className="try-out">
+            <div className="try-out-head">
+              <b>{v.cmd.label ?? v.cmd.command}</b>
+              <span className={`chip is-${v.cmd.status}`}>{v.cmd.status === 'failed' && v.cmd.exitCode != null ? `Failed (exit ${v.cmd.exitCode})` : STATUS_WORDS[v.cmd.status] ?? v.cmd.status}</span>
+              {v.cmd.status === 'running' && v.cmd.stoppable && btn('stop-cmd', 'Stop', async () => { await act('stop-cmd'); }, 'btn btn-danger')}
+              <button type="button" className="btn btn-quiet" onClick={copyOut}>Copy</button>
+            </div>
+            <pre ref={outRef} className="try-pre" tabIndex={0} aria-label="Command output">{v.cmd.output}</pre>
+          </div>
+        )}
+        {v.server && (
+          <details className="try-log">
+            <summary>App log</summary>
+            <pre ref={logRef} className="try-pre" tabIndex={0} aria-label="The app’s own output">{v.serverOutput}</pre>
+          </details>
+        )}
+      </details>
     </div>
   );
 }

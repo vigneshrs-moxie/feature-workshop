@@ -29,3 +29,26 @@ export function sizeLabel(bytes: number | null | undefined): string {
   const b = Number(bytes);
   return b < 1024 ? `${b} bytes` : `${Math.round(b / 1024)} KB`;
 }
+
+// ---------- The Preview pane's document tabs ----------
+
+/** The Preview pane's document tabs: the plan (and everything else), the briefs, the review. */
+export type DocSection = 'plan' | 'briefs' | 'review';
+
+export const sectionOf = (d: Pick<JobDocEntry, 'group'>): DocSection => (d.group === 'briefs' ? 'briefs' : d.group === 'review' ? 'review' : 'plan');
+
+/** The job's own records and raw files: under "More files", out of the way. */
+const RECORDS = new Set(['workflow-status.md', 'implementation-log.md', 'history.md']);
+export const isTucked = (d: Pick<JobDocEntry, 'file' | 'group' | 'type'>): boolean =>
+  d.type === 'json' || d.type === 'html' || RECORDS.has(d.file) || /^review\//.test(d.file) || d.group === 'other';
+
+/** First in the Plan tab: what you hand on to the reviewer. */
+const PINNED = ['acceptance.md', 'dev-tests.md'];
+
+/** A tab's documents: the ones shown, in order (the hand-on pair first), and the ones under More files. */
+export function sectionDocs(docs: JobDocEntry[], section: DocSection): { shown: JobDocEntry[]; more: JobDocEntry[] } {
+  const mine = docs.filter((d) => sectionOf(d) === section);
+  const rank = (d: JobDocEntry) => { const i = PINNED.indexOf(d.file); return i < 0 ? PINNED.length : i; };
+  const shown = mine.filter((d) => !isTucked(d)).map((d, i) => ({ d, i })).sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i).map((x) => x.d);
+  return { shown, more: mine.filter(isTucked) };
+}

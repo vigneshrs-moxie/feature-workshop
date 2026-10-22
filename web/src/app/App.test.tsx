@@ -73,10 +73,9 @@ describe('App shell', () => {
     renderApp(snapshot());
     expect(await screen.findByRole('heading', { name: 'Job beta' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /^Job beta/ })).toHaveAttribute('aria-current', 'page');
-    // The Preview pane opens on Docs; its Classic view tab has the job's classic page.
-    expect(screen.getByRole('tab', { name: 'Docs' })).toHaveAttribute('aria-selected', 'true');
-    fireEvent.click(screen.getByRole('tab', { name: 'Classic view' }));
-    expect(screen.getByRole('link', { name: 'Open this job in classic view' })).toHaveAttribute('href', '/#/job/beta');
+    // The Preview pane opens on Plan; the classic page is in the top bar (and the job menu).
+    expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tab', { name: 'Classic view' })).toBeNull();
     // The top bar's Classic view opens the same job there; its New view button brings you back.
     expect(within(document.querySelector<HTMLElement>('.topbar')!).getByRole('link', { name: 'Classic view' })).toHaveAttribute('href', '/#/job/beta');
     act(() => { window.location.hash = '#/'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
@@ -290,12 +289,12 @@ describe('Keys through the registry', () => {
     await screen.findByRole('heading', { name: 'Job alpha' });
     expect(screen.getByRole('button', { name: 'New job' }).querySelector('kbd')).toHaveTextContent('c');
     fireEvent.keyDown(document.body, { key: ']' });
+    expect(screen.getByRole('tab', { name: 'Briefs' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(document.body, { key: '[' });
+    fireEvent.keyDown(document.body, { key: '[' });
     expect(screen.getByRole('tab', { name: 'Try it' })).toHaveAttribute('aria-selected', 'true');
     fireEvent.keyDown(document.body, { key: ']' });
-    expect(screen.getByRole('tab', { name: 'Classic view' })).toHaveAttribute('aria-selected', 'true');
-    fireEvent.keyDown(document.body, { key: '[' });
-    fireEvent.keyDown(document.body, { key: '[' });
-    expect(screen.getByRole('tab', { name: 'Docs' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
     fireEvent.keyDown(document.body, { key: 'i' });
     const composer = screen.getByRole('textbox', { name: /Your message to the Foreman/ });
     expect(composer).toHaveFocus();

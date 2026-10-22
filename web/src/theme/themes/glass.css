@@ -355,6 +355,7 @@ html[data-theme="glass"] .sheet,
 html[data-theme="glass"] .palette,
 html[data-theme="glass"] .drawer,
 html[data-theme="glass"] .job-menu-list,
+html[data-theme="glass"] .how.is-icon .how-body,
 html[data-theme="glass"] .level-pop-list,
 html[data-theme="glass"] .toast {
   border: 1px solid var(--glass-edge-bright);
@@ -366,6 +367,7 @@ html[data-theme="glass"] .toast { backdrop-filter: var(--glass-blur-strong); }
 html[data-theme="glass"] .sheet,
 html[data-theme="glass"] .palette { border-radius: 22px; }
 html[data-theme="glass"] .job-menu-list,
+html[data-theme="glass"] .how.is-icon .how-body,
 html[data-theme="glass"] .level-pop-list { border-radius: 14px; }
 html[data-theme="glass"] .palette-option { border-radius: 10px; }
 html[data-theme="glass"] .palette-option.is-active { background: var(--accent-soft); box-shadow: inset 0 0 0 1px oklch(.74 .14 262 / .5); }

@@ -10,12 +10,11 @@ import type { JobDoc, JobDocEntry } from '../../api/types';
 import { loadJobDoc, loadJobDocs } from '../../app/jobActions';
 import { classicHref } from '../../app/router';
 import { useUi } from '../../app/ui';
-import { HowThisWorks } from '../../components/HowThisWorks';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop } from '../../state/store';
 import { KeyPoints } from '../../components/KeyPoints';
 import { ServerHtml } from '../Foreman/ServerHtml';
-import { groupDocs, sizeLabel, versionLabel } from './docs';
+import { sectionDocs, sectionOf, sizeLabel, versionLabel, type DocSection } from './docs';
 
 type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'error'; message: string };
 
@@ -30,45 +29,57 @@ function When({ at, now }: { at: string | null | undefined; now: Date }) {
   return <time className="doc-time num" dateTime={at} title={`Last changed ${fullTime(at)}`}>{ago}{/^\d+[mhd]$/.test(ago) ? ' ago' : ''}</time>;
 }
 
-function DocList({ docs, now, onPick, onReload, pickedRef }: { docs: JobDocEntry[]; now: Date; onPick: (file: string) => void; onReload: () => void; pickedRef: RefObject<HTMLButtonElement | null> }) {
-  const groups = groupDocs(docs);
+function DocItem({ d, now, onPick, itemRef }: { d: JobDocEntry; now: Date; onPick: (file: string) => void; itemRef?: RefObject<HTMLButtonElement | null> }) {
+  const pinned = d.file === 'acceptance.md' || d.file === 'dev-tests.md';
+  return (
+    <li>
+      <button
+        ref={itemRef}
+        type="button"
+        className={`doc-item${pinned ? ' is-pinned' : ''}`}
+        data-file={d.file}
+        onClick={() => onPick(d.file)}
+        title={d.type === 'html' ? `Open the screens in the Screens tab (${d.file}).` : `Read ${d.name} as a clean page${d.file === 'spec' ? ' (the spec in the repository)' : ` (${d.file})`}.${pinned ? ' You hand this on to the reviewer.' : ''}`}
+      >
+        <span className="doc-name">{d.name}</span>
+        {d.version && <span className="chip doc-version" title="The version the job’s records name.">{versionLabel(d.version)}</span>}
+        {d.type === 'json' && <span className="chip doc-type" title="A JSON file: shown indented, as written.">JSON</span>}
+        {d.type === 'html' && <span className="chip doc-type" title="A page: it opens in the Screens tab.">Page</span>}
+        {d.summary && (
+          <span className={`doc-kp-dot${d.summary === 'stale' ? ' is-stale' : ''}`} title={d.summary === 'stale' ? 'Key points of an older version' : 'Has key points at the top'}>
+            <span className="sr-only">{d.summary === 'stale' ? 'Key points (older)' : 'Key points'}</span>
+          </span>
+        )}
+        <span className="doc-spacer" />
+        <When at={d.updatedAt} now={now} />
+      </button>
+    </li>
+  );
+}
+
+const EMPTY_WORDS: Record<DocSection, string> = {
+  plan: 'The spec, the plans, the acceptance criteria and the dev tests show up here as the crew writes them.',
+  briefs: 'The Foreman’s briefs to you show up here, newest first.',
+  review: 'The review, the test report and any second looks show up here after the build.',
+};
+
+function DocList({ shown, more, section, now, onPick, pickedRef }: { shown: JobDocEntry[]; more: JobDocEntry[]; section: DocSection; now: Date; onPick: (file: string) => void; pickedRef: RefObject<HTMLButtonElement | null> }) {
+  if (shown.length === 0 && more.length === 0) return <p className="muted doc-empty">{EMPTY_WORDS[section]}</p>;
   return (
     <div className="doc-list">
-      <div className="doc-list-head">
-        <span className="muted">{docs.length} document{docs.length === 1 ? '' : 's'}</span>
-        <button type="button" className="link-button" onClick={onReload} title="Ask the dashboard for this job’s documents again (new ones also show up when the job changes).">Reload</button>
-      </div>
-      {groups.map((g) => (
-        <section key={g.id} className="doc-group" aria-labelledby={`doc-group-${g.id}`}>
-          <h3 className="doc-group-title" id={`doc-group-${g.id}`} title={g.hint}>{g.label} <span className="muted num">{g.docs.length}</span></h3>
+      {shown.length > 0 && (
+        <ul className="doc-items">
+          {shown.map((d, i) => <DocItem key={d.file} d={d} now={now} onPick={onPick} itemRef={i === 0 ? pickedRef : undefined} />)}
+        </ul>
+      )}
+      {more.length > 0 && (
+        <details className="doc-more">
+          <summary title="The job’s own records, each reviewer’s file and raw data.">More files <span className="muted num">{more.length}</span></summary>
           <ul className="doc-items">
-            {g.docs.map((d, i) => (
-              <li key={d.file}>
-                <button
-                  ref={g === groups[0] && i === 0 ? pickedRef : undefined}
-                  type="button"
-                  className="doc-item"
-                  data-file={d.file}
-                  onClick={() => onPick(d.file)}
-                  title={d.type === 'html' ? `Open the screens in the Screens tab (${d.file}).` : `Read ${d.name} as a clean page${d.file === 'spec' ? ' (the spec in the repository)' : ` (${d.file})`}.`}
-                >
-                  <span className="doc-name">{d.name}</span>
-                  {d.version && <span className="chip doc-version" title="The version the job’s records name.">{versionLabel(d.version)}</span>}
-                  {d.type === 'json' && <span className="chip doc-type" title="A JSON file: shown indented, as written.">JSON</span>}
-                  {d.type === 'html' && <span className="chip doc-type" title="A page: it opens in the Screens tab.">Page</span>}
-                  {d.summary && (
-                    <span className={`chip doc-kp${d.summary === 'stale' ? ' is-stale' : ''}`} title={d.summary === 'stale' ? 'Its key points describe an older version.' : 'Its key points are at the top: the outcome, risks, your decisions and what changed.'}>
-                      {d.summary === 'stale' ? 'Key points (older)' : 'Key points'}
-                    </span>
-                  )}
-                  <span className="doc-spacer" />
-                  <When at={d.updatedAt} now={now} />
-                </button>
-              </li>
-            ))}
+            {more.map((d, i) => <DocItem key={d.file} d={d} now={now} onPick={onPick} itemRef={shown.length === 0 && i === 0 ? pickedRef : undefined} />)}
           </ul>
-        </section>
-      ))}
+        </details>
+      )}
     </div>
   );
 }
@@ -152,7 +163,14 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
   );
 }
 
-export function DocsTab({ slug, changedAt, focusRequest = 0, requestFile = null, active = true }: { slug: string; changedAt?: string | null; focusRequest?: number; requestFile?: string | null; active?: boolean }) {
+export function DocsTab({ slug, section = 'plan', onSection, changedAt, focusRequest = 0, requestFile = null, active = true }: {
+  slug: string;
+  /** Which of the Preview pane's document tabs this is. */
+  section?: DocSection;
+  /** A link or request opened a document of another tab: switch to it. */
+  onSection?: (s: DocSection) => void;
+  changedAt?: string | null; focusRequest?: number; requestFile?: string | null; active?: boolean;
+}) {
   const { api } = useWorkshop();
   const ui = useUi();
   const now = useNow();
@@ -194,7 +212,9 @@ export function DocsTab({ slug, changedAt, focusRequest = 0, requestFile = null,
     const wanted = filePending.current;
     if (!wanted || load.state === 'loading') return;
     filePending.current = null;
-    if (load.state === 'ready' && load.value.some((d) => d.file === wanted)) {
+    const found = load.state === 'ready' ? load.value.find((d) => d.file === wanted) : undefined;
+    if (found) {
+      if (sectionOf(found) !== section) onSection?.(sectionOf(found));
       setLinkHint(null);
       lastPicked.current = wanted;
       setFile(wanted);
@@ -207,6 +227,14 @@ export function DocsTab({ slug, changedAt, focusRequest = 0, requestFile = null,
     focusPending.current = false;
     (first.current ?? document.getElementById('preview-tab-docs'))?.focus();
   });
+
+  // Another tab: its own list, unless the open document is one of its documents.
+  const shownSection = useRef(section);
+  if (shownSection.current !== section) {
+    shownSection.current = section;
+    const open = file && load.state === 'ready' ? load.value.find((d) => d.file === file) : null;
+    if (file && (!open || sectionOf(open) !== section)) setFile(null);
+  }
 
   const reload = useCallback(() => setTries((n) => n + 1), []);
   const pick = (f: string) => {
@@ -226,13 +254,6 @@ export function DocsTab({ slug, changedAt, focusRequest = 0, requestFile = null,
   };
 
   const docs = load.state === 'ready' ? load.value : [];
-  const how = (
-    <HowThisWorks id="docs-tab">
-      <p>Every document the crew writes for this job, shown as a clean page.</p>
-      <p>The spec, findings and plans are under <strong>Plan &amp; spec</strong>, the feature’s screens under <strong>Screens</strong> (the page opens in the Screens tab), the Foreman’s briefs under <strong>Briefs</strong>, the reviewers’ findings and Fable’s second looks under <strong>Review</strong>, and your notes under <strong>Notes</strong>. A version shows when the job’s records name one. <strong>Key points</strong> at the top of a document are the Foreman’s short summary of it (the outcome, risks and surprises, decisions for you, what changed); where there are none, <strong>Summarise</strong> puts a request for them into your message box. <strong>Source</strong> shows the Markdown exactly as written, <strong>Copy as markdown</strong> copies it. A link in a document to another of the job’s documents opens it here. Nothing here changes a file: the Foreman and its crew write them, and your notes are edited in the job drawer.</p>
-    </HowThisWorks>
-  );
-
   if (load.state === 'loading') return <div className="docs-tab"><p className="muted" role="status">Loading this job’s documents…</p></div>;
   if (load.state === 'error') {
     return (
@@ -254,16 +275,7 @@ export function DocsTab({ slug, changedAt, focusRequest = 0, requestFile = null,
   return (
     <div className="docs-tab">
       {hint}
-      {how}
-      {docs.length === 0 ? (
-        <div className="doc-empty">
-          <p>No documents yet.</p>
-          <p className="muted">The spec, plans, briefs and reviews show up here as the crew writes them.</p>
-          <button type="button" className="link-button" onClick={reload} title="Ask the dashboard for this job’s documents again.">Check again</button>
-        </div>
-      ) : (
-        <DocList docs={docs} now={now} onPick={pick} onReload={reload} pickedRef={first} />
-      )}
+      <DocList {...sectionDocs(docs, section)} section={section} now={now} onPick={pick} pickedRef={first} />
     </div>
   );
 }
