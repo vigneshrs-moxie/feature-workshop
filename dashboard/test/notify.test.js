@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { commandFor, decide, findMethod, inQuietHours, Notifier, notifySettings, validateNotifyPatch } from '../lib/notify.js';
+import { commandFor, decide, findMethod, inQuietHours, noticeBody, Notifier, notifySettings, OPEN_TAB_SCRIPT, openTabCommand, validateNotifyPatch, waitedFor } from '../lib/notify.js';
 
 const at = (hh, mm = 0) => { const d = new Date(2026, 9, 21, hh, mm); return d; };
 
@@ -65,7 +65,7 @@ test('notify: Notifier sends, links to the job, and keeps the last 50 in its his
   const n = new Notifier({ dir, settings: async () => ({}), baseUrl: 'http://127.0.0.1:4477', method: 'terminal-notifier', run: async (cmd, args) => { calls.push(args); return true; }, now: () => clock });
   const e = await n.notify({ level: 'needs', title: 'Widget Export', body: 'Go-ahead on Plan', slug: 'widget-export' });
   assert.equal(e.sent, true);
-  assert.ok(calls[0].includes('http://127.0.0.1:4477/next/#/job/widget-export'));
+  assert.ok(calls[0][calls[0].indexOf('-execute') + 1].includes("'http://127.0.0.1:4477/next/#/job/widget-export'"));
   assert.ok(calls[0].includes('Glass'));
   n.seen();
   const skipped = await n.notify({ level: 'needs', title: 'X', slug: 'x' });
@@ -92,4 +92,35 @@ test('notify: Notifier sends, links to the job, and keeps the last 50 in its his
   const list = await again.list();
   assert.equal(list.length, 50);
   assert.equal(list[0].title, 't59', 'newest first, read back from disk');
+});
+
+test('notify: a click goes to the dashboard tab already open in Chrome, else a new tab', async () => {
+  const [, args] = commandFor('terminal-notifier', { title: 'T', body: 'b', url: 'http://u', execute: 'run-me' });
+  assert.deepEqual(args.slice(args.indexOf('-execute'), args.indexOf('-execute') + 2), ['-execute', 'run-me']);
+  assert.ok(!args.includes('-open'), 'one click action only');
+  assert.equal(openTabCommand("/s/it's.applescript", 'http://127.0.0.1:4477/next/#/job/w', ['http://127.0.0.1:4477/']),
+    "'/usr/bin/osascript' '/s/it'\\''s.applescript' 'http://127.0.0.1:4477/next/#/job/w' 'http://127.0.0.1:4477/'");
+  assert.match(OPEN_TAB_SCRIPT, /application "Google Chrome" is running/, 'never starts Chrome just to look');
+  assert.match(OPEN_TAB_SCRIPT, /open location u\n end run|open location u\nend run/, 'falls back to a new tab');
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fw-notify-tab-'));
+  const calls = [];
+  const n = new Notifier({ dir, settings: async () => ({}), baseUrl: 'http://127.0.0.1:4477', method: 'terminal-notifier', run: async (cmd, a) => { calls.push(a); return true; } });
+  await n.notify({ level: 'needs', title: 'W', body: 'b', slug: 'w', test: true });
+  const exec = calls[0][calls[0].indexOf('-execute') + 1];
+  assert.ok(exec.includes("'http://127.0.0.1:4477/next/#/job/w'") && exec.includes("'http://localhost:4477/'"), exec);
+  assert.equal(await fs.readFile(path.join(dir, 'open-tab.applescript'), 'utf8'), OPEN_TAB_SCRIPT);
+});
+
+test('notify: the text says the stage, how long it has waited and the brief headline', () => {
+  const now = new Date('2026-10-22T12:00:00Z');
+  assert.equal(waitedFor('2026-10-22T11:59:30Z', now), '');
+  assert.equal(waitedFor('2026-10-22T11:48:00Z', now), '12m');
+  assert.equal(waitedFor('2026-10-22T07:00:00Z', now), '5h');
+  assert.equal(waitedFor('2026-10-19T12:00:00Z', now), '3d');
+  assert.equal(waitedFor(null, now), '');
+  assert.equal(noticeBody({ stage: 'review', waitingSince: '2026-10-22T11:48:00Z', headline: 'Widget Export · Review done: 0 blockers', title: 'Widget Export', what: 'x' }, now),
+    'Review · waiting 12m — Review done: 0 blockers');
+  assert.equal(noticeBody({ stage: 'plan', headline: null, what: 'The Foreman is waiting for your go-ahead.' }, now), 'Plan — The Foreman is waiting for your go-ahead.');
+  assert.equal(noticeBody({ stage: null, what: 'A question for you.' }, now), 'A question for you.');
 });

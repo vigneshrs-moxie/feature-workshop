@@ -46,7 +46,7 @@ import { parseStatusJson } from './lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from './lib/auto-env.js';
 import { goAheadCovers } from './lib/hard-lines.js';
 import { FlowWatch, gatherRepo } from './lib/flow.js';
-import { Notifier, validateNotifyPatch } from './lib/notify.js';
+import { noticeBody, Notifier, validateNotifyPatch } from './lib/notify.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -218,6 +218,8 @@ async function repoList() {
 }
 
 let cached = null;
+// Each job's stage at the last read, for a notification's text (lib/notify.js noticeBody).
+const knownStage = new Map();
 async function features() {
   if (cached && Date.now() - cached.at < 1500) return cached.list;
   runEnds = await state.lastRunEnds();
@@ -232,6 +234,7 @@ async function features() {
   for (const f of list) f.sentNudges = Array.isArray(saved[f.dir]?.sentNudges) ? saved[f.dir].sentNudges : [];
   for (const f of list) noteRaisedVersions(f);
   cached = { at: Date.now(), list };
+  for (const f of list) knownStage.set(f.slug, f.stage ?? null);
   return list;
 }
 const featureBySlug = async (slug) => (await features()).find((f) => f.slug === slug) ?? null;
@@ -391,7 +394,8 @@ async function checkParkedGates() {
     parking.mark(g);
     changed = true;
     events.emit('gate-stale', g.slug, { job: g.slug, briefNumber: g.briefNumber, waitingSince: g.waitingSince });
-    tell({ level: 'needs', title: waiting.find((f) => f.slug === g.slug)?.title ?? g.slug, body: 'Your decision has waited 4 hours.', slug: g.slug, key: `parked:${g.slug}` });
+    const f = waiting.find((x) => x.slug === g.slug);
+    tell({ level: 'needs', title: f?.title ?? g.slug, body: noticeBody({ stage: f?.stage, waitingSince: g.waitingSince, headline: f?.headline, title: f?.title, what: 'Your decision has waited 4 hours.' }), slug: g.slug, key: `parked:${g.slug}` });
   }
   if (changed) {
     await parking.save();
@@ -1711,6 +1715,7 @@ flow.on('problem', (err) => console.error('flow:', err));
 // ---------- Notifications outside the browser (lib/notify.js) ----------
 
 const notifier = new Notifier({ dir: state.dir, settings: async () => (await state.getSettings()).notify, baseUrl: `http://${HOST}:${PORT}`, demo: DEMO });
+const stageOfSlug = (slug) => knownStage.get(slug) ?? null;
 async function tell(n) {
   try { events.emit('notification', n.slug ?? null, await notifier.notify(n)); } catch (err) { console.error('notify:', err); }
 }
@@ -1735,7 +1740,7 @@ async function checkWaitingNow() {
     for (const [slug, c] of now) {
       if (waitingBefore.has(slug)) continue;
       const what = c.waitingFor === 'answers' ? 'The Foreman asked you something.' : c.waitingFor === 'approval' ? 'The Foreman is waiting for your go-ahead.' : 'The Foreman is waiting for your reply.';
-      tell({ level: 'needs', title: c.title, body: what, slug, key: `wait:${slug}` });
+      tell({ level: 'needs', title: c.title, body: noticeBody({ stage: c.stage, waitingSince: c.waitingSince, headline: c.headline, title: c.title, what }), slug, key: `wait:${slug}` });
     }
   }
   waitingBefore = new Set(now.keys());
@@ -1792,7 +1797,7 @@ async function flowNotices(view) {
     }
   }
 }
-driver.on('permission', (p) => tell({ level: 'needs', title: p.title ?? p.slug, body: p.kind === 'question' ? 'A question for you.' : `Permission: ${String(p.plain?.headline ?? p.toolName).slice(0, 100)}`, slug: p.slug, key: `perm:${p.id}` }));
+driver.on('permission', (p) => tell({ level: 'needs', title: p.title ?? p.slug, body: noticeBody({ stage: stageOfSlug(p.slug), what: p.kind === 'question' ? 'A question for you.' : `Permission: ${String(p.plain?.headline ?? p.toolName).slice(0, 100)}` }), slug: p.slug, key: `perm:${p.id}` }));
 const toldErrors = new Set();
 const endedRuns = new Set();
 driver.on('run', (run) => {
@@ -1800,7 +1805,7 @@ driver.on('run', (run) => {
   if (!ACTIVE_RUN.has(run.status) && !endedRuns.has(run.id)) { endedRuns.add(run.id); setTimeout(() => checkWaiting(), 1000); }
   if (run.status !== 'error' || toldErrors.has(run.id)) return;
   toldErrors.add(run.id);
-  tell({ level: 'problem', title: run.title ?? run.slug, body: 'The reply ended with an error. Open the job to see it.', slug: run.slug, key: `error:${run.id}` });
+  tell({ level: 'problem', title: run.title ?? run.slug, body: noticeBody({ stage: stageOfSlug(run.slug), what: 'The reply ended with an error. Open the job to see it.' }), slug: run.slug, key: `error:${run.id}` });
 });
 driver.on('usage-limit', ({ run }) => tell({ level: 'problem', title: 'Usage limit reached', body: `Work is paused until Claude’s limit resets${run?.title ? ` (${run.title})` : ''}.`, slug: run?.slug ?? null, key: 'usage-limit' }));
 // Marked done: the finish line crossed by hand (unless this job was already told).

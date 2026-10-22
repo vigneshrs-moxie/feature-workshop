@@ -1,7 +1,7 @@
 // Preview pane. Docs (phase 2.1): every document of the open job as a clean page (DocsTab).
 // Screens (Light, round 3): the wireframes page the Painter drew, in an iframe, only when the job
 // has one (ScreensTab). Classic view: links to the classic page for what isn't rebuilt yet
-// (decision D4). The App, Diff, Tests, Terminal and Git tabs arrive in phase 4.
+// (decision D4). Try it: the classic page's "Try it on your computer" (TryTab). The App, Diff, Tests, Terminal and Git tabs arrive in phase 4.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { useKeyScope } from '../../app/keyRegistry';
@@ -11,13 +11,15 @@ import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
 import { DocsTab } from './DocsTab';
 import { ScreensTab } from './ScreensTab';
+import { TryTab } from './TryTab';
 
-type PreviewTab = 'docs' | 'screens' | 'classic';
+type PreviewTab = 'docs' | 'screens' | 'try' | 'classic';
 
 const TABS: { id: PreviewTab; label: string; hint: string }[] = [
   { id: 'docs', label: 'Docs', hint: 'Every document the crew writes for this job (spec, plans, briefs, reviews, notes), shown as a clean page.' },
   { id: 'screens', label: 'Screens', hint: 'The feature’s screens the Painter drew from the spec, to review before anyone builds: verdicts, picks and notes on the page, Copy feedback for your reply.' },
-  { id: 'classic', label: 'Classic view', hint: 'Links to what is still on the classic page: trying it on your computer, costs and history search.' },
+  { id: 'try', label: 'Try it', hint: 'Run this job’s branch on your computer and click around: set up, start the app, switch the database, run commands.' },
+  { id: 'classic', label: 'Classic view', hint: 'Links to what is still on the classic page: costs and history search.' },
 ];
 
 function ClassicLinks({ slug }: { slug: string | null }) {
@@ -48,7 +50,7 @@ export function PreviewPane({ slug }: { slug: string | null }) {
   const job = jobBySlug(state, slug);
   // The Screens tab exists only while the job has a wireframes page.
   const hasScreens = Boolean(slug && job?.wireframes);
-  const tabs = TABS.filter((t) => t.id !== 'screens' || hasScreens);
+  const tabs = TABS.filter((t) => (t.id !== 'screens' || hasScreens) && (t.id !== 'try' || slug));
   const tab: PreviewTab = tabs.some((t) => t.id === picked) ? picked : 'docs';
 
   // ⌘K "Open docs" or a link to a document: this tab, with focus on the documents (DocsTab takes
@@ -67,6 +69,14 @@ export function PreviewPane({ slug }: { slug: string | null }) {
     handledScreens.current = ui.screensRequest;
     if (hasScreens && ui.screensSlug === slug) setTab('screens'); // a request for another job is that job's
   }, [ui.screensRequest, ui.screensSlug, slug, hasScreens]);
+
+  // The job menu's or the gate card's "Try it on your computer": the Try it tab.
+  const handledTry = useRef(ui.tryRequest);
+  useEffect(() => {
+    if (ui.tryRequest === handledTry.current) return;
+    handledTry.current = ui.tryRequest;
+    if (slug && ui.trySlug === slug) setTab('try');
+  }, [ui.tryRequest, ui.trySlug, slug]);
 
   const stepTab = (by: 1 | -1, focus: boolean) => {
     const at = tabs.findIndex((t) => t.id === tab);
@@ -114,6 +124,11 @@ export function PreviewPane({ slug }: { slug: string | null }) {
       {hasScreens && slug && (
         <section id="preview-panel-screens" role="tabpanel" aria-labelledby="preview-tab-screens" hidden={tab !== 'screens'}>
           <ScreensTab key={slug} slug={slug} job={job} active={tab === 'screens'} />
+        </section>
+      )}
+      {slug && (
+        <section id="preview-panel-try" role="tabpanel" aria-labelledby="preview-tab-try" hidden={tab !== 'try'}>
+          <TryTab key={slug} slug={slug} active={tab === 'try'} />
         </section>
       )}
       <section id="preview-panel-classic" role="tabpanel" aria-labelledby="preview-tab-classic" hidden={tab !== 'classic'}>

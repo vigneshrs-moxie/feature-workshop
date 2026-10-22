@@ -15,6 +15,7 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { STAGES } from './stages.js';
 
 export const LEVELS = ['needs', 'problem', 'done'];
 export const MODES = ['sound', 'silent', 'off'];
@@ -106,14 +107,78 @@ export async function findMethod({ platform = process.platform, which = async (c
 }
 
 /** The command that shows one notification. */
-export function commandFor(method, { title, subtitle, body, url, group, sound }) {
+export function commandFor(method, { title, subtitle, body, url, execute, group, sound }) {
   if (method === 'terminal-notifier') {
-    return ['terminal-notifier', ['-title', title, ...(subtitle ? ['-subtitle', subtitle] : []), '-message', body || ' ', ...(url ? ['-open', url] : []), ...(group ? ['-group', group] : []), ...(sound ? ['-sound', sound] : [])]];
+    const click = execute ? ['-execute', execute] : url ? ['-open', url] : [];
+    return ['terminal-notifier', ['-title', title, ...(subtitle ? ['-subtitle', subtitle] : []), '-message', body || ' ', ...click, ...(group ? ['-group', group] : []), ...(sound ? ['-sound', sound] : [])]];
   }
   if (method === 'osascript') {
     return ['osascript', ['-e', `display notification ${as(body || ' ')} with title ${as(title)}${subtitle ? ` subtitle ${as(subtitle)}` : ''}${sound ? ` sound name ${as(sound)}` : ''}`]];
   }
   return null;
+}
+
+/** "5m", "3h", "2d": how long something has waited; '' under a minute or without a time. */
+export function waitedFor(since, now = new Date()) {
+  const ms = now.getTime() - Date.parse(since ?? '');
+  if (!(ms >= 60_000)) return '';
+  const m = Math.floor(ms / 60_000);
+  return m < 60 ? `${m}m` : m < 48 * 60 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`;
+}
+
+/**
+ * A notification's text: the stage and how long it has waited, then the brief's headline (without
+ * the job's title in front, which the notification shows already) or, with none, `what`.
+ * "Review · waiting 12m — Review done: 0 blockers, 2 majors".
+ */
+export function noticeBody({ stage, waitingSince, headline, title, what = '' }, now = new Date()) {
+  const label = STAGES.find((s) => s.id === stage)?.label ?? (typeof stage === 'string' ? stage : '');
+  const waited = waitedFor(waitingSince, now);
+  const where = [label, waited && `waiting ${waited}`].filter(Boolean).join(' · ');
+  let head = typeof headline === 'string' ? headline.trim() : '';
+  if (head && title && head.toLowerCase().startsWith(String(title).toLowerCase())) head = head.slice(String(title).length).replace(/^\s*[·:—–-]\s*/, '');
+  const text = (head || what).slice(0, 180);
+  return [where, text].filter(Boolean).join(' — ');
+}
+
+// A click on a notification: the dashboard's tab in Chrome when one is open (brought to the front
+// and moved to the job), else the link in a new tab of the default browser. Chrome asks once to let
+// the notifier control it; refused (or no Chrome), it opens a new tab as before.
+export const OPEN_TAB_SCRIPT = `on run argv
+  set u to item 1 of argv
+  set origins to rest of argv
+  try
+    if application "Google Chrome" is running then
+      tell application "Google Chrome"
+        repeat with w in windows
+          set i to 0
+          repeat with t in tabs of w
+            set i to i + 1
+            set here to false
+            repeat with o in origins
+              if (URL of t) starts with (o as text) then set here to true
+            end repeat
+            if here then
+              set URL of t to u
+              set active tab index of w to i
+              set index of w to 1
+              activate
+              return
+            end if
+          end repeat
+        end repeat
+      end tell
+    end if
+  end try
+  open location u
+end run
+`;
+
+const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+
+/** The shell line terminal-notifier runs on a click: the script above with the job's link. */
+export function openTabCommand(scriptFile, url, origins) {
+  return ['/usr/bin/osascript', scriptFile, url, ...origins].map(shq).join(' ');
 }
 
 /**
@@ -148,6 +213,18 @@ export class Notifier {
     return this.history;
   }
 
+  /** The click command for a link, with the tab script written to the state folder; null without one. */
+  async #openTab(url) {
+    if (!this.file) return null;
+    const scriptFile = path.join(this.dir, 'open-tab.applescript');
+    try {
+      if (!this.scriptWritten) { await fs.mkdir(this.dir, { recursive: true }); await fs.writeFile(scriptFile, OPEN_TAB_SCRIPT, { mode: 0o600 }); this.scriptWritten = true; }
+    } catch { return null; }
+    const { protocol, port } = new URL(this.baseUrl);
+    const origins = [...new Set([new URL(this.baseUrl).origin, `${protocol}//127.0.0.1:${port}`, `${protocol}//localhost:${port}`])].map((o) => `${o}/`);
+    return openTabCommand(scriptFile, url, origins);
+  }
+
   async #remember(entry) {
     const list = await this.list();
     list.unshift(entry);
@@ -170,7 +247,8 @@ export class Notifier {
     let sent = false;
     let why = verdict.why;
     if (verdict.send) {
-      const what = { title: 'Feature Workshop', subtitle: title, body, url, group: key ?? slug ?? undefined, sound: verdict.sound ? SOUNDS[level] ?? 'Glass' : null };
+      const execute = method === 'terminal-notifier' ? await this.#openTab(url) : null;
+      const what = { title: 'Feature Workshop', subtitle: title, body, url, execute, group: key ?? slug ?? undefined, sound: verdict.sound ? SOUNDS[level] ?? 'Glass' : null };
       const cmd = method && commandFor(method, what);
       if (!cmd) why = 'No way to reach macOS here.';
       else {

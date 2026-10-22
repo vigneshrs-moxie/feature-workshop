@@ -290,7 +290,10 @@ describe('Keys through the registry', () => {
     await screen.findByRole('heading', { name: 'Job alpha' });
     expect(screen.getByRole('button', { name: 'New job' }).querySelector('kbd')).toHaveTextContent('c');
     fireEvent.keyDown(document.body, { key: ']' });
+    expect(screen.getByRole('tab', { name: 'Try it' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(document.body, { key: ']' });
     expect(screen.getByRole('tab', { name: 'Classic view' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(document.body, { key: '[' });
     fireEvent.keyDown(document.body, { key: '[' });
     expect(screen.getByRole('tab', { name: 'Docs' })).toHaveAttribute('aria-selected', 'true');
     fireEvent.keyDown(document.body, { key: 'i' });

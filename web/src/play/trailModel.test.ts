@@ -65,11 +65,19 @@ describe('jobTrail', () => {
     expect(trail(job('a', 'done', { level: 2, stage: 'plan', closed: { as: 'done', at: at(14, 0) } }), false).now).toBe('This job is finished.');
   });
 
-  it('no level yet: the Standard stages, without difficulty stars', () => {
+  it('no level yet: only the stages it has been through, the one it is on and the PR stops, without stars', () => {
     const t = trail(job('a', 'running', { level: null, stage: 'spec' }));
     expect(t.stars).toBeNull();
     expect(t.difficulty).toBeNull();
-    expect(t.stops.map((s) => s.id)).toEqual(['clarify', 'spec', 'wireframe', 'investigate', 'plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3']);
+    expect(t.stops.map((s) => s.id)).toEqual(['clarify', 'spec', 'pr1', 'pr2', 'staging-qa', 'pr3']);
+  });
+
+  it('each level draws only the stages it runs', () => {
+    const ids = (level: 0 | 1 | 2 | 3) => trail(job('a', 'running', { level, stage: 'implement' })).stops.map((s) => s.id);
+    expect(ids(0)).toEqual(['implement', 'pr1', 'pr2', 'staging-qa', 'pr3']);
+    expect(ids(1)).toEqual(['plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3']);
+    expect(ids(2)).not.toContain('refine');
+    expect(ids(3)).toContain('refine');
   });
 
   it('the finish line moves the goal flag and the “quest’s goal” words; the stops after it are still drawn', () => {

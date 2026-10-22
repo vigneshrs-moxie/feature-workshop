@@ -197,6 +197,7 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
   const [stopName, setStopName] = useState('');
   const [stopNote, setStopNote] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const tryUi = useUi();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [askTerminal, setAskTerminal] = useState(false);
@@ -430,6 +431,11 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
       </header>
 
       {gate.stage === 'wireframe' && <ScreensRow slug={slug} hasPage={Boolean(job.wireframes)} />}
+      {['implement', 'test', 'review'].includes(gate.stage ?? '') && (
+        <p className="gate-try">
+          <button type="button" className="link-button" onClick={() => tryUi.openTry(slug)} title="Open the Try it tab: start this job’s app on your computer and click around before you decide.">Try it on your computer</button>
+        </p>
+      )}
 
       {gate.questions.map((q, i) => {
         const group = `${uid}-q${i}`;

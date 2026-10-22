@@ -106,7 +106,7 @@ test('server: a job that starts waiting is told once; one already waiting at sta
   assert.equal(told.length, 1, JSON.stringify(told));
   assert.equal(told[0].slug, 'busy-job');
   assert.equal(told[0].title, 'Busy job');
-  assert.equal(told[0].body, 'The Foreman is waiting for your go-ahead.');
+  assert.equal(told[0].body, 'Plan — The Foreman is waiting for your go-ahead.', 'the stage, then what it waits for (no headline yet)');
   assert.equal(told[0].sent, false);
   assert.match(told[0].why, /Demo/);
   assert.equal((await get('/api/meta')).notifyMethod, null, 'the demo never reaches macOS (so the page keeps its own)');

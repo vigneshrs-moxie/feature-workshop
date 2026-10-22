@@ -1278,3 +1278,36 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .brief-whole > summary { cursor: pointer; color: var(--text-2); font-size: var(--text-sm); }
 .brief-whole[open] > summary { margin-bottom: var(--space-2); }
 .doc-kp { flex: none; font-size: var(--text-xs); }
+
+/* ---------- Try it (Preview pane): the classic page's "Try it on your computer" ---------- */
+
+.try-tab { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-2) 0; }
+.try-where { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); color: var(--text-2); font-size: var(--text-sm); }
+.try-where code { color: var(--text-1); }
+.try-open, .try-presets, .try-confirm-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.try-presets .kp-label { flex-basis: 100%; margin: 0; }
+.try-term { color: var(--text-2); font-size: var(--text-sm); }
+.try-go { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); }
+.try-go p { margin: 0; color: var(--text-2); font-size: var(--text-sm); }
+.try-big { padding: var(--space-2) var(--space-4); font-size: var(--text-md); font-weight: 600; text-decoration: none; }
+.try-note { margin: 0; padding: var(--space-2) var(--space-3); border-left: 3px solid var(--status-info); border-radius: var(--radius-sm); background: var(--status-info-bg); font-size: var(--text-sm); }
+.try-note.is-good { border-left-color: var(--status-ok); background: var(--status-ok-bg); }
+.try-note.is-bad { border-left-color: var(--status-warn); background: var(--status-warn-bg); }
+.try-confirm { padding: var(--space-3); border: 1px solid var(--status-warn); border-radius: var(--radius-sm); background: var(--status-warn-bg); }
+.try-confirm ul { margin: var(--space-2) 0; padding-left: var(--space-4); font-size: var(--text-sm); }
+.try-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.try-step { display: grid; grid-template-columns: 1.6em minmax(0, 1fr) auto; gap: var(--space-2); align-items: start; padding: var(--space-2); border: 1px solid var(--border-1); border-radius: var(--radius-sm); background: var(--bg-2); }
+.try-mark { display: inline-grid; place-items: center; width: 1.6em; height: 1.6em; border: 1px solid var(--border-2); border-radius: 50%; font-size: var(--text-xs); color: var(--text-2); }
+.try-step.is-ok .try-mark { border-color: var(--status-ok); color: var(--status-ok); }
+.try-step.is-busy .try-mark { border-color: var(--status-info); color: var(--status-info); }
+.try-step-text { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); min-width: 0; overflow-wrap: anywhere; }
+.try-step-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); justify-content: flex-end; }
+.try-cmd { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); }
+.try-cmd-row { display: flex; align-items: center; gap: var(--space-2); }
+.try-cmd-row input { flex: 1; min-width: 0; font-family: var(--font-mono); }
+.try-fine { margin: 0; font-size: var(--text-xs); }
+.try-out-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: var(--space-1); }
+.try-out-head b { overflow-wrap: anywhere; }
+.try-pre { max-height: 320px; overflow: auto; margin: 0; padding: var(--space-2); border: 1px solid var(--border-1); border-radius: var(--radius-sm); background: var(--bg-3); color: var(--text-1); font-family: var(--font-mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.try-log summary { cursor: pointer; color: var(--text-2); font-size: var(--text-sm); }
+.gate-try { margin: var(--space-1) 0 0; }

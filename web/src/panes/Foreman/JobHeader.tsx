@@ -124,7 +124,12 @@ function JobMenu({ job, dir, policyOverride, run, worktree }: MenuProps) {
               Notes and options…
             </button>
           </li>
-          <li><a href={classicHref.job(slug)} title="Open this job in the classic view: try it on your computer, details, costs and provided documents.">Open in classic view</a></li>
+          <li>
+            <button type="button" onClick={() => { setOpen(false); ui.openTry(slug); }} title="Open the Try it tab: run this job’s branch on your computer and click around.">
+              Try it on your computer
+            </button>
+          </li>
+          <li><a href={classicHref.job(slug)} title="Open this job in the classic view: details, costs and provided documents.">Open in classic view</a></li>
           <li role="presentation"><p className="job-menu-heading" id={`perm-${slug}`}>Permissions for this job</p></li>
           <li>
             <ul role="group" aria-labelledby={`perm-${slug}`}>

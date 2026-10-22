@@ -274,6 +274,8 @@ describe('Preview pane', () => {
     expect(docs).toHaveAttribute('title');
     expect(await screen.findByRole('button', { name: /^Implementation plan/ })).toBeInTheDocument();
     fireEvent.keyDown(docs, { key: 'ArrowRight' });
+    expect(screen.getByRole('tab', { name: 'Try it' })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Try it' }), { key: 'ArrowRight' });
     const classic = screen.getByRole('tab', { name: 'Classic view' });
     expect(classic).toHaveAttribute('aria-selected', 'true');
     expect(classic).toHaveFocus();

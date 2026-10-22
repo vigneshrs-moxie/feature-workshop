@@ -8,7 +8,7 @@ import { jobStatus } from '../panes/Jobs/jobStatus';
 import { stageLabel } from '../panes/Jobs/stages';
 import { crewInfo, STAGE_CHARACTER, type CrewState } from './crew';
 import { usagePaused, workersNow } from './crewLines';
-import { goalStop, questTrack, type QuestStop } from './extrasModel';
+import { goalStop, questTrack, SHIPPING_STAGES, type QuestStop } from './extrasModel';
 
 /** What the crew member on each stage is doing there: "Builder is building". */
 const DOING: Record<string, string> = {
@@ -98,8 +98,8 @@ function pathLevel(job: Job) {
 
 /**
  * The job's trail. Its path skips what the job's level and its own options skip (job.skipped). A
- * job with no level, suggested or chosen, walks the Standard (L2) stages, without difficulty stars
- * and without naming a next stage it may never run.
+ * job with no level, suggested or chosen, shows only the stages it has been through, the one it is
+ * on and the PR stops, without difficulty stars and without naming a next stage it may never run.
  */
 export function jobTrail(job: Job, { levels, done, finishLine, usage, now = new Date(), where = 'header' }: TrailInputs = {}): Trail | null {
   const level = pathLevel(job);
@@ -114,7 +114,9 @@ export function jobTrail(job: Job, { levels, done, finishLine, usage, now = new 
   const atStage = track.who ?? (stage && STAGE_CHARACTER[stage]) ?? 'conductor';
   const status = jobStatus(job, now);
   const dropped = job.group === 'done' && (job.closed as { as?: string } | null | undefined)?.as === 'dropped';
-  const base = { stops: track.stops, finished: track.finished, stars: isLevel(job.level) ? track.stars : null, difficulty: isLevel(job.level) ? track.difficulty : null };
+  // No level yet: which stages are still to come isn't known, so none is drawn but the PR stops.
+  const stops = level === null ? track.stops.filter((s) => s.state !== 'next' || s.id === 'pr1' || SHIPPING_STAGES.includes(s.id)) : track.stops;
+  const base = { stops, finished: track.finished, stars: isLevel(job.level) ? track.stars : null, difficulty: isLevel(job.level) ? track.difficulty : null };
   // The line after "Now" or "Your move": the next stage, and past the goal, that the quest is done.
   const following = (word: 'Next' | 'Then') => {
     if (track.finished) return nextPhrase ? `${word}: ${nextPhrase}. The quest itself is already done.` : 'The quest itself is already done.';
