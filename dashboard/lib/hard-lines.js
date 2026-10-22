@@ -119,7 +119,7 @@ function pushVerdict(args, dir = null) {
     if (!a.startsWith('-')) positional.push(a);
   }
   const remote = positional[0] ?? '';
-  if (ORG_REMOTES.includes(remote) || ORG_URL.test(remote)) return { decision: 'deny', line: 'org-push', reason: 'Pushing to the org repository is never allowed from the dashboard. Push to your fork (origin) instead.' };
+  if (ORG_REMOTES.includes(remote) || ORG_URL.test(remote)) return { decision: 'deny', line: 'org-push', reason: ORG_PUSH_REASON };
   // remote ('' when the command names none) and dir (git -C) let orgPushCheck() look up where a
   // remote with another name really points.
   return { decision: 'ask', line: 'git-push', reason: 'Pushing is a hard line: it asks you before it runs.', remote, dir };
@@ -136,6 +136,9 @@ function rmVerdict(args) {
   }
   return r && f ? { decision: 'ask', line: 'rm-rf', reason: 'Deleting with rm -rf is a hard line: it asks you before it runs.' } : null;
 }
+
+// Says how to do the one allowed thing, so the Foreman doesn't take the create-only call for a way around the block.
+const ORG_PUSH_REASON = 'Pushing to the org repository is never allowed from the dashboard. Push to your fork (origin) instead. To create the job’s matching org branch, the user has allowed one create-only call (not a workaround): gh api -X POST repos/<org>/<repo>/git/refs -f ref=refs/heads/<branch> -f sha=<full moxie/main SHA>, both values written out.';
 
 const ORG_REF = { decision: 'deny', line: 'org-ref-write', reason: 'Changing branches on the org repository is never allowed from the dashboard. Only creating a new feature branch is.' };
 
@@ -273,7 +276,7 @@ export function goAheadCovers(toolName, input = {}, ctx = {}) {
   return reasons.size ? { reason: [...reasons].join(' ') } : null;
 }
 
-const ORG_PUSH = { decision: 'deny', line: 'org-push', reason: 'That remote points at the org repository, and pushing there is never allowed from the dashboard. Push to your fork (origin) instead.' };
+const ORG_PUSH = { decision: 'deny', line: 'org-push', reason: 'That remote points at the org repository. ' + ORG_PUSH_REASON };
 
 function git(args, cwd) {
   return new Promise((resolve) => {
