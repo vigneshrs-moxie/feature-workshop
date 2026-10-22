@@ -11,7 +11,7 @@ import { estimateCost, calibrationFactors } from './cost.js';
 import { locateJob } from './locate.js';
 import { suggestLevel } from './levels.js';
 import { versionsFrom } from './gate.js';
-import { wireframesInfo } from './docs.js';
+import { walkthroughInfo, wireframesInfo } from './docs.js';
 
 const ARTIFACT_FILES = [
   ['Workflow status', 'workflow-status.md'],
@@ -420,6 +420,8 @@ export async function loadFeatures({ featuresDir, sessionIndex, now = Date.now()
     f.repoPath = f.locate.path ?? f.repoPath;
     f.branch = f.locate.branch ?? f.branch;
     f.worktree = f.locate.worktree ?? f.worktree;
+    // The review walkthrough page for the job's branch (the review-walkthrough skill), if one was built.
+    f.walkthrough = await walkthroughInfo(f);
     f.project = projectFor(f.repoPath ?? s[0]?.parsed.cwd ?? null);
   }
   // Features waiting on you first (longest wait first), then working, then the rest by last update.

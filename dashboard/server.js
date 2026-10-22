@@ -40,7 +40,7 @@ import { suggestLevel, changedPaths } from './lib/levels.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs } from './lib/gate.js';
 import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
 import { skillChecker } from './lib/skill-check.js';
-import { DOC_MAX_BYTES, DocError, describeDoc, docVersion, jsonHtml, listJobDocs, readJobDoc, readSummary, readWireframes, servableSpec } from './lib/docs.js';
+import { DOC_MAX_BYTES, DocError, describeDoc, docVersion, jsonHtml, listJobDocs, readJobDoc, readSummary, readWalkthrough, readWireframes, servableSpec } from './lib/docs.js';
 import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, crewHeaders, hexCommit, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from './lib/play.js';
 import { parseStatusJson } from './lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from './lib/auto-env.js';
@@ -515,6 +515,8 @@ function boardCard(f, run) {
     headline: f.latestBrief?.headline ?? (f.sources.statusJson ? null : f.currentText) ?? null, nextProposed: f.nextProposed,
     // The screens the wireframer drew (the Preview pane's Screens tab), with their version; null when none.
     wireframes: f.wireframes ?? null,
+    // The review walkthrough built for its branch (lib/docs.js walkthroughInfo): the Preview pane's Walkthrough tab.
+    walkthrough: f.walkthrough ?? null,
     repo: f.repoPath ? { name: path.basename(f.repoPath), branch: f.branch } : null,
     cost: { totalUsd: Math.max(f.cost.totalUsd, active?.costUsd ?? 0), source: f.cost.source },
     progress: { done: f.stageState === 'done' ? ids.length : Math.max(0, at), total: ids.length },
@@ -1907,7 +1909,7 @@ const server = http.createServer(async (req, res) => {
 // template names, and nothing else: no fetches, no other frames, no forms. Only this dashboard may
 // frame it. Being another origin, its script can't read the dashboard's document, storage or token,
 // and nothing here hands out the token or anything else: every other path is 404.
-const WIREFRAMES_ROUTE = /^\/job\/([^/]+)\/wireframes$/;
+const WIREFRAMES_ROUTE = /^\/job\/([^/]+)\/(wireframes|walkthrough)$/;
 const sendScreens = (res, status, body, type = 'text/plain; charset=utf-8') => { res.writeHead(status, { ...WIREFRAMES_HEADERS, 'Content-Type': type }); res.end(body); };
 const screensServer = http.createServer(async (req, res) => {
   if (!hostAllowed(req.headers.host)) return sendScreens(res, 421, 'Misdirected request');
@@ -1919,7 +1921,7 @@ const screensServer = http.createServer(async (req, res) => {
     const f = await featureBySlug(m[1]);
     if (!f) throw new HttpError(404, 'No job by that name.');
     let page;
-    try { page = await readWireframes(f.dir); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
+    try { page = m[2] === 'walkthrough' ? await readWalkthrough(f) : await readWireframes(f.dir); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
     return sendScreens(res, 200, page.html, TYPES['.html']);
   } catch (err) {
     if (err instanceof HttpError) return sendScreens(res, err.status, JSON.stringify({ error: err.message }), TYPES['.json']);

@@ -60,6 +60,8 @@ export interface Job {
   nudges?: Nudge[];
   /** The screens the wireframer drew (wireframes.html in the job folder), with their version; null or missing when there are none. */
   wireframes?: JobWireframes | null;
+  /** The review walkthrough built for the job's branch (dashboard/lib/docs.js walkthroughInfo); url: its published page. */
+  walkthrough?: { updatedAt: string; size: number; url: string | null } | null;
   [key: string]: unknown;
 }
 

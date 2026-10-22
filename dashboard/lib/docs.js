@@ -7,6 +7,7 @@
 // make the dashboard show a file from somewhere else.
 
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 /** The largest document shown (bytes). Bigger ones are refused with a plain message. */
@@ -117,6 +118,57 @@ async function plainFile(dir, name) {
  * The version is what status.json's artifacts record for wireframes.html (or "Wireframes"), else
  * what wireframes.json says, else null.
  */
+// ---------- The review walkthrough (the review-walkthrough skill) ----------
+// The skill's build.py writes <root>/<the folder it ran in>/<branch, made file-safe>.html, and the
+// published page's claude.ai link beside it as .url. Run in the job's worktree (else its repo), so
+// both come from the job. Served like the screens page: from the screens server, never a symlink,
+// nothing too big, with links opening in a new tab.
+export const WALKTHROUGH_ROOT = process.env.WORKSHOP_WALKTHROUGHS_DIR || path.join(os.homedir(), '.claude', 'review-walkthroughs');
+export const WALKTHROUGH_MAX_BYTES = 8 * 1024 * 1024;
+const ARTIFACT_URL = /^https:\/\/claude\.ai\/[\w/.-]+$/;
+
+/** Where a job's walkthrough would be: { dir, file } (both absolute), or null without a branch. */
+export function walkthroughPath({ worktree, repoPath, branch }, root = WALKTHROUGH_ROOT) {
+  const folder = worktree || repoPath;
+  if (!folder || !branch) return null;
+  const name = String(branch).replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  const base = path.basename(path.resolve(folder));
+  if (!name || !base || base === '.' || base === '..') return null;
+  return { dir: path.join(root, base), file: `${name}.html` };
+}
+
+// The page's real path when it is a plain file directly in its folder under root, else null.
+async function walkthroughFile(job, root) {
+  const at = walkthroughPath(job, root);
+  if (!at) return null;
+  const abs = path.join(at.dir, at.file);
+  const st = await fs.lstat(abs).catch(() => null);
+  if (!st?.isFile()) return null;
+  const [realRoot, realFile] = await Promise.all([fs.realpath(root), fs.realpath(abs)]).catch(() => [null, null]);
+  if (!realRoot || realFile !== path.join(realRoot, path.basename(at.dir), at.file)) return null;
+  return { abs, st };
+}
+
+/** The job's walkthrough, for its card: { updatedAt, size, url } (url: the published page, or null); null when none. */
+export async function walkthroughInfo(job, root = WALKTHROUGH_ROOT) {
+  const page = await walkthroughFile(job, root);
+  if (!page) return null;
+  const raw = await fs.readFile(page.abs.replace(/\.html$/, '.url'), 'utf8').catch(() => '');
+  const url = ARTIFACT_URL.test(raw.trim()) ? raw.trim() : null;
+  return { updatedAt: page.st.mtime.toISOString(), size: page.st.size, url };
+}
+
+/** The walkthrough page to serve, links opening in a new tab. DocError 404 when none, 413 when too big. */
+export async function readWalkthrough(job, { root = WALKTHROUGH_ROOT, maxBytes = WALKTHROUGH_MAX_BYTES } = {}) {
+  const page = await walkthroughFile(job, root);
+  if (!page) throw new DocError(404, 'This job has no review walkthrough yet.');
+  if (page.st.size > maxBytes) throw new DocError(413, `The walkthrough is too big to show here (${Math.round(page.st.size / 1024)} KB). Open its published page instead.`);
+  const html = await fs.readFile(page.abs, 'utf8').catch(() => null);
+  if (html === null) throw new DocError(404, 'This job has no review walkthrough yet.');
+  const base = '<base target="_blank">';
+  return { html: /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (h) => `${h}${base}`) : base + html, updatedAt: page.st.mtime.toISOString() };
+}
+
 export async function wireframesInfo(dir, recorded = []) {
   const page = await plainFile(dir, WIREFRAMES_FILE);
   if (!page) return null;
