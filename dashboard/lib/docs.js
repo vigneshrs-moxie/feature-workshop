@@ -29,6 +29,8 @@ const KNOWN = [
   ['quick-plan.md', 'Quick plan', 'plan'],
   ['implementation-plan.md', 'Implementation plan', 'plan'],
   ['test-plan.md', 'Test plan', 'plan'],
+  ['acceptance.md', 'Acceptance criteria', 'plan'],
+  ['dev-tests.md', 'Dev tests', 'plan'],
   ['manual-test.md', 'Manual test', 'plan'],
   ['review.md', 'Review (combined)', 'review'],
   ['test-report.md', 'Test report', 'review'],
