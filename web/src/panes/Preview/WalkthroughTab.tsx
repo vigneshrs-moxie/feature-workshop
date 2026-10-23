@@ -26,6 +26,11 @@ export function WalkthroughTab({ slug, job, active }: { slug: string; job: Job |
         <span className="screens-title">Review walkthrough</span>
         <span className="muted">built {relativeTime(w.updatedAt, now)}</span>
         <span className="doc-spacer" />
+        {origin && (
+          <a className="btn btn-quiet" href={`${walkthroughUrl(origin, slug)}?download=1`} title="Save the walkthrough as one HTML file to send to a teammate (Slack, email). It opens in any browser; their notes stay on their own computer.">
+            Download
+          </a>
+        )}
         {w.url && (
           <button type="button" className="btn btn-quiet" onClick={() => void copyLink(w.url!)} title="Copy the published walkthrough’s link, to send to your reviewer.">
             Copy link

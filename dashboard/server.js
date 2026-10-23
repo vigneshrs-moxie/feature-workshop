@@ -1914,14 +1914,24 @@ const sendScreens = (res, status, body, type = 'text/plain; charset=utf-8') => {
 const screensServer = http.createServer(async (req, res) => {
   if (!hostAllowed(req.headers.host)) return sendScreens(res, 421, 'Misdirected request');
   let urlPath;
-  try { urlPath = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); } catch { return sendScreens(res, 400, 'Bad request'); }
+  let download = false;
+  try {
+    const u = new URL(req.url, 'http://localhost');
+    urlPath = decodeURIComponent(u.pathname);
+    download = u.searchParams.get('download') === '1';
+  } catch { return sendScreens(res, 400, 'Bad request'); }
   const m = req.method === 'GET' ? WIREFRAMES_ROUTE.exec(urlPath) : null;
   if (!m) return sendScreens(res, 404, 'Not found');
   try {
     const f = await featureBySlug(m[1]);
     if (!f) throw new HttpError(404, 'No job by that name.');
     let page;
-    try { page = m[2] === 'walkthrough' ? await readWalkthrough(f) : await readWireframes(f.dir); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
+    try { page = m[2] === 'walkthrough' ? await readWalkthrough(f, { forDownload: download }) : await readWireframes(f.dir); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
+    // ?download=1 on the walkthrough: the file as it was built, saved rather than shown, to send to a teammate.
+    if (download && page.fileName) {
+      res.writeHead(200, { ...WIREFRAMES_HEADERS, 'Content-Type': TYPES['.html'], 'Content-Disposition': `attachment; filename="${page.fileName}"` });
+      return res.end(page.html);
+    }
     return sendScreens(res, 200, page.html, TYPES['.html']);
   } catch (err) {
     if (err instanceof HttpError) return sendScreens(res, err.status, JSON.stringify({ error: err.message }), TYPES['.json']);

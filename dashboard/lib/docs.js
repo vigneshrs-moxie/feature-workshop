@@ -159,14 +159,17 @@ export async function walkthroughInfo(job, root = WALKTHROUGH_ROOT) {
 }
 
 /** The walkthrough page to serve, links opening in a new tab. DocError 404 when none, 413 when too big. */
-export async function readWalkthrough(job, { root = WALKTHROUGH_ROOT, maxBytes = WALKTHROUGH_MAX_BYTES } = {}) {
+export async function readWalkthrough(job, { root = WALKTHROUGH_ROOT, maxBytes = WALKTHROUGH_MAX_BYTES, forDownload = false } = {}) {
   const page = await walkthroughFile(job, root);
   if (!page) throw new DocError(404, 'This job has no review walkthrough yet.');
   if (page.st.size > maxBytes) throw new DocError(413, `The walkthrough is too big to show here (${Math.round(page.st.size / 1024)} KB). Open its published page instead.`);
   const html = await fs.readFile(page.abs, 'utf8').catch(() => null);
   if (html === null) throw new DocError(404, 'This job has no review walkthrough yet.');
+  // A download is the file as built, named for the branch: review-walkthrough-<branch>.html.
+  const fileName = `review-walkthrough-${path.basename(page.abs)}`;
+  if (forDownload) return { html, updatedAt: page.st.mtime.toISOString(), fileName };
   const base = '<base target="_blank">';
-  return { html: /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (h) => `${h}${base}`) : base + html, updatedAt: page.st.mtime.toISOString() };
+  return { html: /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (h) => `${h}${base}`) : base + html, updatedAt: page.st.mtime.toISOString(), fileName };
 }
 
 export async function wireframesInfo(dir, recorded = []) {

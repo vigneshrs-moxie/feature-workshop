@@ -34,6 +34,7 @@ describe('Walkthrough tab', () => {
     expect(frame).toHaveAttribute('src', `${SCREENS_ORIGIN}/job/alpha/walkthrough`);
     expect(frame.getAttribute('sandbox')).toContain('allow-popups');
     expect(screen.getByRole('link', { name: 'Open the published page' })).toHaveAttribute('href', WALK.url);
+    expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute('href', `${SCREENS_ORIGIN}/job/alpha/walkthrough?download=1`);
     expect(screen.queryByText(/isn’t published yet/)).toBeNull();
   });
 
@@ -53,5 +54,6 @@ describe('Walkthrough tab', () => {
     expect(screen.getByText(/isn’t published yet/)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open the published page' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Copy link' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Download' })).toBeInTheDocument();
   });
 });

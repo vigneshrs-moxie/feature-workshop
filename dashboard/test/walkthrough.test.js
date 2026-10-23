@@ -30,6 +30,9 @@ test('walkthrough: info and page, its published link, and no symlinks', async ()
   assert.equal((await walkthroughInfo(JOB, root)).url, null);
   assert.match((await readWalkthrough(JOB, { root })).html, /<head><base target="_blank"><title>/);
   await assert.rejects(readWalkthrough(JOB, { root, maxBytes: 10 }), (e) => e.status === 413);
+  const dl = await readWalkthrough(JOB, { root, forDownload: true });
+  assert.equal(dl.fileName, 'review-walkthrough-feature-notes-v2.html');
+  assert.doesNotMatch(dl.html, /<base/, 'the download is the file as built');
   // A symlink in place of the page is never served.
   const elsewhere = path.join(root, 'secret.html');
   await fs.writeFile(elsewhere, 'secret');
