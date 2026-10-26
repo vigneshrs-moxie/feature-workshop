@@ -11,6 +11,8 @@
 /* The light twins of Default and Glass (Follow the system pairs them, theme.ts THEME_PAIRS). */
 @import './light.css';
 @import './light-glass.css';
+/* The calm layer both light themes share: IBM Plex, small-caps labels, flat panels (daylight.css). */
+@import './daylight.css';
 /* The hidden themes (Play layer): applied only once the play ledger unlocks them (theme.ts). */
 @import './crt.css';
 @import './gold.css';
