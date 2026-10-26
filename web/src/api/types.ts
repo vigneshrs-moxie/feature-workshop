@@ -964,3 +964,11 @@ export interface JobDocList {
 export interface RenderedMarkdown {
   html: string;
 }
+
+/** One entry of a job's "Your decisions" log (GET /api/job/:slug/decisions, dashboard/lib/decisions.js). */
+export interface Decision {
+  at: string | null;
+  kind: 'approve' | 'changes' | 'stop' | 'allow' | 'deny' | 'level' | 'options' | 'policy' | 'close' | 'reopen' | 'nudge';
+  text: string;
+  note?: string;
+}

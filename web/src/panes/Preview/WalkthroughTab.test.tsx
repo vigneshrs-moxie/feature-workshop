@@ -24,7 +24,7 @@ describe('Walkthrough tab', () => {
     expect(screen.queryByRole('tab', { name: 'Walkthrough' })).toBeNull();
     cleanup();
     setup({ walkthrough: WALK });
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Plan', 'Briefs', 'Review', 'Walkthrough', 'Try it']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Plan', 'Briefs', 'Review', 'Walkthrough', 'Try it', 'Decisions']);
   });
 
   it('frames the page from the screens origin, links open outside, and the published page is one click away', () => {

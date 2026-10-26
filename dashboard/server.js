@@ -37,6 +37,7 @@ import { groupCards } from './lib/snapshot.js';
 import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from './lib/finish.js';
 import { NUDGE_IDS, nudgesFor } from './lib/nudges.js';
 import { buildThread, pageThread } from './lib/thread.js';
+import { decisionLog } from './lib/decisions.js';
 import { suggestLevel, changedPaths } from './lib/levels.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs } from './lib/gate.js';
 import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
@@ -1093,6 +1094,8 @@ async function routeGet(urlPath, url, req, res) {
     }
     if (!sub) return sendJson(res, 200, await jobDetail(f));
     if (sub === '/notes') return sendJson(res, 200, await readNotes(f));
+    // The Decisions tab: every choice you made on this job, newest first (lib/decisions.js).
+    if (sub === '/decisions') return sendJson(res, 200, { decisions: decisionLog(await state.auditFor(f.dir, Infinity)) });
     if (sub === '/docs') {
       // The Docs tab's list: every document of the job, grouped, with versions and times (lib/docs.js).
       const specPath = await shownSpec(f);

@@ -293,7 +293,7 @@ describe('Keys through the registry', () => {
     expect(screen.getByRole('tab', { name: 'Briefs' })).toHaveAttribute('aria-selected', 'true');
     fireEvent.keyDown(document.body, { key: '[' });
     fireEvent.keyDown(document.body, { key: '[' });
-    expect(screen.getByRole('tab', { name: 'Try it' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Decisions' })).toHaveAttribute('aria-selected', 'true');
     fireEvent.keyDown(document.body, { key: ']' });
     expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
     fireEvent.keyDown(document.body, { key: 'i' });

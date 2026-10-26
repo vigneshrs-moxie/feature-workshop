@@ -281,7 +281,7 @@ describe('Preview pane', () => {
 
   it('opens on Plan, tabs by purpose, a ? for help, and arrow keys move between tabs', async () => {
     renderPane('alpha');
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Plan', 'Briefs', 'Review', 'Try it']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Plan', 'Briefs', 'Review', 'Try it', 'Decisions']);
     const plan = screen.getByRole('tab', { name: 'Plan' });
     expect(plan).toHaveAttribute('aria-selected', 'true');
     expect(plan).toHaveAttribute('title');
@@ -294,7 +294,7 @@ describe('Preview pane', () => {
     expect(screen.queryByRole('button', { name: /^Implementation plan/ })).toBeNull();
     fireEvent.keyDown(briefs, { key: 'ArrowLeft' });
     fireEvent.keyDown(screen.getByRole('tab', { name: 'Plan' }), { key: 'ArrowLeft' });
-    expect(screen.getByRole('tab', { name: 'Try it' })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: 'Decisions' })).toHaveFocus();
   });
 
   it('⌘K “Open docs” brings back the Docs tab, on the list, with focus on the first document', async () => {

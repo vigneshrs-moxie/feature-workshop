@@ -229,11 +229,11 @@ describe('PreviewPane with screens', () => {
 
   it('has a Screens tab only for a job with screens, between Docs and Classic view', () => {
     const { unmount } = pane({});
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Plan', 'Briefs', 'Review', 'Try it']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Plan', 'Briefs', 'Review', 'Try it', 'Decisions']);
     unmount();
     clearWireframes();
     pane(WITH_SCREENS);
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Plan', 'Briefs', 'Review', 'Screens', 'Try it']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Plan', 'Briefs', 'Review', 'Screens', 'Try it', 'Decisions']);
     const tab = screen.getByRole('tab', { name: 'Screens' });
     expect(tab).toHaveAttribute('aria-selected', 'false');
     // Mounted even while hidden, so the page's report reaches the gate card.

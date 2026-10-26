@@ -16,8 +16,9 @@ import type { DocSection } from './docs';
 import { ScreensTab } from './ScreensTab';
 import { TryTab } from './TryTab';
 import { WalkthroughTab } from './WalkthroughTab';
+import { DecisionsTab } from './DecisionsTab';
 
-type PreviewTab = DocSection | 'walkthrough' | 'screens' | 'try';
+type PreviewTab = DocSection | 'walkthrough' | 'screens' | 'try' | 'decisions';
 
 const TABS: { id: PreviewTab; label: string; hint: string }[] = [
   { id: 'plan', label: 'Plan', hint: 'The acceptance criteria and dev tests you hand on to the reviewer, the spec and the plans. Notes and raw files are under More files.' },
@@ -26,6 +27,7 @@ const TABS: { id: PreviewTab; label: string; hint: string }[] = [
   { id: 'walkthrough', label: 'Walkthrough', hint: 'The review walkthrough for this job’s branch: every change by zoom level, with verdicts and notes, to go through with your reviewer.' },
   { id: 'screens', label: 'Screens', hint: 'The feature’s screens the Painter drew from the spec, to review before anyone builds: verdicts, picks and notes on the page, Copy feedback for your reply.' },
   { id: 'try', label: 'Try it', hint: 'Run this job’s branch on your computer and click around: set up, start the app, switch the database, run commands.' },
+  { id: 'decisions', label: 'Decisions', hint: 'Every choice you made on this job, newest first: approvals, send-backs with your note, permissions, level changes.' },
 ];
 
 const HELP: Record<PreviewTab, string> = {
@@ -34,6 +36,7 @@ const HELP: Record<PreviewTab, string> = {
   review: 'The combined review and the test report. Each reviewer’s own file is under More files.',
   walkthrough: 'The review walkthrough built for this branch (prep this for review). Quick reads the change aloud in plain words; All shows every level. Its links open in a new tab. Notes stay in this browser; Open the published page is where they are saved and shared.',
   screens: 'The screens page: mark each screen, pick the design choices, and Copy feedback puts your notes in your reply.',
+  decisions: 'Your decisions on this job, newest first, read from its record: what you approved, what you sent back and why, which steps you allowed or refused, and level changes. Plain messages are in the conversation.',
   try: 'Runs this job’s branch from its own folder next to your main app. ▶ Try it sets up what is missing and starts the app; the steps show each part. Commands and logs are folded at the bottom.',
 };
 
@@ -48,7 +51,7 @@ export function PreviewPane({ slug }: { slug: string | null }) {
   // The Screens tab exists only while the job has a wireframes page; Try it only on a job.
   const hasScreens = Boolean(slug && job?.wireframes);
   const hasWalkthrough = Boolean(slug && job?.walkthrough);
-  const tabs = TABS.filter((t) => (t.id !== 'screens' || hasScreens) && (t.id !== 'walkthrough' || hasWalkthrough) && (t.id !== 'try' || slug));
+  const tabs = TABS.filter((t) => (t.id !== 'screens' || hasScreens) && (t.id !== 'walkthrough' || hasWalkthrough) && (t.id !== 'try' || slug) && (t.id !== 'decisions' || slug));
   const tab: PreviewTab = tabs.some((t) => t.id === picked) ? picked : 'plan';
   const docTab: DocSection = isDocTab(tab) ? tab : 'plan';
 
@@ -131,6 +134,11 @@ export function PreviewPane({ slug }: { slug: string | null }) {
       {hasWalkthrough && slug && (
         <section id="preview-panel-walkthrough" role="tabpanel" aria-labelledby="preview-tab-walkthrough" hidden={tab !== 'walkthrough'}>
           <WalkthroughTab slug={slug} job={job} active={tab === 'walkthrough'} />
+        </section>
+      )}
+      {slug && (
+        <section id="preview-panel-decisions" role="tabpanel" aria-labelledby="preview-tab-decisions" hidden={tab !== 'decisions'}>
+          <DecisionsTab key={slug} slug={slug} active={tab === 'decisions'} />
         </section>
       )}
       {slug && (

@@ -1415,3 +1415,13 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .status-summary-part[data-group='needs-you'] { color: var(--group-needs-you-fg); font-weight: var(--weight-medium); }
 .status-summary-sep { margin-right: var(--space-1); color: var(--text-3); }
 @media (max-width: 1100px) { .status-summary { display: none; } }
+
+/* The Decisions tab (panes/Preview/DecisionsTab.tsx): one line per choice, glyph, words, time. */
+.decision-log { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.decision-entry { display: grid; grid-template-columns: 1.25em minmax(0, 1fr) auto; gap: var(--space-2); align-items: baseline; padding: var(--space-1) var(--space-2); border-radius: var(--radius-md); }
+.decision-entry:hover { background: var(--bg-2); }
+.decision-entry .glyph { color: var(--text-3); text-align: center; }
+.decision-entry[data-kind='approve'] .glyph { color: var(--status-ok); }
+.decision-entry[data-kind='changes'] .glyph, .decision-entry[data-kind='deny'] .glyph { color: var(--status-warn); }
+.decision-entry-note { display: block; color: var(--text-2); font-size: var(--text-sm); }
+.decision-entry-time { color: var(--text-3); font-size: var(--text-xs); }
