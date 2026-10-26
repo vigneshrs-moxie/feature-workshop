@@ -351,7 +351,7 @@ html[data-theme="sunset-paper"] .palette-option.is-active { background: var(--ac
 html[data-theme="sunset-paper"] .palette-section { color: oklch(.46 .1 200); font-weight: var(--weight-medium); }
 html[data-theme="sunset-paper"] .palette-foot { background: var(--bg-0); color: var(--text-2); }
 html[data-theme="sunset-paper"] .sheet-title { color: oklch(.36 .1 330); font-size: var(--text-lg); }
-html[data-theme="sunset-paper"] .sheet { position: relative; overflow: hidden; }
+html[data-theme="sunset-paper"] .sheet { position: relative; overflow: hidden auto; }
 html[data-theme="sunset-paper"] .sheet::before {
   content: '';
   position: absolute;
