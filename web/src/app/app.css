@@ -1425,3 +1425,6 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .decision-entry[data-kind='changes'] .glyph, .decision-entry[data-kind='deny'] .glyph { color: var(--status-warn); }
 .decision-entry-note { display: block; color: var(--text-2); font-size: var(--text-sm); }
 .decision-entry-time { color: var(--text-3); font-size: var(--text-xs); }
+/* A running row's "4m · usually 2m" (lib/runTiming.ts); past half again the usual, it says so in its hint and turns warn. */
+.job-row-timing { margin-left: auto; font-size: var(--text-xs); }
+.job-row-timing.is-over { color: var(--status-warn); }

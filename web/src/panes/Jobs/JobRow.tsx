@@ -9,6 +9,8 @@ import { RowCrew } from '../../play/RowCrew';
 import { usePlayIfAny } from '../../play/usePlay';
 import { jobHueStyle } from '../../theme/hue';
 import { jobStatus, shippingWhere } from './jobStatus';
+import { runTiming } from '../../lib/runTiming';
+import { useWorkshopState } from '../../state/store';
 import { stageFamily, stageHint, stageLabel } from './stages';
 
 const PARKED_HINT = 'A decision has waited for you for more than 4 hours. Nothing goes ahead until you decide; nothing is approved for you.';
@@ -33,6 +35,9 @@ export function JobRow({ job, selected, now, rail = false }: JobRowProps) {
   // A decision left waiting past the parking time (decision D3): still under Needs you, marked parked.
   const parked = Boolean(job.parked) && job.group === 'needs-you';
   const crew = Boolean(usePlayIfAny()?.on);
+  // Running: how long this reply has run, and how long one like it usually takes.
+  const { runs, runTypical } = useWorkshopState();
+  const timing = status.group === 'running' ? runTiming(runs[job.slug], runTypical, now) : null;
 
   if (rail) {
     const name = [title, status.label, parked && 'parked 4h', stage, where, ago && `updated ${/^\d+[mhd]$/.test(ago) ? `${ago} ago` : ago}`].filter(Boolean).join(' · ');
@@ -62,6 +67,7 @@ export function JobRow({ job, selected, now, rail = false }: JobRowProps) {
         {stage && <span className="stage-chip" data-stage={stageFamily(job.stage)} title={stageHint(job.stage)}>{stage}</span>}
         {where && <span className="muted job-row-where" title="Where this job’s work is on its way to main.">{where}</span>}
         {parked && <span className="chip gate-parked job-row-parked" title={PARKED_HINT}>parked 4h</span>}
+        {timing && <span className={`muted num job-row-timing${timing.over ? ' is-over' : ''}`} title={timing.hint}>{timing.text}</span>}
       </span>
     </a>
   );

@@ -7,7 +7,7 @@
 // the event says outright (a permission card arriving or going, a run's status, the usage limit)
 // are applied straight away so the page reacts without waiting for that.
 
-import type { Achievement, BossDefeated, FlowView, Job, JobGroup, LiveEvent, Meta, Permission, PlanUsage, PlayNews, QuestDone, Run, Settings, Snapshot, Steer, SteerState, Usage } from '../api/types';
+import type { Achievement, BossDefeated, FlowView, Job, JobGroup, LiveEvent, Meta, Permission, PlanUsage, RunTypical, PlayNews, QuestDone, Run, Settings, Snapshot, Steer, SteerState, Usage } from '../api/types';
 import { JOB_GROUPS } from '../api/types';
 
 export type Connection = 'connecting' | 'live' | 'reconnecting';
@@ -22,6 +22,8 @@ export interface WorkshopState {
   usage: Usage | null;
   /** The plan's 5-hour and weekly usage (top bar meters), from the snapshot and 'plan-usage' events. */
   planUsage: PlanUsage | null;
+  /** How long a Foreman reply usually takes (running rows' "usually 2m"), from the snapshot and 'run-typical' events. */
+  runTypical: RunTypical | null;
   /** The latest run reported for each job, by slug (from 'run' events). */
   runs: Record<string, Run>;
   /** Messages you steered into a reply in progress, by steer id, with their delivery state. */
@@ -81,6 +83,7 @@ export const initialState: WorkshopState = {
   permissions: [],
   usage: null,
   planUsage: null,
+  runTypical: null,
   runs: {},
   steers: {},
   seq: 0,
@@ -117,6 +120,7 @@ function applySnapshot(state: WorkshopState, s: Snapshot): WorkshopState {
     permissions: Array.isArray(s.permissions) ? s.permissions : [],
     usage: s.usage ?? null,
     planUsage: s.planUsage ?? state.planUsage,
+    runTypical: s.runTypical ?? state.runTypical,
     // Events newer than the snapshot may already have been applied; never step back within one run.
     seq: sameRun ? Math.max(state.seq, s.seq) : s.seq,
     epoch: s.epoch,
@@ -235,6 +239,9 @@ function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
       return next;
     case 'plan-usage':
       next.planUsage = d as unknown as PlanUsage;
+      return next;
+    case 'run-typical':
+      next.runTypical = d as unknown as RunTypical;
       return next;
     case 'thread':
       if (e.job) next.threadVersions = { ...state.threadVersions, [e.job]: (state.threadVersions[e.job] ?? 0) + 1 };

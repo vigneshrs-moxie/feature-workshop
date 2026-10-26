@@ -38,6 +38,7 @@ import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from './lib/finish.
 import { NUDGE_IDS, nudgesFor } from './lib/nudges.js';
 import { buildThread, pageThread } from './lib/thread.js';
 import { decisionLog } from './lib/decisions.js';
+import { typicalRuns } from './lib/run-typical.js';
 import { suggestLevel, changedPaths } from './lib/levels.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs } from './lib/gate.js';
 import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
@@ -993,7 +994,7 @@ const GET = {
     return {
       v: 2, seq, epoch: events.epoch, meta: await meta(), jobs,
       needsYou: jobs.filter((j) => j.group === 'needs-you').length,
-      permissions: driver.pendingPermissions(), usage: limits.view(), planUsage: planUsage.view(), generatedAt: new Date().toISOString(),
+      permissions: driver.pendingPermissions(), usage: limits.view(), planUsage: planUsage.view(), runTypical, generatedAt: new Date().toISOString(),
     };
   },
   '/api/features': async () => {
@@ -1842,6 +1843,21 @@ driver.on('permission', (p) => { broadcast('permission', p); events.emit('permis
 driver.on('permission-gone', (p) => { broadcast('permission-gone', p); events.emit('permission-gone', p.slug ?? null, p); });
 // Where a steered message is (queued, delivered, acted-on, cancelled): the new UI only.
 driver.on('steer', (s) => { events.emit('steer', s.slug ?? null, s); });
+// How long a Foreman reply usually takes (lib/run-typical.js), for the running rows' "usually 2m".
+// Read from the audit at start and again after each reply ends.
+let runTypical = { all: null, byKind: {} };
+async function refreshRunTypical() {
+  const next = typicalRuns(await state.auditAll());
+  if (JSON.stringify(next) === JSON.stringify(runTypical)) return;
+  runTypical = next;
+  events.emit('run-typical', null, runTypical);
+}
+const countedRuns = new Set();
+driver.on('run', (run) => {
+  if (!run.endedAt || countedRuns.has(run.id)) return;
+  countedRuns.add(run.id);
+  refreshRunTypical().catch(() => {});
+});
 planUsage.on('change', (view) => { events.emit('plan-usage', null, view); });
 limits.on('change', () => { cached = null; broadcast('change', { at: Date.now() }); events.emit('usage', null, limits.view()); });
 local.on('output', (e) => { broadcast('local', e); events.emit('local', e.slug ?? null, e, { replay: false }); }); // live only: see EventLog.emit
@@ -1965,6 +1981,7 @@ server.listen(PORT, HOST, () => {
   flow.start();
   // The top bar's usage meters: read now, then every minute.
   planUsage.start();
+  refreshRunTypical().catch(() => {});
   // What waits for you now: later changes are told as notifications, these never are.
   checkWaiting().catch(() => {});
 });

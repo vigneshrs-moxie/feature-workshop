@@ -732,6 +732,7 @@ export interface Snapshot {
   usage: Usage;
   /** The plan's 5-hour and weekly usage, for the top bar's meters (lib/plan-usage.js). */
   planUsage?: PlanUsage;
+  runTypical?: RunTypical;
   generatedAt: string;
 }
 
@@ -971,4 +972,10 @@ export interface Decision {
   kind: 'approve' | 'changes' | 'stop' | 'allow' | 'deny' | 'level' | 'options' | 'policy' | 'close' | 'reopen' | 'nudge';
   text: string;
   note?: string;
+}
+
+/** How long a Foreman reply usually takes, in ms: overall and by send kind (dashboard/lib/run-typical.js). */
+export interface RunTypical {
+  all: number | null;
+  byKind: Record<string, number>;
 }
