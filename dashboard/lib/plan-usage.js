@@ -15,6 +15,12 @@ import path from 'node:path';
 export const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
 const EVERY_MS = 60_000;
 const TIMEOUT_MS = 10_000;
+// A failed read is only worth showing when the numbers are old: Claude often answers 429 to one
+// read and 200 to the next. A sign-in problem shows at once (it won't fix itself).
+export const STALE_MS = 5 * 60_000;
+// After a 429, the minute's reads wait this long (or Claude's Retry-After, up to MAX_WAIT_MS).
+const WAIT_429_MS = 5 * 60_000;
+const MAX_WAIT_MS = 15 * 60_000;
 
 /** The Claude Code sign-in's access token, or null. Keychain first (macOS), then the credentials file. */
 export async function readClaudeToken({ home = os.homedir(), platform = process.platform } = {}) {
@@ -48,6 +54,8 @@ export class PlanUsage extends EventEmitter {
     Object.assign(this, { getToken, fetchFn, now, setTick, clearTick, enabled });
     this.last = null; // { fiveHour, week, checkedAt }
     this.error = null; // a short reason in words, or null
+    this.lasting = false; // the error is one that won't fix itself (no sign-in, an expired one)
+    this.waitUntil = 0; // after a 429, the timed reads skip until then
     this.tick = null;
     this.busy = null;
   }
@@ -58,14 +66,21 @@ export class PlanUsage extends EventEmitter {
       fiveHour: this.last?.fiveHour ?? null,
       week: this.last?.week ?? null,
       checkedAt: this.last?.checkedAt ?? null,
-      error: this.error,
+      error: this.shownError(),
     };
+  }
+
+  /** The error, when it matters: a lasting one, no reading yet, or a last good reading STALE_MS old. */
+  shownError() {
+    if (!this.error) return null;
+    if (this.lasting || !this.last) return this.error;
+    return this.now() - Date.parse(this.last.checkedAt) >= STALE_MS ? this.error : null;
   }
 
   start() {
     if (!this.enabled || this.tick) return;
     this.check().catch(() => {});
-    this.tick = this.setTick(() => { this.check().catch(() => {}); }, EVERY_MS);
+    this.tick = this.setTick(() => { if (this.now() >= this.waitUntil) this.check().catch(() => {}); }, EVERY_MS);
     this.tick?.unref?.();
   }
 
@@ -82,17 +97,24 @@ export class PlanUsage extends EventEmitter {
     const before = JSON.stringify(this.view());
     try {
       const token = await this.getToken();
-      if (!token) throw new Error('No Claude Code sign-in found on this computer.');
+      if (!token) { this.lasting = true; throw new Error('No Claude Code sign-in found on this computer.'); }
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
       let res;
       try {
         res = await this.fetchFn(USAGE_URL, { headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': 'oauth-2025-04-20', Accept: 'application/json' }, signal: ctrl.signal });
       } finally { clearTimeout(timer); }
+      if (res.status === 429) {
+        const secs = Number(res.headers?.get?.('retry-after'));
+        this.waitUntil = this.now() + (secs > 0 ? Math.min(secs * 1000, MAX_WAIT_MS) : WAIT_429_MS);
+      }
+      this.lasting = res.status === 401;
       if (!res.ok) throw new Error(res.status === 401 ? 'The Claude sign-in has expired: run claude once to refresh it.' : `Claude answered ${res.status}.`);
       const meters = parseUsage(await res.json());
       this.last = { ...meters, checkedAt: new Date(this.now()).toISOString() };
       this.error = null;
+      this.lasting = false;
+      this.waitUntil = 0;
     } catch (err) {
       this.error = err?.name === 'AbortError' ? 'Claude did not answer in time.' : (err instanceof Error ? err.message : 'Could not read the usage.');
     }

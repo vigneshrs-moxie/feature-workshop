@@ -51,6 +51,34 @@ test('trouble is said in words and the last good reading stays', async () => {
   assert.match((await none.check()).error, /No Claude Code sign-in/);
 });
 
+test('a passing 429 stays quiet while the numbers are fresh, shows once they are 5 minutes old, and pauses the timed reads', async () => {
+  let t = Date.parse('2026-10-26T20:00:00Z');
+  let status = 200;
+  let tick = null;
+  let reads = 0;
+  const u = new PlanUsage({ getToken: async () => 'tok', now: () => t, setTick: (fn) => { tick = fn; return null; },
+    fetchFn: async () => { reads += 1; return { ok: status === 200, status, headers: { get: () => null }, json: async () => REPORT }; } });
+  await u.check();
+  status = 429;
+  t += 60_000;
+  assert.equal((await u.check()).error, null);
+  t += 4 * 60_000;
+  assert.equal((await u.check()).error, 'Claude answered 429.');
+  // The timed reads wait 5 minutes after a 429; Read now (check) still reads.
+  u.start();
+  await new Promise((r) => setImmediate(r));
+  const before = reads;
+  t += 60_000; tick();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(reads, before);
+  status = 200;
+  t += 5 * 60_000; tick();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(reads, before + 1);
+  assert.equal(u.view().error, null);
+  u.stop();
+});
+
 test('off: never reads', async () => {
   let called = false;
   const u = new PlanUsage({ enabled: false, getToken: async () => { called = true; return 'x'; }, setTick: () => { called = true; } });
