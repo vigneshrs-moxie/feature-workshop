@@ -106,6 +106,9 @@ body.is-resizing-panes iframe { pointer-events: none; }
   background: var(--bg-1);
   border-bottom: 1px solid var(--border-1);
   white-space: nowrap;
+  /* Above the panes, so the usage panel that drops from it isn't covered. */
+  position: relative;
+  z-index: 30;
 }
 /* One row at 1000 px even at text size XL: nothing wraps or shrinks but the spacer and the brand. */
 .topbar > * { flex: 0 0 auto; }
@@ -151,6 +154,18 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .usage-meters.is-stale .usage-meter-fill { opacity: .5; }
 .usage-meter-stale, .usage-meter-none { color: var(--text-3); }
 @media (max-width: 1100px) { .usage-meter-reset { display: none; } }
+.usage-box { position: relative; }
+.usage-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; display: flex; flex-direction: column; gap: var(--space-3); width: 300px; padding: var(--space-3) var(--space-4); border: 1px solid var(--border-2); border-radius: var(--radius-lg); background: var(--bg-1); box-shadow: var(--shadow-2); animation: rise-in var(--dur-menu) var(--ease-out); }
+.usage-panel-title { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.usage-detail-row { display: flex; flex-direction: column; gap: 4px; font-size: var(--text-sm); }
+.usage-detail-head { display: flex; justify-content: space-between; gap: var(--space-2); }
+.usage-detail-value { font-weight: var(--weight-medium); }
+.usage-detail-row.is-warn .usage-detail-value { color: var(--status-warn); }
+.usage-detail-row.is-full .usage-detail-value { color: var(--status-error); }
+.usage-detail-bar { display: block; height: 6px; overflow: hidden; border-radius: 3px; background: var(--bg-4); }
+.usage-detail-row.is-warn .usage-meter-fill { background: var(--status-warn); }
+.usage-detail-row.is-full .usage-meter-fill { background: var(--status-error); }
+.usage-panel-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-xs); }
 
 .chip {
   padding: 0 var(--space-2);

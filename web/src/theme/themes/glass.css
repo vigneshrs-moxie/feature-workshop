@@ -357,6 +357,7 @@ html[data-theme="glass"] .drawer,
 html[data-theme="glass"] .job-menu-list,
 html[data-theme="glass"] .how.is-icon .how-body,
 html[data-theme="glass"] .level-pop-list,
+html[data-theme="glass"] .usage-panel,
 html[data-theme="glass"] .toast {
   border: 1px solid var(--glass-edge-bright);
   background: var(--glass-float);

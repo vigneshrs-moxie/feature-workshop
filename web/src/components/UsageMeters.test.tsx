@@ -48,10 +48,24 @@ describe('UsageMeters', () => {
     expect(week).toHaveTextContent('⚠ 86%');
   });
 
-  it('a failed read with nothing yet says so; click reads again', async () => {
+  it('click opens a panel with each limit in full; Escape closes it', () => {
+    setup(USAGE);
+    fireEvent.click(screen.getByRole('button'));
+    const panel = screen.getByRole('dialog', { name: 'Claude plan usage' });
+    expect(panel).toHaveTextContent('5-hour limit4% used');
+    expect(panel).toHaveTextContent('Resets in 2h 14m');
+    expect(panel).toHaveTextContent('Weekly limit57% used');
+    expect(screen.getByRole('button', { name: 'Read now' })).toBeEnabled();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('a failed read with nothing yet says so; Read now reads again', async () => {
     const { post, store } = setup({ ...USAGE, fiveHour: null, week: null, error: 'Claude answered 500.' });
     expect(screen.getByRole('button')).toHaveTextContent('Usage unavailable');
     fireEvent.click(screen.getByRole('button'));
+    expect(screen.getByRole('alert')).toHaveTextContent('Claude answered 500.');
+    fireEvent.click(screen.getByRole('button', { name: 'Read now' }));
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/usage/check', {}));
     await waitFor(() => expect(store.getState().planUsage?.week?.percent).toBe(57));
   });
