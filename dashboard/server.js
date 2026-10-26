@@ -26,6 +26,7 @@ import { classify, matchRule, POLICIES } from './lib/policy.js';
 import { RuleStore, RuleError, validateRule, describeRule } from './lib/rules.js';
 import { buildOverview, parseBrief } from './lib/overview.js';
 import { LimitWatch } from './lib/limits.js';
+import { PlanUsage } from './lib/plan-usage.js';
 import { LocalRunner } from './lib/local.js';
 import { History, historyMarkdown } from './lib/history.js';
 import { removeWorktree, checkWorktree } from './lib/close.js';
@@ -117,6 +118,8 @@ const limits = new LimitWatch({
 });
 driver.on('usage-limit', (e) => { limits.onLimit(e).catch((err) => console.error(err)); });
 driver.on('usage-status', (info) => limits.onStatus(info));
+// The plan's 5-hour and weekly usage for the top bar's meters, read once a minute (lib/plan-usage.js).
+const planUsage = new PlanUsage({ enabled: !DEMO && process.env.WORKSHOP_PLAN_USAGE !== 'off' });
 // Trying a job's work on this computer (its own port, dev server, commands, terminal, database).
 const local = new LocalRunner({ state, demo: DEMO });
 // Jobs being marked done right now (sends and automatic carry-ons wait).
@@ -989,7 +992,7 @@ const GET = {
     return {
       v: 2, seq, epoch: events.epoch, meta: await meta(), jobs,
       needsYou: jobs.filter((j) => j.group === 'needs-you').length,
-      permissions: driver.pendingPermissions(), usage: limits.view(), generatedAt: new Date().toISOString(),
+      permissions: driver.pendingPermissions(), usage: limits.view(), planUsage: planUsage.view(), generatedAt: new Date().toISOString(),
     };
   },
   '/api/features': async () => {
@@ -1496,6 +1499,8 @@ async function routePost(urlPath, req, res) {
     if (!limits.isLimited()) throw new HttpError(409, 'Nothing is paused for the usage limit.');
     return sendJson(res, 200, await limits.resume('you'));
   }
+  // The top bar's usage meters: read the plan's usage now instead of at the next minute.
+  if (urlPath === '/api/usage/check') return sendJson(res, 200, await planUsage.check());
   if (urlPath === '/api/usage/auto') {
     await limits.setAutoResume(body.on === true);
     await state.audit({ action: 'settings', autoResume: body.on === true });
@@ -1834,6 +1839,7 @@ driver.on('permission', (p) => { broadcast('permission', p); events.emit('permis
 driver.on('permission-gone', (p) => { broadcast('permission-gone', p); events.emit('permission-gone', p.slug ?? null, p); });
 // Where a steered message is (queued, delivered, acted-on, cancelled): the new UI only.
 driver.on('steer', (s) => { events.emit('steer', s.slug ?? null, s); });
+planUsage.on('change', (view) => { events.emit('plan-usage', null, view); });
 limits.on('change', () => { cached = null; broadcast('change', { at: Date.now() }); events.emit('usage', null, limits.view()); });
 local.on('output', (e) => { broadcast('local', e); events.emit('local', e.slug ?? null, e, { replay: false }); }); // live only: see EventLog.emit
 local.on('changed', (e) => { broadcast('local-state', e); events.emit('local-state', e.slug ?? null, e); });
@@ -1954,6 +1960,8 @@ server.listen(PORT, HOST, () => {
   if (playOn()) playbook.refresh().catch((err) => console.error('play ledger:', err));
   // The flow map: fetch and read PRs now, then every 10 minutes; recount locally every minute.
   flow.start();
+  // The top bar's usage meters: read now, then every minute.
+  planUsage.start();
   // What waits for you now: later changes are told as notifications, these never are.
   checkWaiting().catch(() => {});
 });

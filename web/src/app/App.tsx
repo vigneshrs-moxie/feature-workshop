@@ -8,6 +8,7 @@ import { ForemanPane } from '../panes/Foreman/ForemanPane';
 import { useAlerts, usePresence } from '../alerts/useAlerts';
 import { CommandPalette } from '../components/CommandPalette';
 import { UsageBanner } from '../components/UsageBanner';
+import { UsageMeters } from '../components/UsageMeters';
 import { PaneResizer, usePreviewWidth } from '../components/PaneResizer';
 import { JobsPane, useJobsRail } from '../panes/Jobs/JobsPane';
 import { PreviewPane } from '../panes/Preview/PreviewPane';
@@ -88,8 +89,8 @@ function TopBar({ onRetry, onCrew = false, slug = null }: { onRetry: () => void;
         <span className="topbar-long" aria-hidden="true">Actions</span> <kbd className="kbd">{paletteKeyLabel()}</kbd>
       </button>
       <span className="spacer" />
-      {/* Play, Full mode only: Claude's usage limit as stamina. */}
-      {state.status === 'ready' && <StaminaBar />}
+      {/* The plan's 5-hour and weekly usage; without it (demo, or turned off), Play Full's stamina bar. */}
+      {state.status === 'ready' && (state.planUsage?.enabled ? <UsageMeters /> : <StaminaBar />)}
       {state.status === 'ready' && (
         <a className="btn btn-quiet desk-link" href={hrefFor({ name: 'desk' })} title={desk === 0 ? 'The Desk: nothing is waiting for you right now.' : `The Desk: ${desk === 1 ? 'one decision is' : `${desk} decisions are`} waiting for you, one at a time (key: g d).`}>
           Desk {desk > 0 && <span className="home-view-count" title={`${desk} waiting for you`}>{desk}</span>}

@@ -7,7 +7,7 @@
 // the event says outright (a permission card arriving or going, a run's status, the usage limit)
 // are applied straight away so the page reacts without waiting for that.
 
-import type { Achievement, BossDefeated, FlowView, Job, JobGroup, LiveEvent, Meta, Permission, PlayNews, QuestDone, Run, Settings, Snapshot, Steer, SteerState, Usage } from '../api/types';
+import type { Achievement, BossDefeated, FlowView, Job, JobGroup, LiveEvent, Meta, Permission, PlanUsage, PlayNews, QuestDone, Run, Settings, Snapshot, Steer, SteerState, Usage } from '../api/types';
 import { JOB_GROUPS } from '../api/types';
 
 export type Connection = 'connecting' | 'live' | 'reconnecting';
@@ -20,6 +20,8 @@ export interface WorkshopState {
   jobs: Job[];
   permissions: Permission[];
   usage: Usage | null;
+  /** The plan's 5-hour and weekly usage (top bar meters), from the snapshot and 'plan-usage' events. */
+  planUsage: PlanUsage | null;
   /** The latest run reported for each job, by slug (from 'run' events). */
   runs: Record<string, Run>;
   /** Messages you steered into a reply in progress, by steer id, with their delivery state. */
@@ -63,6 +65,8 @@ export type Action =
   | { type: 'steer'; steer: Steer }
   /** You changed the usage limit here (Carry on now, the automatic toggle): show it at once. */
   | { type: 'usage'; usage: Usage }
+  /** You asked for the plan's usage now (the meters' refresh): show the answer at once. */
+  | { type: 'plan-usage'; planUsage: PlanUsage }
   /** The flow map, fetched (GET /api/flow) or asked to refresh (POST /api/flow/refresh). */
   | { type: 'flow'; flow: FlowView }
   | { type: 'connection'; connection: Connection }
@@ -76,6 +80,7 @@ export const initialState: WorkshopState = {
   jobs: [],
   permissions: [],
   usage: null,
+  planUsage: null,
   runs: {},
   steers: {},
   seq: 0,
@@ -111,6 +116,7 @@ function applySnapshot(state: WorkshopState, s: Snapshot): WorkshopState {
     jobs: Array.isArray(s.jobs) ? s.jobs : [],
     permissions: Array.isArray(s.permissions) ? s.permissions : [],
     usage: s.usage ?? null,
+    planUsage: s.planUsage ?? state.planUsage,
     // Events newer than the snapshot may already have been applied; never step back within one run.
     seq: sameRun ? Math.max(state.seq, s.seq) : s.seq,
     epoch: s.epoch,
@@ -227,6 +233,9 @@ function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
     case 'usage':
       next.usage = d as unknown as Usage;
       return next;
+    case 'plan-usage':
+      next.planUsage = d as unknown as PlanUsage;
+      return next;
     case 'thread':
       if (e.job) next.threadVersions = { ...state.threadVersions, [e.job]: (state.threadVersions[e.job] ?? 0) + 1 };
       return next;
@@ -271,6 +280,8 @@ export function reducer(state: WorkshopState, action: Action): WorkshopState {
     case 'usage':
       // Paused jobs may start again: the next snapshot regroups them.
       return action.usage && typeof action.usage === 'object' ? { ...state, usage: action.usage, jobsStale: true } : state;
+    case 'plan-usage':
+      return action.planUsage && typeof action.planUsage === 'object' ? { ...state, planUsage: action.planUsage } : state;
     case 'flow':
       return action.flow && Array.isArray(action.flow.repos) ? { ...state, flow: action.flow } : state;
     case 'connection':

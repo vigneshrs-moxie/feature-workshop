@@ -730,7 +730,25 @@ export interface Snapshot {
   needsYou: number;
   permissions: Permission[];
   usage: Usage;
+  /** The plan's 5-hour and weekly usage, for the top bar's meters (lib/plan-usage.js). */
+  planUsage?: PlanUsage;
   generatedAt: string;
+}
+
+/** One usage meter: percent used and when it resets. */
+export interface UsageMeter {
+  percent: number;
+  resetsAt: string | null;
+}
+
+/** The plan's usage, read by the dashboard once a minute (GET api/oauth/usage, read-only). */
+export interface PlanUsage {
+  enabled: boolean;
+  fiveHour: UsageMeter | null;
+  week: UsageMeter | null;
+  checkedAt: string | null;
+  /** Why the last read failed, in words; the last good reading stays. */
+  error: string | null;
 }
 
 /** One event on /api/events?v=2. */

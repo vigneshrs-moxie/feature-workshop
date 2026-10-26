@@ -127,6 +127,31 @@ body.is-resizing-panes iframe { pointer-events: none; }
 
 @keyframes pulse { 50% { opacity: .35; } }
 
+/* The usage meters (components/UsageMeters.tsx): 5h and Week, each a thin bar, the percent in words
+   and when it resets. One button: clicking reads the usage now. At 80% the bar and value take the
+   warning colour and a ⚠; at 100% the error colour. */
+.usage-meters {
+  display: inline-flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent; border-radius: var(--radius-md);
+  background: transparent; color: var(--text-2); font: inherit; font-size: var(--text-sm); cursor: pointer;
+}
+.usage-meters:hover { border-color: var(--border-1); background: var(--bg-2); }
+.usage-meters:disabled { cursor: progress; }
+.usage-meter { display: inline-flex; align-items: center; gap: 6px; }
+.usage-meter-name { font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+.usage-meter-bar { display: block; width: 48px; height: 4px; overflow: hidden; border-radius: 2px; background: var(--bg-4); }
+.usage-meter-fill { display: block; height: 100%; border-radius: 2px; background: var(--text-2); transition: width var(--dur-pane) var(--ease-out); }
+.usage-meter-value { color: var(--text-1); font-weight: var(--weight-medium); }
+.usage-meter-reset { color: var(--text-3); }
+.usage-meter.is-warn .usage-meter-fill { background: var(--status-warn); }
+.usage-meter.is-warn .usage-meter-value { color: var(--status-warn); }
+.usage-meter.is-full .usage-meter-fill { background: var(--status-error); }
+.usage-meter.is-full .usage-meter-value { color: var(--status-error); }
+.usage-meters.is-stale .usage-meter-fill { opacity: .5; }
+.usage-meter-stale, .usage-meter-none { color: var(--text-3); }
+@media (max-width: 1100px) { .usage-meter-reset { display: none; } }
+
 .chip {
   padding: 0 var(--space-2);
   border: 1px solid var(--border-2);
