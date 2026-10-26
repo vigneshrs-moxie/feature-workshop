@@ -9,6 +9,7 @@ import { useAlerts, usePresence } from '../alerts/useAlerts';
 import { CommandPalette } from '../components/CommandPalette';
 import { UsageBanner } from '../components/UsageBanner';
 import { UsageMeters } from '../components/UsageMeters';
+import { StatusSummary } from '../components/StatusSummary';
 import { PaneResizer, usePreviewWidth } from '../components/PaneResizer';
 import { JobsPane, useJobsRail } from '../panes/Jobs/JobsPane';
 import { PreviewPane } from '../panes/Preview/PreviewPane';
@@ -89,6 +90,7 @@ function TopBar({ onRetry, onCrew = false, slug = null }: { onRetry: () => void;
         <span className="topbar-long" aria-hidden="true">Actions</span> <kbd className="kbd">{paletteKeyLabel()}</kbd>
       </button>
       <span className="spacer" />
+      {state.status === 'ready' && <StatusSummary />}
       {/* The plan's 5-hour and weekly usage; without it (demo, or turned off), Play Full's stamina bar. */}
       {state.status === 'ready' && (state.planUsage?.enabled ? <UsageMeters /> : <StaminaBar />)}
       {state.status === 'ready' && (

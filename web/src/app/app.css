@@ -1407,3 +1407,11 @@ body.is-resizing-panes iframe { pointer-events: none; }
 
 /* The Walkthrough tab (panes/Preview/WalkthroughTab.tsx): the screens frame, plus a quiet note. */
 .walkthrough-note { margin: 0 0 var(--space-2); }
+
+/* The top bar's status summary (components/StatusSummary.tsx): each group's glyph, count and word. */
+.status-summary { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-2); font-size: var(--text-sm); }
+.status-summary:hover { color: var(--text-1); text-decoration: none; }
+.status-summary-part { display: inline-flex; align-items: center; gap: 4px; }
+.status-summary-part[data-group='needs-you'] { color: var(--group-needs-you-fg); font-weight: var(--weight-medium); }
+.status-summary-sep { margin-right: var(--space-1); color: var(--text-3); }
+@media (max-width: 1100px) { .status-summary { display: none; } }

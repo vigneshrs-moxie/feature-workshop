@@ -1072,6 +1072,15 @@
   background-image: var(--glass-aurora);
 }
 
+.theme-swatch[data-theme="light"] {
+  --bg-0: oklch(.99 .002 230);
+  --bg-1: oklch(.968 .005 230);
+  --bg-2: oklch(.952 .006 230);
+  --border-1: oklch(.3 .02 230 / .09);
+  --border-2: oklch(.3 .02 230 / .15);
+  --shadow-1: 0 1px 2px oklch(0 0 0 / .05);
+}
+
 .theme-swatch[data-theme="crt"] {
   --crt-green: oklch(.87 .2 145);
   --crt-green-bright: oklch(.95 .17 145);

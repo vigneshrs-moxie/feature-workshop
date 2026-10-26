@@ -39,10 +39,11 @@ describe('App shell', () => {
     expect(within(needs).getByRole('link', { name: /^Job alpha/ })).toHaveAttribute('href', '#/job/alpha');
     expect(screen.getByRole('region', { name: 'Running' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Paused' })).toBeNull();
-    // The top bar carries one count: the Desk button's badge (no loose "n need you" text).
+    // The top bar: the Desk button's badge, and the status summary in words with glyphs, linking Home.
     const bar = document.querySelector<HTMLElement>('.topbar')!;
     expect(within(bar).getByRole('link', { name: /^Desk/ })).toHaveAttribute('href', '#/desk');
-    expect(within(bar).queryByText(/needs? you/)).toBeNull();
+    expect(bar.querySelector('.status-summary')).toHaveAttribute('href', '#/');
+    expect(bar.querySelector('.status-summary')!.textContent).toMatch(/needs you/);
     // Every right-hand link keeps its full name while a short form stands in under 1100 px.
     for (const name of ['Settings', 'Classic view', 'Crew-dex']) expect(within(bar).getByRole('link', { name })).toBeInTheDocument();
     expect(within(bar).getByRole('link', { name: 'Settings' }).querySelector('.topbar-short')).toHaveTextContent('⚙');
