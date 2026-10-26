@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import { suggestLevel, changedPaths, RISK_TRIGGERS } from '../lib/levels.js';
+import { suggestLevel, changedPaths, diffSummary, RISK_TRIGGERS } from '../lib/levels.js';
 import * as shared from '../lib/level-rules.js';
 
 test('levels: the rules live in level-rules.js, which the new UI imports, so it has no Node built-ins', async () => {
@@ -137,6 +137,12 @@ test('levels: the git helper lists changed paths; null on trouble, [] when nothi
     git('commit', '-q', '-m', 'second');
     assert.deepEqual((await changedPaths(repo, 'main')).sort(), ['a.txt', 'db/migrations/001.sql', 'odd\tname "q".txt'], 'odd names come through as they are');
     assert.equal(await changedPaths(repo, 'no-such-branch'), null, 'an unknown base');
+    // The after-build summary: files, added + deleted lines, and the new files.
+    const sum = await diffSummary(repo, 'main');
+    assert.equal(sum.lines, 4);
+    assert.deepEqual(sum.added.sort(), ['db/migrations/001.sql', 'odd\tname "q".txt']);
+    assert.equal(sum.paths.length, 3);
+    assert.equal(await diffSummary(repo, '--output=/tmp/x'), null);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

@@ -87,4 +87,13 @@ describe('Settings → Workflow', () => {
     expect(finishLineLabel('marked', undefined)).toBe('When I mark it done');
     expect(finishLineLabel('staging', [{ id: 'staging', label: 'Staging, says the server' }])).toBe('Staging, says the server');
   });
+
+  it('Choose the level for me: off by default, saves autoLevel when ticked', async () => {
+    const { post, store } = setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged' } });
+    const box = screen.getByRole('checkbox', { name: 'Choose the level for me' });
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/settings', { workflow: { autoLevel: true } }));
+    await waitFor(() => expect(store.getState().meta?.settings?.workflow?.autoLevel).toBe(true));
+  });
 });

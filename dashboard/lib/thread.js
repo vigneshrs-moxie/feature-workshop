@@ -65,6 +65,9 @@ export function buildThread({ briefs = [], audit = [], autoResume = true }) {
     // Actions refused without a card: by auto mode's safety model, or by a hard line (lib/hard-lines.js).
     else if (e.action === 'auto-blocked') thread.push({ id: id('blocked'), kind: 'blocked', at: e.at, by: 'auto', text: `Auto mode blocked: ${e.headline ?? e.tool}`, preview: e.preview ?? null, reason: e.reason ?? null, who: e.agentType ?? 'conductor' });
     else if (e.action === 'hard-line-refused') thread.push({ id: id('blocked'), kind: 'blocked', at: e.at, by: 'hard-line', text: `Refused: ${e.headline ?? e.tool}`, preview: e.preview ?? null, reason: e.reason ?? null, who: e.agentType ?? 'conductor' });
+    // "Choose the level for me" (lib/auto-level.js): what it set and why, or why it asks you instead.
+    else if (e.action === 'auto-level') note(e.how === 'diff' ? `Level raised to L${e.level} automatically after the last build: ${(e.reasons ?? []).join(' ')} Stop before any PR and look again.` : (e.note ?? `Level set to L${e.level} automatically.`))
+    else if (e.action === 'auto-level-ask') note(`Level not chosen automatically: ${e.reason} Pick one on the level card.`)
     else if (e.action === 'auto-unavailable') note('Auto mode isn’t available for your account, so this reply ran with routine steps automatic instead.');
     else if (e.action === 'job-policy') note(e.policy ? `You set this job’s permissions to “${POLICY_LABELS[e.policy] ?? e.policy}”. It applies straight away, also to a reply in progress.` : 'This job follows your global permission setting again.');
     else if (e.action === 'rule-added') note(`You saved an “Always allow” rule: ${e.label ?? 'see Settings'}. It applies to every job run from the dashboard until you remove it in Settings.`);

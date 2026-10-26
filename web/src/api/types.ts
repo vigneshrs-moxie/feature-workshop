@@ -334,6 +334,8 @@ export interface WorkflowSettings {
   finishLine: FinishLine;
   wireframes?: WorkflowChoice;
   clarify?: WorkflowChoice;
+  /** Let the dashboard pick each job's level (dashboard/lib/auto-level.js). Off by default. */
+  autoLevel?: boolean;
 }
 
 /** The dashboard's settings (meta.settings; also sent whole in the 'settings' live event). */

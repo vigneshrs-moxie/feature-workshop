@@ -348,6 +348,7 @@ async function readFeatureFolder(dir) {
     level: options?.level ?? null,
     suggestedLevel: status?.suggestedLevel ?? null,
     levelReason: status?.levelReason ?? null,
+    predictedPaths: status?.predictedPaths ?? [],
     description,
     rulesLevel: { ...suggestLevel({ description }), fromDiff: false, changedFiles: null },
     baseBranch: status?.repo?.baseBranch ?? null,

@@ -39,3 +39,31 @@ export function changedPaths(worktree, base = 'main', { timeout = 5000 } = {}) {
     });
   });
 }
+
+/**
+ * What a branch changed since `base`, for the after-build level check (lib/auto-level.js checkDiff):
+ * { paths, lines, added }: the changed files, added plus deleted lines (binary files count none),
+ * and the files that are new. Same safety as changedPaths; null on any trouble.
+ */
+export function diffSummary(worktree, base = 'main', { timeout = 5000 } = {}) {
+  const run = (args) => new Promise((resolve) => {
+    execFile('git', ['-C', worktree, ...args], { timeout, maxBuffer: 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' } }, (err, stdout) => resolve(err ? null : String(stdout)));
+  });
+  return (async () => {
+    if (typeof worktree !== 'string' || !path.isAbsolute(worktree) || !SAFE_REF.test(String(base)) || String(base).includes('..')) return null;
+    try { if (!fs.statSync(worktree).isDirectory()) return null; } catch { return null; }
+    const common = ['--no-renames', '--no-color', '--no-ext-diff', '--no-textconv', `${base}...HEAD`, '--'];
+    const [numstat, added] = await Promise.all([run(['diff', '--numstat', '-z', ...common]), run(['diff', '--name-only', '-z', '--diff-filter=A', ...common])]);
+    if (numstat === null || added === null) return null;
+    const paths = [];
+    let lines = 0;
+    for (const rec of numstat.split('\0')) {
+      const a = rec.indexOf('\t');
+      const b = a >= 0 ? rec.indexOf('\t', a + 1) : -1;
+      if (b <= 0 || b >= rec.length - 1) continue;
+      paths.push(rec.slice(b + 1));
+      lines += (Number(rec.slice(0, a)) || 0) + (Number(rec.slice(a + 1, b)) || 0);
+    }
+    return { paths, lines, added: added.split('\0').filter(Boolean) };
+  })();
+}

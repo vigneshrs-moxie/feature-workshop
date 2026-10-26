@@ -76,6 +76,14 @@ export function WorkflowSettings() {
           <p className="muted settings-note-under">Auto: {c.auto}</p>
         </fieldset>
       ))}
+      <fieldset className="workflow-choice" disabled={busy} data-setting="auto-level">
+        <legend className="look-heading">Level</legend>
+        <label className="check">
+          <input type="checkbox" checked={w.autoLevel === true} onChange={(e) => void save({ autoLevel: e.currentTarget.checked })} />
+          Choose the level for me
+        </label>
+        <p className="muted settings-note-under">The higher of the rules’ level and the Foreman’s wins, and it is never lowered. After each build the real changes are checked again and the level raised if a rule says so; the Foreman then stops before any PR. You are asked instead when L3 applies, the two differ by 2 or more, or the request is too short to judge.</p>
+      </fieldset>
       {error && <p className="field-problem" role="alert">{error}</p>}
     </section>
   );

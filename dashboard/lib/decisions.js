@@ -24,8 +24,9 @@ export function decisionOf(e) {
   else if (e.action === 'permission') d = { kind: e.decision === 'deny' ? 'deny' : 'allow', text: `${e.decision === 'deny' ? 'Said no to' : 'Allowed'}: ${e.headline ?? e.tool ?? 'a step'}`, note: e.note ? firstLine(e.note) : undefined };
   else if (e.action === 'options') {
     const level = e.options?.level;
-    d = Number.isInteger(level) && level !== e.was ? { kind: 'level', text: `Level ${Number.isInteger(e.was) ? `L${e.was} → ` : ''}L${level}${e.via === 'gate' ? ' (from a gate)' : ''}` } : { kind: 'options', text: 'Changed the job’s options' };
-  } else if (e.action === 'job-policy') d = { kind: 'policy', text: e.policy ? `Permissions set to ${e.policy}` : 'Permissions back to your global setting' };
+    d = Number.isInteger(level) && level !== e.was ? { kind: 'level', text: `Level ${Number.isInteger(e.was) ? `L${e.was} → ` : ''}L${level}${e.via === 'gate' ? ' (from a gate)' : ''}${e.overrode === 'auto' ? ' (you changed the automatic pick)' : ''}` } : { kind: 'options', text: 'Changed the job’s options' };
+  } else if (e.action === 'auto-level') d = { kind: 'level', text: `Level ${Number.isInteger(e.was) ? `L${e.was} → ` : ''}L${e.level} (automatic${e.how === 'diff' ? ', after a build' : ''})` };
+  else if (e.action === 'job-policy') d = { kind: 'policy', text: e.policy ? `Permissions set to ${e.policy}` : 'Permissions back to your global setting' };
   else if (e.action === 'close') d = { kind: 'close', text: e.as === 'dropped' ? 'Dropped the job' : 'Marked the job done', note: e.note ? firstLine(e.note) : undefined };
   else if (e.action === 'reopen') d = { kind: 'reopen', text: 'Reopened the job' };
   else if (e.action === 'nudge') d = { kind: 'nudge', text: `Said yes: ${firstLine(e.text, 100)}` };

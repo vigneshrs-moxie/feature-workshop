@@ -110,6 +110,7 @@ export const SETTING_INDEX: SettingEntry[] = [
   { id: 'finish-line', label: 'Finish line: what counts as done', section: 'workflow', keywords: 'pr merged staging main done quest' },
   { id: 'wireframes', label: 'Screens (wireframes) for new jobs', section: 'workflow', keywords: 'mockups designs screens wireframe' },
   { id: 'clarify', label: 'Clarify questions for new jobs', section: 'workflow', keywords: 'questions before the spec audience' },
+  { id: 'auto-level', label: 'Choose the level for me', section: 'workflow', keywords: 'automatic level l0 l1 l2 l3 suggest' },
   { id: 'play-mode', label: 'Play mode: Full, Subtle, Off', section: 'play', keywords: 'crew achievements game' },
   { id: 'play-sounds', label: 'Sounds (chiptune blips)', section: 'play', keywords: 'audio' },
   { id: 'rules', label: 'Always allow rules', section: 'rules', keywords: 'permission remove saved' },

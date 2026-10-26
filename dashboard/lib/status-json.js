@@ -25,6 +25,15 @@ function suggestedLevel(v, warnings) {
   return null;
 }
 
+// predicted_paths (optional): the files the Foreman expects its change to touch, written with
+// suggested_level so the level rules can run on them before anything is built. Strings only, at
+// most 50, each cut to 300 characters.
+function predictedPaths(v, warnings) {
+  if (v === null || v === undefined) return [];
+  if (!Array.isArray(v)) { warnings.push('predicted_paths: expected a list of file paths'); return []; }
+  return v.filter((p) => typeof p === 'string' && p.trim()).slice(0, 50).map((p) => p.trim().slice(0, 300));
+}
+
 function oneOf(value, allowed, field, warnings) {
   if (value === null || value === undefined) return null;
   if (allowed.includes(value)) return value;
@@ -110,6 +119,7 @@ export function parseStatusJson(text) {
     cwd: str(raw.cwd),
     updatedAt: str(raw.updated_at),
     suggestedLevel: suggestedLevel(raw.suggested_level, warnings),
+    predictedPaths: predictedPaths(raw.predicted_paths, warnings),
     levelReason: str(raw.level_reason)?.trim().slice(0, LEVEL_REASON_MAX) ?? null,
   };
 }

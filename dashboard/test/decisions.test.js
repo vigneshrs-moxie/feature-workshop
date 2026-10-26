@@ -22,3 +22,21 @@ test('approvals, send-backs with their note, stops, permissions, levels, closing
 test('anything else is not a decision', () => {
   for (const e of [null, {}, { action: 'steer', text: 'x' }, { action: 'run-ended' }, { action: 'send', kind: 'resume' }]) assert.equal(decisionOf(e), null);
 });
+
+test('automatic picks and your overrides are in the log', () => {
+  const log = decisionLog([
+    { at: '2026-10-26T10:00:00Z', action: 'auto-level', how: 'chose', level: 2, was: null },
+    { at: '2026-10-26T10:05:00Z', action: 'options', options: { level: 1 }, was: 2, overrode: 'auto' },
+    { at: '2026-10-26T10:09:00Z', action: 'auto-level', how: 'diff', level: 3, was: 1 },
+  ]);
+  assert.deepEqual(log.map((d) => d.text), ['Level L1 → L3 (automatic, after a build)', 'Level L2 → L1 (you changed the automatic pick)', 'Level L2 (automatic)']);
+});
+
+test('automatic picks and your overrides are in the log', () => {
+  const log = decisionLog([
+    { at: '2026-10-26T10:00:00Z', action: 'auto-level', how: 'chose', level: 2, was: null },
+    { at: '2026-10-26T10:05:00Z', action: 'options', options: { level: 1 }, was: 2, overrode: 'auto' },
+    { at: '2026-10-26T10:09:00Z', action: 'auto-level', how: 'diff', level: 3, was: 1 },
+  ]);
+  assert.deepEqual(log.map((d) => d.text), ['Level L1 → L3 (automatic, after a build)', 'Level L2 → L1 (you changed the automatic pick)', 'Level L2 (automatic)']);
+});

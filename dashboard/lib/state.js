@@ -20,11 +20,12 @@ export const workflowChoiceOf = (raw) => (WORKFLOW_CHOICES.includes(raw) ? raw :
 /**
  * The workflow settings with defaults filled in (Settings → Workflow): { finishLine } (lib/finish.js),
  * and for new jobs `wireframes` and `clarify` ('auto' | 'always' | 'off', default auto); a new job's
- * options.json copies those two (lib/options.js normalize).
+ * options.json copies those two (lib/options.js normalize). autoLevel: "Choose the level for me"
+ * (lib/auto-level.js), off unless set to true.
  */
 export function workflowSettings(raw = {}) {
   const w = raw && typeof raw === 'object' ? raw : {};
-  return { finishLine: finishLineOf(w.finishLine), wireframes: workflowChoiceOf(w.wireframes), clarify: workflowChoiceOf(w.clarify) };
+  return { finishLine: finishLineOf(w.finishLine), wireframes: workflowChoiceOf(w.wireframes), clarify: workflowChoiceOf(w.clarify), autoLevel: w.autoLevel === true };
 }
 
 // Settings from before the finish line kept the quest rule under play.questDone. The first read

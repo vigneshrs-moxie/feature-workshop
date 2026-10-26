@@ -39,8 +39,8 @@ test('job options: screens and clarify follow the job’s own choice, else Setti
   assert.equal(optionsAtLevel(own, 0).wireframes, 'off');
   assert.ok(describeOptions(own).includes('Screens (wireframes): off.'));
   assert.ok(!describeOptions(normalize({})).some((l) => l.startsWith('Screens')), 'Auto says nothing');
-  assert.deepEqual(workflowSettings({ finishLine: 'main', wireframes: 'off', clarify: 'nope' }), { finishLine: 'main', wireframes: 'off', clarify: 'auto' });
-  assert.deepEqual(workflowSettings(undefined), { finishLine: 'pr1-merged', wireframes: 'auto', clarify: 'auto' });
+  assert.deepEqual(workflowSettings({ finishLine: 'main', wireframes: 'off', clarify: 'nope' }), { finishLine: 'main', wireframes: 'off', clarify: 'auto', autoLevel: false });
+  assert.deepEqual(workflowSettings(undefined), { finishLine: 'pr1-merged', wireframes: 'auto', clarify: 'auto', autoLevel: false });
 });
 
 test('job options: the clarify and wireframe stages follow their fields; L0 and L1 skip both by default', () => {

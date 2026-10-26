@@ -40,7 +40,8 @@ import { buildThread, pageThread } from './lib/thread.js';
 import { decisionLog } from './lib/decisions.js';
 import { typicalRuns } from './lib/run-typical.js';
 import { proofStamp } from './lib/proof.js';
-import { suggestLevel, changedPaths } from './lib/levels.js';
+import { suggestLevel, changedPaths, diffSummary } from './lib/levels.js';
+import { checkDiff, chooseLevel } from './lib/auto-level.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs } from './lib/gate.js';
 import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
 import { skillChecker } from './lib/skill-check.js';
@@ -1333,8 +1334,9 @@ async function routePost(urlPath, req, res) {
       const w = body.workflow;
       if (!w || typeof w !== 'object' || Array.isArray(w)) throw new HttpError(400, 'The workflow settings must be an object.');
       const keys = Object.keys(w);
-      for (const k of keys) if (!['finishLine', 'wireframes', 'clarify'].includes(k)) throw new HttpError(400, `Unknown workflow setting: ${String(k).slice(0, 40)}.`);
-      if (!keys.length) throw new HttpError(400, 'Send a workflow setting to change: finishLine, wireframes or clarify.');
+      for (const k of keys) if (!['finishLine', 'wireframes', 'clarify', 'autoLevel'].includes(k)) throw new HttpError(400, `Unknown workflow setting: ${String(k).slice(0, 40)}.`);
+      if (!keys.length) throw new HttpError(400, 'Send a workflow setting to change: finishLine, wireframes, clarify or autoLevel.');
+      if (w.autoLevel !== undefined && typeof w.autoLevel !== 'boolean') throw new HttpError(400, 'Choose the level for me: on or off.');
       if (w.finishLine !== undefined && !FINISH_LINES.includes(w.finishLine)) throw new HttpError(400, 'The finish line is PR #1 open, PR #1 merged, in staging, in main, or when you mark it done.');
       for (const k of ['wireframes', 'clarify']) if (w[k] !== undefined && !WORKFLOW_CHOICES.includes(w[k])) throw new HttpError(400, `${k === 'wireframes' ? 'Screens' : 'Clarify questions'} for new jobs: Auto, Always or Off.`);
       const was = (await state.getSettings()).workflow;
@@ -1355,6 +1357,7 @@ async function routePost(urlPath, req, res) {
       }
       await state.audit({ action: 'settings', workflow: w });
       settingsChanged();
+      if (next.autoLevel && !was.autoLevel) checkLevels();
       return sendJson(res, 200, await state.getSettings());
     }
     // play: Play mode and sounds (lib/play.js validatePlayPatch).
@@ -1462,7 +1465,11 @@ async function routePost(urlPath, req, res) {
     }
     const updatedAt = await writeOptions(f.dir, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
     // was: the level before, so the conversation can say "Level changed from L2 Standard to L3 Large".
-    await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options, was: f.options?.level ?? null });
+    // overrode: 'auto' when the level you set replaces one chosen automatically (lib/auto-level.js),
+    // the record of overrides; the automatic raises stop for this job.
+    const lastLevel = (await state.auditFor(f.dir, 400)).filter((e) => e.action === 'auto-level' || (e.action === 'options' && Number.isInteger(e.options?.level))).at(-1);
+    const overrode = lastLevel?.action === 'auto-level' && options.level !== lastLevel.level ? 'auto' : undefined;
+    await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options, was: f.options?.level ?? null, overrode });
     cached = null;
     return sendJson(res, 200, { ok: true, options, summary: describeOptions(options), updated_at: updatedAt });
   }
@@ -1686,7 +1693,7 @@ function broadcast(event, data) {
 let changeTimer = null;
 function notifyChange() {
   clearTimeout(changeTimer);
-  changeTimer = setTimeout(() => { cached = null; broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); flowJobsChanged(); checkWaiting().catch(() => {}); }, 700);
+  changeTimer = setTimeout(() => { cached = null; broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); flowJobsChanged(); checkWaiting().catch(() => {}); checkLevels(); }, 700);
 }
 driver.on('run', (run) => { cached = null; broadcast('run', run); events.emit('run', run.slug, run); });
 // Nudges on their way to the Foreman (run id -> the job's folder and the nudge id; the nudge route).
@@ -1756,6 +1763,57 @@ function checkWaiting() {
   });
   return checking;
 }
+// "Choose the level for me" (Settings → Workflow; lib/auto-level.js). Off: nothing here runs.
+// On, for each open job: with no level yet and the Foreman's first suggestion in, pick the level
+// (or, when the rules say to ask you, say why once in the conversation and leave the level card);
+// with a level, check the branch's real diff after each change and raise the level when a rule or
+// the L0 limits say so. Never lowers a level. Each automatic change is an 'auto-level' audit line
+// (shown in the conversation and the Decisions tab). One pass at a time, like checkWaiting.
+let levelling = null;
+let levelAgain = false;
+const levelDiffSeen = new Map(); // job folder → the worktree, base and head last checked
+function checkLevels() {
+  if (levelling) { levelAgain = true; return levelling; }
+  levelling = checkLevelsNow().catch(() => {}).finally(() => {
+    levelling = null;
+    if (levelAgain) { levelAgain = false; checkLevels(); }
+  });
+  return levelling;
+}
+async function setLevelAutomatically(f, level, record) {
+  const options = levelOptions(f.options, level);
+  await writeOptions(f.dir, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
+  await state.audit({ action: 'auto-level', featureDir: f.dir, slug: f.slug, level, was: f.level ?? null, ...record });
+  cached = null;
+}
+async function checkLevelsNow() {
+  if (!(await state.getSettings()).workflow.autoLevel) return;
+  for (const f of await featuresShared()) {
+    if (closedOff(f)) continue;
+    if (f.level === null || f.level === undefined) {
+      if (f.suggestedLevel === null || f.suggestedLevel === undefined) continue;
+      const c = chooseLevel({ description: f.description, predictedPaths: f.predictedPaths, foreman: f.suggestedLevel });
+      if (!c.ask) { await setLevelAutomatically(f, c.level, { how: 'chose', note: c.note, rules: c.rules, foreman: c.foreman }); continue; }
+      // Asks you: said once per suggestion, then the level card waits for you.
+      const said = (await state.auditFor(f.dir, 400)).some((e) => e.action === 'auto-level-ask' && e.foreman === f.suggestedLevel);
+      if (!said) await state.audit({ action: 'auto-level-ask', featureDir: f.dir, slug: f.slug, foreman: f.suggestedLevel, rules: c.rules, reason: c.ask });
+      continue;
+    }
+    const base = f.baseSha ?? f.baseBranch;
+    if (!f.worktree || !base) continue;
+    const head = await git.headOf(f.worktree, 'HEAD');
+    const key = `${f.worktree}\n${base}\n${head}`;
+    if (!head || levelDiffSeen.get(f.dir) === key) continue;
+    levelDiffSeen.set(f.dir, key);
+    // You changed an automatic level yourself: your choice stands; no more automatic raises here.
+    if ((await state.auditFor(f.dir, 400)).some((e) => e.action === 'options' && e.overrode === 'auto')) continue;
+    const diff = await diffSummary(f.worktree, base);
+    // The files only: the description was weighed when the level was chosen.
+    const r = checkDiff({ level: f.level, diff });
+    if (r.raiseTo !== null) await setLevelAutomatically(f, r.raiseTo, { how: 'diff', reasons: r.reasons, head });
+  }
+}
+
 async function checkWaitingNow() {
   const cards = await boardCards(await featuresShared());
   const now = new Map(cards.filter((c) => c.needsYou && c.waitingFor !== 'permission').map((c) => [c.slug, c]));
@@ -1866,6 +1924,7 @@ driver.on('run', (run) => {
   if (!run.endedAt || countedRuns.has(run.id)) return;
   countedRuns.add(run.id);
   refreshRunTypical().catch(() => {});
+  checkLevels();
 });
 planUsage.on('change', (view) => { events.emit('plan-usage', null, view); });
 limits.on('change', () => { cached = null; broadcast('change', { at: Date.now() }); events.emit('usage', null, limits.view()); });
