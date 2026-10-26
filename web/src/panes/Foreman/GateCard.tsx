@@ -418,6 +418,7 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
         </p>
         <h3 className="perm-headline" id={headId}>{gate.headline ? <InlineText text={gate.headline} /> : 'The Foreman waits for your decision'}</h3>
         {gate.nextProposed && <p className="muted gate-next" title="What the Foreman proposes to do once you approve.">Next, as proposed: <InlineText text={gate.nextProposed} /></p>}
+        {gate.proof && <ProofStamp proof={gate.proof} />}
         {gate.usage && <p className="perm-warn gate-usage" title="Claude’s usage limit, for a next stage that uses a lot of it.">{gate.usage}</p>}
         {stale && (
           <p className="perm-warn gate-stale-note" role="status">
@@ -722,5 +723,22 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
         />
       )}
     </section>
+  );
+}
+
+/** The proof stamp: which commit the checks ran on, and a warning when the branch has moved on since. */
+function ProofStamp({ proof }: { proof: NonNullable<Gate['proof']> }) {
+  const short = (sha: string) => sha.slice(0, 7);
+  if (proof.stale && proof.head) {
+    return (
+      <p className="perm-warn gate-proof is-stale" title="The test report checked an older commit. Commits added since then haven’t been through the checks.">
+        <span aria-hidden="true">⚠ </span>Checks ran on <code className="num">{short(proof.tested)}</code>; the branch is now at <code className="num">{short(proof.head)}</code>. Ask for the checks again before approving.
+      </p>
+    );
+  }
+  return (
+    <p className="muted gate-proof" title={proof.head ? 'The test report checked the commit the branch is on now.' : 'The commit the test report checked. The branch’s head couldn’t be read, so it isn’t compared.'}>
+      <span aria-hidden="true">✓ </span>Checked at <code className="num">{short(proof.tested)}</code>{proof.head ? ', the branch’s head' : ''}
+    </p>
   );
 }

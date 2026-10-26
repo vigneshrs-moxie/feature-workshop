@@ -87,6 +87,14 @@ describe('GateCard', () => {
     expect(card(), 'held guidance (“Other guidance”) doesn’t decide the brief').not.toBeNull();
   });
 
+  it('a proof stamp: the commit the checks ran on, and a warning once the branch moved on', () => {
+    const { unmount } = setup({ det: detail({ proof: { tested: '5d3f1d0', head: '5d3f1d0abc', stale: false, reportAt: null } }) });
+    expect(document.querySelector('.gate-proof')).toHaveTextContent('Checked at 5d3f1d0, the branch’s head');
+    unmount();
+    setup({ det: detail({ proof: { tested: '5d3f1d0', head: '9a8b7c6d', stale: true, reportAt: null } }) });
+    expect(document.querySelector('.gate-proof.is-stale')).toHaveTextContent('Checks ran on 5d3f1d0; the branch is now at 9a8b7c6. Ask for the checks again before approving.');
+  });
+
   it('never shows on a job marked done', () => {
     setup({ jobExtra: { closed: { as: 'done' } } });
     expect(card()).toBeNull();

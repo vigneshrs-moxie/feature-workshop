@@ -39,6 +39,7 @@ import { NUDGE_IDS, nudgesFor } from './lib/nudges.js';
 import { buildThread, pageThread } from './lib/thread.js';
 import { decisionLog } from './lib/decisions.js';
 import { typicalRuns } from './lib/run-typical.js';
+import { proofStamp } from './lib/proof.js';
 import { suggestLevel, changedPaths } from './lib/levels.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs } from './lib/gate.js';
 import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
@@ -668,6 +669,14 @@ async function jobDetail(f) {
         parked: gateParked(f, runActive), runActive, usage: limits.view(),
       },
     );
+    // The proof stamp: the commit the test report checked, and whether the branch moved on since.
+    const reportText = await readInside(f.dir, 'test-report.md');
+    if (reportText) {
+      const where = f.worktree ?? f.repoPath;
+      const head = where && f.branch ? await git.headOf(where, f.branch) : null;
+      const reportAt = await fsp.stat(path.join(f.dir, 'test-report.md')).then((st) => st.mtime.toISOString(), () => null);
+      gate = { ...gate, proof: proofStamp({ reportText, reportAt, head }) };
+    }
   }
 
   const page = await threadPage(f, audit);

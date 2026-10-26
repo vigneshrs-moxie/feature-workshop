@@ -171,6 +171,8 @@ export interface Gate {
   levelReason: string | null;
   /** One line about Claude's usage limit when the next stage is build, test or review and the limit is reached or close. */
   usage: string | null;
+  /** The proof stamp: the commit the test report checked and the branch's head now (lib/proof.js); absent without a test report. */
+  proof?: { tested: string; head: string | null; stale: boolean; reportAt: string | null } | null;
 }
 
 /** 'gate-stale' event data: a gate waited past the parking time (sent once per gate, also across restarts). */
