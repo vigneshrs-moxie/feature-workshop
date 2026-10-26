@@ -212,6 +212,18 @@ body.is-resizing-panes iframe { pointer-events: none; }
   margin-bottom: var(--space-1);
 }
 .job-group-title .glyph { text-transform: none; }
+/* The heading is one button that folds the group (JobsPane useFoldedGroups); the count stays. */
+.job-group-toggle {
+  display: flex; align-items: center; gap: var(--space-1); width: 100%;
+  padding: 2px var(--space-1); margin: 0 calc(-1 * var(--space-1));
+  border: 0; border-radius: var(--radius-sm); background: none;
+  color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer;
+}
+.job-group-toggle:hover { background: var(--bg-2); color: var(--text-1); }
+.job-group-chevron { width: .9em; font-size: .9em; color: var(--text-3); }
+.job-group-name { flex: 1; min-width: 0; }
+.job-group-open { color: var(--text-3); font-weight: var(--weight-regular); text-transform: none; letter-spacing: 0; }
+.job-group.is-folded { margin-bottom: var(--space-1); }
 
 .job-row {
   display: flex;
@@ -222,7 +234,18 @@ body.is-resizing-panes iframe { pointer-events: none; }
   color: var(--text-1);
 }
 .job-row:hover { background: var(--bg-3); text-decoration: none; }
-.job-row[aria-current='page'] { background: var(--accent-soft); }
+/* The open job: a filled row, an accent bar on its left edge and a bolder title, so it stands apart
+   from a row under the pointer (aria-current also tells screen readers). */
+.job-row[aria-current='page'] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.job-row[aria-current='page'] .job-row-title { font-weight: var(--weight-bold); }
+/* The status glyph moves: Running turns slowly, Needs you beats. Both stop under reduced motion. */
+@keyframes glyph-turn { to { transform: rotate(360deg); } }
+@keyframes glyph-beat { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.35); opacity: .65; } }
+:is(.job-row, .job-rail-item)[data-group='running'] .glyph { animation: glyph-turn 2.4s linear infinite; }
+:is(.job-row, .job-rail-item)[data-group='needs-you'] .glyph { animation: glyph-beat 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  :is(.job-row, .job-rail-item) .glyph { animation: none !important; }
+}
 .job-row-line { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .job-row-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .job-row-time { color: var(--text-3); font-size: var(--text-xs); }

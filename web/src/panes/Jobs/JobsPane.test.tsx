@@ -5,7 +5,7 @@ import type { Job, PlayMode } from '../../api/types';
 import { createStore, WorkshopContext } from '../../state/store';
 import { job, snapshot } from '../../state/test-fixtures';
 import { jobHue } from '../../theme/hue';
-import { JobsPane, RAIL_KEY } from './JobsPane';
+import { FOLDED_KEY, JobsPane, RAIL_KEY } from './JobsPane';
 
 const now = new Date(2026, 9, 15, 15, 0);
 const iso = (h: number, m: number) => new Date(2026, 9, 15, h, m).toISOString();
@@ -33,7 +33,7 @@ describe('Jobs pane', () => {
   it('groups jobs in order, each group with its count', () => {
     renderPane(JOBS);
     const titles = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
-    expect(titles).toEqual(['◆ Needs you1', '◐ Running1', '‖ Paused1', '○ Idle1', '↗ Shipping1', '✓ Done1']);
+    expect(titles).toEqual(['▾◆Needs you1', '▾◐Running1', '▾‖Paused1', '▾○Idle1', '▾↗Shipping1', '▸✓Done1']);
   });
 
   it('a shipping row says where the work is instead of a stage chip', () => {
@@ -72,7 +72,24 @@ describe('Jobs pane', () => {
   it('marks the open job and leaves the stage off done jobs', () => {
     renderPane(JOBS, 'beta');
     expect(screen.getByRole('link', { name: /^Job beta/ })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: /^Job omega/ })).not.toHaveTextContent('PR #3');
+    expect(screen.getByRole('link', { name: /^Job omega/, hidden: true })).not.toHaveTextContent('PR #3');
+  });
+
+  it('folds a group from its heading and remembers it; Done starts folded', () => {
+    const { unmount } = renderPane(JOBS, 'omega');
+    const done = screen.getByRole('button', { name: /Done/ });
+    expect(done).toHaveAttribute('aria-expanded', 'false');
+    expect(done).toHaveTextContent('open job inside');
+    expect(screen.queryByRole('link', { name: /^Job omega/ })).toBeNull();
+    fireEvent.click(done);
+    expect(screen.getByRole('link', { name: /^Job omega/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Running/ }));
+    expect(screen.queryByRole('link', { name: /^Job beta/ })).toBeNull();
+    expect(localStorage.getItem(FOLDED_KEY)).toBe('running');
+    unmount();
+    renderPane(JOBS);
+    expect(screen.getByRole('button', { name: /Running/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /Done/ })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('collapses to an icon rail and remembers it', () => {
@@ -112,7 +129,7 @@ describe('the crew in the Jobs list (Play)', () => {
 
   it('each row shows its job’s crew member in the job’s mood, as decoration, with a “!” when it needs you', () => {
     withMode('subtle');
-    const crewOf = (name: RegExp) => screen.getByRole('link', { name }).querySelector('.row-crew')!;
+    const crewOf = (name: RegExp) => screen.getByRole('link', { name, hidden: true }).querySelector('.row-crew')!;
     expect(crewOf(/^Job alpha/)).toHaveAttribute('aria-hidden', 'true');
     expect(crewOf(/^Job alpha/).querySelector('svg.crew')).toHaveAttribute('data-crew', 'feature-planner');
     expect(crewOf(/^Job alpha/).querySelector('svg.crew')).toHaveAttribute('data-state', 'waiting');
