@@ -76,7 +76,7 @@ import { EVENT_TYPES, NOTES_MAX, parseCommand } from '../lib/protocol.js';
 import { JobLocked, heldElsewhere } from '../lib/lock.js';
 import { RESTART_TEXT, RESUME_KIND, replay, withRestartNotes } from './replay.js';
 import { removeServiceFile, writeServiceFile } from './service-file.js';
-import { findNew, itemSummary, noteFeedback, readFeedback } from '../lib/pr-feedback.js';
+import { itemSummary, lookAt, noteFeedback, readFeedback } from '../lib/pr-feedback.js';
 
 /** The Foreman models the page offers (meta.models); a reply's model must be one of them. */
 export const MODELS = [
@@ -1012,9 +1012,10 @@ export async function createRunner(config) {
   // After each network refresh of the flow map (no polling of its own), each open job's open PRs are
   // read with the read-only gh helpers (lib/git.js prChecks, prComments, failedLog); each failed
   // check or comment not seen before parks one Needs you card (lib/driver.js parkFeedbackCard), and
-  // a card a restart left waiting comes back. Your answer goes through the allow and deny commands;
-  // the driver resumes the job's session (feedbackSession below) and reports each outcome, which is
-  // written here: the audit lines pr-feedback-found, -sent, -left, -queued and -not-sent, and the
+  // a card a restart left waiting comes back. The first look at a PR seeds: the comments already on
+  // it are marked seen without a card (audit line pr-feedback-seeded, with the count). Your answer
+  // goes through the allow and deny commands; the driver resumes the job's session (feedbackSession
+  // below) and reports each outcome, which is written here: the audit lines pr-feedback-found, -sent, -left, -queued and -not-sent, and the
   // item's state in the job's pr-feedback.json. Nothing is ever written to GitHub.
   // WORKSHOP_GH names the gh executable (tests use a fake one); the demo reads no GitHub without it.
   const feedbackGh = env.WORKSHOP_GH ? git.ghRunner(env.WORKSHOP_GH) : DEMO ? null : git.ghRunner();
@@ -1040,10 +1041,12 @@ export async function createRunner(config) {
       if (!driver.feedbackCardFor(f.dir, key) && !feedbackQueued(f.dir, key)) driver.parkFeedbackCard(where, rec.item);
     }
     let checks = null;
-    let comments = [];
+    let comments = null; // null: unread (a first look then waits for one that reads them)
     try { checks = await git.prChecks(repo, pr.number, { gh: feedbackGh }); } catch (err) { console.error(`pr feedback (${f.slug}, checks):`, err.message); }
     try { comments = await git.prComments(repo, pr.number, { gh: feedbackGh }); } catch (err) { console.error(`pr feedback (${f.slug}, comments):`, err.message); }
-    const items = findNew({ job, pr: { ...pr, headSha: checks?.head ?? null }, checks: checks?.checks ?? [], comments, seen: record.items, me });
+    // The first look at a PR seeds: the comments already on it get no card (lib/pr-feedback.js lookAt).
+    const { items, seeded } = await lookAt({ featureDir: f.dir, job, pr: { ...pr, headSha: checks?.head ?? null }, checks: checks?.checks ?? [], comments, me });
+    if (seeded !== null) await state.audit({ action: 'pr-feedback-seeded', featureDir: f.dir, slug: f.slug, pr: pr.number, prLabel: pr.label, count: seeded });
     for (const item of items) {
       if (item.kind === 'check') {
         item.log = null;

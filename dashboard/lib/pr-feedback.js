@@ -14,10 +14,14 @@
 //   cardWords()        the card's words: "A check failed on PR #1: lint." and the quote
 //   feedbackMessage()  what the Foreman gets: the failure or comment, scrubbed (lib/orbit.js) and
 //                      cut to QUOTE_MAX characters, with what to do and not to do
+//   lookAt()           one look at a PR, with pr-feedback.json: the first look at a PR seeds (the
+//                      comments already on it are marked seen, with no card; failed checks on its
+//                      newest commit still get one), later looks give findNew's items
 //   readFeedback() / noteFeedback()
 //                      pr-feedback.json in the job folder: every item found, by key, with its state
-//                      ('waiting' while its card is up, 'queued' while it waits for a reply to end,
-//                      'sent', 'left'), so a restart parks the waiting cards again and never asks twice.
+//                      ('seeded' on a first look, 'waiting' while its card is up, 'queued' while it
+//                      waits for a reply to end, 'sent', 'left'), and each PR's first look, so a
+//                      restart parks the waiting cards again and never asks twice.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -136,32 +140,72 @@ export function itemSummary(item) {
 // ---------- pr-feedback.json ----------
 
 const fileOf = (featureDir) => path.join(featureDir, FEEDBACK_FILE);
+const isRecord = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
-/** The job's record: { items: { [key]: { state, at, item } } }. Missing or unreadable: none. */
+/**
+ * The job's record: { items: { [key]: { state, at, item } }, prs: { [number]: { firstLookAt, seeded } } }.
+ * Missing or unreadable: none.
+ */
 export async function readFeedback(featureDir) {
   try {
     const data = JSON.parse(await fs.readFile(fileOf(featureDir), 'utf8'));
-    return { items: data && typeof data.items === 'object' && !Array.isArray(data.items) ? data.items : {} };
-  } catch { return { items: {} }; }
+    return { items: isRecord(data?.items) ? data.items : {}, prs: isRecord(data?.prs) ? data.prs : {} };
+  } catch { return { items: {}, prs: {} }; }
 }
 
-// One write at a time per file, each on top of the last.
+// One write at a time per file, each on top of the last: change(data) edits the record read fresh.
 const writing = new Map();
-
-/** Set one item's state (and its item, when given, scrubbed of tokens). Written whole, through a temporary file. */
-export function noteFeedback(featureDir, key, { state, item = null, at = new Date().toISOString() }) {
+function updateFeedback(featureDir, change) {
   const file = fileOf(featureDir);
   const next = (writing.get(file) ?? Promise.resolve()).then(async () => {
     const data = await readFeedback(featureDir);
-    const was = data.items[key] ?? null;
-    data.items[key] = { state, at, item: item ? scrubDeep(item) : was?.item ?? null };
+    const result = change(data);
     const tmp = `${file}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, `${JSON.stringify({ version: 1, items: data.items }, null, 2)}\n`, { mode: 0o600 });
+    await fs.writeFile(tmp, `${JSON.stringify({ version: 1, items: data.items, prs: data.prs }, null, 2)}\n`, { mode: 0o600 });
     await fs.rename(tmp, file);
-    return data.items[key];
+    return result;
   });
   const kept = next.catch(() => {});
   writing.set(file, kept);
   kept.then(() => { if (writing.get(file) === kept) writing.delete(file); });
   return next;
+}
+
+/** Set one item's state (and its item, when given, scrubbed of tokens). Written whole, through a temporary file. */
+export function noteFeedback(featureDir, key, { state, item = null, at = new Date().toISOString() }) {
+  return updateFeedback(featureDir, (data) => {
+    const was = data.items[key] ?? null;
+    data.items[key] = { state, at, item: item ? scrubDeep(item) : was?.item ?? null };
+    return data.items[key];
+  });
+}
+
+/** Whether this PR was looked at before: a first-look mark, or any item found on it (a record from before the mark). */
+export function lookedAt(record, number) {
+  if (record?.prs?.[number]) return true;
+  return Object.keys(record?.items ?? {}).some((k) => k.startsWith(`pr${number}:`));
+}
+
+/**
+ * One look at a PR: what gets a card now. The first look at a PR seeds, like the finish line's
+ * first read of the map: every comment and review already on it is marked seen ('seeded', no body
+ * kept) and gets no card; a failed check on its newest commit still does, since it is actionable
+ * now. Later looks: everything new, as findNew says. comments null (they couldn't be read): no
+ * comment is found and the first look waits for a look that reads them.
+ * Returns { items, seeded }: seeded is the number of comments marked seen on this look, or null when
+ * it wasn't a first look.
+ */
+export async function lookAt({ featureDir, job, pr, checks = [], comments = null, me = null, at = new Date().toISOString() }) {
+  const record = await readFeedback(featureDir);
+  const first = !lookedAt(record, pr.number);
+  if (first && comments !== null && job && !job.closed && pr.head === job.branch) {
+    const keys = comments.filter((c) => c?.id).map((c) => commentKey(pr, c.id));
+    await updateFeedback(featureDir, (data) => {
+      for (const key of keys) if (!data.items[key]) data.items[key] = { state: 'seeded', at, item: null };
+      data.prs[pr.number] = { firstLookAt: at, seeded: keys.length };
+    });
+    for (const key of keys) record.items[key] ??= { state: 'seeded' };
+    return { items: findNew({ job, pr, checks, comments: [], seen: record.items, me }), seeded: keys.length };
+  }
+  return { items: findNew({ job, pr, checks, comments: comments ?? [], seen: record.items, me }), seeded: null };
 }

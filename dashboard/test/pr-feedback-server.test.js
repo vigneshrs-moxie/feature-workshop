@@ -1,7 +1,8 @@
 // PR feedback through the real dashboard in demo mode (packet N): the demo's flow map gives the job
-// an open PR #1, and a fake gh (WORKSHOP_GH) says one check failed and Ana left a comment. Each
-// becomes a card under Needs you; Send resumes the job's own session with kind pr-feedback; Leave
-// it sends nothing; a Refresh asks about neither again; gh is only ever asked to read.
+// an open PR #1, and a fake gh (WORKSHOP_GH) says one check failed and Ana left a comment. The first
+// look seeds: the check becomes a card under Needs you, the comment already there doesn't. A new
+// comment after it does. Send resumes the job's own session with kind pr-feedback; Leave it sends
+// nothing; a Refresh asks about neither again; gh is only ever asked to read.
 
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -103,7 +104,7 @@ async function makeJob() {
   };
   const audit = () => (fsSync.existsSync(path.join(dirs.state, 'audit.jsonl')) ? fsSync.readFileSync(path.join(dirs.state, 'audit.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
   const ghCalls = () => (fsSync.existsSync(path.join(ghDir, 'calls.jsonl')) ? fsSync.readFileSync(path.join(ghDir, 'calls.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
-  return { env, audit, ghCalls, job };
+  return { env, audit, ghCalls, job, ghDir };
 }
 
 async function startDashboard(env) {
@@ -147,24 +148,47 @@ async function startDashboard(env) {
 const feedbackCards = async (d) => (await d.get('/api/snapshot')).permissions.filter((p) => p.feedbackCard && p.slug === 'sample-job');
 const answerWith = (card, label) => ({ decision: 'allow', answers: { [card.input.questions[0].question]: label } });
 
-test('a failed check and a comment become cards in Needs you; Send resumes the same session, Leave it sends nothing', async () => {
-  const { env, audit, ghCalls, job } = await makeJob();
+// The flow map's next network refresh (Refresh on Flow), done.
+async function refreshFlow(d) {
+  const before = (await d.get('/api/flow')).fetchedAt;
+  await d.write('/api/flow/refresh');
+  await d.waitFor(async () => { const v = await d.get('/api/flow'); return v.fetchedAt !== before && !v.refreshing; }, 'the refresh');
+}
+
+test('a failed check becomes a card in Needs you, old comments are seeded, a new one is a card; Send resumes the same session, Leave it sends nothing', async () => {
+  const { env, audit, ghCalls, job, ghDir } = await makeJob();
   const d = await startDashboard(env);
 
-  // The flow map's first network refresh, at start: two cards (your own comment is skipped).
-  const cards = await d.waitFor(async () => { const c = await feedbackCards(d); return c.length === 2 ? c : null; }, 'the two feedback cards');
-  const lint = cards.find((c) => c.item.kind === 'check');
-  const ana = cards.find((c) => c.item.kind === 'comment');
+  // The flow map's first network refresh, at start: the first look at PR #1 seeds. One card, for the
+  // check; the two comments already there (Ana's and your own) are marked seen.
+  const cards = await d.waitFor(async () => { const c = await feedbackCards(d); return c.length ? c : null; }, 'the check’s card');
+  const seeded = await d.waitFor(() => audit().find((e) => e.action === 'pr-feedback-seeded'), 'the pr-feedback-seeded line');
+  assert.equal(seeded.count, 2);
+  assert.equal(seeded.prLabel, 'PR #1');
+  assert.ok(Number.isInteger(seeded.pr));
+  assert.equal(seeded.slug, 'sample-job');
+  await sleep(300);
+  assert.deepEqual((await feedbackCards(d)).map((c) => c.item.kind), ['check'], 'no card for the comment already there');
+  const lint = cards[0];
   assert.match(lint.input.questions[0].question, /^A check failed on PR #1: lint\. The end of its log: “.*exit code 1\.”\. Send it to the Foreman\?$/);
-  assert.ok(!JSON.stringify(cards).includes('orbfb_'), 'no token on the cards');
-  assert.match(ana.input.questions[0].question, /^ana commented on PR #1, web\/src\/App\.tsx line 40\. “Please use a const here\.” Send it to the Foreman\?$/);
+  assert.ok(!JSON.stringify(cards).includes('orbfb_'), 'no token on the card');
   assert.deepEqual(lint.input.questions[0].options.map((o) => o.label), ['Send it to the Foreman', 'Leave it']);
   const card = (await d.get('/api/features')).features.find((c) => c.slug === 'sample-job');
   assert.equal(card.needsYou, true, 'the job is under Needs you');
-  assert.equal(card.permissions, 2);
-  assert.equal(audit().filter((e) => e.action === 'pr-feedback-found').length, 2);
+  assert.equal(card.permissions, 1);
+  assert.equal(audit().filter((e) => e.action === 'pr-feedback-found').length, 1);
   const record = JSON.parse(await fs.readFile(path.join(job, 'pr-feedback.json'), 'utf8'));
-  assert.deepEqual(Object.values(record.items).map((i) => i.state), ['waiting', 'waiting']);
+  assert.deepEqual(Object.values(record.items).map((i) => i.state).sort(), ['seeded', 'seeded', 'waiting']);
+
+  // Ana comments again: the next refresh makes a card for it.
+  const fx = JSON.parse(await fs.readFile(path.join(ghDir, 'fixture.json'), 'utf8'));
+  fx.comments.push({ id: 903, user: { login: 'ana', type: 'User' }, path: 'web/src/App.tsx', line: 40, body: 'Please use a const here.', html_url: 'https://github.com/acme/sample-repo/pull/1#discussion_r903', created_at: '2026-10-28T10:00:00Z' });
+  await fs.writeFile(path.join(ghDir, 'fixture.json'), JSON.stringify(fx));
+  await refreshFlow(d);
+  const ana = await d.waitFor(async () => (await feedbackCards(d)).find((c) => c.item.kind === 'comment'), 'the new comment’s card');
+  assert.match(ana.input.questions[0].question, /^ana commented on PR #1, web\/src\/App\.tsx line 40\. “Please use a const here\.” Send it to the Foreman\?$/);
+  assert.equal(ana.item.key, `pr${seeded.pr}:comment:c903`);
+  assert.equal(audit().filter((e) => e.action === 'pr-feedback-seeded').length, 1, 'seeded once');
 
   // Send: the job's own session is resumed with the log quoted, kind pr-feedback.
   const sent = await d.write(`/api/permissions/${lint.id}`, answerWith(lint, 'Send it to the Foreman'));
@@ -186,14 +210,13 @@ test('a failed check and a comment become cards in Needs you; Send resumes the s
   await sleep(500);
   assert.equal(audit().filter((e) => e.action === 'send' && e.kind === 'pr-feedback').length, 1, 'only the check went to the Foreman');
   assert.equal((await feedbackCards(d)).length, 0);
+
   const after = JSON.parse(await fs.readFile(path.join(job, 'pr-feedback.json'), 'utf8'));
-  assert.deepEqual(Object.values(after.items).map((i) => i.state).sort(), ['left', 'sent']);
+  assert.deepEqual(Object.values(after.items).map((i) => i.state).sort(), ['left', 'seeded', 'seeded', 'sent']);
 
   // Refresh on Flow: the same failure and comment are not asked about again.
-  const before = (await d.get('/api/flow')).fetchedAt;
   const calls = ghCalls().length;
-  await d.write('/api/flow/refresh');
-  await d.waitFor(async () => { const v = await d.get('/api/flow'); return v.fetchedAt !== before && !v.refreshing; }, 'the refresh');
+  await refreshFlow(d);
   await d.waitFor(() => ghCalls().length > calls, 'gh asked again');
   await sleep(500);
   assert.equal((await feedbackCards(d)).length, 0, 'no new card');
@@ -215,13 +238,14 @@ test('a failed check and a comment become cards in Needs you; Send resumes the s
 test('a card still waiting comes back after a restart, once', async () => {
   const { env, audit } = await makeJob();
   const a = await startDashboard(env);
-  await a.waitFor(async () => (await feedbackCards(a)).length === 2, 'the two feedback cards');
+  await a.waitFor(async () => (await feedbackCards(a)).length === 1, 'the check’s card');
   await a.stop();
   const b = await startDashboard(env);
-  const back = await b.waitFor(async () => { const c = await feedbackCards(b); return c.length === 2 ? c : null; }, 'the cards after the restart');
-  assert.deepEqual(back.map((c) => c.item.kind).sort(), ['check', 'comment']);
+  const back = await b.waitFor(async () => { const c = await feedbackCards(b); return c.length ? c : null; }, 'the card after the restart');
+  assert.deepEqual(back.map((c) => c.item.kind), ['check']);
   await sleep(500);
-  assert.equal((await feedbackCards(b)).length, 2, 'not doubled');
-  assert.equal(audit().filter((e) => e.action === 'pr-feedback-found').length, 2, 'not found again');
+  assert.equal((await feedbackCards(b)).length, 1, 'not doubled, and the seeded comment stays seen');
+  assert.equal(audit().filter((e) => e.action === 'pr-feedback-found').length, 1, 'not found again');
+  assert.equal(audit().filter((e) => e.action === 'pr-feedback-seeded').length, 1, 'not seeded again');
   await b.stop();
 });

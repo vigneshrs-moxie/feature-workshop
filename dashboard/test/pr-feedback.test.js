@@ -8,7 +8,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { checkOf, failedLog, prChecks, prComments } from '../lib/git.js';
-import { FEEDBACK_LEAVE, FEEDBACK_SEND, QUOTE_MAX, cardWords, checkKey, feedbackMessage, findNew, noteFeedback, ownerOf, readFeedback } from '../lib/pr-feedback.js';
+import { FEEDBACK_LEAVE, FEEDBACK_SEND, QUOTE_MAX, cardWords, checkKey, feedbackMessage, findNew, lookAt, noteFeedback, ownerOf, readFeedback } from '../lib/pr-feedback.js';
 import { Driver } from '../lib/driver.js';
 import { JobLocked } from '../lib/lock.js';
 
@@ -178,6 +178,55 @@ test('the card’s words and the Foreman’s message: quoted, scrubbed, cut to 4
   const longComment = { ...ana, body: `${'y'.repeat(5000)} tail` };
   assert.ok(!feedbackMessage(longComment).includes('tail'), 'a comment keeps its start');
   assert.ok(feedbackMessage(longComment, { extra: 'Only the naming, please.' }).startsWith('Only the naming, please.\n\nana commented'));
+});
+
+test('the first look at a PR seeds: 5 old comments and 1 failing check give 1 card; a later new comment gives a card', async () => {
+  const dir = await jobDir();
+  const { driver } = makeDriver();
+  const where = { featureDir: dir, slug: 'dark-mode', title: 'Dark mode' };
+  const old = Array.from({ length: 5 }, (_, i) => ({ id: `c${100 + i}`, kind: 'line', author: i % 2 ? 'ana' : 'bo', bot: false, file: 'web/src/App.tsx', line: 10 + i, body: `Old comment ${i}.`, link: null, at: `2026-10-20T10:0${i}:00Z` }));
+  const checks = [{ name: 'lint', state: 'fail', link: null, runId: '4242' }, { name: 'test', state: 'pass', link: null, runId: '4243' }];
+  // What the runner does after a flow refresh: one look, a card for each item.
+  const look = async (comments) => {
+    const got = await lookAt({ featureDir: dir, job: JOB, pr: PR('abc111'), checks, comments, me: 'you' });
+    for (const item of got.items) { await noteFeedback(dir, item.key, { state: 'waiting', item }); driver.parkFeedbackCard(where, item); }
+    return got;
+  };
+
+  const first = await look(old);
+  assert.equal(first.seeded, 5, 'the 5 old comments are seeded');
+  assert.deepEqual(first.items.map((i) => [i.kind, i.name]), [['check', 'lint']], 'only the failing check on the newest commit');
+  assert.equal(driver.pendingPermissions().length, 1, '1 card');
+  const record = await readFeedback(dir);
+  assert.deepEqual(Object.entries(record.items).filter(([, v]) => v.state === 'seeded').map(([k]) => k), old.map((c) => `pr7:comment:${c.id}`));
+  assert.ok(Object.values(record.items).every((v) => v.state !== 'seeded' || v.item === null), 'no comment body kept for a seeded one');
+  assert.equal(record.prs[7].seeded, 5);
+
+  const again = await look(old);
+  assert.equal(again.seeded, null, 'a later look is not a first look');
+  assert.deepEqual(again.items, []);
+  assert.equal(driver.pendingPermissions().length, 1, 'still 1 card');
+
+  const fresh = { id: 'c200', kind: 'line', author: 'ana', bot: false, file: 'web/src/App.tsx', line: 40, body: 'One more thing.', link: null, at: '2026-10-28T09:00:00Z' };
+  const later = await look([...old, fresh]);
+  assert.deepEqual(later.items.map((i) => [i.kind, i.author, i.key]), [['comment', 'ana', 'pr7:comment:c200']]);
+  assert.equal(driver.pendingPermissions().length, 2, 'the new comment gets a card');
+  assert.match(driver.pendingPermissions()[1].input.questions[0].question, /^ana commented on PR #1, web\/src\/App\.tsx line 40\. “One more thing\.”/);
+});
+
+test('a first look whose comments couldn’t be read waits for one that reads them; a PR seen before isn’t seeded again', async () => {
+  const dir = await jobDir();
+  const old = [{ id: 'c1', author: 'ana', file: null, line: null, body: 'Old.' }];
+  const unread = await lookAt({ featureDir: dir, job: JOB, pr: PR(), checks: [], comments: null });
+  assert.deepEqual(unread, { items: [], seeded: null });
+  assert.equal((await lookAt({ featureDir: dir, job: JOB, pr: PR(), checks: [], comments: old })).seeded, 1, 'seeded on the look that read them');
+
+  // A record from before the first-look mark: items on that PR already, so it isn't a first look.
+  const older = await jobDir();
+  await noteFeedback(older, 'pr7:check:lint@abc111', { state: 'sent', item: null });
+  const got = await lookAt({ featureDir: older, job: JOB, pr: PR(), checks: [], comments: old });
+  assert.equal(got.seeded, null);
+  assert.deepEqual(got.items.map((i) => i.key), ['pr7:comment:c1']);
 });
 
 // ---------- The card (lib/driver.js) ----------
