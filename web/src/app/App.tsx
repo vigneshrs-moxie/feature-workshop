@@ -28,6 +28,7 @@ import { NotFoundView } from '../views/NotFound/NotFoundView';
 import { ScreensView } from '../views/Screens/ScreensView';
 import { IntegrateBoard } from '../views/Integrate';
 import { InboxView } from '../views/Inbox';
+import { TelemetryView } from '../views/Telemetry';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
 import { PlayToasts } from '../play/PlayToasts';
@@ -39,7 +40,7 @@ import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
 import { reopenJob, setJobPolicy, stopRun } from './jobActions';
 import { dialogOpen, paletteKeyLabel, useKeyListener, useKeyScope } from './keyRegistry';
 import { Kbd } from '../components/Kbd';
-import { classicHref, crewDexHref, hrefFor, integrateHref, navigate, openFromHash, settingsHref, useRoute, type Route } from './router';
+import { classicHref, crewDexHref, hrefFor, integrateHref, navigate, telemetryHref, openFromHash, settingsHref, useRoute, type Route } from './router';
 import { HomeView } from '../home/HomeView';
 import { deskQueue } from '../home/homeModel';
 import { deskEntries, isShipping } from '../home/nudges';
@@ -62,7 +63,7 @@ function Words({ long, short }: { long: string; short: string }) {
 }
 
 /** The top bar. One count only: the Desk button's badge (what waits for you); the connection state is a word with its dot. */
-function TopBar({ onRetry, onCrew = false, onInbox = false, slug = null }: { onRetry: () => void; onCrew?: boolean; onInbox?: boolean; slug?: string | null }) {
+function TopBar({ onRetry, onCrew = false, onInbox = false, onTelemetry = false, slug = null }: { onRetry: () => void; onCrew?: boolean; onInbox?: boolean; onTelemetry?: boolean; slug?: string | null }) {
   const state = useWorkshopState();
   const ui = useUi();
   const play = usePlay();
@@ -96,6 +97,9 @@ function TopBar({ onRetry, onCrew = false, onInbox = false, slug = null }: { onR
       {state.status === 'ready' && <StatusSummary />}
       {/* The plan's 5-hour and weekly usage; without it (demo, or turned off), Play Full's stamina bar. */}
       {state.status === 'ready' && (state.planUsage?.enabled ? <UsageMeters /> : <StaminaBar />)}
+      {state.status === 'ready' && (
+        <a className="btn btn-quiet" href={telemetryHref()} aria-current={onTelemetry ? 'page' : undefined} title="Telemetry: where the Claude usage goes (by day, job, ticket, stage, model and person) and when the weekly limit will be reached.">Telemetry</a>
+      )}
       {state.status === 'ready' && (
         <a className="btn btn-quiet" href={hrefFor({ name: 'inbox' })} aria-current={onInbox ? 'page' : undefined} title="The Inbox: your Portal Feedback tickets from Orbit, with Start for a new job on one.">Inbox</a>
       )}
@@ -260,14 +264,14 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       </div>
     );
   }
-  // Home (#/, #/table, #/desk) and a job's screens (#/job/<slug>/screens): full width, no Jobs or Preview pane.
-  if (home || route.name === 'screens' || route.name === 'integrate') {
+  // Home (#/, #/table, #/desk), a job's screens (#/job/<slug>/screens), Integrate and Telemetry: full width, no Jobs or Preview pane.
+  if (home || route.name === 'screens' || route.name === 'integrate' || route.name === 'telemetry') {
     return (
       <div className="app">
-        <TopBar onRetry={onRetry} slug={slug} />
+        <TopBar onRetry={onRetry} onTelemetry={route.name === 'telemetry'} slug={slug} />
         <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
         <Sheets route={route} />
-        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : route.name === 'integrate' ? <IntegrateBoard /> : <HomeView view={home ?? 'map'} />}
+        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : route.name === 'integrate' ? <IntegrateBoard /> : route.name === 'telemetry' ? <TelemetryView /> : <HomeView view={home ?? 'map'} />}
         <PlayToasts />
         <PlayEggs />
       </div>

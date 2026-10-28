@@ -264,6 +264,8 @@ export class Driver extends EventEmitter {
   }
 
   async #onMessage(run, msg) {
+    // Telemetry (lib/usage-log.js): every message that carries usage or the turn's cost.
+    if (msg.type === 'assistant' || msg.type === 'result') this.emit('usage', { runId: run.id, slug: run.slug, featureDir: run.featureDir, sessionId: run.sessionId, model: run.model, msg });
     if (msg.type === 'assistant') {
       // Remember tool calls (crew members' too), so a blocked one can be named by its id.
       for (const b of msg.message?.content ?? []) {

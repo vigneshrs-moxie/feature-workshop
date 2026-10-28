@@ -1,0 +1,179 @@
+/* Telemetry (views/Telemetry.tsx): the plan meters, the window picker and the five graphs.
+ *
+ * Series colours are tokens, defined once here and nowhere else: the data-viz reference palette's
+ * eight categorical slots (validated for colour-blind separation in that order), the dark steps for
+ * dark themes and the light steps for light ones. A theme may override any --tele-* token under
+ * its own scope. Every other rule takes its colours from the theme's tokens. A series never relies
+ * on colour alone: each slot also has its own pattern (.tele-pat-<n>), every graph has a legend or
+ * names on its bars, and a table view.
+ */
+.tele {
+  --tele-1: #3987e5;
+  --tele-2: #d95926;
+  --tele-3: #199e70;
+  --tele-4: #c98500;
+  --tele-5: #d55181;
+  --tele-6: #008300;
+  --tele-7: #9085e9;
+  --tele-8: #e66767;
+  --tele-other: var(--text-3);
+  /* The pattern's ink: a step of the surface over the fill (dark lines on dark themes, light on light ones). */
+  --tele-ink: color-mix(in oklab, var(--bg-0) 62%, transparent);
+  --tele-grid: var(--border-1);
+  --tele-axis: var(--border-3);
+  --tele-surface: var(--bg-1);
+}
+html[data-theme="light"] .tele,
+html[data-theme="light-glass"] .tele,
+html[data-theme="sunset-paper"] .tele {
+  --tele-1: #2a78d6;
+  --tele-2: #eb6834;
+  --tele-3: #1baf7a;
+  --tele-4: #eda100;
+  --tele-5: #e87ba4;
+  --tele-6: #008300;
+  --tele-7: #6250d6;
+  --tele-8: #e34948;
+  --tele-ink: color-mix(in oklab, var(--bg-0) 70%, transparent);
+}
+
+.tele { display: flex; flex-direction: column; gap: var(--space-4); min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4) var(--space-6); }
+.tele-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-3); }
+.tele-head h2 { margin: 0; }
+.tele-intro { margin: 0; max-width: 72ch; }
+
+/* The plan meters now, with Read now. */
+.tele-now { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--tele-surface); }
+.tele-meter { display: grid; grid-template-columns: auto minmax(120px, 220px) auto; align-items: center; gap: var(--space-1) var(--space-3); }
+.tele-meter-name { font-weight: var(--weight-medium); }
+.tele-meter-bar { height: 8px; border-radius: 4px; background: var(--bg-3); overflow: hidden; }
+.tele-meter-fill { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+.tele-meter.is-warn .tele-meter-fill { background: var(--status-warn); }
+.tele-meter.is-full .tele-meter-fill { background: var(--status-error); }
+.tele-meter-reset { grid-column: 2 / -1; font-size: var(--text-sm); }
+.tele-now-foot { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
+.tele-now .btn { min-height: 40px; }
+
+/* The window picker: one row above everything it scopes. */
+.tele-windows { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.tele-windows .btn { min-height: 40px; }
+.tele-windows .btn[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent); color: var(--text-1); font-weight: var(--weight-medium); }
+.tele-windows .tele-check { width: 16px; font-weight: var(--weight-bold); }
+
+.tele-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: var(--space-4); transition: opacity var(--dur-fast) var(--ease-out); }
+.tele-grid.is-loading { opacity: .6; }
+.tele-card { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; padding: var(--space-3) var(--space-4) var(--space-4); border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--tele-surface); }
+.tele-card-wide { grid-column: 1 / -1; }
+.tele-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.tele-card-title { margin: 0; font-size: var(--text-md); }
+.tele-audience { color: var(--text-2); }
+.tele-card-head .btn { margin-left: auto; min-height: 40px; }
+.tele-fact { margin: 0; color: var(--text-1); }
+.tele-empty { margin: 0; padding: var(--space-6) 0; text-align: center; }
+.tele-plot { position: relative; }
+
+/* Legends: the key mirrors the mark (a line for lines, a swatch for bars). Text is never the series colour. */
+.tele-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: 0; padding: 0; list-style: none; color: var(--text-2); font-size: var(--text-sm); }
+.tele-legend li { display: inline-flex; align-items: center; gap: var(--space-2); }
+.tele-legend a { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 40px; color: var(--text-2); }
+.tele-legend a:hover { color: var(--text-1); }
+.tele-key-line { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--tele-1); }
+.tele-key-line.is-thin { border-top-width: 1.5px; border-top-color: var(--tele-2); }
+.tele-key-line.is-dotted { border-top-style: dotted; border-top-width: 3px; }
+.tele-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; }
+
+/* Series fills: colour plus pattern (45° and 135° lines, dots, cross-hatch, wide lines). */
+.tele-s1 { background-color: var(--tele-1); }
+.tele-s2 { background-color: var(--tele-2); }
+.tele-s3 { background-color: var(--tele-3); }
+.tele-s4 { background-color: var(--tele-4); }
+.tele-s5 { background-color: var(--tele-5); }
+.tele-s6 { background-color: var(--tele-6); }
+.tele-s7 { background-color: var(--tele-7); }
+.tele-s8 { background-color: var(--tele-8); }
+.tele-sother { background-color: var(--tele-other); }
+.tele-pat-2 { background-image: repeating-linear-gradient(45deg, var(--tele-ink) 0 1.5px, transparent 1.5px 6px); }
+.tele-pat-3 { background-image: repeating-linear-gradient(135deg, var(--tele-ink) 0 1.5px, transparent 1.5px 6px); }
+.tele-pat-4 { background-image: radial-gradient(var(--tele-ink) 1.2px, transparent 1.6px); background-size: 6px 6px; }
+.tele-pat-5 { background-image: repeating-linear-gradient(45deg, var(--tele-ink) 0 1px, transparent 1px 7px), repeating-linear-gradient(135deg, var(--tele-ink) 0 1px, transparent 1px 7px); }
+.tele-pat-6 { background-image: repeating-linear-gradient(45deg, var(--tele-ink) 0 3px, transparent 3px 10px); }
+.tele-pat-7 { background-image: repeating-linear-gradient(135deg, var(--tele-ink) 0 3px, transparent 3px 10px); }
+.tele-pat-8, .tele-pat-other { background-image: radial-gradient(var(--tele-ink) 1.6px, transparent 2px); background-size: 4px 4px; }
+
+/* The gauge (SVG). Lines 2px; the 5-hour line thin; the forecast dotted; gridlines solid hairlines. */
+.tele-svg { display: block; width: 100%; overflow: visible; }
+.tele-svg:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-sm); }
+.tele-svg .grid { stroke: var(--tele-grid); stroke-width: 1; }
+.tele-svg .axis { stroke: var(--tele-axis); stroke-width: 1; }
+.tele-svg .tick { fill: var(--text-3); font-size: var(--text-xs); font-family: var(--font-mono); }
+.tele-svg .week { fill: none; stroke: var(--tele-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.tele-svg .five { fill: none; stroke: var(--tele-2); stroke-width: 1; stroke-linejoin: round; opacity: .85; }
+.tele-svg .forecast { fill: none; stroke: var(--tele-1); stroke-width: 2; stroke-dasharray: 1 5; stroke-linecap: round; }
+.tele-svg .reset { stroke: var(--text-3); stroke-width: 1; }
+.tele-svg .reset-label, .tele-svg .end-label { fill: var(--text-2); font-size: var(--text-xs); }
+.tele-svg .dot { stroke: var(--tele-surface); stroke-width: 2; }
+.tele-svg .dot.week-dot { fill: var(--tele-1); }
+.tele-svg .dot.five-dot { fill: var(--tele-2); }
+.tele-svg .cross { stroke: var(--text-3); stroke-width: 1; }
+.tele-svg .hit { fill: transparent; }
+
+/* Use by day, by job: stacked columns, a 2px surface gap between segments, 4px rounded tops. */
+.tele-cols-wrap { position: relative; display: grid; grid-template-columns: auto 1fr; gap: var(--space-2); }
+.tele-yaxis { position: relative; height: 180px; min-width: 36px; color: var(--text-3); font-size: var(--text-xs); font-family: var(--font-mono); }
+.tele-yaxis span { position: absolute; right: 0; transform: translateY(50%); }
+.tele-cols { position: relative; display: flex; align-items: flex-end; gap: 2px; height: 180px; border-bottom: 1px solid var(--tele-axis); }
+.tele-gridline { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--tele-grid); pointer-events: none; }
+.tele-col { position: relative; display: flex; flex: 1 1 0; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; min-width: 0; border-radius: var(--radius-sm); }
+.tele-col:hover, .tele-col:focus-visible { background: var(--accent-soft); outline: none; }
+.tele-col:focus-visible { box-shadow: 0 0 0 2px var(--focus-ring); }
+.tele-stack { display: flex; flex-direction: column-reverse; gap: 2px; width: min(24px, 70%); }
+.tele-seg { display: block; flex: 1 1 0; min-height: 2px; cursor: pointer; }
+.tele-stack .tele-seg:last-child { border-radius: 4px 4px 0 0; }
+.tele-seg:hover { filter: brightness(1.12); }
+.tele-col-cap { color: var(--text-2); font-size: var(--text-xs); font-family: var(--font-mono); margin-bottom: 2px; white-space: nowrap; }
+.tele-xlabels { display: flex; gap: 2px; grid-column: 2; color: var(--text-3); font-size: var(--text-xs); }
+.tele-xlabels span { flex: 1 1 0; min-width: 0; text-align: center; white-space: nowrap; overflow: visible; }
+
+/* Tooltips: the value leads, the series name follows, a short line key in the series colour. */
+.tele-tip { position: absolute; z-index: 2; min-width: 140px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--bg-2); box-shadow: var(--shadow-1); color: var(--text-2); font-size: var(--text-sm); pointer-events: none; transform: translate(-50%, calc(-100% - 8px)); white-space: nowrap; }
+.tele-tip-head { color: var(--text-2); margin-bottom: 2px; }
+.tele-tip-row { display: flex; align-items: center; gap: var(--space-2); }
+.tele-tip-row strong { color: var(--text-1); font-weight: var(--weight-bold); }
+.tele-tip-key { display: inline-block; width: 10px; height: 0; border-top: 2px solid var(--tele-1); }
+.tele-tip-key.k2 { border-top-color: var(--tele-2); }
+
+/* Bars: cost per ticket and stage, people. Value at the tip; 4px rounded data end. */
+.tele-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: var(--space-4); }
+.tele-sub { margin: 0 0 var(--space-2); color: var(--text-2); font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.tele-hbars { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.tele-hbar { display: grid; grid-template-columns: minmax(80px, 34%) 1fr; align-items: center; gap: var(--space-2); }
+.tele-hbar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
+.tele-hbar-track { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.tele-hbar-fill { display: block; flex: none; height: 14px; min-width: 2px; border-radius: 0 4px 4px 0; }
+.tele-hbar-value { flex: none; color: var(--text-2); font-size: var(--text-sm); white-space: nowrap; }
+
+/* Share by model: one 100% bar per week; a 2px gap between models. */
+.tele-shares { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-3) 0 0; padding: 0; list-style: none; }
+.tele-share { display: grid; grid-template-columns: minmax(100px, 30%) 1fr auto; align-items: center; gap: var(--space-2); }
+.tele-share-bar { position: relative; display: flex; gap: 2px; height: 18px; }
+.tele-share-seg { position: relative; display: block; flex: 1 1 0; min-width: 2px; outline: none; }
+.tele-share-seg:first-child { border-radius: 4px 0 0 4px; }
+.tele-share-seg:last-child { border-radius: 0 4px 4px 0; }
+.tele-share-seg:only-child { border-radius: 4px; }
+.tele-share-seg:hover, .tele-share-seg:focus-visible { filter: brightness(1.12); box-shadow: 0 0 0 2px var(--focus-ring); }
+.tele-share-total { color: var(--text-2); font-size: var(--text-sm); }
+
+/* The table views. */
+.tele-table-wrap { max-height: 320px; overflow: auto; }
+.tele-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.tele-table caption { text-align: left; color: var(--text-2); padding-bottom: var(--space-2); }
+.tele-table th, .tele-table td { padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--border-1); text-align: left; }
+.tele-table td.n, .tele-table th.n { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.tele-table thead th { position: sticky; top: 0; background: var(--tele-surface); color: var(--text-2); font-weight: var(--weight-medium); }
+
+@media (forced-colors: active) {
+  .tele-seg, .tele-share-seg, .tele-hbar-fill, .tele-swatch { forced-color-adjust: none; border: 1px solid CanvasText; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tele-grid { transition: none; }
+}
