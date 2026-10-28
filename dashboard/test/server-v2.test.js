@@ -12,10 +12,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { startDashboard } from './helpers/dashboard.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 
-let root, featuresDir, child, base, port;
+let root, featuresDir, dashboard, base, port;
 const output = [];
 
 async function freePort() {
@@ -59,30 +60,19 @@ before(async () => {
   lines.push(JSON.stringify({ at: '2026-10-01T09:00:00Z', action: 'run-ended', status: 'done', featureDir: done, slug: 'report-scheduler', reply: sneaky }));
   await fs.writeFile(path.join(dirs.state, 'audit.jsonl'), lines.join('\n') + '\n');
 
-  port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, [SERVER], {
+  dashboard = await startDashboard({
     env: {
-      ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1',
+      HOME: dirs.home, WORKSHOP_DEMO: '1',
       WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
       WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    output,
   });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
-    child.stderr.on('data', (d) => output.push(String(d)));
-    child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
-  });
+  ({ base, port } = dashboard);
 });
 
 after(async () => {
-  if (child && child.exitCode === null) {
-    const gone = new Promise((r) => child.once('exit', r));
-    child.kill('SIGTERM'); // exactly the dashboard this test started
-    await gone;
-  }
+  await dashboard?.stop(); // exactly the dashboard this test started, and what it started
   if (root) await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -91,7 +81,7 @@ async function getJson(p) {
   return { status: res.status, body: await res.json() };
 }
 
-test('server: /api/snapshot has meta, grouped jobs and where to carry on from', async () => {
+test('server: /api/snapshot has meta, grouped jobs and where to carry on from', { timeout: 60_000 }, async () => {
   const { status, body } = await getJson('/api/snapshot');
   assert.equal(status, 200);
   assert.equal(body.v, 2);
@@ -108,7 +98,7 @@ test('server: /api/snapshot has meta, grouped jobs and where to carry on from', 
   assert.ok(body.usage && typeof body.usage === 'object');
 });
 
-test('server: a job page holds the newest 60 thread items, ?before= gives the older ones', async () => {
+test('server: a job page holds the newest 60 thread items, ?before= gives the older ones', { timeout: 60_000 }, async () => {
   const { body: job } = await getJson('/api/job/widget-export');
   assert.equal(job.thread.length, 60);
   assert.equal(job.threadMore, true);
@@ -126,7 +116,7 @@ test('server: a job page holds the newest 60 thread items, ?before= gives the ol
 
 // The new UI inserts reply, brief and detail HTML from these routes without changing it
 // (web/src/panes/Foreman/ServerHtml.tsx), so they must only ever send sanitised HTML.
-test('server: thread and doc HTML come out sanitised', async () => {
+test('server: thread and doc HTML come out sanitised', { timeout: 60_000 }, async () => {
   const unsafe = (html) => {
     assert.doesNotMatch(html, /<script/i);
     assert.doesNotMatch(html, /<img/i);
@@ -175,7 +165,7 @@ function waitForEvent(query, match, { onOpen = () => {} } = {}) {
   });
 }
 
-test('server: an audit line becomes a v2 thread event for that job', async () => {
+test('server: an audit line becomes a v2 thread event for that job', { timeout: 60_000 }, async () => {
   const { body: snap } = await getJson('/api/snapshot');
   const wait = waitForEvent(`since=${snap.seq}&epoch=${snap.epoch}`, (e) => e.type === 'thread' && e.job === 'widget-export', {
     onOpen: () => {
@@ -191,13 +181,13 @@ test('server: an audit line becomes a v2 thread event for that job', async () =>
   assert.ok(event.seq > snap.seq);
 });
 
-test('server: a stream from an earlier dashboard run is told to resync', async () => {
+test('server: a stream from an earlier dashboard run is told to resync', { timeout: 60_000 }, async () => {
   const { event } = await waitForEvent('since=3&epoch=00000000', () => true);
   assert.equal(event.type, 'resync');
   assert.equal(event.data.reason, 'restarted');
 });
 
-test('server: meta says whether the installed skill knows levels, from WORKSHOP_SKILLS_DIR, and notices an update', async () => {
+test('server: meta says whether the installed skill knows levels, from WORKSHOP_SKILLS_DIR, and notices an update', { timeout: 60_000 }, async () => {
   const file = path.join(root, 'skills', 'feature', 'job-options.md');
   const { body: meta } = await getJson('/api/meta');
   assert.deepEqual(meta.skill, { installed: true, levels: false, path: file });
@@ -211,7 +201,7 @@ test('server: meta says whether the installed skill knows levels, from WORKSHOP_
   assert.equal((await getJson('/api/meta')).body.skill.levels, true);
 });
 
-test('server: meta lists the levels; an L3 job starts an Opus Foreman and writes schema 2 options', async () => {
+test('server: meta lists the levels; an L3 job starts an Opus Foreman and writes schema 2 options', { timeout: 60_000 }, async () => {
   const { body: snap } = await getJson('/api/snapshot');
   assert.deepEqual(snap.meta.levels.map((l) => l.label), ['L0 Tweak', 'L1 Small', 'L2 Standard', 'L3 Large']);
   assert.ok(snap.meta.levels.every((l) => l.hint && l.flow));

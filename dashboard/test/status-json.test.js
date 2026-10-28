@@ -17,6 +17,7 @@ import { State } from '../lib/state.js';
 import { validate } from '../lib/status-json.js';
 import { defaultsForLevel, writeOptions, normalizeTicket, ticketKeyOf, ticketSlug, ticketBranch, shortTitle, startFromTicket, TICKET_KEY_PROBLEM } from '../lib/options.js';
 import { makeFakeQuery } from '../demo/fake-query.js';
+import { startDashboard } from './helpers/dashboard.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (check, ms = 3000) => {
@@ -372,30 +373,18 @@ test('Start from a ticket writes the folder with the ticket block (a valid versi
 // `ticket` (the edit packet B hands over under "Needs from others"); until then it is skipped.
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 const serverTakesTickets = (await fs.readFile(SERVER, 'utf8')).includes('startFromTicket(');
-test('POST /api/jobs with a ticket: the job, its folder and branch carry the key; the Foreman is told', { skip: serverTakesTickets ? false : 'server.js does not take a ticket yet (see packet B, Needs from others)' }, async () => {
+test('POST /api/jobs with a ticket: the job, its folder and branch carry the key; the Foreman is told', { timeout: 60_000, skip: serverTakesTickets ? false : 'server.js does not take a ticket yet (see packet B, Needs from others)' }, async () => {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fw-ticket-start-')));
   const featuresDir = path.join(root, 'feature-work');
   const repo = path.join(root, 'sample-repo');
   const dirs = { projects: path.join(root, 'projects'), agents: path.join(root, 'agents'), skills: path.join(root, 'skills'), state: path.join(root, 'state'), home: path.join(root, 'home') };
   for (const d of [featuresDir, repo, ...Object.values(dirs)]) await fs.mkdir(d, { recursive: true });
   execFileSync('git', ['init', '-q', repo]);
-  const srv = net.createServer();
-  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
-  const { port } = srv.address();
-  await new Promise((r) => srv.close(r));
-  const base = `http://127.0.0.1:${port}`;
   const output = [];
-  const child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  let dashboard = null;
   try {
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-      child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('running at')) { clearTimeout(timer); resolve(); } });
-      child.stderr.on('data', (d) => output.push(String(d)));
-      child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
-    });
+    dashboard = await startDashboard({ env: { HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state }, output });
+    const { base } = dashboard;
     const token = (await (await fetch(`${base}/api/meta`)).json()).token;
     const post = async (body) => {
       const res = await fetch(`${base}/api/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify(body) });
@@ -427,7 +416,7 @@ test('POST /api/jobs with a ticket: the job, its folder and branch carry the key
     assert.equal(after.filter((e) => e.action === 'status_invalid').length, 0);
     assert.equal(JSON.parse(await fs.readFile(path.join(dir, 'status.json'), 'utf8')).ticket.key, 'ORBIT-479');
   } finally {
-    if (child.exitCode === null) { const gone = new Promise((r) => child.once('exit', r)); child.kill('SIGTERM'); await gone; }
+    await dashboard?.stop();
     await fs.rm(root, { recursive: true, force: true });
   }
 });

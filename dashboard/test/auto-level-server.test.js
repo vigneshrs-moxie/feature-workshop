@@ -12,10 +12,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { startDashboard } from './helpers/dashboard.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 const OLD = '2026-10-01T10:00:00Z';
-let root, featuresDir, child, base, token;
+let root, featuresDir, dashboard, base, token;
 const output = [];
 
 async function freePort() {
@@ -70,37 +71,23 @@ before(async () => {
   git('add', '.'); git('commit', '-q', '-m', 'change');
   await writeJob('tweak', { status: { title: 'Tweak', stage: 'implement', stage_state: 'working', worktree: repo, base_sha: baseSha, repo: { path: repo, base_branch: 'main' } }, options: { level: 0, flow: 'quick', title: 'Fix the typo on the save button' } });
 
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
-    child.stderr.on('data', (d) => output.push(String(d)));
-    child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
-  });
+  dashboard = await startDashboard({ env: { HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state }, output });
+  ({ base } = dashboard);
   token = (await getJson('/api/meta')).token;
 });
 
 after(async () => {
-  if (child && child.exitCode === null) {
-    const gone = new Promise((r) => child.once('exit', r));
-    child.kill('SIGTERM'); // exactly the dashboard this test started
-    await gone;
-  }
+  await dashboard?.stop(); // exactly the dashboard this test started, and what it started
   if (root) await fs.rm(root, { recursive: true, force: true });
 });
 
-test('off by default: nothing is chosen', async () => {
+test('off by default: nothing is chosen', { timeout: 60_000 }, async () => {
   await new Promise((r) => { setTimeout(r, 800); });
   assert.equal((await optionsOf('save-label')).level ?? null, null);
   assert.equal((await optionsOf('tweak')).level, 0);
 });
 
-test('on: picks, asks, raises after a build, and stops raising after your override', async () => {
+test('on: picks, asks, raises after a build, and stops raising after your override', { timeout: 60_000 }, async () => {
   const set = await write('/api/settings', { workflow: { autoLevel: true } });
   assert.equal(set.status, 200);
   assert.equal(set.body.workflow.autoLevel, true);

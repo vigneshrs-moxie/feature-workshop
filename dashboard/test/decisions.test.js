@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decisionId, decisionLog, decisionOf, decisionPrefix, decisionRows, gateAnswers, gateNote, keptParts, render, ticketCopy, writeDecisionsFile } from '../lib/decisions.js';
+import { startDashboard } from './helpers/dashboard.js';
 
 test('approvals, send-backs with their note, stops, permissions, levels, closing', () => {
   const log = decisionLog([
@@ -229,7 +230,7 @@ test('copy for the ticket: plain text with the pipes, no notes to agents, at mos
 
 // Through the real dashboard in demo mode (a pretend Foreman, nothing real runs) on temp folders:
 // no real job, ~/.claude or ~/.feature-workshop is touched and no Claude usage is spent.
-test('the dashboard writes decisions.md after a gate and serves it at GET /api/jobs/:slug/decisions.md', async () => {
+test('the dashboard writes decisions.md after a gate and serves it at GET /api/jobs/:slug/decisions.md', { timeout: 60_000 }, async () => {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fw-decisions-')));
   const dirs = Object.fromEntries(['feature-work', 'state', 'repo', 'projects', 'agents', 'skills', 'home'].map((d) => [d, path.join(root, d)]));
   for (const d of Object.values(dirs)) await fs.mkdir(d, { recursive: true });
@@ -246,32 +247,12 @@ test('the dashboard writes decisions.md after a gate and serves it at GET /api/j
   await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify({ schema_version: 2, level: 1, flow: 'quick', skip: [], provided: {}, reviewers: ['feature-reviewer'], review_rounds: 2, manual_test: true, fable_checks: [], title: 'Feedback API and MCP', repo: dirs.repo, kind: 'feature' }));
   for (const f of ['001-spec.md', '002-plan.md']) await fs.writeFile(path.join(dir, 'briefs', f), `**${f}**\n`);
 
-  // A port with the next one free too (the screens server takes port + 1), picked away from the
-  // ports the system hands out one after another, which the other test files' dashboards get.
-  const free = (p) => new Promise((resolve) => {
-    const s = net.createServer();
-    s.once('error', () => resolve(false));
-    s.listen(p, '127.0.0.1', () => s.close(() => resolve(true)));
-  });
-  let port = 0;
-  for (let i = 0; i < 50 && !port; i++) {
-    const p = 20000 + Math.floor(Math.random() * 20000);
-    if ((await free(p)) && (await free(p + 1))) port = p;
-  }
-  assert.ok(port, 'a free port');
-  const base = `http://127.0.0.1:${port}`;
+  // Its own ports for the dashboard and the screens server (helpers/dashboard.js).
   const output = [];
-  const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js')], {
-    env: { ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: dirs['feature-work'], WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  let dashboard = null;
   try {
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-      child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
-      child.stderr.on('data', (d) => output.push(String(d)));
-      child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
-    });
+    dashboard = await startDashboard({ env: { HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: dirs['feature-work'], WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state }, output });
+    const { base } = dashboard;
     const token = (await (await fetch(`${base}/api/meta`)).json()).token;
     const gate = await fetch(`${base}/api/job/${slug}/gate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify({ kind: 'approve', briefNumber: 2, answers: { 1: { choice: 'a' } }, note: 'Small enough to ship this week.' }) });
     assert.equal(gate.status, 200, JSON.stringify(await gate.clone().json()));
@@ -310,11 +291,7 @@ test('the dashboard writes decisions.md after a gate and serves it at GET /api/j
     assert.equal(missing.status, 404);
     assert.equal((await missing.json()).error, 'No job by that name.');
   } finally {
-    if (child.exitCode === null) {
-      const gone = new Promise((r) => child.once('exit', r));
-      child.kill('SIGTERM'); // exactly the dashboard this test started
-      await gone;
-    }
+    await dashboard?.stop(); // exactly the dashboard this test started, and what it started
     await fs.rm(root, { recursive: true, force: true });
   }
 });

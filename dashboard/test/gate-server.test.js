@@ -12,11 +12,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { startDashboard } from './helpers/dashboard.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 const OLD = '2026-10-01T10:00:00Z';
 
-let root, featuresDir, child, base, stateDir;
+let root, featuresDir, dashboard, base, stateDir;
 const output = [];
 
 async function freePort() {
@@ -97,30 +98,19 @@ before(async () => {
 
   stateDir = dirs.state;
 
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, [SERVER], {
+  dashboard = await startDashboard({
     env: {
-      ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_GATE_PARK_MS: '600',
+      HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_GATE_PARK_MS: '600',
       WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
       WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    output,
   });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
-    child.stderr.on('data', (d) => output.push(String(d)));
-    child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
-  });
+  ({ base } = dashboard);
 });
 
 after(async () => {
-  if (child && child.exitCode === null) {
-    const gone = new Promise((r) => child.once('exit', r));
-    child.kill('SIGTERM'); // exactly the dashboard this test started
-    await gone;
-  }
+  await dashboard?.stop(); // exactly the dashboard this test started, and what it started
   if (root) await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -148,7 +138,7 @@ function eventsFor(ms, epoch) {
   });
 }
 
-test('job page: level chosen, the Foreman’s suggestion and the rules’ one', async () => {
+test('job page: level chosen, the Foreman’s suggestion and the rules’ one', { timeout: 60_000 }, async () => {
   const job = await getJson('/api/job/visit-audit');
   assert.equal(job.level, 1);
   assert.equal(job.suggestedLevel, 2);
@@ -159,7 +149,7 @@ test('job page: level chosen, the Foreman’s suggestion and the rules’ one', 
   assert.deepEqual(job.warnings, [], 'the new fields raise no warning');
 });
 
-test('job page: with a worktree and a base, the rules also read the changed paths; the snapshot does not', async () => {
+test('job page: with a worktree and a base, the rules also read the changed paths; the snapshot does not', { timeout: 60_000 }, async () => {
   const job = await getJson('/api/job/button-label');
   assert.equal(job.level, 0);
   assert.equal(job.rulesLevel.fromDiff, true);
@@ -172,7 +162,7 @@ test('job page: with a worktree and a base, the rules also read the changed path
   assert.equal(card.level, 0);
 });
 
-test('thread: only the brief status.json names carries versions', async () => {
+test('thread: only the brief status.json names carries versions', { timeout: 60_000 }, async () => {
   const job = await getJson('/api/job/visit-audit');
   const briefs = Object.fromEntries(job.thread.filter((t) => t.kind === 'brief').map((t) => [t.file, t]));
   assert.deepEqual(briefs['briefs/002-plan.md'].versions, { spec: '0.3', artifacts: { 'implementation-plan': '2' } });
@@ -183,7 +173,7 @@ test('thread: only the brief status.json names carries versions', async () => {
   assert.equal(noSince.thread.find((t) => t.kind === 'brief').versions, null, 'status.json names no brief');
 });
 
-test('gate: the plan gate in full; null while working; answered briefs from gate replies', async () => {
+test('gate: the plan gate in full; null while working; answered briefs from gate replies', { timeout: 60_000 }, async () => {
   const job = await getJson('/api/job/visit-audit');
   const g = job.gate;
   assert.ok(g);
@@ -212,7 +202,7 @@ test('gate: the plan gate in full; null while working; answered briefs from gate
   assert.deepEqual((await getJson('/api/job/answered')).answeredBriefs, [4]);
 });
 
-test('gate: the versions it was raised at stay put when the plan moves on; the card is stale', async () => {
+test('gate: the versions it was raised at stay put when the plan moves on; the card is stale', { timeout: 60_000 }, async () => {
   const dir = path.join(featuresDir, 'visit-audit');
   const bumped = planStatus(2);
   bumped.artifacts = [{ name: 'implementation-plan', path: 'implementation-plan.md', version: 3 }];
@@ -227,7 +217,7 @@ test('gate: the versions it was raised at stay put when the plan moves on; the c
   assert.deepEqual(job.thread.find((t) => t.file === 'briefs/002-plan.md').versions.artifacts, { 'implementation-plan': '2' }, 'the brief item keeps them too');
 });
 
-test('parking: one gate-stale per job and brief; the row says parked and stays under Needs you', async () => {
+test('parking: one gate-stale per job and brief; the row says parked and stays under Needs you', { timeout: 60_000 }, async () => {
   const snap = await getJson('/api/snapshot');
   let seen = await eventsFor(1500, snap.epoch); // the check runs every 200 ms here
   const stale = (list) => list.filter((e) => e.type === 'gate-stale').map((e) => `${e.job}#${e.data.briefNumber}`).sort();

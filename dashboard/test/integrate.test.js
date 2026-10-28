@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import {
   Integrator, listPackets, mergeNext, parseOwns, ownedMatcher, outsideOwned, briefTitle, cleanOrder, runningJobFor, parseWorktrees, DEFAULT_ORDER,
 } from '../lib/integrate.js';
+import { startDashboard } from './helpers/dashboard.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 const PASS = [{ label: 'pretend tests', cmd: process.execPath, args: ['-e', 'console.log("all good")'], cwd: '.' }];
@@ -268,29 +269,26 @@ async function freePort() {
   return port;
 }
 
-test('the /api/integrate routes: the list, saving the order and slots (with the page token), the stream, merge next', async () => {
+test('the /api/integrate routes: the list, saving the order and slots (with the page token), the stream, merge next', { timeout: 60_000 }, async () => {
   const fx = await fixture('server');
   const home = path.join(fx.dir, 'home');
   const dirs = ['feature-work', 'projects', 'agents', 'skills', 'state'].map((d) => path.join(fx.dir, d));
   for (const d of [home, ...dirs]) await fs.mkdir(d, { recursive: true });
-  const port = await freePort();
-  const base = `http://127.0.0.1:${port}`;
+  // Its own ports (helpers/dashboard.js). The old finally waited for an 'exit' that had already
+  // happened when the dashboard died at start (its port taken under a parallel run), which hung the
+  // whole run; stop() returns whether or not it is still running.
   const output = [];
-  const child = spawn(process.execPath, [SERVER], {
-    env: {
-      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(await freePort()), HOME: home, WORKSHOP_DEMO: '1', WORKSHOP_PLAN_USAGE: 'off',
-      WORKSHOP_FEATURES_DIR: dirs[0], WORKSHOP_PROJECTS_DIR: dirs[1], WORKSHOP_AGENTS_DIR: dirs[2], WORKSHOP_SKILLS_DIR: dirs[3], WORKSHOP_STATE_DIR: dirs[4],
-      INTEGRATE_ROOT: fx.main,
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  let dashboard = null;
   try {
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-      child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
-      child.stderr.on('data', (d) => output.push(String(d)));
-      child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
+    dashboard = await startDashboard({
+      env: {
+        HOME: home, WORKSHOP_DEMO: '1', WORKSHOP_PLAN_USAGE: 'off',
+        WORKSHOP_FEATURES_DIR: dirs[0], WORKSHOP_PROJECTS_DIR: dirs[1], WORKSHOP_AGENTS_DIR: dirs[2], WORKSHOP_SKILLS_DIR: dirs[3], WORKSHOP_STATE_DIR: dirs[4],
+        INTEGRATE_ROOT: fx.main,
+      },
+      output,
     });
+    const { base } = dashboard;
     const token = (await (await fetch(`${base}/api/meta`)).json()).token;
     const post = async (p, body, auth = true) => {
       const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Workshop-Token': token } : {}) }, body: JSON.stringify(body) });
@@ -315,6 +313,7 @@ test('the /api/integrate routes: the list, saving the order and slots (with the 
     // npm ones, which fail in this bare fixture (no package.json): the merge still happens and
     // the failure is reported, no push, no model.
     const ac = new AbortController();
+    const giveUp = setTimeout(() => ac.abort(), 30_000); // a stream that never says done fails here, not the whole run
     const stream = await fetch(`${base}/api/integrate/stream`, { signal: ac.signal });
     assert.match(stream.headers.get('content-type'), /text\/event-stream/);
     const reader = stream.body.getReader();
@@ -329,6 +328,7 @@ test('the /api/integrate routes: the list, saving the order and slots (with the 
     const started = await post('/api/integrate/merge-next', {});
     assert.equal(started.status, 202);
     await done;
+    clearTimeout(giveUp);
     ac.abort();
     assert.match(seen, /"type":"hello"/);
     assert.match(seen, /Merge packet C: Job lock/);
@@ -337,8 +337,6 @@ test('the /api/integrate routes: the list, saving the order and slots (with the 
     assert.equal(view.last.id, 'C');
     assert.equal(g(fx.main, 'log', '-1', '--format=%s').trim(), 'Merge packet C: Job lock');
   } finally {
-    const gone = new Promise((r) => child.once('exit', r));
-    child.kill('SIGTERM'); // exactly the dashboard this test started
-    await gone;
+    await dashboard?.stop(); // exactly the dashboard this test started, and what it started
   }
 });

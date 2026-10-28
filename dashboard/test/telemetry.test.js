@@ -18,6 +18,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { dayKey, forecast, percentPerDollar, telemetry, whenWords, windowRange } from '../lib/telemetry.js';
+import { startDashboard as launchDashboard } from './helpers/dashboard.js';
 
 const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'telemetry', 'usage.jsonl');
 const lines = (await fs.readFile(FIXTURE, 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
@@ -200,48 +201,23 @@ async function startDashboard(prepare = async () => {}) {
   const dirs = Object.fromEntries(['feature-work', 'state', 'repo', 'projects', 'agents', 'skills', 'home'].map((d) => [d, path.join(root, d)]));
   for (const d of Object.values(dirs)) await fs.mkdir(d, { recursive: true });
   await prepare(dirs);
-  // A port with the next one free too (the screens server takes port + 1), away from the ones
-  // the system hands out one after another.
-  const free = (p) => new Promise((resolve) => {
-    const s = net.createServer();
-    s.once('error', () => resolve(false));
-    s.listen(p, '127.0.0.1', () => s.close(() => resolve(true)));
-  });
-  let port = 0;
-  for (let i = 0; i < 50 && !port; i++) {
-    const p = 20000 + Math.floor(Math.random() * 20000);
-    if ((await free(p)) && (await free(p + 1))) port = p;
-  }
-  assert.ok(port, 'a free port');
+  // Its own ports for the dashboard and the screens server (helpers/dashboard.js).
   const output = [];
-  const child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: dirs['feature-work'], WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state, GROUND_CONTROL_USER: 'vignesh', GROUND_CONTROL_DIR: '' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
-    child.stderr.on('data', (d) => output.push(String(d)));
-    child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
-  });
-  const base = `http://127.0.0.1:${port}`;
+  const dashboard = await launchDashboard({ env: { HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: dirs['feature-work'], WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state, GROUND_CONTROL_USER: 'vignesh', GROUND_CONTROL_DIR: '' }, output }).catch(async (err) => { await fs.rm(root, { recursive: true, force: true }); throw err; });
+  const { base } = dashboard;
   const token = (await (await fetch(`${base}/api/meta`)).json()).token;
   const write = async (method, p, body = {}) => {
     const res = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify(body) });
     return { status: res.status, body: await res.json() };
   };
   const stop = async () => {
-    if (child.exitCode === null) {
-      const gone = new Promise((r) => child.once('exit', r));
-      child.kill('SIGTERM'); // exactly the dashboard this test started
-      await gone;
-    }
+    await dashboard.stop(); // exactly the dashboard this test started, and what it started
     await fs.rm(root, { recursive: true, force: true });
   };
   return { base, dirs, write, stop, output };
 }
 
-test('GET /api/telemetry: the five datasets for the window, from usage.jsonl in the state folder', async () => {
+test('GET /api/telemetry: the five datasets for the window, from usage.jsonl in the state folder', { timeout: 60_000 }, async () => {
   // The fixture moved so that its "now" is this moment.
   const shift = Date.now() - Date.parse(NOW);
   const move = (t) => (t ? new Date(Date.parse(t) + shift).toISOString() : t);
@@ -276,7 +252,7 @@ test('GET /api/telemetry: the five datasets for the window, from usage.jsonl in 
   }
 });
 
-test('every turn of a sample job gives one usage line in the state folder (demo dashboard, no model)', async () => {
+test('every turn of a sample job gives one usage line in the state folder (demo dashboard, no model)', { timeout: 60_000 }, async () => {
   const slug = 'orbit-479-sample';
   const d = await startDashboard(async (dirs) => {
     const dir = path.join(dirs['feature-work'], slug);
