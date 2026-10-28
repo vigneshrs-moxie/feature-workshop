@@ -91,7 +91,8 @@ export function cardWords(item) {
   const label = item.pr?.label ?? 'the pull request';
   if (item.kind === 'check') {
     const headline = `A check failed on ${label}: ${clean(item.name)}.`;
-    const lines = tailOf(item.log ?? '', 2000).split('\n').map((l) => l.trim()).filter(Boolean).slice(-3);
+    // gh's failed-log lines are "job<TAB>step<TAB>time text": the card quotes the text only.
+    const lines = tailOf(item.log ?? '', 2000).split('\n').map((l) => l.split('\t').at(-1).replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z\s?/, '').trim()).filter(Boolean).slice(-3);
     const quote = lines.length ? `The end of its log: “${headOf(lines.join(' / '), 300)}”.` : 'Its log couldn’t be read.';
     return { headline, quote, question: `${headline} ${quote} Send it to the Foreman?` };
   }

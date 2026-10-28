@@ -158,6 +158,7 @@ test('the card’s words and the Foreman’s message: quoted, scrubbed, cut to 4
   assert.equal(words.headline, 'A check failed on PR #1: lint.');
   assert.match(words.question, /^A check failed on PR #1: lint\. The end of its log: “.*exit code 1\.”\. Send it to the Foreman\?$/);
   assert.ok(!words.question.includes('orbfb_'), words.question);
+  assert.ok(!words.question.includes('\t') && !words.question.includes('Run npm run lint'), 'the card quotes the log text, not gh’s job and step columns');
 
   const msg = feedbackMessage(check);
   assert.ok(msg.startsWith("A check failed on PR #1: lint. The end of its log is below. Fix it on this branch, run the tests, and commit. Don't push.\n\n```\n"), msg.slice(0, 200));
