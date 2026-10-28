@@ -36,9 +36,22 @@
 // when it ends (done, stopped, error or limited), so a terminal /feature session and the dashboard
 // never drive one job at once. A lock another running process holds refuses the start (JobLocked,
 // a 409 with code 'job-locked' that the page shows as the lock card). No job folder: nothing to lock.
+//
+// status.json check (plan D11, lib/status-json.js validate): while a reply runs, the driver watches
+// the job folder's status.json and checks every write the Foreman makes (and once more as the reply
+// ends). A write that fails is an audit line 'status_invalid' with the errors, and the same session
+// gets one message: "status.json is invalid: <errors>. Rewrite the whole file …". The message joins
+// the reply's live input like a steered one (not shown as yours); when the reply has already ended,
+// it resumes the session with it (kind 'status-fix'). Each invalid write in a row counts one try;
+// after STATUS_RETRIES messages, the next invalid write parks a Needs you card instead ("The Foreman
+// cannot write a valid status.json", with the errors): Ask it to try again (three more tries) or
+// Leave it (nothing more is sent until a valid write). A valid write resets the count and takes
+// the card away. A job started from a ticket (options.json names one) must write version 2 with
+// that key. A file nobody wrote during the reply is never checked.
 
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { describePermission } from './permissions.js';
@@ -46,6 +59,37 @@ import { draftRule } from './rules.js';
 import { describeTool } from './session-log.js';
 import { hardLine, hardLineHook, orgPushCheck } from './hard-lines.js';
 import * as jobLock from './lock.js';
+import { validate as validateStatus } from './status-json.js';
+import { readOptions } from './options.js';
+
+/** How many corrective messages one run of invalid status.json writes gets before the card. */
+export const STATUS_RETRIES = 3;
+/** The card's two answers (the question card also offers "Something else": your own words). */
+export const STATUS_TRY_AGAIN = 'Ask it to try again';
+export const STATUS_LEAVE = 'Leave it';
+export const STATUS_CARD_HEADLINE = 'The Foreman cannot write a valid status.json';
+// At most this many errors go into one message or card; the audit line has them all (up to validate's cut).
+const STATUS_ERRORS_SHOWN = 10;
+
+/** The message the Foreman gets for an invalid status.json. */
+export function statusFixMessage(errors) {
+  const list = (errors ?? []).slice(0, STATUS_ERRORS_SHOWN);
+  const more = (errors?.length ?? 0) - list.length;
+  return `status.json is invalid: ${list.join('; ')}${more > 0 ? `; and ${more} more` : ''}. Rewrite the whole file to match ~/.claude/skills/feature/status-json.md and write it again.`;
+}
+
+/** Calls onChange whenever the folder's status.json may have been written. Returns a function that stops watching. */
+export function watchStatusFile(dir, onChange) {
+  const w = fsSync.watch(dir, { persistent: false }, (_type, name) => { if (!name || String(name) === 'status.json') onChange(); });
+  w.on('error', () => {});
+  return () => w.close();
+}
+
+/** The ticket a job was started from (options.json `ticket.key`), else null. */
+async function ticketKeyOf(featureDir) {
+  const o = await readOptions(featureDir);
+  return typeof o?.ticket?.key === 'string' ? o.ticket.key : null;
+}
 
 /** The SDK permission mode for a permission setting. */
 export const sdkModeFor = (mode) => (mode === 'auto' ? 'auto' : 'default');
@@ -67,8 +111,16 @@ export class Driver extends EventEmitter {
    * queryFn: the SDK's query() (injectable for tests).
    * state: State instance. projectsDir: where Claude Code keeps session logs.
    */
-  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, settingsFor = null, locks = jobLock }) {
+  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, settingsFor = null, locks = jobLock, statusWatch = watchStatusFile, statusRetries = STATUS_RETRIES, ticketKeyFor = ticketKeyOf }) {
     super();
+    // The status.json check (see the top): statusWatch(dir, onChange) -> stop(), injectable for
+    // tests (null: no check); ticketKeyFor(featureDir) -> the job's ORBIT-<n> or null.
+    this.statusWatch = statusWatch;
+    this.statusRetries = statusRetries;
+    this.ticketKeyFor = ticketKeyFor;
+    // Per job folder: { seen, tries, errors, cardId, silenced, session }. The cards waiting: id -> card.
+    this.statusChecks = new Map();
+    this.statusCards = new Map();
     // locks: lib/lock.js (acquire, release, branchOf), injectable for tests.
     this.locks = locks;
     this.queryFn = queryFn;
@@ -99,7 +151,10 @@ export class Driver extends EventEmitter {
   }
 
   pendingPermissions() {
-    return [...this.runs.values()].flatMap((r) => [...r.pending.values()].map((p) => this.viewPermission(p)));
+    return [
+      ...[...this.runs.values()].flatMap((r) => [...r.pending.values()].map((p) => this.viewPermission(p))),
+      ...[...this.statusCards.values()].map((c) => this.viewPermission(c)),
+    ];
   }
 
   view(run) {
@@ -130,6 +185,8 @@ export class Driver extends EventEmitter {
 
   /** A waiting request with its full input (for checking a rule against it), or null. */
   pendingRequest(requestId) {
+    const card = this.statusCards.get(requestId);
+    if (card) return { ...this.viewPermission(card), input: card.input };
     for (const run of this.runs.values()) {
       const req = run.pending.get(requestId);
       if (req) return { ...this.viewPermission(req), input: req.originalInput };
@@ -226,6 +283,7 @@ export class Driver extends EventEmitter {
     if (this.cliPath) options.pathToClaudeCodeExecutable = this.cliPath;
 
     try {
+      await this.#watchStatus(run);
       if (this.settingsFor) {
         try { const settings = await this.settingsFor(run); if (settings) options.settings = settings; } catch { /* the session starts without them */ }
         // Stopped while the settings were read: there is no session to interrupt, so don't start one.
@@ -248,12 +306,175 @@ export class Driver extends EventEmitter {
       // Handed over but never answered: the reply is over, so it won't be now.
       for (const s of run.steers) if (s.state === 'delivered') this.#steerState(run, s, 'unanswered');
       this.#dropPending(run, { behavior: 'deny', message: 'The reply ended before this was decided.' }, 'run-ended');
+      // The last write of the reply is checked too (a message for it is sent once the reply has ended).
+      try { await this.#endStatusWatch(run); } catch { /* never stops the reply from ending */ }
       run.endedAt = new Date().toISOString();
       this.#releaseLock(run);
       const reply = (run.lastText ?? run.resultText ?? '').slice(0, 8000) || undefined;
       await this.state.audit({ action: 'run-ended', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, status: run.status, costUsd: run.costUsd, error: run.error, reply, stopReason: run.stopReason ?? undefined });
       this.emit('run', this.view(run));
+      // A corrective message the reply ended before reading: the same session, resumed with it.
+      // Not after Stop, an error or a usage limit: the errors stay in the audit log.
+      const followUp = run.statusFollowUp;
+      run.statusFollowUp = null;
+      if (followUp && run.status === 'done') this.#sendStatusFix(run.featureDir, followUp).catch(() => {});
     }
+  }
+
+  // ---------- The status.json check (see the top of the file) ----------
+
+  #statusRecord(featureDir) {
+    let rec = this.statusChecks.get(featureDir);
+    if (!rec) { rec = { seen: undefined, tries: 0, errors: [], cardId: null, silenced: false, session: null }; this.statusChecks.set(featureDir, rec); }
+    return rec;
+  }
+
+  // The file as it is now, named by its modification time and content: one write fires the watcher
+  // several times but is checked once, and the same text written again counts as a new write.
+  async #statusNow(featureDir) {
+    const file = path.join(featureDir, 'status.json');
+    try {
+      const stat = await fs.stat(file);
+      const text = await fs.readFile(file, 'utf8');
+      return { text, seen: `${stat.mtimeMs}:${text}` };
+    } catch { return null; }
+  }
+
+  async #watchStatus(run) {
+    if (!run.featureDir || !this.statusWatch) return;
+    const rec = this.#statusRecord(run.featureDir);
+    rec.session = { slug: run.slug, title: run.title, cwd: run.cwd, model: run.model, additionalDirectories: run.additionalDirectories, sessionId: run.sessionId };
+    // What is there before the reply starts was not written by it: never checked.
+    rec.seen = (await this.#statusNow(run.featureDir))?.seen ?? null;
+    const fire = () => {
+      clearTimeout(run.statusTimer);
+      run.statusTimer = setTimeout(() => { run.statusTimer = null; this.#queueStatusCheck(run); }, this.statusDebounceMs ?? 200);
+    };
+    try { run.unwatchStatus = this.statusWatch(run.featureDir, fire); } catch { run.unwatchStatus = null; }
+  }
+
+  // Checks run one at a time per reply, in the order the writes came.
+  #queueStatusCheck(run) {
+    run.statusCheck = (run.statusCheck ?? Promise.resolve()).then(() => this.#checkStatus(run)).catch(() => {});
+    return run.statusCheck;
+  }
+
+  async #endStatusWatch(run) {
+    if (!this.statusWatch || !run.featureDir) return;
+    try { run.unwatchStatus?.(); } catch { /* already closed */ }
+    run.unwatchStatus = null;
+    clearTimeout(run.statusTimer);
+    run.statusTimer = null;
+    await this.#queueStatusCheck(run);
+  }
+
+  async #checkStatus(run) {
+    const now = await this.#statusNow(run.featureDir);
+    const rec = this.#statusRecord(run.featureDir);
+    if (!now || now.seen === rec.seen) return;
+    rec.seen = now.seen;
+    if (run.sessionId) rec.session = { ...rec.session, sessionId: run.sessionId, model: run.model ?? rec.session?.model ?? null };
+    let ticketKey = null;
+    try { ticketKey = await this.ticketKeyFor(run.featureDir); } catch { ticketKey = null; }
+    const v = validateStatus(now.text, { ticketKey });
+    const where = { featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id };
+    if (v.ok) {
+      const card = rec.cardId ? this.statusCards.get(rec.cardId) : null;
+      if (rec.tries || card || rec.silenced) await this.state.audit({ action: 'status_valid', ...where, after: rec.tries });
+      rec.tries = 0;
+      rec.errors = [];
+      rec.silenced = false;
+      if (card) this.#dropStatusCard(card, 'resolved');
+      return;
+    }
+    rec.errors = v.errors;
+    // You said to leave it, or the card is already waiting: recorded, nothing sent.
+    if (rec.silenced || (rec.cardId && this.statusCards.has(rec.cardId))) {
+      await this.state.audit({ action: 'status_invalid', ...where, errors: v.errors, attempt: rec.tries, sent: false, reason: rec.silenced ? 'left' : 'card-waiting' });
+      return;
+    }
+    rec.tries += 1;
+    if (rec.tries <= this.statusRetries) {
+      await this.state.audit({ action: 'status_invalid', ...where, errors: v.errors, attempt: rec.tries, of: this.statusRetries, sent: true });
+      this.#queueStatusFix(run, statusFixMessage(v.errors));
+    } else {
+      await this.state.audit({ action: 'status_invalid', ...where, errors: v.errors, attempt: rec.tries, of: this.statusRetries, sent: false, card: true });
+      this.#parkStatusCard(run, rec, v.errors);
+    }
+  }
+
+  // Into this reply's live input when it is still reading; else sent once it has ended.
+  #queueStatusFix(run, text) {
+    if (ACTIVE.has(run.status) && !run.inputClosed && !run.stopRequested) {
+      run.inbox.push({ id: randomUUID(), text, auto: true });
+      run.wake?.();
+    } else {
+      run.statusFollowUp = text;
+    }
+  }
+
+  // A corrective message for a job with no reply reading its input: the reply in progress, if one
+  // is still reading; else its session, resumed (the last reply's session, model and folders).
+  async #sendStatusFix(featureDir, text) {
+    const active = this.activeRunFor({ featureDir });
+    if (active && !active.inputClosed && !active.stopRequested) { this.#queueStatusFix(active, text); return; }
+    if (active) { active.statusFollowUp = text; return; }
+    const s = this.#statusRecord(featureDir).session;
+    if (!s?.sessionId) return;
+    try {
+      await this.start({ featureDir, slug: s.slug, title: s.title, cwd: s.cwd, sessionId: s.sessionId, model: s.model, text, kind: 'status-fix', additionalDirectories: s.additionalDirectories ?? [] });
+    } catch (err) {
+      await this.state.audit({ action: 'status_fix_not_sent', featureDir, slug: s.slug, sessionId: s.sessionId, reason: String(err?.message ?? err).slice(0, 300) });
+    }
+  }
+
+  // The Needs you card: a question card (the page shows it like the Foreman's own questions), kept
+  // outside the reply, so it stays after the reply ends.
+  #parkStatusCard(run, rec, errors) {
+    const list = errors.slice(0, STATUS_ERRORS_SHOWN);
+    const more = errors.length - list.length;
+    const question = `${STATUS_CARD_HEADLINE}. It was told what is wrong ${this.statusRetries} times and it is still wrong: ${list.join('; ')}${more > 0 ? `; and ${more} more` : ''}. Meanwhile the job page shows what it can read. What now?`;
+    const input = { questions: [{
+      question, header: 'status.json', multiSelect: false,
+      options: [
+        { label: STATUS_TRY_AGAIN, description: `Sends the errors to the Foreman once more, with ${this.statusRetries} more tries.` },
+        { label: STATUS_LEAVE, description: 'Nothing more is sent about it. A valid status.json later clears this.' },
+      ],
+    }] };
+    const card = {
+      id: randomUUID(), runId: run.id, slug: run.slug, featureDir: run.featureDir, title: run.title,
+      toolName: 'AskUserQuestion', kind: 'question', input, statusCard: true, errors: [...errors],
+      prompt: null, displayName: null, description: null, decisionReason: null, blockedPath: null,
+      agentID: null, agentType: null, defaultToNo: false, hardLine: null, fromAutoMode: false,
+      canAllowForRun: false, suggestions: [], draft: null,
+      plain: { headline: STATUS_CARD_HEADLINE, detail: null, preview: errors.join('\n'), risk: 'low' },
+      createdAt: new Date().toISOString(),
+    };
+    rec.cardId = card.id;
+    this.statusCards.set(card.id, card);
+    this.emit('permission', this.viewPermission(card));
+    this.emit('run', this.view(run));
+  }
+
+  #dropStatusCard(card, reason) {
+    this.statusCards.delete(card.id);
+    const rec = this.statusChecks.get(card.featureDir);
+    if (rec?.cardId === card.id) rec.cardId = null;
+    this.emit('permission-gone', { id: card.id, slug: card.slug, reason });
+  }
+
+  // Your answer on the card. Try again (or your own words): the count starts over and the errors
+  // go to the Foreman. Leave it, or Don't answer: nothing more is sent until a valid write.
+  async #answerStatusCard(card, { decision, note, answers }) {
+    this.#dropStatusCard(card, 'answered');
+    const rec = this.#statusRecord(card.featureDir);
+    const answer = decision === 'deny' ? null : String(Object.values(answers ?? {})[0] ?? '').trim() || null;
+    await this.state.audit({ action: 'status_invalid_answer', featureDir: card.featureDir, slug: card.slug, decision, answer: answer ?? undefined, note: note || undefined });
+    if (!answer || answer === STATUS_LEAVE) { rec.silenced = true; return; }
+    rec.tries = 0;
+    rec.silenced = false;
+    const fix = statusFixMessage(rec.errors.length ? rec.errors : card.errors);
+    await this.#sendStatusFix(card.featureDir, answer === STATUS_TRY_AGAIN ? fix : `${answer}\n\n${fix}`);
   }
 
   // Give the job's lock back (only ever our own: lib/lock.js checks the pid).
@@ -541,6 +762,8 @@ export class Driver extends EventEmitter {
    * rule: the id of the "Always allow" rule this allow came with (recorded in the audit log).
    */
   async decide(requestId, { decision, note = '', answers = null, rule = null }) {
+    const card = this.statusCards.get(requestId);
+    if (card) { await this.#answerStatusCard(card, { decision, note, answers }); return true; }
     for (const run of this.runs.values()) {
       const req = run.pending.get(requestId);
       if (!req) continue;
@@ -600,15 +823,21 @@ export class Driver extends EventEmitter {
 
   // Handed to Claude Code: the reply now goes on until the Foreman has answered it too, even if
   // its result for the earlier message already came in.
+  // A status.json correction (auto) is not a steered message: no steer states, not shown as yours.
   #delivered(run, s) {
     run.hasResult = false;
     run.awaitingIdle = false;
     clearTimeout(run.idleTimer);
+    if (s.auto) return;
     this.#steerState(run, s, 'delivered');
   }
 
+  // A status.json correction never read goes out after the reply instead (unless it was stopped).
   #cancelQueued(run, list) {
-    for (const s of list) if (s.state === 'queued' || s.state === 'delivered') this.#steerState(run, s, 'cancelled');
+    for (const s of list) {
+      if (s.auto) run.statusFollowUp = s.text;
+      else if (s.state === 'queued' || s.state === 'delivered') this.#steerState(run, s, 'cancelled');
+    }
   }
 
   /** reason: null (you clicked Stop) or 'usage-limit' (paused until the limit resets). */
