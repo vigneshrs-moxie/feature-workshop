@@ -7,6 +7,8 @@
 //                 as ${ORBIT_FEEDBACK_TOKEN} (never the token itself)
 //   ticket keys   parseTicketKey / canonicalKey: ORBIT-479, orbit-479, orbit479, #479, 479
 //   the client    orbitClient: the four v1 GETs, paging, 401 and 429
+//   scrub         scrub / scrubDeep: hides tokens and keys (orbfb_, ghp_, sk-ant-, .env secrets)
+//                 in every record that leaves: the /api/orbit answers and each audit line
 //   the inbox     OrbitInbox: polls what's assigned to you and what you watch, every 3 minutes
 //                 while a browser has the Inbox open, every 15 otherwise; keeps the last list
 //
@@ -144,12 +146,48 @@ export function canonicalKey(raw) {
   return n === null ? null : ticketKey(n);
 }
 
-// ---------- Secrets seen this run ----------
+// ---------- Scrub: no token or key in any record ----------
 
 // Tokens saved while the dashboard runs: scrub() hides them by value as well as by shape.
 const knownSecrets = new Set();
 export function rememberSecret(value) { if (typeof value === 'string' && value.length >= 12) knownSecrets.add(value); }
 export const rememberedSecrets = () => [...knownSecrets];
+
+export const HIDDEN = '[hidden]';
+/** Secrets by their shape (plan §5 T7): Orbit, GitHub and Anthropic tokens. Each is replaced whole. */
+export const SECRET_PATTERNS = [
+  { name: 'Orbit token', re: /orbfb_[A-Za-z0-9_-]{16,}/g }, // a real one is orbfb_ + 43; shorter pieces are hidden too
+  { name: 'GitHub token', re: /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g },
+  { name: 'Anthropic key', re: /sk-ant-[A-Za-z0-9_-]{10,}/g },
+];
+// NAME=value where NAME reads like a .env secret (…_TOKEN, …SECRET…, …PASSWORD, …_KEY, DATABASE_URL…):
+// the value is hidden, the name kept. The value may be quoted, also inside a JSON string (\").
+const ENV_SECRET = /((?:^|[^A-Za-z0-9_])[A-Za-z0-9_]*?(?:TOKEN|SECRET|PASSWORD|PASSWD|PWD|API_?KEY|PRIVATE_KEY|ACCESS_KEY|_KEY|DATABASE_URL|DSN|CONNECTION_STRING|CREDENTIALS?)[A-Za-z0-9_]*\s*=\s*)(\\?"[^"\\\n]*\\?"|'[^'\n]*'|[^\s"'\\,;}[]+)/gi; // a value already hidden ([…]) is left as it is
+
+/**
+ * The text with every secret replaced by [Orbit token hidden] and the like: the token shapes in
+ * SECRET_PATTERNS, the values of .env-style secrets (API_KEY=…), every token saved while the
+ * dashboard runs, and any `secrets` passed in (say, the values of a job's .env.local). Safe on a
+ * JSON line: what it puts in has no quotes or backslashes.
+ */
+export function scrub(text, { secrets = [] } = {}) {
+  if (typeof text !== 'string' || !text) return text;
+  let out = text;
+  for (const { name, re } of SECRET_PATTERNS) out = out.replace(re, `[${name} hidden]`);
+  for (const value of [...knownSecrets, ...secrets]) {
+    if (typeof value === 'string' && value.length >= 8 && out.includes(value)) out = out.split(value).join(HIDDEN);
+  }
+  out = out.replace(ENV_SECRET, (_m, name) => `${name}${HIDDEN}`);
+  return out;
+}
+
+/** scrub() on every string in a value (objects and arrays copied, keys kept). */
+export function scrubDeep(value, opts) {
+  if (typeof value === 'string') return scrub(value, opts);
+  if (Array.isArray(value)) return value.map((v) => scrubDeep(v, opts));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, scrubDeep(v, opts)]));
+  return value;
+}
 
 // ---------- The client: four GETs, nothing else ----------
 

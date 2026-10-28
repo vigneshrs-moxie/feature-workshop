@@ -13,8 +13,9 @@ import { fileURLToPath } from 'node:url';
 import {
   checkToken, normalizeOrbitUrl, mcpEntry, writeMcpEntry, removeMcpEntry, setToken, clearToken, sessionEnv,
   parseTicketKey, canonicalKey, OrbitError, orbitClient, retryAfterMs, fromDay,
-  OrbitInbox, inboxItem, sortItems, OPEN_EVERY_MS, IDLE_EVERY_MS, FULL_EVERY_MS,
+  OrbitInbox, inboxItem, sortItems, OPEN_EVERY_MS, IDLE_EVERY_MS, FULL_EVERY_MS, scrub, scrubDeep, rememberSecret,
 } from '../lib/orbit.js';
+import { State } from '../lib/state.js';
 import { fileStore, keychainStore, layeredStore, tokenStore } from '../lib/orbit-token.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -462,4 +463,46 @@ test('an inbox row: key, title, priority, severity, age, assignee; a participant
     { key: 'e', severity: 'critical', priority: 'high', changedAt: '2' },
   ]).map((i) => i.key);
   assert.deepEqual(order, ['e', 'd', 'c', 'b', 'a']);
+});
+
+// ---------- Step 4: scrub ----------
+
+test('scrub hides Orbit, GitHub and Anthropic tokens and .env secrets, and keeps the rest', () => {
+  const gh = `ghp_${'a1'.repeat(18)}`;
+  const pat = `github_pat_${'B2'.repeat(15)}`;
+  const ant = `sk-ant-api03-${'x'.repeat(40)}`;
+  const out = scrub(`token ${TOKEN}, ${gh} ${pat} and ${ant}.`);
+  assert.equal(out, 'token [Orbit token hidden], [GitHub token hidden] [GitHub token hidden] and [Anthropic key hidden].');
+  assert.equal(scrub('DATABASE_URL=postgres://u:p@h/db STRIPE_SECRET_KEY="sk_live_1" PORT=3000 MY_TOKEN=\'abc\''), 'DATABASE_URL=[hidden] STRIPE_SECRET_KEY=[hidden] PORT=3000 MY_TOKEN=[hidden]');
+  assert.equal(scrub(`ORBIT_FEEDBACK_TOKEN=${TOKEN}`), 'ORBIT_FEEDBACK_TOKEN=[Orbit token hidden]');
+  assert.equal(scrub('It should start with orbfb_. A monkey=banana.'), 'It should start with orbfb_. A monkey=banana.', 'words are left alone');
+  assert.equal(scrub('the value is s3cr3t-value-here', { secrets: ['s3cr3t-value-here'] }), 'the value is [hidden]');
+  assert.equal(scrub(''), '');
+  assert.equal(scrub(null), null);
+});
+
+test('scrub keeps a JSON line valid, and a token saved this run is hidden even out of shape', () => {
+  const line = JSON.stringify({ text: `paste API_KEY="abc def" then ${TOKEN}`, n: 1, nested: { list: [`Bearer ${TOKEN}`] } });
+  const clean = scrub(line);
+  assert.ok(!clean.includes('orbfb_'));
+  assert.ok(!clean.includes('abc def'));
+  assert.deepEqual(JSON.parse(clean).nested.list, ['Bearer [Orbit token hidden]']);
+  rememberSecret('weird-but-saved-secret-1234');
+  assert.equal(scrub('x weird-but-saved-secret-1234 y'), 'x [hidden] y');
+  const deep = scrubDeep({ a: [TOKEN, 3, null], b: { c: `ghp_${'z'.repeat(36)}` }, d: true });
+  assert.deepEqual(deep, { a: ['[Orbit token hidden]', 3, null], b: { c: '[GitHub token hidden]' }, d: true });
+});
+
+test('every audit line passes through scrub: a token in an entry never reaches audit.jsonl', async () => {
+  const dir = await tmp();
+  const state = new State(dir);
+  const seen = [];
+  state.on('audit', (e) => seen.push(e));
+  await state.audit({ action: 'send', text: `here is my token ${TOKEN} and GITHUB_TOKEN=ghp_${'q'.repeat(36)}` });
+  const text = await fs.readFile(path.join(dir, 'audit.jsonl'), 'utf8');
+  assert.ok(!text.includes('orbfb_'));
+  assert.ok(!text.includes('ghp_'));
+  assert.equal(JSON.parse(text.trim()).action, 'send');
+  assert.ok(!JSON.stringify(seen).includes('orbfb_'), 'the live copy is the scrubbed one too');
+  assert.equal((await state.auditAll()).length, 1);
 });
