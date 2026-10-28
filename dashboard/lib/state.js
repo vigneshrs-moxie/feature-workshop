@@ -12,6 +12,7 @@ import { playSettings } from './play.js';
 import { notifySettings } from './notify.js';
 import { DEFAULT_FINISH_LINE, finishLineOf } from './finish.js';
 import { WORKFLOW_CHOICES } from './options.js';
+import { scrub } from './orbit.js';
 
 /** Screens (wireframes) and Clarify questions for new jobs: Auto (the workflow decides), Always, or Off (lib/options.js). */
 export { WORKFLOW_CHOICES };
@@ -144,9 +145,10 @@ export class State extends EventEmitter {
 
   async audit(entry) {
     await this.#ensure();
-    const record = { at: new Date().toISOString(), ...entry };
-    await fs.appendFile(this.auditFile, JSON.stringify(record) + '\n', { mode: 0o600 });
-    try { this.emit('audit', record); } catch { /* a listener's problem must not fail the write */ }
+    // Every line through the scrubber (lib/orbit.js): no token or key ever reaches the audit.
+    const line = scrub(JSON.stringify({ at: new Date().toISOString(), ...entry }));
+    await fs.appendFile(this.auditFile, line + '\n', { mode: 0o600 });
+    try { this.emit('audit', JSON.parse(line)); } catch { /* a listener's problem must not fail the write */ }
   }
 
   // The last reply sent from the dashboard that ended, per job: { [featureDir]: { at, status, sessionId } }.

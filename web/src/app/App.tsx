@@ -27,6 +27,7 @@ import { AchievementsView } from '../views/Achievements/AchievementsView';
 import { NotFoundView } from '../views/NotFound/NotFoundView';
 import { ScreensView } from '../views/Screens/ScreensView';
 import { IntegrateBoard } from '../views/Integrate';
+import { InboxView } from '../views/Inbox';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
 import { PlayToasts } from '../play/PlayToasts';
@@ -61,7 +62,7 @@ function Words({ long, short }: { long: string; short: string }) {
 }
 
 /** The top bar. One count only: the Desk button's badge (what waits for you); the connection state is a word with its dot. */
-function TopBar({ onRetry, onCrew = false, slug = null }: { onRetry: () => void; onCrew?: boolean; slug?: string | null }) {
+function TopBar({ onRetry, onCrew = false, onInbox = false, slug = null }: { onRetry: () => void; onCrew?: boolean; onInbox?: boolean; slug?: string | null }) {
   const state = useWorkshopState();
   const ui = useUi();
   const play = usePlay();
@@ -95,6 +96,9 @@ function TopBar({ onRetry, onCrew = false, slug = null }: { onRetry: () => void;
       {state.status === 'ready' && <StatusSummary />}
       {/* The plan's 5-hour and weekly usage; without it (demo, or turned off), Play Full's stamina bar. */}
       {state.status === 'ready' && (state.planUsage?.enabled ? <UsageMeters /> : <StaminaBar />)}
+      {state.status === 'ready' && (
+        <a className="btn btn-quiet" href={hrefFor({ name: 'inbox' })} aria-current={onInbox ? 'page' : undefined} title="The Inbox: your Portal Feedback tickets from Orbit, with Start for a new job on one.">Inbox</a>
+      )}
       {state.status === 'ready' && (
         <a className="btn btn-quiet desk-link" href={hrefFor({ name: 'desk' })} title={desk === 0 ? 'The Desk: nothing is waiting for you right now.' : `The Desk: ${desk === 1 ? 'one decision is' : `${desk} decisions are`} waiting for you, one at a time (key: g d).`}>
           Desk {desk > 0 && <span className="home-view-count" title={`${desk} waiting for you`}>{desk}</span>}
@@ -271,12 +275,12 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   }
   return (
     <div className="app">
-      <TopBar onRetry={onRetry} onCrew={crew} slug={slug} />
+      <TopBar onRetry={onRetry} onCrew={crew} onInbox={route.name === 'inbox'} slug={slug} />
       <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
       <Sheets route={route} />
       <div ref={panes} className={rail ? 'panes panes-rail' : 'panes'} style={previewWidth ? ({ '--preview-w': `${previewWidth}px` } as CSSProperties) : undefined}>
         <JobsPane selected={slug} />
-        {route.name === 'settings' ? <SettingsView section={route.section} /> : crew ? <CrewDexView /> : achievements ? <AchievementsView /> : lost !== null ? <NotFoundView hash={lost} /> : <ForemanPane slug={slug} />}
+        {route.name === 'settings' ? <SettingsView section={route.section} /> : route.name === 'inbox' ? <InboxView /> : crew ? <CrewDexView /> : achievements ? <AchievementsView /> : lost !== null ? <NotFoundView hash={lost} /> : <ForemanPane slug={slug} />}
         <PreviewPane slug={slug} />
         <PaneResizer panes={panes} />
       </div>

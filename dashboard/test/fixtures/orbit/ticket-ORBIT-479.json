@@ -1,0 +1,118 @@
+{
+  "audience": "tech",
+  "ticket": {
+    "ticket": {
+      "id": "00000000-0000-4000-8000-000000000479",
+      "number": 479,
+      "type": "bug",
+      "priority": "high",
+      "subject": "Read-only feedback API and MCP for Ground Control",
+      "description": "Ground Control should read tickets with a personal token and never write.",
+      "status": "open",
+      "resolution": null,
+      "internalNotes": null,
+      "attachments": [],
+      "page": null,
+      "viewport": null,
+      "userAgent": null,
+      "createdAt": "2026-10-01T09:00:00.000Z",
+      "activityAt": "2026-10-20T10:00:00.000Z",
+      "resolvedAt": null,
+      "submitter": {
+        "fullName": "Pat Reporter",
+        "email": "pat@example.com"
+      },
+      "resolver": null,
+      "assignedToId": "0f9b3c3e-6a51-4c55-9f3e-3d6c0b1b0001",
+      "assignedAt": "2026-10-01T09:00:00.000Z",
+      "tags": [],
+      "targetRelease": null,
+      "attention": {
+        "reviewPending": false,
+        "blockedBy": []
+      },
+      "module": "tracker",
+      "severity": "critical",
+      "deliveryTeam": null,
+      "workOrder": null,
+      "queuePosition": null,
+      "revision": 3,
+      "history": [],
+      "reportedSeverity": "high",
+      "workOrderSetAt": null,
+      "workOrderSetBy": null,
+      "environment": "staging",
+      "deployedCommit": null,
+      "affectedPage": "/admin/feedback",
+      "stepsToReproduce": null,
+      "expectedBehavior": null,
+      "actualBehavior": null
+    },
+    "references": [],
+    "reviews": [],
+    "relationships": [],
+    "hierarchy": {
+      "parent": null,
+      "subtasks": []
+    },
+    "releaseLinks": [],
+    "releases": [],
+    "timeline": [
+      {
+        "type": "status",
+        "at": "2026-10-20T10:00:00.000Z",
+        "from": "open",
+        "to": "planning",
+        "by": {
+          "fullName": "Vignesh",
+          "email": "v@example.com"
+        }
+      },
+      {
+        "type": "comment",
+        "at": "2026-10-21T11:00:00.000Z",
+        "comment": {
+          "id": "c1",
+          "body": "Scopes are tickets:read and views:read only. (Someone pasted orbfb_QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ here by mistake.)",
+          "visibility": "internal",
+          "author": {
+            "id": "0f9b3c3e-6a51-4c55-9f3e-3d6c0b1b0001",
+            "fullName": "Vignesh",
+            "email": "v@example.com"
+          },
+          "createdAt": "2026-10-21T11:00:00.000Z",
+          "editedAt": null,
+          "deletedAt": null,
+          "version": 1,
+          "attachments": [],
+          "mine": true
+        }
+      }
+    ],
+    "assignees": [
+      {
+        "id": "0f9b3c3e-6a51-4c55-9f3e-3d6c0b1b0001",
+        "label": "Vignesh (me)",
+        "assignable": true,
+        "isViewer": true
+      },
+      {
+        "id": "0f9b3c3e-6a51-4c55-9f3e-3d6c0b1b0002",
+        "label": "Sam",
+        "assignable": true
+      }
+    ],
+    "watch": {
+      "watching": true
+    },
+    "tagCatalog": [],
+    "capabilities": {},
+    "viewer": {
+      "id": "0f9b3c3e-6a51-4c55-9f3e-3d6c0b1b0001",
+      "email": "v@example.com",
+      "canModerate": false,
+      "canManageWatchers": false,
+      "canManageTags": false
+    }
+  }
+}

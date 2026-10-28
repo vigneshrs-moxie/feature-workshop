@@ -53,6 +53,8 @@ import { goAheadCovers } from './lib/hard-lines.js';
 import { FlowWatch, gatherRepo } from './lib/flow.js';
 import { noticeBody, Notifier, validateNotifyPatch } from './lib/notify.js';
 import { Integrator, IntegrateError } from './lib/integrate.js';
+import { MCP_NAME, OrbitError, OrbitInbox, clearToken, inboxItem, jobsByTicket, normalizeOrbitUrl, orbitClient, scrubDeep, setToken } from './lib/orbit.js';
+import { tokenStore } from './lib/orbit-token.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -2049,6 +2051,136 @@ async function routeIntegrate(req, res, urlPath) {
   }
 }
 // ---------- end of the integration board ----------
+// ---------- Orbit: the Inbox (lib/orbit.js, lib/orbit-token.js) ----------
+// Portal Feedback tickets read with your own read-only token (ORBIT-479): every call to Orbit is a
+// GET. The token lives in the OS credential store (in demo mode, or with WORKSHOP_ORBIT_STORE=file,
+// in a 600 file in the state folder) and never in an answer, a record or the audit. Routes:
+//   GET    /api/orbit/status                   token saved?, where, expiry, last poll, last error
+//   GET    /api/orbit/inbox[?view=<id>][&refresh=1]  the inbox (or a saved view's tickets)
+//   GET    /api/orbit/tickets/:ref             one ticket with its timeline
+//   GET    /api/orbit/tickets/:ref/references  its branches, PRs and links
+//   GET    /api/orbit/views                    your saved views (the Inbox's tabs)
+//   GET    /api/orbit/events                   a stream for an open Inbox: polls every 3 minutes
+//                                              while one is connected, every 15 otherwise
+//   POST   /api/orbit/token  { token, url, expiresInDays }   save (and wire up the Foreman's MCP entry)
+//   DELETE /api/orbit/token                    forget it
+const CLAUDE_SETTINGS_FILE = path.resolve(process.env.WORKSHOP_CLAUDE_SETTINGS || path.join(CLAUDE_DIR, 'settings.json'));
+const orbitStore = await tokenStore({ stateDir: state.dir, prefer: DEMO || process.env.WORKSHOP_ORBIT_STORE === 'file' ? 'file' : 'auto' });
+let orbitUrl = null;
+const orbit = orbitClient({ baseUrl: () => orbitUrl, getToken: () => orbitStore.get() });
+const orbitInbox = new OrbitInbox({ client: orbit, orbitUrl: () => orbitUrl });
+const orbitStreams = new Set();
+const ORBIT_STATUS = { token: 400, settings: 400, 'not-found': 404, auth: 401, scope: 403, rate: 429 };
+const orbitHttpError = (err) => (err instanceof OrbitError ? new HttpError(ORBIT_STATUS[err.kind] ?? 502, err.message, { kind: err.kind, retryAfterMs: err.retryAfterMs ?? undefined }) : err);
+
+async function orbitSettings() {
+  const o = (await state.getSettings()).orbit;
+  return o && typeof o === 'object' ? o : {};
+}
+
+async function orbitStatus() {
+  const o = await orbitSettings();
+  const token = Boolean(await orbitStore.get().catch(() => null));
+  const v = orbitInbox.view();
+  const expired = Boolean(o.expiresAt && Date.parse(o.expiresAt) <= Date.now());
+  return {
+    tokenPresent: token, store: token ? orbitStore.kind : null, url: orbitUrl, savedAt: o.savedAt ?? null, expiresAt: o.expiresAt ?? null, expired,
+    lastPoll: v.checkedAt, lastTryAt: v.lastTryAt, lastError: v.error, errorKind: v.errorKind, everyMs: v.everyMs, watchers: v.watchers, waitingMs: v.waitingMs,
+    mcp: { name: MCP_NAME, file: CLAUDE_SETTINGS_FILE },
+  };
+}
+
+/** Inbox rows with "you are already on this": the open job on the same ticket, if any. */
+async function withJobs(items) {
+  const onTicket = await jobsByTicket(await features());
+  return items.map((i) => ({ ...i, job: onTicket.get(i.key) ?? null }));
+}
+
+function sendOrbitEvent(type, data) {
+  const chunk = `event: ${type}\ndata: ${JSON.stringify(scrubDeep(data))}\n\n`;
+  for (const res of orbitStreams) res.write(chunk);
+}
+orbitInbox.on('change', () => {
+  if (!orbitStreams.size) return;
+  (async () => sendOrbitEvent('inbox', { ...(await orbitStatus()), items: await withJobs(orbitInbox.view().items) }))().catch(() => {});
+});
+
+function openOrbitStream(req, res) {
+  res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'text/event-stream', Connection: 'keep-alive' });
+  res.write('retry: 5000\n\n');
+  orbitStreams.add(res);
+  const unwatch = orbitInbox.watch(); // a browser has the Inbox open: every 3 minutes
+  const ping = setInterval(() => res.write(': ping\n\n'), 25000);
+  req.on('close', () => { clearInterval(ping); orbitStreams.delete(res); unwatch(); });
+}
+
+/** Reads the saved address and starts the poller when there is a token. At start and after a save. */
+async function startOrbit() {
+  const o = await orbitSettings();
+  orbitUrl = o.url ? (() => { try { return normalizeOrbitUrl(o.url); } catch { return null; } })() : null;
+  if (!orbitUrl && process.env.GROUND_CONTROL_ORBIT_URL) { try { orbitUrl = normalizeOrbitUrl(process.env.GROUND_CONTROL_ORBIT_URL); } catch { /* ignored: Settings says what is missing */ } }
+  if (orbitUrl && await orbitStore.get().catch(() => null)) orbitInbox.start(); else orbitInbox.stop();
+}
+
+async function routeOrbit(req, res, urlPath, url) {
+  let m;
+  if (req.method === 'GET') {
+    if (urlPath === '/api/orbit/events') return openOrbitStream(req, res);
+    if (urlPath === '/api/orbit/status') return sendJson(res, 200, scrubDeep(await orbitStatus()));
+    if (urlPath === '/api/orbit/inbox') {
+      const status = await orbitStatus();
+      if (!status.tokenPresent || !orbitUrl) return sendJson(res, 200, scrubDeep({ ...status, items: [] }));
+      const viewId = str(url.searchParams.get('view'), 100);
+      if (viewId) {
+        try {
+          const list = await orbitInbox.viewList(viewId);
+          return sendJson(res, 200, scrubDeep({ ...status, view: viewId, items: await withJobs(list.items), checkedAt: list.checkedAt, truncated: list.truncated }));
+        } catch (err) { throw orbitHttpError(err); }
+      }
+      // The first open (nothing read yet) or Refresh: read now; else the last list as it is.
+      if (url.searchParams.get('refresh') === '1' || !orbitInbox.view().checkedAt) await orbitInbox.refresh({ full: url.searchParams.get('refresh') === '1' });
+      return sendJson(res, 200, scrubDeep({ ...(await orbitStatus()), items: await withJobs(orbitInbox.view().items) }));
+    }
+    if (urlPath === '/api/orbit/views') {
+      try { return sendJson(res, 200, scrubDeep({ views: (await orbitInbox.views()).map(({ id, name, isDefault }) => ({ id, name, isDefault })) })); } catch (err) { throw orbitHttpError(err); }
+    }
+    if ((m = /^\/api\/orbit\/tickets\/([^/]{1,64})(\/references)?$/.exec(urlPath))) {
+      try {
+        if (m[2]) return sendJson(res, 200, scrubDeep(await orbit.listReferences(m[1])));
+        const body = await orbit.getTicket(m[1]);
+        const t = body?.ticket?.ticket ?? body?.ticket ?? {};
+        const item = Number.isInteger(t.number) ? (await withJobs([inboxItem(t, { audience: body.audience, orbitUrl })]))[0] : null;
+        return sendJson(res, 200, scrubDeep({ ...body, item }));
+      } catch (err) { throw orbitHttpError(err); }
+    }
+    throw new HttpError(404, 'Not found.');
+  }
+  if (req.method !== 'POST' && req.method !== 'DELETE') return send(res, 405, 'Method not allowed');
+  checkWrite(req.headers, { port: PORT, token: TOKEN });
+  const body = await readBody(req);
+  if (urlPath !== '/api/orbit/token') throw new HttpError(404, 'Not found.');
+  if (req.method === 'POST') {
+    const was = await orbitSettings();
+    const days = [7, 30, 90].includes(body.expiresInDays) ? body.expiresInDays : null;
+    const typedUrl = typeof body.url === 'string' && body.url.trim() ? body.url : (was.url ?? process.env.GROUND_CONTROL_ORBIT_URL);
+    let saved;
+    try { saved = await setToken(body.token, { store: orbitStore, claudeSettingsFile: CLAUDE_SETTINGS_FILE, orbitUrl: typedUrl }); } catch (err) { throw orbitHttpError(err); }
+    const now = new Date();
+    await state.setSettings({ orbit: { url: normalizeOrbitUrl(typedUrl), savedAt: now.toISOString(), expiresAt: days ? new Date(now.getTime() + days * 86_400_000).toISOString() : null } });
+    await state.audit({ action: 'orbit-token', what: 'saved', store: saved.store, mcp: MCP_NAME });
+    orbitInbox.reset();
+    await startOrbit();
+    await orbitInbox.refresh({ full: true }); // says at once whether Orbit takes the token
+    return sendJson(res, 200, scrubDeep(await orbitStatus()));
+  }
+  await clearToken({ store: orbitStore, claudeSettingsFile: CLAUDE_SETTINGS_FILE });
+  const was = await orbitSettings();
+  await state.setSettings({ orbit: { url: was.url ?? null, savedAt: null, expiresAt: null } });
+  await state.audit({ action: 'orbit-token', what: 'cleared' });
+  orbitInbox.reset();
+  await startOrbit();
+  return sendJson(res, 200, scrubDeep(await orbitStatus()));
+}
 
 const server = http.createServer(async (req, res) => {
   if (!hostAllowed(req.headers.host)) return send(res, 421, 'Misdirected request');
@@ -2062,6 +2194,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && urlPath === '/api/events') return openEvents(req, res);
     if (urlPath === '/api/integrate' || urlPath.startsWith('/api/integrate/')) return await routeIntegrate(req, res, urlPath); // the integration board
+    if (urlPath.startsWith('/api/orbit/')) return await routeOrbit(req, res, urlPath, url);
     if (req.method === 'GET') return await routeGet(urlPath, url, req, res);
     if (req.method === 'POST') return await routePost(urlPath, req, res);
     if (req.method === 'PUT') return await routePut(urlPath, req, res);
@@ -2129,6 +2262,8 @@ server.listen(PORT, HOST, () => {
   flow.start();
   // The top bar's usage meters: read now, then every minute.
   planUsage.start();
+  // The Orbit inbox: polled once there is a token (every 15 minutes; every 3 while one is open).
+  startOrbit().catch((err) => console.error('orbit:', err.message));
   refreshRunTypical().catch(() => {});
   // What waits for you now: later changes are told as notifications, these never are.
   checkWaiting().catch(() => {});

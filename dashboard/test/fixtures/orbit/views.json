@@ -1,0 +1,20 @@
+{
+  "views": [
+    {
+      "id": "7d1c2b7a-1111-4a1a-9a1a-000000000001",
+      "name": "Critical, mine",
+      "query": "assignee=me&severity=critical",
+      "layout": null,
+      "isDefault": false,
+      "updatedAt": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "7d1c2b7a-1111-4a1a-9a1a-000000000002",
+      "name": "Team triage",
+      "query": "view=team_triage&severity=unset",
+      "layout": null,
+      "isDefault": true,
+      "updatedAt": "2026-10-11T09:00:00.000Z"
+    }
+  ]
+}

@@ -1,0 +1,145 @@
+{
+  "audience": "tech",
+  "state": {
+    "status": [
+      "backlog",
+      "code_review",
+      "in_progress",
+      "open",
+      "planning",
+      "ready_for_development",
+      "ready_for_release",
+      "testing",
+      "uat"
+    ],
+    "assignee": [
+      "me"
+    ],
+    "page": 2
+  },
+  "ignored": [],
+  "total": 53,
+  "statusCounts": {
+    "open": 11,
+    "planning": 11,
+    "ready_for_development": 11,
+    "in_progress": 10,
+    "code_review": 10
+  },
+  "tickets": [
+    {
+      "id": "00000000-0000-4000-8000-000000000600",
+      "number": 600,
+      "type": "feature",
+      "priority": "low",
+      "subject": "Severity chip shows the wrong colour (600)",
+      "description": "Steps are in the ticket.",
+      "status": "open",
+      "resolution": null,
+      "internalNotes": null,
+      "attachments": [],
+      "page": null,
+      "viewport": null,
+      "userAgent": null,
+      "createdAt": "2026-10-01T09:50:00.000Z",
+      "activityAt": "2026-10-21T10:50:00.000Z",
+      "resolvedAt": null,
+      "submitter": {
+        "fullName": "Pat Reporter",
+        "email": "pat@example.com"
+      },
+      "resolver": null,
+      "assignedToId": "0f9b3c3e-6a51-4c55-9f3e-3d6c0b1b0001",
+      "assignedAt": "2026-10-01T09:50:00.000Z",
+      "tags": [],
+      "targetRelease": null,
+      "attention": {
+        "reviewPending": false,
+        "blockedBy": []
+      },
+      "module": "tracker",
+      "severity": "critical",
+      "deliveryTeam": null,
+      "workOrder": null,
+      "queuePosition": null,
+      "revision": 3,
+      "history": []
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000601",
+      "number": 601,
+      "type": "feature",
+      "priority": "high",
+      "subject": "Export to CSV drops the module column (601)",
+      "description": "Steps are in the ticket.",
+      "status": "planning",
+      "resolution": null,
+      "internalNotes": null,
+      "attachments": [],
+      "page": null,
+      "viewport": null,
+      "userAgent": null,
+      "createdAt": "2026-10-02T09:51:00.000Z",
+      "activityAt": "2026-10-22T10:57:00.000Z",
+      "resolvedAt": null,
+      "submitter": {
+        "fullName": "Pat Reporter",
+        "email": "pat@example.com"
+      },
+      "resolver": null,
+      "assignedToId": "0f9b3c3e-6a51-4c55-9f3e-3d6c0b1b0001",
+      "assignedAt": "2026-10-02T09:51:00.000Z",
+      "tags": [],
+      "targetRelease": null,
+      "attention": {
+        "reviewPending": false,
+        "blockedBy": []
+      },
+      "module": "tracker",
+      "severity": "high",
+      "deliveryTeam": null,
+      "workOrder": null,
+      "queuePosition": null,
+      "revision": 3,
+      "history": []
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000602",
+      "number": 602,
+      "type": "bug",
+      "priority": "medium",
+      "subject": "Tracker filters forget the date range (602)",
+      "description": "Steps are in the ticket.",
+      "status": "ready_for_development",
+      "resolution": null,
+      "internalNotes": null,
+      "attachments": [],
+      "page": null,
+      "viewport": null,
+      "userAgent": null,
+      "createdAt": "2026-10-03T09:52:00.000Z",
+      "activityAt": "2026-10-23T10:04:00.000Z",
+      "resolvedAt": null,
+      "submitter": {
+        "fullName": "Pat Reporter",
+        "email": "pat@example.com"
+      },
+      "resolver": null,
+      "assignedToId": "0f9b3c3e-6a51-4c55-9f3e-3d6c0b1b0001",
+      "assignedAt": "2026-10-03T09:52:00.000Z",
+      "tags": [],
+      "targetRelease": null,
+      "attention": {
+        "reviewPending": false,
+        "blockedBy": []
+      },
+      "module": "tracker",
+      "severity": "medium",
+      "deliveryTeam": null,
+      "workOrder": null,
+      "queuePosition": null,
+      "revision": 3,
+      "history": []
+    }
+  ]
+}
