@@ -74,7 +74,7 @@ export const REMOTE_COMMANDS = freeze({
   stop: GATE,
   // A permission card: allow (once, or for the rest of this reply) or deny.
   allow: { requestId: required(FIELD.id), note: FIELD.note, answers: FIELD.record, scope: oneOf('once', 'run') },
-  deny: { requestId: required(FIELD.id), note: FIELD.note },
+  deny: { requestId: required(FIELD.id), note: FIELD.note, answers: FIELD.record },
   // Stop a reply in progress (it can be resumed).
   pause: { runId: required(FIELD.id) },
   // Drive a job from here that was last driven from a terminal.
