@@ -3,6 +3,7 @@
 // { notify }); the history (GET /api/notifications) refetches when a new one arrives (the
 // 'notification' event). A notification only opens the page: it never approves or sends anything.
 // "In this browser" (alerts/AlertSettings.tsx) is this browser's own notification and chime, kept here.
+// Usage warnings (80 %, 90 % and full, dashboard/lib/usage-warnings.js) have one switch of their own.
 // Send a test and the history come last.
 import { useEffect, useId, useState } from 'react';
 import { AlertSettings } from '../../alerts/AlertSettings';
@@ -10,6 +11,9 @@ import type { NotificationsView, NotifyLevel, NotifyMode, NotifySettings as Noti
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
+
+/** The settings with the usage warnings' switch (on unless turned off). */
+type NotifyAll = Notify & { usageWarnings?: boolean };
 
 export const NOTIFY_DEFAULTS: Notify = {
   enabled: true,
@@ -37,7 +41,7 @@ export function NotifySettings() {
   const { api, store } = useWorkshop();
   const { meta, notificationsVersion } = useWorkshopState();
   const now = useNow();
-  const n: Notify = { ...NOTIFY_DEFAULTS, ...(meta?.settings?.notify as Notify | undefined) };
+  const n: NotifyAll = { ...NOTIFY_DEFAULTS, ...(meta?.settings?.notify as NotifyAll | undefined) };
   const [view, setView] = useState<NotificationsView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +54,7 @@ export function NotifySettings() {
     return () => { live = false; };
   }, [api, notificationsVersion]);
 
-  async function save(patch: Partial<Notify>) {
+  async function save(patch: Partial<NotifyAll>) {
     setBusy(true);
     setError(null);
     try { store.dispatch({ type: 'settings', settings: await api.post<Settings>('/api/settings', { notify: patch }) }); }
@@ -103,6 +107,10 @@ export function NotifySettings() {
           ))}
         </tbody>
       </table>
+      <label className="drawer-check" title="A notification when Claude’s 5-hour or weekly usage reaches 80 %, 90 % and full, once each until it resets. It only tells you: nothing is stopped." data-setting="notify-usage">
+        <input type="checkbox" checked={n.usageWarnings !== false} disabled={!n.enabled} onChange={(e) => void save({ usageWarnings: e.target.checked })} />
+        <span>Usage warnings at 80 %, 90 % and full</span>
+      </label>
       <div className="notify-quiet" data-setting="notify-quiet">
         <label className="drawer-check" title="Quiet hours: only problems show, without a sound.">
           <input type="checkbox" checked={n.quiet.on} disabled={!n.enabled} onChange={(e) => void save({ quiet: { ...n.quiet, on: e.target.checked } })} />

@@ -9,6 +9,7 @@ import { useAlerts, usePresence } from '../alerts/useAlerts';
 import { CommandPalette } from '../components/CommandPalette';
 import { UsageBanner } from '../components/UsageBanner';
 import { UsageMeters } from '../components/UsageMeters';
+import { UsageWarningBanner } from '../components/UsageWarningBanner';
 import { StatusSummary } from '../components/StatusSummary';
 import { PaneResizer, usePreviewWidth } from '../components/PaneResizer';
 import { JobsPane, useJobsRail } from '../panes/Jobs/JobsPane';
@@ -260,7 +261,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
     return (
       <div className="app">
         <TopBar onRetry={onRetry} slug={slug} />
-        <div className="banner-slot"><UsageBanner /></div>
+        <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
         <Sheets route={route} />
         {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : route.name === 'integrate' ? <IntegrateBoard /> : <HomeView view={home ?? 'map'} />}
         <PlayToasts />
@@ -271,7 +272,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="app">
       <TopBar onRetry={onRetry} onCrew={crew} slug={slug} />
-      <div className="banner-slot"><UsageBanner /></div>
+      <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
       <Sheets route={route} />
       <div ref={panes} className={rail ? 'panes panes-rail' : 'panes'} style={previewWidth ? ({ '--preview-w': `${previewWidth}px` } as CSSProperties) : undefined}>
         <JobsPane selected={slug} />

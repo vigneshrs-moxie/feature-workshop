@@ -5,12 +5,15 @@
 // never logged, stored or passed on. Off in demo mode and when WORKSHOP_PLAN_USAGE=off.
 //
 // The token, the clock and fetch are injectable, so tests never touch the network or the Keychain.
+// After each good read the warnings at 80 %, 90 % and full are worked out (lib/usage-warnings.js);
+// each one fired is also emitted as 'warning'.
 
 import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { activeWarnings, UsageWarnings } from './usage-warnings.js';
 
 export const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
 const EVERY_MS = 60_000;
@@ -49,9 +52,9 @@ export function parseUsage(body) {
 }
 
 export class PlanUsage extends EventEmitter {
-  constructor({ getToken = readClaudeToken, fetchFn = globalThis.fetch, now = () => Date.now(), setTick = setInterval, clearTick = clearInterval, enabled = true } = {}) {
+  constructor({ getToken = readClaudeToken, fetchFn = globalThis.fetch, now = () => Date.now(), setTick = setInterval, clearTick = clearInterval, enabled = true, warnings = new UsageWarnings() } = {}) {
     super();
-    Object.assign(this, { getToken, fetchFn, now, setTick, clearTick, enabled });
+    Object.assign(this, { getToken, fetchFn, now, setTick, clearTick, enabled, warnings });
     this.last = null; // { fiveHour, week, checkedAt }
     this.error = null; // a short reason in words, or null
     this.lasting = false; // the error is one that won't fix itself (no sign-in, an expired one)
@@ -67,6 +70,8 @@ export class PlanUsage extends EventEmitter {
       week: this.last?.week ?? null,
       checkedAt: this.last?.checkedAt ?? null,
       error: this.shownError(),
+      // The banner's warnings (80 %, 90 %, full) from the last good reading, each with its text.
+      warnings: activeWarnings(this.last, new Date(this.now())),
     };
   }
 
@@ -115,6 +120,8 @@ export class PlanUsage extends EventEmitter {
       this.error = null;
       this.lasting = false;
       this.waitUntil = 0;
+      // The warnings at 80 %, 90 % and full: only after a good read, and never in the way of the meters.
+      try { for (const w of (await this.warnings?.onRead(meters)) ?? []) this.emit('warning', w); } catch { /* told next read */ }
     } catch (err) {
       this.error = err?.name === 'AbortError' ? 'Claude did not answer in time.' : (err instanceof Error ? err.message : 'Could not read the usage.');
     }
