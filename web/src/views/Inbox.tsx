@@ -5,8 +5,7 @@
 // description, links (branches, PRs) and timeline, read again every minute while open.
 //
 // One action: Start (key s, on the open ticket or the row with the focus). Until jobs know their
-// ticket, it opens New job and puts "ORBIT-<n>: <title>" on the clipboard to paste as the
-// description (New job has no way yet to be opened with one filled in). The s key is this page's
+// ticket, it opens New job with "ORBIT-<n>: <title>" filled in as the description. The s key is this page's
 // own listener, with the page's rules: never while typing, with a dialog open, or with keys off.
 //
 // While this page is open it holds /api/orbit/events, so the dashboard checks Orbit every 3 minutes
@@ -121,7 +120,6 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
   const [views, setViews] = useState<SavedView[]>([]);
   const [open, setOpen] = useState<InboxItem | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [copied, setCopied] = useState<{ text: string; onClipboard: boolean } | null>(null);
   const focused = useRef<InboxItem | null>(null);
   const [{ enabled: keysOn }] = useKeysSetting();
 
@@ -169,12 +167,7 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
 
   const start = useCallback((item: InboxItem) => {
     if (item.job) return;
-    const text = startText(item);
-    setCopied({ text, onClipboard: false });
-    try {
-      void navigator.clipboard?.writeText(text).then(() => setCopied({ text, onClipboard: true }), () => {});
-    } catch { /* no clipboard here: the line below the status says the words to type */ }
-    ui.openSheet({ kind: 'new-job' });
+    ui.openSheet({ kind: 'new-job', description: startText(item) });
   }, [ui]);
 
   // s: Start on the open ticket, else the row with the focus. Same rules as every page key.
@@ -216,7 +209,6 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
         {ready && configured && (
           <>
             <StatusLine status={ready} now={now} />
-            {copied && <p className="muted" role="status">{copied.onClipboard ? <>Copied “{copied.text}”: paste it into New job as the description.</> : <>Describe the job in New job as “{copied.text}”.</>}</p>}
             {open ? (
               <TicketDetail key={open.key} item={open} onBack={() => setOpen(null)} onStart={start} />
             ) : (
@@ -336,7 +328,7 @@ function TicketTable({ items, now, empty, onOpen, onStart, onFocusRow }: {
                     disabled={Boolean(i.job)}
                     onClick={() => onStart(i)}
                     aria-label={`Start a job on ${i.key}`}
-                    title={i.job ? 'You are already on this: open its job instead.' : `Start a job on ${i.key}: opens New job, with the key and title copied to paste in (key: s, with the focus on this row).`}
+                    title={i.job ? 'You are already on this: open its job instead.' : `Start a job on ${i.key}: opens New job with the key and title filled in (key: s, with the focus on this row).`}
                   >
                     Start
                   </button>
@@ -396,7 +388,7 @@ function TicketDetail({ item, onBack, onStart }: { item: InboxItem; onBack: () =
             className="btn"
             disabled={Boolean(current.job)}
             onClick={() => onStart(current)}
-            title={current.job ? 'You are already on this: open its job instead.' : 'Start a job on this ticket: opens New job, with the key and title copied to paste in (key: s).'}
+            title={current.job ? 'You are already on this: open its job instead.' : 'Start a job on this ticket: opens New job with the key and title filled in (key: s).'}
           >
             Start {keysOn && hints && <kbd className="kbd key-hint" aria-hidden="true">s</kbd>}
           </button>

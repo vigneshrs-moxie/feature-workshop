@@ -12,7 +12,7 @@ export type DrawerTab = 'notes' | 'options';
 
 export type SheetState =
   | { kind: 'palette' }
-  | { kind: 'new-job' }
+  | { kind: 'new-job'; description?: string }
   | { kind: 'close-job'; slug: string; worktree?: string | null }
   | { kind: 'keys' }
   | { kind: 'job-drawer'; slug: string; tab?: DrawerTab }
