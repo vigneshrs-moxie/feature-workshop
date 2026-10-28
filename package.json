@@ -4,6 +4,9 @@
   "private": true,
   "description": "Local dashboard for the Claude Code feature workflow.",
   "type": "module",
+  "bin": {
+    "ground-control": "bin/ground-control.js"
+  },
   "engines": {
     "node": ">=22"
   },
