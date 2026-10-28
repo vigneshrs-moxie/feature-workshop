@@ -76,6 +76,7 @@ import { EVENT_TYPES, NOTES_MAX, parseCommand } from '../lib/protocol.js';
 import { JobLocked, heldElsewhere } from '../lib/lock.js';
 import { RESTART_TEXT, RESUME_KIND, replay, withRestartNotes } from './replay.js';
 import { removeServiceFile, writeServiceFile } from './service-file.js';
+import { itemSummary, lookAt, noteFeedback, readFeedback } from '../lib/pr-feedback.js';
 
 /** The Foreman models the page offers (meta.models); a reply's model must be one of them. */
 export const MODELS = [
@@ -689,7 +690,9 @@ export async function createRunner(config) {
       const versions = b.file === f.statusBriefFile ? raisedVersions.get(f.dir, b.file) ?? f.versions : null;
       briefs.push({ number: b.number, stage: b.stage, file: b.file, at: st?.mtime.toISOString() ?? null, headline: parsed.headline, point: parsed.happened[0] ?? parsed.next ?? null, versions });
     }
-    const page = pageThread(withRestartNotes(buildThread({ briefs, audit, autoResume: limits.autoResume }), audit), { before });
+    // Ground Control's own stops and starts name no job folder: read beside the job's lines (lib/thread.js).
+    const service = (await state.auditAll()).filter((e) => e.action === 'service-stop' || e.action === 'service-start');
+    const page = pageThread(withRestartNotes(buildThread({ briefs, audit, autoResume: limits.autoResume, service, featureDir: f.dir }), audit), { before });
     if (!page) return null;
     const items = page.items.map(({ reply, ...it }) => (it.kind === 'reply' ? { ...it, html: renderMarkdown(reply, { idHref: idHref(f) }) } : it));
     return { items, more: page.more };
@@ -1005,6 +1008,94 @@ export async function createRunner(config) {
     if (!view.refreshing) flowNotices(view).catch((err) => console.error('flow notices:', err));
   });
   flow.on('problem', (err) => console.error('flow:', err));
+
+  // ---------- PR feedback (lib/pr-feedback.js): failed checks and review comments back to the Foreman ----------
+  // After each network refresh of the flow map (no polling of its own), each open job's open PRs are
+  // read with the read-only gh helpers (lib/git.js prChecks, prComments, failedLog); each failed
+  // check or comment not seen before parks one Needs you card (lib/driver.js parkFeedbackCard), and
+  // a card a restart left waiting comes back. The first look at a PR seeds: the comments already on
+  // it are marked seen without a card (audit line pr-feedback-seeded, with the count). Your answer
+  // goes through the allow and deny commands; the driver resumes the job's session (feedbackSession
+  // below) and reports each outcome, which is written here: the audit lines pr-feedback-found, -sent, -left, -queued and -not-sent, and the
+  // item's state in the job's pr-feedback.json. Nothing is ever written to GitHub.
+  // WORKSHOP_GH names the gh executable (tests use a fake one); the demo reads no GitHub without it.
+  const feedbackGh = env.WORKSHOP_GH ? git.ghRunner(env.WORKSHOP_GH) : DEMO ? null : git.ghRunner();
+  let feedbackFetchedAt = null;
+  let feedbackPass = Promise.resolve();
+  let feedbackLogin; // the GitHub login gh is signed in as, asked once
+  driver.feedbackSession = async (dir) => {
+    const f = (await features()).find((x) => x.dir === dir);
+    if (!f) return { refused: 'This job’s folder is gone.' };
+    if (f.closed || closing.has(dir)) return { refused: 'This job is marked done.' };
+    if (limits.isLimited()) return { refused: limitMessage() };
+    const drive = await driveState(f);
+    if (drive.mode === 'terminal') return { refused: 'This job’s Foreman was last used in your terminal. Take the job over here first, or pass it on from the terminal.' };
+    if (!drive.sessionId || drive.mode === 'none' || drive.mode === 'terminal-open') return { refused: 'This job has no Foreman session here to carry on yet. Send the Foreman a message first.' };
+    return { sessionId: drive.sessionId, slug: f.slug, title: f.title, cwd: drive.cwd ?? f.repoPath, model: drive.model ?? OPUS, additionalDirectories: await readDirs() };
+  };
+  const feedbackQueued = (dir, key) => (driver.feedbackQueue.get(dir) ?? []).some((q) => q.card.item.key === key);
+  async function feedbackForPr(f, job, pr, repo, me) {
+    const record = await readFeedback(f.dir);
+    const where = { featureDir: f.dir, slug: f.slug, title: f.title };
+    for (const [key, rec] of Object.entries(record.items)) {
+      if (!['waiting', 'queued'].includes(rec?.state) || rec.item?.pr?.number !== pr.number) continue;
+      if (!driver.feedbackCardFor(f.dir, key) && !feedbackQueued(f.dir, key)) driver.parkFeedbackCard(where, rec.item);
+    }
+    let checks = null;
+    let comments = null; // null: unread (a first look then waits for one that reads them)
+    try { checks = await git.prChecks(repo, pr.number, { gh: feedbackGh }); } catch (err) { console.error(`pr feedback (${f.slug}, checks):`, err.message); }
+    try { comments = await git.prComments(repo, pr.number, { gh: feedbackGh }); } catch (err) { console.error(`pr feedback (${f.slug}, comments):`, err.message); }
+    // The first look at a PR seeds: the comments already on it get no card (lib/pr-feedback.js lookAt).
+    const { items, seeded } = await lookAt({ featureDir: f.dir, job, pr: { ...pr, headSha: checks?.head ?? null }, checks: checks?.checks ?? [], comments, me });
+    if (seeded !== null) await state.audit({ action: 'pr-feedback-seeded', featureDir: f.dir, slug: f.slug, pr: pr.number, prLabel: pr.label, count: seeded });
+    for (const item of items) {
+      if (item.kind === 'check') {
+        item.log = null;
+        if (item.runId) { try { item.log = await git.failedLog(repo, item.runId, { gh: feedbackGh }); } catch (err) { console.error(`pr feedback (${f.slug}, log):`, err.message); } }
+      }
+      await noteFeedback(f.dir, item.key, { state: 'waiting', item });
+      await state.audit({ action: 'pr-feedback-found', featureDir: f.dir, slug: f.slug, ...itemSummary(item) });
+      driver.parkFeedbackCard(where, item);
+    }
+  }
+  async function prFeedbackFor(view) {
+    const jobs = await featuresShared();
+    // A job marked done takes its cards with it.
+    for (const c of [...driver.feedbackCards.values()]) if (jobs.find((j) => j.dir === c.featureDir)?.closed) driver.dropFeedbackCard(c.id, 'closed');
+    for (const r of view.repos) {
+      const repo = r.org?.slug ?? r.fork?.slug ?? null;
+      if (!r.prsKnown || !repo) continue;
+      if (feedbackLogin === undefined) feedbackLogin = await git.ghLogin({ gh: feedbackGh });
+      const me = [r.fork?.slug?.split('/')[0], feedbackLogin].filter(Boolean);
+      const twoStep = Boolean(r.org && r.fork);
+      for (const l of r.lanes) {
+        const f = jobs.find((j) => j.slug === l.slug);
+        if (!f || f.closed) continue;
+        const job = { slug: f.slug, branch: l.branch ?? f.branch ?? null, closed: f.closed ?? null };
+        for (const [which, p] of [['pr1', l.pr1], ['pr2', l.pr2]]) {
+          if (!p || !['open', 'draft'].includes(p.state)) continue;
+          const label = twoStep ? (which === 'pr1' ? 'PR #1' : 'PR #2') : `PR #${p.number}`;
+          try { await feedbackForPr(f, job, { number: p.number, label, head: p.head, url: p.url ?? null }, repo, me); } catch (err) { console.error(`pr feedback (${f.slug}):`, err.message); }
+        }
+      }
+    }
+  }
+  flow.on('flow', (view) => {
+    if (!feedbackGh || view.refreshing || !view.fetchedAt || view.fetchedAt === feedbackFetchedAt) return;
+    feedbackFetchedAt = view.fetchedAt;
+    feedbackPass = feedbackPass.then(() => prFeedbackFor(view)).catch((err) => console.error('pr feedback:', err.message));
+  });
+  driver.on('pr-feedback', (e) => {
+    (async () => {
+      await noteFeedback(e.featureDir, e.item.key, { state: e.outcome });
+      const line = { featureDir: e.featureDir, slug: e.slug, ...itemSummary(e.item) };
+      if (e.outcome === 'sent') await state.audit({ action: 'pr-feedback-sent', ...line, runId: e.runId, sessionId: e.sessionId });
+      else if (e.outcome === 'left') await state.audit({ action: 'pr-feedback-left', ...line, note: e.note ?? undefined });
+      else if (e.outcome === 'queued') await state.audit({ action: 'pr-feedback-queued', ...line });
+      else if (e.outcome === 'waiting') await state.audit({ action: 'pr-feedback-not-sent', ...line, reason: e.reason ?? undefined });
+      cached = null;
+    })().catch((err) => console.error('pr feedback:', err.message));
+  });
 
   // ---------- Notifications outside the browser (lib/notify.js) ----------
 
