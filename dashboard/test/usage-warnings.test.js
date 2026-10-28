@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { decide, Notifier, notifySettings, usageNotice, validateNotifyPatch } from '../lib/notify.js';
+import { PlanUsage } from '../lib/plan-usage.js';
 import { activeWarnings, check, MEMORY_FILE, remember, resetWhen, sameWindow, UsageWarnings, warningText } from '../lib/usage-warnings.js';
 
 const WEEK_RESET = '2026-10-29T13:00:00.000Z';
@@ -133,4 +134,54 @@ test('notify: a usage warning is told with the banner’s words, through the das
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, MEMORY_FILE), 'utf8')).week.fired, [80, 90]);
   assert.equal((await notifier.list())[0].level, 'usage');
   assert.deepEqual(usageNotice({ meter: 'fiveHour', threshold: 100, percent: 100, text: 'x' }), { level: 'usage', title: 'Claude usage is full', body: 'x', key: 'usage-fiveHour' });
+});
+
+// Through the minute's reads (lib/plan-usage.js): an injected token, fetch and sender.
+function reading() {
+  const r = { status: 200, week: 50, five: 10, weekReset: '2026-10-29T13:00:00.541656+00:00', fiveReset: '2026-10-28T21:40:00+00:00', sent: [], events: [] };
+  const fetchFn = async () => ({
+    ok: r.status === 200, status: r.status, headers: { get: () => null },
+    json: async () => ({ five_hour: { utilization: r.five, resets_at: r.fiveReset }, seven_day: { utilization: r.week, resets_at: r.weekReset } }),
+  });
+  const warnings = new UsageWarnings({ dir: () => null, send: async (w) => { r.sent.push(`${w.meter} ${w.threshold}`); return { sent: true }; }, now: () => new Date(2026, 9, 28, 12, 0) });
+  r.usage = new PlanUsage({ getToken: async () => 'tok', fetchFn, now: () => Date.parse('2026-10-28T12:00:00Z'), setTick: () => null, warnings });
+  r.usage.on('warning', (w) => r.events.push(w.id));
+  return r;
+}
+
+test('reads: 80, 90 and full each fire once, however many reads sit at that level', async () => {
+  const r = reading();
+  for (const pct of [50, 79, 80, 81, 85, 89, 90, 92, 99, 100, 100, 100]) { r.week = pct; await r.usage.check(); }
+  assert.deepEqual(r.sent, ['week 80', 'week 90', 'week 100']);
+  assert.equal(r.events.length, 3, 'each one is emitted too');
+  assert.equal(r.usage.view().warnings[0].text.startsWith('Weekly Claude usage is full (100 %).'), true);
+});
+
+test('reads: a new reset window starts over; the same window with a wobbled reset time does not', async () => {
+  const r = reading();
+  r.week = 91; await r.usage.check();
+  r.weekReset = '2026-10-29T13:00:03.100000+00:00'; r.week = 93; await r.usage.check();
+  assert.deepEqual(r.sent, ['week 90']);
+  // The week resets: low again, then climbing in the new window.
+  r.weekReset = '2026-11-05T13:00:00+00:00'; r.week = 2; await r.usage.check();
+  assert.deepEqual(r.usage.view().warnings, [], 'the banner clears with the reset');
+  r.week = 80; await r.usage.check();
+  r.week = 90; await r.usage.check();
+  assert.deepEqual(r.sent, ['week 90', 'week 80', 'week 90']);
+});
+
+test('reads: no warning when the read failed, and the five-hour meter counts on its own', async () => {
+  const r = reading();
+  r.week = 95;
+  for (const status of [401, 429, 500]) { r.status = status; await r.usage.check(); }
+  assert.deepEqual(r.sent, []);
+  assert.deepEqual(r.usage.view().warnings, [], 'nothing on the banner before a good read');
+  const none = new PlanUsage({ getToken: async () => null, fetchFn: async () => { throw new Error('never'); }, setTick: () => null, warnings: { onRead: async () => { throw new Error('must not be asked'); } } });
+  assert.match((await none.check()).error, /No Claude Code sign-in/);
+  r.status = 200; r.five = 84; await r.usage.check();
+  assert.deepEqual(r.sent.sort(), ['fiveHour 80', 'week 90']);
+  // A failed read after a good one keeps the banner from the last good numbers and sends nothing new.
+  r.status = 429; r.five = 100; await r.usage.check();
+  assert.equal(r.sent.length, 2);
+  assert.deepEqual(r.usage.view().warnings.map((w) => w.id).sort(), ['fiveHour:80:2026-10-28T21:40:00.000Z', 'week:90:2026-10-29T13:00:00.541Z']);
 });
