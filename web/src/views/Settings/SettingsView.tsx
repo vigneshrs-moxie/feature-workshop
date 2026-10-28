@@ -27,7 +27,6 @@ import { NotifySettings } from './NotifySettings';
 import { LookSettings } from './LookSettings';
 import { KeysSettings } from './KeysSettings';
 import { WorkflowSettings } from './WorkflowSettings';
-import { OrbitTokenSettings } from './OrbitTokenSettings';
 import { FIRST_SECTION, findSettings, SECTION_WORDS, stepSection, valueLines, type SettingEntry } from './sections';
 
 type Load = { state: 'loading' } | { state: 'ready'; list: RulesList } | { state: 'error'; message: string };
@@ -299,7 +298,6 @@ export function SettingsView({ section }: { section?: SettingsSection }) {
             {current === 'look' && <LookSettings />}
             {current === 'keys' && <KeysSettings />}
             {current === 'workflow' && <WorkflowSettings />}
-            {current === 'workflow' && <OrbitTokenSettings />}
             {current === 'play' && <PlaySettings />}
             {current === 'rules' && <RulesSettings load={load} onRemoved={() => setMine((n) => n + 1)} />}
           </div>

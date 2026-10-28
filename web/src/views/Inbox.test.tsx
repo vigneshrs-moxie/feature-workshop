@@ -2,12 +2,11 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { useEffect, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../api/client';
-import { useKeyListener } from '../app/keyRegistry';
+import { writeKeysSetting } from '../app/keysSetting';
 import { hrefFor, parseHash } from '../app/router';
 import { UiProvider, useUi, type SheetState } from '../app/ui';
 import { createStore, WorkshopContext } from '../state/store';
 import { LEVELS, snapshot } from '../state/test-fixtures';
-import { NewJobSheet } from './JobSheets/NewJobSheet';
 import { InboxView, levelWord, startText, statusWord, type InboxAnswer, type InboxItem, type OrbitStatus, type OrbitStream } from './Inbox';
 import { OrbitTokenSettings } from './Settings/OrbitTokenSettings';
 
@@ -64,8 +63,6 @@ function SheetProbe({ onSheet }: { onSheet: (s: SheetState) => void }) {
   return null;
 }
 
-function Keys() { useKeyListener(); return null; }
-
 function setup({ get, answer = INBOX }: { get?: (path: string) => Promise<unknown>; answer?: InboxAnswer } = {}) {
   const store = createStore();
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS } }) });
@@ -82,7 +79,7 @@ function setup({ get, answer = INBOX }: { get?: (path: string) => Promise<unknow
   const sheets: SheetState[] = [];
   const wrap = (ui: ReactNode) => render(
     <WorkshopContext.Provider value={{ store, api }}>
-      <UiProvider><Keys /><SheetProbe onSheet={(s) => sheets.push(s)} />{ui}</UiProvider>
+      <UiProvider><SheetProbe onSheet={(s) => sheets.push(s)} />{ui}</UiProvider>
     </WorkshopContext.Provider>,
   );
   return { get: getFn, api, stream, sheets, wrap };
@@ -125,19 +122,25 @@ describe('Inbox', () => {
     expect(screen.getByText(/Read 2m ago · checked every 3 minutes while this page is open/)).toBeInTheDocument();
   });
 
-  it('Start opens New job with the key and title filled in; s does the same on the row with the focus', async () => {
+  it('Start opens New job and copies the key and title to paste in; s does the same on the row with the focus', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     const { wrap, sheets } = setup();
     wrap(<InboxView openStream={() => null} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Start a job on ORBIT-12' }));
-    expect(sheets.at(-1)).toEqual({ kind: 'new-job', description: 'ORBIT-12: Sample ticket 12' });
+    expect(sheets.at(-1)).toEqual({ kind: 'new-job' });
+    expect(writeText).toHaveBeenLastCalledWith('ORBIT-12: Sample ticket 12');
+    expect(await screen.findByText('Copied “ORBIT-12: Sample ticket 12”: paste it into New job as the description.')).toBeInTheDocument();
+    act(() => { sheets.length = 0; });
     const open13 = screen.getByRole('button', { name: /^ORBIT-13/ });
     act(() => { open13.focus(); });
     fireEvent.keyDown(open13, { key: 's' });
-    expect(sheets.at(-1)).toEqual({ kind: 'new-job', description: 'ORBIT-13: Sample ticket 13' });
+    expect(sheets.at(-1)).toEqual({ kind: 'new-job' });
+    expect(writeText).toHaveBeenLastCalledWith('ORBIT-13: Sample ticket 13');
     expect(startText({ key: 'ORBIT-1', title: 'x' })).toBe('ORBIT-1: x');
   });
 
-  it('s on a ticket you are already on does nothing; nor while typing', async () => {
+  it('s on a ticket you are already on does nothing; nor while typing, with a dialog open, or with keys off', async () => {
     const { wrap, sheets } = setup();
     wrap(<><InboxView openStream={() => null} /><input aria-label="Somewhere to type" /></>);
     const open479 = await screen.findByRole('button', { name: /^ORBIT-479/ });
@@ -146,6 +149,15 @@ describe('Inbox', () => {
     const box = screen.getByRole('textbox', { name: 'Somewhere to type' });
     act(() => { box.focus(); });
     fireEvent.keyDown(box, { key: 's' });
+    const open12 = screen.getByRole('button', { name: /^ORBIT-12/ });
+    act(() => { open12.focus(); });
+    const dialog = document.createElement('div');
+    dialog.setAttribute('aria-modal', 'true');
+    document.body.appendChild(dialog);
+    fireEvent.keyDown(open12, { key: 's' });
+    dialog.remove();
+    act(() => { writeKeysSetting({ enabled: false }); });
+    fireEvent.keyDown(open12, { key: 's' });
     expect(sheets.filter((s) => s?.kind === 'new-job')).toHaveLength(0);
   });
 
@@ -163,7 +175,7 @@ describe('Inbox', () => {
     expect(within(detail).getByText('Status: New → Planning')).toBeInTheDocument();
     expect(within(detail).getByRole('link', { name: 'Open on Orbit' })).toHaveAttribute('href', 'https://orbit.example.com/admin/feedback/ORBIT-12');
     fireEvent.keyDown(document.body, { key: 's' }); // the open ticket
-    expect(sheets.at(-1)).toEqual({ kind: 'new-job', description: 'ORBIT-12: Sample ticket 12' });
+    expect(sheets.at(-1)).toEqual({ kind: 'new-job' });
     fireEvent.click(within(detail).getByRole('button', { name: /All tickets/ }));
     expect(await screen.findByRole('table')).toBeInTheDocument();
   });
@@ -206,14 +218,6 @@ describe('Inbox', () => {
     expect(statusWord('something_new')).toBe('Something new');
     expect(levelWord(null)).toBe('Not set');
     expect(levelWord('high', true)).toBe('Hidden');
-  });
-});
-
-describe('New job from the Inbox', () => {
-  it('opens with the description it was given', async () => {
-    const { wrap } = setup({ get: async (p: string) => (p === '/api/repos' ? { repos: [] } : { rows: [], matched: 0, total: 0, canContinue: false }) });
-    wrap(<NewJobSheet onClose={() => {}} description="ORBIT-12: Sample ticket 12" />);
-    expect(screen.getByRole('textbox', { name: /What should the crew build/ })).toHaveValue('ORBIT-12: Sample ticket 12');
   });
 });
 

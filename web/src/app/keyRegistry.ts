@@ -59,7 +59,6 @@ export const KEYS = {
   'go-desk': { keys: ['g d'], label: 'Go to the Desk', scope: 'global' },
   'go-settings': { keys: ['g s'], label: 'Go to Settings', scope: 'global' },
   'go-crew': { keys: ['g x'], label: 'Go to the Crew-dex (Play mode)', scope: 'global' },
-  'inbox-start': { keys: ['s'], label: 'Start a job on the ticket', scope: 'global', where: 'On the Inbox: the open ticket, or the row with the focus.' },
   'close': { keys: ['Escape'], label: 'Close the menu, sheet or drawer on top', scope: 'global', always: true, listOnly: true },
   // Jobs
   'next-job': { keys: ['j'], label: 'Open the next job', scope: 'rows' },

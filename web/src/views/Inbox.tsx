@@ -5,16 +5,18 @@
 // description, links (branches, PRs) and timeline, read again every minute while open.
 //
 // One action: Start (key s, on the open ticket or the row with the focus). Until jobs know their
-// ticket, it opens New job with the key and title filled in.
+// ticket, it opens New job and puts "ORBIT-<n>: <title>" on the clipboard to paste as the
+// description (New job has no way yet to be opened with one filled in). The s key is this page's
+// own listener, with the page's rules: never while typing, with a dialog open, or with keys off.
 //
 // While this page is open it holds /api/orbit/events, so the dashboard checks Orbit every 3 minutes
 // instead of every 15; the stream also brings each new list. Nothing here writes to Orbit.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../api/client';
-import { useKeyScope } from '../app/keyRegistry';
+import { dialogOpen, isTypingTarget } from '../app/keyRegistry';
+import { useKeysSetting } from '../app/keysSetting';
 import { jobHref, settingsHref } from '../app/router';
 import { useUi } from '../app/ui';
-import { Kbd } from '../components/Kbd';
 import { clockTime, fullTime, relativeTime, useNow } from '../lib/time';
 import { useWorkshop } from '../state/store';
 
@@ -119,7 +121,9 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
   const [views, setViews] = useState<SavedView[]>([]);
   const [open, setOpen] = useState<InboxItem | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [copied, setCopied] = useState<{ text: string; onClipboard: boolean } | null>(null);
   const focused = useRef<InboxItem | null>(null);
+  const [{ enabled: keysOn }] = useKeysSetting();
 
   const loadMine = useCallback(async (refresh = false) => {
     try {
@@ -165,16 +169,28 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
 
   const start = useCallback((item: InboxItem) => {
     if (item.job) return;
-    ui.openSheet({ kind: 'new-job', description: startText(item) });
+    const text = startText(item);
+    setCopied({ text, onClipboard: false });
+    try {
+      void navigator.clipboard?.writeText(text).then(() => setCopied({ text, onClipboard: true }), () => {});
+    } catch { /* no clipboard here: the line below the status says the words to type */ }
+    ui.openSheet({ kind: 'new-job' });
   }, [ui]);
 
-  useKeyScope('global', {
-    'inbox-start': () => {
+  // s: Start on the open ticket, else the row with the focus. Same rules as every page key.
+  useEffect(() => {
+    if (!keysOn) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 's' || e.repeat || e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      if (isTypingTarget(e.target) || dialogOpen()) return;
       const item = open ?? focused.current;
-      if (!item || item.job) return false;
+      if (!item || item.job) return;
+      e.preventDefault();
       start(item);
-    },
-  });
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [keysOn, open, start]);
 
   async function refresh() {
     setRefreshing(true);
@@ -200,6 +216,7 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
         {ready && configured && (
           <>
             <StatusLine status={ready} now={now} />
+            {copied && <p className="muted" role="status">{copied.onClipboard ? <>Copied “{copied.text}”: paste it into New job as the description.</> : <>Describe the job in New job as “{copied.text}”.</>}</p>}
             {open ? (
               <TicketDetail key={open.key} item={open} onBack={() => setOpen(null)} onStart={start} />
             ) : (
@@ -319,7 +336,7 @@ function TicketTable({ items, now, empty, onOpen, onStart, onFocusRow }: {
                     disabled={Boolean(i.job)}
                     onClick={() => onStart(i)}
                     aria-label={`Start a job on ${i.key}`}
-                    title={i.job ? 'You are already on this: open its job instead.' : `Start a job on ${i.key}: opens New job with the key and title filled in (key: s, with the focus on this row).`}
+                    title={i.job ? 'You are already on this: open its job instead.' : `Start a job on ${i.key}: opens New job, with the key and title copied to paste in (key: s, with the focus on this row).`}
                   >
                     Start
                   </button>
@@ -340,6 +357,7 @@ function TicketDetail({ item, onBack, onStart }: { item: InboxItem; onBack: () =
   const now = useNow();
   const [detail, setDetail] = useState<Load<TicketAnswer>>({ state: 'loading' });
   const [refs, setRefs] = useState<Load<Reference[]>>({ state: 'loading' });
+  const [{ enabled: keysOn, hints }] = useKeysSetting();
 
   useEffect(() => {
     let live = true;
@@ -378,9 +396,9 @@ function TicketDetail({ item, onBack, onStart }: { item: InboxItem; onBack: () =
             className="btn"
             disabled={Boolean(current.job)}
             onClick={() => onStart(current)}
-            title={current.job ? 'You are already on this: open its job instead.' : 'Start a job on this ticket: opens New job with the key and title filled in.'}
+            title={current.job ? 'You are already on this: open its job instead.' : 'Start a job on this ticket: opens New job, with the key and title copied to paste in (key: s).'}
           >
-            Start <Kbd id="inbox-start" />
+            Start {keysOn && hints && <kbd className="kbd key-hint" aria-hidden="true">s</kbd>}
           </button>
           {current.job && <span>You are already on this: <a href={jobHref(current.job.slug)}>{current.job.title}</a></span>}
           {current.url && <a className="btn btn-quiet" href={current.url} target="_blank" rel="noreferrer noopener" title="Open the ticket on Orbit, in a new tab.">Open on Orbit</a>}
