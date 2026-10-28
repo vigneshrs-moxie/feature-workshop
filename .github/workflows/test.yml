@@ -1,0 +1,36 @@
+# Both test suites on Windows and macOS (plan §4.4, packet H). Runs on every push and pull request.
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Tests on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      # Demo mode in every server test; no Claude usage is read or spent.
+      WORKSHOP_PLAN_USAGE: 'off'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Git identity for the tests that make commits
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+          git config --global init.defaultBranch main
+      - run: npm ci
+      - name: Dashboard tests
+        run: npm test
+      - name: Web tests
+        working-directory: web
+        run: npx vitest run
