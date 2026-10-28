@@ -7,9 +7,11 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import {
   checkToken, normalizeOrbitUrl, mcpEntry, writeMcpEntry, removeMcpEntry, setToken, clearToken, sessionEnv,
   parseTicketKey, canonicalKey, OrbitError, orbitClient, retryAfterMs, fromDay,
@@ -505,4 +507,172 @@ test('every audit line passes through scrub: a token in an entry never reaches a
   assert.equal(JSON.parse(text.trim()).action, 'send');
   assert.ok(!JSON.stringify(seen).includes('orbfb_'), 'the live copy is the scrubbed one too');
   assert.equal((await state.auditAll()).length, 1);
+});
+
+// ---------- Step 5: the routes, on a running (demo) dashboard ----------
+// Temp folders for everything: HOME (so ~/.claude/settings.json is a temp file), the jobs, the
+// state folder (the token goes to its 600 file: demo mode never uses the Keychain).
+
+async function freePort() {
+  const s = net.createServer();
+  await new Promise((r) => s.listen(0, '127.0.0.1', r));
+  const { port } = s.address();
+  await new Promise((r) => s.close(r));
+  return port;
+}
+
+async function walk(dir) {
+  const out = [];
+  for (const e of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...await walk(p)); else out.push(p);
+  }
+  return out;
+}
+
+test('the /api/orbit routes: save a token, the inbox with jobs already on a ticket, detail, views, the stream, forget it; the token in no record', async (t) => {
+  const root = await tmp();
+  const dirs = { features: path.join(root, 'feature-work'), projects: path.join(root, 'projects'), agents: path.join(root, 'agents'), skills: path.join(root, 'skills'), home: path.join(root, 'home'), state: path.join(root, 'state') };
+  for (const d of Object.values(dirs)) await fs.mkdir(d, { recursive: true });
+  const job = async (slug, extra = {}) => {
+    await fs.mkdir(path.join(dirs.features, slug, 'briefs'), { recursive: true });
+    await fs.writeFile(path.join(dirs.features, slug, 'status.json'), JSON.stringify({ schema_version: 1, slug, title: slug, route: 'small', stage: 'plan', stage_state: 'working', updated_at: '2026-10-27T10:00:00Z', ...extra }));
+  };
+  await job('orbit-479-feedback-api');
+  await job('tidy-tracker', { ticket: { key: 'orbit-501', title: 'x' } });
+  await job('orbit-4790-other'); // ORBIT-4790, not ORBIT-479
+
+  const port = await freePort();
+  const base = `http://127.0.0.1:${port}`;
+  const output = [];
+  const child = spawn(process.execPath, [path.join(HERE, '..', 'server.js')], {
+    env: {
+      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(await freePort()), HOME: dirs.home, WORKSHOP_DEMO: '1',
+      WORKSHOP_FEATURES_DIR: dirs.features, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
+      WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state, GROUND_CONTROL_ORBIT_URL: '',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  t.after(async () => {
+    if (child.exitCode === null) { const gone = new Promise((r) => child.once('exit', r)); child.kill('SIGTERM'); await gone; }
+  });
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
+    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
+    child.stderr.on('data', (d) => output.push(String(d)));
+    child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
+  });
+  const pageToken = (await (await fetch(`${base}/api/meta`)).json()).token;
+  const bodies = [];
+  const get = async (p) => { const res = await fetch(base + p); const text = await res.text(); bodies.push(text); return { status: res.status, body: JSON.parse(text) }; };
+  const write = async (method, p, body = {}, { auth = true } = {}) => {
+    const res = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Workshop-Token': pageToken } : {}) }, body: JSON.stringify(body) });
+    const text = await res.text();
+    bodies.push(text);
+    return { status: res.status, body: JSON.parse(text) };
+  };
+
+  // Nothing saved yet.
+  let r = await get('/api/orbit/status');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.tokenPresent, false);
+  assert.deepEqual((await get('/api/orbit/inbox')).body.items, []);
+
+  // Writes need the page's token; a bad token is refused in words.
+  assert.equal((await write('POST', '/api/orbit/token', { token: TOKEN, url: fake.url }, { auth: false })).status, 403);
+  r = await write('POST', '/api/orbit/token', { token: 'orbfb_nope', url: fake.url });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /wrong length/);
+  r = await write('POST', '/api/orbit/token', { token: TOKEN, url: 'http://orbit.example.com' });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /https/);
+
+  // A well-formed token Orbit doesn't know: saved, and the status says it expired or was revoked.
+  r = await write('POST', '/api/orbit/token', { token: `orbfb_${'n'.repeat(43)}`, url: fake.url });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.errorKind, 'auth');
+  assert.match(r.body.lastError, /expired or was revoked/);
+
+  // The real one.
+  fake.requests.length = 0;
+  r = await write('POST', '/api/orbit/token', { token: TOKEN, url: `${fake.url}/`, expiresInDays: 30 });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.tokenPresent, true);
+  assert.equal(r.body.store, 'file');
+  assert.equal(r.body.url, fake.url);
+  assert.equal(r.body.lastError, null);
+  assert.ok(r.body.lastPoll);
+  assert.ok(Math.abs(Date.parse(r.body.expiresAt) - (Date.now() + 30 * 86_400_000)) < 60_000);
+  assert.ok(fake.requests.length >= 3 && fake.requests.every((q) => q.method === 'GET'));
+
+  const mcp = JSON.parse(await fs.readFile(path.join(dirs.home, '.claude', 'settings.json'), 'utf8'));
+  assert.deepEqual(mcp.mcpServers['orbit-feedback'], { type: 'http', url: `${fake.url}/api/mcp/feedback`, headers: { Authorization: 'Bearer ${ORBIT_FEEDBACK_TOKEN}' } });
+  assert.equal((await fs.stat(path.join(dirs.state, 'orbit-token'))).mode & 0o777, 0o600);
+
+  // The inbox: priority, severity, age, assignee, and the jobs already on a ticket.
+  r = await get('/api/orbit/inbox');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.items.length, 54);
+  const item = (key) => r.body.items.find((i) => i.key === key);
+  assert.equal(item('ORBIT-479').title, 'Read-only feedback API and MCP for Ground Control');
+  assert.deepEqual(item('ORBIT-479').job, { slug: 'orbit-479-feedback-api', title: 'orbit-479-feedback-api' });
+  assert.equal(item('ORBIT-501').job.slug, 'tidy-tracker', 'status.json ticket.key counts');
+  assert.equal(item('ORBIT-502').job, null);
+  assert.equal(item('ORBIT-700').assignee.name, 'Someone else');
+  assert.equal(item('ORBIT-501').assignee.name, 'You');
+  for (const i of r.body.items) { assert.ok(i.createdAt); assert.ok('priority' in i && 'severity' in i); }
+
+  // Refresh, a saved view's tab, the views.
+  assert.equal((await get('/api/orbit/inbox?refresh=1')).body.items.length, 54);
+  const views = (await get('/api/orbit/views')).body.views;
+  assert.deepEqual(views.map((v) => v.name), ['Critical, mine', 'Team triage']);
+  const crit = (await get(`/api/orbit/inbox?view=${views[0].id}`)).body;
+  assert.ok(crit.items.length > 0 && crit.items.every((i) => i.severity === 'critical'));
+  assert.equal((await get('/api/orbit/inbox?view=nope')).status, 404);
+
+  // Detail and references; a pasted token in a comment comes out hidden.
+  r = await get('/api/orbit/tickets/orbit-479');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.item.key, 'ORBIT-479');
+  assert.equal(r.body.item.job.slug, 'orbit-479-feedback-api');
+  assert.equal(r.body.ticket.timeline.length, 2);
+  assert.match(r.body.ticket.timeline[1].comment.body, /\[Orbit token hidden\]/);
+  assert.equal((await get('/api/orbit/tickets/ORBIT-479/references')).body.references[0].label, 'feature/orbit-479-feedback-api-mcp');
+  r = await get('/api/orbit/tickets/ORBIT-1');
+  assert.equal(r.status, 404);
+  assert.match(r.body.error, /no ticket by that key/);
+  assert.equal((await get('/api/orbit/tickets/not-a-key')).status, 404);
+
+  // An open Inbox (the stream) makes the cadence 3 minutes; closing it, 15 again.
+  const ctrl = new AbortController();
+  const stream = await fetch(`${base}/api/orbit/events`, { signal: ctrl.signal });
+  assert.equal(stream.status, 200);
+  const reader = stream.body.getReader();
+  await reader.read();
+  r = await get('/api/orbit/status');
+  assert.equal(r.body.watchers, 1);
+  assert.equal(r.body.everyMs, 3 * 60_000);
+  ctrl.abort();
+  for (let i = 0; i < 50 && (await get('/api/orbit/status')).body.watchers !== 0; i++) await new Promise((res) => setTimeout(res, 50));
+  r = await get('/api/orbit/status');
+  assert.equal(r.body.watchers, 0);
+  assert.equal(r.body.everyMs, 15 * 60_000);
+
+  // The token is in its one file and nowhere else: no answer, no record, no audit line, no settings.
+  for (const b of bodies) assert.ok(!b.includes(TOKEN) && !b.includes('orbfb_n'), 'never in an answer');
+  for (const file of [...await walk(dirs.state), ...await walk(dirs.home), ...await walk(dirs.features)]) {
+    if (file === path.join(dirs.state, 'orbit-token')) continue;
+    assert.ok(!(await fs.readFile(file, 'utf8')).includes('orbfb_'), `no token in ${path.relative(root, file)}`);
+  }
+  const audit = (await fs.readFile(path.join(dirs.state, 'audit.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+  assert.ok(audit.some((e) => e.action === 'orbit-token' && e.what === 'saved' && e.store === 'file'));
+
+  // Forget it: out of the store and out of Claude Code's settings.
+  r = await write('DELETE', '/api/orbit/token');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.tokenPresent, false);
+  await assert.rejects(fs.stat(path.join(dirs.state, 'orbit-token')));
+  assert.equal(JSON.parse(await fs.readFile(path.join(dirs.home, '.claude', 'settings.json'), 'utf8')).mcpServers, undefined);
+  assert.deepEqual((await get('/api/orbit/inbox')).body.items, []);
+  assert.equal((await fetch(`${base}/api/orbit/token`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': pageToken }, body: '{}' })).status, 405);
 });

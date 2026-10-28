@@ -73,7 +73,7 @@
         "at": "2026-10-21T11:00:00.000Z",
         "comment": {
           "id": "c1",
-          "body": "Scopes are tickets:read and views:read only.",
+          "body": "Scopes are tickets:read and views:read only. (Someone pasted orbfb_QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ here by mistake.)",
           "visibility": "internal",
           "author": {
             "id": "0f9b3c3e-6a51-4c55-9f3e-3d6c0b1b0001",

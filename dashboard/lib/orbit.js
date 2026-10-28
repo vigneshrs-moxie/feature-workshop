@@ -502,3 +502,31 @@ export class OrbitInbox extends EventEmitter {
     return entry;
   }
 }
+
+// ---------- Jobs already on a ticket ----------
+
+/** ORBIT-<n> from a job slug made for a ticket (orbit-<n>-<short-title>), else null. */
+export function slugTicketKey(slug) {
+  const m = /^orbit-(\d{1,9})(?:-|$)/i.exec(String(slug ?? ''));
+  return m ? ticketKey(Number(m[1])) : null;
+}
+
+/** The ticket key a job's status.json names (`ticket.key`, schema version 2), else null. */
+export async function statusTicketKey(dir) {
+  try { return canonicalKey(JSON.parse(await fs.readFile(path.join(dir, 'status.json'), 'utf8'))?.ticket?.key); } catch { return null; }
+}
+
+/**
+ * Open jobs by the ticket they are on: Map ORBIT-<n> → { slug, title }. A job's status.json
+ * ticket.key wins; else its slug (orbit-<n>-…). Closed jobs don't count: a ticket can be taken up
+ * again once its job is closed.
+ */
+export async function jobsByTicket(jobs, { readKey = statusTicketKey } = {}) {
+  const map = new Map();
+  for (const j of jobs ?? []) {
+    if (!j?.slug || j.closed) continue;
+    const key = (j.dir ? await readKey(j.dir) : null) ?? slugTicketKey(j.slug);
+    if (key && !map.has(key)) map.set(key, { slug: j.slug, title: j.title ?? j.slug });
+  }
+  return map;
+}
