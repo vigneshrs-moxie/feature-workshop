@@ -4,8 +4,8 @@
 // already on this" when an open job is on that ticket. A row opens the ticket: its facts,
 // description, links (branches, PRs) and timeline, read again every minute while open.
 //
-// One action: Start (key s, on the open ticket or the row with the focus). Until jobs know their
-// ticket, it opens New job with "ORBIT-<n>: <title>" filled in as the description. The s key is this page's
+// One action: Start (key s, on the open ticket or the row with the focus). It opens New job with
+// the ticket filled in (read-only) and "ORBIT-<n>: <title>" as the description. The s key is this page's
 // own listener, with the page's rules: never while typing, with a dialog open, or with keys off.
 //
 // While this page is open it holds /api/orbit/events, so the dashboard checks Orbit every 3 minutes
@@ -167,7 +167,7 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
 
   const start = useCallback((item: InboxItem) => {
     if (item.job) return;
-    ui.openSheet({ kind: 'new-job', description: startText(item) });
+    ui.openSheet({ kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url } });
   }, [ui]);
 
   // s: Start on the open ticket, else the row with the focus. Same rules as every page key.

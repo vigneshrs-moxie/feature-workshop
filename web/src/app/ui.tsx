@@ -6,13 +6,14 @@
 // Without a provider (component tests) every call is a harmless no-op.
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import type { PolicyId, Run } from '../api/types';
+import type { TicketRef } from '../views/JobSheets/NewJobSheet';
 
 /** The job drawer's two tabs. */
 export type DrawerTab = 'notes' | 'options';
 
 export type SheetState =
   | { kind: 'palette' }
-  | { kind: 'new-job'; description?: string }
+  | { kind: 'new-job'; description?: string; ticket?: TicketRef }
   | { kind: 'close-job'; slug: string; worktree?: string | null }
   | { kind: 'keys' }
   | { kind: 'job-drawer'; slug: string; tab?: DrawerTab }

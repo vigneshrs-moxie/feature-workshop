@@ -30,7 +30,7 @@ import { PlanUsage } from './lib/plan-usage.js';
 import { LocalRunner } from './lib/local.js';
 import { History, historyMarkdown } from './lib/history.js';
 import { removeWorktree, checkWorktree } from './lib/close.js';
-import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, FOREMAN_MODEL_IDS, MODEL_IDS, MODEL_CHOICES, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions, foremanModel, levelsForClient, optionsAtLevel, isLevel } from './lib/options.js';
+import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, FOREMAN_MODEL_IDS, MODEL_IDS, MODEL_CHOICES, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions, foremanModel, levelsForClient, optionsAtLevel, isLevel, normalizeTicket, ticketSlug, ticketBranch, startFromTicket } from './lib/options.js';
 import { isWebAppPath, serveWebApp } from './lib/web-app.js';
 import { EventLog, resumePoint, openStream } from './lib/events.js';
 import { groupCards } from './lib/snapshot.js';
@@ -1632,6 +1632,10 @@ async function routePost(urlPath, req, res) {
     // The one you picked, else the job's models.foreman, else Opus: never Fable because the job is L3.
     const model = foremanModel(body.model, options, MODELS.map((x) => x.id));
     const kind = body.kind === 'bug' ? 'bug' : 'feature';
+    // Started from an Orbit ticket (the Inbox's Start, or a key typed in New job): the job, its folder
+    // (orbit-<n>-<short-title>) and its branch share the ticket's key (lib/options.js, plan D1).
+    let ticket = null;
+    try { ticket = normalizeTicket(body.ticket); } catch (err) { throw new HttpError(400, err.message); }
     // Starting from a past conversation: a fresh Foreman reads an extract of it (history.md), or
     // a copy of the conversation itself becomes the Foreman (the original is never changed).
     let from = null;
@@ -1655,20 +1659,22 @@ async function routePost(urlPath, req, res) {
       }
       from.detail = d;
     }
-    const slug = await uniqueSlug(slugify(description));
+    const slug = await uniqueSlug(ticket ? ticketSlug(ticket) : slugify(description));
     const featureDir = path.join(FEATURES_DIR, slug);
     // The job's options go in its private folder (read before every stage) and in the first message.
     const { detail: fromDetail, ...fromRecord } = from ?? {};
     const optionsOut = from ? { ...options, from_session: fromRecord } : options;
-    await writeOptions(featureDir, options, { title: description, repo: repo.path, kind, from_session: from ? fromRecord : undefined });
+    await writeOptions(featureDir, options, { title: description, repo: repo.path, kind, from_session: from ? fromRecord : undefined, ticket: ticket ?? undefined, branch: ticket ? ticketBranch(kind, slug) : undefined });
+    // A ticket's job starts with a status.json of schema version 2 holding the ticket block.
+    const fromTicket = ticket ? await startFromTicket(featureDir, { ticket, slug, title: description, kind, level: options.level, repo: repo.path }) : null;
     if (fromDetail) await fsp.writeFile(path.join(featureDir, 'history.md'), historyMarkdown(fromDetail), { mode: 0o600 });
     // The /feature command must come first in the message, or it doesn't run.
     const tail = from?.mode === 'continue'
       ? '\n\nThis conversation is now a Feature Workshop job: carry it on through the feature workflow from here. Everything said earlier in it is background, not approval.'
       : '';
-    const text = `/feature ${description}${kind === 'bug' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${describeOptions(optionsOut).map((l) => `- ${l}`).join('\n')}${tail}`;
+    const text = `/feature ${description}${kind === 'bug' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${describeOptions(optionsOut).map((l) => `- ${l}`).join('\n')}${fromTicket ? `\n\n${fromTicket.brief}` : ''}${tail}`;
     const run = await driver.start({ featureDir, slug, title: description, cwd, sessionId, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
-    await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options, fromSession: from ? { id: from.id, mode: from.mode, forkedTo: from.forkedTo } : undefined });
+    await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options, fromSession: from ? { id: from.id, mode: from.mode, forkedTo: from.forkedTo } : undefined, ticket: ticket?.key });
     cached = null;
     return sendJson(res, 200, { run, slug });
   }

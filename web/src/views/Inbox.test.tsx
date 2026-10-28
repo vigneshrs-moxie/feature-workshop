@@ -126,12 +126,12 @@ describe('Inbox', () => {
     const { wrap, sheets } = setup();
     wrap(<InboxView openStream={() => null} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Start a job on ORBIT-12' }));
-    expect(sheets.at(-1)).toEqual({ kind: 'new-job', description: 'ORBIT-12: Sample ticket 12' });
+    expect(sheets.at(-1)).toEqual(expect.objectContaining({ kind: 'new-job', description: 'ORBIT-12: Sample ticket 12', ticket: expect.objectContaining({ key: 'ORBIT-12' }) }));
     act(() => { sheets.length = 0; });
     const open13 = screen.getByRole('button', { name: /^ORBIT-13/ });
     act(() => { open13.focus(); });
     fireEvent.keyDown(open13, { key: 's' });
-    expect(sheets.at(-1)).toEqual({ kind: 'new-job', description: 'ORBIT-13: Sample ticket 13' });
+    expect(sheets.at(-1)).toEqual(expect.objectContaining({ kind: 'new-job', description: 'ORBIT-13: Sample ticket 13', ticket: expect.objectContaining({ key: 'ORBIT-13' }) }));
     expect(startText({ key: 'ORBIT-1', title: 'x' })).toBe('ORBIT-1: x');
   });
 
@@ -170,7 +170,7 @@ describe('Inbox', () => {
     expect(within(detail).getByText('Status: New → Planning')).toBeInTheDocument();
     expect(within(detail).getByRole('link', { name: 'Open on Orbit' })).toHaveAttribute('href', 'https://orbit.example.com/admin/feedback/ORBIT-12');
     fireEvent.keyDown(document.body, { key: 's' }); // the open ticket
-    expect(sheets.at(-1)).toEqual({ kind: 'new-job', description: 'ORBIT-12: Sample ticket 12' });
+    expect(sheets.at(-1)).toEqual(expect.objectContaining({ kind: 'new-job', description: 'ORBIT-12: Sample ticket 12', ticket: expect.objectContaining({ key: 'ORBIT-12' }) }));
     fireEvent.click(within(detail).getByRole('button', { name: /All tickets/ }));
     expect(await screen.findByRole('table')).toBeInTheDocument();
   });

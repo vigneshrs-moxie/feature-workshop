@@ -46,7 +46,9 @@ before(async () => {
   base = `http://127.0.0.1:${port}`;
   child = spawn(process.execPath, [SERVER], {
     env: {
-      ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1',
+      // The screens server takes PORT+1 unless told: give it its own free port, so a neighbour
+      // test's server on the next number can't stop this one starting.
+      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(await freePort()), HOME: dirs.home, WORKSHOP_DEMO: '1',
       WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
       WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
     },
