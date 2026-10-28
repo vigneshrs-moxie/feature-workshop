@@ -5,10 +5,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import {
   envGet, findOnPath, folderLabel, killTree, killTreeCommand, nodeCommand, openCommand, openIn,
   parsePsRows, parseTasklistRows, processList, processListCommand, shellFor, tempDirs, terminalApps,
 } from '../lib/platform.js';
+import { LocalRunner, pgTool } from '../lib/local.js';
+import { liveTerminals } from '../lib/live.js';
+import { State } from '../lib/state.js';
 
 const onPath = (...files) => (p) => files.includes(p);
 
@@ -159,4 +165,42 @@ test('processList: ps on macOS and Linux, tasklist /fo csv on Windows (program n
 test('nodeCommand: the hook line works on every system', () => {
   assert.equal(nodeCommand('/Users/me/gc/dashboard/hooks/record.mjs'), 'node "/Users/me/gc/dashboard/hooks/record.mjs"');
   assert.equal(nodeCommand('C:\\Users\\me\\gc\\dashboard\\hooks\\record.mjs'), 'node "C:\\Users\\me\\gc\\dashboard\\hooks\\record.mjs"');
+});
+
+test('pgTool: Homebrew and Postgres.app on macOS, /usr/lib/postgresql on Linux, Program Files\\PostgreSQL on Windows, then PATH', async () => {
+  const none = async () => { throw new Error('ENOENT'); };
+  assert.equal(await pgTool('psql', { platform: 'darwin', env: { PATH: '' }, exists: (p) => p === '/Applications/Postgres.app/Contents/Versions/latest/bin/psql', readdir: none }), '/Applications/Postgres.app/Contents/Versions/latest/bin/psql');
+  assert.equal(await pgTool('psql', { platform: 'darwin', env: { PATH: '' }, exists: (p) => p === '/opt/homebrew/opt/postgresql@16/bin/psql', readdir: async () => ['postgresql@16', 'node'] }), '/opt/homebrew/opt/postgresql@16/bin/psql');
+  assert.equal(await pgTool('pg_ctl', { platform: 'linux', env: { PATH: '/usr/bin' }, exists: (p) => /\/usr\/lib\/postgresql\/1[56]\/bin\/pg_ctl$/.test(p), readdir: async (d) => (d === '/usr/lib/postgresql' ? ['15', '16'] : []) }), '/usr/lib/postgresql/16/bin/pg_ctl', 'the newest first');
+  const win = { ProgramFiles: 'C:\\Program Files', PATH: 'C:\\tools', PATHEXT: '.EXE' };
+  const listing = async (d) => (d === 'C:\\Program Files\\PostgreSQL' ? ['15', '17', 'data'] : assert.fail(`not ${d}`));
+  assert.equal(await pgTool('psql', { platform: 'win32', env: win, exists: (p) => p.startsWith('C:\\Program Files\\PostgreSQL\\'), readdir: listing }), 'C:\\Program Files\\PostgreSQL\\17\\bin\\psql.exe');
+  assert.equal(await pgTool('psql', { platform: 'win32', env: win, exists: (p) => p === 'C:\\tools\\psql.EXE', readdir: none }), 'C:\\tools\\psql.EXE', 'on PATH');
+  assert.equal(await pgTool('psql', { platform: 'win32', env: win, exists: () => false, readdir: none }), 'psql', 'else the bare name');
+});
+
+test('live terminals: on Windows a session whose folder can’t be read is left out, never guessed', async () => {
+  const rows = [{ pid: 5, started: null, command: 'claude.exe' }, { pid: 6, started: null, command: 'node.exe' }];
+  assert.deepEqual(await liveTerminals({ maxAgeMs: 0, platform: 'win32', list: async () => rows, folderOf: async () => null }), []);
+  const posix = [{ pid: 7, started: 'x', command: 'claude --resume a' }, { pid: 8, started: 'x', command: '/usr/local/bin/claude -p hi' }];
+  assert.deepEqual(await liveTerminals({ maxAgeMs: 0, platform: 'linux', list: async () => posix, folderOf: async () => null }), [{ pid: 7, started: 'x', command: 'claude --resume a', cwd: null }], 'macOS and Linux keep it as before');
+  assert.deepEqual((await liveTerminals({ maxAgeMs: 0, platform: 'win32', list: async () => rows, folderOf: async () => 'C:\\w' })).map((t) => t.pid), [5]);
+});
+
+test('the Try it view names this computer’s terminal apps and folder button; only those can be chosen', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gc-platform-'));
+  try {
+    const local = new LocalRunner({ state: new State(path.join(root, 'state')), demo: true });
+    const v = await local.view({ slug: 'x', title: 'X' });
+    assert.deepEqual(v.terminalApps, terminalApps());
+    assert.equal(v.terminalApp, terminalApps()[0]);
+    assert.equal(v.folderLabel, folderLabel());
+    const other = { darwin: 'Windows Terminal', win32: 'iTerm', linux: 'iTerm' }[process.platform] ?? 'iTerm';
+    await assert.rejects(local.setTerminalApp(other), /^Error: Choose /);
+    const last = terminalApps().at(-1);
+    await local.setTerminalApp(last);
+    assert.equal((await local.view({ slug: 'x', title: 'X' })).terminalApp, last);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });

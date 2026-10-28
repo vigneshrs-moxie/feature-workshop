@@ -16,7 +16,11 @@ interface LocalView {
   branch?: string | null;
   port?: number | null;
   url?: string | null;
-  terminalApp?: 'iTerm' | 'Terminal';
+  /** The chosen terminal app, one of terminalApps (this computer's: iTerm and Terminal on a Mac). */
+  terminalApp?: string;
+  terminalApps?: string[];
+  /** The folder button: "Finder" on a Mac, "Open folder" elsewhere. */
+  folderLabel?: string;
   app?: { dir: string; rel: string } | null;
   env?: { exists: boolean; ready: boolean; sourceExists: boolean; signInSkipped?: boolean | null; file: string; notes: string[] } | null;
   db?: {
@@ -164,6 +168,9 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
       {(d.gone || d.original.exists) && <button type="button" className={d.gone ? 'btn btn-primary' : 'btn btn-quiet'} onClick={() => setConfirm({ what: 'original' })}>Put the original back</button>}
     </>
   ) : null;
+  // This computer's terminal apps and folder button, as the job's local view names them.
+  const terminals = v.terminalApps?.length ? v.terminalApps : ['iTerm', 'Terminal'];
+  const folder = v.folderLabel ?? 'Finder';
 
   return (
     <div className="try-tab">
@@ -249,12 +256,14 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
       <div className="try-open">
         {btn('open-terminal', 'Open terminal here', async () => { const r = await act('open', { what: 'terminal' }); setNote({ text: `Opened a terminal in ${short(r.dir as string)}.`, tone: 'good' }); })}
         {btn('open-vscode', 'VS Code', async () => { await act('open', { what: 'vscode' }); setNote({ text: 'Opened in VS Code.', tone: 'good' }); }, 'btn btn-quiet')}
-        {btn('open-finder', 'Finder', async () => { await act('open', { what: 'finder' }); setNote({ text: 'Opened in Finder.', tone: 'good' }); }, 'btn btn-quiet')}
-        <label className="try-term">in{' '}
-          <select value={v.terminalApp ?? 'iTerm'} aria-label="Terminal app" onChange={(e) => run('term', async () => { await act('terminal-app', { name: e.target.value }); setNote({ text: `“Open terminal here” now uses ${e.target.value}.`, tone: 'good' }); })}>
-            <option>iTerm</option><option>Terminal</option>
-          </select>
-        </label>
+        {btn('open-finder', folder, async () => { await act('open', { what: 'finder' }); setNote({ text: folder === 'Finder' ? 'Opened in Finder.' : 'Opened the folder.', tone: 'good' }); }, 'btn btn-quiet')}
+        {terminals.length > 1 && (
+          <label className="try-term">in{' '}
+            <select value={v.terminalApp ?? terminals[0]} aria-label="Terminal app" onChange={(e) => run('term', async () => { await act('terminal-app', { name: e.target.value }); setNote({ text: `“Open terminal here” now uses ${e.target.value}.`, tone: 'good' }); })}>
+              {terminals.map((t) => <option key={t}>{t}</option>)}
+            </select>
+          </label>
+        )}
       </div>
 
       <details className="try-more" open={moreOpen} onToggle={(e) => setMoreOpen((e.currentTarget as HTMLDetailsElement).open)}>

@@ -8,11 +8,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { isGitRepo } from './git.js';
+import { tempDirs } from './platform.js';
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 // Lines that look like user messages but aren't something the person typed.
 const NOT_TYPED = /^\s*(<local-command-caveat>|<local-command-stdout>|<local-command-stderr>|<task-notification>|<bash-input>|<bash-stdout>|Caveat:)/;
-const TEMP_ROOTS = [...new Set(['/tmp', '/private/tmp', os.tmpdir(), path.join('/private', os.tmpdir())])];
+const TEMP_ROOTS = tempDirs(); // os.tmpdir(), plus /tmp and /private/tmp on macOS and Linux (lib/platform.js)
 const HEAD_MESSAGES = 50; // the first messages are kept, plus a window of the latest ones
 const TAIL_MESSAGES = 150;
 
