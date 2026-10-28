@@ -5,6 +5,12 @@
 // suggestion from the description and follows it as you type, until you pick one yourself; it is
 // sent as options.level, and the level's defaults set the stages and reviewers. Change it later
 // from the level chip in the job header.
+//
+// The Orbit ticket (plan D1): a job started from a ticket shares its key; the dashboard names the
+// job's folder orbit-<n>-<short-title> and its branch feature/ (or fix/) plus that, and the Foreman
+// reads the ticket through the orbit-feedback MCP server. Started from the Inbox (a `ticket`, or a
+// description the Inbox filled in as "ORBIT-<n>: <title>"), the field is filled in and read-only;
+// otherwise you may type a key yourself, or leave it empty.
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { HistoryList, HistoryRow, LevelNumber, ModelChoice, Repo } from '../../api/types';
 import { navigate } from '../../app/router';
@@ -21,6 +27,21 @@ export const LAST_REPO_KEY = 'fw.newJob.repo';
 const OTHER = '__other';
 const SEARCH_DELAY_MS = 250;
 const SHOWN_ROWS = 8;
+
+/** A ticket a job starts from: the key (ORBIT-<n>), and its title and link when the Inbox knows them. */
+export interface TicketRef { key: string; title?: string | null; url?: string | null }
+
+export const TICKET_KEY_PROBLEM = 'That isn’t a ticket key: use ORBIT- and the number, like ORBIT-479.';
+/** ORBIT-<n> for ORBIT-479, orbit-479, orbit479, #479 or 479; else null (the dashboard's own rule). */
+export function ticketKeyOf(raw: string): string | null {
+  const m = /^(?:orbit-?)?#?([1-9]\d{0,8})$/i.exec(raw.trim());
+  return m ? `ORBIT-${Number(m[1])}` : null;
+}
+/** The ticket in a description the Inbox's Start filled in ("ORBIT-479: Feedback API"), else null. */
+export function ticketFromDescription(text: string): TicketRef | null {
+  const m = /^(ORBIT-[1-9]\d{0,8}):\s*(.*)$/s.exec(text.trim());
+  return m ? { key: m[1], title: m[2].trim() || null, url: null } : null;
+}
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const tokens = (n: number | null | undefined) => (!n ? null : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
@@ -127,11 +148,15 @@ function PastConversation({ picked, onPick, mode, onMode, canContinue }: {
   );
 }
 
-export function NewJobSheet({ onClose, description: initialDescription = '' }: { onClose: () => void; description?: string }) {
+export function NewJobSheet({ onClose, description: initialDescription = '', ticket: givenTicket }: { onClose: () => void; description?: string; ticket?: TicketRef | null }) {
   const { api } = useWorkshop();
   const { meta } = useWorkshopState();
   const models: ModelChoice[] = meta?.models ?? [];
-  const [description, setDescription] = useState(initialDescription);
+  const [description, setDescription] = useState(initialDescription || (givenTicket ? `${givenTicket.key}: ${givenTicket.title ?? ''}`.trim() : ''));
+  // From the Inbox: fixed. Typed here: optional, checked when you start.
+  const [fromInbox] = useState<TicketRef | null>(() => givenTicket ?? ticketFromDescription(initialDescription));
+  const [ticketText, setTicketText] = useState(fromInbox?.key ?? '');
+  const ticketId = useId();
   const [kind, setKind] = useState<'feature' | 'bug'>('feature');
   const [repos, setRepos] = useState<Repos>({ state: 'loading' });
   const [repo, setRepo] = useState<string>('');
@@ -184,12 +209,18 @@ export function NewJobSheet({ onClose, description: initialDescription = '' }: {
     const repoPath = repo === OTHER ? otherPath.trim() : repo;
     if (text.length < 4) { setError('Describe the job in a few words.'); return; }
     if (!repoPath) { setError('Pick the repository, or type the full path of its folder.'); return; }
+    const key = ticketText.trim() ? ticketKeyOf(ticketText) : null;
+    if (ticketText.trim() && !key) { setError(TICKET_KEY_PROBLEM); return; }
+    const ticket = key
+      // The Inbox's title and link; for a key you typed, the description (the dashboard drops a leading "ORBIT-<n>:").
+      ? { key, title: fromInbox?.key === key ? fromInbox.title ?? null : text, url: fromInbox?.key === key ? fromInbox.url ?? null : null }
+      : undefined;
     setBusy(true);
     setError(null);
     try {
       const fromSession = from ? { id: from.id, mode: fromMode } : undefined;
       const options = level !== null ? { level } : {};
-      const r = await api.post<{ slug: string }>('/api/jobs', { description: text, kind, repoPath, model: model || undefined, options, fromSession });
+      const r = await api.post<{ slug: string }>('/api/jobs', { description: text, kind, repoPath, model: model || undefined, options, fromSession, ticket });
       writeStored(LAST_REPO_KEY, repoPath);
       onClose();
       if (r?.slug) navigate({ name: 'job', slug: r.slug });
@@ -222,6 +253,23 @@ export function NewJobSheet({ onClose, description: initialDescription = '' }: {
             placeholder="e.g. Add a Copy ID button next to the ticket ID on the admin ticket page"
             title="One or two sentences. It also becomes the job’s name. ⌘/Ctrl+Enter starts the job."
           />
+
+          <label className="field sheet-field" htmlFor={ticketId}><span>{fromInbox ? 'Orbit ticket' : 'Orbit ticket (optional)'}</span></label>
+          <input
+            id={ticketId}
+            className="text-input num"
+            type="text"
+            value={ticketText}
+            readOnly={Boolean(fromInbox)}
+            aria-readonly={fromInbox ? true : undefined}
+            onChange={(e) => setTicketText(e.target.value)}
+            placeholder="ORBIT-479"
+            spellCheck={false}
+            title={fromInbox ? 'Started from this ticket in the Inbox. The job, its branch and the ticket share this key.' : 'The Orbit ticket this job is for, like ORBIT-479. The job’s folder and branch are then named after it. Leave it empty for a job without a ticket.'}
+          />
+          {fromInbox
+            ? <p className="muted sheet-fine">From the Inbox. The job, its branch and the ticket share this key, and the Foreman reads the ticket through Orbit (read only).</p>
+            : ticketText.trim() && !ticketKeyOf(ticketText) ? <p className="field-problem">{TICKET_KEY_PROBLEM}</p> : null}
 
           <div className="seg" role="radiogroup" aria-label="Kind">
             <span className="seg-label muted">Kind</span>
