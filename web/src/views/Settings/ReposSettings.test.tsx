@@ -4,6 +4,7 @@ import { ApiError, type ApiClient } from '../../api/client';
 import type { RegisteredRepo, RepoRegistry } from '../../api/types';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { snapshot } from '../../state/test-fixtures';
+import { findSettings } from './sections';
 import { repoStatus, ReposSettings } from './ReposSettings';
 
 const ORBIT: RegisteredRepo = {
@@ -119,4 +120,12 @@ describe('Settings → Repos', () => {
     expect((within(form).getByLabelText('The repository’s folder') as HTMLInputElement).value).toBe('');
   });
 
+  it('Find a setting finds the Repos controls, the Orbit token and the usage warnings', () => {
+    expect(findSettings('profile').map((e) => e.id)).toEqual(['repos-list', 'repos-add']);
+    expect(findSettings('repos').every((e) => e.section === 'repos')).toBe(true);
+    for (const q of ['Orbit token', 'inbox', 'read-only token']) expect(findSettings(q).map((e) => e.id), q).toContain('orbit-token');
+    for (const q of ['usage warnings', '80 %', 'plan usage']) expect(findSettings(q).map((e) => e.id), q).toContain('notify-usage');
+    expect(findSettings('orbit token')[0]).toMatchObject({ id: 'orbit-token', section: 'workflow' });
+    expect(findSettings('plan usage')[0]).toMatchObject({ id: 'notify-usage', section: 'notifications' });
+  });
 });
