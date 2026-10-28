@@ -25,6 +25,7 @@ import { CrewDexView } from '../views/CrewDex/CrewDexView';
 import { AchievementsView } from '../views/Achievements/AchievementsView';
 import { NotFoundView } from '../views/NotFound/NotFoundView';
 import { ScreensView } from '../views/Screens/ScreensView';
+import { IntegrateBoard } from '../views/Integrate';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
 import { PlayToasts } from '../play/PlayToasts';
@@ -36,7 +37,7 @@ import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
 import { reopenJob, setJobPolicy, stopRun } from './jobActions';
 import { dialogOpen, paletteKeyLabel, useKeyListener, useKeyScope } from './keyRegistry';
 import { Kbd } from '../components/Kbd';
-import { classicHref, crewDexHref, hrefFor, navigate, openFromHash, settingsHref, useRoute, type Route } from './router';
+import { classicHref, crewDexHref, hrefFor, integrateHref, navigate, openFromHash, settingsHref, useRoute, type Route } from './router';
 import { HomeView } from '../home/HomeView';
 import { deskQueue } from '../home/homeModel';
 import { deskEntries, isShipping } from '../home/nudges';
@@ -108,6 +109,7 @@ function TopBar({ onRetry, onCrew = false, slug = null }: { onRetry: () => void;
       {play.on && (
         <a className="btn btn-quiet" href={crewDexHref()} aria-current={onCrew ? 'page' : undefined} aria-label="Crew-dex" title="The Crew-dex: every crew member, who you have met and what they have done on your jobs (Play mode; key: g x)."><Words long="Crew-dex" short="Crew" /></a>
       )}
+      <a className="btn btn-quiet" href={integrateHref()} title="The integration board: the packet worktrees, their order, and Merge next."><Words long="Integrate" short="Merge" /></a>
       <a className="btn btn-quiet" href={settingsHref()} aria-label="Settings" title="Settings: permissions, notifications, look, keys, workflow, Play and your “Always allow” rules (key: g s)."><Words long="Settings" short="⚙" /></a>
       {/* The same page in the classic view (the job you have open, else its home); its New view button brings you back. */}
       <a className="btn btn-quiet" href={slug ? classicHref.job(slug) : classicHref.home()} aria-label="Classic view" title="Open this page in the classic view: Costs, History, Try it on your computer and the job’s Details live there. Its New view button (key: n) brings you back."><Words long="Classic view" short="Classic" /></a>
@@ -254,13 +256,13 @@ function Shell({ onRetry }: { onRetry: () => void }) {
     );
   }
   // Home (#/, #/table, #/desk) and a job's screens (#/job/<slug>/screens): full width, no Jobs or Preview pane.
-  if (home || route.name === 'screens') {
+  if (home || route.name === 'screens' || route.name === 'integrate') {
     return (
       <div className="app">
         <TopBar onRetry={onRetry} slug={slug} />
         <div className="banner-slot"><UsageBanner /></div>
         <Sheets route={route} />
-        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : <HomeView view={home ?? 'map'} />}
+        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : route.name === 'integrate' ? <IntegrateBoard /> : <HomeView view={home ?? 'map'} />}
         <PlayToasts />
         <PlayEggs />
       </div>

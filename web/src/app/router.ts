@@ -10,6 +10,7 @@
 //   #/settings/<section>  Settings on that section: permissions, notifications, look, keys, workflow, play, rules
 //   #/crew        the Crew-dex in the middle pane (Play mode only; with Play Off it shows #/'s view)
 //   #/achievements  your achievements in the middle pane (Play mode only, like the Crew-dex)
+//   #/integrate   the integration board: the packet worktrees and Merge next, full width (views/Integrate.tsx)
 // Any other #/… is not a page: with Play on the Sleuth looks for it (views/NotFound), with Play
 // Off it shows #/'s view. No hash, "#", "#/" or an in-page "#section" is #/. A query after the hash (#/?theme=x,
 // read by theme/theme.ts) is ignored here, so it changes nothing about the route.
@@ -21,7 +22,7 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export const isSettingsSection = (v: string): v is SettingsSection => (SETTINGS_SECTIONS as readonly string[]).includes(v);
 
 export type Route = { name: 'home' } | { name: 'table' } | { name: 'desk' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
-  | { name: 'screens'; slug: string } | { name: 'not-found'; hash: string };
+  | { name: 'screens'; slug: string } | { name: 'integrate' } | { name: 'not-found'; hash: string };
 
 export function parseHash(rawHash: string): Route {
   const hash = rawHash.replace(/\?.*$/, '');
@@ -32,6 +33,7 @@ export function parseHash(rawHash: string): Route {
   if (/^#\/table\/?$/.test(hash)) return { name: 'table' };
   if (/^#\/desk\/?$/.test(hash)) return { name: 'desk' };
   if (/^#\/achievements\/?$/.test(hash)) return { name: 'achievements' };
+  if (/^#\/integrate\/?$/.test(hash)) return { name: 'integrate' };
   const m = /^#\/job\/([^/?#]+)(?:\/id\/[^/?#]+|\/(screens))?\/?$/.exec(hash);
   if (m) {
     try {
@@ -50,6 +52,7 @@ export function hrefFor(route: Route): string {
   if (route.name === 'achievements') return '#/achievements';
   if (route.name === 'table') return '#/table';
   if (route.name === 'desk') return '#/desk';
+  if (route.name === 'integrate') return '#/integrate';
   if (route.name === 'not-found') return route.hash;
   if (route.name === 'settings') return route.section ? `#/settings/${route.section}` : '#/settings';
   return '#/';
@@ -60,6 +63,9 @@ export const settingsHref = (section?: SettingsSection) => hrefFor({ name: 'sett
 export const crewDexHref = () => hrefFor({ name: 'crew' });
 
 export const achievementsHref = () => hrefFor({ name: 'achievements' });
+
+/** The integration board (packet worktrees, Merge next). */
+export const integrateHref = () => hrefFor({ name: 'integrate' });
 
 export const jobHref = (slug: string) => hrefFor({ name: 'job', slug });
 
