@@ -9,7 +9,7 @@
 // computer last started is stale too, since its pid may have been given to another program since.
 // Everything here is synchronous, so nothing else in this process runs between the check and the write.
 
-import { execFile, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -164,13 +164,26 @@ export class JobLocked extends HttpError {
   }
 }
 
-/** The branch checked out in a folder, or null (not a git folder, detached, git missing). */
+/**
+ * The branch checked out in a folder (or the git folder above it), or null (not git, detached).
+ * Read from .git/HEAD directly, without running git, so it costs no time when a reply starts.
+ */
 export function branchOf(dir) {
-  return new Promise((resolve) => {
-    if (!dir) { resolve(null); return; }
-    execFile('git', ['-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 3000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (err, stdout) => {
-      const out = String(stdout ?? '').trim();
-      resolve(err || !out || out === 'HEAD' ? null : out);
-    });
-  });
+  if (!dir) return null;
+  try {
+    for (let at = path.resolve(dir); ; at = path.dirname(at)) {
+      const dotGit = path.join(at, '.git');
+      let st = null;
+      try { st = fs.statSync(dotGit); } catch { /* not here */ }
+      if (st) {
+        // A worktree's .git is a file naming its real git folder.
+        const gitDir = st.isDirectory() ? dotGit : path.resolve(at, /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'))?.[1]?.trim() ?? '');
+        const head = fs.readFileSync(path.join(gitDir, 'HEAD'), 'utf8');
+        return /^ref:\s*refs\/heads\/(.+)$/m.exec(head)?.[1]?.trim() || null;
+      }
+      if (path.dirname(at) === at) return null;
+    }
+  } catch {
+    return null;
+  }
 }

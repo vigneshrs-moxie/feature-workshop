@@ -31,6 +31,11 @@
 //   unanswered handed over, but the reply ended (an error, or a Stop Claude Code gave no receipt
 //              for) before the Foreman answered it
 // The input still closes when the reply finishes (or you click Stop).
+//
+// Job lock (lib/lock.js, plan D12): a reply takes the job's lock.json as it starts and gives it back
+// when it ends (done, stopped, error or limited), so a terminal /feature session and the dashboard
+// never drive one job at once. A lock another running process holds refuses the start (JobLocked,
+// a 409 with code 'job-locked' that the page shows as the lock card). No job folder: nothing to lock.
 
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
@@ -40,6 +45,7 @@ import { describePermission } from './permissions.js';
 import { draftRule } from './rules.js';
 import { describeTool } from './session-log.js';
 import { hardLine, hardLineHook, orgPushCheck } from './hard-lines.js';
+import * as jobLock from './lock.js';
 
 /** The SDK permission mode for a permission setting. */
 export const sdkModeFor = (mode) => (mode === 'auto' ? 'auto' : 'default');
@@ -61,8 +67,10 @@ export class Driver extends EventEmitter {
    * queryFn: the SDK's query() (injectable for tests).
    * state: State instance. projectsDir: where Claude Code keeps session logs.
    */
-  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, settingsFor = null }) {
+  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, settingsFor = null, locks = jobLock }) {
     super();
+    // locks: lib/lock.js (acquire, release, branchOf), injectable for tests.
+    this.locks = locks;
     this.queryFn = queryFn;
     // policy(run, toolName, input, opts) -> { auto, reason }: routine requests are allowed without asking.
     this.policy = policy;
@@ -139,6 +147,14 @@ export class Driver extends EventEmitter {
     let mode = null;
     if (this.modeFor) { try { mode = await this.modeFor({ featureDir, slug }); } catch { mode = null; } }
     if (this.activeRunFor({ featureDir, sessionId })) throw new Busy('This job’s Foreman is already working on a reply.');
+    // The job lock, taken synchronously right after the busy check (a disk error doesn't stop the reply).
+    let lock = null;
+    if (this.locks && featureDir) {
+      let got = null;
+      try { got = this.locks.acquire(featureDir, { owner: 'runner', branch: this.locks.branchOf?.(cwd) ?? null }); } catch { got = null; }
+      if (got?.held) throw new jobLock.JobLocked(got.by);
+      lock = got?.lock ?? null;
+    }
     const run = {
       id: randomUUID(), featureDir, slug, title, cwd, sessionId, model, text, kind, newJob,
       status: 'starting', startedAt: new Date().toISOString(), endedAt: null,
@@ -153,10 +169,16 @@ export class Driver extends EventEmitter {
       orgPushCheck: orgPushCheck(),
       // Steer: every message steered into this reply, and those not yet handed to Claude Code.
       steers: [], inbox: [], inputClosed: false, wake: null,
+      lock,
     };
     if (mode) run.mode = mode;
     this.runs.set(run.id, run);
-    await this.state.audit({ action: 'send', featureDir, slug, sessionId, kind, text, runId: run.id, model, ...(Number.isInteger(gateBrief) && gateBrief > 0 ? { gateBrief } : {}) });
+    try {
+      await this.state.audit({ action: 'send', featureDir, slug, sessionId, kind, text, runId: run.id, model, ...(Number.isInteger(gateBrief) && gateBrief > 0 ? { gateBrief } : {}) });
+    } catch (err) {
+      this.#releaseLock(run);
+      throw err;
+    }
     this.#launch(run).catch(() => {});
     this.emit('run', this.view(run));
     return this.view(run);
@@ -227,10 +249,18 @@ export class Driver extends EventEmitter {
       for (const s of run.steers) if (s.state === 'delivered') this.#steerState(run, s, 'unanswered');
       this.#dropPending(run, { behavior: 'deny', message: 'The reply ended before this was decided.' }, 'run-ended');
       run.endedAt = new Date().toISOString();
+      this.#releaseLock(run);
       const reply = (run.lastText ?? run.resultText ?? '').slice(0, 8000) || undefined;
       await this.state.audit({ action: 'run-ended', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, status: run.status, costUsd: run.costUsd, error: run.error, reply, stopReason: run.stopReason ?? undefined });
       this.emit('run', this.view(run));
     }
+  }
+
+  // Give the job's lock back (only ever our own: lib/lock.js checks the pid).
+  #releaseLock(run) {
+    if (!run.lock || !this.locks) return;
+    try { this.locks.release(run.featureDir, { pid: run.lock.pid }); } catch { /* a dead pid's lock is taken over anyway */ }
+    run.lock = null;
   }
 
   async #onMessage(run, msg) {
