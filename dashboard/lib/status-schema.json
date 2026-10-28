@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ground-control.local/status-schema.json",
+  "title": "status.json",
+  "description": "The record the Foreman writes after every brief (skills/feature/status-json.md in the skill repository). Version 1, and version 2 = version 1 plus the ticket block, required in version 2. lib/status-json.js validate() checks a file against this schema: a wrong type or a value outside a list is an error; a key the schema doesn't know is a warning. Keep the stage list in step with lib/stages.js (a test checks it).",
+  "type": "object",
+  "required": ["schema_version", "slug", "stage", "stage_state"],
+  "properties": {
+    "schema_version": { "type": "integer", "enum": [1, 2] },
+    "slug": { "type": "string" },
+    "title": { "type": ["string", "null"] },
+    "route": { "enum": ["quick", "small", "large", null] },
+    "kind": { "enum": ["feature", "bug", null] },
+    "suggested_level": { "type": ["integer", "null"], "minimum": 0, "maximum": 3 },
+    "predicted_paths": { "type": ["array", "null"], "items": { "type": "string" } },
+    "level_reason": { "type": ["string", "null"] },
+    "stage": {
+      "enum": ["clarify", "spec", "refine", "wireframe", "investigate", "spec-update", "plan", "implement", "test", "review", "pr1", "pr2", "staging-qa", "pr3", null]
+    },
+    "stage_state": { "enum": ["working", "waiting_for_you", "blocked", "done"] },
+    "waiting_for": { "enum": ["approval", "answers", "permission", null] },
+    "waiting_since": { "type": ["string", "null"] },
+    "brief": {
+      "type": ["object", "null"],
+      "properties": {
+        "number": { "type": ["integer", "null"], "minimum": 1 },
+        "path": { "type": ["string", "null"] },
+        "headline": { "type": ["string", "null"] }
+      }
+    },
+    "questions": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["id", "text"],
+        "properties": {
+          "id": { "type": ["string", "integer"] },
+          "text": { "type": "string" },
+          "recommendation": { "type": ["string", "integer", "null"] },
+          "options": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "object",
+              "required": ["id", "label"],
+              "properties": {
+                "id": { "type": ["string", "integer"] },
+                "label": { "type": "string" },
+                "consequence": { "type": ["string", "null"] }
+              }
+            }
+          }
+        }
+      }
+    },
+    "decided_on_your_behalf": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["decision"],
+        "properties": {
+          "id": { "type": ["string", "null"] },
+          "decision": { "type": "string" },
+          "reason": { "type": ["string", "null"] },
+          "where": { "type": ["string", "null"] },
+          "confirmed": { "type": "boolean" }
+        }
+      }
+    },
+    "next_proposed": { "type": ["string", "null"] },
+    "spec": {
+      "type": ["object", "null"],
+      "properties": {
+        "path": { "type": ["string", "null"] },
+        "version": { "type": ["string", "number", "null"] },
+        "status": { "type": ["string", "null"] }
+      }
+    },
+    "artifacts": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": ["string", "null"] },
+          "version": { "type": ["string", "number", "null"] },
+          "based_on": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "repo": {
+      "type": ["object", "null"],
+      "properties": {
+        "path": { "type": ["string", "null"] },
+        "base_branch": { "type": ["string", "null"] }
+      }
+    },
+    "branch": { "type": ["string", "null"] },
+    "worktree": { "type": ["string", "null"] },
+    "base_sha": { "type": ["string", "null"] },
+    "prs": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["number"],
+        "properties": {
+          "number": { "type": "integer", "enum": [1, 2, 3] },
+          "label": { "type": ["string", "null"] },
+          "url": { "type": ["string", "null"] },
+          "state": { "enum": ["not_started", "open", "changes_requested", "approved", "merged", "closed"] }
+        }
+      }
+    },
+    "ticket": {
+      "type": ["object", "null"],
+      "required": ["key"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^ORBIT-[1-9][0-9]{0,8}$", "description": "a ticket key like ORBIT-479" },
+        "title": { "type": ["string", "null"] },
+        "url": { "type": ["string", "null"], "pattern": "^https://", "description": "an https:// link" },
+        "level": { "enum": ["L0", "L1", "L2", "L3", null] }
+      }
+    },
+    "session_id": { "type": ["string", "null"] },
+    "cwd": { "type": ["string", "null"] },
+    "updated_at": { "type": ["string", "null"] }
+  },
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": { "required": ["schema_version"], "properties": { "schema_version": { "const": 2 } } },
+      "then": { "required": ["ticket"], "properties": { "ticket": { "type": "object" } } }
+    }
+  ]
+}
