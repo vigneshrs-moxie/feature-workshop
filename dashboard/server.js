@@ -2182,6 +2182,42 @@ async function routeOrbit(req, res, urlPath, url) {
   return sendJson(res, 200, scrubDeep(await orbitStatus()));
 }
 
+// ---------- Telemetry (packet T): usage.jsonl and /api/telemetry (lib/usage-log.js, lib/telemetry.js) ----------
+// One line per Foreman turn in usage.jsonl: who (the Ground Control user), the Claude account, job,
+// ticket, stage, section, worker, model, tokens, cost and both plan meters. It lives in
+// ~/.ground-control, or in the state folder when one is set (WORKSHOP_STATE_DIR, demo mode);
+// GROUND_CONTROL_DIR overrides both. Nothing is sent anywhere.
+const { UsageLog, TurnMeter, turnLines, usageDir, groundControlUser, claudeAccountId } = await import('./lib/usage-log.js');
+const { statusTicketKey, slugTicketKey } = await import('./lib/orbit.js');
+const usageLog = new UsageLog({ dir: usageDir({ stateDir: process.env.WORKSHOP_STATE_DIR || DEMO ? state.dir : null }) });
+const turnMeter = new TurnMeter();
+const usageUser = groundControlUser();
+const usageAccount = DEMO ? Promise.resolve(null) : claudeAccountId();
+const RUN_ENDED = new Set(['done', 'stopped', 'error', 'limited']);
+// One turn at a time, in order, so each one's cost is worked out after the one before is written.
+let usageChain = Promise.resolve();
+function logTurn(turn) {
+  if (!turn) return;
+  usageChain = usageChain.then(async () => {
+    const f = turn.slug ? await featureBySlug(turn.slug).catch(() => null) : null;
+    const dir = f?.dir ?? turn.featureDir ?? null;
+    const status = dir ? await fsp.readFile(path.join(dir, 'status.json'), 'utf8').then(JSON.parse).catch(() => null) : null;
+    const lines = turnLines(turn, {
+      at: new Date().toISOString(), user: usageUser, account: await usageAccount,
+      ticket: (dir ? await statusTicketKey(dir) : null) ?? slugTicketKey(turn.slug),
+      stage: f?.stage ?? status?.stage ?? stageOfSlug(turn.slug),
+      section: typeof status?.section === 'string' ? status.section : null,
+      meters: planUsage.view(),
+      sessionPrev: turn.runPrev === null ? await usageLog.sessionTotal(turn.sessionId) : null,
+    });
+    await usageLog.append(lines);
+  }).catch((err) => console.error('usage log:', err.message));
+}
+driver.on('usage', (e) => logTurn(turnMeter.onMessage(e)));
+// A reply stopped before its result: what it used so far is a turn too (an estimate).
+driver.on('run', (run) => { if (RUN_ENDED.has(run.status)) logTurn(turnMeter.forget(run.id, run)); });
+// ---------- end of Telemetry ----------
+
 const server = http.createServer(async (req, res) => {
   if (!hostAllowed(req.headers.host)) return send(res, 421, 'Misdirected request');
   let url;
