@@ -9,6 +9,7 @@
 //   #/settings    Settings in the middle pane, on its first section (Permissions)
 //   #/settings/<section>  Settings on that section: permissions, notifications, look, keys, workflow, play, rules
 //   #/crew        the Crew-dex in the middle pane (Play mode only; with Play Off it shows #/'s view)
+//   #/inbox       your Portal Feedback tickets from Orbit, in the middle pane (views/Inbox.tsx)
 //   #/achievements  your achievements in the middle pane (Play mode only, like the Crew-dex)
 // Any other #/… is not a page: with Play on the Sleuth looks for it (views/NotFound), with Play
 // Off it shows #/'s view. No hash, "#", "#/" or an in-page "#section" is #/. A query after the hash (#/?theme=x,
@@ -20,7 +21,7 @@ export const SETTINGS_SECTIONS = ['permissions', 'notifications', 'look', 'keys'
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export const isSettingsSection = (v: string): v is SettingsSection => (SETTINGS_SECTIONS as readonly string[]).includes(v);
 
-export type Route = { name: 'home' } | { name: 'table' } | { name: 'desk' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
+export type Route = { name: 'home' } | { name: 'table' } | { name: 'desk' } | { name: 'inbox' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
   | { name: 'screens'; slug: string } | { name: 'not-found'; hash: string };
 
 export function parseHash(rawHash: string): Route {
@@ -31,6 +32,7 @@ export function parseHash(rawHash: string): Route {
   if (/^#\/crew\/?$/.test(hash)) return { name: 'crew' };
   if (/^#\/table\/?$/.test(hash)) return { name: 'table' };
   if (/^#\/desk\/?$/.test(hash)) return { name: 'desk' };
+  if (/^#\/inbox\/?$/.test(hash)) return { name: 'inbox' };
   if (/^#\/achievements\/?$/.test(hash)) return { name: 'achievements' };
   const m = /^#\/job\/([^/?#]+)(?:\/id\/[^/?#]+|\/(screens))?\/?$/.exec(hash);
   if (m) {
@@ -50,6 +52,7 @@ export function hrefFor(route: Route): string {
   if (route.name === 'achievements') return '#/achievements';
   if (route.name === 'table') return '#/table';
   if (route.name === 'desk') return '#/desk';
+  if (route.name === 'inbox') return '#/inbox';
   if (route.name === 'not-found') return route.hash;
   if (route.name === 'settings') return route.section ? `#/settings/${route.section}` : '#/settings';
   return '#/';

@@ -127,11 +127,11 @@ function PastConversation({ picked, onPick, mode, onMode, canContinue }: {
   );
 }
 
-export function NewJobSheet({ onClose }: { onClose: () => void }) {
+export function NewJobSheet({ onClose, description: initialDescription = '' }: { onClose: () => void; description?: string }) {
   const { api } = useWorkshop();
   const { meta } = useWorkshopState();
   const models: ModelChoice[] = meta?.models ?? [];
-  const [description, setDescription] = useState('');
+  const [description, setDescription] = useState(initialDescription);
   const [kind, setKind] = useState<'feature' | 'bug'>('feature');
   const [repos, setRepos] = useState<Repos>({ state: 'loading' });
   const [repo, setRepo] = useState<string>('');
