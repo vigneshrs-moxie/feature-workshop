@@ -512,7 +512,7 @@ test('every audit line passes through scrub: a token in an entry never reaches a
 });
 
 // ---------- Step 5: the routes, on a running (demo) dashboard ----------
-// Temp folders for everything: HOME (so ~/.claude/settings.json is a temp file), the jobs, the
+// Temp folders for everything: HOME (so ~/.claude.json, where Claude Code reads user MCP servers, is a temp file), the jobs, the
 // state folder (the token goes to its 600 file: demo mode never uses the Keychain).
 
 async function freePort() {
@@ -607,7 +607,7 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   assert.ok(Math.abs(Date.parse(r.body.expiresAt) - (Date.now() + 30 * 86_400_000)) < 60_000);
   assert.ok(fake.requests.length >= 3 && fake.requests.every((q) => q.method === 'GET'));
 
-  const mcp = JSON.parse(await fs.readFile(path.join(dirs.home, '.claude', 'settings.json'), 'utf8'));
+  const mcp = JSON.parse(await fs.readFile(path.join(dirs.home, '.claude.json'), 'utf8'));
   assert.deepEqual(mcp.mcpServers['orbit-feedback'], { type: 'http', url: `${fake.url}/api/mcp/feedback`, headers: { Authorization: 'Bearer ${ORBIT_FEEDBACK_TOKEN}' } });
   assert.equal((await fs.stat(path.join(dirs.state, 'orbit-token'))).mode & 0o777, 0o600);
 
@@ -674,7 +674,7 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   assert.equal(r.status, 200);
   assert.equal(r.body.tokenPresent, false);
   await assert.rejects(fs.stat(path.join(dirs.state, 'orbit-token')));
-  assert.equal(JSON.parse(await fs.readFile(path.join(dirs.home, '.claude', 'settings.json'), 'utf8')).mcpServers, undefined);
+  assert.equal(JSON.parse(await fs.readFile(path.join(dirs.home, '.claude.json'), 'utf8')).mcpServers, undefined);
   assert.deepEqual((await get('/api/orbit/inbox')).body.items, []);
   assert.equal((await fetch(`${base}/api/orbit/token`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': pageToken }, body: '{}' })).status, 405);
 });

@@ -42,7 +42,10 @@ const runner = await createRunner({
   skillsDir: path.resolve(process.env.WORKSHOP_SKILLS_DIR || path.join(CLAUDE_DIR, 'skills')),
   stateDir: process.env.WORKSHOP_STATE_DIR || (DEMO ? path.join(path.dirname(FEATURES_DIR), 'state') : undefined),
   demo: DEMO, claudePath: process.env.WORKSHOP_CLAUDE_PATH || null,
-  claudeSettingsFile: path.resolve(process.env.WORKSHOP_CLAUDE_SETTINGS || path.join(CLAUDE_DIR, 'settings.json')),
+  // Claude Code reads user MCP servers from ~/.claude.json, not ~/.claude/settings.json (checked in packet G);
+  // an entry v1 left in settings.json is moved on the next token save.
+  claudeSettingsFile: path.resolve(process.env.WORKSHOP_CLAUDE_SETTINGS || path.join(os.homedir(), '.claude.json')),
+  legacySettingsFile: process.env.WORKSHOP_CLAUDE_SETTINGS ? null : path.join(CLAUDE_DIR, 'settings.json'),
   gateParkMs: process.env.WORKSHOP_GATE_PARK_MS,
   planUsage: !DEMO && process.env.WORKSHOP_PLAN_USAGE !== 'off',
   orbitStore: DEMO || process.env.WORKSHOP_ORBIT_STORE === 'file' ? 'file' : 'auto',
