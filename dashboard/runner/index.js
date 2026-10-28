@@ -73,6 +73,8 @@ import { UsageLog, TurnMeter, turnLines, usageDir, groundControlUser, claudeAcco
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
 import { EVENT_TYPES, NOTES_MAX, parseCommand } from '../lib/protocol.js';
+import { JobLocked, heldElsewhere } from '../lib/lock.js';
+import { RESTART_TEXT, RESUME_KIND, replay, withRestartNotes } from './replay.js';
 
 /** The Foreman models the page offers (meta.models); a reply's model must be one of them. */
 export const MODELS = [
@@ -174,6 +176,10 @@ export async function createRunner(config) {
   const local = new LocalRunner({ state, demo: DEMO });
   // Jobs being marked done right now (sends and automatic carry-ons wait).
   const closing = new Set();
+  // Jobs whose reply the last stop cut off (runner/replay.js), by job folder: { how: 'clean' (it
+  // carries on by itself) or 'crash' (it waits for Resume), at, runId, sessionId, cwd, model, slug }.
+  // Gone once anything is sent to the job, or it is marked done.
+  const restartPaused = new Map();
   // Past Claude Code conversations, to start a job from one.
   const history = new History(PROJECTS_DIR);
   async function historyContext() {
@@ -552,7 +558,8 @@ export async function createRunner(config) {
     // The record says "working" but nobody is: say so honestly instead of showing a busy crew.
     const notRunning = !active && !running.length && f.stageState === 'working';
     const limitPaused = !active && limits.pausedJob(f.dir) ? limits.view().resetsAt : null;
-    const pausedHere = Boolean(limitPaused) || (notRunning && runEnds[f.dir]?.status === 'stopped');
+    const restart = !active ? restartPaused.get(f.dir) ?? null : null;
+    const pausedHere = Boolean(limitPaused) || Boolean(restart) || (notRunning && runEnds[f.dir]?.status === 'stopped');
     const nowDoing = running.map((a) => ({
       who: a.who, name: a.name, doing: a.doing, quietMs: a.quiet?.quietMs ?? null,
       since: a.who === 'conductor' ? a.since : a.startedAt ?? a.since, lastAt: a.lastAt,
@@ -581,6 +588,8 @@ export async function createRunner(config) {
       cost: { totalUsd: Math.max(f.cost.totalUsd, active?.costUsd ?? 0), source: f.cost.source },
       progress: { done: f.stageState === 'done' ? ids.length : Math.max(0, at), total: ids.length },
       updatedAt: f.updatedAt, sources: f.sources, permissions: pendingList.length, limitPaused, limitAuto: limits.autoResume,
+      // Paused by a restart (runner/replay.js): 'clean' carries on by itself, 'crash' waits for Resume.
+      ...(restart ? { restartPaused: { how: restart.how, at: restart.at } } : {}),
       // Levels: chosen (options.json), the Foreman's suggestion (status.json), the rules' (description only here).
       level: f.level, suggestedLevel: f.suggestedLevel, levelReason: f.levelReason, rulesLevel: f.rulesLevel,
       // A gate left waiting past the parking time: still Needs you, with a "parked" chip.
@@ -664,7 +673,7 @@ export async function createRunner(config) {
       const versions = b.file === f.statusBriefFile ? raisedVersions.get(f.dir, b.file) ?? f.versions : null;
       briefs.push({ number: b.number, stage: b.stage, file: b.file, at: st?.mtime.toISOString() ?? null, headline: parsed.headline, point: parsed.happened[0] ?? parsed.next ?? null, versions });
     }
-    const page = pageThread(buildThread({ briefs, audit, autoResume: limits.autoResume }), { before });
+    const page = pageThread(withRestartNotes(buildThread({ briefs, audit, autoResume: limits.autoResume }), audit), { before });
     if (!page) return null;
     const items = page.items.map(({ reply, ...it }) => (it.kind === 'reply' ? { ...it, html: renderMarkdown(reply, { idHref: idHref(f) }) } : it));
     return { items, more: page.more };
@@ -1793,6 +1802,26 @@ export async function createRunner(config) {
       return { ok: true, repoPath: repo.path };
     },
 
+    // POST /api/job/:slug/resume, and `ground-control resume <job>` (via 'cli'): carry on a reply a
+    // restart paused (a crash's waits for this), or one you paused with Stop. The same session,
+    // audited as a 'send' of kind 'resume-after-restart' plus a 'resumed' line saying who asked.
+    async resume(body) {
+      const f = await jobOf(body.slug);
+      const p = restartPaused.get(f.dir) ?? null;
+      const drive = await driveState(f);
+      if (drive.mode === 'running') throw new HttpError(409, 'The Foreman is already working on this job.');
+      const stoppedHere = drive.mode === 'workshop' && runEnds[f.dir]?.status === 'stopped';
+      if (!p && !stoppedHere) throw new HttpError(409, 'This job isn’t paused, so there is nothing to resume. Send the Foreman a message instead.', { code: 'not-paused' });
+      const out = sendPlan(f, drive, { model: p?.model ?? null }, RESTART_TEXT);
+      if (p?.sessionId) Object.assign(out, { sessionId: p.sessionId, text: RESTART_TEXT, cwd: p.cwd ?? out.cwd });
+      if (!out.sessionId) throw new HttpError(409, 'This job has no Foreman session to carry on. Send the Foreman a message instead.', { code: 'no-session' });
+      if (!p) out.text = 'Carry on from where you were.';
+      const run = await startSend(f, out, { kind: RESUME_KIND });
+      restartPaused.delete(f.dir);
+      await state.audit({ action: 'resumed', featureDir: f.dir, slug: f.slug, runId: run.id, sessionId: out.sessionId, via: body.via ?? 'page' });
+      return { ok: true, run };
+    },
+
     // POST /api/usage/resume: "Carry on now".
     async 'usage-resume'() {
       if (!limits.isLimited()) throw new HttpError(409, 'Nothing is paused for the usage limit.');
@@ -2069,6 +2098,77 @@ export async function createRunner(config) {
     changed() { cached = null; notifyChange(); },
   };
 
+  // ---------- After a restart (runner/replay.js) ----------
+
+  // Sending anything to the job, or marking it done, ends its restart pause.
+  state.on('audit', (e) => {
+    if (!e.featureDir || !restartPaused.has(e.featureDir)) return;
+    if (e.action === 'send' || e.action === 'close') { restartPaused.delete(e.featureDir); cached = null; }
+  });
+
+  // Replies a clean stop paused carry on by themselves: tried now and every few seconds while one
+  // waits, once the job's lock is free (another process may hold it: a terminal, another copy of
+  // Ground Control) and no usage limit holds.
+  let resumeTimer = null;
+  let resuming = false;
+  const RESUME_EVERY_MS = 3000;
+  async function carryOnAfterRestart() {
+    if (resuming) return;
+    resuming = true;
+    try {
+      for (const [dir, p] of [...restartPaused]) {
+        if (p.how !== 'clean' || limits.isLimited() || closing.has(dir)) continue;
+        let held = null;
+        try { held = heldElsewhere(dir); } catch { held = null; }
+        if (held) continue;
+        const f = (await features()).find((x) => x.dir === dir);
+        if (!f || f.closed) { restartPaused.delete(dir); continue; }
+        const drive = await driveState(f);
+        // Picked up in a terminal meanwhile: that session is the terminal's now.
+        if (drive.mode === 'terminal') { restartPaused.delete(dir); cached = null; continue; }
+        if (drive.mode === 'running') continue;
+        const cwd = p.cwd ?? drive.cwd ?? f.repoPath;
+        if (!cwd) { restartPaused.delete(dir); continue; }
+        try {
+          const run = await driver.start({
+            featureDir: dir, slug: f.slug, title: f.title, cwd, sessionId: p.sessionId, model: p.model ?? drive.model ?? OPUS,
+            text: RESTART_TEXT, kind: RESUME_KIND, additionalDirectories: await readDirs(),
+          });
+          restartPaused.delete(dir);
+          await state.audit({ action: 'resumed', featureDir: dir, slug: f.slug, runId: run.id, sessionId: p.sessionId, via: 'auto' });
+        } catch (err) {
+          // Taken meanwhile: tried again later. Anything else: left for you (the job shows paused).
+          if (!(err instanceof JobLocked) && !(err instanceof Busy)) {
+            console.error(`resume after restart (${f.slug}):`, err.message);
+            restartPaused.set(dir, { ...p, how: 'crash' });
+          }
+        }
+        cached = null;
+      }
+    } finally {
+      resuming = false;
+    }
+    if (![...restartPaused.values()].some((p) => p.how === 'clean') && resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; }
+  }
+  function startCarryingOn() {
+    if (resumeTimer || ![...restartPaused.values()].some((p) => p.how === 'clean')) return;
+    resumeTimer = setInterval(() => { carryOnAfterRestart().catch((err) => console.error(err)); }, RESUME_EVERY_MS);
+    resumeTimer.unref?.();
+    carryOnAfterRestart().catch((err) => console.error(err));
+  }
+
+  /** The replay (runner/replay.js): rebuilds each open job's restart pause and status-check count. */
+  async function replayRestart() {
+    const jobs = await replay({ state, featuresDir: FEATURES_DIR });
+    for (const [dir, j] of jobs) {
+      if (j.cutOff) restartPaused.set(dir, { how: j.cutOff, at: j.cutOffAt ?? new Date().toISOString(), runId: j.runId, sessionId: j.sessionId, cwd: j.cwd, model: j.model, slug: j.slug });
+      if (j.statusTries || j.statusErrors.length) {
+        driver.statusChecks.set(dir, { seen: undefined, tries: j.statusTries, errors: j.statusErrors, cardId: null, silenced: false, session: j.sessionId ? { sessionId: j.sessionId, model: j.model } : null });
+      }
+    }
+    return jobs;
+  }
+
   // ---------- Start and stop ----------
 
   let started = false;
@@ -2082,6 +2182,8 @@ export async function createRunner(config) {
     await limits.load();
     await startGateParking();
     await skill.check(); // read once at start; /api/meta re-reads only when the file changes
+    // Before the routes open: what the last stop (or crash) left (runner/replay.js).
+    await replayRestart();
     watch(FEATURES_DIR, featureFileChanged);
     watch(PROJECTS_DIR);
     await listen();
@@ -2096,12 +2198,29 @@ export async function createRunner(config) {
     refreshRunTypical().catch(() => {});
     // What waits for you now: later changes are told as notifications, these never are.
     checkWaiting().catch(() => {});
+    // Replies the last clean stop paused carry on.
+    startCarryingOn();
   }
 
-  /** Stopping pauses any reply in progress; sessions stay resumable. Dev servers and commands started from the page stop too. */
-  async function stop() {
-    for (const r of driver.list()) if (ACTIVE_RUN.has(r.status)) driver.stop(r.id);
-    local.stopAll(); // dev servers and commands started from the page stop with it
+  /**
+   * Stopping pauses any reply in progress; sessions stay resumable. Dev servers and commands
+   * started from the page stop too. One audit line `service-stop` names the replies paused (and
+   * those still waiting to carry on from the last restart), so the next start resumes them.
+   */
+  let stopping = null;
+  function stop() {
+    stopping ??= (async () => {
+      if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; }
+      const active = driver.list().filter((r) => ACTIVE_RUN.has(r.status));
+      const paused = active.map((r) => ({ runId: r.id, slug: r.slug, featureDir: r.featureDir, sessionId: r.sessionId, model: r.model, cwd: r.cwd, kind: r.kind }));
+      for (const [dir, p] of restartPaused) {
+        if (p.how === 'clean' && !paused.some((x) => x.featureDir === dir)) paused.push({ runId: p.runId, slug: p.slug, featureDir: dir, sessionId: p.sessionId, model: p.model, cwd: p.cwd, kind: RESUME_KIND });
+      }
+      try { await state.audit({ action: 'service-stop', pid: process.pid, paused }); } catch (err) { console.error('service-stop:', err.message); }
+      for (const r of active) driver.stop(r.id);
+      local.stopAll(); // dev servers and commands started from the page stop with it
+    })();
+    return stopping;
   }
 
   /**

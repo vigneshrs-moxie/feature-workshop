@@ -155,6 +155,8 @@ export default function jobRoutes({ runner, read, send, sendJson, needJob, wiref
       });
     }),
     post(/^\/api\/job\/([^/]+)\/takeover$/, async ({ res, m }) => command(res, { type: 'take-over', slug: await needJob(m[1]) })),
+    // Carry on a reply a restart (or Stop) paused; `ground-control resume <job>` says via 'cli'.
+    post(/^\/api\/job\/([^/]+)\/resume$/, async ({ res, m, body }) => command(res, { type: 'resume', slug: await needJob(m[1]), via: body.via === 'cli' ? 'cli' : 'page' })),
     post(/^\/api\/job\/([^/]+)\/repo$/, async ({ res, m, body }) => {
       const slug = await needJob(m[1]);
       return command(res, { type: 'repo', slug, repoPath: str(body.repoPath, 1000), branch: str(body.branch, 200).trim() || null });
