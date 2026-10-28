@@ -554,6 +554,13 @@ export async function createRunner(config) {
   // Each job's flow lane (lib/flow.js laneOf) by slug, from the last map refresh: where its PRs are.
   let flowLanes = new Map();
 
+  // The job's lock when another live process holds it: { owner, pid, branch, acquiredAt }, else null.
+  function lockView(dir) {
+    let lock = null;
+    try { lock = heldElsewhere(dir); } catch { lock = null; }
+    return lock ? { owner: lock.owner, pid: lock.pid, branch: lock.branch, acquiredAt: lock.acquiredAt } : null;
+  }
+
   function boardCard(f, run) {
     const ids = STAGES.map((s) => s.id).filter((id) => !f.skipped.includes(id));
     const at = ids.indexOf(f.stage);
@@ -593,6 +600,9 @@ export async function createRunner(config) {
       cost: { totalUsd: Math.max(f.cost.totalUsd, active?.costUsd ?? 0), source: f.cost.source },
       progress: { done: f.stageState === 'done' ? ids.length : Math.max(0, at), total: ids.length },
       updatedAt: f.updatedAt, sources: f.sources, permissions: pendingList.length, limitPaused, limitAuto: limits.autoResume,
+      // Another process working on this job (lib/lock.js heldElsewhere: a terminal, another copy of
+      // Ground Control), or null.
+      lock: lockView(f.dir),
       // Paused by a restart (runner/replay.js): 'clean' carries on by itself, 'crash' waits for Resume.
       ...(restart ? { restartPaused: { how: restart.how, at: restart.at } } : {}),
       // Levels: chosen (options.json), the Foreman's suggestion (status.json), the rules' (description only here).
@@ -624,7 +634,7 @@ export async function createRunner(config) {
           firstQuestion: null, questions: 0, unconfirmed: 0, headline: null, nextProposed: null,
           cost: { totalUsd: r.costUsd ?? 0, source: 'claude-code' }, progress: { done: 0, total: 11 }, updatedAt: r.startedAt,
           sources: { workflowStatus: false, statusJson: false }, permissions: pending.length, starting: true,
-          level: null, suggestedLevel: null, levelReason: null, rulesLevel: null, parked: false,
+          level: null, suggestedLevel: null, levelReason: null, rulesLevel: null, parked: false, lock: null,
         };
       });
   }
@@ -1520,10 +1530,10 @@ export async function createRunner(config) {
           if (f.activity.some((a) => stillRunning(f, a, run && ACTIVE_RUN.has(run.status) ? run : null))) throw new HttpError(409, 'Not marked yet: a crew member is still working on this job.');
           if ((await terminalsFor(f)).some((t) => isInside(t.cwd, f.worktree))) throw new HttpError(409, 'Not marked yet: Claude Code is open in its worktree in a terminal. Close it (/exit) first.');
           // Check before touching anything, so a refusal leaves your app running.
-          const check = await checkWorktree(f.worktree, f.repoPath);
+          const check = await checkWorktree(f.worktree, f.repoPath, { jobDir: f.dir });
           if (!check.ok) throw new HttpError(409, `Not marked yet: the worktree can’t be removed safely. ${check.reason}`);
           await local.stopServerAndWait(f.slug); // its app, if started from the job page
-          worktree = await removeWorktree(f.worktree, f.repoPath, { fetch: false });
+          worktree = await removeWorktree(f.worktree, f.repoPath, { fetch: false, jobDir: f.dir });
           if (!worktree.ok) throw new HttpError(409, worktree.partial ? `Not marked yet. ${worktree.reason}` : `Not marked yet: the worktree can’t be removed safely. ${worktree.reason}`);
         }
         if (driver.activeRunFor({ featureDir: f.dir })) throw new HttpError(409, 'The Foreman started a reply meanwhile. Not marked; try again once it’s done.');

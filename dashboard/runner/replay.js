@@ -20,7 +20,8 @@
 // then it writes one audit line `service-start` ({ pid, resumes, paused }).
 //
 // A job whose lock another live process holds (lib/lock.js heldElsewhere) is that process's
-// business: its reply isn't counted as cut off.
+// business: a reply with no end isn't counted as cut off, and a clean stop's reply waits for the
+// lock to be free before it carries on (the runner tries again every few seconds).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -64,7 +65,7 @@ export function replayJob(jobAudit, service, { session = null, held = false } = 
   let stopEntry = null;
   let cutOffAt = null;
   let carried = false;
-  if (send && !closedSince && !held) {
+  if (send && !closedSince) {
     const at = String(send.at ?? '');
     const stopsAfter = service.filter((s) => s.action === 'service-stop' && String(s.at ?? '') >= at);
     const startedBefore = service.some((s) => s.action === 'service-start' && String(s.at ?? '') <= at);
@@ -73,7 +74,7 @@ export function replayJob(jobAudit, service, { session = null, held = false } = 
     else if (stopsAfter.length) {
       stopEntry = named(stopsAfter.at(-1), send);
       if (stopEntry) { cutOff = 'clean'; cutOffAt = stopsAfter.at(-1).at ?? null; }
-    } else if (!ended && startedBefore) cutOff = 'crash';
+    } else if (!ended && startedBefore && !held) cutOff = 'crash';
   }
 
   const sessionId = stopEntry?.sessionId ?? session?.sessionId ?? send?.sessionId ?? null;
