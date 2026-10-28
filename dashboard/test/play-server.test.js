@@ -13,10 +13,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { startDashboard } from './helpers/dashboard.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 
-let root, stateDir, featuresDir, dirs, child, base, token;
+let root, stateDir, featuresDir, dirs, dashboard, base, token;
 const output = [];
 const SESSION = '0f1e2d3c-4b5a-4968-8776-655443322110';
 const PR_AT = new Date(2026, 9, 15, 12).toISOString();
@@ -30,32 +31,21 @@ async function freePort() {
 }
 
 async function start() {
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
   output.length = 0;
-  child = spawn(process.execPath, [SERVER], {
+  dashboard = await startDashboard({
     env: {
-      ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1',
+      HOME: dirs.home, WORKSHOP_DEMO: '1',
       WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
       WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: stateDir,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    output,
   });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
-    child.stderr.on('data', (d) => output.push(String(d)));
-    child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
-  });
+  ({ base } = dashboard);
   token = (await (await fetch(`${base}/api/meta`)).json()).token;
 }
 
 async function stop() {
-  if (child && child.exitCode === null) {
-    const gone = new Promise((r) => child.once('exit', r));
-    child.kill('SIGTERM'); // exactly the dashboard this test started
-    await gone;
-  }
+  await dashboard?.stop(); // exactly the dashboard this test started, and what it started
 }
 
 before(async () => {
@@ -134,7 +124,7 @@ function eventsSince(epoch, ms = 400) {
   });
 }
 
-test('play settings: Subtle and no sounds by default, in meta and the snapshot; the old quest rule moved to the finish line', async () => {
+test('play settings: Subtle and no sounds by default, in meta and the snapshot; the old quest rule moved to the finish line', { timeout: 60_000 }, async () => {
   const meta = await getJson('/api/meta');
   assert.deepEqual(meta.settings.play, { mode: 'subtle', sounds: false });
   assert.deepEqual(meta.settings.workflow, { finishLine: 'pr1-open', wireframes: 'auto', clarify: 'auto', autoLevel: false }, 'play.questDone first-pr → workflow.finishLine pr1-open; screens and clarify default to Auto');
@@ -147,7 +137,7 @@ test('play settings: Subtle and no sounds by default, in meta and the snapshot; 
   assert.deepEqual(saved.workflow, { finishLine: 'pr1-open' });
 });
 
-test('finish line: every card says whether it crossed it; a job past it is Shipping', async () => {
+test('finish line: every card says whether it crossed it; a job past it is Shipping', { timeout: 60_000 }, async () => {
   const cards = (await getJson('/api/features')).features;
   assert.deepEqual(cards.find((c) => c.slug === 'shipped-job').finish, { reached: true, at: null, by: 'pr1-open', landed: null });
   assert.deepEqual(cards.find((c) => c.slug === 'merged-job').finish, { reached: true, at: null, by: 'pr1-open', landed: null });
@@ -158,7 +148,7 @@ test('finish line: every card says whether it crossed it; a job past it is Shipp
   assert.notEqual(jobs.find((j) => j.slug === 'going-job').group, 'shipping');
 });
 
-test('finish line: saved through POST /api/settings { workflow }, checked, and announced', async () => {
+test('finish line: saved through POST /api/settings { workflow }, checked, and announced', { timeout: 60_000 }, async () => {
   for (const bad of [{ finishLine: 'whenever' }, { line: 'main' }, 'main', [], null]) {
     const r = await write('/api/settings', { workflow: bad });
     assert.equal(r.status, 400, JSON.stringify(bad));
@@ -186,7 +176,7 @@ test('finish line: saved through POST /api/settings { workflow }, checked, and a
   await write('/api/settings', { workflow: { finishLine: 'pr1-open' } });
 });
 
-test('play settings: saved through POST /api/settings, checked, and announced', async () => {
+test('play settings: saved through POST /api/settings, checked, and announced', { timeout: 60_000 }, async () => {
   assert.equal((await write('/api/settings', { play: { mode: 'full' } }, { auth: false })).status, 403);
   for (const bad of [{ mode: 'loud' }, { questDone: 'merged' }, { sounds: 'yes' }, { xp: 1 }, 'full', {}]) {
     const r = await write('/api/settings', { play: bad });
@@ -208,7 +198,7 @@ test('play settings: saved through POST /api/settings, checked, and announced', 
   await write('/api/settings', { play: { mode: 'subtle', sounds: false }, policy: 'hands-off' });
 });
 
-test('GET /api/play: the quest done and the clean review, from the job records', async () => {
+test('GET /api/play: the quest done and the clean review, from the job records', { timeout: 60_000 }, async () => {
   const v = await getJson('/api/play');
   assert.equal(v.mode, 'subtle');
   assert.equal(v.quests.done, 2, 'shipped-job and merged-job, both past PR #1 open');
@@ -223,7 +213,7 @@ test('GET /api/play: the quest done and the clean review, from the job records',
   await fs.access(path.join(stateDir, 'play.json'));
 });
 
-test('POST /api/play/secret: token and fixed ids only, recorded once', async () => {
+test('POST /api/play/secret: token and fixed ids only, recorded once', { timeout: 60_000 }, async () => {
   assert.equal((await write('/api/play/secret', { id: 'sandwich' }, { auth: false })).status, 403);
   assert.equal((await write('/api/play/secret', { id: 'free-xp' })).status, 400);
   assert.equal((await write('/api/play/secret', { id: { toString: 'sandwich' } })).status, 400);
@@ -240,7 +230,7 @@ test('POST /api/play/secret: token and fixed ids only, recorded once', async () 
   assert.ok(v.achievements.find((a) => a.id === 'secret-sandwich').unlockedAt);
 });
 
-test('GET /api/teapot: a real 418; the crew headers point at it, and following them finds two secrets', async () => {
+test('GET /api/teapot: a real 418; the crew headers point at it, and following them finds two secrets', { timeout: 60_000 }, async () => {
   const meta = await fetch(`${base}/api/meta`);
   assert.equal(meta.headers.get('x-clacks-overhead'), 'GNU Terry Pratchett');
   assert.match(meta.headers.get('x-crew'), /^Foreman, Scribe, Sleuth, .*Oracle$/);
@@ -259,7 +249,7 @@ test('GET /api/teapot: a real 418; the crew headers point at it, and following t
   assert.deepEqual((await getJson('/api/play')).secrets.found, ['sandwich', 'teapot', 'headers']);
 });
 
-test('POST /api/play/event: themes tried, from the fixed list; all five make an Explorer and a play event', async () => {
+test('POST /api/play/event: themes tried, from the fixed list; all five make an Explorer and a play event', { timeout: 60_000 }, async () => {
   assert.equal((await write('/api/play/event', { kind: 'theme', id: 'blueprint' }, { auth: false })).status, 403);
   assert.equal((await write('/api/play/event', { kind: 'xp', id: 'blueprint' })).status, 400);
   assert.equal((await write('/api/play/event', { kind: 'theme', id: 'hot-pink' })).status, 400);
@@ -282,7 +272,7 @@ test('POST /api/play/event: themes tried, from the fixed list; all five make an 
   assert.ok(explorer.unlockedAt);
 });
 
-test('with Play mode Off nothing is recorded', async () => {
+test('with Play mode Off nothing is recorded', { timeout: 60_000 }, async () => {
   await write('/api/settings', { play: { mode: 'off' } });
   const r = await write('/api/play/secret', { id: 'konami' });
   assert.equal(r.status, 200);
@@ -297,7 +287,7 @@ test('with Play mode Off nothing is recorded', async () => {
   assert.deepEqual((await getJson('/api/play')).secrets.found, ['sandwich', 'teapot', 'headers']);
 });
 
-test('Play mode Off is nothing: GET says only that, play.json is left alone; back on, it catches up without unlock events', async () => {
+test('Play mode Off is nothing: GET says only that, play.json is left alone; back on, it catches up without unlock events', { timeout: 60_000 }, async () => {
   const file = path.join(stateDir, 'play.json');
   await getJson('/api/play');
   await new Promise((r) => setTimeout(r, 1800)); // let any refresh already scheduled finish
@@ -330,7 +320,7 @@ test('Play mode Off is nothing: GET says only that, play.json is left alone; bac
   assert.ok(!news.some((e) => e.data.quest?.slug === 'boss-job'), 'no quest event for what was missed');
 });
 
-test('play.json lost: rebuilt from the audit log at start, with the same unlocks', async () => {
+test('play.json lost: rebuilt from the audit log at start, with the same unlocks', { timeout: 60_000 }, async () => {
   const before = (await getJson('/api/play')).achievements.filter((a) => a.unlockedAt).map((a) => [a.id, a.unlockedAt]);
   await stop();
   await fs.rm(path.join(stateDir, 'play.json'));
@@ -342,7 +332,7 @@ test('play.json lost: rebuilt from the audit log at start, with the same unlocks
   await fs.access(path.join(stateDir, 'play.json'));
 });
 
-test('POST /api/play/event: a hidden theme counts only once unlocked (CRT Terminal by the Konami code, Gold at 10 quests)', async () => {
+test('POST /api/play/event: a hidden theme counts only once unlocked (CRT Terminal by the Konami code, Gold at 10 quests)', { timeout: 60_000 }, async () => {
   const crt = await write('/api/play/event', { kind: 'theme', id: 'crt' });
   assert.equal(crt.status, 409, 'CRT Terminal is still locked');
   assert.match(crt.body.error, /locked/);
@@ -359,7 +349,7 @@ test('POST /api/play/event: a hidden theme counts only once unlocked (CRT Termin
   assert.ok((await getJson('/api/play')).achievements.find((a) => a.id === 'explorer').unlockedAt);
 });
 
-test('a quest done while Play is on is a play event with the quest, for the page to celebrate', async () => {
+test('a quest done while Play is on is a play event with the quest, for the page to celebrate', { timeout: 60_000 }, async () => {
   const { epoch } = await getJson('/api/snapshot');
   const dir = path.join(featuresDir, 'fresh-quest');
   await fs.mkdir(dir, { recursive: true });

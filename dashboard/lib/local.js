@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
+import { envGet, findOnPath, folderLabel, killTree as stopProcessTree, openIn, shellFor, terminalApps } from './platform.js';
 
 const FIRST_PORT = 3001;
 const OUTPUT_MAX = 200_000; // characters kept per output box
@@ -33,7 +34,13 @@ const GIT_PRESETS = [
 ];
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const CHILD_ENV_DROP = /^(PORT|WORKSHOP_[A-Z_]*)$/;
-const PG_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/Applications/Postgres.app/Contents/Versions/latest/bin'];
+// Where the Postgres tools usually are, per system; pgTool() also looks in the versioned folders
+// (Homebrew's opt/postgresql@<n>, Debian's /usr/lib/postgresql/<n>, Windows' PostgreSQL\<n>) and on PATH.
+const PG_DIRS = {
+  darwin: ['/opt/homebrew/bin', '/usr/local/bin', '/Applications/Postgres.app/Contents/Versions/latest/bin'],
+  linux: ['/usr/bin', '/usr/local/bin'],
+  win32: [],
+};
 
 const exists = (p) => fs.existsSync(p);
 const readJson = async (file) => { try { return JSON.parse(await fsp.readFile(file, 'utf8')); } catch { return null; } };
@@ -107,22 +114,39 @@ function childEnv(extra = {}) {
 }
 
 // Kill a process and everything it started (dev servers start helpers of their own).
+// On Windows (no process groups) taskkill /T stops the whole tree (lib/platform.js).
 function killTree(child, signal = 'SIGTERM') {
   if (!child?.pid) return;
-  try { process.kill(-child.pid, signal); } catch { try { child.kill(signal); } catch { /* gone */ } }
+  if (stopProcessTree(child.pid, { signal }) === null) { try { child.kill(signal); } catch { /* gone */ } }
 }
 
 const clip = (s) => (s.length > OUTPUT_MAX ? `…(earlier output trimmed)…\n${s.slice(-OUTPUT_MAX)}` : s);
 
 // ---------- Database (shared local database, migration ledger) ----------
 
-async function pgTool(name) {
-  const dirs = [...PG_DIRS];
-  try {
-    for (const d of await fsp.readdir('/opt/homebrew/opt')) if (/^postgresql(@\d+)?$/.test(d)) dirs.push(path.join('/opt/homebrew/opt', d, 'bin'));
-  } catch { /* no Homebrew */ }
-  for (const d of dirs) if (exists(path.join(d, name))) return path.join(d, name);
-  return name; // hope it's on PATH
+/**
+ * Where a Postgres tool (psql, createdb, dropdb) is: the usual folders for this system first, then
+ * PATH; else the bare name. The system, environment, file check and folder listing are injectable.
+ */
+export async function pgTool(name, { platform = process.platform, env = process.env, exists: has = exists, readdir = (d) => fsp.readdir(d) } = {}) {
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  const dirs = [...(PG_DIRS[platform] ?? [])];
+  const versioned = async (parent, re, sub) => {
+    try {
+      const names = (await readdir(parent)).filter((d) => re.test(d));
+      if (platform !== 'darwin') names.sort((a, b) => (Number(/\d+/.exec(b)?.[0] ?? 0) - Number(/\d+/.exec(a)?.[0] ?? 0))); // the newest first (macOS: as listed, as before)
+      for (const d of names) dirs.push(p.join(parent, d, sub));
+    } catch { /* not installed there */ }
+  };
+  if (platform === 'darwin') await versioned('/opt/homebrew/opt', /^postgresql(@\d+)?$/, 'bin');
+  if (platform === 'linux') await versioned('/usr/lib/postgresql', /^\d+$/, 'bin');
+  if (platform === 'win32') {
+    const roots = new Set([envGet(env, 'ProgramFiles', platform), envGet(env, 'ProgramW6432', platform), 'C:\\Program Files'].filter(Boolean));
+    for (const root of roots) await versioned(p.join(root, 'PostgreSQL'), /^\d+(\.\d+)?$/, 'bin');
+  }
+  const file = platform === 'win32' ? `${name}.exe` : name;
+  for (const d of dirs) if (has(p.join(d, file))) return p.join(d, file);
+  return findOnPath(name, { platform, env, exists: has }) ?? name;
 }
 
 function pgEnv(url) {
@@ -254,7 +278,8 @@ export class LocalRunner extends EventEmitter {
       return this.#serverView(server);
     }
     server.output = `$ ${command}   (in ${w.app.dir})\n`;
-    const child = spawn(process.env.SHELL || '/bin/zsh', ['-c', command], { cwd: w.app.dir, env: childEnv({ PORT: String(port), HOSTNAME: '127.0.0.1', HOST: '127.0.0.1' }), detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const shell = shellFor(command);
+    const child = spawn(shell.file, shell.args, { cwd: w.app.dir, env: childEnv({ PORT: String(port), HOSTNAME: '127.0.0.1', HOST: '127.0.0.1' }), ...shell.options, stdio: ['ignore', 'pipe', 'pipe'] });
     server.child = child;
     const onData = (buf) => {
       const chunk = String(buf).replace(ANSI, '');
@@ -369,7 +394,8 @@ export class LocalRunner extends EventEmitter {
       return Promise.resolve({ ok: true, code: 0 });
     }
     return new Promise((resolve) => {
-      const child = spawn(process.env.SHELL || '/bin/zsh', ['-c', command], { cwd, env: childEnv(), detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      const shell = shellFor(command);
+      const child = spawn(shell.file, shell.args, { cwd, env: childEnv(), ...shell.options, stdio: ['ignore', 'pipe', 'pipe'] });
       cmd.child = child;
       const onData = (buf) => write(String(buf).replace(ANSI, ''));
       child.stdout.on('data', onData);
@@ -396,14 +422,19 @@ export class LocalRunner extends EventEmitter {
 
   // ----- terminal and folders -----
 
-  async open(f, what, terminalApp = 'iTerm') {
+  /**
+   * Open the job's folder: what is 'terminal', 'vscode' (the editor) or 'finder' (the file browser,
+   * whatever this system calls it). terminalApp: one of terminalApps() (else this system's first).
+   */
+  async open(f, what, terminalApp = terminalApps()[0]) {
     const w = await this.where(f);
     if (!w.root) throw new Error(w.reason);
     const dir = w.app?.dir ?? w.root;
     if (this.demo) return { dir };
-    const args = what === 'finder' ? [dir] : what === 'vscode' ? ['-a', 'Visual Studio Code', dir] : ['-a', terminalApp, dir];
-    const r = await sh('open', args, { timeout: 15_000 });
-    if (!r.ok) throw new Error(what === 'terminal' ? `Couldn’t open ${terminalApp}: ${r.stderr.trim() || 'unknown error'}` : r.stderr.trim() || 'Couldn’t open it.');
+    const kind = what === 'finder' ? 'folder' : what === 'vscode' ? 'editor' : 'terminal';
+    const app = terminalApps().includes(terminalApp) ? terminalApp : terminalApps()[0];
+    const r = await openIn(kind, dir, { terminalApp: app });
+    if (!r.ok) throw new Error(kind === 'terminal' ? `Couldn’t open ${app}: ${r.message}` : r.message || 'Couldn’t open it.');
     return { dir };
   }
 
@@ -607,7 +638,9 @@ export class LocalRunner extends EventEmitter {
     const w = await this.where(f);
     const s = await this.#settings();
     const slot = this.jobs.get(f.slug) ?? { server: null, cmd: null };
-    const base = { slug: f.slug, demo: this.demo, terminalApp: s.terminalApp ?? 'iTerm' };
+    const apps = terminalApps();
+    // The terminal apps and the folder button's name for this system (lib/platform.js).
+    const base = { slug: f.slug, demo: this.demo, terminalApp: apps.includes(s.terminalApp) ? s.terminalApp : apps[0], terminalApps: apps, folderLabel: folderLabel() };
     if (!w.root) return { ...base, available: false, reason: w.reason };
     const port = w.app ? await this.portFor(f.slug) : null;
     return {
@@ -623,6 +656,8 @@ export class LocalRunner extends EventEmitter {
   }
 
   async setTerminalApp(name) {
+    const apps = terminalApps();
+    if (!apps.includes(name)) throw new Error(`Choose ${apps.length > 1 ? `${apps.slice(0, -1).join(', ')} or ${apps.at(-1)}` : apps[0]}.`);
     await this.#saveSettings({ terminalApp: name });
   }
 

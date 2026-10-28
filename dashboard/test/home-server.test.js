@@ -15,10 +15,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { startDashboard } from './helpers/dashboard.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 
-let root, stateDir, child, base, token, jobsDir, statusOf;
+let root, stateDir, dashboard, base, token, jobsDir, statusOf;
 const output = [];
 
 async function freePort() {
@@ -43,31 +44,20 @@ before(async () => {
   jobsDir = featuresDir;
   statusOf = status;
 
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, [SERVER], {
+  dashboard = await startDashboard({
     env: {
-      ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1',
+      HOME: dirs.home, WORKSHOP_DEMO: '1',
       WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
       WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: stateDir,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    output,
   });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
-    child.stderr.on('data', (d) => output.push(String(d)));
-    child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
-  });
+  ({ base } = dashboard);
   token = (await (await fetch(`${base}/api/meta`)).json()).token;
 });
 
 after(async () => {
-  if (child && child.exitCode === null) {
-    const gone = new Promise((r) => child.once('exit', r));
-    child.kill('SIGTERM'); // exactly the dashboard this test started
-    await gone;
-  }
+  await dashboard?.stop(); // exactly the dashboard this test started, and what it started
   if (root) await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -89,7 +79,7 @@ async function waitFor(fn, what, ms = 10000) {
 
 const history = async () => (await get('/api/notifications')).history;
 
-test('server: the flow map is served, and Refresh starts a read', async () => {
+test('server: the flow map is served, and Refresh starts a read', { timeout: 60_000 }, async () => {
   const view = await waitFor(async () => { const v = await get('/api/flow'); return v.repos?.length ? v : null; }, 'the flow map');
   assert.equal(view.repos[0].name, 'sample-repo');
   assert.deepEqual(view.repos[0].lanes.map((l) => l.slug).sort(), ['busy-job', 'old-wait']);
@@ -98,7 +88,7 @@ test('server: the flow map is served, and Refresh starts a read', async () => {
   assert.equal((await write('POST', '/api/flow/refresh', {}, { auth: false })).status, 403, 'a write needs the page token');
 });
 
-test('server: a job that starts waiting is told once; one already waiting at start never is', async () => {
+test('server: a job that starts waiting is told once; one already waiting at start never is', { timeout: 60_000 }, async () => {
   await new Promise((r) => setTimeout(r, 1500)); // the start-up baseline
   assert.deepEqual((await history()).filter((h) => h.level === 'needs'), []);
   await fs.writeFile(path.join(jobsDir, 'busy-job', 'status.json'), statusOf('busy-job', { stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: new Date().toISOString() }));
@@ -112,7 +102,7 @@ test('server: a job that starts waiting is told once; one already waiting at sta
   assert.equal((await get('/api/meta')).notifyMethod, null, 'the demo never reaches macOS (so the page keeps its own)');
 });
 
-test('server: presence, and the notification settings', async () => {
+test('server: presence, and the notification settings', { timeout: 60_000 }, async () => {
   assert.equal((await write('POST', '/api/presence', { visible: true })).status, 200);
   assert.equal((await write('POST', '/api/presence', { visible: false })).status, 200);
   const r = await write('POST', '/api/settings', { notify: { levels: { done: 'off' }, quiet: { on: true, from: '21:00' } } });

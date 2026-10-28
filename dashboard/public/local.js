@@ -111,14 +111,16 @@ function skeleton(v) {
 
 function whereHtml(v) {
   const dir = v.app?.dir ?? v.root;
+  // This computer's terminal apps (iTerm and Terminal on a Mac) and folder button, from the local view.
+  const terminals = v.terminalApps?.length ? v.terminalApps : ['iTerm', 'Terminal'];
   return `<span class="lc-folder" title="${esc(dir)}">📁 <code>${esc(short(dir))}</code></span>
     ${v.branch ? `<span>branch <code>${esc(v.branch)}</code></span>` : ''}
     ${v.port ? `<span>port <b>${esc(v.port)}</b></span>` : ''}
     <span class="lc-open">
       <button class="btn small" type="button" data-lc="open" data-what="terminal">Open terminal here</button>
       <button class="btn small ghost" type="button" data-lc="open" data-what="vscode">VS Code</button>
-      <button class="btn small ghost" type="button" data-lc="open" data-what="finder">Finder</button>
-      <label class="lc-term">in <select data-lc-term aria-label="Terminal app"><option${v.terminalApp === 'iTerm' ? ' selected' : ''}>iTerm</option><option${v.terminalApp === 'Terminal' ? ' selected' : ''}>Terminal</option></select></label>
+      <button class="btn small ghost" type="button" data-lc="open" data-what="finder">${esc(v.folderLabel ?? 'Finder')}</button>
+      ${terminals.length > 1 ? `<label class="lc-term">in <select data-lc-term aria-label="Terminal app">${terminals.map((t) => `<option${(v.terminalApp ?? terminals[0]) === t ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>` : ''}
     </span>`;
 }
 

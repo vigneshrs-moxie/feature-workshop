@@ -113,8 +113,10 @@ Nothing is ever saved to your Claude Code settings. Your existing settings still
 To see terminal sessions live (what they're doing, and when they're waiting for a permission click), add a small hook to your Claude Code settings. It records events for this dashboard only, drops file contents, and never changes what Claude Code does. In `~/.claude/settings.json`, under `"hooks"`, add this entry to each of `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionRequest`, `Stop`, `StopFailure`, `SubagentStop` and `SessionEnd` (next to any hooks you already have):
 
 ```json
-{ "matcher": "*", "hooks": [ { "type": "command", "command": "/path/to/feature-workshop/dashboard/hooks/record.mjs" } ] }
+{ "matcher": "*", "hooks": [ { "type": "command", "command": "node \"/path/to/feature-workshop/dashboard/hooks/record.mjs\"" } ] }
 ```
+
+The command starts with `node` so it works on macOS, Linux and Windows. On Windows, write the path with forward slashes (`node \"C:/Users/you/feature-workshop/dashboard/hooks/record.mjs\"`), or double each backslash, since the settings file is JSON.
 
 Events land in `~/.feature-workshop/hook-events/events.jsonl`. Remove the entries to turn it off.
 

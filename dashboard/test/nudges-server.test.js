@@ -12,12 +12,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { startDashboard } from './helpers/dashboard.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 const URL1 = 'https://github.com/example/acme-portal/pull/44';
 const URL2 = 'https://github.com/example/acme-portal/pull/45';
 
-let root, child, base, token;
+let root, dashboard, base, token;
 const output = [];
 
 async function freePort() {
@@ -59,31 +60,20 @@ before(async () => {
   // For the error test: its folder is made read-only once the dashboard runs, so the reply fails.
   await job('pr2-error', pr2);
 
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, [SERVER], {
+  dashboard = await startDashboard({
     env: {
-      ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1',
+      HOME: dirs.home, WORKSHOP_DEMO: '1',
       WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
       WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    output,
   });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
-    child.stderr.on('data', (d) => output.push(String(d)));
-    child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
-  });
+  ({ base } = dashboard);
   token = (await (await fetch(`${base}/api/meta`)).json()).token;
 });
 
 after(async () => {
-  if (child && child.exitCode === null) {
-    const gone = new Promise((r) => child.once('exit', r));
-    child.kill('SIGTERM'); // exactly the dashboard this test started
-    await gone;
-  }
+  await dashboard?.stop(); // exactly the dashboard this test started, and what it started
   if (root) await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -104,7 +94,7 @@ async function waitFor(fn, what, ms = 10000) {
   }
 }
 
-test('server: every card carries its nudges, after the finish line or not', async () => {
+test('server: every card carries its nudges, after the finish line or not', { timeout: 60_000 }, async () => {
   const pr1 = await cardOf('pr1-job');
   // The link: the demo flow map's PR once it is read, the record's until then.
   assert.deepEqual(pr1.nudges.map((n) => [n.id, n.kind, /^https:\/\/github\.com\/.+\/pull\/\d+$/.test(n.link), n.action, n.afterLine]), [['pr1-merge', 'link', true, null, false]]);
@@ -115,7 +105,7 @@ test('server: every card carries its nudges, after the finish line or not', asyn
   assert.deepEqual((await cardOf('plain-job')).nudges, []);
 });
 
-test('server: dismiss remembers the nudge for that job alone, and is audited', async () => {
+test('server: dismiss remembers the nudge for that job alone, and is audited', { timeout: 60_000 }, async () => {
   assert.equal((await post('/api/job/pr2-job/nudge/pr2-review/dismiss', {}, { auth: false })).status, 403, 'a write needs the page token');
   assert.equal((await post('/api/job/pr2-job/nudge/nonsense/dismiss')).status, 404);
   assert.equal((await post('/api/job/no-such-job/nudge/pr2-review/dismiss')).status, 404);
@@ -130,7 +120,7 @@ test('server: dismiss remembers the nudge for that job alone, and is audited', a
   assert.ok(detail.audit.some((e) => e.action === 'nudge-dismissed' && e.nudge === 'pr2-review'), JSON.stringify(detail.audit));
 });
 
-test('server: yes sends the nudge’s sentence to the Foreman as a message, audited like a gate reply', async () => {
+test('server: yes sends the nudge’s sentence to the Foreman as a message, audited like a gate reply', { timeout: 60_000 }, async () => {
   assert.equal((await post('/api/job/pr1-job/nudge/pr1-merge/yes')).status, 400, 'a link nudge has nothing to send');
   const stale = await post('/api/job/pr2-other/nudge/pr2-open/yes');
   assert.equal(stale.status, 409, 'PR #2 is already open: that nudge no longer applies');
@@ -170,7 +160,7 @@ const sentNudgesOf = async (slug) => {
   return Object.entries(sessions).find(([dir]) => dir.endsWith(`/${slug}`))?.[1]?.sentNudges ?? [];
 };
 
-test('server: yes marks the nudge sent only once its message has started: a Busy Foreman leaves it unsent (409, nothing audited, still on the card)', async () => {
+test('server: yes marks the nudge sent only once its message has started: a Busy Foreman leaves it unsent (409, nothing audited, still on the card)', { timeout: 60_000 }, async () => {
   // pr2-busy and pr2-busy-other share a Foreman session (seeded above). A reply on the other job is
   // active in that session, which this job's drive state doesn't see (it looks at the job's own runs),
   // so the send plan passes and the driver refuses to start the run: Busy, as when a reply begins
@@ -191,7 +181,7 @@ test('server: yes marks the nudge sent only once its message has started: a Busy
   }
 });
 
-test('server: a nudge whose reply ends in error comes back: its id leaves sentNudges, the attempt stays in the audit', async () => {
+test('server: a nudge whose reply ends in error comes back: its id leaves sentNudges, the attempt stays in the audit', { timeout: 60_000 }, async () => {
   const dir = path.join(root, 'feature-work', 'pr2-error');
   // Nothing in the job's folder can be written, so the pretend Foreman's first write fails and the reply ends in error.
   await fs.chmod(path.join(dir, 'status.json'), 0o444);

@@ -20,6 +20,7 @@ import { Driver, Busy } from '../lib/driver.js';
 import { State } from '../lib/state.js';
 import { buildThread } from '../lib/thread.js';
 import { makeFakeQuery } from '../demo/fake-query.js';
+import { startDashboard } from './helpers/dashboard.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tmp = (prefix) => fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -86,7 +87,7 @@ const say = (text) => ({ type: 'assistant', parent_tool_use_id: null, message: {
 const done = (text) => ({ type: 'result', subtype: 'success', is_error: false, result: text, total_cost_usd: 0.1, permission_denials: [] });
 const idle = { type: 'system', subtype: 'session_state_changed', state: 'idle' };
 
-test('driver: a steered message reaches the live session mid-reply: queued, delivered, then acted on', async () => {
+test('driver: a steered message reaches the live session mid-reply: queued, delivered, then acted on', { timeout: 60_000 }, async () => {
   const state = await tmpState();
   let release;
   const working = new Promise((r) => { release = r; });
@@ -134,7 +135,7 @@ test('driver: a steered message reaches the live session mid-reply: queued, deli
   assert.equal(line.runId, run.id);
 });
 
-test('driver: where Claude Code stamps replies, only a reply naming the steered message counts as acting on it', async () => {
+test('driver: where Claude Code stamps replies, only a reply naming the steered message counts as acting on it', { timeout: 60_000 }, async () => {
   const state = await tmpState();
   let go, checkpoint, more;
   const gate = new Promise((r) => { go = r; });
@@ -168,7 +169,7 @@ test('driver: where Claude Code stamps replies, only a reply naming the steered 
   assert.equal(ended.steers[0].state, 'acted-on');
 });
 
-test('driver: several steered messages are delivered in order; the input is a queue', async () => {
+test('driver: several steered messages are delivered in order; the input is a queue', { timeout: 60_000 }, async () => {
   const state = await tmpState();
   let go;
   const gate = new Promise((r) => { go = r; });
@@ -192,7 +193,7 @@ test('driver: several steered messages are delivered in order; the input is a qu
   assert.deepEqual(ended.steers.map((x) => [x.id, x.state]), ids.map((id) => [id, 'acted-on']));
 });
 
-test('driver: a message steered in after the result keeps the reply open until it is answered', async () => {
+test('driver: a message steered in after the result keeps the reply open until it is answered', { timeout: 60_000 }, async () => {
   const state = await tmpState();
   let resultSent, answer;
   const afterResult = new Promise((r) => { resultSent = r; });
@@ -225,7 +226,7 @@ test('driver: a message steered in after the result keeps the reply open until i
   assert.equal(ended.steers[0].state, 'acted-on');
 });
 
-test('driver: Stop cancels steered messages the session never read, and asks Claude Code to drop its queue', async () => {
+test('driver: Stop cancels steered messages the session never read, and asks Claude Code to drop its queue', { timeout: 60_000 }, async () => {
   const state = await tmpState();
   // This session never asks for more input, so a steered message stays queued in the dashboard.
   const sessions = [];
@@ -259,7 +260,7 @@ test('driver: Stop cancels steered messages the session never read, and asks Cla
   assert.equal(ended.steers[0].state, 'cancelled');
 });
 
-test('driver: Stop marks a delivered message cancelled when Claude Code says it dropped it', async () => {
+test('driver: Stop marks a delivered message cancelled when Claude Code says it dropped it', { timeout: 60_000 }, async () => {
   const state = await tmpState();
   const { queryFn } = sdkLikeSession(async function* ({ next, isInterrupted }) {
     yield init('s-steer-5');
@@ -278,7 +279,7 @@ test('driver: Stop marks a delivered message cancelled when Claude Code says it 
   assert.equal(ended.steers[0].state, 'cancelled');
 });
 
-test('driver: a delivered message the reply never answered ends up unanswered, not "delivered" forever', async () => {
+test('driver: a delivered message the reply never answered ends up unanswered, not "delivered" forever', { timeout: 60_000 }, async () => {
   // A Stop on a Claude Code too old to return a cancelQueued receipt, and a reply that errors.
   for (const ending of ['stop-no-receipt', 'error']) {
     const state = await tmpState();
@@ -301,7 +302,7 @@ test('driver: a delivered message the reply never answered ends up unanswered, n
   }
 });
 
-test('driver: a steered message is handed over without waiting for the audit write', async () => {
+test('driver: a steered message is handed over without waiting for the audit write', { timeout: 60_000 }, async () => {
   const state = await tmpState();
   let release;
   const held = new Promise((r) => { release = r; });
@@ -327,7 +328,7 @@ test('driver: a steered message is handed over without waiting for the audit wri
   await until(driver, run.id, ['done', 'error']);
 });
 
-test('demo Foreman: steering works in demo mode (the pretend Foreman answers it at its next step)', async () => {
+test('demo Foreman: steering works in demo mode (the pretend Foreman answers it at its next step)', { timeout: 60_000 }, async () => {
   const featuresDir = await tmp('workshop-steer-features-');
   const state = await tmpState();
   const driver = new Driver({ queryFn: makeFakeQuery({ featuresDir }), state, projectsDir: '/nonexistent', policy: async () => ({ auto: true, reason: 'Routine.' }) });
@@ -357,7 +358,7 @@ test('thread: a steered message shows as your message, carrying its steer id', (
 // ---------- the route, through the real dashboard in demo mode ----------
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
-let root, child, base, token;
+let root, dashboard, base, token;
 const output = [];
 
 async function freePort() {
@@ -380,31 +381,20 @@ before(async () => {
     schema_version: 1, slug: 'sample-job', title: 'Sample job', route: 'small', stage: 'implement', stage_state: 'in_progress',
     repo: { path: repo }, updated_at: '2026-10-15T10:00:00Z',
   }, null, 2));
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, [SERVER], {
+  dashboard = await startDashboard({
     env: {
-      ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1',
+      HOME: dirs.home, WORKSHOP_DEMO: '1',
       WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
       WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    output,
   });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
-    child.stderr.on('data', (d) => output.push(String(d)));
-    child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
-  });
+  ({ base } = dashboard);
   token = (await (await fetch(`${base}/api/meta`)).json()).token;
 });
 
 after(async () => {
-  if (child && child.exitCode === null) {
-    const gone = new Promise((r) => child.once('exit', r));
-    child.kill('SIGTERM'); // exactly the dashboard this test started
-    await gone;
-  }
+  await dashboard?.stop(); // exactly the dashboard this test started, and what it started
   if (root) await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -449,7 +439,7 @@ function collectEvents(since, epoch, match) {
   });
 }
 
-test('server: POST /api/runs/:id/steer adds to a reply in progress; its states arrive over the v2 stream', async () => {
+test('server: POST /api/runs/:id/steer adds to a reply in progress; its states arrive over the v2 stream', { timeout: 60_000 }, async () => {
   assert.equal((await write('/api/runs/no-such-run/steer', { text: 'hi' })).status, 404);
   assert.equal((await write('/api/runs/no-such-run/steer', { text: '   ' })).status, 400);
 

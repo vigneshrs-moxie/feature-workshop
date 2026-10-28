@@ -12,6 +12,7 @@
 
 import os from 'node:os';
 import path from 'node:path';
+import { tempDirs } from './platform.js';
 
 /** The permission settings, globally and per job. 'hands-off' is the default. */
 export const POLICIES = ['hands-off', 'ask-all', 'auto'];
@@ -22,7 +23,7 @@ const BUILD_STAGES = new Set(['implement', 'test', 'review']);
 const PR_STAGES = new Set(['pr1', 'pr2', 'staging-qa', 'pr3']);
 const SPEC_STAGES = new Set(['spec', 'refine', 'spec-update']);
 // Scratch output (check logs and the like) may go to the temp folders.
-const TEMP_DIRS = [...new Set(['/tmp', '/private/tmp', os.tmpdir(), path.join('/private', os.tmpdir())])];
+const TEMP_DIRS = tempDirs(); // os.tmpdir(), plus /tmp and /private/tmp on macOS and Linux (lib/platform.js)
 
 const inside = (p, dir) => {
   if (!p || !dir) return false;

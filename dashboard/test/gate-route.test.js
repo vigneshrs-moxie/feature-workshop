@@ -12,11 +12,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { startDashboard } from './helpers/dashboard.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 const OLD = '2026-10-01T10:00:00Z';
 
-let root, featuresDir, stateDir, repo, child, base, token;
+let root, featuresDir, stateDir, repo, dashboard, base, token;
 const output = [];
 
 async function freePort() {
@@ -86,31 +87,20 @@ before(async () => {
   const now = Date.now();
   await fs.writeFile(path.join(stateDir, 'settings.json'), JSON.stringify({ usageLimit: { kind: 'five_hour', since: now, resetsAt: now + 3600_000, resetKnown: true, jobs: [] } }));
 
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, [SERVER], {
+  dashboard = await startDashboard({
     env: {
-      ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1',
+      HOME: dirs.home, WORKSHOP_DEMO: '1',
       WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
       WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: stateDir,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    output,
   });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
-    child.stderr.on('data', (d) => output.push(String(d)));
-    child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
-  });
+  ({ base } = dashboard);
   token = (await (await fetch(`${base}/api/meta`)).json()).token;
 });
 
 after(async () => {
-  if (child && child.exitCode === null) {
-    const gone = new Promise((r) => child.once('exit', r));
-    child.kill('SIGTERM'); // exactly the dashboard this test started
-    await gone;
-  }
+  await dashboard?.stop(); // exactly the dashboard this test started, and what it started
   if (root) await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -142,7 +132,7 @@ async function stopReply(slug) {
 
 const APPROVE_TEXT = 'I approve. Go ahead with the next stage: Build step 1\nAt these versions: quick-plan v2.';
 
-test('usage limit: a message you send yourself drops the held reply; /send can carry the brief a gate reply answers', async () => {
+test('usage limit: a message you send yourself drops the held reply; /send can carry the brief a gate reply answers', { timeout: 60_000 }, async () => {
   const held = await write('POST', '/api/job/dropped-job/gate', { kind: 'approve', briefNumber: 2, startAfterReset: true });
   assert.equal(held.status, 200, JSON.stringify(held.body));
   assert.equal(held.body.held, true);
@@ -171,7 +161,7 @@ test('usage limit: a message you send yourself drops the held reply; /send can c
   await stopReply('dropped-job');
 });
 
-test('usage limit: the gate refuses like /send; “start after reset” holds the reply; Carry on now sends it with its brief', async () => {
+test('usage limit: the gate refuses like /send; “start after reset” holds the reply; Carry on now sends it with its brief', { timeout: 60_000 }, async () => {
   const send = await write('POST', '/api/job/held-job/send', { text: 'go' });
   assert.equal(send.status, 409);
   assert.equal(send.body.code, 'limited');
@@ -205,7 +195,7 @@ test('usage limit: the gate refuses like /send; “start after reset” holds th
   await stopReply('held-job');
 });
 
-test('gate: composes the reply, patches options from the chips, sends it with its brief audited', async () => {
+test('gate: composes the reply, patches options from the chips, sends it with its brief audited', { timeout: 60_000 }, async () => {
   const r = await write('POST', '/api/job/gate-job/gate', {
     kind: 'approve', briefNumber: 2, answers: { 1: { choice: 'a' } }, verdicts: { 'D-1': { verdict: 'confirm' } },
     chips: [{ kind: 'skip', stage: 'test' }, { kind: 'level', level: 2, was: 0 }, { kind: 'fable', point: 'review' }, { kind: 'lighter', stage: 'review' }, { kind: 'skip', stage: 'implement' }],
@@ -255,7 +245,7 @@ test('gate: composes the reply, patches options from the chips, sends it with it
   assert.ok(job.thread.some((t) => t.kind === 'note' && t.text.startsWith('You changed how this job runs (from the next stage): Level changed from L1 Small to L2 Standard. Level: L2 Standard')));
 });
 
-test('gate: with a reply in progress nothing is sent; the text comes back and the options are saved; /send refuses', async () => {
+test('gate: with a reply in progress nothing is sent; the text comes back and the options are saved; /send refuses', { timeout: 60_000 }, async () => {
   assert.equal((await get('/api/job/gate-job')).drive.mode, 'running', 'the pretend Foreman is still on the last reply');
   const send = await write('POST', '/api/job/gate-job/send', { text: 'more' });
   assert.equal(send.status, 409);
@@ -271,7 +261,7 @@ test('gate: with a reply in progress nothing is sent; the text comes back and th
   await stopReply('gate-job');
 });
 
-test('gate: refusals send nothing and change nothing', async () => {
+test('gate: refusals send nothing and change nothing', { timeout: 60_000 }, async () => {
   const optionsBefore = await fs.readFile(path.join(featuresDir, 'checks-job', 'options.json'), 'utf8');
   const cases = [
     [{ kind: 'approve', briefNumber: 1 }, 409, /moved on to brief 2/],
@@ -306,7 +296,7 @@ test('gate: refusals send nothing and change nothing', async () => {
 });
 const r409code = (r) => r.body?.code;
 
-test('notes and documents: a symlinked file is not followed (404)', async () => {
+test('notes and documents: a symlinked file is not followed (404)', { timeout: 60_000 }, async () => {
   const notes = await fetch(`${base}/api/job/link-job/notes`);
   assert.equal(notes.status, 404);
   assert.doesNotMatch(await notes.text(), /Not for the dashboard/);
@@ -319,7 +309,7 @@ test('notes and documents: a symlinked file is not followed (404)', async () => 
   assert.equal(plain.status, 200, 'a plain file still opens');
 });
 
-test('gate: a level chip on a job with no level is refused; nothing is written or sent', async () => {
+test('gate: a level chip on a job with no level is refused; nothing is written or sent', { timeout: 60_000 }, async () => {
   const before = await fs.readFile(path.join(featuresDir, 'nolevel-job', 'options.json'), 'utf8');
   const r = await write('POST', '/api/job/nolevel-job/gate', { kind: 'approve', briefNumber: 2, chips: [{ kind: 'level', level: 2 }, { kind: 'fable', point: 'plan' }] });
   assert.equal(r.status, 400);
@@ -328,7 +318,7 @@ test('gate: a level chip on a job with no level is refused; nothing is written o
   assert.ok(!(await auditLines()).some((e) => e.slug === 'nolevel-job'), 'nothing audited');
 });
 
-test('gate: a level chip keeps the job’s own manual test and models (they differ from L1’s), notes and fix rounds; takes the new level’s skip, reviewers and Fable', async () => {
+test('gate: a level chip keeps the job’s own manual test and models (they differ from L1’s), notes and fix rounds; takes the new level’s skip, reviewers and Fable', { timeout: 60_000 }, async () => {
   const r = await write('POST', '/api/job/level-job/gate', { kind: 'approve', briefNumber: 2, chips: [{ kind: 'level', level: 3 }] });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   const o = await readJson(featuresDir, 'level-job', 'options.json');
@@ -348,7 +338,7 @@ test('gate: a level chip keeps the job’s own manual test and models (they diff
   await stopReply('level-job');
 });
 
-test('notes: PUT writes notes.md in the job folder, capped and token-checked; GET reads it; audited by size', async () => {
+test('notes: PUT writes notes.md in the job folder, capped and token-checked; GET reads it; audited by size', { timeout: 60_000 }, async () => {
   assert.deepEqual(await get('/api/job/notes-job/notes'), { text: '', updatedAt: null });
   const saved = await write('PUT', '/api/job/notes-job/notes', { text: 'Ask Raj about the CSV.\n' });
   assert.equal(saved.status, 200, JSON.stringify(saved.body));
@@ -374,7 +364,7 @@ test('notes: PUT writes notes.md in the job folder, capped and token-checked; GE
   assert.equal(thread.length, 1, 'two saves in a row: one line');
 });
 
-test('gate: “Edit, then approve” sends your edited text instead of the composed one; the chips still change the options', async () => {
+test('gate: “Edit, then approve” sends your edited text instead of the composed one; the chips still change the options', { timeout: 60_000 }, async () => {
   assert.equal((await write('POST', '/api/job/edit-job/gate', { kind: 'approve', briefNumber: 2, text: 42 })).body.error, 'The edited reply must be text.');
   assert.equal((await write('POST', '/api/job/edit-job/gate', { kind: 'message', briefNumber: 2, text: 'Hello.' })).body.error, 'Only an approval can carry an edited reply.');
   assert.deepEqual(await sendsFor('edit-job'), [], 'refusals send nothing');
@@ -392,7 +382,7 @@ test('gate: “Edit, then approve” sends your edited text instead of the compo
   await stopReply('edit-job');
 });
 
-test('/send: a gate reply for a brief the Foreman moved on from is refused (409 stale-brief) like /gate; a stop still goes', async () => {
+test('/send: a gate reply for a brief the Foreman moved on from is refused (409 stale-brief) like /gate; a stop still goes', { timeout: 60_000 }, async () => {
   const r = await write('POST', '/api/job/send-stale-job/send', { kind: 'approve', text: APPROVE_TEXT, gateBrief: 1 });
   assert.equal(r.status, 409);
   assert.equal(r.body.code, 'stale-brief');
@@ -403,7 +393,7 @@ test('/send: a gate reply for a brief the Foreman moved on from is refused (409 
   await stopReply('send-stale-job');
 });
 
-test('/send and /gate: a reply over 20,000 characters is refused, not cut short', async () => {
+test('/send and /gate: a reply over 20,000 characters is refused, not cut short', { timeout: 60_000 }, async () => {
   const long = 'x'.repeat(20001);
   const send = await write('POST', '/api/job/long-job/send', { text: long });
   assert.equal(send.status, 400);
@@ -414,7 +404,7 @@ test('/send and /gate: a reply over 20,000 characters is refused, not cut short'
   assert.deepEqual(await sendsFor('long-job'), [], 'nothing sent');
 });
 
-test('gate: approving a plan that changed since the card was raised is refused (409 stale-gate); asking for changes still goes', async () => {
+test('gate: approving a plan that changed since the card was raised is refused (409 stale-gate); asking for changes still goes', { timeout: 60_000 }, async () => {
   // The dashboard notes the versions brief 2 was raised at when it reads the job.
   assert.equal((await get('/api/job/versions-job')).gate.stale, false);
   const status = planStatus('versions-job');
@@ -432,7 +422,7 @@ test('gate: approving a plan that changed since the card was raised is refused (
   await stopReply('versions-job');
 });
 
-test('a decision from the classic page (no gateBrief) answers the current brief; guidance from the gate card does not', async () => {
+test('a decision from the classic page (no gateBrief) answers the current brief; guidance from the gate card does not', { timeout: 60_000 }, async () => {
   const classic = await write('POST', '/api/job/classic-job/send', { kind: 'approve', text: 'I approve.' });
   assert.equal(classic.status, 200, JSON.stringify(classic.body));
   assert.deepEqual((await get('/api/job/classic-job')).answeredBriefs, [2], 'the new page’s card closes after a classic approval');
@@ -445,7 +435,7 @@ test('a decision from the classic page (no gateBrief) answers the current brief;
   await stopReply('guidance-job');
 });
 
-test('options: a level alone is merged with the job’s options; manual test and models follow the new level unless they were the job’s own', async () => {
+test('options: a level alone is merged with the job’s options; manual test and models follow the new level unless they were the job’s own', { timeout: 60_000 }, async () => {
   // L0 → L1: the job had L0's defaults, so it takes L1's Opus build and your own testing.
   const up = await write('POST', '/api/job/l0-job/options', { level: 1 });
   assert.equal(up.status, 200, JSON.stringify(up.body));
@@ -471,7 +461,7 @@ test('options: a level alone is merged with the job’s options; manual test and
   assert.equal((await write('POST', '/api/job/l1-job/options', { level: '1' })).status, 400);
 });
 
-test('options: a save carrying the updated_at it loaded is refused when the options changed since; one without it (the classic page) saves as before', async () => {
+test('options: a save carrying the updated_at it loaded is refused when the options changed since; one without it (the classic page) saves as before', { timeout: 60_000 }, async () => {
   const file = path.join(featuresDir, 'conflict-job', 'options.json');
   const loaded = '2026-10-16T09:00:00.000Z';
   const options = { level: 1, skip: ['spec', 'refine', 'investigate', 'spec-update'], reviewers: ['feature-reviewer'], review_rounds: 1, manual_test: true, fable_checks: ['plan'], notes: 'Mine.' };

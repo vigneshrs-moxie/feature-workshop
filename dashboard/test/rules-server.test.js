@@ -12,10 +12,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { startDashboard } from './helpers/dashboard.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 
-let root, stateDir, child, base, token;
+let root, stateDir, dashboard, base, token;
 const output = [];
 
 async function freePort() {
@@ -46,31 +47,20 @@ before(async () => {
     repo: { path: repo }, updated_at: '2026-10-15T10:00:00Z',
   }, null, 2));
 
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, [SERVER], {
+  dashboard = await startDashboard({
     env: {
-      ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1',
+      HOME: dirs.home, WORKSHOP_DEMO: '1',
       WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
       WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: stateDir,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    output,
   });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
-    child.stderr.on('data', (d) => output.push(String(d)));
-    child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
-  });
+  ({ base } = dashboard);
   token = (await (await fetch(`${base}/api/meta`)).json()).token;
 });
 
 after(async () => {
-  if (child && child.exitCode === null) {
-    const gone = new Promise((r) => child.once('exit', r));
-    child.kill('SIGTERM'); // exactly the dashboard this test started
-    await gone;
-  }
+  await dashboard?.stop(); // exactly the dashboard this test started, and what it started
   if (root) await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -90,7 +80,7 @@ async function waitFor(fn, what, ms = 10000) {
   }
 }
 
-test('server: Always allow saves a rule that covers the waiting request, allows it, and can be removed', async () => {
+test('server: Always allow saves a rule that covers the waiting request, allows it, and can be removed', { timeout: 60_000 }, async () => {
   assert.deepEqual((await get('/api/rules')).rules, []);
   const sent = await write('POST', '/api/job/sample-job/send', { text: 'Carry on, please.' });
   assert.equal(sent.status, 200, JSON.stringify(sent.body));
@@ -143,7 +133,7 @@ test('server: Always allow saves a rule that covers the waiting request, allows 
   assert.ok(after.some((e) => e.action === 'rule-removed' && e.rule === ok.body.rule.id));
 });
 
-test('server: a rule for a request that’s gone is not saved', async () => {
+test('server: a rule for a request that’s gone is not saved', { timeout: 60_000 }, async () => {
   const res = await write('POST', '/api/rules', { rule: { tool: 'Bash', kind: 'exact', value: 'npm test' }, permissionId: 'no-such-request' });
   assert.equal(res.status, 404);
   assert.deepEqual((await get('/api/rules')).rules, []);
@@ -153,7 +143,7 @@ test('server: a rule for a request that’s gone is not saved', async () => {
 
 const idle = () => waitFor(async () => !(await get('/api/runs')).runs.some((r) => ['starting', 'running', 'waiting_permission', 'stopping'].includes(r.status)), 'the earlier reply to end', 15000);
 
-test('server: the permission setting takes auto mode, a job can override it, and both are saved', async () => {
+test('server: the permission setting takes auto mode, a job can override it, and both are saved', { timeout: 60_000 }, async () => {
   await idle(); // a change applies to a reply in progress at once; let the first test's reply end first
   assert.equal((await write('POST', '/api/settings', { policy: 'auto' }, { auth: false })).status, 403);
   assert.equal((await write('POST', '/api/settings', { policy: 'yolo' })).status, 400);
@@ -180,7 +170,7 @@ test('server: the permission setting takes auto mode, a job can override it, and
   await waitFor(async () => (await get('/api/job/sample-job')).thread.some((i) => i.kind === 'note' && /follows your global permission setting/.test(i.text)), 'the thread note');
 });
 
-test('server: in auto mode a push still asks, and what auto mode blocked shows in the thread', async () => {
+test('server: in auto mode a push still asks, and what auto mode blocked shows in the thread', { timeout: 60_000 }, async () => {
   await write('POST', '/api/settings', { policy: 'auto' });
   const sent = await write('POST', '/api/job/sample-job/send', { text: 'Carry on.' });
   assert.equal(sent.status, 200, JSON.stringify(sent.body));
@@ -208,7 +198,7 @@ test('server: in auto mode a push still asks, and what auto mode blocked shows i
   await write('POST', '/api/settings', { policy: 'hands-off' });
 });
 
-test('server: a new rule allows other waiting requests only for jobs not set to ask about everything', async () => {
+test('server: a new rule allows other waiting requests only for jobs not set to ask about everything', { timeout: 60_000 }, async () => {
   await idle();
   await write('POST', '/api/settings', { policy: 'hands-off' });
   assert.equal((await write('POST', '/api/job/sample-job/policy', { policy: 'ask-all' })).status, 200);

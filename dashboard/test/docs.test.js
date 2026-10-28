@@ -14,10 +14,11 @@ import { fileURLToPath } from 'node:url';
 import { DOC_MAX_BYTES, DocError, describeDoc, jsonHtml, listJobDocs, readJobDoc } from '../lib/docs.js';
 import { renderMarkdown } from '../lib/markdown.js';
 import { describePermission } from '../lib/permissions.js';
+import { startDashboard } from './helpers/dashboard.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 
-let root, featuresDir, jobDir, outside, child, base, token;
+let root, featuresDir, jobDir, outside, dashboard, base, token;
 const output = [];
 
 async function freePort() {
@@ -100,31 +101,20 @@ before(async () => {
     if (slug === 'spec-in-job') await fs.writeFile(path.join(dir, specPath), '# Own spec\n');
   }
 
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, [SERVER], {
+  dashboard = await startDashboard({
     env: {
-      ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1',
+      HOME: dirs.home, WORKSHOP_DEMO: '1',
       WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
       WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    output,
   });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
-    child.stderr.on('data', (d) => output.push(String(d)));
-    child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
-  });
+  ({ base } = dashboard);
   token = (await (await fetch(`${base}/api/meta`)).json()).token;
 });
 
 after(async () => {
-  if (child && child.exitCode === null) {
-    const gone = new Promise((r) => child.once('exit', r));
-    child.kill('SIGTERM'); // exactly the dashboard this test started
-    await gone;
-  }
+  await dashboard?.stop(); // exactly the dashboard this test started, and what it started
   if (root) await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -149,7 +139,7 @@ test('docs lib: names and groups by path', () => {
   assert.equal(describeDoc('status.json').group, 'other');
 });
 
-test('docs lib: lists plain .md/.json files at the top and in briefs/review/fable, never hidden files or symlinks', async () => {
+test('docs lib: lists plain .md/.json files at the top and in briefs/review/fable, never hidden files or symlinks', { timeout: 60_000 }, async () => {
   const docs = await listJobDocs(jobDir, { spec: { path: path.join(root, 'repo', 'docs', 'plans', 'spec.md'), version: '0.3' }, recorded: [{ name: 'Implementation plan', path: 'implementation-plan.md', version: '2' }, { name: 'Quick plan', path: path.join(jobDir, 'quick-plan.md'), version: '1' }] });
   const files = docs.map((d) => d.file);
   for (const f of ['spec', 'implementation-plan.md', 'quick-plan.md', 'notes.md', 'review.md', 'review/permissions.md', 'fable/005-plan.md', 'briefs/001-spec.md', 'briefs/002-plan.md', 'handoff.md', 'status.json']) assert.ok(files.includes(f), f);
@@ -167,7 +157,7 @@ test('docs lib: lists plain .md/.json files at the top and in briefs/review/fabl
   assert.match(docs.find((d) => d.file === 'notes.md').updatedAt, /^\d{4}-\d\d-\d\dT/);
 });
 
-test('docs lib: reading refuses traversal, symlinks, other types and big files', async () => {
+test('docs lib: reading refuses traversal, symlinks, other types and big files', { timeout: 60_000 }, async () => {
   const refused = async (rel, status) => {
     await assert.rejects(readJobDoc(jobDir, rel), (err) => err instanceof DocError && err.status === status, rel);
   };
@@ -241,7 +231,7 @@ test('permissions: instructions files and files outside the job folder start on 
   assert.equal(describePermission('Bash', { command: 'y'.repeat(4001) }).previewCut, 4000);
 });
 
-test('route /docs: the job’s documents, grouped, with versions', async () => {
+test('route /docs: the job’s documents, grouped, with versions', { timeout: 60_000 }, async () => {
   const { status, body } = await getJson('/api/job/doc-job/docs');
   assert.equal(status, 200);
   const files = body.docs.map((d) => d.file);
@@ -255,7 +245,7 @@ test('route /docs: the job’s documents, grouped, with versions', async () => {
   assert.equal((await getJson('/api/job/no-such-job/docs')).status, 404);
 });
 
-test('route /doc: html, text and time; refuses traversal, symlinks, types and size', async () => {
+test('route /doc: html, text and time; refuses traversal, symlinks, types and size', { timeout: 60_000 }, async () => {
   const { status, body } = await getJson(docUrl('doc-job', 'implementation-plan.md'));
   assert.equal(status, 200);
   assert.equal(body.name, 'Implementation plan');
@@ -290,7 +280,7 @@ test('route /doc: html, text and time; refuses traversal, symlinks, types and si
   assert.match(upper.body.html, /^<pre class="json-doc">/);
 });
 
-test('route /doc and /docs: a document’s Key points come with it, the right version; none is null', async () => {
+test('route /doc and /docs: a document’s Key points come with it, the right version; none is null', { timeout: 60_000 }, async () => {
   const { body } = await getJson(docUrl('doc-job', 'implementation-plan.md'));
   assert.deepEqual(body.summary.outcome, ['Three steps, one commit each.']);
   assert.deepEqual(body.summary.decisions, [{ text: 'Keep the old column?', recommendation: 'No' }]);
@@ -303,7 +293,7 @@ test('route /doc and /docs: a document’s Key points come with it, the right ve
   assert.ok(!list.some((d) => d.file.startsWith('summaries/')), 'the summaries are not documents of their own');
 });
 
-test('route /doc and /docs: the spec only when it is a .md inside the job’s repository or its folder', async () => {
+test('route /doc and /docs: the spec only when it is a .md inside the job’s repository or its folder', { timeout: 60_000 }, async () => {
   for (const slug of ['spec-outside', 'spec-not-md', 'spec-linked']) {
     const one = await getJson(docUrl(slug, 'spec'));
     assert.equal(one.status, 404, slug);
@@ -318,7 +308,7 @@ test('route /doc and /docs: the spec only when it is a .md inside the job’s re
   assert.ok((await getJson('/api/job/spec-in-job/docs')).body.docs.some((d) => d.file === 'spec'));
 });
 
-test('route /render: renders with the sanitising renderer, needs the token, capped', async () => {
+test('route /render: renders with the sanitising renderer, needs the token, capped', { timeout: 60_000 }, async () => {
   const ok = await post('/api/job/doc-job/render', { text: '## Hi\n\n<script>alert(1)</script> FR-001' });
   assert.equal(ok.status, 200);
   assert.match(ok.body.html, /<h2 id="h-hi">Hi<\/h2>/);

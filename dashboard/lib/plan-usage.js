@@ -8,11 +8,10 @@
 // After each good read the warnings at 80 %, 90 % and full are worked out (lib/usage-warnings.js);
 // each one fired is also emitted as 'warning'.
 
-import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { readSecret } from './credentials.js';
 import { activeWarnings, UsageWarnings } from './usage-warnings.js';
 
 export const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
@@ -25,19 +24,18 @@ export const STALE_MS = 5 * 60_000;
 const WAIT_429_MS = 5 * 60_000;
 const MAX_WAIT_MS = 15 * 60_000;
 
-/** The Claude Code sign-in's access token, or null. Keychain first (macOS), then the credentials file. */
-export async function readClaudeToken({ home = os.homedir(), platform = process.platform } = {}) {
+/**
+ * The Claude Code sign-in's access token, or null (lib/credentials.js): the system's credential
+ * store first (on macOS the Keychain entry "Claude Code-credentials"), then the credentials file
+ * Claude Code keeps on Linux and Windows (and on macOS when the Keychain refused it):
+ * ~/.claude/.credentials.json, or in CLAUDE_CONFIG_DIR when that is set.
+ */
+export async function readClaudeToken({ home = os.homedir(), platform = process.platform, env = process.env, read = readSecret } = {}) {
   const pick = (raw) => {
     try { return JSON.parse(raw)?.claudeAiOauth?.accessToken || null; } catch { return null; }
   };
-  if (platform === 'darwin') {
-    const raw = await new Promise((resolve) => {
-      execFile('security', ['find-generic-password', '-s', 'Claude Code-credentials', '-w'], { timeout: 5000 }, (err, out) => resolve(err ? null : String(out).trim()));
-    });
-    const token = raw && pick(raw);
-    if (token) return token;
-  }
-  try { return pick(await fs.readFile(path.join(home, '.claude', '.credentials.json'), 'utf8')); } catch { return null; }
+  const dir = env?.CLAUDE_CONFIG_DIR || path.join(home, '.claude');
+  return read({ service: 'Claude Code-credentials', file: path.join(dir, '.credentials.json'), accept: pick, platform });
 }
 
 const meter = (m) => {
