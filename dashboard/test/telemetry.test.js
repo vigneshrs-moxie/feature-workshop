@@ -186,3 +186,92 @@ test('words for times and days', () => {
   assert.equal(dayKey('2026-10-28T23:30:00Z', 'UTC'), '2026-10-28');
   assert.equal(dayKey('2026-10-28T23:30:00Z', 'Asia/Kolkata'), '2026-10-29');
 });
+
+// ---------- Through the dashboard (demo mode, temp folders, no Claude) ----------
+
+const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
+
+/** A demo dashboard on temp folders; `prepare(dirs)` runs before it starts. Returns { base, dirs, write, stop, output }. */
+async function startDashboard(prepare = async () => {}) {
+  const { spawn } = await import('node:child_process');
+  const net = await import('node:net');
+  const os = await import('node:os');
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fw-telemetry-')));
+  const dirs = Object.fromEntries(['feature-work', 'state', 'repo', 'projects', 'agents', 'skills', 'home'].map((d) => [d, path.join(root, d)]));
+  for (const d of Object.values(dirs)) await fs.mkdir(d, { recursive: true });
+  await prepare(dirs);
+  // A port with the next one free too (the screens server takes port + 1), away from the ones
+  // the system hands out one after another.
+  const free = (p) => new Promise((resolve) => {
+    const s = net.createServer();
+    s.once('error', () => resolve(false));
+    s.listen(p, '127.0.0.1', () => s.close(() => resolve(true)));
+  });
+  let port = 0;
+  for (let i = 0; i < 50 && !port; i++) {
+    const p = 20000 + Math.floor(Math.random() * 20000);
+    if ((await free(p)) && (await free(p + 1))) port = p;
+  }
+  assert.ok(port, 'a free port');
+  const output = [];
+  const child = spawn(process.execPath, [SERVER], {
+    env: { ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: dirs['feature-work'], WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state, GROUND_CONTROL_USER: 'vignesh', GROUND_CONTROL_DIR: '' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
+    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
+    child.stderr.on('data', (d) => output.push(String(d)));
+    child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
+  });
+  const base = `http://127.0.0.1:${port}`;
+  const token = (await (await fetch(`${base}/api/meta`)).json()).token;
+  const write = async (method, p, body = {}) => {
+    const res = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const stop = async () => {
+    if (child.exitCode === null) {
+      const gone = new Promise((r) => child.once('exit', r));
+      child.kill('SIGTERM'); // exactly the dashboard this test started
+      await gone;
+    }
+    await fs.rm(root, { recursive: true, force: true });
+  };
+  return { base, dirs, write, stop, output };
+}
+
+test('GET /api/telemetry: the five datasets for the window, from usage.jsonl in the state folder', async () => {
+  // The fixture moved so that its "now" is this moment.
+  const shift = Date.now() - Date.parse(NOW);
+  const move = (t) => (t ? new Date(Date.parse(t) + shift).toISOString() : t);
+  const moved = lines.map((l) => ({ ...l, t: move(l.t), meters: { fiveHour: { ...l.meters.fiveHour, resetsAt: move(l.meters.fiveHour.resetsAt) }, week: { ...l.meters.week, resetsAt: move(l.meters.week.resetsAt) } } }));
+  const d = await startDashboard(async (dirs) => {
+    await fs.writeFile(path.join(dirs.state, 'usage.jsonl'), moved.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  });
+  try {
+    const res = await fetch(`${d.base}/api/telemetry?window=week`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.window, 'week');
+    assert.equal(body.me, 'vignesh');
+    assert.equal(body.file, path.join(d.dirs.state, 'usage.jsonl'));
+    assert.equal(body.meters.enabled, false, 'demo mode reads no plan usage');
+    assert.deepEqual(body.datasets.map((x) => [x.id, x.audience]), [['gauge', 'common'], ['by-day-job', 'private'], ['cost', 'private'], ['by-model', 'common'], ['people', 'common']]);
+    const people = body.datasets.find((x) => x.id === 'people');
+    assert.deepEqual(people.people, [{ user: 'vignesh', usd: 34.5, percent: 69 }, { user: 'sohum', usd: 9, percent: 18 }]);
+    const gauge = body.datasets.find((x) => x.id === 'gauge');
+    assert.equal(gauge.forecast.fullAt, move('2026-10-29T03:48:00.000Z'));
+    assert.match(gauge.sentence, /^At this pace, full on \w+day \d\d:\d\d\.$/);
+    for (const x of body.datasets) assert.ok(x.sentence.length > 10, x.id);
+    assert.equal((await (await fetch(`${d.base}/api/telemetry`)).json()).window, 'week', 'this week unless asked');
+    assert.equal((await (await fetch(`${d.base}/api/telemetry?window=30d`)).json()).datasets.find((x) => x.id === 'people').people[0].usd, 131.5);
+    const bad = await fetch(`${d.base}/api/telemetry?window=year`);
+    assert.equal(bad.status, 400);
+    assert.equal((await bad.json()).error, 'The window is one of 5h, week or 30d.');
+    assert.equal((await fetch(`${d.base}/api/telemetry/other`)).status, 404);
+    assert.equal((await d.write('POST', '/api/telemetry', {})).status, 405);
+  } finally {
+    await d.stop();
+  }
+});

@@ -2216,6 +2216,21 @@ function logTurn(turn) {
 driver.on('usage', (e) => logTurn(turnMeter.onMessage(e)));
 // A reply stopped before its result: what it used so far is a turn too (an estimate).
 driver.on('run', (run) => { if (RUN_ENDED.has(run.status)) logTurn(turnMeter.forget(run.id, run)); });
+//   GET /api/telemetry?window=5h|week|30d   the five graphs' data (lib/telemetry.js), each with its
+//       sentence and whether it is private (your own jobs) or common (the shared account), plus the
+//       plan meters now. The window defaults to this week.
+const { telemetry: telemetryOf, WINDOWS: TELEMETRY_WINDOWS } = await import('./lib/telemetry.js');
+async function routeTelemetry(req, res, urlPath, url) {
+  if (req.method !== 'GET') throw new HttpError(405, 'Method not allowed');
+  if (urlPath !== '/api/telemetry') throw new HttpError(404, 'Not found.');
+  const window = url.searchParams.get('window') || 'week';
+  if (!TELEMETRY_WINDOWS.includes(window)) throw new HttpError(400, 'The window is one of 5h, week or 30d.');
+  const now = new Date();
+  const lines = await usageLog.read({ since: now.getTime() - 31 * 24 * 3600e3 });
+  const titles = Object.fromEntries((await features()).map((f) => [f.slug, f.title ?? f.slug]));
+  const meters = planUsage.view();
+  return sendJson(res, 200, { ...telemetryOf(lines, { window, now, me: usageUser, meters, titles }), meters, file: usageLog.file });
+}
 // ---------- end of Telemetry ----------
 
 const server = http.createServer(async (req, res) => {
@@ -2231,6 +2246,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && urlPath === '/api/events') return openEvents(req, res);
     if (urlPath === '/api/integrate' || urlPath.startsWith('/api/integrate/')) return await routeIntegrate(req, res, urlPath); // the integration board
     if (urlPath.startsWith('/api/orbit/')) return await routeOrbit(req, res, urlPath, url);
+    if (urlPath === '/api/telemetry' || urlPath.startsWith('/api/telemetry/')) return await routeTelemetry(req, res, urlPath, url); // Telemetry
     if (req.method === 'GET') return await routeGet(urlPath, url, req, res);
     if (req.method === 'POST') return await routePost(urlPath, req, res);
     if (req.method === 'PUT') return await routePut(urlPath, req, res);
