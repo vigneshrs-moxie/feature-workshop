@@ -66,13 +66,13 @@ import { autoModeEnvironment, remotesOf } from '../lib/auto-env.js';
 import { goAheadCovers } from '../lib/hard-lines.js';
 import { FlowWatch, gatherRepo } from '../lib/flow.js';
 import { noticeBody, Notifier, validateNotifyPatch } from '../lib/notify.js';
-import { Integrator } from '../lib/integrate.js';
+import { Integrator, IntegrateError } from '../lib/integrate.js';
 import { MCP_NAME, OrbitError, OrbitInbox, clearToken, jobsByTicket, normalizeOrbitUrl, orbitClient, setToken } from '../lib/orbit.js';
 import { tokenStore } from '../lib/orbit-token.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, groundControlUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
-import { EVENT_TYPES, parseCommand } from '../lib/protocol.js';
+import { EVENT_TYPES, NOTES_MAX, parseCommand } from '../lib/protocol.js';
 
 /** The Foreman models the page offers (meta.models); a reply's model must be one of them. */
 export const MODELS = [
@@ -85,7 +85,7 @@ export const MODELS = [
 export const ACTIVE_RUN = new Set(['starting', 'running', 'waiting_permission', 'stopping']);
 
 // The notes a job's notes.md may hold (meta.jobOptions.notesMax; the site refuses more).
-export const NOTES_MAX = 20000;
+export { NOTES_MAX };
 
 const str = (v, max = 20000) => (typeof v === 'string' ? v.slice(0, max) : '');
 
@@ -2063,6 +2063,8 @@ export async function createRunner(config) {
       },
     },
     integrator,
+    /** An integration board refusal (lib/integrate.js IntegrateError) as the answer the page has always had. */
+    integrateHttpError: (err) => (err instanceof IntegrateError ? new HttpError(err.status, err.message) : err),
     /** Something outside the runner changed what the page shows (the screens server went down): every page fetches again. */
     changed() { cached = null; notifyChange(); },
   };

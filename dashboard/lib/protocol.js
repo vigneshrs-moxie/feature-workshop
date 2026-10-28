@@ -21,6 +21,9 @@ import { scrubDeep } from './orbit.js';
 /** Bumped whenever a command, a field or an event changes shape. */
 export const PROTOCOL_VERSION = 1;
 
+/** The most a job's notes.md may hold (characters): the notes command's text, and meta.jobOptions.notesMax. */
+export const NOTES_MAX = 20000;
+
 // ---------- Field checks ----------
 
 const isPlain = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -91,7 +94,7 @@ export const LOCAL_COMMANDS = freeze({
   reopen: { slug: required(FIELD.slug) },
   options: { slug: required(FIELD.slug), options: FIELD.json, level: FIELD.json, updated_at: FIELD.json },
   policy: { slug: required(FIELD.slug), policy: FIELD.json },
-  notes: { slug: required(FIELD.slug), text: required(FIELD.text) },
+  notes: { slug: required(FIELD.slug), text: required({ ok: isText(NOTES_MAX), says: `text of at most ${NOTES_MAX.toLocaleString('en')} characters` }) },
   // The job page's "Try it on your computer" actions.
   'try-it': {
     slug: required(FIELD.slug), action: required(str(20)), preset: str(40), command: str(4000), where: oneOf('app', 'root'),
