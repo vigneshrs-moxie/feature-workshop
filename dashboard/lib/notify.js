@@ -321,7 +321,7 @@ export class Notifier {
       const execute = method === 'terminal-notifier' ? await this.#openTab(url) : null;
       const what = { title: 'Feature Workshop', subtitle: title, body, url, execute, group: key ?? slug ?? undefined, sound: verdict.sound ? SOUNDS[level] ?? 'Glass' : null };
       const cmd = method && commandFor(method, what);
-      if (!cmd) why = 'No way to reach macOS here.';
+      if (!cmd) why = 'No way to show a notification on this computer.';
       else {
         const res = await this.run(cmd[0], cmd[1]);
         sent = succeeded(res);
@@ -331,8 +331,8 @@ export class Notifier {
           this.blocked = res?.err || 'terminal-notifier couldn’t show it.';
           const fallback = commandFor('osascript', what);
           sent = succeeded(await this.run(fallback[0], fallback[1]));
-          why = sent ? 'Shown with macOS’s built-in notifier: terminal-notifier isn’t allowed yet.' : 'macOS didn’t take it.';
-        } else if (!sent) why = 'macOS didn’t take it.';
+          why = sent ? 'Shown with macOS’s built-in notifier: terminal-notifier isn’t allowed yet.' : 'The computer didn’t show it.';
+        } else if (!sent) why = 'The computer didn’t show it.';
       }
     }
     const entry = { at: now.toISOString(), level, title, body, slug, sent, why: why ?? undefined, test: test || undefined, quiet: quiet || undefined };

@@ -109,7 +109,7 @@ function mergePrompts(parts) {
   return out;
 }
 
-const isTemp = (p) => Boolean(p) && TEMP_ROOTS.some((t) => p === t || p.startsWith(`${t}/`));
+const isTemp = (p) => Boolean(p) && TEMP_ROOTS.some((t) => p === t || p.startsWith(`${t}/`) || p.startsWith(`${t}\\`));
 
 /**
  * Reads past sessions under projectsDir, with a cache keyed on each file's size and time.

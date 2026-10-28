@@ -65,7 +65,7 @@ export function NotifySettings() {
     setTested(null);
     try {
       const e = await api.post<{ sent: boolean; why?: string }>('/api/notifications/test', {});
-      setTested(e.sent ? `Sent: look at the top right of your screen.${e.why ? ` ${e.why}` : ''}` : `Not sent: ${e.why ?? 'macOS didn’t take it.'}`);
+      setTested(e.sent ? `Sent: look at the top right of your screen.${e.why ? ` ${e.why}` : ''}` : `Not sent: ${e.why ?? 'The computer didn’t show it.'}`);
       setView(await api.get<NotificationsView>('/api/notifications'));
     } catch (err) { setTested(err instanceof Error ? err.message : String(err)); }
   }

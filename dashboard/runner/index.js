@@ -22,6 +22,7 @@
 // audit line `service-stop` naming them, and removes service.json (runner/service-file.js).
 
 import { EventEmitter } from 'node:events';
+import { nodeCommand, terminalApps } from '../lib/platform.js';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
@@ -934,7 +935,7 @@ export async function createRunner(config) {
       // Where a job's screens page is served from (its own origin): the Screens tab frames <origin>/job/<slug>/wireframes.
       // null when that server couldn't listen (screensDown): the tab then shows nothing and says so.
       wireframesOrigin,
-      settings: await state.getSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT },
+      settings: await state.getSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT, command: nodeCommand(HOOK_SCRIPT) },
       // The finish line's choices (lib/finish.js), with their words, for Settings → Workflow.
       finishLines: FINISH_LINES.map((id) => ({ id, ...FINISH_LINE_INFO[id] })),
       jobOptions: { flows: Object.entries(FLOWS).map(([id, f]) => ({ id, label: f.label, note: f.note, model: f.model, defaults: defaultsFor(id) })), skippable: SKIPPABLE, providable: PROVIDABLE, reviewers: REVIEWERS, fablePoints: FABLE_POINTS,
@@ -1721,11 +1722,11 @@ export async function createRunner(config) {
         if (action === 'stop-cmd') return { ok: local.stopCommand(f.slug) };
         if (action === 'open') {
           const what = ['terminal', 'finder', 'vscode'].includes(body.what) ? body.what : 'terminal';
-          const terminalApp = (await state.getSettings()).local?.terminalApp ?? 'iTerm';
+          const terminalApp = (await state.getSettings()).local?.terminalApp ?? terminalApps()[0];
           return await local.open(f, what, terminalApp);
         }
         if (action === 'terminal-app') {
-          const name = ['iTerm', 'Terminal'].includes(body.name) ? body.name : null;
+          const name = terminalApps().includes(body.name) ? body.name : null;
           if (!name) throw new HttpError(400, 'Choose iTerm or Terminal.');
           await local.setTerminalApp(name);
           return { ok: true };
