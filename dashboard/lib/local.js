@@ -5,6 +5,9 @@
 // (an applied_migrations table and an npm "db:migrate" script) it can also switch the shared local
 // database to match the job's branch, and put the saved original back.
 // Nothing here runs by itself: each action is a click on the job page. Output streams to the page.
+// The app folder, the start command, the port range, the files to copy and the keys in them come
+// from the job's repository's profile (lib/profile.js, through lib/repos.js); a repository with no
+// profile gets the general case (profile.js GENERAL), as before profiles existed.
 
 import { spawn, execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
@@ -13,14 +16,10 @@ import fsp from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 import { envGet, findOnPath, folderLabel, killTree as stopProcessTree, openIn, shellFor, terminalApps } from './platform.js';
+import { GENERAL, GENERAL_FILE_RULE, devCommand, fillPattern, tryItRules } from './profile.js';
+import { openRegistry } from './repos.js';
 
-const FIRST_PORT = 3001;
 const OUTPUT_MAX = 200_000; // characters kept per output box
-const APP_SUBDIRS = ['', 'app', 'web', 'frontend', 'client', path.join('apps', 'web')];
-const ENV_FILE = '.env.local';
-// Settings whose localhost address must follow the job's port (sign-in callbacks, links in emails).
-const URL_KEYS = ['AUTH_URL', 'NEXTAUTH_URL', 'NEXT_PUBLIC_APP_URL', 'APP_URL', 'NEXT_PUBLIC_SITE_URL', 'SITE_URL'];
-const BYPASS_KEY = 'DEV_BYPASS_AUTH';
 const PRESETS = [
   { id: 'check', script: 'check', label: 'Run all checks', hint: 'Types, lint and tests, as the job’s checks run them' },
   { id: 'test', script: 'test', label: 'Run tests' },
@@ -81,11 +80,16 @@ export function setEnvKeys(text, values) {
 
 const isLocalHost = (h) => ['localhost', '127.0.0.1', '[::1]', '::1'].includes(h);
 
-/** The changes a job's settings file needs for its port: { values, notes }. Values never leave the server. */
-export function envChanges(text, port) {
+/**
+ * The changes a job's settings file needs for its port: { values, notes }. Values never leave the
+ * server. rule: the profile's file entry (portKeys: the settings whose localhost address follows
+ * the job's port, such as sign-in callbacks; signInSkip: the local sign-in skip, set to true when
+ * the file has it); the general case's without one.
+ */
+export function envChanges(text, port, rule = GENERAL_FILE_RULE) {
   const values = {};
   const notes = [];
-  for (const key of URL_KEYS) {
+  for (const key of rule.portKeys ?? []) {
     const v = envValue(text, key);
     if (v === null || v === '') continue;
     let u;
@@ -94,7 +98,7 @@ export function envChanges(text, port) {
     u.port = String(port);
     values[key] = u.toString().replace(/\/$/, v.endsWith('/') ? '/' : '');
   }
-  if (envValue(text, BYPASS_KEY) !== null) values[BYPASS_KEY] = 'true';
+  if (rule.signInSkip && envValue(text, rule.signInSkip) !== null) values[rule.signInSkip] = 'true';
   return { values, notes };
 }
 
@@ -169,14 +173,16 @@ async function diskMigrations(appDir) {
 // ---------- The service ----------
 
 export class LocalRunner extends EventEmitter {
-  /** state: State (settings key "local"). demo: nothing real runs. */
-  constructor({ state, demo = false }) {
+  /** state: State (settings key "local"). demo: nothing real runs. registry: lib/repos.js's (the state folder's by default). */
+  constructor({ state, demo = false, registry = null }) {
     super();
     this.state = state;
     this.demo = demo;
     this.jobs = new Map(); // slug -> { server, cmd }
     this.dbBusy = false;
     this.dbCache = new Map(); // slug -> { at, view }
+    this.registry = registry ?? (state?.dir ? openRegistry({ dir: state.dir }) : null);
+    this.ranges = new Map(); // slug -> the port range of its repository's profile (where() sets it)
   }
 
   #slot(slug) {
@@ -190,71 +196,129 @@ export class LocalRunner extends EventEmitter {
     await this.state.setSettings({ local: { ...cur, ...patch } });
   }
 
-  /** Where a job's work can run: { root, app, mainApp } or { reason }. */
+  /** The Try it rules for the job's repository: its profile's, or the general case's (lib/profile.js tryItRules). */
+  async #rules(f) {
+    const hit = f.repoPath && this.registry ? await this.registry.profileFor(f.repoPath).catch(() => null) : null;
+    const rules = tryItRules(hit?.ok ? hit.profile : null);
+    this.ranges.set(f.slug, rules.ports);
+    // profile: the one in use, or null (the job page says the repository has none yet); a profile
+    // with errors isn't used, and its errors come along for the page.
+    const profile = rules.profile ? { ...rules.profile, file: hit.file, source: hit.source } : null;
+    return { rules, profile, profileErrors: hit && !hit.ok ? hit.errors : [] };
+  }
+
+  /**
+   * Where a job's work can run: { root, app, mainApp, mainRoot, tryIt, files, profile, profileErrors }
+   * or { reason }. files: the profile's files to copy, with the app folder filled in.
+   */
   async where(f) {
     if (!f.worktree) return { reason: 'This job has no worktree yet. It gets one when building starts, and then you can try it here.' };
-    if (this.demo) return { root: f.worktree, app: { dir: path.join(f.worktree, 'app'), rel: 'app', scripts: { dev: 'next dev', check: 'npm run typecheck && npm test', test: 'vitest run' } }, mainApp: f.repoPath ? path.join(f.repoPath, 'app') : null };
+    const { rules, profile, profileErrors } = await this.#rules(f);
+    const around = (rel) => ({
+      mainRoot: f.repoPath ?? null, tryIt: rules, profile, profileErrors,
+      files: rules.files.map((r) => ({ ...r, from: fillPattern(r.from, { app: rel }), to: fillPattern(r.to, { app: rel }) })),
+    });
+    if (this.demo) {
+      const rel = rules.appDirs[0] || 'app';
+      return { root: f.worktree, app: { dir: path.join(f.worktree, rel), rel, scripts: { dev: 'next dev', check: 'npm run typecheck && npm test', test: 'vitest run' } }, mainApp: f.repoPath ? path.join(f.repoPath, rel) : null, ...around(rel) };
+    }
     if (!exists(f.worktree)) return { reason: `The job’s worktree isn’t there any more (${f.worktree}).` };
     let app = null;
-    for (const rel of APP_SUBDIRS) {
+    for (const rel of rules.appDirs) {
       const dir = path.join(f.worktree, rel);
       const pkg = await readJson(path.join(dir, 'package.json'));
       if (pkg?.scripts?.dev) { app = { dir, rel, scripts: pkg.scripts }; break; }
     }
     const mainApp = app && f.repoPath ? path.join(f.repoPath, app.rel) : null;
-    return { root: f.worktree, app, mainApp };
+    return { root: f.worktree, app, mainApp, ...around(app?.rel ?? '') };
   }
 
+  /**
+   * The job's port: the one it was given, else the first free one in its repository's range (the
+   * range where() last saw for it, else the general case's). When the whole range is taken, a port
+   * an older job was given and isn't using is handed on; failing that, a plain error.
+   */
   async portFor(slug) {
     const s = await this.#settings();
     const ports = s.ports ?? {};
     if (ports[slug]) return ports[slug];
+    const range = this.ranges.get(slug) ?? GENERAL.tryIt.ports;
     const taken = new Set(Object.values(ports));
-    let port = FIRST_PORT;
-    while (taken.has(port) || (!this.demo && await portInUse(port))) port++;
-    await this.#saveSettings({ ports: { ...ports, [slug]: port } });
+    const free = async (p) => this.demo || !(await portInUse(p));
+    const inRange = (p) => p >= range.first && (!range.last || p <= range.last);
+    let port = range.first;
+    while (inRange(port) && (taken.has(port) || !(await free(port)))) port++;
+    let next = { ...ports };
+    if (!inRange(port)) {
+      const running = new Set([...this.jobs].filter(([, j]) => j.server && ['starting', 'running'].includes(j.server.status)).map(([k]) => k));
+      port = null;
+      for (const [k, p] of Object.entries(ports)) {
+        if (inRange(p) && !running.has(k) && await free(p)) { delete next[k]; port = p; break; }
+      }
+      if (port === null) throw new Error(`Every port from ${range.first} to ${range.last} is taken, so this job has none. Stop another app, or widen the range in the repository’s profile.`);
+    }
+    next = { ...next, [slug]: port };
+    await this.#saveSettings({ ports: next });
     return port;
   }
 
   // ----- settings file -----
 
+  /** The job's settings file: the first file to copy that has keys to set (else the first), or null. */
+  static settingsFile(w) {
+    return w.files?.find((r) => r.portKeys?.length || r.signInSkip) ?? w.files?.[0] ?? null;
+  }
+
   async envStatus(w, port) {
-    if (!w.app) return null;
-    const file = path.join(w.app.dir, ENV_FILE);
-    const source = w.mainApp ? path.join(w.mainApp, ENV_FILE) : null;
-    const status = { file: path.join(w.app.rel, ENV_FILE), exists: exists(file), sourceExists: Boolean(source && exists(source)), ready: false, signInSkipped: null, portOk: null, notes: [] };
+    const rule = LocalRunner.settingsFile(w);
+    if (!w.app || !rule) return null;
+    const file = path.join(w.root, rule.to);
+    const source = w.mainRoot ? path.join(w.mainRoot, rule.from) : null;
+    const status = { file: rule.to, exists: exists(file), sourceExists: Boolean(source && exists(source)), ready: false, signInSkipped: null, portOk: null, notes: [] };
     if (!status.exists) return status;
     const text = await fsp.readFile(file, 'utf8').catch(() => '');
-    const { values, notes } = envChanges(text, port);
+    const { values, notes } = envChanges(text, port, rule);
+    const skip = rule.signInSkip ? envValue(text, rule.signInSkip) : null;
     status.notes = notes;
-    status.signInSkipped = envValue(text, BYPASS_KEY) === null ? null : envValue(text, BYPASS_KEY) === 'true';
-    status.portOk = Object.entries(values).filter(([k]) => k !== BYPASS_KEY).every(([k, v]) => envValue(text, k) === v);
+    status.signInSkipped = skip === null ? null : skip === 'true';
+    status.portOk = Object.entries(values).filter(([k]) => k !== rule.signInSkip).every(([k, v]) => envValue(text, k) === v);
     status.ready = status.portOk && status.signInSkipped !== false;
     return status;
   }
 
-  /** Create or fix the job's settings file. Never sends values to the page. */
+  /** Create or fix the job's settings files (the profile's files to copy). Never sends values to the page. */
   async setupEnv(f) {
     const w = await this.where(f);
     if (!w.app) throw new Error(w.reason ?? 'No app folder (a package.json with a "dev" script) in this job’s worktree.');
     if (this.demo) return { changed: [], notes: ['Demo mode: nothing was written.'] };
+    if (!w.files.length) throw new Error('This repository’s profile names no files to copy, so there is nothing to set up.');
     const port = await this.portFor(f.slug);
-    const file = path.join(w.app.dir, ENV_FILE);
-    const ignored = await sh('git', ['-C', w.app.dir, 'check-ignore', '-q', ENV_FILE]);
-    if (!ignored.ok) throw new Error(`${ENV_FILE} isn’t ignored by git in this worktree, so it could be committed by mistake. Not writing it.`);
-    let text;
-    let copied = false;
-    if (exists(file)) text = await fsp.readFile(file, 'utf8');
-    else {
-      const source = w.mainApp && path.join(w.mainApp, ENV_FILE);
-      if (!source || !exists(source)) throw new Error(`Your main folder has no ${ENV_FILE} to copy (looked in ${source ?? 'the main checkout'}).`);
-      text = await fsp.readFile(source, 'utf8');
-      copied = true;
+    // Every file must be ignored by git before any is written.
+    for (const rule of w.files) {
+      const ignored = await sh('git', ['-C', w.root, 'check-ignore', '-q', rule.to]);
+      if (!ignored.ok) throw new Error(`${path.basename(rule.to)} isn’t ignored by git in this worktree, so it could be committed by mistake. Not writing it.`);
     }
-    const { values, notes } = envChanges(text, port);
-    await fsp.writeFile(file, setEnvKeys(text, values), { mode: 0o600 });
+    let copied = false;
+    const changed = [];
+    const notes = [];
+    for (const rule of w.files) {
+      const file = path.join(w.root, rule.to);
+      let text;
+      if (exists(file)) text = await fsp.readFile(file, 'utf8');
+      else {
+        const source = w.mainRoot && path.join(w.mainRoot, rule.from);
+        if (!source || !exists(source)) throw new Error(`Your main folder has no ${path.basename(rule.from)} to copy (looked in ${source ?? 'the main checkout'}).`);
+        text = await fsp.readFile(source, 'utf8');
+        copied = true;
+      }
+      const got = envChanges(text, port, rule);
+      await fsp.mkdir(path.dirname(file), { recursive: true });
+      await fsp.writeFile(file, setEnvKeys(text, got.values), { mode: 0o600 });
+      changed.push(...Object.keys(got.values));
+      notes.push(...got.notes);
+    }
     this.#changed(f.slug);
-    return { copied, changed: Object.keys(values), notes, port };
+    return { copied, changed, notes, port };
   }
 
   // ----- dev server -----
@@ -266,10 +330,10 @@ export class LocalRunner extends EventEmitter {
     if (slot.server && ['starting', 'running'].includes(slot.server.status)) return this.#serverView(slot.server);
     const port = await this.portFor(f.slug);
     if (!this.demo && await portInUse(port)) throw new Error(`Something else is already using port ${port}. Stop it, or close the other app, and try again.`);
-    const usesNext = /\bnext\b/.test(w.app.scripts.dev);
-    // Only on this computer: with the sign-in skip on, the app must not be reachable from the network.
-    const command = `npm run dev${usesNext ? ` -- -p ${port} -H 127.0.0.1` : ''}`;
-    const server = { status: 'starting', port, url: `http://localhost:${port}`, command, startedAt: new Date().toISOString(), output: '', child: null, exitCode: null };
+    // The profile's command, or the app's dev script (only on this computer for a Next.js app: with
+    // the sign-in skip on, the app must not be reachable from the network).
+    const command = devCommand(w.tryIt, w.app.scripts.dev, port);
+    const server = { status: 'starting', port, url: fillPattern(w.tryIt.url, { port }), command, startedAt: new Date().toISOString(), output: '', child: null, exitCode: null };
     slot.server = server;
     if (this.demo) {
       server.output = `$ ${command}\nDemo mode: nothing real runs.\n`;
@@ -442,18 +506,20 @@ export class LocalRunner extends EventEmitter {
 
   /** The shared local database this app uses, if it's one we can switch: { url, name, app } or { reason }. */
   async #database(w) {
-    if (!w.app?.scripts['db:migrate'] || !exists(path.join(w.app.dir, 'prisma', 'migrations'))) return { reason: null };
-    const source = w.mainApp && path.join(w.mainApp, ENV_FILE);
+    const key = w.tryIt?.dbUrlKey;
+    const rule = LocalRunner.settingsFile(w);
+    if (!key || !rule || !w.app?.scripts['db:migrate'] || !exists(path.join(w.app.dir, 'prisma', 'migrations'))) return { reason: null };
+    const source = w.mainRoot && path.join(w.mainRoot, rule.from);
     const text = source && exists(source) ? await fsp.readFile(source, 'utf8').catch(() => '') : '';
-    const url = envValue(text, 'DATABASE_URL');
-    if (!url) return { reason: `Your main folder’s ${ENV_FILE} has no DATABASE_URL.` };
+    const url = envValue(text, key);
+    if (!url) return { reason: `Your main folder’s ${path.basename(rule.from)} has no ${key}.` };
     let u;
-    try { u = new URL(url); } catch { return { reason: 'DATABASE_URL isn’t a database address the workshop can read.' }; }
+    try { u = new URL(url); } catch { return { reason: `${key} isn’t a database address the workshop can read.` }; }
     if (!/^postgres(ql)?:$/.test(u.protocol)) return { reason: 'Only Postgres databases can be switched from here.' };
     if (!isLocalHost(u.hostname)) return { reason: 'Your app’s database isn’t on this computer, so the workshop won’t touch it.' };
     let name;
     let env;
-    try { name = decodeURIComponent(u.pathname.slice(1)); env = pgEnv(url); } catch { return { reason: 'DATABASE_URL has characters the workshop can’t read.' }; }
+    try { name = decodeURIComponent(u.pathname.slice(1)); env = pgEnv(url); } catch { return { reason: `${key} has characters the workshop can’t read.` }; }
     if (!/^[A-Za-z0-9_]{1,50}$/.test(name)) return { reason: 'The database name has characters the workshop won’t risk.' };
     return { url, name, original: `${name}__original`, incoming: `${name}__incoming`, env };
   }

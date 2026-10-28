@@ -18,6 +18,7 @@ export const SECTION_WORDS: Record<SettingsSection, { label: string; hint: strin
   look: { label: 'Look', hint: 'Theme, text size and following the system’s light or dark.' },
   keys: { label: 'Keys', hint: 'Keyboard shortcuts on or off, and the key hints on buttons.' },
   workflow: { label: 'Workflow', hint: 'The finish line, and what a new job starts with.' },
+  repos: { label: 'Repos', hint: 'The repositories Ground Control knows, and the profile each one follows.' },
   play: { label: 'Play', hint: 'The workshop crew, achievements and sounds.' },
   rules: { label: 'Rules', hint: 'The “Always allow” rules you saved from permission cards.' },
 };
@@ -77,6 +78,7 @@ export function valueLines(f: SectionFacts): Record<SettingsSection, string> {
     look: `${theme} · Text ${TEXT_SIZE_LABELS[f.textSize]}`,
     keys: f.keysOn ? 'On' : 'Off',
     workflow: `Finish line: ${finishLineLabel(f.settings?.workflow?.finishLine, f.finishLines)}`,
+    repos: 'Profiles for each repository',
     play,
     rules: rulesLine(f.rules),
   };
@@ -102,6 +104,7 @@ export const SETTING_INDEX: SettingEntry[] = [
   { id: 'alerts-browser', label: 'In this browser: notifications and chime', section: 'notifications', keywords: 'alerts browser chime sound tab' },
   { id: 'notify-test', label: 'Send a test notification', section: 'notifications', keywords: 'try' },
   { id: 'notify-history', label: 'Notification history', section: 'notifications', keywords: 'sent log' },
+  { id: 'notify-usage', label: 'Usage warnings at 80 %, 90 % and full', section: 'notifications', keywords: 'usage warnings 80 % 90 % plan usage limit' },
   { id: 'theme', label: 'Theme', section: 'look', keywords: 'dark light glass colours colors skin' },
   { id: 'text-size', label: 'Text size', section: 'look', keywords: 'font small medium large zoom' },
   { id: 'follow-system', label: 'Follow the system', section: 'look', keywords: 'dark mode light mode prefers color scheme' },
@@ -111,6 +114,9 @@ export const SETTING_INDEX: SettingEntry[] = [
   { id: 'wireframes', label: 'Screens (wireframes) for new jobs', section: 'workflow', keywords: 'mockups designs screens wireframe' },
   { id: 'clarify', label: 'Clarify questions for new jobs', section: 'workflow', keywords: 'questions before the spec audience' },
   { id: 'auto-level', label: 'Choose the level for me', section: 'workflow', keywords: 'automatic level l0 l1 l2 l3 suggest' },
+  { id: 'orbit-token', label: 'Orbit token', section: 'workflow', keywords: 'inbox read-only token portal feedback tickets orbfb' },
+  { id: 'repos-list', label: 'Your repositories and their profiles', section: 'repos', keywords: 'repos repository profile ground-control.md registry remove check' },
+  { id: 'repos-add', label: 'Add a repository', section: 'repos', keywords: 'repos repository profile file register new' },
   { id: 'play-mode', label: 'Play mode: Full, Subtle, Off', section: 'play', keywords: 'crew achievements game' },
   { id: 'play-sounds', label: 'Sounds (chiptune blips)', section: 'play', keywords: 'audio' },
   { id: 'rules', label: 'Always allow rules', section: 'rules', keywords: 'permission remove saved' },

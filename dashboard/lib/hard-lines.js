@@ -37,9 +37,33 @@ import path from 'node:path';
 
 import { commandParts, isInside, NOT_DB_SCRIPT, orgRefWrite, resolvePath, splitCommand, TEMP_DIRS } from './policy.js';
 
-/** Remote names and addresses that mean the org repository. Pushing there is never allowed. */
-export const ORG_REMOTES = ['moxie'];
-export const ORG_URL = /github\.com[:/]+moxie[\w.-]*\//i;
+/**
+ * Remote names and addresses that mean the org repository. Pushing there is never allowed.
+ * "moxie" and github.com/moxie… are the floor: they are always here, whatever the registry holds.
+ * Each registered repository's profile adds its org remote and its GitHub org (setProfileOrgs,
+ * from lib/repos.js), so ORG_REMOTES grows in place and ORG_URL.test checks those orgs too.
+ */
+const ORG_REMOTES_FLOOR = Object.freeze(['moxie']);
+const ORG_URL_FLOOR = /github\.com[:/]+moxie[\w.-]*\//i;
+export const ORG_REMOTES = [...ORG_REMOTES_FLOOR];
+let profileOrgUrls = [];
+class OrgUrl extends RegExp {
+  test(text) { return super.test(text) || profileOrgUrls.some((re) => re.test(String(text))); }
+}
+export const ORG_URL = new OrgUrl(ORG_URL_FLOOR.source, ORG_URL_FLOOR.flags);
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * The registered profiles' org remotes and GitHub orgs: [{ remote, org, fork }]. Replaces the last
+ * ones given; the floor stays. A name some profile uses for its fork is never taken as an org remote.
+ */
+export function setProfileOrgs(list = []) {
+  const forks = new Set(list.map((x) => x?.fork).filter(Boolean));
+  const remotes = [...new Set(list.map((x) => x?.remote).filter((r) => typeof r === 'string' && /^[\w][\w.-]*$/.test(r) && !forks.has(r)))];
+  ORG_REMOTES.splice(0, ORG_REMOTES.length, ...ORG_REMOTES_FLOOR, ...remotes.filter((r) => !ORG_REMOTES_FLOOR.includes(r)));
+  const orgs = [...new Set(list.map((x) => x?.org).filter((o) => typeof o === 'string' && /^[\w.-]+$/.test(o)))];
+  profileOrgUrls = orgs.map((o) => new RegExp(`github\\.com[:/]+${escapeRe(o)}\\/`, 'i'));
+}
 
 // Wrappers, each with its options that take a value (the next word, unless written --opt=value).
 const WRAPPERS = new Map([

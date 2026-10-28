@@ -195,6 +195,49 @@ export interface Repo {
   path: string;
   name: string;
   lastUsed?: string | null;
+  /** In Settings → Repos (the registry), so it has a profile. */
+  registered?: boolean;
+}
+
+/** Where a registered repository's profile comes from: its own ground-control.md, or a file named in Settings → Repos. */
+export type ProfileSource = 'repo' | 'registry';
+
+/** One repository in Settings → Repos (GET /api/repos/registry, lib/repos.js), with what its profile says. */
+export interface RegisteredRepo {
+  path: string;
+  /** The folder's name. */
+  folder: string;
+  /** The profile's name for it, or the folder's name when the profile can't be read. */
+  name: string;
+  github: string | null;
+  profileFile: string | null;
+  profileSource: ProfileSource | null;
+  /** The profile loads with no errors. */
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  /** Try it's ports, in words: "3001-3099" or "3001 and up". */
+  ports: string | null;
+  /** The folder is still there. */
+  exists: boolean;
+}
+
+/** GET /api/repos/registry. unreadable: the list file, when it can't be read (then nothing can be saved). */
+export interface RepoRegistry {
+  repos: RegisteredRepo[];
+  file: string;
+  unreadable?: string | null;
+}
+
+/** POST /api/repos/registry/check: what a profile says, and what is wrong with it. */
+export interface ProfileCheck {
+  ok: boolean;
+  file?: string | null;
+  errors: string[];
+  warnings: string[];
+  name?: string | null;
+  github?: string | null;
+  ports?: string | null;
 }
 
 /** One past Claude Code conversation (GET /api/history, lib/history.js). */

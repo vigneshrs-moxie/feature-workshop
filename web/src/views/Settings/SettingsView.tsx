@@ -1,5 +1,5 @@
 // Settings: a rail of sections on the left (Permissions · Notifications · Look · Keys · Workflow ·
-// Play · Rules, each row with its current value in one muted line), the chosen section on the right,
+// Repos · Play · Rules, each row with its current value in one muted line), the chosen section on the right,
 // one at a time. #/settings opens the first; #/settings/<section> a given one (app/router.ts). Above
 // the rail, "Find a setting" searches every control by label (sections.ts SETTING_INDEX): picking a
 // match opens its section and rings the control for a moment. Keys (scope 'settings', through the
@@ -28,6 +28,7 @@ import { LookSettings } from './LookSettings';
 import { KeysSettings } from './KeysSettings';
 import { WorkflowSettings } from './WorkflowSettings';
 import { OrbitTokenSettings } from './OrbitTokenSettings';
+import { ReposSettings } from './ReposSettings';
 import { FIRST_SECTION, findSettings, SECTION_WORDS, stepSection, valueLines, type SettingEntry } from './sections';
 
 type Load = { state: 'loading' } | { state: 'ready'; list: RulesList } | { state: 'error'; message: string };
@@ -300,6 +301,7 @@ export function SettingsView({ section }: { section?: SettingsSection }) {
             {current === 'keys' && <KeysSettings />}
             {current === 'workflow' && <WorkflowSettings />}
             {current === 'workflow' && <OrbitTokenSettings />}
+            {current === 'repos' && <ReposSettings />}
             {current === 'play' && <PlaySettings />}
             {current === 'rules' && <RulesSettings load={load} onRemoved={() => setMine((n) => n + 1)} />}
           </div>

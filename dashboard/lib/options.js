@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { GENERAL, fillPattern } from './profile.js';
 
 export const OPUS = 'claude-opus-5-5';
 export const FABLE = 'claude-fable-5-1';
@@ -393,15 +394,27 @@ export function shortTitle(title) {
   return out || (words[0] ?? '').slice(0, SHORT_TITLE_MAX);
 }
 
-/** The job's slug for a ticket: orbit-<n>-<short-title> (orbit-<n> with no title). */
-export function ticketSlug(ticket) {
-  const n = ticket.key.slice('ORBIT-'.length);
-  const short = shortTitle(ticket.title);
-  return short ? `orbit-${n}-${short}` : `orbit-${n}`;
+/**
+ * The job's slug for a ticket: the repository profile's slug pattern filled with the ticket's number
+ * {n}, its short title {title} and its key {key} (lib/profile.js); with no profile, the key and the
+ * short title (GENERAL: orbit-479-feedback-api for ORBIT-479; orbit-479 with no title).
+ */
+export function ticketSlug(ticket, profile = null) {
+  const key = String(ticket.key);
+  return fillPattern(profile?.slug ?? GENERAL.slug, { key: key.toLowerCase(), n: /(\d+)$/.exec(key)?.[1] ?? '', title: shortTitle(ticket.title) });
 }
 
-/** The branch: feature/<slug>, or fix/<slug> for a bug (git-workflow.md: <kind>/orbit-<n>-<slug>). */
-export const ticketBranch = (kind, slug) => `${kind === 'bug' ? 'fix' : 'feature'}/${slug}`;
+/**
+ * The branch: the profile's branch pattern with {kind} (its word for a feature or a bug) and the
+ * slug; with no profile, feature/<slug>, or fix/<slug> for a bug (the skill's git-workflow.md).
+ * ticket, when given, fills {n} and {title} too.
+ */
+export function ticketBranch(kind, slug, { profile = null, ticket = null } = {}) {
+  const kinds = { ...GENERAL.kinds, ...(profile?.kinds ?? {}) };
+  const values = { kind: kind === 'bug' ? kinds.bug : kinds.feature, slug };
+  if (ticket?.key) Object.assign(values, { n: /(\d+)$/.exec(String(ticket.key))?.[1] ?? '', title: shortTitle(ticket.title) });
+  return fillPattern(profile?.branch ?? GENERAL.branch, values);
+}
 
 /** The level as the ticket block writes it: L0–L3, or null. */
 export const levelTag = (level) => (isLevel(level) ? `L${level}` : null);
