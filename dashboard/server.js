@@ -37,12 +37,12 @@ import { groupCards } from './lib/snapshot.js';
 import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from './lib/finish.js';
 import { NUDGE_IDS, nudgesFor } from './lib/nudges.js';
 import { buildThread, pageThread } from './lib/thread.js';
-import { decisionLog } from './lib/decisions.js';
+import { DECISIONS_FILE, decisionLog, writeDecisionsFile } from './lib/decisions.js';
 import { typicalRuns } from './lib/run-typical.js';
 import { proofStamp } from './lib/proof.js';
 import { suggestLevel, changedPaths, diffSummary } from './lib/levels.js';
 import { checkDiff, chooseLevel } from './lib/auto-level.js';
-import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs } from './lib/gate.js';
+import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs, isGateDecision } from './lib/gate.js';
 import { composeReply, cleanChips, MAX_CHIPS } from './lib/compose.js';
 import { skillChecker } from './lib/skill-check.js';
 import { DOC_MAX_BYTES, DocError, describeDoc, docVersion, jsonHtml, listJobDocs, readJobDoc, readSummary, readWalkthrough, readWireframes, servableSpec } from './lib/docs.js';
@@ -275,6 +275,14 @@ const gateParked = (f, runActive) => isParkable(f) && !closedOff(f) && parking.i
 // that held reply is dropped). The same rule as answeredBriefs.
 const noteAnswered = (e) => { if (e?.featureDir) parking.noteAudit(e.slug ?? path.basename(e.featureDir), e); };
 state.on('audit', noteAnswered);
+
+// decisions.md (lib/decisions.js): the job's decision file, written again from its audit lines
+// after every gate (and when it is read, GET /api/jobs/:slug/decisions.md).
+const writeDecisions = async (f) => writeDecisionsFile(f.dir, { audit: await state.auditFor(f.dir, Infinity), slug: f.slug, title: f.title });
+state.on('audit', (e) => {
+  if (!isGateDecision(e) || !e.slug) return;
+  featureBySlug(e.slug).then((f) => (f ? writeDecisions(f) : null)).catch((err) => console.warn(`decisions.md for ${e.slug} not written: ${err.message}`));
+});
 
 // ---------- Play (lib/play.js): crew met, quests done, achievements, secrets ----------
 // Built from local data only, kept in play.json next to the dashboard's other state, refreshed a

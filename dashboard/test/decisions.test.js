@@ -1,7 +1,10 @@
 // A job's "Your decisions" log (lib/decisions.js): what counts as your decision, in words, newest first.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { decisionId, decisionLog, decisionOf, decisionPrefix, decisionRows, gateAnswers, gateNote } from '../lib/decisions.js';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { decisionId, decisionLog, decisionOf, decisionPrefix, decisionRows, gateAnswers, gateNote, keptParts, render, writeDecisionsFile } from '../lib/decisions.js';
 
 test('approvals, send-backs with their note, stops, permissions, levels, closing', () => {
   const log = decisionLog([
@@ -93,4 +96,109 @@ test('the note typed on the card is read back out of the reply; an edited reply 
   assert.equal(gateNote('stop', 'Stop here. Record where things stand.\nOut of time this week.'), 'Out of time this week.');
   assert.equal(gateNote('approve', 'My answers to brief 2:\n1. Q → a) x\n\nLooks fine, ship the spec.\nThanks'), 'Looks fine, ship the spec.');
   assert.deepEqual(gateAnswers('I approve.'), []);
+});
+
+const rowsOf = (audit) => decisionRows(audit, { prefix: 'ORBIT-479', person: 'Vignesh', briefs: { 1: 'clarify', 2: 'spec' } });
+
+test('render: the §8 format, a title, the table with escaped pipes, no sections, Not doing at the end', () => {
+  const text = render({ prefix: 'ORBIT-479', title: 'Feedback API and MCP', rows: rowsOf(AUDIT) });
+  const lines = text.split('\n');
+  assert.equal(lines[0], '# ORBIT-479 · Feedback API and MCP');
+  assert.ok(lines.includes('| id | question | options | choice | who | when | why |'));
+  assert.ok(lines.includes('|---|---|---|---|---|---|---|'));
+  assert.ok(lines.includes('| ORBIT-479.D3 | Brief 1 (clarify): go ahead? | approve · send back · stop | approve | Vignesh | 2026-10-27 | agents must not write; people paste links |'));
+  assert.ok(lines.includes('| ORBIT-479.D4 | Allow “Run rm -rf build \\| tee x”? | allow · allow for this reply · say no | say no | Vignesh | 2026-10-27 | not on my machine |'));
+  assert.equal(lines.filter((l) => /^\| ORBIT-479\.D\d+ /.test(l)).length, 8);
+  assert.equal(lines.some((l) => /^## Section:/.test(l)), false);
+  assert.equal(lines.filter(Boolean).at(-1), '## Not doing');
+  assert.equal(render({ prefix: 'add-csv-export', title: 'add-csv-export' }).split('\n')[0], '# add-csv-export');
+});
+
+const FOREMAN_FILE = [
+  '# ORBIT-479 · Old title',
+  '',
+  'Some prose someone typed, not kept.',
+  '',
+  '| id | question | options | choice | who | when | why |',
+  '|---|---|---|---|---|---|---|',
+  '| ORBIT-479.D1 | an old generated row | a · b | a | Vignesh | 2026-10-01 | stale |',
+  '| ORBIT-479.F1 | Store feedback per office? | yes · no | yes | Foreman | 2026-10-27 | the spec says offices differ | <!-- foreman -->',
+  '',
+  '## Section: work-order-v2',
+  '| ORBIT-479.F2 | Reuse the old queue? | yes · no | no | Foreman | 2026-10-27 | it drops jobs |  <!-- foreman -->',
+  '',
+  '## Not doing',
+  '',
+  '- Automatic ticket pickup (needs an event feed Orbit does not have)',
+  '- A second **export** format | maybe later',
+  '| ORBIT-479.F3 | Keep the old column? | yes · no | yes | Foreman | 2026-10-28 | asked in brief 2 | <!-- foreman -->',
+  '',
+].join('\n');
+
+test('merge: the Foreman rows (with their section) and the Not doing list are kept verbatim; generated rows are written again', () => {
+  const kept = keptParts(FOREMAN_FILE);
+  assert.deepEqual(kept.foreman.map((f) => [f.section, f.line.slice(0, 16)]), [[null, '| ORBIT-479.F1 |'], ['work-order-v2', '| ORBIT-479.F2 |'], [null, '| ORBIT-479.F3 |']]);
+  assert.deepEqual(kept.notDoing, ['- Automatic ticket pickup (needs an event feed Orbit does not have)', '- A second **export** format | maybe later']);
+  const text = render({ prefix: 'ORBIT-479', title: 'Feedback API and MCP', rows: rowsOf(AUDIT), existing: FOREMAN_FILE });
+  assert.equal(text.includes('an old generated row'), false);
+  assert.equal(text.includes('Some prose'), false);
+  for (const line of FOREMAN_FILE.split('\n').filter((l) => /foreman -->|^- /.test(l))) assert.ok(text.split('\n').includes(line.replace(/\s+$/, '')), line);
+  const lines = text.split('\n');
+  // The Foreman's main-table rows follow the generated ones, inside the table; the section keeps its row.
+  assert.ok(lines.indexOf(lines.find((l) => l.startsWith('| ORBIT-479.F1 '))) > lines.indexOf(lines.find((l) => l.startsWith('| ORBIT-479.D8 '))));
+  assert.equal(lines[lines.indexOf('## Section: work-order-v2') + 1].slice(0, 16), '| ORBIT-479.F2 |');
+  assert.deepEqual(lines.slice(lines.indexOf('## Not doing')).filter(Boolean), ['## Not doing', ...kept.notDoing]);
+  // Written again from its own output, nothing changes.
+  assert.equal(render({ prefix: 'ORBIT-479', title: 'Feedback API and MCP', rows: rowsOf(AUDIT), existing: text }), text);
+});
+
+test('ids stay the same across rewrites: later decisions only add rows', () => {
+  const first = render({ prefix: 'ORBIT-479', rows: rowsOf(AUDIT.slice(0, 6)) });
+  const later = render({ prefix: 'ORBIT-479', rows: rowsOf(AUDIT), existing: first });
+  const ids = (t) => t.split('\n').filter((l) => /^\| ORBIT-479\.D/.test(l));
+  assert.deepEqual(ids(later).slice(0, ids(first).length), ids(first));
+  assert.ok(ids(later).length > ids(first).length);
+});
+
+test('writeDecisionsFile: written in the job folder from the audit, status.json ticket and briefs; Foreman rows survive; never through a link', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'decisions-'));
+  try {
+    const dir = path.join(root, 'feedback-api');
+    await fs.mkdir(path.join(dir, 'briefs'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({ title: 'Feedback API and MCP', ticket: { key: 'ORBIT-479' } }));
+    await fs.writeFile(path.join(dir, 'briefs', '001-clarify.md'), '# brief');
+    await fs.writeFile(path.join(dir, 'briefs', '001-clarify-detail.md'), '# detail');
+    const auditFile = path.join(root, 'audit.jsonl');
+    const lines = AUDIT.map((e) => ({ ...e, featureDir: dir }));
+    lines.push({ at: '2026-10-28T09:00:00Z', action: 'send', kind: 'approve', featureDir: path.join(root, 'other'), text: 'I approve.' });
+    await fs.writeFile(auditFile, lines.map((e) => JSON.stringify(e)).join('\n') + '\n');
+
+    const a = await writeDecisionsFile(dir, { auditFile, person: 'Vignesh' });
+    assert.equal(a.changed, true);
+    const text = await fs.readFile(path.join(dir, 'decisions.md'), 'utf8');
+    assert.equal(text, a.text);
+    assert.equal(text.split('\n')[0], '# ORBIT-479 · Feedback API and MCP');
+    assert.ok(text.includes('| ORBIT-479.D3 | Brief 1 (clarify): go ahead? |'));
+    assert.equal((text.match(/^\| ORBIT-479\.D/gm) ?? []).length, 8, 'the other job’s line is not in this file');
+
+    // The Foreman adds a row and a not-doing item; a later gate writes the file again.
+    await fs.writeFile(path.join(dir, 'decisions.md'), text.replace('\n\n## Not doing\n', '\n| ORBIT-479.F1 | Per office? | yes · no | yes | Foreman | 2026-10-28 | offices differ | <!-- foreman -->\n\n## Not doing\n- CSV import\n'));
+    const audit2 = [...lines.slice(0, -1), { at: '2026-10-28T10:00:00Z', action: 'send', kind: 'approve', gateBrief: 3, featureDir: dir, text: 'I approve. Go ahead with the next stage you proposed.' }];
+    const b = await writeDecisionsFile(dir, { audit: audit2, person: 'Vignesh' });
+    assert.ok(b.text.includes('| ORBIT-479.D9 | Brief 3: go ahead? |'));
+    assert.ok(b.text.includes('| ORBIT-479.F1 | Per office? | yes · no | yes | Foreman | 2026-10-28 | offices differ | <!-- foreman -->'));
+    assert.ok(b.text.endsWith('## Not doing\n- CSV import\n'));
+    assert.equal((await writeDecisionsFile(dir, { audit: audit2, person: 'Vignesh' })).changed, false);
+
+    // A link in place of the file, or no folder at all: nothing written.
+    const linked = path.join(root, 'linked');
+    await fs.mkdir(linked);
+    await fs.writeFile(path.join(root, 'target.md'), 'keep me');
+    await fs.symlink(path.join(root, 'target.md'), path.join(linked, 'decisions.md'));
+    assert.equal(await writeDecisionsFile(linked, { audit: audit2, person: 'V' }), null);
+    assert.equal(await fs.readFile(path.join(root, 'target.md'), 'utf8'), 'keep me');
+    assert.equal(await writeDecisionsFile(path.join(root, 'gone'), { audit: [], person: 'V' }), null);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });

@@ -2,7 +2,13 @@
 // lines. Approvals, changes asked for and stops sent from a gate; permissions allowed or refused;
 // level and option changes; the job's own permission setting; closing and reopening; nudges taken
 // or dismissed. Plain messages, steers and anything the workshop did by itself are left out.
-// Pure: no files, no clock.
+// Pure: no files, no clock. (decisions.md, below, is the one part that reads and writes files:
+// writeDecisionsFile.)
+
+import { execFile } from 'node:child_process';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 const firstLine = (text, max = 160) => {
   const line = String(text ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
@@ -133,4 +139,128 @@ export function decisionRows(audit = [], { prefix = 'job', person = 'You', brief
     }
   }
   return rows;
+}
+
+export const DECISIONS_FILE = 'decisions.md';
+const FOREMAN_MARK = /<!--\s*foreman\s*-->\s*$/i;
+const NOT_DOING = /^##\s+Not doing\s*$/i;
+const SECTION = /^##\s+Section:\s*(.+?)\s*$/;
+const HEADER = ['| id | question | options | choice | who | when | why |', '|---|---|---|---|---|---|---|'];
+const NOTE = '<!-- Written from the job’s record after every gate. Rows that end in a foreman mark, and the Not doing list, are kept as they are; the other rows are written again each time. -->';
+
+// One table cell: on one line, pipes escaped, not too long.
+const cell = (s) => oneLine(s).replace(/\|/g, '\\|');
+
+/**
+ * What a decisions.md keeps when it is written again: the Foreman's rows (lines ending in
+ * <!-- foreman -->), each with the "## Section:" it sits under (null for the main table), and the
+ * "## Not doing" list's lines, verbatim. A Foreman row written below "## Not doing" moves up to the
+ * main table; the list itself ends at the next "## " heading.
+ */
+export function keptParts(text) {
+  const foreman = [];
+  let notDoing = null;
+  let section = null;
+  let inNot = false;
+  for (const raw of String(text ?? '').split(/\r?\n/)) {
+    const line = raw.replace(/\s+$/, '');
+    if (NOT_DOING.test(line)) { inNot = true; notDoing ??= []; continue; }
+    if (/^##\s/.test(line)) { inNot = false; section = SECTION.exec(line)?.[1] ?? null; continue; }
+    if (inNot && !(line.startsWith('|') && FOREMAN_MARK.test(line))) { notDoing.push(line); continue; }
+    if (FOREMAN_MARK.test(line)) foreman.push({ section: inNot ? null : section, line });
+  }
+  if (notDoing) {
+    while (notDoing.length && !notDoing[0].trim()) notDoing.shift();
+    while (notDoing.length && !notDoing.at(-1).trim()) notDoing.pop();
+  }
+  return { foreman, notDoing: notDoing ?? [] };
+}
+
+/**
+ * The text of decisions.md (plan §8): a title, the table (the rows made from the audit, then the
+ * Foreman's own rows), a "## Section: <name>" part for each section the Foreman's rows sit under,
+ * and "## Not doing" at the end. existing: the file as it is now; its Foreman rows and its Not
+ * doing list are kept verbatim. Everything else in it is written again.
+ */
+export function render({ prefix = 'job', title = null, rows = [], existing = '' } = {}) {
+  const { foreman, notDoing } = keptParts(existing);
+  const head = title && oneLine(title) !== prefix ? `# ${prefix} · ${oneLine(title, 120)}` : `# ${prefix}`;
+  const out = [head, '', NOTE, '', ...HEADER];
+  for (const r of rows) out.push(`| ${[r.id, r.question, r.options, r.choice, r.who, r.when, r.why].map(cell).join(' | ')} |`);
+  out.push(...foreman.filter((f) => f.section === null).map((f) => f.line));
+  const sections = [...new Set(foreman.map((f) => f.section).filter((x) => x !== null))];
+  for (const name of sections) out.push('', `## Section: ${name}`, ...foreman.filter((f) => f.section === name).map((f) => f.line));
+  out.push('', '## Not doing', ...notDoing, '');
+  return out.join('\n');
+}
+
+// The name in the "who" column: git's user.name, else the login name. Asked once.
+let personAsked = null;
+export function personName() {
+  personAsked ??= new Promise((resolve) => {
+    const fallback = () => { try { return os.userInfo().username || 'You'; } catch { return 'You'; } };
+    execFile('git', ['config', '--get', 'user.name'], { timeout: 3000 }, (err, out) => resolve((!err && String(out).trim()) || fallback()));
+  });
+  return personAsked;
+}
+
+async function readJson(file) {
+  try { return JSON.parse(await fs.readFile(file, 'utf8')); } catch { return null; }
+}
+
+// The briefs' short names by number, from their file names (briefs/003-plan.md → { 3: 'plan' }).
+async function briefNames(dir) {
+  const out = {};
+  let names = [];
+  try { names = await fs.readdir(path.join(dir, 'briefs')); } catch { return out; }
+  for (const n of names.sort()) {
+    const m = /^(\d+)-(.+)\.md$/.exec(n);
+    if (m && !/(^|-)detail$/.test(m[2])) out[Number(m[1])] ??= m[2].replace(/[-_]+/g, ' ').trim();
+  }
+  return out;
+}
+
+const defaultAuditFile = () => path.join(process.env.WORKSHOP_STATE_DIR || path.join(os.homedir(), '.feature-workshop'), 'audit.jsonl');
+async function auditOf(jobDir, file) {
+  let text = '';
+  try { text = await fs.readFile(file, 'utf8'); } catch { return []; }
+  return text.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter((e) => e?.featureDir === jobDir);
+}
+
+// Writes to one job's file go one after another.
+const writing = new Map();
+
+/**
+ * Write the job's decisions.md again: the rows from its audit lines, plus what the file keeps (its
+ * Foreman rows and Not doing list). Only into a job folder that exists, and never through a link or
+ * over anything but a plain file. Written to a temp file and renamed over, and only when the text
+ * changed. Returns { file, text, changed }, or null when there is no folder to write in.
+ * audit: the job's audit lines, oldest first (read from auditFile, the dashboard's audit.jsonl,
+ * when not given). slug, title, ticketKey: from the folder's name and status.json when not given.
+ * person: the "who" (git's user.name when not given).
+ */
+export function writeDecisionsFile(jobDir, opts = {}) {
+  const after = writing.get(jobDir) ?? Promise.resolve();
+  const mine = after.catch(() => {}).then(() => writeNow(jobDir, opts));
+  writing.set(jobDir, mine);
+  mine.finally(() => { if (writing.get(jobDir) === mine) writing.delete(jobDir); }).catch(() => {});
+  return mine;
+}
+
+async function writeNow(jobDir, { audit = null, auditFile = defaultAuditFile(), slug = null, title = null, ticketKey = null, person = null } = {}) {
+  const dirStat = await fs.lstat(jobDir).catch(() => null);
+  if (!dirStat?.isDirectory()) return null;
+  const file = path.join(jobDir, DECISIONS_FILE);
+  const fileStat = await fs.lstat(file).catch(() => null);
+  if (fileStat && !fileStat.isFile()) return null;
+  const status = await readJson(path.join(jobDir, 'status.json'));
+  const prefix = decisionPrefix({ slug: slug ?? path.basename(jobDir), ticketKey: ticketKey ?? status?.ticket?.key ?? null });
+  const rows = decisionRows(audit ?? (await auditOf(jobDir, auditFile)), { prefix, person: person ?? (await personName()), briefs: await briefNames(jobDir) });
+  const existing = fileStat ? await fs.readFile(file, 'utf8') : '';
+  const text = render({ prefix, title: title ?? status?.title ?? null, rows, existing });
+  if (text === existing) return { file, text, changed: false };
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+  await fs.writeFile(tmp, text, { mode: 0o600 });
+  await fs.rename(tmp, file);
+  return { file, text, changed: true };
 }

@@ -151,6 +151,8 @@ const briefNo = (n) => (Number.isInteger(n) && n > 0 ? n : null);
  */
 export const DECIDING_KINDS = ['approve', 'changes', 'stop'];
 const decides = (kind) => DECIDING_KINDS.includes(kind);
+/** A gate decided (an audit 'send' that approves, sends back or stops): the job's decisions.md is written again after it. */
+export const isGateDecision = (e) => e?.action === 'send' && decides(e.kind);
 const later = (at, since) => {
   const a = Date.parse(at ?? '');
   const s = Date.parse(since ?? '');
