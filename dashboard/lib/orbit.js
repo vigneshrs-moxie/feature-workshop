@@ -6,11 +6,15 @@
 //                 (lib/orbit-token.js), and wired into Claude Code's MCP settings for the Foreman
 //                 as ${ORBIT_FEEDBACK_TOKEN} (never the token itself)
 //   ticket keys   parseTicketKey / canonicalKey: ORBIT-479, orbit-479, orbit479, #479, 479
+//   the client    orbitClient: the four v1 GETs, paging, 401 and 429
+//   the inbox     OrbitInbox: polls what's assigned to you and what you watch, every 3 minutes
+//                 while a browser has the Inbox open, every 15 otherwise; keeps the last list
 //
 // Paths, the store, fetch and the clock are injectable, so tests never touch ~/.claude, the
 // Keychain or a real Orbit.
 
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -271,4 +275,192 @@ export function orbitClient({ baseUrl, getToken, fetchFn = globalThis.fetch, now
     /** Milliseconds until Orbit's Retry-After has passed (0 when nothing waits). */
     waiting: () => Math.max(0, waitUntil - now()),
   };
+}
+
+// ---------- The inbox: polled, cached, one request at a time ----------
+
+/** Every status but resolved and closed (Orbit's UNFINISHED_STATUSES). */
+export const OPEN_STATUSES = ['open', 'backlog', 'planning', 'ready_for_development', 'in_progress', 'code_review', 'testing', 'uat', 'ready_for_release'];
+/** What the inbox reads: tickets assigned to you, and tickets you watch, open ones only. */
+export const INBOX_QUERIES = [
+  { id: 'assigned', query: `assignee=me&status=${OPEN_STATUSES.join(',')}` },
+  { id: 'watching', query: `watched=me&status=${OPEN_STATUSES.join(',')}` },
+];
+export const OPEN_EVERY_MS = 3 * 60_000; // a browser has the Inbox open
+export const IDLE_EVERY_MS = 15 * 60_000; // nobody is looking
+// Between full reads only what changed is fetched; a full read catches tickets that left the list.
+export const FULL_EVERY_MS = 60 * 60_000;
+const VIEW_LIST_MS = 60_000; // a saved view's tickets, fetched when its tab opens
+const VIEWS_MS = 24 * 60 * 60_000; // the saved views themselves: daily, and after a new token
+
+const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
+const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
+
+/**
+ * One inbox row from an Orbit row (the team's TrackerRow or a participant's ParticipantRow).
+ * `why`: ['assigned', 'watching'] (which inbox list it came from; empty for a saved view's list).
+ * Priority and severity are null where Orbit doesn't show them (a participant's rows).
+ */
+export function inboxItem(row, { why = [], audience = 'tech', orbitUrl = null } = {}) {
+  const key = ticketKey(row.number);
+  const assignedToYou = why.includes('assigned');
+  const assignee = assignedToYou ? { name: 'You', you: true }
+    : row.assignee?.name ? { name: row.assignee.name, you: false }
+      : row.assignedToId ? { name: 'Someone else', you: false } : null;
+  return {
+    key, number: row.number, id: row.id ?? null, title: String(row.subject ?? ''), type: row.type ?? null, status: row.status ?? null,
+    priority: audience === 'tech' ? row.priority ?? null : null,
+    severity: audience === 'tech' ? row.severity ?? null : null,
+    createdAt: row.createdAt ?? null, changedAt: changedAt(row), assignee, why: [...why],
+    url: orbitUrl ? `${orbitUrl}${audience === 'tech' ? '/admin/feedback/' : '/feedback/'}${key}` : null,
+  };
+}
+
+/** Inbox order: severity (critical first, untriaged last), then priority, then the latest change first. */
+export function sortItems(items) {
+  const rank = (v, order) => (v && v in order ? order[v] : 9);
+  return [...items].sort((a, b) => rank(a.severity, SEVERITY_ORDER) - rank(b.severity, SEVERITY_ORDER)
+    || rank(a.priority, PRIORITY_ORDER) - rank(b.priority, PRIORITY_ORDER)
+    || String(b.changedAt ?? '').localeCompare(String(a.changedAt ?? '')));
+}
+
+/**
+ * The inbox poller. Emits 'change' with view() whenever the list, its time or its error changes.
+ *   start() / stop()   poll now (when due) and on the cadence, or not at all
+ *   watch()            a browser opened the Inbox: the cadence is OPEN_EVERY_MS until the
+ *                      returned function is called (IDLE_EVERY_MS once nobody watches)
+ *   refresh({ full })  poll now; while one runs, callers share it (one request in flight)
+ *   reset()            forget everything (the token was cleared or replaced)
+ * The last list is kept with its time, so the Inbox still shows it while Orbit is out of reach.
+ */
+export class OrbitInbox extends EventEmitter {
+  constructor({ client, orbitUrl = () => null, now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout, queries = INBOX_QUERIES } = {}) {
+    super();
+    Object.assign(this, { client, orbitUrl, now, setTimer, clearTimer, queries });
+    this.watchers = 0;
+    this.running = false;
+    this.timer = null;
+    this.busy = null;
+    this.#clear();
+  }
+
+  #clear() {
+    this.rows = new Map(); // number → { row, audience, why: Set }
+    this.checkedAt = null; // when the last good poll started (ISO)
+    this.fullAt = 0;
+    this.lastTryAt = null; // when the last poll, good or not, started (ms)
+    this.error = null;
+    this.errorKind = null;
+    this.viewLists = new Map(); // view id → { at, items, error }
+    this.savedViews = null; // { at, views }
+  }
+
+  everyMs() { return this.watchers > 0 ? OPEN_EVERY_MS : IDLE_EVERY_MS; }
+
+  view() {
+    const url = this.orbitUrl();
+    const items = [...this.rows.values()].map((r) => inboxItem(r.row, { why: [...r.why].sort(), audience: r.audience, orbitUrl: url }));
+    return {
+      items: sortItems(items), checkedAt: this.checkedAt, error: this.error, errorKind: this.errorKind,
+      lastTryAt: this.lastTryAt ? new Date(this.lastTryAt).toISOString() : null,
+      everyMs: this.everyMs(), watchers: this.watchers, waitingMs: this.client.waiting?.() ?? 0, polling: this.running,
+    };
+  }
+
+  start() {
+    if (this.running) return;
+    this.running = true;
+    this.#schedule();
+  }
+
+  stop() {
+    this.running = false;
+    if (this.timer) this.clearTimer(this.timer);
+    this.timer = null;
+  }
+
+  reset() {
+    this.stop();
+    this.#clear();
+    this.emit('change', this.view());
+  }
+
+  watch() {
+    this.watchers++;
+    if (this.watchers === 1) this.#schedule();
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      this.watchers = Math.max(0, this.watchers - 1);
+      if (this.watchers === 0) this.#schedule();
+    };
+  }
+
+  refresh({ full = false } = {}) {
+    this.busy ??= this.#poll(full).finally(() => { this.busy = null; this.#schedule(); });
+    return this.busy;
+  }
+
+  #schedule() {
+    if (this.timer) this.clearTimer(this.timer);
+    this.timer = null;
+    if (!this.running || this.busy) return; // a poll in flight schedules the next when it ends
+    const due = this.lastTryAt === null ? this.now() : this.lastTryAt + this.everyMs();
+    const wait = Math.max(0, due - this.now(), this.client.waiting?.() ?? 0);
+    this.timer = this.setTimer(() => { this.timer = null; this.refresh().catch(() => {}); }, wait);
+    this.timer?.unref?.();
+  }
+
+  async #poll(forceFull) {
+    const before = JSON.stringify(this.view());
+    const started = this.now();
+    this.lastTryAt = started;
+    const full = forceFull || !this.checkedAt || started - this.fullAt >= FULL_EVERY_MS;
+    const since = full ? null : this.checkedAt;
+    try {
+      const next = full ? new Map() : new Map([...this.rows].map(([n, r]) => [n, { ...r, why: new Set(r.why) }]));
+      for (const q of this.queries) {
+        const list = await this.client.listTickets(q.query, { since });
+        for (const row of list.tickets) {
+          if (!Number.isInteger(row?.number)) continue;
+          const had = next.get(row.number);
+          next.set(row.number, { row, audience: list.audience, why: new Set([...(had?.why ?? []), q.id]) });
+        }
+      }
+      this.rows = next;
+      this.checkedAt = new Date(started).toISOString();
+      if (full) this.fullAt = started;
+      this.error = null;
+      this.errorKind = null;
+    } catch (err) {
+      this.error = err instanceof Error ? err.message : 'Could not read the inbox.';
+      this.errorKind = err?.kind ?? 'http';
+    }
+    const view = this.view();
+    if (JSON.stringify(view) !== before) this.emit('change', view);
+    return view;
+  }
+
+  /** Your saved views, for the Inbox's tabs: read daily (and after a new token). */
+  async views() {
+    if (this.savedViews && this.now() - this.savedViews.at < VIEWS_MS) return this.savedViews.views;
+    const body = await this.client.listViews();
+    const views = (Array.isArray(body?.views) ? body.views : []).map((v) => ({ id: String(v.id), name: String(v.name ?? 'Untitled view'), query: String(v.query ?? ''), isDefault: v.isDefault === true }));
+    this.savedViews = { at: this.now(), views };
+    return views;
+  }
+
+  /** A saved view's tickets, read when its tab opens (kept for a minute). */
+  async viewList(id) {
+    const hit = this.viewLists.get(id);
+    if (hit && this.now() - hit.at < VIEW_LIST_MS) return hit;
+    const view = (await this.views()).find((v) => v.id === id);
+    if (!view) throw new OrbitError('That saved view is gone. Its tab goes when the list of views is read again.', { kind: 'not-found', status: 404 });
+    const list = await this.client.listTickets(view.query);
+    const url = this.orbitUrl();
+    const entry = { at: this.now(), checkedAt: new Date(this.now()).toISOString(), items: list.tickets.filter((r) => Number.isInteger(r?.number)).map((r) => inboxItem(r, { audience: list.audience, orbitUrl: url })), truncated: list.truncated };
+    this.viewLists.set(id, entry);
+    return entry;
+  }
 }

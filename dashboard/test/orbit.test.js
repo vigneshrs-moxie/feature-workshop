@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import {
   checkToken, normalizeOrbitUrl, mcpEntry, writeMcpEntry, removeMcpEntry, setToken, clearToken, sessionEnv,
   parseTicketKey, canonicalKey, OrbitError, orbitClient, retryAfterMs, fromDay,
+  OrbitInbox, inboxItem, sortItems, OPEN_EVERY_MS, IDLE_EVERY_MS, FULL_EVERY_MS,
 } from '../lib/orbit.js';
 import { fileStore, keychainStore, layeredStore, tokenStore } from '../lib/orbit-token.js';
 
@@ -293,4 +294,172 @@ test('Orbit out of reach, or answering 500, is a plain error', async () => {
   await assert.rejects(client().listViews(), (e) => e.kind === 'http' && /answered 500/.test(e.message));
   fake.override(null);
   await assert.rejects(orbitClient({ baseUrl: 'http://127.0.0.1:1', getToken: async () => TOKEN }).listViews(), (e) => e.kind === 'network' && /Could not reach Orbit/.test(e.message));
+});
+
+// ---------- Step 3: the poller ----------
+
+/** A fake clock and timer: timers run only when the test moves time on. */
+function fakeTime(start = Date.parse('2026-10-28T09:00:00Z')) {
+  let t = start;
+  let timers = [];
+  let id = 0;
+  return {
+    now: () => t,
+    setTimer: (fn, ms) => { const h = { id: ++id, at: t + ms, ms, fn }; timers.push(h); return h; },
+    clearTimer: (h) => { timers = timers.filter((x) => x !== h); },
+    pending: () => timers.map((h) => h.ms),
+    /** Moves time on by `ms`, running each timer that falls due (and waiting for what it starts). */
+    async advance(ms, settle = async () => {}) {
+      const end = t + ms;
+      for (;;) {
+        const due = timers.filter((h) => h.at <= end).sort((a, b) => a.at - b.at)[0];
+        if (!due) break;
+        timers = timers.filter((h) => h !== due);
+        t = due.at;
+        due.fn();
+        await settle();
+      }
+      t = end;
+    },
+  };
+}
+
+function inboxWith(clock, extra = {}) {
+  const c = orbitClient({ baseUrl: fake.url, getToken: async () => TOKEN, now: clock.now });
+  const inbox = new OrbitInbox({ client: c, orbitUrl: () => 'https://orbit.example.com', now: clock.now, setTimer: clock.setTimer, clearTimer: clock.clearTimer, ...extra });
+  const settle = async () => { while (inbox.busy) await inbox.busy; };
+  return { inbox, settle };
+}
+
+test('the inbox polls at once, then every 15 minutes, and every 3 while a browser has it open', async () => {
+  const clock = fakeTime();
+  const { inbox, settle } = inboxWith(clock);
+  fake.requests.length = 0;
+  inbox.start();
+  assert.deepEqual(clock.pending(), [0]);
+  await clock.advance(0, settle);
+  const first = inbox.view();
+  assert.equal(first.error, null);
+  assert.equal(first.items.length, 54, '53 assigned plus one watched that isn’t (ORBIT-479 is both)');
+  assert.deepEqual(first.items.find((i) => i.key === 'ORBIT-479').why, ['assigned', 'watching']);
+  assert.equal(first.checkedAt, '2026-10-28T09:00:00.000Z');
+  assert.deepEqual(clock.pending(), [IDLE_EVERY_MS]);
+  const afterFirst = fake.requests.length;
+
+  await clock.advance(IDLE_EVERY_MS - 1, settle);
+  assert.equal(fake.requests.length, afterFirst, 'nothing before 15 minutes');
+  const unwatch = inbox.watch(); // 14m59s after the last poll: more than 3 minutes, so now
+  await clock.advance(0, settle);
+  assert.ok(fake.requests.length > afterFirst);
+  assert.deepEqual(clock.pending(), [OPEN_EVERY_MS]);
+  const second = fake.requests.length;
+  await clock.advance(OPEN_EVERY_MS, settle);
+  assert.ok(fake.requests.length > second, 'again 3 minutes later');
+  const second2 = fake.requests.length;
+  const unwatch2 = inbox.watch();
+  unwatch();
+  unwatch(); // twice is once
+  assert.equal(inbox.watchers, 1);
+  unwatch2();
+  assert.equal(inbox.watchers, 0);
+  await clock.advance(OPEN_EVERY_MS, settle);
+  assert.equal(fake.requests.length, second2, 'nobody watching: back to 15 minutes');
+  inbox.stop();
+  assert.deepEqual(clock.pending(), []);
+});
+
+test('between full reads only changes are fetched (from=<day>), merged into the list; a full read every hour', async () => {
+  const clock = fakeTime();
+  const { inbox, settle } = inboxWith(clock);
+  inbox.start();
+  await clock.advance(0, settle);
+  fake.requests.length = 0;
+  await clock.advance(IDLE_EVERY_MS, settle);
+  assert.ok(fake.requests.length >= 2);
+  for (const q of fake.requests) assert.equal(q.query.get('from'), '2026-10-27', 'since the last poll, from the day before');
+  assert.equal(inbox.view().items.length, 54, 'the list is kept, changes merged in');
+  fake.requests.length = 0;
+  await clock.advance(FULL_EVERY_MS - IDLE_EVERY_MS, settle);
+  assert.ok(fake.requests.some((q) => q.query.get('from') === null), 'a full read after an hour');
+  inbox.stop();
+});
+
+test('one request in flight at a time; the last list stays, with its time, when Orbit fails', async () => {
+  const clock = fakeTime();
+  const { inbox, settle } = inboxWith(clock);
+  fake.requests.length = 0;
+  const a = inbox.refresh();
+  const b = inbox.refresh();
+  assert.equal(a, b, 'the second caller shares the first poll');
+  await a;
+  assert.equal(fake.requests.length, 3, 'two pages assigned, one watched: once');
+  const good = inbox.view();
+  fake.override(() => ({ status: 401, body: { error: 'Unauthorized' } }));
+  const changes = [];
+  inbox.on('change', (v) => changes.push(v));
+  await inbox.refresh();
+  fake.override(null);
+  const bad = inbox.view();
+  assert.equal(bad.items.length, good.items.length, 'the last list is still there');
+  assert.equal(bad.checkedAt, good.checkedAt, 'with the time it was read');
+  assert.equal(bad.errorKind, 'auth');
+  assert.match(bad.error, /expired or was revoked/);
+  assert.equal(changes.length, 1);
+  await settle();
+  inbox.reset();
+  assert.equal(inbox.view().items.length, 0);
+  assert.equal(inbox.view().checkedAt, null);
+});
+
+test('after a 429 the next poll waits for Retry-After, not just the cadence', async () => {
+  const clock = fakeTime();
+  const { inbox, settle } = inboxWith(clock);
+  fake.override(() => ({ status: 429, body: {}, headers: { 'Retry-After': String(20 * 60) } }));
+  inbox.start();
+  await clock.advance(0, settle);
+  fake.override(null);
+  assert.equal(inbox.view().errorKind, 'rate');
+  assert.deepEqual(clock.pending(), [15 * 60_000], 'Retry-After (capped at 15 minutes) when longer than the cadence');
+  inbox.watch();
+  assert.deepEqual(clock.pending(), [15 * 60_000], 'a watcher does not make it ask sooner');
+  inbox.stop();
+});
+
+test('saved views: read once a day; a view’s tickets fetched when its tab opens', async () => {
+  const clock = fakeTime();
+  const { inbox } = inboxWith(clock);
+  fake.requests.length = 0;
+  const views = await inbox.views();
+  assert.deepEqual(views.map((v) => v.name), ['Critical, mine', 'Team triage']);
+  await inbox.views();
+  assert.equal(fake.requests.filter((q) => q.path.endsWith('/views')).length, 1);
+  const list = await inbox.viewList(views[0].id);
+  assert.ok(list.items.length > 0);
+  for (const i of list.items) assert.equal(i.severity, 'critical');
+  await assert.rejects(inbox.viewList('nope'), /saved view is gone/);
+});
+
+test('an inbox row: key, title, priority, severity, age, assignee; a participant row hides priority and severity', () => {
+  const tech = inboxItem({ number: 12, subject: 'Hi', priority: 'high', severity: 'critical', createdAt: '2026-10-01T00:00:00Z', activityAt: '2026-10-02T00:00:00Z', assignedToId: 'x', status: 'open' }, { why: ['watching'], orbitUrl: 'https://o.example.com' });
+  assert.equal(tech.key, 'ORBIT-12');
+  assert.equal(tech.priority, 'high');
+  assert.equal(tech.severity, 'critical');
+  assert.equal(tech.changedAt, '2026-10-02T00:00:00Z');
+  assert.deepEqual(tech.assignee, { name: 'Someone else', you: false });
+  assert.equal(tech.url, 'https://o.example.com/admin/feedback/ORBIT-12');
+  const mine = inboxItem({ number: 13, subject: 'x' }, { why: ['assigned'] });
+  assert.deepEqual(mine.assignee, { name: 'You', you: true });
+  const part = inboxItem({ number: 14, subject: 'p', updatedAt: '2026-10-03T00:00:00Z', assignee: { name: 'Sam' }, priority: 'high' }, { audience: 'participant', orbitUrl: 'https://o.example.com' });
+  assert.equal(part.priority, null);
+  assert.equal(part.severity, null);
+  assert.deepEqual(part.assignee, { name: 'Sam', you: false });
+  assert.equal(part.url, 'https://o.example.com/feedback/ORBIT-14');
+  const order = sortItems([
+    { key: 'a', severity: null, priority: 'high', changedAt: '1' },
+    { key: 'b', severity: 'low', priority: 'low', changedAt: '1' },
+    { key: 'c', severity: 'critical', priority: 'low', changedAt: '1' },
+    { key: 'd', severity: 'critical', priority: 'high', changedAt: '0' },
+    { key: 'e', severity: 'critical', priority: 'high', changedAt: '2' },
+  ]).map((i) => i.key);
+  assert.deepEqual(order, ['e', 'd', 'c', 'b', 'a']);
 });
