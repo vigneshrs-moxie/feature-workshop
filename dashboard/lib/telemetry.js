@@ -213,7 +213,7 @@ export function telemetry(allLines, { window = 'week', now = new Date(), me = nu
     const list = inWindow.filter((l) => ms(l.t) >= lo && ms(l.t) < Math.min(hi, end + 1));
     const total = list.reduce((s, l) => s + cost(l), 0);
     const segs = sums(list, (l) => modelKey(l.model), null).map((s) => ({ key: s.key, usd: s.usd, share: total > 0 ? r4(s.usd / total) : 0 })).sort((a, b) => modelSlot(a.key) - modelSlot(b.key));
-    weeks.push({ from: iso(lo), to: iso(Math.min(hi, end)), label: `${shortDay(lo, timeZone)} to ${shortDay(Math.min(hi, end), timeZone)}`, usd: r2(total), parts: segs });
+    weeks.push({ from: iso(lo), to: iso(Math.min(hi, end)), label: shortDay(lo, timeZone) === shortDay(Math.min(hi, end), timeZone) ? shortDay(lo, timeZone) : `${shortDay(lo, timeZone)} to ${shortDay(Math.min(hi, end), timeZone)}`, usd: r2(total), parts: segs });
   }
   const models = [...new Set(weeks.flatMap((w) => w.parts.map((p) => p.key)))].sort((a, b) => modelSlot(a) - modelSlot(b)).map((key) => ({ key, label: modelName(key), slot: modelSlot(key) }));
   const latest = weeks.find((w) => w.usd > 0);

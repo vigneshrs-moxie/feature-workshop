@@ -12,6 +12,7 @@
 //   #/inbox       your Portal Feedback tickets from Orbit, in the middle pane (views/Inbox.tsx)
 //   #/achievements  your achievements in the middle pane (Play mode only, like the Crew-dex)
 //   #/integrate   the integration board: the packet worktrees and Merge next, full width (views/Integrate.tsx)
+//   #/telemetry   where the Claude usage goes and when the limit hits: five graphs, full width (views/Telemetry.tsx)
 // Any other #/… is not a page: with Play on the Sleuth looks for it (views/NotFound), with Play
 // Off it shows #/'s view. No hash, "#", "#/" or an in-page "#section" is #/. A query after the hash (#/?theme=x,
 // read by theme/theme.ts) is ignored here, so it changes nothing about the route.
@@ -23,7 +24,7 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export const isSettingsSection = (v: string): v is SettingsSection => (SETTINGS_SECTIONS as readonly string[]).includes(v);
 
 export type Route = { name: 'home' } | { name: 'table' } | { name: 'desk' } | { name: 'inbox' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
-  | { name: 'screens'; slug: string } | { name: 'integrate' } | { name: 'not-found'; hash: string };
+  | { name: 'screens'; slug: string } | { name: 'integrate' } | { name: 'telemetry' } | { name: 'not-found'; hash: string };
 
 export function parseHash(rawHash: string): Route {
   const hash = rawHash.replace(/\?.*$/, '');
@@ -36,6 +37,7 @@ export function parseHash(rawHash: string): Route {
   if (/^#\/inbox\/?$/.test(hash)) return { name: 'inbox' };
   if (/^#\/achievements\/?$/.test(hash)) return { name: 'achievements' };
   if (/^#\/integrate\/?$/.test(hash)) return { name: 'integrate' };
+  if (/^#\/telemetry\/?$/.test(hash)) return { name: 'telemetry' };
   const m = /^#\/job\/([^/?#]+)(?:\/id\/[^/?#]+|\/(screens))?\/?$/.exec(hash);
   if (m) {
     try {
@@ -55,6 +57,7 @@ export function hrefFor(route: Route): string {
   if (route.name === 'table') return '#/table';
   if (route.name === 'desk') return '#/desk';
   if (route.name === 'integrate') return '#/integrate';
+  if (route.name === 'telemetry') return '#/telemetry';
   if (route.name === 'inbox') return '#/inbox';
   if (route.name === 'not-found') return route.hash;
   if (route.name === 'settings') return route.section ? `#/settings/${route.section}` : '#/settings';
@@ -69,6 +72,9 @@ export const achievementsHref = () => hrefFor({ name: 'achievements' });
 
 /** The integration board (packet worktrees, Merge next). */
 export const integrateHref = () => hrefFor({ name: 'integrate' });
+
+/** Telemetry: where the Claude usage goes and when the limit hits. */
+export const telemetryHref = () => hrefFor({ name: 'telemetry' });
 
 export const jobHref = (slug: string) => hrefFor({ name: 'job', slug });
 
