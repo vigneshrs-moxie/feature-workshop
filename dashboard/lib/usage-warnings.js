@@ -10,6 +10,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { currentNotifier, usageNotice } from './notify.js';
 
 export const THRESHOLDS = [80, 90, 100];
 export const METERS = ['fiveHour', 'week'];
@@ -128,10 +129,12 @@ export function activeWarnings(meters, now = new Date()) {
 /**
  * The warnings as they happen: after each good read, onRead(meters) works out what to fire, sends
  * each one (send), remembers it and returns them. dir: the state folder for the memory file (a
- * function, read when first needed; null keeps the memory in this process only).
+ * function, read when first needed; null keeps the memory in this process only). By default both
+ * come from the dashboard's notifier (lib/notify.js): its state folder, and a notification of the
+ * usage kind (Settings → Notifications → Usage warnings). Without one, nothing is sent or written.
  */
 export class UsageWarnings {
-  constructor({ dir = () => null, send = async () => null, now = () => new Date() } = {}) {
+  constructor({ dir = () => currentNotifier()?.dir ?? null, send = async (w) => (await currentNotifier()?.notify(usageNotice(w))) ?? null, now = () => new Date() } = {}) {
     Object.assign(this, { dir, send, now });
     this.memory = null;
     this.file = null;

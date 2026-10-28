@@ -7,6 +7,9 @@
 //   problem  a reply ended in an error, or the usage limit stopped the work
 //   done     a job crossed the finish line you set (lib/finish.js), or you marked it done; reaching
 //            staging or main after that is a quiet "Landed" (never with a sound)
+// And one kind with a switch of its own (settings `notify.usageWarnings`, on unless turned off):
+//   usage    the plan's 5-hour or weekly usage reached 80 %, 90 % or full (lib/usage-warnings.js),
+//            with a sound; it only tells, nothing is stopped
 // Quiet hours (off by default): only problems show, silently; the rest is kept in the history.
 // While you're looking at the dashboard (the page says when it's visible), nothing pops: the page
 // shows it already. Every notification, sent or not, goes into the history (the last 50).
@@ -18,6 +21,7 @@ import path from 'node:path';
 import { STAGES } from './stages.js';
 
 export const LEVELS = ['needs', 'problem', 'done'];
+export const USAGE_LEVEL = 'usage';
 export const MODES = ['sound', 'silent', 'off'];
 export const NOTIFY_DEFAULTS = {
   enabled: true,
@@ -25,7 +29,7 @@ export const NOTIFY_DEFAULTS = {
   quiet: { on: false, from: '22:00', to: '07:00' },
   skipWhenWatching: true,
 };
-const SOUNDS = { needs: 'Glass', problem: 'Basso', done: 'Pop' };
+const SOUNDS = { needs: 'Glass', problem: 'Basso', done: 'Pop', usage: 'Purr' };
 const HISTORY_MAX = 50;
 const WATCHING_MS = 45000;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -42,6 +46,8 @@ export function notifySettings(raw = {}) {
     enabled: typeof r.enabled === 'boolean' ? r.enabled : NOTIFY_DEFAULTS.enabled,
     levels, quiet,
     skipWhenWatching: typeof r.skipWhenWatching === 'boolean' ? r.skipWhenWatching : NOTIFY_DEFAULTS.skipWhenWatching,
+    // Usage warnings: on unless turned off, so it's only here once it has been set.
+    ...(typeof r.usageWarnings === 'boolean' ? { usageWarnings: r.usageWarnings } : {}),
   };
 }
 
@@ -49,8 +55,9 @@ export function notifySettings(raw = {}) {
 export function validateNotifyPatch(patch, current) {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('The notification settings must be an object.');
   const next = notifySettings(current);
-  for (const key of Object.keys(patch)) if (!['enabled', 'levels', 'quiet', 'skipWhenWatching'].includes(key)) throw new Error(`Unknown notification setting: ${key}.`);
+  for (const key of Object.keys(patch)) if (!['enabled', 'levels', 'quiet', 'skipWhenWatching', 'usageWarnings'].includes(key)) throw new Error(`Unknown notification setting: ${key}.`);
   if ('enabled' in patch) { if (typeof patch.enabled !== 'boolean') throw new Error('“enabled” must be true or false.'); next.enabled = patch.enabled; }
+  if ('usageWarnings' in patch) { if (typeof patch.usageWarnings !== 'boolean') throw new Error('Usage warnings are on or off.'); next.usageWarnings = patch.usageWarnings; }
   if ('skipWhenWatching' in patch) { if (typeof patch.skipWhenWatching !== 'boolean') throw new Error('“skipWhenWatching” must be true or false.'); next.skipWhenWatching = patch.skipWhenWatching; }
   for (const [l, m] of Object.entries(patch.levels ?? {})) {
     if (!LEVELS.includes(l)) throw new Error(`Unknown level: ${l}.`);
@@ -81,8 +88,9 @@ export function inQuietHours(quiet, date = new Date()) {
 /** What happens to one notification: { send: boolean, sound: boolean, why }. */
 export function decide(level, settings, { now = new Date(), watching = false, demo = false } = {}) {
   const s = notifySettings(settings);
-  const mode = s.levels[level] ?? 'off';
+  const mode = level === USAGE_LEVEL ? (s.usageWarnings === false ? 'off' : 'sound') : s.levels[level] ?? 'off';
   if (!s.enabled) return { send: false, sound: false, why: 'Notifications are off.' };
+  if (level === USAGE_LEVEL && mode === 'off') return { send: false, sound: false, why: 'Usage warnings are off.' };
   if (mode === 'off') return { send: false, sound: false, why: 'This kind is off.' };
   if (demo) return { send: false, sound: false, why: 'Demo: nothing is sent to macOS (the test is).' };
   if (s.skipWhenWatching && watching) return { send: false, sound: false, why: 'You were looking at the dashboard.' };
@@ -181,6 +189,21 @@ export function openTabCommand(scriptFile, url, origins) {
   return ['/usr/bin/osascript', scriptFile, url, ...origins].map(shq).join(' ');
 }
 
+/** A usage warning (lib/usage-warnings.js) as a notification: the same words as the banner. */
+export function usageNotice(w) {
+  return {
+    level: USAGE_LEVEL,
+    title: w.threshold >= 100 ? 'Claude usage is full' : `Claude usage at ${w.percent} %`,
+    body: w.text,
+    key: `usage-${w.meter}`,
+  };
+}
+
+// The dashboard's notifier, for the usage warnings (lib/plan-usage.js is made before it).
+let latest = null;
+/** The notifier made last (the dashboard makes one), or null. */
+export function currentNotifier() { return latest; }
+
 /**
  * Sends notifications and keeps their history (dir/notifications.json).
  * settings(): the current `notify` settings. baseUrl: the dashboard's address, for the link.
@@ -195,6 +218,7 @@ export class Notifier {
     // Set when macOS refused terminal-notifier (its notifications aren't allowed yet in System
     // Settings): notifications then go through the built-in notifier until it works again.
     this.blocked = null;
+    latest = this;
   }
 
   /** The page is visible (it says so every half minute while it is). */

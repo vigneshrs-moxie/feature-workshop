@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { decide, Notifier, notifySettings, usageNotice, validateNotifyPatch } from '../lib/notify.js';
 import { activeWarnings, check, MEMORY_FILE, remember, resetWhen, sameWindow, UsageWarnings, warningText } from '../lib/usage-warnings.js';
 
 const WEEK_RESET = '2026-10-29T13:00:00.000Z';
@@ -71,7 +72,7 @@ test('UsageWarnings: sends once, keeps the memory in the state folder, and a res
 });
 
 test('UsageWarnings: without a state folder the memory stays in this process; a failing sender is not fatal', async () => {
-  const w = new UsageWarnings({ send: async () => { throw new Error('no macOS'); } });
+  const w = new UsageWarnings({ dir: () => null, send: async () => { throw new Error('no macOS'); } });
   const out = await w.onRead(meters(90));
   assert.equal(out.length, 1);
   assert.equal(out[0].sent, null);
@@ -100,4 +101,36 @@ test('the banner: each meter at 80 % or more, its highest threshold, with an id 
   assert.equal(w.id, `week:90:${WEEK_RESET}`);
   assert.match(w.text, /^Weekly Claude usage is at 93 %\./);
   assert.deepEqual(activeWarnings(meters(100, 85), now).map((x) => [x.meter, x.threshold]), [['fiveHour', 80], ['week', 100]]);
+});
+
+test('notify: the usage kind has its own switch, on unless turned off, and keeps the other rules', () => {
+  const noon = new Date(2026, 9, 28, 12, 0);
+  assert.deepEqual(decide('usage', notifySettings({}), { now: noon }), { send: true, sound: true, why: null });
+  const off = validateNotifyPatch({ usageWarnings: false }, {});
+  assert.equal(off.usageWarnings, false);
+  assert.deepEqual(decide('usage', off, { now: noon }), { send: false, sound: false, why: 'Usage warnings are off.' });
+  assert.equal(validateNotifyPatch({ usageWarnings: true }, off).usageWarnings, true);
+  assert.throws(() => validateNotifyPatch({ usageWarnings: 'yes' }, {}), /on or off/);
+  assert.equal(decide('usage', { enabled: false }, { now: noon }).send, false, 'all notifications off');
+  assert.equal(decide('usage', {}, { now: noon, watching: true }).send, false, 'the banner shows it already');
+  assert.equal(decide('usage', { quiet: { on: true, from: '11:00', to: '13:00' } }, { now: noon }).send, false, 'quiet hours');
+  assert.equal(decide('usage', {}, { now: noon, demo: true }).send, false);
+  assert.equal(decide('needs', off, { now: noon }).send, true, 'the other kinds are untouched');
+});
+
+test('notify: a usage warning is told with the banner’s words, through the dashboard’s notifier, into its state folder', async () => {
+  const dir = await tmp();
+  const runs = [];
+  const notifier = new Notifier({ dir, settings: async () => ({}), baseUrl: 'http://127.0.0.1:4485', method: 'osascript', run: async (cmd, args) => { runs.push([cmd, args]); return { ok: true }; }, now: () => new Date(2026, 9, 28, 12, 0) });
+  const w = new UsageWarnings({ now: () => new Date(2026, 9, 28, 12, 0) }); // the defaults: the notifier made last
+  const [fired] = await w.onRead(meters(91));
+  assert.equal(fired.sent.sent, true);
+  assert.equal(fired.sent.level, 'usage');
+  assert.equal(fired.sent.title, 'Claude usage at 91 %');
+  assert.equal(fired.sent.body, fired.text);
+  assert.equal(runs.length, 1);
+  assert.match(runs[0][1][1], /Weekly Claude usage is at 91 %\. It resets /);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, MEMORY_FILE), 'utf8')).week.fired, [80, 90]);
+  assert.equal((await notifier.list())[0].level, 'usage');
+  assert.deepEqual(usageNotice({ meter: 'fiveHour', threshold: 100, percent: 100, text: 'x' }), { level: 'usage', title: 'Claude usage is full', body: 'x', key: 'usage-fiveHour' });
 });
