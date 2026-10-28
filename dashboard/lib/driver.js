@@ -48,6 +48,17 @@
 // Leave it (nothing more is sent until a valid write). A valid write resets the count and takes
 // the card away. A job started from a ticket (options.json names one) must write version 2 with
 // that key. A file nobody wrote during the reply is never checked.
+//
+// PR feedback (packet N, lib/pr-feedback.js): the runner parks one Needs you card per failed check
+// or review comment on a job's pull request (parkFeedbackCard), a question card kept apart from any
+// reply like the status.json card: "A check failed on PR #1: lint. … Send it to the Foreman?",
+// answered "Send it to the Foreman" or "Leave it". Send resumes the job's own session (the runner's
+// feedbackSession says which) with feedbackMessage(), kind 'pr-feedback'. While the Foreman is
+// working the message waits and goes when the reply ends (after a pause or a usage limit the card
+// comes back instead). When another process holds the job's lock, nothing is sent: the card stays,
+// says so, and the answer is refused with JobLocked. Each outcome is a 'pr-feedback' event
+// ({ outcome: 'sent' | 'queued' | 'left' | 'waiting', featureDir, slug, item, … }); the runner
+// writes the audit lines and pr-feedback.json.
 
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
@@ -61,6 +72,9 @@ import { hardLine, hardLineHook, orgPushCheck } from './hard-lines.js';
 import * as jobLock from './lock.js';
 import { validate as validateStatus } from './status-json.js';
 import { readOptions } from './options.js';
+import { HttpError } from './http-guard.js';
+import { scrubDeep } from './orbit.js';
+import { FEEDBACK_LEAVE, FEEDBACK_SEND, cardWords, feedbackMessage } from './pr-feedback.js';
 
 /** How many corrective messages one run of invalid status.json writes gets before the card. */
 export const STATUS_RETRIES = 3;
@@ -111,8 +125,14 @@ export class Driver extends EventEmitter {
    * queryFn: the SDK's query() (injectable for tests).
    * state: State instance. projectsDir: where Claude Code keeps session logs.
    */
-  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, settingsFor = null, envFor = null, locks = jobLock, statusWatch = watchStatusFile, statusRetries = STATUS_RETRIES, ticketKeyFor = ticketKeyOf }) {
+  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, settingsFor = null, envFor = null, locks = jobLock, statusWatch = watchStatusFile, statusRetries = STATUS_RETRIES, ticketKeyFor = ticketKeyOf, feedbackSession = null }) {
     super();
+    // PR feedback cards (see the top): id -> card, and the messages waiting for a reply to end, by job folder.
+    // feedbackSession(featureDir) -> { sessionId, slug, title, cwd, model, additionalDirectories }
+    // to resume, or { refused: 'plain words' }; null: the job's saved session (state.sessionFor).
+    this.feedbackCards = new Map();
+    this.feedbackQueue = new Map();
+    this.feedbackSession = feedbackSession;
     // The status.json check (see the top): statusWatch(dir, onChange) -> stop(), injectable for
     // tests (null: no check); ticketKeyFor(featureDir) -> the job's ORBIT-<n> or null.
     this.statusWatch = statusWatch;
@@ -156,6 +176,7 @@ export class Driver extends EventEmitter {
     return [
       ...[...this.runs.values()].flatMap((r) => [...r.pending.values()].map((p) => this.viewPermission(p))),
       ...[...this.statusCards.values()].map((c) => this.viewPermission(c)),
+      ...[...this.feedbackCards.values()].map((c) => this.viewPermission(c)),
     ];
   }
 
@@ -187,7 +208,7 @@ export class Driver extends EventEmitter {
 
   /** A waiting request with its full input (for checking a rule against it), or null. */
   pendingRequest(requestId) {
-    const card = this.statusCards.get(requestId);
+    const card = this.statusCards.get(requestId) ?? this.feedbackCards.get(requestId);
     if (card) return { ...this.viewPermission(card), input: card.input };
     for (const run of this.runs.values()) {
       const req = run.pending.get(requestId);
@@ -325,6 +346,8 @@ export class Driver extends EventEmitter {
       const followUp = run.statusFollowUp;
       run.statusFollowUp = null;
       if (followUp && run.status === 'done') this.#sendStatusFix(run.featureDir, followUp).catch(() => {});
+      // PR feedback you sent while this reply ran goes now.
+      this.#flushFeedback(run).catch(() => {});
     }
   }
 
@@ -482,6 +505,144 @@ export class Driver extends EventEmitter {
     rec.silenced = false;
     const fix = statusFixMessage(rec.errors.length ? rec.errors : card.errors);
     await this.#sendStatusFix(card.featureDir, answer === STATUS_TRY_AGAIN ? fix : `${answer}\n\n${fix}`);
+  }
+
+  // ---------- PR feedback cards (see the top of the file) ----------
+
+  /** The waiting feedback card for this job and item key, or null. */
+  feedbackCardFor(featureDir, key) {
+    for (const c of this.feedbackCards.values()) if (c.featureDir === featureDir && c.item.key === key) return c;
+    return null;
+  }
+
+  /**
+   * Park one Needs you card for a failed check or a review comment (lib/pr-feedback.js findNew).
+   * job: { featureDir, slug, title }. item: findNew's item, with the check's `log` read. One card
+   * per job and item: parking it again returns the card already there. Returns what a page sees.
+   */
+  parkFeedbackCard(job, item, { notSent = null } = {}) {
+    const had = this.feedbackCardFor(job.featureDir, item.key);
+    if (had) return this.viewPermission(had);
+    const clean = scrubDeep(item);
+    const words = cardWords(clean);
+    const card = {
+      id: randomUUID(), runId: null, slug: job.slug, featureDir: job.featureDir, title: job.title ?? null,
+      toolName: 'AskUserQuestion', kind: 'question', input: null, feedbackCard: true, item: clean, notSent: null,
+      prompt: null, displayName: null, description: null, decisionReason: null, blockedPath: null,
+      agentID: null, agentType: null, defaultToNo: false, hardLine: null, fromAutoMode: false,
+      canAllowForRun: false, suggestions: [], draft: null,
+      plain: { headline: words.headline, detail: null, preview: clean.kind === 'check' ? (clean.log ?? '') : (clean.body ?? ''), risk: 'low' },
+      createdAt: new Date().toISOString(),
+    };
+    this.#feedbackWords(card, notSent);
+    this.feedbackCards.set(card.id, card);
+    this.emit('permission', this.viewPermission(card));
+    return this.viewPermission(card);
+  }
+
+  // The card's question, with why it wasn't sent yet when it came back (the lock, a pause).
+  #feedbackWords(card, notSent) {
+    const words = cardWords(card.item);
+    card.notSent = notSent ?? null;
+    const what = card.item.kind === 'check' ? 'the failure' : 'the comment';
+    card.input = { questions: [{
+      question: `${words.headline} ${words.quote}${notSent ? ` Not sent yet: ${notSent}` : ''} Send it to the Foreman?`,
+      header: card.item.pr?.label ?? 'Pull request', multiSelect: false,
+      options: [
+        { label: FEEDBACK_SEND, description: `Carries on this job’s Foreman session with ${what} quoted. It works on this branch and doesn’t push or write to GitHub.` },
+        { label: FEEDBACK_LEAVE, description: `Nothing is sent, and you won’t be asked about this ${card.item.kind === 'check' ? 'failure on this commit' : 'comment'} again.` },
+      ],
+    }] };
+  }
+
+  /** Take a feedback card away without an answer (reason: 'resolved', 'closed', …). */
+  dropFeedbackCard(id, reason = 'resolved') {
+    const card = this.feedbackCards.get(id);
+    if (!card) return false;
+    this.feedbackCards.delete(id);
+    this.emit('permission-gone', { id, slug: card.slug, reason });
+    return true;
+  }
+
+  // Your answer. Leave it, or Don't answer: nothing is sent. Send (or your own words, put first):
+  // the message goes to the job's session now, or once the reply in progress ends.
+  async #answerFeedbackCard(card, { decision, note, answers }) {
+    const answer = decision === 'deny' ? null : String(Object.values(answers ?? {})[0] ?? '').trim() || null;
+    const where = { featureDir: card.featureDir, slug: card.slug, item: card.item };
+    if (!answer || answer === FEEDBACK_LEAVE) {
+      this.dropFeedbackCard(card.id, 'answered');
+      this.emit('pr-feedback', { outcome: 'left', ...where, note: note || null });
+      return;
+    }
+    const text = feedbackMessage(card.item, { extra: answer === FEEDBACK_SEND ? null : answer });
+    // Two answers at once (two tabs): only the first is acted on.
+    if (card.answering) throw new HttpError(409, 'This card is being answered already.');
+    card.answering = true;
+    try { await this.#sendFeedback(card, text, { asked: true }); } finally { card.answering = false; }
+  }
+
+  // asked: you pressed Send just now (a refusal is thrown back to the page, and the card stays);
+  // otherwise it is a message that waited for a reply to end (a refusal parks the card again).
+  async #sendFeedback(card, text, { asked = false } = {}) {
+    const where = { featureDir: card.featureDir, slug: card.slug, item: card.item };
+    const queue = () => {
+      const list = this.feedbackQueue.get(card.featureDir) ?? [];
+      const again = list.some((q) => q.card.item.key === card.item.key);
+      if (!again) list.push({ card, text });
+      this.feedbackQueue.set(card.featureDir, list);
+      this.dropFeedbackCard(card.id, 'answered');
+      if (!card.queued) { card.queued = true; this.emit('pr-feedback', { outcome: 'queued', ...where }); }
+    };
+    const refuse = (words, err = null) => {
+      if (this.feedbackCards.has(card.id)) {
+        this.#feedbackWords(card, words);
+        this.emit('permission', this.viewPermission(card));
+      } else {
+        card.queued = false;
+        this.parkFeedbackCard({ featureDir: card.featureDir, slug: card.slug, title: card.title }, card.item, { notSent: words });
+        this.emit('pr-feedback', { outcome: 'waiting', ...where, reason: words });
+      }
+      if (asked) throw err ?? new HttpError(409, `${words} Nothing was sent; the card stays.`, { code: 'pr-feedback-not-sent' });
+    };
+    if (this.activeRunFor({ featureDir: card.featureDir })) { queue(); return; }
+    let s = null;
+    try {
+      s = this.feedbackSession ? await this.feedbackSession(card.featureDir) : await this.state.sessionFor?.(card.featureDir);
+    } catch { s = null; }
+    if (s?.refused) { refuse(s.refused); return; }
+    if (!s?.sessionId) { refuse('This job has no Foreman session here to carry on. Send the Foreman a message first.'); return; }
+    let run;
+    try {
+      run = await this.start({
+        featureDir: card.featureDir, slug: s.slug ?? card.slug, title: s.title ?? card.title, cwd: s.cwd, sessionId: s.sessionId,
+        model: s.model ?? null, text, kind: 'pr-feedback', additionalDirectories: s.additionalDirectories ?? [],
+      });
+    } catch (err) {
+      if (err instanceof Busy) { queue(); return; }
+      if (err instanceof jobLock.JobLocked) { refuse(`${jobLock.describeLock(err.lock)} Send it again once it is free there.`, err); return; }
+      refuse(`It couldn’t be sent: ${String(err?.message ?? err).split('\n')[0].slice(0, 200)}`, err instanceof HttpError ? err : null);
+      return;
+    }
+    this.dropFeedbackCard(card.id, 'answered');
+    this.emit('pr-feedback', { outcome: 'sent', ...where, runId: run.id, sessionId: s.sessionId });
+  }
+
+  // A reply ended: the feedback that waited for it goes now, one message at a time (the next waits
+  // for the reply the first starts). After a pause, an error or a usage limit the cards come back.
+  async #flushFeedback(run) {
+    const list = this.feedbackQueue.get(run.featureDir);
+    if (!list?.length) return;
+    this.feedbackQueue.delete(run.featureDir);
+    const carryOn = run.status === 'done';
+    for (const { card, text } of list) {
+      if (carryOn) await this.#sendFeedback(card, text);
+      else {
+        card.queued = false;
+        const why = run.status === 'limited' || run.stopReason === 'usage-limit' ? 'Claude’s usage limit paused the Foreman’s reply first.' : run.status === 'error' ? 'the Foreman’s reply ended with a problem first.' : 'the Foreman’s reply was paused first.';
+        this.parkFeedbackCard({ featureDir: card.featureDir, slug: card.slug, title: card.title }, card.item, { notSent: why.charAt(0).toUpperCase() + why.slice(1) });
+        this.emit('pr-feedback', { outcome: 'waiting', featureDir: card.featureDir, slug: card.slug, item: card.item, reason: why });
+      }
+    }
   }
 
   // Give the job's lock back (only ever our own: lib/lock.js checks the pid).
@@ -773,6 +934,8 @@ export class Driver extends EventEmitter {
   async decide(requestId, { decision, note = '', answers = null, rule = null }) {
     const card = this.statusCards.get(requestId);
     if (card) { await this.#answerStatusCard(card, { decision, note, answers }); return true; }
+    const feedback = this.feedbackCards.get(requestId);
+    if (feedback) { await this.#answerFeedbackCard(feedback, { decision, note, answers }); return true; }
     for (const run of this.runs.values()) {
       const req = run.pending.get(requestId);
       if (!req) continue;
