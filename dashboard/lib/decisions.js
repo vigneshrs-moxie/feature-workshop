@@ -40,3 +40,24 @@ export function decisionOf(e) {
 export function decisionLog(audit = []) {
   return audit.map(decisionOf).filter(Boolean).sort((a, b) => String(b.at ?? '').localeCompare(String(a.at ?? '')));
 }
+
+// ---------- decisions.md: the job's decision file (plan §8) ----------
+// One plain file in the job folder, for engineers and agents: a table of the decisions made on the
+// job (id, question, options, choice, who, when, why), the Foreman's own rows, and a "Not doing"
+// list. The rows made from the audit are written again after every gate; the Foreman's rows and
+// the "Not doing" list are kept as they are.
+
+/**
+ * What every decision id starts with: the job's ticket key ("ORBIT-479") when it has one, from
+ * status.json's ticket.key, else from a slug that starts "orbit-<n>-"; otherwise the slug.
+ */
+export function decisionPrefix({ slug = '', ticketKey = null } = {}) {
+  const key = String(ticketKey ?? '').trim();
+  if (/^[A-Za-z][A-Za-z0-9]*-\d+$/.test(key)) return key.toUpperCase();
+  const m = /^orbit-(\d+)(?:-|$)/i.exec(String(slug));
+  if (m) return `ORBIT-${Number(m[1])}`;
+  return String(slug || 'job');
+}
+
+/** The k-th decision's id (k from 1, in audit order): "ORBIT-479.D3". */
+export const decisionId = (prefix, k) => `${prefix}.D${k}`;

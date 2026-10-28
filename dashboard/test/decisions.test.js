@@ -1,7 +1,7 @@
 // A job's "Your decisions" log (lib/decisions.js): what counts as your decision, in words, newest first.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { decisionLog, decisionOf } from '../lib/decisions.js';
+import { decisionId, decisionLog, decisionOf, decisionPrefix } from '../lib/decisions.js';
 
 test('approvals, send-backs with their note, stops, permissions, levels, closing', () => {
   const log = decisionLog([
@@ -39,4 +39,17 @@ test('automatic picks and your overrides are in the log', () => {
     { at: '2026-10-26T10:09:00Z', action: 'auto-level', how: 'diff', level: 3, was: 1 },
   ]);
   assert.deepEqual(log.map((d) => d.text), ['Level L1 → L3 (automatic, after a build)', 'Level L2 → L1 (you changed the automatic pick)', 'Level L2 (automatic)']);
+});
+
+// ---------- decisions.md ----------
+
+test('ids: the ticket key when there is one, else orbit-<n>- from the slug, else the slug', () => {
+  assert.equal(decisionPrefix({ slug: 'feedback-api', ticketKey: 'ORBIT-479' }), 'ORBIT-479');
+  assert.equal(decisionPrefix({ slug: 'feedback-api', ticketKey: 'orbit-12' }), 'ORBIT-12');
+  assert.equal(decisionPrefix({ slug: 'orbit-479-feedback-api' }), 'ORBIT-479');
+  assert.equal(decisionPrefix({ slug: 'orbit-0479-feedback-api' }), 'ORBIT-479');
+  assert.equal(decisionPrefix({ slug: 'orbital-sander' }), 'orbital-sander');
+  assert.equal(decisionPrefix({ slug: 'add-csv-export', ticketKey: 'not a key' }), 'add-csv-export');
+  assert.equal(decisionId('ORBIT-479', 3), 'ORBIT-479.D3');
+  assert.equal(decisionId('add-csv-export', 1), 'add-csv-export.D1');
 });
