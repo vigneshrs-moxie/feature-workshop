@@ -18,6 +18,7 @@ export const SECTION_WORDS: Record<SettingsSection, { label: string; hint: strin
   look: { label: 'Look', hint: 'Theme, text size and following the system’s light or dark.' },
   keys: { label: 'Keys', hint: 'Keyboard shortcuts on or off, and the key hints on buttons.' },
   workflow: { label: 'Workflow', hint: 'The finish line, and what a new job starts with.' },
+  repos: { label: 'Repos', hint: 'The repositories Ground Control knows, and the profile each one follows.' },
   play: { label: 'Play', hint: 'The workshop crew, achievements and sounds.' },
   rules: { label: 'Rules', hint: 'The “Always allow” rules you saved from permission cards.' },
 };
@@ -77,6 +78,7 @@ export function valueLines(f: SectionFacts): Record<SettingsSection, string> {
     look: `${theme} · Text ${TEXT_SIZE_LABELS[f.textSize]}`,
     keys: f.keysOn ? 'On' : 'Off',
     workflow: `Finish line: ${finishLineLabel(f.settings?.workflow?.finishLine, f.finishLines)}`,
+    repos: 'Profiles for each repository',
     play,
     rules: rulesLine(f.rules),
   };

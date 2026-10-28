@@ -7,7 +7,7 @@
 //                 replies and briefs this way; the job stays open (the ID itself is ignored for now)
 //   #/job/<slug>/screens  that job's wireframes page full width (views/Screens), with a Back link
 //   #/settings    Settings in the middle pane, on its first section (Permissions)
-//   #/settings/<section>  Settings on that section: permissions, notifications, look, keys, workflow, play, rules
+//   #/settings/<section>  Settings on that section: permissions, notifications, look, keys, workflow, repos, play, rules
 //   #/crew        the Crew-dex in the middle pane (Play mode only; with Play Off it shows #/'s view)
 //   #/inbox       your Portal Feedback tickets from Orbit, in the middle pane (views/Inbox.tsx)
 //   #/achievements  your achievements in the middle pane (Play mode only, like the Crew-dex)
@@ -19,7 +19,7 @@
 import { useEffect, useState } from 'react';
 
 /** The Settings page's sections, in the rail's order (views/Settings/sections.ts has their words). */
-export const SETTINGS_SECTIONS = ['permissions', 'notifications', 'look', 'keys', 'workflow', 'play', 'rules'] as const;
+export const SETTINGS_SECTIONS = ['permissions', 'notifications', 'look', 'keys', 'workflow', 'repos', 'play', 'rules'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export const isSettingsSection = (v: string): v is SettingsSection => (SETTINGS_SECTIONS as readonly string[]).includes(v);
 

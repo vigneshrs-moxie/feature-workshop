@@ -313,3 +313,54 @@ test('ticket slugs and branches fill the profile’s patterns; the flow map take
   assert.equal(calls[0][calls[0].indexOf('--repo') + 1], 'acme/widgets-renamed');
   assert.equal(facts.org?.remote ?? null, 'up');
 });
+
+test('Settings → Repos routes: list, add (400 with each error), check, remove; no door is a plain 503', async () => {
+  const { default: reposRoutes } = await import('../site/routes-repos.js');
+  const fx = await fixture();
+  const reg = new Registry({ dir: fx.state });
+  const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+  const make = (local) => {
+    const routes = reposRoutes({ local, str, sendJson: (res, status, data) => Object.assign(res, { status, data }) });
+    return (method, p, opts = {}) => {
+      const r = routes.find((x) => x.method === method && x.path === p);
+      const res = {};
+      return r.run({ res, body: opts.body ?? {}, url: new URL(`http://x${p}${opts.query ?? ''}`), m: null })
+        .then(() => res, (err) => ({ status: err.status, data: { error: err.message } }));
+    };
+  };
+  const none = make({});
+  const down = await none('GET', '/api/repos/registry');
+  assert.equal(down.status, 503);
+  assert.match(down.data.error, /can’t read the repository list yet/);
+
+  const req = make({ repos: reposDoor(reg, { recent: async () => [] }) });
+  assert.deepEqual((await req('GET', '/api/repos/registry')).data.repos, []);
+  assert.equal((await req('POST', '/api/repos/registry', { body: {} })).status, 400);
+
+  const bad = path.join(fx.root, 'bad.md');
+  await fs.writeFile(bad, '---\nname: Widgets\ngithub: nope\ntryIt:\n  ports: 9\n---\n');
+  const checked = await req('POST', '/api/repos/registry/check', { body: { profileFile: bad } });
+  assert.equal(checked.status, 200);
+  assert.equal(checked.data.ok, false);
+  assert.equal(checked.data.errors.length, 2);
+  const refused = await req('POST', '/api/repos/registry', { body: { path: fx.other, profileFile: bad } });
+  assert.equal(refused.status, 400);
+  assert.match(refused.data.error, /^github must look like org\/repo/);
+  assert.equal(refused.data.errors.length, 2);
+
+  const good = path.join(fx.root, 'widgets.md');
+  await fs.writeFile(good, profileText('Widgets'));
+  const added = await req('POST', '/api/repos/registry', { body: { path: fx.other, profileFile: good } });
+  assert.equal(added.status, 200);
+  assert.equal(added.data.repo.name, 'Widgets');
+  assert.deepEqual(added.data.repos.map((r) => r.path), [fx.other]);
+
+  assert.equal((await req('DELETE', '/api/repos/registry')).status, 400);
+  const gone = await req('DELETE', '/api/repos/registry', { query: `?path=${encodeURIComponent(fx.other)}` });
+  assert.equal(gone.status, 200);
+  assert.deepEqual(gone.data.repos, []);
+  const again = await req('DELETE', '/api/repos/registry', { query: `?path=${encodeURIComponent(fx.other)}` });
+  assert.equal(again.status, 400);
+  assert.match(again.data.error, /isn’t in the list/);
+  await fs.rm(fx.root, { recursive: true, force: true });
+});
