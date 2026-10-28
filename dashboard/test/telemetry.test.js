@@ -275,3 +275,72 @@ test('GET /api/telemetry: the five datasets for the window, from usage.jsonl in 
     await d.stop();
   }
 });
+
+test('every turn of a sample job gives one usage line in the state folder (demo dashboard, no model)', async () => {
+  const slug = 'orbit-479-sample';
+  const d = await startDashboard(async (dirs) => {
+    const dir = path.join(dirs['feature-work'], slug);
+    await fs.mkdir(path.join(dir, 'briefs'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({
+      schema_version: 1, slug, title: 'Sample job', route: 'quick', stage: 'plan', stage_state: 'running', waiting_for: null,
+      brief: null, questions: [], repo: { path: dirs.repo }, updated_at: new Date().toISOString(),
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify({
+      schema_version: 2, level: 1, flow: 'quick', skip: [], provided: {}, reviewers: ['feature-reviewer'], review_rounds: 1, manual_test: false, fable_checks: [],
+      models: { foreman: 'claude-opus-5-5', build: 'claude-opus-5-5', checks: 'claude-opus-5-5' }, title: 'Sample job', repo: dirs.repo, kind: 'feature',
+    }, null, 2));
+  });
+  const file = path.join(d.dirs.state, 'usage.jsonl');
+  const read = async () => (await fs.readFile(file, 'utf8').catch(() => '')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const get = async (p) => (await fetch(d.base + p)).json();
+  const waitFor = async (fn, what, ms = 15000) => {
+    const end = Date.now() + ms;
+    for (;;) {
+      const v = await fn();
+      if (v) return v;
+      if (Date.now() > end) throw new Error(`Timed out waiting for ${what}.\n${d.output.join('')}`);
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  };
+  // One turn: send, allow whatever the pretend Foreman asks, and wait for the reply to end.
+  const turn = async (text) => {
+    const sent = await d.write('POST', `/api/job/${slug}/send`, { text, despiteLimit: true });
+    assert.equal(sent.status, 200, JSON.stringify(sent.body));
+    await waitFor(async () => {
+      const job = await get(`/api/job/${slug}`);
+      for (const p of (await get('/api/snapshot')).permissions.filter((x) => x.slug === slug)) await d.write('POST', `/api/permissions/${p.id}`, { decision: 'allow' });
+      return job.drive?.mode !== 'running' && job.run && !['starting', 'running', 'waiting_permission'].includes(job.run.status);
+    }, 'the reply to end');
+  };
+  try {
+    assert.deepEqual(await read(), [], 'no line before any turn');
+    await turn('Carry on.');
+    const first = await waitFor(async () => { const l = await read(); return l.length ? l : null; }, 'the first line');
+    assert.equal(first.length, 1, 'one line for the turn');
+    await turn('One more step.');
+    const both = await waitFor(async () => { const l = await read(); return l.length >= 2 ? l : null; }, 'the second line');
+    assert.equal(both.length, 2, 'one line per turn');
+    for (const l of both) {
+      assert.equal(l.user, 'vignesh');
+      assert.equal(l.account, null, 'demo mode: no Claude account');
+      assert.equal(l.job, slug);
+      assert.equal(l.ticket, 'ORBIT-479');
+      assert.equal(l.worker, 'foreman');
+      assert.equal(typeof l.stage, 'string');
+      assert.ok(l.model, 'the Foreman model');
+      assert.deepEqual(Object.keys(l.tokens).sort(), ['cacheRead', 'cacheWrite1h', 'cacheWrite5m', 'input', 'output']);
+      assert.equal(typeof l.costUsd, 'number');
+      assert.ok(['cli', 'estimate'].includes(l.costSource));
+      assert.ok('fiveHour' in l.meters && 'week' in l.meters);
+      assert.ok(!Number.isNaN(Date.parse(l.t)));
+    }
+    assert.notEqual(both[0].turn, both[1].turn, 'two turns');
+    assert.equal(both[0].costSource, 'cli');
+    assert.equal(both[0].costUsd, 0.42, 'the pretend session’s own figure');
+    // And the page's route reads them back.
+    const people = (await get('/api/telemetry?window=week')).datasets.find((x) => x.id === 'people');
+    assert.equal(people.people[0].user, 'vignesh');
+  } finally {
+    await d.stop();
+  }
+});
