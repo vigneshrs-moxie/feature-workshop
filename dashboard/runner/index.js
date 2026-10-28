@@ -67,7 +67,7 @@ import { goAheadCovers } from '../lib/hard-lines.js';
 import { FlowWatch, gatherRepo } from '../lib/flow.js';
 import { noticeBody, Notifier, validateNotifyPatch } from '../lib/notify.js';
 import { Integrator, IntegrateError } from '../lib/integrate.js';
-import { MCP_NAME, OrbitError, OrbitInbox, clearToken, jobsByTicket, normalizeOrbitUrl, orbitClient, setToken } from '../lib/orbit.js';
+import { MCP_NAME, OrbitError, OrbitInbox, canonicalKey, clearToken, jobsByTicket, normalizeOrbitUrl, orbitClient, setToken } from '../lib/orbit.js';
 import { tokenStore } from '../lib/orbit-token.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, groundControlUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
@@ -75,6 +75,7 @@ import { telemetry as telemetryOf } from '../lib/telemetry.js';
 import { EVENT_TYPES, NOTES_MAX, parseCommand } from '../lib/protocol.js';
 import { JobLocked, heldElsewhere } from '../lib/lock.js';
 import { RESTART_TEXT, RESUME_KIND, replay, withRestartNotes } from './replay.js';
+import { removeServiceFile, writeServiceFile } from './service-file.js';
 
 /** The Foreman models the page offers (meta.models); a reply's model must be one of them. */
 export const MODELS = [
@@ -1941,6 +1942,12 @@ export async function createRunner(config) {
       return { file: DECISIONS_FILE, path: d.file, text: d.text, copy: ticketCopy(d.text) };
     },
     hasJob: async (slug) => Boolean(await featureBySlug(slug)),
+    /** The job a name means: its slug, or a ticket key (ORBIT-479) an open job is for. Null: none. */
+    async jobForName(name) {
+      if (await featureBySlug(name)) return name;
+      const key = canonicalKey(name);
+      return key ? (await jobsByTicket(await features())).get(key)?.slug ?? null : null;
+    },
     job: async (slug) => jobDetail(await jobOf(slug)),
     /** "Load older": only the thread items before the given one. */
     async threadBefore(slug, before) {
@@ -2187,6 +2194,8 @@ export async function createRunner(config) {
     watch(FEATURES_DIR, featureFileChanged);
     watch(PROJECTS_DIR);
     await listen();
+    // How `ground-control resume` finds this service (runner/service-file.js): pid, port, token.
+    if (TOKEN && PORT) { try { writeServiceFile(state.dir, { pid: process.pid, host: HOST, port: PORT, token: TOKEN }); } catch (err) { console.error('service.json:', err.message); } }
     // The play ledger: read play.json, or rebuild it from the audit log when it is missing. Not while Play is Off.
     if (playOn()) playbook.refresh().catch((err) => console.error('play ledger:', err));
     // The flow map: fetch and read PRs now, then every 10 minutes; recount locally every minute.
@@ -2219,6 +2228,7 @@ export async function createRunner(config) {
       try { await state.audit({ action: 'service-stop', pid: process.pid, paused }); } catch (err) { console.error('service-stop:', err.message); }
       for (const r of active) driver.stop(r.id);
       local.stopAll(); // dev servers and commands started from the page stop with it
+      removeServiceFile(state.dir);
     })();
     return stopping;
   }
