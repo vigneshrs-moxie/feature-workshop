@@ -712,7 +712,10 @@ export class LocalRunner extends EventEmitter {
     return {
       ...base, available: true, root: w.root, branch: f.branch,
       app: w.app ? { dir: w.app.dir, rel: w.app.rel || '.' } : null,
-      port, url: port ? `http://localhost:${port}` : null,
+      port, url: port ? fillPattern(w.tryIt.url, { port }) : null,
+      // The repository's profile ({ name, github, file, source }) or null: the page then says it has none yet.
+      profile: w.profile ? { name: w.profile.name, github: w.profile.github, file: w.profile.file, source: w.profile.source } : null,
+      profileErrors: w.profileErrors,
       env: await this.envStatus(w, port),
       server: this.#serverView(slot.server), serverOutput: slot.server?.output ?? '',
       cmd: slot.cmd ? { label: slot.cmd.label, command: slot.cmd.command, status: slot.cmd.status, exitCode: slot.cmd.exitCode, startedAt: slot.cmd.startedAt, endedAt: slot.cmd.endedAt, stoppable: slot.cmd.stoppable !== false, output: slot.cmd.output } : null,

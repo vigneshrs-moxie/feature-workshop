@@ -458,8 +458,8 @@ export function ticketBrief(ticket, { branch }) {
  * { branch, status, brief } for the first message. options.json is written by writeOptions with
  * { ticket, branch } in `about`.
  */
-export async function startFromTicket(dir, { ticket, slug, title, kind = 'feature', level = null, repo = null }) {
-  const branch = ticketBranch(kind, slug);
+export async function startFromTicket(dir, { ticket, slug, title, kind = 'feature', level = null, repo = null, profile = null }) {
+  const branch = ticketBranch(kind, slug, { profile, ticket });
   const status = ticketStatus({ ticket, slug, title, kind, level, repo });
   await fsp.mkdir(dir, { recursive: true });
   const file = path.join(dir, 'status.json');

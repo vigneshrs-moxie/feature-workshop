@@ -34,7 +34,7 @@ import { State, WORKFLOW_CHOICES } from '../lib/state.js';
 import { Driver, Busy } from '../lib/driver.js';
 import { renderMarkdown, indexIds } from '../lib/markdown.js';
 import * as git from '../lib/git.js';
-import { recentRepos, checkRepo } from '../lib/repos.js';
+import { recentRepos, checkRepo, reposDoor } from '../lib/repos.js';
 import { HttpError } from '../lib/http-guard.js';
 import { liveTerminals } from '../lib/live.js';
 import { readHookSessions } from '../lib/hook-events.js';
@@ -1429,14 +1429,17 @@ export async function createRunner(config) {
         }
         from.detail = d;
       }
-      const slug = await uniqueSlug(ticket ? ticketSlug(ticket) : slugify(description));
+      // The repository's profile names a ticket's folder and branch (lib/profile.js); none: the general case.
+      const hit = ticket ? await local.registry.profileFor(repo.path).catch(() => null) : null;
+      const profile = hit?.ok ? hit.profile : null;
+      const slug = await uniqueSlug(ticket ? ticketSlug(ticket, profile) : slugify(description));
       const featureDir = path.join(FEATURES_DIR, slug);
       // The job's options go in its private folder (read before every stage) and in the first message.
       const { detail: fromDetail, ...fromRecord } = from ?? {};
       const optionsOut = from ? { ...options, from_session: fromRecord } : options;
-      await writeOptions(featureDir, options, { title: description, repo: repo.path, kind, from_session: from ? fromRecord : undefined, ticket: ticket ?? undefined, branch: ticket ? ticketBranch(kind, slug) : undefined });
+      await writeOptions(featureDir, options, { title: description, repo: repo.path, kind, from_session: from ? fromRecord : undefined, ticket: ticket ?? undefined, branch: ticket ? ticketBranch(kind, slug, { profile, ticket }) : undefined });
       // A ticket's job starts with a status.json of schema version 2 holding the ticket block.
-      const fromTicket = ticket ? await startFromTicket(featureDir, { ticket, slug, title: description, kind, level: options.level, repo: repo.path }) : null;
+      const fromTicket = ticket ? await startFromTicket(featureDir, { ticket, slug, title: description, kind, level: options.level, repo: repo.path, profile }) : null;
       if (fromDetail) await fsp.writeFile(path.join(featureDir, 'history.md'), historyMarkdown(fromDetail), { mode: 0o600 });
       // The /feature command must come first in the message, or it doesn't run.
       const tail = from?.mode === 'continue'
@@ -2064,6 +2067,8 @@ export async function createRunner(config) {
     },
     /** The top bar's usage meters: read the plan's usage now instead of at the next minute. */
     checkPlanUsage: () => planUsage.check(),
+    /** Settings → Repos (site/routes-repos.js): the registry's list, add, remove and check. On a first start the list is seeded from the recent repositories. */
+    repos: reposDoor(local.registry, { recent: () => repoList() }),
     recordSecret,
     /**
      * An easter egg found, or something the page saw you do (a theme tried), from fixed lists only.

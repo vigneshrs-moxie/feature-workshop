@@ -34,14 +34,14 @@ const railValue = (name: string) => railRow(name).querySelector('[data-value]')?
 afterEach(() => { localStorage.clear(); window.location.hash = ''; });
 
 describe('Settings: the rail', () => {
-  it('lists the seven sections in order, each with its current value in one line, and marks the open one', async () => {
+  it('lists the eight sections in order, each with its current value in one line, and marks the open one', async () => {
     setup([{ rules: [RULE, { ...RULE, id: 'r2' }, { ...RULE, id: 'r3' }], active: true, unreadable: null }], undefined, 'permissions', {
       settings: { policy: 'auto', notify: { enabled: true, levels: { needs: 'sound', problem: 'silent', done: 'off' }, quiet: { on: false, from: '22:00', to: '07:00' }, skipWhenWatching: true }, workflow: { finishLine: 'pr1-merged' } },
     });
     const rail = screen.getByRole('navigation', { name: 'Settings sections' });
     const rows = within(rail).getAllByRole('link');
-    expect(rows.map((r) => r.querySelector('.settings-rail-name')?.textContent)).toEqual(['Permissions', 'Notifications', 'Look', 'Keys', 'Workflow', 'Play', 'Rules']);
-    expect(rows.map((r) => r.getAttribute('href'))).toEqual(['#/settings/permissions', '#/settings/notifications', '#/settings/look', '#/settings/keys', '#/settings/workflow', '#/settings/play', '#/settings/rules']);
+    expect(rows.map((r) => r.querySelector('.settings-rail-name')?.textContent)).toEqual(['Permissions', 'Notifications', 'Look', 'Keys', 'Workflow', 'Repos', 'Play', 'Rules']);
+    expect(rows.map((r) => r.getAttribute('href'))).toEqual(['#/settings/permissions', '#/settings/notifications', '#/settings/look', '#/settings/keys', '#/settings/workflow', '#/settings/repos', '#/settings/play', '#/settings/rules']);
     expect(railRow('Permissions')).toHaveAttribute('aria-current', 'page');
     expect(railRow('Rules')).not.toHaveAttribute('aria-current');
     expect(railValue('Permissions')).toBe('Auto mode');

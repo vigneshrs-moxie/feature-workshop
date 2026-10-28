@@ -5,6 +5,7 @@
 // routes as the classic page (GET and POST /api/job/:slug/local); it polls while something runs.
 // Switching the database asks first, in place, saying what is lost.
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { settingsHref } from '../../app/router';
 import { useWorkshop } from '../../state/store';
 
 interface LocalView {
@@ -23,6 +24,9 @@ interface LocalView {
   folderLabel?: string;
   app?: { dir: string; rel: string } | null;
   env?: { exists: boolean; ready: boolean; sourceExists: boolean; signInSkipped?: boolean | null; file: string; notes: string[] } | null;
+  /** The repository's profile (Settings → Repos), or null when it has none: Try it then guesses as it always did. */
+  profile?: { name: string; github?: string | null; file?: string | null; source?: 'repo' | 'registry' | null } | null;
+  profileErrors?: string[];
   db?: {
     available: boolean; reason?: string; busy?: boolean; gone?: boolean; name?: string;
     missing: string[]; extra: string[]; connections?: number;
@@ -113,7 +117,7 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
   async function tryIt() {
     if (!v) return;
     if (v.env && !v.env.ready) {
-      if (!v.env.exists && !v.env.sourceExists) throw new Error('The app needs a .env.local and your main folder has none to copy.');
+      if (!v.env.exists && !v.env.sourceExists) throw new Error(`The app needs ${v.env.file} and your main folder has none to copy.`);
       await setupEnv();
     }
     if (v.db?.available && v.db.missing.length && !v.db.busy) { setConfirm({ what: 'match', thenStart: true }); return; }
@@ -175,6 +179,9 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
   return (
     <div className="try-tab">
       {v.demo && <p className="try-note is-info">Demo mode: the buttons show what would happen; nothing runs.</p>}
+      {v.profile === null && (
+        <p className="try-note is-info" role="note">This repository has no profile yet: <a href={settingsHref('repos')}>Settings → Repos</a>.{v.profileErrors?.length ? ` Its profile has ${v.profileErrors.length === 1 ? 'a problem' : 'problems'}: ${v.profileErrors.join(' ')}` : ''}</p>
+      )}
 
       <div className="try-go">
         {!v.app ? (
@@ -215,7 +222,7 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
         {v.env && (
           !v.env.exists ? (
             <Step state="todo" n={1} title="Settings file" actions={v.env.sourceExists ? btn('env', 'Set up', setupEnv, 'btn btn-primary') : undefined}>
-              {v.env.sourceExists ? <>Not set up yet. Copies your main folder’s <code>.env.local</code>, points it at port {v.port} and skips sign-in.</> : <>Your main folder has no <code>.env.local</code> to copy. Create <code>{v.env.file}</code> yourself.</>}
+              {v.env.sourceExists ? <>Not set up yet. Copies your main folder’s <code>{v.env.file}</code>, points it at port {v.port} and skips sign-in.</> : <>Your main folder has no <code>{v.env.file}</code> to copy. Create <code>{v.env.file}</code> yourself.</>}
             </Step>
           ) : v.env.ready ? (
             <Step state="ok" n={1} title="Settings file" actions={btn('env', 'Redo', setupEnv, 'btn btn-quiet')}>

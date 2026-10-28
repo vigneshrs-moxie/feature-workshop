@@ -7,7 +7,7 @@ const FINISH_LINES = [{ id: 'pr1-merged', label: 'PR #1 merged' }, { id: 'main',
 
 describe('Settings sections', () => {
   it('names every section the router knows, in its order', () => {
-    expect(SETTINGS_SECTIONS).toEqual(['permissions', 'notifications', 'look', 'keys', 'workflow', 'play', 'rules']);
+    expect(SETTINGS_SECTIONS).toEqual(['permissions', 'notifications', 'look', 'keys', 'workflow', 'repos', 'play', 'rules']);
     for (const s of SETTINGS_SECTIONS) expect(SECTION_WORDS[s].label).toBeTruthy();
     expect(stepSection('permissions', -1)).toBe('rules');
     expect(stepSection('rules', 1)).toBe('permissions');
@@ -22,6 +22,7 @@ describe('Settings sections', () => {
       look: 'Glass · Text M',
       keys: 'On',
       workflow: 'Finish line: In main',
+      repos: 'Profiles for each repository',
       play: 'Subtle',
       rules: '3 rules',
     });
@@ -50,7 +51,7 @@ describe('Settings sections', () => {
     expect(findSettings('wireframe').map((e) => e.id)).toEqual(['wireframes']);
     expect(findSettings('finish').map((e) => e.id)).toEqual(['finish-line']);
     expect(findSettings('workflow').every((e) => e.section === 'workflow')).toBe(true);
-    expect(findSettings('workflow')).toHaveLength(4);
+    expect(findSettings('workflow')).toHaveLength(5); // with the Orbit token
     expect(findSettings('zebra')).toEqual([]);
     // Every entry belongs to a known section, and no anchor is used twice.
     for (const e of SETTING_INDEX) expect(SETTINGS_SECTIONS).toContain(e.section);
