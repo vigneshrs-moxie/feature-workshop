@@ -491,8 +491,8 @@ export class Integrator extends EventEmitter {
     return next;
   }
 
-  saveOrder(order) { return this.#save({ order: cleanOrder(order) }); }
-  saveSlots(slots) { return this.#save({ slots: cleanSlots(slots) }); }
+  async saveOrder(order) { return this.#save({ order: cleanOrder(order) }); }
+  async saveSlots(slots) { return this.#save({ slots: cleanSlots(slots) }); }
 
   /** Everything the page shows. */
   async view() {
@@ -510,8 +510,12 @@ export class Integrator extends EventEmitter {
     this.emit('line', { text, stream });
   }
 
-  #begin(step) {
+  #idle() {
     if (this.running) throw new IntegrateError(409, this.running.kind === 'merge' ? 'A merge is running now. Wait for it to finish.' : `The tests for packet ${this.running.id} are running now. Wait for them to finish.`);
+  }
+
+  #begin(step) {
+    this.#idle();
     this.running = { ...step, startedAt: new Date().toISOString() };
     this.log = [];
     this.emit('step', this.running);
@@ -545,6 +549,7 @@ export class Integrator extends EventEmitter {
   /** Start both test suites in packet `id`'s worktree: resolves { done } (the promise of its result) once started. */
   async runPacketTests(id) {
     if (!ID_RE.test(String(id ?? ''))) throw new IntegrateError(400, 'Which packet? Give its id, like C.');
+    this.#idle();
     const { packets } = await listPackets({ root: this.root, testsStates: this.testsStates });
     const p = packets.find((x) => x.id === id);
     if (!p) throw new IntegrateError(404, `No worktree for packet ${id}.`);
