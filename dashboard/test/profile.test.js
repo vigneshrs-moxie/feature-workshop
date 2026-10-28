@@ -140,3 +140,28 @@ test('profile: with no profile, Try it is today’s general case', () => {
   assert.equal(portsLabel({ first: 3001, last: 3099 }), '3001-3099');
   assert.equal(portsLabel({ first: 3001, last: null }), '3001 and up');
 });
+
+test('Orbit’s profile (dashboard/profiles/orbit.md) loads with no errors or warnings, and says what the code does today', async () => {
+  const r = await loadProfile(new URL('../profiles/orbit.md', import.meta.url).pathname);
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+  const p = r.profile;
+  assert.equal(p.name, 'Orbit');
+  assert.equal(p.github, 'Moxie-Pest-Control-Phoenix/moxie-portal');
+  assert.deepEqual(p.remotes, { fork: 'origin', org: 'moxie' });
+  assert.equal(p.base, 'moxie/main');
+  assert.equal(fillPattern(p.slug, { n: 479, title: 'feedback-api' }), 'orbit-479-feedback-api');
+  assert.equal(fillPattern(p.slug, { n: 7, title: '' }), 'orbit-7');
+  assert.equal(fillPattern(p.branch, { kind: p.kinds.bug, slug: 'orbit-124-comment-save' }), 'fix/orbit-124-comment-save');
+  assert.equal(fillPattern(p.worktree, { slug: 'orbit-7' }), '../orbit-orbit-7');
+  assert.equal(p.prRoute.length, 3);
+  assert.ok(p.riskFloors.every((f) => f.level === 3));
+  const t = tryItRules(p);
+  assert.deepEqual(t.appDirs, ['app']);
+  assert.deepEqual(t.ports, { first: 3001, last: 3099 });
+  assert.equal(devCommand(t, 'next dev --turbopack', 3001), 'npm run dev -- -p 3001 -H 127.0.0.1', 'the command Try it ran for Orbit before');
+  assert.equal(fillPattern(t.url, { port: 3001 }), 'http://localhost:3001');
+  assert.deepEqual(t.files, [{ from: 'app/.env.local', to: 'app/.env.local', portKeys: [...GENERAL.filesToCopy[0].portKeys], signInSkip: 'DEV_BYPASS_AUTH' }]);
+  assert.equal(t.dbUrlKey, 'DATABASE_URL');
+  assert.match(p.notes, /^# Orbit/);
+});
