@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { decisionId, decisionLog, decisionOf, decisionPrefix, decisionRows, gateAnswers, gateNote, keptParts, render, writeDecisionsFile } from '../lib/decisions.js';
+import { decisionId, decisionLog, decisionOf, decisionPrefix, decisionRows, gateAnswers, gateNote, keptParts, render, ticketCopy, writeDecisionsFile } from '../lib/decisions.js';
 
 test('approvals, send-backs with their note, stops, permissions, levels, closing', () => {
   const log = decisionLog([
@@ -201,4 +201,25 @@ test('writeDecisionsFile: written in the job folder from the audit, status.json 
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test('copy for the ticket: plain text with the pipes, no notes to agents, at most 40 lines (the last ones, said so)', () => {
+  const text = render({ prefix: 'ORBIT-479', title: 'Feedback API and MCP', rows: rowsOf(AUDIT), existing: FOREMAN_FILE });
+  const c = ticketCopy(text);
+  assert.equal(c.cut, false);
+  assert.equal(c.text.split('\n')[0], '# ORBIT-479 · Feedback API and MCP');
+  assert.equal(/<!--/.test(c.text), false);
+  assert.ok(c.text.includes('| ORBIT-479.F1 | Store feedback per office? | yes · no | yes | Foreman | 2026-10-27 | the spec says offices differ |\n'));
+  assert.ok(c.text.includes('| id | question | options | choice | who | when | why |'));
+  assert.ok(c.text.endsWith('- A second **export** format | maybe later'));
+  assert.equal(c.lines, c.text.split('\n').length);
+  assert.ok(c.lines <= 40);
+
+  const many = Array.from({ length: 60 }, (_, i) => ({ at: `2026-10-27T10:${String(i).padStart(2, '0')}:00Z`, action: 'send', kind: 'approve', gateBrief: i + 1, text: 'I approve.' }));
+  const long = ticketCopy(render({ prefix: 'ORBIT-479', rows: rowsOf(many) }));
+  assert.equal(long.cut, true);
+  assert.equal(long.lines, 40);
+  assert.ok(long.total > 40);
+  assert.ok(long.text.endsWith('## Not doing'));
+  assert.ok(long.text.split('\n').includes('| ORBIT-479.D60 | Brief 60: go ahead? | approve · send back · stop | approve | Vignesh | 2026-10-27 |  |'));
 });

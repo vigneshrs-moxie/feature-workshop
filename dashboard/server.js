@@ -37,7 +37,7 @@ import { groupCards } from './lib/snapshot.js';
 import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from './lib/finish.js';
 import { NUDGE_IDS, nudgesFor } from './lib/nudges.js';
 import { buildThread, pageThread } from './lib/thread.js';
-import { DECISIONS_FILE, decisionLog, writeDecisionsFile } from './lib/decisions.js';
+import { DECISIONS_FILE, decisionLog, ticketCopy, writeDecisionsFile } from './lib/decisions.js';
 import { typicalRuns } from './lib/run-typical.js';
 import { proofStamp } from './lib/proof.js';
 import { suggestLevel, changedPaths, diffSummary } from './lib/levels.js';
@@ -1100,6 +1100,17 @@ async function routeGet(urlPath, url, req, res) {
     const cut = (t, n) => (t && t.length > n ? `${t.slice(0, n - 1)}…` : t);
     const prompts = d.prompts.length > 15 ? [...d.prompts.slice(0, 12), { gap: d.prompts.length - 15 }, ...d.prompts.slice(-3)] : d.prompts;
     return sendJson(res, 200, { ...d, prompts: prompts.map((p) => (p.gap ? p : { at: p.at, text: cut(p.text, 600) })), filesEdited: d.filesEdited.slice(0, 50), moreFiles: Math.max(0, d.filesEdited.length - 50), lastAnswer: cut(d.lastAnswer, 1500) });
+  }
+  const dm = /^\/api\/jobs\/([^/]+)\/decisions\.md$/.exec(urlPath);
+  if (dm) {
+    // The job's decisions.md (lib/decisions.js), written again first so it has every decision so
+    // far. As JSON for the Decisions tab (the text and "Copy for the ticket"), else the file itself.
+    const f = await featureBySlug(decodeURIComponent(dm[1]));
+    if (!f) throw new HttpError(404, 'No job by that name.');
+    const d = await writeDecisions(f);
+    if (!d) throw new HttpError(404, 'This job’s folder isn’t there any more, so it has no decision file.');
+    if (!String(req.headers.accept ?? '').includes('application/json')) return send(res, 200, d.text, 'text/plain; charset=utf-8', { 'Cache-Control': 'no-store' });
+    return sendJson(res, 200, { file: DECISIONS_FILE, path: d.file, text: d.text, copy: ticketCopy(d.text) });
   }
   let m = /^\/api\/job\/([^/]+)(\/.*)?$/.exec(urlPath);
   if (m) {

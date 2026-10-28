@@ -1,10 +1,12 @@
 // The Decisions tab: every choice you made on this job, newest first (GET /api/job/:slug/decisions,
 // dashboard/lib/decisions.js). Approvals, send-backs with their note, permissions, level changes,
-// closing and reopening. Read again whenever the job's thread moves on.
+// closing and reopening. Read again whenever the job's thread moves on. Above it, "Copy for the
+// ticket" (CopyForTicket) reads the job's decisions.md.
 import { useEffect, useState } from 'react';
 import type { Decision } from '../../api/types';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
+import { CopyForTicket } from './CopyForTicket';
 
 const GLYPH: Record<string, string> = { approve: '✓', changes: '↺', stop: '■', allow: '›', deny: '⊘', level: '⇅', options: '⚙', policy: '⚙', close: '✕', reopen: '↻', nudge: '›' };
 
@@ -26,6 +28,10 @@ export function DecisionsTab({ slug, active }: { slug: string; active: boolean }
   }, [api, slug, version, active]);
 
   const decisions = log?.slug === slug ? log.decisions : null;
+  return <><CopyForTicket slug={slug} active={active} />{logOf(decisions, error, now)}</>;
+}
+
+function logOf(decisions: Decision[] | null, error: string | null, now: ReturnType<typeof useNow>) {
   if (error && !decisions) return <p className="muted doc-empty">Couldn’t read the decisions: {error}</p>;
   if (!decisions) return <p className="muted doc-empty">Reading your decisions…</p>;
   if (decisions.length === 0) return <p className="muted doc-empty">No decisions yet. Approvals, send-backs, permissions and level changes you make on this job are listed here.</p>;

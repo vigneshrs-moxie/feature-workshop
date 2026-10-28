@@ -264,3 +264,27 @@ async function writeNow(jobDir, { audit = null, auditFile = defaultAuditFile(), 
   await fs.rename(tmp, file);
   return { file, text, changed: true };
 }
+
+/** The most lines "Copy for the ticket" gives. */
+export const TICKET_LINES = 40;
+
+/**
+ * decisions.md as plain text for a ticket ("Copy for the ticket"): the title, the table with its
+ * pipes, the sections and the Not doing list, without the file's notes to agents (HTML comments,
+ * the foreman marks). At most `max` lines: a longer file gives its last `max` lines, and cut says so.
+ * Returns { text, lines, total, cut }.
+ */
+export function ticketCopy(markdown, max = TICKET_LINES) {
+  const all = [];
+  for (const raw of String(markdown ?? '').split(/\r?\n/)) {
+    if (/^\s*<!--[\s\S]*-->\s*$/.test(raw)) continue;
+    const line = raw.replace(FOREMAN_MARK, '').replace(/\s+$/, '');
+    if (!line && !all.at(-1)) continue; // one blank line at a time, none first
+    all.push(line);
+  }
+  while (all.length && !all.at(-1)) all.pop();
+  const cut = all.length > max;
+  const kept = cut ? all.slice(-max) : all;
+  while (kept.length && !kept[0]) kept.shift();
+  return { text: kept.join('\n'), lines: kept.length, total: all.length, cut };
+}
