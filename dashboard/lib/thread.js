@@ -17,6 +17,43 @@ const POLICY_LABELS = { 'hands-off': 'Routine steps automatic', 'ask-all': 'Ask 
 
 const hash = (entry) => createHash('sha1').update(JSON.stringify(entry)).digest('hex').slice(0, 12);
 
+// A PR feedback item as the audit line names it (lib/pr-feedback.js itemSummary).
+const feedbackWhat = (e) => {
+  const pr = e.prLabel ?? (Number.isInteger(e.pr) ? `PR #${e.pr}` : 'the pull request');
+  return e.kind === 'check' ? `the failed check ${e.name ?? ''} on ${pr}`.replace(/check {2}/, 'check ') : `${e.author ?? 'someone'}’s comment on ${pr}`;
+};
+const cap = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+
+// "14:02", or "Oct 28, 09:10" when `ref` (an earlier moment) was on another day. Local time.
+function clock(at, ref = null) {
+  const d = new Date(at ?? '');
+  if (!Number.isFinite(d.getTime())) return 'an unknown time';
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const r = ref ? new Date(ref) : null;
+  const sameDay = !r || !Number.isFinite(r.getTime()) || r.toDateString() === d.toDateString();
+  return sameDay ? hm : `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${hm}`;
+}
+
+/**
+ * The notes for Ground Control's own stops and starts (runner/index.js service-stop, service-start;
+ * they name no job folder, so the runner passes them as `service`): one note for each stop that
+ * paused this job's reply, with the start that followed.
+ */
+function serviceNotes(service, featureDir) {
+  const notes = [];
+  if (!featureDir) return notes;
+  const lines = [...service].sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')));
+  lines.forEach((e, i) => {
+    if (e.action !== 'service-stop' || !(e.paused ?? []).some((p) => p.featureDir === featureDir)) return;
+    const start = lines.slice(i + 1).find((x) => x.action === 'service-start');
+    const text = start
+      ? `Ground Control stopped at ${clock(e.at)} and started again at ${clock(start.at, e.at)}.`
+      : `Ground Control stopped at ${clock(e.at)}.`;
+    notes.push({ id: `note:service:${hash(e)}`, kind: 'note', at: e.at, text });
+  });
+  return notes;
+}
+
 /**
  * briefs: [{ number, stage, file, at, headline, point, versions }]. versions: the spec and artifact
  * versions status.json named when this brief was raised ({ spec, artifacts: { name: version } }),
@@ -25,8 +62,12 @@ const hash = (entry) => createHash('sha1').update(JSON.stringify(entry)).digest(
  * first (all of them, so ids don't depend on how far back was read). autoResume: whether jobs
  * carry on by themselves after a usage limit (changes one note's wording).
  * Replies carry their markdown in `reply`; the caller renders the ones it sends.
+ * service: Ground Control's service-stop and service-start lines (they name no job), for the
+ * stop-and-start notes of this job (featureDir: the job folder; else the audit lines' own).
+ * Messages Ground Control sent by itself (a status.json fix, PR feedback you chose to send) are
+ * notes, never "you".
  */
-export function buildThread({ briefs = [], audit = [], autoResume = true }) {
+export function buildThread({ briefs = [], audit = [], autoResume = true, service = [], featureDir = null }) {
   const thread = [];
   for (const b of briefs) {
     thread.push({ id: `brief:${b.file}`, kind: 'brief', at: b.at ?? null, number: b.number, stage: b.stage, file: b.file, headline: b.headline ?? null, point: b.point ?? null, versions: b.versions ?? null });
@@ -41,6 +82,14 @@ export function buildThread({ briefs = [], audit = [], autoResume = true }) {
     }
     const note = (text) => thread.push({ id: id('note'), kind: 'note', at: e.at, text });
     if (e.action === 'send' && e.kind === 'resume') note('Claude’s usage limit reset, so the workshop told the Foreman to carry on.');
+    // status.json checks (lib/driver.js): an invalid write, and the fix sent by resuming the session.
+    else if (e.action === 'send' && e.kind === 'status-fix') note('Ground Control asked the Foreman to rewrite status.json.');
+    else if (e.action === 'status_invalid') note(`The Foreman’s status.json didn’t match the format${Array.isArray(e.errors) && e.errors.length ? `: ${String(e.errors[0]).replace(/[.\s]+$/, '')}` : ''}.`);
+    // PR feedback (lib/pr-feedback.js): the message itself is shown by its pr-feedback-sent note.
+    else if (e.action === 'send' && e.kind === 'pr-feedback') continue;
+    else if (e.action === 'pr-feedback-sent') note(`You sent ${feedbackWhat(e)} to the Foreman.`);
+    else if (e.action === 'pr-feedback-queued') note(`${cap(feedbackWhat(e))} waits for the Foreman to finish its reply; it goes then.`);
+    else if (e.action === 'pr-feedback-not-sent') note(`${cap(feedbackWhat(e))} wasn’t sent${e.reason ? `: ${String(e.reason).replace(/[.\s]+$/, '')}` : ''}. Its card is back under Needs you.`);
     // gateBrief: sent from a gate card, answering that brief.
     else if (e.action === 'send') thread.push({ id: id('you'), kind: 'you', at: e.at, text: e.text, sendKind: e.kind, ...(Number.isInteger(e.gateBrief) ? { gateBrief: e.gateBrief } : {}) });
     // A gate reply held until Claude's usage limit resets (lib/limits.js hold); sent then as a 'send'.
@@ -80,6 +129,7 @@ export function buildThread({ briefs = [], audit = [], autoResume = true }) {
       note(`You changed how this job runs (from the next stage): ${changed ? `${changed} ` : ''}${describeOptions(e.options).join(' ')}`);
     }
   }
+  thread.push(...serviceNotes(service, featureDir ?? audit.find((e) => e.featureDir)?.featureDir ?? null));
   thread.sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')));
   // Two identical audit lines (same moment, same words) would share an id: number the repeats.
   const seen = new Map();

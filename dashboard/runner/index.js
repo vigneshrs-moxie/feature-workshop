@@ -689,7 +689,9 @@ export async function createRunner(config) {
       const versions = b.file === f.statusBriefFile ? raisedVersions.get(f.dir, b.file) ?? f.versions : null;
       briefs.push({ number: b.number, stage: b.stage, file: b.file, at: st?.mtime.toISOString() ?? null, headline: parsed.headline, point: parsed.happened[0] ?? parsed.next ?? null, versions });
     }
-    const page = pageThread(withRestartNotes(buildThread({ briefs, audit, autoResume: limits.autoResume }), audit), { before });
+    // Ground Control's own stops and starts name no job folder: read beside the job's lines (lib/thread.js).
+    const service = (await state.auditAll()).filter((e) => e.action === 'service-stop' || e.action === 'service-start');
+    const page = pageThread(withRestartNotes(buildThread({ briefs, audit, autoResume: limits.autoResume, service, featureDir: f.dir }), audit), { before });
     if (!page) return null;
     const items = page.items.map(({ reply, ...it }) => (it.kind === 'reply' ? { ...it, html: renderMarkdown(reply, { idHref: idHref(f) }) } : it));
     return { items, more: page.more };
