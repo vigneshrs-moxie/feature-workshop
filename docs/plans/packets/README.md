@@ -28,4 +28,5 @@ v1.5 and v2 packet files are written when v1 ships, from plan §11.
 - **Never push, never open a PR, never merge.** Commit locally, one commit per step, plain messages. Hand back the branch name and the last SHA.
 - **Status is never shown by colour alone; themes change looks only; keys never fire while typing or with a dialog open.** Use the theme tokens, not literal colours.
 - **Plain words** in every string a person reads. No jargon.
+- **Usage check:** `node docs/plans/packets/usage.mjs` from the repo root prints the weekly and five-hour percent. The build session runs it after every packet step and tells Vignesh when the week is at or above 95 %.
 - **Hand-back format** (paste into the integration board's notes or tell Vignesh): packet id, branch, last SHA, what was done per step, test output tail, anything not done and why, "Needs from others".
