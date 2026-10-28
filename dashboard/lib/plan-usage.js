@@ -13,7 +13,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { UsageWarnings } from './usage-warnings.js';
+import { activeWarnings, UsageWarnings } from './usage-warnings.js';
 
 export const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
 const EVERY_MS = 60_000;
@@ -70,6 +70,8 @@ export class PlanUsage extends EventEmitter {
       week: this.last?.week ?? null,
       checkedAt: this.last?.checkedAt ?? null,
       error: this.shownError(),
+      // The banner's warnings (80 %, 90 %, full) from the last good reading, each with its text.
+      warnings: activeWarnings(this.last, new Date(this.now())),
     };
   }
 

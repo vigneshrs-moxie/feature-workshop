@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { check, MEMORY_FILE, remember, sameWindow, UsageWarnings } from '../lib/usage-warnings.js';
+import { activeWarnings, check, MEMORY_FILE, remember, resetWhen, sameWindow, UsageWarnings, warningText } from '../lib/usage-warnings.js';
 
 const WEEK_RESET = '2026-10-29T13:00:00.000Z';
 const FIVE_RESET = '2026-10-28T21:40:00.000Z';
@@ -76,4 +76,28 @@ test('UsageWarnings: without a state folder the memory stays in this process; a 
   assert.equal(out.length, 1);
   assert.equal(out[0].sent, null);
   assert.deepEqual(await w.onRead(meters(90)), []);
+});
+
+test('the text: word and number, and when it resets, in local time', () => {
+  const now = new Date(2026, 9, 28, 12, 0); // a Wednesday
+  const thu = new Date(2026, 9, 29, 14, 0).toISOString();
+  assert.equal(resetWhen(new Date(2026, 9, 28, 21, 40).toISOString(), now), 'today 21:40');
+  assert.equal(resetWhen(thu, now), 'tomorrow 14:00');
+  assert.equal(resetWhen(new Date(2026, 9, 31, 9, 5).toISOString(), now), 'Saturday 09:05');
+  assert.equal(resetWhen(new Date(2026, 10, 6, 14, 0).toISOString(), now), '6 November 14:00');
+  assert.equal(resetWhen(null, now), '');
+  assert.equal(warningText({ meter: 'week', percent: 82, resetsAt: new Date(2026, 9, 30, 14, 0).toISOString() }, now), 'Weekly Claude usage is at 82 %. It resets Friday 14:00.');
+  assert.equal(warningText({ meter: 'fiveHour', percent: 100, resetsAt: thu }, now), 'Five-hour Claude usage is full (100 %). It resets tomorrow 14:00.');
+  assert.equal(warningText({ meter: 'week', percent: 91, resetsAt: null }, now), 'Weekly Claude usage is at 91 %. Claude didn’t say when it resets.');
+});
+
+test('the banner: each meter at 80 % or more, its highest threshold, with an id per threshold and window', () => {
+  const now = new Date(2026, 9, 28, 12, 0);
+  assert.deepEqual(activeWarnings(null, now), []);
+  assert.deepEqual(activeWarnings(meters(79), now), []);
+  const [w] = activeWarnings(meters(93), now);
+  assert.equal(w.threshold, 90);
+  assert.equal(w.id, `week:90:${WEEK_RESET}`);
+  assert.match(w.text, /^Weekly Claude usage is at 93 %\./);
+  assert.deepEqual(activeWarnings(meters(100, 85), now).map((x) => [x.meter, x.threshold]), [['fiveHour', 80], ['week', 100]]);
 });
