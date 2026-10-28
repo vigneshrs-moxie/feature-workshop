@@ -6,12 +6,13 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   checkToken, normalizeOrbitUrl, mcpEntry, writeMcpEntry, removeMcpEntry, setToken, clearToken, sessionEnv,
-  parseTicketKey, canonicalKey, OrbitError,
+  parseTicketKey, canonicalKey, OrbitError, orbitClient, retryAfterMs, fromDay,
 } from '../lib/orbit.js';
 import { fileStore, keychainStore, layeredStore, tokenStore } from '../lib/orbit-token.js';
 
@@ -157,3 +158,139 @@ test('ticket keys: the lenient forms Orbit accepts, stored as ORBIT-<n>', () => 
   for (const s of ['', 'ORBIT-', 'ORB-479', 'orbit 479', '1234567890', 'ORBIT-12a', null]) assert.equal(canonicalKey(s), null, String(s));
 });
 
+
+// ---------- A fake Orbit: the four read routes over test/fixtures/orbit ----------
+
+const FIXTURES = path.join(HERE, 'fixtures', 'orbit');
+const fixture = async (name) => JSON.parse(await fs.readFile(path.join(FIXTURES, name), 'utf8'));
+
+/**
+ * An http server answering like ORBIT-479's v1 routes, for TOKEN only. `fake.requests` lists what
+ * came in; `fake.override(fn)` answers the next requests itself (fn(req, url) → { status, headers, body } or null).
+ */
+async function fakeOrbit() {
+  const requests = [];
+  let override = null;
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://x');
+    requests.push({ method: req.method, path: url.pathname, query: url.searchParams, auth: req.headers.authorization });
+    const reply = (status, body, headers = {}) => { res.writeHead(status, { 'Content-Type': 'application/json', ...headers }); res.end(JSON.stringify(body)); };
+    const o = override?.(req, url);
+    if (o) return reply(o.status, o.body ?? {}, o.headers);
+    if (req.method !== 'GET') return reply(405, { error: 'Method not allowed' });
+    if (req.headers.authorization !== `Bearer ${TOKEN}`) return reply(401, { error: 'Unauthorized' }, { 'WWW-Authenticate': 'Bearer realm="orbit-feedback"' });
+    const p = url.pathname;
+    if (p === '/api/feedback/v1/tickets') {
+      const page = Number(url.searchParams.get('page') ?? 1);
+      if (url.searchParams.get('watched') === 'me') return reply(200, await fixture('tickets-watched.json'));
+      if (url.searchParams.get('severity') === 'critical') {
+        const all = await fixture('tickets-assigned-page-1.json');
+        const rows = all.tickets.filter((t) => t.severity === 'critical');
+        return reply(200, { ...all, total: rows.length, tickets: rows });
+      }
+      const body = await fixture(page === 1 ? 'tickets-assigned-page-1.json' : 'tickets-assigned-page-2.json');
+      if (page > 2) body.tickets = [];
+      if (url.searchParams.get('from')) {
+        const from = url.searchParams.get('from');
+        body.tickets = body.tickets.filter((t) => t.activityAt.slice(0, 10) >= from);
+        body.total = body.tickets.length;
+      }
+      return reply(200, body);
+    }
+    if (p === '/api/feedback/v1/tickets/ORBIT-479') return reply(200, await fixture('ticket-ORBIT-479.json'));
+    if (p === '/api/feedback/v1/tickets/ORBIT-479/references') return reply(200, await fixture('references-ORBIT-479.json'));
+    if (p === '/api/feedback/v1/views') return reply(200, await fixture('views.json'));
+    if (/^\/api\/feedback\/v1\/tickets\/[^/]+$/.test(p)) return reply(404, { error: 'Not found' });
+    return reply(404, { error: 'Not found' });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  return {
+    url, requests,
+    override(fn) { override = fn; },
+    close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }),
+  };
+}
+
+let fake;
+before(async () => { fake = await fakeOrbit(); });
+after(async () => { await fake?.close(); });
+const client = (extra = {}) => orbitClient({ baseUrl: fake.url, getToken: async () => TOKEN, ...extra });
+
+// ---------- Step 2: the client ----------
+
+test('listTickets pages through 50 at a time until the total, with the token as a Bearer header', async () => {
+  fake.requests.length = 0;
+  const r = await client().listTickets('assignee=me&status=open,in_progress');
+  assert.equal(r.tickets.length, 53);
+  assert.equal(r.total, 53);
+  assert.equal(r.audience, 'tech');
+  assert.equal(r.truncated, false);
+  assert.deepEqual(fake.requests.map((q) => q.query.get('page')), ['1', '2']);
+  for (const q of fake.requests) {
+    assert.equal(q.method, 'GET');
+    assert.equal(q.path, '/api/feedback/v1/tickets');
+    assert.equal(q.auth, `Bearer ${TOKEN}`);
+    assert.equal(q.query.get('assignee'), 'me');
+    assert.equal(q.query.get('status'), 'open,in_progress');
+  }
+});
+
+test('with since: datefield=updated&from=<the day before>, then only tickets changed since that minute', async () => {
+  fake.requests.length = 0;
+  const since = '2026-10-25T10:30:45.000Z';
+  const r = await client().listTickets('assignee=me', { since });
+  assert.equal(fake.requests[0].query.get('datefield'), 'updated');
+  assert.equal(fake.requests[0].query.get('from'), '2026-10-24');
+  assert.equal(fromDay(since), '2026-10-24');
+  assert.ok(r.tickets.length > 0);
+  for (const t of r.tickets) assert.ok(t.activityAt >= '2026-10-25T10:30:00.000Z', t.activityAt);
+  const all = await client().listTickets('assignee=me');
+  const expected = all.tickets.filter((t) => t.activityAt >= '2026-10-25T10:30:00.000Z').length;
+  assert.equal(r.tickets.length, expected, 'filtered to the minute, not the day');
+});
+
+test('detail, references and views', async () => {
+  const c = client();
+  const d = await c.getTicket('orbit-479');
+  assert.equal(d.audience, 'tech');
+  assert.equal(d.ticket.ticket.number, 479);
+  assert.ok(d.ticket.timeline.length >= 2);
+  assert.equal((await c.listReferences('#479')).references[0].kind, 'branch');
+  assert.equal((await c.listViews()).views.length, 2);
+  await assert.rejects(c.getTicket('ORBIT-1'), (e) => e.kind === 'not-found' && /no ticket by that key/.test(e.message));
+  await assert.rejects(c.getTicket('../views'), (e) => e.kind === 'not-found' && /isn’t a ticket key/.test(e.message));
+});
+
+test('a 401 says the token expired or was revoked', async () => {
+  const c = orbitClient({ baseUrl: fake.url, getToken: async () => `orbfb_${'z'.repeat(43)}` });
+  await assert.rejects(c.listTickets(''), (e) => e instanceof OrbitError && e.kind === 'auth' && e.status === 401 && /expired or was revoked/.test(e.message));
+  await assert.rejects(orbitClient({ baseUrl: fake.url, getToken: async () => null }).listViews(), (e) => e.kind === 'token');
+  await assert.rejects(orbitClient({ baseUrl: '', getToken: async () => TOKEN }).listViews(), (e) => e.kind === 'settings');
+});
+
+test('a 429 is honoured: nothing reaches Orbit until Retry-After has passed', async () => {
+  let t = Date.parse('2026-10-28T09:00:00Z');
+  const c = client({ now: () => t });
+  fake.override(() => ({ status: 429, body: { error: 'Too many requests' }, headers: { 'Retry-After': '30' } }));
+  fake.requests.length = 0;
+  await assert.rejects(c.listViews(), (e) => e.kind === 'rate' && e.retryAfterMs === 30_000);
+  fake.override(null);
+  t += 10_000;
+  await assert.rejects(c.listViews(), (e) => e.kind === 'rate' && e.retryAfterMs === 20_000);
+  assert.equal(fake.requests.length, 1, 'the second call never reached Orbit');
+  assert.equal(c.waiting(), 20_000);
+  t += 20_000;
+  assert.equal((await c.listViews()).views.length, 2);
+  assert.equal(retryAfterMs('120'), 120_000);
+  assert.equal(retryAfterMs('99999'), 15 * 60_000, 'never more than 15 minutes');
+  assert.equal(retryAfterMs(new Date(Date.parse('2026-10-28T09:01:00Z')).toUTCString(), Date.parse('2026-10-28T09:00:00Z')), 60_000);
+  assert.equal(retryAfterMs(null), null);
+});
+
+test('Orbit out of reach, or answering 500, is a plain error', async () => {
+  fake.override(() => ({ status: 500, body: {} }));
+  await assert.rejects(client().listViews(), (e) => e.kind === 'http' && /answered 500/.test(e.message));
+  fake.override(null);
+  await assert.rejects(orbitClient({ baseUrl: 'http://127.0.0.1:1', getToken: async () => TOKEN }).listViews(), (e) => e.kind === 'network' && /Could not reach Orbit/.test(e.message));
+});

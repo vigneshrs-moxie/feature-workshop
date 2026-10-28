@@ -1,0 +1,103 @@
+{
+  "audience": "tech",
+  "state": {
+    "status": [
+      "backlog",
+      "code_review",
+      "in_progress",
+      "open",
+      "planning",
+      "ready_for_development",
+      "ready_for_release",
+      "testing",
+      "uat"
+    ],
+    "assignee": [],
+    "page": 1,
+    "watched": true
+  },
+  "ignored": [],
+  "total": 2,
+  "statusCounts": {
+    "open": 1,
+    "in_progress": 1
+  },
+  "tickets": [
+    {
+      "id": "00000000-0000-4000-8000-000000000479",
+      "number": 479,
+      "type": "bug",
+      "priority": "high",
+      "subject": "Read-only feedback API and MCP for Ground Control",
+      "description": "Ground Control should read tickets with a personal token and never write.",
+      "status": "open",
+      "resolution": null,
+      "internalNotes": null,
+      "attachments": [],
+      "page": null,
+      "viewport": null,
+      "userAgent": null,
+      "createdAt": "2026-10-01T09:00:00.000Z",
+      "activityAt": "2026-10-20T10:00:00.000Z",
+      "resolvedAt": null,
+      "submitter": {
+        "fullName": "Pat Reporter",
+        "email": "pat@example.com"
+      },
+      "resolver": null,
+      "assignedToId": "0f9b3c3e-6a51-4c55-9f3e-3d6c0b1b0001",
+      "assignedAt": "2026-10-01T09:00:00.000Z",
+      "tags": [],
+      "targetRelease": null,
+      "attention": {
+        "reviewPending": false,
+        "blockedBy": []
+      },
+      "module": "tracker",
+      "severity": "critical",
+      "deliveryTeam": null,
+      "workOrder": null,
+      "queuePosition": null,
+      "revision": 3,
+      "history": []
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000700",
+      "number": 700,
+      "type": "feature",
+      "priority": "high",
+      "subject": "Export to CSV drops the module column (700)",
+      "description": "Steps are in the ticket.",
+      "status": "in_progress",
+      "resolution": null,
+      "internalNotes": null,
+      "attachments": [],
+      "page": null,
+      "viewport": null,
+      "userAgent": null,
+      "createdAt": "2026-10-04T09:03:00.000Z",
+      "activityAt": "2026-10-23T10:21:00.000Z",
+      "resolvedAt": null,
+      "submitter": {
+        "fullName": "Pat Reporter",
+        "email": "pat@example.com"
+      },
+      "resolver": null,
+      "assignedToId": "0f9b3c3e-6a51-4c55-9f3e-3d6c0b1b0002",
+      "assignedAt": "2026-10-04T09:03:00.000Z",
+      "tags": [],
+      "targetRelease": null,
+      "attention": {
+        "reviewPending": false,
+        "blockedBy": []
+      },
+      "module": "tracker",
+      "severity": "low",
+      "deliveryTeam": null,
+      "workOrder": null,
+      "queuePosition": null,
+      "revision": 3,
+      "history": []
+    }
+  ]
+}

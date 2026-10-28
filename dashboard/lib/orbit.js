@@ -146,3 +146,129 @@ export function canonicalKey(raw) {
 const knownSecrets = new Set();
 export function rememberSecret(value) { if (typeof value === 'string' && value.length >= 12) knownSecrets.add(value); }
 export const rememberedSecrets = () => [...knownSecrets];
+
+// ---------- The client: four GETs, nothing else ----------
+
+export const API_BASE = '/api/feedback/v1';
+/** Orbit's page size for the tickets list. */
+export const PAGE_SIZE = 50;
+const MAX_PAGES = 20; // 1000 tickets: more than any inbox; the list says when it stopped short
+const TIMEOUT_MS = 15_000;
+// After a 429 without a Retry-After, every request waits this long; never more than MAX_WAIT_MS.
+const WAIT_429_MS = 60_000;
+const MAX_WAIT_MS = 15 * 60_000;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Retry-After in milliseconds (seconds or an HTTP date), else null. */
+export function retryAfterMs(header, now = Date.now()) {
+  if (header === null || header === undefined || header === '') return null;
+  const secs = Number(header);
+  if (Number.isFinite(secs) && secs >= 0) return Math.min(secs * 1000, MAX_WAIT_MS);
+  const at = Date.parse(header);
+  return Number.isNaN(at) ? null : Math.min(Math.max(0, at - now), MAX_WAIT_MS);
+}
+
+/** YYYY-MM-DD for `from=`: the day before `since` (UTC), so Orbit's own time zone can't skip an hour. */
+export function fromDay(since) {
+  return new Date(new Date(since).getTime() - 86_400_000).toISOString().slice(0, 10);
+}
+
+/** A ticket's last change: activityAt on the team's rows, updatedAt on a participant's. */
+export const changedAt = (row) => row?.activityAt ?? row?.updatedAt ?? null;
+
+/** The ref for a URL: ORBIT-<n> for any lenient form, a UUID as is; else an OrbitError. */
+export function ticketRef(raw) {
+  const s = String(raw ?? '').trim();
+  if (UUID.test(s)) return s.toLowerCase();
+  const key = canonicalKey(s);
+  if (!key) throw new OrbitError('That isn’t a ticket key: use ORBIT- and the number, like ORBIT-479.', { kind: 'not-found', status: 404 });
+  return key;
+}
+
+const STATUS_WORDS = {
+  401: 'Your Orbit token expired or was revoked. Make a new one on Orbit’s API tokens page and paste it in Settings.',
+  403: 'Your Orbit token can’t read this: it needs the tickets:read and views:read scopes, and views are for the feedback team only.',
+  404: 'Orbit has no ticket by that key that you can see.',
+};
+
+/**
+ * A client for one Orbit, as the person whose token it is. `baseUrl` and `getToken` may change
+ * while it runs (Settings), so both are read on every request. Every method is a GET.
+ *   listTickets(query, { since })   every page of the tracker query (50 at a time); with `since`,
+ *                                   only tickets changed since then (`datefield=updated&from=<day>`,
+ *                                   then to the minute here)
+ *   getTicket(ref)                  one ticket, with its timeline
+ *   listReferences(ref)             its branches, PRs and links
+ *   listViews()                     your saved tracker views
+ * A 429 pauses every request until Retry-After (or a minute) has passed: they fail at once with
+ * kind 'rate' until then, without asking Orbit.
+ */
+export function orbitClient({ baseUrl, getToken, fetchFn = globalThis.fetch, now = () => Date.now() }) {
+  let waitUntil = 0;
+  const base = () => (typeof baseUrl === 'function' ? baseUrl() : baseUrl);
+
+  async function get(pathname, params = null) {
+    if (now() < waitUntil) {
+      throw new OrbitError('Orbit asked Ground Control to slow down; it tries again in a moment.', { kind: 'rate', status: 429, retryAfterMs: waitUntil - now() });
+    }
+    const url = base();
+    if (!url) throw new OrbitError('Orbit’s address isn’t set yet. Add it in Settings with your token.', { kind: 'settings' });
+    const token = await getToken();
+    if (!token) throw new OrbitError('No Orbit token yet. Paste one in Settings.', { kind: 'token' });
+    const qs = params && [...params].length ? `?${params}` : '';
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetchFn(`${url}${API_BASE}${pathname}${qs}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        redirect: 'error', // a redirect could carry the token somewhere else
+        signal: ctrl.signal,
+      });
+    } catch (err) {
+      throw new OrbitError(err?.name === 'AbortError' ? 'Orbit did not answer in time.' : 'Could not reach Orbit. Check its address and your connection.', { kind: 'network' });
+    } finally { clearTimeout(timer); }
+    if (res.status === 429) {
+      const wait = retryAfterMs(res.headers?.get?.('retry-after'), now()) ?? WAIT_429_MS;
+      waitUntil = now() + wait;
+      throw new OrbitError('Orbit asked Ground Control to slow down; it tries again in a moment.', { kind: 'rate', status: 429, retryAfterMs: wait });
+    }
+    if (!res.ok) {
+      const kind = res.status === 401 ? 'auth' : res.status === 403 ? 'scope' : res.status === 404 ? 'not-found' : 'http';
+      throw new OrbitError(STATUS_WORDS[res.status] ?? `Orbit answered ${res.status}.`, { kind, status: res.status });
+    }
+    try { return await res.json(); } catch { throw new OrbitError('Orbit sent something that isn’t JSON.', { kind: 'http', status: res.status }); }
+  }
+
+  async function listTickets(query = '', { since = null } = {}) {
+    const params = new URLSearchParams(typeof query === 'string' ? query.replace(/^\?/, '') : query);
+    params.delete('page');
+    if (since) { params.set('datefield', 'updated'); params.set('from', fromDay(since)); }
+    const tickets = [];
+    let first = null;
+    let truncated = false;
+    for (let page = 1; ; page++) {
+      params.set('page', String(page));
+      const body = await get('/tickets', params);
+      first ??= body;
+      const rows = Array.isArray(body?.tickets) ? body.tickets : [];
+      tickets.push(...rows);
+      const total = Number(body?.total) || 0;
+      if (rows.length < PAGE_SIZE || tickets.length >= total) break;
+      if (page >= MAX_PAGES) { truncated = true; break; }
+    }
+    const cutoff = since ? Math.floor(new Date(since).getTime() / 60_000) * 60_000 : null;
+    const kept = cutoff === null ? tickets : tickets.filter((t) => Date.parse(changedAt(t)) >= cutoff);
+    return { audience: first?.audience ?? 'tech', total: Number(first?.total) || kept.length, ignored: first?.ignored ?? [], statusCounts: first?.statusCounts ?? {}, tickets: kept, truncated };
+  }
+
+  return {
+    listTickets,
+    getTicket: async (ref) => get(`/tickets/${encodeURIComponent(ticketRef(ref))}`),
+    listReferences: async (ref) => get(`/tickets/${encodeURIComponent(ticketRef(ref))}/references`),
+    listViews: () => get('/views'),
+    /** Milliseconds until Orbit's Retry-After has passed (0 when nothing waits). */
+    waiting: () => Math.max(0, waitUntil - now()),
+  };
+}

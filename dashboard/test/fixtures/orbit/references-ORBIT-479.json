@@ -1,0 +1,21 @@
+{
+  "references": [
+    {
+      "id": "r1",
+      "kind": "branch",
+      "label": "feature/orbit-479-feedback-api-mcp",
+      "url": "https://github.com/example/orbit/tree/feature/orbit-479-feedback-api-mcp",
+      "purpose": null,
+      "visibility": "internal",
+      "revision": null,
+      "isCanonical": false,
+      "createdBy": null,
+      "createdAt": "2026-10-22T09:00:00.000Z",
+      "updatedAt": "2026-10-22T09:00:00.000Z",
+      "removedAt": null,
+      "source": "github",
+      "externalKey": "orbit-479",
+      "metadata": null
+    }
+  ]
+}
