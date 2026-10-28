@@ -1,7 +1,7 @@
 // A job's options: how much process it gets. Chosen when you start a job and changeable on its
 // page: the level (L0 Tweak to L3 Large, or none yet so the Foreman suggests one), stages to skip,
 // documents you already have, which reviewers run, testing it yourself, when Fable takes a second
-// look, and the models. Kept as options.json in the job's private folder; the Foreman reads it
+// look, the models, and evidence at the test stage (screenshots and a video of each acceptance line). Kept as options.json in the job's private folder; the Foreman reads it
 // before every stage (the workflow's job-options.md), so a change takes effect from the next stage.
 //
 // Schema 2 adds `level` and `models` and still writes every schema 1 field, `flow` included
@@ -32,6 +32,31 @@ export const SCHEMA_VERSION = 2;
 /** Screens (wireframes) and Clarify questions on a job: Auto (the workflow decides), Always, or Off (Settings → Workflow sets the default for new jobs). */
 export const WORKFLOW_CHOICES = ['auto', 'always', 'off'];
 const workflowChoice = (v) => (WORKFLOW_CHOICES.includes(v) ? v : null);
+/**
+ * Evidence at the test stage (packet L, plan G17): screenshots and a short video of each acceptance
+ * line, recorded by the dashboard from the tester's Playwright specs. "auto" (on at L2 and L3, off
+ * at L1), "always" (on at L1 too) or "off". Never at L0, whatever the option says.
+ */
+export const EVIDENCE_CHOICES = ['auto', 'always', 'off'];
+const evidenceChoice = (v) => (EVIDENCE_CHOICES.includes(v) ? v : null);
+
+/** Whether a job at `level` with the evidence option `choice` gets evidence recorded. No level yet: no. */
+export function evidenceOn(level, choice = 'auto') {
+  if (!isLevel(level) || level === 0) return false;
+  const c = evidenceChoice(choice) ?? 'auto';
+  if (c === 'off') return false;
+  return c === 'always' || level >= 2;
+}
+
+/** Why evidence is or isn't recorded for a job, in plain words (the strip and the record route say it). */
+export function evidenceWhy(level, choice = 'auto') {
+  const c = evidenceChoice(choice) ?? 'auto';
+  if (!isLevel(level)) return 'This job has no level yet, so no evidence is recorded.';
+  if (level === 0) return 'An L0 tweak never records evidence.';
+  if (c === 'off') return 'Evidence is off in this job’s options.';
+  if (level === 1 && c !== 'always') return 'An L1 job records evidence only when its options say “always”.';
+  return `Evidence is recorded at L${level}${c === 'always' ? ' (its options say “always”)' : ''}.`;
+}
 
 // The Foreman is Opus for every flow and level. Fable takes short second looks (fable_checks);
 // it is never started as the Foreman just because a job is large.
@@ -106,19 +131,19 @@ export const LEVELS = [
   },
   {
     level: 1, name: 'Small', flow: 'quick',
-    hint: 'A quick plan you approve, then build, checks, you try it, one reviewer. Clarify questions and screens only when asked.',
+    hint: 'A quick plan you approve, then build, checks, you try it, one reviewer. Clarify questions, screens, and screenshots and video of each acceptance line only when asked.',
     skip: ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update'], reviewers: ['feature-reviewer'], manualTest: true, fable: [],
     models: { foreman: OPUS, build: OPUS, checks: OPUS },
   },
   {
     level: 2, name: 'Standard', flow: 'small',
-    hint: 'Clarify questions, a short spec, screens when it has them, a plan you approve, build in steps, the tester, you try it, 3–4 reviewers.',
+    hint: 'Clarify questions, a short spec, screens when it has them, a plan you approve, build in steps, the tester with screenshots and video of each acceptance line, you try it, 3–4 reviewers.',
     skip: ['refine'], reviewers: 'auto', manualTest: true, fable: [],
     models: { foreman: OPUS, build: OPUS, checks: SONNET },
   },
   {
     level: 3, name: 'Large', flow: 'large',
-    hint: 'Clarify questions, spec, product interview, screens when it has them, investigation, a plan you approve, build in steps, the tester, you try it, every reviewer plus Fable.',
+    hint: 'Clarify questions, spec, product interview, screens when it has them, investigation, a plan you approve, build in steps, the tester with screenshots and video of each acceptance line, you try it, every reviewer plus Fable.',
     skip: [], reviewers: ids(REVIEWERS), manualTest: true, fable: ['plan', 'review'],
     models: { foreman: OPUS, build: OPUS, checks: SONNET },
   },
@@ -148,7 +173,7 @@ export function defaultsFor(flow = 'auto') {
   return {
     schema_version: SCHEMA_VERSION, level, flow: FLOWS[flow] ? flow : 'auto', skip: [...f.skip], provided: {}, reviewers: Array.isArray(f.reviewers) ? [...f.reviewers] : f.reviewers,
     review_rounds: 1, manual_test: f.manualTest, fable_checks: [...f.fable], models: { ...(level === null ? DEFAULT_MODELS : LEVELS[level].models) }, notes: '',
-    wireframes: 'auto', clarify: 'auto',
+    wireframes: 'auto', clarify: 'auto', evidence: 'auto',
   };
 }
 
@@ -159,7 +184,7 @@ export function defaultsForLevel(level) {
   return {
     schema_version: SCHEMA_VERSION, level, flow: l.flow, skip: [...l.skip], provided: {}, reviewers: Array.isArray(l.reviewers) ? [...l.reviewers] : l.reviewers,
     review_rounds: 1, manual_test: l.manualTest, fable_checks: [...l.fable], models: { ...l.models }, notes: '',
-    wireframes: 'auto', clarify: 'auto',
+    wireframes: 'auto', clarify: 'auto', evidence: 'auto',
   };
 }
 
@@ -231,6 +256,8 @@ export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previo
     else if (out[k] === 'off' && !out.skip.includes(stage)) out.skip.push(stage);
   }
   out.skip = ids(SKIPPABLE).filter((s) => out.skip.includes(s)); // workflow order
+  // Evidence at the test stage: the job's own choice, else what it had, else Auto (evidenceOn).
+  out.evidence = evidenceChoice(input.evidence) ?? evidenceChoice(previous?.evidence) ?? 'auto';
   return out;
 }
 
@@ -314,6 +341,9 @@ export function describeOptions(o) {
   lines.push(`Fable checks: ${o.fable_checks.length ? o.fable_checks.map((x) => name(FABLE_POINTS, x)).join(', ') : 'none'}.`);
   if (o.wireframes && o.wireframes !== 'auto') lines.push(`Screens (wireframes): ${o.wireframes === 'always' ? 'always, before the plan' : 'off'}.`);
   if (o.clarify && o.clarify !== 'auto') lines.push(`Clarify questions before the spec: ${o.clarify === 'always' ? 'always' : 'off'}.`);
+  // Evidence (evidence.md): Auto says nothing, as for screens and clarify (job-options.md: on at L2 and L3).
+  if (o.evidence === 'always') lines.push(`Evidence: always${o.level === 0 ? ' (but never at L0)' : ''}. The tester writes a Playwright spec for each acceptance line a person can see, and the dashboard records screenshots and a short video of each.`);
+  else if (o.evidence === 'off') lines.push('Evidence: off. No screenshots or video at the test stage.');
   if (o.notes) lines.push(`Notes: ${o.notes}`);
   if (o.from_session) lines.push(o.from_session.mode === 'continue'
     ? `Started by continuing an earlier conversation (session ${o.from_session.id}): the earlier messages are background, not approvals.`
