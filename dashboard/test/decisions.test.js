@@ -1,9 +1,12 @@
 // A job's "Your decisions" log (lib/decisions.js): what counts as your decision, in words, newest first.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { decisionId, decisionLog, decisionOf, decisionPrefix, decisionRows, gateAnswers, gateNote, keptParts, render, ticketCopy, writeDecisionsFile } from '../lib/decisions.js';
 
 test('approvals, send-backs with their note, stops, permissions, levels, closing', () => {
@@ -222,4 +225,96 @@ test('copy for the ticket: plain text with the pipes, no notes to agents, at mos
   assert.ok(long.total > 40);
   assert.ok(long.text.endsWith('## Not doing'));
   assert.ok(long.text.split('\n').includes('| ORBIT-479.D60 | Brief 60: go ahead? | approve · send back · stop | approve | Vignesh | 2026-10-27 |  |'));
+});
+
+// Through the real dashboard in demo mode (a pretend Foreman, nothing real runs) on temp folders:
+// no real job, ~/.claude or ~/.feature-workshop is touched and no Claude usage is spent.
+test('the dashboard writes decisions.md after a gate and serves it at GET /api/jobs/:slug/decisions.md', async () => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fw-decisions-')));
+  const dirs = Object.fromEntries(['feature-work', 'state', 'repo', 'projects', 'agents', 'skills', 'home'].map((d) => [d, path.join(root, d)]));
+  for (const d of Object.values(dirs)) await fs.mkdir(d, { recursive: true });
+  const slug = 'orbit-479-feedback-api';
+  const dir = path.join(dirs['feature-work'], slug);
+  await fs.mkdir(path.join(dir, 'briefs'), { recursive: true });
+  const old = '2026-10-01T10:00:00Z';
+  await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({
+    schema_version: 1, slug, title: 'Feedback API and MCP', route: 'quick', stage: 'plan', stage_state: 'waiting_for_you', waiting_for: 'approval',
+    waiting_since: old, brief: { number: 2, path: 'briefs/002-plan.md', headline: 'Plan v2 ready' },
+    questions: [{ id: '1', text: 'Keep the old column?', recommendation: 'a', options: [{ id: 'a', label: 'Yes' }, { id: 'b', label: 'No' }] }],
+    next_proposed: 'Build step 1', spec: null, artifacts: [{ name: 'quick-plan', path: 'quick-plan.md', version: 2 }], repo: { path: dirs.repo }, updated_at: old,
+  }));
+  await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify({ schema_version: 2, level: 1, flow: 'quick', skip: [], provided: {}, reviewers: ['feature-reviewer'], review_rounds: 2, manual_test: true, fable_checks: [], title: 'Feedback API and MCP', repo: dirs.repo, kind: 'feature' }));
+  for (const f of ['001-spec.md', '002-plan.md']) await fs.writeFile(path.join(dir, 'briefs', f), `**${f}**\n`);
+
+  // A port with the next one free too (the screens server takes port + 1), picked away from the
+  // ports the system hands out one after another, which the other test files' dashboards get.
+  const free = (p) => new Promise((resolve) => {
+    const s = net.createServer();
+    s.once('error', () => resolve(false));
+    s.listen(p, '127.0.0.1', () => s.close(() => resolve(true)));
+  });
+  let port = 0;
+  for (let i = 0; i < 50 && !port; i++) {
+    const p = 20000 + Math.floor(Math.random() * 20000);
+    if ((await free(p)) && (await free(p + 1))) port = p;
+  }
+  assert.ok(port, 'a free port');
+  const base = `http://127.0.0.1:${port}`;
+  const output = [];
+  const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js')], {
+    env: { ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: dirs['feature-work'], WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
+      child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
+      child.stderr.on('data', (d) => output.push(String(d)));
+      child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
+    });
+    const token = (await (await fetch(`${base}/api/meta`)).json()).token;
+    const gate = await fetch(`${base}/api/job/${slug}/gate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify({ kind: 'approve', briefNumber: 2, answers: { 1: { choice: 'a' } }, note: 'Small enough to ship this week.' }) });
+    assert.equal(gate.status, 200, JSON.stringify(await gate.clone().json()));
+
+    // Written after the gate, without anyone asking for it.
+    const file = path.join(dir, 'decisions.md');
+    let text = null;
+    for (let i = 0; i < 100 && !text; i++) {
+      text = await fs.readFile(file, 'utf8').catch(() => null);
+      if (!text) await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.ok(text, 'decisions.md was written after the gate');
+    const lines = text.split('\n');
+    assert.equal(lines[0], '# ORBIT-479 · Feedback API and MCP');
+    assert.ok(lines.some((l) => /^\| ORBIT-479\.D1 \| Keep the old column\? \| {2}\| Yes \| .+ \| \d{4}-\d{2}-\d{2} \| {2}\|$/.test(l)), text);
+    assert.ok(lines.some((l) => /^\| ORBIT-479\.D2 \| Brief 2 \(plan\): go ahead\? \| approve · send back · stop \| approve \| .+ \| Small enough to ship this week\. \|$/.test(l)), text);
+    assert.ok(text.trimEnd().endsWith('## Not doing'));
+
+    // The Foreman adds a row and a not-doing item; reading the file keeps both, ids unchanged.
+    await fs.writeFile(file, text.replace('\n\n## Not doing\n', '\n| ORBIT-479.F1 | Per office? | yes · no | yes | Foreman | 2026-10-28 | offices differ | <!-- foreman -->\n\n## Not doing\n- CSV import\n'));
+    const json = await (await fetch(`${base}/api/jobs/${slug}/decisions.md`, { headers: { Accept: 'application/json' } })).json();
+    assert.equal(json.file, 'decisions.md');
+    assert.equal(json.path, file);
+    assert.ok(json.text.includes('| ORBIT-479.F1 | Per office? |'));
+    assert.ok(json.text.includes('| ORBIT-479.D2 | Brief 2 (plan): go ahead? |'));
+    assert.ok(json.text.endsWith('## Not doing\n- CSV import\n'));
+    assert.equal(json.copy.cut, false);
+    assert.equal(/<!--/.test(json.copy.text), false);
+    assert.ok(json.copy.text.includes('| ORBIT-479.F1 | Per office? | yes · no | yes | Foreman | 2026-10-28 | offices differ |'));
+
+    const raw = await fetch(`${base}/api/jobs/${slug}/decisions.md`);
+    assert.equal(raw.status, 200);
+    assert.match(raw.headers.get('content-type'), /^text\/plain/);
+    assert.equal(await raw.text(), json.text);
+    const missing = await fetch(`${base}/api/jobs/no-such-job/decisions.md`, { headers: { Accept: 'application/json' } });
+    assert.equal(missing.status, 404);
+    assert.equal((await missing.json()).error, 'No job by that name.');
+  } finally {
+    if (child.exitCode === null) {
+      const gone = new Promise((r) => child.once('exit', r));
+      child.kill('SIGTERM'); // exactly the dashboard this test started
+      await gone;
+    }
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
