@@ -1,0 +1,77 @@
+# Packet K · Stacks
+
+**Goal.** A big ticket can run as a **stack**: one parent job whose plan splits the work into **sections**, each a child job with its own worktree, branch, port and Foreman. The runner starts sections side by side up to a cap. The parent's Foreman, the **coordinator**, merges each finished section into the parent's branch in the plan's order, runs the checks on the merged branch, and stops for a yes before every push (plan G14, G15, §6). The **Stack page** replaces the v1 Integration board (packet Z: `web/src/views/Integrate.tsx` and its top-bar link), because that board confused a new user. The Stack page's look comes from the **approved Stack wireframe**, not from this brief: don't invent screens here.
+
+**Port 4483 · worktree `../ground-control-K` · branch `packet/K-stacks`. Skill repo: worktree `../claude-feature-workflow-K` of `~/Projects/claude-feature-workflow`, branch `packet/K-stacks`. Depends on B, C and J (B and C are in v1; start after J is merged). Runs beside I and L.**
+
+## What exists
+- **The approved Stack wireframe** (the input for every screen in this packet): `~/.claude/wireframes/feature-workshop/stack-page.html`, its build brief `stack-page.brief.md` and `stack-page.json` (published at the link in `stack-page.url`). It draws five screens: Stacks (where Integrate is today), Plan check, Building (in Play full, subtle and off, and a stuck part), Merge a part (go / no go, conflict, tests failed after merging) and Push. It also has two design choices and a "To settle" list. Build only what Vignesh picked. Read the brief's "When reviewed" section and the page's feedback, and record his answers in your hand-back. If the brief still shows revision 1 with nothing settled, do steps 1 to 6 and stop before step 7: the screens wait for his review.
+- **The v1 Integration board** (packet Z): `dashboard/lib/integrate.js` finds `packet/<id>-*` worktrees, reads each brief's "Owns" list (`parseOwns`, `ownedMatcher`, `outsideOwned`), keeps the order and the "packets at once" number (`DEFAULT_SLOTS = 3`, `cleanSlots`, saved in `~/.ground-control/integrate.json`), and runs "Merge next" and both test suites (`TEST_COMMANDS`). Its routes are `/api/integrate/*` (in `dashboard/site/routes-integrate.js` after G), and its page is `web/src/views/Integrate.tsx` with `Integrate.test.tsx`, the `#/integrate` route in `web/src/app/router.ts`, and the "Integrate" link in `web/src/app/App.tsx`'s top bar.
+- **Jobs and Foremen**: `Driver.start(...)` in `dashboard/lib/driver.js` (with the lock from C and B's status check); the job folder and `status.json` (`dashboard/lib/status-json.js`, `dashboard/lib/status-schema.json`, version 2, no `stack` or `section` fields); `usage-log.js` already reads `status.section` into each usage line; `dashboard/lib/decisions.js` already writes a `## Section: <name>` part for the Foreman's own rows under such a heading.
+- **Profiles** from J: `dashboard/lib/profile.js` (worktree and branch patterns, port range) and `dashboard/profiles/orbit.md`.
+- **Settings → Workflow** (`web/src/views/Settings/WorkflowSettings.tsx`; `workflowSettings()` in `dashboard/lib/state.js`: finish line, wireframes, clarify, automatic level). There is no cap on sections.
+- **The Jobs pane** (`web/src/panes/Jobs/JobsPane.tsx`, `JobRow.tsx`) and the job header (`web/src/panes/Foreman/JobHeader.tsx`) know nothing about stacks. `web/src/app/keyRegistry.ts` lists the keys for the Settings → Keys page; it has no entry for Integrate's `m` (left open from v1).
+- **The skill** (`~/Projects/claude-feature-workflow/skills/feature/SKILL.md`) has the stages, the lock, and stage notes (Implement makes the worktree `../orbit-<slug>` from `moxie/main`). It has no coordinator stage, and a job can't start at plan.
+
+## Owns
+`dashboard/lib/stack.js` (new), `dashboard/runner/stacks.js` (new, the queue and the coordinator's messages) and its one line in `dashboard/runner/index.js`, `dashboard/site/routes-stacks.js` (new) and its line in `dashboard/site/index.js`, `dashboard/site/routes-integrate.js` (kept for the packets' stack, see step 8), the section start and the owned-paths hook in `dashboard/lib/driver.js`, the `stack` and `section` fields in `dashboard/lib/status-schema.json` and `dashboard/lib/status-json.js`, the stack keys in `dashboard/lib/profile.js` and `dashboard/profiles/orbit.md`, the section gathering in `dashboard/lib/decisions.js`, the sections cap in `dashboard/lib/state.js` `workflowSettings` and in `web/src/views/Settings/WorkflowSettings.tsx`, `web/src/views/Stack/` (new folder: the screens from the wireframe and their tests), `web/src/views/Integrate.tsx` and its test (removed), the `stack` and `stacks` routes in `web/src/app/router.ts` (and the old integrate address sent to the stacks list), the top-bar link and the full-width list in `web/src/app/App.tsx`, the stack row in `web/src/panes/Jobs/JobsPane.tsx` and `web/src/panes/Jobs/JobRow.tsx`, the "part of a stack" line in `web/src/panes/Foreman/JobHeader.tsx`, the "Start as stack" button in `web/src/views/Inbox.tsx` (only if Vignesh picked it), the Stack page's keys in `web/src/app/keyRegistry.ts`, the stack types in `web/src/api/types.ts`, `dashboard/test/stack.test.js`, `dashboard/test/stack-server.test.js` and `dashboard/test/owned-paths.test.js` (new). In the skill repo: `skills/feature/stack.md` (new), `skills/feature/SKILL.md` (the coordinator stage and how a section starts), `skills/feature/status-json.md` (the two new fields).
+
+## Steps
+1. **The plan file and the task list.**
+   - `stack.md` lives in the parent job's folder and is written by the coordinator. It has one `## Section: <name>` per section, each with a one-paragraph brief, `Owns:` (paths, with `*` and `**`), `Depends on:` (other section names), and optional `Model:` and `Effort:`. It ends with `Order:`.
+   - `parseStackPlan(text)` in `lib/stack.js` returns the sections or plain errors (a name used twice, an unknown dependency, a dependency loop, a section missing from Order, no owned paths).
+   - `stack.json`, also in the parent's folder, is written only by the runner: `{ version, parent, cap, autoIntegrate, model, effort, sections: [{ name, state, slug, branch, worktree, port, failures, mergedAt, mergeSha }], log: [...] }`. The states are `pending`, `running`, `blocked`, `ready`, `integrated` and `failed`, as in plan §6.3.
+2. **The scheduler, as plain code** (`lib/stack.js`). `nextRunnable(stack, { globalRunning, globalCap })` returns the sections to start now: those whose dependencies have all integrated, in the plan's order, while the stack's cap (default 3) and the global cap (Settings → Workflow, default 3; on the first start it takes the old board's "packets at once" number from `integrate.json`) both have room. Each queued section also gets a reason in words ("Waiting for section api to merge", "Waiting for a free slot: 3 of 3 in use"). `afterChecks(section, passed)` counts failures; at three the section is `failed` and stuck. The coordinator never picks who runs next; the runner tells it.
+3. **Sections are child jobs** (`runner/stacks.js`, `driver.js`). For each runnable section the runner:
+   - makes the worktree and branch from the profile's stack patterns (add `sectionWorktree: ../orbit-{n}-{section}` and `sectionBranch: {kind}/orbit-{n}-{section}` to the profile, branched from the parent's branch);
+   - takes a port from the profile's range;
+   - creates the job folder `<parent-slug>--<section>` whose `status.json` has `stack: <parent slug>` and `section: <name>`;
+   - starts its Foreman with the section's brief and the stack's model and effort (Opus, high by default; the coordinator one notch higher).
+
+   A section skips clarify and spec and starts at plan, because the stack plan is its spec (plan §6.1). When a section's gates pass, the runner marks it `ready` and resumes the coordinator with "Section <name> is ready to merge." With "Merge on its own" off, the person's yes on the Stack page is what starts the merge.
+4. **Merging, in order, code only.** The coordinator merges the next `ready` section into the parent's branch in the plan's order (never out of order), then runs the profile's checks on the merged branch.
+   - A failure undoes that merge (`git merge --abort` before the commit, `git reset --hard <before>` after it, on the parent's branch only), so the branch always passes. The section goes back to `running` with the failure sent to its Foreman, which counts toward its three.
+   - A conflict leaves the branch unchanged and names the files.
+   - A section whose diff touches files outside its owned paths is refused at merge with the list (reuse `ownedMatcher` and `outsideOwned` from `integrate.js`).
+   - Each event is one line in `stack.json`'s `log`.
+   - Pushing always waits for a yes on the Stack page, whatever "Merge on its own" says. The push itself goes through the coordinator's normal push permission card and the hard lines.
+5. **The owned-paths hook** (`driver.js`). For a section's Foreman, a `PreToolUse` hook on `Edit|Write|MultiEdit|NotebookEdit` refuses a write outside the section's owned paths (and outside its worktree) with "This section may only change: <paths>." Its job folder stays writable. The Bash hard-line hook is unchanged, and the merge check in step 4 catches what Bash writes.
+6. **Decisions per section** (`decisions.js`). The parent's `decisions.md` gathers each section's gate decisions under its `## Section: <name>` heading, numbered on in the parent's ticket (`ORBIT-512.D7`), with one `## Not doing` at the end (plan §8, G27).
+7. **The screens, from the approved wireframe** (`web/src/views/Stack/`), built exactly as the wireframe and its picks say:
+   - the Stacks list at `#/stacks` where Integrate was, in the top bar;
+   - one stack at `#/stack/<slug>`: the four steps Plan, Build, Merge, Push, the one primary button that changes with the step (Approve plan `a`, Merge part `m`, Push `p`, Send back `r`), the parts in merge order with Details, "Parts at once" and "Merge on its own" under the list, the stuck card, the conflict and tests-failed states, the Push go / no go;
+   - the Play full, subtle and off dressing as drawn.
+
+   Use whichever word Vignesh settled ("parts" in the page, "section" in `stack.md`, or one word for both). Wherever the wireframe and this brief disagree, the wireframe wins. In the Jobs pane a stack is one row that expands into its sections; a section's job header says "Part 2 of stack ORBIT-512" with a link. Each key goes into `keyRegistry.ts`, and the Settings → Keys page lists it. Buttons on this page are 40 px tall (the plan's bar) while the rest of the app waits for packet M.
+8. **The Integration board goes.** Remove `web/src/views/Integrate.tsx`, its test, its top-bar link and the `#/integrate` page (the address now opens `#/stacks`). M and O still have to be merged after you, so keep `dashboard/lib/integrate.js` as a library: the Stacks list shows the Ground Control repo's own packet worktrees as one read-only stack, "Ground Control build", whose parts are the `packet/<id>-*` branches in the saved order, with the same merge step and both test suites. Don't change how packet branches are found or merged. If Vignesh decided in the wireframe review that this stack isn't wanted, merging by hand from the terminal is the fallback; write that in the hand-back.
+9. **The skill** (skill-repo worktree):
+   - `skills/feature/stack.md` (new): the coordinator stage. How to write `stack.md` (sections, owned paths that don't overlap, dependencies, order), that it never starts sections itself, how it merges when the runner tells it, that it runs the checks after each merge and stops for a yes before every push, and that it writes each section's decisions under its heading.
+   - `SKILL.md`: a job whose `status.json` names a `stack` and a `section` starts at plan with the section brief as its spec, and works only inside its owned paths.
+   - `status-json.md`: the two optional fields.
+10. **Tests** (fake query, a test git repo made in a temp folder, no network).
+    - `stack.test.js`: plan parsing and each plain error; `nextRunnable` with caps, dependencies and the global cap; the stuck rule at three.
+    - `stack-server.test.js`, the plan's acceptance (§6.5): a stack of three sections with cap 2 starts two and shows one queued with its reason; it merges in order; it refuses to push without a yes; its decision file has a heading per section. The same stack with "Merge on its own" on merges by itself and still waits for the push. A failed check after a merge is undone.
+    - `owned-paths.test.js`: a write outside the owned paths is refused by the hook.
+    - Web tests for each wireframe state, `#/integrate` going to `#/stacks`, and the keys.
+
+## Acceptance
+Plan §6.5: a stack of three sections on a test repo runs with cap 2, shows one section queued, integrates in order, refuses to push without a yes, and the decision file holds a heading per section. The same stack with "integrate automatically" merges on its own and still waits for the push. A section edit outside its owned paths is refused by the hook. `npm test` covers the scheduler with a fake query. Also: the Stack page matches the approved Stack wireframe and its picks in every state drawn, in all three Play modes; the Integration board page and link are gone; the remaining packets still merge in order from the "Ground Control build" stack (or by hand, if Vignesh chose that); status is said in words on every part. All tests green.
+
+## Verify
+```
+PORT=4483 npm start   # #/stacks: the Ground Control build stack lists the packet worktrees; a demo stack walks Plan → Push
+npm test && (cd web && npx vitest run)
+```
+
+
+## Rules that apply to every packet (read once, obey always)
+
+- **Base:** `main` of the Ground Control repo (today `~/Projects/feature-workshop`, to be renamed `ground-control`) after Vignesh has fast-forwarded `redesign/orbit-ready` into it. If `git log main..redesign/orbit-ready` is not empty, stop and tell Vignesh; do not base on `main` then.
+- **Worktree and branch:** `git worktree add ../ground-control-<id> -b packet/<id>-<name> main` from the main checkout. Work only there.
+- **Port:** run the dashboard with `PORT=<port> npm start` in the worktree. **Never use 4477 (Vignesh's live dashboard) or 4479 (his demo).** The screens server takes `<port>+1`.
+- **Owned files only.** Touch nothing outside the "Owns" list. If you need a change elsewhere, write it under "Needs from others" in your hand-back and stop at that point.
+- **Tests:** `npm test` (node:test, `dashboard/test/*.test.js`) and `cd web && npx vitest run`. Both green before hand-back. **No model calls in tests:** the server under test runs with a fake query (`WORKSHOP_DEMO=1`); never import the Agent SDK in a test.
+- **Never push, never open a PR, never merge.** Commit locally, one commit per step, plain messages. Hand back the branch name and the last SHA.
+- **Status is never shown by colour alone; themes change looks only; keys never fire while typing or with a dialog open.** Use the theme tokens, not literal colours.
+- **Plain words** in every string a person reads. No jargon.
+- **Hand-back format** (paste into the integration board's notes or tell Vignesh): packet id, branch, last SHA, what was done per step, test output tail, anything not done and why, "Needs from others".
