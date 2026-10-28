@@ -13,6 +13,7 @@ import {
   parsePsRows, parseTasklistRows, processList, processListCommand, shellFor, tempDirs, terminalApps,
 } from '../lib/platform.js';
 import { LocalRunner, pgTool } from '../lib/local.js';
+import { commandFor, findMethod } from '../lib/notify.js';
 import { liveTerminals } from '../lib/live.js';
 import { State } from '../lib/state.js';
 
@@ -203,4 +204,28 @@ test('the Try it view names this computer’s terminal apps and folder button; o
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test('notifications: a PowerShell toast or balloon tip on Windows, notify-send on Linux, nothing elsewhere', async () => {
+  const has = (...names) => async (c) => names.includes(c);
+  assert.equal(await findMethod({ platform: 'win32', which: has('powershell.exe'), psHas: async (c) => c === 'New-BurntToastNotification' }), 'burnt-toast');
+  assert.equal(await findMethod({ platform: 'win32', which: has('powershell.exe'), psHas: async () => false }), 'windows-balloon');
+  assert.equal(await findMethod({ platform: 'win32', which: has(), psHas: async () => assert.fail('no PowerShell') }), null);
+  assert.equal(await findMethod({ platform: 'linux', which: has('notify-send') }), 'notify-send');
+  assert.equal(await findMethod({ platform: 'linux', which: has() }), null);
+  assert.equal(await findMethod({ platform: 'freebsd', which: has('notify-send') }), null);
+  assert.equal(await findMethod({ platform: 'darwin', which: has('osascript') }), 'osascript', 'macOS as before');
+
+  const what = { title: 'Feature Workshop', subtitle: 'Widget’s export', body: 'Go-ahead on Plan', url: 'http://127.0.0.1:4481/next/#/job/w', execute: null, group: 'w', sound: 'Glass' };
+  assert.deepEqual(commandFor('notify-send', what), ['notify-send', ['--app-name', 'Feature Workshop', 'Feature Workshop · Widget’s export', 'Go-ahead on Plan']]);
+  const [toast, targs] = commandFor('burnt-toast', { ...what, subtitle: "Bob's job" });
+  assert.equal(toast, 'powershell.exe');
+  assert.equal(targs.at(-1), "New-BurntToastNotification -Text 'Feature Workshop · Bob''s job', 'Go-ahead on Plan'");
+  assert.match(commandFor('burnt-toast', { ...what, sound: null })[1].at(-1), / -Silent$/);
+  const balloon = commandFor('windows-balloon', { ...what, body: "it's done" })[1].at(-1);
+  assert.match(balloon, /System\.Windows\.Forms\.NotifyIcon/);
+  assert.match(balloon, /\$n\.BalloonTipText = 'it''s done'/);
+  assert.match(balloon, /SystemSounds/);
+  assert.doesNotMatch(commandFor('windows-balloon', { ...what, sound: null })[1].at(-1), /SystemSounds/);
+  for (const m of ['notify-send', 'burnt-toast', 'windows-balloon']) assert.ok(!commandFor(m, what)[1].join(' ').includes(what.url), `${m}: a click does nothing extra`);
 });

@@ -1,6 +1,7 @@
-// Notifications outside the browser: the dashboard itself tells macOS, so they arrive with the
-// dashboard's tab closed or the browser hidden. terminal-notifier when it's installed (clicking
-// opens the job), else macOS's built-in notifier (osascript; a click can't open the job).
+// Notifications outside the browser: the dashboard itself tells the system, so they arrive with the
+// dashboard's tab closed or the browser hidden. On macOS terminal-notifier when it's installed
+// (clicking opens the job), else macOS's built-in notifier (osascript; a click can't open the job).
+// On Windows a PowerShell toast (BurntToast) or balloon tip, on Linux notify-send (findMethod).
 //
 // Three levels, each sound, silent or off (settings `notify`):
 //   needs    something waits for you: a go-ahead, a question, a permission, a decision parked 4 h
@@ -18,6 +19,7 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { findOnPath } from './platform.js';
 import { STAGES } from './stages.js';
 
 export const LEVELS = ['needs', 'problem', 'done'];
@@ -107,12 +109,34 @@ function exec(cmd, args) {
 }
 const succeeded = (r) => r === true || r?.ok === true;
 
-/** Which way notifications can reach macOS here: 'terminal-notifier', 'osascript' or null. */
-export async function findMethod({ platform = process.platform, which = async (c) => succeeded(await exec('/usr/bin/which', [c])) } = {}) {
-  if (platform !== 'darwin') return null;
-  if (await which('terminal-notifier')) return 'terminal-notifier';
-  return (await which('osascript')) ? 'osascript' : null;
+// Whether a PowerShell command is installed (BurntToast's New-BurntToastNotification); false without PowerShell.
+const psHasCommand = async (name) => succeeded(await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `if (Get-Command ${name} -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }`]));
+const defaultWhich = (platform) => (platform === 'win32' ? async (c) => Boolean(findOnPath(c, { platform })) : async (c) => succeeded(await exec('/usr/bin/which', [c])));
+
+/**
+ * Which way notifications can reach the system here, or null (the page still shows its own notices):
+ *   macOS    'terminal-notifier' when installed, else 'osascript'
+ *   Windows  'burnt-toast' (a toast, when the BurntToast PowerShell module is installed), else
+ *            'windows-balloon' (a balloon tip through System.Windows.Forms)
+ *   Linux    'notify-send'
+ * Clicking one opens the job on macOS with terminal-notifier only; elsewhere a click does nothing extra.
+ */
+export async function findMethod({ platform = process.platform, which = defaultWhich(platform), psHas = psHasCommand } = {}) {
+  if (platform === 'darwin') {
+    if (await which('terminal-notifier')) return 'terminal-notifier';
+    return (await which('osascript')) ? 'osascript' : null;
+  }
+  if (platform === 'win32') {
+    if (!(await which('powershell.exe'))) return null;
+    return (await psHas('New-BurntToastNotification')) ? 'burnt-toast' : 'windows-balloon';
+  }
+  if (platform === 'linux') return (await which('notify-send')) ? 'notify-send' : null;
+  return null;
 }
+
+// A PowerShell string literal (single quotes, doubled inside).
+const psq = (s) => `'${String(s).replace(/'/g, "''")}'`;
+const PS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command'];
 
 /** The command that shows one notification. */
 export function commandFor(method, { title, subtitle, body, url, execute, group, sound }) {
@@ -122,6 +146,29 @@ export function commandFor(method, { title, subtitle, body, url, execute, group,
   }
   if (method === 'osascript') {
     return ['osascript', ['-e', `display notification ${as(body || ' ')} with title ${as(title)}${subtitle ? ` subtitle ${as(subtitle)}` : ''}${sound ? ` sound name ${as(sound)}` : ''}`]];
+  }
+  const head = subtitle ? `${title} · ${subtitle}` : title;
+  if (method === 'notify-send') {
+    return ['notify-send', ['--app-name', title, head, body || ' ']];
+  }
+  if (method === 'burnt-toast') {
+    return ['powershell.exe', [...PS, `New-BurntToastNotification -Text ${psq(head)}, ${psq(body || ' ')}${sound ? '' : ' -Silent'}`]];
+  }
+  if (method === 'windows-balloon') {
+    const script = [
+      'Add-Type -AssemblyName System.Windows.Forms',
+      'Add-Type -AssemblyName System.Drawing',
+      '$n = New-Object System.Windows.Forms.NotifyIcon',
+      '$n.Icon = [System.Drawing.SystemIcons]::Information',
+      `$n.BalloonTipTitle = ${psq(head)}`,
+      `$n.BalloonTipText = ${psq(body || ' ')}`,
+      '$n.Visible = $true',
+      ...(sound ? ['[System.Media.SystemSounds]::Asterisk.Play()'] : []),
+      '$n.ShowBalloonTip(8000)',
+      'Start-Sleep -Seconds 6', // the tip goes with the icon, so it stays a moment
+      '$n.Dispose()',
+    ].join('; ');
+    return ['powershell.exe', [...PS, script]];
   }
   return null;
 }
