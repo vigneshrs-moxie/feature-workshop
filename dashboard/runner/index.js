@@ -67,7 +67,7 @@ import { goAheadCovers } from '../lib/hard-lines.js';
 import { FlowWatch, gatherRepo } from '../lib/flow.js';
 import { noticeBody, Notifier, validateNotifyPatch } from '../lib/notify.js';
 import { Integrator, IntegrateError } from '../lib/integrate.js';
-import { MCP_NAME, OrbitError, OrbitInbox, canonicalKey, clearToken, jobsByTicket, normalizeOrbitUrl, orbitClient, setToken } from '../lib/orbit.js';
+import { MCP_NAME, OrbitError, OrbitInbox, canonicalKey, clearToken, jobsByTicket, removeMcpEntry, sessionEnv, normalizeOrbitUrl, orbitClient, setToken } from '../lib/orbit.js';
 import { tokenStore } from '../lib/orbit-token.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, groundControlUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
@@ -146,6 +146,8 @@ export async function createRunner(config) {
   const driver = new Driver({
     queryFn, state, projectsDir: PROJECTS_DIR, cliPath: claudePath,
     policy: policyFor, modeFor: (run) => state.policyFor(run.featureDir), cover: goAheadFor, settingsFor: sessionSettings,
+    // The Orbit token as ORBIT_FEEDBACK_TOKEN, so the Foreman's MCP entry has it (never an argument).
+    envFor: async () => ({ ...process.env, ...(orbitStoreReady ? await sessionEnv(orbitStoreReady) : {}) }),
   });
   // Whether auto mode works for this account, as the last reply that asked for it found out.
   driver.on('auto-mode', ({ available, reason = null }) => {
@@ -175,6 +177,8 @@ export async function createRunner(config) {
   const planUsage = new PlanUsage({ enabled: planUsageOn });
   // Trying a job's work on this computer (its own port, dev server, commands, terminal, database).
   const local = new LocalRunner({ state, demo: DEMO });
+  // The Orbit token's store, once it is open (below); the driver reads it for each session's env.
+  let orbitStoreReady = null;
   // Jobs being marked done right now (sends and automatic carry-ons wait).
   const closing = new Set();
   // Jobs whose reply the last stop cut off (runner/replay.js), by job folder: { how: 'clean' (it
@@ -1239,6 +1243,7 @@ export async function createRunner(config) {
   // in a 600 file in the state folder) and never in an answer, a record or the audit. The routes are
   // the site's (site/routes-orbit.js).
   const orbitStore = await tokenStore({ stateDir: state.dir, prefer: orbitStorePrefer });
+  orbitStoreReady = orbitStore;
   let orbitUrl = null;
   const orbit = orbitClient({ baseUrl: () => orbitUrl, getToken: () => orbitStore.get() });
   const orbitInbox = new OrbitInbox({ client: orbit, orbitUrl: () => orbitUrl });
@@ -2082,6 +2087,10 @@ export async function createRunner(config) {
         const now = new Date();
         await state.setSettings({ orbit: { url: normalizeOrbitUrl(typedUrl), savedAt: now.toISOString(), expiresAt: days ? new Date(now.getTime() + days * 86_400_000).toISOString() : null } });
         await state.audit({ action: 'orbit-token', what: 'saved', store: saved.store, mcp: MCP_NAME });
+        // An entry left in the file it used to be written to (Claude Code doesn't read it there): moved.
+        if (legacySettingsFile && path.resolve(legacySettingsFile) !== path.resolve(CLAUDE_SETTINGS_FILE)) {
+          if (await removeMcpEntry(legacySettingsFile).catch(() => false)) await state.audit({ action: 'orbit-mcp-moved', from: legacySettingsFile, to: CLAUDE_SETTINGS_FILE, mcp: MCP_NAME });
+        }
         orbitInbox.reset();
         await startOrbit();
         await orbitInbox.refresh({ full: true }); // says at once whether Orbit takes the token
@@ -2090,6 +2099,7 @@ export async function createRunner(config) {
       /** Forget the token: out of the store, and the MCP entry out of Claude Code's settings. */
       async clearToken() {
         await clearToken({ store: orbitStore, claudeSettingsFile: CLAUDE_SETTINGS_FILE });
+        if (legacySettingsFile && path.resolve(legacySettingsFile) !== path.resolve(CLAUDE_SETTINGS_FILE)) await removeMcpEntry(legacySettingsFile).catch(() => false);
         const was = await orbitSettings();
         await state.setSettings({ orbit: { url: was.url ?? null, savedAt: null, expiresAt: null } });
         await state.audit({ action: 'orbit-token', what: 'cleared' });

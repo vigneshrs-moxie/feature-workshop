@@ -111,7 +111,7 @@ export class Driver extends EventEmitter {
    * queryFn: the SDK's query() (injectable for tests).
    * state: State instance. projectsDir: where Claude Code keeps session logs.
    */
-  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, settingsFor = null, locks = jobLock, statusWatch = watchStatusFile, statusRetries = STATUS_RETRIES, ticketKeyFor = ticketKeyOf }) {
+  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, settingsFor = null, envFor = null, locks = jobLock, statusWatch = watchStatusFile, statusRetries = STATUS_RETRIES, ticketKeyFor = ticketKeyOf }) {
     super();
     // The status.json check (see the top): statusWatch(dir, onChange) -> stop(), injectable for
     // tests (null: no check); ticketKeyFor(featureDir) -> the job's ORBIT-<n> or null.
@@ -132,6 +132,8 @@ export class Driver extends EventEmitter {
     this.cover = cover;
     // settingsFor(run) -> Claude Code settings for the session (the SDK's `settings`), or null.
     this.settingsFor = settingsFor;
+    // The session's environment: envFor(run) -> the whole env for query() (null: Claude Code's default).
+    this.envFor = envFor;
     this.state = state;
     this.projectsDir = projectsDir;
     this.cliPath = cliPath;
@@ -288,6 +290,11 @@ export class Driver extends EventEmitter {
         try { const settings = await this.settingsFor(run); if (settings) options.settings = settings; } catch { /* the session starts without them */ }
         // Stopped while the settings were read: there is no session to interrupt, so don't start one.
         if (run.stopRequested) throw new Error('Stopped before it started.');
+      }
+      // The session's environment (the runner adds the Orbit token as ORBIT_FEEDBACK_TOKEN, so the
+      // MCP entry's ${ORBIT_FEEDBACK_TOKEN} has a value; the token is never an argument or in the prompt).
+      if (this.envFor) {
+        try { const env = await this.envFor(run); if (env) options.env = env; } catch { /* the session starts with the default environment */ }
       }
       const q = this.queryFn({ prompt: input(), options });
       run.query = q;
