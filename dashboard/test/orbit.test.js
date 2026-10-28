@@ -172,11 +172,13 @@ const fixture = async (name) => JSON.parse(await fs.readFile(path.join(FIXTURES,
  * An http server answering like ORBIT-479's v1 routes, for TOKEN only. `fake.requests` lists what
  * came in; `fake.override(fn)` answers the next requests itself (fn(req, url) → { status, headers, body } or null).
  */
+const everyMethod = new Set(); // every method that reached the fake Orbit, in every test of this file
 async function fakeOrbit() {
   const requests = [];
   let override = null;
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
+    everyMethod.add(req.method);
     requests.push({ method: req.method, path: url.pathname, query: url.searchParams, auth: req.headers.authorization });
     const reply = (status, body, headers = {}) => { res.writeHead(status, { 'Content-Type': 'application/json', ...headers }); res.end(JSON.stringify(body)); };
     const o = override?.(req, url);
@@ -675,4 +677,35 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   assert.equal(JSON.parse(await fs.readFile(path.join(dirs.home, '.claude', 'settings.json'), 'utf8')).mcpServers, undefined);
   assert.deepEqual((await get('/api/orbit/inbox')).body.items, []);
   assert.equal((await fetch(`${base}/api/orbit/token`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': pageToken }, body: '{}' })).status, 405);
+});
+
+// ---------- Step 7: no write path to Orbit ----------
+
+test('nothing in dashboard/lib (or server.js) can send Orbit anything but a GET', async () => {
+  const LIB = path.join(HERE, '..', 'lib');
+  const files = (await walk(LIB)).filter((f) => f.endsWith('.js'));
+  assert.ok(files.length > 10);
+  const texts = Object.fromEntries(await Promise.all(files.map(async (f) => [path.relative(LIB, f), await fs.readFile(f, 'utf8')])));
+  // Only lib/orbit.js names Orbit's API at all; server.js only through it.
+  const naming = Object.keys(texts).filter((f) => /\/api\/feedback|\/api\/mcp\/feedback/.test(texts[f]));
+  assert.deepEqual(naming, ['orbit.js']);
+  assert.ok(!/\/api\/feedback\/v1/.test(await fs.readFile(path.join(HERE, '..', 'server.js'), 'utf8')), 'server.js goes through lib/orbit.js');
+  // Anywhere in lib: no fetch or request whose call names the feedback API with another method.
+  for (const [file, text] of Object.entries(texts)) {
+    for (const m of text.matchAll(/\b(?:fetch|fetchFn|request|got|axios)\s*\(([\s\S]{0,400}?)\)\s*;/g)) {
+      if (!/feedback|API_BASE|\burl\b/.test(m[1]) || !/method\s*:/.test(m[1])) continue;
+      assert.match(m[1], /method\s*:\s*'GET'/, `${file}: ${m[0].slice(0, 120)}`);
+    }
+  }
+  const orbit = texts['orbit.js'];
+  // In orbit.js: one call that reaches the network, and it is a GET; no other method is even written.
+  const calls = [...orbit.matchAll(/\bfetchFn\s*\(/g)];
+  assert.equal(calls.length, 1, 'one place reaches Orbit');
+  const call = orbit.slice(calls[0].index, calls[0].index + 400);
+  assert.match(call, /method: 'GET'/);
+  assert.ok(!/\b(?:https?\.request|https?\.get|XMLHttpRequest|undici|node:net|node:http)\b/.test(orbit), 'no other way out');
+  assert.ok(!/['"`](?:POST|PUT|PATCH|DELETE)['"`]/.test(orbit), 'no write method named in orbit.js');
+  assert.ok(!/\bmethod\s*:(?!\s*'GET')/.test(orbit), 'every method: is GET');
+  // And at run time: everything this file sent the fake Orbit was a GET.
+  assert.deepEqual([...everyMethod], ['GET']);
 });
