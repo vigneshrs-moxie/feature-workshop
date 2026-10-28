@@ -344,12 +344,18 @@ export async function runTests({ dir, commands = TEST_COMMANDS, onOutput = () =>
   for (const c of commands) {
     const started = Date.now();
     onOutput(`\n$ ${c.label}\n`, { step: c.label, stream: 'info' });
+    const cwd = path.resolve(dir, c.cwd ?? '.');
+    if (!(await fs.stat(cwd).then((st) => st.isDirectory(), () => false))) {
+      onOutput(`There is no ${c.cwd ?? '.'} folder in ${dir}, so ${c.label} can’t run.\n`, { step: c.label, stream: 'stderr' });
+      steps.push({ label: c.label, code: null, ok: false, ms: 0 });
+      continue;
+    }
     const code = await new Promise((resolve) => {
       const env = { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', CI: '1' };
       delete env.PORT; delete env.WIREFRAMES_PORT; // the tests pick their own ports
       let child;
       try {
-        child = spawn(c.cmd, c.args, { cwd: path.resolve(dir, c.cwd ?? '.'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+        child = spawn(c.cmd, c.args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
       } catch (err) {
         onOutput(`Couldn’t start ${c.label}: ${err.message}\n`, { step: c.label, stream: 'stderr' });
         return resolve(null);
