@@ -6,13 +6,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync, spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 import { Driver, STATUS_RETRIES, STATUS_TRY_AGAIN, STATUS_LEAVE, STATUS_CARD_HEADLINE, statusFixMessage, watchStatusFile } from '../lib/driver.js';
 import { State } from '../lib/state.js';
 import { validate } from '../lib/status-json.js';
-import { defaultsForLevel, writeOptions } from '../lib/options.js';
+import { defaultsForLevel, writeOptions, normalizeTicket, ticketKeyOf, ticketSlug, ticketBranch, shortTitle, startFromTicket, TICKET_KEY_PROBLEM } from '../lib/options.js';
 import { makeFakeQuery } from '../demo/fake-query.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -312,4 +315,115 @@ test('watchStatusFile: fs.watch on the folder calls back for status.json', async
     await sleep(100);
     assert.equal(calls, before, 'other files are not status.json');
   } finally { stop(); }
+});
+
+// ---------- Start from a ticket (lib/options.js; POST /api/jobs) ----------
+
+test('a ticket: its key in any lenient form, a clean title and link; a bad key is refused in plain words', () => {
+  assert.equal(normalizeTicket(undefined), null);
+  assert.equal(normalizeTicket(null), null);
+  assert.deepEqual(normalizeTicket({ key: 'orbit-479', title: '  ORBIT-479:  Feedback API\n and MCP ', url: 'https://orbit.example.com/t/479' }), { key: 'ORBIT-479', title: 'Feedback API and MCP', url: 'https://orbit.example.com/t/479' });
+  assert.deepEqual(normalizeTicket({ key: '#12', url: 'javascript:alert(1)' }), { key: 'ORBIT-12', title: null, url: null });
+  for (const bad of [{ key: 'ORBIT-0' }, { key: 'TICKET-4' }, { title: 'no key' }, 'ORBIT-479', []]) assert.throws(() => normalizeTicket(bad), { message: TICKET_KEY_PROBLEM });
+  assert.equal(ticketKeyOf('orbit479'), 'ORBIT-479');
+});
+
+test('a ticket’s slug and branch: orbit-<n>-<short-title>, feature/ or fix/ by kind', () => {
+  const t = normalizeTicket({ key: 'ORBIT-479', title: 'Feedback API and MCP for the portal’s team members' });
+  assert.equal(ticketSlug(t), 'orbit-479-feedback-api-and-mcp-for-the-portals');
+  assert.ok(shortTitle(t.title).length <= 40);
+  assert.equal(ticketSlug({ key: 'ORBIT-7', title: null }), 'orbit-7');
+  assert.equal(ticketSlug({ key: 'ORBIT-7', title: '!!!' }), 'orbit-7');
+  assert.equal(ticketBranch('feature', 'orbit-479-feedback-api'), 'feature/orbit-479-feedback-api');
+  assert.equal(ticketBranch('bug', 'orbit-124-comment-save'), 'fix/orbit-124-comment-save');
+});
+
+test('Start from a ticket writes the folder with the ticket block (a valid version 2 status.json) and the brief lines', async () => {
+  const dir = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-ticket-start-')), 'orbit-479-feedback-api');
+  const ticket = normalizeTicket({ key: 'ORBIT-479', title: 'Feedback API', url: 'https://orbit.example.com/t/479' });
+  const slug = ticketSlug(ticket);
+  await writeOptions(dir, defaultsForLevel(2), { title: 'ORBIT-479: Feedback API', repo: '/repo', kind: 'feature', ticket, branch: ticketBranch('feature', slug) });
+  const out = await startFromTicket(dir, { ticket, slug, title: 'ORBIT-479: Feedback API', kind: 'feature', level: 2, repo: '/repo' });
+  assert.equal(out.branch, 'feature/orbit-479-feedback-api');
+  const status = JSON.parse(await fs.readFile(path.join(dir, 'status.json'), 'utf8'));
+  assert.equal(status.schema_version, 2);
+  assert.deepEqual(status.ticket, { key: 'ORBIT-479', title: 'Feedback API', url: 'https://orbit.example.com/t/479', level: 'L2' });
+  assert.equal(status.slug, 'orbit-479-feedback-api');
+  assert.deepEqual(validate(status, { ticketKey: 'ORBIT-479' }), { ok: true, errors: [], warnings: [] });
+  const options = JSON.parse(await fs.readFile(path.join(dir, 'options.json'), 'utf8'));
+  assert.deepEqual(options.ticket, ticket);
+  assert.equal(options.branch, 'feature/orbit-479-feedback-api');
+  // The first message: the key, the MCP server to read it through, the branch, the ticket's title quoted.
+  assert.match(out.brief, /^Orbit ticket: ORBIT-479 \(https:\/\/orbit\.example\.com\/t\/479\)\. Its title, as Orbit gives it:\n> Feedback API\n/);
+  assert.match(out.brief, /orbit-feedback MCP server \(feedback_get_ticket with ORBIT-479\) at clarify, at spec and again at test\. Read only: never write to Orbit\./);
+  assert.match(out.brief, /Branch: feature\/orbit-479-feedback-api /);
+  // Never over a status.json already there.
+  await fs.writeFile(path.join(dir, 'status.json'), '{"kept":true}');
+  await startFromTicket(dir, { ticket, slug, kind: 'feature' });
+  assert.equal(await fs.readFile(path.join(dir, 'status.json'), 'utf8'), '{"kept":true}');
+  assert.deepEqual((await fs.readdir(dir)).sort(), ['options.json', 'status.json'], 'no temp file left');
+});
+
+// Through the real dashboard (demo mode, temp folders). Runs once server.js's POST /api/jobs takes
+// `ticket` (the edit packet B hands over under "Needs from others"); until then it is skipped.
+const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
+const serverTakesTickets = (await fs.readFile(SERVER, 'utf8')).includes('startFromTicket(');
+test('POST /api/jobs with a ticket: the job, its folder and branch carry the key; the Foreman is told', { skip: serverTakesTickets ? false : 'server.js does not take a ticket yet (see packet B, Needs from others)' }, async () => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fw-ticket-start-')));
+  const featuresDir = path.join(root, 'feature-work');
+  const repo = path.join(root, 'sample-repo');
+  const dirs = { projects: path.join(root, 'projects'), agents: path.join(root, 'agents'), skills: path.join(root, 'skills'), state: path.join(root, 'state'), home: path.join(root, 'home') };
+  for (const d of [featuresDir, repo, ...Object.values(dirs)]) await fs.mkdir(d, { recursive: true });
+  execFileSync('git', ['init', '-q', repo]);
+  const srv = net.createServer();
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const { port } = srv.address();
+  await new Promise((r) => srv.close(r));
+  const base = `http://127.0.0.1:${port}`;
+  const output = [];
+  const child = spawn(process.execPath, [SERVER], {
+    env: { ...process.env, PORT: String(port), HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
+      child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('running at')) { clearTimeout(timer); resolve(); } });
+      child.stderr.on('data', (d) => output.push(String(d)));
+      child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
+    });
+    const token = (await (await fetch(`${base}/api/meta`)).json()).token;
+    const post = async (body) => {
+      const res = await fetch(`${base}/api/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify(body) });
+      return { status: res.status, body: await res.json() };
+    };
+    const bad = await post({ description: 'ORBIT-0: nothing', repoPath: repo, ticket: { key: 'ORBIT-0' } });
+    assert.equal(bad.status, 400);
+    assert.equal(bad.body.error, TICKET_KEY_PROBLEM);
+    const r = await post({ description: 'ORBIT-479: Feedback API and MCP', kind: 'bug', repoPath: repo, options: { level: 2 }, ticket: { key: 'ORBIT-479', title: 'Feedback API and MCP', url: 'https://orbit.example.com/t/479' } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.slug, 'orbit-479-feedback-api-and-mcp');
+    const dir = path.join(featuresDir, r.body.slug);
+    const options = JSON.parse(await fs.readFile(path.join(dir, 'options.json'), 'utf8'));
+    assert.equal(options.ticket.key, 'ORBIT-479');
+    assert.equal(options.branch, 'fix/orbit-479-feedback-api-and-mcp');
+    const status = JSON.parse(await fs.readFile(path.join(dir, 'status.json'), 'utf8'));
+    assert.equal(status.ticket.key, 'ORBIT-479');
+    const audit = (await fs.readFile(path.join(dirs.state, 'audit.jsonl'), 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const send = audit.find((e) => e.action === 'send' && e.featureDir === dir);
+    assert.match(send.text, /^\/feature ORBIT-479: Feedback API and MCP \(This is a bug fix\.\) Private folder: /);
+    assert.match(send.text, /Orbit ticket: ORBIT-479 .*\n> Feedback API and MCP\n.*orbit-feedback MCP server/);
+    assert.match(send.text, /Branch: fix\/orbit-479-feedback-api-and-mcp /);
+    assert.equal(audit.find((e) => e.action === 'new-job').ticket, 'ORBIT-479');
+    // The demo Foreman's later writes keep the ticket block, so the check never sends anything back.
+    const end = Date.now() + 10000;
+    while (Date.now() < end && !(await fs.readFile(path.join(dir, 'status.json'), 'utf8')).includes('"brief"')) await sleep(50);
+    await sleep(300);
+    const after = (await fs.readFile(path.join(dirs.state, 'audit.jsonl'), 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.equal(after.filter((e) => e.action === 'status_invalid').length, 0);
+    assert.equal(JSON.parse(await fs.readFile(path.join(dir, 'status.json'), 'utf8')).ticket.key, 'ORBIT-479');
+  } finally {
+    if (child.exitCode === null) { const gone = new Promise((r) => child.once('exit', r)); child.kill('SIGTERM'); await gone; }
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
