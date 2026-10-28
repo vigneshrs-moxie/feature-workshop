@@ -24,6 +24,7 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 
 import { ORG_REMOTES, ORG_URL } from './hard-lines.js';
+import { currentRegistry } from './repos.js';
 
 export const NETWORK_EVERY_MS = 10 * 60 * 1000;
 export const LOCAL_EVERY_MS = 60 * 1000;
@@ -79,12 +80,19 @@ export function pickPr(prs) {
   return sorted.find((p) => p.state === 'open' || p.state === 'draft') ?? sorted.find((p) => p.state === 'merged') ?? sorted[0] ?? null;
 }
 
+// The repo's profile (lib/repos.js, the runner's registry), or null.
+async function registeredProfile(repo) {
+  const hit = await currentRegistry()?.profileFor(repo).catch(() => null);
+  return hit?.ok ? hit.profile : null;
+}
+
 /**
  * The facts for one repo. jobs: [{ slug, branch, worktree }]. fetch: also git fetch --prune both
  * remotes and read the org's PRs with gh. prs: the PRs from the last network refresh (kept when
- * this one doesn't read them).
+ * this one doesn't read them). profileFor(repo): its profile (lib/profile.js) or null; the org
+ * remote, the fork and the org's GitHub name come from it when it names them.
  */
-export async function gatherRepo({ repo, jobs, fetch = false, prs = null, git: gitFn = git, gh = (args) => run('gh', args, { timeout: 30000 }) }) {
+export async function gatherRepo({ repo, jobs, fetch = false, prs = null, git: gitFn = git, gh = (args) => run('gh', args, { timeout: 30000 }), profileFor = registeredProfile }) {
   const errors = [];
   const remotesOut = await gitFn(repo, ['remote', '-v']);
   const remotes = new Map();
@@ -92,8 +100,11 @@ export async function gatherRepo({ repo, jobs, fetch = false, prs = null, git: g
     const m = /^(\S+)\s+(\S+)\s+\(push\)$/.exec(line);
     if (m) remotes.set(m[1], m[2]);
   }
-  const orgName = [...remotes].find(([n, u]) => ORG_REMOTES.includes(n) || ORG_URL.test(u))?.[0] ?? null;
-  const forkName = remotes.has('origin') && 'origin' !== orgName ? 'origin' : null;
+  const profile = await profileFor(repo);
+  const named = (n) => (n && remotes.has(n) ? n : null);
+  const orgName = named(profile?.remotes?.org) ?? [...remotes].find(([n, u]) => ORG_REMOTES.includes(n) || ORG_URL.test(u))?.[0] ?? null;
+  const forkFrom = named(profile?.remotes?.fork) ?? 'origin';
+  const forkName = remotes.has(forkFrom) && forkFrom !== orgName ? forkFrom : null;
   const upstream = orgName ?? forkName; // where main (and staging) live
   if (fetch) {
     for (const r of [orgName, forkName].filter(Boolean)) {
@@ -112,7 +123,7 @@ export async function gatherRepo({ repo, jobs, fetch = false, prs = null, git: g
   const staging = orgName && await exists(repo, `${orgName}/staging`) ? `${orgName}/staging` : null;
 
   let prList = prs;
-  const orgSlug = githubSlug(remotes.get(orgName ?? '') ?? remotes.get(forkName ?? '') ?? '');
+  const orgSlug = profile?.github ?? githubSlug(remotes.get(orgName ?? '') ?? remotes.get(forkName ?? '') ?? '');
   if (fetch && orgSlug) {
     const res = await gh(['pr', 'list', '--repo', orgSlug, '--state', 'all', '--limit', '200', '--json', PR_FIELDS]);
     if (res.ok) { try { prList = JSON.parse(res.out).map(prOf); } catch { errors.push('gh pr list: unreadable output'); } } else errors.push(`gh pr list: ${res.err}`);

@@ -17,6 +17,9 @@
 //                           (dashboard/profiles/*.md) names by GitHub, such as Orbit
 //   reposDoor(registry)     what Settings → Repos asks (site/routes-repos.js), through the runner
 //
+// Whenever the list or a registered profile is read anew, lib/hard-lines.js learns the profiles'
+// org remotes and GitHub orgs (on top of its floor), so pushes there are refused too.
+//
 // Nothing here writes to a repository: git is only asked where a folder's checkout and remotes are.
 
 import { execFile } from 'node:child_process';
@@ -25,6 +28,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isGitRepo } from './git.js';
+import { setProfileOrgs } from './hard-lines.js';
 import { GENERAL, PROFILE_FILE, fillPattern, githubOfUrl, githubOrg, loadProfile, portsLabel } from './profile.js';
 
 export const REPOS_FILE = 'repos.json';
@@ -102,7 +106,11 @@ let current = null;
 /** The registry for a state folder: the same one for every caller in this process. */
 export function openRegistry({ dir, bundledDir = BUNDLED_DIR } = {}) {
   const key = path.resolve(dir);
-  if (!OPEN.has(key)) OPEN.set(key, new Registry({ dir: key, bundledDir }));
+  if (!OPEN.has(key)) {
+    const reg = new Registry({ dir: key, bundledDir });
+    OPEN.set(key, reg);
+    reg.refreshHardLines().catch(() => {});
+  }
   current = OPEN.get(key);
   return current;
 }
@@ -122,6 +130,7 @@ export class Registry {
     this.profiles = new Map(); // profile file → { mtimeMs, size, result }
     this.lookups = new Map(); // folder → { at, main, githubs }
     this.queue = Promise.resolve(); // changes, one at a time
+    this.telling = null; // a hard-lines refresh in progress, and whether another is wanted after it
   }
 
   // ----- repos.json -----
@@ -135,6 +144,7 @@ export class Registry {
     try { list = JSON.parse(await fsp.readFile(this.file, 'utf8')); } catch { /* broken */ }
     const ok = Array.isArray(list) && list.every((e) => e && typeof e.path === 'string');
     this.saved = { exists: true, broken: !ok, mtimeMs: st.mtimeMs, size: st.size, list: ok ? list.map((e) => ({ path: e.path, github: e.github ?? null, profile: e.profile ?? null })) : [] };
+    this.refreshHardLines().catch(() => {});
     return this.saved;
   }
 
@@ -184,6 +194,7 @@ export class Registry {
     if (st && hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.result;
     const result = await loadProfile(file);
     if (st) this.profiles.set(file, { mtimeMs: st.mtimeMs, size: st.size, result });
+    if (hit) this.refreshHardLines().catch(() => {}); // a file read before has changed
     return result;
   }
 
@@ -394,9 +405,22 @@ export class Registry {
       const { file } = this.#profileFileOf(e);
       const r = file ? await this.readProfile(file) : null;
       const p = r?.ok ? r.profile : null;
-      out.push({ remote: p?.remotes?.org ?? null, org: githubOrg(p) ?? (e.github ? e.github.split('/')[0] : null) });
+      out.push({ remote: p?.remotes?.org ?? null, fork: p?.remotes?.fork ?? null, org: githubOrg(p) ?? (e.github ? e.github.split('/')[0] : null) });
     }
     return out;
+  }
+
+  /** Tells lib/hard-lines.js the registered org remotes and orgs (one refresh at a time; asked again while one runs, it runs once more). */
+  refreshHardLines() {
+    if (this.telling) { this.telling.again = true; return this.telling.done; }
+    const telling = { again: false, done: null };
+    this.telling = telling;
+    telling.done = (async () => {
+      try {
+        do { telling.again = false; setProfileOrgs(await this.orgs()); } while (telling.again);
+      } finally { this.telling = null; }
+    })();
+    return telling.done;
   }
 }
 

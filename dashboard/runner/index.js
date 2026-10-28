@@ -207,7 +207,8 @@ export async function createRunner(config) {
   async function jobContext(run) {
     const f = (await features()).find((x) => x.dir === run.featureDir);
     const repo = f?.repoPath ?? run.cwd;
-    const worktrees = [f?.worktree, f?.statusWorktree, repo && f ? path.join(path.dirname(repo), `orbit-${f.slug}`) : null].filter(Boolean);
+    // Where the job's worktree goes, from its repository's profile (lib/repos.js worktreeFor).
+    const worktrees = [f?.worktree, f?.statusWorktree, repo && f && local.registry ? await local.registry.worktreeFor(repo, f.slug) : null].filter(Boolean);
     const specDirs = [repo ? path.join(repo, 'docs', 'plans') : null, f?.spec?.path && path.isAbsolute(f.spec.path) ? path.dirname(f.spec.path) : null].filter(Boolean);
     return { f, repo, worktrees, specDirs };
   }
