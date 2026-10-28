@@ -2,12 +2,14 @@
 // branch, how far it is ahead of and behind the main checkout's branch, its last commit, the
 // last test run this process did for it, and the files it changed outside its brief's "Owns"
 // list. A packet is a worktree on a branch named packet/<id>-<name>; its brief is
-// docs/plans/packets/<id>-*.md.
+// docs/plans/packets/<id>-*.md. "Merge next" merges the first packet in the stated order that
+// isn't merged yet into the main checkout, then runs both test suites there.
 //
 // Git runs through execFile (no shell) with validated names and a time limit. Nothing here
 // pushes, ever.
 
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -252,4 +254,304 @@ export async function describePacket({ root, base, worktree, testsStates = new M
     owned,
     touchedOutsideOwned: outsideOwned(changed, owned),
   };
+}
+
+// ---------- Merge next ----------
+
+/** The plan's integration order for the v1 packets (plan §11): Z, then C, D, E, F, then A and T, then B. */
+export const DEFAULT_ORDER = ['Z', 'C', 'D', 'E', 'F', 'A', 'T', 'B'];
+export const DEFAULT_SLOTS = 3;
+export const MAX_SLOTS = 20;
+
+/** Both test suites, as the packet briefs name them: `npm test`, then `npx vitest run` in web/. */
+export const TEST_COMMANDS = [
+  { label: 'npm test', cmd: 'npm', args: ['test'], cwd: '.' },
+  { label: 'web tests (npx vitest run)', cmd: 'npx', args: ['vitest', 'run'], cwd: 'web' },
+];
+const TEST_TIMEOUT_MS = 20 * 60 * 1000;
+const ACTIVE = new Set(['starting', 'running', 'waiting_permission', 'stopping']);
+
+export class IntegrateError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+
+/** An order as the board keeps it: packet ids, each once, upper and lower case as written. */
+export function cleanOrder(order) {
+  if (!Array.isArray(order)) throw new IntegrateError(400, 'The order must be a list of packet ids.');
+  if (order.length > 50) throw new IntegrateError(400, 'The order can hold at most 50 packets.');
+  const seen = new Set();
+  const out = [];
+  for (const raw of order) {
+    const id = typeof raw === 'string' ? raw.trim() : '';
+    if (!ID_RE.test(id)) throw new IntegrateError(400, `“${String(raw).slice(0, 20)}” is not a packet id (letters and digits, like C or T2).`);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+export function cleanSlots(slots) {
+  const n = Number(slots);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_SLOTS) throw new IntegrateError(400, `Packets at once must be a whole number from 1 to ${MAX_SLOTS}.`);
+  return n;
+}
+
+const isInside = (p, dir) => {
+  if (typeof p !== 'string' || !p) return false;
+  const rel = path.relative(path.resolve(dir), path.resolve(p));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+};
+
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; } catch (err) { return err.code === 'EPERM'; }
+}
+
+/**
+ * A job running on the checkout at `root`, or null. Looks in each state folder's sessions.json
+ * ({ [jobFolder]: { cwd, repoPath, status | running } }, or a list of such entries) for a session
+ * whose folder or repository is that checkout and that is marked running (running: true, or a
+ * status of starting, running, waiting_permission or stopping), or whose job folder holds a
+ * lock.json (packet C) with a live pid. `extra` is asked too (this dashboard's own runs).
+ */
+export async function runningJobFor(root, { stateDirs = [], extra = null } = {}) {
+  for (const dir of stateDirs) {
+    let all;
+    try { all = JSON.parse(await fs.readFile(path.join(dir, 'sessions.json'), 'utf8')); } catch { continue; }
+    const entries = Array.isArray(all) ? all.map((v) => [v?.featureDir ?? v?.dir ?? '', v]) : Object.entries(all ?? {});
+    for (const [jobDir, s] of entries) {
+      if (!s || typeof s !== 'object') continue;
+      if (!isInside(s.cwd, root) && !isInside(s.repoPath, root) && !isInside(s.repo, root)) continue;
+      const status = s.status ?? s.state ?? s.run?.status;
+      let running = s.running === true || ACTIVE.has(status);
+      if (!running && jobDir) {
+        try { running = pidAlive(JSON.parse(await fs.readFile(path.join(jobDir, 'lock.json'), 'utf8'))?.pid); } catch { /* no lock */ }
+      }
+      if (running) return { slug: path.basename(jobDir || String(s.slug ?? 'a job')), dir: jobDir || null, from: dir };
+    }
+  }
+  const own = extra ? await extra(root) : null;
+  return own ?? null;
+}
+
+/**
+ * Run each test command in `dir`, one after another, every one even when one fails. Output goes
+ * to onOutput(text, { step, stream }) as it arrives. Resolves { ok, steps: [{ label, code, ok, ms }] }.
+ */
+export async function runTests({ dir, commands = TEST_COMMANDS, onOutput = () => {}, timeoutMs = TEST_TIMEOUT_MS }) {
+  const steps = [];
+  for (const c of commands) {
+    const started = Date.now();
+    onOutput(`\n$ ${c.label}\n`, { step: c.label, stream: 'info' });
+    const code = await new Promise((resolve) => {
+      const env = { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', CI: '1' };
+      delete env.PORT; delete env.WIREFRAMES_PORT; // the tests pick their own ports
+      let child;
+      try {
+        child = spawn(c.cmd, c.args, { cwd: path.resolve(dir, c.cwd ?? '.'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+      } catch (err) {
+        onOutput(`Couldn’t start ${c.label}: ${err.message}\n`, { step: c.label, stream: 'stderr' });
+        return resolve(null);
+      }
+      const timer = setTimeout(() => { onOutput(`\n${c.label} took longer than ${Math.round(timeoutMs / 60000)} minutes and was stopped.\n`, { step: c.label, stream: 'stderr' }); child.kill('SIGTERM'); }, timeoutMs);
+      child.stdout.on('data', (d) => onOutput(String(d), { step: c.label, stream: 'stdout' }));
+      child.stderr.on('data', (d) => onOutput(String(d), { step: c.label, stream: 'stderr' }));
+      child.on('error', (err) => { clearTimeout(timer); onOutput(`Couldn’t start ${c.label}: ${err.message}\n`, { step: c.label, stream: 'stderr' }); resolve(null); });
+      child.on('close', (exit) => { clearTimeout(timer); resolve(exit); });
+    });
+    steps.push({ label: c.label, code, ok: code === 0, ms: Date.now() - started });
+  }
+  return { ok: steps.every((s) => s.ok), steps };
+}
+
+/** The files a stopped merge left in conflict at `root`. */
+export async function conflictedFiles(root) {
+  const out = (await gitOut(root, ['diff', '--name-only', '--diff-filter=U'])) ?? '';
+  return out.split('\n').map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * Where each packet in `order` stands: [{ id, branch, state, ahead }], state as mergeState says,
+ * or 'missing' when there is no packet/<id>-* branch.
+ */
+export async function orderStates(root, base, order) {
+  const branches = await packetBranches(root);
+  return Promise.all(order.map(async (id) => {
+    const branch = branches[id] ?? null;
+    if (!branch) return { id, branch: null, state: 'missing', ahead: null };
+    const { ahead } = await aheadBehind(root, base, branch);
+    return { id, branch, state: await mergeState(root, branch, ahead), ahead };
+  }));
+}
+
+/**
+ * Merge the first packet in `order` that is not merged yet into the main checkout at `root`
+ * (`git merge --no-ff <branch> -m "Merge packet <id>: <name>"`), then run both test suites there.
+ * Never pushes. Refuses while the checkout has uncommitted changes or a merge under way, or while
+ * a job runs on it (runningJobFor). Stops (nothing is skipped) when the next packet has no branch
+ * or no commits yet. On a conflict nothing is undone: the files are listed and it stops.
+ * Resolves one result: { outcome, message, at, id?, name?, branch?, sha?, files?, tests? }, outcome:
+ *   refused | blocked | nothing | conflict | failed | merged (tests.ok says how the tests went)
+ */
+export async function mergeNext({ root, order = DEFAULT_ORDER, commands = TEST_COMMANDS, stateDirs = [], extraRunning = null, onOutput = () => {}, onStage = () => {} }) {
+  const at = () => new Date().toISOString();
+  const main = (await mainCheckout(root)) ?? root;
+  const base = await currentBranch(main);
+  if (!base) return { outcome: 'refused', at: at(), message: 'The main checkout isn’t on a branch, so there is nothing to merge into.' };
+  if ((await git(main, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])).code === 0) {
+    return { outcome: 'refused', at: at(), files: await conflictedFiles(main), message: 'A merge is already under way in the main checkout. Finish it (or undo it) there first.' };
+  }
+  const dirty = await gitOut(main, ['status', '--porcelain', '--untracked-files=no']);
+  if (dirty === null) return { outcome: 'refused', at: at(), message: 'Couldn’t read the main checkout with git.' };
+  if (dirty.trim()) return { outcome: 'refused', at: at(), message: 'The main checkout has changes that aren’t committed. Commit them or put them aside first.' };
+  const job = await runningJobFor(main, { stateDirs, extra: extraRunning });
+  if (job) return { outcome: 'refused', at: at(), message: `A job is running on the main checkout (${job.slug}). Wait until it finishes, then merge.` };
+
+  const states = await orderStates(main, base, order);
+  const next = states.find((s) => s.state !== 'merged');
+  if (!next) return { outcome: 'nothing', at: at(), message: order.length ? 'Every packet in the order is merged.' : 'The order is empty: add packets to it first.' };
+  if (next.state === 'missing') return { outcome: 'blocked', at: at(), id: next.id, message: `Packet ${next.id} is next in the order, but there is no packet/${next.id}-… branch yet. Start it, or take it out of the order.` };
+  if (next.state === 'empty') return { outcome: 'blocked', at: at(), id: next.id, branch: next.branch, message: `Packet ${next.id} is next in the order, but nothing is committed on ${next.branch} yet.` };
+  if (next.state === 'unknown') return { outcome: 'failed', at: at(), id: next.id, branch: next.branch, message: `Couldn’t compare ${next.branch} with ${base}.` };
+
+  const brief = await readBrief(main, next.id);
+  const name = (brief && briefTitle(brief.text)) || packetOfBranch(next.branch).slug.replace(/-/g, ' ');
+  const message = `Merge packet ${next.id}: ${name}`;
+  onStage({ stage: 'merging', id: next.id, branch: next.branch });
+  onOutput(`$ git merge --no-ff ${next.branch} -m "${message}"\n`, { step: 'merge', stream: 'info' });
+  const merged = await git(main, ['merge', '--no-ff', '--no-edit', next.branch, '-m', message], { timeout: 120000 });
+  if (merged.stdout) onOutput(merged.stdout, { step: 'merge', stream: 'stdout' });
+  if (merged.stderr) onOutput(merged.stderr, { step: 'merge', stream: 'stderr' });
+  const common = { id: next.id, name, branch: next.branch, base };
+  if (merged.code !== 0) {
+    const files = await conflictedFiles(main);
+    if (files.length) {
+      return { outcome: 'conflict', at: at(), ...common, files, message: `Merging packet ${next.id} stopped on a conflict in ${files.length === 1 ? 'one file' : `${files.length} files`}. Nothing was undone: settle ${files.length === 1 ? 'it' : 'them'} in the main checkout and commit, then merge the next one.` };
+    }
+    return { outcome: 'failed', at: at(), ...common, message: `git couldn’t merge ${next.branch}: ${(merged.stderr || merged.stdout).trim().split('\n').pop() || 'no reason given'}.` };
+  }
+  const sha = (await gitOut(main, ['rev-parse', 'HEAD']))?.trim() ?? null;
+  onStage({ stage: 'testing', id: next.id, branch: next.branch });
+  const tests = await runTests({ dir: main, commands, onOutput });
+  return {
+    outcome: 'merged', at: at(), ...common, sha, tests,
+    message: tests.ok ? `Packet ${next.id} is merged into ${base} and the tests passed (${tests.steps.map((s) => s.label).join(', ')}).` : `Packet ${next.id} is merged into ${base}, but ${tests.steps.filter((s) => !s.ok).map((s) => s.label).join(' and ')} failed. The merge is kept: fix it in the main checkout.`,
+  };
+}
+
+// ---------- The board's state in this process ----------
+
+const LOG_MAX = 4000; // lines kept for the page
+
+/**
+ * One integration board: its settings in <configDir>/integrate.json ({ order, slots, last }),
+ * the test results this process saw, and the one step running now (a merge or a packet's tests)
+ * with its output. Emits 'line' ({ text, stream }), 'step' (the running step, or null) and
+ * 'done' (the result).
+ */
+export class Integrator extends EventEmitter {
+  constructor({ root, configDir, stateDirs = [], commands = TEST_COMMANDS, extraRunning = null }) {
+    super();
+    this.root = root;
+    this.file = path.join(configDir, 'integrate.json');
+    this.configDir = configDir;
+    this.stateDirs = stateDirs;
+    this.commands = commands;
+    this.extraRunning = extraRunning;
+    this.testsStates = new Map();
+    this.running = null; // { kind: 'merge' | 'tests', id?, stage, startedAt }
+    this.log = [];
+    this.lastRun = null;
+  }
+
+  async config() {
+    let raw = {};
+    try { raw = JSON.parse(await fs.readFile(this.file, 'utf8')) ?? {}; } catch { /* first use */ }
+    let order = DEFAULT_ORDER;
+    try { if (raw.order !== undefined) order = cleanOrder(raw.order); } catch { /* a bad file: the plan's order */ }
+    let slots = DEFAULT_SLOTS;
+    try { if (raw.slots !== undefined) slots = cleanSlots(raw.slots); } catch { /* the default */ }
+    return { order, slots, last: raw.last && typeof raw.last === 'object' ? raw.last : null };
+  }
+
+  async #save(patch) {
+    const now = await this.config();
+    const next = { ...now, ...patch };
+    await fs.mkdir(this.configDir, { recursive: true, mode: 0o700 });
+    const tmp = `${this.file}.${process.pid}.${Date.now()}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(next, null, 2), { mode: 0o600 });
+    await fs.rename(tmp, this.file);
+    return next;
+  }
+
+  saveOrder(order) { return this.#save({ order: cleanOrder(order) }); }
+  saveSlots(slots) { return this.#save({ slots: cleanSlots(slots) }); }
+
+  /** Everything the page shows. */
+  async view() {
+    const [{ root, base, packets }, cfg] = await Promise.all([listPackets({ root: this.root, testsStates: this.testsStates }), this.config()]);
+    const order = await orderStates(root, base, cfg.order);
+    for (const o of order) o.name = packets.find((p) => p.id === o.id)?.name ?? (await readBrief(root, o.id).then((b) => (b && briefTitle(b.text)) || null));
+    const inUse = packets.filter((p) => p.state !== 'merged').length;
+    const next = order.find((o) => o.state !== 'merged') ?? null;
+    return { root, base, packets, order, next, slots: cfg.slots, inUse, last: this.lastRun ?? cfg.last, running: this.running, log: this.log.join('') };
+  }
+
+  #line(text, { stream = 'stdout' } = {}) {
+    this.log.push(text);
+    if (this.log.length > LOG_MAX) this.log.splice(0, this.log.length - LOG_MAX);
+    this.emit('line', { text, stream });
+  }
+
+  #begin(step) {
+    if (this.running) throw new IntegrateError(409, this.running.kind === 'merge' ? 'A merge is running now. Wait for it to finish.' : `The tests for packet ${this.running.id} are running now. Wait for them to finish.`);
+    this.running = { ...step, startedAt: new Date().toISOString() };
+    this.log = [];
+    this.emit('step', this.running);
+  }
+
+  async #finish(result, { save = false } = {}) {
+    this.running = null;
+    this.lastRun = result;
+    if (save) { try { await this.#save({ last: result }); } catch { /* shown from memory */ } }
+    this.#line(`\n${result.message}\n`, { stream: 'info' });
+    this.emit('step', null);
+    this.emit('done', result);
+    return result;
+  }
+
+  /** Start "Merge next": { done } (the promise of its result). Throws IntegrateError(409) while a step runs. */
+  mergeNext() {
+    this.#begin({ kind: 'merge', stage: 'checking' });
+    const run = (async () => {
+      const { order } = await this.config();
+      const result = await mergeNext({
+        root: this.root, order, commands: this.commands, stateDirs: this.stateDirs, extraRunning: this.extraRunning,
+        onOutput: (text, o) => this.#line(text, o),
+        onStage: (s) => { this.running = { ...this.running, ...s }; this.emit('step', this.running); },
+      });
+      return this.#finish(result, { save: true });
+    })().catch((err) => this.#finish({ outcome: 'failed', at: new Date().toISOString(), message: `Merge next stopped: ${err.message}` }, { save: true }));
+    return { done: run };
+  }
+
+  /** Start both test suites in packet `id`'s worktree: resolves { done } (the promise of its result) once started. */
+  async runPacketTests(id) {
+    if (!ID_RE.test(String(id ?? ''))) throw new IntegrateError(400, 'Which packet? Give its id, like C.');
+    const { packets } = await listPackets({ root: this.root, testsStates: this.testsStates });
+    const p = packets.find((x) => x.id === id);
+    if (!p) throw new IntegrateError(404, `No worktree for packet ${id}.`);
+    this.#begin({ kind: 'tests', id, stage: 'testing' });
+    this.testsStates.set(id, { state: 'running', at: new Date().toISOString() });
+    const done = (async () => {
+      const tests = await runTests({ dir: p.path, commands: this.commands, onOutput: (text, o) => this.#line(text, o) });
+      this.testsStates.set(id, { state: tests.ok ? 'green' : 'red', at: new Date().toISOString() });
+      return this.#finish({ outcome: 'tests', at: new Date().toISOString(), id, branch: p.branch, tests, message: tests.ok ? `Packet ${id}: the tests passed in its worktree (${tests.steps.map((s) => s.label).join(', ')}).` : `Packet ${id}: ${tests.steps.filter((s) => !s.ok).map((s) => s.label).join(' and ')} failed in its worktree.` });
+    })().catch((err) => {
+      this.testsStates.set(id, { state: 'red', at: new Date().toISOString() });
+      return this.#finish({ outcome: 'failed', at: new Date().toISOString(), id, message: `The tests for packet ${id} stopped: ${err.message}` });
+    });
+    return { done };
+  }
 }
