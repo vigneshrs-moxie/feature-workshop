@@ -6,7 +6,8 @@ import type { Permission } from '../../api/types';
 import { useWorkshop } from '../../state/store';
 
 export interface AnswerBody {
-  decision: 'allow' | 'allow-run' | 'deny';
+  /** allow-job: always allow steps like this for the rest of this job (only where the card offers it). */
+  decision: 'allow' | 'allow-run' | 'allow-job' | 'deny';
   note?: string;
   answers?: Record<string, string>;
 }

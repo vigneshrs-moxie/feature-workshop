@@ -8,7 +8,7 @@
 .boss-text { margin: 0 0 var(--space-1); color: var(--text-1); font-size: var(--text-base); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
 .boss-glyph { color: var(--status-ok); font-weight: var(--weight-bold); }
 .boss-bar { display: block; height: 14px; overflow: hidden; border: 1px solid var(--border-2); border-radius: 7px; background: var(--bg-2); }
-.boss-bar-fill { display: block; height: 100%; background: var(--status-error); transition: width 600ms var(--ease-out); }
+.boss-bar-fill { display: block; height: 100%; background: var(--status-error); transition: width var(--dur-pane) var(--ease-out); }
 .boss-fight.is-defeated .boss-bar { border-style: dashed; }
 
 /* ---------- Stamina ---------- */

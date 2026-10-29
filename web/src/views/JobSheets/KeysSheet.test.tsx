@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { installKeyListener, registerKeys } from '../../app/keyRegistry';
+import { installKeyListener, KEY_IDS, KEYS, registerKeys, SCOPES, type KeyScope } from '../../app/keyRegistry';
 import { writeKeysSetting } from '../../app/keysSetting';
-import { KeysSheet } from './KeysSheet';
+import { GROUP_ORDER, KeysSheet } from './KeysSheet';
 
 let off = () => {};
 beforeEach(() => {
@@ -39,5 +39,20 @@ describe('the ? sheet', () => {
     writeKeysSetting({ enabled: false });
     render(<KeysSheet onClose={() => {}} />);
     expect(screen.getByRole('note')).toHaveTextContent('Keyboard shortcuts are off (Settings → Keys)');
+  });
+
+  it('every key in the registry is listed once, under its scope: the Inbox, the stop and the alert too', () => {
+    render(<KeysSheet onClose={() => {}} />);
+    expect([...new Set(KEY_IDS.map((id) => KEYS[id].scope))].filter((s) => !GROUP_ORDER.includes(s))).toEqual([]);
+    for (const id of KEY_IDS) {
+      const group = screen.getByRole('region', { name: SCOPES[KEYS[id].scope as KeyScope].title });
+      expect(within(group).getAllByText(KEYS[id].label).length, id).toBeGreaterThan(0);
+    }
+    expect(within(screen.getByRole('region', { name: 'The Inbox' })).getByText('Start a job on the ticket').closest('.key-row')).toHaveTextContent(/^s/);
+    const stage = screen.getByRole('region', { name: 'A stop of a job' });
+    expect(within(stage).getByText('The stop before this one').closest('.key-row')).toHaveTextContent('[');
+    expect(within(stage).getByText('The stop after this one').closest('.key-row')).toHaveTextContent(']');
+    expect(within(screen.getByRole('region', { name: 'The permission alert' })).getByText('Allow once')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'The Jobs page' })).getByText(/Open the job the next-step bar names/)).toBeInTheDocument();
   });
 });

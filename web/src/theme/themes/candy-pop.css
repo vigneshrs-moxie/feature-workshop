@@ -248,7 +248,7 @@ html[data-theme="candy-pop"] .btn {
   font-weight: var(--weight-medium);
   transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
 }
-html[data-theme="candy-pop"] .btn:hover { background: var(--bg-4); transform: translateY(-1px); }
+html[data-theme="candy-pop"] .btn:hover { background: var(--bg-4); }
 html[data-theme="candy-pop"] .btn:active { transform: translateY(0); }
 html[data-theme="candy-pop"] .btn-quiet { background: transparent; border-color: transparent; }
 html[data-theme="candy-pop"] .btn-quiet:hover { background: var(--bg-3); }
@@ -303,7 +303,7 @@ html[data-theme="candy-pop"] .job-row {
   box-shadow: inset 3px 0 0 transparent;
   transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-html[data-theme="candy-pop"] .job-row:hover { background: var(--bg-3); transform: translateX(1px); }
+html[data-theme="candy-pop"] .job-row:hover { background: var(--bg-3); }
 /* Every group tints its rows a little and draws its stripe; needs-you tints the most, with a
    deeper pink stripe so it still leads. The row time steps up to text-2 on tinted rows. */
 html[data-theme="candy-pop"] .job-row[data-group="needs-you"] { background: var(--paint-needs-you); box-shadow: inset 4px 0 0 var(--candy-bubblegum-deep); }
@@ -608,6 +608,40 @@ html[data-theme="candy-pop"] {
   html[data-theme="candy-pop"] .job-row,
   html[data-theme="candy-pop"] .palette-option,
   html[data-theme="candy-pop"] .rule-option { transition: none; }
-  html[data-theme="candy-pop"] .btn:hover,
-  html[data-theme="candy-pop"] .job-row:hover { transform: none; }
+
+}
+
+/* The redesign (packet M): the lanes of Jobs, hover, the go / no go console grid, the stop-dot
+   tooltip, and the eight chart series (each also has a pattern, --chart-pattern-<n>, in tokens.css). */
+html[data-theme="candy-pop"] {
+  --lane-working-fg: var(--status-info);
+  --lane-working-bg: transparent;
+  --lane-working-line: var(--border-2);
+  --lane-needs-you-fg: var(--status-warn);
+  --lane-needs-you-bg: var(--status-warn-bg);
+  --lane-needs-you-line: var(--status-warn);
+  --lane-in-review-fg: var(--text-2);
+  --lane-in-review-bg: transparent;
+  --lane-in-review-line: var(--border-2);
+  --lane-ready-fg: var(--status-ok);
+  --lane-ready-bg: transparent;
+  --lane-ready-line: var(--border-2);
+  --lane-resting-fg: var(--text-3);
+  --lane-resting-bg: transparent;
+  --lane-resting-line: var(--border-1);
+  --lane-done-fg: var(--status-ok);
+  --lane-done-bg: transparent;
+  --lane-done-line: var(--border-1);
+  --hover-bg: var(--bg-3);
+  --grid-line: var(--border-1);
+  --tooltip-bg: var(--text-1);
+  --tooltip-fg: var(--bg-0);
+  --chart-1: oklch(.76 .13 255);
+  --chart-2: oklch(.76 .13 55);
+  --chart-3: oklch(.76 .13 195);
+  --chart-4: oklch(.76 .13 95);
+  --chart-5: oklch(.76 .13 300);
+  --chart-6: oklch(.76 .13 150);
+  --chart-7: oklch(.76 .13 25);
+  --chart-8: oklch(.76 .13 345);
 }

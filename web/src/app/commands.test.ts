@@ -6,12 +6,11 @@ import { commandsFor, filterCommands, jobsInOrder, type CommandHandlers } from '
 import type { CurrentJob } from './ui';
 
 // Invented jobs only.
-const classic = { home: () => '/#/', job: (s: string) => `/#/job/${s}`, costs: () => '/#/costs', history: () => '/#/history' };
 
 function handlers(): CommandHandlers {
   return {
     openJob: vi.fn(), newJob: vi.fn(), stop: vi.fn(), focusComposer: vi.fn(), markDone: vi.fn(), reopen: vi.fn(),
-    setPolicy: vi.fn(), jobDrawer: vi.fn(), openDocs: vi.fn(), settings: vi.fn(), crewDex: vi.fn(), achievements: vi.fn(), classic: vi.fn(), showKeys: vi.fn(),
+    setPolicy: vi.fn(), jobDrawer: vi.fn(), openDocs: vi.fn(), settings: vi.fn(), crewDex: vi.fn(), achievements: vi.fn(), showKeys: vi.fn(),
   };
 }
 
@@ -24,10 +23,10 @@ function stateWith(jobs: Job[], settings?: Record<string, unknown>) {
 const ids = (list: { id: string }[]) => list.map((c) => c.id);
 
 describe('commandsFor', () => {
-  it('with no job open: new job, every job, settings, classic links and the keys list', () => {
+  it('with no job open: new job, every job, settings and the keys list; nothing names the old pages', () => {
     const state = stateWith([job('alpha', 'idle'), job('beta', 'needs-you')]);
-    const list = commandsFor({ state, slug: null, current: null, onSettings: false, classic }, handlers());
-    expect(ids(list)).toEqual(['new-job', 'open:beta', 'open:alpha', 'settings', 'classic-home', 'classic-costs', 'classic-history', 'keys']);
+    const list = commandsFor({ state, slug: null, current: null, onSettings: false }, handlers());
+    expect(ids(list)).toEqual(['new-job', 'open:beta', 'open:alpha', 'settings', 'keys']);
     expect(list.find((c) => c.id === 'new-job')?.keys).toBe('new-job');
   });
 
@@ -35,7 +34,7 @@ describe('commandsFor', () => {
     const state = stateWith([job('alpha', 'running')]);
     const current: CurrentJob = { slug: 'alpha', run: { id: 'run-7', slug: 'alpha', status: 'running' }, dir: '/jobs/alpha' };
     const h = handlers();
-    const list = commandsFor({ state, slug: 'alpha', current, onSettings: false, classic }, h);
+    const list = commandsFor({ state, slug: 'alpha', current, onSettings: false }, h);
     expect(ids(list)).toContain('stop');
     expect(ids(list)).toContain('steer');
     expect(ids(list)).not.toContain('mark-done');
@@ -47,41 +46,40 @@ describe('commandsFor', () => {
   it('offers no Stop once the reply is stopping', () => {
     const state = stateWith([job('alpha', 'running')]);
     const current: CurrentJob = { slug: 'alpha', run: { id: 'run-7', slug: 'alpha', status: 'stopping' } };
-    expect(ids(commandsFor({ state, slug: 'alpha', current, onSettings: false, classic }, handlers()))).not.toContain('stop');
+    expect(ids(commandsFor({ state, slug: 'alpha', current, onSettings: false }, handlers()))).not.toContain('stop');
   });
 
   it('offers Mark done for an idle job and Reopen for one marked done', () => {
-    const idle = commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: 'alpha', current: { slug: 'alpha', run: null }, onSettings: false, classic }, handlers());
-    expect(ids(idle)).toEqual(expect.arrayContaining(['write', 'mark-done', 'job-drawer', 'classic-job']));
+    const idle = commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: 'alpha', current: { slug: 'alpha', run: null }, onSettings: false }, handlers());
+    expect(ids(idle)).toEqual(expect.arrayContaining(['write', 'mark-done', 'job-drawer']));
     expect(ids(idle)).not.toContain('reopen');
 
     const h = handlers();
-    const done = commandsFor({ state: stateWith([job('alpha', 'done', { closed: { as: 'done' } })]), slug: 'alpha', current: null, onSettings: false, classic }, h);
+    const done = commandsFor({ state: stateWith([job('alpha', 'done', { closed: { as: 'done' } })]), slug: 'alpha', current: null, onSettings: false }, h);
     expect(ids(done)).toContain('reopen');
     expect(ids(done)).not.toContain('mark-done');
     done.find((c) => c.id === 'reopen')!.run();
     expect(h.reopen).toHaveBeenCalledWith('alpha');
   });
 
-  it('offers “Job notes and options” for the open job, opening its drawer; the classic Options entry is gone', () => {
+  it('offers “Job notes and options” for the open job, opening its drawer; and no other page’s entry', () => {
     const h = handlers();
-    const list = commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: 'alpha', current: { slug: 'alpha', run: null }, onSettings: false, classic }, h);
+    const list = commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: 'alpha', current: { slug: 'alpha', run: null }, onSettings: false }, h);
     const entry = list.find((c) => c.id === 'job-drawer')!;
     expect(entry.label).toBe('Job notes and options');
     expect(entry.hint).toMatch(/notes\.md/);
     entry.run();
     expect(h.jobDrawer).toHaveBeenCalledWith('alpha');
-    expect(h.classic).not.toHaveBeenCalled();
     expect(list.some((c) => /Options \(classic view\)/.test(c.label))).toBe(false);
     expect(ids(filterCommands(list, 'notes'))).toEqual(['job-drawer']);
     expect(ids(filterCommands(list, 'reviewers'))).toEqual(['job-drawer']);
     // No job open: no drawer to offer.
-    expect(ids(commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: null, current: null, onSettings: false, classic }, h))).not.toContain('job-drawer');
+    expect(ids(commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: null, current: null, onSettings: false }, h))).not.toContain('job-drawer');
   });
 
   it('offers “Open docs” for the open job only, showing the Docs tab', () => {
     const h = handlers();
-    const list = commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: 'alpha', current: { slug: 'alpha', run: null }, onSettings: false, classic }, h);
+    const list = commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: 'alpha', current: { slug: 'alpha', run: null }, onSettings: false }, h);
     const entry = list.find((c) => c.id === 'open-docs')!;
     expect(entry.label).toBe('Open docs');
     expect(entry.hint).toMatch(/clean page/);
@@ -89,14 +87,14 @@ describe('commandsFor', () => {
     expect(h.openDocs).toHaveBeenCalledTimes(1);
     expect(ids(filterCommands(list, 'docs'))).toEqual(['open-docs']);
     expect(ids(filterCommands(list, 'plan'))).toContain('open-docs');
-    expect(ids(commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: null, current: null, onSettings: false, classic }, h))).not.toContain('open-docs');
+    expect(ids(commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: null, current: null, onSettings: false }, h))).not.toContain('open-docs');
   });
 
   it('offers the job’s permission settings other than the one in force, and not auto mode when it isn’t available', () => {
     const settings = { policy: 'hands-off', jobPolicy: { '/jobs/alpha': 'ask-all' }, autoMode: { available: false, reason: 'Not on this plan.', checkedAt: null } };
     const state = stateWith([job('alpha', 'idle')], settings);
     const h = handlers();
-    const list = commandsFor({ state, slug: 'alpha', current: { slug: 'alpha', run: null, dir: '/jobs/alpha' }, onSettings: false, classic }, h);
+    const list = commandsFor({ state, slug: 'alpha', current: { slug: 'alpha', run: null, dir: '/jobs/alpha' }, onSettings: false }, h);
     const policy = list.filter((c) => c.id.startsWith('policy-'));
     expect(ids(policy)).toEqual(['policy-follow', 'policy-hands-off']);
     policy[0].run();
@@ -104,13 +102,13 @@ describe('commandsFor', () => {
   });
 
   it('leaves Settings out while you’re on it', () => {
-    const list = commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: true, classic }, handlers());
+    const list = commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: true }, handlers());
     expect(ids(list)).not.toContain('settings');
   });
 
   it('offers the Crew-dex only with Play on, and not while you’re on it', () => {
     const h = handlers();
-    const on = commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: true, classic }, h);
+    const on = commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: true }, h);
     const entry = on.find((c) => c.id === 'crew-dex')!;
     expect(entry.label).toBe('Crew-dex');
     expect(entry.section).toBe('Go to');
@@ -118,14 +116,14 @@ describe('commandsFor', () => {
     expect(ids(filterCommands(on, 'crew'))).toEqual(['crew-dex']);
     entry.run();
     expect(h.crewDex).toHaveBeenCalledTimes(1);
-    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: false, classic }, h))).not.toContain('crew-dex');
-    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, classic }, h))).not.toContain('crew-dex');
-    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: true, onCrew: true, classic }, h))).not.toContain('crew-dex');
+    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: false }, h))).not.toContain('crew-dex');
+    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false }, h))).not.toContain('crew-dex');
+    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: true, onCrew: true }, h))).not.toContain('crew-dex');
   });
 
   it('offers Achievements only with Play on, and not while you’re on it', () => {
     const h = handlers();
-    const on = commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: true, classic }, h);
+    const on = commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: true }, h);
     const entry = on.find((c) => c.id === 'achievements')!;
     expect(entry.label).toBe('Achievements');
     expect(entry.section).toBe('Go to');
@@ -134,17 +132,18 @@ describe('commandsFor', () => {
     expect(ids(filterCommands(on, 'badges'))).toEqual(['achievements']);
     entry.run();
     expect(h.achievements).toHaveBeenCalledTimes(1);
-    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: false, classic }, h))).not.toContain('achievements');
-    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: true, onAchievements: true, classic }, h))).not.toContain('achievements');
+    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: false }, h))).not.toContain('achievements');
+    expect(ids(commandsFor({ state: stateWith([]), slug: null, current: null, onSettings: false, play: true, onAchievements: true }, h))).not.toContain('achievements');
   });
 });
 
 describe('filterCommands', () => {
   it('keeps the commands whose label or keywords hold every word', () => {
-    const list = commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: 'alpha', current: { slug: 'alpha', run: null }, onSettings: false, classic }, handlers());
+    const list = commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: 'alpha', current: { slug: 'alpha', run: null }, onSettings: false }, handlers());
     expect(ids(filterCommands(list, 'mark'))).toEqual(['mark-done']);
-    expect(ids(filterCommands(list, 'classic costs'))).toEqual(['classic-job', 'classic-costs']);
-    expect(ids(filterCommands(list, 'costs GO TO'))).toEqual(['classic-costs']); // the section counts too
+    expect(ids(filterCommands(list, 'keyboard'))).toEqual(['keys']);
+    expect(ids(filterCommands(list, 'shortcuts GO TO'))).toEqual(['keys']); // the section counts too
+    expect(filterCommands(list, 'classic')).toEqual([]); // the old pages are never listed
     expect(ids(filterCommands(list, 'archive'))).toEqual(['mark-done']); // a keyword
     expect(filterCommands(list, '  ')).toHaveLength(list.length);
     expect(filterCommands(list, 'zzz')).toEqual([]);

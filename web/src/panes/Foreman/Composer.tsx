@@ -12,12 +12,13 @@
 // so the brief counts as answered once it goes.
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { ApiError } from '../../api/client';
-import type { JobDetail, ModelChoice, Run, Steer } from '../../api/types';
+import type { JobDetail, JobLockInfo, ModelChoice, Run, Steer } from '../../api/types';
 import { composeMessage } from '../../lib/compose';
 import { gateDraftKey, KIND_WORDS, readGateMemo } from '../../lib/gateCard';
 import { useStored } from '../../lib/stored';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { isActiveRun } from './thread';
+import { LockCard, lockFromError } from '../../views/JobLock/LockCard';
 
 export const draftKey = (slug: string) => `fw.draft.${slug}`;
 
@@ -84,7 +85,7 @@ export function SendPreview({
       setBusy(false);
       if (err instanceof ApiError && err.body.code === 'terminal-open') setAskTerminal(true);
       setError(err instanceof ApiError && err.body.code === 'terminal'
-        ? 'This job’s Foreman was last used in your terminal. Take it over in the classic view first, or carry on in the terminal.'
+        ? 'This job’s Foreman was last used in your terminal. Carry on there, or close it in the terminal and try again here.'
         : message(err));
       return;
     }
@@ -132,8 +133,14 @@ const FINISHED_FIRST = 'The reply finished before your message got there. It’s
 
 export function Composer({ slug, detail, run }: { slug: string; detail: JobDetail | null; run: Run | null }) {
   const { api, store } = useWorkshop();
-  const { meta } = useWorkshopState();
+  const { meta, jobs } = useWorkshopState();
   const models = meta?.models ?? [];
+  // The job is held elsewhere (a terminal, another dashboard): from the snapshot, or a refused send.
+  // While it is, the box and its buttons are off, with the lock card saying why.
+  const heldAt = jobs.find((j) => j.slug === slug)?.lock ?? null;
+  const [refused, setRefused] = useState<JobLockInfo | null>(null);
+  useEffect(() => { setRefused(null); }, [heldAt?.pid, heldAt?.acquiredAt]);
+  const lock = heldAt ?? refused;
   const [stored, setDraft] = useStored(draftKey(slug));
   const [gateRaw, setGateRaw] = useStored(gateDraftKey(slug));
   const draft = stored ?? '';
@@ -211,6 +218,8 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
         kind: gate?.kind ?? 'message', text, model, confirmNoTerminal, ...(gate ? { gateBrief: gate.brief } : {}),
       });
     } catch (err) {
+      const held = lockFromError(err);
+      if (held) { setRefused(held); setPreview(null); }
       // The Foreman moved on to a newer brief: this reply was for the old one, so nothing was sent.
       // The text stays in the box as an ordinary message; the newer brief's card is the place to decide.
       if (gate && err instanceof ApiError && err.status === 409 && err.body.code === 'stale-brief') {
@@ -251,6 +260,16 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
           </button>
         </p>
       )}
+      {lock && (
+        <div className="composer-lock">
+          <LockCard lock={lock} />
+          {!heldAt && (
+            <button type="button" className="btn btn-quiet" onClick={() => setRefused(null)} title="You closed it there: turn the message box back on and send again.">
+              It’s closed there now
+            </button>
+          )}
+        </div>
+      )}
       <label htmlFor={inputId} className="sr-only">{running ? 'Steer the reply in progress' : 'Your message to the Foreman'}</label>
       <textarea
         id={inputId}
@@ -261,7 +280,8 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
         placeholder={running ? 'Add something to the reply in progress…' : 'Write to the Foreman…'}
         onChange={(e) => { if (e.target.value === '') clearDraft(); else setDraft(e.target.value); }}
         onKeyDown={onKeyDown}
-        title={gateWaits
+        disabled={lock !== null}
+        title={lock ? 'Off while the job is open somewhere else: only one place can work on a job at a time.' : gateWaits
           ? 'Your reply to a brief, waiting for the Foreman to finish. It goes as its own message then; it can’t steer the reply in progress.'
           : running
           ? 'The Foreman is replying. What you write here joins that reply: it reads it at its next step. ⌘/Ctrl+Enter to steer.'
@@ -302,8 +322,8 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
             type="button"
             className="btn btn-primary"
             onClick={openPreview}
-            disabled={empty}
-            title="See exactly what the Foreman will receive, then send it."
+            disabled={empty || lock !== null}
+            title={lock ? 'Off while the job is open somewhere else.' : 'See exactly what the Foreman will receive, then send it.'}
           >
             Send…
           </button>

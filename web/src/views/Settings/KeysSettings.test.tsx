@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { KEY_IDS, KEYS } from '../../app/keyRegistry';
 import { readKeysSetting } from '../../app/keysSetting';
 import { KeysSettings } from './KeysSettings';
 
@@ -31,5 +32,14 @@ describe('Settings → Keys', () => {
     localStorage.setItem('fw.keys', 'not json');
     render(<KeysSettings />);
     expect(screen.getByRole('radio', { name: /^On/ })).toBeChecked();
+  });
+
+  it('lists every key the app has, from the registry, grouped by where it works', () => {
+    render(<KeysSettings />);
+    const all = screen.getByRole('region', { name: 'Every key' });
+    for (const id of KEY_IDS) expect(within(all).getAllByText(KEYS[id].label).length, id).toBeGreaterThan(0);
+    expect(within(all).getByRole('region', { name: 'The Inbox' })).toHaveTextContent('Start a job on the ticket');
+    expect(within(all).getByRole('region', { name: 'A stop of a job' })).toHaveTextContent('The stop after this one');
+    expect(all).toHaveTextContent('never work while you type');
   });
 });

@@ -59,13 +59,14 @@ afterEach(() => {
 
 describe('tab title', () => {
   it('carries the Needs-you count', () => {
-    expect(titleFor(0)).toBe('Feature Workshop');
-    expect(titleFor(2)).toBe('(2) Feature Workshop');
+    expect(titleFor(0)).toBe('Ground Control');
+    expect(titleFor(2)).toBe('(2) Ground Control');
+    expect(titleFor(2, 'Jobs · Ground Control')).toBe('(2) Jobs · Ground Control');
     const store = ready([job('alpha', 'needs-you'), job('beta', 'needs-you'), job('gamma', 'idle')]);
     renderWith(store);
-    expect(document.title).toBe('(2) Feature Workshop');
+    expect(document.title).toBe('(2) Ground Control');
     act(() => store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'idle')] }) }));
-    expect(document.title).toBe('Feature Workshop');
+    expect(document.title).toBe('Ground Control');
   });
 });
 

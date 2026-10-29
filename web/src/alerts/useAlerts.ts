@@ -1,5 +1,5 @@
 // The page-wide side of alerts, used once by the shell:
-//   - the tab title carries the Needs-you count: "(2) Feature Workshop";
+//   - the tab title is the page and the product (app/brand.ts), with the Needs-you count: "(2) Jobs · Ground Control";
 //   - on your first click anywhere, if you've never been asked, the browser asks whether this page
 //     may show notifications, and the answer is remembered (fw.alerts.notify);
 //   - when something new needs you, play the chime (if on) and show a notification (if allowed and
@@ -8,15 +8,16 @@
 //     you instead, so the browser's never doubles them;
 //   - while you're looking at the page it tells the dashboard (POST /api/presence every 20 seconds),
 //     so the macOS notifications don't pop for what you can already see.
+import { BRAND } from '../app/brand';
 import { useEffect, useRef } from 'react';
 import { readStored, writeStored } from '../lib/stored';
 import { needsYouCount, type WorkshopState } from '../state/reducer';
 import { alertOutputs, askNotifyPermission, attentionKeys, CHIME_KEY, newAlerts, notifySupport, NOTIFY_KEY } from './alerts';
 
-export const BASE_TITLE = 'Feature Workshop';
+export const BASE_TITLE = BRAND.name;
 
-export function titleFor(needs: number): string {
-  return needs > 0 ? `(${needs}) ${BASE_TITLE}` : BASE_TITLE;
+export function titleFor(needs: number, base: string = BASE_TITLE): string {
+  return needs > 0 ? `(${needs}) ${base}` : base;
 }
 
 const pageInView = () => document.visibilityState === 'visible' && document.hasFocus();
@@ -66,9 +67,9 @@ export function usePresence(post: (path: string, body: unknown) => Promise<unkno
   }, [post]);
 }
 
-export function useAlerts(state: WorkshopState) {
+export function useAlerts(state: WorkshopState, title: string = BASE_TITLE) {
   const needs = state.status === 'ready' ? needsYouCount(state) : 0;
-  useEffect(() => { document.title = titleFor(needs); }, [needs]);
+  useEffect(() => { document.title = titleFor(needs, title); }, [needs, title]);
   useEffect(() => () => { document.title = BASE_TITLE; }, []);
 
   useAskOnFirstClick();

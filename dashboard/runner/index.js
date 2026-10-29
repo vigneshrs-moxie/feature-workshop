@@ -48,7 +48,7 @@ import { LocalRunner } from '../lib/local.js';
 import { History, historyMarkdown } from '../lib/history.js';
 import { removeWorktree, checkWorktree } from '../lib/close.js';
 import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, FOREMAN_MODEL_IDS, MODEL_IDS, MODEL_CHOICES, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions, foremanModel, levelsForClient, optionsAtLevel, isLevel, normalizeTicket, ticketSlug, ticketBranch, startFromTicket } from '../lib/options.js';
-import { groupCards } from '../lib/snapshot.js';
+import { groupCards, laneFor } from '../lib/snapshot.js';
 import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from '../lib/finish.js';
 import { NUDGE_IDS, nudgesFor } from '../lib/nudges.js';
 import { buildThread, pageThread } from '../lib/thread.js';
@@ -954,7 +954,9 @@ export async function createRunner(config) {
     const cards = [...startingCards(list), ...list.map((f) => boardCard(f, runFor(f)))];
     const rank = (c) => (c.needsYou ? 0 : c.working || c.stageState === 'working' ? 1 : c.stageState === 'done' ? 3 : 2);
     cards.sort((a, b) => rank(a) - rank(b) || (a.needsYou ? String(a.waitingSince ?? '').localeCompare(String(b.waitingSince ?? '')) : 0));
-    return cards;
+    // Each card's lane on Jobs and the reason in words (lib/snapshot.js laneFor, packet M).
+    const pending = driver.pendingPermissions();
+    return cards.map((c) => ({ ...c, ...laneFor(c, { lane: flowLanes.get(c.slug) ?? null, pending: pending.filter((p) => p.slug === c.slug) }) }));
   }
 
 
@@ -1725,6 +1727,37 @@ export async function createRunner(config) {
           const what = ['terminal', 'finder', 'vscode'].includes(body.what) ? body.what : 'terminal';
           const terminalApp = (await state.getSettings()).local?.terminalApp ?? terminalApps()[0];
           return await local.open(f, what, terminalApp);
+        }
+        if (action === 'follow') {
+          // The Stage's "Open in terminal" (lib/stage-view.js): 'foreman' continues the job's own
+          // Claude Code conversation in its folder; a crew member's ref follows its log, read-only. On
+          // macOS a small script is opened in the chosen terminal app; in the demo nothing is opened.
+          const sv = await import('../lib/stage-view.js');
+          const ref = typeof body.what === 'string' ? body.what : '';
+          const plan = sv.followPlan({ ref, activity: f.activity, drive: await driveState(f), lock: lockView(f.dir), platform: DEMO ? 'darwin' : process.platform });
+          if (plan.why) throw new HttpError(400, plan.why);
+          const file = plan.kind === 'watch' && !DEMO ? await sv.findCrewLog({ projectsDir: PROJECTS_DIR, entry: plan.entry }) : null;
+          if (plan.kind === 'watch' && !DEMO && !file) throw new HttpError(400, `I couldn’t find the ${plan.role}’s log on this computer.`);
+          await audit({ follow: plan.kind, ref });
+          if (DEMO) return { ok: true, demo: true, kind: plan.kind };
+          const chosen = (await state.getSettings()).local?.terminalApp;
+          const app = terminalApps().includes(chosen) ? chosen : terminalApps()[0];
+          const dir = path.join(os.tmpdir(), 'ground-control-terminal');
+          await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
+          // Scripts from earlier days are of no more use.
+          for (const name of await fsp.readdir(dir).catch(() => [])) {
+            const old = path.join(dir, name);
+            const st = await fsp.stat(old).catch(() => null);
+            if (st && Date.now() - st.mtimeMs > 86_400_000) await fsp.rm(old, { force: true }).catch(() => {});
+          }
+          const script = path.join(dir, `${f.slug}-${ref.replace(/\W/g, '-')}-${Date.now()}.command`);
+          await fsp.writeFile(script, plan.kind === 'continue'
+            ? sv.continueScript({ claude: claudePath ?? 'claude', cwd: plan.cwd, sessionId: plan.sessionId })
+            : sv.followScript({ file, role: plan.role }), { mode: 0o700 });
+          const { openIn } = await import('../lib/platform.js');
+          const r = await openIn('terminal', script, { terminalApp: app });
+          if (!r.ok) throw new HttpError(400, `Couldn’t open ${app}: ${r.message}`);
+          return { ok: true, kind: plan.kind, terminalApp: app };
         }
         if (action === 'terminal-app') {
           const name = terminalApps().includes(body.name) ? body.name : null;

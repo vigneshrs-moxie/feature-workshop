@@ -19,7 +19,7 @@ describe('Settings sections', () => {
     expect(lines).toEqual({
       permissions: 'Auto mode',
       notifications: 'Needs you, Problems and Done on',
-      look: 'Glass · Text M',
+      look: 'Glass · M · One at a time · Four lanes · Play subtle',
       keys: 'On',
       workflow: 'Finish line: In main',
       repos: 'Profiles for each repository',
@@ -29,7 +29,8 @@ describe('Settings sections', () => {
     const quiet = valueLines({ settings: { policy: 'hands-off', notify: { enabled: true, levels: { needs: 'sound', problem: 'silent', done: 'off' }, quiet: { on: false, from: '22:00', to: '07:00' }, skipWhenWatching: true }, play: { mode: 'off', sounds: false } }, finishLines: undefined, theme: 'nonsense', textSize: 'xl', keysOn: false, rules: 0 });
     expect(quiet.permissions).toBe('Routine steps automatic');
     expect(quiet.notifications).toBe('Needs you and Problems on');
-    expect(quiet.look).toBe('Default · Text XL');
+    expect(quiet.look).toBe('Default · XL · One at a time · Four lanes · Play off');
+    expect(valueLines({ settings: { play: { mode: 'full' } } as never, finishLines: undefined, theme: 'default', textSize: 'm', keysOn: true, rules: 1, deskLayout: 'columns', jobsLayout: 'list' }).look).toBe('Default · M · Three columns · One list · Play full');
     expect(quiet.keys).toBe('Off');
     expect(quiet.workflow).toBe('Finish line: PR #1 merged');
     expect(quiet.play).toBe('Off');

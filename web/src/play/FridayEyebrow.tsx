@@ -8,6 +8,7 @@ import { isFridayPush } from './eggs';
 import { usePlayIfAny } from './usePlay';
 import { useFindSecret } from './useSecret';
 import { CREW_SIZE } from './crewSizes';
+import { nameOf } from './crewPack';
 
 export function FridayEyebrow({ permission, now }: { permission: Permission; now: Date }) {
   const play = usePlayIfAny();
@@ -16,12 +17,12 @@ export function FridayEyebrow({ permission, now }: { permission: Permission; now
   useEffect(() => { if (show) void find('friday-push'); }, [show, find]);
   if (!show) return null;
   return (
-    <p className="perm-friday muted" title="It’s Friday afternoon. The Locksmith only looks; the decision is yours, as always.">
+    <p className="perm-friday muted" title={`It’s Friday afternoon. The ${nameOf('feature-review-permissions')} only looks; the decision is yours, as always.`}>
       <span className="perm-friday-face" aria-hidden="true">
         <CrewMember type="feature-review-permissions" state="waiting" size={CREW_SIZE.friday} label="" animated={false} />
         <span className="perm-friday-brow" />
       </span>
-      A push on a Friday after 4pm. The Locksmith raises an eyebrow.
+      A push on a Friday after 4pm. The {nameOf('feature-review-permissions')} raises an eyebrow.
     </p>
   );
 }

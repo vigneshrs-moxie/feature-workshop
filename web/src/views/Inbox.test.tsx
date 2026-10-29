@@ -1,14 +1,16 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useEffect, type ReactNode } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../api/client';
+import { installKeyListener } from '../app/keyRegistry';
 import { writeKeysSetting } from '../app/keysSetting';
 import { hrefFor, parseHash } from '../app/router';
 import { UiProvider, useUi, type SheetState } from '../app/ui';
 import { createStore, WorkshopContext } from '../state/store';
 import { LEVELS, snapshot } from '../state/test-fixtures';
-import { InboxView, levelWord, startText, statusWord, type InboxAnswer, type InboxItem, type OrbitStatus, type OrbitStream } from './Inbox';
+import { InboxView, levelWord, nextTicket, sortInbox, startText, statusWord, type InboxAnswer, type InboxItem, type OrbitStatus, type OrbitStream } from './Inbox';
 import { OrbitTokenSettings } from './Settings/OrbitTokenSettings';
+import { setGuideFirstVisit } from '../components/page/Page';
 
 // Invented tickets only.
 const NOW = new Date();
@@ -82,10 +84,13 @@ function setup({ get, answer = INBOX }: { get?: (path: string) => Promise<unknow
       <UiProvider><SheetProbe onSheet={(s) => sheets.push(s)} />{ui}</UiProvider>
     </WorkshopContext.Provider>,
   );
-  return { get: getFn, api, stream, sheets, wrap };
+  return { get: getFn, api, stream, sheets, wrap, store };
 }
 
-afterEach(() => { localStorage.clear(); });
+// The page's one key listener, as App installs it: the Inbox's s is the registry's (inbox-start).
+let offKeys = () => {};
+beforeEach(() => { offKeys = installKeyListener(); });
+afterEach(() => { offKeys(); localStorage.clear(); });
 
 describe('Inbox', () => {
   it('is its own page at #/inbox', () => {
@@ -97,10 +102,10 @@ describe('Inbox', () => {
     const { wrap } = setup({ answer: { ...STATUS, tokenPresent: false, store: null, url: null, items: [] } });
     wrap(<InboxView openStream={() => null} />);
     expect(await screen.findByText(/once Ground Control has your Orbit token/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Settings → Workflow' })).toHaveAttribute('href', '#/settings/workflow');
+    expect(screen.getByRole('link', { name: 'Open Settings → Workflow' })).toHaveAttribute('href', '#/settings/workflow');
   });
 
-  it('lists each ticket with key, title, priority, severity, age and assignee, all in words; jobs already on a ticket say so', async () => {
+  it('lists each ticket with severity, key, title, age and who is on it, all in words, most severe then oldest; no priority', async () => {
     const { wrap } = setup();
     wrap(<InboxView openStream={() => null} />);
     const table = await screen.findByRole('table');
@@ -109,17 +114,80 @@ describe('Inbox', () => {
     const first = rows[0];
     expect(first).toHaveTextContent('ORBIT-479');
     expect(first).toHaveTextContent('Read-only feedback API');
-    expect(within(first).getByText('High')).toBeInTheDocument();
     expect(within(first).getByText('Critical')).toBeInTheDocument();
     expect(within(first).getByText('3d')).toBeInTheDocument();
     expect(within(first).getByText('You')).toBeInTheDocument();
     expect(first).toHaveTextContent('You are already on this: Feedback API');
     expect(within(first).getByRole('link', { name: 'Feedback API' })).toHaveAttribute('href', '#/job/orbit-479-feedback-api');
-    expect(within(first).getByRole('button', { name: 'Start a job on ORBIT-479' })).toBeDisabled();
-    expect(within(rows[1]).getByText('Not set')).toBeInTheDocument();
-    expect(within(rows[1]).getByText('Someone else')).toBeInTheDocument();
-    expect(within(rows[2]).getByText('No one')).toBeInTheDocument();
+    expect(within(first).getByRole('link', { name: 'Open its job ▸' })).toHaveAttribute('href', '#/job/orbit-479-feedback-api');
+    expect(within(first).queryByRole('button', { name: 'Start a job on ORBIT-479' })).toBeNull();
+    expect(within(rows[1]).getByText('No one')).toBeInTheDocument();
+    expect(within(rows[2]).getByText('Not set')).toBeInTheDocument();
+    expect(within(rows[2]).getByText('Someone else')).toBeInTheDocument();
+    expect(table).not.toHaveTextContent(/Priority|High/);
     expect(screen.getByText(/Read 2m ago · checked every 3 minutes while this page is open/)).toBeInTheDocument();
+  });
+
+  it('sorts by severity, then the oldest; the next step names the most severe ticket with no job, nobody on it first', () => {
+    const list = [
+      item(1, { severity: 'low', createdAt: daysAgo(30) }),
+      item(2, { severity: null, createdAt: daysAgo(90) }),
+      item(3, { severity: 'critical', createdAt: daysAgo(1) }),
+      item(4, { severity: 'critical', createdAt: daysAgo(5) }),
+      item(5, { severity: 'medium', createdAt: daysAgo(2) }),
+      item(6, { severity: 'high', createdAt: daysAgo(2) }),
+    ];
+    expect(sortInbox(list).map((i) => i.number)).toEqual([4, 3, 6, 5, 1, 2]);
+    expect(nextTicket(list)?.key).toBe('ORBIT-4');
+    expect(nextTicket([item(4, { job: { slug: 'x', title: 'x' } }), item(3, { createdAt: daysAgo(9) }), item(7, { assignee: null })])?.key).toBe('ORBIT-7');
+    expect(nextTicket([item(4, { job: { slug: 'x', title: 'x' } })])).toBeNull();
+  });
+
+  it('the next-step bar says which ticket and why, and Start in it (or s with no row focused) starts that one', async () => {
+    const { wrap, sheets } = setup();
+    wrap(<InboxView openStream={() => null} />);
+    const bar = await screen.findByRole('region', { name: 'Next step' });
+    expect(bar).toHaveTextContent('ORBIT-13 is critical and nobody is on it');
+    expect(bar).toHaveTextContent('Start a job and the Foreman reads the ticket first.');
+    fireEvent.click(within(bar).getByRole('button', { name: /Start ORBIT-13/ }));
+    expect(sheets.at(-1)).toEqual(expect.objectContaining({ kind: 'new-job', description: 'ORBIT-13: Sample ticket 13' }));
+    act(() => { sheets.length = 0; });
+    fireEvent.keyDown(document.body, { key: 's' });
+    expect(sheets.at(-1)).toEqual(expect.objectContaining({ kind: 'new-job', description: 'ORBIT-13: Sample ticket 13' }));
+  });
+
+  it('a ticket whose job waits for you says Needs you, as a link to the job', async () => {
+    const { wrap, store } = setup();
+    act(() => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS }, jobs: [{ ...snapshot().jobs[0], slug: 'orbit-479-feedback-api', lane: 'needs-you', laneReason: 'Waiting for your go-ahead on the plan' }] }) }); });
+    wrap(<InboxView openStream={() => null} />);
+    const link = await screen.findByRole('link', { name: /Needs you ▸/ });
+    expect(link).toHaveAttribute('href', '#/job/orbit-479-feedback-api');
+    expect(link).toHaveAttribute('title', 'Waiting for your go-ahead on the plan');
+  });
+
+  it('with nothing to show: "Nothing for you right now" and New job', async () => {
+    const { wrap, sheets } = setup({ answer: { ...INBOX, items: [] } });
+    wrap(<InboxView openStream={() => null} />);
+    expect(await screen.findByRole('heading', { name: 'Nothing for you right now' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Next step' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'New job' }));
+    expect(sheets.at(-1)).toEqual(expect.objectContaining({ kind: 'new-job' }));
+  });
+
+  it('shows its three-card guide on the first visit only; How it works opens it again', async () => {
+    setGuideFirstVisit(true);
+    const { wrap } = setup();
+    const view = wrap(<InboxView openStream={() => null} />);
+    const guide = await screen.findByRole('dialog', { name: 'How the Inbox works' });
+    expect(within(guide).getAllByRole('listitem').map((li) => li.querySelector('b')?.textContent)).toEqual(['Your Orbit tickets', 'Start makes a job', 'You say go at each step']);
+    fireEvent.click(within(guide).getByRole('button', { name: 'Show me my tickets' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    view.unmount();
+    wrap(<InboxView openStream={() => null} />);
+    await screen.findByRole('table');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /How it works/ }));
+    expect(screen.getByRole('dialog', { name: 'How the Inbox works' })).toBeInTheDocument();
   });
 
   it('Start opens New job with the key and title filled in; s does the same on the row with the focus', async () => {
@@ -179,7 +247,7 @@ describe('Inbox', () => {
     const { wrap, get } = setup();
     wrap(<InboxView openStream={() => null} />);
     const tabs = await screen.findByRole('tablist', { name: 'Inbox lists' });
-    expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Mine', 'Critical, mine']);
+    await waitFor(() => expect(within(tabs).getAllByRole('tab').map((t) => t.querySelector('.seg-name')?.textContent)).toEqual(['Mine', 'Critical, mine']));
     expect(within(tabs).getByRole('tab', { name: 'Mine' })).toHaveAttribute('aria-selected', 'true');
     fireEvent.click(within(tabs).getByRole('tab', { name: 'Critical, mine' }));
     expect(await screen.findByText(/Only in the saved view/)).toBeInTheDocument();

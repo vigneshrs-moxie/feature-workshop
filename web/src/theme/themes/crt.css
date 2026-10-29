@@ -381,3 +381,38 @@ html[data-theme="crt"] {
   html[data-theme="crt"] .app::before { display: none; animation: none; }
   html[data-theme="crt"] .glyph.status-running { animation: none; }
 }
+
+/* The redesign (packet M): the lanes of Jobs, hover, the go / no go console grid, the stop-dot
+   tooltip, and the eight chart series (each also has a pattern, --chart-pattern-<n>, in tokens.css). */
+html[data-theme="crt"] {
+  --lane-working-fg: var(--status-info);
+  --lane-working-bg: transparent;
+  --lane-working-line: var(--border-2);
+  --lane-needs-you-fg: var(--status-warn);
+  --lane-needs-you-bg: var(--status-warn-bg);
+  --lane-needs-you-line: var(--status-warn);
+  --lane-in-review-fg: var(--text-2);
+  --lane-in-review-bg: transparent;
+  --lane-in-review-line: var(--border-2);
+  --lane-ready-fg: var(--status-ok);
+  --lane-ready-bg: transparent;
+  --lane-ready-line: var(--border-2);
+  --lane-resting-fg: var(--text-3);
+  --lane-resting-bg: transparent;
+  --lane-resting-line: var(--border-1);
+  --lane-done-fg: var(--status-ok);
+  --lane-done-bg: transparent;
+  --lane-done-line: var(--border-1);
+  --hover-bg: var(--bg-3);
+  --grid-line: var(--border-1);
+  --tooltip-bg: var(--text-1);
+  --tooltip-fg: var(--bg-0);
+  --chart-1: oklch(.8 .14 150);
+  --chart-2: oklch(.8 .14 95);
+  --chart-3: oklch(.8 .14 195);
+  --chart-4: oklch(.8 .14 55);
+  --chart-5: oklch(.8 .14 255);
+  --chart-6: oklch(.8 .14 120);
+  --chart-7: oklch(.8 .14 25);
+  --chart-8: oklch(.8 .14 300);
+}

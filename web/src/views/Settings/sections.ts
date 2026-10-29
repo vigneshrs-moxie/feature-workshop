@@ -11,14 +11,15 @@ import { THEMES } from '../../theme/theme';
 import { LEVELS, NOTIFY_DEFAULTS } from './NotifySettings';
 import { PLAY_MODE_CHOICES } from './PlaySettings';
 import { finishLineLabel } from './WorkflowSettings';
+import { BRAND } from '../../app/brand';
 
 export const SECTION_WORDS: Record<SettingsSection, { label: string; hint: string }> = {
   permissions: { label: 'Permissions', hint: 'How much the Foreman and its crew may do without asking you.' },
   notifications: { label: 'Notifications', hint: 'What the dashboard tells macOS, and this browser’s own alerts.' },
-  look: { label: 'Look', hint: 'Theme, text size and following the system’s light or dark.' },
+  look: { label: 'Look', hint: 'Theme, text size, following the system’s light or dark, the Desk and Jobs layouts, and Play.' },
   keys: { label: 'Keys', hint: 'Keyboard shortcuts on or off, and the key hints on buttons.' },
   workflow: { label: 'Workflow', hint: 'The finish line, and what a new job starts with.' },
-  repos: { label: 'Repos', hint: 'The repositories Ground Control knows, and the profile each one follows.' },
+  repos: { label: 'Repos', hint: `The repositories ${BRAND.name} knows, and the profile each one follows.` },
   play: { label: 'Play', hint: 'The workshop crew, achievements and sounds.' },
   rules: { label: 'Rules', hint: 'The “Always allow” rules you saved from permission cards.' },
 };
@@ -40,6 +41,9 @@ export interface SectionFacts {
   theme: string;
   textSize: TextSize;
   keysOn: boolean;
+  /** Settings → Look's Desk and Jobs layouts (this browser); One at a time and Four lanes when not given. */
+  deskLayout?: 'one' | 'columns';
+  jobsLayout?: 'lanes' | 'list';
   /** How many rules there are; null while loading, 'error' when they couldn't be read. */
   rules: number | null | 'error';
 }
@@ -75,7 +79,8 @@ export function valueLines(f: SectionFacts): Record<SettingsSection, string> {
   return {
     permissions: policyLine(f.settings?.policy),
     notifications: notifyLine(f.settings),
-    look: `${theme} · Text ${TEXT_SIZE_LABELS[f.textSize]}`,
+    // "Default · M · One at a time · Four lanes · Play full": everything Look sets, in its order.
+    look: [theme, TEXT_SIZE_LABELS[f.textSize], f.deskLayout === 'columns' ? 'Three columns' : 'One at a time', f.jobsLayout === 'list' ? 'One list' : 'Four lanes', `Play ${play.toLowerCase()}`].join(' · '),
     keys: f.keysOn ? 'On' : 'Off',
     workflow: `Finish line: ${finishLineLabel(f.settings?.workflow?.finishLine, f.finishLines)}`,
     repos: 'Profiles for each repository',
@@ -108,6 +113,9 @@ export const SETTING_INDEX: SettingEntry[] = [
   { id: 'theme', label: 'Theme', section: 'look', keywords: 'dark light glass colours colors skin' },
   { id: 'text-size', label: 'Text size', section: 'look', keywords: 'font small medium large zoom' },
   { id: 'follow-system', label: 'Follow the system', section: 'look', keywords: 'dark mode light mode prefers color scheme' },
+  { id: 'desk-layout', label: 'Desk layout: One at a time or Three columns', section: 'look', keywords: 'queue columns desk' },
+  { id: 'jobs-layout', label: 'Jobs layout: Four lanes or One list', section: 'look', keywords: 'board lanes list kanban' },
+  { id: 'look-play', label: 'Play in Look: Full, Subtle, Off', section: 'look', keywords: 'console crew game' },
   { id: 'keys-enabled', label: 'Keyboard shortcuts on or off', section: 'keys', keywords: 'keys hotkeys bindings' },
   { id: 'keys-hints', label: 'Show key hints on buttons', section: 'keys', keywords: 'kbd' },
   { id: 'finish-line', label: 'Finish line: what counts as done', section: 'workflow', keywords: 'pr merged staging main done quest' },

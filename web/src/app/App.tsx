@@ -1,21 +1,16 @@
-// The shell: top bar, the usage-limit banner, then Jobs | Foreman | Preview, plus the sheets (⌘K,
-// New job, Mark done, the keys list, the job drawer with notes and options) and the page keys. Owns the store, the API client and the
-// live sync; tests pass their own (a fake fetch and a fake EventSource).
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+// The shell: the top bar (app/TopBar.tsx), the usage-limit banners, then the page, plus the sheets
+// (⌘K, New job, Mark done, the keys list, the job drawer with notes and options) and the page keys.
+// Owns the store, the API client and the live sync; tests pass their own (a fake fetch and a fake
+// EventSource). The browser tab's title is the page's name and the product's (app/brand.ts).
+import { useEffect, useMemo, useState } from 'react';
 import { createApi, type ApiClient } from '../api/client';
 import type { PolicyId } from '../api/types';
-import { ForemanPane } from '../panes/Foreman/ForemanPane';
 import { useAlerts, usePresence } from '../alerts/useAlerts';
 import { CommandPalette } from '../components/CommandPalette';
 import { UsageBanner } from '../components/UsageBanner';
-import { UsageMeters } from '../components/UsageMeters';
 import { UsageWarningBanner } from '../components/UsageWarningBanner';
-import { StatusSummary } from '../components/StatusSummary';
-import { PaneResizer, usePreviewWidth } from '../components/PaneResizer';
-import { JobsPane, useJobsRail } from '../panes/Jobs/JobsPane';
-import { PreviewPane } from '../panes/Preview/PreviewPane';
 import { createLiveSync, type EventSourceLike, type LiveSync } from '../state/live';
-import { jobBySlug, needsYouCount, type Connection } from '../state/reducer';
+import { jobBySlug } from '../state/reducer';
 import { createStore, useWorkshop, useWorkshopState, WorkshopContext, type Store } from '../state/store';
 import { JobDrawer } from '../views/JobDrawer/JobDrawer';
 import { CloseJobSheet } from '../views/JobSheets/CloseJobSheet';
@@ -28,102 +23,28 @@ import { NotFoundView } from '../views/NotFound/NotFoundView';
 import { ScreensView } from '../views/Screens/ScreensView';
 import { IntegrateBoard } from '../views/Integrate';
 import { InboxView } from '../views/Inbox';
+import { DeskPage } from '../home/DeskPage';
+import { JobsPage } from '../home/JobsPage';
+import { JobPage } from '../job/JobPage';
+import { StagePage } from '../job/StagePage';
 import { TelemetryView } from '../views/Telemetry';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
 import { PlayToasts } from '../play/PlayToasts';
-import { StaminaBar } from '../play/FullExtras';
-import { CrewMember } from '../play/CrewMember';
-import { CREW_SIZE } from '../play/crewSizes';
+import { StatusStrip } from '../play/StatusStrip';
 import { usePlay } from '../play/usePlay';
 import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
 import { reopenJob, setJobPolicy, stopRun } from './jobActions';
-import { dialogOpen, paletteKeyLabel, useKeyListener, useKeyScope } from './keyRegistry';
-import { Kbd } from '../components/Kbd';
-import { classicHref, crewDexHref, hrefFor, integrateHref, navigate, telemetryHref, openFromHash, settingsHref, useRoute, type Route } from './router';
+import { dialogOpen, useKeyListener, useKeyScope } from './keyRegistry';
+import { classicHref, navigate, oldPages, openFromHash, pageName, useRoute, type Route } from './router';
+import { pageTitle } from './brand';
+import { TopBar } from './TopBar';
 import { HomeView } from '../home/HomeView';
-import { deskQueue } from '../home/homeModel';
-import { deskEntries, isShipping } from '../home/nudges';
 import { UiProvider, useUi, type SheetState } from './ui';
 
 /** Put the cursor in the message box at the foot of the Foreman pane. */
 export function focusComposer() {
   document.querySelector<HTMLTextAreaElement>('[data-composer-input]')?.focus();
-}
-
-const CONNECTION: Record<Connection, { label: string; hint: string }> = {
-  connecting: { label: 'Connecting…', hint: 'Opening the live connection to the dashboard.' },
-  live: { label: 'Live', hint: 'Connected: changes show up here as they happen.' },
-  reconnecting: { label: 'Reconnecting…', hint: 'The connection to the dashboard dropped. This page catches up by itself when it’s back.' },
-};
-
-/** A top-bar link's words: the full ones, and a short form that CSS shows under 1100 px (the name stays the full one). */
-function Words({ long, short }: { long: string; short: string }) {
-  return <><span className="topbar-long">{long}</span><span className="topbar-short" aria-hidden="true">{short}</span></>;
-}
-
-/** The top bar. One count only: the Desk button's badge (what waits for you); the connection state is a word with its dot. */
-function TopBar({ onRetry, onCrew = false, onInbox = false, onTelemetry = false, slug = null }: { onRetry: () => void; onCrew?: boolean; onInbox?: boolean; onTelemetry?: boolean; slug?: string | null }) {
-  const state = useWorkshopState();
-  const ui = useUi();
-  const play = usePlay();
-  const needs = needsYouCount(state);
-  // Decisions waiting, with the nudges before your finish line; the ones after it stay quiet.
-  const desk = deskEntries(deskQueue(state.jobs, state.permissions), state.jobs).filter((e) => !isShipping(e)).length;
-  const conn = CONNECTION[state.connection];
-  return (
-    <header className="topbar">
-      {/* Play: the Foreman as the workshop's mascot, waving while something needs you. */}
-      {play.on && <CrewMember type="conductor" state={needs > 0 ? 'waiting' : 'idle'} size={CREW_SIZE.mascot} label="" className="brand-mascot" />}
-      <h1 className="brand"><a href={hrefFor({ name: 'home' })} title="Home: the flow map of every job.">Feature Workshop</a></h1>
-      {play.on && <span className="brand-tagline" aria-hidden="true">Your crew, your features, your turn</span>}
-      {state.meta?.demo ? <span className="chip" title="Demo mode: a pretend Foreman answers and nothing real runs.">Demo</span> : null}
-      {state.status === 'ready' && (
-        <button type="button" className="btn" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job: describe it, pick the repository, kind and Foreman model (key: c).">
-          New job <Kbd id="new-job" />
-        </button>
-      )}
-      <button
-        type="button"
-        className="btn btn-quiet palette-button"
-        onClick={() => ui.openSheet({ kind: 'palette' })}
-        aria-label="Command palette"
-        aria-keyshortcuts="Meta+K Control+K"
-        title={`Search every action you can take right now (${paletteKeyLabel()}). Press ? for the list of keys.`}
-      >
-        <span className="topbar-long" aria-hidden="true">Actions</span> <kbd className="kbd">{paletteKeyLabel()}</kbd>
-      </button>
-      <span className="spacer" />
-      {state.status === 'ready' && <StatusSummary />}
-      {/* The plan's 5-hour and weekly usage; without it (demo, or turned off), Play Full's stamina bar. */}
-      {state.status === 'ready' && (state.planUsage?.enabled ? <UsageMeters /> : <StaminaBar />)}
-      {state.status === 'ready' && (
-        <a className="btn btn-quiet" href={telemetryHref()} aria-current={onTelemetry ? 'page' : undefined} title="Telemetry: where the Claude usage goes (by day, job, ticket, stage, model and person) and when the weekly limit will be reached.">Telemetry</a>
-      )}
-      {state.status === 'ready' && (
-        <a className="btn btn-quiet" href={hrefFor({ name: 'inbox' })} aria-current={onInbox ? 'page' : undefined} title="The Inbox: your Portal Feedback tickets from Orbit, with Start for a new job on one.">Inbox</a>
-      )}
-      {state.status === 'ready' && (
-        <a className="btn btn-quiet desk-link" href={hrefFor({ name: 'desk' })} title={desk === 0 ? 'The Desk: nothing is waiting for you right now.' : `The Desk: ${desk === 1 ? 'one decision is' : `${desk} decisions are`} waiting for you, one at a time (key: g d).`}>
-          Desk {desk > 0 && <span className="home-view-count" title={`${desk} waiting for you`}>{desk}</span>}
-        </a>
-      )}
-      <span className={`conn conn-${state.connection}`} title={conn.hint} role="status">
-        <span className="conn-dot" aria-hidden="true" />
-        {conn.label}
-      </span>
-      {state.error && state.status === 'ready' && (
-        <button type="button" className="btn btn-quiet" onClick={onRetry} title="Fetch everything from the dashboard again now.">Refresh</button>
-      )}
-      {play.on && (
-        <a className="btn btn-quiet" href={crewDexHref()} aria-current={onCrew ? 'page' : undefined} aria-label="Crew-dex" title="The Crew-dex: every crew member, who you have met and what they have done on your jobs (Play mode; key: g x)."><Words long="Crew-dex" short="Crew" /></a>
-      )}
-      <a className="btn btn-quiet" href={integrateHref()} title="The integration board: the packet worktrees, their order, and Merge next."><Words long="Integrate" short="Merge" /></a>
-      <a className="btn btn-quiet" href={settingsHref()} aria-label="Settings" title="Settings: permissions, notifications, look, keys, workflow, Play and your “Always allow” rules (key: g s)."><Words long="Settings" short="⚙" /></a>
-      {/* The same page in the classic view (the job you have open, else its home); its New view button brings you back. */}
-      <a className="btn btn-quiet" href={slug ? classicHref.job(slug) : classicHref.home()} aria-label="Classic view" title="Open this page in the classic view: Costs, History, Try it on your computer and the job’s Details live there. Its New view button (key: n) brings you back."><Words long="Classic view" short="Classic" /></a>
-    </header>
-  );
 }
 
 /** The open sheet, if any, and what each of ⌘K's actions does. */
@@ -134,7 +55,7 @@ function Sheets({ route }: { route: Route }) {
   const play = usePlay();
   const eggs = usePaletteEggs();
   const [problem, setProblem] = useState<string | null>(null);
-  const slug = route.name === 'job' ? route.slug : null;
+  const slug = route.name === 'job' || route.name === 'stage' ? route.slug : null;
 
   const attempt = (p: Promise<unknown>) => { setProblem(null); p.catch((err) => setProblem(err instanceof Error ? err.message : String(err))); };
   const handlers: CommandHandlers = {
@@ -152,7 +73,6 @@ function Sheets({ route }: { route: Route }) {
     settings: () => navigate({ name: 'settings' }),
     crewDex: () => navigate({ name: 'crew' }),
     achievements: () => navigate({ name: 'achievements' }),
-    classic: (href) => { window.location.href = href; },
     showKeys: () => ui.openSheet({ kind: 'keys' }),
   };
 
@@ -177,6 +97,8 @@ function Sheets({ route }: { route: Route }) {
     'keys': () => ui.openSheet({ kind: 'keys' }),
     'new-job': () => { if (state.status === 'ready') ui.openSheet({ kind: 'new-job' }); },
     'go-home': () => navigate({ name: 'home' }),
+    'go-inbox': () => navigate({ name: 'inbox' }),
+    'go-map': () => navigate({ name: 'map' }),
     'go-table': () => navigate({ name: 'table' }),
     'go-desk': () => navigate({ name: 'desk' }),
     'go-settings': () => navigate({ name: 'settings' }),
@@ -211,9 +133,10 @@ function Sheets({ route }: { route: Route }) {
       )}
       {sheet?.kind === 'palette' && (
         <CommandPalette
-          commands={commandsFor({ state, slug, current: ui.current, onSettings: route.name === 'settings', onCrew: route.name === 'crew', onAchievements: route.name === 'achievements', play: play.on, classic: classicHref }, handlers)}
+          commands={commandsFor({ state, slug, current: ui.current, onSettings: route.name === 'settings', onCrew: route.name === 'crew', onAchievements: route.name === 'achievements', play: play.on }, handlers)}
           onClose={ui.closeSheet}
           onEgg={eggs}
+          onOldPages={() => oldPages.open(slug ? classicHref.job(slug) : classicHref.home())}
         />
       )}
       {sheet?.kind === 'new-job' && <NewJobSheet onClose={ui.closeSheet} description={sheet.description} ticket={sheet.ticket} />}
@@ -227,27 +150,26 @@ function Sheets({ route }: { route: Route }) {
 function Shell({ onRetry }: { onRetry: () => void }) {
   const state = useWorkshopState();
   const route = useRoute();
-  const [rail] = useJobsRail();
   const play = usePlay();
-  // The Preview pane's width, if you dragged the handle between it and the middle pane.
-  const [previewWidth] = usePreviewWidth();
-  const panes = useRef<HTMLDivElement>(null);
   useKeyListener();
   const { api } = useWorkshop();
   const post = useMemo(() => (path: string, body: unknown) => api.post(path, body), [api]);
-  useAlerts(state);
+  const slug = route.name === 'job' || route.name === 'stage' || route.name === 'screens' ? route.slug : null;
+  const job = jobBySlug(state, slug);
+  const jobTitle = job ? job.title || job.slug : slug;
+  useAlerts(state, pageTitle(pageName(route, jobTitle)));
   usePresence(post);
-  const slug = route.name === 'job' || route.name === 'screens' ? route.slug : null;
   // The Crew-dex and Achievements are part of Play: with Play mode Off, #/crew and #/achievements show the same as #/.
   const crew = route.name === 'crew' && play.on;
   const achievements = route.name === 'achievements' && play.on;
   // A #/ address that isn't a page: the Sleuth looks for it (Play on), else #/'s view.
   const lost = route.name === 'not-found' && play.on ? route.hash : null;
-  const home = route.name === 'home' ? 'map' : route.name === 'table' ? 'table' : route.name === 'desk' ? 'desk' : null;
+  const home = route.name === 'home' ? 'jobs' : route.name === 'map' ? 'map' : route.name === 'table' ? 'table' : route.name === 'desk' ? 'desk' : null;
+  const top = <TopBar route={route} onRetry={onRetry} jobTitle={jobTitle} />;
   if (state.status !== 'ready') {
     return (
       <div className="app">
-        <TopBar onRetry={onRetry} />
+        {top}
         <div className="banner-slot" />
         <Sheets route={route} />
         <div className="app-message" role={state.status === 'error' ? 'alert' : 'status'}>
@@ -264,30 +186,26 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       </div>
     );
   }
-  // Home (#/, #/table, #/desk), a job's screens (#/job/<slug>/screens), Integrate and Telemetry: full width, no Jobs or Preview pane.
-  if (home || route.name === 'screens' || route.name === 'integrate' || route.name === 'telemetry') {
-    return (
-      <div className="app">
-        <TopBar onRetry={onRetry} onTelemetry={route.name === 'telemetry'} slug={slug} />
-        <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
-        <Sheets route={route} />
-        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : route.name === 'integrate' ? <IntegrateBoard /> : route.name === 'telemetry' ? <TelemetryView /> : <HomeView view={home ?? 'map'} />}
-        <PlayToasts />
-        <PlayEggs />
-      </div>
-    );
-  }
+  // Every page is full width: a job is the Job page (and its stops' Stages); there are no panes.
+  const page = route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} />
+    : route.name === 'job' ? <JobPage key={route.slug} slug={route.slug} />
+      : route.name === 'stage' ? <StagePage key={`${route.slug}/${route.stop}`} slug={route.slug} stop={route.stop} />
+      : route.name === 'integrate' ? <IntegrateBoard />
+        : route.name === 'telemetry' ? <TelemetryView />
+          : route.name === 'inbox' ? <InboxView />
+            : route.name === 'desk' ? <DeskPage />
+              : route.name === 'settings' ? <div className="page-wide"><SettingsView section={route.section} /></div>
+                : crew ? <div className="page-wide"><CrewDexView /></div>
+                  : achievements ? <div className="page-wide"><AchievementsView /></div>
+                    : lost !== null ? <div className="page-wide"><NotFoundView hash={lost} /></div>
+                      : home === 'map' || home === 'table' ? <HomeView view={home} />
+                        : <JobsPage />;
   return (
     <div className="app">
-      <TopBar onRetry={onRetry} onCrew={crew} onInbox={route.name === 'inbox'} slug={slug} />
-      <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
+      {top}
+      <div className="banner-slot"><StatusStrip /><UsageBanner /><UsageWarningBanner /></div>
       <Sheets route={route} />
-      <div ref={panes} className={rail ? 'panes panes-rail' : 'panes'} style={previewWidth ? ({ '--preview-w': `${previewWidth}px` } as CSSProperties) : undefined}>
-        <JobsPane selected={slug} />
-        {route.name === 'settings' ? <SettingsView section={route.section} /> : route.name === 'inbox' ? <InboxView /> : crew ? <CrewDexView /> : achievements ? <AchievementsView /> : lost !== null ? <NotFoundView hash={lost} /> : <ForemanPane slug={slug} />}
-        <PreviewPane slug={slug} />
-        <PaneResizer panes={panes} />
-      </div>
+      {page}
       <PlayToasts />
       <PlayEggs />
     </div>

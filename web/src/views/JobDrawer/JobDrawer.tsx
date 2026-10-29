@@ -102,7 +102,7 @@ export function JobDrawer({ slug, job, tab = 'notes', onClose }: { slug: string;
       <HowThisWorks id="job-drawer" defaultOpen={false}>
         <p><strong>Notes</strong> are this job’s <code>notes.md</code>. The Foreman reads them at the start of every session, so they are the place for lasting guidance: what to keep, what to avoid, who to ask. They shape how it works; they never approve anything. They are written in Markdown: <strong>Preview</strong> shows them as a clean page, as you have them now, without saving.</p>
         <p><strong>Options</strong> set how much process the job gets: its level, the stages it skips, the review lenses and fix rounds, whether you test it yourself, where Fable takes a second look, and the models. They choose process, never permission: what the Foreman may do without asking is the permission setting (job menu or Settings), and every plan still comes to you for approval.</p>
-        <p>Saved options apply from the next stage; a worker already running finishes first. Documents you provided are listed here; adding or changing them is still on the job’s classic page.</p>
+        <p>Saved options apply from the next stage; a worker already running finishes first. Documents you provided are listed here; adding or changing them isn’t possible from this page yet.</p>
         <p>The Foreman’s model is shown but not changed here: it was set when the job started, and the Foreman model menu under the message box changes it. If the options change somewhere else while you edit them (a gate card’s chips, the level chip), Save stops and offers to reload them.</p>
       </HowThisWorks>
     </Drawer>

@@ -17,6 +17,7 @@ import { usePlay, type PlayState } from '../../play/usePlay';
 import { usePlayLedger } from '../../play/usePlayLedger';
 import { useWorkshopState } from '../../state/store';
 import { CREW_SIZE } from '../../play/crewSizes';
+import { nameOf } from '../../play/crewPack';
 
 const MIN = 60_000;
 
@@ -161,7 +162,7 @@ export function CrewDexView() {
       <div className="foreman-column crew-dex">
         <h2 className="pane-title">Crew-dex</h2>
         <HowThisWorks id="crew-dex">
-          <p><strong>The crew</strong> are the helpers the Foreman hands work to: the Scribe writes the spec, the Sleuth investigates the code, the Draftsman plans, the Builder builds, the Tester runs the checks, the Head inspector and seven specialist reviewers look at the change, and the Oracle takes Fable’s second look. Each card shows their number, job, the model they run on and how rare that model is (Haiku common, Sonnet uncommon, Opus rare, Fable legendary).</p>
+          <p><strong>The crew</strong> are the helpers the Foreman hands work to: the {nameOf('feature-spec-writer')} writes the spec, the {nameOf('feature-investigator')} investigates the code, the {nameOf('feature-planner')} plans, the {nameOf('feature-implementer')} builds, the {nameOf('feature-tester')} runs the checks, the {nameOf('feature-reviewer')} and seven specialist reviewers look at the change, and the {nameOf('feature-fable-check')} takes Fable’s second look. Each card shows their number, job, the model they run on and how rare that model is (Haiku common, Sonnet uncommon, Opus rare, Fable legendary).</p>
           <p><strong>You meet someone</strong> the first time they actually work on one of your jobs on this computer; until then they are a silhouette. Approving something never meets anyone. Click a card you have met (or its <strong>Card back</strong> button) to turn it over and read their bio.</p>
           <p>The stats come from what the dashboard already records (its log, the session logs and each job’s review.md). It is personal: nothing is shared, Claude is never asked anything and it costs no usage. There are also a few secrets hidden around the Workshop; the counter says how many you have found, not where.</p>
         </HowThisWorks>

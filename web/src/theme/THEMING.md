@@ -102,6 +102,26 @@ these: refine and spec-update are `spec`, implement is `build`, the PRs and stag
 | `--pane-pattern` | an optional `background-image` on each pane (a grid, dither, dots) | `none` |
 | `--font-heading` | the font of `h1`–`h3` (the brand, pane titles, job title, card headlines) | `var(--font-display)` |
 | `--row-alt` | the faint tint on every other row of a table in a rendered document (`.prose`); keep it subtle | `var(--border-1)` |
+| `--lane-<l>-fg/-bg/-line` | a lane of Jobs (`working`, `needs-you`, `in-review`, `ready`, and `resting`, `done` under the board): its word and icon, tint and edge; only Needs you is tinted | status tokens |
+| `--hover-bg` | the background of a row, tab or menu item under the pointer | `var(--bg-3)` |
+| `--grid-line` | the faint grid behind the go / no go console (Play full only) | `var(--border-1)` |
+| `--tooltip-bg`, `--tooltip-fg` | the small tooltip on a stop dot | `var(--text-1)`, `var(--bg-0)` |
+
+### Charts (`--chart-1` … `--chart-8`)
+
+Every chart takes its series colours from `--chart-1` to `--chart-8`, in order (blue, orange, aqua,
+yellow, violet, green, red, pink by default). Each theme sets all eight for its own background
+(darker on the light themes). Each series also has a pattern, `--chart-pattern-<n>`, laid over its
+colour as a second background layer, so two series never differ by colour alone; the patterns are
+drawn in the page's own `--bg-0` and need no copy per theme.
+
+### Sizes and motion
+
+`--control-h` (40 px, larger with a larger text size, never smaller) is the least height of every
+clickable thing: `.btn`, `.tab`, `.menu-item`, `.row-link`, `.chip-btn`, inputs and selects;
+`--control-h-lg` (44 px) is the big calls (`.btn-lg`). Transitions use `--dur-fast`, `--dur-menu` or
+`--dur-pane`, all 200 ms or shorter. A theme may restyle hover, but never moves anything under the
+pointer: no `transform` on `:hover`.
 
 ### The crew (`--crew-*`)
 
@@ -145,8 +165,7 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `.app` | the whole shell |
 | `.topbar` | the top bar; `.brand` its title, `.desk-link` the Desk button with its count, `.conn` the connection state; `.topbar-long` / `.topbar-short` a link's full and short words (the short one under 1100 px) |
 | `.usage-banner` | the usage-limit banner under the top bar (`.usage-limited` while paused, `.usage-warn` the heads-up) |
-| `.pane`, `.pane-jobs`, `.pane-foreman`, `.pane-preview` | the three panes; `.panes-rail` on their parent when Jobs is a rail |
-| `.pane-resizer` | the handle between the middle pane and the Preview pane (`components/PaneResizer.tsx`; a focusable `role="separator"`, `.is-dragging` while dragged; its line is its `::after`). The Preview pane's width is `--preview-w` on `.panes`, clamped by `--preview-min` and `--middle-min` |
+| `.pane`, `.pane-foreman` | a full-height scrolling area (Settings and the old Foreman pane); a job is the Job page (`job/JobPage.tsx`, `.page-job`) |
 | `.pane-head`, `.pane-title` | a pane's header row and its `h2` title |
 | `.job-group`, `.job-group-title` | a group in the Jobs pane and its heading (glyph, label, count) |
 | `.job-row`, `.job-row-title`, `.job-row-meta`, `.job-status`, `.job-status-label` | one job in the list and its parts |
@@ -187,7 +206,7 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `.crew-dex` | the Crew-dex (Play on): `.dex-counts` (crew met, secrets found, `.dex-achievements` with its link to Achievements), `.dex-grid`, `.dex-card` (`.is-met` or `.is-unmet`, `.is-flipped`, `.rarity-common` `-uncommon` `-rare` `-legendary`), `.dex-card-inner`, `.dex-face` (`.dex-front`, `.dex-back`), `.dex-card-top`, `.dex-no`, `.dex-rarity` (a `.chip`; its dot is `--dex-rarity`), `.dex-portrait`, `.dex-name`, `.dex-role`, `.dex-model`, `.dex-stats`, `.dex-unmet-note`, `.dex-bio`, `.dex-first`, `.dex-flip` (the Card back toggle, `aria-pressed`) |
 | `.job-trail` | the trail (`play/trail.css`, Play on): under the job's title (`.is-header`) and on a workshop-floor card (`.is-card`); `.is-full` in Full mode, `.is-ask` when it's your move, `data-group` the job's group. Parts: `.trail-field` (the meadow), `.trail-stars` (Full), `.trail-path`, `.trail-stop` (`.is-done` `.is-current` `.is-next`, `.is-goal`, `.is-here` where the crew member stands), `.trail-dot`, `.trail-label`, `.trail-who`, `.trail-ask` (the "!"), `.trail-now` with `.trail-lead`, `.trail-next`. Optional tokens a theme may set on `html[data-theme]`: `--trail-sky`, `--trail-ground`, `--trail-road`, `--trail-road-done`, `--trail-tree`, `--trail-trunk` (defaults are mixed from its paints) |
 | `.workshop-floor` | the Foreman pane with no job open, Play on (`play/floor.css`): `.floor-foreman` (the Foreman's word: `.floor-foreman-face` the portrait, `.floor-bubble`, `.floor-eyebrow`, `.floor-say`, `.floor-asks` with one `.floor-ask` link per job: `.floor-ask-arrow`, `.floor-ask-title`, `.floor-ask-what`; `.floor-more`), the `.needs-you-inbox`, then `.floor-jobs` (`.floor-hint`, `.floor-grid`, `.floor-card` with `data-group`, `.floor-card-head`, `.floor-card-title` whose link covers the card, and a `.job-trail.is-card`) |
-| `.home` | Home, full width (`home/home.css`): `.home-head` (sticky; `.home-views` with `.home-view.is-on` and `.home-view-count`, `.home-seg` with `.home-seg-btn.is-on`, `.home-read`), `.home-body` (`.is-desk`), `.home-main`, `.home-side` (the compact `.workshop-floor.is-compact`). The map: `.flow-repo` (`.flow-repo-head`, `.flow-warn`), `.flow-grid` (`.is-simple`), `.flow-lane` rows of `.flow-box` (`.flow-job` with `data-group`, `.flow-step`, `.flow-shared` with `.flow-staging` / `.flow-main`; each `.is-here`, `.is-passed` or `.is-ahead`), `.flow-arrow` (`.is-reached`, `.flow-release`) with its `.flow-pr` (`.is-merged` `.is-open` `.is-problem` `.is-closed` `.is-none`), `.flow-count` (`.is-behind`, `.is-note`), `.lane-crew`. The Table: `.home-table` (`tbody tr[data-group]`, `.th-sort`). The Desk: `.desk`, `.desk-queue`, `.desk-item` (`.is-current`), `.desk-current`, `.desk-clear` |
+| `.home` | Home, full width (`home/home.css`): `.home-head` (sticky; `.home-views` with `.home-view.is-on` and `.home-view-count`, `.home-seg` with `.home-seg-btn.is-on`, `.home-read`), `.home-body`, `.home-main`, `.home-side` (the compact `.workshop-floor.is-compact`). The map: `.flow-repo` (`.flow-repo-head`, `.flow-warn`), `.flow-grid` (`.is-simple`), `.flow-lane` rows of `.flow-box` (`.flow-job` with `data-group`, `.flow-step`, `.flow-shared` with `.flow-staging` / `.flow-main`; each `.is-here`, `.is-passed` or `.is-ahead`), `.flow-arrow` (`.is-reached`, `.flow-release`) with its `.flow-pr` (`.is-merged` `.is-open` `.is-problem` `.is-closed` `.is-none`), `.flow-count` (`.is-behind`, `.is-note`), `.lane-crew`. The Table: `.home-table` (`tbody tr[data-group]`, `.th-sort`). The Desk: `.desk`, `.desk-queue`, `.desk-item` (`.is-current`), `.desk-current`, `.desk-clear` |
 | `.row-crew` | a job's crew member at the start of its row in the Jobs list (Play on): the row is then `.job-row.has-crew`; `.row-crew-ask` is its small "!" |
 | `.brand-mascot`, `.brand-tagline` | the Foreman by "Feature Workshop" in the top bar, and "Your crew, your features, your turn" (Play on) |
 | `.boss-fight`, `.stamina` | the Full-mode extras (`play/extras.css`, Play mode Full only): the boss fight under an L3 review brief (`.boss-text`, `.boss-bar`, `.boss-bar-fill`, `.is-defeated`; on a theme's light brief card give `.boss-text` and `.boss-bar` its ink, as Blueprint does); stamina in the top bar (`.stamina-bar`, `.stamina-fill`, `.stamina-label`, `.is-fresh` `.is-warning` `.is-resting`); `.sleeping-crew` in a paused live row. Status, success and accent tokens only |

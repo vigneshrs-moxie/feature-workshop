@@ -10,7 +10,6 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
 import { WORKFLOW_CHOICES, type JobDetail, type LevelNumber, type WorkflowChoice } from '../../api/types';
 import { saveJobOptions } from '../../app/jobActions';
-import { classicHref } from '../../app/router';
 import { bodyFrom, formFrom, levelDefaults, MODEL_ROLES, modelName, optionLists, PROCESS_NOTES_MAX, providedSkips, sameOptions, inOrder, type ModelRole, type OptionsForm } from '../../lib/jobOptions';
 import { isLevel, LEVEL_NUMBERS, levelChange, levelLabel, lensNames } from '../../lib/levels';
 import { useWorkshop, useWorkshopState } from '../../state/store';
@@ -189,7 +188,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
             const locked = lockedSkips.includes(s.id);
             const always = alwaysField(s.id);
             return (
-              <label key={s.id} className="check drawer-check" title={locked ? 'You provided this document, so the crew doesn’t write it. Change provided documents in the classic view.' : always ? ALWAYS_NOTES[always] : `Skip ${s.label} for this job. ${STAGE_HINTS[s.id] ?? ''}`}>
+              <label key={s.id} className="check drawer-check" title={locked ? 'You provided this document, so the crew doesn’t write it. They can’t be changed from this page yet.' : always ? ALWAYS_NOTES[always] : `Skip ${s.label} for this job. ${STAGE_HINTS[s.id] ?? ''}`}>
                 <input type="checkbox" checked={(form.skip.includes(s.id) || locked) && !always} disabled={locked || always !== null} onChange={(e) => edit({ skip: inOrder(toggle(form.skip, s.id, e.target.checked), lists) })} />
                 <span>{s.label}{locked && <span className="muted"> (document provided)</span>}{always && <span className="muted"> (set to Always)</span>}</span>
               </label>
@@ -235,7 +234,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
 
       <fieldset className="drawer-section" disabled={busy}>
         <legend className="drawer-legend" title="Whether you try the change on your computer before review.">You test it</legend>
-        <label className="check drawer-check" title="The Foreman waits for you to try the change on your computer (the classic view’s Try it locally) before the review.">
+        <label className="check drawer-check" title="The Foreman waits for you to try the change on your computer (Try it, on your computer) before the review.">
           <input type="checkbox" checked={form.manual_test} onChange={(e) => edit({ manual_test: e.target.checked })} />
           <span>I test it by hand before review</span>
         </label>
@@ -294,7 +293,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
             ))}
           </ul>
         ) : <p className="muted drawer-fine">None.</p>}
-        <p className="muted drawer-fine">Adding or changing them stays in the classic view for now: <a href={classicHref.job(slug)} title="Open this job’s classic page; its Options button edits provided documents.">open this job in classic view</a>.</p>
+        <p className="muted drawer-fine">Adding or changing them isn’t possible from this page yet.</p>
       </section>
 
       <fieldset className="drawer-section" disabled={busy}>

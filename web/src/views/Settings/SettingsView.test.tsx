@@ -46,7 +46,7 @@ describe('Settings: the rail', () => {
     expect(railRow('Rules')).not.toHaveAttribute('aria-current');
     expect(railValue('Permissions')).toBe('Auto mode');
     expect(railValue('Notifications')).toBe('Needs you and Problems on');
-    expect(railValue('Look')).toBe('Default · Text M');
+    expect(railValue('Look')).toBe('Default · M · One at a time · Four lanes · Play subtle');
     expect(railValue('Keys')).toBe('On');
     expect(railValue('Workflow')).toBe('Finish line: PR #1 merged');
     expect(railValue('Play')).toBe('Subtle');
@@ -287,9 +287,9 @@ describe('Settings: look', () => {
     expect(localStorage.getItem('workshop.theme')).toBe('candy-pop');
     expect(within(picker).getByRole('radio', { name: /Candy pop/ })).toBeChecked();
     expect(screen.getByText(/changes only how things look/)).toBeInTheDocument();
-    expect(railValue('Look')).toBe('Candy pop · Text M');
+    expect(railValue('Look')).toBe('Candy pop · M · One at a time · Four lanes · Play subtle');
     fireEvent.click(screen.getByRole('button', { name: 'XL' }));
-    expect(railValue('Look')).toBe('Candy pop · Text XL');
+    expect(railValue('Look')).toBe('Candy pop · XL · One at a time · Four lanes · Play subtle');
     document.documentElement.removeAttribute('data-theme');
     document.documentElement.removeAttribute('data-text');
   });
