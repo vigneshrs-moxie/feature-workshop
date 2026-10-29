@@ -11,6 +11,7 @@ import { Kbd } from './Kbd';
 import { CrewMember } from '../play/CrewMember';
 import { paletteEgg, type PaletteEgg } from '../play/eggs';
 import { CREW_SIZE } from '../play/crewSizes';
+import { nameOf } from '../play/crewPack';
 
 /** The one way into the old pages from this app: type exactly this in the command box, then Enter. */
 export const OLD_PAGES_WORD = 'classic';
@@ -125,7 +126,7 @@ export function CommandPalette({ commands, onClose, onEgg, onOldPages }: { comma
         {shown.length === 0 && !door && <p className="muted palette-empty" role="status">Nothing matches “{query}”. Try fewer words.</p>}
         {door && (
           <div className="palette-door" role="status">
-            <CrewMember type="feature-review-permissions" state="waiting" size={CREW_SIZE.door} label="Locksmith" animated={false} />
+            <CrewMember type="feature-review-permissions" state="waiting" size={CREW_SIZE.door} label={nameOf('feature-review-permissions')} animated={false} />
             <p className="palette-door-line">Hard line. Nice try.</p>
           </div>
         )}

@@ -119,8 +119,8 @@
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto minmax(180px, auto); align-items: center; gap: var(--space-3);
   padding: var(--space-3) var(--space-4); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-0);
 }
-.stage-row:not(:has(.stage-face)) { grid-template-columns: minmax(0, 1fr) auto auto minmax(180px, auto); }
 .stage-face { display: inline-grid; place-items: center; width: 56px; }
+.stage-initials { display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border-2); background: var(--bg-2); color: var(--text-2); font-size: var(--text-sm); font-weight: var(--weight-bold); }
 .stage-row-say { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .stage-row-who { display: inline-flex; align-items: center; gap: var(--space-2); }
 .stage-row-doing { color: var(--text-2); font-size: var(--text-sm); }
@@ -135,10 +135,16 @@
 
 @media (max-width: 760px) {
   .page-stage .page-head .stop-map, .stage-for { display: none; }
-  .stage-row, .stage-row:not(:has(.stage-face)) { grid-template-columns: minmax(0, 1fr) auto; }
-  .stage-face { display: none; }
+  .stage-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .stage-face, .stage-initials { display: none; }
   .stage-row-time { display: none; }
   .stage-row-term { grid-column: 1 / -1; }
   .stage-row-term .btn { width: 100%; justify-content: center; }
   .stage-who-head .btn { width: 100%; justify-content: center; }
+}
+
+/* Reduced motion: nothing on these pages moves. */
+@media (prefers-reduced-motion: reduce) {
+  .job-tab, .code-commit, .job-map .stop-dot, .stage-row { transition: none; }
+  .stop-face *, .stage-face * { animation: none !important; }
 }

@@ -6,7 +6,8 @@
 // how long and its status in words, and its terminal button: Open in terminal for the Foreman
 // (continues its session), Watch in terminal for a crew member (read-only: follows its log). Open the
 // job's folder in a terminal, and the terminal app. Finished here (n) folds those done; then the
-// conversation at this stop, folded, and the message box (c). Crew faces show only in Play full.
+// conversation at this stop, folded, and the message box (c). Crew faces show only in Play full;
+// subtle and off show the role's initials.
 import { useCallback, useEffect, useState } from 'react';
 import type { Job, StageAgent, StageView, StopId } from '../api/types';
 import { useKeyScope } from '../app/keyRegistry';
@@ -20,7 +21,7 @@ import { useNow } from '../lib/time';
 import { Composer } from '../panes/Foreman/Composer';
 import { ThreadList, useCurrentJob, useJobConversation } from '../panes/Foreman/ForemanPane';
 import { CrewMember } from '../play/CrewMember';
-import { roleOf } from '../play/crewPack';
+import { initialsOf, roleOf } from '../play/crewPack';
 import { usePlay } from '../play/usePlay';
 import { jobBySlug } from '../state/reducer';
 import { useWorkshop, useWorkshopState } from '../state/store';
@@ -235,7 +236,9 @@ function AgentRow({ a, now, faces, busy, onOpen }: { a: StageAgent; now: Date; f
   const live = a.status === 'working' || a.status === 'waiting';
   return (
     <li className={`stage-row is-${a.status}`}>
-      {faces && <span className="stage-face" aria-hidden="true"><CrewMember type={a.who} size={48} label="" state={a.status === 'working' ? 'working' : a.status === 'waiting' ? 'waiting' : 'idle'} /></span>}
+      {faces
+        ? <span className="stage-face" aria-hidden="true"><CrewMember type={a.who} size={48} label="" state={a.status === 'working' ? 'working' : a.status === 'waiting' ? 'waiting' : 'idle'} /></span>
+        : <span className="stage-initials" aria-hidden="true">{initialsOf(a.who === 'conductor' ? null : a.who)}</span>}
       <div className="stage-row-say">
         <span className="stage-row-who"><b>{role}</b>{a.model && <span className="chip num">{a.model}</span>}</span>
         <span className="stage-row-doing">{a.doing || (live ? 'Getting started' : a.status === 'done' ? 'Finished its part' : 'Stopped before it finished')}</span>

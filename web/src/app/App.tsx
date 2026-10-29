@@ -31,6 +31,7 @@ import { TelemetryView } from '../views/Telemetry';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
 import { PlayToasts } from '../play/PlayToasts';
+import { StatusStrip } from '../play/StatusStrip';
 import { usePlay } from '../play/usePlay';
 import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
 import { reopenJob, setJobPolicy, stopRun } from './jobActions';
@@ -202,7 +203,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="app">
       {top}
-      <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
+      <div className="banner-slot"><StatusStrip /><UsageBanner /><UsageWarningBanner /></div>
       <Sheets route={route} />
       {page}
       <PlayToasts />

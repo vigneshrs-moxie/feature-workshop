@@ -27,7 +27,7 @@ const CONNECTION: Record<Connection, { label: string; hint: string }> = {
 /** Which of the five pages the route belongs to (a job and its screens are under Jobs). */
 function section(route: Route): 'inbox' | 'desk' | 'jobs' | 'integrate' | 'telemetry' | null {
   switch (route.name) {
-    case 'home': case 'job': case 'screens': return 'jobs';
+    case 'home': case 'job': case 'stage': case 'screens': return 'jobs';
     case 'inbox': return 'inbox';
     case 'desk': return 'desk';
     case 'integrate': return 'integrate';
