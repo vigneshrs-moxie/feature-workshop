@@ -1756,6 +1756,8 @@ export function createReviewRounds(deps) {
     },
     /** A job is waiting on someone else: the flow map checks GitHub more often meanwhile. */
     isWaiting: () => [...views.values()].some((v) => WAITING_STATES.has(v.heldState ?? v.state)),
+    /** The job's round state (or the PR's between rounds), or null when it has none: lib/nudges.js. */
+    stateOf: (slug) => { const v = views.get(slug); return v ? (v.heldState ?? v.state ?? null) : null; },
     /** A round is with the Foreman: the panel's items are re-read every few seconds. */
     isFixing: () => [...views.values()].some((v) => ['fixing', 'fix-stalled', 'new-comment'].includes(v.heldState ?? v.state)),
     busy,

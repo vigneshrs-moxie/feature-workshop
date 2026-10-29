@@ -23,6 +23,8 @@ import { finishLineReached } from './finish.js';
 import { STAGE_IDS } from './stages.js';
 
 export const NUDGE_IDS = ['pr1-merge', 'pr2-open', 'pr2-review', 'pr2-changes', 'pr2-merge', 'pr1-merged', 'pr2-merged'];
+/** The nudges a review round's own steps cover (packet Q). */
+export const ROUND_COVERS = ['pr1-merge', 'pr2-review', 'pr2-changes', 'pr2-merge'];
 
 const prState = (p) => String(p?.state ?? '').toLowerCase();
 // A draft isn't ready for anyone yet: no nudge until it is marked ready.
@@ -56,9 +58,12 @@ function pastStage(current, stage) {
  *   finishLine  the setting (lib/finish.js), used only when the card has no `finish`
  *   dismissed   nudge ids you dismissed on this job
  *   sent        nudge ids whose sentence already went to this job's Foreman (yes on the Desk)
+ *   inRound     the job has a review round going (lib/review-round.js): the round's own steps
+ *               cover PR #1's merge and PR #2's review, changes and merge, so those four are left
+ *               out (and the Foreman is never asked to request a review outside the round's go)
  * Each: { id, kind: 'link' | 'ask', title, text, link, action: { send } | null, afterLine }.
  */
-export function nudgesFor(card, lane, { finishLine, dismissed = [], sent = [] } = {}) {
+export function nudgesFor(card, lane, { finishLine, dismissed = [], sent = [], inRound = false } = {}) {
   if (!card || card.closed?.as === 'dropped') return [];
   const pr1 = prOf(lane, card.prs, 1);
   const pr2 = prOf(lane, card.prs, 2);
@@ -102,6 +107,6 @@ export function nudgesFor(card, lane, { finishLine, dismissed = [], sent = [] } 
         { action: { send: 'Please request Raj’s review on PR #2.' } });
     }
   }
-  const gone = new Set([...(Array.isArray(dismissed) ? dismissed : []), ...(Array.isArray(sent) ? sent : [])]);
+  const gone = new Set([...(Array.isArray(dismissed) ? dismissed : []), ...(Array.isArray(sent) ? sent : []), ...(inRound ? ROUND_COVERS : [])]);
   return out.filter((n) => !gone.has(n.id));
 }

@@ -567,6 +567,8 @@ export async function createRunner(config) {
     return lock ? { owner: lock.owner, pid: lock.pid, branch: lock.branch, acquiredAt: lock.acquiredAt } : null;
   }
 
+  // A job's review round state (set once review rounds exist, below): its nudges leave out what the round covers.
+  let roundStateOf = () => null;
   function boardCard(f, run) {
     const ids = STAGES.map((s) => s.id).filter((id) => !f.skipped.includes(id));
     const at = ids.indexOf(f.stage);
@@ -619,7 +621,7 @@ export async function createRunner(config) {
       parked: gateParked(f, active),
       finish,
       // The PR hand-offs waiting on someone (lib/nudges.js): the Desk's nudge items.
-      nudges: nudgesFor({ stage: f.stage, prs: f.prs, closed: off ? f.closed : null, finish }, lane, { dismissed: f.dismissedNudges, sent: f.sentNudges }),
+      nudges: nudgesFor({ stage: f.stage, prs: f.prs, closed: off ? f.closed : null, finish }, lane, { dismissed: f.dismissedNudges, sent: f.sentNudges, inRound: roundStateOf(f.slug) !== null }),
       // Marked done or dropped: off the board, unless something is going on or the job changed since.
       ...(off
         ? { closed: f.closed, needsYou: false, working: false, quiet: false, waitingFor: null, parked: false, stageState: f.closed.as === 'done' ? 'done' : 'idle' }
@@ -1144,6 +1146,7 @@ export async function createRunner(config) {
     problem: (err) => console.error('review rounds:', err.message),
   });
   driver.roundAnswer = (a) => reviewRounds.answerCard(a);
+  roundStateOf = (slug) => reviewRounds.stateOf(slug);
   // While a job waits on a reviewer, its checks or the follow-up PR #1, GitHub is read every minute
   // (Settings → Workflow: 1, 5, 10 or 30) instead of every ten (lib/flow.js everyMs).
   let githubEveryMs = 60000;

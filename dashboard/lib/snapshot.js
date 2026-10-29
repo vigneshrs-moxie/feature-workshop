@@ -84,10 +84,13 @@ export function laneFor(card, { lane = null, pending = [] } = {}) {
   // Cards waiting for a click: permissions, a crew member's question, PR feedback.
   const cards = pending.length ? pending : Array.from({ length: Number(card.permissions) || 0 }, () => ({}));
   if (cards.length) {
+    // A review round's card (packet Q, lib/driver.js parkRoundCard) says what the reviewer asked for.
+    const round = cards.find((p) => p.roundCard);
     const feedback = cards.filter((p) => p.feedbackCard).length;
-    const questions = cards.filter((p) => p.kind === 'question' && !p.feedbackCard).length;
-    const asks = cards.length - feedback - questions;
+    const questions = cards.filter((p) => p.kind === 'question' && !p.feedbackCard && !p.roundCard).length;
+    const asks = cards.length - feedback - questions - (round ? cards.filter((p) => p.roundCard).length : 0);
     if (asks) return needs(many(asks, 'A permission waits for your yes', '{n} permissions wait for your yes'));
+    if (round && !questions && !feedback) return needs(round.plain?.headline || 'A review round waits for your go');
     if (questions) return needs(many(questions, 'A crew member asked you something', 'The crew asked you {n} things'));
     return needs(many(feedback, 'A PR feedback card waits for you', '{n} PR feedback cards wait for you'));
   }

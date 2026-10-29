@@ -104,3 +104,12 @@ test('merged on GitHub while the Foreman still waits at that PR: a nudge to tell
   assert.deepEqual(ids(at2), ['pr2-merged']);
   assert.deepEqual(ids(nudgesFor(card({ stage: 'pr1', prs: [{ state: 'open' }] }), lane('org', pr(141, 'merged'), null), { finishLine: 'main', sent: ['pr1-merged'] })), []);
 });
+
+test('a job with a review round: the four hand-offs the round covers are left out, the merged-on-GitHub ones stay', () => {
+  const l = lane('org', pr(141, 'merged'), pr(142, 'open'));
+  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr2' }), l, { finishLine: 'main', inRound: true })), []);
+  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr2' }), l, { finishLine: 'main' })), ['pr2-review']);
+  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr1', prs: [{ number: 141, state: 'open' }] }), lane('fork', pr(141, 'open'), null), { finishLine: 'main', inRound: true })), []);
+  const at2 = nudgesFor(card({ stage: 'pr2', prs: [{ state: 'merged' }, { number: 142, state: 'open' }] }), lane('staging', pr(141, 'merged'), pr(142, 'merged')), { finishLine: 'main', inRound: true });
+  assert.deepEqual(ids(at2), ['pr2-merged']);
+});
