@@ -209,6 +209,17 @@ const hours = (h) => `${Math.round(h)} ${Math.round(h) === 1 ? 'hour' : 'hours'}
 const notEnough = (what, have, need) => `Not enough ${what} yet to say (${have} of ${need} needed).`;
 const graph = (g) => ({ sub: null, notes: [], table: { caption: '', head: [], rows: [] }, data: {}, ...g });
 
+/**
+ * Up to `count` plan weeks, the newest first, keeping only those the lines read cover (readFrom:
+ * the start of what was read, null when everything was): a week that wasn't read is never shown as
+ * a week with nothing in it.
+ */
+function readWeeks(ctx, count) {
+  const weeks = planWeeks({ now: ctx.now, meters: ctx.meters, timeZone: ctx.timeZone, count });
+  return ctx.readFrom === null || ctx.readFrom === undefined ? weeks : weeks.filter((w, i) => i === 0 || w.from >= ctx.readFrom);
+}
+const NOT_READ = (ctx) => `Only the last ${Math.round((ctx.now - ctx.readFrom) / DAY)} days of the usage log are read here, so what is older is left out rather than shown as nothing.`;
+
 /** The month's start (the 1st, 00:00 on the local clock), `back` months before t's. */
 function monthStart(t, timeZone, back = 0) {
   const { y, mo } = localDate(t, timeZone);
@@ -281,7 +292,7 @@ const NEED_TICKETS = 2;
 
 export function ticketCostGraph(rec, ctx) {
   const { me, timeZone, now } = ctx;
-  const weeks = planWeeks({ now, meters: ctx.meters, timeZone, count: 8 });
+  const weeks = readWeeks(ctx, 8);
   const mineRows = rec.rows.filter((r) => !me || r.user === me);
   // A ticket is the ticket key, else its job; finished: across the finish line (the job list), else at PR #1.
   const tickets = new Map();
@@ -303,7 +314,7 @@ export function ticketCostGraph(rec, ctx) {
     if (w) finished.push({ ...t, at, week: w.label, weekFrom: w.from });
   }
   const what = rec.hasJobs ? 'finished tickets' : 'tickets at PR #1';
-  const notes = [rec.hasJobs ? 'Finished: across the finish line set in Settings → Workflow. A ticket’s cost is all of its jobs’ use.' : 'The job list wasn’t here, so a ticket counts as finished once it reached PR #1.'];
+  const notes = [rec.hasJobs ? 'Finished: across the finish line set in Settings → Workflow. A ticket’s cost is all of its jobs’ use.' : 'The job list wasn’t here, so a ticket counts as finished once it reached PR #1.', ...(weeks.length < 8 && ctx.readFrom ? [NOT_READ(ctx)] : [])];
   const cap = capOutliers(finished.map((t) => t.usd));
   if (cap.cap !== null) for (const i of cap.capped) notes.push(`${finished[i].label} cost ${usd(finished[i].usd)}: drawn at ${usd(cap.cap)} on the graph, in full in the table.`);
   const byWeek = weeks.map((w) => {
@@ -365,19 +376,23 @@ export function stagesGraph(rec, ctx) {
   });
   const thisName = monthName(now, timeZone);
   const lastName = monthName(lastFrom, timeZone);
+  // Last month only partly read: no comparison, rather than one against a part of it.
+  const partLast = ctx.readFrom !== null && ctx.readFrom !== undefined && ctx.readFrom > lastFrom;
   const table = {
     caption: `Your spend by stage, ${thisName} so far against ${lastName}.`,
     head: ['Stage', thisName, lastName, 'Change'],
     rows: stages.map((s) => {
-      const d = s.lastShare === null ? null : Math.round((s.share - s.lastShare) * 100);
-      return [s.label, `${pct(s.share * 100)} · ${usd(s.usd)}`, s.lastShare === null ? 'Nothing recorded' : `${pct(s.lastShare * 100)} · ${usd(s.lastUsd)}`, d === null ? '—' : d === 0 ? '= 0 pts' : `${d > 0 ? '▲' : '▼'} ${Math.abs(d)} pts`];
+      const d = s.lastShare === null || partLast ? null : Math.round((s.share - s.lastShare) * 100);
+      return [s.label, `${pct(s.share * 100)} · ${usd(s.usd)}`, partLast ? 'Not all read' : s.lastShare === null ? 'Nothing recorded' : `${pct(s.lastShare * 100)} · ${usd(s.lastUsd)}`, d === null ? '—' : d === 0 ? '= 0 pts' : `${d > 0 ? '▲' : '▼'} ${Math.abs(d)} pts`];
     }),
   };
-  const base = { id: 'stages', n: 3, title: 'Where the spend goes, by stage', audience: 'private', data: { months: [thisName, lastName], stages }, table };
+  const base = { id: 'stages', n: 3, title: 'Where the spend goes, by stage', audience: 'private', data: { months: [thisName, lastName], stages: partLast ? stages.map((x) => ({ ...x, lastShare: null, lastUsd: 0 })) : stages }, table, notes: partLast ? [NOT_READ(ctx)] : [] };
   if (!(totalCur > 0)) return graph({ ...base, state: 'empty', headline: `Nothing recorded for your jobs in ${thisName} yet.`, todo: 'Nothing to do yet: this fills in as your jobs run.' });
   const top = [...stages].sort((a, b) => b.share - a.share)[0];
-  const d = top.lastShare === null ? null : Math.round((top.share - top.lastShare) * 100);
-  const headline = d === null
+  const d = top.lastShare === null || partLast ? null : Math.round((top.share - top.lastShare) * 100);
+  const headline = partLast
+    ? `${top.label} costs ${pct(top.share * 100)} of your spend this month; ${lastName} isn’t all in the usage read here, so no comparison yet.`
+    : d === null
     ? `${top.label} costs ${pct(top.share * 100)} of your spend this month; nothing was recorded last month to compare.`
     : d === 0 ? `${top.label} costs ${pct(top.share * 100)} of your spend, the same as last month.`
       : `${top.label} costs ${pct(top.share * 100)} of your spend, ${d > 0 ? 'up' : 'down'} from ${pct(top.lastShare * 100)} last month.`;
@@ -391,7 +406,10 @@ const DOWN = { fable: 'opus', opus: 'sonnet', sonnet: 'haiku' };
 
 export function modelsGraph(rec, ctx) {
   const { timeZone, now } = ctx;
-  const months = [2, 1, 0].map((back) => ({ from: monthStart(now, timeZone, back), to: back === 0 ? now + 1 : monthStart(now, timeZone, back - 1), name: monthName(monthStart(now, timeZone, back), timeZone) }));
+  const read = ctx.readFrom ?? null;
+  const months = [2, 1, 0].map((back) => ({ from: monthStart(now, timeZone, back), to: back === 0 ? now + 1 : monthStart(now, timeZone, back - 1), name: monthName(monthStart(now, timeZone, back), timeZone) }))
+    .filter((m) => read === null || m.to > read)
+    .map((m) => (read !== null && m.from < read ? { ...m, name: `${m.name} (part)` } : m));
   const fams = [...new Set(rec.rows.map((r) => r.family))].sort((a, b) => (FAMILY_ORDER.indexOf(a) + 1 || 9) - (FAMILY_ORDER.indexOf(b) + 1 || 9));
   const series = fams.map((f, i) => ({ key: f, label: familyName(f), slot: (FAMILY_ORDER.indexOf(f) + 1) || Math.min(8, FAMILY_ORDER.length + 1 + i) }));
   const bars = months.map((m) => {
@@ -534,7 +552,7 @@ export function waitingGraph(rec, ctx) {
   const { me, timeZone, now } = ctx;
   const base = { id: 'waiting', n: 7, title: 'Waiting on you', audience: 'private' };
   if (!rec.hasAudit) return graph({ ...base, state: 'cannot-see', headline: 'Can’t see your answers here yet.', todo: 'Nothing to do: this fills in once your answers reach Telemetry.', notes: ['Answers come from the audit log, which wasn’t handed to Telemetry.'] });
-  const weeks = planWeeks({ now, meters: ctx.meters, timeZone, count: 6 });
+  const weeks = readWeeks(ctx, 6);
   const mineJob = (slug) => { const j = rec.jobs.get(slug); return j && (!me || j.user === me); };
   // Each answer's wait: from the Foreman's last turn on that job before it to the answer (at most a week).
   const waits = [];
@@ -652,14 +670,14 @@ export function whenGraph(rec, ctx) {
   const headline = `Most ${unit === 'percent' ? 'use' : 'spend'} lands ${topDays.map((d) => d.name).join(' and ')}, ${blockWords(lo, hi)}${unit === 'percent' && otherShare >= 0.5 ? ', mostly use outside this app' : ''}.`;
   const weekend = (dayTotals[5].app + dayTotals[5].other + dayTotals[6].app + dayTotals[6].other) / total;
   const todo = `Start large runs outside ${blockWords(lo, hi)}${weekend < 0.15 ? ', or at the weekend' : ''}, when the 5-hour window is quiet.`;
-  return graph({ ...base, state: 'ok', headline, todo, sub: `The darkest square is ${words(max)} of the ${unit === 'percent' ? 'weekly limit' : 'spend'} in two hours.` });
+  return graph({ ...base, state: 'ok', headline, todo, sub: `The darkest square is ${words(max)} of the ${unit === 'percent' ? 'weekly limit' : 'spend'}: those two hours, added up over four weeks.` });
 }
 
 // ---------- 10. Cache reuse (yours) ----------
 
 export function cacheGraph(rec, ctx) {
   const { me, timeZone, now } = ctx;
-  const weeks = planWeeks({ now, meters: ctx.meters, timeZone, count: 8 });
+  const weeks = readWeeks(ctx, 8);
   const mineRows = rec.rows.filter((r) => !me || r.user === me);
   const share = (list) => {
     const read = sum(list, (r) => r.tokens.cacheRead);
@@ -706,9 +724,10 @@ export function insightGraphs(lines, opts) {
  * Everything the insight graphs need, from the raw usage lines: the cleaned record, percent per
  * dollar (short stretches), the two meters' splits into this app's people and Other use, and the
  * ten graphs. opts: { window, now, me, meters (the live reading: { fiveHour, week, checkedAt }),
- * timeZone, titles, jobs, audit, tempRoots, shortStretch }. Returns { record, ratio, ratio5, limits, graphs }.
+ * timeZone, titles, jobs, audit, tempRoots, shortStretch, readFrom (where the lines read start: null
+ * when they are all there is) }. Returns { record, ratio, ratio5, limits, graphs }.
  */
-export function insightsFor(lines, { window = 'week', now = Date.now(), me = null, meters = null, timeZone, titles = {}, jobs = null, audit = null, tempRoots, shortStretch = SHORT_STRETCH } = {}) {
+export function insightsFor(lines, { window = 'week', now = Date.now(), me = null, meters = null, timeZone, titles = {}, jobs = null, audit = null, tempRoots, shortStretch = SHORT_STRETCH, readFrom = null } = {}) {
   const end = typeof now === 'number' ? now : Date.parse(now);
   const record = cleanRecord(lines, { now: end, jobs, audit, tempRoots });
   const clean = recordLines(record);
@@ -723,6 +742,7 @@ export function insightsFor(lines, { window = 'week', now = Date.now(), me = nul
   const newest = [...clean].reverse().find((l) => l.meters.week)?.meters ?? null;
   const m = meters?.week ? meters : newest;
   const { from } = windowRange(window, { now: end, meters: m, timeZone });
-  const graphs = insightGraphs(lines, { window, now: end, from, me, timeZone, meters: m, reading, ratio, ratio5, limits, titles, record, cleanLines: clean });
+  const read = readFrom === null ? null : (typeof readFrom === 'number' ? readFrom : Date.parse(readFrom));
+  const graphs = insightGraphs(lines, { window, now: end, from, me, timeZone, meters: m, reading, ratio, ratio5, limits, titles, record, cleanLines: clean, readFrom: read });
   return { record, ratio, ratio5, limits, graphs, from };
 }

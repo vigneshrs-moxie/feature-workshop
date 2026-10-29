@@ -7,7 +7,6 @@
 //                 note on what Other use means
 //       sources   whether the audit log and the job list were there (graphs 6 to 8 need them)
 //       meters    the plan meters now; file: where usage.jsonl is
-//       datasets  the first page's five graphs, kept in their shapes for that page
 //   The window defaults to this week. usage.jsonl is the runner's.
 
 import { HttpError } from '../lib/http-guard.js';

@@ -29,7 +29,7 @@ const TITLES = { 'orbit-479-feedback-api': 'Feedback API', 'orbit-512-export': '
 // is taken from in real use (SHORT_STRETCH), so its sums here allow stretches of seven hours.
 const STRETCH = 7 * 3600e3;
 const OPTS = { now: NOW, me: 'vignesh', titles: TITLES, timeZone: 'UTC', shortStretch: STRETCH };
-const data = (window) => Object.fromEntries(telemetry(lines, { ...OPTS, window }).datasets.map((d) => [d.id, d]));
+const data = (window) => Object.fromEntries(telemetry(lines, { ...OPTS, window }).graphs.map((d) => [d.id, d]));
 
 test('the fixture is what its rules say', () => {
   assert.equal(lines.length, 122);
@@ -161,13 +161,12 @@ test('other use: an outside rise between two quiet readings is Other use, and do
   near(evening.other, 40, 1, 'the evening’s rise is other use');
   // The forecast's pace is the whole meter's, and its driver says who is pushing it.
   const t = telemetry(l, { now, window: 'week', timeZone: 'America/Phoenix' });
-  const gauge = t.datasets.find((d) => d.id === 'gauge');
-  assert.equal(gauge.forecast.driver.words, 'mostly from use outside this app');
+  const g = Object.fromEntries(t.graphs.map((x) => [x.id, x]));
+  assert.equal(g.limit.data.forecast.driver.words, 'mostly from use outside this app');
   assert.match(t.limits.week.sentence, /^This week: 76% used\. In this app 3[56]% \(vignesh 2[34]%, sohum 1[12]%\), other use (39|40|41)% \(estimated\)\.$/);
-  const people = t.datasets.find((d) => d.id === 'people');
-  assert.equal(people.others.estimated, true);
-  near(people.others.percent, 40, 1.5, 'the Others row');
-  assert.match(people.sentence, /Others \(outside this app\) (39|40|41)%, estimated\.$/);
+  assert.equal(g.people.data.others.estimated, true);
+  near(g.people.data.others.percent, 40, 1.5, 'the Others row');
+  assert.match(g.people.headline, /; other use (39|40|41)% \(estimated\); 2[45]% is still free\.$/);
   assert.match(t.limits.note, /claude\.ai, the Claude app, or someone’s own Claude Code/);
   assert.match(t.limits.note, /another computer/);
 });
@@ -195,7 +194,7 @@ test('other use: a reading gap is one stretch with readings at both ends; a mete
   assert.equal(none.other, null);
   const t = telemetry(l.map((x) => ({ ...x, meters: { fiveHour: null, week: null } })), { now: '2026-10-30T03:00:00Z', window: 'week', timeZone: 'America/Phoenix' });
   assert.equal(t.limits.week.sentence, 'Can’t see use outside this app yet: no limit readings this week.');
-  assert.equal(t.datasets.find((d) => d.id === 'people').others, null);
+  assert.equal(t.graphs.find((d) => d.id === 'people').data.others, null);
 });
 
 test('other use: a meter reset in the middle starts the week again from 0', () => {
@@ -237,6 +236,10 @@ test('forecast: resets first, flat, full, too few readings, nothing recent', () 
   assert.equal(forecast([at('2026-10-27T08:00:00Z', 46), at('2026-10-28T08:00:00Z', 46)], { now: NOW }).state, 'flat');
   assert.equal(forecast([at('2026-10-28T08:00:00Z', 100)], { now: NOW, timeZone: 'UTC' }).sentence, 'The weekly limit is used up; it resets on Thursday 14:00.');
   assert.equal(forecast([at('2026-10-28T08:00:00Z', 46)], { now: NOW }).state, 'unknown');
+  // Two readings three hours apart (one busy morning): too soon to say.
+  const soon = forecast([at('2026-10-28T05:00:00Z', 2), at('2026-10-28T08:00:00Z', 8)], { now: NOW });
+  assert.equal(soon.state, 'unknown');
+  assert.equal(soon.sentence, 'Less than six hours of readings this week: too soon to say when it fills.');
   assert.equal(forecast([at('2026-10-26T08:00:00Z', 46)], { now: NOW }).state, 'unknown', 'the newest reading is over a day old');
   // A reading before the reset is not part of this week's pace.
   assert.equal(forecast([at('2026-10-27T13:00:00Z', 90, '2026-10-27T14:00:00Z'), at('2026-10-28T08:00:00Z', 10)], { now: NOW }).state, 'unknown');
@@ -245,106 +248,55 @@ test('forecast: resets first, flat, full, too few readings, nothing recent', () 
   assert.equal(live.perHour, 0.25);
 });
 
-test('gauge: the window’s readings, the weekly resets in it and the forecast', () => {
-  const month = data('30d').gauge;
+test('graph 1 on the fixture: the window’s readings, the weekly resets in it and the forecast', () => {
+  const month = data('30d').limit;
   assert.equal(month.audience, 'common');
-  assert.equal(month.points.length, 120);
-  assert.deepEqual(month.resets, ['2026-10-01T14:00:00.000Z', '2026-10-08T14:00:00.000Z', '2026-10-15T14:00:00.000Z', '2026-10-22T14:00:00.000Z']);
-  assert.equal(month.sentence, 'At this pace, full on Thursday 03:48.');
-  const week = data('week').gauge;
+  assert.equal(month.data.points.length, 120);
+  assert.deepEqual(month.data.resets, ['2026-10-01T14:00:00.000Z', '2026-10-08T14:00:00.000Z', '2026-10-15T14:00:00.000Z', '2026-10-22T14:00:00.000Z']);
+  assert.equal(month.data.forecast.fullAt, '2026-10-29T03:48:00.000Z');
+  // Every point of the rise is this app's own (2 % a dollar, nothing outside).
+  assert.equal(month.headline, 'At this pace the week is full on Thursday 03:48, mostly from this app’s jobs.');
+  const week = data('week').limit;
   // 22 Oct 19:00, then 23–27 Oct (4 a day), then 28 Oct 01:00 and 07:00.
-  assert.equal(week.points.length, 23);
-  assert.deepEqual(week.points[0], { t: '2026-10-22T19:00:00.000Z', week: 3, fiveHour: 15 });
-  assert.deepEqual(week.resets, ['2026-10-22T14:00:00.000Z']);
-  assert.deepEqual(data('5h').gauge.points, [{ t: '2026-10-28T07:00:00.000Z', week: 87, fiveHour: 30 }]);
+  assert.equal(week.data.points.length, 23);
+  assert.deepEqual(week.data.points[0], { t: '2026-10-22T19:00:00.000Z', week: 3, fiveHour: 15 });
+  assert.deepEqual(week.data.resets, ['2026-10-22T14:00:00.000Z']);
+  assert.deepEqual(data('5h').limit.data.points, [{ t: '2026-10-28T07:00:00.000Z', week: 87, fiveHour: 30 }]);
 });
 
-test('use by day, by job: your own jobs only, each day stacked, in percent of the week', () => {
-  const d = data('week')['by-day-job'];
-  assert.equal(d.audience, 'private');
-  assert.equal(d.unit, 'percent');
-  assert.ok(!d.jobs.some((j) => j.slug === 'tidy-logs'), 'sohum’s job is not on your graph');
-  // 30 days, yours: Feedback API 66 + 32.5 = $98.50, Export $33: Feedback API takes colour 1.
-  assert.deepEqual(d.jobs.map((j) => [j.slug, j.slot]), [['orbit-479-feedback-api', 1], ['orbit-512-export', 2]]);
-  assert.deepEqual(d.days.map((x) => x.day), ['2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25', '2026-10-26', '2026-10-27', '2026-10-28']);
-  // 22 Oct: only Export at 19:00 ($1.50). 23–27 Oct: Feedback API $3 + $1.50, Export $1.50. 28 Oct: Feedback API $3.
-  assert.deepEqual(d.days[0].parts, [{ key: 'orbit-512-export', usd: 1.5, percent: 3 }]);
-  assert.deepEqual(d.days[1].parts, [{ key: 'orbit-479-feedback-api', usd: 4.5, percent: 9 }, { key: 'orbit-512-export', usd: 1.5, percent: 3 }]);
-  assert.equal(d.days[1].label, 'Fri 23 Oct');
-  assert.deepEqual(d.days[6].parts, [{ key: 'orbit-479-feedback-api', usd: 3, percent: 6 }]);
-  // The week: Feedback API 5 × 4.5 + 3 = $25.50 = 51 %; Export 1.5 + 5 × 1.5 = $9 = 18 %.
-  assert.deepEqual(d.jobs.map((j) => [j.usd, j.percent]), [[25.5, 51], [9, 18]]);
-  assert.equal(d.sentence, 'Feedback API used the most this week: 51% of the week ($25.50).');
-  const month = data('30d')['by-day-job'];
-  assert.equal(month.days.length, 31, '28 Sep to 28 Oct');
-  assert.deepEqual(month.days[0].parts, [{ key: 'orbit-479-feedback-api', usd: 1, percent: 2 }, { key: 'orbit-512-export', usd: 1, percent: 2 }], '28 Sep: 13:00 and 19:00 only');
-});
-
-test('cost per ticket and per stage: the last 30 days, yours, in dollars and percent of a week', () => {
-  for (const w of ['5h', 'week', '30d']) {
-    const c = data(w).cost;
-    assert.equal(c.audience, 'private');
-    // Feedback API: 07:00 × 30 = 24 × $2 + 6 × $3 = $66, 13:00 × 30 = 25 × $1 + 5 × $1.50 = $32.50. Export: 24 + 6 × 1.5 = $33.
-    assert.deepEqual(c.tickets.map((t) => [t.label, t.usd, t.percent]), [['ORBIT-479', 98.5, 197], ['ORBIT-512', 33, 66]]);
-    assert.deepEqual(c.stages.map((s) => [s.label, s.usd, s.percent]), [['Plan', 66, 132], ['Build', 33, 66], ['Review', 32.5, 65]]);
-    assert.equal(c.sentence, 'ORBIT-479 cost the most in the last 30 days: $98.50 (197% of a week); the costliest stage was Plan at $66.00 (132%).');
-  }
-  // Without a ticket, the job's name says what it is.
-  const theirs = telemetry(lines, { ...OPTS, me: 'sohum', window: 'week' }).datasets.find((d) => d.id === 'cost');
-  assert.deepEqual(theirs.tickets.map((t) => [t.label, t.usd]), [['Tidy logs (no ticket)', 33]]);
-});
-
-test('share by model: one bar per plan week, everyone’s use, by cost', () => {
-  const week = data('week')['by-model'];
-  assert.equal(week.audience, 'common');
-  assert.equal(week.weeks.length, 1);
-  // Opus: 07:00 × 6 at $3 + 19:00 × 6 at $1.50 = $27; Sonnet: 13:00 × 5 + 01:00 × 6, at $1.50 = $16.50.
-  assert.deepEqual(week.weeks[0].parts.map((p) => [p.key, p.usd]), [['opus', 27], ['sonnet', 16.5]]);
-  assert.equal(week.weeks[0].parts[0].share, 0.6207);
-  assert.deepEqual(week.models.map((m) => [m.label, m.slot]), [['Opus 5.5', 1], ['Sonnet 5.5', 2]]);
-  assert.equal(week.sentence, 'Opus 5.5 did 62% of the work by cost this week.');
-  const month = data('30d')['by-model'];
-  // The meter's reset (Thursdays 14:00 here) sets this week; the weeks before step back seven days.
-  assert.deepEqual(month.weeks.map((w) => w.label), ['Week from Thu 22 Oct, 2 pm', 'Week from Thu 15 Oct, 2 pm', 'Week from Thu 8 Oct, 2 pm', 'Week from Thu 1 Oct, 2 pm', 'Week from Thu 24 Sep, 2 pm']);
-  // A whole week before the busy one: Opus $3 a day, Sonnet $2 a day, 7 days.
-  assert.deepEqual(month.weeks[1].parts.map((p) => [p.key, p.usd, p.share]), [['opus', 21, 0.6], ['sonnet', 14, 0.4]]);
-  // 28 Sep 12:00 to 1 Oct 14:00: Opus 07:00 × 3 + 19:00 × 3 = $9; Sonnet 01:00 × 3 + 13:00 × 4 = $7.
-  assert.deepEqual(month.weeks[4].parts.map((p) => [p.key, p.usd]), [['opus', 9], ['sonnet', 7]]);
-});
-
-test('people on the account: one bar per person, names only', () => {
+test('graph 5 on the fixture: people on the account, names only, adding up to the meter', () => {
   const p = data('week').people;
   assert.equal(p.audience, 'common');
   // vignesh $25.50 + $9 = $34.50 = 69 %; sohum 01:00 × 6 at $1.50 = $9 = 18 %; together 87 %, the meter.
-  assert.deepEqual(p.people, [{ user: 'vignesh', usd: 34.5, percent: 69 }, { user: 'sohum', usd: 9, percent: 18 }]);
-  assert.equal(p.sentence, 'vignesh used the most this week: 69% of the week ($34.50); sohum 18% ($9.00).');
-  assert.deepEqual(data('30d').people.people.map((x) => [x.user, x.usd]), [['vignesh', 131.5], ['sohum', 33]]);
-  assert.equal(data('5h').people.sentence, 'Only vignesh used the account in this five hours: 6% of the week ($3.00).');
-  // The common graphs never name a job.
-  for (const id of ['gauge', 'by-model', 'people']) assert.ok(!JSON.stringify(data('30d')[id]).match(/orbit-|tidy-logs|Feedback API|ORBIT-/), id);
+  assert.deepEqual(p.data.people, [{ user: 'vignesh', usd: 34.5, percent: 69 }, { user: 'sohum', usd: 9, percent: 18 }]);
+  assert.equal(p.headline, 'vignesh used 69% of the week and sohum 18%; other use 0% (estimated); 13% is still free.');
+  assert.equal(data('30d').people.headline, 'vignesh spent $131.50 in this app, sohum $33.00.');
+  // The whole-account graphs never name a job.
+  for (const id of ['limit', 'models', 'people', 'when']) assert.ok(!JSON.stringify(data('30d')[id]).match(/orbit-|tidy-logs|Feedback API|ORBIT-/), id);
 });
 
-test('the five datasets, in order, each with its audience and one sentence', () => {
+test('the ten graphs, in order, each with who sees it, a finding and a What to do line', () => {
   const t = telemetry(lines, { ...OPTS, window: 'week' });
-  assert.deepEqual(t.datasets.map((d) => [d.id, d.audience]), [['gauge', 'common'], ['by-day-job', 'private'], ['cost', 'private'], ['by-model', 'common'], ['people', 'common']]);
-  for (const d of t.datasets) assert.match(d.sentence, /^[A-Z$a-z].+\.$/, d.id);
+  assert.deepEqual(t.graphs.map((d) => [d.id, d.audience]), GRAPH_IDS.map((id, i) => [id, [0, 3, 4, 8].includes(i) ? 'common' : 'private']));
+  for (const d of t.graphs) assert.match(d.headline, /^\S.+\.$/, d.id);
   assert.equal(t.percentPerDollar, 2);
   assert.equal(t.from, '2026-10-22T14:00:00.000Z');
+  assert.deepEqual(t.sources, { audit: false, jobs: false });
   assert.throws(() => telemetry(lines, { ...OPTS, window: 'year' }), RangeError);
 });
 
-test('no meters and no lines: dollars alone, and sentences that say so', () => {
+test('no meters and no lines: dollars alone, and headlines that say so', () => {
   const bare = lines.map((l) => ({ ...l, meters: { fiveHour: null, week: null } }));
-  const d = Object.fromEntries(telemetry(bare, { ...OPTS, window: 'week' }).datasets.map((x) => [x.id, x]));
-  assert.equal(d['by-day-job'].unit, 'usd');
-  assert.equal(d.people.people[0].percent, null);
-  assert.match(d.people.sentence, /^vignesh used the most this week: \$/);
-  assert.equal(d.gauge.forecast.state, 'unknown');
-  const empty = Object.fromEntries(telemetry([], { ...OPTS, window: 'week' }).datasets.map((x) => [x.id, x]));
-  assert.equal(empty['by-day-job'].sentence, 'None of your jobs used Claude this week.');
-  assert.equal(empty.cost.sentence, 'Nothing recorded for your jobs in the last 30 days.');
-  assert.equal(empty['by-model'].sentence, 'Nothing recorded this week.');
-  assert.equal(empty.people.sentence, 'Nobody used the account this week in this app, as far as this computer knows.');
+  const d = Object.fromEntries(telemetry(bare, { ...OPTS, window: 'week' }).graphs.map((x) => [x.id, x]));
+  assert.equal(d.people.data.people[0].percent, null);
+  // No reading: the week is from Wednesday 21 Oct 16:00 (UTC here), so 21 Oct 19:00 ($1) and 22 Oct
+  // 01:00, 07:00 and 13:00 ($1, $2, $1) join the busy week's $34.50 and $9.
+  assert.equal(d.people.headline, 'vignesh spent $38.50 in this app, sohum $10.00.');
+  assert.equal(d.limit.headline, 'No reading of the weekly limit yet, so no forecast.');
+  const empty = Object.fromEntries(telemetry([], { ...OPTS, window: 'week' }).graphs.map((x) => [x.id, x]));
+  assert.equal(empty.people.headline, 'Nobody used the account this week, as far as this computer knows.');
+  assert.equal(empty.stages.headline, 'Nothing recorded for your jobs in October yet.');
+  assert.equal(empty.models.headline, 'Nothing recorded yet.');
 });
 
 test('words for times and days', () => {
@@ -383,7 +335,7 @@ async function startDashboard(prepare = async () => {}) {
   return { base, dirs, write, stop, output };
 }
 
-test('GET /api/telemetry: the five datasets for the window, from usage.jsonl in the state folder', { timeout: 60_000 }, async () => {
+test('GET /api/telemetry: the ten graphs for the window, from usage.jsonl in the state folder', { timeout: 60_000 }, async () => {
   // The fixture moved so that its "now" is this moment.
   const shift = Date.now() - Date.parse(NOW);
   const move = (t) => (t ? new Date(Date.parse(t) + shift).toISOString() : t);
@@ -399,10 +351,9 @@ test('GET /api/telemetry: the five datasets for the window, from usage.jsonl in 
     assert.equal(body.me, 'vignesh');
     assert.equal(body.file, path.join(d.dirs.state, 'usage.jsonl'));
     assert.equal(body.meters.enabled, false, 'demo mode reads no plan usage');
-    assert.deepEqual(body.datasets.map((x) => [x.id, x.audience]), [['gauge', 'common'], ['by-day-job', 'private'], ['cost', 'private'], ['by-model', 'common'], ['people', 'common']]);
-    const people = body.datasets.find((x) => x.id === 'people');
+    const people = body.graphs.find((x) => x.id === 'people');
     // The fixture's readings are six hours apart: no short stretch, so no percent per dollar, dollars alone.
-    assert.deepEqual(people.people, [{ user: 'vignesh', usd: 34.5, percent: null }, { user: 'sohum', usd: 9, percent: null }]);
+    assert.deepEqual(people.data.people, [{ user: 'vignesh', usd: 34.5, percent: null }, { user: 'sohum', usd: 9, percent: null }]);
     assert.equal(body.limits.week.state, 'no-ratio');
     // The ten insight graphs, each with its id, in order, each with a finding and a What to do line.
     assert.deepEqual(body.graphs.map((g) => [g.n, g.id]), GRAPH_IDS.map((id, i) => [i + 1, id]));
@@ -410,12 +361,11 @@ test('GET /api/telemetry: the five datasets for the window, from usage.jsonl in 
     assert.equal(typeof body.sources.audit, 'boolean');
     assert.equal(typeof body.sources.jobs, 'boolean');
     assert.match(body.limits.note, /outside this app/);
-    const gauge = body.datasets.find((x) => x.id === 'gauge');
-    assert.equal(gauge.forecast.fullAt, move('2026-10-29T03:48:00.000Z'));
-    assert.match(gauge.sentence, /^At this pace, full on \w+day \d\d:\d\d\.$/);
-    for (const x of body.datasets) assert.ok(x.sentence.length > 10, x.id);
+    const limit = body.graphs.find((x) => x.id === 'limit');
+    assert.equal(limit.data.forecast.fullAt, move('2026-10-29T03:48:00.000Z'));
+    assert.match(limit.headline, /^At this pace the week is full on \w+day \d\d:\d\d\.$/);
     assert.equal((await (await fetch(`${d.base}/api/telemetry`)).json()).window, 'week', 'this week unless asked');
-    assert.equal((await (await fetch(`${d.base}/api/telemetry?window=30d`)).json()).datasets.find((x) => x.id === 'people').people[0].usd, 131.5);
+    assert.equal((await (await fetch(`${d.base}/api/telemetry?window=30d`)).json()).graphs.find((x) => x.id === 'people').data.people[0].usd, 131.5);
     const bad = await fetch(`${d.base}/api/telemetry?window=year`);
     assert.equal(bad.status, 400);
     assert.equal((await bad.json()).error, 'The window is one of 5h, week or 30d.');
@@ -488,8 +438,8 @@ test('every turn of a sample job gives one usage line in the state folder (demo 
     assert.equal(both[0].costSource, 'cli');
     assert.equal(both[0].costUsd, 0.42, 'the pretend session’s own figure');
     // And the page's route reads them back.
-    const people = (await get('/api/telemetry?window=week')).datasets.find((x) => x.id === 'people');
-    assert.equal(people.people[0].user, 'vignesh');
+    const people = (await get('/api/telemetry?window=week')).graphs.find((x) => x.id === 'people');
+    assert.equal(people.data.people[0].user, 'vignesh');
   } finally {
     await d.stop();
   }

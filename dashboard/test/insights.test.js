@@ -337,3 +337,14 @@ test('the temp folders are lib/platform.js’s, written out so the site half sta
   const { tempDirs } = await import('../lib/insights.js');
   for (const o of [{ platform: 'darwin', tmpdir: '/var/folders/ab/T' }, { platform: 'linux', tmpdir: '/tmp' }, { platform: 'win32', tmpdir: 'C:\\Temp' }]) assert.deepEqual(tempDirs(o), platformDirs(o));
 });
+
+test('a week or month that wasn’t read is never shown as one with nothing in it', () => {
+  // Only from 20 October on was read: September and the weeks before 21 October are left out.
+  const r = byId(insights(MONTH, { readFrom: '2026-10-20T00:00:00.000Z' }));
+  assert.equal(r.stages.headline, 'Build costs 38% of your spend this month; September isn’t all in the usage read here, so no comparison yet.');
+  assert.equal(r.stages.table.rows.find((x) => x[0] === 'Build')[2], 'Not all read');
+  assert.match(r.stages.notes[0], /^Only the last 10 days of the usage log are read here/);
+  assert.deepEqual(r.models.data.bars.map((b) => b.label), ['October (part)']);
+  assert.deepEqual(r['ticket-cost'].data.weeks.map((w) => w.label), ['Week from Wed 21 Oct, 4 pm', 'Week from Wed 28 Oct, 4 pm']);
+  assert.deepEqual(r.cache.data.weeks.map((w) => w.label), ['Week from Wed 21 Oct, 4 pm', 'Week from Wed 28 Oct, 4 pm']);
+});

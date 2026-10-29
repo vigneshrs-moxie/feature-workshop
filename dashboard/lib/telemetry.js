@@ -1,32 +1,23 @@
-// Telemetry's five graphs (plan §7a.2), worked out from the usage lines (lib/usage-log.js) as pure
-// functions: the windows, the sums and the forecast, each with its one sentence in words.
-//
-//   1. gauge      Weekly limit over time: the weekly percent with its resets, the 5-hour one, and
-//                 a forecast from the last 24 hours' rise ("At this pace, full on Thursday 14:00").
-//   2. by-day-job Use by day, by job (stacked; your own jobs).
-//   3. cost       Cost per ticket and per stage, last 30 days (your own jobs).
-//   4. by-model   Share by model, one bar per plan week (Wednesday 16:00 local, or the meter's reset).
-//   5. people     People on the account, one bar per person.
-// "private" graphs carry your own work (only your lines, with job names); "common" ones are
-// about the shared account (everyone's lines, no job names), so v2 can show those to the team.
+// Telemetry's sums (packets T and P), worked out from the usage lines (lib/usage-log.js) as pure
+// functions: the windows and the plan week, percent per dollar, the meters' split into this app's
+// use and Other use, and the forecast. The ten insight graphs built on them are lib/insights.js;
+// telemetry() is what GET /api/telemetry answers. "private" graphs carry your own work (your lines,
+// with job names); "common" ones are about the shared account (no job names), so v2 can show those
+// to the team.
 //
 // Plan percent: a line's share of the weekly limit is its cost times the account's percent per
 // dollar, worked out from short stretches only (two readings minutes apart with this app's spend
 // between them; see "Other use" below), so use of the account outside this app doesn't inflate it.
 // Without meters (demo, plan usage off), or before there are enough short stretches, percents are
 // null and dollars stand alone.
-import { modelFamily, modelLabel, PRICES } from './cost.js';
 import { insightsFor } from './insights.js';
-import { STAGES } from './stages.js';
 
 const H = 3600e3;
 const DAY = 24 * H;
 export const WINDOWS = ['5h', 'week', '30d'];
 export const WINDOW_LABELS = { '5h': 'This five hours', week: 'This week', '30d': '30 days' };
-const IN_WINDOW = { '5h': 'in this five hours', week: 'this week', '30d': 'in the last 30 days' };
-// The models' fixed order: a model keeps its colour whatever else is shown.
-const MODEL_ORDER = ['opus', 'sonnet', 'haiku', 'fable'];
-const MAX_JOBS = 7; // the rest are "Other jobs"
+/** How far back the runner reads the usage log for Telemetry, unless it says (readFrom). */
+export const READ_DAYS = 31;
 
 const ms = (t) => (typeof t === 'number' ? t : Date.parse(t));
 const iso = (t) => new Date(t).toISOString();
@@ -35,7 +26,6 @@ const r2 = (n) => Math.round(n * 100) / 100;
 const r4 = (n) => Math.round(n * 1e4) / 1e4;
 export const usd = (n) => `$${(n ?? 0).toFixed(2)}`;
 export const pct = (n) => `${Math.round(n)}%`;
-const both = (u, p) => (p === null ? usd(u) : `${pct(p)} of the week (${usd(u)})`);
 
 const FORMATS = new Map(); // one Intl formatter per zone and options: making them is the slow part
 /** The clock's parts at t in the time zone (Intl's formatToParts, en-GB), as { type: value }. */
@@ -55,14 +45,6 @@ export function whenWords(t, { now, timeZone } = {}) {
 export function dayKey(t, timeZone) {
   const p = parts(t, timeZone, { year: 'numeric', month: '2-digit', day: '2-digit' });
   return `${p.year}-${p.month}-${p.day}`;
-}
-const dayLabel = (t, timeZone) => { const p = parts(t, timeZone, { weekday: 'short', day: 'numeric', month: 'short' }); return `${p.weekday} ${p.day} ${p.month}`; };
-
-/** The meters to go by: the reading given, else the newest line's. */
-function latestMeters(lines, meters) {
-  if (meters && (meters.week || meters.fiveHour)) return meters;
-  for (let i = lines.length - 1; i >= 0; i--) if (lines[i].meters?.week || lines[i].meters?.fiveHour) return lines[i].meters;
-  return { fiveHour: null, week: null };
 }
 
 // ---------- The plan week: Wednesday 16:00, local time ----------
@@ -339,6 +321,8 @@ export function riseDriver(lines, { from, to, rise, ratio }) {
   return { app: r2(app), other: r2(other), words: other > app ? 'mostly from use outside this app' : 'mostly from this app’s jobs' };
 }
 
+const MIN_PACE_SPAN = 6 * H;
+
 /**
  * When the weekly limit fills at the last 24 hours' pace: the first reading at or after a day
  * before the newest, in the same plan week, to the newest. reading: the meters' live reading
@@ -357,6 +341,8 @@ export function forecast(lines, { now, reading = null, timeZone } = {}) {
   if (last.percent >= 100) return { ...base, to, resetsAt: resetsAt && iso(resetsAt), state: 'full', sentence: `The weekly limit is used up${resetWords ? `; it resets on ${resetWords}` : ''}.` };
   const first = pts.find((p) => p.t >= last.t - DAY && p.resetsAt === last.resetsAt);
   if (!first || first.t === last.t) return { ...base, to, resetsAt: resetsAt && iso(resetsAt), state: 'unknown', sentence: 'Only one reading in the last day: not enough to say when the week fills.' };
+  // A few hours of one busy morning say little about a week: six hours of readings at the least.
+  if (last.t - first.t < MIN_PACE_SPAN) return { ...base, to, resetsAt: resetsAt && iso(resetsAt), state: 'unknown', sentence: 'Less than six hours of readings this week: too soon to say when it fills.' };
   const perHour = (last.percent - first.percent) / ((last.t - first.t) / H);
   const from = { t: iso(first.t), percent: first.percent };
   if (perHour <= 0) return { ...base, from, to, perHour: 0, resetsAt: resetsAt && iso(resetsAt), state: 'flat', sentence: `The weekly use hasn’t gone up in the last day; it is at ${pct(last.percent)}.` };
@@ -368,132 +354,29 @@ export function forecast(lines, { now, reading = null, timeZone } = {}) {
   return { ...base, from, to, perHour: r4(perHour), fullAt: iso(fullAt), resetsAt: resetsAt && iso(resetsAt), state: 'fills', sentence: `At this pace, full on ${whenWords(fullAt, { now, timeZone })}.` };
 }
 
-/** Sums of cost (and plan percent) by key, the biggest first. */
-function sums(lines, keyOf, ratio) {
-  const map = new Map();
-  for (const l of lines) {
-    const k = keyOf(l);
-    map.set(k, (map.get(k) ?? 0) + cost(l));
-  }
-  return [...map.entries()].map(([key, u]) => ({ key, usd: r2(u), percent: ratio === null ? null : r2(u * ratio) })).sort((a, b) => b.usd - a.usd || String(a.key).localeCompare(String(b.key)));
-}
-
-const stageLabel = (id) => STAGES.find((s) => s.id === id)?.label ?? (id ? String(id) : 'No stage');
-const modelKey = (m) => modelFamily(m) ?? (m ? String(m) : 'unknown');
-const modelSlot = (key) => { const i = MODEL_ORDER.indexOf(key); return i >= 0 ? i + 1 : Math.min(8, MODEL_ORDER.length + 1); };
-const modelName = (key) => PRICES[key]?.label ?? modelLabel(key);
-
 /**
  * Everything the Telemetry page draws for one window. lines: the last 30 days' (or more) usage
- * lines. me: the Ground Control user (the private graphs keep only their lines; all when null).
+ * lines. me: this computer's user (the private graphs keep only their lines; all when null).
  * meters: the plan meters' live reading ({ fiveHour, week, checkedAt }), else the newest line's.
- * titles: job slug → title. timeZone: for days and times (the computer's own when omitted).
+ * titles: job slug → title. jobs: the job list ([{ slug, title, route, finished, finishedAt, dir }])
+ * and audit: the audit lines, when the runner hands them in (graphs 2, 6, 7 and 8 use them).
+ * readFrom: where the lines read start (the runner's last 31 days when omitted; null: all there is),
+ * so a graph never shows a week or month that wasn't read as one with nothing in it.
+ * timeZone: for days, times and the plan week (the computer's own when omitted).
  */
-export function telemetry(allLines, { window = 'week', now = new Date(), me = null, meters = null, titles = {}, timeZone, shortStretch = SHORT_STRETCH, jobs: jobList = null, audit = null } = {}) {
+export function telemetry(allLines, { window = 'week', now = new Date(), me = null, meters = null, titles = {}, timeZone, shortStretch = SHORT_STRETCH, jobs = null, audit = null, readFrom = undefined } = {}) {
   if (!WINDOWS.includes(window)) throw new RangeError('The window is one of 5h, week or 30d.');
   const end = ms(now);
-  const sorted = [...allLines].filter((l) => Number.isFinite(ms(l.t)) && ms(l.t) <= end).sort((a, b) => ms(a.t) - ms(b.t));
-  const month = sorted.filter((l) => ms(l.t) >= end - 30 * DAY);
-  const m = latestMeters(sorted, meters);
-  const { from, to } = windowRange(window, { now: end, meters: m, timeZone });
-  const inWindow = month.filter((l) => ms(l.t) >= from);
-  const mine = (list) => (me ? list.filter((l) => l.user === me) : list);
-  // The ten insight graphs (lib/insights.js), from the cleaned record; percent per dollar and the
-  // two meters' splits (this app's people and Other use) come with them.
-  const ins = insightsFor(allLines, { window, now: end, me, meters, timeZone, titles, jobs: jobList, audit, shortStretch });
-  const ratio = ins.ratio;
-  const words = IN_WINDOW[window];
-  const title = (slug) => titles[slug] ?? slug ?? 'No job';
-  const reading = meters?.checkedAt ? { t: meters.checkedAt, week: meters.week, fiveHour: meters.fiveHour } : null;
-  const limits = ins.limits;
-  const weekSplit = limits.week;
-
-  // 1. The weekly limit over time. The forecast's pace is the meter's (everything on the account);
-  // its driver says which part is pushing it.
-  const fc0 = forecast(sorted, { now: end, reading, timeZone });
-  const fc = { ...fc0, driver: fc0.from && fc0.to ? riseDriver(sorted, { from: fc0.from.t, to: fc0.to.t, rise: fc0.to.percent - fc0.from.percent, ratio }) : null };
-  const gauge = {
-    id: 'gauge', title: 'Weekly limit over time', audience: 'common', from: iso(from), to: iso(to),
-    points: inWindow.filter((l) => l.meters?.week || l.meters?.fiveHour).map((l) => ({ t: l.t, week: l.meters?.week?.percent ?? null, fiveHour: l.meters?.fiveHour?.percent ?? null })),
-    resets: [...new Set(month.map((l) => l.meters?.week?.resetsAt).filter(Boolean))].filter((r) => Date.parse(r) >= from && Date.parse(r) <= end).sort(),
-    forecast: fc,
-    split: limits.week,
-    sentence: fc.sentence,
-  };
-
-  // 2. Use by day, by job (your own). Colours follow the job: its place by the 30 days' use.
-  const ranked = sums(mine(month), (l) => l.job ?? null, ratio).map((s) => s.key);
-  const slotOf = new Map(ranked.slice(0, MAX_JOBS).map((slug, i) => [slug, i + 1]));
-  const jobKey = (slug) => (slotOf.has(slug) ? slug : 'other');
-  const myWindow = mine(inWindow);
-  const jobTotals = sums(myWindow, (l) => jobKey(l.job ?? null), ratio);
-  const jobs = jobTotals.map((s) => ({ slug: s.key === 'other' ? null : s.key, key: s.key, title: s.key === 'other' ? 'Other jobs' : title(s.key), slot: s.key === 'other' ? 'other' : slotOf.get(s.key), usd: s.usd, percent: s.percent }))
-    .sort((a, b) => (a.slot === 'other') - (b.slot === 'other') || a.slot - b.slot);
-  const dayKeys = [];
-  for (let t = from; t < end; t += 6 * H) if (!dayKeys.includes(dayKey(t, timeZone))) dayKeys.push(dayKey(t, timeZone));
-  if (!dayKeys.includes(dayKey(end, timeZone))) dayKeys.push(dayKey(end, timeZone));
-  const days = dayKeys.map((day) => {
-    const list = myWindow.filter((l) => dayKey(l.t, timeZone) === day);
-    const at = list[0] ? ms(list[0].t) : Date.parse(`${day}T12:00:00Z`);
-    const segs = sums(list, (l) => jobKey(l.job ?? null), ratio);
-    return {
-      day, label: dayLabel(at, timeZone), usd: r2(list.reduce((s, l) => s + cost(l), 0)), percent: ratio === null ? null : r2(list.reduce((s, l) => s + cost(l), 0) * ratio),
-      parts: jobs.map((j) => segs.find((s) => s.key === j.key)).filter(Boolean).map((s) => ({ key: s.key, usd: s.usd, percent: s.percent })),
-    };
-  });
-  const topJob = jobTotals[0];
-  const byDayJob = {
-    id: 'by-day-job', title: 'Use by day, by job', audience: 'private', unit: ratio === null ? 'usd' : 'percent', jobs, days,
-    sentence: topJob ? `${topJob.key === 'other' ? 'Other jobs' : title(topJob.key)} used the most ${words}: ${both(topJob.usd, topJob.percent)}.` : `None of your jobs used Claude ${words}.`,
-  };
-
-  // 3. Cost per ticket and per stage, the last 30 days (your own).
-  const myMonth = mine(month);
-  const tickets = sums(myMonth, (l) => (l.ticket ? l.ticket : `job:${l.job ?? ''}`), ratio).map((s) => ({ key: s.key, label: s.key.startsWith('job:') ? `${title(s.key.slice(4) || null)} (no ticket)` : s.key, usd: s.usd, percent: s.percent }));
-  const stages = sums(myMonth, (l) => l.stage ?? null, ratio).map((s) => ({ key: s.key, label: stageLabel(s.key), usd: s.usd, percent: s.percent }));
-  const costData = {
-    id: 'cost', title: 'Cost per ticket and per stage', audience: 'private', span: '30d', tickets, stages,
-    sentence: tickets.length
-      ? `${tickets[0].label} cost the most in the last 30 days: ${usd(tickets[0].usd)}${tickets[0].percent === null ? '' : ` (${pct(tickets[0].percent)} of a week)`}; the costliest stage was ${stages[0].label} at ${usd(stages[0].usd)}${stages[0].percent === null ? '' : ` (${pct(stages[0].percent)})`}.`
-      : 'Nothing recorded for your jobs in the last 30 days.',
-  };
-
-  // 4. Share by model, one bar per plan week (cut to the window), the newest first.
-  const weeks = [];
-  for (const pw of planWeeks({ now: end, from, meters: m, timeZone })) {
-    const lo = Math.max(pw.from, from);
-    const list = inWindow.filter((l) => ms(l.t) >= lo && ms(l.t) < Math.min(pw.to, end + 1));
-    const total = list.reduce((s, l) => s + cost(l), 0);
-    const segs = sums(list, (l) => modelKey(l.model), null).map((s) => ({ key: s.key, usd: s.usd, share: total > 0 ? r4(s.usd / total) : 0 })).sort((a, b) => modelSlot(a.key) - modelSlot(b.key));
-    weeks.push({ from: iso(lo), to: iso(Math.min(pw.to, end)), label: pw.label, usd: r2(total), parts: segs });
-  }
-  const models = [...new Set(weeks.flatMap((w) => w.parts.map((p) => p.key)))].sort((a, b) => modelSlot(a) - modelSlot(b)).map((key) => ({ key, label: modelName(key), slot: modelSlot(key) }));
-  const latest = weeks.find((w) => w.usd > 0);
-  const topModel = latest ? [...latest.parts].sort((a, b) => b.usd - a.usd)[0] : null;
-  const byModel = {
-    id: 'by-model', title: 'Share by model', audience: 'common', models, weeks,
-    sentence: topModel ? `${modelName(topModel.key)} did ${pct(topModel.share * 100)} of the work by cost ${latest === weeks[0] ? words : `in the week ${latest.label}`}.` : `Nothing recorded ${words}.`,
-  };
-
-  // 5. People on the account: names only.
-  const people = sums(inWindow, (l) => l.user ?? 'unknown', ratio).map((s) => ({ user: s.key, usd: s.usd, percent: s.percent }));
-  // Others: use outside this app, for the plan week only (the meter it comes from is the week's).
-  const others = window === 'week' && weekSplit.state === 'split' ? { label: 'Others', percent: weekSplit.other, estimated: true, note: OTHERS_ROW } : null;
-  const othersWords = others && others.percent >= 1 ? ` Others (outside this app) ${pct(others.percent)}, estimated.` : '';
-  const peopleData = {
-    id: 'people', title: 'People on the account', audience: 'common', people, others,
-    sentence: (!people.length ? `Nobody used the account ${words} in this app, as far as this computer knows.`
-      : people.length === 1 ? `Only ${people[0].user} used the account ${words}: ${both(people[0].usd, people[0].percent)}.`
-        : `${people[0].user} used the most ${words}: ${both(people[0].usd, people[0].percent)}; ${people.slice(1).map((p) => `${p.user} ${p.percent === null ? usd(p.usd) : `${pct(p.percent)} (${usd(p.usd)})`}`).join(', ')}.`) + othersWords,
-  };
-
+  // Where the lines read start: the runner reads the last 31 days unless it says otherwise.
+  const from = readFrom === undefined ? end - READ_DAYS * DAY : readFrom;
+  const ins = insightsFor(allLines, { window, now: end, me, meters, timeZone, titles, jobs, audit, shortStretch, readFrom: from });
   return {
-    window, windowLabel: WINDOW_LABELS[window], from: iso(from), to: iso(to), me, percentPerDollar: ratio === null ? null : r4(ratio), lines: inWindow.length,
-    limits,
+    window, windowLabel: WINDOW_LABELS[window], from: iso(ins.from), to: iso(end), me,
+    percentPerDollar: ins.ratio === null ? null : r4(ins.ratio),
+    lines: ins.record.rows.filter((r) => r.ms >= ins.from).length,
+    limits: ins.limits,
     graphs: ins.graphs,
     // Which sources the graphs had: the audit log (send-backs, answers) and the job list (route size, the finish line).
-    sources: { audit: Array.isArray(audit), jobs: Array.isArray(jobList) },
-    // The five graphs of the first Telemetry page, kept until the page moves to the ten above.
-    datasets: [gauge, byDayJob, costData, byModel, peopleData],
+    sources: { audit: Array.isArray(audit), jobs: Array.isArray(jobs) },
   };
 }
