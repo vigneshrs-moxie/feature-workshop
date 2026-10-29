@@ -52,3 +52,20 @@ Data wrangling (packet P): drop demo and test-folder lines (the same isTemp rule
 ## Settings → Look (new section, from c-desk and c-jobs)
 
 Desk layout (One at a time / Three columns), Jobs layout (Four lanes / One list), Play (full / subtle / off) and the theme, in one place.
+
+# Review 2 (2026-10-29): approved
+
+Vignesh on revision 2: "the design is great … everything else looks great." Every screen on the page is approved as drawn, and M can start at step 2. Two additions:
+
+1. **Telemetry's week starts Wednesday 16:00, local time** (America/Phoenix; the Claude plan's weekly reset). "This week" and every per-week graph use the weekly meter's reset when there is a reading, and Wednesday 16:00 local otherwise and for past weeks. Never Monday, never a rolling seven days. Packet P.
+2. **Classic view becomes an easter egg.** It isn't shown or mentioned anywhere in the new app: no top-bar link, no gear-menu item, no help text, no key sheet or Settings → Keys line. The one way in from the new app: open the command box (⌘K, or Ctrl+K) and type `classic`, then Enter. That command only appears on the exact word, never in the list. The classic page itself still works at its address and keeps its "New view" button back. Packet M.
+
+The questions revision 2 left open take what the page draws:
+- Lanes: Paused stays in Working with a ⏸ chip and when it carries on; Idle folds under "Resting" and Done under "Done", below the board.
+- Phone top bar: the short form (the mark, the page name, the Desk count and a ☰ menu).
+- The old Home, Flow map and Table views: kept, in the new look, under the gear (step 4's rule: they go only if the review says so).
+- Telemetry's Read now key: `r`, on Telemetry only.
+- Play mode is set in Settings → Look as drawn; Settings → Play keeps the sounds and the rest and shows the same mode.
+- Play subtle shows no crew (crew is Play full only, as review 1 said).
+- The permission alert offers "Always allow for this job"; rules for every job stay in Settings as today.
+- On the Stage, `[` and `]` move to the previous and next stop, beside the ‹ › buttons, and are listed in Settings → Keys.

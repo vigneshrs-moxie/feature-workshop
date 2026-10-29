@@ -15,6 +15,7 @@
 `dashboard/lib/telemetry.js`, `dashboard/lib/insights.js` (new), `dashboard/site/routes-telemetry.js`, `web/src/views/Telemetry.tsx`, `Telemetry.css`, `Telemetry.test.tsx` and any new files under `web/src/views/Telemetry/`, Telemetry's entries in `web/src/app/keyRegistry.ts`, the Telemetry shapes in `web/src/api/types.ts`, `dashboard/test/telemetry.test.js` and `dashboard/test/insights.test.js` (new).
 
 ## Steps
+0. **The plan week starts Wednesday 16:00, local time** (Vignesh, 2026-10-29: the Claude plan's weekly reset; his Mac is on America/Phoenix, no daylight time). `windowRange('week')` uses the weekly meter's reset when there is a reading, and otherwise the last Wednesday 16:00 in the dashboard's local time zone, not the rolling seven days it falls back to today. Every per-week graph (2, 6, 7, 10, and the model share) buckets on the same Wednesday-16:00 boundaries, and its labels say so ("Week from Wed 28 Oct, 4 pm"). Tests cover a reading, no reading, a line just before and just after 16:00 on a Wednesday, and a time zone with daylight time.
 1. **The cleaned record** (`insights.js`): one pass that reads the usage lines and gives every graph the same tidy rows.
    - Drop demo lines and lines from test folders (the `isTemp` rule).
    - Count each turn once: a turn's lines share a `turn` id; sums never add a turn's cost twice.
