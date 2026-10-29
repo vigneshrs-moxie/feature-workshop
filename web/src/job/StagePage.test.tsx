@@ -11,6 +11,7 @@ import { UiProvider } from '../app/ui';
 import { createStore, WorkshopContext } from '../state/store';
 import { job, permission, snapshot } from '../state/test-fixtures';
 import { forHowLong, StagePage } from './StagePage';
+import { pickOption } from '../components/Select.testing';
 
 const at = (minAgo: number) => new Date(Date.now() - minAgo * 60_000).toISOString();
 const agent = (who: string, extra: Partial<StageAgent> = {}): StageAgent => ({
@@ -88,7 +89,7 @@ describe('the Stage', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/stage/build/terminal', { ref: 'foreman' }));
     fireEvent.click(within(who).getByRole('button', { name: /Open the job’s folder in a terminal/ }));
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/local', { action: 'open', what: 'terminal' }));
-    fireEvent.change(within(who).getByRole('combobox', { name: 'Terminal app' }), { target: { value: 'Terminal' } });
+    pickOption(within(who).getByRole('combobox', { name: 'Terminal app' }), 'Terminal');
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/local', { action: 'terminal-app', name: 'Terminal' }));
   });
 

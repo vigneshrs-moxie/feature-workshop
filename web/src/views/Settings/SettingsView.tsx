@@ -32,6 +32,7 @@ import { WorkflowSettings } from './WorkflowSettings';
 import { OrbitTokenSettings } from './OrbitTokenSettings';
 import { ReposSettings } from './ReposSettings';
 import { FIRST_SECTION, findSettings, SECTION_WORDS, stepSection, valueLines, type SettingEntry } from './sections';
+import { Choice } from '../../components/Choice';
 
 type Load = { state: 'loading' } | { state: 'ready'; list: RulesList } | { state: 'error'; message: string };
 
@@ -117,7 +118,7 @@ function PolicyChoice() {
           const off = p.id === 'auto' && blocked !== null && current !== 'auto';
           return (
             <label key={p.id} className={`rule-option${current === p.id ? ' is-picked' : ''}${off ? ' is-off' : ''}`} title={off ? blocked ?? undefined : p.hint}>
-              <input type="radio" name="policy" value={p.id} checked={current === p.id} disabled={off} onChange={() => void post({ policy: p.id })} />
+              <Choice type="radio" name="policy" value={p.id} checked={current === p.id} disabled={off} onChange={() => void post({ policy: p.id })} />
               <span className="rule-option-body">
                 <span className="rule-option-kind">{p.label}{p.id === 'hands-off' && <span className="chip">Default</span>}</span>
                 <span className="muted">{p.note}</span>

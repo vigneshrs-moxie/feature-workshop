@@ -22,6 +22,8 @@ import { readStored, writeStored } from '../../lib/stored';
 import { relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { LevelPicker } from './LevelPicker';
+import { Choice } from '../../components/Choice';
+import { Select } from '../../components/Select';
 
 export const LAST_REPO_KEY = 'fw.newJob.repo';
 const OTHER = '__other';
@@ -88,7 +90,7 @@ function PastConversation({ picked, onPick, mode, onMode, canContinue }: {
         {!picked.repo && <p className="perm-warn">That conversation ran in {picked.cwd ?? 'an unknown folder'}, which isn’t a git repository. Pick the repository this job is for above.</p>}
         <div className="rule-options">
           <label className={`rule-option${mode === 'summary' ? ' is-picked' : ''}`} title="The Foreman reads a short extract of it, saved as history.md in the job’s private folder. Cheap, and a clean start.">
-            <input type="radio" name="fromMode" checked={mode === 'summary'} onChange={() => onMode('summary')} />
+            <Choice type="radio" name="fromMode" checked={mode === 'summary'} onChange={() => onMode('summary')} />
             <span className="rule-option-body">
               <span className="rule-option-kind">Fresh Foreman with a summary<span className="chip">Recommended</span></span>
               <span className="muted">It reads what you asked, the files changed, the branch and how it ended.</span>
@@ -98,7 +100,7 @@ function PastConversation({ picked, onPick, mode, onMode, canContinue }: {
             className={`rule-option${mode === 'continue' ? ' is-picked' : ''}${continueOff ? ' is-off' : ''}`}
             title={continueOff ?? 'A copy of the conversation becomes the Foreman, so it remembers everything said. Your original stays as it was.'}
           >
-            <input type="radio" name="fromMode" checked={mode === 'continue'} disabled={Boolean(continueOff)} onChange={() => onMode('continue')} />
+            <Choice type="radio" name="fromMode" checked={mode === 'continue'} disabled={Boolean(continueOff)} onChange={() => onMode('continue')} />
             <span className="rule-option-body">
               <span className="rule-option-kind">Continue that conversation</span>
               <span className="muted">{continueOff ?? `It remembers everything said, and costs more: ${size ? `about ${size} tokens` : 'the whole conversation'} re-read on every reply.`}</span>
@@ -276,17 +278,17 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
           <div className="seg" role="radiogroup" aria-label="Kind">
             <span className="seg-label muted">Kind</span>
             <label className={kind === 'feature' ? 'seg-option is-picked' : 'seg-option'} title="Something new, or a change to how something works.">
-              <input type="radio" name="kind" value="feature" checked={kind === 'feature'} onChange={() => setKind('feature')} /> Feature
+              <Choice type="radio" name="kind" value="feature" checked={kind === 'feature'} onChange={() => setKind('feature')} /> Feature
             </label>
             <label className={kind === 'bug' ? 'seg-option is-picked' : 'seg-option'} title="Something that’s broken. The Foreman starts by finding the cause.">
-              <input type="radio" name="kind" value="bug" checked={kind === 'bug'} onChange={() => setKind('bug')} /> Bug fix
+              <Choice type="radio" name="kind" value="bug" checked={kind === 'bug'} onChange={() => setKind('bug')} /> Bug fix
             </label>
           </div>
 
           <LevelPicker levels={meta?.levels} value={level} suggestion={suggestion} byHand={picked !== null} onPick={setPicked} disabled={busy} />
 
           <label className="rule-option sheet-field" data-setting="run-as-stack" title="For a big ticket: the work is split into parts that are built side by side, then joined in order.">
-            <input type="checkbox" checked={asStack} onChange={(e) => setAsStack(e.target.checked)} disabled={busy} />
+            <Choice type="checkbox" checked={asStack} onChange={(e) => setAsStack(e.target.checked)} disabled={busy} />
             <span className="rule-option-body">
               <span className="rule-option-kind">Run as a stack</span>
               <span className="muted">For a big ticket: the Foreman splits the work into parts that are built side by side, then joined in order. You check the parts on the Stack page before anything is built.</span>
@@ -294,18 +296,19 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
           </label>
 
           <label className="field sheet-field" htmlFor={repoId}><span>Repository</span></label>
-          <select
+          <Select
             id={repoId}
-            className="select"
+            className="sheet-select"
             value={repo}
-            onChange={(e) => setRepo(e.target.value)}
+            onChange={setRepo}
             disabled={repos.state === 'loading'}
             title="The git repository the job works in. The ones you used most recently with Claude Code are listed first."
-          >
-            {repos.state === 'loading' && <option value="">Loading your repositories…</option>}
-            {options.map((r) => <option key={r.path} value={r.path}>{r.name} — {r.path}</option>)}
-            <option value={OTHER}>Another folder…</option>
-          </select>
+            options={[
+              ...(repos.state === 'loading' ? [{ value: '', label: 'Loading your repositories…' }] : []),
+              ...options.map((r) => ({ value: r.path, label: `${r.name} — ${r.path}`, text: r.name })),
+              { value: OTHER, label: 'Another folder…' },
+            ]}
+          />
           {repos.state === 'error' && <p className="muted sheet-fine">Couldn’t list your repositories ({repos.message}). Type the folder’s path instead.</p>}
           {repo === OTHER && (
             <>
@@ -327,7 +330,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
             <span className="seg-label muted">Foreman model</span>
             {models.map((m) => (
               <label key={m.id} className={`rule-option${model === m.id ? ' is-picked' : ''}`} title={`Run this job’s Foreman on ${m.label}. You can change it for any later message.`}>
-                <input type="radio" name="model" value={m.id} checked={model === m.id} onChange={() => setModel(m.id)} />
+                <Choice type="radio" name="model" value={m.id} checked={model === m.id} onChange={() => setModel(m.id)} />
                 <span className="rule-option-body">
                   <span className="rule-option-kind">{m.label}</span>
                   {m.note && <span className="muted">{m.note}</span>}

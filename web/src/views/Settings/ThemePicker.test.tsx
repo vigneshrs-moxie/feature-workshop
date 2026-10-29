@@ -48,6 +48,7 @@ describe('theme picker and the hidden themes', () => {
   });
 
   it('draws each theme as a swatch in its own tokens, the name under it, and marks the chosen one with a word and a ring; its description is the line under the grid, and every card’s title', () => {
+    localStorage.setItem(THEME_KEY, 'default');
     setup();
     const option = (id: string) => screen.getByRole('radio', { name: new RegExp(`^${id === 'default' ? 'Default' : 'Light glass'}`) }).closest('label')!;
     const swatch = option('default').querySelector('.theme-swatch')!;
@@ -109,9 +110,9 @@ describe('theme picker and the hidden themes', () => {
     fireEvent.click(screen.getByRole('radio', { name: /Gold/ }));
     expect(currentTheme()).toBe('gold');
     await vi.waitFor(() => expect(post).toHaveBeenCalledWith('/api/play/event', { kind: 'theme', id: 'gold' }));
-    // Locked again (Play turned Off): it gives way to the default and leaves the list.
+    // Locked again (Play turned Off): it gives way to the default (Light) and leaves the list.
     act(() => setThemeUnlocks({}));
-    expect(currentTheme()).toBe('default');
+    expect(currentTheme()).toBe('light');
     expect(screen.queryByRole('radio', { name: /Gold/ })).toBeNull();
   });
 });

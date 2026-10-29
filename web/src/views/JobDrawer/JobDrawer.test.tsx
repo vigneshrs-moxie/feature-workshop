@@ -9,6 +9,7 @@ import { job, LEVELS, REVIEWERS, snapshot } from '../../state/test-fixtures';
 import { JobDrawer } from './JobDrawer';
 import { NOTES_HINT } from './NotesEditor';
 import { ALWAYS_NOTES, FOREMAN_MODEL_NOTE, OPTIONS_CHANGED } from './OptionsEditor';
+import { pickOption, optionWords } from '../../components/Select.testing';
 
 // Invented job, notes and paths only.
 const OPUS = 'claude-opus-5-5';
@@ -265,7 +266,7 @@ describe('Job drawer · options', () => {
     expect(foreman).toHaveTextContent('Opus 5.5');
     expect(foreman).toHaveTextContent(FOREMAN_MODEL_NOTE);
     expect(FOREMAN_MODEL_NOTE).toBe('Set when the job started; change it with the Foreman model menu under the message box.');
-    expect(within(screen.getByRole('combobox', { name: /Checks/ })).getAllByRole('option').map((o) => o.textContent)).toEqual(['Opus 5.5', 'Fable 5.1', 'Sonnet 5.5', 'Haiku 5.5']);
+    expect(optionWords(screen.getByRole('combobox', { name: /Checks/ }))).toEqual(['Opus 5.5', 'Fable 5.1', 'Sonnet 5.5', 'Haiku 5.5']);
     expect(screen.getByRole('textbox', { name: 'Process notes' })).toHaveValue('Keep it small.');
     const save = screen.getByRole('button', { name: 'Save options' });
     expect(save).toBeDisabled();
@@ -275,7 +276,7 @@ describe('Job drawer · options', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /^Locksmith/ }));
     fireEvent.click(screen.getByRole('radio', { name: '3' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Before PR #1 opens' }));
-    fireEvent.change(screen.getByRole('combobox', { name: /Checks/ }), { target: { value: HAIKU } });
+    pickOption(screen.getByRole('combobox', { name: /Checks/ }), HAIKU);
     fireEvent.click(screen.getByRole('checkbox', { name: 'Plan' }));
     expect(screen.getByRole('tab', { name: 'Options (unsaved changes)' })).toBeInTheDocument();
     fireEvent.click(save);
@@ -300,7 +301,7 @@ describe('Job drawer · options', () => {
     expect(screen.getByRole('checkbox', { name: 'Spec' })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: /^Refine/ })).toBeChecked();
     expect(screen.getByRole('radio', { name: 'Auto' })).toBeChecked();
-    expect(screen.getByRole('combobox', { name: /Checks/ })).toHaveValue(SONNET);
+    expect(screen.getByRole('combobox', { name: /Checks/ })).toHaveAttribute('data-value', SONNET);
     expect(screen.getByRole('radio', { name: '2' })).toBeChecked(); // fix rounds kept
     // Change a few things, then Reset to L2's defaults (fix rounds back to 1, notes kept).
     fireEvent.click(screen.getByRole('checkbox', { name: 'After the spec is written' }));
@@ -324,8 +325,8 @@ describe('Job drawer · options', () => {
     const { post } = await openOptions({ options: { ...L1, manual_test: false, models: { foreman: FABLE, build: SONNET, checks: OPUS } } });
     fireEvent.click(screen.getByRole('radio', { name: /^L2 Standard/ }));
     expect(screen.getByRole('checkbox', { name: 'I test it by hand before review' })).not.toBeChecked();
-    expect(screen.getByRole('combobox', { name: /Build/ })).toHaveValue(SONNET);
-    expect(screen.getByRole('combobox', { name: /Checks/ })).toHaveValue(SONNET); // follows L2
+    expect(screen.getByRole('combobox', { name: /Build/ })).toHaveAttribute('data-value', SONNET);
+    expect(screen.getByRole('combobox', { name: /Checks/ })).toHaveAttribute('data-value', SONNET); // follows L2
     fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     expect(post.mock.calls[0][1].options).toMatchObject({ level: 2, manual_test: false, models: { foreman: FABLE, build: SONNET, checks: SONNET } });
@@ -333,7 +334,7 @@ describe('Job drawer · options', () => {
     fireEvent.click(await screen.findByRole('radio', { name: /^L3 Large/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Reset to level defaults' }));
     expect(screen.getByRole('checkbox', { name: 'I test it by hand before review' })).toBeChecked();
-    expect(screen.getByRole('combobox', { name: /Build/ })).toHaveValue(OPUS);
+    expect(screen.getByRole('combobox', { name: /Build/ })).toHaveAttribute('data-value', OPUS);
     fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
     expect(post.mock.calls[1][1].options.models).toEqual({ foreman: FABLE, build: OPUS, checks: SONNET });

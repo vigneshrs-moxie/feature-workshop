@@ -1,6 +1,6 @@
 /* Daylight: the calm layer shared by the two light themes, Light and Light glass. Loaded after both
    theme files, so it settles what they leave busy. It borrows a studio's drafting-table manner:
-   IBM Plex for words and for paths and branches; small upper-case section labels with air between
+   IBM Plex for words and for paths and branches (Light glass only since packet R); small upper-case section labels with air between
    the letters; flat, tinted panels instead of boxes inside boxes; hairline rules rather than borders
    on every side; rounded pills for kinds of thing; the accent kept for the one main action and the
    open job. Looks only, as every theme (theme/THEMING.md): nothing moves, hides or changes meaning.
@@ -15,26 +15,19 @@
 @font-face { font-family: 'IBM Plex Mono'; src: url('/fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2'); font-weight: 500; font-display: swap; }
 @font-face { font-family: 'IBM Plex Mono'; src: url('/fonts/ibm-plex-mono-latin-600-normal.woff2') format('woff2'); font-weight: 600 700; font-display: swap; }
 
-:is(html[data-theme="light"], html[data-theme="light-glass"]) {
+html[data-theme="light-glass"] {
   --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-display: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --card-radius: 12px;
   --chip-radius: 999px;
 }
-html[data-theme="light"] {
-  /* A cool drafting-table grey ground; panes and cards white on it. */
-  --bg-0: oklch(.99 .002 230);
-  --bg-1: oklch(.968 .005 230);
-  --bg-2: oklch(.952 .006 230);
-  --border-1: oklch(.3 .02 230 / .09);
-  --border-2: oklch(.3 .02 230 / .15);
-  --shadow-1: 0 1px 2px oklch(0 0 0 / .05);
-}
+/* Light (the default, packet R) keeps the app's UI font, 6 px chips, its own white page and the
+   shared controls (components/controls.css); only the calm layout rules below apply to it. */
 
 /* ---- Type: one family, quiet weights, labels in small capitals ---- */
-:is(html[data-theme="light"], html[data-theme="light-glass"]) body { font-family: var(--font-sans); letter-spacing: 0; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) :is(code, kbd, pre, .num, .inline-code, .kbd, .job-row-time, .doc-time, .thread-time) { font-family: var(--font-mono); }
+html[data-theme="light-glass"] body { font-family: var(--font-sans); letter-spacing: 0; }
+html[data-theme="light-glass"] :is(code, kbd, pre, .num, .inline-code, .kbd, .job-row-time, .doc-time, .thread-time) { font-family: var(--font-mono); }
 :is(html[data-theme="light"], html[data-theme="light-glass"]) :is(.pane-title, .job-title, .brand) { font-weight: 600; letter-spacing: -.005em; }
 :is(html[data-theme="light"], html[data-theme="light-glass"]) .pane-title:not(.job-title) { font-size: var(--text-xs); color: var(--text-2); text-transform: uppercase; letter-spacing: .12em; }
 :is(html[data-theme="light"], html[data-theme="light-glass"]) :is(.job-group-title, .doc-group-title) { font-size: 11px; font-weight: 600; letter-spacing: .12em; color: var(--text-3); }
@@ -45,13 +38,13 @@ html[data-theme="light"] {
 :is(html[data-theme="light"], html[data-theme="light-glass"]) .topbar .btn:not(.btn-primary) { border-color: transparent; background: transparent; box-shadow: none; color: var(--text-2); }
 :is(html[data-theme="light"], html[data-theme="light-glass"]) .topbar .btn:not(.btn-primary):hover { background: var(--bg-2); color: var(--text-1); }
 
-/* ---- Controls: soft fills, no outline box unless it's a field ---- */
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .btn { border-radius: 8px; font-weight: 500; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .btn-primary { background: var(--accent); border-color: transparent; color: var(--on-accent); box-shadow: none; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .btn-primary:hover { background: var(--accent-strong); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) :is(.chip, .level-chip) { border-color: transparent; background: var(--bg-2); color: var(--text-2); font-weight: 500; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .kbd { border-color: var(--border-1); background: transparent; color: var(--text-3); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) :is(.text-input, .text-area, .select) { border-radius: 10px; border-color: var(--border-2); box-shadow: none; }
+/* ---- Controls (Light glass only; Light uses the shared controls): soft fills, no outline box unless it's a field ---- */
+html[data-theme="light-glass"] .btn { border-radius: 8px; font-weight: 500; }
+html[data-theme="light-glass"] .btn-primary { background: var(--accent); border-color: transparent; color: var(--on-accent); box-shadow: none; }
+html[data-theme="light-glass"] .btn-primary:hover { background: var(--accent-strong); }
+html[data-theme="light-glass"] :is(.chip, .level-chip) { border-color: transparent; background: var(--bg-2); color: var(--text-2); font-weight: 500; }
+html[data-theme="light-glass"] .kbd { border-color: var(--border-1); background: transparent; color: var(--text-3); }
+html[data-theme="light-glass"] :is(.text-input, .text-area, .select) { border-radius: 10px; border-color: var(--border-2); box-shadow: none; }
 
 /* ---- Jobs list: rows are text on the pane, the open one a tinted bar ---- */
 :is(html[data-theme="light"], html[data-theme="light-glass"]) .job-row { border-color: transparent; border-radius: 10px; background: transparent; box-shadow: none; }
@@ -88,9 +81,9 @@ html[data-theme="light"] {
 :is(html[data-theme="light"], html[data-theme="light-glass"]) .floor-eyebrow,
 :is(html[data-theme="light"], html[data-theme="light-glass"]) .map-group-title { font-size: 11px; font-weight: 600; letter-spacing: .12em; }
 :is(html[data-theme="light"], html[data-theme="light-glass"]) .home-views { border-color: transparent; background: var(--bg-2); border-radius: 10px; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .home-seg-btn { border-color: transparent; border-radius: 999px; background: var(--bg-2); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .home-seg-btn.is-on { border-color: transparent; background: var(--text-1); color: var(--bg-0); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .home-seg-btn.is-on .count { color: inherit; opacity: .75; }
+html[data-theme="light-glass"] .home-seg-btn { border-color: transparent; border-radius: 999px; background: var(--bg-2); }
+html[data-theme="light-glass"] .home-seg-btn.is-on { border-color: transparent; background: var(--text-1); color: var(--bg-0); }
+html[data-theme="light-glass"] .home-seg-btn.is-on .count { color: inherit; opacity: .75; }
 :is(html[data-theme="light"], html[data-theme="light-glass"]) .desk-item { border-color: transparent; background: transparent; }
 :is(html[data-theme="light"], html[data-theme="light-glass"]) .desk-item:hover { border-color: transparent; background: var(--bg-2); }
 :is(html[data-theme="light"], html[data-theme="light-glass"]) .desk-item.is-current { border-color: transparent; background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }

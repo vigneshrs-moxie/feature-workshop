@@ -46,7 +46,7 @@ describe('Settings: the rail', () => {
     expect(railRow('Rules')).not.toHaveAttribute('aria-current');
     expect(railValue('Permissions')).toBe('Auto mode');
     expect(railValue('Notifications')).toBe('Needs you and Problems on');
-    expect(railValue('Look')).toBe('Default · M · One at a time · Four lanes · Play subtle');
+    expect(railValue('Look')).toBe('Light · M · One at a time · Four lanes · Play subtle');
     expect(railValue('Keys')).toBe('On');
     expect(railValue('Workflow')).toBe('Finish line: PR #1 merged · GitHub every 1 min');
     expect(railValue('Play')).toBe('Subtle');
@@ -275,6 +275,7 @@ describe('Settings: permissions', () => {
 describe('Settings: look', () => {
   it('offers every theme, each described on hover and the chosen one under the grid; a pick applies at once, is remembered, and shows in the rail', async () => {
     document.documentElement.setAttribute('data-theme', 'default');
+    localStorage.setItem('workshop.theme', 'default');
     setup([{ rules: [], active: true, unreadable: null }], undefined, 'look');
     const picker = screen.getByRole('group', { name: 'How the Workshop looks' });
     const radios = within(picker).getAllByRole('radio');

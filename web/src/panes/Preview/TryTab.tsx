@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { settingsHref } from '../../app/router';
 import { useWorkshop } from '../../state/store';
+import { Select } from '../../components/Select';
 
 interface LocalView {
   slug: string;
@@ -266,9 +267,7 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
         {btn('open-finder', folder, async () => { await act('open', { what: 'finder' }); setNote({ text: folder === 'Finder' ? 'Opened in Finder.' : 'Opened the folder.', tone: 'good' }); }, 'btn btn-quiet')}
         {terminals.length > 1 && (
           <label className="try-term">in{' '}
-            <select value={v.terminalApp ?? terminals[0]} aria-label="Terminal app" onChange={(e) => run('term', async () => { await act('terminal-app', { name: e.target.value }); setNote({ text: `“Open terminal here” now uses ${e.target.value}.`, tone: 'good' }); })}>
-              {terminals.map((t) => <option key={t}>{t}</option>)}
-            </select>
+            <Select value={v.terminalApp ?? terminals[0]} aria-label="Terminal app" onChange={(name) => run('term', async () => { await act('terminal-app', { name }); setNote({ text: `“Open terminal here” now uses ${name}.`, tone: 'good' }); })} options={terminals.map((t) => ({ value: t, label: t }))} />
           </label>
         )}
       </div>
@@ -287,7 +286,7 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
         <form className="try-cmd" onSubmit={onSubmit} autoComplete="off">
           {v.app && v.app.rel !== '.' && (
             <label>Run in{' '}
-              <select value={where} onChange={(e) => setWhere(e.target.value as 'app' | 'root')}><option value="app">the app folder</option><option value="root">the whole repo</option></select>
+              <Select value={where} onChange={(w) => setWhere(w as 'app' | 'root')} options={[{ value: 'app', label: 'the app folder' }, { value: 'root', label: 'the whole repo' }]} />
             </label>
           )}
           <div className="try-cmd-row">

@@ -4,6 +4,7 @@
 // move between the levels.
 import type { LevelInfo, LevelNumber } from '../../api/types';
 import { floorNote, LEVEL_NUMBERS, levelLabel, type LevelSuggestion } from '../../lib/levels';
+import { Choice } from '../../components/Choice';
 
 export interface LevelPickerProps {
   levels: LevelInfo[] | null | undefined;
@@ -31,7 +32,7 @@ export function LevelPicker({ levels, value, suggestion, byHand, onPick, disable
               className={`rule-option${value === n ? ' is-picked' : ''}`}
               title={`${levelLabel(n, levels)}: ${info?.hint ?? 'see the job options'}${suggested ? ' The rules suggest this one for your description.' : ''}`}
             >
-              <input type="radio" name="level" value={n} checked={value === n} disabled={disabled} onChange={() => onPick(n)} />
+              <Choice type="radio" name="level" value={n} checked={value === n} disabled={disabled} onChange={() => onPick(n)} />
               <span className="rule-option-body">
                 <span className="rule-option-kind">{levelLabel(n, levels)}{suggested && <span className="chip">Suggested</span>}</span>
                 {info?.hint && <span className="muted">{info.hint}</span>}

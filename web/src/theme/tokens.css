@@ -6,13 +6,15 @@
   --font-display: "Inter Display", "Inter", "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --ui-scale: 1;
-  --text-xs: calc(11px * var(--ui-scale, 1));
-  --text-sm: calc(12px * var(--ui-scale, 1));
-  --text-base: calc(13px * var(--ui-scale, 1));
-  --text-md: calc(15px * var(--ui-scale, 1));
+  --text-2xs: calc(11px * var(--ui-scale, 1));
+  --text-xs: calc(12px * var(--ui-scale, 1));
+  --text-sm: calc(13px * var(--ui-scale, 1));
+  --text-base: calc(14px * var(--ui-scale, 1));
+  --text-md: calc(16px * var(--ui-scale, 1));
   --text-lg: calc(20px * var(--ui-scale, 1));
-  --text-xl: calc(28px * var(--ui-scale, 1));
-  --leading: 1.45;
+  --text-xl: calc(24px * var(--ui-scale, 1));
+  --text-2xl: calc(30px * var(--ui-scale, 1));
+  --leading: 1.5;
   --weight-regular: 400;
   --weight-medium: 500;
   --weight-bold: 600;
@@ -24,10 +26,10 @@
   --space-6: 24px;
   --space-8: 32px;
   --space-10: 40px;
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 10px;
-  --radius-xl: 14px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
   --dur-fast: 120ms;
   --dur-menu: 180ms;
   --dur-pane: 200ms;
@@ -42,9 +44,13 @@
   --rail-w: 48px;
   --foreman-max: 760px;
   --preview-w: 40%;
-  --control-h: max(40px, calc(40px * var(--ui-scale, 1)));
-  --control-h-lg: max(44px, calc(44px * var(--ui-scale, 1)));
-  --page-max: 1180px;
+  --control-h-sm: max(28px, calc(28px * var(--ui-scale, 1)));
+  --control-h: max(34px, calc(34px * var(--ui-scale, 1)));
+  --control-h-lg: max(40px, calc(40px * var(--ui-scale, 1)));
+  --chip-h: calc(22px * var(--ui-scale, 1));
+  --page-gutter: 24px;
+  --page-max: 2400px;
+  --prose-max: 75ch;
   --chart-pattern-1: none;
   --chart-pattern-2: repeating-linear-gradient(45deg, color-mix(in srgb, var(--bg-0) 55%, transparent) 0 2px, transparent 2px 7px);
   --chart-pattern-3: radial-gradient(color-mix(in srgb, var(--bg-0) 55%, transparent) 1.2px, transparent 1.6px) 0 0 / 6px 6px;
@@ -58,9 +64,9 @@
   --bg-2: oklch(.22 .006 260);
   --bg-3: oklch(.25 .006 260);
   --bg-4: oklch(.28 .006 260);
-  --border-1: oklch(1 0 0 / .06);
-  --border-2: oklch(1 0 0 / .1);
-  --border-3: oklch(1 0 0 / .18);
+  --border-1: oklch(1 0 0 / .07);
+  --border-2: oklch(1 0 0 / .12);
+  --border-3: oklch(1 0 0 / .2);
   --text-1: oklch(.95 .004 260);
   --text-2: oklch(.72 .01 260);
   --text-3: oklch(.58 .01 260);
@@ -92,6 +98,13 @@
   --shadow-1: 0 1px 2px oklch(0 0 0 / .3), 0 2px 8px oklch(0 0 0 / .2);
   --shadow-2: 0 2px 4px oklch(0 0 0 / .3), 0 12px 32px oklch(0 0 0 / .35);
   --shadow-pop: 0 6px 24px oklch(0 0 0 / .12);
+  --shadow-xs: 0 1px 2px oklch(0 0 0 / .16);
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / .3), 0 2px 6px oklch(0 0 0 / .22);
+  --shadow-md: 0 1px 3px oklch(0 0 0 / .3), 0 6px 18px oklch(0 0 0 / .36);
+  --shadow-lg: 0 2px 6px oklch(0 0 0 / .3), 0 16px 40px oklch(0 0 0 / .45);
+  --shade-hover: oklch(0 0 0 / .1);
+  --shade-press: oklch(0 0 0 / .18);
+  --shine: oklch(1 0 0 / .16);
   --scrim: oklch(0 0 0 / .5);
   --scrim-soft: oklch(0 0 0 / .4);
   --group-needs-you-fg: var(--status-warn);
@@ -163,6 +176,16 @@
   --grid-line: var(--border-1);
   --tooltip-bg: var(--text-1);
   --tooltip-fg: var(--bg-0);
+  --surface-0: var(--bg-0);
+  --surface-1: var(--bg-1);
+  --surface-2: var(--bg-2);
+  --btn-primary-bg: var(--accent);
+  --btn-primary-fg: var(--on-accent);
+  --elev-xs: var(--shadow-xs);
+  --elev-sm: var(--shadow-1);
+  --elev-md: var(--shadow-pop);
+  --elev-lg: var(--shadow-2);
+  --needs-solid: var(--status-warn);
   --crew-shade-base: #000000;
   --crew-silhouette: color-mix(in srgb, var(--text-1) 24%, var(--bg-2));
   --crew-silhouette-line: color-mix(in srgb, var(--text-1) 42%, var(--bg-2));
@@ -219,6 +242,21 @@ html[data-text="l"] {
 }
 html[data-text="xl"] {
   --ui-scale: 1.25;
+}
+
+/* Phone width and wide windows (packet R): control heights and the page gutters. */
+@media (max-width: 760px) {
+  :root {
+    --control-h-sm: max(40px, calc(28px * var(--ui-scale, 1)));
+    --control-h: max(40px, calc(34px * var(--ui-scale, 1)));
+    --control-h-lg: max(44px, calc(40px * var(--ui-scale, 1)));
+    --page-gutter: 16px;
+  }
+}
+@media (min-width: 1280px) {
+  :root {
+    --page-gutter: 32px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -11,6 +11,7 @@
 import { playOf } from '../../play/settings';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { type ColorScheme, type ThemeInfo, useAvailableThemes, useChosenTheme, useTheme } from '../../theme/theme';
+import { Choice } from '../../components/Choice';
 
 const GROUPS: { scheme: ColorScheme; title: string }[] = [
   { scheme: 'dark', title: 'Dark' },
@@ -56,7 +57,7 @@ export function ThemePicker() {
     return (
       <label key={t.id} className={`rule-option theme-option${picked ? ' is-picked' : ''}${t.unlock ? ' is-hidden-theme' : ''}`} title={t.description}>
         {/* A click on the chosen one fires no change; it still puts it on (it may be off screen under Follow the system). */}
-        <input type="radio" name="theme" value={t.id} checked={picked} onChange={() => pick(t.id)} onClick={() => { if (picked) setTheme(t.id); }} />
+        <Choice type="radio" name="theme" value={t.id} checked={picked} onChange={() => pick(t.id)} onClick={() => { if (picked) setTheme(t.id); }} />
         <Swatch id={t.id} />
         <span className="rule-option-body">
           <span className="rule-option-kind">

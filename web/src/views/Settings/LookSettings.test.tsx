@@ -74,6 +74,7 @@ describe('Settings → Look', () => {
   });
 
   it('turning it on swaps the chosen theme for its twin by the system scheme, now and when the system changes; a theme with no twin stays', () => {
+    localStorage.setItem(THEME_KEY, 'default');
     setup();
     systemLight = true;
     fireEvent.click(screen.getByRole('checkbox', { name: /Follow the system/ }));
@@ -82,7 +83,7 @@ describe('Settings → Look', () => {
     // The picker marks the choice (Default), not the twin on screen.
     expect(screen.getByRole('radio', { name: /^Default Chosen/ })).toBeChecked();
     expect(screen.queryByRole('radio', { name: /^Light Chosen/ })).toBeNull();
-    expect(localStorage.getItem(THEME_KEY), 'the choice itself is not rewritten').toBeNull();
+    expect(localStorage.getItem(THEME_KEY), 'the choice itself is not rewritten').toBe('default');
 
     // The system turns dark: the listener initTheme installed re-applies, back to Default.
     systemLight = false;

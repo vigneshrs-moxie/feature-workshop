@@ -118,42 +118,12 @@ a:hover { text-decoration: underline; }
 .usage-detail-row.is-full .usage-meter-fill { background: var(--status-error); }
 .usage-panel-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-xs); }
 
-.chip {
-  padding: 0 var(--space-2);
-  border: 1px solid var(--border-2);
-  border-radius: var(--chip-radius);
-  color: var(--text-2);
-  font-size: var(--text-xs);
-}
 
 /* ---------- Controls ---------- */
 
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  min-height: var(--control-h);
-  padding: 0 var(--space-4);
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-md);
-  background: var(--bg-3);
-  color: var(--text-1);
-  font: inherit;
-  cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
-}
-.btn:hover { background: var(--bg-4); border-color: var(--border-3); text-decoration: none; }
-.btn:active { opacity: .8; }
-.btn-quiet { background: transparent; border-color: transparent; color: var(--text-2); }
-.btn-quiet:hover { background: var(--hover-bg); border-color: transparent; color: var(--text-1); }
-/* The big calls: Start, Go, No go, Approve, and each page's one next-step button. */
-.btn-lg { min-height: var(--control-h-lg); padding: 0 var(--space-5); font-weight: var(--weight-medium); }
-/* An icon-only button: square, still 40 px. */
-.btn-icon { min-width: var(--control-h); padding: 0; }
 /* Keyboard focus is the same ring on every control; hover never moves anything (no transform, no
    border width change), so nothing shifts under the pointer. */
-:is(.btn, .tab, .menu-item, .row-link, .chip-btn):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+:is(.tab, .menu-item, .row-link, .chip-btn):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 /* Tabs, menu items, clickable rows and chips you can press: the shared base pieces, each 40 px. */
 .tab {
@@ -320,10 +290,6 @@ a:hover { text-decoration: underline; }
 .alert-settings-title { margin: 0; }
 .alert-settings-lead { margin: 0 0 var(--space-1); }
 .alert-settings-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
-.btn-toggle { min-height: var(--control-h); gap: var(--space-1); padding: 0 var(--space-2); }
-.btn-toggle .toggle-state { color: var(--text-3); }
-.btn-toggle[aria-pressed='true'] .toggle-state { color: var(--status-ok); }
-.btn:disabled { opacity: .5; cursor: not-allowed; }
 .alert-settings-note { flex-basis: 100%; margin: var(--space-1) 0 0; color: var(--status-warn); }
 
 /* Job status colour (glyph, label, group header, header pill), one token per group. Rows and
@@ -386,9 +352,6 @@ a:hover { text-decoration: underline; }
 .doc-title { margin: var(--space-2) 0 2px; font-size: var(--text-md); }
 .doc-facts { margin: 0 0 var(--space-2); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .doc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
-.doc-view-toggle { display: inline-flex; border: 1px solid var(--border-2); border-radius: var(--radius-md); overflow: hidden; }
-.doc-view-toggle .btn { border: 0; border-radius: 0; }
-.doc-view-toggle .btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--text-1); font-weight: var(--weight-medium); }
 .doc-copied { margin: var(--space-1) 0 0; }
 .doc-page { font-size: var(--text-base); line-height: 1.6; }
 .doc-source {
@@ -582,25 +545,7 @@ a:hover { text-decoration: underline; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
-.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: var(--weight-medium); }
-.btn-primary:hover { background: var(--accent-strong); }
-.btn-danger { border-color: var(--status-error); color: var(--status-error); background: transparent; }
-.btn-danger:hover { background: var(--status-error-bg); }
-.btn:disabled, .btn:disabled:hover { opacity: .5; cursor: not-allowed; }
 
-.text-input {
-  width: 100%;
-  min-height: var(--control-h);
-  padding: 0 var(--space-2);
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-md);
-  background: var(--bg-0);
-  color: var(--text-1);
-  font: inherit;
-}
-.text-input:focus-visible { border-color: var(--focus-ring); }
-.field { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); color: var(--text-2); }
-.field-problem { margin: var(--space-2) 0 0; color: var(--status-error); font-size: var(--text-sm); }
 
 .pending-cards { display: flex; flex-direction: column; gap: var(--space-3); }
 .pending-job { margin: var(--space-3) 0 0; font-size: var(--text-base); }
@@ -818,31 +763,10 @@ a:hover { text-decoration: underline; }
   background: var(--bg-0);
   border-top: 1px solid var(--border-1);
 }
-.text-area {
-  width: 100%;
-  padding: var(--space-2);
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-md);
-  background: var(--bg-1);
-  color: var(--text-1);
-  font: inherit;
-  line-height: 1.45;
-  resize: vertical;
-}
-.text-area:focus-visible { border-color: var(--focus-ring); }
 .preview-text { font-family: var(--font-mono); font-size: var(--text-sm); background: var(--bg-0); }
 .composer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .composer-spacer { flex: 1; }
 .composer-model { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
-.select {
-  min-height: var(--control-h);
-  padding: 0 var(--space-2);
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-md);
-  background: var(--bg-1);
-  color: var(--text-1);
-  font: inherit;
-}
 .composer-note { margin: 0; font-size: var(--text-sm); }
 .send-sheet { width: min(640px, 100%); }
 .send-facts { margin: var(--space-2) 0 0; font-size: var(--text-sm); }
@@ -872,19 +796,6 @@ a:hover { text-decoration: underline; }
 
 /* ---------- Top bar extras, ⌘K, sheets ---------- */
 
-.kbd {
-  display: inline-block;
-  min-width: 1.6em;
-  padding: 0 var(--space-1);
-  border: 1px solid var(--border-2);
-  border-bottom-width: 2px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-2);
-  color: var(--text-2);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  text-align: center;
-}
 
 .palette-backdrop { align-items: flex-start; padding-top: 12vh; }
 .palette {
@@ -952,10 +863,6 @@ a:hover { text-decoration: underline; }
 .key-group-title .muted { font-weight: var(--weight-regular); }
 .key-group-where { margin: 0 0 var(--space-1); font-size: var(--text-xs); }
 .keys-sheet .keys-off { margin: 0 0 var(--space-2); }
-/* A key hint on a button (components/Kbd.tsx): quieter than the ⌘K badge. */
-.key-hint { margin-left: var(--space-1); background: var(--bg-3); border-color: var(--border-2); color: var(--text-3); font-size: var(--text-xs); border-radius: var(--radius-sm); }
-/* On a filled button the hint takes the button's own ink, so it reads on every theme's accent. */
-.btn-primary .kbd.key-hint { background: transparent; border-color: currentColor; color: inherit; opacity: .8; }
 .key-legend { margin: var(--space-3) 0 0; font-size: var(--text-xs); }
 .key-legend .kbd { background: var(--bg-3); color: var(--text-3); }
 .keys-settings .check { margin-top: var(--space-2); }
@@ -1017,18 +924,6 @@ a:hover { text-decoration: underline; }
 .level-pop .level-done { margin-top: var(--space-2); }
 
 /* The gate card is a question card too (.perm-card[data-ask='question']): its colours come from there. */
-.link-button {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
-.link-button:hover { color: var(--accent-strong); }
-.link-button:disabled { color: var(--text-3); cursor: not-allowed; }
 .composer-gate { display: block; }
 .gate-card { margin-top: var(--space-3); }
 .gate-head { margin-bottom: var(--space-2); }
@@ -1278,7 +1173,6 @@ a:hover { text-decoration: underline; }
 .desk-nudge .ask-label { color: var(--text-2); }
 .desk-nudge.is-after { box-shadow: none; }
 .desk-nudge-text { margin: 0 0 var(--space-2); }
-.desk-nudge .perm-actions a.btn { display: inline-flex; align-items: center; gap: var(--space-1); text-decoration: none; }
 
 /* The job header, compact (JobHeader useStuckHeader: once you have scrolled down the thread). One
    slim row: the dot, the Foreman, the title, a thin trail (its stops as small dots on a thin road,
@@ -1432,7 +1326,6 @@ a:hover { text-decoration: underline; }
 .job-github .ask-label { color: var(--text-2); }
 .job-github-nudge { margin-top: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border-1); }
 .job-github-title, .job-github-text { margin: 0 0 var(--space-1); }
-.job-github .perm-actions a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 
 /* The Walkthrough tab (panes/Preview/WalkthroughTab.tsx): the screens frame, plus a quiet note. */
 .walkthrough-note { margin: 0 0 var(--space-2); }

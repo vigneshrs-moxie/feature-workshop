@@ -5,6 +5,7 @@ import { closeJob } from '../../app/jobActions';
 import { Sheet } from '../../components/Sheet';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshop, useWorkshopState } from '../../state/store';
+import { Choice } from '../../components/Choice';
 
 const tilde = (p: string) => p.replace(/^\/Users\/[^/]+/, '~');
 
@@ -37,14 +38,14 @@ export function CloseJobSheet({ slug, worktree, onClose }: { slug: string; workt
         <fieldset className="rule-options" disabled={busy}>
           <legend className="sr-only">How it ended</legend>
           <label className={`rule-option${as === 'done' ? ' is-picked' : ''}`} title="It shipped, or only waits on someone else’s merge or release. Counts as done.">
-            <input type="radio" name="as" value="done" checked={as === 'done'} onChange={() => setAs('done')} />
+            <Choice type="radio" name="as" value="done" checked={as === 'done'} onChange={() => setAs('done')} />
             <span className="rule-option-body">
               <span className="rule-option-kind">Done</span>
               <span className="muted">Shipped, merged, or only waiting on someone else’s merge or release.</span>
             </span>
           </label>
           <label className={`rule-option${as === 'dropped' ? ' is-picked' : ''}`} title="It isn’t going ahead, or another job replaced it. Doesn’t count as done.">
-            <input type="radio" name="as" value="dropped" checked={as === 'dropped'} onChange={() => setAs('dropped')} />
+            <Choice type="radio" name="as" value="dropped" checked={as === 'dropped'} onChange={() => setAs('dropped')} />
             <span className="rule-option-body">
               <span className="rule-option-kind">Dropped</span>
               <span className="muted">Not going ahead, or replaced by another job.</span>
@@ -67,7 +68,7 @@ export function CloseJobSheet({ slug, worktree, onClose }: { slug: string; workt
         {worktree && (
           <>
             <label className="check" title="Frees the folder. Only happens when nothing would be lost; otherwise the job isn’t marked and you’re told why.">
-              <input type="checkbox" checked={removeWorktree} disabled={busy} onChange={(e) => setRemoveWorktree(e.target.checked)} />
+              <Choice type="checkbox" checked={removeWorktree} disabled={busy} onChange={(e) => setRemoveWorktree(e.target.checked)} />
               Also remove its worktree (<code className="num">{tilde(worktree)}</code>)
             </label>
             <p className="muted sheet-fine">Only when nothing would be lost: no uncommitted changes, and its latest commit is already on GitHub. The branch itself is kept.</p>

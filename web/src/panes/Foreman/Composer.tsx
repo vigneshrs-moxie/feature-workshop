@@ -19,6 +19,8 @@ import { useStored } from '../../lib/stored';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { isActiveRun } from './thread';
 import { LockCard, lockFromError } from '../../views/JobLock/LockCard';
+import { Choice } from '../../components/Choice';
+import { Select } from '../../components/Select';
 
 export const draftKey = (slug: string) => `fw.draft.${slug}`;
 
@@ -113,7 +115,7 @@ export function SendPreview({
         </p>
         {askTerminal && (
           <label className="check" title="Claude Code is open in this repository in a terminal. Two Foremen on one job would trip over each other.">
-            <input type="checkbox" checked={noTerminal} onChange={(e) => setNoTerminal(e.target.checked)} /> None of the open terminals is this job’s Foreman
+            <Choice type="checkbox" checked={noTerminal} onChange={(e) => setNoTerminal(e.target.checked)} /> None of the open terminals is this job’s Foreman
           </label>
         )}
         {blocked && <p className="perm-warn" role="alert">{blocked}</p>}
@@ -290,9 +292,7 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
       <div className="composer-bar">
         <label className="composer-model" title={running ? 'The model for your next message. The reply in progress keeps the one it started with.' : 'Which Claude model runs this job’s Foreman for your next message. Opus is the everyday choice; Fable costs more.'}>
           <span className="muted">Foreman model</span>
-          <select className="select" value={model ?? ''} onChange={(e) => setChosenModel(e.target.value)} disabled={models.length === 0}>
-            {modelOptions.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </select>
+          <Select value={model ?? ''} onChange={setChosenModel} disabled={models.length === 0} options={modelOptions.map((m) => ({ value: m.id, label: m.label }))} />
         </label>
         <span className="composer-spacer" />
         {running ? (

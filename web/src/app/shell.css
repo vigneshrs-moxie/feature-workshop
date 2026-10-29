@@ -4,7 +4,7 @@
 .icon { flex: 0 0 auto; vertical-align: middle; }
 
 /* ---------- The top bar (app/TopBar.tsx) ---------- */
-.topbar { gap: var(--space-2); padding: 0 var(--space-4); }
+.topbar { gap: var(--space-2); padding: 0 var(--page-gutter); background: var(--surface-0); }
 .gc-brand {
   display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--control-h);
   margin-right: var(--space-2); border-radius: var(--radius-md);
@@ -16,9 +16,9 @@
   border-radius: var(--radius-md); background: var(--accent); color: var(--on-accent);
 }
 .gc-page-name { display: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: var(--weight-medium); }
-.gc-nav { display: inline-flex; align-items: center; gap: 2px; }
+.gc-nav { display: inline-flex; align-items: center; gap: 2px; margin-left: var(--space-2); }
 .gc-nav-link { padding: 0 var(--space-3); }
-.gc-nav-link[aria-current='page'] { color: var(--text-1); background: var(--bg-2); box-shadow: inset 0 -2px 0 var(--accent); }
+.gc-nav-link[aria-current='page'] { color: var(--text-1); background-color: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border-1); }
 .gc-nav-link .home-view-count { margin-left: 2px; }
 .gc-meters { display: inline-flex; align-items: center; }
 .gc-phone-desk, .gc-burger { display: none; }
@@ -28,8 +28,8 @@
 .menu {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
   display: flex; flex-direction: column; min-width: 248px; padding: var(--space-1);
-  border: 1px solid var(--border-2); border-radius: var(--radius-lg); background: var(--bg-1); box-shadow: var(--shadow-2);
-  animation: rise-in var(--dur-menu) var(--ease-out);
+  border: 1px solid var(--border-2); border-radius: var(--radius-lg); background: var(--surface-1); box-shadow: var(--elev-md);
+  animation: pop-in var(--dur-menu) var(--ease-out);
 }
 .menu-label { flex: 1; }
 .menu-icon-gap { width: 16px; flex: 0 0 auto; }
@@ -43,7 +43,7 @@
 }
 /* Phone: the short form. The mark, the page's name, the Desk count and ☰. */
 @media (max-width: 760px) {
-  .topbar { gap: var(--space-1); padding: 0 var(--space-2) 0 var(--space-3); }
+  .topbar { gap: var(--space-1); padding: 0 var(--space-2) 0 var(--page-gutter); }
   .gc-nav, .gc-meters, .conn-label, .gc-new-job, .gc-gear, .gc-demo, .topbar .spacer { display: none; }
   .gc-page-name { display: block; flex: 1 1 auto; }
   .gc-phone-desk { display: inline-flex; }

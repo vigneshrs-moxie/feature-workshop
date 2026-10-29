@@ -6,6 +6,7 @@ import type { PlayMode, PlaySettings as Play, Settings } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { playOf } from '../../play/settings';
 import { useWorkshop, useWorkshopState } from '../../state/store';
+import { Choice } from '../../components/Choice';
 
 export const PLAY_MODE_CHOICES: { id: PlayMode; label: string; note: string; hint: string }[] = [
   { id: 'full', label: 'Full', note: 'The crew moves, plus difficulty stars, boss fights, stamina and short celebrations.', hint: 'Everything in Subtle, animated, with the game extras. Sounds can be turned on below.' },
@@ -45,7 +46,7 @@ export function PlaySettings() {
         <legend className="sr-only">Play mode</legend>
         {PLAY_MODE_CHOICES.map((m) => (
           <label key={m.id} className={`rule-option${play.mode === m.id ? ' is-picked' : ''}`} title={m.hint}>
-            <input type="radio" name="play-mode" value={m.id} checked={play.mode === m.id} onChange={() => void save({ mode: m.id })} />
+            <Choice type="radio" name="play-mode" value={m.id} checked={play.mode === m.id} onChange={() => void save({ mode: m.id })} />
             <span className="rule-option-body">
               <span className="rule-option-kind">{m.label}{m.id === 'subtle' && <span className="chip">Default</span>}</span>
               <span className="muted">{m.note}</span>
@@ -58,7 +59,7 @@ export function PlaySettings() {
         data-setting="play-sounds"
         title={soundsOff ? 'Sounds play only in Full mode. Pick Full above to turn them on.' : 'Short chiptune blips for unlocks and finished quests. Off unless you turn them on.'}
       >
-        <input type="checkbox" checked={play.sounds && !soundsOff} disabled={busy || soundsOff} onChange={(e) => void save({ sounds: e.currentTarget.checked })} />
+        <Choice type="checkbox" checked={play.sounds && !soundsOff} disabled={busy || soundsOff} onChange={(e) => void save({ sounds: e.currentTarget.checked })} />
         <span>Sounds (chiptune blips) <span className="muted">{soundsOff ? '· Full mode only' : '· off unless you turn them on'}</span></span>
       </label>
       {error && <p className="field-problem" role="alert">{error}</p>}

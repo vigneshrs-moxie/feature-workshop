@@ -3,7 +3,7 @@
 // changes what is on screen or where. The id is chosen, in this order, from
 //   1. ?theme=<id> in the address (before or after the hash: /next/?theme=x or #/?theme=x),
 //   2. localStorage 'workshop.theme' (set by the picker in Settings),
-//   3. 'default'.
+//   3. 'light' (DEFAULT_THEME: Light is the default since packet R, whatever the system says).
 // Unknown ids are skipped. The picker saves to localStorage and applies at once.
 //
 // Two themes are hidden (the Play layer): CRT Terminal and Gold. They can be used only once the
@@ -82,7 +82,8 @@ export const THEME_IDS: readonly string[] = THEMES.map((t) => t.id);
 export const ORIGINAL_THEME_IDS: readonly string[] = THEMES.filter((t) => !t.unlock).map((t) => t.id);
 /** The hidden themes, each opened by its unlock. */
 export const HIDDEN_THEME_IDS: readonly string[] = THEMES.filter((t) => t.unlock).map((t) => t.id);
-export const DEFAULT_THEME = 'default';
+/** A new browser with nothing saved opens in Light, whatever the system says (packet R). */
+export const DEFAULT_THEME = 'light';
 export const THEME_KEY = 'workshop.theme';
 
 const BY_ID = new Map(THEMES.map((t) => [t.id, t]));

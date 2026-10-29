@@ -14,6 +14,7 @@ import { HowThisWorks } from '../../components/HowThisWorks';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { useReviewList } from '../Review/useReview';
 import '../Review/review.css';
+import { Choice } from '../../components/Choice';
 
 /** Only for a rail line before the dashboard has said its words (meta.finishLines is the source). */
 const FALLBACK_LABELS: Record<FinishLine, string> = { 'pr1-open': 'PR #1 open', 'pr1-merged': 'PR #1 merged', staging: 'In staging', main: 'In main', marked: 'When I mark it done' };
@@ -76,7 +77,7 @@ export function WorkflowSettings() {
         <legend className="look-heading">Finish line</legend>
         {lines?.length ? lines.map((l) => (
           <label key={l.id} className={`rule-option${w.finishLine === l.id ? ' is-picked' : ''}`} title={l.hint}>
-            <input type="radio" name={`${id}-finish`} value={l.id} checked={w.finishLine === l.id} onChange={() => void save({ finishLine: l.id })} />
+            <Choice type="radio" name={`${id}-finish`} value={l.id} checked={w.finishLine === l.id} onChange={() => void save({ finishLine: l.id })} />
             <span className="rule-option-body">
               <span className="rule-option-kind">{l.label}{l.id === DEFAULT_FINISH_LINE && <span className="chip">Default</span>}</span>
               <span className="muted">{l.hint}</span>
@@ -94,7 +95,7 @@ export function WorkflowSettings() {
           <div className="home-seg" role="radiogroup" aria-label={c.label}>
             {WORKFLOW_CHOICES.map((v) => (
               <label key={v} className={`home-seg-btn${w[c.id] === v ? ' is-on' : ''}`}>
-                <input className="sr-only" type="radio" name={`${id}-${c.id}`} value={v} checked={w[c.id] === v} onChange={() => void save(c.id === 'wireframes' ? { wireframes: v } : { clarify: v })} />
+                <Choice className="sr-only" type="radio" name={`${id}-${c.id}`} value={v} checked={w[c.id] === v} onChange={() => void save(c.id === 'wireframes' ? { wireframes: v } : { clarify: v })} />
                 {CHOICE_WORDS[v]}
               </label>
             ))}
@@ -105,7 +106,7 @@ export function WorkflowSettings() {
       <fieldset className="workflow-choice" disabled={busy} data-setting="auto-level">
         <legend className="look-heading">Level</legend>
         <label className="check">
-          <input type="checkbox" checked={w.autoLevel === true} onChange={(e) => void save({ autoLevel: e.currentTarget.checked })} />
+          <Choice type="checkbox" checked={w.autoLevel === true} onChange={(e) => void save({ autoLevel: e.currentTarget.checked })} />
           Choose the level for me
         </label>
         <p className="muted settings-note-under">The higher of the rules’ level and the Foreman’s wins, and it is never lowered. After each build the real changes are checked again and the level raised if a rule says so; the Foreman then stops before any PR. You are asked instead when L3 applies, the two differ by 2 or more, or the request is too short to judge.</p>
@@ -155,7 +156,7 @@ function GithubEvery() {
       <div className="home-seg" role="radiogroup" aria-label="How often to check GitHub while waiting">
         {GITHUB_EVERY.map((n) => (
           <label key={n} className={`home-seg-btn${now === n ? ' is-on' : ''}`}>
-            <input className="sr-only" type="radio" name={`${id}-github`} value={n} checked={now === n} onChange={() => void pick(n)} />
+            <Choice className="sr-only" type="radio" name={`${id}-github`} value={n} checked={now === n} onChange={() => void pick(n)} />
             {now === n ? '✓ ' : ''}{n} min
           </label>
         ))}

@@ -8,6 +8,7 @@ import type { Permission, Rule, RuleDraft } from '../../api/types';
 import { settingsHref } from '../../app/router';
 import { useWorkshop } from '../../state/store';
 import { coverProblem, describeRule, editable, kindLabel, sentence } from './rules';
+import { Choice } from '../Choice';
 
 interface Saved { rule: Rule; added: boolean; allowed: boolean; alsoAllowed: number; active: boolean }
 
@@ -60,7 +61,7 @@ export function AlwaysAllowSheet({ permission: p, draft, onClose }: { permission
               <legend className="sr-only">What the rule covers</legend>
               {draft.options.map((o, i) => (
                 <label key={`${o.kind}:${i}`} className={`rule-option${i === choice ? ' is-picked' : ''}`}>
-                  <input
+                  <Choice
                     type="radio"
                     name="rule-choice"
                     checked={i === choice}

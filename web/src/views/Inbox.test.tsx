@@ -11,6 +11,7 @@ import { LEVELS, snapshot } from '../state/test-fixtures';
 import { InboxView, levelWord, nextTicket, sortInbox, startText, statusWord, type InboxAnswer, type InboxItem, type OrbitStatus, type OrbitStream } from './Inbox';
 import { OrbitTokenSettings } from './Settings/OrbitTokenSettings';
 import { setGuideFirstVisit } from '../components/page/Page';
+import { pickOption } from '../components/Select.testing';
 
 // Invented tickets only.
 const NOW = new Date();
@@ -321,7 +322,7 @@ describe('Settings → Orbit token', () => {
     expect(token).toHaveAttribute('type', 'password');
     fireEvent.change(screen.getByLabelText('Orbit’s address'), { target: { value: 'https://orbit.example.com' } });
     fireEvent.change(token, { target: { value: 'orbfb_sample' } });
-    fireEvent.change(screen.getByLabelText('How long it lasts'), { target: { value: '30' } });
+    pickOption(screen.getByLabelText('How long it lasts'), '30');
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save the token' })); });
     expect(post).toHaveBeenCalledWith('/api/orbit/token', { token: 'orbfb_sample', url: 'https://orbit.example.com', expiresInDays: 30 });
     expect(await screen.findByText(/Orbit took the token/)).toBeInTheDocument();

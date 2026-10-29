@@ -78,7 +78,6 @@
 .perm-what > div { display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-1); font-size: var(--text-sm); }
 .perm-what span { color: var(--text-2); }
 .perm-alert-actions { align-items: center; margin-top: 0; }
-.perm-alert-actions .btn { min-height: var(--control-h); }
 .perm-more .fold-note { font-size: var(--text-sm); }
 
 /* ---------- Phone width ---------- */
@@ -102,7 +101,7 @@
 .stage-back { margin: 0; order: -1; font-size: var(--text-sm); }
 .stage-back a { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--control-h); }
 .stage-steps { display: inline-flex; gap: var(--space-1); }
-.stage-steps .btn { min-height: var(--control-h); display: inline-flex; align-items: center; gap: var(--space-1); text-decoration: none; }
+.stage-steps .btn { display: inline-flex; }
 .stage-steps .is-off { color: var(--text-3); cursor: default; }
 .state-chip.is-done { color: var(--status-ok); background: var(--status-ok-bg); }
 .state-chip.is-now { color: var(--lane-working-fg); background: var(--lane-working-bg); }
@@ -112,7 +111,7 @@
 .stage-who { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-1); }
 .stage-who-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
 .stage-who-head h3 { margin: 0; font-size: var(--text-lg); }
-.stage-who-head .btn, .stage-app { min-height: var(--control-h); }
+
 .stage-note, .stage-empty { margin: 0; }
 .stage-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
 .stage-row {
@@ -129,7 +128,7 @@
 .stage-status.is-waiting { color: var(--text-1); background: var(--lane-needs-you-bg); }
 .stage-status.is-done { color: var(--status-ok); background: var(--status-ok-bg); }
 .stage-row-term { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-.stage-row-term .btn { min-height: var(--control-h); display: inline-flex; align-items: center; gap: var(--space-1); }
+.stage-row-term .btn { display: inline-flex; }
 .stage-row-term-note { font-size: var(--text-xs); }
 .stage-finished .fold-body { padding-top: var(--space-2); }
 

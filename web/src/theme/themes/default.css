@@ -10,4 +10,15 @@ html[data-theme="default"] {
   --crew-gold: oklch(.79 .13 102);
   --crew-gold-dark: oklch(.58 .1 98);
   --crew-spark: oklch(.9 .14 105);
+
+  /* Packet R: a primary button that reads as on (a deeper indigo with white ink, 5:1), the elevation
+     scale, and cards one step up from the page. */
+  --btn-primary-bg: oklch(.56 .19 274);
+  --btn-primary-fg: oklch(.995 0 0);
+  --elev-xs: var(--shadow-xs);
+  --elev-sm: var(--shadow-sm);
+  --elev-md: var(--shadow-md);
+  --elev-lg: var(--shadow-lg);
+  --hover-bg: var(--bg-2);
+  --accent-soft: oklch(.7 .15 275 / .14);
 }

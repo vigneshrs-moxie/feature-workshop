@@ -22,6 +22,7 @@ import { StackGuide, useStackGuide } from './StackGuide';
 import { nextStep, partLook, parts, partTitle, PART, splitWhy, STUCK_AT, type StackAction, type StackButton } from './stackModel';
 import { useStackView, type StackState } from './useStacks';
 import './stack.css';
+import { Choice } from '../../components/Choice';
 
 const clock = (iso: string) => {
   const d = new Date(iso);
@@ -250,7 +251,7 @@ function SettingsSheet({ view, draft, onClose, onSave }: { view: StackView; draf
         <p className="muted">How many {PART.many} of this stack build at the same time. Across every stack it is also at most {view.globalCap} (Settings → Workflow); {view.globalRunning} build now.</p>
         {!ok && <p className="field-problem">Pick a whole number from 1 to 20.</p>}
         <label className="rule-option">
-          <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
+          <Choice type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
           <span className="rule-option-body">
             <span className="rule-option-kind">Merge on its own</span>
             <span className="muted">A finished {PART.one} merges by itself when it is next in order, and the tests run after. Pushing still waits for your go.</span>

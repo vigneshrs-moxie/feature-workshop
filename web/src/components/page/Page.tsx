@@ -1,11 +1,12 @@
 // The pieces every page of the new look is built from (packet M):
-//   <Page>       the full-width page, its heading row and its body, at most --page-max wide
+//   <Page>       the page across the whole window (even --page-gutter sides), its heading row and body
 //   <NextBar>    the one next step: what it is in a sentence, and one big button with its key
 //   <Guide>      the three-card "How it works", shown by itself the first time a page opens
 //   <Fold>       a folded section with its count ("Resting · 2 idle   Show ▸")
 //   <Hero>       an empty state: a picture, one sentence, one or two buttons
 // Words carry the meaning everywhere; icons are decoration and colour never stands alone.
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { Button } from '../Button';
 import { Icon, type IconName } from '../Icon';
 import { useStored } from '../../lib/stored';
 
@@ -27,9 +28,7 @@ export function Page({ label, title, head, children, className = '', guide }: {
           <h2 className="page-title">{title}</h2>
           {head}
           {guide && (
-            <button type="button" className="btn btn-quiet page-how" onClick={() => setGuideOpen(true)} title="The three things to know about this page.">
-              <Icon name="help" size={16} /> How it works
-            </button>
+            <Button kind="quiet" icon="help" className="page-how" onClick={() => setGuideOpen(true)} title="The three things to know about this page.">How it works</Button>
           )}
         </header>
         {children}
@@ -179,12 +178,12 @@ function Guide({ spec, onClose }: { spec: GuideSpec; onClose: () => void }) {
       <section className="guide" role="dialog" aria-modal="true" aria-label={spec.title}>
         <header className="guide-head">
           <h3>{spec.title}</h3>
-          <button type="button" className="btn btn-quiet" onClick={onClose} title="Close this; How it works opens it again.">Skip</button>
+          <Button kind="quiet" onClick={onClose} title="Close this; How it works opens it again.">Skip</Button>
         </header>
         <GuideCards cards={spec.cards} />
         <footer className="guide-foot">
           <span className="muted">Open this again any time with How it works.</span>
-          <button ref={done} type="button" className="btn btn-primary btn-lg" onClick={onClose}>{spec.done}</button>
+          <Button ref={done} kind="primary" size="lg" onClick={onClose}>{spec.done}</Button>
         </footer>
       </section>
     </div>

@@ -24,6 +24,7 @@ import { ReviewBar } from './ReviewBar';
 import { ReviewPanel } from './ReviewPanel';
 import { flow, held, PR_URL, view } from './test-fixtures';
 import { useReview } from './useReview';
+import { pickOption } from '../../components/Select.testing';
 
 const SLUG = 'feedback-api';
 const JOB: Job = { slug: SLUG, title: 'Feedback API', group: 'needs-you', lane: 'needs-you', stage: 'pr2', permissions: 1 } as Job;
@@ -114,7 +115,7 @@ describe('the Ship stop: changes asked for', () => {
     const box = await screen.findByRole('checkbox', { name: /Included: Nit: `fbId`/ });
     fireEvent.click(box);
     await waitFor(() => expect(post).toHaveBeenCalledWith(`/api/review/${SLUG}/item`, { id: 'c7002', included: false }));
-    fireEvent.change(screen.getByRole('combobox', { name: /Kind of “Why 2,000 characters/ }), { target: { value: 'change' } });
+    pickOption(screen.getByRole('combobox', { name: /Kind of “Why 2,000 characters/ }), 'change');
     await waitFor(() => expect(post).toHaveBeenCalledWith(`/api/review/${SLUG}/item`, { id: 'c7004', kind: 'change' }));
     expect(screen.queryByRole('combobox', { name: /Kind of “lint/ })).toBeNull();
     const note = screen.getByRole('textbox', { name: 'A note for the Foreman (optional)' });

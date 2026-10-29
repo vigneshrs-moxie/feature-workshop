@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { carryOnNow, setAutoCarryOn } from '../app/jobActions';
 import { clockTime, useNow } from '../lib/time';
 import { useWorkshop, useWorkshopState } from '../state/store';
+import { Choice } from './Choice';
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -90,7 +91,7 @@ export function UsageBanner() {
           Carry on now
         </button>
         <label className="check usage-auto" title="When Claude’s limit resets, paused jobs carry on by themselves. Turn it off to restart them yourself with Carry on now.">
-          <input type="checkbox" checked={Boolean(usage.autoResume)} disabled={busy} onChange={(e) => void toggleAuto(e.target.checked)} />
+          <Choice type="checkbox" checked={Boolean(usage.autoResume)} disabled={busy} onChange={(e) => void toggleAuto(e.target.checked)} />
           Carry on automatically when it resets
         </label>
         {note && <span className="muted" role="status">{note}</span>}

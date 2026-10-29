@@ -27,6 +27,7 @@ import { jobBySlug } from '../state/reducer';
 import { useWorkshop, useWorkshopState } from '../state/store';
 import { NextStep, ticketOf } from './JobPage';
 import { ReviewPanel } from '../views/Review/ReviewPanel';
+import { Select } from '../components/Select';
 
 export const STAGE_GUIDE: GuideSpec = {
   id: 'stage',
@@ -202,9 +203,7 @@ function WhoIsOn({ job, view, now, faces, finishedOpen, setFinishedOpen }: { job
           <Icon name="folder" size={16} /> Open the job’s folder in a terminal
         </button>
         {apps.length > 1 && (
-          <select className="stage-app" value={app ?? apps[0]} aria-label="Terminal app" disabled={busy !== null} onChange={(e) => void pickApp(e.target.value)} title="Which terminal app the buttons here open.">
-            {apps.map((t) => <option key={t} value={t}>in {t}</option>)}
-          </select>
+          <Select className="stage-app" value={app ?? apps[0]} aria-label="Terminal app" disabled={busy !== null} onChange={(t) => void pickApp(t)} title="Which terminal app the buttons here open." options={apps.map((t) => ({ value: t, label: `in ${t}`, text: t }))} />
         )}
       </header>
       {note && <p className={note.bad ? 'thread-error' : 'muted stage-note'} role={note.bad ? 'alert' : 'status'}>{note.text}</p>}

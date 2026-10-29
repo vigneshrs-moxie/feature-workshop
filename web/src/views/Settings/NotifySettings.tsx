@@ -11,6 +11,7 @@ import type { NotificationsView, NotifyLevel, NotifyMode, NotifySettings as Noti
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
+import { Choice } from '../../components/Choice';
 
 /** The settings with the usage warnings' switch (on unless turned off): NotifySettings in api/types.ts. */
 type NotifyAll = Notify;
@@ -84,7 +85,7 @@ export function NotifySettings() {
         </p>
       )}
       <label className="drawer-check" title="All notifications from the dashboard, on or off." data-setting="notify-enabled">
-        <input type="checkbox" checked={n.enabled} onChange={(e) => void save({ enabled: e.target.checked })} />
+        <Choice type="checkbox" checked={n.enabled} onChange={(e) => void save({ enabled: e.target.checked })} />
         <span>Send notifications to macOS</span>
       </label>
       <table className="notify-levels" data-setting="notify-levels">
@@ -97,7 +98,7 @@ export function NotifySettings() {
                 <div className="home-seg" role="radiogroup" aria-label={`${l.label}: how it reaches you`}>
                   {MODES.map((m) => (
                     <label key={m.id} className={`home-seg-btn${n.levels[l.id] === m.id ? ' is-on' : ''}`} title={`${l.label}: ${m.label.toLowerCase()}.`}>
-                      <input className="sr-only" type="radio" name={`${id}-${l.id}`} checked={n.levels[l.id] === m.id} disabled={!n.enabled} onChange={() => void save({ levels: { ...n.levels, [l.id]: m.id } })} />
+                      <Choice className="sr-only" type="radio" name={`${id}-${l.id}`} checked={n.levels[l.id] === m.id} disabled={!n.enabled} onChange={() => void save({ levels: { ...n.levels, [l.id]: m.id } })} />
                       {m.label}
                     </label>
                   ))}
@@ -108,12 +109,12 @@ export function NotifySettings() {
         </tbody>
       </table>
       <label className="drawer-check" title="A notification when Claude’s 5-hour or weekly usage reaches 80 %, 90 % and full, once each until it resets. It only tells you: nothing is stopped." data-setting="notify-usage">
-        <input type="checkbox" checked={n.usageWarnings !== false} disabled={!n.enabled} onChange={(e) => void save({ usageWarnings: e.target.checked })} />
+        <Choice type="checkbox" checked={n.usageWarnings !== false} disabled={!n.enabled} onChange={(e) => void save({ usageWarnings: e.target.checked })} />
         <span>Usage warnings at 80 %, 90 % and full</span>
       </label>
       <div className="notify-quiet" data-setting="notify-quiet">
         <label className="drawer-check" title="Quiet hours: only problems show, without a sound.">
-          <input type="checkbox" checked={n.quiet.on} disabled={!n.enabled} onChange={(e) => void save({ quiet: { ...n.quiet, on: e.target.checked } })} />
+          <Choice type="checkbox" checked={n.quiet.on} disabled={!n.enabled} onChange={(e) => void save({ quiet: { ...n.quiet, on: e.target.checked } })} />
           <span>Quiet hours from</span>
         </label>
         <input type="time" aria-label="Quiet hours start" value={n.quiet.from} disabled={!n.enabled} onChange={(e) => { if (e.target.value) void save({ quiet: { ...n.quiet, from: e.target.value } }); }} title="When quiet hours start." />
@@ -121,7 +122,7 @@ export function NotifySettings() {
         <input type="time" aria-label="Quiet hours end" value={n.quiet.to} disabled={!n.enabled} onChange={(e) => { if (e.target.value) void save({ quiet: { ...n.quiet, to: e.target.value } }); }} title="When quiet hours end." />
       </div>
       <label className="drawer-check" title="Nothing pops while this page is in front of you: it already shows what changed." data-setting="notify-watching">
-        <input type="checkbox" checked={n.skipWhenWatching} disabled={!n.enabled} onChange={(e) => void save({ skipWhenWatching: e.target.checked })} />
+        <Choice type="checkbox" checked={n.skipWhenWatching} disabled={!n.enabled} onChange={(e) => void save({ skipWhenWatching: e.target.checked })} />
         <span>Not while I’m looking at the dashboard</span>
       </label>
       <AlertSettings />

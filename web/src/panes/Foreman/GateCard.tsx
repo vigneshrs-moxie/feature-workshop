@@ -39,6 +39,7 @@ import { draftKey, SendPreview } from './Composer';
 import { EVIDENCE_STAGES, EvidenceStrip } from './EvidenceStrip';
 import { isActiveRun } from './thread';
 import { LockCard, lockFromError, lockHeadline } from '../../views/JobLock/LockCard';
+import { Choice } from '../../components/Choice';
 
 // Refusals that mean the card is out of date: the Foreman moved on to a new brief, or the spec or
 // plan changed since the card was raised. The slot says so and the job is fetched again.
@@ -459,7 +460,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
             <legend>{i + 1}. <InlineText text={q.text} /></legend>
             {q.options.map((o) => (
               <label key={o.id} className="answer-option" title={o.id === q.recommendation ? 'The Foreman recommends this answer; it’s picked for you. Pick another to change it.' : 'Answer with this option.'}>
-                <input type="radio" name={group} value={o.id} checked={c.choices[q.id] === o.id} onChange={() => setChoice(q.id, o.id)} />
+                <Choice type="radio" name={group} value={o.id} checked={c.choices[q.id] === o.id} onChange={() => setChoice(q.id, o.id)} />
                 <span className="answer-label">
                   {o.id}) <InlineText text={o.label} />
                   {o.id === q.recommendation && <> <span className="chip gate-rec">Recommended</span></>}
@@ -470,7 +471,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
             <div className="answer-option answer-other">
               {q.options.length > 0 && (
                 <label className="answer-other-pick" title="Answer in your own words instead.">
-                  <input type="radio" name={group} value={OTHER} checked={c.choices[q.id] === OTHER} onChange={() => setChoice(q.id, OTHER)} />
+                  <Choice type="radio" name={group} value={OTHER} checked={c.choices[q.id] === OTHER} onChange={() => setChoice(q.id, OTHER)} />
                   <span className="answer-label">Other…</span>
                 </label>
               )}
@@ -706,7 +707,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
 
       {askTerminal && (
         <label className="check" title="Claude Code is open in this repository in a terminal. Two Foremen on one job would trip over each other.">
-          <input type="checkbox" checked={noTerminal} onChange={(e) => setNoTerminal(e.target.checked)} /> None of the open terminals is this job’s Foreman
+          <Choice type="checkbox" checked={noTerminal} onChange={(e) => setNoTerminal(e.target.checked)} /> None of the open terminals is this job’s Foreman
         </label>
       )}
       {error && <p className="field-problem" role="alert">{error}</p>}

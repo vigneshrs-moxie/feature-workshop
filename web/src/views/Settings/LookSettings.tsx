@@ -19,6 +19,7 @@ import { readStored, useStored } from '../../lib/stored';
 import { DEFAULT_THEME, THEME_KEY, THEMES, themePair, useThemeFollow } from '../../theme/theme';
 import { TEXT_SCALES, TEXT_SIZE_LABELS, TEXT_SIZES, type TextSize, useTextSize } from '../../theme/textSize';
 import { ThemePicker } from './ThemePicker';
+import { Choice } from '../../components/Choice';
 
 const SIZE_NAMES: Record<TextSize, string> = { s: 'Small', m: 'Medium', l: 'Large', xl: 'Extra large' };
 const labelOf = (id: string) => THEMES.find((t) => t.id === id)?.label ?? id;
@@ -64,7 +65,7 @@ export function FollowSystem() {
   const chosen = stored ?? readStored(THEME_KEY) ?? DEFAULT_THEME;
   return (
     <label className="rule-option follow-system" data-setting="follow-system">
-      <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} />
+      <Choice type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} />
       <span className="rule-option-body">
         <span className="rule-option-kind">Follow the system</span>
         <span className="muted">{followLine(THEMES.some((t) => t.id === chosen) ? chosen : DEFAULT_THEME)}</span>
@@ -85,7 +86,7 @@ function LayoutPicker<T extends string>({ id, title, value, onPick, options, see
       <div className="layout-options">
         {options.map((o, n) => (
           <label key={o.id} className={`layout-option${value === o.id ? ' is-picked' : ''}`}>
-            <input type="radio" name={id} value={o.id} checked={value === o.id} onChange={() => onPick(o.id)} />
+            <Choice type="radio" name={id} value={o.id} checked={value === o.id} onChange={() => onPick(o.id)} />
             <span className={`layout-pic pic-${o.pic}`} aria-hidden="true"><i /><i /><i /><i /></span>
             <span className="layout-body">
               <span className="layout-name">{o.label}{n === 0 && <span className="chip">Default</span>}</span>

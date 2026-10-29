@@ -50,8 +50,8 @@ export function colorTokens({ baseHue, accentHue, contrast }: ThemeInput): Recor
   const out: Record<string, string> = {};
   // Five background steps, darkest (the window) to lightest (raised controls).
   [0.16, 0.19, 0.22, 0.25, 0.28].forEach((l, i) => { out[`bg-${i}`] = oklch(l, 0.006, baseHue); });
-  // Borders: white at 6%, 10% and 18%.
-  [0.06, 0.1, 0.18].forEach((a, i) => { out[`border-${i + 1}`] = oklch(1, 0, 0, clamp(a * k, 0, 1)); });
+  // Borders: white at 7%, 12% and 20%, so an edge shows on every layer (packet R).
+  [0.07, 0.12, 0.2].forEach((a, i) => { out[`border-${i + 1}`] = oklch(1, 0, 0, clamp(a * k, 0, 1)); });
   // Text: primary (APCA Lc 90 target), secondary (Lc 60+), and faint for hints and disabled.
   out['text-1'] = oklch(0.95, 0.004, baseHue);
   out['text-2'] = oklch(0.72 + (k - 1) * 0.12, 0.01, baseHue);
@@ -79,6 +79,16 @@ export function colorTokens({ baseHue, accentHue, contrast }: ThemeInput): Recor
   out['shadow-2'] = `0 2px 4px ${oklch(0, 0, 0, 0.3)}, 0 12px 32px ${oklch(0, 0, 0, 0.35)}`;
   // A popover's soft shadow, and the dimming behind a sheet (scrim) and a drawer (scrim-soft).
   out['shadow-pop'] = `0 6px 24px ${oklch(0, 0, 0, 0.12)}`;
+  // Packet R: the elevation scale (xs cards, sm raised on hover, md menus and popovers, lg dialogs),
+  // and the shades a pressed or hovered control lays over its own colour (darker by a step), plus the
+  // thin inner highlight on a filled button.
+  out['shadow-xs'] = `0 1px 2px ${oklch(0, 0, 0, 0.16)}`;
+  out['shadow-sm'] = `0 1px 2px ${oklch(0, 0, 0, 0.3)}, 0 2px 6px ${oklch(0, 0, 0, 0.22)}`;
+  out['shadow-md'] = `0 1px 3px ${oklch(0, 0, 0, 0.3)}, 0 6px 18px ${oklch(0, 0, 0, 0.36)}`;
+  out['shadow-lg'] = `0 2px 6px ${oklch(0, 0, 0, 0.3)}, 0 16px 40px ${oklch(0, 0, 0, 0.45)}`;
+  out['shade-hover'] = oklch(0, 0, 0, 0.1);
+  out['shade-press'] = oklch(0, 0, 0, 0.18);
+  out['shine'] = oklch(1, 0, 0, 0.16);
   out['scrim'] = oklch(0, 0, 0, 0.5);
   out['scrim-soft'] = oklch(0, 0, 0, 0.4);
   return out;
@@ -107,20 +117,23 @@ export const CHART_HUES = [255, 55, 195, 95, 300, 150, 25, 345] as const;
 
 /** Everything that doesn't depend on the theme: type, spacing, shape, motion and layout. */
 export const STATIC_TOKENS: Record<string, string> = {
-  // Type: Inter 13px with a line height of 1.45, mono with tabular numbers for times and counts.
+  // Type: Inter 14px with a line height of 1.5 (packet R), on a scale of 11 (eyebrows only), 12, 13,
+  // 14, 16, 20, 24 and 30 px; mono only for code, branch names, ids and tabular numbers.
   // No font files ship yet; Inter and Geist Mono are used when installed, else the system fonts.
   'font-sans': '"Inter", "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   'font-display': '"Inter Display", "Inter", "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif',
   'font-mono': '"Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace',
   // Each type size scales with the text size setting (--ui-scale, 1 at the medium setting).
   'ui-scale': '1',
-  'text-xs': scaled(11),
-  'text-sm': scaled(12),
-  'text-base': scaled(13),
-  'text-md': scaled(15),
+  'text-2xs': scaled(11),
+  'text-xs': scaled(12),
+  'text-sm': scaled(13),
+  'text-base': scaled(14),
+  'text-md': scaled(16),
   'text-lg': scaled(20),
-  'text-xl': scaled(28),
-  'leading': '1.45',
+  'text-xl': scaled(24),
+  'text-2xl': scaled(30),
+  'leading': '1.5',
   'weight-regular': '400',
   'weight-medium': '500',
   'weight-bold': '600',
@@ -133,11 +146,12 @@ export const STATIC_TOKENS: Record<string, string> = {
   'space-6': '24px',
   'space-8': '32px',
   'space-10': '40px',
-  // Corner radii; a child is never rounder than its parent.
-  'radius-sm': '4px',
-  'radius-md': '6px',
-  'radius-lg': '10px',
-  'radius-xl': '14px',
+  // Corner radii; a child is never rounder than its parent. Chips 6, buttons and fields 8, cards 12,
+  // sheets and dialogs 16 (packet R).
+  'radius-sm': '6px',
+  'radius-md': '8px',
+  'radius-lg': '12px',
+  'radius-xl': '16px',
   // Motion: transform and opacity only, nothing over 200ms (plan §7's quality bar), ease-out on entry.
   'dur-fast': '120ms',
   'dur-menu': '180ms',
@@ -154,13 +168,19 @@ export const STATIC_TOKENS: Record<string, string> = {
   'rail-w': '48px',
   'foreman-max': '760px',
   'preview-w': '40%',
-  // Every clickable thing is at least 40 px tall (plan §7): buttons, rows, tabs, chips, menu items.
-  // It grows with a larger text size and never shrinks under 40 px with a smaller one.
-  'control-h': 'max(40px, calc(40px * var(--ui-scale, 1)))',
-  // The big calls (Start, Go, Approve) and the page's one next-step button.
-  'control-h-lg': 'max(44px, calc(44px * var(--ui-scale, 1)))',
-  // The page column of the new screens, and the width under which they turn into their phone form.
-  'page-max': '1180px',
+  // Control heights (packet R): small 28, default 34, large 40 (at most one per screen). Each grows
+  // with a larger text size and never shrinks with a smaller one; at phone width every one is at least
+  // 40 px (PHONE_TOKENS), so a finger always has room.
+  'control-h-sm': 'max(28px, calc(28px * var(--ui-scale, 1)))',
+  'control-h': 'max(34px, calc(34px * var(--ui-scale, 1)))',
+  'control-h-lg': 'max(40px, calc(40px * var(--ui-scale, 1)))',
+  // A chip or badge: one shape everywhere (radius 6, 22 px high).
+  'chip-h': 'calc(22px * var(--ui-scale, 1))',
+  // The page fills the window, with even side gutters (24 px, 32 px from 1280 px wide: WIDE_TOKENS);
+  // --page-max only stops it on a very wide screen. Running text keeps a readable line (--prose-max).
+  'page-gutter': '24px',
+  'page-max': '2400px',
+  'prose-max': '75ch',
   // Each chart series' pattern (laid over its colour, so a series is never told by colour alone):
   // drawn in the page's own background colour, so no theme needs its own copy.
   ...Object.fromEntries(CHART_PATTERNS.map((p, i) => [`chart-pattern-${i + 1}`, p])),
@@ -246,8 +266,28 @@ export function semanticTokens(): Record<string, string> {
   out['grid-line'] = 'var(--border-1)';
   out['tooltip-bg'] = 'var(--text-1)';
   out['tooltip-fg'] = 'var(--bg-0)';
+  // Packet R. Surfaces: the page, a card on it, and the subtle tint of a group inside a card (never a
+  // second frame). The primary button's fill and ink (a theme may make it deeper than its accent).
+  // The elevation scale: a hairline shadow for xs, the theme's own shadows for the rest.
+  out['surface-0'] = 'var(--bg-0)';
+  out['surface-1'] = 'var(--bg-1)';
+  out['surface-2'] = 'var(--bg-2)';
+  out['btn-primary-bg'] = 'var(--accent)';
+  out['btn-primary-fg'] = 'var(--on-accent)';
+  out['elev-xs'] = 'var(--shadow-xs)';
+  out['elev-sm'] = 'var(--shadow-1)';
+  out['elev-md'] = 'var(--shadow-pop)';
+  out['elev-lg'] = 'var(--shadow-2)';
+  // The solid needs-you colour for dots, the stop map and the next-step bar's edge.
+  out['needs-solid'] = 'var(--status-warn)';
   return out;
 }
+
+/**
+ * Packet R's semantic tokens that follow each theme's own base tokens by default (its page, cards,
+ * accent, shadows and warn colour), so a theme needn't set them; Default and Light tune them.
+ */
+export const FOLLOWING_TOKENS: readonly string[] = ['surface-0', 'surface-1', 'surface-2', 'btn-primary-bg', 'btn-primary-fg', 'elev-xs', 'elev-sm', 'elev-md', 'elev-lg', 'needs-solid'];
 
 /**
  * The crew's colours (play/CrewMember.tsx, play/play.css), the palette of the original rig
@@ -303,6 +343,19 @@ export const CREW_TOKENS: Record<string, string> = {
   'crew-c-forest-deep': '#1f7044',
 };
 
+/** At phone width every control is at least 40 px tall, so a finger always has room. */
+export const PHONE_TOKENS: Record<string, string> = {
+  'control-h-sm': 'max(40px, calc(28px * var(--ui-scale, 1)))',
+  'control-h': 'max(40px, calc(34px * var(--ui-scale, 1)))',
+  'control-h-lg': 'max(44px, calc(40px * var(--ui-scale, 1)))',
+  'page-gutter': '16px',
+};
+
+/** From 1280 px wide the page's side gutters grow to 32 px. */
+export const WIDE_TOKENS: Record<string, string> = {
+  'page-gutter': '32px',
+};
+
 /** With reduced motion, only fades remain: no movement or scaling, and pulses stop (see app.css). */
 export const REDUCED_MOTION_TOKENS: Record<string, string> = {
   'motion-shift': '0px',
@@ -323,6 +376,14 @@ export function tokensCss(): string {
     '',
     '/* Text size (theme/textSize.ts): html[data-text] sets the one factor every type token reads. */',
     ...Object.entries(TEXT_SCALES).map(([id, scale]) => block(`html[data-text="${id}"]`, { 'ui-scale': num(scale) })),
+    '',
+    '/* Phone width and wide windows (packet R): control heights and the page gutters. */',
+    '@media (max-width: 760px) {',
+    block(':root', PHONE_TOKENS, '  '),
+    '}',
+    '@media (min-width: 1280px) {',
+    block(':root', WIDE_TOKENS, '  '),
+    '}',
     '',
     '@media (prefers-reduced-motion: reduce) {',
     block(':root', REDUCED_MOTION_TOKENS, '  '),

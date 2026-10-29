@@ -4,7 +4,8 @@ A theme is one CSS file, `web/src/theme/themes/<id>.css`, with every rule scoped
 `html[data-theme="<id>"]`. It is registered in `theme.ts` (`THEMES`: id, label, one-line
 description) and loaded by `themes/index.css`. Which theme is on is decided at startup by
 `theme.ts`: `?theme=<id>` in the address (before or after the hash: `/next/?theme=x` or
-`#/?theme=x`), else localStorage `workshop.theme`, else `default`. The picker in Settings
+`#/?theme=x`), else localStorage `workshop.theme`, else `light` (Light is the default since packet R,
+whatever the system says). The picker in Settings
 saves to localStorage and applies live.
 
 **Hidden themes.** Two themes are rewards from the Play layer: **CRT Terminal** (`crt`, unlocked
@@ -117,11 +118,32 @@ drawn in the page's own `--bg-0` and need no copy per theme.
 
 ### Sizes and motion
 
-`--control-h` (40 px, larger with a larger text size, never smaller) is the least height of every
-clickable thing: `.btn`, `.tab`, `.menu-item`, `.row-link`, `.chip-btn`, inputs and selects;
-`--control-h-lg` (44 px) is the big calls (`.btn-lg`). Transitions use `--dur-fast`, `--dur-menu` or
-`--dur-pane`, all 200 ms or shorter. A theme may restyle hover, but never moves anything under the
-pointer: no `transform` on `:hover`.
+Controls come in three heights (packet R), each larger with a larger text size and never smaller:
+`--control-h-sm` (28 px, `.btn-sm`), `--control-h` (34 px: `.btn`, `.tab`, `.menu-item`, `.row-link`,
+`.chip-btn`, inputs and selects) and `--control-h-lg` (40 px, `.btn-lg`, at most one per screen). At
+phone width every one is at least 40 px. Chips are `--chip-h` (22 px). The page fills the window with
+`--page-gutter` sides (24 px, 32 px from 1280 px, 16 px on a phone); running text keeps
+`--prose-max` (75ch). Transitions use `--dur-fast`, `--dur-menu` or `--dur-pane`, all 200 ms or
+shorter. A theme may restyle hover, but never moves anything under the pointer: no `transform` on
+`:hover` (a pressed button may sink half a pixel on `:active`).
+
+### The controls and surfaces (packet R)
+
+One stylesheet draws the shared controls, `components/controls.css` (Button, Field, Select, Choice,
+Chip, Kbd); a view may place a control but never restyle it (`controlRules.test.ts`). These tokens
+default to each theme's own base tokens, so a theme needn't set them; Default and Light tune them:
+
+| Token | Meaning | Default |
+| --- | --- | --- |
+| `--surface-0`, `--surface-1`, `--surface-2` | the page, a card on it, a subtle tint for a group inside a card (never a second frame) | `--bg-0`, `--bg-1`, `--bg-2` |
+| `--btn-primary-bg`, `--btn-primary-fg` | the primary button's fill and ink (4.5:1 at least) | `--accent`, `--on-accent` |
+| `--elev-xs` … `--elev-lg` | the elevation scale: cards, raised on hover, menus and popovers, dialogs | `--shadow-xs`, `--shadow-1`, `--shadow-pop`, `--shadow-2` |
+| `--needs-solid` | the needs-you dot, the stop map's waiting stop and the next-step bar's edge | `--status-warn` |
+
+Base tokens added with them: `--shadow-xs` … `--shadow-lg`, `--shade-hover` and `--shade-press` (the
+shade a hovered or pressed filled control lays over its own colour) and `--shine` (the primary
+button's thin inner highlight); the type scale gained `--text-2xs` (11 px, eyebrows only) and
+`--text-2xl` (30 px).
 
 ### The crew (`--crew-*`)
 
@@ -199,7 +221,7 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `.alert-settings` | this browser's alerts, a sub-block of Settings → Notifications (`.alert-settings-title`, `.alert-settings-lead`, `.alert-settings-row` with the `.btn-toggle`s, `.alert-settings-note`) |
 | `.look-settings` | Settings → Look (`views/Settings/LookSettings.tsx`): `.look-heading` its sub-headings; `.text-size` with `.text-size-btn` (`.is-on`, `aria-pressed`) and the live `.text-sample`; `.follow-system` (a `.rule-option` with a checkbox) |
 | `.theme-picker`, `.theme-option`, `.theme-hint` | the theme picker in Settings: a swatch grid in two groups (`.theme-group`, `.theme-group-title`, `.theme-grid`); each `.theme-option` (`.is-picked`, `.is-hidden-theme`) holds a `.theme-swatch` carrying its own `data-theme`, drawn from that theme's tokens (`theme/swatches.css`, generated from every theme file by `swatchSheet.ts`: the token block and the `body` background, re-scoped), then the name, the word `.theme-chosen` on the chosen one and `.theme-description` |
-| `.btn`, `.btn-primary`, `.btn-danger`, `.btn-quiet`, `.chip`, `.kbd`, `.text-input`, `.text-area`, `.select` | controls |
+| `.btn`, `.btn-primary`, `.btn-danger`, `.btn-quiet`, `.btn-sm`, `.btn-lg`, `.btn-label`, `.chip` (`.chip-ok` `.chip-info` `.chip-warn` `.chip-error` `.chip-accent` `.chip-needs-you`), `.kbd` (`.key-hint`, `.is-quiet`), `.text-input`, `.text-area`, `.select` (`.select-menu`, `.select-option`), `.choice`, `.option-row` | the shared controls (`components/controls.css`) |
 | `.how` | a "How this works" fold |
 | `.crew` | a crew member (an inline `svg`): `.crew-<agent type>`, `.is-<state>` (`working` `waiting` `idle` `asleep` `celebrating` `walking` `thinking`), `.m-<motion>` (`strike` `write` `scan` `shake`), `.is-animated` (Full mode) or `.is-still`; parts `.rig`, `.head`, `.hat`, `.arm-l`, `.arm-r`, `.tool` (`.grip` inside), `.feet`, `.shadow`, `.fx`; `.is-silhouette` when not met yet. Restyle colours through `--crew-*` only |
 | `.crew-tag`, `.crew-handoff`, `.crew-lineup`, `.live-crew`, `.foreman-face` | the crew in the conversation (Play on): a character with its name on a thread line, the workers a routine-steps line handed work to, a review brief's reviewers, who is at work in the live row, the Foreman by the job title. Never inside a gate card, a permission card or the composer |

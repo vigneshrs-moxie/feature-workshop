@@ -24,6 +24,8 @@ import { panelId } from './ReviewBar';
 import { useReview } from './useReview';
 import { EDITABLE, ITEM_ICON, KIND_HINT, KIND_ICON, KIND_WORDS, REVIEW_GUIDE, ROUND_FIRST, STEP_ICON } from './words';
 import './review.css';
+import { Choice } from '../../components/Choice';
+import { Select } from '../../components/Select';
 
 type Act = (action: string, body?: Record<string, unknown>) => Promise<boolean>;
 
@@ -145,7 +147,7 @@ function ItemRow({ item: i, act, editable, who }: { item: ReviewItemView; act: A
   return (
     <li className={`review-item is-${i.state}${i.included ? '' : ' is-out'}${i.newWords ? ' is-late' : ''}`}>
       {editable && (
-        <input
+        <Choice
           type="checkbox"
           className="review-tick"
           checked={i.included}
@@ -190,9 +192,7 @@ function KindChip({ item: i, editable, onPick }: { item: ReviewItemView; editabl
   return (
     <label className={`chip review-kind is-${i.kind} is-menu`} title={`${KIND_HINT[i.kind]} It is ${by}: pick another to change it.`}>
       <Icon name={KIND_ICON[i.kind]} size={14} />
-      <select value={i.kind} onChange={(e) => onPick(e.currentTarget.value as ReviewItemKind)} aria-label={`Kind of “${i.quote ?? i.name ?? 'this item'}”: ${KIND_WORDS[i.kind]}, ${by}`}>
-        {(['change', 'question', 'nit'] as const).map((k) => <option key={k} value={k}>{KIND_WORDS[k]}</option>)}
-      </select>
+      <Select value={i.kind} onChange={(k) => onPick(k as ReviewItemKind)} aria-label={`Kind of “${i.quote ?? i.name ?? 'this item'}”: ${KIND_WORDS[i.kind]}, ${by}`} options={(['change', 'question', 'nit'] as const).map((k) => ({ value: k, label: KIND_WORDS[k] }))} />
     </label>
   );
 }
@@ -280,7 +280,7 @@ function FollowUpChoice({ step, ready, reload }: { step: ReviewSendStep; ready: 
   return (
     <div className="review-choice">
       <label className="review-switch">
-        <input type="checkbox" role="switch" checked={on} disabled={busy} onChange={(e) => void flip(e.currentTarget.checked)} aria-label="This go also merges PR #1 once its checks pass" />
+        <Choice type="checkbox" role="switch" checked={on} disabled={busy} onChange={(e) => void flip(e.currentTarget.checked)} aria-label="This go also merges PR #1 once its checks pass" />
         <span>{on ? 'This go also merges PR #1 once its checks pass' : 'I’ll merge PR #1 myself: the replies and the review request wait until it is merged'}</span>
       </label>
       {on && <button type="button" className="link-button" disabled={busy} onClick={() => void flip(false)} title="Stop after opening PR #1. Steps 3 to 5 run on their own once GitHub shows it merged.">I’ll merge PR #1 myself</button>}
