@@ -80,6 +80,7 @@ import { removeServiceFile, writeServiceFile } from './service-file.js';
 import { createStacks } from './stacks.js';
 import { itemSummary, lookAt, noteFeedback, readFeedback } from '../lib/pr-feedback.js';
 import { ReviewRefused, createReviewRounds, gitRead } from '../lib/review-round.js';
+import { createGhWrite } from '../lib/gh-write.js';
 
 /** The Foreman models the page offers (meta.models); a reply's model must be one of them. */
 export const MODELS = [
@@ -1107,9 +1108,12 @@ export async function createRunner(config) {
   // own states up to the merge. It reads GitHub after each network refresh of the flow map, before
   // N's look at the same PRs (prependListener), so a round's items are marked in pr-feedback.json
   // before N would card them one by one. The panel's routes: site/routes-review.js.
+  // The writer (lib/gh-write.js): the same gh, every call with your yes; the demo and tests push
+  // only to local folders, and the demo writes nothing without WORKSHOP_GH's fake.
+  const ghWrites = feedbackGh ? createGhWrite({ gh: env.WORKSHOP_GH ? git.ghRunner(env.WORKSHOP_GH, { timeout: 60000 }) : git.ghRunner('gh', { timeout: 60000 }), audit: (line) => state.audit(line), lockFor: (dir) => heldElsewhere(dir), localOnly: DEMO }) : null;
   let roundsFetchedAt = null;
   const reviewRounds = createReviewRounds({
-    gh: feedbackGh, driver,
+    gh: feedbackGh, driver, write: ghWrites,
     jobs: async () => (await featuresShared()).map((f) => ({ dir: f.dir, slug: f.slug, title: f.title, branch: f.branch ?? null, worktree: f.worktree ?? null, repoPath: f.repoPath ?? null, closed: f.closed ?? null, ticket: slugTicketKey(f.slug) ?? null })),
     profileFor: async (repo) => { const hit = await local.registry?.profileFor(repo).catch(() => null); return hit?.ok ? hit.profile : null; },
     audit: (line) => state.audit(line),

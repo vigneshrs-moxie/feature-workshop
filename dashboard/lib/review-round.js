@@ -29,6 +29,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { scrub, scrubDeep } from './orbit.js';
+import { runSteps, yes as yesFor } from './gh-write.js';
 import { QUOTE_MAX, checkKey, commentKey, isSummaryBot, lookedAt as lookedAtPr, noteFeedback, readFeedback as readFeedbackRecord } from './pr-feedback.js';
 
 // N's record: the items a round takes are marked 'round', so N never cards them too.
@@ -1066,11 +1067,13 @@ export function createReviewRounds(deps) {
     if (!d?.parkRoundCard) return;
     if (!CARD_STATES.has(view.state) || !view.desk) { d.dropRoundCard(f.dir, 'resolved'); return; }
     const acts = view.desk.actions.filter((a) => !a.client && a.go !== null);
-    if (!acts.length) { d.dropRoundCard(f.dir, 'resolved'); return; }
+    const key = `${view.state}:${round?.round ?? 0}:${view.heldState ?? ''}`;
+    // Not yet: the card goes until the round moves on (the panel still offers the go).
+    if (!acts.length || (round?.snoozed && round.snoozed === key)) { d.dropRoundCard(f.dir, 'resolved'); return; }
     const go = acts.find((a) => a.go === true);
     const noGo = acts.find((a) => a.go === false);
     d.parkRoundCard({ featureDir: f.dir, slug: f.slug, title: f.title }, {
-      key: `${view.state}:${round?.round ?? 0}:${view.heldState ?? ''}`, header: view.pr.label, headline: view.bar.headline, detail: view.bar.detail ?? null, sentence: view.desk.sentence ?? null,
+      key, header: view.pr.label, headline: view.bar.headline, detail: view.bar.detail ?? null, sentence: view.desk.sentence ?? null,
       actions: [go, noGo].filter(Boolean).map((a) => ({ id: a.id, label: a.label, description: a.playLabel })),
       disabled: go && !go.enabled ? go.reason : null,
       review: { slug: f.slug, state: view.state, round: round?.round ?? null, pr: view.pr.number, prLabel: view.pr.label },
@@ -1152,7 +1155,7 @@ export function createReviewRounds(deps) {
         const f = jobs.find((j) => j.slug === lane.slug);
         if (!f || f.closed) continue;
         const fx = facts.get(f.slug) ?? { prs: new Map() };
-        Object.assign(fx, { f, lane, repo, route, twoStep, org: r.org?.remote ?? null, fork: r.fork?.remote ?? null, base: r.main?.ref?.split('/').slice(1).join('/') ?? 'main', checks: Array.isArray(profile?.checks) ? profile.checks : [] });
+        Object.assign(fx, { f, lane, repo, route, twoStep, org: r.org?.remote ?? null, fork: r.fork?.remote ?? null, forkOwner: r.fork?.slug?.split('/')[0] ?? null, base: r.main?.ref?.split('/').slice(1).join('/') ?? 'main', checks: Array.isArray(profile?.checks) ? profile.checks : [] });
         facts.set(f.slug, fx);
         const rounds = await readRounds(f.dir);
         const live = (p) => p && (['open', 'draft'].includes(p.state) || rounds.some((x) => x.prNumber === p.number && x.state !== 'done'));
@@ -1300,6 +1303,252 @@ export function createReviewRounds(deps) {
     },
   };
 
+  // ---------- Send back (lib/gh-write.js, one call per line, each in the audit) ----------
+
+  const sending = new Map(); // slug → the round being sent (Stop after this step changes it in place)
+  const stepRecord = (s) => { const { run, ...rest } = s; void run; return rest; };
+
+  async function shaOf(f) {
+    if (!f.worktree) return null;
+    const r = await deps.git?.(f.worktree, ['rev-parse', 'HEAD']);
+    return r?.ok ? r.out.trim() : null;
+  }
+
+  async function commitsFor(f, fx, branch) {
+    if (!f.worktree || !fx.org) return [];
+    const r = await deps.git?.(f.worktree, ['log', '--format=%H%x09%s', `${fx.org}/${branch}..HEAD`]);
+    return r?.ok ? r.out.split('\n').filter(Boolean).map((l) => { const [sha, ...rest] = l.split('\t'); return { sha, subject: rest.join('\t') }; }) : [];
+  }
+
+  // Wait for a PR's checks to pass (read only), up to checksTimeoutMs.
+  async function waitForChecks(repo, number, step, round, f) {
+    const every = deps.checksEveryMs ?? 20000;
+    const until = now() + (deps.checksTimeoutMs ?? 30 * 60 * 1000);
+    for (;;) {
+      const pr = await readPr(deps.gh, repo, number);
+      if (pr.state === 'merged') return { ok: true, merged: true };
+      if (pr.state === 'closed') return { ok: false, err: `the follow-up PR #1 (#${number}) was closed`, failWords: 'the follow-up PR #1 was closed' };
+      if (pr.checksWord === 'failing') return { ok: false, err: `its checks failed: ${listWords(pr.checks.filter((c) => c.state === 'fail').map((c) => c.name))}`, failWords: 'the follow-up PR #1’s checks failed' };
+      if (pr.checksWord !== 'pending') return { ok: true };
+      if (now() >= until) return { ok: false, err: 'its checks took longer than half an hour', failWords: 'the follow-up PR #1’s checks didn’t finish' };
+      step.waiting = 'Waiting for the follow-up PR #1’s checks before merging it.';
+      await saveRound(f.dir, round, { route: facts.get(f.slug)?.route ?? [] });
+      await refreshJob(f.slug);
+      await sleep(every);
+    }
+  }
+
+  function stepRunners(f, fx, round, y) {
+    const repo = fx.repo;
+    const number = round.prNumber;
+    const branch = fx.lane?.branch ?? f.branch;
+    const ctx = { yes: y, featureDir: f.dir, slug: f.slug };
+    const items = () => round.items.filter((i) => i.included && i.added);
+    return {
+      push: async () => {
+        const res = await deps.write.push({ ...ctx, dir: f.worktree, remote: fx.fork, branch });
+        if (res.ok) { round.sentHead = await shaOf(f); deps.refresh?.(); }
+        return res.ok ? res : { ...res, failWords: 'the push didn’t go through' };
+      },
+      'follow-up': async (step) => {
+        if (!round.followUp?.number) {
+          const open = openFollowUp(fx);
+          if (open) round.followUp = { number: open.number, url: open.url, opened: false };
+          else {
+            const pr2 = fx.prs.get(number);
+            const res = await deps.write.openPr({ ...ctx, repo, base: branch, head: `${fx.forkOwner}:${branch}`, title: followUpTitle(round, fx.route), body: followUpBody(round, { route: fx.route, commits: await commitsFor(f, fx, branch), prUrl: pr2?.url ?? round.prUrl }) });
+            if (!res.ok) return { ...res, failWords: 'the follow-up PR #1 didn’t open' };
+            round.followUp = { number: res.number, url: res.url, opened: true };
+          }
+          round.timeline.push({ at: iso(), words: `The follow-up PR #1 (#${round.followUp.number}) is open.` });
+          await saveRound(f.dir, round, { route: fx.route });
+        }
+        if (round.send?.mergeFollowUp === false) return { ok: true, waiting: true };
+        const checks = await waitForChecks(repo, round.followUp.number, step, round, f);
+        step.waiting = null;
+        if (!checks.ok) return checks;
+        if (checks.merged) return { ok: true };
+        const res = await deps.write.mergePr({ ...ctx, repo, number: round.followUp.number, method: routeStep(fx.route, 1).squash ? 'squash' : 'merge' });
+        if (res.ok) round.timeline.push({ at: iso(), words: `The follow-up PR #1 (#${round.followUp.number}) is merged: ${round.prLabel} has the fixes.` });
+        return res.ok ? res : { ...res, failWords: 'the follow-up PR #1 didn’t merge' };
+      },
+      replies: async () => {
+        const list = items().filter((i) => i.type !== 'check' && i.reply && !i.replyDropped);
+        let k = 0;
+        for (const i of list) {
+          k++;
+          if (i.posted?.ok) continue; // never posted twice
+          const res = await deps.write.reply({ ...ctx, repo, number, comment: { type: i.type, id: i.githubId, author: i.author, quote: i.quote }, body: i.reply });
+          i.posted = { ok: res.ok, at: iso(), id: res.posted ?? null, err: res.err ?? null };
+          await saveRound(f.dir, round, { route: fx.route });
+          if (!res.ok) { deps.refresh?.(); return { ...res, failWords: `reply ${k} of ${list.length} didn’t post` }; }
+        }
+        deps.refresh?.();
+        return { ok: true };
+      },
+      resolve: async () => {
+        const list = items().filter((i) => i.type === 'line' && i.state === 'fixed');
+        let k = 0;
+        for (const i of list) {
+          k++;
+          if (i.resolved) continue;
+          const res = await deps.write.resolveThread({ ...ctx, repo, number, commentId: i.githubId });
+          if (!res.ok) return { ...res, failWords: `marking comment ${k} of ${list.length} resolved didn’t work` };
+          i.resolved = true;
+          await saveRound(f.dir, round, { route: fx.route });
+        }
+        return { ok: true };
+      },
+      request: async () => {
+        const res = await deps.write.requestReview({ ...ctx, repo, number, login: round.reviewer });
+        if (res.ok) round.requestedAt = iso();
+        return res.ok ? res : { ...res, failWords: `asking ${nameFor(round.reviewer, fx.route)} again didn’t work` };
+      },
+    };
+  }
+
+  // Runs the round's steps that aren't done, in order; the first failure stops the rest.
+  async function runSend(f, fx, round, y) {
+    const slug = f.slug;
+    busy.add(slug);
+    sending.set(slug, round);
+    try {
+      const runners = stepRunners(f, fx, round, y);
+      const steps = round.send.steps.map((s) => ({ ...s, run: () => runners[s.id](s) }));
+      const res = await runSteps(steps, {
+        stopAfter: () => Boolean(round.send.stopAfter),
+        onStep: async (s) => {
+          round.send.steps = steps.map(stepRecord);
+          if (s.state === 'done' || s.state === 'stopped') {
+            await deps.audit?.({ action: 'review-round-step', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel, step: s.id, number: s.number, words: s.words, ok: s.state === 'done', error: s.error ?? undefined, code: s.code ?? undefined });
+            round.timeline.push({ at: iso(), words: s.state === 'done' ? `Step ${s.number}: ${s.words}. Done.` : `Step ${s.number} stopped: ${s.error}.` });
+          }
+          await saveRound(f.dir, round, { route: fx.route });
+          await refreshJob(slug);
+        },
+      });
+      round.send.steps = steps.map(stepRecord);
+      round.send.endedAt = iso();
+      if (res.ok) {
+        Object.assign(round, { state: 'sent', sentAt: iso(), snoozed: null });
+        round.sentHead ??= fx.prs.get(round.prNumber)?.head ?? null;
+        round.timeline.push({ at: iso(), words: `Round ${round.round} went back to ${nameFor(round.reviewer, fx.route)}.` });
+        await deps.audit?.({ action: 'review-round-sent', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel, reviewer: nameFor(round.reviewer, fx.route) });
+      } else if (res.waiting) {
+        round.state = 'after-pr1';
+      } else {
+        round.state = 'stopped';
+        round.snoozed = null;
+        await deps.audit?.({ action: 'review-round-stopped', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel, at: res.stoppedAt + 1, byYou: res.stoppedByYou || undefined });
+      }
+      await saveRound(f.dir, round, { route: fx.route });
+    } catch (err) {
+      round.state = 'stopped';
+      await saveRound(f.dir, round, { route: fx.route }).catch(() => {});
+      deps.problem?.(err);
+    } finally {
+      busy.delete(slug);
+      sending.delete(slug);
+      deps.refresh?.();
+      await refreshJob(slug).catch(() => {});
+    }
+  }
+
+  // Starts Send back (or carries it on) and returns at once: the view shows each step as it goes.
+  function startSend(f, fx, round, y) {
+    const done = runSend(f, fx, round, y);
+    inFlight.set(f.slug, done);
+    done.finally(() => { if (inFlight.get(f.slug) === done) inFlight.delete(f.slug); });
+  }
+  const inFlight = new Map();
+
+  Object.assign(actions, {
+    /** Send back: every step listed first, one go runs them in order. */
+    async send(slug, { go, mergeFollowUp } = {}) {
+      if (go !== true) throw new ReviewRefused(400, 'Send back runs only on your go.');
+      const { f, fx, round } = await load(slug);
+      needRound(round, ['fixing'], `Round ${round?.round} isn’t ready to send back.`);
+      if (!foremanReady(round) || deps.driver?.activeRunFor?.({ featureDir: f.dir })) throw new ReviewRefused(409, 'The Foreman is still on it: Send back waits until the round is ready.');
+      if (busy.has(slug)) throw new ReviewRefused(409, 'This round is being sent back already.');
+      if (!deps.write) throw new ReviewRefused(409, 'Nothing can be written to GitHub from here.');
+      needLock(f);
+      if (round.items.some((i) => i.late && !i.added)) throw new ReviewRefused(409, 'New comments joined the round: add them to the Foreman’s list or leave them out first.');
+      const s = await settings();
+      const merge = typeof mergeFollowUp === 'boolean' ? mergeFollowUp : s.mergeFollowUp;
+      const plan = sendPlan(round, { ahead: await aheadOf(f, fx), fork: fx.fork, branch: fx.lane?.branch ?? f.branch, orgRemote: fx.org, twoStep: fx.twoStep, followUp: openFollowUp(fx), mergeFollowUp: merge }, { route: fx.route });
+      if (!plan.length) throw new ReviewRefused(409, 'There is nothing to send back.');
+      const what = `Send back round ${round.round} on ${round.prLabel}`;
+      round.send = { startedAt: iso(), steps: plan.map((p) => ({ ...p, state: 'will' })), stopAfter: false, mergeFollowUp: merge, yes: what };
+      round.state = 'sending';
+      round.timeline.push({ at: iso(), words: `You said go: ${what.charAt(0).toLowerCase()}${what.slice(1)}, ${plural(plan.length, 'step')}.` });
+      await saveRound(f.dir, round, { route: fx.route });
+      await deps.audit?.({ action: 'review-round-send', what: 'go', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel, steps: plan.length, mergeFollowUp: merge });
+      startSend(f, fx, round, yesFor({ what }));
+      return refreshJob(slug);
+    },
+    /** Not yet: nothing runs; the card goes until the round moves on. */
+    async 'not-yet'(slug) {
+      const { f, fx, round } = await load(slug);
+      needRound(round, ['fixing', 'stopped']);
+      const v = views.get(slug);
+      round.snoozed = `${v?.state ?? round.state}:${round.round}:${v?.heldState ?? ''}`;
+      round.timeline.push({ at: iso(), words: 'You said not yet.' });
+      await saveRound(f.dir, round, { route: fx.route });
+      await deps.audit?.({ action: 'review-round-send', what: 'not-yet', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel });
+      return refreshJob(slug);
+    },
+    /** Stop after this step: the step in progress finishes, the rest don't run. */
+    async 'stop-after-step'(slug) {
+      const round = sending.get(slug);
+      if (!round) throw new ReviewRefused(409, 'Nothing is being sent back now.');
+      round.send.stopAfter = true;
+      const f = await jobOf(slug);
+      await saveRound(f.dir, round, { route: facts.get(slug)?.route ?? [] });
+      await deps.audit?.({ action: 'review-round-send', what: 'stop-after', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel });
+      return refreshJob(slug);
+    },
+    /** Try again from here: the failed step and the ones after it; what is done doesn't run again. */
+    async retry(slug, { go } = {}) {
+      if (go !== true) throw new ReviewRefused(400, 'Try again runs only on your go.');
+      const { f, fx, round } = await load(slug);
+      needRound(round, ['stopped']);
+      if (busy.has(slug)) throw new ReviewRefused(409, 'This round is being sent back already.');
+      needLock(f);
+      for (const s of round.send.steps) if (s.state !== 'done' && s.state !== 'skipped') Object.assign(s, { state: 'will', error: null, code: null, failWords: null });
+      round.send.stopAfter = false;
+      round.state = 'sending';
+      const what = `${round.send.yes ?? `Send back round ${round.round}`}: try again from step ${round.send.steps.find((s) => s.state === 'will')?.number ?? '?'}`;
+      await saveRound(f.dir, round, { route: fx.route });
+      await deps.audit?.({ action: 'review-round-send', what: 'retry', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel });
+      startSend(f, fx, round, yesFor({ what }));
+      return refreshJob(slug);
+    },
+    /** You said you'd merge the follow-up PR #1 yourself; merge it from here after all. */
+    async 'merge-follow-up'(slug, { go } = {}) {
+      if (go !== true) throw new ReviewRefused(400, 'Merging runs only on your go.');
+      const { f, fx, round } = await load(slug);
+      needRound(round, ['after-pr1']);
+      needLock(f);
+      round.send.mergeFollowUp = true;
+      for (const s of round.send.steps) if (s.id === 'follow-up' || s.state === 'after-pr1') s.state = 'will';
+      round.state = 'sending';
+      await saveRound(f.dir, round, { route: fx.route });
+      startSend(f, fx, round, yesFor({ what: `Merge the follow-up PR #1 for round ${round.round}, then the rest of Send back` }));
+      return refreshJob(slug);
+    },
+  });
+
+  // The follow-up PR #1 you merged yourself is merged: steps 3 to 5 run now, on the go you gave.
+  deps.onFollowUpMerged ??= async (f, round) => {
+    if (busy.has(f.slug) || round.state !== 'after-pr1') return;
+    const fx = facts.get(f.slug);
+    for (const s of round.send.steps) if (s.state === 'after-pr1') s.state = 'will';
+    round.state = 'sending';
+    round.timeline.push({ at: iso(), words: `You merged the follow-up PR #1 (#${round.followUp?.number}): the rest of Send back runs now.` });
+    await saveRound(f.dir, round, { route: fx.route });
+    startSend(f, fx, round, yesFor({ what: `${round.send.yes ?? `Send back round ${round.round}`} (after you merged PR #1)` }));
+  };
+
   /** A round card's answer (lib/driver.js roundAnswer). */
   async function answerCard({ card, action, note }) {
     const fn = actions[action];
@@ -1341,6 +1590,8 @@ export function createReviewRounds(deps) {
     isFixing: () => [...views.values()].some((v) => ['fixing', 'new-comment'].includes(v.heldState ?? v.state)),
     busy,
     facts,
+    /** Send back in progress for a job (a promise), or null: tests wait on it. */
+    sendingNow: (slug) => inFlight.get(slug) ?? null,
   };
 }
 
