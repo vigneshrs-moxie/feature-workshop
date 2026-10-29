@@ -29,7 +29,7 @@ const METERS_OFF: PlanUsage = { enabled: false, fiveHour: null, week: null, chec
 
 /** What GET /api/telemetry?window= answers for the fixture at NOW (as server.js builds it). */
 const answer = (window: TelemetryWindow, meters: PlanUsage = METERS_ON): TelemetryResponse => ({
-  ...telemetry(FIXTURE, { window, now: NOW, me: 'vignesh', meters: LAST, titles: TITLES, timeZone: 'UTC' }),
+  ...telemetry(FIXTURE, { window, now: NOW, me: 'vignesh', meters: LAST, titles: TITLES, timeZone: 'UTC', shortStretch: 7 * 3600e3 }),
   meters,
   file: '/home/you/.ground-control/usage.jsonl',
 });

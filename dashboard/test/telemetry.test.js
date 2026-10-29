@@ -17,14 +17,17 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { dayKey, forecast, percentPerDollar, planWeeks, planWeekStart, telemetry, weekLabel, weekOf, whenWords, windowRange } from '../lib/telemetry.js';
+import { dayKey, forecast, limitSplit, percentPerDollar, percentPerDollarInfo, planWeeks, planWeekStart, telemetry, weekLabel, weekOf, whenWords, windowRange } from '../lib/telemetry.js';
 import { startDashboard as launchDashboard } from './helpers/dashboard.js';
 
 const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'telemetry', 'usage.jsonl');
 const lines = (await fs.readFile(FIXTURE, 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
 const NOW = '2026-10-28T12:00:00.000Z';
 const TITLES = { 'orbit-479-feedback-api': 'Feedback API', 'orbit-512-export': 'Export', 'tidy-logs': 'Tidy logs' };
-const OPTS = { now: NOW, me: 'vignesh', titles: TITLES, timeZone: 'UTC' };
+// The fixture's lines are six hours apart: far longer than the short stretches percent per dollar
+// is taken from in real use (SHORT_STRETCH), so its sums here allow stretches of seven hours.
+const STRETCH = 7 * 3600e3;
+const OPTS = { now: NOW, me: 'vignesh', titles: TITLES, timeZone: 'UTC', shortStretch: STRETCH };
 const data = (window) => Object.fromEntries(telemetry(lines, { ...OPTS, window }).datasets.map((d) => [d.id, d]));
 
 test('the fixture is what its rules say', () => {
@@ -87,8 +90,126 @@ test('the plan week: a time zone with daylight time keeps 16:00 on the clock', (
 });
 
 test('percent per dollar: the weekly meter’s rise over the cost recorded, per plan week', () => {
-  assert.equal(percentPerDollar(lines.filter((l) => Date.parse(l.t) >= Date.parse('2026-09-28T12:00:00Z'))), 2);
+  assert.equal(percentPerDollar(lines.filter((l) => Date.parse(l.t) >= Date.parse('2026-09-28T12:00:00Z')), { shortStretch: STRETCH }), 2);
+  // Each fixture line starts its own 5-hour window: no two readings share one, so nothing to go by.
+  assert.equal(percentPerDollar(lines, { shortStretch: STRETCH, meter: 'fiveHour' }), null);
   assert.equal(percentPerDollar(lines.map((l) => ({ ...l, meters: { fiveHour: null, week: null } }))), null);
+  // Six hours between readings is no short stretch: too far apart to say.
+  assert.equal(percentPerDollar(lines), null);
+});
+
+// ---------- Other use: the meters' rise this app's lines don't explain (step 0b) ----------
+//
+// A made-up week on America/Phoenix time: it reset Wednesday 28 October 16:00 (23:00 UTC) and resets
+// again Wednesday 4 November. The account's true rate is 2 % of the week per dollar. The app works in
+// bursts, a line every five minutes at $0.40 (0.8 % of the week each), vignesh and sohum taking turns
+// 2 to 1; outside the app, other use adds whole points in quiet hours. The meter reads whole percents.
+const WEEK_RESET = '2026-11-04T23:00:00.000Z';
+const RATE = 2;
+/** Lines for bursts of work, with each line's meter rounded from the true total (app spend and other use so far). */
+function weekLines({ bursts, outside = [], reset = WEEK_RESET, start = 0, meterless = () => false }) {
+  const out = [];
+  let truth = start;
+  const events = [
+    ...bursts.flatMap((b) => Array.from({ length: b.n }, (_, i) => ({ t: Date.parse(b.at) + i * 5 * 60e3, usd: 0.4, user: (out.length + i) % 3 === 2 ? 'sohum' : 'vignesh', reset: b.reset ?? reset }))),
+    ...outside.map((o) => ({ t: Date.parse(o.at), points: o.points })),
+  ].sort((a, b) => a.t - b.t);
+  let n = 0;
+  for (const e of events) {
+    if (e.points) { truth += e.points; continue; }
+    truth += e.usd * RATE;
+    const t = new Date(e.t).toISOString();
+    const week = meterless(n, t) ? null : { percent: Math.round(truth), resetsAt: e.reset };
+    out.push({ t, user: e.user, job: 'orbit-1-job', ticket: 'ORBIT-1', stage: 'implement', worker: 'foreman', model: 'claude-opus-5-5', costUsd: e.usd, costSource: 'cli', turn: `turn-${n}`, meters: { fiveHour: null, week } });
+    n++;
+  }
+  return out;
+}
+const near = (actual, want, within, what) => assert.ok(Math.abs(actual - want) <= within, `${what}: ${actual}, want ${want} ± ${within}`);
+
+test('other use: a week with only this app’s use, Others about 0', () => {
+  const l = weekLines({ bursts: [{ at: '2026-10-29T15:00:00Z', n: 30 }] });
+  near(percentPerDollar(l), RATE, 0.15, 'percent per dollar');
+  const split = limitSplit(l, { now: '2026-10-30T12:00:00Z' });
+  assert.equal(split.state, 'split');
+  assert.equal(split.total, 24);
+  assert.equal(split.from, '2026-10-28T23:00:00.000Z');
+  near(split.app, 24, 1, 'this app');
+  near(split.other, 0, 1, 'other use');
+  assert.deepEqual(split.people.map((p) => p.user), ['vignesh', 'sohum']);
+  near(split.people[0].percent, 16, 1, 'vignesh');
+  near(split.people[1].percent, 8, 1, 'sohum');
+  assert.equal(split.app + split.other + split.unknown, 24, 'the parts add up to the meter');
+});
+
+test('other use: an outside rise between two quiet readings is Other use, and doesn’t inflate percent per dollar', () => {
+  // 30 lines (24 %), a quiet evening with 40 points of use outside the app, then 15 lines (12 %): 76 %.
+  const l = weekLines({ bursts: [{ at: '2026-10-29T15:00:00Z', n: 30 }, { at: '2026-10-30T01:00:00Z', n: 15 }], outside: [{ at: '2026-10-29T19:00:00Z', points: 25 }, { at: '2026-10-29T22:00:00Z', points: 15 }] });
+  const info = percentPerDollarInfo(l);
+  near(info.ratio, RATE, 0.15, 'percent per dollar from short stretches');
+  assert.equal(info.stretches, 43, 'the quiet evening (seven and a half hours) is not a short stretch');
+  // The old way, the whole rise over the whole spend, counts the outside use as this app's: 76 / $18 = 4.2.
+  near(76 / 18, 4.2, 0.03, 'the old way');
+  const now = '2026-10-30T03:00:00Z';
+  const split = limitSplit(l, { now });
+  assert.equal(split.total, 76);
+  near(split.app, 36, 1.5, 'this app');
+  near(split.other, 40, 1.5, 'other use');
+  const evening = split.stretches.find((x) => x.from === '2026-10-29T17:25:00.000Z');
+  assert.equal(evening.to, '2026-10-30T01:00:00.000Z');
+  near(evening.other, 40, 1, 'the evening’s rise is other use');
+  // The forecast's pace is the whole meter's, and its driver says who is pushing it.
+  const t = telemetry(l, { now, window: 'week', timeZone: 'America/Phoenix' });
+  const gauge = t.datasets.find((d) => d.id === 'gauge');
+  assert.equal(gauge.forecast.driver.words, 'mostly from use outside this app');
+  assert.match(t.limits.week.sentence, /^This week: 76% used\. In this app 3[56]% \(vignesh 2[34]%, sohum 1[12]%\), other use (39|40|41)% \(estimated\)\.$/);
+  const people = t.datasets.find((d) => d.id === 'people');
+  assert.equal(people.others.estimated, true);
+  near(people.others.percent, 40, 1.5, 'the Others row');
+  assert.match(people.sentence, /Others \(outside this app\) (39|40|41)%, estimated\.$/);
+  assert.match(t.limits.note, /claude\.ai, the Claude app, or someone’s own Claude Code/);
+  assert.match(t.limits.note, /another computer/);
+});
+
+test('other use: a reading gap is one stretch with readings at both ends; a meter that went down is unknown', () => {
+  // The meters weren't read for the second burst's first ten lines (plan usage off): one long stretch.
+  const l = weekLines({
+    bursts: [{ at: '2026-10-29T15:00:00Z', n: 30 }, { at: '2026-10-30T01:00:00Z', n: 15 }], outside: [{ at: '2026-10-29T20:00:00Z', points: 40 }],
+    meterless: (n) => n >= 30 && n < 40,
+  });
+  const split = limitSplit(l, { now: '2026-10-30T03:00:00Z' });
+  assert.equal(split.total, 76);
+  near(split.app, 36, 1.5, 'this app, the gap’s lines included');
+  near(split.other, 40, 1.5, 'other use');
+  assert.ok(split.stretches.every((x) => x.known));
+  // A reading lower than the one before, with no reset between: that stretch is unknown, not guessed.
+  const down = [...l, { ...l.at(-1), t: '2026-10-30T02:30:00.000Z', turn: 'late', costUsd: 0.4, meters: { fiveHour: null, week: { percent: 70, resetsAt: WEEK_RESET } } }];
+  const s2 = limitSplit(down, { now: '2026-10-30T03:00:00Z' });
+  assert.equal(s2.stretches.at(-1).known, false);
+  assert.equal(s2.total, 70);
+  assert.ok(s2.app + s2.other + s2.unknown <= 70.01);
+  // No reading this week at all: it says so, and guesses nothing.
+  const none = limitSplit(l.map((x) => ({ ...x, meters: { fiveHour: null, week: null } })), { now: '2026-10-30T03:00:00Z' });
+  assert.equal(none.state, 'no-readings');
+  assert.equal(none.other, null);
+  const t = telemetry(l.map((x) => ({ ...x, meters: { fiveHour: null, week: null } })), { now: '2026-10-30T03:00:00Z', window: 'week', timeZone: 'America/Phoenix' });
+  assert.equal(t.limits.week.sentence, 'Can’t see use outside this app yet: no limit readings this week.');
+  assert.equal(t.datasets.find((d) => d.id === 'people').others, null);
+});
+
+test('other use: a meter reset in the middle starts the week again from 0', () => {
+  // Last week ran to 60 %; the meter reset at 16:00 on Wednesday 28 October; this week the app used 12 %.
+  const before = weekLines({ bursts: [{ at: '2026-10-28T20:00:00Z', n: 15, reset: '2026-10-28T23:00:00.000Z' }], start: 48 });
+  const after = weekLines({ bursts: [{ at: '2026-10-29T01:00:00Z', n: 15 }] });
+  const l = [...before, ...after.map((x) => ({ ...x, turn: `after-${x.turn}` }))];
+  near(percentPerDollar(l), RATE, 0.2, 'percent per dollar, the reset stretch left out');
+  const split = limitSplit(l, { now: '2026-10-29T03:00:00Z' });
+  assert.equal(split.from, '2026-10-28T23:00:00.000Z');
+  assert.equal(split.total, 12);
+  near(split.app, 12, 1, 'this week’s app use');
+  near(split.other, 0, 1, 'no other use: last week’s 60 % isn’t this week’s');
+  // A reading from a window that has since reset says nothing about now.
+  assert.equal(limitSplit(before, { now: '2026-10-29T03:00:00Z' }).state, 'stale');
 });
 
 test('forecast: the last 24 hours’ rise, worked out by hand', () => {
@@ -222,7 +343,7 @@ test('no meters and no lines: dollars alone, and sentences that say so', () => {
   assert.equal(empty['by-day-job'].sentence, 'None of your jobs used Claude this week.');
   assert.equal(empty.cost.sentence, 'Nothing recorded for your jobs in the last 30 days.');
   assert.equal(empty['by-model'].sentence, 'Nothing recorded this week.');
-  assert.equal(empty.people.sentence, 'Nobody used the account this week, as far as this computer knows.');
+  assert.equal(empty.people.sentence, 'Nobody used the account this week in this app, as far as this computer knows.');
 });
 
 test('words for times and days', () => {
@@ -279,7 +400,9 @@ test('GET /api/telemetry: the five datasets for the window, from usage.jsonl in 
     assert.equal(body.meters.enabled, false, 'demo mode reads no plan usage');
     assert.deepEqual(body.datasets.map((x) => [x.id, x.audience]), [['gauge', 'common'], ['by-day-job', 'private'], ['cost', 'private'], ['by-model', 'common'], ['people', 'common']]);
     const people = body.datasets.find((x) => x.id === 'people');
-    assert.deepEqual(people.people, [{ user: 'vignesh', usd: 34.5, percent: 69 }, { user: 'sohum', usd: 9, percent: 18 }]);
+    // The fixture's readings are six hours apart: no short stretch, so no percent per dollar, dollars alone.
+    assert.deepEqual(people.people, [{ user: 'vignesh', usd: 34.5, percent: null }, { user: 'sohum', usd: 9, percent: null }]);
+    assert.equal(body.limits.week.state, 'no-ratio');
     const gauge = body.datasets.find((x) => x.id === 'gauge');
     assert.equal(gauge.forecast.fullAt, move('2026-10-29T03:48:00.000Z'));
     assert.match(gauge.sentence, /^At this pace, full on \w+day \d\d:\d\d\.$/);

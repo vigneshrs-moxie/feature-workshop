@@ -11,9 +11,10 @@
 // about the shared account (everyone's lines, no job names), so v2 can show those to the team.
 //
 // Plan percent: a line's share of the weekly limit is its cost times the account's percent per
-// dollar, worked out from how far the weekly meter rose in each plan week against the cost recorded
-// over the same lines (the rise from a week's first line to its last, over the cost of every line
-// after the first). Without meters (demo, plan usage off) percents are null and dollars stand alone.
+// dollar, worked out from short stretches only (two readings minutes apart with this app's spend
+// between them; see "Other use" below), so use of the account outside this app doesn't inflate it.
+// Without meters (demo, plan usage off), or before there are enough short stretches, percents are
+// null and dollars stand alone.
 import { modelFamily, modelLabel, PRICES } from './cost.js';
 import { STAGES } from './stages.js';
 
@@ -159,24 +160,156 @@ export function windowRange(window, { now, meters = null, timeZone } = {}) {
   return { from: end - 30 * DAY, to: end };
 }
 
-/** Percent of the weekly limit per dollar, from the lines' meters; null when the meters say nothing. */
-export function percentPerDollar(lines) {
-  const weeks = new Map();
-  for (const l of lines) {
-    const w = l.meters?.week;
-    if (!w || typeof w.percent !== 'number' || !w.resetsAt) continue;
-    if (!weeks.has(w.resetsAt)) weeks.set(w.resetsAt, []);
-    weeks.get(w.resetsAt).push(l);
-  }
+// ---------- Other use: the meters' rise this app's own lines don't explain ----------
+// The usage log only sees this app's turns on this computer; the plan meters see everything on the
+// Claude account: claude.ai, the Claude app, someone's own Claude Code, and (until the team site
+// gathers every laptop's log, v2) this app on another computer. So:
+//   - percent per dollar comes only from short stretches: two readings close together (SHORT_STRETCH)
+//     in the same meter window, with this app's spend between them, so outside use in long quiet
+//     gaps can't inflate it;
+//   - for each stretch between two readings, this app's share is its spend there times percent per
+//     dollar, and the rest of the rise is Other use. Added up over the window (the window starts at
+//     0 at its reset), never below zero. A stretch whose meter went down without a reset, or before a
+//     first reading whose window isn't known, is unknown and stays out: never guessed.
+// Other use is a percent of the limit only (its dollars aren't known), and always "estimated".
+export const SHORT_STRETCH = 20 * 60e3;
+/** What Other use means, said under the "Who used this week's limit" line. */
+export const OTHER_NOTE = 'Other use is use of this Claude account outside this app: claude.ai, the Claude app, or someone’s own Claude Code. This app can’t see who, so it is one estimate: the limit’s rise that this app’s own work doesn’t explain. It includes anyone using this app on another computer: they show by name once the team site exists.';
+export const OTHERS_ROW = 'Outside this app: claude.ai, the Claude app and anyone else on the account, including this app on other computers. Estimated from the meter.';
+export const SPANS = { week: 7 * DAY, fiveHour: 5 * H };
+// Enough to go by: at least this many short stretches and this many points of rise among them (the
+// meters read whole percents, so one stretch alone says little).
+const MIN_STRETCHES = 3;
+const MIN_RISE = 3;
+
+/** One meter's readings from the lines (plus the live reading), one per moment, the oldest first. */
+export function readingsOf(lines, meter = 'week', { reading = null } = {}) {
+  const at = new Map();
+  const add = (t, m) => {
+    if (!m || typeof m.percent !== 'number' || !Number.isFinite(t)) return;
+    const r = m.resetsAt ? Date.parse(m.resetsAt) : NaN;
+    at.set(t, { t, percent: m.percent, resetsAt: Number.isFinite(r) ? r : null });
+  };
+  for (const l of lines) add(ms(l.t), l.meters?.[meter]);
+  if (reading?.t) add(ms(reading.t), reading[meter]);
+  return [...at.values()].sort((x, y) => x.t - y.t);
+}
+
+/** The spend of the lines in (lo, hi], from a sorted list's running totals. */
+function spender(lines) {
+  const ts = lines.map((l) => ms(l.t));
+  const sum = [0];
+  for (const l of lines) sum.push(sum.at(-1) + cost(l));
+  const upTo = (t) => { let lo = 0; let hi = ts.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (ts[mid] <= t) lo = mid + 1; else hi = mid; } return lo; };
+  return (lo, hi) => sum[upTo(hi)] - sum[upTo(lo)];
+}
+const byTime = (lines) => [...lines].filter((l) => Number.isFinite(ms(l.t))).sort((a, b) => ms(a.t) - ms(b.t));
+
+/**
+ * Percent of the limit per dollar of this app's spend, from short stretches only:
+ * { ratio, stretches, rise, usd }, ratio null when there is too little to go by.
+ */
+export function percentPerDollarInfo(lines, { meter = 'week', shortStretch = SHORT_STRETCH } = {}) {
+  const sorted = byTime(lines);
+  const spend = spender(sorted);
+  const pts = readingsOf(sorted, meter);
   let rise = 0;
-  let dollars = 0;
-  for (const list of weeks.values()) {
-    list.sort((a, b) => ms(a.t) - ms(b.t));
-    const up = list.at(-1).meters.week.percent - list[0].meters.week.percent;
-    const spent = list.slice(1).reduce((s, l) => s + cost(l), 0);
-    if (up > 0 && spent > 0) { rise += up; dollars += spent; }
+  let usd = 0;
+  let stretches = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    if (b.t - a.t > shortStretch || a.resetsAt !== b.resetsAt || b.percent < a.percent) continue;
+    const spent = spend(a.t, b.t);
+    if (!(spent > 0)) continue;
+    rise += b.percent - a.percent;
+    usd += spent;
+    stretches++;
   }
-  return dollars > 0 && rise > 0 ? rise / dollars : null;
+  const ratio = stretches >= MIN_STRETCHES && rise >= MIN_RISE && usd > 0 ? rise / usd : null;
+  return { ratio, stretches, rise, usd: r2(usd) };
+}
+
+/** Percent of the weekly limit (or the 5-hour one) per dollar, from short stretches; null when too little to go by. */
+export function percentPerDollar(lines, opts = {}) {
+  return percentPerDollarInfo(lines, opts).ratio;
+}
+
+/**
+ * Who used one meter's current window: this app's people (their spend there times percent per
+ * dollar) and Other use (the rest of the rise, estimated), adding up to the meter. meter: 'week' or
+ * 'fiveHour'. reading: the live reading ({ t, week, fiveHour }). Returns
+ * { meter, state, from, to, total, free, app, people: [{ user, usd, percent }], other, unknown,
+ *   stretches: [{ from, to, rise, app, other, known }] }
+ * state: 'split' (both parts known), 'no-ratio' (readings, but percent per dollar isn't known yet:
+ * only the total), 'no-readings' (no reading in the window), 'stale' (the newest reading is from an
+ * earlier window).
+ */
+export function limitSplit(lines, { meter = 'week', now, reading = null, ratio = undefined, shortStretch = SHORT_STRETCH } = {}) {
+  const end = ms(now);
+  const sorted = byTime(lines).filter((l) => ms(l.t) <= end);
+  const pts = readingsOf(sorted, meter, { reading }).filter((p) => p.t <= end);
+  const rate = ratio === undefined ? percentPerDollar(sorted, { meter, shortStretch }) : ratio;
+  const span = SPANS[meter];
+  const last = pts.at(-1) ?? null;
+  const base = { meter, from: null, to: null, total: null, free: null, app: null, people: [], other: null, unknown: null, stretches: [], ratio: rate === null ? null : r4(rate) };
+  if (!last) return { ...base, state: 'no-readings' };
+  const known = last.resetsAt !== null && last.resetsAt > end && last.resetsAt - span <= end;
+  // The newest reading's window has ended (a reset since): what it said is over.
+  if (last.resetsAt !== null && last.resetsAt <= end) return { ...base, state: 'stale' };
+  const from = known ? last.resetsAt - span : null;
+  const inWin = pts.filter((p) => p.resetsAt === last.resetsAt && (from === null || p.t >= from));
+  const total = last.percent;
+  const free = Math.max(0, 100 - total);
+  const out = { ...base, from: from === null ? null : iso(from), to: iso(last.t), total, free };
+  if (rate === null) return { ...out, state: 'no-ratio' };
+  const spend = spender(sorted);
+  // The window starts at 0 at its reset; without a known reset the part before the first reading is unknown.
+  const chain = from === null ? inWin : [{ t: from, percent: 0 }, ...inWin.filter((p) => p.t > from)];
+  const stretches = [];
+  if (from === null && chain[0]) stretches.push({ from: null, to: iso(chain[0].t), rise: chain[0].percent, app: null, other: null, known: false });
+  for (let i = 1; i < chain.length; i++) {
+    const a = chain[i - 1];
+    const b = chain[i];
+    const rise = b.percent - a.percent;
+    const app = spend(a.t, b.t) * rate;
+    stretches.push(rise < 0
+      ? { from: iso(a.t), to: iso(b.t), rise, app: r2(app), other: null, known: false }
+      : { from: iso(a.t), to: iso(b.t), rise, app: r2(app), other: r2(rise - app), known: true });
+  }
+  // This app's people: their spend in the window, up to the newest reading (later lines aren't on the meter yet).
+  const lo = from ?? (chain[0]?.t ?? last.t);
+  const mine = sorted.filter((l) => ms(l.t) > lo && ms(l.t) <= last.t);
+  const users = new Map();
+  for (const l of mine) users.set(l.user ?? 'unknown', (users.get(l.user ?? 'unknown') ?? 0) + cost(l));
+  let people = [...users.entries()].map(([user, u]) => ({ user, usd: r2(u), percent: u * rate })).sort((x, y) => y.percent - x.percent || x.user.localeCompare(y.user));
+  let app = people.reduce((s, p) => s + p.percent, 0);
+  // The estimate can come out a little over the meter (whole percents): never more than the meter shows.
+  if (app > total && app > 0) { const k = total / app; people = people.map((p) => ({ ...p, percent: p.percent * k })); app = total; }
+  const other = Math.min(Math.max(0, stretches.filter((x) => x.known).reduce((s, x) => s + x.other, 0)), total - app);
+  const unknown = Math.max(0, total - app - other);
+  return {
+    ...out, state: 'split', app: r2(app), other: r2(other), unknown: r2(unknown),
+    people: people.map((p) => ({ ...p, percent: r2(p.percent) })),
+    stretches: stretches.map((x) => (x.known ? { ...x, other: r2(Math.max(0, x.other)) } : x)),
+  };
+}
+
+/** "This week: 63% used. In this app 22% (vignesh), other use 41% (estimated)." */
+export function splitWords(split, { name = 'This week' } = {}) {
+  if (split.state === 'no-readings' || split.state === 'stale') return `Can’t see use outside this app yet: no limit readings ${name === 'This week' ? 'this week' : 'in this five hours'}.`;
+  const head = `${name}: ${pct(split.total)} used.`;
+  if (split.state === 'no-ratio') return `${head} Can’t split it between this app and other use yet: that needs a few readings close together while the app is working.`;
+  const who = split.people.length ? ` (${split.people.map((p) => (split.people.length > 1 ? `${p.user} ${pct(p.percent)}` : p.user)).join(', ')})` : '';
+  return `${head} In this app ${pct(split.app)}${who}, other use ${pct(split.other)} (estimated)${split.unknown >= 1 ? `, not known ${pct(split.unknown)}` : ''}.`;
+}
+
+/** Which part drives a rise between two moments: { app, other, words } (percent points), or null without percent per dollar. */
+export function riseDriver(lines, { from, to, rise, ratio }) {
+  if (ratio === null || ratio === undefined || !(rise > 0)) return null;
+  const app = Math.min(rise, spender(byTime(lines))(ms(from), ms(to)) * ratio);
+  const other = rise - app;
+  return { app: r2(app), other: r2(other), words: other > app ? 'mostly from use outside this app' : 'mostly from this app’s jobs' };
 }
 
 /**
@@ -229,7 +362,7 @@ const modelName = (key) => PRICES[key]?.label ?? modelLabel(key);
  * meters: the plan meters' live reading ({ fiveHour, week, checkedAt }), else the newest line's.
  * titles: job slug → title. timeZone: for days and times (the computer's own when omitted).
  */
-export function telemetry(allLines, { window = 'week', now = new Date(), me = null, meters = null, titles = {}, timeZone } = {}) {
+export function telemetry(allLines, { window = 'week', now = new Date(), me = null, meters = null, titles = {}, timeZone, shortStretch = SHORT_STRETCH } = {}) {
   if (!WINDOWS.includes(window)) throw new RangeError('The window is one of 5h, week or 30d.');
   const end = ms(now);
   const sorted = [...allLines].filter((l) => Number.isFinite(ms(l.t)) && ms(l.t) <= end).sort((a, b) => ms(a.t) - ms(b.t));
@@ -238,18 +371,31 @@ export function telemetry(allLines, { window = 'week', now = new Date(), me = nu
   const { from, to } = windowRange(window, { now: end, meters: m, timeZone });
   const inWindow = month.filter((l) => ms(l.t) >= from);
   const mine = (list) => (me ? list.filter((l) => l.user === me) : list);
-  const ratio = percentPerDollar(month);
+  const ratio = percentPerDollar(month, { shortStretch });
   const words = IN_WINDOW[window];
   const title = (slug) => titles[slug] ?? slug ?? 'No job';
-  const reading = meters?.checkedAt ? { t: meters.checkedAt, week: meters.week } : null;
+  const reading = meters?.checkedAt ? { t: meters.checkedAt, week: meters.week, fiveHour: meters.fiveHour } : null;
 
-  // 1. The weekly limit over time.
-  const fc = forecast(sorted, { now: end, reading, timeZone });
+  // The whole limit: this app's people and Other use, adding up to each meter (step 0b).
+  const ratio5 = percentPerDollar(month, { meter: 'fiveHour', shortStretch });
+  const weekSplit = limitSplit(sorted, { meter: 'week', now: end, reading, ratio, shortStretch });
+  const fiveSplit = limitSplit(sorted, { meter: 'fiveHour', now: end, reading, ratio: ratio5, shortStretch });
+  const limits = {
+    week: { ...weekSplit, sentence: splitWords(weekSplit, { name: 'This week' }) },
+    fiveHour: { ...fiveSplit, sentence: splitWords(fiveSplit, { name: 'This five hours' }) },
+    note: OTHER_NOTE,
+  };
+
+  // 1. The weekly limit over time. The forecast's pace is the meter's (everything on the account);
+  // its driver says which part is pushing it.
+  const fc0 = forecast(sorted, { now: end, reading, timeZone });
+  const fc = { ...fc0, driver: fc0.from && fc0.to ? riseDriver(sorted, { from: fc0.from.t, to: fc0.to.t, rise: fc0.to.percent - fc0.from.percent, ratio }) : null };
   const gauge = {
     id: 'gauge', title: 'Weekly limit over time', audience: 'common', from: iso(from), to: iso(to),
     points: inWindow.filter((l) => l.meters?.week || l.meters?.fiveHour).map((l) => ({ t: l.t, week: l.meters?.week?.percent ?? null, fiveHour: l.meters?.fiveHour?.percent ?? null })),
     resets: [...new Set(month.map((l) => l.meters?.week?.resetsAt).filter(Boolean))].filter((r) => Date.parse(r) >= from && Date.parse(r) <= end).sort(),
     forecast: fc,
+    split: limits.week,
     sentence: fc.sentence,
   };
 
@@ -309,15 +455,19 @@ export function telemetry(allLines, { window = 'week', now = new Date(), me = nu
 
   // 5. People on the account: names only.
   const people = sums(inWindow, (l) => l.user ?? 'unknown', ratio).map((s) => ({ user: s.key, usd: s.usd, percent: s.percent }));
+  // Others: use outside this app, for the plan week only (the meter it comes from is the week's).
+  const others = window === 'week' && weekSplit.state === 'split' ? { label: 'Others', percent: weekSplit.other, estimated: true, note: OTHERS_ROW } : null;
+  const othersWords = others && others.percent >= 1 ? ` Others (outside this app) ${pct(others.percent)}, estimated.` : '';
   const peopleData = {
-    id: 'people', title: 'People on the account', audience: 'common', people,
-    sentence: !people.length ? `Nobody used the account ${words}, as far as this computer knows.`
+    id: 'people', title: 'People on the account', audience: 'common', people, others,
+    sentence: (!people.length ? `Nobody used the account ${words} in this app, as far as this computer knows.`
       : people.length === 1 ? `Only ${people[0].user} used the account ${words}: ${both(people[0].usd, people[0].percent)}.`
-        : `${people[0].user} used the most ${words}: ${both(people[0].usd, people[0].percent)}; ${people.slice(1).map((p) => `${p.user} ${p.percent === null ? usd(p.usd) : `${pct(p.percent)} (${usd(p.usd)})`}`).join(', ')}.`,
+        : `${people[0].user} used the most ${words}: ${both(people[0].usd, people[0].percent)}; ${people.slice(1).map((p) => `${p.user} ${p.percent === null ? usd(p.usd) : `${pct(p.percent)} (${usd(p.usd)})`}`).join(', ')}.`) + othersWords,
   };
 
   return {
     window, windowLabel: WINDOW_LABELS[window], from: iso(from), to: iso(to), me, percentPerDollar: ratio === null ? null : r4(ratio), lines: inWindow.length,
+    limits,
     datasets: [gauge, byDayJob, costData, byModel, peopleData],
   };
 }
