@@ -189,14 +189,14 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       </div>
     );
   }
-  // Jobs, the flow map, the Table, the Desk, a job's screens, Integrate and Telemetry: full width, no Jobs or Preview pane.
-  if (home || route.name === 'screens' || route.name === 'integrate' || route.name === 'telemetry') {
+  // Jobs, the flow map, the Table, the Desk, the Inbox, a job's screens, Integrate and Telemetry: full width, no Jobs or Preview pane.
+  if (home || route.name === 'screens' || route.name === 'integrate' || route.name === 'telemetry' || route.name === 'inbox') {
     return (
       <div className="app">
         {top}
         <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
         <Sheets route={route} />
-        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : route.name === 'integrate' ? <IntegrateBoard /> : route.name === 'telemetry' ? <TelemetryView /> : <HomeView view={home ?? 'map'} />}
+        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : route.name === 'integrate' ? <IntegrateBoard /> : route.name === 'telemetry' ? <TelemetryView /> : route.name === 'inbox' ? <InboxView /> : <HomeView view={home ?? 'map'} />}
         <PlayToasts />
         <PlayEggs />
       </div>
@@ -209,7 +209,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       <Sheets route={route} />
       <div ref={panes} className={rail ? 'panes panes-rail' : 'panes'} style={previewWidth ? ({ '--preview-w': `${previewWidth}px` } as CSSProperties) : undefined}>
         <JobsPane selected={slug} />
-        {route.name === 'settings' ? <SettingsView section={route.section} /> : route.name === 'inbox' ? <InboxView /> : crew ? <CrewDexView /> : achievements ? <AchievementsView /> : lost !== null ? <NotFoundView hash={lost} /> : <ForemanPane slug={slug} />}
+        {route.name === 'settings' ? <SettingsView section={route.section} /> : crew ? <CrewDexView /> : achievements ? <AchievementsView /> : lost !== null ? <NotFoundView hash={lost} /> : <ForemanPane slug={slug} />}
         <PreviewPane slug={slug} />
         <PaneResizer panes={panes} />
       </div>
