@@ -267,19 +267,3 @@
 @media (prefers-reduced-motion: reduce) {
   .dex-card-inner { transition: none; }
 }
-
-/* ---------- The status strip (play/StatusStrip.tsx, Play full only) ---------- */
-.status-strip {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-4); padding: var(--space-1) var(--space-4);
-  border-bottom: 1px solid var(--border-1); background: var(--bg-1); color: var(--text-2);
-  font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .06em;
-}
-.strip-cell { white-space: nowrap; }
-.strip-cell b { color: var(--text-1); font-weight: var(--weight-bold); }
-.strip-label { color: var(--text-3); }
-.strip-unit { color: var(--text-3); }
-.strip-sep { align-self: stretch; width: 1px; background: var(--border-2); }
-@media (max-width: 760px) {
-  .status-strip { gap: 0 var(--space-3); padding: var(--space-1) var(--space-3); }
-  .strip-label, .strip-sep { display: none; }
-}

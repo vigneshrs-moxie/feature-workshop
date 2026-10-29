@@ -149,10 +149,10 @@ describe('Telemetry', () => {
     setup();
     await ready();
     const stages = card('stages');
-    const btn = within(stages).getByRole('button', { name: 'Table ▸' });
+    const btn = within(stages).getByRole('button', { name: 'Table' });
     expect(btn).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(btn);
-    expect(within(stages).getByRole('button', { name: 'Table ▾' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(stages).getByRole('button', { name: 'Table' })).toHaveAttribute('aria-expanded', 'true');
     expect(within(stages).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Stage', 'October', 'September', 'Change']);
   });
 

@@ -64,7 +64,7 @@ export function ReviewDeskCard({ permission: p, call }: { permission: Permission
             </li>
           ))}
           {narrow && !more && items.length > PHONE_ITEMS && (
-            <li><button type="button" className="link-button" onClick={() => setMore(true)}>{items.length - PHONE_ITEMS} more ▸</button></li>
+            <li><button type="button" className="link-button" onClick={() => setMore(true)}>{items.length - PHONE_ITEMS} more</button></li>
           )}
         </ul>
       )}

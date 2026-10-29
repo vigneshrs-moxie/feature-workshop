@@ -10,10 +10,12 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type 
 import type { Job, JobDocEntry, StopId } from '../api/types';
 import { jobHref, navigate, screensHref, stageHref } from '../app/router';
 import { useUi } from '../app/ui';
+import { useDetail } from '../app/detail';
+import { More } from '../components/More';
 import { Button } from '../components/Button';
 import { Chip } from '../components/Chip';
 import { Icon, type IconName } from '../components/Icon';
-import { Fold, NextBar, Page, useMinWidth, useNarrow, type GuideSpec, type NextTone } from '../components/page/Page';
+import { Fold, FoldShow, NextBar, Page, useMinWidth, useNarrow, type GuideSpec, type NextTone } from '../components/page/Page';
 import { PermissionAlert } from '../components/permissions/PermissionAlert';
 import { StopMap } from '../components/stops/StopMap';
 import { STOPS, stopOf } from '../components/stops/stops';
@@ -132,13 +134,15 @@ function JobView({ job }: { job: Job }) {
   const at = stopOf(job.stage);
   const [tab, setTab] = useState<JobTab>(() => tabForStop(at));
   const [tryOpen, setTryOpen] = useState(false);
+  // Something asked for a tab (Try it, a document link, ⌘K Open docs): the job's work opens.
+  const [workAsked, setWorkAsked] = useState(false);
 
   // The job menu's or the gate card's "Try it on your computer": the Tests tab, with Try it open.
   const handledTry = useRef(ui.tryRequest);
   useEffect(() => {
     if (ui.tryRequest === handledTry.current) return;
     handledTry.current = ui.tryRequest;
-    if (ui.trySlug === job.slug) { setTab('tests'); setTryOpen(true); }
+    if (ui.trySlug === job.slug) { setTab('tests'); setTryOpen(true); setWorkAsked(true); }
   }, [ui.tryRequest, ui.trySlug, job.slug]);
   // "Review the screens" (a chip, the wireframes page in a list): the full-width Screens page, which
   // takes the request as it mounts. The gate card goes there itself when no frame shows the page.
@@ -155,6 +159,7 @@ function JobView({ job }: { job: Job }) {
   if (ui.docsRequest !== handledDocs.current) {
     handledDocs.current = ui.docsRequest;
     if (!DOC_TABS.has(tab)) { replayDocs.current = true; setTab('plan'); }
+    if (!workAsked) setWorkAsked(true);
   }
   const replay = replayDocs.current;
   useEffect(() => { replayDocs.current = false; });
@@ -167,7 +172,10 @@ function JobView({ job }: { job: Job }) {
   // left; the conversation and the message box, who is working and the job's details on the right,
   // staying in view as the left one scrolls. Narrower, one column as before.
   const wide = useMinWidth(1280);
-  const thread_ = <ThreadList job={job} conversation={conversation} now={now} cards={false} />;
+  // Simple (packet R): the newest message with "Earlier (n)"; the tabs and the facts one click away.
+  const [detail] = useDetail();
+  const thread_ = <ThreadList job={job} conversation={conversation} now={now} cards={false} newest={detail === 'simple' ? 1 : undefined} />;
+  const workCount = JOB_TABS.length;
   return (
     <Page
       label="Job"
@@ -192,7 +200,9 @@ function JobView({ job }: { job: Job }) {
       <div className="job-layout">
         <div className="job-main">
           <NextStep job={job} conversation={conversation} now={now} onShip={() => setTab('ship')} />
-          <JobTabs job={job} tab={tab} onTab={setTab} narrow={narrow} tryOpen={tryOpen} onTry={setTryOpen} docs={{ focusRequest: ui.docsRequest, requestFile: ui.docsFile, replay }} />
+          <More screen="job" id="work" label="The job’s work" note={`${JOB_TABS.map((t) => t.label).slice(0, workCount).join(', ')}`} icon="file" className="is-card job-work" open={workAsked}>
+            <JobTabs job={job} tab={tab} onTab={setTab} narrow={narrow} tryOpen={tryOpen} onTry={setTryOpen} docs={{ focusRequest: ui.docsRequest, requestFile: ui.docsFile, replay }} />
+          </More>
         </div>
         <aside className="job-side" aria-label="The conversation and the job">
           {wide ? (
@@ -207,7 +217,11 @@ function JobView({ job }: { job: Job }) {
               <Composer key={job.slug} slug={job.slug} detail={thread.detail} run={run} />
             </>
           )}
-          {wide && <JobFacts job={job} now={now} />}
+          {wide && (
+            <More screen="job" id="details" label="Details" note={(job.nowDoing?.length ?? 0) > 0 ? 'who is working, and the job’s facts' : 'the job’s facts'} icon="list" className="is-card job-details">
+              <JobFacts job={job} now={now} />
+            </More>
+          )}
         </aside>
       </div>
     </Page>
@@ -438,7 +452,7 @@ function TabBody({ job, tab, tryOpen, onTry, docs }: { job: Job; tab: JobTab; tr
           <details className="fold job-try" open={tryOpen} onToggle={(e) => onTry(e.currentTarget.open)}>
             <summary className="fold-head" title="Run this job’s branch on your computer and click around.">
               <Icon name="terminal" size={16} /><span className="fold-name">Try it on your computer</span>
-              <span className="fold-show" aria-hidden="true"><span className="when-closed">Show ▸</span><span className="when-open">Hide ▾</span></span>
+              <FoldShow />
             </summary>
             <div className="fold-body">{tryOpen && <TryTab slug={slug} active />}</div>
           </details>

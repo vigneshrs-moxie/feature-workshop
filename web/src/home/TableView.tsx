@@ -10,6 +10,7 @@ import { useStored } from '../lib/stored';
 import { relativeTime } from '../lib/time';
 import { jobHueStyle } from '../theme/hue';
 import { countsText, countsWords, filterRows, prText, prTone, sortRows, type SortKey, type TableFilter, type TableRow } from './homeModel';
+import { Icon } from '../components/Icon';
 
 export const TABLE_FILTER_KEY = 'fw.home.table.filter';
 export const TABLE_SORT_KEY = 'fw.home.table.sort';
@@ -94,7 +95,7 @@ export function TableView({ rows, now }: { rows: TableRow[]; now: Date }) {
                 <th key={c.label} scope="col" aria-sort={c.key === sortKey ? (sortDir === 'desc' ? 'descending' : 'ascending') : undefined} title={c.hint}>
                   {c.key ? (
                     <button type="button" className="th-sort" onClick={() => sortBy(c.key as SortKey)}>
-                      {c.label}<span aria-hidden="true">{c.key === sortKey ? (sortDir === 'desc' ? ' ▾' : ' ▴') : ''}</span>
+                      {c.label}{c.key === sortKey && <Icon name="chevron-down" size={12} className={`sort-chevron${sortDir === 'desc' ? '' : ' is-up'}`} />}
                     </button>
                   ) : c.label}
                 </th>

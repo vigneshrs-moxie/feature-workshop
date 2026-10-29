@@ -14,7 +14,7 @@ import { useKeyScope } from '../app/keyRegistry';
 import { jobHref, navigate, stageHref } from '../app/router';
 import { Icon, type IconName } from '../components/Icon';
 import { Kbd } from '../components/Kbd';
-import { Fold, Page, type GuideSpec } from '../components/page/Page';
+import { Fold, FoldShow, Page, type GuideSpec } from '../components/page/Page';
 import { StopMap } from '../components/stops/StopMap';
 import { STOPS, stagesOf } from '../components/stops/stops';
 import { useNow } from '../lib/time';
@@ -218,7 +218,7 @@ function WhoIsOn({ job, view, now, faces, finishedOpen, setFinishedOpen }: { job
           <summary className="fold-head" title="Who finished their part at this stop (key: n).">
             <Icon name="circle-check" size={16} /><span className="fold-name">Finished here</span><span className="muted">· {view.finished.length}</span>
             <Kbd id="stage-finished" />
-            <span className="fold-show" aria-hidden="true"><span className="when-closed">Show ▸</span><span className="when-open">Hide ▾</span></span>
+            <FoldShow />
           </summary>
           <ul className="fold-body stage-rows">
             {view.finished.map((a) => <AgentRow key={a.ref} a={a} now={now} faces={faces} busy={busy === a.ref} onOpen={() => void openAgent(a)} />)}

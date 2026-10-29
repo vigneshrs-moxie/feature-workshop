@@ -20,6 +20,7 @@ import { KeyLegend } from '../components/Kbd';
 import { useStored } from '../lib/stored';
 import { RowCrew } from '../play/RowCrew';
 import { jobHueStyle } from '../theme/hue';
+import { Icon } from '../components/Icon';
 import {
   activePr, countsSuffix, countsWords, filterRepos, finishStop, groupLanes, knownChip, type MapLane, type MapRepo, mapChips,
   newestPr, nextHint, POSITION_LABELS, prPhrase, prText, prTone, releaseLine, trackStops, whereText,
@@ -131,7 +132,7 @@ function ReleaseTrain({ repo, lanes }: { repo: FlowRepo; lanes: readonly MapLane
       </span>
       {aboard.length > 0 && (
         <button type="button" className="btn btn-quiet release-aboard" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((o) => !o)} title="The jobs whose work is in staging, waiting for the release.">
-          {aboard.length} aboard <span aria-hidden="true">{open ? '▴' : '▾'}</span>
+          {aboard.length} aboard <Icon name="chevron-down" size={14} className={`fold-chevron${open ? ' is-up' : ''}`} />
         </button>
       )}
       {open && aboard.length > 0 && (
@@ -165,7 +166,7 @@ function RepoSection({ repo, lanes, now, finishLine, layers, doneOpen, setDoneOp
             <h4 className="map-group-title" data-group={group}>
               {group === 'done' ? (
                 <button type="button" className="map-group-toggle" aria-expanded={!folded} aria-controls={listId} onClick={() => setDoneOpen(folded)} title={folded ? 'Show the done jobs.' : 'Fold the done jobs away.'}>
-                  <span aria-hidden="true">{folded ? '▸' : '▾'}</span> {label} <span className="count">{rows.length}</span>
+                  <Icon name="chevron-right" size={14} className={`fold-chevron${folded ? '' : ' is-down'}`} /> {label} <span className="count">{rows.length}</span>
                 </button>
               ) : (
                 <><span>{label}</span> <span className="count">{rows.length}</span></>

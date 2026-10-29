@@ -34,7 +34,7 @@ a:hover { text-decoration: underline; }
 [hidden] { display: none !important; }
 
 .muted { color: var(--text-2); }
-.count, .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.count, .num { font-variant-numeric: tabular-nums; }
 
 /* ---------- Layout ---------- */
 
@@ -74,10 +74,10 @@ a:hover { text-decoration: underline; }
 .topbar .spacer { flex: 1 1 0; min-width: var(--space-2); }
 .brand { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-base); }
 
-.conn { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-2); font-size: var(--text-sm); }
-.conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status-paused); }
-.conn-live .conn-dot { background: var(--status-ok); }
-.conn-reconnecting .conn-dot { background: var(--status-warn); animation: pulse 1.2s ease-in-out infinite; }
+.conn { display: inline-flex; align-items: center; gap: 6px; height: var(--control-h-sm); padding: 0 10px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); font-size: var(--text-xs); font-weight: var(--weight-medium); white-space: nowrap; }
+/* Live: nothing to see (the words stay for screen readers). */
+.conn.is-fine { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.conn-spin { width: 10px; height: 10px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: btn-spin .9s linear infinite; }
 
 @keyframes pulse { 50% { opacity: .35; } }
 
@@ -164,9 +164,6 @@ a:hover { text-decoration: underline; }
 }
 .how summary { display: inline-flex; align-items: center; gap: var(--space-1); min-height: 28px; padding: 0 var(--space-1); margin-left: calc(-1 * var(--space-1)); border-radius: var(--radius-sm); cursor: pointer; color: var(--text-2); }
 .how summary:hover { color: var(--text-1); background: var(--hover-bg); }
-.how summary::-webkit-details-marker { display: none; }
-.how summary::before { content: '▸'; width: 12px; color: var(--text-3); font-size: var(--text-2xs); text-align: center; }
-.how[open] summary::before { content: '▾'; }
 .how-body { max-width: var(--prose-max); padding: var(--space-1) 0 var(--space-1) var(--space-4); border-left: 2px solid var(--border-1); }
 
 /* ---------- Jobs pane ---------- */
@@ -456,7 +453,8 @@ a:hover { text-decoration: underline; }
   cursor: pointer;
 }
 .brief-toggle:hover .brief-label { color: var(--text-1); }
-.brief-chevron { width: 1em; font-family: var(--font-mono); }
+.brief-chevron { flex: none; color: var(--text-3); transition: transform var(--dur-fast) var(--ease-out); }
+.brief-chevron.is-down { transform: rotate(90deg); }
 .brief-label { font-weight: var(--weight-medium); }
 .brief-state { padding: 0 var(--space-1); border-radius: var(--chip-radius); background: var(--status-ok-bg); color: var(--status-ok); font-size: var(--text-xs); }
 .brief-headline { margin: var(--space-1) 0 0; font-weight: var(--weight-medium); color: var(--text-1); }
@@ -1001,7 +999,7 @@ a:hover { text-decoration: underline; }
 /* With reduced motion turned on, only fades remain and pulses stop. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-iteration-count: 1 !important; }
-  .conn-reconnecting .conn-dot { animation: none; }
+  .conn-spin { animation: none; }
   .typing span { animation: none; opacity: .7; }
 }
 
@@ -1155,7 +1153,7 @@ a:hover { text-decoration: underline; }
 .desk-decided li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 var(--space-2); }
 .desk-decided-title { font-weight: var(--weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .desk-decided-what { grid-column: 1; color: var(--text-2); overflow-wrap: anywhere; }
-.desk-decided time { grid-column: 2; grid-row: 1; font-size: var(--text-xs); font-family: var(--font-mono); }
+.desk-decided time { grid-column: 2; grid-row: 1; font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .desk-facts { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
 .desk-where { margin-top: var(--space-2) !important; color: var(--text-1); }
 /* The brief, open in the middle column (b hides it). */

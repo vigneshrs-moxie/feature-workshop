@@ -47,7 +47,14 @@
 .fold-head:hover { background: var(--hover-bg); }
 .fold-head:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .fold-name { font-weight: var(--weight-medium); }
-.fold-show { margin-left: auto; color: var(--text-2); font-size: var(--text-sm); }
+.fold-head::before { display: none; }
+.fold-show { display: inline-flex; align-items: center; gap: var(--space-1); margin-left: auto; color: var(--text-2); font-size: var(--text-sm); }
+.fold-chevron { color: var(--text-3); transition: transform var(--dur-fast) var(--ease-out); }
+details[open] > summary .fold-chevron, .fold-chevron.is-up { transform: rotate(180deg); }
+.fold-chevron.is-down { transform: rotate(90deg); }
+.sort-chevron { margin-left: 2px; color: var(--text-3); }
+.sort-chevron.is-up { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .fold-chevron { transition: none; } }
 .fold[open] > .fold-head { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .fold .when-open, .fold[open] .when-closed { display: none; }
 .fold[open] .when-open { display: inline; }
@@ -70,7 +77,7 @@
 .guide-pic { display: flex; align-items: center; gap: var(--space-1); min-height: 56px; color: var(--accent-strong); }
 .guide-pic-part { display: inline-flex; align-items: center; gap: var(--space-1); }
 .guide-arrow { color: var(--text-3); }
-.guide-n { font-size: var(--text-xs); color: var(--text-3); font-family: var(--font-mono); }
+.guide-n { font-size: var(--text-xs); color: var(--text-3); font-variant-numeric: tabular-nums; }
 .guide-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
 
 /* ---------- Severity, people ---------- */
@@ -245,9 +252,20 @@ a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset
 .job-card .job-card-title::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
 .job-card-title:focus-visible { outline: none; }
 .job-card .stop-map { position: relative; z-index: 1; width: fit-content; max-width: 100%; }
-.job-readout { font-size: var(--text-2xs); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: .07em; color: var(--text-2); }
+.job-readout { color: var(--text-2); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .job-card-reason { font-size: var(--text-sm); color: var(--text-2); line-height: 1.4; }
 .job-card-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-top: 2px; font-size: var(--text-sm); }
+.job-card-end { position: relative; display: flex; align-items: center; justify-content: flex-end; min-width: 0; min-height: var(--chip-h); }
+/* Simple: the stop dots peek out over the time on hover and focus; the card keeps its size. */
+.job-card-peek { position: absolute; right: -2px; top: 50%; z-index: 2; display: flex; padding-left: var(--space-2); background: var(--surface-1); opacity: 0; visibility: hidden; transform: translateY(-50%); transition: opacity var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur-fast); }
+.job-card:is(:hover, :focus-within) .job-card-peek { opacity: 1; visibility: visible; transition: opacity var(--dur-fast) var(--ease-out), visibility 0s; }
+.job-card:is(:hover, :focus-within) .job-card-time { opacity: 0; }
+.job-card-time { transition: opacity var(--dur-fast) var(--ease-out); }
+.job-card-peek .stop-map.is-compact .stop { width: 20px; }
+.job-card-peek .stop-map.is-compact .stop + .stop::before { width: 20px; top: 8px; border-top-width: 1.5px; }
+.job-card-peek .stop-map.is-compact .stop-dot { width: 18px; height: 18px; }
+.job-card-peek .stop-map.is-compact .stop-dot .icon { width: 11px; height: 11px; }
+.job-card-peek .stop-tip { bottom: auto; top: calc(100% + 6px); }
 .job-card-time { font-size: var(--text-xs); color: var(--text-3); font-variant-numeric: tabular-nums; }
 /* The state chip: the shared chip, tinted by its lane (components/controls.css draws the shape). */
 .state-chip.is-needs-you { background: var(--lane-needs-you-bg); color: var(--lane-needs-you-fg); }
@@ -303,3 +321,14 @@ a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset
 
 /* The Desk's job column (One at a time, from 1440 px). */
 .desk-one.has-side .desk-side { grid-column: 3; grid-row: 1; position: sticky; top: var(--space-4); }
+
+/* ---------- Loading and error states (packet R): a loading skeleton keeps the size of what it stands for ---------- */
+.skeleton-card { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--surface-1); }
+.skeleton-line { display: block; width: 72%; height: 10px; border-radius: 5px; background: linear-gradient(90deg, var(--surface-2), var(--bg-3), var(--surface-2)); background-size: 200% 100%; animation: skeleton-shine 1.4s ease-in-out infinite; }
+.skeleton-line.is-wide { width: 92%; height: 12px; }
+.skeleton-line.is-short { width: 38%; }
+@keyframes skeleton-shine { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.error-state { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border-1); border-left: 3px solid var(--status-error); border-radius: var(--card-radius); background: var(--surface-1); font-size: var(--text-sm); }
+.error-state > .icon { flex: none; color: var(--status-error); }
+.error-state > div { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+@media (prefers-reduced-motion: reduce) { .skeleton-line { animation: none; } }

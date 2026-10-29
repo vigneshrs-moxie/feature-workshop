@@ -120,7 +120,7 @@ describe('Inbox', () => {
     expect(within(first).getByText('You')).toBeInTheDocument();
     expect(first).toHaveTextContent('You are already on this: Feedback API');
     expect(within(first).getByRole('link', { name: 'Feedback API' })).toHaveAttribute('href', '#/job/orbit-479-feedback-api');
-    expect(within(first).getByRole('link', { name: 'Open its job ▸' })).toHaveAttribute('href', '#/job/orbit-479-feedback-api');
+    expect(within(first).getByRole('link', { name: 'Open its job' })).toHaveAttribute('href', '#/job/orbit-479-feedback-api');
     expect(within(first).queryByRole('button', { name: 'Start a job on ORBIT-479' })).toBeNull();
     expect(within(rows[1]).getByText('No one')).toBeInTheDocument();
     expect(within(rows[2]).getByText('Not set')).toBeInTheDocument();
@@ -161,7 +161,7 @@ describe('Inbox', () => {
     const { wrap, store } = setup();
     act(() => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS }, jobs: [{ ...snapshot().jobs[0], slug: 'orbit-479-feedback-api', lane: 'needs-you', laneReason: 'Waiting for your go-ahead on the plan' }] }) }); });
     wrap(<InboxView openStream={() => null} />);
-    const link = await screen.findByRole('link', { name: /Needs you ▸/ });
+    const link = await screen.findByRole('link', { name: /Needs you/ });
     expect(link).toHaveAttribute('href', '#/job/orbit-479-feedback-api');
     expect(link).toHaveAttribute('title', 'Waiting for your go-ahead on the plan');
   });

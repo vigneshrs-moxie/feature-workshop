@@ -43,7 +43,7 @@ const GUIDE: GuideSpec = {
   title: 'How Telemetry works',
   cards: [
     { icons: ['gauge'], title: 'Two limits', say: 'Claude limits use over five hours and over a week, for everyone on the account. The dials show how much is used, and by whom: this app, or other use.' },
-    { icons: ['activity', 'check'], title: 'Each graph says what it found', say: 'And one line on what to do about it. Table ▸ shows the numbers.' },
+    { icons: ['activity', 'check'], title: 'Each graph says what it found', say: 'And one line on what to do about it. Table shows the numbers.' },
     { icons: ['minus', 'eye-off'], title: 'Fold or hide', say: 'Keep the ones you use. Hidden graphs come back from the end of the page.' },
   ],
   done: 'Show me the graphs',

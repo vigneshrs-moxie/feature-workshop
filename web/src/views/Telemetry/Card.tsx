@@ -57,7 +57,7 @@ export function GraphCard({ graph, folded, onFold, onHide }: { graph: TelemetryG
       <div className="tele-card-actions">
         {!folded && (
           <button type="button" className="btn btn-quiet" aria-expanded={table} onClick={() => setTable((v) => !v)} title={table ? 'Hide the numbers.' : 'Show the numbers behind this graph as a table (for copying, and for screen readers).'}>
-            Table {table ? '▾' : '▸'}
+            Table <Icon name="chevron-down" size={14} className={`fold-chevron${table ? ' is-up' : ''}`} />
           </button>
         )}
         <span className="spacer" />

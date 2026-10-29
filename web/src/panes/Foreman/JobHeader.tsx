@@ -90,7 +90,7 @@ export function JobMenu({ job, dir, policyOverride, run, worktree, gear = false 
         onClick={() => setOpen((o) => !o)}
         title="More things you can do with this job. ⌘K lists them too."
       >
-        {gear ? <Icon name="settings" size={18} /> : <>Job menu <span aria-hidden="true">▾</span></>}
+        {gear ? <Icon name="settings" size={18} /> : <>Job menu <Icon name="chevron-down" size={14} /></>}
       </button>
       {open && (
         <ul className="job-menu-list">

@@ -8,6 +8,8 @@ import { useWorkshopState } from '../state/store';
 import { UsageMeters } from '../components/UsageMeters';
 import { StaminaBar } from '../play/FullExtras';
 import { usePlay } from '../play/usePlay';
+import { staminaOf } from '../play/extrasModel';
+import { useNow } from '../lib/time';
 import { Icon } from '../components/Icon';
 import { Button } from '../components/Button';
 import { deskQueue } from '../home/homeModel';
@@ -49,6 +51,8 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
   const desk = useDeskCount();
   const ready = state.status === 'ready';
   const conn = CONNECTION[state.connection];
+  const now = useNow(60_000);
+  const staminaLow = play.full && staminaOf(state.usage, now).state !== 'fresh';
   const at = section(route);
   const deskHint = desk === 0 ? 'The Desk: nothing is waiting for you right now.' : `The Desk: ${desk === 1 ? 'one decision is' : `${desk} decisions are`} waiting for you, one at a time (key: g d).`;
 
@@ -85,6 +89,7 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
         <span className="gc-mark"><Icon name="radar" size={16} /></span>
         <span className="gc-brand-name">{BRAND.name}</span>
       </a>
+      {state.meta?.demo ? <span className="gc-demo" title="Demo mode: a pretend Foreman answers and nothing real runs.">Demo</span> : null}
       <span className="gc-page-name" aria-hidden="true">{pageName(route, jobTitle)}</span>
       {ready && (
         <nav className="gc-nav" aria-label="Pages">
@@ -96,16 +101,18 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
           ))}
         </nav>
       )}
-      {state.meta?.demo ? <span className="chip gc-demo" title="Demo mode: a pretend Foreman answers and nothing real runs.">Demo</span> : null}
       <span className="spacer" />
       {/* The plan's 5-hour and weekly usage; without it (demo, or turned off), Play Full's stamina bar. */}
-      {ready && <span className="gc-meters">{state.planUsage?.enabled ? <UsageMeters /> : <StaminaBar />}</span>}
-      <span className={`conn conn-${state.connection}`} title={conn.hint} role="status">
-        <span className="conn-dot" aria-hidden="true" />
-        <span className="conn-label">{conn.label}</span>
+      {/* Without it, Play full's stamina shows only when it isn't fresh (low, or the crew resting). */}
+      {ready && (state.planUsage?.enabled ? <span className="gc-meters"><UsageMeters /></span> : staminaLow ? <span className="gc-meters"><StaminaBar /></span> : null)}
+      {/* The connection shows only when it isn't fine: nothing while live (a screen reader still
+          hears the change), a quiet "Reconnecting…" while it is down, and Try again after a failed fetch. */}
+      <span className={`conn conn-${state.connection}${state.connection === 'live' && !(state.error && ready) ? ' is-fine' : ''}`} title={conn.hint} role="status">
+        {state.connection !== 'live' && <span className="conn-spin" aria-hidden="true" />}
+        <span className="conn-label">{state.error && ready && state.connection === 'live' ? 'Couldn’t update' : conn.label}</span>
       </span>
       {state.error && ready && (
-        <Button kind="quiet" onClick={onRetry} title="Fetch everything from the dashboard again now.">Refresh</Button>
+        <Button kind="quiet" size="sm" icon="refresh" onClick={onRetry} title="Fetch everything from the dashboard again now.">Try again</Button>
       )}
       {ready && (
         <Button icon="plus" keyId="new-job" className="gc-new-job" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job: describe it, pick the repository, kind and Foreman model (key: c).">

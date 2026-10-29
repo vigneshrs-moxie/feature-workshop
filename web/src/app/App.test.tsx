@@ -87,7 +87,7 @@ describe('App shell', () => {
     expect(await screen.findByRole('heading', { name: 'Job beta' })).toBeInTheDocument();
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Brief', 'Spec', 'Plan', 'Code', 'Tests', 'Review', 'Decisions', 'Ship']);
     // Not in the page, the gear, the job menu, the keys sheet or any hover text.
-    const said = () => [document.body.textContent ?? '', ...[...document.querySelectorAll('[title], [aria-label]')].map((e) => `${e.getAttribute('title') ?? ''} ${e.getAttribute('aria-label') ?? ''}`)].join(' ');
+    const said = () => [document.body.textContent ?? '', ...[...document.querySelectorAll('[title], [aria-label], [data-tip]')].map((e) => `${e.getAttribute('title') ?? ''} ${e.getAttribute('aria-label') ?? ''} ${e.getAttribute('data-tip') ?? ''}`)].join(' ');
     fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
     expect(said()).not.toMatch(/classic/i);
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });

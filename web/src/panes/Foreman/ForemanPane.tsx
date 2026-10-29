@@ -24,6 +24,8 @@ import { shownItems, steerStateOf, type ShownItem } from './thread';
 import { ThreadItemView, YouMessage } from './ThreadItems';
 import { Composer } from './Composer';
 import { useJobThread } from './useJobThread';
+import { useShown } from '../../app/detail';
+import { Button } from '../../components/Button';
 
 const HOW = 'This is your conversation with the job’s Foreman, the Claude session that plans the work and runs the crew. Its briefs, questions and permission requests appear here for you to answer.';
 
@@ -69,8 +71,10 @@ export function useCurrentJob(job: Job, { thread, run }: Conversation) {
  * just now, the level card, the cards waiting for you (unless the page shows them elsewhere) and
  * the live row. `stages`: only the part of the conversation at these stages (the Stage page).
  */
-export function ThreadList({ job, conversation, now, cards = true, sectionRef, stages }: {
+export function ThreadList({ job, conversation, now, cards = true, sectionRef, stages, newest }: {
   job: Job; conversation: Conversation; now: Date; cards?: boolean; sectionRef?: Ref<HTMLElement>; stages?: readonly string[];
+  /** Simple (packet R, the Job page): only the newest few, with "Earlier (n)" above them. */
+  newest?: number;
 }) {
   const state = useWorkshopState();
   const { thread, run } = conversation;
@@ -103,9 +107,22 @@ export function ThreadList({ job, conversation, now, cards = true, sectionRef, s
   let bossBrief: string | null = null;
   if (boss) for (const s of shown) if (s.kind === 'brief-card' && s.brief.item.stage === 'review') bossBrief = s.id;
   const loaded = thread.detail !== null;
+  const [earlier, setEarlier] = useShown('job', 'earlier');
+  const cut = newest !== undefined && !earlier && shown.length > newest ? shown.length - newest : 0;
+  const visible = cut ? shown.slice(cut) : shown;
   return (
     <section ref={sectionRef} className="thread" aria-label="Conversation" aria-busy={thread.loading || thread.loadingOlder}>
-      {thread.more && (
+      {cut > 0 && (
+        <Button kind="quiet" size="sm" icon="chevron-down" className="thread-earlier" onClick={() => setEarlier(true)} title="Show the earlier messages of this conversation, above the newest.">
+          Earlier ({cut})
+        </Button>
+      )}
+      {cut === 0 && newest !== undefined && earlier && shown.length > newest && (
+        <Button kind="quiet" size="sm" icon="chevron-down" className="thread-earlier is-open" onClick={() => setEarlier(false)} title="Show only the newest message again.">
+          Only the newest
+        </Button>
+      )}
+      {!cut && thread.more && (
         <button
           type="button"
           className="btn btn-quiet load-older"
@@ -119,7 +136,7 @@ export function ThreadList({ job, conversation, now, cards = true, sectionRef, s
       {thread.error && <p className="thread-error" role="alert">{thread.error}</p>}
       {thread.loading && <p className="muted">Loading the conversation…</p>}
       {loaded && shown.length === 0 && !run && <p className="muted">{stages ? 'Nothing was said at this stop yet.' : 'Nothing here yet. The Foreman’s briefs and replies appear here as it works.'}</p>}
-      {shown.map((s) =>
+      {visible.map((s) =>
         s.kind === 'brief-card'
           // It folds back to its headline itself the moment you answer it (no remount, no refetch).
           ? <BriefCard key={s.id} slug={job.slug} brief={s.brief} now={now} lenses={lenses.get(s.id)} boss={s.id === bossBrief ? boss : null} />

@@ -9,6 +9,7 @@
 // and words. At phone width the lanes become folded sections, Needs you open first.
 import { useRef, useState } from 'react';
 import type { Job, JobLane } from '../api/types';
+import { useDetail } from '../app/detail';
 import { useKeyScope } from '../app/keyRegistry';
 import { hrefFor, jobHref, navigate, stackHref } from '../app/router';
 import { useUi } from '../app/ui';
@@ -104,39 +105,47 @@ export function chipTone(lane: JobLane, word: string): ChipTone {
   return 'neutral';
 }
 
-function JobCard({ job, now, play, review }: { job: Job; now: Date; play: 'full' | 'subtle' | 'off'; review?: ReviewView | null }) {
+function JobCard({ job, now, play, review, full }: { job: Job; now: Date; play: 'full' | 'subtle' | 'off'; review?: ReviewView | null; full: boolean }) {
   const lane = laneOf(job);
   const { permissions } = useWorkshopState();
   const chip = stateChip(job, permissions);
-  const stop = STOPS.find((s) => s.id === stopOf(job.stage));
   const t = since(job);
   const working = lane === 'working' && chip.word === 'Working';
+  const name = job.title || job.slug;
+  // Simple (packet R): the title, one status line, the state chip and the time. The stop dots show
+  // on hover and on focus, over the time, so the card never changes size; in Full on a row of their own.
+  const stops = <StopMap job={{ ...job, lane }} compact tips label={`${name}: its stops`} />;
   return (
-    <li className={`job-card lane-${lane} play-${play}`}>
+    <li className={`job-card lane-${lane} play-${play}${full ? ' is-full' : ''}`}>
       <div className="job-card-top">
         {play !== 'off' && <span className={`job-light${working ? ' is-on' : ''}${working && play === 'full' ? ' is-blink' : ''}`} aria-hidden="true" />}
-        <a className="job-card-title" href={jobHref(job.slug)} title={`Open ${job.title || job.slug}.`}>{job.title || job.slug}</a>
+        <a className="job-card-title" href={jobHref(job.slug)} title={`Open ${name}.`}>{name}</a>
       </div>
-      <StopMap job={{ ...job, lane }} compact tips label={`${job.title || job.slug}: its stops`} />
-      {play === 'full' && <span className="job-readout">{[stop?.label, t ? relativeTime(t, now) : null].filter(Boolean).join(' · ')}</span>}
+      {full && stops}
+      {/* Play full's console readout (the stop and how long), with every detail shown. */}
+      {full && play === 'full' && <span className="job-readout">{[STOPS.find((x) => x.id === stopOf(job.stage))?.label, t ? relativeTime(t, now) : null].filter(Boolean).join(' · ')}</span>}
       {review?.card
         ? <span className={`job-card-reason review-card-line is-${review.state}`}><Icon name={cardIcon(review.state)} size={14} /> {review.card.line}</span>
         : job.laneReason && <span className="job-card-reason">{job.laneReason}</span>}
       <div className="job-card-foot">
         <Chip tone={chipTone(lane, chip.word)} icon={chip.icon} className={`state-chip is-${lane}`}>{chip.word}</Chip>
-        {t && <span className="muted job-card-time">{relativeTime(t, now)}</span>}
+        <span className="job-card-end">
+          {t && <span className="muted job-card-time">{relativeTime(t, now)}</span>}
+          {!full && <span className="job-card-peek">{stops}</span>}
+        </span>
       </div>
     </li>
   );
 }
 
 function Cards({ jobs, now, play, stacks, reviews }: { jobs: readonly Job[]; now: Date; play: 'full' | 'subtle' | 'off'; stacks?: StackIndex; reviews?: ReadonlyMap<string, ReviewView> }) {
+  const [detail] = useDetail();
   return (
     <ul className="job-cards">
       {jobs.map((j) => {
         // A stack is one card that opens into its parts (packet K2).
         const stack = stacks?.stackOf(j.slug);
-        return stack ? <StackJobCard key={j.slug} job={j} stack={stack} now={now} play={play} /> : <JobCard key={j.slug} job={j} now={now} play={play} review={reviews?.get(j.slug) ?? null} />;
+        return stack ? <StackJobCard key={j.slug} job={j} stack={stack} now={now} play={play} /> : <JobCard key={j.slug} job={j} now={now} play={play} review={reviews?.get(j.slug) ?? null} full={detail === 'full'} />;
       })}
     </ul>
   );

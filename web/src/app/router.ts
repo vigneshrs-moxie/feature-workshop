@@ -33,6 +33,7 @@ export const isSettingsSection = (v: string): v is SettingsSection => (SETTINGS_
 export type Route = { name: 'home' } | { name: 'map' } | { name: 'table' } | { name: 'desk' } | { name: 'inbox' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
   | { name: 'stage'; slug: string; stop: StopId }
   | { name: 'screens'; slug: string } | { name: 'telemetry' } | { name: 'stacks' } | { name: 'stack'; slug: string } | { name: 'stack-build' }
+  | { name: 'gallery' }
   | { name: 'not-found'; hash: string };
 
 /** The integration board's old address: it opens Stacks now (packet K2). */
@@ -51,6 +52,8 @@ export function parseHash(rawHash: string): Route {
   if (/^#\/inbox\/?$/.test(hash)) return { name: 'inbox' };
   if (/^#\/achievements\/?$/.test(hash)) return { name: 'achievements' };
   if (/^#\/telemetry\/?$/.test(hash)) return { name: 'telemetry' };
+  // Every control in every state, for checking the look (packet R): only by typing the address.
+  if (/^#\/gallery\/?$/.test(hash)) return { name: 'gallery' };
   if (/^#\/stacks\/?$/.test(hash) || OLD_INTEGRATE.test(hash)) return { name: 'stacks' };
   if (/^#\/stacks\/build\/?$/.test(hash)) return { name: 'stack-build' };
   const sk = /^#\/stack\/([^/?#]+)\/?$/.exec(hash);
@@ -92,6 +95,7 @@ export function hrefFor(route: Route): string {
   if (route.name === 'stack') return `#/stack/${encodeURIComponent(route.slug)}`;
   if (route.name === 'stack-build') return '#/stacks/build';
   if (route.name === 'inbox') return '#/inbox';
+  if (route.name === 'gallery') return '#/gallery';
   if (route.name === 'not-found') return route.hash;
   if (route.name === 'settings') return route.section ? `#/settings/${route.section}` : '#/settings';
   return '#/';
@@ -148,6 +152,7 @@ export function pageName(route: Route, jobTitle?: string | null): string {
     case 'stacks': return 'Stacks';
     case 'stack': return jobTitle || 'Stack';
     case 'stack-build': return 'Build stack';
+    case 'gallery': return 'Gallery';
     default: return 'Not a page';
   }
 }

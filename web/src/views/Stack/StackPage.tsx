@@ -23,6 +23,7 @@ import { nextStep, partLook, parts, partTitle, PART, splitWhy, STUCK_AT, type St
 import { useStackView, type StackState } from './useStacks';
 import './stack.css';
 import { Choice } from '../../components/Choice';
+import { NumberInput } from '../../components/Field';
 
 const clock = (iso: string) => {
   const d = new Date(iso);
@@ -244,10 +245,10 @@ function SettingsSheet({ view, draft, onClose, onSave }: { view: StackView; draf
     <Sheet title="Stack settings" onClose={onClose}>
       <form className="stack-settings" onSubmit={(e) => { e.preventDefault(); if (ok) onSave({ cap: n, autoIntegrate: auto }); }}>
         {!view.approved && <p className="muted">These start with the plan: they’re used when you approve it.</p>}
-        <label className="field">
-          <span>{PART.many.charAt(0).toUpperCase() + PART.many.slice(1)} at once</span>
-          <input className="text-input" type="number" min={1} max={20} value={cap} onChange={(e) => setCap(e.target.value)} />
-        </label>
+        <div className="field">
+          <span className="field-label">{PART.many.charAt(0).toUpperCase() + PART.many.slice(1)} at once</span>
+          <NumberInput value={cap} min={1} max={20} onChange={setCap} aria-label={`${PART.many.charAt(0).toUpperCase() + PART.many.slice(1)} at once`} />
+        </div>
         <p className="muted">How many {PART.many} of this stack build at the same time. Across every stack it is also at most {view.globalCap} (Settings → Workflow); {view.globalRunning} build now.</p>
         {!ok && <p className="field-problem">Pick a whole number from 1 to 20.</p>}
         <label className="rule-option">

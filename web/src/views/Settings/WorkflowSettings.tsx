@@ -15,6 +15,7 @@ import { useWorkshop, useWorkshopState } from '../../state/store';
 import { useReviewList } from '../Review/useReview';
 import '../Review/review.css';
 import { Choice } from '../../components/Choice';
+import { NumberInput } from '../../components/Field';
 
 /** Only for a rail line before the dashboard has said its words (meta.finishLines is the source). */
 const FALLBACK_LABELS: Record<FinishLine, string> = { 'pr1-open': 'PR #1 open', 'pr1-merged': 'PR #1 merged', staging: 'In staging', main: 'In main', marked: 'When I mark it done' };
@@ -113,10 +114,10 @@ export function WorkflowSettings() {
       </fieldset>
       <fieldset className="workflow-choice" disabled={busy} data-setting="sections-at-once">
         <legend className="look-heading">Stacks</legend>
-        <label className="check">
-          <input type="number" min={1} max={MAX_SECTIONS_AT_ONCE} step={1} value={atOnceDraft} onChange={(e) => void saveAtOnce(e.currentTarget.value)} style={{ width: '5rem' }} />
-          Sections at once, across every stack
-        </label>
+        <div className="check">
+          <NumberInput value={atOnceDraft} min={1} max={MAX_SECTIONS_AT_ONCE} onChange={(v) => void saveAtOnce(v)} aria-label="Sections at once, across every stack" />
+          <span>Sections at once, across every stack</span>
+        </div>
         <p className="muted settings-note-under">How many sections of big jobs split into a stack are built side by side, counting every stack. A stack can set a lower number on its own page. The rest wait, and the page says why. Default {DEFAULT_SECTIONS_AT_ONCE}.</p>
       </fieldset>
       {error && <p className="field-problem" role="alert">{error}</p>}

@@ -147,7 +147,7 @@
 .stage-row-say { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .stage-row-who { display: inline-flex; align-items: center; gap: var(--space-2); }
 .stage-row-doing { color: var(--text-2); font-size: var(--text-sm); }
-.stage-row-time { display: inline-flex; align-items: center; gap: var(--space-1); font-family: var(--font-mono); font-size: var(--text-xs); }
+.stage-row-time { display: inline-flex; align-items: center; gap: var(--space-1); font-variant-numeric: tabular-nums; font-size: var(--text-xs); }
 .stage-status.is-working { color: var(--lane-working-fg); background: var(--lane-working-bg); }
 .stage-status.is-waiting { color: var(--text-1); background: var(--lane-needs-you-bg); }
 .stage-status.is-done { color: var(--status-ok); background: var(--status-ok-bg); }
@@ -175,3 +175,9 @@
 /* The lock card above the message box (panes/Foreman/Composer.tsx): the box is off while it shows. */
 .composer-lock { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); margin-bottom: var(--space-2); }
 .composer-lock .lock-card { width: 100%; }
+
+/* Simple (packet R): the newest message, with Earlier (n) above it. */
+.thread-earlier { align-self: center; margin-bottom: var(--space-2); }
+.thread-earlier > .icon { transform: rotate(180deg); }
+.thread-earlier.is-open > .icon { transform: none; }
+.job-details .job-side-card { padding: 0; border: 0; background: none; box-shadow: none; }

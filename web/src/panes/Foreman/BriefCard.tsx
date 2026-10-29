@@ -17,6 +17,7 @@ import { stageLabel } from '../Jobs/stages';
 import { ServerHtml } from './ServerHtml';
 import { ExtrasLines } from './ExtrasLines';
 import type { ShownBrief } from './thread';
+import { Icon } from '../../components/Icon';
 
 type Doc = { state: 'loading' } | { state: 'ready'; html: string; summary: DocSummary | null } | { state: 'error'; message: string };
 
@@ -132,7 +133,7 @@ export function BriefCard({ slug, brief, now, lenses, boss }: { slug: string; br
           onClick={() => setOpen((o) => !o)}
           title={open ? 'Fold this brief back to its headline.' : 'Open the whole brief.'}
         >
-          <span className="brief-chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
+          <Icon name="chevron-right" size={14} className={`brief-chevron${open ? ' is-down' : ''}`} />
           <span className="brief-label">{label}</span>
           {answered && <span className="brief-state">Answered</span>}
           {item.at && <time className="thread-time num" dateTime={item.at} title={fullTime(item.at)}>{relativeTime(item.at, now)}</time>}

@@ -2,7 +2,7 @@
 //   <Page>       the page across the whole window (even --page-gutter sides), its heading row and body
 //   <NextBar>    the one next step: what it is in a sentence, and one big button with its key
 //   <Guide>      the three-card "How it works", shown by itself the first time a page opens
-//   <Fold>       a folded section with its count ("Resting · 2 idle   Show ▸")
+//   <Fold>       a folded section with its count ("Resting · 2 idle   Show ⌄")
 //   <Hero>       an empty state: a picture, one sentence, one or two buttons
 // Words carry the meaning everywhere; icons are decoration and colour never stands alone.
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
@@ -88,10 +88,20 @@ export function Fold({ icon, name, note, children, open: startOpen = false, id }
         <Icon name={icon} size={16} />
         <span className="fold-name">{name}</span>
         {note !== undefined && note !== null && <span className="muted fold-note">· {note}</span>}
-        <span className="fold-show" aria-hidden="true"><span className="when-closed">Show ▸</span><span className="when-open">Hide ▾</span></span>
+        <FoldShow />
       </summary>
       <div className="fold-body">{children}</div>
     </details>
+  );
+}
+
+/** The words at the end of a fold's head: Show, or Hide once open, with the app's chevron. */
+export function FoldShow() {
+  return (
+    <span className="fold-show" aria-hidden="true">
+      <span className="when-closed">Show</span><span className="when-open">Hide</span>
+      <Icon name="chevron-down" size={14} className="fold-chevron" />
+    </span>
   );
 }
 

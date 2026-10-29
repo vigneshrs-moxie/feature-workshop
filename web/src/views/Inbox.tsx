@@ -405,7 +405,7 @@ function TicketTable({ items, jobs, pick, now, sKey, onOpen, onStart, onStartSta
                 <td className="cell-act">
                   {i.job ? (
                     <a className="btn" href={jobHref(i.job.slug)} title={job?.laneReason ?? 'Open the job on this ticket.'}>
-                      {job?.lane === 'needs-you' ? <><Icon name="hand" size={16} /> Needs you ▸</> : 'Open its job ▸'}
+                      {job?.lane === 'needs-you' ? <><Icon name="hand" size={16} /> Needs you</> : 'Open its job'}<Icon name="chevron-right" size={14} />
                     </a>
                   ) : (
                     <button

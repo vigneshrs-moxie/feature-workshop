@@ -19,7 +19,10 @@ import { readStored, useStored } from '../../lib/stored';
 import { DEFAULT_THEME, THEME_KEY, THEMES, themePair, useThemeFollow } from '../../theme/theme';
 import { TEXT_SCALES, TEXT_SIZE_LABELS, TEXT_SIZES, type TextSize, useTextSize } from '../../theme/textSize';
 import { ThemePicker } from './ThemePicker';
-import { Choice } from '../../components/Choice';
+import { Choice, Segmented } from '../../components/Choice';
+import { Icon } from '../../components/Icon';
+import { Button } from '../../components/Button';
+import { DETAIL_INFO, useDetail, type Detail } from '../../app/detail';
 
 const SIZE_NAMES: Record<TextSize, string> = { s: 'Small', m: 'Medium', l: 'Large', xl: 'Extra large' };
 const labelOf = (id: string) => THEMES.find((t) => t.id === id)?.label ?? id;
@@ -95,7 +98,7 @@ function LayoutPicker<T extends string>({ id, title, value, onPick, options, see
           </label>
         ))}
       </div>
-      <a className="btn btn-quiet layout-see" href={see.href}>{see.label} ▸</a>
+      <Button kind="quiet" size="sm" className="layout-see" href={see.href}>{see.label}<Icon name="chevron-right" size={14} /></Button>
     </fieldset>
   );
 }
@@ -126,6 +129,23 @@ function PlayPicker() {
   );
 }
 
+/** Detail (packet R): Simple shows each screen's three things first, the rest one click away; Full shows it all. */
+function DetailPicker() {
+  const [detail, setDetail] = useDetail();
+  return (
+    <fieldset className="look-detail" data-setting="look-detail">
+      <legend className="look-heading">Detail</legend>
+      <Segmented<Detail>
+        label="Detail"
+        value={detail}
+        onChange={setDetail}
+        options={(['simple', 'full'] as const).map((d) => ({ value: d, label: DETAIL_INFO[d].label, title: DETAIL_INFO[d].say }))}
+      />
+      <p className="muted">{DETAIL_INFO[detail].say}{detail === 'simple' ? ' Whatever you open stays open on that screen.' : ''}</p>
+    </fieldset>
+  );
+}
+
 export function LookSettings() {
   const [desk, setDesk] = useDeskLayout();
   const [jobs, setJobs] = useJobsLayout();
@@ -134,6 +154,7 @@ export function LookSettings() {
     <section className="look-settings" aria-label="Look">
       <h3 className="settings-heading">Look</h3>
       <ThemePicker />
+      <DetailPicker />
       <TextSizePicker />
       <FollowSystem />
       <LayoutPicker

@@ -14,6 +14,7 @@ import { useKeyScope } from '../../app/keyRegistry';
 import { relativeTime } from '../../lib/time';
 import { roleOf } from '../../play/crewPack';
 import { Icon } from '../Icon';
+import { FoldShow } from '../page/Page';
 import { InlineText } from '../InlineText';
 import { Kbd } from '../Kbd';
 import { AlwaysAllowSheet } from './AlwaysAllowSheet';
@@ -82,7 +83,7 @@ function Alert({ p, now, more }: { p: Permission; now: Date; more: number }) {
       )}
       {step && (isLong(step) ? (
         <details className="perm-step">
-          <summary title="Show exactly what it will run or write.">The exact step <span className="muted">· {step.split('\n').length} lines · Show ▸</span></summary>
+          <summary title="Show exactly what it will run or write.">The exact step <span className="muted">· {step.split('\n').length} lines</span></summary>
           <pre className="perm-preview">{step}</pre>
         </details>
       ) : (
@@ -140,7 +141,7 @@ export function PermissionAlert({ permissions, now }: { permissions: readonly Pe
             <Icon name="shield" size={14} />
             <span className="fold-name">{rest.length} more waiting</span>
             <span className="muted fold-note">· oldest first</span>
-            <span className="fold-show" aria-hidden="true"><span className="when-closed">Show ▸</span><span className="when-open">Hide ▾</span></span>
+            <FoldShow />
           </summary>
           <div className="fold-body pending-cards">
             {rest.map((p) => <Card key={p.id} p={p} now={now} />)}

@@ -44,6 +44,7 @@ import { ReviewDeskCard } from '../views/Review/ReviewDeskCard';
 import { isRoundCard, ROUND_NUDGES, useReviewList } from '../views/Review/useReview';
 import type { DeskItem } from './homeModel';
 import { type DeskEntry, deskEntries, isShipping, jobFacts, type NudgeItem, nudgePath, oneKeyDecide, recordDecision, useDecidedToday, whereLine } from './nudges';
+import { More } from '../components/More';
 
 const DESK_KEYS: readonly KeyId[] = ['desk-next', 'desk-prev', 'desk-approve', 'desk-deny', 'desk-open', 'desk-brief'];
 
@@ -103,7 +104,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
             <Icon name="file" size={16} />
             <span className="fold-name">The Foreman’s brief</span>
             <Kbd id="desk-brief" />
-            <span className="fold-show">{briefOpen ? 'Hide ▾' : 'Details ▸'}</span>
+            <span className="fold-show">{briefOpen ? 'Hide' : 'Show'}<Icon name="chevron-down" size={14} className={`fold-chevron${briefOpen ? ' is-up' : ''}`} /></span>
           </button>
           {briefOpen && <div className="fold-body"><ServerHtml html={brief.html} className="prose" /></div>}
         </section>
@@ -280,10 +281,10 @@ function buttonWords(target: EventTarget | null): string | null {
 /** The right column: what you decided this session, and the current job's facts and where its work is. */
 function DeskSide({ job }: { job: Job | null }) {
   const decided = useDecidedToday();
+  // Simple (packet R): both fold to one quiet row each, opened on request and remembered.
   return (
     <aside className="desk-side" aria-label="Decided today, and the job">
-      <section className="desk-side-box desk-decided" aria-labelledby="desk-decided-head">
-        <h4 id="desk-decided-head">Decided today</h4>
+      <More screen="desk" id="decided" label="Decided today" count={decided.length} icon="clock" className="is-card desk-side-more desk-decided">
         {decided.length === 0
           ? <p className="muted">Nothing yet this session. Your decisions appear here as you make them.</p>
           : (
@@ -297,15 +298,14 @@ function DeskSide({ job }: { job: Job | null }) {
               ))}
             </ol>
           )}
-      </section>
+      </More>
       {job && (
-        <section className="desk-side-box desk-job" aria-labelledby="desk-job-head">
-          <h4 id="desk-job-head">This job</h4>
+        <More screen="desk" id="job" label="This job" note="its facts and where its work is" icon="list" className="is-card desk-side-more desk-job">
           <p className="desk-facts muted">
             {jobFacts(job).map((f, i) => <span key={i}>{f}</span>)}
           </p>
           <p className="desk-where" title="Where the job’s work is, from the finish line and its PRs.">{whereLine(job)}</p>
-        </section>
+        </More>
       )}
     </aside>
   );

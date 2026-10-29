@@ -7,6 +7,8 @@ import { createApi, type ApiClient } from '../api/client';
 import type { PolicyId } from '../api/types';
 import { useAlerts, usePresence } from '../alerts/useAlerts';
 import { CommandPalette } from '../components/CommandPalette';
+import { TooltipLayer } from '../components/Tooltip';
+import { GalleryView } from '../views/Gallery/GalleryView';
 import { UsageBanner } from '../components/UsageBanner';
 import { UsageWarningBanner } from '../components/UsageWarningBanner';
 import { createLiveSync, type EventSourceLike, type LiveSync } from '../state/live';
@@ -33,7 +35,6 @@ import { TelemetryView } from '../views/Telemetry';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
 import { PlayToasts } from '../play/PlayToasts';
-import { StatusStrip } from '../play/StatusStrip';
 import { usePlay } from '../play/usePlay';
 import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
 import { reopenJob, setJobPolicy, stopRun } from './jobActions';
@@ -189,7 +190,8 @@ function Shell({ onRetry }: { onRetry: () => void }) {
     );
   }
   // Every page is full width: a job is the Job page (and its stops' Stages); there are no panes.
-  const page = route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} />
+  const page = route.name === 'gallery' ? <GalleryView />
+    : route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} />
     : route.name === 'job' ? <JobPage key={route.slug} slug={route.slug} />
       : route.name === 'stage' ? <StagePage key={`${route.slug}/${route.stop}`} slug={route.slug} stop={route.stop} />
       : route.name === 'stacks' ? <StacksPage />
@@ -207,7 +209,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="app">
       {top}
-      <div className="banner-slot"><StatusStrip /><UsageBanner /><UsageWarningBanner /></div>
+      <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
       <Sheets route={route} />
       {page}
       <PlayToasts />
@@ -238,6 +240,7 @@ export function App({ api: givenApi, store: givenStore, openStream }: AppProps) 
       <UiProvider>
         <PlayLedgerProvider>
           <Shell onRetry={() => void sync?.refresh()} />
+          <TooltipLayer />
         </PlayLedgerProvider>
       </UiProvider>
     </WorkshopContext.Provider>

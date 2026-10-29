@@ -65,9 +65,8 @@ export const CrewMember = memo(function CrewMember({ type, state = 'idle', size 
       height={size}
       data-crew={key}
       data-state={state}
-      {...(decorative ? { 'aria-hidden': true, focusable: 'false' } : { role: 'img', 'aria-label': name })}
+      {...(decorative ? { 'aria-hidden': true, focusable: 'false' } : { role: 'img', 'aria-label': name, 'data-tip': name })}
     >
-      {!decorative && <title>{name}</title>}
       <ellipse className="shadow" cx="60" cy="110" rx="25" ry="4.6" fill={C('shadow')} />
       <g className="rig">
         <g className="feet">

@@ -668,7 +668,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
 
       <details className="gate-adjust" open={adjustOpen}>
         <summary className="gate-fold" onClick={(e) => { e.preventDefault(); setAdjustOpen(!adjustOpen); }} title="Change only the next step (or the level from the next step on): skip it, lighter, heavier, a Fable second look, do it yourself, L↑ or L↓. Each adds one line to your reply.">
-          Adjust the next step{next ? ` (${next})` : ''} <span aria-hidden="true">▾</span> <Kbd id="gate-adjust" />
+          Adjust the next step{next ? ` (${next})` : ''} <Kbd id="gate-adjust" />
           {chosen.length > 0 && <span className="chip gate-chosen">{chosen.length === 1 ? '1 chosen' : `${chosen.length} chosen`}</span>}
         </summary>
         <div className="gate-chips" role="group" aria-label={`Next step only${next ? ` (${next})` : ''}`}>

@@ -12,6 +12,14 @@ import { HowThisWorks } from '../../components/HowThisWorks';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { Choice } from '../../components/Choice';
+import { Select } from '../../components/Select';
+
+/** The times quiet hours can start or end: every half hour, plus the one saved if it is between. */
+function timeOptions(current: string): { value: string; label: string }[] {
+  const all = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`);
+  if (/^\d\d:\d\d$/.test(current) && !all.includes(current)) all.push(current);
+  return all.sort().map((t) => ({ value: t, label: t }));
+}
 
 /** The settings with the usage warnings' switch (on unless turned off): NotifySettings in api/types.ts. */
 type NotifyAll = Notify;
@@ -117,9 +125,9 @@ export function NotifySettings() {
           <Choice type="checkbox" checked={n.quiet.on} disabled={!n.enabled} onChange={(e) => void save({ quiet: { ...n.quiet, on: e.target.checked } })} />
           <span>Quiet hours from</span>
         </label>
-        <input type="time" aria-label="Quiet hours start" value={n.quiet.from} disabled={!n.enabled} onChange={(e) => { if (e.target.value) void save({ quiet: { ...n.quiet, from: e.target.value } }); }} title="When quiet hours start." />
+        <Select className="notify-time" aria-label="Quiet hours start" value={n.quiet.from} options={timeOptions(n.quiet.from)} disabled={!n.enabled} onChange={(v) => void save({ quiet: { ...n.quiet, from: v } })} title="When quiet hours start." />
         <span>to</span>
-        <input type="time" aria-label="Quiet hours end" value={n.quiet.to} disabled={!n.enabled} onChange={(e) => { if (e.target.value) void save({ quiet: { ...n.quiet, to: e.target.value } }); }} title="When quiet hours end." />
+        <Select className="notify-time" aria-label="Quiet hours end" value={n.quiet.to} options={timeOptions(n.quiet.to)} disabled={!n.enabled} onChange={(v) => void save({ quiet: { ...n.quiet, to: v } })} title="When quiet hours end." />
       </div>
       <label className="drawer-check" title="Nothing pops while this page is in front of you: it already shows what changed." data-setting="notify-watching">
         <Choice type="checkbox" checked={n.skipWhenWatching} disabled={!n.enabled} onChange={(e) => void save({ skipWhenWatching: e.target.checked })} />

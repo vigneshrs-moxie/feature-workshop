@@ -88,7 +88,7 @@ describe('the stylesheets', () => {
   it('nothing you click is shorter than 28 px', () => {
     const short = DECLS.filter((d) => /^(min-)?height$/.test(d.prop) && CLICKABLE.test(d.selector)).filter((d) => {
       const px = /^(\d+(?:\.\d+)?)px$/.exec(d.value);
-      return px && Number(px[1]) < 28 && !/input\[type='radio'\]|sr-only/.test(d.selector);
+      return px && Number(px[1]) < 28 && !/input\[type='radio'\]|sr-only|::(before|after|marker)/.test(d.selector);
     });
     expect(short.map(at)).toEqual([]);
   });
