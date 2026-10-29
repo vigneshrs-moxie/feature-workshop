@@ -16,6 +16,12 @@
 
 ## Steps
 0. **The plan week starts Wednesday 16:00, local time** (Vignesh, 2026-10-29: the Claude plan's weekly reset; his Mac is on America/Phoenix, no daylight time). `windowRange('week')` uses the weekly meter's reset when there is a reading, and otherwise the last Wednesday 16:00 in the dashboard's local time zone, not the rolling seven days it falls back to today. Every per-week graph (2, 6, 7, 10, and the model share) buckets on the same Wednesday-16:00 boundaries, and its labels say so ("Week from Wed 28 Oct, 4 pm"). Tests cover a reading, no reading, a line just before and just after 16:00 on a Wednesday, and a time zone with daylight time.
+0b. **Other use of the account** (Vignesh, 2026-10-29: "other people use the claude account through other means outside of feature workshop … have an others section"). The usage log only sees Ground Control's own turns; the weekly and 5-hour meters see everything on the account (claude.ai, the desktop app, other people's Claude Code). So:
+   - **Others = the meters' rise that Ground Control's lines don't explain.** For each stretch between two meter readings, Ground Control's share is its logged cost there times percent per dollar; the rest of the rise is "Other use (outside Ground Control)". Never below zero; a stretch with no reading at both ends is marked unknown, never guessed.
+   - **Percent per dollar is taken only from short stretches** (consecutive readings a few minutes apart with Ground Control spend between them), so other people's use doesn't inflate it. Today's `percentPerDollar` counts the whole week's rise against Ground Control's dollars, which over-states it once others use the account; fix that here and test it with a fixture where an outside rise sits between two quiet readings.
+   - **Where it shows:** graph 1's dial and forecast split the week into "Ground Control" and "Other use" (pattern plus words); graph 5, People on the account, gets an **Others** row ("Outside Ground Control: claude.ai, the app and anyone else on the account; estimated from the meter"); graph 9 counts other use in when the limit goes. Every "Others" number says "estimated" and shows in percent of the limit only, since its dollars aren't known.
+   - **The headline names it when it matters**: e.g. "Other use took 41% of this week's limit; Ground Control took 22%." With no meter readings it says "Can't see use outside Ground Control yet: no limit readings this week."
+   Tests: a week with only Ground Control use (Others ≈ 0), one with outside use between readings, a reading gap, and a meter reset in the middle.
 1. **The cleaned record** (`insights.js`): one pass that reads the usage lines and gives every graph the same tidy rows.
    - Drop demo lines and lines from test folders (the `isTemp` rule).
    - Count each turn once: a turn's lines share a `turn` id; sums never add a turn's cost twice.
@@ -42,7 +48,7 @@
 5. **Keys**: Read now and the arrow keys on the weekly line go into `keyRegistry.ts` with their scope, so Settings → Keys lists them.
 
 ## Acceptance
-Telemetry shows up to ten graphs, each headed by a finding in plain words with a "What to do" line, each can be folded and hidden and comes back from "Show hidden graphs"; the cleaned record drops demo and test lines, counts each turn once and never guesses a missing week; the headlines say "Not enough … yet" rather than guess; charts use `--chart-*` with patterns; Telemetry's keys are in Settings → Keys; the screen matches the approved wireframe at desktop and phone width. All tests green, with no model calls.
+Telemetry shows up to ten graphs, use outside Ground Control shows as an estimated "Others" share in the dial, the forecast and People on the account, each headed by a finding in plain words with a "What to do" line, each can be folded and hidden and comes back from "Show hidden graphs"; the cleaned record drops demo and test lines, counts each turn once and never guesses a missing week; the headlines say "Not enough … yet" rather than guess; charts use `--chart-*` with patterns; Telemetry's keys are in Settings → Keys; the screen matches the approved wireframe at desktop and phone width. All tests green, with no model calls.
 
 ## Verify
 ```
