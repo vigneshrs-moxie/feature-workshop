@@ -296,7 +296,7 @@ html[data-theme="blueprint"] .problem { border-top: 2px solid var(--bp-red); box
 html[data-theme="blueprint"] .reply .muted, html[data-theme="blueprint"] .brief-card .muted, html[data-theme="blueprint"] .problem .muted, html[data-theme="blueprint"] .perm-card .muted,
 html[data-theme="blueprint"] .reply .who, html[data-theme="blueprint"] .brief-card .who, html[data-theme="blueprint"] .perm-card .who,
 html[data-theme="blueprint"] .perm-who, html[data-theme="blueprint"] .perm-detail, html[data-theme="blueprint"] .perm-reason,
-html[data-theme="blueprint"] .brief-toggle, html[data-theme="blueprint"] .brief-detail summary,
+html[data-theme="blueprint"] .brief-toggle, html[data-theme="blueprint"] .brief-detail summary, html[data-theme="blueprint"] :is(.brief-card, .perm-card) .gate-fold,
 html[data-theme="blueprint"] .extras dt, html[data-theme="blueprint"] .extras dd,
 html[data-theme="blueprint"] .answer-desc, html[data-theme="blueprint"] .question-hint,
 html[data-theme="blueprint"] .perm-card .field { color: var(--bp-ink-2); }

@@ -954,6 +954,8 @@ a:hover { text-decoration: underline; }
 .keys-sheet .keys-off { margin: 0 0 var(--space-2); }
 /* A key hint on a button (components/Kbd.tsx): quieter than the ⌘K badge. */
 .key-hint { margin-left: var(--space-1); background: var(--bg-3); border-color: var(--border-2); color: var(--text-3); font-size: var(--text-xs); border-radius: var(--radius-sm); }
+/* On a filled button the hint takes the button's own ink, so it reads on every theme's accent. */
+.btn-primary .kbd.key-hint { background: transparent; border-color: currentColor; color: inherit; opacity: .8; }
 .key-legend { margin: var(--space-3) 0 0; font-size: var(--text-xs); }
 .key-legend .kbd { background: var(--bg-3); color: var(--text-3); }
 .keys-settings .check { margin-top: var(--space-2); }
