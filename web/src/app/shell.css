@@ -1,0 +1,56 @@
+/* The new look's shell and shared page pieces (packet M). Every value comes from tokens.css and the
+   theme files; nothing here sets a colour of its own. */
+
+.icon { flex: 0 0 auto; vertical-align: middle; }
+
+/* ---------- The top bar (app/TopBar.tsx) ---------- */
+.topbar { gap: var(--space-2); padding: 0 var(--space-4); }
+.gc-brand {
+  display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--control-h);
+  margin-right: var(--space-2); border-radius: var(--radius-md);
+  color: var(--text-1); font-family: var(--font-heading); font-weight: var(--weight-bold); font-size: var(--text-md);
+}
+.gc-brand:hover { text-decoration: none; }
+.gc-mark {
+  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  border-radius: var(--radius-md); background: var(--accent); color: var(--on-accent);
+}
+.gc-page-name { display: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: var(--weight-medium); }
+.gc-nav { display: inline-flex; align-items: center; gap: 2px; }
+.gc-nav-link { padding: 0 var(--space-3); }
+.gc-nav-link[aria-current='page'] { color: var(--text-1); background: var(--bg-2); box-shadow: inset 0 -2px 0 var(--accent); }
+.gc-nav-link .home-view-count { margin-left: 2px; }
+.gc-meters { display: inline-flex; align-items: center; }
+.gc-phone-desk, .gc-burger { display: none; }
+
+/* A dropped menu (app/Menu.tsx): the gear, and ☰ at phone width. */
+.menu-box { position: relative; }
+.menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
+  display: flex; flex-direction: column; min-width: 248px; padding: var(--space-1);
+  border: 1px solid var(--border-2); border-radius: var(--radius-lg); background: var(--bg-1); box-shadow: var(--shadow-2);
+  animation: rise-in var(--dur-menu) var(--ease-out);
+}
+.menu-label { flex: 1; }
+.menu-icon-gap { width: 16px; flex: 0 0 auto; }
+.menu-sep { height: 1px; margin: var(--space-1) var(--space-2); background: var(--border-1); }
+.menu .menu-key { margin-left: auto; }
+.menu .menu-item { color: var(--text-1); }
+
+@media (max-width: 1180px) {
+  .gc-brand-name { display: none; }
+  .gc-meters .usage-meter-reset { display: none; }
+}
+/* Phone: the short form. The mark, the page's name, the Desk count and ☰. */
+@media (max-width: 760px) {
+  .topbar { gap: var(--space-1); padding: 0 var(--space-2) 0 var(--space-3); }
+  .gc-nav, .gc-meters, .conn-label, .gc-new-job, .gc-gear, .gc-demo, .topbar .spacer { display: none; }
+  .gc-page-name { display: block; flex: 1 1 auto; }
+  .gc-phone-desk { display: inline-flex; }
+  .gc-burger { display: block; }
+  .gc-burger .menu { position: fixed; top: calc(var(--topbar-h) + 4px); left: var(--space-2); right: var(--space-2); max-height: calc(100vh - var(--topbar-h) - 16px); overflow: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu { animation: none; }
+}

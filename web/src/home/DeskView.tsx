@@ -1,5 +1,9 @@
-// The Desk (Home): every decision waiting for you, across all jobs, one at a time. Three columns
-// from 1200 px (plan §5): the queue on the left, oldest first; the current item in the middle, with
+// The Desk (#/desk): every decision waiting for you, across all jobs, one at a time. Two layouts
+// (Settings → Look → Desk layout): One at a time, the default (packet M): the dots, 1 of 3, the
+// whole queue in a drawer; one console card with the job's seven stops, the headline, the brief
+// behind Details (b), and the big calls Reply (c), No go: send back (r) and Go (a), which press
+// the gate card's own Other guidance, Revise with feedback and Approve. Decided today folds below.
+// Three columns, as the Desk was from 1200 px (plan §5): the queue on the left, oldest first; the current item in the middle, with
 // the same card the job page shows (the gate card for a go-ahead or the Foreman's questions, the
 // permission or question card) and the Foreman's brief open above it; on the right what you decided
 // this session, the job's facts and where its work is. Under 1200 px the right column folds under
@@ -14,12 +18,17 @@
 //          Claude Code flagged as risky, or a question (the Foreman's or the crew's: you answer those on the card)
 //   d      deny a permission (opens its note), or put a nudge away
 //   b      show or hide the brief
+//   r      no go: send back (a go-ahead: the gate's Revise with feedback)
+//   c      reply without deciding (a go-ahead: the gate's Other guidance; elsewhere c stays New job)
 // After a decision the next item opens and its card takes the focus.
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import type { Job } from '../api/types';
 import { useKeyScope, type KeyId } from '../app/keyRegistry';
-import { jobHref, navigate } from '../app/router';
+import { hrefFor, jobHref, navigate } from '../app/router';
 import { Kbd, KeyLegend } from '../components/Kbd';
+import { Icon } from '../components/Icon';
+import { Fold, Hero } from '../components/page/Page';
+import { StopMap } from '../components/stops/StopMap';
 import { Card } from '../components/permissions/PendingCards';
 import { fullTime, relativeTime } from '../lib/time';
 import { GateSlot } from '../panes/Foreman/GateCard';
@@ -33,6 +42,149 @@ import type { DeskItem } from './homeModel';
 import { type DeskEntry, deskEntries, isShipping, jobFacts, type NudgeItem, nudgePath, oneKeyDecide, recordDecision, useDecidedToday, whereLine } from './nudges';
 
 const DESK_KEYS: readonly KeyId[] = ['desk-next', 'desk-prev', 'desk-approve', 'desk-deny', 'desk-open', 'desk-brief'];
+
+export type DeskLayout = 'one' | 'columns';
+export const DESK_LAYOUT_KEY = 'gc.desk.layout';
+
+/** A button's words without its key hint. */
+function wordsOf(b: Element | null): string {
+  if (!b) return '';
+  const copy = b.cloneNode(true) as HTMLElement;
+  copy.querySelectorAll('kbd').forEach((k) => k.remove());
+  return (copy.textContent ?? '').trim();
+}
+/** Dots for at most this many; the rest is a number. */
+const DOTS = 9;
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
+/**
+ * One at a time: the go-ahead as a console. The gate card underneath keeps every rule (questions,
+ * decisions made for you, a stale plan); its own row of buttons is hidden here, and the three big
+ * calls press them. Go is off while the card asks a question: a never answers one.
+ */
+function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now: Date; briefOpen: boolean; toggleBrief(): void; call: boolean }) {
+  const state = useWorkshopState();
+  const thread = useJobThread(job.slug, (state.threadVersions[job.slug] ?? 0) + state.threadEpoch);
+  const body = useRef<HTMLDivElement>(null);
+  const [go, setGo] = useState({ words: '', off: true, asks: false });
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (!el) return;
+    const read = () => {
+      const b = el.querySelector<HTMLButtonElement>('[data-gate="approve"]');
+      const next = { words: wordsOf(b), off: !b || b.disabled, asks: Boolean(el.querySelector('.gate-question')) };
+      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks ? was : next));
+    };
+    read();
+    const watch = new MutationObserver(read);
+    watch.observe(el, { subtree: true, childList: true, attributes: true, characterData: true });
+    return () => watch.disconnect();
+  }, [thread.detail]);
+  if (thread.error) return <p className="perm-warn" role="alert">{thread.error}</p>;
+  if (!thread.detail) return <p className="muted" role="status">Opening the Foreman’s brief…</p>;
+  const brief = thread.detail.latestBrief as { html?: string; number?: number | null } | null | undefined;
+  const press = (what: 'approve' | 'revise' | 'guidance') => body.current?.querySelector<HTMLButtonElement>(`[data-gate="${what}"]:not(:disabled)`)?.click();
+  const gate = Boolean(thread.detail.gate);
+  const goWords = go.words || 'Approve';
+  return (
+    <>
+      <div className="desk-say">
+        <span className="next-label">{call ? 'Go / no go' : 'Waiting for you'}</span>
+        <h3 className="desk-head">{typeof job.headline === 'string' && job.headline ? job.headline : 'Waiting for your go-ahead'}</h3>
+        {job.laneReason && <p className="desk-sub">{job.laneReason}</p>}
+      </div>
+      {brief?.html && (
+        <section className={`fold desk-brief-fold${briefOpen ? '' : ' is-shut'}`} aria-label={`The Foreman’s brief${brief.number ? ` #${brief.number}` : ''}`}>
+          <button type="button" className="fold-head" aria-expanded={briefOpen} onClick={toggleBrief} title={briefOpen ? 'Hide the Foreman’s brief (key: b).' : 'Read the Foreman’s brief in full (key: b).'}>
+            <Icon name="file" size={16} />
+            <span className="fold-name">The Foreman’s brief</span>
+            <span className="muted">· <Kbd id="desk-brief" /></span>
+            <span className="fold-show">{briefOpen ? 'Hide ▾' : 'Details ▸'}</span>
+          </button>
+          {briefOpen && <div className="fold-body"><ServerHtml html={brief.html} className="prose" /></div>}
+        </section>
+      )}
+      <div ref={body} className="desk-gate-body">
+        <GateSlot job={job} detail={thread.detail} now={now} reload={thread.reload} callsOutside />
+      </div>
+      {gate ? (
+        <div className={`desk-calls${call ? ' is-call' : ''}`}>
+          <button type="button" className={`btn desk-call-reply${call ? ' btn-lg' : ' btn-quiet'}`} onClick={() => press('guidance')} title="Ask or tell the Foreman something without deciding: nothing is approved (key: c).">
+            Reply <Kbd id="desk-reply" />
+          </button>
+          <button type="button" className={`btn desk-call-no${call ? ' btn-lg' : ''}`} onClick={() => press('revise')} title="No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).">
+            {call ? <>No go<span className="call-long">: send back</span></> : 'Send back'} <Kbd id="desk-send-back" />
+          </button>
+          <button
+            type="button"
+            className={`btn btn-primary desk-call-go${call ? ' btn-lg' : ''}`}
+            disabled={go.off || go.asks}
+            onClick={() => press('approve')}
+            title={go.asks ? 'Answer the questions on the card first: a for go never answers a question.' : go.off ? 'Go is off for now: the card says why.' : `${goWords} (key: a).`}
+          >
+            {call ? <>Go<span className="call-long">: {lowerFirst(goWords)}</span></> : goWords} <Kbd id="desk-approve" />
+          </button>
+        </div>
+      ) : (
+        <p className="muted">The Foreman is waiting for your reply. <a href={jobHref(job.slug)}>Open the job</a> to read its last message and answer in the message box.</p>
+      )}
+    </>
+  );
+}
+
+/** The whole queue, in a drawer from the side (One at a time). */
+function QueueDrawer({ items, index, now, onPick, onClose }: { items: DeskEntry[]; index: number; now: Date; onPick(key: string): void; onClose(): void }) {
+  const list = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    list.current?.querySelector<HTMLButtonElement>('[aria-current="true"]')?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } };
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('keydown', onKey); if (before?.isConnected) before.focus(); };
+  }, [onClose]);
+  return (
+    <div className="sheet-backdrop drawer-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <section className="drawer" role="dialog" aria-modal="true" aria-label="The queue">
+        <header className="drawer-head">
+          <h3>The queue · {items.length}</h3>
+          <button type="button" className="btn btn-quiet btn-icon" aria-label="Close the queue" onClick={onClose}><Icon name="x" /></button>
+        </header>
+        <ol ref={list} className="drawer-list">
+          {items.map((it, i) => (
+            <li key={it.key}>
+              <button type="button" className={`desk-item${i === index ? ' is-current' : ''}`} aria-current={i === index ? 'true' : undefined} onClick={() => { onPick(it.key); onClose(); }}>
+                <span className="desk-item-top"><span className="desk-item-title">{it.title}</span></span>
+                <span className="desk-item-what">{it.what}</span>
+                {it.since && it.kind !== 'nudge' && <span className="desk-item-since muted">waiting {relativeTime(it.since, now)}</span>}
+              </button>
+            </li>
+          ))}
+        </ol>
+      </section>
+    </div>
+  );
+}
+
+function DecidedFold() {
+  const decided = useDecidedToday();
+  return (
+    <Fold icon="clock" name="Decided today" note={decided.length} id="desk-decided">
+      {decided.length === 0
+        ? <p className="muted">Nothing yet this session. Your decisions appear here as you make them.</p>
+        : (
+          <ol className="desk-decided-list">
+            {decided.map((d, i) => (
+              <li key={`${d.at}-${i}`}>
+                <span className="desk-decided-title">{d.title}</span>
+                <span className="desk-decided-what">{d.what}</span>
+                <time className="muted" dateTime={d.at} title={fullTime(d.at)}>{new Date(d.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time>
+              </li>
+            ))}
+          </ol>
+        )}
+    </Fold>
+  );
+}
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -141,7 +293,7 @@ function DeskSide({ job }: { job: Job | null }) {
   );
 }
 
-export function DeskView({ items: decisions, now }: { items: DeskItem[]; now: Date }) {
+export function DeskView({ items: decisions, now, layout = 'columns' }: { items: DeskItem[]; now: Date; layout?: DeskLayout }) {
   const { api } = useWorkshop();
   const { jobs } = useWorkshopState();
   const play = usePlayIfAny();
@@ -149,7 +301,9 @@ export function DeskView({ items: decisions, now }: { items: DeskItem[]; now: Da
   const [settled, setSettled] = useState<ReadonlySet<string>>(() => new Set());
   const items: DeskEntry[] = deskEntries(decisions, jobs).filter((e) => !settled.has(e.key));
   const [currentKey, setCurrentKey] = useState<string | null>(null);
-  const [briefOpen, setBriefOpen] = useState(true);
+  const [briefOpen, setBriefOpen] = useState(layout === 'columns');
+  const [queueOpen, setQueueOpen] = useState(false);
+  const closeQueue = useCallback(() => setQueueOpen(false), []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastIndex = useRef(0);
@@ -220,7 +374,7 @@ export function DeskView({ items: decisions, now }: { items: DeskItem[]; now: Da
       if (current.kind === 'nudge') { void settleNudge(current, 'yes'); return; }
       if (panel.current?.querySelector('.gate-question')) return;
       pressed(current.kind === 'gate' ? 'Approved' : 'Allowed once');
-      click(current.kind === 'gate' ? '.gate-actions > .btn-primary:not(:disabled)' : '.perm-actions > .btn-primary:not(:disabled)');
+      click(current.kind === 'gate' ? '[data-gate="approve"]:not(:disabled)' : '.perm-actions > .btn-primary:not(:disabled)');
     },
     'desk-deny': () => {
       if (!current || busy) return;
@@ -228,9 +382,71 @@ export function DeskView({ items: decisions, now }: { items: DeskItem[]; now: Da
       if (current.kind === 'permission') click('.perm-actions > .btn-danger:not(:disabled)');
     },
     'desk-brief': () => { if (current?.kind === 'gate') setBriefOpen((o) => !o); else return false; },
+    // r and c press the gate card's Revise with feedback and Other guidance (the same in both layouts).
+    'desk-send-back': () => { if (current?.kind !== 'gate') return false; click('[data-gate="revise"]:not(:disabled)'); },
+    'desk-reply': () => { if (current?.kind !== 'gate') return false; click('[data-gate="guidance"]:not(:disabled)'); },
   });
 
   const onPanelClick = (e: ReactMouseEvent) => pressed(buttonWords(e.target));
+
+  if (!items.length && layout === 'one') {
+    return (
+      <div className="desk-one">
+        <Hero
+          icon="circle-check"
+          quiet
+          title="Desk clear"
+          actions={<a className="btn btn-primary btn-lg" href={hrefFor({ name: 'home' })} title="Every job, in four lanes (keys: g j).">See all jobs <kbd className="kbd key-hint" aria-hidden="true">g j</kbd></a>}
+        >
+          {play?.on && <CrewMember type="conductor" state="celebrating" size={96} label="" />}
+          <p>The crew carries on with your decisions. Go-aheads, questions and permissions land here as they come.</p>
+        </Hero>
+        <DecidedFold />
+      </div>
+    );
+  }
+
+  if (layout === 'one') {
+    const call = Boolean(play?.on);
+    return (
+      <div className="desk-one">
+        <div className="desk-qbar">
+          <span className="desk-dots" aria-hidden="true">
+            {items.slice(0, DOTS).map((it, i) => <span key={it.key} className={`desk-dot${i === index ? ' is-current' : ''}`} />)}
+            {items.length > DOTS && <span className="desk-dots-more">+{items.length - DOTS}</span>}
+          </span>
+          <b>{index + 1} of {items.length}</b>
+          <span className="muted desk-qbar-words">waiting for you</span>
+          <span className="spacer" />
+          <button type="button" className="btn btn-quiet" aria-haspopup="dialog" aria-expanded={queueOpen} onClick={() => setQueueOpen(true)} title="The whole queue, oldest first (j and k move through it here).">
+            <Icon name="list" size={16} /> Queue
+          </button>
+        </div>
+        <section className={`desk-console${call && current?.kind === 'gate' ? ' is-call' : ''}`} aria-label={current ? `${current.title}: ${current.what}` : 'Decision'} ref={panel} tabIndex={-1} onClickCapture={onPanelClick}>
+          {current && (
+            <>
+              <header className="desk-console-head">
+                <span className="desk-console-title">{current.title}</span>
+                {typeof job?.ticket === 'object' && job?.ticket && 'key' in job.ticket && <span className="chip">{String((job.ticket as { key: unknown }).key)}</span>}
+                <span className="spacer" />
+                {current.since && current.kind !== 'nudge' && <span className="muted">waiting {relativeTime(current.since, now)}</span>}
+                <a className="btn btn-quiet" href={jobHref(current.slug)} title="Open the whole job: its stops, documents and conversation (key: o).">Open the job <Kbd id="desk-open" /></a>
+              </header>
+              {job && current.kind !== 'nudge' && <StopMap job={job} />}
+              {current.kind === 'gate' && (job
+                ? <DeskGateOne key={current.key} job={job} now={now} briefOpen={briefOpen} toggleBrief={() => setBriefOpen((o) => !o)} call={call} />
+                : <p className="muted">This job isn’t in the list any more.</p>)}
+              {(current.kind === 'permission' || current.kind === 'question') && <Card key={current.key} p={current.permission} now={now} />}
+              {current.kind === 'nudge' && <NudgeCard key={current.key} item={current} busy={busy} error={error} onYes={() => void settleNudge(current, 'yes')} onDismiss={() => void settleNudge(current, 'dismiss')} />}
+              {!oneKeyDecide(current) && current.kind === 'permission' && <p className="muted desk-note">A hard line or a step Claude Code flagged as risky: decide on the card itself (no one-key approve).</p>}
+            </>
+          )}
+        </section>
+        <DecidedFold />
+        {queueOpen && <QueueDrawer items={items} index={index} now={now} onPick={setCurrentKey} onClose={closeQueue} />}
+      </div>
+    );
+  }
 
   if (!items.length) {
     return (

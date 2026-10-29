@@ -6,15 +6,7 @@ import type { PlanUsage } from '../api/types';
 import { useStored } from '../lib/stored';
 import { useWorkshopState } from '../state/store';
 
-/** One warning as the dashboard sends it. */
-export interface UsageWarning {
-  id: string;
-  meter: 'fiveHour' | 'week';
-  threshold: 80 | 90 | 100;
-  percent: number;
-  resetsAt: string | null;
-  text: string;
-}
+export type { UsageWarning } from '../api/types';
 
 /** The dismissed warnings' ids, remembered in this browser. */
 export const DISMISSED_KEY = 'fw.usage.warnings.dismissed';
@@ -32,7 +24,7 @@ function parse(raw: string | null): string[] {
 export function UsageWarningBanner() {
   const { planUsage } = useWorkshopState();
   const [raw, setRaw] = useStored(DISMISSED_KEY);
-  const warnings = ((planUsage as (PlanUsage & { warnings?: UsageWarning[] }) | null)?.warnings ?? []).filter((w) => w && typeof w.text === 'string');
+  const warnings = ((planUsage as PlanUsage | null)?.warnings ?? []).filter((w) => w && typeof w.text === 'string');
   if (!planUsage?.enabled || !warnings.length) return null;
   const dismissed = parse(raw);
   const shown = warnings.filter((w) => !dismissed.includes(w.id));

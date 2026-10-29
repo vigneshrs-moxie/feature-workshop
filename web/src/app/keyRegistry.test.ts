@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  activeScopes, handleKey, installKeyListener, isTypingTarget, keyLabel, keysText, registerKeys, resetChord, type KeyHandlers,
+  activeScopes, handleKey, installKeyListener, isTypingTarget, KEY_IDS, KEYS, keyDef, keyLabel, keysText, registerKeys, resetChord, SCOPE_PRIORITY, SCOPES, type KeyHandlers, type KeyId, type KeyScope,
 } from './keyRegistry';
 import { writeKeysSetting } from './keysSetting';
 
@@ -202,5 +202,35 @@ describe('the key registry', () => {
     expect(keyLabel('Escape')).toBe('Esc');
     expect(keyLabel('g h')).toBe('g h');
     expect(keysText('gate-answer')).toBe('1 / 2 / 3');
+  });
+
+  it('no page key fires while you type or with a dialog open: every binding in the registry, scope by scope', () => {
+    // Everything but ⌘ bindings, the always-on ones (Esc, Enter, the arrows: what any page has) and list-only ones.
+    const pageKeys = KEY_IDS.filter((id) => { const d = keyDef(id); return !d.listOnly && !d.always && !d.keys.some((k) => k.startsWith('Mod+')); });
+    expect(pageKeys).toEqual(expect.arrayContaining<KeyId>(['inbox-start', 'stage-prev', 'stage-next', 'stage-finished', 'alert-allow', 'alert-deny', 'jobs-open', 'gate-approve', 'desk-approve']));
+    for (const id of pageKeys) {
+      const run = vi.fn();
+      const reg = registerKeys(KEYS[id].scope, { current: { [id]: run } });
+      const key = KEYS[id].keys[0];
+      const first = key.includes(' ') ? key.split(' ')[0] : key;
+      const area = document.body.appendChild(document.createElement('textarea'));
+      expect(handleKey(press(area, { key: first })), `${id} while typing`).toBe(false);
+      const dialog = document.body.appendChild(document.createElement('div'));
+      dialog.setAttribute('aria-modal', 'true');
+      expect(handleKey(press(document.body, { key: first })), `${id} with a dialog open`).toBe(false);
+      dialog.remove(); area.remove();
+      reg.unregister();
+      resetChord();
+      expect(run, id).not.toHaveBeenCalled();
+    }
+  });
+
+  it('every scope has a place in the priority order and a title and line for the lists', () => {
+    const scopes = new Set(KEY_IDS.map((id) => KEYS[id].scope));
+    for (const scope of scopes) {
+      expect(SCOPE_PRIORITY).toContain(scope);
+      expect(SCOPES[scope as KeyScope].title).toMatch(/\S/);
+    }
+    expect(new Set(Object.values(SCOPES).map((s) => s.title)).size).toBe(Object.keys(SCOPES).length);
   });
 });

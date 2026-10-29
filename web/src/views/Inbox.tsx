@@ -1,62 +1,33 @@
 // The Inbox (#/inbox): your Portal Feedback tickets, read from Orbit with your own read-only token
 // (dashboard/lib/orbit.js). Tabs: Mine (assigned to you, or watched by you, open ones only), then
-// your saved views from Orbit. Each row: key, title, priority, severity, age, assignee, and "You are
-// already on this" when an open job is on that ticket. A row opens the ticket: its facts,
-// description, links (branches, PRs) and timeline, read again every minute while open.
+// your saved views from Orbit. Most severe first, then oldest; severity only (no priority here).
+// Each row: severity (icon and word), key and title, age, who is on it, and Start, or the way to
+// the job already on that ticket. A row opens the ticket: its facts, description, links (branches,
+// PRs) and timeline, read again every minute while open.
 //
-// One action: Start (key s, on the open ticket or the row with the focus). It opens New job with
-// the ticket filled in (read-only) and "ORBIT-<n>: <title>" as the description. The s key is this page's
-// own listener, with the page's rules: never while typing, with a dialog open, or with keys off.
+// The next-step bar names one ticket: the most severe with no job, nobody on it first. Start (key s)
+// works on the open ticket, the row with the focus, else the bar's ticket. It opens New job with the
+// ticket filled in (read-only) and "ORBIT-<n>: <title>" as the description. The s key is the
+// registry's (inbox-start, app/keyRegistry.ts): never while typing, with a dialog open, or with keys off.
 //
 // While this page is open it holds /api/orbit/events, so the dashboard checks Orbit every 3 minutes
 // instead of every 15; the stream also brings each new list. Nothing here writes to Orbit.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from '../api/client';
-import { dialogOpen, isTypingTarget } from '../app/keyRegistry';
-import { useKeysSetting } from '../app/keysSetting';
+import { useKeyScope } from '../app/keyRegistry';
 import { jobHref, settingsHref } from '../app/router';
 import { useUi } from '../app/ui';
+import { Icon, type IconName } from '../components/Icon';
+import { Kbd } from '../components/Kbd';
+import { GuideCards, Hero, NextBar, Page, type GuideSpec } from '../components/page/Page';
 import { clockTime, fullTime, relativeTime, useNow } from '../lib/time';
-import { useWorkshop } from '../state/store';
+import { useWorkshop, useWorkshopState } from '../state/store';
 
 // ---------- What the dashboard sends (GET /api/orbit/*) ----------
 
-export interface OrbitStatus {
-  tokenPresent: boolean;
-  /** Where the token is kept: keytar or keychain (the OS store), or file (a file only you can read). */
-  store: 'keytar' | 'keychain' | 'file' | null;
-  url: string | null;
-  savedAt: string | null;
-  expiresAt: string | null;
-  expired: boolean;
-  lastPoll: string | null;
-  lastTryAt?: string | null;
-  lastError: string | null;
-  errorKind: string | null;
-  everyMs: number;
-  watchers: number;
-  waitingMs: number;
-  mcp?: { name: string; file: string };
-}
-
-export interface InboxItem {
-  key: string;
-  number: number;
-  title: string;
-  type: string | null;
-  status: string | null;
-  priority: string | null;
-  severity: string | null;
-  createdAt: string | null;
-  changedAt: string | null;
-  assignee: { name: string; you: boolean } | null;
-  why: string[];
-  url: string | null;
-  /** The open job already on this ticket. */
-  job: { slug: string; title: string } | null;
-}
-
-export type InboxAnswer = OrbitStatus & { items: InboxItem[]; view?: string; checkedAt?: string; truncated?: boolean };
+export type { InboxAnswer, InboxItem, OrbitStatus } from '../api/types';
+import type { InboxAnswer, InboxItem, Job, OrbitStatus } from '../api/types';
+import { BRAND } from '../app/brand';
 
 interface SavedView { id: string; name: string; isDefault: boolean }
 
@@ -92,7 +63,7 @@ export const STATUS_WORDS: Record<string, string> = {
 };
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ');
 export const statusWord = (s: string | null) => (s ? STATUS_WORDS[s] ?? capital(s) : 'Unknown');
-/** Priority and severity in words (never a colour alone); "Not set" when Orbit has none, "Hidden" when it doesn't show them to you. */
+/** Severity in words (never a colour alone); "Not set" when Orbit has none, "Hidden" when it doesn't show it to you. */
 export const levelWord = (v: string | null, hidden = false) => (hidden ? 'Hidden' : v ? capital(v) : 'Not set');
 const person = (p: { fullName: string | null; email: string } | null | undefined) => (p ? p.fullName || p.email : 'Someone');
 const minutes = (ms: number) => Math.round(ms / 60_000);
@@ -101,6 +72,57 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 /** What New job is filled in with: the ticket's key and title. */
 export const startText = (item: Pick<InboxItem, 'key' | 'title'>) => `${item.key}: ${item.title}`;
+
+// ---------- Severity, and the order ----------
+
+/** Orbit's severities, most severe first (dashboard/lib/orbit.js). */
+const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+const SEVERITY_ICON: Record<string, IconName> = { critical: 'flame', high: 'alert', medium: 'circle-dot', low: 'circle' };
+const rankOf = (sev: string | null) => (sev && sev in SEVERITY_RANK ? SEVERITY_RANK[sev] : 9);
+const opened = (i: InboxItem) => (i.createdAt ? Date.parse(i.createdAt) || Infinity : Infinity);
+
+/** A participant's rows come without severity: their address is the public one, not /admin/. */
+export const severityHidden = (i: Pick<InboxItem, 'severity' | 'url'>) => !i.severity && Boolean(i.url) && !i.url!.includes('/admin/feedback/');
+
+/** The Inbox's order: most severe first, then the oldest. */
+export function sortInbox(items: readonly InboxItem[]): InboxItem[] {
+  return [...items].sort((a, b) => rankOf(a.severity) - rankOf(b.severity) || opened(a) - opened(b));
+}
+
+/** The ticket the next-step bar names: no job on it yet, nobody on it first, then the order above. */
+export function nextTicket(items: readonly InboxItem[]): InboxItem | null {
+  const free = sortInbox(items).filter((i) => !i.job);
+  return free.find((i) => !i.assignee) ?? free[0] ?? null;
+}
+
+export function Severity({ item, hidden = severityHidden(item) }: { item: Pick<InboxItem, 'severity' | 'url'>; hidden?: boolean }) {
+  const sev = hidden ? null : item.severity;
+  const icon: IconName = hidden ? 'eye-off' : sev ? SEVERITY_ICON[sev] ?? 'circle' : 'minus';
+  return (
+    <span className={`sev sev-${hidden ? 'hidden' : sev ?? 'none'}`}>
+      <Icon name={icon} size={16} />
+      <span className="sev-word">{levelWord(sev, hidden)}</span>
+    </span>
+  );
+}
+
+const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('') || '?';
+
+function WhoIsOn({ who }: { who: InboxItem['assignee'] }) {
+  if (!who) return <span className="who-on"><span className="avatar is-empty" aria-hidden="true">?</span>No one</span>;
+  return <span className="who-on"><span className={`avatar${who.you ? ' is-you' : ''}`} aria-hidden="true">{initials(who.name)}</span>{who.you ? 'You' : who.name}</span>;
+}
+
+const INBOX_GUIDE: GuideSpec = {
+  id: 'inbox',
+  title: 'How the Inbox works',
+  done: 'Show me my tickets',
+  cards: [
+    { icons: ['inbox'], title: 'Your Orbit tickets', say: 'The Portal Feedback tickets assigned to you or that you watch, most severe first, then oldest.' },
+    { icons: ['inbox', 'clipboard'], title: 'Start makes a job', say: 'Start opens a new job on the ticket. The Foreman reads the ticket first and writes a brief.' },
+    { icons: ['hand', 'check'], title: 'You say go at each step', say: 'Nothing moves on without you: each step waits on the Desk for your go or no go.' },
+  ],
+};
 
 // ---------- The page ----------
 
@@ -112,6 +134,7 @@ function defaultOpenStream(url: string): OrbitStream | null {
 
 export function InboxView({ openStream = defaultOpenStream }: { openStream?: (url: string) => OrbitStream | null }) {
   const { api } = useWorkshop();
+  const { jobs } = useWorkshopState();
   const ui = useUi();
   const now = useNow();
   const [tab, setTab] = useState<string>('mine');
@@ -121,7 +144,6 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
   const [open, setOpen] = useState<InboxItem | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const focused = useRef<InboxItem | null>(null);
-  const [{ enabled: keysOn }] = useKeysSetting();
 
   const loadMine = useCallback(async (refresh = false) => {
     try {
@@ -170,97 +192,136 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
     ui.openSheet({ kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url } });
   }, [ui]);
 
-  // s: Start on the open ticket, else the row with the focus. Same rules as every page key.
-  useEffect(() => {
-    if (!keysOn) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 's' || e.repeat || e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
-      if (isTypingTarget(e.target) || dialogOpen()) return;
-      const item = open ?? focused.current;
-      if (!item || item.job) return;
-      e.preventDefault();
+  const shown = tab === 'mine' ? mine : viewList ?? { state: 'loading' as const };
+  const items = useMemo(() => (shown.state === 'ready' ? sortInbox(shown.data.items) : []), [shown]);
+  const pick = useMemo(() => nextTicket(items), [items]);
+
+  // s: Start on the open ticket, else the row with the focus, else the bar's ticket.
+  useKeyScope('inbox', {
+    'inbox-start': () => {
+      const item = open ?? focused.current ?? pick;
+      if (!item || item.job) return false;
       start(item);
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [keysOn, open, start]);
+    },
+  });
 
   async function refresh() {
     setRefreshing(true);
     try { await loadMine(true); } finally { setRefreshing(false); }
   }
 
-  const shown = tab === 'mine' ? mine : viewList ?? { state: 'loading' as const };
+  const sKey = <Kbd id="inbox-start" />;
+  const lists = [{ id: 'mine', name: 'Mine' }, ...views];
+  const head = configured && !open ? (
+    <>
+      <div className="seg" role="tablist" aria-label="Inbox lists">
+        {lists.map((v) => {
+          const count = v.id === 'mine' ? ready?.items.length : v.id === tab && viewList?.state === 'ready' ? viewList.data.items.length : undefined;
+          return (
+            <button
+              key={v.id}
+              type="button"
+              role="tab"
+              className="tab seg-tab"
+              aria-selected={tab === v.id}
+              onClick={() => setTab(v.id)}
+              title={v.id === 'mine' ? 'Open tickets assigned to you or that you watch.' : `Your saved view on Orbit: ${v.name}.`}
+            >
+              <span className="seg-name">{v.name}</span>
+              {count !== undefined && <span className="seg-count" aria-hidden="true">{count > 99 ? '99+' : count}</span>}
+            </button>
+          );
+        })}
+      </div>
+      <span className="spacer" />
+      <span className="muted page-note">Most severe first, then oldest</span>
+      <button type="button" className="btn btn-quiet" disabled={refreshing} onClick={() => void refresh()} title="Read your tickets from Orbit now instead of at the next check.">
+        <Icon name="refresh" size={16} /> {refreshing ? 'Reading…' : readWords(ready, now)}
+      </button>
+    </>
+  ) : null;
 
   return (
-    <main className="pane pane-foreman" data-pane="inbox" aria-label="Inbox">
-      <div className="foreman-column">
-        <div className="pane-head">
-          <h2 className="pane-title">Inbox</h2>
-          {configured && !open && (
-            <button type="button" className="btn btn-quiet" disabled={refreshing} onClick={() => void refresh()} title="Read your tickets from Orbit now instead of at the next check.">
-              {refreshing ? 'Reading…' : 'Refresh'}
-            </button>
+    <Page label="Inbox" title="Inbox" className="page-inbox" head={head} guide={INBOX_GUIDE}>
+      {mine.state === 'loading' && <p className="muted" role="status">Reading your tickets…</p>}
+      {mine.state === 'error' && <p className="field-problem" role="alert">The dashboard couldn’t give the inbox: {mine.message}</p>}
+      {ready && !configured && <NoToken />}
+      {ready && configured && (
+        <>
+          <StatusLine status={ready} now={now} />
+          {open ? (
+            <TicketDetail key={open.key} item={open} onBack={() => setOpen(null)} onStart={start} />
+          ) : (
+            <>
+              {shown.state === 'ready' && (pick ? (
+                <NextBar
+                  tone="stop"
+                  icon={SEVERITY_ICON[pick.severity ?? ''] ?? 'inbox'}
+                  say={`${pick.key} is ${pick.severity ? levelWord(pick.severity).toLowerCase() : 'not triaged yet'}${pick.assignee ? pick.assignee.you ? ' and yours' : `, with ${pick.assignee.name}` : ' and nobody is on it'}`}
+                  sub="Start a job and the Foreman reads the ticket first."
+                >
+                  <button type="button" className="btn btn-primary btn-lg" onClick={() => start(pick)} title={`Start a job on ${pick.key}: opens New job with the key and title filled in (key: s).`}>
+                    Start {pick.key} {sKey}
+                  </button>
+                </NextBar>
+              ) : items.length > 0 ? (
+                <NextBar tone="quiet" icon="circle-check" say="Every ticket here already has a job" sub="Open a job from its row to see where it is." />
+              ) : null)}
+              {shown.state === 'loading' && <p className="muted" role="status">Reading the list…</p>}
+              {shown.state === 'error' && <p className="field-problem" role="alert">{shown.message}</p>}
+              {shown.state === 'ready' && (items.length ? (
+                <TicketTable
+                  items={items}
+                  jobs={jobs}
+                  pick={pick}
+                  now={now}
+                  sKey={sKey}
+                  onOpen={setOpen}
+                  onStart={start}
+                  onFocusRow={(item) => { focused.current = item; }}
+                />
+              ) : (
+                <Hero
+                  icon="circle-check"
+                  quiet
+                  title="Nothing for you right now"
+                  actions={<button type="button" className="btn btn-lg" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job of your own (key: c).">New job</button>}
+                >
+                  {tab === 'mine' ? 'Nothing open is assigned to you or watched by you.' : 'No tickets in this view.'}
+                </Hero>
+              ))}
+            </>
           )}
-        </div>
-        {mine.state === 'loading' && <p className="muted" role="status">Reading your tickets…</p>}
-        {mine.state === 'error' && <p className="field-problem" role="alert">The dashboard couldn’t give the inbox: {mine.message}</p>}
-        {ready && !configured && <NoToken />}
-        {ready && configured && (
-          <>
-            <StatusLine status={ready} now={now} />
-            {open ? (
-              <TicketDetail key={open.key} item={open} onBack={() => setOpen(null)} onStart={start} />
-            ) : (
-              <>
-                {views.length > 0 && (
-                  <div className="preview-tabs" role="tablist" aria-label="Inbox lists">
-                    {[{ id: 'mine', name: 'Mine' }, ...views].map((v) => (
-                      <button
-                        key={v.id}
-                        type="button"
-                        role="tab"
-                        className="preview-tab"
-                        aria-selected={tab === v.id}
-                        onClick={() => setTab(v.id)}
-                        title={v.id === 'mine' ? 'Open tickets assigned to you or that you watch.' : `Your saved view on Orbit: ${v.name}.`}
-                      >
-                        {v.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {shown.state === 'loading' && <p className="muted" role="status">Reading the list…</p>}
-                {shown.state === 'error' && <p className="field-problem" role="alert">{shown.message}</p>}
-                {shown.state === 'ready' && (
-                  <TicketTable
-                    items={shown.data.items}
-                    now={now}
-                    empty={tab === 'mine' ? 'Nothing open is assigned to you or watched by you.' : 'No tickets in this view.'}
-                    onOpen={setOpen}
-                    onStart={start}
-                    onFocusRow={(item) => { focused.current = item; }}
-                  />
-                )}
-              </>
-            )}
-          </>
-        )}
-      </div>
-    </main>
+        </>
+      )}
+    </Page>
   );
+}
+
+/** "Read 2 min ago" for the refresh button. */
+function readWords(status: OrbitStatus | null, now: Date): string {
+  if (!status?.lastPoll) return 'Read now';
+  const mins = Math.max(0, Math.round((now.getTime() - Date.parse(status.lastPoll)) / 60_000));
+  return mins < 1 ? 'Read just now' : mins < 60 ? `Read ${mins} min ago` : `Read at ${clockTime(status.lastPoll, now)}`;
 }
 
 function NoToken() {
   return (
-    <div className="how-body">
-      <p>Your Portal Feedback tickets show here once Ground Control has your Orbit token.</p>
-      <p className="muted">Make a token on Orbit’s API tokens page (it can only read), then paste it with Orbit’s address in <a href={settingsHref('workflow')}>Settings → Workflow</a>.</p>
-    </div>
+    <section className="inbox-setup" aria-label="Connect Orbit">
+      <Hero icon="inbox" title="Connect Orbit to see your tickets">
+        Your Portal Feedback tickets show here once {BRAND.name} has your Orbit token.
+      </Hero>
+      <GuideCards cards={[
+        { icons: ['external'], title: 'Make a token', say: 'On Orbit’s API tokens page. It can only read: nothing here writes to Orbit.' },
+        { icons: ['clipboard', 'settings'], title: 'Paste it in Settings', say: 'With Orbit’s address, in Settings → Workflow. It is kept in your Keychain.' },
+        { icons: ['inbox'], title: 'Your tickets show here', say: 'Most severe first, then oldest, checked every few minutes while this page is open.' },
+      ]} />
+      <p className="hero-actions"><a className="btn btn-primary btn-lg" href={settingsHref('workflow')}>Open Settings → Workflow</a></p>
+    </section>
   );
 }
 
-/** When the list was read, how often it is read, and what went wrong (the last list stays). */
+/** How often the list is read, and what went wrong (the last list stays). */
 function StatusLine({ status, now }: { status: OrbitStatus; now: Date }) {
   const read = status.lastPoll ? `Read ${relativeTime(status.lastPoll, now)}${/^\d+[mhd]$/.test(relativeTime(status.lastPoll, now)) ? ' ago' : ''}` : 'Not read yet';
   const lasting = status.errorKind === 'auth' || status.errorKind === 'scope' || status.errorKind === 'token';
@@ -276,7 +337,7 @@ function StatusLine({ status, now }: { status: OrbitStatus; now: Date }) {
           {status.lastPoll && <> Showing the list as it was at {clockTime(status.lastPoll, now)}.</>}
         </p>
       )}
-      <p className="muted" title={status.lastPoll ? fullTime(status.lastPoll) : undefined}>
+      <p className="muted page-sub" title={status.lastPoll ? fullTime(status.lastPoll) : undefined}>
         {read} · checked every {minutes(status.everyMs)} minutes while this page is open
         {status.waitingMs > 0 && <> · Orbit asked to wait, next check in about {Math.max(1, minutes(status.waitingMs))} minutes</>}
       </p>
@@ -284,60 +345,61 @@ function StatusLine({ status, now }: { status: OrbitStatus; now: Date }) {
   );
 }
 
-function TicketTable({ items, now, empty, onOpen, onStart, onFocusRow }: {
-  items: InboxItem[]; now: Date; empty: string;
+function TicketTable({ items, jobs, pick, now, sKey, onOpen, onStart, onFocusRow }: {
+  items: InboxItem[]; jobs: readonly Job[]; pick: InboxItem | null; now: Date; sKey: React.ReactNode;
   onOpen: (item: InboxItem) => void; onStart: (item: InboxItem) => void; onFocusRow: (item: InboxItem | null) => void;
 }) {
-  if (!items.length) return <p className="muted">{empty}</p>;
   return (
-    <div className="home-table">
-      <div className="home-table-scroll">
-        <table style={{ minWidth: 0 }}>
-          <caption className="sr-only">Your tickets, {items.length}.</caption>
-          <thead>
-            <tr>
-              <th scope="col">Ticket</th>
-              <th scope="col">Priority</th>
-              <th scope="col">Severity</th>
-              <th scope="col">Age</th>
-              <th scope="col">Assigned to</th>
-              <th scope="col"><span className="sr-only">Start</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((i) => (
-              <tr key={i.key} data-ticket={i.key} onFocus={() => onFocusRow(i)} onBlur={() => onFocusRow(null)}>
-                <th scope="row" style={{ whiteSpace: 'normal' }}>
-                  <button type="button" className="btn btn-quiet" style={{ height: 'auto', textAlign: 'left', whiteSpace: 'normal' }} onClick={() => onOpen(i)} title={`Open ${i.key}: its description, links and timeline.`}>
-                    <span className="num">{i.key}</span>&nbsp;{i.title}
+    <div className="data-table inbox-table">
+      <table>
+        <caption className="sr-only">Your tickets, {items.length}, most severe first, then oldest.</caption>
+        <thead>
+          <tr>
+            <th scope="col" aria-sort="ascending">Severity</th>
+            <th scope="col">Ticket</th>
+            <th scope="col">Age</th>
+            <th scope="col">Who’s on it</th>
+            <th scope="col"><span className="sr-only">Start, or its job</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((i) => {
+            const job = i.job ? jobs.find((j) => j.slug === i.job!.slug) : undefined;
+            const isPick = pick?.key === i.key;
+            return (
+              <tr key={i.key} data-ticket={i.key} className={isPick ? 'is-next' : undefined} onFocus={() => onFocusRow(i)} onBlur={() => onFocusRow(null)}>
+                <td className="cell-sev"><Severity item={i} /></td>
+                <th scope="row" className="cell-ticket">
+                  <button type="button" className="row-link" onClick={() => onOpen(i)} title={`Open ${i.key}: its description, links and timeline.`}>
+                    <span className="num ticket-key">{i.key}</span>
+                    <span className="ticket-title">{i.title}</span>
                   </button>
-                  {i.job && (
-                    <span className="muted" style={{ display: 'block', paddingLeft: 'var(--space-3)' }}>
-                      You are already on this: <a href={jobHref(i.job.slug)} title="Open the job on this ticket.">{i.job.title}</a>
-                    </span>
-                  )}
+                  {i.job && <span className="muted ticket-job">You are already on this: <a href={jobHref(i.job.slug)} title="Open the job on this ticket.">{i.job.title}</a></span>}
                 </th>
-                <td>{levelWord(i.priority)}</td>
-                <td>{levelWord(i.severity)}</td>
-                <td title={i.createdAt ? `Opened ${fullTime(i.createdAt)}` : undefined}>{relativeTime(i.createdAt, now) || '—'}</td>
-                <td>{i.assignee?.name ?? 'No one'}</td>
-                <td>
-                  <button
-                    type="button"
-                    className="btn"
-                    disabled={Boolean(i.job)}
-                    onClick={() => onStart(i)}
-                    aria-label={`Start a job on ${i.key}`}
-                    title={i.job ? 'You are already on this: open its job instead.' : `Start a job on ${i.key}: opens New job with the key and title filled in (key: s, with the focus on this row).`}
-                  >
-                    Start
-                  </button>
+                <td className="cell-age" title={i.createdAt ? `Opened ${fullTime(i.createdAt)}` : undefined}>{relativeTime(i.createdAt, now) || '—'}</td>
+                <td className="cell-who"><WhoIsOn who={i.assignee} /></td>
+                <td className="cell-act">
+                  {i.job ? (
+                    <a className="btn" href={jobHref(i.job.slug)} title={job?.laneReason ?? 'Open the job on this ticket.'}>
+                      {job?.lane === 'needs-you' ? <><Icon name="hand" size={16} /> Needs you ▸</> : 'Open its job ▸'}
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      className={isPick ? 'btn btn-primary' : 'btn'}
+                      onClick={() => onStart(i)}
+                      aria-label={`Start a job on ${i.key}`}
+                      title={`Start a job on ${i.key}: opens New job with the key and title filled in (key: s, with the focus on this row).`}
+                    >
+                      Start {isPick && sKey}
+                    </button>
+                  )}
                 </td>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -349,7 +411,6 @@ function TicketDetail({ item, onBack, onStart }: { item: InboxItem; onBack: () =
   const now = useNow();
   const [detail, setDetail] = useState<Load<TicketAnswer>>({ state: 'loading' });
   const [refs, setRefs] = useState<Load<Reference[]>>({ state: 'loading' });
-  const [{ enabled: keysOn, hints }] = useKeysSetting();
 
   useEffect(() => {
     let live = true;
@@ -377,7 +438,6 @@ function TicketDetail({ item, onBack, onStart }: { item: InboxItem; onBack: () =
         <h3 className="doc-title"><span className="num">{current.key}</span> {current.title}</h3>
         <p className="job-facts muted">
           <span>Status: {statusWord(current.status)}</span>
-          <span>Priority: {levelWord(current.priority, hidden)}</span>
           <span>Severity: {levelWord(current.severity, hidden)}</span>
           <span title={current.createdAt ? fullTime(current.createdAt) : undefined}>Opened {relativeTime(current.createdAt, now) || '—'}</span>
           <span>Assigned to: {current.assignee?.name ?? 'No one'}</span>
@@ -390,7 +450,7 @@ function TicketDetail({ item, onBack, onStart }: { item: InboxItem; onBack: () =
             onClick={() => onStart(current)}
             title={current.job ? 'You are already on this: open its job instead.' : 'Start a job on this ticket: opens New job with the key and title filled in (key: s).'}
           >
-            Start {keysOn && hints && <kbd className="kbd key-hint" aria-hidden="true">s</kbd>}
+            Start {!current.job && <Kbd id="inbox-start" />}
           </button>
           {current.job && <span>You are already on this: <a href={jobHref(current.job.slug)}>{current.job.title}</a></span>}
           {current.url && <a className="btn btn-quiet" href={current.url} target="_blank" rel="noreferrer noopener" title="Open the ticket on Orbit, in a new tab.">Open on Orbit</a>}

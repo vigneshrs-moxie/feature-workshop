@@ -11,6 +11,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PolicyId, Rule, RulesList, Settings } from '../../api/types';
 import { useKeyScope } from '../../app/keyRegistry';
+import { useDeskLayout } from '../../home/DeskPage';
+import { useJobsLayout } from '../../home/JobsPage';
 import { useKeysSetting } from '../../app/keysSetting';
 import { jobHref, navigate, SETTINGS_SECTIONS, settingsHref, type SettingsSection } from '../../app/router';
 import { HowThisWorks } from '../../components/HowThisWorks';
@@ -210,7 +212,11 @@ export function SettingsView({ section }: { section?: SettingsSection }) {
   const [storedTheme] = useStored(THEME_KEY);
   const [textSize] = useTextSize();
   const [{ enabled: keysOn }] = useKeysSetting();
+  const [deskLayout] = useDeskLayout();
+  const [jobsLayout] = useJobsLayout();
   const values = valueLines({
+    deskLayout,
+    jobsLayout,
     settings: meta?.settings,
     finishLines: meta?.finishLines,
     theme: storedTheme ?? readStored(THEME_KEY) ?? DEFAULT_THEME,

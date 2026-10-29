@@ -193,13 +193,16 @@ export function summariseSessions(sessions, now = Date.now()) {
   const activity = [];
   for (const s of sessions) {
     activity.push({
-      who: 'conductor', name: agentInfo('conductor').name, sessionId: s.parsed.sessionId,
+      who: 'conductor', name: agentInfo('conductor').name, sessionId: s.parsed.sessionId, model: s.parsed.lastModel ?? null,
       state: activityState(s.parsed), quiet: quietHint(s.parsed, now), doing: s.parsed.lastAction?.text ?? null,
       since: s.parsed.lastAction?.at ?? s.parsed.lastAt, lastAt: s.parsed.lastAt,
     });
     for (const sub of s.subagents) {
       activity.push({
         who: sub.meta.agentType ?? 'unknown', name: agentInfo(sub.meta.agentType).name, description: sub.meta.description ?? null,
+        // The Stage (lib/stage-view.js): which transcript this is (agent-<agentId>.jsonl) and the model it ran on most.
+        agentId: sub.parsed.agentId ?? (/agent-([\w-]+)\.jsonl$/.exec(sub.file)?.[1] ?? null),
+        model: Object.entries(usageByModel(sub.parsed)).sort((a, b) => b[1].tokens.output - a[1].tokens.output)[0]?.[0] ?? null,
         sessionId: s.parsed.sessionId, state: activityState(sub.parsed), quiet: quietHint(sub.parsed, now),
         doing: sub.parsed.lastAction?.text ?? null, startedAt: sub.parsed.firstAt, lastAt: sub.parsed.lastAt,
       });

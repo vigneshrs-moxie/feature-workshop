@@ -374,11 +374,12 @@ describe('Job drawer · options', () => {
     expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
   });
 
-  it('lists provided documents read only, with a link to the classic view, and their stages stay skipped', async () => {
+  it('lists provided documents read only (no link to the old pages), and their stages stay skipped', async () => {
     await openOptions({ options: { ...L1, level: 2, skip: ['refine', 'plan'], provided: { plan: '/tmp/fw-test/plan.md' }, reviewers: 'auto' } });
     const docs = screen.getByRole('region', { name: 'Documents you provided' });
     expect(docs).toHaveTextContent('Implementation plan /tmp/fw-test/plan.md');
-    expect(within(docs).getByRole('link', { name: 'open this job in classic view' })).toHaveAttribute('href', '/#/job/alpha');
+    expect(within(docs).queryByRole('link')).toBeNull();
+    expect(docs).toHaveTextContent('isn’t possible from this page yet');
     const plan = screen.getByRole('checkbox', { name: /^Plan/ });
     expect(plan).toBeChecked();
     expect(plan).toBeDisabled();

@@ -3,12 +3,18 @@
 // the highlighted action is announced through aria-activedescendant.
 // With Play on (onEgg given), a few exact phrases do something else on Enter (play/eggs.ts): never
 // listed or hinted at. "rm -rf /" gets the Locksmith's door over the palette before it closes.
+// One more hidden word, Play or not: the exact word for the old pages (OLD_PAGES_WORD) shows a single
+// row that opens them (onOldPages); no other query lists it, and nothing else in the app names them.
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { filterCommands, type Command } from '../app/commands';
 import { Kbd } from './Kbd';
 import { CrewMember } from '../play/CrewMember';
 import { paletteEgg, type PaletteEgg } from '../play/eggs';
 import { CREW_SIZE } from '../play/crewSizes';
+import { nameOf } from '../play/crewPack';
+
+/** The one way into the old pages from this app: type exactly this in the command box, then Enter. */
+export const OLD_PAGES_WORD = 'classic';
 
 /** How long the Locksmith's door stays over the palette. */
 export const DOOR_MS = 1400;
@@ -16,14 +22,17 @@ export const DOOR_MS = 1400;
 /** Focus went nowhere (the focused element was removed with the palette). */
 export const focusIsLost = () => !document.activeElement || document.activeElement === document.body;
 
-export function CommandPalette({ commands, onClose, onEgg }: { commands: Command[]; onClose: () => void; onEgg?: (egg: PaletteEgg) => void }) {
+export function CommandPalette({ commands, onClose, onEgg, onOldPages }: { commands: Command[]; onClose: () => void; onEgg?: (egg: PaletteEgg) => void; onOldPages?: () => void }) {
   const [query, setQuery] = useState('');
   const [door, setDoor] = useState(false);
   const [active, setActive] = useState(0);
   const listId = useId();
   const optionId = (i: number) => `${listId}-opt-${i}`;
   const input = useRef<HTMLInputElement>(null);
-  const shown = useMemo(() => filterCommands(commands, query), [commands, query]);
+  const oldPages = onOldPages && query.trim().toLowerCase() === OLD_PAGES_WORD;
+  const shown = useMemo<Command[]>(() => (oldPages
+    ? [{ id: 'old-pages', label: 'Open the old view of this page', section: 'Go to', hint: 'The pages from before this view. Their New view button brings you back.', run: () => onOldPages?.() }]
+    : filterCommands(commands, query)), [commands, query, oldPages, onOldPages]);
   const at = shown.length ? Math.min(active, shown.length - 1) : -1;
 
   useEffect(() => {
@@ -117,7 +126,7 @@ export function CommandPalette({ commands, onClose, onEgg }: { commands: Command
         {shown.length === 0 && !door && <p className="muted palette-empty" role="status">Nothing matches “{query}”. Try fewer words.</p>}
         {door && (
           <div className="palette-door" role="status">
-            <CrewMember type="feature-review-permissions" state="waiting" size={CREW_SIZE.door} label="Locksmith" animated={false} />
+            <CrewMember type="feature-review-permissions" state="waiting" size={CREW_SIZE.door} label={nameOf('feature-review-permissions')} animated={false} />
             <p className="palette-door-line">Hard line. Nice try.</p>
           </div>
         )}

@@ -8,7 +8,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type { JobDoc, JobDocEntry } from '../../api/types';
 import { loadJobDoc, loadJobDocs } from '../../app/jobActions';
-import { classicHref } from '../../app/router';
 import { useUi } from '../../app/ui';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop } from '../../state/store';
@@ -143,7 +142,6 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
           <button type="button" className="btn btn-quiet" disabled={!doc || typeof doc.text !== 'string'} onClick={() => void copy(text)} title={doc?.type === 'json' ? 'Copy the JSON as written.' : 'Copy the document’s Markdown, to paste it somewhere else.'}>
             {doc?.type === 'json' ? 'Copy JSON' : 'Copy as markdown'}
           </button>
-          <a className="btn btn-quiet" href={classicHref.job(slug)} title="Open this job in the classic view. Its Files and Briefs tabs show the same documents.">Open in classic view</a>
         </div>
         {copied === 'ok' && <p className="doc-copied drawer-state is-ok" role="status">✓ Copied</p>}
         {copied === 'failed' && <p className="field-problem" role="alert">Couldn’t copy: this browser didn’t allow it. Choose Source and copy the text yourself.</p>}
@@ -163,8 +161,12 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
   );
 }
 
-export function DocsTab({ slug, section = 'plan', onSection, changedAt, focusRequest = 0, requestFile = null, active = true }: {
+export function DocsTab({ slug, section = 'plan', onSection, changedAt, focusRequest = 0, requestFile = null, active = true, pick: only, replay = false }: {
   slug: string;
+  /** The request that opened this tab is new to it: act on it once it mounts (the Job page switched tabs for it). */
+  replay?: boolean;
+  /** Only these of the section's documents (the Job page splits the plan into Spec and Plan). */
+  pick?: (d: JobDocEntry) => boolean;
   /** Which of the Preview pane's document tabs this is. */
   section?: DocSection;
   /** A link or request opened a document of another tab: switch to it. */
@@ -194,7 +196,7 @@ export function DocsTab({ slug, section = 'plan', onSection, changedAt, focusReq
   // first document (or the Docs tab when there is none) once the tab shows and the list is loaded.
   // A link to another document (requestFile): that document, once the list is loaded, when it is
   // one of this job's; otherwise the link isn't followed and a line says why.
-  const seenRequest = useRef(focusRequest);
+  const seenRequest = useRef(replay ? focusRequest - 1 : focusRequest);
   const focusPending = useRef(false);
   const filePending = useRef<string | null>(null);
   const [linkHint, setLinkHint] = useState<string | null>(null);
@@ -275,7 +277,7 @@ export function DocsTab({ slug, section = 'plan', onSection, changedAt, focusReq
   return (
     <div className="docs-tab">
       {hint}
-      <DocList {...sectionDocs(docs, section)} section={section} now={now} onPick={pick} pickedRef={first} />
+      <DocList {...sectionDocs(only ? docs.filter(only) : docs, section)} section={section} now={now} onPick={pick} pickedRef={first} />
     </div>
   );
 }

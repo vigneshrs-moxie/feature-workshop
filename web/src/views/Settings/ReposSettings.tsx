@@ -13,6 +13,7 @@ import { ApiError } from '../../api/client';
 import type { ProfileCheck, RegisteredRepo, RepoRegistry } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { useWorkshop } from '../../state/store';
+import { BRAND } from '../../app/brand';
 
 type Load = { state: 'loading' } | { state: 'ready'; list: RepoRegistry } | { state: 'error'; message: string };
 
@@ -28,7 +29,7 @@ export function problemsOf(err: unknown): string[] {
 
 export const SOURCE_WORDS = {
   repo: 'its own ground-control.md',
-  registry: 'a profile file Ground Control keeps for it',
+  registry: `a profile file ${BRAND.name} keeps for it`,
 } as const;
 
 /** A row's state in a few words: what the list shows next to each repository. */
@@ -221,7 +222,7 @@ export function ReposSettings() {
       <h3 className="settings-heading">Repositories</h3>
       <HowThisWorks id="settings-repos">
         <p>Each repository here has a <strong>profile</strong>: how work is done in it. It names a ticket’s job and branch, where the worktree goes, and how <strong>Try it</strong> runs the app (its folder, the command, the ports and the settings file copied in from your main checkout).</p>
-        <p>A repository’s own <code>ground-control.md</code>, in its top folder, is used first. Without one, name a profile file here. Orbit’s profile comes with Ground Control. A job in a repository that isn’t here works as before, with the usual guesses.</p>
+        <p>A repository’s own <code>ground-control.md</code>, in its top folder, is used first. Without one, name a profile file here. Orbit’s profile comes with {BRAND.name}. A job in a repository that isn’t here works as before, with the usual guesses.</p>
       </HowThisWorks>
       <div data-setting="repos-list">
         {load.state === 'loading' && <p className="muted">Loading the repositories…</p>}

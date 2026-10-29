@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ASK_NAMES, colorTokens, DARK, GROUP_NAMES, oklch, semanticTokens, STAGE_NAMES, STATIC_TOKENS, tokensCss } from './tokens';
+import { ASK_NAMES, CHART_SERIES, colorTokens, DARK, GROUP_NAMES, LANE_NAMES, oklch, semanticTokens, STAGE_NAMES, STATIC_TOKENS, tokensCss } from './tokens';
 
 describe('design tokens', () => {
   it('the committed tokens.css matches tokens.ts (run `npm run web:build` to regenerate)', () => {
@@ -55,14 +55,35 @@ describe('design tokens', () => {
     expect(hi['border-1']).toBe('oklch(1 0 0 / .09)');
   });
 
-  it('keeps every motion duration at or under 300ms and spacing on the 4px grid', () => {
+  it('keeps every motion duration at or under 200ms and spacing on the 4px grid', () => {
     for (const [k, v] of Object.entries(STATIC_TOKENS)) {
-      if (k.startsWith('dur-')) expect(parseInt(v, 10)).toBeLessThanOrEqual(300);
+      if (k.startsWith('dur-')) expect(parseInt(v, 10)).toBeLessThanOrEqual(200);
       if (k.startsWith('space-')) expect(parseInt(v, 10) % 4).toBe(0);
     }
   });
 
   it('turns movement off when reduced motion is asked for', () => {
     expect(tokensCss()).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\n {2}:root \{\n {4}--motion-shift: 0px;/);
+  });
+
+  it('every clickable thing is at least 40 px tall, at every text size', () => {
+    expect(STATIC_TOKENS['control-h']).toBe('max(40px, calc(40px * var(--ui-scale, 1)))');
+    expect(STATIC_TOKENS['control-h-lg']).toMatch(/^max\(44px, /);
+  });
+
+  it('gives the charts eight colours, each with its own pattern drawn without a literal colour', () => {
+    const c = colorTokens(DARK);
+    const colours = Array.from({ length: CHART_SERIES }, (_, i) => c[`chart-${i + 1}`]);
+    expect(colours.every(Boolean)).toBe(true);
+    expect(new Set(colours).size).toBe(CHART_SERIES);
+    const patterns = Array.from({ length: CHART_SERIES }, (_, i) => STATIC_TOKENS[`chart-pattern-${i + 1}`]);
+    expect(new Set(patterns).size).toBe(CHART_SERIES);
+    for (const p of patterns) expect(p).not.toMatch(/#[0-9a-f]{3,8}\b|oklch\(|\brgba?\(/i);
+  });
+
+  it('names a colour for each lane of Jobs, with Needs you the only tinted one', () => {
+    const s = semanticTokens();
+    for (const l of LANE_NAMES) for (const v of ['fg', 'bg', 'line']) expect(s[`lane-${l}-${v}`]).toBeTruthy();
+    expect(LANE_NAMES.filter((l) => s[`lane-${l}-bg`] !== 'transparent')).toEqual(['needs-you']);
   });
 });

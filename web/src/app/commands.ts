@@ -43,8 +43,6 @@ export interface CommandHandlers {
   crewDex(): void;
   /** Open your achievements (Play mode). */
   achievements(): void;
-  /** Open a page of the classic view (decision D4). */
-  classic(href: string): void;
   showKeys(): void;
 }
 
@@ -61,7 +59,6 @@ export interface CommandContext {
   onAchievements?: boolean;
   /** Play mode isn't Off (the Crew-dex and Achievements are listed only then). */
   play?: boolean;
-  classic: { home(): string; job(slug: string): string; costs(): string; history(): string };
 }
 
 /** Every job in Jobs-pane order (Needs you first), as j and k step through them. */
@@ -148,11 +145,6 @@ function jobCommands(ctx: CommandContext, h: CommandHandlers, job: Job): Command
     hint: `Show every document the crew wrote for ${title} (spec, plans, briefs, reviews, notes) as a clean page, in the Preview pane’s Docs tab.`,
     run: h.openDocs,
   });
-  out.push({
-    id: 'classic-job', label: 'Open this job in classic view', section: 'This job', keywords: 'details costs try local',
-    hint: 'Its classic page: try it on your computer, details, costs and provided documents.',
-    run: () => h.classic(ctx.classic.job(job.slug)),
-  });
   return out;
 }
 
@@ -188,9 +180,6 @@ export function commandsFor(ctx: CommandContext, h: CommandHandlers): Command[] 
     out.push({ id: 'achievements', label: 'Achievements', section: 'Go to', keywords: 'play badges rewards secrets unlocked trophies', hint: 'Your achievements: what you have unlocked by finishing work, and the secrets you have found.', run: h.achievements });
   }
   out.push(
-    { id: 'classic-home', label: 'Classic view', section: 'Go to', keywords: 'old board', hint: 'Open the classic Feature Workshop page.', run: () => h.classic(ctx.classic.home()) },
-    { id: 'classic-costs', label: 'Costs (classic view)', section: 'Go to', keywords: 'spend money', hint: 'What your jobs have cost, on the classic Costs page.', run: () => h.classic(ctx.classic.costs()) },
-    { id: 'classic-history', label: 'History search (classic view)', section: 'Go to', keywords: 'past conversations', hint: 'Search your past Claude conversations on the classic History page.', run: () => h.classic(ctx.classic.history()) },
     { id: 'keys', label: 'Keyboard shortcuts', section: 'Go to', keys: 'keys', keywords: 'help keys', hint: 'List the keys that work on this page.', run: h.showKeys },
   );
   return out;

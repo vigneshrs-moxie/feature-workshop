@@ -153,7 +153,7 @@ describe('Achievements in the shell', () => {
   it('Play Off: #/achievements shows the usual page', async () => {
     window.location.hash = '#/achievements';
     renderApp('off');
-    expect(await screen.findByRole('main', { name: 'Foreman' })).toBeInTheDocument();
+    expect(await screen.findByRole('main', { name: 'Jobs' })).toBeInTheDocument();
     expect(screen.queryByRole('main', { name: 'Achievements' })).toBeNull();
   });
 
@@ -168,7 +168,7 @@ describe('Achievements in the shell', () => {
     localStorage.setItem(THEME_KEY, 'gold');
     const { get } = renderApp('subtle', ledger({ unlocks: { crt: true, gold: false } }));
     await waitFor(() => expect(get).toHaveBeenCalledWith('/api/play'));
-    await screen.findByRole('main', { name: 'Home' });
+    await screen.findByRole('main', { name: 'Jobs' });
     expect(document.documentElement.getAttribute('data-theme')).not.toBe('gold');
     expect(currentTheme()).toBe('default');
   });

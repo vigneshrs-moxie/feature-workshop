@@ -14,6 +14,8 @@
 //   seasonal-hats  the crew in seasonal hats on a few dates (and nightcaps, midnight to 5am)
 import { useSyncExternalStore } from 'react';
 import type { Permission } from '../api/types';
+import { BRAND } from '../app/brand';
+import { nameOf } from './crewPack';
 
 export type PageSecret = 'konami' | 'hammertime' | 'sandwich' | 'rm-rf' | 'git-blame' | 'console' | 'sleuth-404' | 'foreman-clicks' | 'friday-push' | 'seasonal-hats';
 
@@ -100,7 +102,7 @@ export const FOREMAN_LINES = [
   'I’m not a button. Well. Not usually.',
   'Measure twice, merge once.',
   'It works on my machine. I don’t have a machine.',
-  'The crew says hi. The Stickler says “Hi.”',
+  `The crew says hi. The ${nameOf('feature-review-conventions')} says “Hi.”`,
   'Every job is small until you open the folder.',
   'Have you tried turning the spec off and on again?',
 ];
@@ -110,14 +112,18 @@ export const foremanLine = (n: number) => FOREMAN_LINES[((n % FOREMAN_LINES.leng
 
 // ---------- The DevTools console ----------
 
+/** The four under the console art, each centred in an 11-wide column, from the crew pack. */
+const CONSOLE_NAMES = ['conductor', 'feature-spec-writer', 'feature-investigator', 'feature-implementer']
+  .map((t) => { const n = nameOf(t).slice(0, 11); const pad = 11 - n.length; return ' '.repeat(Math.floor(pad / 2)) + n + ' '.repeat(pad - Math.floor(pad / 2)); }).join('').replace(/\s+$/, '');
+
 export const CONSOLE_ART = String.raw`
    _____      _____      _____      _____
   [_____]    (_____)    /_____\    {_____}
    (o o)      (o o)      (o o)      (o o)
   --(_)--    --(_)--    --(_)--    --(_)--
-   Foreman    Scribe     Sleuth     Builder
+${CONSOLE_NAMES}
 
-  The Feature Workshop crew, at your service.
+  The ${BRAND.name} crew, at your service.
   Psst: say hello. Type  crew.hello()  here.`;
 
 export const CONSOLE_HELLO = 'Hello back from all fifteen of us. A hint, since you asked nicely: the kettle is on at /api/teapot.';

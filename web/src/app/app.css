@@ -38,51 +38,9 @@ a:hover { text-decoration: underline; }
 
 /* ---------- Layout ---------- */
 
-/* Top bar, the usage-limit banner (empty most of the time), then the panes. */
+/* Top bar, the usage-limit banner (empty most of the time), then the page. */
 .app { display: grid; grid-template-rows: var(--topbar-h) auto minmax(0, 1fr); height: 100%; }
 
-.panes {
-  display: grid;
-  grid-template-columns: clamp(var(--jobs-w-min), var(--jobs-w), var(--jobs-w-max)) minmax(0, 1fr) var(--preview-col);
-  min-height: 0;
-  position: relative;
-  /* The Preview pane's width: --preview-w (40%, or what you dragged it to: components/PaneResizer.tsx),
-     never under --preview-min and never leaving the middle pane under --middle-min. Keep both in
-     step with PREVIEW_MIN and MIDDLE_MIN there. 100% is the panes' width (it resolves in the grid). */
-  --preview-min: 320px;
-  --middle-min: 400px;
-  --jobs-reserve: var(--jobs-w-max);
-  --preview-col: clamp(var(--preview-min), var(--preview-w), max(var(--preview-min), 100% - var(--jobs-reserve) - var(--middle-min)));
-}
-
-/* The handle between the middle pane and the Preview pane, centred on the Preview pane's edge. */
-.pane-resizer {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  /* Until measured: the usual 40% edge. */
-  right: calc(40% - 4px);
-  z-index: 6;
-  width: 8px;
-  cursor: col-resize;
-  touch-action: none;
-}
-.pane-resizer::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 3px;
-  width: 2px;
-  background: transparent;
-  transition: background-color var(--dur-fast) var(--ease-out);
-}
-.pane-resizer:hover::after, .pane-resizer.is-dragging::after { background: var(--accent); }
-.pane-resizer:focus-visible { outline: none; }
-.pane-resizer:focus-visible::after { background: var(--focus-ring); }
-/* While dragging: the cursor everywhere, no text selected, and frames don't swallow the pointer. */
-body.is-resizing-panes { cursor: col-resize; user-select: none; }
-body.is-resizing-panes iframe { pointer-events: none; }
 
 .pane { min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4); background-image: var(--pane-pattern); }
 .pane-jobs { background: var(--bg-1); border-right: 1px solid var(--border-1); }
@@ -115,13 +73,6 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .spacer { flex: 1; }
 .topbar .spacer { flex: 1 1 0; min-width: var(--space-2); }
 .brand { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-base); }
-/* A link's short words (App.tsx Words) stand in for the full ones under 1100 px; its name stays the full one. */
-.topbar-short { display: none; }
-@media (max-width: 1100px) {
-  .topbar-long { display: none; }
-  .topbar-short { display: inline; }
-  .palette-button .kbd { margin-left: 0; }
-}
 
 .conn { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-2); font-size: var(--text-sm); }
 .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status-paused); }
@@ -180,20 +131,58 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .btn {
   display: inline-flex;
   align-items: center;
-  height: 28px;
-  padding: 0 var(--space-3);
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  padding: 0 var(--space-4);
   border: 1px solid var(--border-2);
   border-radius: var(--radius-md);
   background: var(--bg-3);
   color: var(--text-1);
   font: inherit;
   cursor: pointer;
-  transition: opacity var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
 }
-.btn:hover { background: var(--bg-4); text-decoration: none; }
+.btn:hover { background: var(--bg-4); border-color: var(--border-3); text-decoration: none; }
 .btn:active { opacity: .8; }
 .btn-quiet { background: transparent; border-color: transparent; color: var(--text-2); }
-.btn-quiet:hover { background: var(--bg-2); color: var(--text-1); }
+.btn-quiet:hover { background: var(--hover-bg); border-color: transparent; color: var(--text-1); }
+/* The big calls: Start, Go, No go, Approve, and each page's one next-step button. */
+.btn-lg { min-height: var(--control-h-lg); padding: 0 var(--space-5); font-weight: var(--weight-medium); }
+/* An icon-only button: square, still 40 px. */
+.btn-icon { min-width: var(--control-h); padding: 0; }
+/* Keyboard focus is the same ring on every control; hover never moves anything (no transform, no
+   border width change), so nothing shifts under the pointer. */
+:is(.btn, .tab, .menu-item, .row-link, .chip-btn):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* Tabs, menu items, clickable rows and chips you can press: the shared base pieces, each 40 px. */
+.tab {
+  display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--control-h); padding: 0 var(--space-3);
+  border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text-2); font: inherit; cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.tab:hover { color: var(--text-1); background: var(--hover-bg); }
+.tab[aria-selected='true'] { color: var(--text-1); border-bottom-color: var(--accent); font-weight: var(--weight-medium); }
+.tab:disabled, .tab[aria-disabled='true'] { color: var(--text-3); cursor: default; background: none; }
+.menu-item {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: var(--control-h); padding: 0 var(--space-3);
+  border: 0; border-radius: var(--radius-md); background: none; color: var(--text-1); font: inherit; text-align: left; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.menu-item:hover, .menu-item[aria-current='page'] { background: var(--hover-bg); text-decoration: none; }
+.row-link {
+  display: flex; align-items: center; gap: var(--space-3); min-height: var(--control-h); padding: var(--space-2) var(--space-3);
+  border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.row-link:hover { background: var(--hover-bg); text-decoration: none; }
+.chip-btn {
+  display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--control-h); padding: 0 var(--space-3);
+  border: 1px solid var(--border-2); border-radius: var(--chip-radius); background: var(--bg-2); color: var(--text-1); font: inherit; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.chip-btn:hover { background: var(--hover-bg); border-color: var(--border-3); }
+.chip-btn[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent); }
 
 /* ---------- "How this works" ---------- */
 
@@ -288,10 +277,9 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .stage-chip[data-stage='test'] { color: var(--stage-test-fg); background: var(--stage-test-bg); }
 .stage-chip[data-stage='review'] { color: var(--stage-review-fg); background: var(--stage-review-bg); }
 
-.rail-toggle { height: 24px; padding: 0 var(--space-2); font-family: var(--font-mono); }
+.rail-toggle { min-height: var(--control-h); padding: 0 var(--space-2); font-family: var(--font-mono); }
 
 /* The icon rail: the pane shrinks to dots and glyphs. */
-.panes-rail { grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--preview-col); --jobs-reserve: var(--rail-w); }
 .pane-jobs.is-rail { align-items: center; gap: var(--space-2); padding: var(--space-2) 0; }
 .rail-needs {
   min-width: 20px;
@@ -311,8 +299,8 @@ body.is-resizing-panes iframe { pointer-events: none; }
   align-items: center;
   justify-content: center;
   gap: 2px;
-  width: 36px;
-  height: 36px;
+  width: var(--control-h);
+  min-height: var(--control-h);
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
 }
@@ -332,7 +320,7 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .alert-settings-title { margin: 0; }
 .alert-settings-lead { margin: 0 0 var(--space-1); }
 .alert-settings-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
-.btn-toggle { height: 24px; gap: var(--space-1); padding: 0 var(--space-2); }
+.btn-toggle { min-height: var(--control-h); gap: var(--space-1); padding: 0 var(--space-2); }
 .btn-toggle .toggle-state { color: var(--text-3); }
 .btn-toggle[aria-pressed='true'] .toggle-state { color: var(--status-ok); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
@@ -602,7 +590,7 @@ body.is-resizing-panes iframe { pointer-events: none; }
 
 .text-input {
   width: 100%;
-  height: 28px;
+  min-height: var(--control-h);
   padding: 0 var(--space-2);
   border: 1px solid var(--border-2);
   border-radius: var(--radius-md);
@@ -681,7 +669,7 @@ body.is-resizing-panes iframe { pointer-events: none; }
   align-items: center;
   justify-content: center;
   padding: var(--space-4);
-  background: oklch(0 0 0 / .5);
+  background: var(--scrim);
   animation: fade-in var(--dur-menu) var(--ease-out);
 }
 .sheet {
@@ -719,7 +707,7 @@ body.is-resizing-panes iframe { pointer-events: none; }
   z-index: 50;
   display: flex;
   justify-content: flex-end;
-  background: oklch(0 0 0 / .4);
+  background: var(--scrim-soft);
   animation: fade-in var(--dur-menu) var(--ease-out);
 }
 .drawer {
@@ -847,7 +835,7 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .composer-spacer { flex: 1; }
 .composer-model { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
 .select {
-  height: 28px;
+  min-height: var(--control-h);
   padding: 0 var(--space-2);
   border: 1px solid var(--border-2);
   border-radius: var(--radius-md);
@@ -897,7 +885,6 @@ body.is-resizing-panes iframe { pointer-events: none; }
   font-size: var(--text-xs);
   text-align: center;
 }
-.palette-button { gap: var(--space-2); }
 
 .palette-backdrop { align-items: flex-start; padding-top: 12vh; }
 .palette {
@@ -967,6 +954,8 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .keys-sheet .keys-off { margin: 0 0 var(--space-2); }
 /* A key hint on a button (components/Kbd.tsx): quieter than the ⌘K badge. */
 .key-hint { margin-left: var(--space-1); background: var(--bg-3); border-color: var(--border-2); color: var(--text-3); font-size: var(--text-xs); border-radius: var(--radius-sm); }
+/* On a filled button the hint takes the button's own ink, so it reads on every theme's accent. */
+.btn-primary .kbd.key-hint { background: transparent; border-color: currentColor; color: inherit; opacity: .8; }
 .key-legend { margin: var(--space-3) 0 0; font-size: var(--text-xs); }
 .key-legend .kbd { background: var(--bg-3); color: var(--text-3); }
 .keys-settings .check { margin-top: var(--space-2); }
@@ -992,7 +981,7 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .level-card .how { margin-top: var(--space-2); }
 
 .level-menu { position: relative; flex: none; }
-.level-chip { height: 22px; background: var(--bg-3); color: var(--text-1); font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.level-chip { min-height: var(--control-h); background: var(--bg-3); color: var(--text-1); font: inherit; font-size: var(--text-xs); cursor: pointer; }
 .level-chip:hover { background: var(--bg-4); }
 .level-chip[aria-expanded='true'] { border-color: var(--accent); }
 .level-pop {
@@ -1070,7 +1059,7 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .gate-stop .perm-warn { margin: 0; }
 .gate-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin-top: var(--space-3); padding-top: var(--space-2); border-top: 1px solid var(--border-1); }
 .gate-chips-label { margin-right: var(--space-1); font-size: var(--text-sm); }
-.gate-chip { height: 24px; padding: 0 var(--space-2); border-radius: var(--chip-radius); font-size: var(--text-sm); }
+.gate-chip { min-height: var(--control-h); padding: 0 var(--space-2); border-radius: var(--chip-radius); font-size: var(--text-sm); }
 .gate-chip[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); color: var(--text-1); font-weight: var(--weight-medium); }
 .gate-chip[aria-disabled='true'] { opacity: .5; cursor: not-allowed; }
 .gate-hint { margin: var(--space-1) 0 0; font-size: var(--text-sm); }
@@ -1230,7 +1219,7 @@ body.is-resizing-panes iframe { pointer-events: none; }
 /* The wireframe gate: one row of screen chips above the questions, each a jump into the Screens tab. */
 .gate-screens { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin: 0 0 var(--space-3); }
 .gate-screens-label { margin-right: var(--space-1); font-size: var(--text-sm); }
-.gate-screen { height: 24px; padding: 0 var(--space-2); border-radius: var(--chip-radius); font-size: var(--text-sm); }
+.gate-screen { min-height: var(--control-h); padding: 0 var(--space-2); border-radius: var(--chip-radius); font-size: var(--text-sm); }
 .gate-screen-word { margin-left: var(--space-1); color: var(--text-2); font-weight: var(--weight-regular); }
 .gate-screens .link-button { font-size: var(--text-sm); }
 
@@ -1418,7 +1407,7 @@ body.is-resizing-panes iframe { pointer-events: none; }
   position: absolute; z-index: 5; top: calc(100% + var(--space-1)); right: 0; left: 0;
   padding: var(--space-3);
   border: 1px solid var(--border-1); border-radius: var(--radius-md);
-  background: var(--bg-1); box-shadow: 0 6px 24px rgb(0 0 0 / .12);
+  background: var(--bg-1); box-shadow: var(--shadow-pop);
   color: var(--text-2); font-size: var(--text-sm);
 }
 .how.is-icon .how-body p { margin: 0; }
@@ -1448,13 +1437,6 @@ body.is-resizing-panes iframe { pointer-events: none; }
 /* The Walkthrough tab (panes/Preview/WalkthroughTab.tsx): the screens frame, plus a quiet note. */
 .walkthrough-note { margin: 0 0 var(--space-2); }
 
-/* The top bar's status summary (components/StatusSummary.tsx): each group's glyph, count and word. */
-.status-summary { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-2); font-size: var(--text-sm); }
-.status-summary:hover { color: var(--text-1); text-decoration: none; }
-.status-summary-part { display: inline-flex; align-items: center; gap: 4px; }
-.status-summary-part[data-group='needs-you'] { color: var(--group-needs-you-fg); font-weight: var(--weight-medium); }
-.status-summary-sep { margin-right: var(--space-1); color: var(--text-3); }
-@media (max-width: 1100px) { .status-summary { display: none; } }
 
 /* The Decisions tab (panes/Preview/DecisionsTab.tsx): one line per choice, glyph, words, time. */
 .decision-log { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }

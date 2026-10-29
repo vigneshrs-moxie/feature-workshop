@@ -1,10 +1,12 @@
 // Settings → Keys: whether the page's keyboard shortcuts work, and whether buttons show their key.
-// Remembered in this browser (fw.keys, app/keysSetting.ts): it is about this keyboard.
+// Remembered in this browser (fw.keys, app/keysSetting.ts): it is about this keyboard. Under them,
+// every key the app has, from app/keyRegistry.ts (the same list as the ? sheet).
 import { useKeysSetting } from '../../app/keysSetting';
 import { keyLabel } from '../../app/keyRegistry';
+import { KeyGroups } from '../JobSheets/KeysSheet';
 
 const CHOICES: { on: boolean; label: string; note: string; hint: string }[] = [
-  { on: true, label: 'On', note: 'j and k, c, ?, the Desk and gate keys, and g then a letter to go to a page.', hint: 'The keys work outside text boxes. Press ? for the list.' },
+  { on: true, label: 'On', note: 'j and k, c, s on the Inbox, ?, the Desk, gate and stop keys, and g then a letter to go to a page.', hint: 'The keys work outside text boxes. Press ? for the list.' },
   { on: false, label: 'Off', note: 'Only what any web page has.', hint: 'Single-letter keys do nothing. Esc, Enter, the arrows in a list or menu, ⌘K and ⌘Enter still work.' },
 ];
 
@@ -30,6 +32,11 @@ export function KeysSettings() {
         <span>Show key hints on buttons</span>
       </label>
       <p className="muted settings-note">Off keeps only what any web page has: Esc, Enter, the arrows inside a list or menu, {keyLabel('Mod+K')} and {keyLabel('Mod+Enter')}. Remembered in this browser.</p>
+      <section className="keys-all" aria-label="Every key">
+        <h3 className="settings-heading">Every key</h3>
+        <p className="muted settings-note">Single-letter keys never work while you type in a box or while a sheet or menu is open.</p>
+        <KeyGroups />
+      </section>
     </section>
   );
 }

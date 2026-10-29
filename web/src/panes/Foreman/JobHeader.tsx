@@ -1,7 +1,7 @@
 // The open job's header: title, kind, repository and branch, what it has cost so far, its status,
 // its permission setting, whether it was marked done or dropped, and the job menu:
 //   Mark done or dropped… (the classic options, in a sheet), Reopen, Notes and options… (the job
-//   drawer), the job's classic page (decision D4), and this job's own permission setting
+//   drawer), and this job's own permission setting
 //   (POST /api/job/:slug/policy).
 // ⌘K offers the same actions (app/commands.ts); both call app/jobActions.ts.
 // The level chip (LevelChip.tsx) shows the job's level and changes it.
@@ -12,8 +12,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Job, PolicyId, Run } from '../../api/types';
 import { reopenJob, setJobPolicy } from '../../app/jobActions';
-import { classicHref } from '../../app/router';
 import { useUi } from '../../app/ui';
+import { Icon } from '../../components/Icon';
 import { autoBlockedReason, autoModeOf, HARD_LINES_NOTE, POLICIES, policyLabel } from '../../components/permissions/policies';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
@@ -42,9 +42,11 @@ interface MenuProps {
   policyOverride?: PolicyId | null;
   run?: Run | null;
   worktree?: string | null;
+  /** The Job page's gear: an icon button named "Job menu" instead of the words. */
+  gear?: boolean;
 }
 
-function JobMenu({ job, dir, policyOverride, run, worktree }: MenuProps) {
+export function JobMenu({ job, dir, policyOverride, run, worktree, gear = false }: MenuProps) {
   const { api, store } = useWorkshop();
   const ui = useUi();
   const slug = job.slug;
@@ -81,13 +83,14 @@ function JobMenu({ job, dir, policyOverride, run, worktree }: MenuProps) {
     <div className="job-menu" ref={box}>
       <button
         type="button"
-        className="btn btn-quiet"
+        className={gear ? 'btn btn-quiet btn-icon job-gear' : 'btn btn-quiet'}
         aria-haspopup="true"
         aria-expanded={open}
+        aria-label={gear ? 'Job menu' : undefined}
         onClick={() => setOpen((o) => !o)}
         title="More things you can do with this job. ⌘K lists them too."
       >
-        Job menu <span aria-hidden="true">▾</span>
+        {gear ? <Icon name="settings" size={18} /> : <>Job menu <span aria-hidden="true">▾</span></>}
       </button>
       {open && (
         <ul className="job-menu-list">
@@ -129,7 +132,6 @@ function JobMenu({ job, dir, policyOverride, run, worktree }: MenuProps) {
               Try it on your computer
             </button>
           </li>
-          <li><a href={classicHref.job(slug)} title="Open this job in the classic view: details, costs and provided documents.">Open in classic view</a></li>
           <li role="presentation"><p className="job-menu-heading" id={`perm-${slug}`}>Permissions for this job</p></li>
           <li>
             <ul role="group" aria-labelledby={`perm-${slug}`}>

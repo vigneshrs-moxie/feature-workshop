@@ -25,7 +25,7 @@ async function cli(argv, o = {}) {
   return { code, out, err, text: [...out, ...err].join('\n') };
 }
 
-const ALL = ['start', 'stop', 'status', 'doctor', 'repo', 'token', 'resume', 'update', 'open', 'install', 'uninstall', 'login'];
+const ALL = ['start', 'stop', 'status', 'doctor', 'repo', 'token', 'resume', 'update', 'open', 'install', 'uninstall', 'login', 'decisions'];
 
 test('--help lists every command, and each command has its own --help', async () => {
   assert.deepEqual(COMMAND_NAMES, ALL, 'the commands of plan §4.1, the hidden service-run left out');

@@ -72,11 +72,38 @@ export function colorTokens({ baseHue, accentHue, contrast }: ThemeInput): Recor
   out['job-hue-c'] = num(0.13);
   out['status-paused'] = oklch(0.7, 0, 0);
   out['status-paused-bg'] = oklch(0.7, 0, 0, 0.12);
+  // Charts: eight series colours, readable on the dark page, each with its pattern (--chart-pattern-<n>).
+  CHART_HUES.forEach((h, i) => { out[`chart-${i + 1}`] = oklch(0.74, 0.13, h); });
   // Two-layer translucent shadows.
   out['shadow-1'] = `0 1px 2px ${oklch(0, 0, 0, 0.3)}, 0 2px 8px ${oklch(0, 0, 0, 0.2)}`;
   out['shadow-2'] = `0 2px 4px ${oklch(0, 0, 0, 0.3)}, 0 12px 32px ${oklch(0, 0, 0, 0.35)}`;
+  // A popover's soft shadow, and the dimming behind a sheet (scrim) and a drawer (scrim-soft).
+  out['shadow-pop'] = `0 6px 24px ${oklch(0, 0, 0, 0.12)}`;
+  out['scrim'] = oklch(0, 0, 0, 0.5);
+  out['scrim-soft'] = oklch(0, 0, 0, 0.4);
   return out;
 }
+
+/** How many chart series every theme colours (--chart-1 … --chart-8). */
+export const CHART_SERIES = 8;
+const ink = 'color-mix(in srgb, var(--bg-0) 55%, transparent)';
+/**
+ * One pattern per chart series, in order: plain, then stripes, dots and checks at different angles,
+ * so two series side by side always differ by more than colour (--chart-pattern-<n>).
+ */
+export const CHART_PATTERNS: readonly string[] = [
+  'none',
+  `repeating-linear-gradient(45deg, ${ink} 0 2px, transparent 2px 7px)`,
+  `radial-gradient(${ink} 1.2px, transparent 1.6px) 0 0 / 6px 6px`,
+  `repeating-linear-gradient(-45deg, ${ink} 0 2px, transparent 2px 7px)`,
+  `repeating-linear-gradient(0deg, ${ink} 0 2px, transparent 2px 6px)`,
+  `repeating-linear-gradient(90deg, ${ink} 0 2px, transparent 2px 6px)`,
+  `repeating-conic-gradient(${ink} 0 25%, transparent 0 50%) 0 0 / 8px 8px`,
+  `repeating-linear-gradient(45deg, ${ink} 0 1px, transparent 1px 4px), repeating-linear-gradient(-45deg, ${ink} 0 1px, transparent 1px 4px)`,
+];
+
+/** The default chart hues, in order: blue, orange, aqua, yellow, then violet, green, red and pink. */
+export const CHART_HUES = [255, 55, 195, 95, 300, 150, 25, 345] as const;
 
 /** Everything that doesn't depend on the theme: type, spacing, shape, motion and layout. */
 export const STATIC_TOKENS: Record<string, string> = {
@@ -111,15 +138,15 @@ export const STATIC_TOKENS: Record<string, string> = {
   'radius-md': '6px',
   'radius-lg': '10px',
   'radius-xl': '14px',
-  // Motion: transform and opacity only, nothing over 300ms, ease-out on entry.
+  // Motion: transform and opacity only, nothing over 200ms (plan §7's quality bar), ease-out on entry.
   'dur-fast': '120ms',
   'dur-menu': '180ms',
-  'dur-pane': '240ms',
+  'dur-pane': '200ms',
   'ease-out': 'cubic-bezier(.16, 1, .3, 1)',
   'motion-shift': '4px',
   'motion-scale-from': '.96',
   // Layout. The two heights follow the text size; the widths do not.
-  'topbar-h': scaled(40),
+  'topbar-h': scaled(56),
   'row-h': scaled(32),
   'jobs-w': '264px',
   'jobs-w-min': '240px',
@@ -127,7 +154,20 @@ export const STATIC_TOKENS: Record<string, string> = {
   'rail-w': '48px',
   'foreman-max': '760px',
   'preview-w': '40%',
+  // Every clickable thing is at least 40 px tall (plan §7): buttons, rows, tabs, chips, menu items.
+  // It grows with a larger text size and never shrinks under 40 px with a smaller one.
+  'control-h': 'max(40px, calc(40px * var(--ui-scale, 1)))',
+  // The big calls (Start, Go, Approve) and the page's one next-step button.
+  'control-h-lg': 'max(44px, calc(44px * var(--ui-scale, 1)))',
+  // The page column of the new screens, and the width under which they turn into their phone form.
+  'page-max': '1180px',
+  // Each chart series' pattern (laid over its colour, so a series is never told by colour alone):
+  // drawn in the page's own background colour, so no theme needs its own copy.
+  ...Object.fromEntries(CHART_PATTERNS.map((p, i) => [`chart-pattern-${i + 1}`, p])),
 };
+
+/** The four lanes of Jobs (dashboard/lib/snapshot.js laneFor), and the two folded under the board. */
+export const LANE_NAMES = ['working', 'needs-you', 'in-review', 'ready', 'resting', 'done'] as const;
 
 /** The six job groups (dashboard/lib/snapshot.js), the four kinds of ask, and the six stage families. */
 export const GROUP_NAMES = ['needs-you', 'running', 'paused', 'idle', 'shipping', 'done'] as const;
@@ -184,6 +224,28 @@ export function semanticTokens(): Record<string, string> {
   out['font-heading'] = 'var(--font-display)';
   // Every other row of a table in a rendered document: a faint tint (the default's border-1 is one).
   out['row-alt'] = 'var(--border-1)';
+  // The lanes of Jobs: each lane's word and icon colour, its tint and its edge. Needs you is the only
+  // tinted lane; a lane is always named in words and with its icon, never by colour alone.
+  const lanes: Record<(typeof LANE_NAMES)[number], [string, string, string]> = {
+    working: ['var(--status-info)', 'transparent', 'var(--border-2)'],
+    'needs-you': ['var(--status-warn)', 'var(--status-warn-bg)', 'var(--status-warn)'],
+    'in-review': ['var(--text-2)', 'transparent', 'var(--border-2)'],
+    ready: ['var(--status-ok)', 'transparent', 'var(--border-2)'],
+    resting: ['var(--text-3)', 'transparent', 'var(--border-1)'],
+    done: ['var(--status-ok)', 'transparent', 'var(--border-1)'],
+  };
+  for (const l of LANE_NAMES) {
+    const [fg, bg, line] = lanes[l];
+    out[`lane-${l}-fg`] = fg;
+    out[`lane-${l}-bg`] = bg;
+    out[`lane-${l}-line`] = line;
+  }
+  // Hover on a row, tab or menu item; the faint grid behind the go / no go console (Play full);
+  // the small tooltip on a stop dot.
+  out['hover-bg'] = 'var(--bg-3)';
+  out['grid-line'] = 'var(--border-1)';
+  out['tooltip-bg'] = 'var(--text-1)';
+  out['tooltip-fg'] = 'var(--bg-0)';
   return out;
 }
 

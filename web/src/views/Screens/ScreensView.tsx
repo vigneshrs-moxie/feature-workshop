@@ -4,6 +4,7 @@ import { jobHref } from '../../app/router';
 import { ScreensTab } from '../../panes/Preview/ScreensTab';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
+import { roleOf } from '../../play/crewPack';
 
 export function ScreensView({ slug }: { slug: string }) {
   const state = useWorkshopState();
@@ -15,7 +16,7 @@ export function ScreensView({ slug }: { slug: string }) {
         <h2 className="pane-title screens-view-title">{job?.title ?? slug} <span className="muted">· Screens</span></h2>
       </div>
       {job && !job.wireframes ? (
-        <p className="muted">This job has no screens yet. They show up here once the Painter has drawn them (the Screens stage).</p>
+        <p className="muted">This job has no screens yet. They show up here once the {roleOf('feature-wireframer')} has drawn them (the Screens stage).</p>
       ) : (
         <ScreensTab key={slug} slug={slug} job={job} active full />
       )}

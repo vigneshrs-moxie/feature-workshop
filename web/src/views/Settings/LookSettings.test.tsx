@@ -112,3 +112,27 @@ describe('Settings → Look', () => {
     expect(currentTheme()).toBe('glass');
   });
 });
+
+describe('Look: the layouts and Play (packet M)', () => {
+  it('Desk layout and Jobs layout: One at a time and Four lanes by default; a pick is remembered and says where to see it', () => {
+    setup();
+    const desk = screen.getByRole('group', { name: 'Desk layout' });
+    expect(within(desk).getByRole('radio', { name: /One at a time/ })).toBeChecked();
+    fireEvent.click(within(desk).getByRole('radio', { name: /Three columns/ }));
+    expect(localStorage.getItem('gc.desk.layout')).toBe('columns');
+    expect(within(desk).getByRole('link', { name: /See it on the Desk/ })).toHaveAttribute('href', '#/desk');
+    const jobs = screen.getByRole('group', { name: 'Jobs layout' });
+    expect(within(jobs).getByRole('radio', { name: /Four lanes/ })).toBeChecked();
+    fireEvent.click(within(jobs).getByRole('radio', { name: /One list/ }));
+    expect(localStorage.getItem('gc.jobs.layout')).toBe('list');
+    fireEvent.click(within(jobs).getByRole('radio', { name: /Four lanes/ }));
+    expect(localStorage.getItem('gc.jobs.layout')).toBeNull();
+  });
+
+  it('Play sits beside them: Full, Subtle, Off, showing the saved mode', () => {
+    setup();
+    const play = screen.getByRole('group', { name: 'Play' });
+    expect(within(play).getAllByRole('button').map((b) => b.textContent)).toEqual(['Full', 'Subtle', 'Off']);
+    expect(within(play).getByRole('button', { name: 'Off' })).toHaveAttribute('aria-pressed', 'true');
+  });
+});

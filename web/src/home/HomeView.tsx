@@ -1,8 +1,8 @@
-// Home: the landing page, full width. Three views of the same jobs, switched at the top (or by
-// address: #/ the map, #/table, #/desk):
+// The Map and the Table: two views of the same jobs, full width, switched at the top (or by
+// address: #/map, #/table):
 //   Map    where each job's work is on its way to staging and main, one row per job (FlowMap)
 //   Table  the jobs as rows to sort, filter and search (TableView)
-//   Desk   every decision waiting for you, one at a time (DeskView)
+// The third tab is a link to the Desk, its own page (#/desk, DeskPage), with how many wait there.
 // With the map: the Foreman's "what needs you" and the cards waiting for an answer (a band above it,
 // beside it on a wide screen).
 // The map's tools line (and the Table's header) say when the branches and PRs were last read, and
@@ -18,7 +18,6 @@ import { floorSpeech } from '../play/floorModel';
 import { usePlayIfAny } from '../play/usePlay';
 import { WorkshopFloor } from '../play/WorkshopFloor';
 import { useWorkshopState } from '../state/store';
-import { DeskView } from './DeskView';
 import { FlowMap } from './FlowMap';
 import { deskQueue, type HomeView as View, type MapFilter, mapRepos, tableRows } from './homeModel';
 import { deskEntries, isShipping } from './nudges';
@@ -27,10 +26,10 @@ import { useFlow } from './useFlow';
 
 export const MAP_FILTER_KEY = 'fw.home.map.filter';
 
-const VIEWS: { id: View; label: string; route: 'home' | 'table' | 'desk'; hint: string }[] = [
-  { id: 'map', label: 'Map', route: 'home', hint: 'Where each job’s work is: your worktree, your fork, the Moxie branch, staging, main.' },
+const VIEWS: { id: View; label: string; route: 'map' | 'table' | 'desk'; hint: string }[] = [
+  { id: 'map', label: 'Map', route: 'map', hint: 'Where each job’s work is: your worktree, your fork, the Moxie branch, staging, main.' },
   { id: 'table', label: 'Table', route: 'table', hint: 'The jobs as rows: sort, filter and search.' },
-  { id: 'desk', label: 'Desk', route: 'desk', hint: 'Every decision waiting for you, one at a time, with keys.' },
+  { id: 'desk', label: 'Desk', route: 'desk', hint: 'Every decision waiting for you, on its own page, with keys.' },
 ];
 
 function Side() {
@@ -50,7 +49,7 @@ function Side() {
   );
 }
 
-export function HomeView({ view }: { view: View }) {
+export function HomeView({ view }: { view: Exclude<View, 'desk'> }) {
   const state = useWorkshopState();
   const { flow, refresh, problem } = useFlow();
   const ui = useUi();
@@ -65,7 +64,7 @@ export function HomeView({ view }: { view: View }) {
   const deskCount = useMemo(() => deskEntries(desk, state.jobs).filter((e) => !isShipping(e)).length, [desk, state.jobs]);
   const read = flow?.fetchedAt ? `Branches and PRs read ${relativeTime(flow.fetchedAt, now)}` : 'Branches and PRs not read yet';
   const finishLine = state.meta?.settings?.workflow?.finishLine;
-  // One scroller for the three views: a switch (g d, the tabs) starts the next view at its top.
+  // One scroller for both views: a switch (g m, g t, the tabs) starts the next view at its top.
   const pane = useRef<HTMLElement>(null);
   useEffect(() => { if (pane.current) pane.current.scrollTop = 0; }, [view]);
 
@@ -91,7 +90,7 @@ export function HomeView({ view }: { view: View }) {
         <button type="button" className="btn" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job (key: c).">New job</button>
       </header>
       {problem && <p className="perm-warn" role="alert">Couldn’t read the flow map: {problem}</p>}
-      <div className={`home-body${view === 'desk' ? ' is-desk' : ''}`}>
+      <div className="home-body">
         {view === 'map' && <Side />}
         <div className="home-main">
           {view === 'map' && (
@@ -108,7 +107,6 @@ export function HomeView({ view }: { view: View }) {
             </>
           )}
           {view === 'table' && <TableView rows={rows} now={now} />}
-          {view === 'desk' && <DeskView items={desk} now={now} />}
         </div>
       </div>
     </main>
