@@ -336,3 +336,45 @@ export function ticketCopy(markdown, max = TICKET_LINES) {
   while (kept.length && !kept[0]) kept.shift();
   return { text: kept.join('\n'), lines: kept.length, total: all.length, cut };
 }
+
+// ---------- The repository copy (plan G21, G22, G27) ----------
+// At the ship stage the job's decisions.md is copied into the repository's tracked docs/decisions/
+// folder on the feature branch (docs/decisions/ORBIT-0479-feedback-api.md), and the folder's index,
+// docs/decisions/README.md, is rebuilt beside it, so both ride PR #1. Only a job with a ticket gets
+// a file there.
+
+const KEY = /^([A-Za-z][A-Za-z0-9]*)-(\d+)$/;
+
+// Lowercase words from a title, accents dropped, anything that isn't a letter or digit a gap.
+const words = (s) => String(s ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+
+/**
+ * The file a job's decisions get in the repository: "ORBIT-0479-feedback-api.md". The ticket
+ * key's number zero-padded to four digits (so the files sort), then a short slug from the ticket's
+ * title: lowercase, words joined by "-", at most 6 words, the ticket's number not repeated. With no
+ * title, the job's slug gives the words (orbit-479-feedback-api → feedback-api). No ticket (or a
+ * key that isn't one, like "job"): null, since a job without a ticket isn't written into the repo.
+ */
+export function repoFileName({ ticketKey = null, title = null, slug = null } = {}) {
+  const m = KEY.exec(String(ticketKey ?? '').trim());
+  if (!m) return null;
+  const prefix = m[1].toUpperCase();
+  const n = Number(m[2]);
+  if (!Number.isSafeInteger(n) || n < 1) return null;
+  const p = prefix.toLowerCase();
+  const isNumber = (w) => /^\d+$/.test(w) && Number(w) === n;
+  const from = (text) => {
+    const ws = words(text);
+    const out = [];
+    for (let i = 0; i < ws.length; i++) {
+      if (ws[i] === p && isNumber(ws[i + 1] ?? '')) { i++; continue; } // "ORBIT-479", "orbit 479"
+      if (isNumber(ws[i])) continue; // "#479"
+      out.push(ws[i]);
+    }
+    return out;
+  };
+  let picked = from(title);
+  if (!picked.length) picked = from(slug);
+  const short = picked.slice(0, 6).join('-');
+  return `${prefix}-${String(n).padStart(4, '0')}${short ? `-${short}` : ''}.md`;
+}
