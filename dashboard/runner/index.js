@@ -22,7 +22,7 @@
 // audit line `service-stop` naming them, and removes service.json (runner/service-file.js).
 
 import { EventEmitter } from 'node:events';
-import { nodeCommand, terminalApps } from '../lib/platform.js';
+import { nodeCommand, tempDirs, terminalApps } from '../lib/platform.js';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
@@ -2234,13 +2234,29 @@ export async function createRunner(config) {
       try { return which === 'walkthrough' ? await readWalkthrough(f, { forDownload }) : await readWireframes(f.dir); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
     },
     orbitStatus,
-    /** The five usage graphs' data (lib/telemetry.js) for one window, plus the plan meters now. */
+    /**
+     * Telemetry's ten insight graphs (lib/telemetry.js, lib/insights.js) for one window, plus the plan
+     * meters now. 100 days of the usage log (this month against last, eight plan weeks), the job list
+     * (route size, the finish line) and the audit lines (send-backs, answers) go in; readFrom says where
+     * the lines read start, so a week that wasn't read is never shown as an empty one.
+     */
     async telemetry({ window }) {
       const now = new Date();
-      const lines = await usageLog.read({ since: now.getTime() - 31 * 24 * 3600e3 });
-      const titles = Object.fromEntries((await features()).map((f) => [f.slug, f.title ?? f.slug]));
+      const readFrom = now.getTime() - 100 * 24 * 3600e3;
+      const lines = await usageLog.read({ since: readFrom });
+      const list = await features();
+      const titles = Object.fromEntries(list.map((f) => [f.slug, f.title ?? f.slug]));
+      const cards = await boardCards(list);
+      const dirOf = new Map(list.map((f) => [f.slug, f.dir]));
+      const done = (c) => Boolean(c.finish?.reached) || c.closed?.as === 'done' || c.closedEarlier?.as === 'done';
+      const jobs = cards.filter((c) => !c.starting).map((c) => ({
+        slug: c.slug, title: c.title ?? c.slug, route: c.route ?? null, finished: done(c),
+        finishedAt: c.finish?.at ?? (c.closed ?? c.closedEarlier)?.at ?? null, dir: dirOf.get(c.slug) ?? null,
+      }));
+      // A dashboard whose own job folder is a temp one (a test, a demo) keeps its jobs: nothing to drop.
+      const tempRoots = tempDirs().some((t) => FEATURES_DIR === t || FEATURES_DIR.startsWith(`${t}${path.sep}`)) ? [] : undefined;
       const meters = planUsage.view();
-      return { ...telemetryOf(lines, { window, now, me: usageUser, meters, titles }), meters, file: usageLog.file };
+      return { ...telemetryOf(lines, { window, now, me: usageUser, meters, titles, jobs, audit: await state.auditAll(), readFrom, tempRoots }), meters, file: usageLog.file };
     },
   };
 

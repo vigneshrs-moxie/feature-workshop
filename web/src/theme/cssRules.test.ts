@@ -4,7 +4,7 @@
 //     colour is a token, so a theme changes it everywhere;
 //   - no transition longer than 200 ms;
 //   - nothing you click is shorter than 40 px (var(--control-h) or more).
-// Telemetry.css is packet P's and is left to P's own tests.
+// Telemetry.css too, since packet P moved it to the --chart-* tokens.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +12,6 @@ import { describe, expect, it } from 'vitest';
 
 const SRC = fileURLToPath(new URL('..', import.meta.url));
 const THEME_FILES = /^theme\/(tokens\.css|swatches\.css|themes\/)/;
-const NOT_OURS = new Set(['views/Telemetry.css']);
 
 function cssFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -23,7 +22,7 @@ function cssFiles(dir: string): string[] {
 }
 
 const ALL = cssFiles(SRC).map((path) => ({ name: relative(SRC, path).split('\\').join('/'), css: readFileSync(path, 'utf8') }));
-const APP = ALL.filter((f) => !THEME_FILES.test(f.name) && !NOT_OURS.has(f.name));
+const APP = ALL.filter((f) => !THEME_FILES.test(f.name));
 
 interface Decl { file: string; selector: string; prop: string; value: string }
 
@@ -61,11 +60,10 @@ export function durations(value: string): number[] {
 const CLICKABLE = /(^|[\s,.#:[(>+~-])(btn|button|summary|select|tab|chip|toggle|option|menu-item|seg)([\s,.:#[)>+~-]|$)/i;
 
 describe('the stylesheets', () => {
-  it('reads the app’s stylesheets (and leaves the theme files and Telemetry out)', () => {
+  it('reads the app’s stylesheets, Telemetry’s too (and leaves the theme files out)', () => {
     const names = APP.map((f) => f.name);
-    for (const want of ['app/app.css', 'app/shell.css', 'app/pages.css', 'home/home.css', 'job/job.css', 'play/play.css']) expect(names).toContain(want);
+    for (const want of ['app/app.css', 'app/shell.css', 'app/pages.css', 'home/home.css', 'job/job.css', 'play/play.css', 'views/Telemetry.css']) expect(names).toContain(want);
     expect(names.some((n) => THEME_FILES.test(n))).toBe(false);
-    expect(names).not.toContain('views/Telemetry.css');
     expect(DECLS.length).toBeGreaterThan(500);
   });
 
