@@ -3,8 +3,10 @@
 // with: Screens (wireframes) and Clarify questions, each Auto / Always / Off. Saved on the dashboard
 // (POST /api/settings { workflow }), so every browser agrees; follows changes made elsewhere (the
 // 'settings' event). A job can change its own screens and clarify choice in its Notes and options.
-import { useId, useState } from 'react';
-import { DEFAULT_FINISH_LINE, type FinishLine, type Settings, WORKFLOW_CHOICES, type WorkflowChoice, type WorkflowSettings as Workflow } from '../../api/types';
+// Last, how many sections of stacks build at once across every stack (POST /api/stacks/cap; a
+// stack's own number, on its page, can be lower).
+import { useEffect, useId, useState } from 'react';
+import { DEFAULT_FINISH_LINE, DEFAULT_SECTIONS_AT_ONCE, type FinishLine, MAX_SECTIONS_AT_ONCE, type Settings, WORKFLOW_CHOICES, type WorkflowChoice, type WorkflowSettings as Workflow } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 
@@ -32,6 +34,23 @@ export function WorkflowSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const id = useId();
+
+  // Sections at once: typed into a box, saved once it is a whole number from 1 to 20.
+  const atOnce = w.sectionsAtOnce ?? DEFAULT_SECTIONS_AT_ONCE;
+  const [atOnceDraft, setAtOnceDraft] = useState(String(atOnce));
+  useEffect(() => { setAtOnceDraft(String(atOnce)); }, [atOnce]);
+  async function saveAtOnce(raw: string) {
+    setAtOnceDraft(raw);
+    const n = Number(raw);
+    if (!raw.trim()) return;
+    if (!Number.isInteger(n) || n < 1 || n > MAX_SECTIONS_AT_ONCE) { setError(`Sections at once must be a whole number from 1 to ${MAX_SECTIONS_AT_ONCE}.`); return; }
+    if (n === atOnce) { setError(null); return; }
+    setBusy(true);
+    setError(null);
+    try { store.dispatch({ type: 'settings', settings: (await api.post<{ settings: Settings }>('/api/stacks/cap', { cap: n })).settings }); }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    finally { setBusy(false); }
+  }
 
   async function save(patch: Partial<Workflow>) {
     setBusy(true);
@@ -83,6 +102,14 @@ export function WorkflowSettings() {
           Choose the level for me
         </label>
         <p className="muted settings-note-under">The higher of the rules’ level and the Foreman’s wins, and it is never lowered. After each build the real changes are checked again and the level raised if a rule says so; the Foreman then stops before any PR. You are asked instead when L3 applies, the two differ by 2 or more, or the request is too short to judge.</p>
+      </fieldset>
+      <fieldset className="workflow-choice" disabled={busy} data-setting="sections-at-once">
+        <legend className="look-heading">Stacks</legend>
+        <label className="check">
+          <input type="number" min={1} max={MAX_SECTIONS_AT_ONCE} step={1} value={atOnceDraft} onChange={(e) => void saveAtOnce(e.currentTarget.value)} style={{ width: '5rem' }} />
+          Sections at once, across every stack
+        </label>
+        <p className="muted settings-note-under">How many sections of big jobs split into a stack are built side by side, counting every stack. A stack can set a lower number on its own page. The rest wait, and the page says why. Default {DEFAULT_SECTIONS_AT_ONCE}.</p>
       </fieldset>
       {error && <p className="field-problem" role="alert">{error}</p>}
     </section>
