@@ -120,6 +120,11 @@ Vignesh looked at Jobs, Desk and Job after step 2: "we are on the right track wr
    - Any old usage strip, freshness or "updated … ago" bars, Refresh buttons and v1 pieces still drawn on the new pages are removed or redesigned into the new pieces; GitHub's check line stays, tucked in, as Q designed it.
    - Go through every screen and list each element that predates M; keep it only if it earns its place, in the new style.
 
+## Design philosophy (2026-10-29)
+At Vignesh's request ("look at some websites that have really nice design for such content heavy pages … update our own design philosophy"), `docs/design/design-philosophy.md` gathers what Linear, Vercel, Stripe, GitHub (Primer and its agent session logs), Sentry, Raycast, Superhuman, Apple, Nielsen Norman Group, web.dev, IBM Carbon, Grafana and Refactoring UI do with dense screens. It turns that into 14 principles and a list of changes per screen. **It is part of this brief:** where it and this file disagree, the philosophy file wins, except on the hard rules.
+- **No Desk undo.** It needs a server change, so leave it out.
+- **Native controls.** Vercel's guidelines recommend the browser's own controls; we deliberately don't follow them. Our own controls must match the browser's keyboard behaviour exactly.
+
 ## Owns
 Everything under `web/src/` that is styling or a shared control:
 - the CSS files: tokens, theme files, `app/*.css`, `home/*.css`, `job/*.css`, each view's CSS;
