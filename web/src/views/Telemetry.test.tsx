@@ -10,7 +10,9 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
 import type { PlanUsage, TelemetryResponse, TelemetryWindow } from '../api/types';
+import { installKeyListener, KEYS } from '../app/keyRegistry';
 import { hrefFor, parseHash, telemetryHref } from '../app/router';
+import { KeyGroups } from './JobSheets/KeysSheet';
 import { createStore, WorkshopContext } from '../state/store';
 import { LEVELS, snapshot } from '../state/test-fixtures';
 import { TelemetryView } from './Telemetry';
@@ -163,6 +165,22 @@ describe('Telemetry', () => {
     expect(localStorage.getItem('workshop.telemetryWindow')).toBe('30d');
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Read now/ })); });
     expect(post).toHaveBeenCalledWith('/api/usage/check', {});
+  });
+
+  it('r reads the limits now on this page; Settings → Keys lists Telemetry’s keys', async () => {
+    const off = installKeyListener();
+    try {
+      const { post } = setup();
+      await ready();
+      expect(screen.getByRole('button', { name: /^Read now/ }).querySelector('kbd')?.textContent).toBe('r');
+      await act(async () => { fireEvent.keyDown(document.body, { key: 'r' }); });
+      expect(post).toHaveBeenCalledWith('/api/usage/check', {});
+    } finally { off(); }
+    expect(KEYS['tele-read'].keys).toEqual(['r']);
+    expect(KEYS['tele-step'].keys).toEqual(['ArrowLeft', 'ArrowRight']);
+    render(<KeyGroups />);
+    expect(screen.getByText('Telemetry: read the limits now')).toBeInTheDocument();
+    expect(screen.getByText('Telemetry: step through the weekly line’s readings, or the weekday map’s squares')).toBeInTheDocument();
   });
 
   it('says what went wrong and offers Try again', async () => {

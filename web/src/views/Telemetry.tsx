@@ -1,6 +1,7 @@
 // Telemetry (#/telemetry, packet P): the Claude limits and up to ten insight graphs for deciding about
 // the product, how it's used and which plan to be on.
-//   - The top: the two limits as dials (Read now, r, reads them again), each split into this app's use
+//   - The top: the two limits as dials (Read now, r, reads them again; the keys are tele-read and
+//     tele-step in app/keyRegistry.ts, so Settings → Keys lists them), each split into this app's use
 //     and Other use, then "Who used this week's limit": one segment per person in this app plus Other
 //     use (estimated: the limit's rise this app's own work doesn't explain), each with a name, a percent
 //     and a pattern, and a plain note on what Other use means. A segment opens People on the account.
@@ -15,6 +16,8 @@
 // with its pattern (Telemetry.css); colour never works alone.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { GraphId, LimitSplit, PlanUsage, TelemetryGraph, TelemetryResponse, TelemetryWindow, UsageMeter } from '../api/types';
+import { useKeyScope } from '../app/keyRegistry';
+import { Kbd } from '../components/Kbd';
 import { Fold, Hero, NextBar, Page, useNarrow, type GuideSpec } from '../components/page/Page';
 import { resetsIn } from '../components/UsageMeters';
 import { useStored } from '../lib/stored';
@@ -111,6 +114,8 @@ export function TelemetryView() {
       setReading(false);
     }
   }, [api, store, load, win, canRead, reading]);
+  // r: Read now (app/keyRegistry.ts tele-read), while this page is open and the limits are read here.
+  useKeyScope('global', { 'tele-read': () => { void readNow(); } }, canRead);
 
   // Each dial: the live reading, else the newest reading in the usage log (plan usage off for a while, or demo mode).
   const weekMeter = u?.week ?? (data ? fromLog(data.limits.week, 7 * 864e5) : null);
@@ -130,7 +135,7 @@ export function TelemetryView() {
 
   const readButton = (
     <button type="button" className="btn btn-primary btn-lg" onClick={() => void readNow()} disabled={!canRead || reading} title={canRead ? 'Read the limits from Claude now (they are read every minute by themselves).' : 'The limits aren’t read on this computer.'}>
-      {reading ? 'Reading…' : 'Read now'}
+      {reading ? 'Reading…' : 'Read now'} <Kbd id="tele-read" />
     </button>
   );
   const head = (
