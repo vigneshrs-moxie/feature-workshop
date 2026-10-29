@@ -2,7 +2,7 @@
 //
 // A view registers the keys it answers for with useKeyScope(scope, handlers, active) while it is
 // mounted; App installs the single document listener (useKeyListener). A key goes to the
-// highest-priority active scope that binds it (desk > gate > job > map > rows > table > settings >
+// highest-priority active scope that binds it (desk > gate > job > jobs > map > rows > table > settings >
 // sheet > global), so the Desk's j and k win over the page's, and the Map's over the Jobs list's. Rules, the same everywhere:
 //   - single-letter keys never fire while you type in a field, or while a dialog is open;
 //   - Enter and Space with the focus on a button, link, fold, option or tab belong to that control;
@@ -16,10 +16,10 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { readKeysSetting } from './keysSetting';
 
-export type KeyScope = 'global' | 'rows' | 'job' | 'gate' | 'desk' | 'map' | 'table' | 'settings' | 'sheet';
+export type KeyScope = 'global' | 'rows' | 'job' | 'gate' | 'desk' | 'jobs' | 'map' | 'table' | 'settings' | 'sheet';
 
 /** Highest priority first: the scope that gets the key when several bind it. */
-export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'gate', 'job', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
+export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'gate', 'job', 'jobs', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
 
 /** Each scope in the ? sheet: its title and where its keys work, in plain words. */
 export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
@@ -28,7 +28,8 @@ export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
   job: { title: 'The open job', where: 'With a job open in the Foreman pane.' },
   gate: { title: 'The gate card', where: 'While a gate card waits for your decision, on the job or on the Desk.' },
   desk: { title: 'The Desk', where: 'On the Desk, while something waits for you.' },
-  map: { title: 'The Map', where: 'On Home → Map.' },
+  jobs: { title: 'Jobs', where: 'On Jobs, the four lanes.' },
+  map: { title: 'The Flow map', where: 'On the Flow map.' },
   table: { title: 'The Table', where: 'With the focus on a job in the Table.' },
   settings: { title: 'Settings', where: 'On the Settings page.' },
   sheet: { title: 'In ⌘K', where: 'While the command palette is open.' },
@@ -82,6 +83,7 @@ export const KEYS = {
   'gate-adjust': { keys: ['.'], label: 'Open or close “Adjust the next step”', scope: 'gate' },
   'gate-decided': { keys: ['v'], label: 'Open or close the decisions made for you', scope: 'gate', where: 'Only when the card has some.' },
   // The Desk
+  'jobs-open': { keys: ['o'], label: 'Open the job the next-step bar names', scope: 'jobs', where: 'When a job needs you.' },
   'desk-next': { keys: ['j'], label: 'Next decision', scope: 'desk' },
   'desk-prev': { keys: ['k'], label: 'Previous decision', scope: 'desk' },
   'desk-down': { keys: ['ArrowDown'], label: 'Next decision', scope: 'desk', where: 'Inside the queue.', always: true },

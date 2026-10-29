@@ -113,10 +113,10 @@ describe('App shell', () => {
     expect(open).toHaveBeenCalledWith('/#/job/beta');
     open.mockRestore();
     act(() => { window.location.hash = '#/'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
-    // Back home: the flow map, full width, with the Foreman's "what needs you" (Play is on by default).
-    expect(screen.getByRole('main', { name: 'Home' })).toBeInTheDocument();
+    // Back to Jobs: the four lanes, full width, with the next-step bar naming the job that needs you.
+    expect(screen.getByRole('main', { name: 'Jobs' })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: 'Jobs' })).toBeNull();
-    expect(screen.getByRole('region', { name: 'The Foreman' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Next step' })).toHaveTextContent('needs you');
   });
 
   it('shows a job’s screens full width at #/job/<slug>/screens, with Back to the job; the job page gets a Screens tab', async () => {
@@ -203,7 +203,7 @@ describe('App shell', () => {
 
   it('c opens the new job sheet and ? the keys; j and k step through the jobs, but not while typing', async () => {
     renderApp(snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'idle')] }));
-    await screen.findByRole('main', { name: 'Home' });
+    await screen.findByRole('main', { name: 'Jobs' });
     const hop = () => act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
     fireEvent.keyDown(document.body, { key: 'j' });
     expect(window.location.hash).toBe('#/job/alpha');
@@ -297,7 +297,7 @@ describe('Job drawer in the shell', () => {
 describe('Keys through the registry', () => {
   it('g then a letter goes to a page; with keys off only ⌘K is left', async () => {
     renderApp(snapshot({ jobs: [job('alpha', 'needs-you')] }));
-    await screen.findByRole('main', { name: 'Home' });
+    await screen.findByRole('main', { name: 'Jobs' });
     fireEvent.keyDown(document.body, { key: 'g' });
     fireEvent.keyDown(document.body, { key: 't' });
     expect(window.location.hash).toBe('#/table');

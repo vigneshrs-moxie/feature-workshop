@@ -37,7 +37,7 @@ const FLOW: FlowView = {
   }],
 };
 
-function renderApp({ jobs = [job('alpha', 'needs-you', { waitingFor: 'approval', stage: 'plan', waitingSince: '2026-10-21T09:00:00Z' }), job('beta', 'running')] as Job[], permissions = [] as Permission[], hash = '#/' } = {}) {
+function renderApp({ jobs = [job('alpha', 'needs-you', { waitingFor: 'approval', stage: 'plan', waitingSince: '2026-10-21T09:00:00Z' }), job('beta', 'running')] as Job[], permissions = [] as Permission[], hash = '#/map' } = {}) {
   window.location.hash = hash;
   const streams: FakeStream[] = [];
   const get = vi.fn(async (path: string) => {

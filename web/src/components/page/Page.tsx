@@ -5,7 +5,7 @@
 //   <Fold>       a folded section with its count ("Resting · 2 idle   Show ▸")
 //   <Hero>       an empty state: a picture, one sentence, one or two buttons
 // Words carry the meaning everywhere; icons are decoration and colour never stands alone.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Icon, type IconName } from '../Icon';
 import { useStored } from '../../lib/stored';
 
@@ -180,5 +180,19 @@ function Guide({ spec, onClose }: { spec: GuideSpec; onClose: () => void }) {
         </footer>
       </section>
     </div>
+  );
+}
+
+// ---------- Phone width ----------
+
+export const NARROW = '(max-width: 760px)';
+const narrowList = () => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(NARROW) : null);
+
+/** True at phone width (the same 760 px as the CSS), live as the window changes. */
+export function useNarrow(): boolean {
+  return useSyncExternalStore(
+    (fn) => { const m = narrowList(); m?.addEventListener('change', fn); return () => m?.removeEventListener('change', fn); },
+    () => narrowList()?.matches ?? false,
+    () => false,
   );
 }

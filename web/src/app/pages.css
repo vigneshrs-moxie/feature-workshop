@@ -128,8 +128,8 @@ a.stop-link:hover { color: var(--text-1); text-decoration: none; }
 a.stop-link:hover .stop-dot { box-shadow: 0 0 0 3px var(--hover-bg); }
 a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .stop-dot { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--border-2); background: var(--bg-1); color: var(--text-3); transition: box-shadow var(--dur-fast) var(--ease-out); }
-.stop.is-done .stop-dot { border-color: var(--status-ok); background: var(--status-ok-bg); color: var(--status-ok); }
-.stop.is-now .stop-dot { border-color: var(--lane-working-line); background: var(--lane-working-bg); color: var(--lane-working-fg); }
+.stop.is-done .stop-dot { border-color: var(--status-ok); background: linear-gradient(var(--status-ok-bg), var(--status-ok-bg)), var(--bg-1); color: var(--status-ok); }
+.stop.is-now .stop-dot { border-color: var(--lane-working-line); background: linear-gradient(var(--lane-working-bg), var(--lane-working-bg)), var(--bg-1); color: var(--lane-working-fg); }
 .stop.is-waiting .stop-dot { border-color: var(--lane-needs-you-line); background: var(--lane-needs-you-line); color: var(--bg-0); }
 .stop.is-skipped .stop-dot { border-style: dashed; }
 .stop.is-skipped .stop-name { text-decoration: line-through; }
@@ -138,6 +138,9 @@ a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset
 .stop-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .stop-map.is-compact .stop + .stop::before { top: 9px; }
 .stop-map.is-compact .stop-dot { width: 20px; height: 20px; border-width: 1.5px; }
+.stop-map.is-compact .stop-link { padding: 0; }
+.stop-map.is-compact .stop { flex: none; width: 26px; }
+.stop-map.is-compact .stop + .stop::before { width: 26px; }
 
 /* ---------- The Desk, one at a time ---------- */
 .gate-actions[hidden] { display: none; }
@@ -185,4 +188,57 @@ a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset
   .desk-calls.is-call .btn { white-space: normal; }
   .call-long, .desk-qbar-words { display: none; }
   .desk-qbar b { white-space: nowrap; }
+}
+
+/* ---------- Jobs: four lanes ---------- */
+.jobs-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); align-items: start; }
+.lane { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding: var(--space-3); border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-1); }
+.lane-needs-you.has-cards { border-color: var(--lane-needs-you-line); background: var(--lane-needs-you-bg); }
+.lane-head { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-h); }
+.lane-icon { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border-2); background: var(--bg-2); }
+.lane-word { margin: 0; font-size: var(--text-md); font-weight: var(--weight-medium); flex: 1; }
+.lane-count { min-width: 24px; padding: 0 var(--space-2); border-radius: var(--chip-radius); background: var(--bg-2); border: 1px solid var(--border-1); text-align: center; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.lane-empty { margin: 0; font-size: var(--text-sm); }
+.job-cards { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
+.jobs-folded .job-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.job-card { position: relative; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--bg-2); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.job-card:hover { border-color: var(--accent); }
+.job-card:focus-within { box-shadow: 0 0 0 2px var(--focus-ring); }
+.job-card-top { display: flex; align-items: flex-start; gap: var(--space-2); }
+.job-card-title { font-weight: var(--weight-medium); color: var(--text-1); line-height: 1.3; }
+.job-card .job-card-title::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+.job-card-title:focus-visible { outline: none; }
+.job-card .stop-map { position: relative; z-index: 1; width: fit-content; max-width: 100%; }
+.job-readout { font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--text-2); }
+.job-card-reason { font-size: var(--text-sm); color: var(--text-2); }
+.job-card-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-sm); }
+.state-chip { display: inline-flex; align-items: center; gap: var(--space-1); }
+.state-chip.is-needs-you { border-color: var(--lane-needs-you-line); background: var(--lane-needs-you-bg); color: var(--lane-needs-you-fg); }
+.state-chip.is-working { border-color: var(--lane-working-line); background: var(--lane-working-bg); color: var(--lane-working-fg); }
+.state-chip.is-in-review { border-color: var(--lane-in-review-line); background: var(--lane-in-review-bg); color: var(--lane-in-review-fg); }
+.state-chip.is-ready { border-color: var(--lane-ready-line); background: var(--lane-ready-bg); color: var(--lane-ready-fg); }
+/* The light: on while the crew works (blinks softly in Play full), steady grey otherwise. */
+.job-light { flex: none; width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: var(--text-3); }
+.job-light.is-on { background: var(--lane-working-line); }
+.job-light.is-blink { animation: gc-blink 1.6s ease-in-out infinite; }
+@keyframes gc-blink { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .job-light.is-blink { animation: none; } }
+.jobs-folded { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); align-items: start; }
+.jobs-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-1); }
+.jobs-list-row { position: relative; display: grid; grid-template-columns: 150px minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-1); }
+.jobs-list-row:last-child { border-bottom: 0; }
+.jobs-empty { display: flex; flex-direction: column; gap: var(--space-4); }
+.jobs-empty-actions { justify-content: flex-start; }
+.jobs-folds { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* The stop's own tooltip: at once, on hover and on keyboard focus. */
+.stop-link.has-tip { cursor: default; }
+.stop-link.has-tip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.stop-tip { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 5; padding: 3px 8px; border-radius: var(--radius-sm); background: var(--tooltip-bg); color: var(--tooltip-fg); font-size: var(--text-xs); white-space: nowrap; pointer-events: none; opacity: 0; visibility: hidden; }
+.stop-link.has-tip:hover .stop-tip, .stop-link.has-tip:focus-visible .stop-tip { opacity: 1; visibility: visible; }
+
+@media (max-width: 1100px) and (min-width: 761px) { .jobs-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .jobs-folded { grid-template-columns: 1fr; }
+  .jobs-list-row { grid-template-columns: 1fr; }
 }

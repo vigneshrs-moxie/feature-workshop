@@ -28,6 +28,7 @@ import { ScreensView } from '../views/Screens/ScreensView';
 import { IntegrateBoard } from '../views/Integrate';
 import { InboxView } from '../views/Inbox';
 import { DeskPage } from '../home/DeskPage';
+import { JobsPage } from '../home/JobsPage';
 import { TelemetryView } from '../views/Telemetry';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
@@ -168,7 +169,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   const achievements = route.name === 'achievements' && play.on;
   // A #/ address that isn't a page: the Sleuth looks for it (Play on), else #/'s view.
   const lost = route.name === 'not-found' && play.on ? route.hash : null;
-  const home = route.name === 'home' || route.name === 'map' ? 'map' : route.name === 'table' ? 'table' : route.name === 'desk' ? 'desk' : null;
+  const home = route.name === 'home' ? 'jobs' : route.name === 'map' ? 'map' : route.name === 'table' ? 'table' : route.name === 'desk' ? 'desk' : null;
   const top = <TopBar route={route} onRetry={onRetry} jobTitle={jobTitle} />;
   if (state.status !== 'ready') {
     return (
@@ -197,7 +198,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
         {top}
         <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
         <Sheets route={route} />
-        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : route.name === 'integrate' ? <IntegrateBoard /> : route.name === 'telemetry' ? <TelemetryView /> : route.name === 'inbox' ? <InboxView /> : route.name === 'desk' ? <DeskPage /> : <HomeView view={home ?? 'map'} />}
+        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : route.name === 'integrate' ? <IntegrateBoard /> : route.name === 'telemetry' ? <TelemetryView /> : route.name === 'inbox' ? <InboxView /> : route.name === 'desk' ? <DeskPage /> : route.name === 'home' ? <JobsPage /> : <HomeView view={home === 'jobs' || home === null ? 'map' : home} />}
         <PlayToasts />
         <PlayEggs />
       </div>

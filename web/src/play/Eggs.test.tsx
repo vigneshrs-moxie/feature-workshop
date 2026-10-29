@@ -79,7 +79,7 @@ afterEach(() => {
 describe('the Konami code', () => {
   it('outside a field: records the secret and puts on CRT Terminal, with a scene', async () => {
     const { secrets } = renderApp('subtle');
-    await screen.findByRole('main', { name: 'Home' });
+    await screen.findByRole('main', { name: 'Jobs' });
     await flush();
     expect(document.documentElement).not.toHaveAttribute('data-theme', 'crt');
     press(KONAMI);
@@ -93,7 +93,7 @@ describe('the Konami code', () => {
 
   it('survives the page changing under it halfway through', async () => {
     const { secrets } = renderApp('subtle');
-    await screen.findByRole('main', { name: 'Home' });
+    await screen.findByRole('main', { name: 'Jobs' });
     press(KONAMI.slice(0, 5));
     act(() => { window.location.hash = '#/job/alpha'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     await screen.findByRole('heading', { name: /Alpha/ });
@@ -104,7 +104,7 @@ describe('the Konami code', () => {
 
   it('typed into a field it is just typing', async () => {
     const { secrets } = renderApp('subtle');
-    await screen.findByRole('main', { name: 'Home' });
+    await screen.findByRole('main', { name: 'Jobs' });
     const box = document.createElement('input');
     document.body.appendChild(box);
     press(KONAMI, box);
@@ -115,7 +115,7 @@ describe('the Konami code', () => {
 
   it('Play Off: nothing', async () => {
     const { secrets } = renderApp('off');
-    await screen.findByRole('main', { name: 'Home' });
+    await screen.findByRole('main', { name: 'Jobs' });
     press(KONAMI);
     await flush();
     expect(secrets()).toEqual([]);
@@ -124,7 +124,7 @@ describe('the Konami code', () => {
 
   it('with the page’s keys turned off (Settings → Keys) it is off too; back on, it works again', async () => {
     const { secrets } = renderApp('subtle');
-    await screen.findByRole('main', { name: 'Home' });
+    await screen.findByRole('main', { name: 'Jobs' });
     writeKeysSetting({ enabled: false });
     press(KONAMI);
     await flush();
@@ -141,7 +141,7 @@ describe('the console', () => {
   it('greets with the crew, and crew.hello() is a secret found', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const { secrets } = renderApp('full');
-    await screen.findByRole('main', { name: 'Home' });
+    await screen.findByRole('main', { name: 'Jobs' });
     const crew = (window as { crew?: { hello: () => string } }).crew;
     expect(crew).toBeDefined();
     expect(crew!.hello()).toMatch(/teapot/);
@@ -152,7 +152,7 @@ describe('the console', () => {
 
   it('Play Off: no crew in the console', async () => {
     renderApp('off');
-    await screen.findByRole('main', { name: 'Home' });
+    await screen.findByRole('main', { name: 'Jobs' });
     expect((window as { crew?: unknown }).crew).toBeUndefined();
   });
 });
@@ -196,7 +196,7 @@ describe('⌘K phrases', () => {
 
   it('through the app: the scene plays with the toasts and the secret is found', async () => {
     const { secrets } = renderApp('subtle');
-    await screen.findByRole('main', { name: 'Home' });
+    await screen.findByRole('main', { name: 'Jobs' });
     fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
     const box = screen.getByRole('combobox', { name: 'Search actions' });
     fireEvent.change(box, { target: { value: 'sudo make me a sandwich' } });
