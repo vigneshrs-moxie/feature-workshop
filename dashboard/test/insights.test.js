@@ -331,3 +331,9 @@ test('too little data: each graph says so instead of guessing', () => {
   assert.equal(g.waiting.headline, 'Can’t see your answers here yet.');
   assert.equal(r.limits.week.sentence, 'Can’t see use outside this app yet: no limit readings this week.');
 });
+
+test('the temp folders are lib/platform.js’s, written out so the site half starts no process', async () => {
+  const { tempDirs: platformDirs } = await import('../lib/platform.js');
+  const { tempDirs } = await import('../lib/insights.js');
+  for (const o of [{ platform: 'darwin', tmpdir: '/var/folders/ab/T' }, { platform: 'linux', tmpdir: '/tmp' }, { platform: 'win32', tmpdir: 'C:\\Temp' }]) assert.deepEqual(tempDirs(o), platformDirs(o));
+});

@@ -18,6 +18,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { dayKey, forecast, limitSplit, percentPerDollar, percentPerDollarInfo, planWeeks, planWeekStart, telemetry, weekLabel, weekOf, whenWords, windowRange } from '../lib/telemetry.js';
+import { GRAPH_IDS } from '../lib/insights.js';
 import { startDashboard as launchDashboard } from './helpers/dashboard.js';
 
 const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'telemetry', 'usage.jsonl');
@@ -403,6 +404,12 @@ test('GET /api/telemetry: the five datasets for the window, from usage.jsonl in 
     // The fixture's readings are six hours apart: no short stretch, so no percent per dollar, dollars alone.
     assert.deepEqual(people.people, [{ user: 'vignesh', usd: 34.5, percent: null }, { user: 'sohum', usd: 9, percent: null }]);
     assert.equal(body.limits.week.state, 'no-ratio');
+    // The ten insight graphs, each with its id, in order, each with a finding and a What to do line.
+    assert.deepEqual(body.graphs.map((g) => [g.n, g.id]), GRAPH_IDS.map((id, i) => [i + 1, id]));
+    for (const g of body.graphs) assert.ok(g.headline.length > 10 && g.todo.length > 5 && Array.isArray(g.table.rows), g.id);
+    assert.equal(typeof body.sources.audit, 'boolean');
+    assert.equal(typeof body.sources.jobs, 'boolean');
+    assert.match(body.limits.note, /outside this app/);
     const gauge = body.datasets.find((x) => x.id === 'gauge');
     assert.equal(gauge.forecast.fullAt, move('2026-10-29T03:48:00.000Z'));
     assert.match(gauge.sentence, /^At this pace, full on \w+day \d\d:\d\d\.$/);

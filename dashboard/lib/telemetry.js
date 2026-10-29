@@ -16,6 +16,7 @@
 // Without meters (demo, plan usage off), or before there are enough short stretches, percents are
 // null and dollars stand alone.
 import { modelFamily, modelLabel, PRICES } from './cost.js';
+import { insightsFor } from './insights.js';
 import { STAGES } from './stages.js';
 
 const H = 3600e3;
@@ -388,7 +389,7 @@ const modelName = (key) => PRICES[key]?.label ?? modelLabel(key);
  * meters: the plan meters' live reading ({ fiveHour, week, checkedAt }), else the newest line's.
  * titles: job slug → title. timeZone: for days and times (the computer's own when omitted).
  */
-export function telemetry(allLines, { window = 'week', now = new Date(), me = null, meters = null, titles = {}, timeZone, shortStretch = SHORT_STRETCH } = {}) {
+export function telemetry(allLines, { window = 'week', now = new Date(), me = null, meters = null, titles = {}, timeZone, shortStretch = SHORT_STRETCH, jobs: jobList = null, audit = null } = {}) {
   if (!WINDOWS.includes(window)) throw new RangeError('The window is one of 5h, week or 30d.');
   const end = ms(now);
   const sorted = [...allLines].filter((l) => Number.isFinite(ms(l.t)) && ms(l.t) <= end).sort((a, b) => ms(a.t) - ms(b.t));
@@ -397,20 +398,15 @@ export function telemetry(allLines, { window = 'week', now = new Date(), me = nu
   const { from, to } = windowRange(window, { now: end, meters: m, timeZone });
   const inWindow = month.filter((l) => ms(l.t) >= from);
   const mine = (list) => (me ? list.filter((l) => l.user === me) : list);
-  const ratio = percentPerDollar(month, { shortStretch });
+  // The ten insight graphs (lib/insights.js), from the cleaned record; percent per dollar and the
+  // two meters' splits (this app's people and Other use) come with them.
+  const ins = insightsFor(allLines, { window, now: end, me, meters, timeZone, titles, jobs: jobList, audit, shortStretch });
+  const ratio = ins.ratio;
   const words = IN_WINDOW[window];
   const title = (slug) => titles[slug] ?? slug ?? 'No job';
   const reading = meters?.checkedAt ? { t: meters.checkedAt, week: meters.week, fiveHour: meters.fiveHour } : null;
-
-  // The whole limit: this app's people and Other use, adding up to each meter (step 0b).
-  const ratio5 = percentPerDollar(month, { meter: 'fiveHour', shortStretch });
-  const weekSplit = limitSplit(sorted, { meter: 'week', now: end, reading, ratio, shortStretch });
-  const fiveSplit = limitSplit(sorted, { meter: 'fiveHour', now: end, reading, ratio: ratio5, shortStretch });
-  const limits = {
-    week: { ...weekSplit, sentence: splitWords(weekSplit, { name: 'This week' }) },
-    fiveHour: { ...fiveSplit, sentence: splitWords(fiveSplit, { name: 'This five hours' }) },
-    note: OTHER_NOTE,
-  };
+  const limits = ins.limits;
+  const weekSplit = limits.week;
 
   // 1. The weekly limit over time. The forecast's pace is the meter's (everything on the account);
   // its driver says which part is pushing it.
@@ -494,6 +490,10 @@ export function telemetry(allLines, { window = 'week', now = new Date(), me = nu
   return {
     window, windowLabel: WINDOW_LABELS[window], from: iso(from), to: iso(to), me, percentPerDollar: ratio === null ? null : r4(ratio), lines: inWindow.length,
     limits,
+    graphs: ins.graphs,
+    // Which sources the graphs had: the audit log (send-backs, answers) and the job list (route size, the finish line).
+    sources: { audit: Array.isArray(audit), jobs: Array.isArray(jobList) },
+    // The five graphs of the first Telemetry page, kept until the page moves to the ten above.
     datasets: [gauge, byDayJob, costData, byModel, peopleData],
   };
 }

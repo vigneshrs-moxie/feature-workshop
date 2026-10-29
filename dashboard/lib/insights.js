@@ -19,7 +19,8 @@
 // Pure: nothing here reads a file. The runner hands in the lines, the audit lines and the jobs.
 // insights.js and telemetry.js import each other: each uses the other's functions only when called.
 import { modelFamily, PRICES, whatIfConductor } from './cost.js';
-import { tempDirs } from './platform.js';
+import os from 'node:os';
+import path from 'node:path';
 import { STAGE_IDS, STAGES } from './stages.js';
 import {
   forecast as forecastOf, limitSplit, localDate, localTime, OTHER_NOTE, otherStretches, parts, pct, percentPerDollar, planWeeks, riseDriver,
@@ -27,6 +28,16 @@ import {
 } from './telemetry.js';
 
 const ms = (t) => (typeof t === 'number' ? t : Date.parse(t));
+
+/**
+ * The temp folders, as lib/platform.js tempDirs() gives them (os.tmpdir(), plus /tmp and
+ * /private/tmp off Windows). Written out here because platform.js also starts processes, and the
+ * site's half (which serves Telemetry) imports nothing that does.
+ */
+export function tempDirs({ platform = process.platform, tmpdir = os.tmpdir() } = {}) {
+  if (platform === 'win32') return [tmpdir];
+  return [...new Set(['/tmp', '/private/tmp', tmpdir, path.posix.join('/private', tmpdir)])];
+}
 const r6 = (n) => Math.round(n * 1e6) / 1e6;
 
 /** Whether a folder is under a temp folder (the test-folder rule of lib/history.js). */
