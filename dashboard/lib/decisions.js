@@ -497,3 +497,118 @@ export async function renderIndex(dir) {
   const text = indexText({ files: await markdownFiles(dir), general: await markdownFiles(path.join(dir, GENERAL_FOLDER), `${GENERAL_FOLDER}/`) });
   return writePlain(path.join(dir, INDEX_FILE), text);
 }
+
+// ---------- Writing the copy into a worktree ----------
+
+/** Where a job's decisions go in a repository, from its root. */
+export const REPO_FOLDER = 'docs/decisions';
+// G22: Orbit's .gitignore has "docs/" until Vignesh changes it; Ground Control never changes it.
+export const IGNORED_REASON = 'Orbit still ignores docs/decisions/. Its .gitignore needs `docs/*` and `!docs/decisions/` first.';
+
+/**
+ * decisions.md without the notes meant for agents: every HTML comment (the note under the title,
+ * the foreman marks at the ends of rows) goes, and a line that held only a comment goes with it,
+ * with the blank line it would leave doubled. Everything else, the "## Section:" parts and
+ * "## Not doing" among it, stays exactly as it is.
+ */
+export function withoutAgentNotes(markdown) {
+  const out = [];
+  let inside = false;
+  let dropped = false;
+  for (const raw of String(markdown ?? '').split('\n')) {
+    let line = '';
+    let touched = inside;
+    let rest = raw;
+    while (rest) {
+      if (inside) {
+        const end = rest.indexOf('-->');
+        if (end < 0) { rest = ''; break; }
+        rest = rest.slice(end + 3);
+        inside = false;
+        continue;
+      }
+      const start = rest.indexOf('<!--');
+      if (start < 0) { line += rest; break; }
+      line += rest.slice(0, start);
+      rest = rest.slice(start + 4);
+      inside = true;
+      touched = true;
+    }
+    if (touched) {
+      const cr = raw.endsWith('\r') ? '\r' : '';
+      line = line.replace(/[ \t\r]+$/, '');
+      if (!line) { dropped = true; continue; }
+      line += cr;
+    }
+    const blank = !line.trim();
+    if (blank && dropped && (!out.length || !out.at(-1).trim())) continue;
+    dropped = false;
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+const git = (cwd, args) => new Promise((resolve) => {
+  execFile('git', ['-C', cwd, ...args], { timeout: 15_000, windowsHide: true }, (err, stdout, stderr) => {
+    resolve({ code: err ? (Number.isInteger(err.code) ? err.code : -1) : 0, out: String(stdout ?? ''), err: String(stderr ?? '') });
+  });
+});
+
+// The job's ticket: the one given ("ORBIT-479" or { key, title }), else status.json's ticket, else
+// the key in a slug made from a ticket (orbit-479-…). The title: the ticket's, else the job's.
+function ticketOf(ticket, status, slug) {
+  const given = typeof ticket === 'string' ? { key: ticket } : ticket && typeof ticket === 'object' ? ticket : null;
+  const fromStatus = status?.ticket && typeof status.ticket === 'object' ? status.ticket : null;
+  const m = /^orbit-(\d+)(?:-|$)/i.exec(slug);
+  const key = given?.key ?? fromStatus?.key ?? (m ? `ORBIT-${Number(m[1])}` : null);
+  const title = given?.title ?? fromStatus?.title ?? status?.title ?? null;
+  return { key: typeof key === 'string' ? key.trim() : null, title: typeof title === 'string' ? title : null };
+}
+
+const refuse = (code, reason) => ({ ok: false, code, reason });
+
+/**
+ * Copy a job's decisions.md into a worktree's docs/decisions/ folder and rebuild the folder's index
+ * (plan G22, G27). The copy is the file as it is, without the notes meant for agents. It never
+ * stages, commits or pushes: the Foreman commits the two files on the feature branch.
+ * jobDir: the job's folder. worktree: the checkout of the feature branch. ticket: "ORBIT-479" or
+ * { key, title }, read from the job's status.json when not given.
+ * Returns { ok: true, file, index, paths: [the two, from the repository's root], changed:
+ * { file, index } }, or { ok: false, code, reason } with the reason in plain words: no ticket,
+ * no decisions.md, not a git checkout, the folder is ignored, or something in the way.
+ */
+export async function writeRepoCopy({ jobDir, worktree, ticket = null } = {}) {
+  if (!jobDir || !worktree) return refuse('missing', 'Say which job and which worktree.');
+  const status = await readJson(path.join(jobDir, 'status.json'));
+  const t = ticketOf(ticket, status, path.basename(jobDir));
+  const name = repoFileName({ ticketKey: t.key, title: t.title, slug: path.basename(jobDir) });
+  if (!name) return refuse('no-ticket', 'This job has no ticket, so its decisions aren’t written into the repository: only a job for a ticket gets a file in docs/decisions/.');
+  const src = path.join(jobDir, DECISIONS_FILE);
+  const srcStat = await fs.lstat(src).catch(() => null);
+  if (!srcStat?.isFile()) return refuse('no-file', 'This job has no decisions.md yet. It is written after the first gate.');
+  const wtStat = await fs.stat(worktree).catch(() => null);
+  if (!wtStat?.isDirectory()) return refuse('not-git', `${worktree} isn’t a folder, so there is nowhere to write the decisions.`);
+  const top = await git(worktree, ['rev-parse', '--show-toplevel']);
+  if (top.code !== 0 || !top.out.trim()) return refuse('not-git', `${worktree} isn’t a git checkout, so there is nowhere to write the decisions.`);
+  const root = path.resolve(top.out.trim());
+  const rel = [`${REPO_FOLDER}/${name}`, `${REPO_FOLDER}/${INDEX_FILE}`];
+  const ignored = await git(root, ['check-ignore', '--', ...rel]); // exit 0: one of them is ignored, 1: neither
+  if (ignored.code === 0) return refuse('ignored', IGNORED_REASON);
+  if (ignored.code !== 1) return refuse('git', `Git couldn’t say whether docs/decisions/ is ignored there: ${oneLine(ignored.err) || 'no reason given'}.`);
+  // Never through a link: docs/ and docs/decisions/ are real folders inside the checkout.
+  let dir = root;
+  for (const part of REPO_FOLDER.split('/')) {
+    dir = path.join(dir, part);
+    const st = await fs.lstat(dir).catch(() => null);
+    if (st && !st.isDirectory()) return refuse('in-the-way', `${dir} isn’t a plain folder, so nothing was written.`);
+    if (!st) await fs.mkdir(dir);
+  }
+  try {
+    const file = await writePlain(path.join(dir, name), withoutAgentNotes(await fs.readFile(src, 'utf8')));
+    const index = await renderIndex(dir);
+    return { ok: true, name, file: file.file, index: index.file, paths: rel, changed: { file: file.changed, index: index.changed } };
+  } catch (err) {
+    if (err?.plain) return refuse('in-the-way', err.message);
+    throw err;
+  }
+}
