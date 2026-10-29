@@ -16,6 +16,8 @@ import {
   listSpecs, playwrightConfig, prepareRun, readEvidence, readyToRecord, recordEvidence,
 } from '../lib/evidence.js';
 import { defaultsForLevel, describeOptions, evidenceOn, normalize, optionsAtLevel } from '../lib/options.js';
+import { describeDoc, listJobDocs, readJobDoc } from '../lib/docs.js';
+import { loadFeatures, SessionIndex } from '../lib/features.js';
 
 const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'evidence');
 const FAKE = path.join(FIXTURE, 'fake-playwright.mjs');
@@ -228,4 +230,36 @@ test('evidence: the file route serves a picture or video inside the job’s evid
   for (const p of ['../secret.png', '../test-report.md', 'abc1234def5/../../secret.png', '/etc/hosts', path.join(job.dir, 'secret.png'), 'link.png', 'up/secret.png', '.hidden.png', 'evidence.json', 'specs/AC-1.spec.mjs', 'abc1234def5/AC-9/01.png', '', 'a\0b.png', 'C:\\x.png']) {
     await assert.rejects(evidenceFile(job.dir, p), (err) => err instanceof EvidenceError && err.status === 404, p || '(empty)');
   }
+});
+
+test('review files: review/facts.md and facts-r<n>.md are “Review facts (round n)”, listed after the lenses’ reviews; evidence.json is “Evidence”', async () => {
+  assert.deepEqual(describeDoc('review/facts.md'), { name: 'Review facts (round 1)', group: 'review', order: 301 });
+  assert.equal(describeDoc('review/facts-r2.md').name, 'Review facts (round 2)');
+  assert.equal(describeDoc('review/permissions.md').name, 'Review: permissions', 'a lens’s review keeps its name');
+  assert.equal(describeDoc('review/facts-check.md').name, 'Review: facts check', 'only the facts files');
+  assert.equal(describeDoc('evidence/evidence.json').name, 'Evidence');
+
+  const job = await makeJob();
+  await record(job);
+  await fs.mkdir(path.join(job.dir, 'review'), { recursive: true });
+  for (const f of ['facts.md', 'facts-r2.md', 'permissions.md', 'ui.md']) await fs.writeFile(path.join(job.dir, 'review', f), `# ${f}\n`);
+  const docs = await listJobDocs(job.dir);
+  const review = docs.filter((d) => d.group === 'review').map((d) => d.name);
+  assert.deepEqual(review, ['Test report', 'Evidence', 'Review: permissions', 'Review: ui', 'Review facts (round 1)', 'Review facts (round 2)']);
+  assert.equal(docs.find((d) => d.name === 'Evidence').type, 'json');
+  assert.match((await readJobDoc(job.dir, 'evidence/evidence.json')).text, /"commit": "abc1234def5"/);
+  assert.ok(!docs.some((d) => d.file.startsWith('evidence/') && d.file !== 'evidence/evidence.json'), 'nothing else from evidence/');
+
+  // The job's card lists the same, from lib/features.js.
+  const features = await loadFeatures({ featuresDir: path.dirname(job.dir), sessionIndex: new SessionIndex(await tmp('projects')) });
+  const names = features.find((f) => f.slug === 'hours-column').artifacts.map((a) => a.name);
+  assert.ok(names.includes('Evidence'));
+  assert.deepEqual(names.filter((n) => n.startsWith('Review')).slice(-2), ['Review facts (round 1)', 'Review facts (round 2)'], 'the facts come after the lenses’ reviews');
+  assert.ok(!names.includes('Review: facts'));
+
+  // A symlinked evidence/ folder isn't followed.
+  const other = await makeJob();
+  await fs.rm(path.join(other.dir, 'evidence'), { recursive: true });
+  await fs.symlink(path.join(job.dir, 'evidence'), path.join(other.dir, 'evidence'));
+  assert.ok(!(await listJobDocs(other.dir)).some((d) => d.name === 'Evidence'));
 });

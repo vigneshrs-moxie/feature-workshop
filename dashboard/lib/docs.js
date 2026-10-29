@@ -3,7 +3,7 @@
 // status.json or workflow-status.md names one, and when it last changed. Read only.
 //
 // Which files: the folder's own top level and its briefs/, review/ and fable/ folders (one level
-// each). Hidden files, symlinks and anything but plain .md/.json files are left out, so a link can't
+// each), and evidence/evidence.json ("Evidence"). Hidden files, symlinks and anything but plain .md/.json files are left out, so a link can't
 // make the dashboard show a file from somewhere else.
 
 import fs from 'node:fs/promises';
@@ -20,6 +20,8 @@ const DOC_FILE = /^[^.][^/\\]*\.(md|json)$/;
 /** The one HTML file served from a job folder: the screens the wireframer drew (GET /api/job/:slug/wireframes). */
 export const WIREFRAMES_FILE = 'wireframes.html';
 export const WIREFRAMES_JSON = 'wireframes.json';
+/** The evidence of each acceptance line (lib/evidence.js): the one file listed from evidence/. */
+export const EVIDENCE_JSON = 'evidence/evidence.json';
 /** The largest wireframes page served (bytes): a high-fidelity page carries the app's theme and many screens. */
 export const WIREFRAMES_MAX_BYTES = 8 * 1024 * 1024;
 
@@ -43,6 +45,8 @@ const KNOWN = [
   [WIREFRAMES_JSON, 'Wireframes data (wireframes.json)', 'screens'],
   ['status.json', 'Status (status.json)', 'other'],
   ['options.json', 'Options (options.json)', 'other'],
+  // The screenshots and videos of each acceptance line (lib/evidence.js), next to the test report.
+  [EVIDENCE_JSON, 'Evidence', 'review'],
 ];
 const KNOWN_BY_FILE = new Map(KNOWN.map(([file, name, group], i) => [file, { name, group, order: i }]));
 
@@ -65,6 +69,8 @@ export function describeDoc(file) {
     const detail = /(^|-)detail$/.test(m[2]);
     return { name: `Brief #${Number(m[1])} · ${words(m[2])}`, group: 'briefs', order: -Number(m[1]) + (detail ? 0.5 : 0) };
   }
+  // The facts block every lens is given (review/facts.md, then facts-r2.md… for later rounds) isn't a lens's review: listed after them.
+  if ((m = /^review\/facts(?:-r(\d+))?\.md$/.exec(file))) return { name: `Review facts (round ${Number(m[1] ?? 1)})`, group: 'review', order: 300 + Number(m[1] ?? 1) };
   if ((m = /^review\/(.+)\.md$/.exec(file))) return { name: `Review: ${words(m[1])}`, group: 'review', order: 100 };
   if ((m = /^fable\/(?:(\d+)-)?(.+)\.md$/.exec(file))) return { name: `Fable second look${m[1] ? ` #${Number(m[1])}` : ''} · ${words(m[2])}`, group: 'review', order: 200 + Number(m[1] ?? 0) };
   const base = file.replace(/\.(md|json)$/, '');
@@ -204,6 +210,11 @@ export async function listJobDocs(dir, { spec = null, recorded = [] } = {}) {
   if (wf) docs.push({ file: WIREFRAMES_FILE, ...describeDoc(WIREFRAMES_FILE), version: wf.version, updatedAt: wf.updatedAt, size: wf.size, type: 'html' });
   const found = [...await plainFiles(dir, null)];
   for (const sub of SUBFOLDERS) found.push(...await plainFiles(dir, sub));
+  // From evidence/ only evidence.json, and only from a real folder (never through a symlink).
+  if ((await fs.lstat(path.join(dir, 'evidence')).catch(() => null))?.isDirectory()) {
+    const ev = await plainFile(dir, EVIDENCE_JSON);
+    if (ev) found.push({ file: EVIDENCE_JSON, ...ev });
+  }
   for (const f of found) {
     const d = describeDoc(f.file);
     const version = versions.byFile.get(f.file) ?? versions.byName.get(d.name.toLowerCase()) ?? (f.file === WIREFRAMES_JSON ? wf?.version ?? null : null);

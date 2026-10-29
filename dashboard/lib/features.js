@@ -289,12 +289,20 @@ async function readFeatureFolder(dir) {
     const st = await statOrNull(path.join(dir, file));
     if (st) artifacts.push({ name, file, modifiedAt: st.mtime.toISOString() });
   }
+  // The evidence of each acceptance line (lib/evidence.js): evidence.json in the evidence/ folder.
+  const evidenceSt = await statOrNull(path.join(dir, 'evidence', 'evidence.json'));
+  if (evidenceSt?.isFile()) artifacts.push({ name: 'Evidence', file: 'evidence/evidence.json', modifiedAt: evidenceSt.mtime.toISOString() });
+  // The lenses' reviews, then the facts block they were given (review/facts.md, facts-r2.md…), apart.
+  const facts = [];
   for (const e of await listDir(path.join(dir, 'review'))) {
     if (e.isFile() && e.name.endsWith('.md')) {
       const st = await statOrNull(path.join(dir, 'review', e.name));
-      artifacts.push({ name: `Review: ${e.name.replace(/\.md$/, '')}`, file: `review/${e.name}`, modifiedAt: st?.mtime.toISOString() ?? null });
+      const round = /^facts(?:-r(\d+))?\.md$/.exec(e.name);
+      const entry = { name: round ? `Review facts (round ${Number(round[1] ?? 1)})` : `Review: ${e.name.replace(/\.md$/, '')}`, file: `review/${e.name}`, modifiedAt: st?.mtime.toISOString() ?? null };
+      (round ? facts : artifacts).push(entry);
     }
   }
+  artifacts.push(...facts.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })));
 
   const stageState = status?.stageState ?? ws?.stageState ?? null;
   const waitingSince = status?.waitingSince
