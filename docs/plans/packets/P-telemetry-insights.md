@@ -72,3 +72,5 @@ npm test && (cd web && npx vitest run)
 - **Status is never shown by colour alone; themes change looks only; keys never fire while typing or with a dialog open.** Use the theme tokens, not literal colours.
 - **Plain words** in every string a person reads. No jargon.
 - **Hand-back format:** packet id, branch, last SHA, what was done per step, test output tail, anything not done and why, "Needs from others".
+
+**Later (2026-10-29):** packet T reads Claude Code's own session logs on this computer, so your Claude Code use outside the app is counted by name and Other use means claude.ai, the Claude app and other people (`T-claude-code-usage.md`).
