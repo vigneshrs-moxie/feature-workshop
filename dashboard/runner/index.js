@@ -48,7 +48,7 @@ import { LocalRunner } from '../lib/local.js';
 import { History, historyMarkdown } from '../lib/history.js';
 import { removeWorktree, checkWorktree } from '../lib/close.js';
 import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, FOREMAN_MODEL_IDS, MODEL_IDS, MODEL_CHOICES, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions, foremanModel, levelsForClient, optionsAtLevel, isLevel, normalizeTicket, ticketSlug, ticketBranch, startFromTicket } from '../lib/options.js';
-import { groupCards } from '../lib/snapshot.js';
+import { groupCards, laneFor } from '../lib/snapshot.js';
 import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from '../lib/finish.js';
 import { NUDGE_IDS, nudgesFor } from '../lib/nudges.js';
 import { buildThread, pageThread } from '../lib/thread.js';
@@ -954,7 +954,9 @@ export async function createRunner(config) {
     const cards = [...startingCards(list), ...list.map((f) => boardCard(f, runFor(f)))];
     const rank = (c) => (c.needsYou ? 0 : c.working || c.stageState === 'working' ? 1 : c.stageState === 'done' ? 3 : 2);
     cards.sort((a, b) => rank(a) - rank(b) || (a.needsYou ? String(a.waitingSince ?? '').localeCompare(String(b.waitingSince ?? '')) : 0));
-    return cards;
+    // Each card's lane on Jobs and the reason in words (lib/snapshot.js laneFor, packet M).
+    const pending = driver.pendingPermissions();
+    return cards.map((c) => ({ ...c, ...laneFor(c, { lane: flowLanes.get(c.slug) ?? null, pending: pending.filter((p) => p.slug === c.slug) }) }));
   }
 
 
