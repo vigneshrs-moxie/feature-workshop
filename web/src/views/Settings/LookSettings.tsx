@@ -2,8 +2,17 @@
 // Dark and Light groups), the text size (S M L XL, theme/textSize.ts: one factor on every type token
 // and the row heights, with a live sample line) and Follow the system (theme/theme.ts: the system's
 // colour scheme picks within the chosen theme's dark/light pair, Default ↔ Light or Glass ↔ Light
-// glass; a theme with no twin stays as it is). Nothing here changes what is on screen or where.
+// glass; a theme with no twin stays as it is). Packet M adds the two layouts, Desk layout (One at a
+// time or Three columns) and Jobs layout (Four lanes or One list), and Play beside them.
+import { useState } from 'react';
 import '../../theme/look.css';
+import type { PlayMode, Settings } from '../../api/types';
+import { hrefFor, settingsHref } from '../../app/router';
+import { useDeskLayout } from '../../home/DeskPage';
+import { useJobsLayout } from '../../home/JobsPage';
+import { playOf } from '../../play/settings';
+import { useWorkshop, useWorkshopState } from '../../state/store';
+import { PLAY_MODE_CHOICES } from './PlaySettings';
 import { readStored, useStored } from '../../lib/stored';
 import { DEFAULT_THEME, THEME_KEY, THEMES, themePair, useThemeFollow } from '../../theme/theme';
 import { TEXT_SCALES, TEXT_SIZE_LABELS, TEXT_SIZES, type TextSize, useTextSize } from '../../theme/textSize';
@@ -62,15 +71,86 @@ export function FollowSystem() {
   );
 }
 
+/** A layout choice: two options, each with a small picture and one line on what it does, and a way to see it. */
+function LayoutPicker<T extends string>({ id, title, value, onPick, options, see }: {
+  id: string; title: string; value: T; onPick(v: T): void;
+  options: readonly { id: T; label: string; say: string; pic: 'one' | 'columns' | 'lanes' | 'list' }[];
+  see: { label: string; href: string };
+}) {
+  return (
+    <fieldset className="layout-picker" data-setting={id}>
+      <legend className="look-heading">{title}</legend>
+      <div className="layout-options">
+        {options.map((o, n) => (
+          <label key={o.id} className={`layout-option${value === o.id ? ' is-picked' : ''}`}>
+            <input type="radio" name={id} value={o.id} checked={value === o.id} onChange={() => onPick(o.id)} />
+            <span className={`layout-pic pic-${o.pic}`} aria-hidden="true"><i /><i /><i /><i /></span>
+            <span className="layout-body">
+              <span className="layout-name">{o.label}{n === 0 && <span className="chip">Default</span>}</span>
+              <span className="muted">{o.say}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      <a className="btn btn-quiet layout-see" href={see.href}>{see.label} ▸</a>
+    </fieldset>
+  );
+}
+
+/** Play beside the layouts: Full, Subtle or Off (the same setting as Settings → Play). */
+function PlayPicker() {
+  const { api, store } = useWorkshop();
+  const { meta } = useWorkshopState();
+  const mode = playOf(meta?.settings).mode;
+  const [error, setError] = useState<string | null>(null);
+  async function pick(m: PlayMode) {
+    setError(null);
+    try { store.dispatch({ type: 'settings', settings: await api.post<Settings>('/api/settings', { play: { mode: m } }) }); } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+  }
+  return (
+    <fieldset className="text-size" data-setting="look-play">
+      <legend className="look-heading">Play</legend>
+      <div className="text-size-options">
+        {PLAY_MODE_CHOICES.map((m) => (
+          <button key={m.id} type="button" className={`btn text-size-btn${mode === m.id ? ' is-on' : ''}`} aria-pressed={mode === m.id} title={m.hint} onClick={() => void pick(m.id)}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <p className="muted">Full dresses the Desk as a go / no go console and the job cards as consoles; Subtle keeps the words; Off is plain. The keys never change. <a href={settingsHref('play')}>More in Play</a>.</p>
+      {error && <p className="field-problem" role="alert">{error}</p>}
+    </fieldset>
+  );
+}
+
 export function LookSettings() {
+  const [desk, setDesk] = useDeskLayout();
+  const [jobs, setJobs] = useJobsLayout();
   return (
     <section className="look-settings" aria-label="Look">
       <h3 className="settings-heading">Look</h3>
       <ThemePicker />
       <TextSizePicker />
       <FollowSystem />
+      <LayoutPicker
+        id="desk-layout" title="Desk layout" value={desk} onPick={setDesk}
+        options={[
+          { id: 'one', label: 'One at a time', say: 'One decision fills the Desk; the whole queue opens in a drawer.', pic: 'one' },
+          { id: 'columns', label: 'Three columns', say: 'The queue, the item and Decided today side by side, as the Desk was.', pic: 'columns' },
+        ]}
+        see={{ label: 'See it on the Desk', href: hrefFor({ name: 'desk' }) }}
+      />
+      <LayoutPicker
+        id="jobs-layout" title="Jobs layout" value={jobs} onPick={setJobs}
+        options={[
+          { id: 'lanes', label: 'Four lanes', say: 'Working, Needs you, In review and Ready to merge, side by side.', pic: 'lanes' },
+          { id: 'list', label: 'One list', say: 'Every job in one list, its lane in words.', pic: 'list' },
+        ]}
+        see={{ label: 'See it in Jobs', href: hrefFor({ name: 'home' }) }}
+      />
+      <PlayPicker />
       <p className="muted theme-hint">
-        Each of these changes only how things look; nothing moves and nothing works differently. Your choices are remembered in this browser.
+        Each of these changes only how things look; nothing is lost and the keys stay the same. Play is kept by the dashboard; the rest is remembered in this browser.
         To try a theme from a link, add <code className="num">?theme=&lt;name&gt;</code> to the address.
       </p>
     </section>

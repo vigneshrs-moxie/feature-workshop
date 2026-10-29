@@ -191,14 +191,16 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       </div>
     );
   }
-  // Jobs, the flow map, the Table, the Desk, the Inbox, a job's screens, Integrate and Telemetry: full width, no Jobs or Preview pane.
-  if (home || route.name === 'screens' || route.name === 'integrate' || route.name === 'telemetry' || route.name === 'inbox') {
+  // Jobs, the flow map, the Table, the Desk, the Inbox, Settings, the Crew-dex, Achievements, a lost
+  // address, a job's screens, Integrate and Telemetry: full width, no Jobs or Preview pane.
+  const fullPage = route.name === 'settings' || crew || achievements || lost !== null;
+  if (home || fullPage || route.name === 'screens' || route.name === 'integrate' || route.name === 'telemetry' || route.name === 'inbox') {
     return (
       <div className="app">
         {top}
         <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
         <Sheets route={route} />
-        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : route.name === 'integrate' ? <IntegrateBoard /> : route.name === 'telemetry' ? <TelemetryView /> : route.name === 'inbox' ? <InboxView /> : route.name === 'desk' ? <DeskPage /> : route.name === 'home' ? <JobsPage /> : <HomeView view={home === 'jobs' || home === null ? 'map' : home} />}
+        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : route.name === 'integrate' ? <IntegrateBoard /> : route.name === 'telemetry' ? <TelemetryView /> : route.name === 'inbox' ? <InboxView /> : route.name === 'desk' ? <DeskPage /> : route.name === 'home' ? <JobsPage /> : route.name === 'settings' ? <div className="page-wide"><SettingsView section={route.section} /></div> : crew ? <div className="page-wide"><CrewDexView /></div> : achievements ? <div className="page-wide"><AchievementsView /></div> : lost !== null ? <div className="page-wide"><NotFoundView hash={lost} /></div> : <HomeView view={home === 'jobs' || home === null ? 'map' : home} />}
         <PlayToasts />
         <PlayEggs />
       </div>
@@ -211,7 +213,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       <Sheets route={route} />
       <div ref={panes} className={rail ? 'panes panes-rail' : 'panes'} style={previewWidth ? ({ '--preview-w': `${previewWidth}px` } as CSSProperties) : undefined}>
         <JobsPane selected={slug} />
-        {route.name === 'settings' ? <SettingsView section={route.section} /> : crew ? <CrewDexView /> : achievements ? <AchievementsView /> : lost !== null ? <NotFoundView hash={lost} /> : <ForemanPane slug={slug} />}
+        <ForemanPane slug={slug} />
         <PreviewPane slug={slug} />
         <PaneResizer panes={panes} />
       </div>

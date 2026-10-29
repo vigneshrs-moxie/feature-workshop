@@ -242,3 +242,23 @@ a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset
   .jobs-folded { grid-template-columns: 1fr; }
   .jobs-list-row { grid-template-columns: 1fr; }
 }
+
+/* ---------- Settings → Look: the layouts ---------- */
+.layout-picker { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.layout-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-2); }
+.layout-option { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-1); cursor: pointer; }
+.layout-option.is-picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.layout-option input { accent-color: var(--accent); }
+.layout-body { display: flex; flex-direction: column; gap: 2px; }
+.layout-name { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: var(--weight-medium); }
+.layout-see { align-self: flex-start; }
+.layout-pic { flex: none; display: grid; gap: 3px; width: 56px; height: 40px; padding: 4px; border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: var(--bg-2); }
+.layout-pic i { display: block; border-radius: 2px; background: var(--border-2); }
+.layout-pic.pic-one { grid-template-columns: 1fr; } .layout-pic.pic-one i:not(:first-child) { display: none; } .layout-pic.pic-one i { background: var(--accent-soft); border: 1px solid var(--accent); }
+.layout-pic.pic-columns { grid-template-columns: 1fr 2fr 1fr; } .layout-pic.pic-columns i:nth-child(4) { display: none; }
+.layout-pic.pic-lanes { grid-template-columns: repeat(4, 1fr); }
+.layout-pic.pic-list { grid-template-columns: 1fr; }
+
+/* Settings, the Crew-dex, Achievements and a lost address: full width, at most --page-max. */
+.page-wide { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: auto; }
+.page-wide > * { flex: 1; width: 100%; max-width: var(--page-max); margin: 0 auto; }
