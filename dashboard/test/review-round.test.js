@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   GITHUB_EVERY_CHOICES, applyForeman, candidatesOf, countWords, createReviewRounds, foremanMessage, foremanReady, groupRounds,
-  guessKind, nameFor, parseRoute, readRounds, reviewView, roundPanel, sendPlan, whoMergesLine,
+  guessKind, nameFor, parseRoute, readRounds, reviewView, roundPanel, routesView, sendPlan, whoMergesLine,
 } from '../lib/review-round.js';
 import { createGhWrite } from '../lib/gh-write.js';
 import { commentKey, readFeedback } from '../lib/pr-feedback.js';
@@ -49,6 +49,22 @@ test('the route: who reviews and who merges each PR, from the profile’s lines'
   assert.deepEqual(none.map((s) => s.pr), [1, 2]);
   assert.equal(none[1].reviewer, null);
   assert.equal(parseRoute([], { twoStep: false })[0].into, 'main');
+});
+
+test('routesView: who reviews and merges each PR, per repository, in words for Settings → Workflow', async () => {
+  const views = await routesView(async () => [
+    { name: 'Orbit', prRoute: ['PR #1: your fork into moxie (you review and merge it)', 'PR #2: moxie into staging (Raj @raj-moxie reviews and merges it)', 'PR #3: staging into main (the release owner reviews and merges it)'] },
+    { name: 'Plain', prRoute: null },
+  ]);
+  assert.deepEqual(views[0], { name: 'Orbit', named: true, steps: [
+    { pr: 1, from: 'your fork', into: 'moxie', reviews: 'You', merges: 'You' },
+    { pr: 2, from: 'moxie', into: 'staging', reviews: 'Raj', merges: 'Raj' },
+    { pr: 3, from: 'staging', into: 'main', reviews: 'the release owner', merges: 'the release owner' },
+  ] });
+  assert.equal(views[1].named, false);
+  assert.deepEqual(views[1].steps.map((s) => [s.pr, s.reviews, s.merges]), [[1, 'You', 'You'], [2, 'Not named', 'You']]);
+  assert.deepEqual(await routesView(async () => { throw new Error('no registry'); }), []);
+  assert.deepEqual(await routesView(undefined), []);
 });
 
 test('a comment’s kind, as a first guess: a question asks for an answer, a nit says nit, the rest are changes', () => {

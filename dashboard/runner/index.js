@@ -1118,6 +1118,16 @@ export async function createRunner(config) {
     gh: feedbackGh, driver, write: ghWrites,
     jobs: async () => (await featuresShared()).map((f) => ({ dir: f.dir, slug: f.slug, title: f.title, branch: f.branch ?? null, worktree: f.worktree ?? null, repoPath: f.repoPath ?? null, closed: f.closed ?? null, ticket: slugTicketKey(f.slug) ?? null })),
     profileFor: async (repo) => { const hit = await local.registry?.profileFor(repo).catch(() => null); return hit?.ok ? hit.profile : null; },
+    // Settings → Workflow's "Who reviews and merges each pull request": every registered repository's route.
+    routes: async () => {
+      const out = [];
+      for (const r of (await local.registry?.listRepos().catch(() => [])) ?? []) {
+        if (!r.ok) continue;
+        const hit = await local.registry.profileFor(r.path).catch(() => null);
+        if (hit?.ok) out.push({ name: hit.profile.name ?? r.name, prRoute: hit.profile.prRoute ?? null });
+      }
+      return out;
+    },
     audit: (line) => state.audit(line),
     emit: (slug, view) => events.emit('pr', slug, view, { replay: false }),
     changed: () => { cached = null; notifyChange(); },

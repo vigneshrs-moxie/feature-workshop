@@ -428,6 +428,8 @@ export interface Settings {
   play?: PlaySettings;
   notify?: NotifySettings;
   workflow?: WorkflowSettings;
+  /** Review rounds (packet Q): how often GitHub is checked while a job waits, and the follow-up PR #1. */
+  review?: Partial<ReviewSettings>;
   [key: string]: unknown;
 }
 
@@ -1396,6 +1398,8 @@ export interface ReviewItemView {
   replyState: string | null;
   /** Why it won't change. */
   reason: string | null;
+  /** A failed check's log, its last lines (null for a comment). */
+  log?: string | null;
   late: boolean;
   /** "New · joined round 1" while it waits for your yes. */
   newWords: string | null;
@@ -1493,6 +1497,8 @@ export interface ReviewView {
   /** Remind the person who merges: from a day after the approval; the comment, drafted. */
   remind: { at: string; can: boolean; text: string; note: string } | null;
   held: { pid: number | null; branch: string | null; since: string | null } | null;
+  /** after-pr1: the follow-up PR #1 you said you'd merge yourself. */
+  followUp?: { number: number; url: string | null } | null;
   pr: ReviewPr;
   rounds: { round: number; pr: number; prLabel: string; state: RoundState; items: number; openedAt: string; sentAt: string | null }[];
   title: string | null;
@@ -1506,11 +1512,21 @@ export interface ReviewSettings {
   mergeFollowUp: boolean;
 }
 
+/** Who reviews and merges each pull request of one repository, from its profile's route (Settings → Workflow). */
+export interface ReviewRoute {
+  name: string;
+  /** false: the profile names no route, so this is the usual one with nobody named. */
+  named: boolean;
+  steps: { pr: number; from: string | null; into: string | null; reviews: string; merges: string }[];
+}
+
 /** GET /api/review. */
 export interface ReviewList {
   jobs: ReviewView[];
   settings: ReviewSettings;
   github: GithubLine | null;
+  /** Each registered repository's route (absent from a dashboard before Settings → Workflow showed it). */
+  routes?: ReviewRoute[];
 }
 
 /** GET /api/review/:slug and every POST /api/review/:slug/<action>: the job's view again, with the GitHub line. */

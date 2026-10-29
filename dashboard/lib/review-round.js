@@ -566,6 +566,7 @@ export function roundPanel(round, { route = [] } = {}) {
     outdatedWords: i.outdated ? 'Outdated: the line has changed since' : null, quote: i.quote, name: i.name ?? null, link: i.link, at: i.at,
     included: i.included, state: i.included ? i.state : 'left_out', stateWords: itemStateWords(i), commit: short(i.commit), plan: i.plan, planText: i.planText,
     reply: noReply(i) ? null : i.reply, replyDropped: Boolean(i.replyDropped), replyState: replyState(i), reason: i.reason,
+    log: i.type === 'check' ? i.log ?? null : null,
     late: Boolean(i.late), newWords: i.late && !i.added ? `New · joined round ${round.round}` : null,
     changeAfterAll: i.included && i.state === 'wont_change' ? action('change-after-all', 'Change it after all', { go: null }) : null,
   });
@@ -723,6 +724,7 @@ export function reviewView(ctx) {
     const fu = round.followUp;
     set('after-pr1', { headline: `Waiting for you to merge the follow-up PR #1${fu?.number ? ` (#${fu.number})` : ''}`, detail: `You said you’d merge it yourself. Steps 3 to 5 run as soon as it’s merged (GitHub is checked every minute).`, actions: [action('open-follow-up', 'Open the follow-up PR #1', { key: 'p', client: true, enabled: Boolean(fu?.url) }), action('merge-follow-up', 'Merge it from here instead', { key: 'a', go: true })] });
     out.send = { steps: stepsView(round.send?.steps ?? []), stopAfter: false, mergeFollowUp: false };
+    out.followUp = fu?.number ? { number: fu.number, url: fu.url ?? null } : null;
     return held(out, lock, job);
   }
   if (rs === 'asked') {
@@ -886,6 +888,27 @@ export function remindText({ name, label, title, ticket, base }) {
 /** The job is waiting on someone else (GitHub is checked more often meanwhile). */
 export const WAITING_STATES = new Set(['waiting', 'after-pr1', 'approval-reset', 'sending', 'approved-they-merge']);
 
+const whoWords = (p, { merges = false, youMay = false } = {}) => (p ? (p.you ? 'You' : p.name) : merges && youMay ? 'You' : 'Not named');
+
+/**
+ * Who reviews and merges each pull request, for Settings → Workflow: each repository's route from
+ * its profile, in words. routes(): [{ name, prRoute }]. named: false when the profile has no route
+ * (then it is the usual one with nobody named).
+ */
+export async function routesView(routes) {
+  let list = [];
+  try { list = (await routes?.()) ?? []; } catch { list = []; }
+  return list.map((r) => ({
+    name: String(r?.name ?? 'A repository'),
+    named: Array.isArray(r?.prRoute) && r.prRoute.length > 0,
+    steps: parseRoute(r?.prRoute).map((s) => ({
+      pr: s.pr, from: s.from, into: s.into,
+      reviews: whoWords(s.reviewer),
+      merges: whoWords(s.merger, { merges: true, youMay: s.youMayMerge }),
+    })),
+  }));
+}
+
 // ---------- The runner's half: createReviewRounds ----------
 
 const PR_JSON = 'number,state,isDraft,reviewDecision,reviewRequests,mergeable,headRefOid,headRefName,baseRefName,statusCheckRollup,url,mergedAt,mergedBy,closedAt,title';
@@ -972,6 +995,7 @@ export class ReviewRefused extends Error {
  *   login()             your GitHub login(s)
  *   git(dir, args)      read-only git → { ok, out }
  *   settings() / saveSettings(patch)   { githubEveryMin, mergeFollowUp }
+ *   routes()            [{ name, prRoute }]: each registered repository's profile (Settings → Workflow)
  *   refresh()           a network refresh of the flow map now (after a push or reply)
  *   now(), sleep(ms), checksEveryMs (polling a follow-up PR's checks), checksTimeoutMs
  */
@@ -1704,7 +1728,7 @@ export function createReviewRounds(deps) {
   return {
     actions, answerCard, pass, refreshJob,
     /** Every job's review state, and the settings. */
-    async list() { return { jobs: [...views.values()], settings: await settings() }; },
+    async list() { return { jobs: [...views.values()], settings: await settings(), routes: await routesView(deps.routes) }; },
     async view(slug) {
       await jobOf(slug);
       return views.get(slug) ?? { slug, state: null };
