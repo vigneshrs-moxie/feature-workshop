@@ -1375,6 +1375,31 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .try-log summary { cursor: pointer; color: var(--text-2); font-size: var(--text-sm); }
 .gate-try { margin: var(--space-1) 0 0; }
 
+/* The gate card's evidence strip (packet L, EvidenceStrip.tsx): one row per acceptance line. */
+.gate-evidence { margin: var(--space-2) 0 var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-md); }
+.gate-evidence-head { margin: 0 0 var(--space-1); font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.gate-evidence-head code { font-size: .92em; }
+.gate-evidence-count { font-weight: var(--weight-regular); }
+.gate-evidence-earlier, .gate-evidence-problem, .gate-evidence-recording, .gate-evidence-none, .gate-evidence-note { margin: 0 0 var(--space-1); font-size: var(--text-sm); }
+.evidence-list { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-1) 0; padding: 0; list-style: none; }
+.evidence-row { display: flex; flex-direction: column; gap: var(--space-1); }
+.evidence-line { margin: 0; font-size: var(--text-sm); }
+.evidence-id { color: var(--text-2); font-family: var(--font-mono); }
+.evidence-result { margin-left: var(--space-1); white-space: nowrap; }
+.evidence-result.is-passed { border-color: var(--status-ok); color: var(--status-ok); }
+.evidence-result.is-failed { border-color: var(--status-error); color: var(--status-error); }
+.evidence-reason { margin: 0; font-size: var(--text-xs); overflow-wrap: anywhere; }
+.evidence-media { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); }
+.evidence-thumb { display: inline-flex; flex-direction: column; gap: 2px; padding: 2px; border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: transparent; color: var(--text-2); font-size: var(--text-xs); cursor: pointer; }
+.evidence-thumb img { display: block; width: 160px; height: 100px; object-fit: cover; object-position: top; border-radius: var(--radius-sm); }
+.evidence-thumb:focus-visible, .evidence-shot a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.evidence-shots { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.evidence-shot { margin: 0; }
+.evidence-shot img, .evidence-video { display: block; max-width: 100%; height: auto; border: 1px solid var(--border-1); border-radius: var(--radius-sm); }
+.evidence-shot figcaption { margin-top: 2px; color: var(--text-2); font-size: var(--text-xs); }
+.gate-evidence-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin: var(--space-1) 0 0; font-size: var(--text-sm); }
+.gate-evidence-actions:empty { display: none; }
+
 /* ---------- Preview pane: the header's ? help, the tidy lists, Try it's fold ---------- */
 
 .preview-head { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }

@@ -156,11 +156,11 @@ export async function runDoctor(opts = {}) {
   const signedIn = claudePath ? await claudeSignedIn({ home, env, platform, readFile }) : false;
   checks.push(check('claude-login', 'Claude Code signed in', { ok: signedIn, found: claudePath ? (signedIn ? 'signed in' : 'not signed in') : 'Claude Code isn’t installed yet', fix: 'claude   (then type /login, and /exit when it says you are signed in)' }));
 
-  // Playwright's browser (a warning only, until evidence recording, packet L, is in)
+  // Playwright's browser: a warning only, since a job records its evidence only when it can (lib/evidence.js BROWSER_FIX says the same fix)
   let chromium = false;
   const pwDir = playwrightDir({ platform, env, home });
   try { chromium = (await readdir(pwDir)).some((n) => /^chromium/i.test(n)); } catch { chromium = false; }
-  checks.push(check('playwright', 'Playwright’s browser (Chromium)', { ok: chromium, found: chromium ? `in ${pwDir}` : 'not found (only needed once screenshots and videos of a job’s checks are recorded)', fix: 'npx playwright install chromium', needed: false, runnable: true }));
+  checks.push(check('playwright', 'Playwright’s browser (Chromium)', { ok: chromium, found: chromium ? `in ${pwDir}` : 'not found (needed to record screenshots and videos of a job’s checks)', fix: 'npx playwright install chromium', needed: false, runnable: true }));
 
   // Postgres tools
   const psql = await pgTool('psql', { platform, env, readdir, ...(exists ? { exists } : {}) });
