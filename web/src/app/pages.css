@@ -116,3 +116,73 @@
   .inbox-table .cell-who { grid-area: who; align-self: center; }
   .inbox-table .cell-act { grid-area: act; }
 }
+
+/* ---------- The seven stops ---------- */
+.stop-map { display: flex; align-items: flex-start; margin: 0; padding: 0; list-style: none; }
+.stop { position: relative; flex: 1; display: flex; justify-content: center; min-width: 0; }
+/* The line between stops: solid up to where the job is, dashed after. */
+.stop + .stop::before { content: ''; position: absolute; top: 14px; right: 50%; width: 100%; border-top: 2px solid var(--status-ok); z-index: 0; }
+.stop.is-next::before, .stop.is-skipped::before { border-top-style: dashed; border-top-color: var(--border-2); }
+.stop-link { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: var(--space-1); min-width: 0; padding: 0 var(--space-1); color: var(--text-2); font-size: var(--text-xs); text-decoration: none; border-radius: var(--radius-sm); }
+a.stop-link:hover { color: var(--text-1); text-decoration: none; }
+a.stop-link:hover .stop-dot { box-shadow: 0 0 0 3px var(--hover-bg); }
+a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.stop-dot { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--border-2); background: var(--bg-1); color: var(--text-3); transition: box-shadow var(--dur-fast) var(--ease-out); }
+.stop.is-done .stop-dot { border-color: var(--status-ok); background: var(--status-ok-bg); color: var(--status-ok); }
+.stop.is-now .stop-dot { border-color: var(--lane-working-line); background: var(--lane-working-bg); color: var(--lane-working-fg); }
+.stop.is-waiting .stop-dot { border-color: var(--lane-needs-you-line); background: var(--lane-needs-you-line); color: var(--bg-0); }
+.stop.is-skipped .stop-dot { border-style: dashed; }
+.stop.is-skipped .stop-name { text-decoration: line-through; }
+.stop.is-waiting .stop-name, .stop.is-now .stop-name, .stop.is-current .stop-name { color: var(--text-1); font-weight: var(--weight-bold); }
+.stop.is-current .stop-dot { box-shadow: 0 0 0 3px var(--accent); }
+.stop-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.stop-map.is-compact .stop + .stop::before { top: 9px; }
+.stop-map.is-compact .stop-dot { width: 20px; height: 20px; border-width: 1.5px; }
+
+/* ---------- The Desk, one at a time ---------- */
+.gate-actions[hidden] { display: none; }
+.page-desk.has-grid { background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px); background-size: 24px 24px; }
+.desk-one { width: 100%; max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-3); }
+.desk-qbar { display: flex; align-items: center; gap: var(--space-2); }
+.desk-dots { display: inline-flex; gap: 5px; }
+.desk-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--lane-needs-you-line); opacity: .55; }
+.desk-dots-more { font-size: var(--text-xs); color: var(--text-2); margin-left: 2px; }
+.desk-dot.is-current { background: var(--accent); opacity: 1; outline: 2px solid var(--accent-soft); }
+.desk-console { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-5); border: 1px solid var(--border-2); border-radius: var(--radius-xl); background: var(--bg-1); box-shadow: var(--shadow-1); }
+.desk-console:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.desk-console.is-call { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-1); }
+.desk-console-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.desk-console-title { font-weight: var(--weight-medium); }
+.desk-say { display: flex; flex-direction: column; gap: var(--space-1); }
+.desk-head { margin: 0; font-size: var(--text-xl); line-height: 1.25; }
+.desk-sub { margin: 0; color: var(--text-2); }
+.desk-brief-fold .fold-head { width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+.desk-calls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }
+.desk-calls.is-call { display: grid; grid-template-columns: 1fr 1fr 1.5fr; }
+.desk-calls.is-call .btn { justify-content: center; min-height: 56px; font-size: var(--text-md); }
+.desk-decided-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
+.desk-decided-list li { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+/* The queue drawer, from the right. */
+.drawer-backdrop { justify-content: flex-end; align-items: stretch; padding: 0; }
+.drawer { width: min(420px, 100%); height: 100%; overflow: auto; background: var(--bg-2); border-left: 1px solid var(--border-2); box-shadow: var(--shadow-2); display: flex; flex-direction: column; }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-1); }
+.drawer-head h3 { margin: 0; font-size: var(--text-md); }
+.drawer-list { margin: 0; padding: var(--space-2); list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
+.drawer-list .desk-item { width: 100%; }
+
+@media (max-width: 760px) {
+  .desk-console { padding: var(--space-4); }
+  .desk-console .stop-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .desk-console .stop-dot { width: 22px; height: 22px; }
+  .desk-console .stop + .stop::before { top: 11px; }
+  .desk-head { font-size: var(--text-lg); }
+  /* The two calls side by side, Reply under them. */
+  .desk-calls.is-call { grid-template-columns: 1fr 1fr; }
+  .desk-calls.is-call .desk-call-reply { order: 3; grid-column: 1 / -1; }
+  .desk-calls.is-call .desk-call-no { order: 1; }
+  .desk-calls.is-call .desk-call-go { order: 2; }
+  .desk-calls.is-call .btn { white-space: normal; }
+  .call-long, .desk-qbar-words { display: none; }
+  .desk-qbar b { white-space: nowrap; }
+}

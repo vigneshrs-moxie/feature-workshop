@@ -27,6 +27,7 @@ import { NotFoundView } from '../views/NotFound/NotFoundView';
 import { ScreensView } from '../views/Screens/ScreensView';
 import { IntegrateBoard } from '../views/Integrate';
 import { InboxView } from '../views/Inbox';
+import { DeskPage } from '../home/DeskPage';
 import { TelemetryView } from '../views/Telemetry';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
@@ -196,7 +197,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
         {top}
         <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
         <Sheets route={route} />
-        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : route.name === 'integrate' ? <IntegrateBoard /> : route.name === 'telemetry' ? <TelemetryView /> : route.name === 'inbox' ? <InboxView /> : <HomeView view={home ?? 'map'} />}
+        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : route.name === 'integrate' ? <IntegrateBoard /> : route.name === 'telemetry' ? <TelemetryView /> : route.name === 'inbox' ? <InboxView /> : route.name === 'desk' ? <DeskPage /> : <HomeView view={home ?? 'map'} />}
         <PlayToasts />
         <PlayEggs />
       </div>

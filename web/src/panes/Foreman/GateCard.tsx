@@ -120,7 +120,8 @@ function ScreensRow({ slug, hasPage }: { slug: string; hasPage: boolean }) {
   );
 }
 
-export function GateSlot({ job, detail, now, reload }: { job: Job; detail: JobDetail; now: Date; reload(): void }) {
+/** `callsOutside`: the page draws its own big calls (the Desk's Go / No go / Reply) and presses the card's buttons, so the card's row is hidden. */
+export function GateSlot({ job, detail, now, reload, callsOutside = false }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean }) {
   const { runs } = useWorkshopState();
   const [notice, setNotice] = useState<GateNotice | null>(null);
   const [memoRaw, setMemo] = useStored(gateDraftKey(job.slug));
@@ -174,7 +175,7 @@ export function GateSlot({ job, detail, now, reload }: { job: Job; detail: JobDe
           </div>
         </section>
       ) : (
-        <GateCard key={`${job.slug}#${gate.briefNumber ?? '-'}`} job={job} detail={detail} gate={gate} now={now} reload={reload} report={setNotice} running={running} />
+        <GateCard key={`${job.slug}#${gate.briefNumber ?? '-'}`} job={job} detail={detail} gate={gate} now={now} reload={reload} report={setNotice} running={running} callsOutside={callsOutside} />
       ))}
     </>
   );
@@ -182,8 +183,8 @@ export function GateSlot({ job, detail, now, reload }: { job: Job; detail: JobDe
 
 type Mode = null | 'changes' | 'message' | 'stop';
 
-function GateCard({ job, detail, gate, now, reload, report, running }: {
-  job: Job; detail: JobDetail; gate: Gate; now: Date; reload(): void; report(n: GateNotice): void;
+function GateCard({ job, detail, gate, now, reload, report, running, callsOutside = false }: {
+  job: Job; detail: JobDetail; gate: Gate; now: Date; reload(): void; report(n: GateNotice): void; callsOutside?: boolean;
   /** The Foreman is working on a reply for this job right now. */
   running: boolean;
 }) {
@@ -523,8 +524,8 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
           </ul>
         </div>
       )}
-      <div className="perm-actions gate-actions">
-        <button type="button" className="btn btn-primary" disabled={busy || approveOff} onClick={() => void act('approve')} title={approveOff ? `Off: ${offReasons[0]}` : approveHint}>
+      <div className="perm-actions gate-actions" hidden={callsOutside}>
+        <button type="button" className="btn btn-primary" data-gate="approve" disabled={busy || approveOff} onClick={() => void act('approve')} title={approveOff ? `Off: ${offReasons[0]}` : approveHint}>
           {approve}{oneKeyGateApprove(gate, job.waitingFor) && <Kbd id="gate-approve" />}
         </button>
         {limited && (
@@ -542,10 +543,10 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
           <button ref={editBtn} type="button" className="link-button" disabled={busy || stale} onClick={openEdit} title={stale ? staleHint : 'See the whole reply exactly as the Foreman will receive it, edit it, then send it as your approval.'}>
             Edit, then approve<Kbd id="gate-edit" />
           </button>
-          <button type="button" className="link-button" disabled={busy} aria-expanded={mode === 'changes'} onClick={() => openMode('changes')} title="Ask for changes: the Foreman stays in this stage and revises. Nothing is approved.">
+          <button type="button" className="link-button" data-gate="revise" disabled={busy} aria-expanded={mode === 'changes'} onClick={() => openMode('changes')} title="Ask for changes: the Foreman stays in this stage and revises. Nothing is approved.">
             Revise with feedback<Kbd id="gate-revise" />
           </button>
-          <button type="button" className="link-button" disabled={busy} aria-expanded={mode === 'message'} onClick={() => openMode('message')} title="Tell the Foreman something else: a question or guidance. Nothing is approved.">
+          <button type="button" className="link-button" data-gate="guidance" disabled={busy} aria-expanded={mode === 'message'} onClick={() => openMode('message')} title="Tell the Foreman something else: a question or guidance. Nothing is approved.">
             Other guidance<Kbd id="gate-guidance" />
           </button>
         </span>

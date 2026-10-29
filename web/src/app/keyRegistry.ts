@@ -89,6 +89,8 @@ export const KEYS = {
   'desk-open': { keys: ['o'], label: 'Open the job', scope: 'desk' },
   'desk-approve': { keys: ['a'], label: 'Approve, or Allow once', scope: 'desk', where: 'Never for a hard line, a risky step or a question.' },
   'desk-deny': { keys: ['d'], label: 'Deny a permission', scope: 'desk', where: 'On a nudge: put it away.' },
+  'desk-send-back': { keys: ['r'], label: 'No go: send back', scope: 'desk', where: 'On a go-ahead: say what to change.' },
+  'desk-reply': { keys: ['c'], label: 'Reply without deciding', scope: 'desk', where: 'On a go-ahead; elsewhere c is New job.' },
   'desk-brief': { keys: ['b'], label: 'Show or hide the brief', scope: 'desk', where: 'On a go-ahead.' },
   // The Map (Home)
   'map-next': { keys: ['j'], label: 'Highlight the next row', scope: 'map' },

@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
 import type { FlowView, Job, Permission, Settings } from '../api/types';
 import { App } from '../app/App';
@@ -197,6 +197,9 @@ describe('Home: the Table’s keys', () => {
 });
 
 describe('Home: the Desk', () => {
+  // These are the Three columns layout (Settings → Look → Desk layout); One at a time is in DeskPage.test.tsx.
+  beforeEach(() => { localStorage.setItem('gc.desk.layout', 'columns'); });
+  afterEach(() => { localStorage.removeItem('gc.desk.layout'); });
   it('queues every decision; j moves on, a allows a permission once, and a hard line is never one-key approved', async () => {
     const perms: Permission[] = [
       { ...permission('p1', 'beta'), createdAt: '2026-10-21T08:00:00Z' },
@@ -205,9 +208,8 @@ describe('Home: the Desk', () => {
     const { post } = renderApp({ hash: '#/desk', permissions: perms });
     const queue = await screen.findByRole('navigation', { name: 'Waiting for your decision' });
     expect(within(queue).getAllByRole('button').map((b) => b.querySelector('.desk-item-what')?.textContent)).toEqual(['Run a command', 'Go-ahead on Plan', 'Push the branch']);
-    // The count is in the top bar; the Desk tab says it to screen readers only.
-    expect(screen.getByRole('link', { name: 'Desk, 3 waiting' })).toHaveAttribute('href', '#/desk');
-    expect(screen.getByRole('link', { name: 'Desk, 3 waiting' }).querySelector('.home-view-count')).toBeNull();
+    // The count is in the top bar.
+    expect(screen.getByRole('link', { name: 'Desk, 3 waiting for you' })).toHaveAttribute('href', '#/desk');
     fireEvent.keyDown(document.body, { key: 'a' });
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/permissions/p1', expect.objectContaining({ decision: 'allow' })));
     fireEvent.keyDown(document.body, { key: 'j' });
