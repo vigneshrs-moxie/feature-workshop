@@ -59,6 +59,15 @@
 // says so, and the answer is refused with JobLocked. Each outcome is a 'pr-feedback' event
 // ({ outcome: 'sent' | 'queued' | 'left' | 'waiting', featureDir, slug, item, … }); the runner
 // writes the audit lines and pr-feedback.json.
+//
+// Stacks (plan §6, lib/stack.js): startSection(...) starts a section's Foreman, a child job of a
+// stack, with the section's model and effort. Every reply of a section's job (the first and every
+// later one, whoever sends it) gets one more PreToolUse hook, on Edit|Write|MultiEdit|NotebookEdit:
+// a write outside the section's owned paths, or outside its worktree, is refused with "This section
+// may only change: <paths>." (its job folder stays writable), and recorded as the audit line
+// 'outside-owned-refused'. ownedFor(featureDir) says whether a job is a section (default: its
+// status.json names a stack and a section, read with lib/stack.js sectionOwnership). The Bash
+// hard-line hook is unchanged; the merge check catches what Bash writes.
 
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
@@ -75,6 +84,7 @@ import { readOptions } from './options.js';
 import { HttpError } from './http-guard.js';
 import { scrubDeep } from './orbit.js';
 import { FEEDBACK_LEAVE, FEEDBACK_SEND, cardWords, feedbackMessage } from './pr-feedback.js';
+import { WRITE_TOOLS_MATCHER, ownedPathsHook, sectionOwnership } from './stack.js';
 
 /** How many corrective messages one run of invalid status.json writes gets before the card. */
 export const STATUS_RETRIES = 3;
@@ -125,8 +135,10 @@ export class Driver extends EventEmitter {
    * queryFn: the SDK's query() (injectable for tests).
    * state: State instance. projectsDir: where Claude Code keeps session logs.
    */
-  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, settingsFor = null, envFor = null, locks = jobLock, statusWatch = watchStatusFile, statusRetries = STATUS_RETRIES, ticketKeyFor = ticketKeyOf, feedbackSession = null }) {
+  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, settingsFor = null, envFor = null, locks = jobLock, statusWatch = watchStatusFile, statusRetries = STATUS_RETRIES, ticketKeyFor = ticketKeyOf, feedbackSession = null, ownedFor = sectionOwnership }) {
     super();
+    // Stacks: ownedFor(featureDir) -> { section, owns, worktree, jobDir } for a section's job, else null.
+    this.ownedFor = ownedFor;
     // PR feedback cards (see the top): id -> card, and the messages waiting for a reply to end, by job folder.
     // feedbackSession(featureDir) -> { sessionId, slug, title, cwd, model, additionalDirectories }
     // to resume, or { refused: 'plain words' }; null: the job's saved session (state.sessionFor).
@@ -222,7 +234,7 @@ export class Driver extends EventEmitter {
    * text: the exact message to send. sessionId: resume this session (null = new session).
    * gateBrief: the brief a gate card's reply answers (its number), kept on the audit 'send' line.
    */
-  async start({ featureDir, slug, title, cwd, sessionId = null, model = null, text, kind = 'message', newJob = false, additionalDirectories = [], gateBrief = null }) {
+  async start({ featureDir, slug, title, cwd, sessionId = null, model = null, effort = null, text, kind = 'message', newJob = false, additionalDirectories = [], gateBrief = null, owned = undefined }) {
     // Asked before the busy check, so nothing is awaited between that check and the run being listed.
     let mode = null;
     if (this.modeFor) { try { mode = await this.modeFor({ featureDir, slug }); } catch { mode = null; } }
@@ -236,7 +248,7 @@ export class Driver extends EventEmitter {
       lock = got?.lock ?? null;
     }
     const run = {
-      id: randomUUID(), featureDir, slug, title, cwd, sessionId, model, text, kind, newJob,
+      id: randomUUID(), featureDir, slug, title, cwd, sessionId, model, effort, text, kind, newJob, owned,
       status: 'starting', startedAt: new Date().toISOString(), endedAt: null,
       lastText: null, lastAction: null, resultText: null, costUsd: null, apiKeySource: null, error: null,
       denials: [], stderr: [], pending: new Map(), abort: new AbortController(), query: null, stopRequested: false,
@@ -262,6 +274,15 @@ export class Driver extends EventEmitter {
     this.#launch(run).catch(() => {});
     this.emit('run', this.view(run));
     return this.view(run);
+  }
+
+  /**
+   * Start a stack section's Foreman (runner/stacks.js): a new job in the section's folder, run in
+   * its worktree with the section's model and effort, its writes kept to `owned` ({ section,
+   * owns, worktree, jobDir }) from the first reply on. Throws as start() does.
+   */
+  startSection({ featureDir, slug, title, cwd, model = null, effort = null, text, owned, additionalDirectories = [] }) {
+    return this.start({ featureDir, slug, title, cwd, model, effort, text, kind: 'stack-section', newJob: true, additionalDirectories, owned: owned ?? undefined });
   }
 
   async #launch(run) {
@@ -303,9 +324,17 @@ export class Driver extends EventEmitter {
     };
     if (run.sessionId) options.resume = run.sessionId;
     if (run.model) options.model = run.model;
+    if (run.effort) options.effort = run.effort;
     if (this.cliPath) options.pathToClaudeCodeExecutable = this.cliPath;
 
     try {
+      // A stack's section: its writes stay inside its owned paths (see the top).
+      let owned = run.owned;
+      if (owned === undefined && this.ownedFor && run.featureDir) { try { owned = await this.ownedFor(run.featureDir); } catch { owned = null; } }
+      if (owned?.owns?.length) {
+        run.owned = owned;
+        options.hooks.PreToolUse.push({ matcher: WRITE_TOOLS_MATCHER, hooks: [ownedPathsHook(owned, (verdict, input) => this.#onOutsideOwned(run, verdict, input))] });
+      }
       await this.#watchStatus(run);
       if (this.settingsFor) {
         try { const settings = await this.settingsFor(run); if (settings) options.settings = settings; } catch { /* the session starts without them */ }
@@ -781,6 +810,21 @@ export class Driver extends EventEmitter {
   async #onHardLine(run, verdict, input) {
     if (verdict.decision !== 'deny') return;
     await this.#recordRefusal(run, input?.tool_name ?? 'Bash', input?.tool_input ?? {}, verdict, input?.tool_use_id, input?.agent_id);
+  }
+
+  // The owned-paths hook refused a section's write (see the top): recorded once, like a hard line.
+  async #onOutsideOwned(run, verdict, input) {
+    const id = input?.tool_use_id;
+    if (id) {
+      if (run.deniedIds.has(id)) return;
+      run.deniedIds.add(id);
+    }
+    await this.state.audit({
+      action: 'outside-owned-refused', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id,
+      tool: input?.tool_name ?? 'Write', agentType: await this.#agentType(run, input?.agent_id), file: verdict.file ?? undefined,
+      section: run.owned?.section ?? undefined, reason: verdict.reason,
+    });
+    this.emit('run', this.view(run));
   }
 
   async #recordRefusal(run, toolName, input, verdict, toolUseId, agentID) {

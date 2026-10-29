@@ -61,6 +61,13 @@ database:
 setup:
   - "cd app && npm install"
   - "cd app && npx prisma generate"
+# Stacks: a big ticket split into sections (stack.md). Each section gets its own worktree and
+# branch, made from the stack's branch; after each section merges into it, these checks run there.
+sectionWorktree: "../orbit-{n}-{section}"
+sectionBranch: "{kind}/orbit-{n}-{section}"
+checks:
+  - "cd app && npm run check"
+  - "cd app && npm run build"
 # Ground Control removes the worktree itself when you mark the job done and everything is on GitHub.
 cleanup:
   - "git worktree remove ../orbit-{slug}"
@@ -80,5 +87,9 @@ How work is done in Orbit, for Ground Control and for people reading this.
 - **Try it on your computer** runs the app in `app/` on its own port from 3001 to 3099, with
   `app/.env.local` copied from your main checkout, pointed at that port and with sign-in skipped
   (`DEV_BYPASS_AUTH=true`). The app only listens on this computer.
+- **A stack** (a big ticket split into sections) gives each section the worktree
+  `orbit-<number>-<section>` and the branch `feature/orbit-<number>-<section>`, made from the
+  stack's own branch, and a port from the same range. After each section merges into the stack's
+  branch, `npm run check` and `npm run build` run in `app/`; a failure undoes that merge.
 - **Setup** (run these yourself in a new worktree for now): `npm install` and `npx prisma generate`
   in `app/`. Ground Control doesn't run them by itself yet.

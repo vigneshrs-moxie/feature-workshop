@@ -28,11 +28,12 @@ import integrateRoutes from './routes-integrate.js';
 import orbitRoutes from './routes-orbit.js';
 import telemetryRoutes from './routes-telemetry.js';
 import reposRoutes from './routes-repos.js';
+import stacksRoutes from './routes-stacks.js';
 
 // Every list of routes, in the order they are tried.
 const ROUTE_LISTS = [boardRoutes, jobRoutes, settingsRoutes, playRoutes, reposRoutes];
 // The parts that answer every method under their own prefix, tried before the lists above.
-const MOUNTS = [integrateRoutes, orbitRoutes, telemetryRoutes];
+const MOUNTS = [integrateRoutes, stacksRoutes, orbitRoutes, telemetryRoutes];
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.md': 'text/markdown; charset=utf-8' };
 

@@ -77,6 +77,7 @@ import { EVENT_TYPES, NOTES_MAX, parseCommand } from '../lib/protocol.js';
 import { JobLocked, heldElsewhere } from '../lib/lock.js';
 import { RESTART_TEXT, RESUME_KIND, replay, withRestartNotes } from './replay.js';
 import { removeServiceFile, writeServiceFile } from './service-file.js';
+import { createStacks } from './stacks.js';
 import { itemSummary, lookAt, noteFeedback, readFeedback } from '../lib/pr-feedback.js';
 
 /** The Foreman models the page offers (meta.models); a reply's model must be one of them. */
@@ -2217,6 +2218,7 @@ export async function createRunner(config) {
       },
     },
     integrator,
+    stacks: createStacks({ driver, state, featuresDir: FEATURES_DIR, registry: local.registry, integrator, readDirs, models: MODELS.map((m) => m.id), onChange: () => { cached = null; notifyChange(); }, onSettings: settingsChanged }), // Stacks (packet K): runner/stacks.js
     /** An integration board refusal (lib/integrate.js IntegrateError) as the answer the page has always had. */
     integrateHttpError: (err) => (err instanceof IntegrateError ? new HttpError(err.status, err.message) : err),
     /** Something outside the runner changed what the page shows (the screens server went down): every page fetches again. */

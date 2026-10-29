@@ -379,6 +379,8 @@ export interface WorkflowSettings {
   clarify?: WorkflowChoice;
   /** Let the dashboard pick each job's level (dashboard/lib/auto-level.js). Off by default. */
   autoLevel?: boolean;
+  /** Sections of stacks that build at once, across every stack (1 to 20; absent: the default, 3). Saved by POST /api/stacks/cap. */
+  sectionsAtOnce?: number;
 }
 
 /** The dashboard's settings (meta.settings; also sent whole in the 'settings' live event). */
@@ -1025,4 +1027,144 @@ export interface Decision {
 export interface RunTypical {
   all: number | null;
   byKind: Record<string, number>;
+}
+
+// ---------- Stacks (dashboard/lib/stack.js describeStack, runner/stacks.js, /api/stacks/*) ----------
+
+/** Sections at once across every stack (Settings → Workflow), when the dashboard hasn't said. */
+export const DEFAULT_SECTIONS_AT_ONCE = 3;
+export const MAX_SECTIONS_AT_ONCE = 20;
+
+/** A section's state in stack.json (plan §6.3); each comes with its words (StackPart.stateWords). */
+export type StackSectionState = 'pending' | 'running' | 'blocked' | 'ready' | 'integrated' | 'failed';
+/** Where a stack is: its plan waits for approval, its sections build, they merge, it waits for the push, it is pushed. */
+export type StackPhase = 'plan' | 'build' | 'merge' | 'push' | 'pushed';
+export type StackStepId = 'plan' | 'build' | 'merge' | 'push';
+
+/** One of the four steps, Plan, Build, Merge and Push, with its state and the same in words. */
+export interface StackStep {
+  id: StackStepId;
+  label: string;
+  state: 'done' | 'now' | 'next';
+  words: string;
+}
+
+/** The one next thing on a stack: the button (label and key) and the sentence that says why. */
+export interface StackNext {
+  action: 'approve-plan' | 'fix-plan' | 'wait' | 'open-part' | 'hand-back' | 'merge' | 'push' | 'open-job';
+  label: string | null;
+  key: string | null;
+  /** The section the action is about (merge, open, hand back). */
+  section?: string;
+  words: string;
+}
+
+/** Why a section was stopped at its merge, or came back: a clash, files outside its owned paths, nothing to merge, failed checks. */
+export interface StackProblem {
+  kind: 'conflict' | 'outside' | 'empty' | 'checks';
+  words: string;
+  files: string[];
+  /** The end of the failed check's output. */
+  tail?: string;
+}
+
+/** One section of a stack, in merge order. */
+export interface StackPart {
+  /** Its place in the merge order, from 1. */
+  n: number;
+  name: string;
+  brief: string;
+  owns: string[];
+  dependsOn: string[];
+  state: StackSectionState;
+  stateWords: string;
+  /** Why it waits, or what went wrong, in one sentence (null when there is nothing to say). */
+  reason: string | null;
+  /** How far its own job has got: step of 4 (plan, implement, test, review), and in words. */
+  progress: { stage: string | null; step: number; of: number; words: string };
+  /** Its Foreman's reply right now (running, waiting_permission…), or null when none is running. */
+  run: string | null;
+  /** Its job folder's name (<parent>--<section>), once started. */
+  slug: string | null;
+  branch: string | null;
+  worktree: string | null;
+  port: number | null;
+  failures: number;
+  stuck: boolean;
+  problem: StackProblem | null;
+  model: string | null;
+  effort: string | null;
+  mergedAt: string | null;
+  mergeSha: string | null;
+}
+
+/** One line of stack.json's log: what happened when, in words. */
+export interface StackLogLine {
+  at: string;
+  event: string;
+  words: string;
+  section?: string;
+  [key: string]: unknown;
+}
+
+/** One stack (GET /api/stacks/:slug and the answer of every POST on it). */
+export interface StackView {
+  slug: string;
+  title: string | null;
+  ticketKey: string | null;
+  phase: StackPhase;
+  steps: StackStep[];
+  next: StackNext;
+  /** stack.md as read now (null when there is none yet): its problems, and whether it changed after approval. */
+  plan: { ok: boolean; errors: string[]; warnings: string[]; changedSinceApproval: boolean } | null;
+  approved: boolean;
+  /** Sections at once for this stack. */
+  cap: number;
+  /** "Merge on its own": pushing waits for a go whatever this says. */
+  autoIntegrate: boolean;
+  model: string;
+  effort: string;
+  coordinatorEffort: string;
+  /** Sections at once across every stack (Settings → Workflow), and how many build now. */
+  globalCap: number;
+  globalRunning: number;
+  running: number;
+  parentBranch: string | null;
+  parentWorktree: string | null;
+  repo: string | null;
+  push: { state: 'waiting' | 'declined' | 'approved' | 'pushed'; approvedAt: string | null; pushedAt: string | null; note: string | null; remote: string | null } | null;
+  nextToMerge: string | null;
+  /** What runs on the stack now (a merge and its checks), or null. */
+  busy: { what: string; section?: string; words: string } | null;
+  parts: StackPart[];
+  /** Newest first. */
+  log: StackLogLine[];
+  /** The parent's Foreman: whether it has a session here, the messages waiting for it, and what it was told. */
+  coordinator: {
+    session: boolean;
+    waiting: { at: string; kind: string; words: string }[];
+    told: { at: string; kind: string; words: string; sent: boolean; to: string | null }[];
+  } | null;
+}
+
+/** One stack's line on the Stacks list. */
+export interface StackSummary {
+  slug: string;
+  title: string | null;
+  ticketKey: string | null;
+  phase: StackPhase;
+  steps: StackStep[];
+  parts: number;
+  /** How many sections are in each state. */
+  counts: Partial<Record<StackSectionState, number>>;
+  /** What it needs, in words. */
+  needs: string;
+  action: StackNext['action'];
+}
+
+/** GET /api/stacks. */
+export interface StacksList {
+  stacks: StackSummary[];
+  globalCap: number;
+  globalRunning: number;
 }
