@@ -48,7 +48,7 @@ describe('Settings: the rail', () => {
     expect(railValue('Notifications')).toBe('Needs you and Problems on');
     expect(railValue('Look')).toBe('Default · M · One at a time · Four lanes · Play subtle');
     expect(railValue('Keys')).toBe('On');
-    expect(railValue('Workflow')).toBe('Finish line: PR #1 merged');
+    expect(railValue('Workflow')).toBe('Finish line: PR #1 merged · GitHub every 1 min');
     expect(railValue('Play')).toBe('Subtle');
     await waitFor(() => expect(railValue('Rules')).toBe('3 rules'));
     // One section at a time: Permissions is open, nothing else.

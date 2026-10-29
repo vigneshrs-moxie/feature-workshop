@@ -2,7 +2,7 @@
 //
 // A view registers the keys it answers for with useKeyScope(scope, handlers, active) while it is
 // mounted; App installs the single document listener (useKeyListener). A key goes to the
-// highest-priority active scope that binds it (desk > alert > gate > stage > stack > job > jobs > inbox >
+// highest-priority active scope that binds it (desk > alert > review > gate > stage > stack > job > jobs > inbox >
 // map > rows > table > settings > sheet > global), so the Desk's j and k win over the page's, and
 // the Map's over the Jobs list's. Rules, the same everywhere:
 //   - single-letter keys never fire while you type in a field, or while a dialog is open;
@@ -17,10 +17,10 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { readKeysSetting } from './keysSetting';
 
-export type KeyScope = 'global' | 'rows' | 'job' | 'stage' | 'stack' | 'alert' | 'gate' | 'desk' | 'jobs' | 'inbox' | 'map' | 'table' | 'settings' | 'sheet';
+export type KeyScope = 'global' | 'rows' | 'job' | 'stage' | 'stack' | 'alert' | 'review' | 'gate' | 'desk' | 'jobs' | 'inbox' | 'map' | 'table' | 'settings' | 'sheet';
 
 /** Highest priority first: the scope that gets the key when several bind it. */
-export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'alert', 'gate', 'stage', 'stack', 'job', 'jobs', 'inbox', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
+export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'alert', 'review', 'gate', 'stage', 'stack', 'job', 'jobs', 'inbox', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
 
 /** Each scope in the ? sheet: its title and where its keys work, in plain words. */
 export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
@@ -30,6 +30,7 @@ export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
   stage: { title: 'A stop of a job', where: 'On a stop’s page (the Stage).' },
   stack: { title: 'A stack', where: 'On a stack’s page, when the next-step bar offers it.' },
   alert: { title: 'The permission alert', where: 'While a permission waits at the top of a job or a stop.' },
+  review: { title: 'A review round', where: 'On a job’s Ship stop while its pull request is in review.' },
   gate: { title: 'The gate card', where: 'While a gate card waits for your decision, on the job or on the Desk.' },
   desk: { title: 'The Desk', where: 'On the Desk, while something waits for you.' },
   jobs: { title: 'The Jobs page', where: 'On Jobs, the four lanes.' },
@@ -67,6 +68,7 @@ export const KEYS = {
   'go-desk': { keys: ['g d'], label: 'Go to the Desk', scope: 'global' },
   'go-settings': { keys: ['g s'], label: 'Go to Settings', scope: 'global' },
   'go-crew': { keys: ['g x'], label: 'Go to the Crew-dex (Play mode)', scope: 'global' },
+  'github-check': { keys: ['u'], label: 'Check GitHub now', scope: 'global', where: 'Where the GitHub line shows: Jobs and a job’s Ship stop.' },
   'close': { keys: ['Escape'], label: 'Close the menu, sheet or drawer on top', scope: 'global', always: true, listOnly: true },
   // Jobs
   'next-job': { keys: ['j'], label: 'Open the next job', scope: 'rows' },
@@ -91,6 +93,12 @@ export const KEYS = {
   // The permission alert
   'alert-allow': { keys: ['a'], label: 'Allow once', scope: 'alert', where: 'Never for a hard line or a risky step.' },
   'alert-deny': { keys: ['d'], label: 'Deny (you can say why)', scope: 'alert' },
+  // A review round (packet Q)
+  'review-go': { keys: ['a'], label: 'Go: the round’s next step (fix with the Foreman, send back, try again)', scope: 'review', where: 'Never merges: merging asks first.' },
+  'review-no-go': { keys: ['r'], label: 'No go: leave it for now, or not yet', scope: 'review' },
+  'review-open': { keys: ['o'], label: 'Go to the round’s items', scope: 'review' },
+  'review-pr': { keys: ['p'], label: 'Open the pull request on GitHub', scope: 'review' },
+  'review-merge': { keys: ['m'], label: 'Merge…: shows the ask first (a hard line)', scope: 'review', where: 'When you are the one who merges.' },
   // The gate card
   'gate-approve': { keys: ['a'], label: 'Approve', scope: 'gate', where: 'Only when the card asks no questions and the plan hasn’t changed.' },
   'gate-edit': { keys: ['e'], label: 'Edit, then approve', scope: 'gate' },

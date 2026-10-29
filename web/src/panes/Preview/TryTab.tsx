@@ -83,7 +83,7 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
     try {
       const view = await api.get<LocalView>(`${base}${fresh ? '?fresh=1' : ''}`);
       setV((prev) => {
-        if (prev?.server?.status !== 'running' && view.server?.status === 'running' && prev) setNote({ text: 'The app is ready.', tone: 'good' });
+        if (prev?.server?.status !== 'running' && view?.server?.status === 'running' && prev) setNote({ text: 'The app is ready.', tone: 'good' });
         return view;
       });
       setError(null);

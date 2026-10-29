@@ -17,10 +17,13 @@ kinds:
 worktree: "../orbit-{slug}"
 
 # Fork branch, then the same-named org branch, then staging, then main (skills/ship/SKILL.md).
+# In the brackets: who reviews and who merges each one (review rounds, lib/review-round.js reads
+# them): "<who> reviews it", "<who> reviews and merges it", "<who> merges it", "you may merge it",
+# and "@login" after a name for that person's GitHub login.
 prRoute:
   - "PR #1: your fork's branch into the same-named branch on moxie (you review and merge it)"
-  - "PR #2: the moxie branch into staging (Raj reviews it)"
-  - "PR #3: staging into main (the release)"
+  - "PR #2: the moxie branch into staging (Raj @rajmehta0311 reviews and merges it)"
+  - "PR #3: staging into main (the release owner reviews and merges it)"
 
 # Changes here raise the review level to at least the one given (as lib/level-rules.js does today).
 riskFloors:
@@ -84,6 +87,9 @@ How work is done in Orbit, for the app and for people reading this.
   Its worktree is the folder `orbit-<that name>` next to your main checkout.
 - **Pull requests** go from your fork's branch to the org branch of the same name (PR #1), then to
   `staging` (PR #2), then `staging` to `main` (PR #3). `skills/ship/SKILL.md` has the details.
+- **Who reviews and merges.** You review and merge PR #1. Raj reviews PR #2 and merges it; when he
+  asks for changes, the fix goes to your fork, then by a follow-up PR #1 onto the moxie branch, and
+  he is asked again (`skills/ship/review-rounds.md`). The release owner reviews and merges PR #3.
 - **Try it on your computer** runs the app in `app/` on its own port from 3001 to 3099, with
   `app/.env.local` copied from your main checkout, pointed at that port and with sign-in skipped
   (`DEV_BYPASS_AUTH=true`). The app only listens on this computer.

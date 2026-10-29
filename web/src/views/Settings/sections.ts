@@ -10,7 +10,7 @@ import { TEXT_SIZE_LABELS, type TextSize } from '../../theme/textSize';
 import { THEMES } from '../../theme/theme';
 import { LEVELS, NOTIFY_DEFAULTS } from './NotifySettings';
 import { PLAY_MODE_CHOICES } from './PlaySettings';
-import { finishLineLabel } from './WorkflowSettings';
+import { finishLineLabel, githubEveryLine } from './WorkflowSettings';
 import { BRAND } from '../../app/brand';
 
 export const SECTION_WORDS: Record<SettingsSection, { label: string; hint: string }> = {
@@ -18,7 +18,7 @@ export const SECTION_WORDS: Record<SettingsSection, { label: string; hint: strin
   notifications: { label: 'Notifications', hint: 'What the dashboard tells macOS, and this browser’s own alerts.' },
   look: { label: 'Look', hint: 'Theme, text size, following the system’s light or dark, the Desk and Jobs layouts, the Stack picture, and Play.' },
   keys: { label: 'Keys', hint: 'Keyboard shortcuts on or off, and the key hints on buttons.' },
-  workflow: { label: 'Workflow', hint: 'The finish line, and what a new job starts with.' },
+  workflow: { label: 'Workflow', hint: 'The finish line, how often GitHub is checked, and what a new job starts with.' },
   repos: { label: 'Repos', hint: `The repositories ${BRAND.name} knows, and the profile each one follows.` },
   play: { label: 'Play', hint: 'The workshop crew, achievements and sounds.' },
   rules: { label: 'Rules', hint: 'The “Always allow” rules you saved from permission cards.' },
@@ -82,7 +82,7 @@ export function valueLines(f: SectionFacts): Record<SettingsSection, string> {
     // "Default · M · One at a time · Four lanes · Play full": everything Look sets, in its order.
     look: [theme, TEXT_SIZE_LABELS[f.textSize], f.deskLayout === 'columns' ? 'Three columns' : 'One at a time', f.jobsLayout === 'list' ? 'One list' : 'Four lanes', `Play ${play.toLowerCase()}`].join(' · '),
     keys: f.keysOn ? 'On' : 'Off',
-    workflow: `Finish line: ${finishLineLabel(f.settings?.workflow?.finishLine, f.finishLines)}`,
+    workflow: `Finish line: ${finishLineLabel(f.settings?.workflow?.finishLine, f.finishLines)} · ${githubEveryLine(f.settings)}`,
     repos: 'Profiles for each repository',
     play,
     rules: rulesLine(f.rules),
@@ -120,6 +120,8 @@ export const SETTING_INDEX: SettingEntry[] = [
   { id: 'keys-enabled', label: 'Keyboard shortcuts on or off', section: 'keys', keywords: 'keys hotkeys bindings' },
   { id: 'keys-hints', label: 'Show key hints on buttons', section: 'keys', keywords: 'kbd' },
   { id: 'finish-line', label: 'Finish line: what counts as done', section: 'workflow', keywords: 'pr merged staging main done quest' },
+  { id: 'github-every', label: 'How often to check GitHub while waiting', section: 'workflow', keywords: 'github refresh check pull requests review minutes poll' },
+  { id: 'pr-route', label: 'Who reviews and merges each pull request', section: 'workflow', keywords: 'github reviewer merges route pull request owner' },
   { id: 'wireframes', label: 'Screens (wireframes) for new jobs', section: 'workflow', keywords: 'mockups designs screens wireframe' },
   { id: 'clarify', label: 'Clarify questions for new jobs', section: 'workflow', keywords: 'questions before the spec audience' },
   { id: 'auto-level', label: 'Choose the level for me', section: 'workflow', keywords: 'automatic level l0 l1 l2 l3 suggest' },

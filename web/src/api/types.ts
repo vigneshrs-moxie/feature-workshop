@@ -430,6 +430,8 @@ export interface Settings {
   play?: PlaySettings;
   notify?: NotifySettings;
   workflow?: WorkflowSettings;
+  /** Review rounds (packet Q): how often GitHub is checked while a job waits, and the follow-up PR #1. */
+  review?: Partial<ReviewSettings>;
   [key: string]: unknown;
 }
 
@@ -528,6 +530,24 @@ export interface FlowView {
   checkedAt: string | null;
   refreshing: boolean;
   nextFetchAt: string | null;
+  /** The GitHub line (packet Q): last checked, checking now, why it couldn't. Absent before Q's server. */
+  github?: GithubLine;
+}
+
+/**
+ * The GitHub line (dashboard/lib/flow.js view().github): when GitHub was last checked, whether it is
+ * being checked now, and why it couldn't be (with the line to run, when there is one). everyMs:
+ * how often it is checked now (every minute while a job waits on a reviewer, its checks or the
+ * follow-up PR #1; the setting says 1, 5, 10 or 30 minutes). Check now is POST /api/flow/refresh.
+ */
+export interface GithubLine {
+  checkedAt: string | null;
+  triedAt: string | null;
+  checking: boolean;
+  problem: { words: string; run: string | null } | null;
+  everyMs: number;
+  waiting: boolean;
+  nextAt: string | null;
 }
 
 /** One achievement (dashboard/lib/play.js ACHIEVEMENTS). unlockedAt: null while still to get. */
@@ -1335,6 +1355,250 @@ export interface EvidenceView {
 export interface EvidenceRecordResult extends EvidenceView {
   ok: true;
   started: boolean;
+}
+
+// ---------- Review rounds (packet Q): /api/review (dashboard/lib/review-round.js) ----------
+
+/** A review state: the round's own, or the PR's between rounds. 'held': the lock is held elsewhere (heldState says what is underneath). */
+export type ReviewState =
+  | 'asked' | 'left' | 'fixing' | 'fix-stalled' | 'new-comment' | 'ready' | 'sending' | 'stopped' | 'after-pr1'
+  | 'waiting' | 'check-failed' | 'conflicts' | 'approval-reset' | 'no-reviewer' | 'closed'
+  | 'approved-they-merge' | 'approved-you-merge' | 'merged' | 'held';
+
+/** A round's own state (review/rounds/round-<n>.json). */
+export type RoundState = 'asked' | 'left' | 'fixing' | 'sending' | 'stopped' | 'after-pr1' | 'sent' | 'check-failed' | 'done';
+
+export type ReviewItemKind = 'change' | 'question' | 'nit' | 'check';
+export type ReviewItemState = 'todo' | 'working' | 'fixed' | 'answered' | 'wont_change' | 'left_out';
+
+/**
+ * One action. go: true is the yes (key a), false the no go (key r), null neither (it opens
+ * something). client: the page does it itself (open the round, open the PR). confirm: the ask
+ * shown first (Merge: a hard line, the a key never merges); its go posts { go: true, confirm }.
+ */
+export interface ReviewAction {
+  id: string;
+  label: string;
+  /** "Go: send back to Raj" / "No go: not yet": the Play layer's words. */
+  playLabel: string;
+  key: string | null;
+  go: boolean | null;
+  enabled: boolean;
+  /** Why it is off, in words. */
+  reason: string | null;
+  client: boolean;
+  confirm: ReviewConfirm | null;
+}
+
+export interface ReviewConfirm {
+  headline: string;
+  hardLine: string;
+  /** The command it runs. */
+  step: string;
+  go: ReviewAction;
+  noGo: ReviewAction;
+  keyNote: string;
+}
+
+/** The Ship stop's bar: the headline, a line under it, and the actions (the first is the next one). */
+export interface ReviewBar {
+  headline: string;
+  detail: string | null;
+  hint?: string;
+  actions: ReviewAction[];
+  /** fixing: "2 of 4 done · 1 commit so far", "Replies drafted for 2", the Foreman's doing / next, and 'plan' or 'working'. */
+  progress?: string;
+  replies?: string;
+  doing?: string | null;
+  next?: string | null;
+  phase?: 'plan' | 'working';
+  /** waiting / approval-reset: waiting on the reviewer or on the checks. */
+  on?: 'reviewer' | 'checks';
+  /** ready: a round of answers only (nothing pushed, no PR opened). */
+  questionOnly?: boolean;
+  /** no-reviewer: the route's reviewer, filled in. */
+  reviewer?: { name: string | null; login: string | null };
+  /** stopped: GitHub's own words for the failure. */
+  error?: string | null;
+  /** held: what the bar said before the lock was taken. */
+  was?: { headline: string; detail: string | null };
+}
+
+/** One item as the panel draws it. */
+export interface ReviewItemView {
+  id: string;
+  type: 'line' | 'review' | 'issue' | 'check' | 'sync';
+  kind: ReviewItemKind;
+  kindWords: string;
+  kindBy: 'guess' | 'foreman' | 'you';
+  author: string | null;
+  file: string | null;
+  line: number | null;
+  outdated: boolean;
+  outdatedWords: string | null;
+  quote: string | null;
+  /** A check's name. */
+  name: string | null;
+  link: string | null;
+  at: string | null;
+  included: boolean;
+  state: ReviewItemState;
+  /** "Fixed in a1b2c3d", "Won’t change", "Left out". */
+  stateWords: string;
+  commit: string | null;
+  plan: 'fix' | 'answer' | 'wont_change' | null;
+  planText: string | null;
+  /** The drafted reply (null for a check: it gets none). */
+  reply: string | null;
+  replyDropped: boolean;
+  /** "Posted", "Didn’t post", "Dropped", "Not posted yet"; null for a check. */
+  replyState: string | null;
+  /** Why it won't change. */
+  reason: string | null;
+  /** A failed check's log, its last lines (null for a comment). */
+  log?: string | null;
+  late: boolean;
+  /** "New · joined round 1" while it waits for your yes. */
+  newWords: string | null;
+  changeAfterAll: ReviewAction | null;
+}
+
+/** The round on the panel: grouped by file, the whole PR next, the checks last. */
+export interface ReviewRoundPanel {
+  round: number;
+  /** Its place on the route (1, 2 or 3). */
+  pr: number;
+  prLabel: string;
+  state: RoundState;
+  /** "Round 1 · PR #2". */
+  title: string;
+  /** "From Raj’s review at 14:02 (Request changes) and the lint check on the same commit". */
+  from: string;
+  reviewer: { login: string | null; name: string };
+  counts: { items: number; included: number; done: number; commits: number; replies: number };
+  includedWords: string;
+  kindsWords: string;
+  footer: string;
+  note: string | null;
+  groups: { heading: string; file: string | null; items: ReviewItemView[] }[];
+  /** Comments that joined while the Foreman works, waiting for Add / Leave out. */
+  pending: ReviewItemView[];
+  foreman: { state: 'planning' | 'fixing' | 'ready' | null; doing: string | null; next: string | null; checks: string | null } | null;
+  timeline: { at: string; time: string; words: string }[];
+  timelineHeading: string;
+}
+
+/** One step of Send back, in order. */
+export interface ReviewSendStep {
+  id: 'push' | 'follow-up' | 'replies' | 'resolve' | 'request';
+  number: number;
+  words: string;
+  detail: string;
+  state: 'will' | 'working' | 'done' | 'stopped' | 'not-run' | 'after-pr1' | 'skipped';
+  /** "Will do", "Working", "Done", "Stopped here", "Not run", "After PR #1 is merged", "Not needed". */
+  stateWords: string;
+  /** follow-up: the choice under it, and whether this go merges PR #1 too. */
+  choice?: string;
+  mergeFollowUp?: boolean;
+  count?: number;
+  /** follow-up, while its checks run: "Waiting for the follow-up PR #1’s checks before merging it." */
+  waiting?: string | null;
+  error?: string | null;
+  code?: string | null;
+  failWords?: string | null;
+}
+
+/** The PR under review, as last read (gh pr view, read only). */
+export interface ReviewPr {
+  number: number;
+  /** "PR #2" (its place on the route). */
+  label: string;
+  routeNumber: number;
+  repo: string;
+  url: string | null;
+  title: string;
+  state: 'open' | 'draft' | 'closed' | 'merged';
+  review: 'approved' | 'changes_requested' | 'review_required' | null;
+  reviewRequests: string[];
+  mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN' | null;
+  head: string | null;
+  base: string | null;
+  checks: 'passing' | 'failing' | 'pending' | null;
+  checkCount: number;
+  mergedAt: string | null;
+  mergedBy: string | null;
+  closedAt: string | null;
+  closedBy: string | null;
+  /** The closer's last comment, cut short. */
+  closeReason: string | null;
+  approvedAt: string | null;
+  lastReviewer: string | null;
+}
+
+/** One job's review state: the panel on the Ship stop, the Desk card, the Jobs card and the phone line. */
+export interface ReviewView {
+  slug: string;
+  /** null: nothing to show for this job. */
+  state: ReviewState | null;
+  heldState?: ReviewState;
+  bar: ReviewBar | null;
+  /** The Desk card (a go / no go): null when the state has none. */
+  desk: { headline: string; sentence: string | null; actions: ReviewAction[] } | null;
+  /** The Jobs card's line and where it points. */
+  card: { line: string; place: string } | null;
+  phone: string | null;
+  round: ReviewRoundPanel | null;
+  send: { steps: ReviewSendStep[]; stopAfter: boolean; mergeFollowUp: boolean | null; questionOnly?: boolean } | null;
+  /** Approved: who merges (from the route) and how. */
+  merge: { who: string; line: string; method: 'merge' | 'squash'; command: string } | null;
+  /** Remind the person who merges: from a day after the approval; the comment, drafted. */
+  remind: { at: string; can: boolean; text: string; note: string } | null;
+  held: { pid: number | null; branch: string | null; since: string | null } | null;
+  /** after-pr1: the follow-up PR #1 you said you'd merge yourself. */
+  followUp?: { number: number; url: string | null } | null;
+  pr: ReviewPr;
+  rounds: { round: number; pr: number; prLabel: string; state: RoundState; items: number; openedAt: string; sentAt: string | null }[];
+  title: string | null;
+  who: { reviewer: string | null; mergesLine: string };
+}
+
+export interface ReviewSettings {
+  /** How often to check GitHub while a job waits: 1, 5, 10 or 30 minutes. */
+  githubEveryMin: 1 | 5 | 10 | 30;
+  /** Send back merges the follow-up PR #1 once its checks pass (false: I'll merge PR #1 myself). */
+  mergeFollowUp: boolean;
+}
+
+/** Who reviews and merges each pull request of one repository, from its profile's route (Settings → Workflow). */
+export interface ReviewRoute {
+  name: string;
+  /** false: the profile names no route, so this is the usual one with nobody named. */
+  named: boolean;
+  steps: { pr: number; from: string | null; into: string | null; reviews: string; merges: string }[];
+}
+
+/** GET /api/review. */
+export interface ReviewList {
+  jobs: ReviewView[];
+  settings: ReviewSettings;
+  github: GithubLine | null;
+  /** Each registered repository's route (absent from a dashboard before Settings → Workflow showed it). */
+  routes?: ReviewRoute[];
+}
+
+/** GET /api/review/:slug and every POST /api/review/:slug/<action>: the job's view again, with the GitHub line. */
+export type ReviewResponse = (ReviewView | { slug: string; state: null }) & { github: GithubLine | null };
+
+/** The 'pr' event's data: one job's view (state null: nothing to show now). */
+export type ReviewEvent = ReviewView | { slug: string; state: null };
+
+/** A round card under Needs you (dashboard/lib/driver.js parkRoundCard): the permission's extra fields. */
+export interface ReviewCardFields {
+  roundCard: true;
+  key: string;
+  review: { slug: string; state: ReviewState; round: number | null; pr: number; prLabel: string } | null;
+  actions: { id: string; label: string }[];
+  disabled: string | null;
 }
 
 // ---------- The Inbox: your Orbit tickets (dashboard/lib/orbit.js, GET /api/orbit/*) ----------

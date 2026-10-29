@@ -11,15 +11,16 @@ import { useWorkshop } from '../../state/store';
 const PR_STAGES = new Set(['pr1', 'pr2', 'staging-qa', 'pr3']);
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-export function JobGithub({ job }: { job: Job }) {
+/** check: false where the GitHub line (views/Review/GithubLine.tsx) already offers Check now: then only the nudges show. */
+export function JobGithub({ job, check: withCheck = true, hide }: { job: Job; check?: boolean; hide?: ReadonlySet<string> }) {
   const { api } = useWorkshop();
   const [checking, setChecking] = useState(false);
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
-  const nudges = (job.nudges ?? []).filter((n) => !done.has(n.id));
-  if (!PR_STAGES.has(job.stage ?? '') && !nudges.length) return null;
+  const nudges = (job.nudges ?? []).filter((n) => !done.has(n.id) && !hide?.has(n.id));
+  if ((!withCheck || !PR_STAGES.has(job.stage ?? '')) && !nudges.length) return null;
 
   async function check() {
     setChecking(true);
@@ -48,13 +49,13 @@ export function JobGithub({ job }: { job: Job }) {
 
   return (
     <section className="job-github" aria-label="GitHub">
-      <p className="job-github-head">
+      {withCheck && <p className="job-github-head">
         <span className="ask-label">GitHub</span>
         <button type="button" className="link-button" disabled={checking} onClick={() => void check()} title="Read this job’s pull requests on GitHub now (read-only), instead of waiting for the next refresh. Nothing is sent to the Foreman.">
           {checking ? 'Checking…' : 'Check GitHub'}
         </button>
         {checked && !checking && <span className="muted" role="status">Asked GitHub; this updates in a few seconds.</span>}
-      </p>
+      </p>}
       {nudges.map((n) => (
         <div key={n.id} className="job-github-nudge">
           <p className="job-github-title"><strong>{n.title}</strong></p>

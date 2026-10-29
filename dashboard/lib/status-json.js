@@ -61,6 +61,32 @@ function oneOf(value, allowed, field, warnings) {
   return null;
 }
 
+// Review rounds (packet Q, lib/review-round.js): the Foreman's plan and progress for each round
+// on a PR. Lenient like the rest: an unknown value becomes null with a warning, long text is cut.
+export const ROUND_STATES = ['planning', 'fixing', 'ready'];
+export const ROUND_ITEM_KINDS = ['change', 'question', 'nit', 'check'];
+export const ROUND_ITEM_PLANS = ['fix', 'answer', 'wont_change'];
+export const ROUND_ITEM_STATES = ['todo', 'working', 'fixed', 'answered', 'wont_change'];
+const ROUND_TEXT_MAX = 4000;
+const text = (v, max = ROUND_TEXT_MAX) => (typeof v === 'string' && v.trim() ? v.slice(0, max) : null);
+function reviewRounds(list, where, warnings) {
+  return arr(list).filter((r) => Number.isInteger(r?.round) && r.round >= 1).map((r) => ({
+    round: r.round,
+    state: oneOf(r.state ?? null, ROUND_STATES, `${where}.state`, warnings),
+    doing: text(r.doing, 400), next: text(r.next, 400), checks: text(r.checks, 400),
+    items: arr(r.items).filter((i) => typeof i?.id === 'string' && i.id.trim()).map((i) => ({
+      id: i.id.trim().slice(0, 200),
+      kind: oneOf(i.kind ?? null, ROUND_ITEM_KINDS, `${where}.items.kind`, warnings),
+      plan: oneOf(i.plan ?? null, ROUND_ITEM_PLANS, `${where}.items.plan`, warnings),
+      planText: text(i.plan_text, 400),
+      state: oneOf(i.state ?? null, ROUND_ITEM_STATES, `${where}.items.state`, warnings),
+      commit: typeof i.commit === 'string' && /^[0-9a-f]{4,40}$/i.test(i.commit.trim()) ? i.commit.trim() : null,
+      done: i.done === true,
+      reply: text(i.reply), reason: text(i.reason),
+    })),
+  }));
+}
+
 export function parseStatusJson(text) {
   let raw;
   try {
@@ -96,6 +122,7 @@ export function parseStatusJson(text) {
       label: str(p.label),
       url: /^https:\/\/github\.com\//.test(p.url ?? '') ? p.url : null,
       state: oneOf(p.state ?? 'not_started', PR_STATES, `prs[${n}].state`, warnings),
+      rounds: reviewRounds(p.rounds, `prs[${n}].rounds`, warnings),
     };
   });
 
