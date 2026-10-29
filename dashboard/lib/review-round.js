@@ -1083,7 +1083,9 @@ export function createReviewRounds(deps) {
     if (!view?.state) { views.delete(slug); deps.driver?.dropRoundCard?.(f.dir, 'resolved'); return publish(slug, null); }
     view.rounds = rounds.map((r) => ({ round: r.round, pr: r.pr, prLabel: r.prLabel, state: r.state, items: r.items.filter((i) => i.added).length, openedAt: r.openedAt, sentAt: r.sentAt }));
     view.title = f.title ?? null;
-    view.who = { reviewer: round ? nameFor(round.reviewer, fx.route) : null, mergesLine: whoMergesLine(fx.route) };
+    // Between rounds (approved, merged) the reviewer is the PR's last one.
+    const reviewerLogin = round?.reviewer ?? view.pr?.lastReviewer ?? null;
+    view.who = { reviewer: reviewerLogin ? nameFor(reviewerLogin, fx.route) : null, mergesLine: whoMergesLine(fx.route) };
     views.set(slug, view);
     parkCard(f, view, round);
     return publish(slug, view);

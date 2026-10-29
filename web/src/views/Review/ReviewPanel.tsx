@@ -269,7 +269,8 @@ function FollowUpChoice({ step, ready, reload }: { step: ReviewSendStep; ready: 
   const { api } = useWorkshop();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  if (!ready) return step.choice ? <p className="muted">{step.choice}</p> : null;
+  // Once it is going, only “I’ll merge PR #1 myself” needs saying again.
+  if (!ready) return step.mergeFollowUp === false && step.choice ? <p className="muted">{step.choice}</p> : null;
   const on = step.mergeFollowUp !== false;
   const flip = async (merge: boolean) => {
     setBusy(true);
@@ -357,7 +358,7 @@ function MergeBlock({ view }: { view: ReviewView }) {
   const pr = view.pr;
   const m = view.merge!;
   const rows: { ok: boolean; words: string; at?: string | null }[] = [
-    { ok: pr.review === 'approved', words: pr.review === 'approved' ? `${view.who.reviewer ?? 'The reviewer'} approved ${pr.label}${view.round ? ` · round ${view.round.round}` : ''}` : `${pr.label} is yours to review`, at: pr.approvedAt },
+    { ok: pr.review === 'approved', words: pr.review === 'approved' ? `${view.who.reviewer ?? 'The reviewer'} approved ${pr.label}${view.rounds.length ? ` · round ${view.rounds[view.rounds.length - 1].round}` : ''}` : `${pr.label} is yours to review`, at: pr.approvedAt },
     { ok: pr.checks !== 'failing', words: pr.checks === 'passing' ? `${pr.checkCount} ${pr.checkCount === 1 ? 'check' : 'checks'} passed` : pr.checks === null ? 'No checks run on this pull request' : 'Checks still running' },
     { ok: pr.mergeable !== 'CONFLICTING', words: pr.mergeable === 'MERGEABLE' ? `No conflicts with ${pr.base ?? 'its base'}` : `GitHub hasn’t said yet whether it conflicts with ${pr.base ?? 'its base'}` },
   ];

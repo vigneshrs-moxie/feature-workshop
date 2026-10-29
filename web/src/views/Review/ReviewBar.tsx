@@ -79,7 +79,9 @@ export function ReviewBar({ view, act, problem, keys = true }: { view: ReviewVie
   const shown = bar.actions.filter((a) => a.id !== 'open');
   const ordered = [...shown.filter((a) => a.client && a.go === null), ...shown.filter((a) => !a.client && a.go === null), ...shown.filter((a) => a.go === false), ...shown.filter((a) => a.go === true)];
   const hasGo = shown.some((a) => a.go !== null && !a.client);
-  const off = shown.find((a) => !a.enabled && a.reason);
+  // The reason a button is off, beside it (unless the line under the headline says it already).
+  const said = (r: string) => (bar.detail ?? '').toLowerCase().includes(r.replace(/[.\s]+$/, '').toLowerCase());
+  const off = shown.find((a) => !a.enabled && a.reason && !said(a.reason));
   const sub = [bar.detail, view.state === 'asked' ? bar.hint : null].filter(Boolean).join(' ');
   const label = view.state === 'held' ? 'Held in a terminal' : hasGo ? (play.on ? 'Go / no go' : 'Waiting for you') : null;
   const merge = bar.actions.find((a) => a.confirm)?.confirm ?? null;
@@ -87,7 +89,9 @@ export function ReviewBar({ view, act, problem, keys = true }: { view: ReviewVie
   const button = (a: ReviewAction) => {
     const words = play.on && a.go !== null && !a.client ? a.playLabel : a.label;
     const kbd = a.key && KEY_ID[a.key] ? <Kbd id={KEY_ID[a.key]} /> : null;
-    const cls = `btn btn-lg${a.go === true || (a.confirm && a.enabled) ? ' btn-primary' : a.client ? ' btn-quiet' : ''}`;
+    // With nothing to decide, the one link (Open PR #2) is the next step.
+    const lone = a.client && !shown.some((x) => x.go !== null || x.confirm || (!x.client && x.enabled)) && a === shown.find((x) => x.client);
+    const cls = `btn btn-lg${a.go === true || (a.confirm && a.enabled) || lone ? ' btn-primary' : a.client ? ' btn-quiet' : ''}`;
     const title = !a.enabled ? a.reason ?? 'Off for now.' : a.confirm ? `${a.label} Shows the exact step first; nothing merges until you say go there (key: m).` : a.key ? `${a.label} (key: ${a.key}).` : a.label;
     const href = a.client ? linkFor(a, view) : null;
     if (href) return <a key={a.id} className={cls} href={href} target="_blank" rel="noopener noreferrer" title={title}><Icon name="external" size={16} /> {words} {kbd}</a>;

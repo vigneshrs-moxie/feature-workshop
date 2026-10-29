@@ -304,6 +304,7 @@ describe('waiting, and the unhappy paths', () => {
     const bar = await screen.findByRole('region', { name: 'Next step' });
     expect(bar).toHaveTextContent('Waiting on Raj to review PR #2 again');
     expect(within(bar).getByRole('link', { name: /Open PR #2/ })).toHaveAttribute('href', PR_URL);
+    expect(within(bar).getByRole('link', { name: /Open PR #2/ })).toHaveClass('btn-primary');
     expect(screen.getByRole('region', { name: 'Round 1, start to end' })).toHaveTextContent('14:02 You said go: send back to Raj');
     expect(screen.getByRole('status', { name: 'GitHub' })).toHaveTextContent('GitHub checked 3 min ago');
     const open = vi.spyOn(window, 'open').mockImplementation(() => null);
