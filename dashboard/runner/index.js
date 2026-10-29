@@ -1125,15 +1125,21 @@ export async function createRunner(config) {
     git: gitRead,
     failedLog: (repo, runId) => git.failedLog(repo, runId, { gh: feedbackGh }),
     settings: async () => (await state.getSettings()).review ?? {},
-    saveSettings: async (review) => { await state.setSettings({ review }); settingsChanged(); },
+    saveSettings: async (review) => { await state.setSettings({ review }); githubEveryMs = (review.githubEveryMin ?? 1) * 60000; flow.reschedule(); settingsChanged(); },
     refresh: () => flow.refresh({ network: true }),
     problem: (err) => console.error('review rounds:', err.message),
   });
   driver.roundAnswer = (a) => reviewRounds.answerCard(a);
+  // While a job waits on a reviewer, its checks or the follow-up PR #1, GitHub is read every minute
+  // (Settings → Workflow: 1, 5, 10 or 30) instead of every ten (lib/flow.js everyMs).
+  let githubEveryMs = 60000;
+  state.getSettings().then((s) => { githubEveryMs = (s.review?.githubEveryMin ?? 1) * 60000; }).catch(() => {});
+  flow.isWaiting = () => reviewRounds.isWaiting();
+  flow.waitingEveryMs = () => githubEveryMs;
   flow.prependListener('flow', (view) => {
     if (!feedbackGh || view.refreshing || !view.fetchedAt || view.fetchedAt === roundsFetchedAt) return;
     roundsFetchedAt = view.fetchedAt;
-    feedbackPass = feedbackPass.then(() => reviewRounds.pass(view)).catch((err) => console.error('review rounds:', err.message));
+    feedbackPass = feedbackPass.then(() => reviewRounds.pass(view)).then(() => flow.reschedule()).catch((err) => console.error('review rounds:', err.message));
   });
   // The Foreman's progress (status.json) and its replies starting and ending move the panel.
   driver.on('run', (run) => { if (run.kind === 'review-round' || reviewRounds.facts.has(run.slug)) reviewRounds.refreshJob(run.slug).catch(() => {}); });

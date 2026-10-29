@@ -14,8 +14,12 @@
 //   gatherRepo()   the facts for one repo: git (read-only; `fetch` also runs git fetch --prune of
 //                  both remotes) and one `gh pr list` on the org repo
 //   flowView()     pure: the facts → the map's repos, lanes and boxes
-//   FlowWatch      keeps the view fresh: the network every 10 minutes (or on Refresh), the local
-//                  counts every minute and when jobs change; one refresh at a time
+//   FlowWatch      keeps the view fresh: the network every 10 minutes (or on Refresh), every
+//                  minute (Settings → Workflow: 1, 5, 10 or 30) while a job waits on a reviewer or
+//                  its checks (packet Q: isWaiting), the local counts every minute and when jobs
+//                  change; one refresh at a time. view().github is the GitHub line: when GitHub
+//                  was last read, whether it is being read now, and why it couldn't be, in words
+//   githubProblem()  gh's error → { words, run }: "GitHub didn't answer. gh isn't signed in: run gh auth login"
 //
 // Nothing here writes to a repo or to GitHub.
 
@@ -28,6 +32,22 @@ import { currentRegistry } from './repos.js';
 
 export const NETWORK_EVERY_MS = 10 * 60 * 1000;
 export const LOCAL_EVERY_MS = 60 * 1000;
+/** While a job waits on someone (packet Q), GitHub is read this often by default. */
+export const WAITING_EVERY_MS = 60 * 1000;
+
+/**
+ * Why GitHub couldn't be read, in words, with the line to run when there is one. err: gh's first
+ * error line (the repo's errors, "gh pr list: …"), or null.
+ */
+export function githubProblem(err) {
+  const e = String(err ?? '').replace(/^gh pr list:\s*/, '');
+  if (!e) return null;
+  if (/auth login|not logged in|authenticat|HTTP 401|bad credentials/i.test(e)) return { words: 'GitHub didn’t answer. gh isn’t signed in: run gh auth login', run: 'gh auth login' };
+  if (/ENOENT|command not found|not installed|spawn gh/i.test(e)) return { words: 'GitHub didn’t answer. gh isn’t installed: install it from cli.github.com, then run gh auth login', run: 'gh auth login' };
+  if (/timed? ?out|ETIMEDOUT|ECONNRESET|ENOTFOUND|could not resolve|network|connection/i.test(e)) return { words: 'GitHub didn’t answer. The network looks down: it tries again by itself.', run: null };
+  if (/rate limit|HTTP 403/i.test(e)) return { words: 'GitHub didn’t answer: it asks us to slow down for a while. It tries again by itself.', run: null };
+  return { words: `GitHub didn’t answer: ${e.slice(0, 200)}`, run: null };
+}
 const BRANCH = /^(?!-)[\w./-]{1,200}$/;
 
 function run(cmd, args, { cwd, timeout = 15000 } = {}) {
@@ -228,9 +248,12 @@ export function flowView(repoFacts, jobs) {
  * (a demo passes invented facts). Emits 'flow' with view() whenever it changes.
  */
 export class FlowWatch extends EventEmitter {
-  constructor({ jobsFor, gather = gatherRepo, networkEveryMs = NETWORK_EVERY_MS, localEveryMs = LOCAL_EVERY_MS, now = () => Date.now() }) {
+  constructor({ jobsFor, gather = gatherRepo, networkEveryMs = NETWORK_EVERY_MS, localEveryMs = LOCAL_EVERY_MS, waitingEveryMs = () => WAITING_EVERY_MS, isWaiting = () => false, now = () => Date.now() }) {
     super();
-    Object.assign(this, { jobsFor, gather, networkEveryMs, localEveryMs, now });
+    // waitingEveryMs: a number or a function (the setting is read each time); isWaiting(): a job
+    // waits on a reviewer or its checks, so GitHub is read that often instead of every 10 minutes.
+    Object.assign(this, { jobsFor, gather, networkEveryMs, localEveryMs, waitingEveryMs, isWaiting, now });
+    this.github = { checkedAt: null, triedAt: null, problem: null }; // the GitHub line
     this.facts = new Map(); // repo → facts
     this.repos = [];
     this.fetchedAt = null;
@@ -243,14 +266,39 @@ export class FlowWatch extends EventEmitter {
     this.lastSent = null;
   }
 
+  // How long until the next network refresh: every 10 minutes, or the waiting setting while a job waits.
+  everyMs() {
+    let waiting = false;
+    try { waiting = Boolean(this.isWaiting()); } catch { waiting = false; }
+    if (!waiting) return this.networkEveryMs;
+    const w = typeof this.waitingEveryMs === 'function' ? this.waitingEveryMs() : this.waitingEveryMs;
+    return Number.isFinite(w) && w > 0 ? Math.min(w, this.networkEveryMs) : this.networkEveryMs;
+  }
+
   view() {
-    return { repos: this.repos, fetchedAt: this.fetchedAt, checkedAt: this.checkedAt, refreshing: this.fetching, nextFetchAt: this.fetchedAt ? new Date(Date.parse(this.fetchedAt) + this.networkEveryMs).toISOString() : null };
+    const every = this.everyMs();
+    const next = this.fetchedAt ? new Date(Date.parse(this.fetchedAt) + every).toISOString() : null;
+    return {
+      repos: this.repos, fetchedAt: this.fetchedAt, checkedAt: this.checkedAt, refreshing: this.fetching, nextFetchAt: next,
+      // The GitHub line (packet Q): checkedAt is the last read that worked; problem is why the last one didn't.
+      github: { checkedAt: this.github.checkedAt, triedAt: this.github.triedAt, checking: this.fetching, problem: this.github.problem, everyMs: every, waiting: every !== this.networkEveryMs, nextAt: next },
+    };
+  }
+
+  /** The waiting state or its setting changed: the next network refresh is due that long after the last one. */
+  reschedule() {
+    if (!this.started || this.fetching) return;
+    clearTimeout(this.nextFetch);
+    const last = this.fetchedAt ? Date.parse(this.fetchedAt) : this.now();
+    const wait = Math.max(1000, last + this.everyMs() - this.now());
+    this.nextFetch = setTimeout(() => this.refresh({ network: true }), wait);
+    this.nextFetch.unref?.();
   }
 
   // 'flow' only when what the page shows changed (local recounts every minute usually change nothing).
   #emit() {
     const v = this.view();
-    const key = JSON.stringify({ r: v.repos, f: v.fetchedAt, x: v.refreshing });
+    const key = JSON.stringify({ r: v.repos, f: v.fetchedAt, x: v.refreshing, g: v.github.problem, e: v.github.everyMs });
     if (key === this.lastSent) return;
     this.lastSent = key;
     this.emit('flow', v);
@@ -279,7 +327,7 @@ export class FlowWatch extends EventEmitter {
   #scheduleFetch() {
     if (!this.started) return;
     clearTimeout(this.nextFetch);
-    this.nextFetch = setTimeout(() => this.refresh({ network: true }), this.networkEveryMs);
+    this.nextFetch = setTimeout(() => this.refresh({ network: true }), this.everyMs());
     this.nextFetch.unref?.();
   }
 
@@ -301,7 +349,14 @@ export class FlowWatch extends EventEmitter {
     this.repos = flowView(facts, jobs);
     const at = new Date(this.now()).toISOString();
     this.checkedAt = at;
-    if (network) this.fetchedAt = at;
+    if (network) {
+      this.fetchedAt = at;
+      // The GitHub line: a repo whose PRs couldn't be read says why; else GitHub was read now.
+      const err = facts.flatMap((f) => f.errors ?? []).find((e) => /^gh pr list:/.test(e)) ?? null;
+      this.github.triedAt = at;
+      this.github.problem = githubProblem(err);
+      if (!err) this.github.checkedAt = at;
+    }
   }
 
   /** A local pass first (the map shows at once), then the network; then every 10 min and every minute. */
