@@ -84,6 +84,42 @@ Think Linear, Vercel, Raycast and GitHub's Primer: quiet neutrals, one accent, c
 ### Demo data
 The demo writes about three weeks of made-up usage lines (two people, several jobs, Opus and Sonnet, meter readings every few turns, a stretch of outside use) into its own temporary folder. That way Telemetry's dials, the "Who used this week's limit" line and the graphs show something real in the demo. Never in `~/.ground-control`.
 
+
+## Review of steps 1–2 (2026-10-29): approved direction, with five more rules
+Vignesh looked at Jobs, Desk and Job after step 2: "we are on the right track wrt design. i like the general feel of things but i still want a little less clutter on screens with a lot of info." He added five rules, which apply to every screen from here on.
+
+1. **Simple by default, detail on request.** "as a developer, i am able to develop very well by just having one claude code terminal open and building on it there. if i have a ui that connects to such a terminal, i want it to make things so much simpler and only give me all these complex data and info if i want to see it."
+   - Each screen shows three things first: what is happening, what needs you, and the one next action. Everything else sits one click away, behind a labelled disclosure ("Details", "History", "More graphs"), remembered per screen in this browser: history, activity, facts, tables, stop maps on every card, cost and model lines, extra graphs.
+   - Settings → Look gets **Detail: Simple (default) / Full**, for people who want everything shown.
+   - Per screen:
+     - **Jobs cards:** the title, one status line, the state chip and the time. The stop dots show on hover, on focus and in Full.
+     - **Job:** the go / no go bar, the brief's summary and questions, and the message box, close to a terminal. The conversation shows the newest message and "Earlier (n)". The crew's activity and the job's facts fold into "Details".
+     - **Desk:** the decision, with the Foreman's brief folded.
+     - **Stage:** the crew member at work and what it is doing now, with its log on request.
+     - **Telemetry:** the dials, "Who used this week's limit" and the three graphs with the most to say, then "More graphs (7)".
+     - **Settings:** each section shows its main choices first, then "More".
+2. **Nothing jumps when something folds, hides or opens.** "i also dont like it when you see some chart/element and when you hide it, it moves around everthing in the screen which makes me search for elements and understand things on that screen from scratch all over again."
+   - Hiding leaves a slim placeholder of fixed height in the same place ("Rework, hidden · Show"); it never reflows a grid or moves cards into other columns.
+   - Folding shrinks only that item, inside its own column.
+   - Details open as a drawer or popover over the page, or below the item within its own column, never by pushing the page sideways.
+   - Banners, loading and empty states keep the space of what they stand for (loading skeletons are the same size as the content).
+   - Lists never reorder under the pointer.
+   - A Playwright check: on Telemetry, Jobs, Job, Desk and Settings, fold, hide, open and close each thing, and the positions of everything above it and in other columns must not change.
+3. **No browser or Mac look anywhere.** "lets not use mac or the browsers default dropdown anywhere since it looks ugly."
+   - No native select, datalist, radio, checkbox, number or date input, or `<details>` marker.
+   - No native `title` tooltip on a control: one app Tooltip, after a short delay on hover and at once on keyboard focus, with the same text kept as the accessible name or description.
+   - No textarea resize grip; scrollbars are thin and themed; autofill takes the theme's colours.
+   - A test fails if any of these comes back.
+4. **Every small part looks meticulously made.** "we want every single, minute piece of this product to have a touch of class and beauty yet maintain simplicity … every single ui element should work and look like that much work went into it."
+   - A component gallery at `#/gallery`, reachable only by typing the address and never linked or named in the product. It shows every control and piece in every state, at both densities, in Light and Default: buttons, fields, select, choice rows, chips, tooltip, menus, sheet, dialog, toast, next-step bar, cards, empty, loading, error, very long text, a 99+ count.
+   - Each piece is checked at 2× zoom for alignment (icons on a 4 px grid, text baselines, optical centring), and its hover, press, focus, disabled, busy, empty and error states are each looked at.
+   - Motion is short and purposeful: 120–160 ms, ease-out, none with less motion.
+   - Empty and error states are designed, not left as a grey line.
+5. **The old leftovers go.** "the old 'fresh' bar and 'live' and other old elements are back for some reason. lets redesign those too."
+   - The top bar shows connection only when it isn't fine (a quiet "Reconnecting…", nothing while live). The "Demo" chip becomes a small label beside the name.
+   - Any old usage strip, freshness or "updated … ago" bars, Refresh buttons and v1 pieces still drawn on the new pages are removed or redesigned into the new pieces; GitHub's check line stays, tucked in, as Q designed it.
+   - Go through every screen and list each element that predates M; keep it only if it earns its place, in the new style.
+
 ## Owns
 Everything under `web/src/` that is styling or a shared control:
 - the CSS files: tokens, theme files, `app/*.css`, `home/*.css`, `job/*.css`, each view's CSS;
@@ -105,7 +141,7 @@ No server behaviour, no wording changes beyond the label punctuation and link-to
    - A test that no view styles its own buttons outside the Button component (a stylesheet rule, like M's `cssRules.test.ts`), and that every `<select>` and `<input type=radio|checkbox>` goes through the shared ones.
 2. **Jobs, Desk and Job** on the new controls and the wide layouts.
    - Then **stop**: screenshots before and after, at 1512 and 1728 px wide in Light and Default, plus 390 px, side by side (montage). Hand back for Vignesh to look at the feel before the rest is done.
-3. **Everything else:**
+3. **The five rules on Jobs, Desk and Job first** (simple by default, nothing jumps, no browser look, the gallery, the leftovers), then **everything else**:
    - the Stage, Inbox, Stacks and a stack, Telemetry, Settings (every section), the review panel and Desk card, the permission alert;
    - sheets and dialogs (New job, close, keys), the command box, the Map and Table, Crew-dex and Achievements;
    - the classic page's light default.
