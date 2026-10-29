@@ -705,13 +705,16 @@ export function reviewView(ctx) {
     const notRun = steps.filter((s) => s.state === 'not-run');
     const posted = items.filter((i) => i.posted?.ok).length;
     const headline = failed ? `Stopped at step ${failed.number}: ${failed.failWords ?? failed.words}` : `Round ${round.round} stopped after step ${done.length}`;
-    const detail = [
-      failed?.error ? `GitHub had a problem${failed.code ? ` (${failed.code})` : ''}: ${failed.error}` : round.send?.stopAfter ? 'You asked it to stop after that step.' : null,
-      done.length ? `${done.length === 1 ? 'Step' : 'Steps'} ${listWords(done.map((s) => String(s.number)))} ${done.length === 1 ? 'is' : 'are'} done` : null,
+    // "GitHub had a problem (502). Steps 1 and 2 are done, 3 replies are posted, and steps 4 and 5 didn’t run."
+    const why = failed?.error ? (failed.code ? `GitHub had a problem (${failed.code}).` : `It didn’t work: ${cut(failed.error, 300).replace(/[.\s]+$/, '')}.`) : round.send?.stopAfter ? 'You asked it to stop after that step.' : null;
+    const parts = [
+      done.length ? `${done.length === 1 ? 'step' : 'steps'} ${listWords(done.map((s) => String(s.number)))} ${done.length === 1 ? 'is' : 'are'} done` : null,
       posted ? `${plural(posted, 'reply', 'replies')} ${posted === 1 ? 'is' : 'are'} posted` : null,
       notRun.length ? `${notRun.length === 1 ? 'step' : 'steps'} ${listWords(notRun.map((s) => String(s.number)))} didn’t run` : null,
-    ].filter(Boolean).join('. ').replace(/\. ([a-z])/g, (m, c) => `, and ${c}`);
-    const bar = { headline, detail: `${detail}.`, actions: [action('retry', 'Try again from here', { key: 'a', go: true }), action('not-yet', 'Not yet', { key: 'r', go: false })] };
+    ].filter(Boolean);
+    const rest = parts.length > 2 ? `${parts.slice(0, -1).join(', ')}, and ${parts.at(-1)}` : parts.join(' and ');
+    const detail = [why, rest ? `${cap(rest)}.` : null].filter(Boolean).join(' ');
+    const bar = { headline, detail, error: failed?.error ?? null, actions: [action('retry', 'Try again from here', { key: 'a', go: true }), action('not-yet', 'Not yet', { key: 'r', go: false })] };
     set('stopped', bar, { desk: deskOf(bar, 'Nothing that is done runs again: posted replies are never posted twice.') });
     out.send = { steps: stepsView(steps), stopAfter: Boolean(round.send?.stopAfter), mergeFollowUp: round.send?.mergeFollowUp !== false };
     return held(out, lock, job);
@@ -942,6 +945,15 @@ export async function readPr(gh, repo, number) {
   };
 }
 
+// The PR as a view carries it: what the states need, not GitHub's comments themselves (those are in the round).
+const PR_VIEW_FIELDS = ['number', 'repo', 'url', 'title', 'state', 'review', 'reviewRequests', 'mergeable', 'head', 'base', 'checkCount', 'mergedAt', 'mergedBy', 'closedAt', 'closedBy', 'closeReason', 'approvedAt', 'lastReviewer'];
+function prForView(pr, extra) {
+  const out = Object.fromEntries(PR_VIEW_FIELDS.map((k) => [k, pr[k] ?? null]));
+  out.reviewRequests = pr.reviewRequests ?? [];
+  out.closeReason = pr.closeReason ? cut(pr.closeReason, 200) : null;
+  return { ...out, checks: pr.checksWord ?? null, ...extra };
+}
+
 /** The errors a page shows for the round's actions: HttpError-shaped ({ status, message }). */
 export class ReviewRefused extends Error {
   constructor(status, message, extra = {}) { super(message); this.status = status; Object.assign(this, extra); }
@@ -1040,7 +1052,7 @@ export function createReviewRounds(deps) {
     const ctx = { ahead, fork: fx.fork, branch: fx.lane?.branch ?? f.branch, orgRemote: fx.org, twoStep: fx.twoStep, followUp, mergeFollowUp: round?.send?.mergeFollowUp ?? s.mergeFollowUp };
     const lock = deps.lockFor?.(f.dir) ?? null;
     const view = reviewView({
-      job: { slug: f.slug, title: f.title, ticket: f.ticket ?? null }, pr: { ...pr, routeNumber: routeOfPr(fx, pr.number), checks: pr.checksWord, label: labelOf(fx, pr.number) },
+      job: { slug: f.slug, title: f.title, ticket: f.ticket ?? null }, pr: prForView(pr, { routeNumber: routeOfPr(fx, pr.number), label: labelOf(fx, pr.number) }),
       round, route: fx.route, runActive, lock, now: now(), approvalReset: Boolean(mem.resetAt), remindedAt: mem.remindedAt ?? null, stagingNext: pr.base === 'staging' ? 'staging QA, then PR #3 with the release' : null,
       ...ctx,
     });
@@ -1161,7 +1173,8 @@ export function createReviewRounds(deps) {
         Object.assign(fx, { f, lane, repo, route, twoStep, org: r.org?.remote ?? null, fork: r.fork?.remote ?? null, forkOwner: r.fork?.slug?.split('/')[0] ?? null, base: r.main?.ref?.split('/').slice(1).join('/') ?? 'main', checks: Array.isArray(profile?.checks) ? profile.checks : [] });
         facts.set(f.slug, fx);
         const rounds = await readRounds(f.dir);
-        const live = (p) => p && (['open', 'draft'].includes(p.state) || rounds.some((x) => x.prNumber === p.number && x.state !== 'done'));
+        // Open, or with a round still going, or closed while the job was on it (it waits for Reopen).
+        const live = (p) => p && (['open', 'draft'].includes(p.state) || rounds.some((x) => x.prNumber === p.number && x.state !== 'done') || (p.state === 'closed' && fx.current === p.number));
         const prs = [lane.pr1, lane.pr2].filter(live);
         for (const p of prs) {
           try { await lookPr(f, fx, p.number, repo, mine); } catch (err) { deps.problem?.(new Error(`review rounds (${f.slug}, PR ${p.number}): ${err.message}`)); }
@@ -1718,7 +1731,7 @@ export function createReviewRounds(deps) {
     /** A job is waiting on someone else: the flow map checks GitHub more often meanwhile. */
     isWaiting: () => [...views.values()].some((v) => WAITING_STATES.has(v.heldState ?? v.state)),
     /** A round is with the Foreman: the panel's items are re-read every few seconds. */
-    isFixing: () => [...views.values()].some((v) => ['fixing', 'new-comment'].includes(v.heldState ?? v.state)),
+    isFixing: () => [...views.values()].some((v) => ['fixing', 'fix-stalled', 'new-comment'].includes(v.heldState ?? v.state)),
     busy,
     facts,
     /** Send back in progress for a job (a promise), or null: tests wait on it. */

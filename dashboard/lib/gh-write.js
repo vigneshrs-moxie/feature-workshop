@@ -112,7 +112,8 @@ export function createGhWrite({ gh, git = runGit, audit = async () => {}, lockFo
     openPr: (ctx) => call('open-pr', ctx, async () => {
       const { repo, base, head, title } = ctx;
       needRepo(repo);
-      if (!BRANCH.test(String(base ?? '')) || !/^([\w.-]+:)?[\w./-]+$/.test(String(head ?? ''))) throw new WriteRefused('Unexpected branch name.', { code: 'bad-argument' });
+      const [owner, headBranch] = String(head ?? '').includes(':') ? String(head).split(':', 2) : [null, String(head ?? '')];
+      if (!BRANCH.test(String(base ?? '')) || !BRANCH.test(headBranch) || (owner !== null && !LOGIN.test(owner))) throw new WriteRefused('Unexpected branch name.', { code: 'bad-argument' });
       const body = needBody(ctx.body);
       const t = needBody(title).slice(0, 250);
       const res = await ghCall(['pr', 'create', '--repo', repo, '--base', base, '--head', head, '--title', t, '--body', body]);
