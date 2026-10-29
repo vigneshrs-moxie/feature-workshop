@@ -86,9 +86,7 @@ function Row({ slug, c }: { slug: string; c: EvidenceCriterion }) {
         </ol>
       )}
       {videoOpen && c.video && (
-        <video className="evidence-video" id={`${uid}-video`} src={fileUrl(slug, c.video)} controls autoPlay muted width={640} aria-label={`The recording of ${c.id}: ${c.title}`}>
-          <a href={fileUrl(slug, c.video)}>Open the video</a>
-        </video>
+        <video className="evidence-video" id={`${uid}-video`} src={fileUrl(slug, c.video)} controls autoPlay muted width={640} aria-label={`The recording of ${c.id}: ${c.title}`} />
       )}
     </li>
   );

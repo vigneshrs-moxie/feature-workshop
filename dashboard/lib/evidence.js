@@ -222,7 +222,7 @@ const STATUS = { passed: 'passed', skipped: 'skipped', failed: 'failed', timedOu
  */
 function failure(message) {
   const head = String(message ?? '').replace(ANSI, '').split(/\n\s*Call log:/)[0];
-  const text = head.split('\n').map((l) => l.trim()).filter(Boolean).join(' · ').replace(/^Error:\s*/, '');
+  const text = head.split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' · ').replace(/^Error:\s*/, '');
   if (!text) return 'It failed.';
   return text.length > 300 ? `${text.slice(0, 299)}…` : text;
 }
