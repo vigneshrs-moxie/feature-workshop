@@ -70,6 +70,10 @@ export const KEYS = {
   'go-crew': { keys: ['g x'], label: 'Go to the Crew-dex (Play mode)', scope: 'global' },
   'github-check': { keys: ['u'], label: 'Check GitHub now', scope: 'global', where: 'Where the GitHub line shows: Jobs and a job’s Ship stop.' },
   'close': { keys: ['Escape'], label: 'Close the menu, sheet or drawer on top', scope: 'global', always: true, listOnly: true },
+  // Telemetry: registered by the Telemetry page while it is open, so they answer only there (listed
+  // with the keys that work everywhere, each with where it works).
+  'tele-read': { keys: ['r'], label: 'Telemetry: read the limits now', scope: 'global', where: 'On the Telemetry page only; on the Desk, r is No go.' },
+  'tele-step': { keys: ['ArrowLeft', 'ArrowRight'], label: 'Telemetry: step through the weekly line’s readings, or the weekday map’s squares', scope: 'global', where: 'With the focus on the weekly line or the weekday map (Tab to it).', always: true, listOnly: true },
   // Jobs
   'next-job': { keys: ['j'], label: 'Open the next job', scope: 'rows' },
   'prev-job': { keys: ['k'], label: 'Open the previous job', scope: 'rows' },

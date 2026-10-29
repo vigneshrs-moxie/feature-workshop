@@ -1681,3 +1681,91 @@ export interface StageView {
   terminalApp: string | null;
   terminalApps: string[];
 }
+
+// ---------- Telemetry (packet P): GET /api/telemetry?window= (dashboard/lib/telemetry.js, lib/insights.js) ----------
+
+export type TelemetryWindow = '5h' | 'week' | '30d';
+/** private: your own jobs, with their names (the lock); common: the whole account, no job names (people). */
+export type TelemetryAudience = 'private' | 'common';
+export type GraphId = 'limit' | 'ticket-cost' | 'stages' | 'models' | 'people' | 'rework' | 'waiting' | 'pr1' | 'when' | 'cache';
+
+/** One meter's window split into this app's people and Other use (estimated), adding up to the meter. */
+export interface LimitSplit {
+  meter: 'week' | 'fiveHour';
+  /** split: both parts known; no-ratio: only the total; no-readings / stale: nothing to go by this window. */
+  state: 'split' | 'no-ratio' | 'no-readings' | 'stale';
+  from: string | null;
+  to: string | null;
+  total: number | null;
+  free: number | null;
+  app: number | null;
+  people: { user: string; usd: number; percent: number }[];
+  other: number | null;
+  unknown: number | null;
+  ratio: number | null;
+  sentence: string;
+}
+
+export interface TelemetryForecast {
+  state: 'fills' | 'resets-first' | 'flat' | 'full' | 'unknown';
+  from: { t: string; percent: number } | null;
+  to: { t: string; percent: number } | null;
+  perHour: number | null;
+  fullAt: string | null;
+  resetsAt: string | null;
+  atReset: number | null;
+  sentence: string;
+  driver: { app: number; other: number; words: string } | null;
+}
+
+export interface WeekStat { label: string; from: string }
+export interface LimitData { window: TelemetryWindow; from: string; to: string; points: { t: string; week: number | null; fiveHour: number | null }[]; resets: string[]; forecast: TelemetryForecast; split: LimitSplit; fiveHour: LimitSplit }
+export interface TicketCostData { unit: 'usd'; cap: number | null; weeks: (WeekStat & { tickets: number; median: number | null; low: number | null; high: number | null })[] }
+export interface StagesData { months: [string, string]; stages: { stage: string | null; label: string; usd: number; share: number; lastUsd: number; lastShare: number | null }[] }
+export interface ModelsData {
+  series: { key: string; label: string; slot: number }[];
+  bars: { label: string; usd: number; parts: { key: string; usd: number; share: number }[] }[];
+  saving: { stage: string; stageLabel: string; from: string; fromLabel: string; to: string; toLabel: string; usd: number; fromModel: string; toModel: string } | null;
+}
+export interface PeopleData { window: TelemetryWindow; people: { user: string; usd: number; percent: number | null }[]; others: { label: string; percent: number; estimated: true } | null; free: number | null; unknown: number | null; state: LimitSplit['state'] }
+export interface ReworkData { stages?: { stage: string | null; label: string; sendBacks: number; usd: number; share: number }[] }
+export interface WaitingData { weeks?: (WeekStat & { day: number; night: number; answers: number; median: number | null })[] }
+export interface Pr1Data { items: { label: string; size: 'small' | 'large' | 'unknown'; days: number }[]; medians: Record<'small' | 'large' | 'unknown', number | null>; cap: number | null }
+export interface WhenData { unit: 'percent' | 'usd'; max: number; cells: { day: number; block: number; app: number; other: number; total: number }[] }
+export interface CacheData { weeks: (WeekStat & { share: number | null; input: number })[]; least: { label: string; share: number; restarts: number; usd: number }[] }
+
+interface GraphBase<I extends GraphId, D> {
+  id: I;
+  n: number;
+  title: string;
+  audience: TelemetryAudience;
+  /** ok; not-enough (too little to say yet); cannot-see (its source isn't here); empty (nothing yet). */
+  state: 'ok' | 'not-enough' | 'cannot-see' | 'empty';
+  headline: string;
+  todo: string;
+  sub: string | null;
+  data: D;
+  table: { caption: string; head: string[]; rows: string[][] };
+  notes: string[];
+}
+export type TelemetryGraph =
+  | GraphBase<'limit', LimitData> | GraphBase<'ticket-cost', TicketCostData> | GraphBase<'stages', StagesData> | GraphBase<'models', ModelsData>
+  | GraphBase<'people', PeopleData> | GraphBase<'rework', ReworkData> | GraphBase<'waiting', WaitingData> | GraphBase<'pr1', Pr1Data>
+  | GraphBase<'when', WhenData> | GraphBase<'cache', CacheData>;
+
+export interface TelemetryResponse {
+  window: TelemetryWindow;
+  windowLabel: string;
+  from: string;
+  to: string;
+  /** The person this computer's page is for (the computer's user name). */
+  me: string | null;
+  percentPerDollar: number | null;
+  /** Usage lines in the window. */
+  lines: number;
+  limits: { week: LimitSplit; fiveHour: LimitSplit; note: string };
+  graphs: TelemetryGraph[];
+  sources: { audit: boolean; jobs: boolean };
+  meters: PlanUsage;
+  file: string;
+}
