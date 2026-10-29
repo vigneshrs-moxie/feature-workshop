@@ -39,6 +39,10 @@ export const LOG_NAME = 'ground-control.log';
 export const STOP_REQUEST = 'stop-request';
 
 const TEMPLATES = { darwin: 'com.moxie.ground-control.plist', linux: 'ground-control.service', win32: 'ground-control.xml' };
+// The paths written *into* a service file follow the system it is for (path.win32 for Windows).
+// The files Ground Control itself writes, removes or looks for always use this computer's own
+// `path`: on the system the service is for the two are the same, and a test asking for another
+// system's file then writes only inside its own temp folder.
 const pathOf = (platform) => (platform === 'win32' ? path.win32 : path.posix);
 
 /** Runs a program and resolves { code, stdout, stderr }; code null (and `missing`) when it isn't on this computer. */
@@ -53,12 +57,12 @@ export function runCommand(file, args, { timeout = 30_000, env } = {}) {
 
 // ---------- Where things go ----------
 
-/** The logs folder: ~/.ground-control/logs. */
-export const logDir = (home = os.homedir(), platform = process.platform) => pathOf(platform).join(home, STATE_FOLDER, 'logs');
+/** The logs folder: ~/.ground-control/logs (pathApi: path.win32 or path.posix to shape it for that system). */
+export const logDir = (home = os.homedir(), platform = process.platform, pathApi = pathOf(platform)) => pathApi.join(home, STATE_FOLDER, 'logs');
 
-/** Where the service file is written on this system. */
-export function serviceFilePath({ platform = process.platform, home = os.homedir() } = {}) {
-  const p = pathOf(platform);
+/** Where the service file goes on that system (pathApi as for logDir). */
+export function serviceFilePath({ platform = process.platform, home = os.homedir(), pathApi = pathOf(platform) } = {}) {
+  const p = pathApi;
   if (platform === 'darwin') return p.join(home, 'Library', 'LaunchAgents', `${LABEL}.plist`);
   if (platform === 'win32') return p.join(home, STATE_FOLDER, 'service', 'ground-control.xml');
   return p.join(home, '.config', 'systemd', 'user', UNIT);
@@ -110,6 +114,9 @@ export function renderService({ platform = process.platform, home = os.homedir()
   return { file: serviceFilePath({ platform, home }), content, encoding: platform === 'win32' ? 'utf16le' : 'utf8', log, server, bin, node: nodePath };
 }
 
+/** The service file on this computer's disk (see pathOf). */
+const diskFile = (platform, home) => serviceFilePath({ platform, home, pathApi: path });
+
 function writeServiceFile({ file, content, encoding }) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const data = encoding === 'utf16le' ? Buffer.from(`\ufeff${content}`, 'utf16le') : content;
@@ -140,8 +147,8 @@ const uidOf = (uid) => (uid ?? process.getuid?.() ?? 0);
  * Returns { ok: true, file, log } or { ok: false, reason: 'no-rights' | 'failed', message, file }.
  */
 export async function installService({ platform = process.platform, home = os.homedir(), env = process.env, run = runCommand, uid, node, packageRoot, templatesDir, user } = {}) {
-  const rendered = renderService({ platform, home, env, node, packageRoot, templatesDir, user });
-  fs.mkdirSync(logDir(home, platform), { recursive: true, mode: 0o700 });
+  const rendered = { ...renderService({ platform, home, env, node, packageRoot, templatesDir, user }), file: diskFile(platform, home) };
+  fs.mkdirSync(logDir(home, platform, path), { recursive: true, mode: 0o700 });
   writeServiceFile(rendered);
   const out = { file: rendered.file, log: rendered.log };
   if (platform === 'darwin') {
@@ -174,7 +181,7 @@ export async function installService({ platform = process.platform, home = os.ho
 
 /** Stops the service, takes it out of the service manager and deletes its file. Returns { ok, removed, message? }. */
 export async function removeService({ platform = process.platform, home = os.homedir(), run = runCommand, uid } = {}) {
-  const file = serviceFilePath({ platform, home });
+  const file = diskFile(platform, home);
   let removed = false;
   let message = null;
   if (platform === 'darwin') {
@@ -201,7 +208,7 @@ export async function removeService({ platform = process.platform, home = os.hom
  * caller reads service.json for that).
  */
 export async function checkService({ platform = process.platform, home = os.homedir(), run = runCommand, uid } = {}) {
-  const file = serviceFilePath({ platform, home });
+  const file = diskFile(platform, home);
   const hasFile = fs.existsSync(file);
   if (platform === 'darwin') {
     const r = await run('launchctl', ['print', `gui/${uidOf(uid)}/${LABEL}`]);
@@ -224,7 +231,7 @@ export async function startService({ platform = process.platform, home = os.home
   if (platform === 'darwin') {
     const domain = `gui/${uidOf(uid)}`;
     r = await run('launchctl', ['kickstart', `${domain}/${LABEL}`]);
-    if (r.code !== 0) r = await run('launchctl', ['bootstrap', domain, serviceFilePath({ platform, home })]);
+    if (r.code !== 0) r = await run('launchctl', ['bootstrap', domain, diskFile(platform, home)]);
   } else if (platform === 'win32') {
     r = await run('schtasks', ['/Run', '/TN', TASK_NAME]);
   } else {

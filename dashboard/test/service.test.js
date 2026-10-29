@@ -106,6 +106,8 @@ test('install on Windows saves the task file as UTF-16 and makes the task with s
   const { run, calls } = fakeRun();
   const r = await installService({ platform: 'win32', home, env: { USERDOMAIN: 'PC', USERNAME: 'sam' }, run, node: 'C:\\node.exe' });
   assert.equal(r.ok, true);
+  assert.equal(r.file, path.join(home, '.ground-control', 'service', 'ground-control.xml'), 'written inside the home it was given, with this computer’s own path joins');
+  assert.ok(fs.statSync(path.join(home, '.ground-control', 'logs')).isDirectory());
   const bytes = fs.readFileSync(r.file);
   assert.deepEqual([...bytes.subarray(0, 2)], [0xff, 0xfe], 'UTF-16 with its byte-order mark');
   assert.match(bytes.toString('utf16le'), /<UserId>PC\\sam<\/UserId>/);
@@ -118,6 +120,7 @@ test('install on Windows without the rights says so plainly: start --here works,
   const { run } = fakeRun({ 'schtasks /Create': { code: 1, stderr: 'ERROR: Access is denied.\r\n' } });
   const r = await installService({ platform: 'win32', home, env: { USERNAME: 'sam' }, run, node: 'C:\\node.exe' });
   assert.equal(r.ok, false);
+  assert.ok(r.file.startsWith(home) && !fs.existsSync(r.file), 'the task file is removed again, from inside the temp home');
   assert.equal(r.reason, 'no-rights');
   assert.equal(r.message, NO_RIGHTS_WINDOWS);
   assert.match(r.message, /administrator rights/);
