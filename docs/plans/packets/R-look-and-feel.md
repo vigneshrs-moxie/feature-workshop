@@ -125,6 +125,8 @@ At Vignesh's request ("look at some websites that have really nice design for su
 - **No Desk undo.** It needs a server change, so leave it out.
 - **Native controls.** Vercel's guidelines recommend the browser's own controls; we deliberately don't follow them. Our own controls must match the browser's keyboard behaviour exactly.
 
+**Stacks moved to V (2026-10-29).** Vignesh found the Stacks home "drab and boring" and asked for it to be redone for big features, with a page for each part. Packet V (`V-stacks-home.md`) does that, starting from R's branch. R leaves `web/src/views/Stack/` to V, apart from moving it onto the shared controls where they already work.
+
 ## Owns
 Everything under `web/src/` that is styling or a shared control:
 - the CSS files: tokens, theme files, `app/*.css`, `home/*.css`, `job/*.css`, each view's CSS;
