@@ -16,6 +16,7 @@ import {
   sectionSlug, stackPhase, stackSummary, writeStack,
 } from '../lib/stack.js';
 import { stackNames, stackRules, loadProfile } from '../lib/profile.js';
+import { parseStatusJson, validate } from '../lib/status-json.js';
 
 const PLAN = `# ORBIT-512 Work orders v2
 
@@ -53,6 +54,14 @@ test('stack.md: sections in Order, with their briefs, owned paths, dependencies,
   assert.equal(p.sections[1].effort, 'medium');
   assert.deepEqual(p.sections[2].owns, ['docs/work-orders.md'], 'backticks are taken off');
   assert.deepEqual(p.warnings, []);
+});
+
+test('stack.md: the paragraph under the title says why the work splits this way (the page shows it)', () => {
+  assert.equal(parseStackPlan(PLAN).why, null, 'none written');
+  const p = parseStackPlan(`# ORBIT-9 Export\n\nThe button and the file writer touch different folders,\nso they build side by side. The email needs the writer.\n\n## Section: a\nA.\nOwns: a/**\n\nOrder: a\n`);
+  assert.equal(p.why, 'The button and the file writer touch different folders, so they build side by side. The email needs the writer.');
+  assert.equal(describeStack({ slug: 'x', plan: p }).plan.why, p.why);
+  assert.deepEqual(p.sections.map((s) => s.brief), ['A.'], 'the paragraph is not a section’s brief');
 });
 
 test('stack.md: an "## Order" list works as well as an Order line, and decides the order', () => {
@@ -97,7 +106,7 @@ test('stack.json: a new stack has every section pending, its settings, and one l
   assert.equal(s.effort, 'high');
   assert.deepEqual(s.sections.map((x) => [x.name, x.state, x.failures, x.slug, x.mergedAt]), [['api', 'pending', 0, null, null], ['ui', 'pending', 0, null, null], ['docs', 'pending', 0, null, null]]);
   assert.equal(s.push.state, 'waiting');
-  assert.match(s.log[0].words, /The plan was approved: 3 sections, merging in the order api, ui, docs/);
+  assert.match(s.log[0].words, /The plan was approved: 3 parts, merging in the order api, ui, docs/);
   assert.equal(sectionSlug('orbit-512', 'api'), 'orbit-512--api');
   assert.equal(notchUp('high'), 'xhigh');
   assert.equal(notchUp('max'), 'max');
@@ -107,7 +116,7 @@ test('nextRunnable: dependencies first, then the stack’s cap, then the global 
   const s = stackOf({ cap: 2 });
   let r = nextRunnable(s, { globalRunning: 0, globalCap: 3 });
   assert.deepEqual(r.start, ['api', 'docs'], 'ui waits for api; api and docs start in the plan’s order');
-  assert.deepEqual(r.queued, [{ name: 'ui', reason: 'Waiting for section api to merge' }]);
+  assert.deepEqual(r.queued, [{ name: 'ui', reason: 'Waiting for part api to merge' }]);
 
   // Three without dependencies, cap 2: two start, the third waits for a slot.
   const free = newStack({ parent: 'p', plan: parseStackPlan('## Section: a\nA.\nOwns: a/**\n\n## Section: b\nB.\nOwns: b/**\n\n## Section: c\nC.\nOwns: c/**\n\nOrder: a, b, c\n'), where, cap: 2 });
@@ -124,7 +133,7 @@ test('nextRunnable: dependencies first, then the stack’s cap, then the global 
   const g = stackOf({ cap: 3 });
   r = nextRunnable(g, { globalRunning: 2, globalCap: 3 });
   assert.deepEqual(r.start, ['api']);
-  assert.deepEqual(r.queued, [{ name: 'ui', reason: 'Waiting for section api to merge' }, { name: 'docs', reason: 'Waiting for a free slot: 3 of 3 in use across every stack' }]);
+  assert.deepEqual(r.queued, [{ name: 'ui', reason: 'Waiting for part api to merge' }, { name: 'docs', reason: 'Waiting for a free slot: 3 of 3 in use across every stack' }]);
 
   // Once api has merged, ui may start.
   g.sections[0].state = 'integrated';
@@ -149,7 +158,7 @@ test('nextToMerge: only ever the first section not merged, with why it waits', (
   let n = nextToMerge(s);
   assert.equal(n.section.name, 'api');
   assert.equal(n.ready, false);
-  assert.match(n.reason, /Section api is next to merge, and it hasn’t started yet. Sections merge only in order./);
+  assert.match(n.reason, /Part api is next to merge, and it hasn’t started yet. Parts merge only in order./);
   s.sections[0].state = 'ready';
   n = nextToMerge(s);
   assert.deepEqual([n.section.name, n.ready], ['api', true]);
@@ -197,7 +206,7 @@ test('describeStack: the steps, the one next thing in words, and each part’s s
   v = describeStack({ slug: 'orbit-512', plan, planText: PLAN, stack, statuses: { api: { stage: 'implement', stage_state: 'working' } }, runs: { api: 'running' }, globalRunning: 2, globalCap: 3 });
   assert.equal(v.phase, 'build');
   assert.deepEqual(v.parts.map((p) => [p.n, p.name, p.state, p.stateWords]), [[1, 'api', 'running', 'Building'], [2, 'ui', 'pending', 'Queued'], [3, 'docs', 'running', 'Building']]);
-  assert.equal(v.parts[1].reason, 'Waiting for section api to merge');
+  assert.equal(v.parts[1].reason, 'Waiting for part api to merge');
   assert.equal(v.parts[0].progress.words, 'Building');
   assert.equal(v.next.action, 'wait');
   assert.equal(v.coordinatorEffort, 'xhigh');
@@ -206,7 +215,7 @@ test('describeStack: the steps, the one next thing in words, and each part’s s
   stack.sections[0].state = 'ready';
   v = describeStack({ slug: 'orbit-512', plan, planText: PLAN, stack });
   assert.equal(v.phase, 'merge');
-  assert.deepEqual([v.next.action, v.next.label, v.next.key, v.next.section], ['merge', 'Merge section 1', 'm', 'api']);
+  assert.deepEqual([v.next.action, v.next.label, v.next.key, v.next.section], ['merge', 'Merge part 1', 'm', 'api']);
   v = describeStack({ slug: 'orbit-512', plan, planText: PLAN, stack: { ...stack, autoIntegrate: true } });
   assert.equal(v.next.action, 'wait');
   assert.match(v.next.words, /merges on its own/);
@@ -229,6 +238,7 @@ test('describeStack: the steps, the one next thing in words, and each part’s s
   assert.ok(Object.values(STATE_WORDS).every((w) => /^[A-Z]/.test(w)), 'every state has words');
   const sum = stackSummary(v);
   assert.deepEqual([sum.parts, sum.counts.integrated, sum.action], [3, 3, 'push']);
+  assert.deepEqual(sum.sections.map((x) => [x.n, x.name, x.state, x.stateWords]), [[1, 'api', 'integrated', 'Merged'], [2, 'ui', 'integrated', 'Merged'], [3, 'docs', 'integrated', 'Merged']], 'each part, so Jobs can open a stack into its parts');
   // The plan changed after it was approved: the page can say so.
   assert.equal(describeStack({ slug: 'orbit-512', plan, planText: `${PLAN}\nmore`, stack }).plan.changedSinceApproval, true);
 });
@@ -289,7 +299,7 @@ test('mergeSection: merged with the checks passing; a clash and a file outside t
   const before = sh(parentWorktree, 'rev-parse', 'HEAD');
   let r = await mergeSection({ parentWorktree, parentBranch: 'feature/big', section: api, checks: ['node check.js'] });
   assert.equal(r.outcome, 'merged', r.words);
-  assert.match(r.words, /Section api is merged into feature\/big, and the checks passed \(node check\.js\)/);
+  assert.match(r.words, /Part api is merged into feature\/big, and the checks passed \(node check\.js\)/);
   assert.equal(sh(parentWorktree, 'rev-parse', 'HEAD'), r.sha);
   assert.notEqual(r.sha, before);
   assert.equal(await fs.readFile(path.join(parentWorktree, 'app/api/a.txt'), 'utf8'), 'api\n');
@@ -328,7 +338,7 @@ test('mergeSection: a failed check after the merge undoes it, so the branch alwa
   assert.equal(r.outcome, 'checks-failed');
   assert.equal(r.undone, true);
   assert.equal(r.before, before);
-  assert.match(r.words, /The checks failed after merging section bad \(node check\.js\), so the merge was undone and feature\/big is back where it was/);
+  assert.match(r.words, /The checks failed after merging part bad \(node check\.js\), so the merge was undone and feature\/big is back where it was/);
   assert.match(r.checks[0].tail, /FAIL-CHECK is here/);
   assert.equal(sh(parentWorktree, 'rev-parse', 'HEAD'), before);
   await assert.rejects(fs.stat(path.join(parentWorktree, 'FAIL-CHECK')));
@@ -401,4 +411,14 @@ test('decisions.md of a stack: each section’s decisions under its heading, num
   assert.deepEqual([...at].sort((x, y) => x - y), at, t);
   assert.equal(t.match(/## Not doing/g).length, 1);
   assert.equal(t.includes('ORBIT-512.D6'), false);
+});
+
+test('status.json: the first brief may say the ticket looks big enough for a stack (stack_suggested), in one sentence', () => {
+  const why = 'It touches the booking page, the email and the API, which can be built side by side.';
+  const sj = parseStatusJson(JSON.stringify({ schema_version: 1, slug: 'orbit-600', stage: 'spec', stack_suggested: why }));
+  assert.equal(sj.stackSuggested, why);
+  assert.equal(parseStatusJson(JSON.stringify({ schema_version: 1, slug: 'x', stage: 'spec' })).stackSuggested, null);
+  assert.equal(parseStatusJson(JSON.stringify({ schema_version: 1, slug: 'x', stage: 'spec', stack_suggested: 'x'.repeat(900) })).stackSuggested.length, 400, 'cut, not refused');
+  assert.deepEqual(validate({ schema_version: 1, slug: 'orbit-600', title: 'T', stage: 'spec', stage_state: 'waiting_for_you', stack_suggested: why }).errors.filter((e) => /stack_suggested/.test(e)), []);
+  assert.ok(validate({ schema_version: 1, slug: 'x', title: 'T', stage: 'spec', stage_state: 'working', stack_suggested: 5 }).errors.some((e) => /stack_suggested/.test(e)), 'a number is refused');
 });

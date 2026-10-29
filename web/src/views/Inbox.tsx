@@ -9,6 +9,8 @@
 // works on the open ticket, the row with the focus, else the bar's ticket. It opens New job with the
 // ticket filled in (read-only) and "ORBIT-<n>: <title>" as the description. The s key is the
 // registry's (inbox-start, app/keyRegistry.ts): never while typing, with a dialog open, or with keys off.
+// Start as stack (Shift+S, inbox-start-stack) sits beside Start on every row, the open ticket and the
+// bar, and says when to use one: New job on the same ticket, to run as a stack (views/Stack).
 //
 // While this page is open it holds /api/orbit/events, so the dashboard checks Orbit every 3 minutes
 // instead of every 15; the stream also brings each new list. Nothing here writes to Orbit.
@@ -16,7 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from '../api/client';
 import { useKeyScope } from '../app/keyRegistry';
 import { jobHref, settingsHref } from '../app/router';
-import { useUi } from '../app/ui';
+import { useUi, type SheetState } from '../app/ui';
 import { Icon, type IconName } from '../components/Icon';
 import { Kbd } from '../components/Kbd';
 import { GuideCards, Hero, NextBar, Page, type GuideSpec } from '../components/page/Page';
@@ -72,6 +74,14 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 /** What New job is filled in with: the ticket's key and title. */
 export const startText = (item: Pick<InboxItem, 'key' | 'title'>) => `${item.key}: ${item.title}`;
+
+/** When to use Start as stack, in one sentence (its button says it). */
+export const STACK_WHEN = 'For a big ticket: the work is split into parts that are built side by side, then joined in order.';
+
+/** New job on a ticket, to run as a stack (Start as stack, S). */
+export function stackSheet(item: Pick<InboxItem, 'key' | 'title' | 'url'>): SheetState {
+  return { kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url } };
+}
 
 // ---------- Severity, and the order ----------
 
@@ -191,6 +201,11 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
     if (item.job) return;
     ui.openSheet({ kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url } });
   }, [ui]);
+  // Start as stack (S): New job with the ticket filled in, to run as a stack (views/Stack).
+  const startStack = useCallback((item: InboxItem) => {
+    if (item.job) return;
+    ui.openSheet(stackSheet(item));
+  }, [ui]);
 
   const shown = tab === 'mine' ? mine : viewList ?? { state: 'loading' as const };
   const items = useMemo(() => (shown.state === 'ready' ? sortInbox(shown.data.items) : []), [shown]);
@@ -202,6 +217,11 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
       const item = open ?? focused.current ?? pick;
       if (!item || item.job) return false;
       start(item);
+    },
+    'inbox-start-stack': () => {
+      const item = open ?? focused.current ?? pick;
+      if (!item || item.job) return false;
+      startStack(item);
     },
   });
 
@@ -250,7 +270,7 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
         <>
           <StatusLine status={ready} now={now} />
           {open ? (
-            <TicketDetail key={open.key} item={open} onBack={() => setOpen(null)} onStart={start} />
+            <TicketDetail key={open.key} item={open} onBack={() => setOpen(null)} onStart={start} onStartStack={startStack} />
           ) : (
             <>
               {shown.state === 'ready' && (pick ? (
@@ -260,6 +280,9 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
                   say={`${pick.key} is ${pick.severity ? levelWord(pick.severity).toLowerCase() : 'not triaged yet'}${pick.assignee ? pick.assignee.you ? ' and yours' : `, with ${pick.assignee.name}` : ' and nobody is on it'}`}
                   sub="Start a job and the Foreman reads the ticket first."
                 >
+                  <button type="button" className="btn btn-lg" onClick={() => startStack(pick)} title={`${STACK_WHEN} Opens New job on ${pick.key}, run as a stack (key: Shift+S).`}>
+                    Start as stack <Kbd id="inbox-start-stack" />
+                  </button>
                   <button type="button" className="btn btn-primary btn-lg" onClick={() => start(pick)} title={`Start a job on ${pick.key}: opens New job with the key and title filled in (key: s).`}>
                     Start {pick.key} {sKey}
                   </button>
@@ -278,6 +301,7 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
                   sKey={sKey}
                   onOpen={setOpen}
                   onStart={start}
+                  onStartStack={startStack}
                   onFocusRow={(item) => { focused.current = item; }}
                 />
               ) : (
@@ -345,9 +369,9 @@ function StatusLine({ status, now }: { status: OrbitStatus; now: Date }) {
   );
 }
 
-function TicketTable({ items, jobs, pick, now, sKey, onOpen, onStart, onFocusRow }: {
+function TicketTable({ items, jobs, pick, now, sKey, onOpen, onStart, onStartStack, onFocusRow }: {
   items: InboxItem[]; jobs: readonly Job[]; pick: InboxItem | null; now: Date; sKey: React.ReactNode;
-  onOpen: (item: InboxItem) => void; onStart: (item: InboxItem) => void; onFocusRow: (item: InboxItem | null) => void;
+  onOpen: (item: InboxItem) => void; onStart: (item: InboxItem) => void; onStartStack: (item: InboxItem) => void; onFocusRow: (item: InboxItem | null) => void;
 }) {
   return (
     <div className="data-table inbox-table">
@@ -394,6 +418,17 @@ function TicketTable({ items, jobs, pick, now, sKey, onOpen, onStart, onFocusRow
                       Start {isPick && sKey}
                     </button>
                   )}
+                  {!i.job && (
+                    <button
+                      type="button"
+                      className="btn btn-quiet inbox-stack-start"
+                      onClick={() => onStartStack(i)}
+                      aria-label={`Start ${i.key} as a stack`}
+                      title={`${STACK_WHEN} Opens New job on ${i.key}, run as a stack (key: Shift+S, with the focus on this row).`}
+                    >
+                      Start as stack
+                    </button>
+                  )}
                 </td>
               </tr>
             );
@@ -406,7 +441,7 @@ function TicketTable({ items, jobs, pick, now, sKey, onOpen, onStart, onFocusRow
 
 const DETAIL_EVERY_MS = 60_000;
 
-function TicketDetail({ item, onBack, onStart }: { item: InboxItem; onBack: () => void; onStart: (item: InboxItem) => void }) {
+function TicketDetail({ item, onBack, onStart, onStartStack }: { item: InboxItem; onBack: () => void; onStart: (item: InboxItem) => void; onStartStack: (item: InboxItem) => void }) {
   const { api } = useWorkshop();
   const now = useNow();
   const [detail, setDetail] = useState<Load<TicketAnswer>>({ state: 'loading' });
@@ -452,9 +487,15 @@ function TicketDetail({ item, onBack, onStart }: { item: InboxItem; onBack: () =
           >
             Start {!current.job && <Kbd id="inbox-start" />}
           </button>
+          {!current.job && (
+            <button type="button" className="btn" onClick={() => onStartStack(current)} title={`${STACK_WHEN} Opens New job on this ticket, run as a stack (key: Shift+S).`}>
+              Start as stack <Kbd id="inbox-start-stack" />
+            </button>
+          )}
           {current.job && <span>You are already on this: <a href={jobHref(current.job.slug)}>{current.job.title}</a></span>}
           {current.url && <a className="btn btn-quiet" href={current.url} target="_blank" rel="noreferrer noopener" title="Open the ticket on Orbit, in a new tab.">Open on Orbit</a>}
         </div>
+        {!current.job && <p className="muted inbox-stack-when">Start as stack: {STACK_WHEN.charAt(0).toLowerCase()}{STACK_WHEN.slice(1)}</p>}
       </div>
       {detail.state === 'loading' && <p className="muted" role="status">Reading the ticket…</p>}
       {detail.state === 'error' && <p className="field-problem" role="alert">{detail.message}</p>}

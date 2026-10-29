@@ -76,6 +76,8 @@ export interface Job {
   starting?: boolean;
   /** Another process holds the job (dashboard/lib/lock.js): a terminal, or another copy of the dashboard. */
   lock?: JobLockInfo | null;
+  /** The Foreman's first brief says the ticket looks big enough for a stack, and why (status.json stack_suggested). */
+  stackSuggested?: string | null;
   [key: string]: unknown;
 }
 
@@ -1170,7 +1172,7 @@ export interface StackView {
   steps: StackStep[];
   next: StackNext;
   /** stack.md as read now (null when there is none yet): its problems, and whether it changed after approval. */
-  plan: { ok: boolean; errors: string[]; warnings: string[]; changedSinceApproval: boolean } | null;
+  plan: { ok: boolean; why?: string | null; errors: string[]; warnings: string[]; changedSinceApproval: boolean } | null;
   approved: boolean;
   /** Sections at once for this stack. */
   cap: number;
@@ -1214,6 +1216,8 @@ export interface StackSummary {
   /** What it needs, in words. */
   needs: string;
   action: StackNext['action'];
+  /** Each part's job (its slug once started), so Jobs shows a stack as one row that opens into its parts. Older dashboards send none. */
+  sections?: { n: number; name: string; slug: string | null; state: StackSectionState; stateWords: string }[];
 }
 
 /** GET /api/stacks. */
@@ -1221,6 +1225,59 @@ export interface StacksList {
   stacks: StackSummary[];
   globalCap: number;
   globalRunning: number;
+}
+
+// ---------- The build stack: this app's own packets (dashboard/lib/integrate.js, /api/integrate/*) ----------
+
+export type PacketTestsState = 'unknown' | 'running' | 'green' | 'red';
+export type PacketMergeState = 'waiting' | 'merged' | 'empty' | 'missing' | 'unknown';
+
+/** One packet worktree (a branch named packet/<id>-<name>): a part of the build stack. */
+export interface IntegratePacket {
+  id: string;
+  name: string;
+  path: string;
+  branch: string;
+  base: string;
+  ahead: number | null;
+  behind: number | null;
+  state: PacketMergeState;
+  lastCommit: { sha: string; short: string; subject: string; time: string } | null;
+  testsState: PacketTestsState;
+  testsAt: string | null;
+  brief: string | null;
+  owned: string[] | null;
+  touchedOutsideOwned: string[] | null;
+}
+
+export interface IntegrateOrderItem { id: string; branch: string | null; state: PacketMergeState; ahead: number | null; name: string | null }
+
+export interface IntegrateResult {
+  outcome: 'refused' | 'blocked' | 'nothing' | 'conflict' | 'failed' | 'merged' | 'tests';
+  message: string;
+  at: string;
+  id?: string;
+  name?: string;
+  branch?: string;
+  sha?: string | null;
+  files?: string[];
+  tests?: { ok: boolean; steps: { label: string; code: number | null; ok: boolean; ms: number }[] };
+}
+
+export interface IntegrateStep { kind: 'merge' | 'tests'; id?: string; stage: string; startedAt: string }
+
+/** GET /api/integrate: the packets, the saved order, packets at once, the last result, what runs now. */
+export interface IntegrateView {
+  root: string;
+  base: string;
+  packets: IntegratePacket[];
+  order: IntegrateOrderItem[];
+  next: IntegrateOrderItem | null;
+  slots: number;
+  inUse: number;
+  last: IntegrateResult | null;
+  running: IntegrateStep | null;
+  log: string;
 }
 
 /** A job's evidence option (lib/options.js EVIDENCE_CHOICES): Auto is on at L2 and L3; never at L0. */

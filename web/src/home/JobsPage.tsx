@@ -10,7 +10,7 @@
 import { useRef, useState } from 'react';
 import type { Job, JobLane } from '../api/types';
 import { useKeyScope } from '../app/keyRegistry';
-import { hrefFor, jobHref, navigate } from '../app/router';
+import { hrefFor, jobHref, navigate, stackHref } from '../app/router';
 import { useUi } from '../app/ui';
 import { Icon, type IconName } from '../components/Icon';
 import { Kbd } from '../components/Kbd';
@@ -21,6 +21,8 @@ import { useStored } from '../lib/stored';
 import { relativeTime, useNow } from '../lib/time';
 import { usePlayIfAny } from '../play/usePlay';
 import { useWorkshopState } from '../state/store';
+import { StackJobCard, useStackIndex, type StackIndex } from '../views/Stack/StackRows';
+import { StepDots } from '../views/Stack/StacksPage';
 
 export type JobsLayout = 'lanes' | 'list';
 export const JOBS_LAYOUT_KEY = 'gc.jobs.layout';
@@ -108,8 +110,16 @@ function JobCard({ job, now, play }: { job: Job; now: Date; play: 'full' | 'subt
   );
 }
 
-function Cards({ jobs, now, play }: { jobs: readonly Job[]; now: Date; play: 'full' | 'subtle' | 'off' }) {
-  return <ul className="job-cards">{jobs.map((j) => <JobCard key={j.slug} job={j} now={now} play={play} />)}</ul>;
+function Cards({ jobs, now, play, stacks }: { jobs: readonly Job[]; now: Date; play: 'full' | 'subtle' | 'off'; stacks?: StackIndex }) {
+  return (
+    <ul className="job-cards">
+      {jobs.map((j) => {
+        // A stack is one card that opens into its parts (packet K2).
+        const stack = stacks?.stackOf(j.slug);
+        return stack ? <StackJobCard key={j.slug} job={j} stack={stack} now={now} play={play} /> : <JobCard key={j.slug} job={j} now={now} play={play} />;
+      })}
+    </ul>
+  );
 }
 
 export function JobsPage() {
@@ -120,7 +130,9 @@ export function JobsPage() {
   const play: 'full' | 'subtle' | 'off' = playState?.full ? 'full' : playState?.on ? 'subtle' : 'off';
   const narrow = useNarrow();
   const [layout] = useJobsLayout();
-  const open = jobs; // closed ones go to Done
+  // Closed ones go to Done; a stack's parts are inside its card, not cards of their own.
+  const stacks = useStackIndex();
+  const open = jobs.filter((j) => !stacks.partOf(j.slug));
   // While the pointer is over the board, a card keeps the lane it had when the pointer came in.
   const frozen = useRef<Map<string, JobLane> | null>(null);
   const [, setHover] = useState(false);
@@ -145,7 +157,7 @@ export function JobsPage() {
     <div className="jobs-folds">
       {(['needs-you', 'working', 'in-review', 'ready'] as const).map((l) => (
         <Fold key={l} icon={LANE_INFO[l].icon} name={LANE_INFO[l].word} note={byLane[l].length} open={l === 'needs-you' && byLane[l].length > 0}>
-          {byLane[l].length ? <Cards jobs={byLane[l]} now={now} play={play} /> : <p className="muted">None.</p>}
+          {byLane[l].length ? <Cards jobs={byLane[l]} now={now} play={play} stacks={stacks} /> : <p className="muted">None.</p>}
         </Fold>
       ))}
     </div>
@@ -162,7 +174,7 @@ export function JobsPage() {
             <h3 className="lane-word">{LANE_INFO[l].word}</h3>
             <span className="lane-count">{byLane[l].length}</span>
           </header>
-          {byLane[l].length ? <Cards jobs={byLane[l]} now={now} play={play} /> : <p className="muted lane-empty">None right now.</p>}
+          {byLane[l].length ? <Cards jobs={byLane[l]} now={now} play={play} stacks={stacks} /> : <p className="muted lane-empty">None right now.</p>}
         </section>
       ))}
     </div>
@@ -175,8 +187,10 @@ export function JobsPage() {
         return (
           <li key={j.slug} className={`jobs-list-row lane-${l}`}>
             <span className={`chip state-chip is-${l}`}><Icon name={LANE_INFO[l].icon} size={14} /> {LANE_INFO[l].word}</span>
-            <a className="job-card-title" href={jobHref(j.slug)}>{j.title || j.slug}</a>
-            <StopMap job={{ ...j, lane: l }} compact tips label={`${j.title || j.slug}: its stops`} />
+            <a className="job-card-title" href={stacks.stackOf(j.slug) ? stackHref(j.slug) : jobHref(j.slug)}>{j.title || j.slug}</a>
+            {stacks.stackOf(j.slug)
+              ? <StepDots steps={stacks.stackOf(j.slug)!.steps} label="Stack" />
+              : <StopMap job={{ ...j, lane: l }} compact tips label={`${j.title || j.slug}: its stops`} />}
             <span className="muted jobs-list-reason">{j.laneReason}</span>
           </li>
         );
@@ -201,10 +215,10 @@ export function JobsPage() {
           {layout === 'list' ? listView : lanesView}
           <div className="jobs-folded">
             <Fold icon="moon" name="Resting" note={`${byLane.resting.length} idle`} id="jobs-resting">
-              {byLane.resting.length ? <Cards jobs={byLane.resting} now={now} play={play} /> : <p className="muted">None.</p>}
+              {byLane.resting.length ? <Cards jobs={byLane.resting} now={now} play={play} stacks={stacks} /> : <p className="muted">None.</p>}
             </Fold>
             <Fold icon="circle-check" name="Done" note={byLane.done.length} id="jobs-done">
-              {byLane.done.length ? <Cards jobs={byLane.done} now={now} play={play} /> : <p className="muted">None yet.</p>}
+              {byLane.done.length ? <Cards jobs={byLane.done} now={now} play={play} stacks={stacks} /> : <p className="muted">None yet.</p>}
             </Fold>
           </div>
         </>

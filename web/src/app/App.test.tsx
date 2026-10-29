@@ -42,7 +42,7 @@ describe('App shell', () => {
     const bar = document.querySelector<HTMLElement>('.topbar')!;
     expect(within(bar).getByRole('link', { name: 'Dashboard, back to Jobs' })).toHaveAttribute('href', '#/');
     const pages = within(bar).getByRole('navigation', { name: 'Pages' });
-    expect(within(pages).getAllByRole('link').map((a) => a.textContent)).toEqual(['Inbox', 'Desk', 'Jobs', 'Integrate', 'Telemetry']);
+    expect(within(pages).getAllByRole('link').map((a) => a.textContent)).toEqual(['Inbox', 'Desk', 'Jobs', 'Stacks', 'Telemetry']);
     expect(within(pages).getByRole('link', { name: 'Jobs' })).toHaveAttribute('aria-current', 'page');
     expect(within(bar).getByRole('link', { name: 'Desk' })).toHaveAttribute('href', '#/desk');
     // The gear: Settings, the Crew-dex in Play, the flow map, the Table, the keys and every action.

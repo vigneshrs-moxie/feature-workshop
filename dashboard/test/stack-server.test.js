@@ -206,8 +206,8 @@ test('server: a stack of three with cap 2 starts two, queues one with its reason
   assert.equal(sh(part(v, 'c').worktree, 'rev-parse', 'HEAD'), parentNow, 'c is made from the parent’s branch');
   const early = await post('/api/stacks/big-job/merge', { section: 'b' });
   assert.equal(early.status, 409);
-  assert.match(early.body.error, /Sections merge only in order: a is next, not b/);
-  assert.match((await post('/api/stacks/big-job/merge')).body.error, /Section a is next to merge, and it is still being built/);
+  assert.match(early.body.error, /Parts merge only in order: a is next, not b/);
+  assert.match((await post('/api/stacks/big-job/merge')).body.error, /Part a is next to merge, and it is still being built/);
   assert.match(allTold(v), /Section b is ready to merge\./);
 
   // a is ready: your yes merges it, the checks run, and c takes the free slot.
@@ -219,7 +219,7 @@ test('server: a stack of three with cap 2 starts two, queues one with its reason
   v = await until('big-job', (x) => part(x, 'a').state === 'integrated', 'a to merge');
   assert.equal(part(v, 'a').stateWords, 'Merged');
   assert.equal(sh(v.parentWorktree, 'rev-parse', 'HEAD'), part(v, 'a').mergeSha);
-  assert.ok(v.log.some((l) => l.event === 'merged' && /Section a is merged into feature\/big-job, and the checks passed \(node check\.js\)/.test(l.words)));
+  assert.ok(v.log.some((l) => l.event === 'merged' && /Part a is merged into feature\/big-job, and the checks passed \(node check\.js\)/.test(l.words)));
 
   assert.equal((await post('/api/stacks/big-job/merge')).status, 202);
   v = await until('big-job', (x) => part(x, 'b').state === 'integrated', 'b to merge');
@@ -233,7 +233,7 @@ test('server: a stack of three with cap 2 starts two, queues one with its reason
   v = await until('big-job', (x) => part(x, 'c').failures === 1 && !x.busy, 'c’s checks to fail');
   assert.equal(part(v, 'c').state, 'running');
   assert.equal(part(v, 'c').problem.kind, 'checks');
-  assert.match(part(v, 'c').reason, /The checks failed after merging section c \(node check\.js\), so the merge was undone and feature\/big-job is back where it was/);
+  assert.match(part(v, 'c').reason, /The checks failed after merging part c \(node check\.js\), so the merge was undone and feature\/big-job is back where it was/);
   assert.equal(sh(v.parentWorktree, 'rev-parse', 'HEAD'), beforeC, 'the branch is back where it was');
   await assert.rejects(fs.stat(path.join(v.parentWorktree, 'c', 'FAIL')));
   assert.match(allTold(v), /It went back to section c’s Foreman \(1 of 3\)/);

@@ -203,6 +203,26 @@ describe('Inbox', () => {
     expect(startText({ key: 'ORBIT-1', title: 'x' })).toBe('ORBIT-1: x');
   });
 
+  it('Start as stack sits beside Start on each row and the open ticket and says when to use one; Shift+S does the same (packet K2)', async () => {
+    const { wrap, sheets } = setup();
+    wrap(<InboxView openStream={() => null} />);
+    const row = await screen.findByRole('button', { name: 'Start ORBIT-12 as a stack' });
+    expect(row).toHaveAttribute('title', expect.stringContaining('For a big ticket: the work is split into parts that are built side by side, then joined in order.'));
+    fireEvent.click(row);
+    expect(sheets.at(-1)).toEqual(expect.objectContaining({ kind: 'new-job', description: 'ORBIT-12: Sample ticket 12', ticket: expect.objectContaining({ key: 'ORBIT-12' }) }));
+    expect(screen.queryByRole('button', { name: 'Start ORBIT-479 as a stack' })).toBeNull(); // already on a job: the row shows the job
+    act(() => { sheets.length = 0; });
+    const open13 = screen.getByRole('button', { name: /^ORBIT-13/ });
+    act(() => { open13.focus(); });
+    fireEvent.keyDown(open13, { key: 'S', shiftKey: true });
+    expect(sheets.at(-1)).toEqual(expect.objectContaining({ kind: 'new-job', ticket: expect.objectContaining({ key: 'ORBIT-13' }) }));
+    expect(within(screen.getByRole('region', { name: 'Next step' })).getByRole('button', { name: /Start as stack/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^ORBIT-12/ }));
+    const detail = await screen.findByRole('region', { name: 'ORBIT-12: Sample ticket 12' });
+    expect(within(detail).getByRole('button', { name: /Start as stack/ })).toBeInTheDocument();
+    expect(detail).toHaveTextContent('Start as stack: for a big ticket: the work is split into parts');
+  });
+
   it('s on a ticket you are already on does nothing; nor while typing, with a dialog open, or with keys off', async () => {
     const { wrap, sheets } = setup();
     wrap(<><InboxView openStream={() => null} /><input aria-label="Somewhere to type" /></>);

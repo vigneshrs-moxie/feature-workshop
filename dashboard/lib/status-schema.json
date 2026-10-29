@@ -123,6 +123,7 @@
     },
     "stack": { "type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9._-]{0,199}$", "description": "the parent job's folder name, like orbit-512-tech-schedule (a section of a stack names its stack)" },
     "section": { "type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9-]{0,39}$", "description": "a section's name from stack.md: lower-case letters, numbers and dashes, like api" },
+    "stack_suggested": { "type": ["string", "null"], "description": "the first brief thinks the ticket is big enough for a stack: why, in one plain sentence (the Job page offers Run as a stack instead; longer than 400 characters is cut); null or absent otherwise" },
     "session_id": { "type": ["string", "null"] },
     "cwd": { "type": ["string", "null"] },
     "updated_at": { "type": ["string", "null"] }
