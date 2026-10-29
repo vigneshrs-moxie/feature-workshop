@@ -12,7 +12,8 @@
 //
 // GateSlot holds what outlives one card: the line saying what happened (the card itself goes once
 // the brief is answered, or changes when the Foreman moves on to a new brief).
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { ApiError } from '../../api/client';
 import type { Gate, GateRequest, GateResult, Job, JobDetail, JobLockInfo } from '../../api/types';
 import { loadJobDoc, sendGate, stopRun } from '../../app/jobActions';
@@ -124,7 +125,7 @@ function ScreensRow({ slug, hasPage }: { slug: string; hasPage: boolean }) {
 }
 
 /** `callsOutside`: the page draws its own big calls (the Desk's Go / No go / Reply) and presses the card's buttons, so the card's row is hidden. */
-export function GateSlot({ job, detail, now, reload, callsOutside = false }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean }) {
+export function GateSlot({ job, detail, now, reload, callsOutside = false, extrasTo = null }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean; /** The Desk's Details sheet (packet R): Adjust the next step and How this works are drawn there instead. */ extrasTo?: HTMLElement | null }) {
   const { runs } = useWorkshopState();
   const [notice, setNotice] = useState<GateNotice | null>(null);
   const [memoRaw, setMemo] = useStored(gateDraftKey(job.slug));
@@ -178,7 +179,7 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false }: { j
           </div>
         </section>
       ) : (
-        <GateCard key={`${job.slug}#${gate.briefNumber ?? '-'}`} job={job} detail={detail} gate={gate} now={now} reload={reload} report={setNotice} running={running} callsOutside={callsOutside} />
+        <GateCard key={`${job.slug}#${gate.briefNumber ?? '-'}`} job={job} detail={detail} gate={gate} now={now} reload={reload} report={setNotice} running={running} callsOutside={callsOutside} extrasTo={extrasTo} />
       ))}
     </>
   );
@@ -186,8 +187,8 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false }: { j
 
 type Mode = null | 'changes' | 'message' | 'stop';
 
-function GateCard({ job, detail, gate, now, reload, report, running, callsOutside = false }: {
-  job: Job; detail: JobDetail; gate: Gate; now: Date; reload(): void; report(n: GateNotice): void; callsOutside?: boolean;
+function GateCard({ job, detail, gate, now, reload, report, running, callsOutside = false, extrasTo = null }: {
+  job: Job; detail: JobDetail; gate: Gate; now: Date; reload(): void; report(n: GateNotice): void; callsOutside?: boolean; extrasTo?: HTMLElement | null;
   /** The Foreman is working on a reply for this job right now. */
   running: boolean;
 }) {
@@ -415,6 +416,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const approveHint = `${approve}. Sends your answers, confirms the decisions you didn’t override, adds the chips’ lines, and says “At these versions”.${gate.nextProposed ? ` The Foreman goes ahead with: ${plainInline(gate.nextProposed)}.` : ''}`;
   const staleHint = 'Off: the plan changed since this card was raised, so this approval would be for an old version.';
 
+  // On the Desk the card's extras go into its one Details sheet; elsewhere they stay on the card.
+  const putExtras = (node: ReactNode, key: string) => (extrasTo ? createPortal(node, extrasTo, key) : node);
   return (
     <section className={`perm-card question-card gate-card${stale ? ' is-stale' : ''}`} data-ask="question" aria-labelledby={headId} aria-busy={busy}>
       <header className="gate-head">
@@ -666,6 +669,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
         </div>
       )}
 
+      {putExtras(
       <details className="gate-adjust" open={adjustOpen}>
         <summary className="gate-fold" onClick={(e) => { e.preventDefault(); setAdjustOpen(!adjustOpen); }} title="Change only the next step (or the level from the next step on): skip it, lighter, heavier, a Fable second look, do it yourself, L↑ or L↓. Each adds one line to your reply.">
           Adjust the next step{next ? ` (${next})` : ''} <Kbd id="gate-adjust" />
@@ -705,6 +709,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
           </div>
         )}
       </details>
+      , 'adjust')}
 
       {askTerminal && (
         <label className="check" title="Claude Code is open in this repository in a terminal. Two Foremen on one job would trip over each other.">
@@ -713,12 +718,14 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       )}
       {error && <p className="field-problem" role="alert">{error}</p>}
 
+      {putExtras(
       <HowThisWorks id="gate-card" defaultOpen={false}>
         <p>The Foreman has briefed you and waits for your decision. Nothing goes ahead, and nothing is ever approved for you, until you press one of these.</p>
         <p><strong>Approve</strong> (its label says what it approves and what starts) sends your answers to the questions, confirms the decisions made on your behalf that you didn’t override, and names the versions you approved. <strong>Edit, then approve</strong> shows that reply in full so you can change the words first. <strong>Revise with feedback</strong> asks for changes: the Foreman stays in this stage. <strong>Other guidance</strong> sends a question or a note without approving; the card stays open. Approve needs an answer to every question (a recommended answer is picked for you); while it is off, the card lists why, and the list empties as you resolve each point. <strong>Approve, start after reset</strong> appears when Claude’s usage limit is reached: your approval waits and goes when it resets. <strong>Stop job</strong> is under ⋯ and asks you to type the job’s name.</p>
         <p><strong>Decisions made for you</strong> is folded to one line: open it to read each one, and <strong>Override</strong> marks one changed, with what it should be instead. <strong>Adjust the next step</strong> holds the chips, which change <strong>only the next step</strong>: skip it, make it lighter or heavier, ask Fable for a second look, do it yourself, or move the level up or down from there. Each adds one line to your reply, shown there exactly, and saves the job’s options where there is one.</p>
         <p>If the plan changes after the card appears, it greys out (“Plan changed since this was proposed”) so you can’t approve an old version. If the Foreman is still working, your reply waits in the message box until it finishes. A decision left 4 hours shows as parked.</p>
       </HowThisWorks>
+      , 'how')}
 
       {editing !== null && (
         <SendPreview

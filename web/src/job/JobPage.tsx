@@ -12,6 +12,7 @@ import { jobHref, navigate, screensHref, stageHref } from '../app/router';
 import { useUi } from '../app/ui';
 import { useDetail } from '../app/detail';
 import { More } from '../components/More';
+import { NowLine } from '../components/NowLine';
 import { Button } from '../components/Button';
 import { Chip } from '../components/Chip';
 import { Icon, type IconName } from '../components/Icon';
@@ -184,18 +185,15 @@ function JobView({ job }: { job: Job }) {
       guide={JOB_GUIDE}
       head={(
         <>
-          {ticket && <Chip className="num">{ticket}</Chip>}
-          <PartOfStack slug={job.slug} index={stacks} />
           <Chip tone={chipTone(lane, chip.word)} icon={chip.icon} className={`state-chip is-${lane}`} title={LANE_INFO[lane].hint}>{chip.word}</Chip>
-          <LevelChip job={job} ready={Boolean(thread.detail)} />
+          {/* The stops as a thin strip on the header line (packet R); the labelled map is in Details. */}
+          <section className="job-strip" aria-label="The job’s stops"><StopMap job={{ ...job, lane }} compact hrefFor={(s) => stageHref(job.slug, s)} label="The job’s stops: each opens who works on it" /></section>
+          {narrow && <PartOfStack slug={job.slug} index={stacks} />}
           <span className="spacer" />
           <JobMenu job={job} dir={thread.detail?.dir} policyOverride={thread.detail?.policyOverride} run={run} worktree={thread.detail?.worktree} gear />
         </>
       )}
     >
-      <section className={`job-map${play.full ? ' has-grid' : ''}`} aria-label="The job’s stops">
-        <StopMap job={{ ...job, lane }} hrefFor={(s) => stageHref(job.slug, s)} faces={play.full && !narrow} label="The job’s stops: each opens who works on it" />
-      </section>
       <StackSuggestion job={job} index={stacks} />
       <div className="job-layout">
         <div className="job-main">
@@ -205,6 +203,18 @@ function JobView({ job }: { job: Job }) {
           </More>
         </div>
         <aside className="job-side" aria-label="The conversation and the job">
+          <NowLine job={job} now={now} className="job-now" />
+          <More screen="job" id="details" label="Details" note="level, stops, who is working, facts" icon="list" className="is-card job-details">
+            <div className="job-details-head">
+              {ticket && <Chip className="num">{ticket}</Chip>}
+              <LevelChip job={job} ready={Boolean(thread.detail)} />
+              <PartOfStack slug={job.slug} index={stacks} />
+            </div>
+            <section className={`job-map${play.full ? ' has-grid' : ''}`} aria-label="The job’s stops, in full">
+              <StopMap job={{ ...job, lane }} faces={play.full && !narrow} label="Every stop, with its name" />
+            </section>
+            <JobFacts job={job} now={now} />
+          </More>
           {wide ? (
             <section className="job-convo" aria-label="Conversation">
               <header className="job-side-head"><Icon name="message" size={16} /><h3>Conversation</h3>{messagesNote && <span className="muted">· {messagesNote}</span>}</header>
@@ -216,11 +226,6 @@ function JobView({ job }: { job: Job }) {
               <Fold icon="message" name="Conversation" note={messagesNote} id={`job-convo-${job.slug}`}>{thread_}</Fold>
               <Composer key={job.slug} slug={job.slug} detail={thread.detail} run={run} />
             </>
-          )}
-          {wide && (
-            <More screen="job" id="details" label="Details" note={(job.nowDoing?.length ?? 0) > 0 ? 'who is working, and the job’s facts' : 'the job’s facts'} icon="list" className="is-card job-details">
-              <JobFacts job={job} now={now} />
-            </More>
           )}
         </aside>
       </div>

@@ -24,7 +24,19 @@
 .gc-nav { display: inline-flex; align-items: center; gap: 2px; margin-left: var(--space-2); }
 .gc-nav-link { padding: 0 var(--space-3); }
 .gc-nav-link[aria-current='page'] { color: var(--text-1); background-color: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border-1); }
-.gc-nav-link .home-view-count { margin-left: 2px; }
+.gc-nav-link .home-view-count { margin-left: 2px; border-color: transparent; background: var(--surface-2); color: var(--text-2); }
+.gc-nav-link[aria-current='page'] .home-view-count { background: var(--bg-3); color: var(--text-1); }
+/* The command box, findable: a quiet field-like button in the top bar. */
+.gc-command {
+  display: inline-flex; align-items: center; gap: var(--space-2); width: 260px; height: var(--control-h-sm); margin-right: var(--space-1); padding: 0 6px 0 10px;
+  border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--surface-2); color: var(--text-3);
+  font: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.gc-command:hover { border-color: var(--border-2); background: var(--surface-1); color: var(--text-2); }
+.gc-command:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.gc-command-words { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gc-command-key { flex: none; background: var(--surface-1); }
 .gc-meters { display: inline-flex; align-items: center; }
 .gc-phone-desk, .gc-burger { display: none; }
 
@@ -44,12 +56,14 @@
 
 @media (max-width: 1180px) {
   .gc-brand-name { display: none; }
+  .gc-command { width: 34px; padding: 0; justify-content: center; }
+  .gc-command-words, .gc-command-key { display: none; }
   .gc-meters .usage-meter-reset { display: none; }
 }
 /* Phone: the short form. The mark, the page's name, the Desk count and ☰. */
 @media (max-width: 760px) {
   .topbar { gap: var(--space-1); padding: 0 var(--space-2) 0 var(--page-gutter); }
-  .gc-nav, .gc-meters, .conn-label, .gc-new-job, .gc-gear, .gc-demo, .topbar .spacer { display: none; }
+  .gc-nav, .gc-meters, .conn-label, .gc-new-job, .gc-gear, .gc-demo, .gc-command, .topbar .spacer { display: none; }
   .gc-page-name { display: block; flex: 1 1 auto; }
   .gc-phone-desk { display: inline-flex; }
   .gc-burger { display: block; }

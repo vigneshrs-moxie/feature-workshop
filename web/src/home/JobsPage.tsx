@@ -28,6 +28,7 @@ import { StackJobCard, useStackIndex, type StackIndex } from '../views/Stack/Sta
 import { StepDots } from '../views/Stack/StacksPage';
 import type { Permission, ReviewView } from '../api/types';
 import { GithubLine } from '../views/Review/GithubLine';
+import { JobPeek } from './JobPeek';
 import { isRoundCard, useReviewList } from '../views/Review/useReview';
 import { cardIcon } from '../views/Review/words';
 
@@ -105,7 +106,7 @@ export function chipTone(lane: JobLane, word: string): ChipTone {
   return 'neutral';
 }
 
-function JobCard({ job, now, play, review, full }: { job: Job; now: Date; play: 'full' | 'subtle' | 'off'; review?: ReviewView | null; full: boolean }) {
+function JobCard({ job, now, play, review, full, onPeek, peeked }: { job: Job; now: Date; play: 'full' | 'subtle' | 'off'; review?: ReviewView | null; full: boolean; onPeek?: (slug: string) => void; peeked?: boolean }) {
   const lane = laneOf(job);
   const { permissions } = useWorkshopState();
   const chip = stateChip(job, permissions);
@@ -116,10 +117,20 @@ function JobCard({ job, now, play, review, full }: { job: Job; now: Date; play: 
   // on hover and on focus, over the time, so the card never changes size; in Full on a row of their own.
   const stops = <StopMap job={{ ...job, lane }} compact tips label={`${name}: its stops`} />;
   return (
-    <li className={`job-card lane-${lane} play-${play}${full ? ' is-full' : ''}`}>
+    <li
+      className={`job-card lane-${lane} play-${play}${full ? ' is-full' : ''}${onPeek ? ' can-peek' : ''}${peeked ? ' is-peeked' : ''}`}
+      onClick={onPeek ? (e) => { if (!(e.target as Element).closest('a, button, [tabindex]')) onPeek(job.slug); } : undefined}
+    >
       <div className="job-card-top">
-        {play !== 'off' && <span className={`job-light${working ? ' is-on' : ''}${working && play === 'full' ? ' is-blink' : ''}`} aria-hidden="true" />}
-        <a className="job-card-title" href={jobHref(job.slug)} title={`Open ${name}.`}>{name}</a>
+        {play === 'full' && <span className={`job-light${working ? ' is-on' : ''}${working && play === 'full' ? ' is-blink' : ''}`} aria-hidden="true" />}
+        <a
+          className="job-card-title"
+          href={jobHref(job.slug)}
+          title={onPeek ? `Open ${name}. Space, or a click on the card, takes a quick look instead.` : `Open ${name}.`}
+          onKeyDown={onPeek ? (e) => { if (e.key === ' ') { e.preventDefault(); onPeek(job.slug); } } : undefined}
+        >
+          {name}
+        </a>
       </div>
       {full && stops}
       {/* Play full's console readout (the stop and how long), with every detail shown. */}
@@ -138,18 +149,21 @@ function JobCard({ job, now, play, review, full }: { job: Job; now: Date; play: 
   );
 }
 
-function Cards({ jobs, now, play, stacks, reviews }: { jobs: readonly Job[]; now: Date; play: 'full' | 'subtle' | 'off'; stacks?: StackIndex; reviews?: ReadonlyMap<string, ReviewView> }) {
+function Cards({ jobs, now, play, stacks, reviews, onPeek, peeked }: { jobs: readonly Job[]; now: Date; play: 'full' | 'subtle' | 'off'; stacks?: StackIndex; reviews?: ReadonlyMap<string, ReviewView>; onPeek?: (slug: string) => void; peeked?: string | null }) {
   const [detail] = useDetail();
   return (
     <ul className="job-cards">
       {jobs.map((j) => {
         // A stack is one card that opens into its parts (packet K2).
         const stack = stacks?.stackOf(j.slug);
-        return stack ? <StackJobCard key={j.slug} job={j} stack={stack} now={now} play={play} /> : <JobCard key={j.slug} job={j} now={now} play={play} review={reviews?.get(j.slug) ?? null} full={detail === 'full'} />;
+        return stack ? <StackJobCard key={j.slug} job={j} stack={stack} now={now} play={play} /> : <JobCard key={j.slug} job={j} now={now} play={play} review={reviews?.get(j.slug) ?? null} full={detail === 'full'} onPeek={onPeek} peeked={peeked === j.slug} />;
       })}
     </ul>
   );
 }
+
+/** How long a job has waited, in words ("5h"), or null. */
+const t0 = (j: Job) => { const t = since(j); return t ? relativeTime(t, new Date()) : null; };
 
 export function JobsPage() {
   const { jobs } = useWorkshopState();
@@ -176,13 +190,18 @@ export function JobsPage() {
   const needCount = byLane['needs-you'].length;
 
   useKeyScope('jobs', { 'jobs-open': () => { if (!pick) return false; navigate({ name: 'job', slug: pick.slug }); } });
+  // The quick look (packet R): over the right side of the board, in the board's order for j and k.
+  const [peek, setPeek] = useState<string | null>(null);
+  const order = BOARD.flatMap((l) => byLane[l]).map((j) => j.slug);
+  const peekJob = peek ? open.find((j) => j.slug === peek) ?? null : null;
 
+  // One line of a fixed height (packet R): it keeps its space when nothing waits, so the lanes never move.
   const bar = pick ? (
-    <NextBar tone="stop" icon="hand" say={`${pick.title || pick.slug} needs you`} sub={`${reviews.get(pick.slug)?.desk?.headline ?? pick.laneReason ?? 'Waiting for you'}. ${needCount === 1 ? 'It is the only one.' : `${needCount} jobs need you. This one has waited longest.`}`}>
-      <Button kind="primary" size="lg" keyId="jobs-open" keyShown href={jobHref(pick.slug)} title={`Open ${pick.title || pick.slug} (key: o).`}>Open</Button>
+    <NextBar line tone="stop" icon="hand" say={`${pick.title || pick.slug} needs you`} sub={`${t0(pick) ? `Waiting ${t0(pick)}. ` : ''}${needCount === 1 ? 'It is the only one.' : `${needCount} jobs need you. This one has waited longest.`}`}>
+      <Button kind="primary" keyId="jobs-open" keyShown href={jobHref(pick.slug)} title={`Open ${pick.title || pick.slug}: ${reviews.get(pick.slug)?.desk?.headline ?? pick.laneReason ?? 'it waits for you'} (key: o).`}>Open</Button>
     </NextBar>
   ) : open.length ? (
-    <NextBar tone="quiet" icon="circle-check" say="Nothing needs you right now" sub="The crew carries on; a job that needs you shows here first." />
+    <NextBar line tone="quiet" icon="circle-check" say="Nothing needs you right now" sub="The crew carries on; a job that needs you shows here first." />
   ) : null;
 
   const lanesView = narrow ? (
@@ -206,7 +225,7 @@ export function JobsPage() {
             <h3 className="lane-word">{LANE_INFO[l].word}</h3>
             <span className="lane-count num">{byLane[l].length}</span>
           </header>
-          {byLane[l].length ? <Cards jobs={byLane[l]} now={now} play={play} stacks={stacks} reviews={reviews} /> : <p className="muted lane-empty">None right now.</p>}
+          {byLane[l].length ? <Cards jobs={byLane[l]} now={now} play={play} stacks={stacks} reviews={reviews} onPeek={setPeek} peeked={peek} /> : <p className="lane-empty">None right now</p>}
         </section>
       ))}
     </div>
@@ -231,7 +250,7 @@ export function JobsPage() {
   );
 
   return (
-    <Page label="Jobs" title="Jobs" className={`page-jobs play-${play}`} guide={JOBS_GUIDE} head={open.length ? <GithubLine /> : undefined}>
+    <Page label="Jobs" title="Jobs" className={`page-jobs play-${play}`} guide={JOBS_GUIDE} head={open.length ? <GithubLine onlyStale /> : undefined}>
       {open.length === 0 ? (
         <section className="jobs-empty" aria-label="No jobs yet">
           <h3 className="hero-title">No jobs yet. Start one from a ticket.</h3>
@@ -245,6 +264,7 @@ export function JobsPage() {
         <>
           {bar}
           {layout === 'list' ? listView : lanesView}
+          {peekJob && <JobPeek job={peekJob} order={order} onPick={setPeek} onClose={() => setPeek(null)} />}
           <div className="jobs-folded">
             <Fold icon="moon" name="Resting" note={`${byLane.resting.length} idle`} id="jobs-resting">
               {byLane.resting.length ? <Cards jobs={byLane.resting} now={now} play={play} stacks={stacks} reviews={reviews} /> : <p className="muted">None.</p>}

@@ -46,8 +46,10 @@ export type NextTone = 'stop' | 'go' | 'quiet' | 'warn';
  * The page's one next step. `tone` dresses it: stop (it waits for you: the hand), go (a go / no go
  * decision), warn (held, or near a limit) and quiet (nothing to do). The words say which.
  */
-export function NextBar({ tone = 'go', icon, label, say, sub, children, className = '' }: {
+export function NextBar({ tone = 'go', icon, label, say, sub, children, className = '', line = false }: {
   tone?: NextTone;
+  /** One line of a fixed height: the sentence and its note side by side (Jobs). */
+  line?: boolean;
   icon: IconName;
   /** A small word above the sentence, such as "Go / no go" (Play full and subtle only). */
   label?: string | null;
@@ -57,8 +59,8 @@ export function NextBar({ tone = 'go', icon, label, say, sub, children, classNam
   className?: string;
 }) {
   return (
-    <section className={`next-bar tone-${tone} ${className}`.trim()} aria-label="Next step">
-      <span className="next-icon"><Icon name={icon} size={22} /></span>
+    <section className={`next-bar tone-${tone}${line ? ' is-line' : ''} ${className}`.trim()} aria-label="Next step">
+      <span className="next-icon"><Icon name={icon} size={line ? 18 : 22} /></span>
       <div className="next-say">
         {label && <span className="next-label">{label}</span>}
         <b className="next-head">{say}</b>

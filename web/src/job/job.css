@@ -181,3 +181,21 @@
 .thread-earlier > .icon { transform: rotate(180deg); }
 .thread-earlier.is-open > .icon { transform: none; }
 .job-details .job-side-card { padding: 0; border: 0; background: none; box-shadow: none; }
+
+/* ---------- The Job page, calmer (packet R and the design philosophy) ---------- */
+/* The stops as a thin strip on the header line. */
+.job-strip { display: inline-flex; align-items: center; margin-left: var(--space-2); }
+.job-strip .stop-map.is-compact .stop { width: 24px; }
+.job-strip .stop-map.is-compact .stop + .stop::before { width: 24px; top: 9px; border-top-width: 1.5px; }
+.job-strip .stop-link { border-radius: 50%; }
+/* The title once: the go / no go bar carries the ask, so the card under it starts at its questions. */
+.job-gate-body .gate-card .perm-headline, .job-gate-body .gate-card .gate-next { display: none; }
+.job-gate-body .gate-card .gate-meta .thread-time { display: none; }
+/* The right column: the now line, Details, then the conversation with the message box pinned at its foot. */
+.job-now { min-height: 24px; padding: 0 var(--space-1); }
+.job-details-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.job-details .job-map { padding: var(--space-3) 0; border: 0; background: none; box-shadow: none; }
+.page-job.is-wide .job-side { height: calc(100vh - var(--topbar-h) - 120px); min-height: 560px; max-height: none; }
+.page-job.is-wide .job-convo { flex: 1 1 0; min-height: 260px; }
+.page-job.is-wide .job-convo-thread { max-height: none; flex: 1 1 0; min-height: 0; }
+.page-job.is-wide .job-details { flex: none; max-height: 45vh; overflow: auto; }

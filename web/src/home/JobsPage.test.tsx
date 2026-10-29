@@ -10,6 +10,7 @@ import { UiProvider } from '../app/ui';
 import { createStore, WorkshopContext, type Store } from '../state/store';
 import { job, snapshot } from '../state/test-fixtures';
 import { JobsPage, laneOf, nextJob, stateChip } from './JobsPage';
+import { setDefaultDetail } from '../app/detail';
 
 const JOBS: Job[] = [
   job('alpha', 'needs-you', { title: 'Customer notes', stage: 'plan', lane: 'needs-you', laneReason: 'Waiting for your go-ahead on the plan', waitingFor: 'approval', waitingSince: '2026-10-21T09:00:00Z' }),
@@ -24,7 +25,7 @@ const JOBS: Job[] = [
 function setup(jobs = JOBS, play: 'full' | 'subtle' | 'off' = 'subtle') {
   const store: Store = createStore();
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, meta: { token: 't', settings: { play: { mode: play } } } as never }) });
-  const api = { get: vi.fn(), post: vi.fn() } as unknown as ApiClient;
+  const api = { get: vi.fn(() => new Promise(() => {})), post: vi.fn() } as unknown as ApiClient;
   const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><JobsPage /></UiProvider></WorkshopContext.Provider>);
   return { ...utils, store };
 }
@@ -118,5 +119,31 @@ describe('Jobs', () => {
     expect(laneOf(job('x', 'idle', { closed: { as: 'done', at: 'x' } as never }))).toBe('done');
     expect(nextJob(JOBS)?.slug).toBe('older');
     expect(stateChip(job('x', 'needs-you', { lane: 'needs-you', permissions: 1 })).word).toBe('Permission');
+  });
+});
+
+describe('Jobs, simple by default (packet R)', () => {
+  beforeEach(() => setDefaultDetail('simple'));
+
+  it('a card shows its title, one line, the state chip and the time; the stop dots wait behind it, over the time', () => {
+    setup();
+    const card = screen.getByRole('link', { name: 'Technician photo' }).closest('li')!;
+    expect(card).toHaveTextContent('Building step 3');
+    expect(card.querySelector('.state-chip')).toHaveTextContent('Working');
+    expect(card.querySelector('.job-card-peek .stop-map')).not.toBeNull();
+    expect(card.querySelector(':scope > .stop-map')).toBeNull();
+  });
+
+  it('Space on a card takes a quick look over the list; j moves to the next job, Esc closes it and the list is as it was', () => {
+    const { container } = setup();
+    const lanes = container.querySelector('.jobs-board')!.innerHTML;
+    fireEvent.keyDown(screen.getByRole('link', { name: 'Technician photo' }), { key: ' ' });
+    expect(screen.getByRole('dialog', { name: 'Technician photo: a quick look' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Now')).toHaveTextContent('The crew');
+    fireEvent.keyDown(window, { key: 'j' });
+    expect(screen.getByRole('dialog', { name: /a quick look/ })).toHaveAccessibleName('Weekly hours email: a quick look');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(container.querySelector('.jobs-board')!.innerHTML.replace(/ is-peeked/g, '')).toBe(lanes);
   });
 });

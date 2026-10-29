@@ -480,13 +480,14 @@ describe('the Desk card and the Jobs card', () => {
     expect(screen.queryByText('Ask Raj for a review?')).toBeNull();
   });
 
-  it('the Jobs card says who it waits on, since when and which round, with an hourglass and words; the GitHub line in the header', async () => {
+  it('the Jobs card says who it waits on, since when and which round, with an hourglass and words; the GitHub line in the header only once it is over ten minutes old', async () => {
     const jobs = [{ ...JOB, group: 'shipping', lane: 'in-review', permissions: 0, laneReason: 'PR #2 waits on a review' }] as Job[];
     setup(<JobsPage />, { v: view('waiting'), jobs });
     expect(await screen.findByText('Waiting on Raj since 14:02 · round 2')).toBeInTheDocument();
     expect(screen.queryByText('PR #2 waits on a review')).toBeNull();
     const page = screen.getByRole('main', { name: 'Jobs' });
-    expect(within(page.querySelector('.page-head') as HTMLElement).getByRole('status', { name: 'GitHub' })).toHaveTextContent('GitHub checked 3 min ago');
+    // Checked 3 minutes ago: nothing to say in the header (u still checks).
+    expect(within(page.querySelector('.page-head') as HTMLElement).queryByRole('status', { name: 'GitHub' })).toBeNull();
   });
 });
 

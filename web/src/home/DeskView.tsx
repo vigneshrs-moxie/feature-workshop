@@ -72,6 +72,20 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
   const thread = useJobThread(job.slug, (state.threadVersions[job.slug] ?? 0) + state.threadEpoch);
   const body = useRef<HTMLDivElement>(null);
   const [go, setGo] = useState({ words: '', off: true, asks: false });
+  const [extras, setExtras] = useState<HTMLDivElement | null>(null);
+  // The gate card's own key for Adjust the next step opens the Details it lives in; Esc closes them.
+  useEffect(() => {
+    if (!extras) return;
+    const watch = new MutationObserver(() => { if (!briefOpen && extras.querySelector('details.gate-adjust[open]')) toggleBrief(); });
+    watch.observe(extras, { subtree: true, attributes: true, attributeFilter: ['open'] });
+    return () => watch.disconnect();
+  }, [extras, briefOpen, toggleBrief]);
+  useEffect(() => {
+    if (!briefOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('[aria-modal="true"]')) { e.preventDefault(); toggleBrief(); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [briefOpen, toggleBrief]);
   useLayoutEffect(() => {
     const el = body.current;
     if (!el) return;
@@ -98,19 +112,33 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
         <h3 className="desk-head">{typeof job.headline === 'string' && job.headline ? job.headline : 'Waiting for your go-ahead'}</h3>
         {job.laneReason && <p className="desk-sub">{job.laneReason}</p>}
       </div>
-      {brief?.html && (
-        <section className={`fold desk-brief-fold${briefOpen ? '' : ' is-shut'}`} aria-label={`The Foreman’s brief${brief.number ? ` #${brief.number}` : ''}`}>
-          <button type="button" className="fold-head" aria-expanded={briefOpen} onClick={toggleBrief} title={briefOpen ? 'Hide the Foreman’s brief (key: b).' : 'Read the Foreman’s brief in full (key: b).'}>
-            <Icon name="file" size={16} />
-            <span className="fold-name">The Foreman’s brief</span>
-            <Kbd id="desk-brief" />
-            <span className="fold-show">{briefOpen ? 'Hide' : 'Show'}<Icon name="chevron-down" size={14} className={`fold-chevron${briefOpen ? ' is-up' : ''}`} /></span>
-          </button>
-          {briefOpen && <div className="fold-body"><ServerHtml html={brief.html} className="prose" /></div>}
-        </section>
-      )}
+      {/* One Details (packet R): the Foreman's brief, adjusting the next step and how this works, as
+          sections of one sheet over the right side. Always there (hidden while shut), so the gate
+          card can put its extras in it. */}
+      <button type="button" className="desk-details-row" aria-expanded={briefOpen} aria-controls={`${job.slug}-desk-details`} onClick={toggleBrief} title={briefOpen ? 'Close the details (key: b).' : 'The Foreman’s brief in full, adjusting the next step and how this works (key: b).'}>
+        <Icon name="file" size={16} />
+        <span className="desk-details-words"><b>Details</b><span className="muted">The Foreman’s brief{brief?.number ? ` #${brief.number}` : ''}, adjusting the next step, how this works</span></span>
+        <Kbd id="desk-brief" />
+        <Icon name="chevron-right" size={14} className="fold-chevron" />
+      </button>
+      <aside id={`${job.slug}-desk-details`} className="peek desk-details" role="dialog" aria-modal="false" aria-label="Details" hidden={!briefOpen}>
+        <header className="peek-head">
+          <h3 className="peek-title">Details</h3>
+          <span className="spacer" />
+          <Button kind="quiet" size="sm" iconOnly icon="x" aria-label="Close" title="Close the details (key: b or Esc)." onClick={toggleBrief} />
+        </header>
+        <div className="peek-body">
+          {brief?.html && (
+            <section className="desk-details-part" aria-label={`The Foreman’s brief${brief.number ? ` #${brief.number}` : ''}`}>
+              <h4 className="eyebrow">The Foreman’s brief{brief.number ? ` #${brief.number}` : ''}</h4>
+              {briefOpen && <ServerHtml html={brief.html} className="prose" />}
+            </section>
+          )}
+          <div ref={setExtras} className="desk-details-part desk-details-extras" />
+        </div>
+      </aside>
       <div ref={body} className="desk-gate-body">
-        <GateSlot job={job} detail={thread.detail} now={now} reload={thread.reload} callsOutside />
+        <GateSlot job={job} detail={thread.detail} now={now} reload={thread.reload} callsOutside extrasTo={extras} />
       </div>
       {gate ? (
         <div className={`desk-calls${call ? ' is-call' : ''}`}>
@@ -149,9 +177,11 @@ function QueueItems({ items, index, now, onPick }: { items: DeskEntry[]; index: 
       {items.map((it, i) => (
         <li key={it.key}>
           <button type="button" className={`desk-item${i === index ? ' is-current' : ''}${isShipping(it) ? ' is-shipping' : ''}`} aria-current={i === index ? 'true' : undefined} onClick={() => onPick(it.key)}>
-            <span className="desk-item-top"><span className="hue-dot" style={jobHueStyle(it.slug)} aria-hidden="true" /><span className="desk-item-title">{it.title}</span></span>
+            <span className="desk-item-top">
+              <span className="desk-item-title">{it.title}</span>
+              {it.since && it.kind !== 'nudge' && <span className="desk-item-since muted num" title={`Waiting ${relativeTime(it.since, now)}.`}>{relativeTime(it.since, now)}</span>}
+            </span>
             <span className="desk-item-what">{it.what}</span>
-            {it.since && it.kind !== 'nudge' && <span className="desk-item-since muted">waiting {relativeTime(it.since, now)}</span>}
           </button>
         </li>
       ))}
@@ -189,7 +219,7 @@ function DecidedFold() {
   return (
     <Fold icon="clock" name="Decided today" note={decided.length} id="desk-decided">
       {decided.length === 0
-        ? <p className="muted">Nothing yet this session. Your decisions appear here as you make them.</p>
+        ? <p className="muted">Nothing decided yet.</p>
         : (
           <ol className="desk-decided-list">
             {decided.map((d, i) => (
@@ -286,7 +316,7 @@ function DeskSide({ job }: { job: Job | null }) {
     <aside className="desk-side" aria-label="Decided today, and the job">
       <More screen="desk" id="decided" label="Decided today" count={decided.length} icon="clock" className="is-card desk-side-more desk-decided">
         {decided.length === 0
-          ? <p className="muted">Nothing yet this session. Your decisions appear here as you make them.</p>
+          ? <p className="muted">Nothing decided yet.</p>
           : (
             <ol>
               {decided.map((d, i) => (
