@@ -22,6 +22,17 @@ The design philosophy (`docs/design/design-philosophy.md`) and R's five rules. B
 
 "More visibility" means visibility you can get to, not everything on screen at once.
 
+## Borrow from the Desk, especially in Play full (Vignesh, 2026-10-29)
+"i really like the desk's design, especially in full play mode so lets use some inspo from that for stacks page too". Before drawing anything, open the Desk in your own demo in Play full and in Play off, at 1512 px, and study what makes it work: the go / no go console, the queue on the left, one decision in the middle with its action row fixed in place, context on the right, the faint grid, the working lights, the crew faces and the status strip. Then carry that feel into Stacks.
+- **A stack's page opens as a console, laid out like the Desk.**
+  - **Left:** the parts queue, ordered needs you, at work, checks, waiting on another part, then merged (folded). Each row shows the part's number, name and stop, and a working light. In Play full the crew face sits beside it.
+  - **Middle:** the selected part's console card. It has its now line, its one ask, and the action row (Reply / No go / Go, or Merge) in the same fixed spot for every part, exactly as on the Desk. `j`/`k` move through the parts, like the Desk queue.
+  - **Right:** the stack's context: the progress bar, a small dependency map with the selected part highlighted, risks, and "Merged today" in the place of the Desk's "Decided today".
+- **Board, Map and Timeline** (section 2) become the other views in the stack's view switch. Console is the default.
+- **The Stacks home borrows the console feel.** In Play full there is a faint grid, each stack card's progress segments light up for parts at work (a slow pulse, still with reduced motion), small crew faces show on the at-work lines, and the next step uses "Go / no go" words. Play subtle keeps steady lights. Play off is plain.
+- **A part's page** (section 3) is the console's middle card grown to full width, with its right column. Moving from the console to the part's page and back keeps your place.
+- **Use the Desk's own pieces** (its queue rows, console card, action row, status strip and grid) rather than copies. If they need small changes to fit, list them under Needs from others, or make them in a way that leaves the Desk exactly as it is.
+
 ## 1. Stacks home
 - **A summary line** across the top, in words with numbers: "3 stacks · 9 parts at work · 2 need you · 4 merged today". Each number is a filter.
 - **One card per stack, two across on a Mac window and three from 1728 px.** Each card has:
@@ -38,7 +49,7 @@ The design philosophy (`docs/design/design-philosophy.md`) and R's five rules. B
 
 ## 2. A stack's page
 - **A header** with the goal and "why" line, the progress bar from the home card (larger), and one next-step bar with the one action.
-- **A parts view with two ways to look**, both remembered:
+- **A parts view.** Its default is the **Console** (see "Borrow from the Desk" above). The other views are below, and the choice is remembered:
   - **Board** (the default): parts in columns by state. Waiting on another part / Ready to start / At work / Checks / Ready to merge / Merged (folded) / Needs you (first, when not empty). Each part card has its number, name, one now line, its stop, and its one problem if it has one.
   - **Map:** the merge order and what each part waits on, drawn as a graph left to right. A part's arrows light up on hover. This is the K2 merge map, grown up.
 - **Full detail** (or "Timeline" from the view switch) adds a **timeline**: one row per part, from start to merge, with now marked. It answers "what's taking long".
