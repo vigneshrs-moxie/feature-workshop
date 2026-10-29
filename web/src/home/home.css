@@ -33,9 +33,9 @@
 .home-side { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); min-width: 0; align-items: start; }
 .home-side > * { min-width: 0; }
 @media (min-width: 1600px) {
-  .home-body:not(.is-desk) { grid-template-columns: minmax(0, 1fr) 360px; }
-  .home-body:not(.is-desk) .home-side { grid-column: 2; grid-row: 1; position: sticky; top: 56px; grid-template-columns: minmax(0, 1fr); }
-  .home-body:not(.is-desk) .home-main { grid-column: 1; grid-row: 1; }
+  .home-body { grid-template-columns: minmax(0, 1fr) 360px; }
+  .home-body .home-side { grid-column: 2; grid-row: 1; position: sticky; top: 56px; grid-template-columns: minmax(0, 1fr); }
+  .home-body .home-main { grid-column: 1; grid-row: 1; }
 }
 .home-say { margin: 0; font-family: var(--font-heading); font-size: var(--text-md); font-weight: var(--weight-bold); }
 .home-side .workshop-floor { display: contents; padding-bottom: 0; }

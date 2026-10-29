@@ -41,6 +41,9 @@ export interface SectionFacts {
   theme: string;
   textSize: TextSize;
   keysOn: boolean;
+  /** Settings → Look's Desk and Jobs layouts (this browser); One at a time and Four lanes when not given. */
+  deskLayout?: 'one' | 'columns';
+  jobsLayout?: 'lanes' | 'list';
   /** How many rules there are; null while loading, 'error' when they couldn't be read. */
   rules: number | null | 'error';
 }
@@ -76,7 +79,8 @@ export function valueLines(f: SectionFacts): Record<SettingsSection, string> {
   return {
     permissions: policyLine(f.settings?.policy),
     notifications: notifyLine(f.settings),
-    look: `${theme} · Text ${TEXT_SIZE_LABELS[f.textSize]}`,
+    // "Default · M · One at a time · Four lanes · Play full": everything Look sets, in its order.
+    look: [theme, TEXT_SIZE_LABELS[f.textSize], f.deskLayout === 'columns' ? 'Three columns' : 'One at a time', f.jobsLayout === 'list' ? 'One list' : 'Four lanes', `Play ${play.toLowerCase()}`].join(' · '),
     keys: f.keysOn ? 'On' : 'Off',
     workflow: `Finish line: ${finishLineLabel(f.settings?.workflow?.finishLine, f.finishLines)}`,
     repos: 'Profiles for each repository',
