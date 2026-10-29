@@ -118,10 +118,12 @@ function briefQuestion(e, briefs) {
  * Gate decisions (approve, send back, stop) and the answers given with them; level changes;
  * questions answered; permissions allowed or refused with a reason. Anything else is left out.
  * person: the name in the "who" column. briefs: { [number]: short name } for the gate's question.
+ * after: how many decisions come before these (a stack's sections are numbered on from the
+ * parent's own: the first section row after five of the parent's is D6).
  */
-export function decisionRows(audit = [], { prefix = 'job', person = 'You', briefs = {} } = {}) {
+export function decisionRows(audit = [], { prefix = 'job', person = 'You', briefs = {}, after = 0 } = {}) {
   const rows = [];
-  const add = (e, r) => rows.push({ id: decisionId(prefix, rows.length + 1), who: person, when: day(e.at), options: '', why: '', ...r });
+  const add = (e, r) => rows.push({ id: decisionId(prefix, after + rows.length + 1), who: person, when: day(e.at), options: '', why: '', ...r });
   for (const e of audit) {
     if (!e || typeof e !== 'object') continue;
     if (e.action === 'send' && GATE_KINDS.includes(e.kind)) {
@@ -178,19 +180,33 @@ export function keptParts(text) {
 
 /**
  * The text of decisions.md (plan §8): a title, the table (the rows made from the audit, then the
- * Foreman's own rows), a "## Section: <name>" part for each section the Foreman's rows sit under,
- * and "## Not doing" at the end. existing: the file as it is now; its Foreman rows and its Not
- * doing list are kept verbatim. Everything else in it is written again.
+ * Foreman's own rows), a "## Section: <name>" part for each section, and "## Not doing" at the end.
+ * existing: the file as it is now; its Foreman rows and its Not doing list are kept verbatim.
+ * Everything else in it is written again.
+ * sections: a stack's sections in its plan's order (plan G27), [{ name, rows, notDoing }]: each
+ * gets its heading with the decisions made on that section's job (rows, numbered on from the
+ * parent's), then the Foreman's own rows under that heading; its Not doing lines join the one list
+ * at the end. Sections the Foreman's rows name that aren't in the list follow, as before.
  */
-export function render({ prefix = 'job', title = null, rows = [], existing = '' } = {}) {
+export function render({ prefix = 'job', title = null, rows = [], existing = '', sections = [] } = {}) {
   const { foreman, notDoing } = keptParts(existing);
   const head = title && oneLine(title) !== prefix ? `# ${prefix} · ${oneLine(title, 120)}` : `# ${prefix}`;
   const out = [head, '', NOTE, '', ...HEADER];
-  for (const r of rows) out.push(`| ${[r.id, r.question, r.options, r.choice, r.who, r.when, r.why].map(cell).join(' | ')} |`);
+  const line = (r) => `| ${[r.id, r.question, r.options, r.choice, r.who, r.when, r.why].map(cell).join(' | ')} |`;
+  for (const r of rows) out.push(line(r));
   out.push(...foreman.filter((f) => f.section === null).map((f) => f.line));
-  const sections = [...new Set(foreman.map((f) => f.section).filter((x) => x !== null))];
-  for (const name of sections) out.push('', `## Section: ${name}`, ...foreman.filter((f) => f.section === name).map((f) => f.line));
-  out.push('', '## Not doing', ...notDoing, '');
+  const named = sections.map((x) => x.name);
+  const order = [...named, ...new Set(foreman.map((f) => f.section).filter((x) => x !== null && !named.includes(x)))];
+  for (const name of order) {
+    const sec = sections.find((x) => x.name === name);
+    const own = foreman.filter((f) => f.section === name).map((f) => f.line);
+    out.push('', `## Section: ${name}`);
+    if (sec?.rows?.length || own.length) out.push(...(sec?.rows ?? []).map(line), ...own);
+    else out.push('No decisions yet.');
+  }
+  const not = [...notDoing];
+  for (const sec of sections) for (const l of sec.notDoing ?? []) if (l.trim() && !not.includes(l)) not.push(l);
+  out.push('', '## Not doing', ...not, '');
   return out.join('\n');
 }
 
@@ -237,7 +253,11 @@ const writing = new Map();
  * changed. Returns { file, text, changed }, or null when there is no folder to write in.
  * audit: the job's audit lines, oldest first (read from auditFile, the dashboard's audit.jsonl,
  * when not given). slug, title, ticketKey: from the folder's name and status.json when not given.
- * person: the "who" (git's user.name when not given).
+ * person: the "who" (git's user.name when not given). auditFor(dir): another way to read a job
+ * folder's audit lines (the runner's own, for a stack's sections).
+ * A stack's parent (its folder has stack.json) also gathers each section's decisions under its
+ * "## Section: <name>" heading, numbered on in the parent's ticket (ORBIT-512.D7), with one
+ * "## Not doing" at the end (plan §8, G27).
  */
 export function writeDecisionsFile(jobDir, opts = {}) {
   const after = writing.get(jobDir) ?? Promise.resolve();
@@ -247,7 +267,33 @@ export function writeDecisionsFile(jobDir, opts = {}) {
   return mine;
 }
 
-async function writeNow(jobDir, { audit = null, auditFile = defaultAuditFile(), slug = null, title = null, ticketKey = null, person = null } = {}) {
+// A stack's parent (its folder holds the runner's stack.json, lib/stack.js): each section's own
+// decisions, in the plan's order, from its job folder beside the parent's (<parent>--<section>).
+// auditFor(dir): that folder's audit lines; null reads them from auditFile.
+async function sectionParts(jobDir, { prefix, person, after, auditFor, auditFile }) {
+  const stack = await readJson(path.join(jobDir, 'stack.json'));
+  if (!stack || !Array.isArray(stack.sections)) return [];
+  const out = [];
+  let count = after;
+  for (const sec of stack.sections) {
+    if (typeof sec?.name !== 'string') continue;
+    const slug = typeof sec.slug === 'string' && !/[\\/]/.test(sec.slug) && !sec.slug.startsWith('.') ? sec.slug : null;
+    const dir = slug ? path.join(path.dirname(jobDir), slug) : null;
+    let audit = [];
+    let notDoing = [];
+    if (dir) {
+      audit = auditFor ? await auditFor(dir) : await auditOf(dir, auditFile);
+      const own = await fs.readFile(path.join(dir, DECISIONS_FILE), 'utf8').catch(() => '');
+      notDoing = keptParts(own).notDoing;
+    }
+    const rows = decisionRows(audit ?? [], { prefix, person, briefs: dir ? await briefNames(dir) : {}, after: count });
+    count += rows.length;
+    out.push({ name: sec.name, rows, notDoing });
+  }
+  return out;
+}
+
+async function writeNow(jobDir, { audit = null, auditFile = defaultAuditFile(), auditFor = null, slug = null, title = null, ticketKey = null, person = null } = {}) {
   const dirStat = await fs.lstat(jobDir).catch(() => null);
   if (!dirStat?.isDirectory()) return null;
   const file = path.join(jobDir, DECISIONS_FILE);
@@ -255,9 +301,11 @@ async function writeNow(jobDir, { audit = null, auditFile = defaultAuditFile(), 
   if (fileStat && !fileStat.isFile()) return null;
   const status = await readJson(path.join(jobDir, 'status.json'));
   const prefix = decisionPrefix({ slug: slug ?? path.basename(jobDir), ticketKey: ticketKey ?? status?.ticket?.key ?? null });
-  const rows = decisionRows(audit ?? (await auditOf(jobDir, auditFile)), { prefix, person: person ?? (await personName()), briefs: await briefNames(jobDir) });
+  const who = person ?? (await personName());
+  const rows = decisionRows(audit ?? (auditFor ? await auditFor(jobDir) : await auditOf(jobDir, auditFile)), { prefix, person: who, briefs: await briefNames(jobDir) });
+  const sections = await sectionParts(jobDir, { prefix, person: who, after: rows.length, auditFor, auditFile });
   const existing = fileStat ? await fs.readFile(file, 'utf8') : '';
-  const text = render({ prefix, title: title ?? status?.title ?? null, rows, existing });
+  const text = render({ prefix, title: title ?? status?.title ?? null, rows, existing, sections });
   if (text === existing) return { file, text, changed: false };
   const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
   await fs.writeFile(tmp, text, { mode: 0o600 });

@@ -344,3 +344,32 @@ test('Settings → Workflow: sections at once across every stack, 1 to 20, defau
   assert.equal(workflowSettings({ sectionsAtOnce: 5 }).sectionsAtOnce, 5);
   for (const bad of [0, 21, 2.5, '4', null]) assert.equal(sectionsAtOnceOf(bad), 3, String(bad));
 });
+
+test('decisions.md of a stack: each section’s decisions under its heading, numbered on in the parent’s ticket, one Not doing', async () => {
+  const { writeDecisionsFile } = await import('../lib/decisions.js');
+  const features = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gc-stack-decisions-')));
+  roots.push(features);
+  const parent = path.join(features, 'orbit-512-work-orders');
+  const dirs = { api: path.join(features, 'orbit-512-work-orders--api'), ui: path.join(features, 'orbit-512-work-orders--ui') };
+  for (const d of [parent, ...Object.values(dirs)]) await fs.mkdir(d);
+  const ticket = { key: 'ORBIT-512', title: 'Work orders', url: null, level: 'L2' };
+  await fs.writeFile(path.join(parent, 'status.json'), JSON.stringify({ schema_version: 2, slug: 'orbit-512-work-orders', title: 'Work orders', stage: 'plan', stage_state: 'done', ticket }));
+  await fs.writeFile(path.join(parent, 'stack.json'), JSON.stringify({
+    version: 1, parent: 'orbit-512-work-orders',
+    sections: [{ name: 'api', slug: 'orbit-512-work-orders--api', state: 'integrated' }, { name: 'ui', slug: 'orbit-512-work-orders--ui', state: 'running' }, { name: 'docs', slug: null, state: 'pending' }],
+  }));
+  await fs.writeFile(path.join(dirs.ui, 'decisions.md'), '# x\n\n## Not doing\n- No offline mode.\n');
+  const approve = (dir, at) => ({ at, action: 'send', kind: 'approve', featureDir: dir, text: 'Approved.' });
+  const audits = {
+    [parent]: [approve(parent, '2026-10-28T10:00:00Z'), approve(parent, '2026-10-28T11:00:00Z')],
+    [dirs.api]: [approve(dirs.api, '2026-10-28T12:00:00Z'), approve(dirs.api, '2026-10-28T13:00:00Z')],
+    [dirs.ui]: [approve(dirs.ui, '2026-10-28T14:00:00Z')],
+  };
+  const r = await writeDecisionsFile(parent, { auditFor: async (d) => audits[d] ?? [], person: 'Vignesh' });
+  const t = r.text;
+  const at = ['ORBIT-512.D1', 'ORBIT-512.D2', '## Section: api', 'ORBIT-512.D3', 'ORBIT-512.D4', '## Section: ui', 'ORBIT-512.D5', '## Section: docs', 'No decisions yet.', '## Not doing', '- No offline mode.'].map((s) => t.indexOf(s));
+  assert.ok(at.every((i) => i >= 0), t);
+  assert.deepEqual([...at].sort((x, y) => x - y), at, t);
+  assert.equal(t.match(/## Not doing/g).length, 1);
+  assert.equal(t.includes('ORBIT-512.D6'), false);
+});
