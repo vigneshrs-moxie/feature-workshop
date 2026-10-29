@@ -374,7 +374,7 @@ export function applyForeman(round, report, { at = new Date().toISOString() } = 
   const before = JSON.stringify([round.items, round.foreman]);
   // Only what changed since the last report is taken: your own change (Change it after all, a kind
   // you picked) stands until the Foreman reports that item again.
-  const sig = JSON.stringify([report.state, report.doing, report.next, report.checks]);
+  const sig = JSON.stringify(report);
   if (round.foremanSig !== sig) {
     round.foreman = { state: report.state ?? null, doing: report.doing ?? null, next: report.next ?? null, checks: report.checks ?? null, at: round.foreman?.at ?? at };
     round.foremanSig = sig;
@@ -392,7 +392,7 @@ export function applyForeman(round, report, { at = new Date().toISOString() } = 
     if (r.state && FOREMAN_ITEM_STATES.has(r.state)) item.state = r.state;
     if (r.commit) item.commit = String(r.commit).slice(0, 40);
     if (r.reason != null) item.reason = cut(r.reason, 1000);
-    if (r.reply != null && !item.replyEdited && item.type !== 'check') item.reply = cut(r.reply, QUOTE_MAX);
+    if (r.reply != null && !item.replyEdited && !noReply(item)) item.reply = cut(r.reply, QUOTE_MAX);
   }
   const after = JSON.stringify([round.items, round.foreman]);
   if (before !== after && round.foreman) round.foreman.at = at;
@@ -511,7 +511,8 @@ export function foremanMessage(round, { route = [], checks = [], what = 'fix', b
   }
   for (const i of items) {
     const head = `${i.id} · ${KIND_WORDS[i.kind] ?? i.kind} · ${whereWords(i)}`;
-    if (i.type === 'check') out.push(`${head}\nThe end of its log:\n${i.log ? fenced(i.log) : '(Its log couldn’t be read. Look at the check on GitHub, read only.)'}${i.link ? `\nThe check on GitHub: ${i.link}` : ''}`);
+    if (i.type === 'sync') out.push(`${head}\n${i.quote}`);
+    else if (i.type === 'check') out.push(`${head}\nThe end of its log:\n${i.log ? fenced(i.log) : '(Its log couldn’t be read. Look at the check on GitHub, read only.)'}${i.link ? `\nThe check on GitHub: ${i.link}` : ''}`);
     else out.push(`${head} · from ${clean(i.author)}\n${i.quote.split('\n').map((l) => `> ${l}`).join('\n')}${i.link ? `\nOn GitHub: ${i.link}` : ''}`);
   }
   const left = round.items.filter((i) => !i.included);
@@ -526,26 +527,28 @@ const action = (id, label, { key = null, go = null, playLabel = null, enabled = 
 
 /** "4 comments, 1 question": a round's comments (changes and nits) and questions. */
 export function countWords(items) {
-  const comments = items.filter((i) => i.type !== 'check' && i.kind !== 'question').length;
-  const questions = items.filter((i) => i.type !== 'check' && i.kind === 'question').length;
+  const comments = items.filter((i) => !noReply(i) && i.kind !== 'question').length;
+  const questions = items.filter((i) => !noReply(i) && i.kind === 'question').length;
   return listWords([comments ? plural(comments, 'comment') : null, questions ? plural(questions, 'question') : null].filter(Boolean)).replace(' and ', ', ') || 'no comments';
 }
 
 const checkNames = (items) => listWords(items.filter((i) => i.type === 'check').map((i) => i.name));
+/** Items that get no reply on GitHub: a failed check, bringing in the base. */
+export const noReply = (i) => i.type === 'check' || i.type === 'sync';
 
 // Group the panel's items by file, the whole-PR ones next, the checks last.
 function groupsOf(items) {
   const groups = new Map();
   for (const i of items) {
-    const key = i.type === 'check' ? '\u0002checks' : i.file ?? '\u0001general';
-    if (!groups.has(key)) groups.set(key, { heading: i.type === 'check' ? 'Checks on the same commit' : i.file ?? 'On the whole pull request', file: i.type === 'check' ? null : i.file ?? null, items: [] });
+    const key = i.type === 'check' ? '\u0002checks' : i.type === 'sync' ? '\u0000sync' : i.file ?? '\u0001general';
+    if (!groups.has(key)) groups.set(key, { heading: i.type === 'check' ? 'Checks on the same commit' : i.type === 'sync' ? 'Bringing in the base' : i.file ?? 'On the whole pull request', file: noReply(i) ? null : i.file ?? null, items: [] });
     groups.get(key).items.push(i);
   }
   return [...groups.entries()].sort(([a], [b]) => (a.startsWith('\u0002') ? 1 : 0) - (b.startsWith('\u0002') ? 1 : 0) || (a.startsWith('\u0001') ? 1 : 0) - (b.startsWith('\u0001') ? 1 : 0) || a.localeCompare(b)).map(([, g]) => g);
 }
 
 function replyState(i) {
-  if (i.type === 'check') return null;
+  if (noReply(i)) return null;
   if (i.posted?.ok) return 'Posted';
   if (i.posted && !i.posted.ok) return 'Didn’t post';
   if (i.replyDropped) return 'Dropped';
@@ -562,7 +565,7 @@ export function roundPanel(round, { route = [] } = {}) {
     id: i.id, type: i.type, kind: i.kind, kindWords: KIND_WORDS[i.kind] ?? i.kind, kindBy: i.kindBy, author: i.author ?? null, file: i.file, line: i.line, outdated: Boolean(i.outdated),
     outdatedWords: i.outdated ? 'Outdated: the line has changed since' : null, quote: i.quote, name: i.name ?? null, link: i.link, at: i.at,
     included: i.included, state: i.included ? i.state : 'left_out', stateWords: itemStateWords(i), commit: short(i.commit), plan: i.plan, planText: i.planText,
-    reply: i.type === 'check' ? null : i.reply, replyDropped: Boolean(i.replyDropped), replyState: replyState(i), reason: i.reason,
+    reply: noReply(i) ? null : i.reply, replyDropped: Boolean(i.replyDropped), replyState: replyState(i), reason: i.reason,
     late: Boolean(i.late), newWords: i.late && !i.added ? `New · joined round ${round.round}` : null,
     changeAfterAll: i.included && i.state === 'wont_change' ? action('change-after-all', 'Change it after all', { go: null }) : null,
   });
@@ -571,7 +574,7 @@ export function roundPanel(round, { route = [] } = {}) {
   return {
     round: round.round, pr: round.pr, prLabel: round.prLabel, state: round.state, title: `Round ${round.round} · ${round.prLabel}`,
     from: fromWords, reviewer: { login: round.reviewer, name: who },
-    counts: { items: added.length, included, done, commits: new Set(added.filter((i) => i.commit).map((i) => i.commit)).size, replies: added.filter((i) => i.included && i.reply && i.type !== 'check').length },
+    counts: { items: added.length, included, done, commits: new Set(added.filter((i) => i.commit).map((i) => i.commit)).size, replies: added.filter((i) => i.included && i.reply && !noReply(i)).length },
     includedWords: `${included} of ${added.length} included`,
     kindsWords: 'Kinds are the Foreman’s first guess: click one to change it.',
     footer: 'The Foreman fixes, commits and drafts replies on this job’s own branch. It doesn’t push, reply or merge: that waits for Send back.',
@@ -608,13 +611,13 @@ export function sendPlan(round, ctx = {}, { route = [] } = {}) {
       mergeFollowUp: merge,
     });
   }
-  const replies = items.filter((i) => i.type !== 'check' && i.reply && !i.replyDropped && !i.posted?.ok);
+  const replies = items.filter((i) => !noReply(i) && i.reply && !i.replyDropped && !i.posted?.ok);
   const checkItems = items.filter((i) => i.type === 'check');
   if (replies.length) steps.push({ id: 'replies', words: `Reply on GitHub to each of ${who}’s ${plural(replies.length, 'comment')}`, detail: `Each drafted reply below: edit or drop any of them.${checkItems.length ? ` The ${checkNames(checkItems)} check${checkItems.length > 1 ? 's get' : ' gets'} no reply; the push runs ${checkItems.length > 1 ? 'them' : 'it'} again.` : ''}`, count: replies.length });
   const resolve = items.filter((i) => i.type === 'line' && i.state === 'fixed' && !i.resolved);
   if (resolve.length) steps.push({ id: 'resolve', words: `Mark the ${plural(resolve.length, 'fixed comment')} resolved`, detail: 'Only the ones Fixed: not the answered question or the one kept as it is', count: resolve.length });
   const reviewer = routeStep(route, round.pr).reviewer;
-  if (round.reviewer && !reviewer?.you && !round.requestedAt) steps.push({ id: 'request', words: `Ask ${who} to review ${label} again`, detail: `gh pr edit · re-request review from ${who}` });
+  if (round.reviewer && !reviewer?.you && !round.requestedAt && !round.sync) steps.push({ id: 'request', words: `Ask ${who} to review ${label} again`, detail: `gh pr edit · re-request review from ${who}` });
   return steps.map((s, i) => ({ ...s, number: i + 1 }));
 }
 
@@ -797,7 +800,7 @@ export function reviewView(ctx) {
     }
     const since = ms(pr.approvedAt) ?? now;
     const remindAt = since + REMIND_AFTER_MS;
-    const canRemind = now >= remindAt && !(round?.remindedAt && now - ms(round.remindedAt) < REMIND_AFTER_MS);
+    const canRemind = now >= remindAt && !(ctx.remindedAt && now - ms(ctx.remindedAt) < REMIND_AFTER_MS);
     const name = mergerName ?? who;
     out.remind = {
       at: new Date(remindAt).toISOString(), can: canRemind,
@@ -1038,7 +1041,7 @@ export function createReviewRounds(deps) {
     const lock = deps.lockFor?.(f.dir) ?? null;
     const view = reviewView({
       job: { slug: f.slug, title: f.title, ticket: f.ticket ?? null }, pr: { ...pr, routeNumber: routeOfPr(fx, pr.number), checks: pr.checksWord, label: labelOf(fx, pr.number) },
-      round, route: fx.route, runActive, lock, now: now(), approvalReset: Boolean(mem.resetAt), stagingNext: pr.base === 'staging' ? 'staging QA, then PR #3 with the release' : null,
+      round, route: fx.route, runActive, lock, now: now(), approvalReset: Boolean(mem.resetAt), remindedAt: mem.remindedAt ?? null, stagingNext: pr.base === 'staging' ? 'staging QA, then PR #3 with the release' : null,
       ...ctx,
     });
     if (!view?.state) { views.delete(slug); deps.driver?.dropRoundCard?.(f.dir, 'resolved'); return publish(slug, null); }
@@ -1248,7 +1251,7 @@ export function createReviewRounds(deps) {
         if (!KINDS.includes(body.kind) || body.kind === 'check' || item.type === 'check') throw new ReviewRefused(400, 'A kind is change, question or nit.');
         item.kind = body.kind; item.kindBy = 'you';
       }
-      if (typeof body.reply === 'string') { if (item.type === 'check') throw new ReviewRefused(400, 'A check gets no reply.'); item.reply = cut(body.reply, QUOTE_MAX) || null; item.replyEdited = true; }
+      if (typeof body.reply === 'string') { if (noReply(item)) throw new ReviewRefused(400, 'A check gets no reply.'); item.reply = cut(body.reply, QUOTE_MAX) || null; item.replyEdited = true; }
       if (typeof body.replyDropped === 'boolean') item.replyDropped = body.replyDropped;
       if (typeof body.reason === 'string') item.reason = cut(body.reason, 1000) || null;
       await saveRound(f.dir, round, { route: fx.route });
@@ -1373,7 +1376,7 @@ export function createReviewRounds(deps) {
         return res.ok ? res : { ...res, failWords: 'the follow-up PR #1 didn’t merge' };
       },
       replies: async () => {
-        const list = items().filter((i) => i.type !== 'check' && i.reply && !i.replyDropped);
+        const list = items().filter((i) => !noReply(i) && i.reply && !i.replyDropped);
         let k = 0;
         for (const i of list) {
           k++;
@@ -1548,6 +1551,89 @@ export function createReviewRounds(deps) {
     await saveRound(f.dir, round, { route: fx.route });
     startSend(f, fx, round, yesFor({ what: `${round.send.yes ?? `Send back round ${round.round}`} (after you merged PR #1)` }));
   };
+
+  // ---------- The unhappy paths (step 5) ----------
+
+  // The PR the job is on, as last read.
+  function currentPr(fx) {
+    const pr = fx.current ? fx.prs.get(fx.current) : null;
+    if (!pr) throw new ReviewRefused(409, 'This job’s pull request hasn’t been read yet. Check GitHub now and try again.');
+    return pr;
+  }
+  const needState = (slug, states, words) => {
+    const v = views.get(slug);
+    const st = v?.heldState ?? v?.state ?? null;
+    if (!states.includes(st)) throw new ReviewRefused(409, words);
+    return v;
+  };
+
+  Object.assign(actions, {
+    /** A check failed on the push: the log to the Foreman, the same loop. */
+    async 'fix-checks'(slug, { go } = {}) {
+      if (go !== true) throw new ReviewRefused(400, 'This runs only on your go.');
+      const { f, fx, round } = await load(slug);
+      needRound(round, ['check-failed'], 'No check has failed on the push.');
+      needLock(f);
+      for (const i of round.items) if (i.type === 'check' && i.state !== 'fixed') { i.added = true; i.late = false; i.included = true; }
+      round.state = 'fixing';
+      if (round.foreman) round.foreman.state = 'fixing';
+      const res = await tellForeman(f, fx, round, 'checks').catch((err) => { round.state = 'check-failed'; throw err; });
+      round.timeline.push({ at: iso(), words: 'You sent the failed check to the Foreman.' });
+      await saveRound(f.dir, round, { route: fx.route });
+      await deps.audit?.({ action: 'review-round-fix', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel, items: round.items.filter((i) => i.type === 'check' && i.state !== 'fixed').length, outcome: res.outcome, checks: true });
+      return refreshJob(slug);
+    },
+    /** The base moved and conflicts: a round of its own, bringing it in with the Foreman (merge, never rebase), then the same Send back. */
+    async sync(slug, { go } = {}) {
+      if (go !== true) throw new ReviewRefused(400, 'This runs only on your go.');
+      const { f, fx, rounds } = await load(slug);
+      needState(slug, ['conflicts'], 'This pull request doesn’t conflict with its base.');
+      needLock(f);
+      const pr = currentPr(fx);
+      const base = pr.base ?? 'staging';
+      const last = [...rounds].reverse().find((r) => r.prNumber === pr.number) ?? null;
+      const r = newRound({ number: Math.max(0, ...rounds.map((x) => x.round)) + 1, prNumber: pr.number, route: routeOfPr(fx, pr.number), prLabel: labelOf(fx, pr.number), prUrl: pr.url, author: last?.reviewer ?? null, first: { at: iso(), commit: pr.head }, head: pr.head, at: iso() });
+      Object.assign(r, { sync: true, state: 'fixing', reviewState: null });
+      r.items.push({ ...itemOf({ type: 'sync', id: `sync:${base}`, githubId: null, author: null, body: `Bring ${base} into this branch: merge it in (never rebase), resolve the conflicts, run the checks, commit the merge.`, at: iso() }), id: `sync:${base}`, type: 'sync', kind: 'change' });
+      r.timeline = [{ at: iso(), words: `${labelOf(fx, pr.number)} conflicts with ${base}: you asked the Foreman to bring it in.` }];
+      const res = await tellForeman(f, fx, r, 'sync');
+      await saveRound(f.dir, r, { route: fx.route });
+      await deps.audit?.({ action: 'review-round-opened', featureDir: f.dir, slug, round: r.round, pr: r.pr, prNumber: pr.number, prLabel: r.prLabel, reviewer: null, items: 1, sync: base, outcome: res.outcome });
+      return refreshJob(slug);
+    },
+    /** No one has been asked: ask someone (the route's reviewer filled in). */
+    async 'ask-review'(slug, { go, login } = {}) {
+      if (go !== true) throw new ReviewRefused(400, 'This runs only on your go.');
+      const { f, fx } = await load(slug);
+      needState(slug, ['no-reviewer', 'approval-reset', 'waiting'], 'Someone has been asked already.');
+      needLock(f);
+      if (!deps.write) throw new ReviewRefused(409, 'Nothing can be written to GitHub from here.');
+      const pr = currentPr(fx);
+      const who = String(login ?? '').trim().replace(/^@/, '');
+      if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(who)) throw new ReviewRefused(400, 'Type their GitHub name, like raj-moxie.');
+      const res = await deps.write.requestReview({ yes: yesFor({ what: `Ask ${who} to review ${labelOf(fx, pr.number)}` }), featureDir: f.dir, slug, repo: fx.repo, number: pr.number, login: who });
+      if (!res.ok) throw new ReviewRefused(502, `GitHub didn’t take it: ${res.err}`);
+      await deps.audit?.({ action: 'review-ask', featureDir: f.dir, slug, login: who, prLabel: labelOf(fx, pr.number) });
+      pr.reviewRequests = [...new Set([...(pr.reviewRequests ?? []), who])];
+      deps.refresh?.();
+      return refreshJob(slug);
+    },
+    /** A PR closed without merging: reopen it. */
+    async reopen(slug, { go } = {}) {
+      if (go !== true) throw new ReviewRefused(400, 'This runs only on your go.');
+      const { f, fx } = await load(slug);
+      needState(slug, ['closed'], 'This pull request isn’t closed.');
+      needLock(f);
+      if (!deps.write) throw new ReviewRefused(409, 'Nothing can be written to GitHub from here.');
+      const pr = currentPr(fx);
+      const res = await deps.write.reopenPr({ yes: yesFor({ what: `Reopen ${labelOf(fx, pr.number)}` }), featureDir: f.dir, slug, repo: fx.repo, number: pr.number });
+      if (!res.ok) throw new ReviewRefused(502, `GitHub didn’t take it: ${res.err}`);
+      await deps.audit?.({ action: 'review-reopen', featureDir: f.dir, slug, prLabel: labelOf(fx, pr.number) });
+      pr.state = 'open';
+      deps.refresh?.();
+      return refreshJob(slug);
+    },
+  });
 
   /** A round card's answer (lib/driver.js roundAnswer). */
   async function answerCard({ card, action, note }) {
