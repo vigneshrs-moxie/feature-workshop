@@ -1,0 +1,85 @@
+# The release files (packet I step 5, plan G18). Runs only when Vignesh pushes a tag like v1.5.0:
+# both test suites on Windows and macOS, then npm pack, SHA256SUMS, and both attached to the
+# GitHub release for that tag, with the two install scripts. `ground-control update` and the
+# install scripts check the package file against SHA256SUMS before installing it.
+#
+# Publishing to npm (@moxie/ground-control) is a separate, later yes from Vignesh; nothing here
+# publishes.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Tests on ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      WORKSHOP_PLAN_USAGE: 'off'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Git identity for the tests that make commits
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+          git config --global init.defaultBranch main
+      - run: npm ci
+      - name: Dashboard tests
+        run: npm test
+      - name: Web tests
+        working-directory: web
+        run: npx vitest run
+
+  release:
+    name: Package, checksums and release
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: The tag matches the version in package.json
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::The tag is ${GITHUB_REF_NAME} but package.json says ${version}. Set the version to match, commit, and tag that commit."
+            exit 1
+          fi
+      - name: Package file (prepack builds the web app)
+        run: npm pack
+      - name: SHA256SUMS
+        shell: bash
+        run: |
+          sha256sum moxie-ground-control-*.tgz install.sh install.ps1 > SHA256SUMS
+          cat SHA256SUMS
+      - name: Attach to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if ! gh release view "$tag" > /dev/null 2>&1; then
+            pre=""
+            case "$tag" in *-*) pre="--prerelease" ;; esac
+            gh release create "$tag" --title "$tag" --generate-notes $pre
+          fi
+          gh release upload "$tag" moxie-ground-control-*.tgz SHA256SUMS install.sh install.ps1 --clobber

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<!-- Ground Control as your own background service on Windows (packet I): a Task Scheduler task,
+     "Ground Control", that starts when you sign in and runs as you, with your normal rights.
+     `ground-control install` fills in the {{…}} parts, saves it (as UTF-16, which Task Scheduler
+     reads) in ~/.ground-control/service/ and makes the task with schtasks /Create /XML. The task
+     runs `ground-control service-run` in a hidden PowerShell window: that starts the dashboard on
+     port 4477, writes its output to ~/.ground-control/logs/, starts it again if it fails, and stops
+     it cleanly when you run `ground-control stop`. -->
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Author>{{USER}}</Author>
+    <Description>Ground Control: your dashboard, in the background from sign-in. Made by ground-control install; remove it with ground-control uninstall.</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{{USER}}</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>{{USER}}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>powershell.exe</Command>
+      <Arguments>{{ARGUMENTS}}</Arguments>
+      <WorkingDirectory>{{HOME}}</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>

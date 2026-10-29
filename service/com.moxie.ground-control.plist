@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Ground Control as your own background service on macOS (packet I). `ground-control install`
+     fills in the {{…}} parts, writes it to ~/Library/LaunchAgents/com.moxie.ground-control.plist and
+     loads it with `launchctl bootstrap gui/<your user id>`. It starts when you sign in, starts again
+     if it stops by failing (not when you stop it with `ground-control stop`), and logs to
+     ~/.ground-control/logs/. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.moxie.ground-control</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{NODE}}</string>
+    <string>{{SERVER}}</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>{{HOME}}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PORT</key>
+    <string>{{PORT}}</string>
+    <key>PATH</key>
+    <string>{{PATH}}</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>StandardOutPath</key>
+  <string>{{LOG}}</string>
+  <key>StandardErrorPath</key>
+  <string>{{LOG}}</string>
+</dict>
+</plist>
