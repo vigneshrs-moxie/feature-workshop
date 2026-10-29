@@ -2,7 +2,7 @@
 
 **Goal.** Telemetry stops being five usage graphs and becomes up to ten **insight graphs**: each one answers a question that helps decide something about the product, how it's used, or which Claude plan to be on. Each graph is headed by its finding in one sentence, says what to do about it, shows its numbers on request, and can be folded or hidden. Asked for in Vignesh's first review of the Ground Control screens (2026-10-28, `M-screens-review-1.md`, section s-tele): "share by model, by user and maybe by stage makes sense but i want deeper insights … extremely useful insights that will help us make decisions on the product, usage, plans etc … upto 10 graphs, each with a hide button or a fold button."
 
-**Port 4487 · worktree `../ground-control-P` · branch `packet/P-telemetry-insights`. Depends on M (its tokens, `--chart-1` to `--chart-8`, its base pieces and the Telemetry screen's look). Starts after M is merged, beside O if O is still running, and merges after O.**
+**Port 4487 · worktree `../ground-control-P` · branch `packet/P-telemetry-insights`. Depends on M (its tokens, `--chart-1` to `--chart-8`, its base pieces and the Telemetry screen's look). Starts after M is merged, beside K2 and Q, and merges last.**
 
 ## What exists
 - **The approved Telemetry wireframe**: the s-tele section of the Ground Control screens page (`~/.claude/wireframes/feature-workshop/ground-control-screens.html`, its build brief `ground-control-screens.brief.md`, published at https://claude.ai/artifact/VWS7nxyvPvG9ruyxszEufF). Build the screen exactly as drawn there once Vignesh has approved it; where it and this brief disagree, the wireframe wins.

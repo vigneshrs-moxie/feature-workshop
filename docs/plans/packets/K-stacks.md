@@ -54,6 +54,18 @@
     - `owned-paths.test.js`: a write outside the owned paths is refused by the hook.
     - Web tests for each wireframe state, `#/integrate` going to `#/stacks`, and the keys.
 
+## Steps 7 and 8, second run (after M), from the Stack review (2026-10-29)
+
+Steps 1 to 6 are merged (`cd06453`). Steps 7 and 8 run as a second branch, **`packet/K2-stack-screens`** in `../ground-control-K2` on **port 4483**, started **after M is merged**, so the Stack page is built once, on M's tokens and base pieces, instead of being built now and restyled. It merges after M and O.
+
+Vignesh's Stack review (the `notes` collection on https://claude.ai/artifact/WaS1zauregR78ZAi4HySMQ, revision 2): "this looks great", and:
+- **Progress picture (c-map):** A, the merge map, is the default; B, four big steps with a bar per part, is a choice in Settings → Look ("Stack picture"), kept in the browser like M's Desk and Jobs layouts. Both are built and tested.
+- **Learning it (c-learn):** A, the three picture cards on the first visit, also on the empty Stacks page.
+- **Stacks must be explained, always** (his words: "stacks are explained and the user knows how to use it"): besides the first-visit cards, the Stacks page header has "How stacks work" that brings the three cards back at any time; every step of the map says in one line what happens there and what you do; the Plan check says in words why the plan splits the work the way it does; and the "Start as stack" button says when to use one ("For a big ticket: the work is split into parts that are built side by side, then joined in order").
+- **Start a stack from the Inbox** (his words: "make it doable from the inbox too"): every Inbox ticket row and its card get **Start as stack** beside Start (key `S`, shift+s), opening New job with the ticket filled in and "Run as a stack" ticked. The Foreman also suggests a stack when a ticket looks big (the plan's other option), as a line in its first brief with a "Run as a stack instead" button. A ticket already on a job shows the job, as today.
+- The rest of "To settle" takes what the page draws: "parts" on screen and "section" in the files (one constant, `WORD`, as built); Stacks in the top bar and a stack as one expandable row in Jobs (as M draws); stack settings behind the gear (parts at once 3 as built, merge on its own off); 4–6 parts bunch closer, above 6 the map shows running parts plus "and 3 more waiting"; a part's own page is a normal Job page with "Part 2 of <stack>".
+- Owns for this run: as step 7 and 8 above, plus the Stack picture choice in `web/src/views/Settings/LookSettings.tsx` and the Start as stack button in `web/src/views/Inbox.tsx` (both M's files by then: add, don't restyle).
+
 ## Acceptance
 Plan §6.5: a stack of three sections on a test repo runs with cap 2, shows one section queued, integrates in order, refuses to push without a yes, and the decision file holds a heading per section. The same stack with "integrate automatically" merges on its own and still waits for the push. A section edit outside its owned paths is refused by the hook. `npm test` covers the scheduler with a fake query. Also: the Stack page matches the approved Stack wireframe and its picks in every state drawn, in all three Play modes; the Integration board page and link are gone; the remaining packets still merge in order from the "Ground Control build" stack (or by hand, if Vignesh chose that); status is said in words on every part. All tests green.
 
