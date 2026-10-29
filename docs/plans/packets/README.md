@@ -15,7 +15,7 @@ One file per packet. Start a terminal tab, paste the path of one file, and that 
 | T | `T-telemetry.md` | 4481 |
 | B | `B-start-from-ticket-status-v2.md` | 4483 |
 
-**v1.5 order:** G first and alone (every other v1.5 packet depends on it), then H, J and N, then I, K and L, then M and O. With three slots: G, then H+J+N, then I+K+L, then M+O. Merge in this order: G, H, J, N, I, K, L, M, O (O runs beside M but merges after it). The board's saved order still starts as v1's, so set it to `G,H,J,N,I,K,L,M,O` on the board first. The board merges only Ground Control branches: the skill-repo branches of H, K, L and O (`packet/<id>-*` in `../claude-feature-workflow-<id>`) are merged by hand in the same order. After K is merged, the Integration board is gone and the remaining packets (M, O) are merged from the "Ground Control build" stack on the Stacks page.
+**v1.5 order:** G first and alone (every other v1.5 packet depends on it), then H, J and N, then I, K and L, then M and O, then P. With three slots: G, then H+J+N, then I+K+L, then M+O, then P (P starts once M is merged, beside O if O is still running). Merge in this order: G, H, J, N, I, K, L, M, O, P (O runs beside M but merges after it; P merges last). P was added after Vignesh's first review of the Ground Control screens (`M-screens-review-1.md`): Telemetry's ten insight graphs moved out of M into it. The board's saved order still starts as v1's, so set it to `G,H,J,N,I,K,L,M,O,P` on the board first. The board merges only Ground Control branches: the skill-repo branches of H, K, L and O (`packet/<id>-*` in `../claude-feature-workflow-<id>`) are merged by hand in the same order. After K is merged, the Integration board is gone and the remaining packets (M, O, P) are merged from the "Ground Control build" stack on the Stacks page.
 
 | Id | File | Port |
 |---|---|---|
@@ -28,6 +28,7 @@ One file per packet. Start a terminal tab, paste the path of one file, and that 
 | L | `L-playwright-evidence.md` | 4485 |
 | M | `M-redesign.md` | 4481 |
 | O | `O-decision-files-into-orbit.md` | 4483 |
+| P | `P-telemetry-insights.md` | 4487 |
 
 **Ports:** a packet takes a port only after the packet that last used it is merged, so no two packets running at the same time share one (H after G on 4481; I after H; K after J; L after N; M after I; O after K). 4477 and 4479 are never used.
 

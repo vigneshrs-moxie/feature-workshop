@@ -329,20 +329,23 @@ A full redesign of `web/` (G16). It takes the Kingdom Orchestrator ideas already
 
 | Screen | What it is for | Primary action |
 |---|---|---|
-| **Inbox** | Orbit tickets assigned to you or followed, as a list with priority, severity, age and whether anyone is on it; tabs from saved views | Start (`s`) |
-| **Desk** | one thing at a time: the queue on the left, the item in the middle (a gate, a permission, a question with consequences under each option), decisions you made today on the right | Approve (`a`), Send back (`r`), Reply (`c`) |
-| **Jobs** | the four lanes: Working, Needs you, In review, Ready to merge; a stack is one expandable row; the lounge's data starts here | Open (`o`) |
-| **Job** | the track as one row of pills, the current pill with detail; tabs Brief, Spec, Plan, Code (live diff while the laptop is on), Tests (with evidence inline), Review, Decisions, Ship | depends on the stage |
+| **Inbox** | Orbit tickets assigned to you or followed, as a list with severity, age and whether anyone is on it (Orbit has no priority any more: review 1, 2026-10-28); tabs from saved views | Start (`s`) |
+| **Desk** | one thing at a time, the queue in a drawer (the three-column layout, queue, item and decided today, is a choice in Settings → Look); the item is a gate, a permission or a question with consequences under each option | Approve (`a`), Send back (`r`), Reply (`c`) |
+| **Jobs** | the four lanes: Working, Needs you, In review, Ready to merge (one list grouped by lane is a choice in Settings → Look); a stack is one expandable row; each stop dot names its stop on hover; the lounge's data starts here | Open (`o`) |
+| **Job** | the track as a map of stops, like the Stack page (review 1 picked it over pills); every stop opens its Stage; a permission alert with Allow once / Deny; tabs Brief, Spec, Plan, Code (live diff while the laptop is on), Tests (with evidence inline), Review, Decisions, Ship | depends on the stage |
+| **Stage** | one stop of a job: who is working it, what each is doing, Open in terminal for each (the Foreman continues its session; a crew member's log is followed read-only), the stop's folded conversation | the stop's own |
 | **Stack** | §6.4 | Approve plan |
 | **Settings** | repos (the registry), workflow (caps, finish line, automatic level), look (themes, text size), notifications, token | Save |
-| **Telemetry** | the meters, warnings at 80, 90, full, the five graphs (§7a) | Read now |
+| **Telemetry** | the meters, warnings at 80, 90, full, up to ten insight graphs that fold and hide (§7a.2, packet P) | Read now |
 | **Lounge** (v2) | per person: online, their running tickets and jobs with lane, last active | none |
 
 **The Ground Control play theme.** With Play set to full, the UI carries simple mission-control pieces: a status board strip at the top (job count by lane as "boards", a clock in local and UTC, the gauge), each running job shown as a "console" tile with a small live readout (stage, elapsed, last event) and a soft blinking indicator while the Foreman works, gates framed as a "go / no go" call with Approve and Send back as the two big calls, the lounge as a row of consoles with who is seated at each. Play off removes all of it; subtle keeps the console tiles and the go / no go wording but drops the strip, the clock and any animation. It is a look, not a layout: every element exists in all three modes, only the dressing changes, so the "themes change looks only" rule still holds. Reference for the feeling, not the design: a post by 0xRafy showing an isometric "office" where each agent has a desk, a team list on the right says who is coding, thinking or idle, and a "Needs you" bubble with Approve and Decline sits on the agent that is waiting. We take the idea of seeing at a glance who is working and who needs you, and the one-click approve on the waiting agent; we do not take the isometric room.
 
 **The quality bar.** Nothing chunky, nothing hard to click, nothing that needs explaining. Every clickable thing is at least 40 px tall with a visible hover and focus state. Every screen has one obvious next step. Transitions are under 200 ms. No element moves under the pointer. The design packet is not accepted until Vignesh has clicked through every screen in all three play modes and every theme without finding one thing that feels off.
 
-The Play page itself and the existing themes stay. Wireframes for Inbox, Desk, Jobs, Job, Stack and Telemetry are drawn with the wireframe skill before code, with two options wherever there is a real choice, reviewed by Vignesh, and the chosen options become the brief for the design packet.
+The Play page itself and the existing themes stay. In Play full the crew is on the screens too: a small face on each stop of the Job map and full size on the Stage screen; subtle and off show initials and role words. The crew's names and looks are generic and come from one crew pack, and the product name from one place, because the name "Ground Control" is a working name and not settled (review 1).
+
+Wireframes for Inbox, Desk, Jobs, Job, Stage, Settings → Look, Stack and Telemetry are drawn with the wireframe skill before code, with two options wherever there is a real choice, reviewed by Vignesh, and the chosen options become the brief for the design packet.
 
 ## 7a. Telemetry: the usage page
 
@@ -352,7 +355,9 @@ Vignesh asked for a usage dashboard with only very useful insights, so the team 
 
 Today the driver already receives, per Foreman turn, the model, the token counts by kind (input, output, cache read, cache write) and Claude Code's own cost figure; `cost.js` prices them; `plan-usage.js` reads the plan's two meters (five-hour and seven-day percent used, and when each resets). Telemetry keeps all of that instead of showing only the latest: one line per turn in `~/.ground-control/usage.jsonl` with time, **Ground Control user** (the person, since Vignesh and Sohum share one Claude account, so the Claude account id alone cannot tell them apart), Claude account id, job, ticket, stage, section, worker (Foreman, implementer, lens, tester), model, tokens by kind, cost estimate, and a snapshot of both meters. Storage is cheap, so everything is kept. Nothing is sent anywhere in v1. In v2 the lines are mirrored to the site for that person, and the site combines the lines of everyone on the same Claude account to draw the shared gauge and its forecast, because one person's laptop alone cannot see how fast the other is draining it.
 
-### 7a.2 The graphs (proposed, five, no more)
+### 7a.2 The graphs
+
+**Changed in review 1 (2026-10-28):** Vignesh asked for deeper insights that help decide on the product, its use and the plan, up to ten graphs, each able to fold or hide. The ten are listed in `packets/M-screens-review-1.md` and built by packet P on a cleaned record. The five below stay among them (gauge, model share, people; cost by stage becomes "where the spend goes"; usage by day by job folds into cost per ticket). The original five, for reference:
 
 | Graph | Answers | Shape |
 |---|---|---|
