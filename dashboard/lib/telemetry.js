@@ -5,7 +5,7 @@
 //                 a forecast from the last 24 hours' rise ("At this pace, full on Thursday 14:00").
 //   2. by-day-job Use by day, by job (stacked; your own jobs).
 //   3. cost       Cost per ticket and per stage, last 30 days (your own jobs).
-//   4. by-model   Share by model, one bar per plan week.
+//   4. by-model   Share by model, one bar per plan week (Wednesday 16:00 local, or the meter's reset).
 //   5. people     People on the account, one bar per person.
 // "private" graphs carry your own work (only your lines, with job names); "common" ones are
 // about the shared account (everyone's lines, no job names), so v2 can show those to the team.
@@ -35,8 +35,12 @@ export const usd = (n) => `$${(n ?? 0).toFixed(2)}`;
 export const pct = (n) => `${Math.round(n)}%`;
 const both = (u, p) => (p === null ? usd(u) : `${pct(p)} of the week (${usd(u)})`);
 
+const FORMATS = new Map(); // one Intl formatter per zone and options: making them is the slow part
 function parts(t, timeZone, opts) {
-  return Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone, ...opts }).formatToParts(new Date(t)).map((p) => [p.type, p.value]));
+  const key = `${timeZone ?? ''}|${JSON.stringify(opts)}`;
+  let f = FORMATS.get(key);
+  if (!f) { f = new Intl.DateTimeFormat('en-GB', { timeZone, ...opts }); FORMATS.set(key, f); }
+  return Object.fromEntries(f.formatToParts(new Date(t)).map((p) => [p.type, p.value]));
 }
 /** "Thursday 03:48", with the date when it is a week or more away. */
 export function whenWords(t, { now, timeZone } = {}) {
@@ -50,7 +54,6 @@ export function dayKey(t, timeZone) {
   return `${p.year}-${p.month}-${p.day}`;
 }
 const dayLabel = (t, timeZone) => { const p = parts(t, timeZone, { weekday: 'short', day: 'numeric', month: 'short' }); return `${p.weekday} ${p.day} ${p.month}`; };
-const shortDay = (t, timeZone) => { const p = parts(t, timeZone, { day: 'numeric', month: 'short' }); return `${p.day} ${p.month}`; };
 
 /** The meters to go by: the reading given, else the newest line's. */
 function latestMeters(lines, meters) {
@@ -59,18 +62,100 @@ function latestMeters(lines, meters) {
   return { fiveHour: null, week: null };
 }
 
+// ---------- The plan week: Wednesday 16:00, local time ----------
+// The Claude plan's weekly limit resets every Wednesday at 16:00 on this computer's clock (Vignesh,
+// 2026-10-29; his Mac is on America/Phoenix). "This week" starts at the weekly meter's own reset
+// when there is a reading, else at the last Wednesday 16:00 local; the weeks before step back seven
+// days each from there (on the local clock, so a daylight-time change keeps 16:00). Never Monday,
+// never a rolling seven days.
+export const WEEK_START = Object.freeze({ weekday: 3, hour: 16 }); // Wednesday, 16:00
+
+/** How far the local clock is ahead of UTC at t, in ms. */
+function zoneOffset(t, timeZone) {
+  const p = parts(t, timeZone, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - Math.floor(t / 1000) * 1000;
+}
+/** The moment the local clock shows this date and time (month from 0; days may run over). */
+function localTime(y, mo, d, h, mi, timeZone) {
+  const wall = Date.UTC(y, mo, d, h, mi);
+  const first = wall - zoneOffset(wall, timeZone);
+  return wall - zoneOffset(first, timeZone);
+}
+const localDate = (t, timeZone) => {
+  const p = parts(t, timeZone, { year: 'numeric', month: '2-digit', day: '2-digit' });
+  return { y: +p.year, mo: +p.month - 1, d: +p.day };
+};
+
+/** The last Wednesday 16:00 local at or before t. */
+export function planWeekStart(t, { timeZone } = {}) {
+  const at = ms(t);
+  const { y, mo, d } = localDate(at, timeZone);
+  const back = (new Date(Date.UTC(y, mo, d)).getUTCDay() - WEEK_START.weekday + 7) % 7;
+  const start = localTime(y, mo, d - back, WEEK_START.hour, 0, timeZone);
+  return start <= at ? start : localTime(y, mo, d - back - 7, WEEK_START.hour, 0, timeZone);
+}
+
+/** The same local time, n days on (n may be negative). */
+function daysOn(t, n, timeZone) {
+  const { y, mo, d } = localDate(t, timeZone);
+  const p = parts(t, timeZone, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  return localTime(y, mo, d + n, +p.hour, +p.minute, timeZone);
+}
+
+/** The weekly meter's reset, when it says when this week (the one holding `end`) ends; else null. */
+function meterWeekEnd(meters, end) {
+  const r = meters?.week?.resetsAt ? Date.parse(meters.week.resetsAt) : NaN;
+  return Number.isFinite(r) && r > end && r - 7 * DAY <= end ? r : null;
+}
+
+/**
+ * The plan weeks from `from` to `now`, the newest first: { from, to, label, current }. The current
+ * week comes from the weekly meter's reset when there is a reading, else from Wednesday 16:00 local;
+ * the ones before step back seven days each (seven days of the meter's rhythm, or seven local days).
+ */
+export function planWeeks({ now, from = null, meters = null, timeZone, count = null } = {}) {
+  const end = ms(now);
+  const reset = meterWeekEnd(meters, end);
+  const back = (t) => (reset !== null ? t - 7 * DAY : daysOn(t, -7, timeZone));
+  let lo = reset !== null ? reset - 7 * DAY : planWeekStart(end, { timeZone });
+  let hi = reset !== null ? reset : daysOn(lo, 7, timeZone);
+  const weeks = [];
+  for (;;) {
+    weeks.push({ from: lo, to: hi, label: weekLabel(lo, timeZone), current: weeks.length === 0 });
+    if (count !== null && weeks.length >= count) break;
+    if (count === null && (from === null || lo <= ms(from))) break;
+    hi = lo;
+    lo = back(lo);
+  }
+  return weeks;
+}
+
+/** "Week from Wed 28 Oct, 4 pm". */
+export function weekLabel(t, timeZone) {
+  const p = parts(t, timeZone, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const h = +p.hour;
+  const time = `${h % 12 || 12}${p.minute === '00' ? '' : `:${p.minute}`} ${h < 12 ? 'am' : 'pm'}`;
+  return `Week from ${p.weekday} ${p.day} ${p.month.replace(/^Sept$/, 'Sep')}, ${time}`;
+}
+
+/** The plan week holding t, from a list planWeeks gave (the newest first); null when before them all. */
+export function weekOf(t, weeks) {
+  const at = ms(t);
+  return weeks.find((w) => at >= w.from && at < w.to) ?? (weeks[0] && at >= weeks[0].to ? weeks[0] : null);
+}
+
 /**
  * The window's start and end. 5h: the five-hour limit's current window (from its reset time), else
- * the last five hours. week: the plan week (from the weekly reset), else the last seven days. 30d.
+ * the last five hours. week: the plan week (planWeeks: the weekly meter's reset, else Wednesday
+ * 16:00 local). 30d: the last 30 days.
  */
-export function windowRange(window, { now, meters = null }) {
+export function windowRange(window, { now, meters = null, timeZone } = {}) {
   const end = ms(now);
-  const reset = (m, span) => {
-    const r = m?.resetsAt ? Date.parse(m.resetsAt) : NaN;
-    return Number.isFinite(r) && r > end && r - span <= end ? r - span : end - span;
-  };
-  if (window === '5h') return { from: reset(meters?.fiveHour, 5 * H), to: end };
-  if (window === 'week') return { from: reset(meters?.week, 7 * DAY), to: end };
+  if (window === '5h') {
+    const r = meters?.fiveHour?.resetsAt ? Date.parse(meters.fiveHour.resetsAt) : NaN;
+    return { from: Number.isFinite(r) && r > end && r - 5 * H <= end ? r - 5 * H : end - 5 * H, to: end };
+  }
+  if (window === 'week') return { from: planWeeks({ now: end, meters, timeZone, count: 1 })[0].from, to: end };
   return { from: end - 30 * DAY, to: end };
 }
 
@@ -150,7 +235,7 @@ export function telemetry(allLines, { window = 'week', now = new Date(), me = nu
   const sorted = [...allLines].filter((l) => Number.isFinite(ms(l.t)) && ms(l.t) <= end).sort((a, b) => ms(a.t) - ms(b.t));
   const month = sorted.filter((l) => ms(l.t) >= end - 30 * DAY);
   const m = latestMeters(sorted, meters);
-  const { from, to } = windowRange(window, { now: end, meters: m });
+  const { from, to } = windowRange(window, { now: end, meters: m, timeZone });
   const inWindow = month.filter((l) => ms(l.t) >= from);
   const mine = (list) => (me ? list.filter((l) => l.user === me) : list);
   const ratio = percentPerDollar(month);
@@ -206,14 +291,13 @@ export function telemetry(allLines, { window = 'week', now = new Date(), me = nu
   };
 
   // 4. Share by model, one bar per plan week (cut to the window), the newest first.
-  const weekEnd = m.week?.resetsAt && Date.parse(m.week.resetsAt) > end ? Date.parse(m.week.resetsAt) : end;
   const weeks = [];
-  for (let hi = weekEnd; hi > from; hi -= 7 * DAY) {
-    const lo = Math.max(hi - 7 * DAY, from);
-    const list = inWindow.filter((l) => ms(l.t) >= lo && ms(l.t) < Math.min(hi, end + 1));
+  for (const pw of planWeeks({ now: end, from, meters: m, timeZone })) {
+    const lo = Math.max(pw.from, from);
+    const list = inWindow.filter((l) => ms(l.t) >= lo && ms(l.t) < Math.min(pw.to, end + 1));
     const total = list.reduce((s, l) => s + cost(l), 0);
     const segs = sums(list, (l) => modelKey(l.model), null).map((s) => ({ key: s.key, usd: s.usd, share: total > 0 ? r4(s.usd / total) : 0 })).sort((a, b) => modelSlot(a.key) - modelSlot(b.key));
-    weeks.push({ from: iso(lo), to: iso(Math.min(hi, end)), label: shortDay(lo, timeZone) === shortDay(Math.min(hi, end), timeZone) ? shortDay(lo, timeZone) : `${shortDay(lo, timeZone)} to ${shortDay(Math.min(hi, end), timeZone)}`, usd: r2(total), parts: segs });
+    weeks.push({ from: iso(lo), to: iso(Math.min(pw.to, end)), label: pw.label, usd: r2(total), parts: segs });
   }
   const models = [...new Set(weeks.flatMap((w) => w.parts.map((p) => p.key)))].sort((a, b) => modelSlot(a) - modelSlot(b)).map((key) => ({ key, label: modelName(key), slot: modelSlot(key) }));
   const latest = weeks.find((w) => w.usd > 0);

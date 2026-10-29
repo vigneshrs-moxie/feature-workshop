@@ -106,7 +106,7 @@ describe('Telemetry', () => {
     // 4. One bar per plan week, split by model, with a legend.
     const models = card('by-model');
     expect(within(models).getByText('Opus 5.5')).toBeInTheDocument();
-    expect(within(models).getByRole('img', { name: /^22 Oct to 28 Oct, Opus 5\.5: 62% \(\$27\.00\)$/ })).toBeInTheDocument();
+    expect(within(models).getByRole('img', { name: /^Week from Thu 22 Oct, 2 pm, Opus 5\.5: 62% \(\$27\.00\)$/ })).toBeInTheDocument();
 
     // 5. One bar per person, names only.
     const people = card('people');

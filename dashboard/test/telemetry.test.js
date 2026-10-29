@@ -17,7 +17,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { dayKey, forecast, percentPerDollar, telemetry, whenWords, windowRange } from '../lib/telemetry.js';
+import { dayKey, forecast, percentPerDollar, planWeeks, planWeekStart, telemetry, weekLabel, weekOf, whenWords, windowRange } from '../lib/telemetry.js';
 import { startDashboard as launchDashboard } from './helpers/dashboard.js';
 
 const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'telemetry', 'usage.jsonl');
@@ -39,8 +39,51 @@ test('windows: this five hours from the 5-hour reset, this week from the weekly 
   assert.deepEqual(windowRange('5h', { now: NOW, meters }), { from: Date.parse('2026-10-28T07:00:00Z'), to: Date.parse(NOW) });
   assert.deepEqual(windowRange('5h', { now: NOW, meters: { fiveHour: { percent: 3, resetsAt: '2026-10-28T14:00:00Z' } } }).from, Date.parse('2026-10-28T09:00:00Z'));
   assert.equal(windowRange('week', { now: NOW, meters }).from, Date.parse('2026-10-22T14:00:00Z'));
-  assert.equal(windowRange('week', { now: NOW, meters: null }).from, Date.parse('2026-10-21T12:00:00Z'));
+  // No reading: the last Wednesday 16:00 on the clock (now is Wednesday 12:00 UTC, before 16:00).
+  assert.equal(windowRange('week', { now: NOW, meters: null, timeZone: 'UTC' }).from, Date.parse('2026-10-21T16:00:00Z'));
+  assert.equal(windowRange('week', { now: NOW, meters: null, timeZone: 'America/Phoenix' }).from, Date.parse('2026-10-28T23:00:00Z') - 7 * 864e5);
   assert.equal(windowRange('30d', { now: NOW }).from, Date.parse('2026-09-28T12:00:00Z'));
+});
+
+// ---------- The plan week: Wednesday 16:00, local time (step 0) ----------
+
+test('the plan week: the weekly meter’s reset when there is a reading', () => {
+  const meters = { week: { percent: 40, resetsAt: '2026-11-04T23:00:00Z' } };
+  const now = '2026-10-30T12:00:00Z';
+  assert.equal(windowRange('week', { now, meters, timeZone: 'America/Phoenix' }).from, Date.parse('2026-10-28T23:00:00Z'));
+  // A reset that doesn't hold now (an old reading) is no help: Wednesday 16:00 local instead.
+  const stale = { week: { percent: 40, resetsAt: '2026-10-21T23:00:00Z' } };
+  assert.equal(windowRange('week', { now, meters: stale, timeZone: 'America/Phoenix' }).from, Date.parse('2026-10-28T23:00:00Z'));
+  const weeks = planWeeks({ now, meters: { week: { percent: 3, resetsAt: '2026-11-05T14:00:00Z' } }, timeZone: 'UTC', count: 2 });
+  assert.deepEqual(weeks.map((w) => [new Date(w.from).toISOString(), new Date(w.to).toISOString(), w.current]), [
+    ['2026-10-29T14:00:00.000Z', '2026-11-05T14:00:00.000Z', true],
+    ['2026-10-22T14:00:00.000Z', '2026-10-29T14:00:00.000Z', false],
+  ]);
+});
+
+test('the plan week: no reading, the last Wednesday 16:00 local (America/Phoenix), never Monday or seven days back', () => {
+  const tz = 'America/Phoenix'; // UTC−7 all year: 16:00 there is 23:00 UTC
+  assert.equal(planWeekStart('2026-10-28T22:59:00Z', { timeZone: tz }), Date.parse('2026-10-21T23:00:00Z'), 'a minute before 16:00 on a Wednesday: still last week');
+  assert.equal(planWeekStart('2026-10-28T23:00:00Z', { timeZone: tz }), Date.parse('2026-10-28T23:00:00Z'), '16:00 on the dot: the new week');
+  assert.equal(planWeekStart('2026-10-28T23:01:00Z', { timeZone: tz }), Date.parse('2026-10-28T23:00:00Z'));
+  assert.equal(planWeekStart('2026-11-02T08:00:00Z', { timeZone: tz }), Date.parse('2026-10-28T23:00:00Z'), 'a Monday is not a week start');
+  const weeks = planWeeks({ now: '2026-10-29T03:00:00Z', timeZone: tz, count: 3 });
+  assert.deepEqual(weeks.map((w) => w.label), ['Week from Wed 28 Oct, 4 pm', 'Week from Wed 21 Oct, 4 pm', 'Week from Wed 14 Oct, 4 pm']);
+  // A line a minute either side of the boundary lands in the week it belongs to.
+  assert.equal(weekOf('2026-10-28T22:59:00Z', weeks).label, 'Week from Wed 21 Oct, 4 pm');
+  assert.equal(weekOf('2026-10-28T23:00:00Z', weeks).label, 'Week from Wed 28 Oct, 4 pm');
+  assert.equal(weekOf('2026-10-01T00:00:00Z', weeks), null, 'before the weeks asked for');
+});
+
+test('the plan week: a time zone with daylight time keeps 16:00 on the clock', () => {
+  const tz = 'America/New_York'; // daylight time ends Sunday 1 November 2026
+  const weeks = planWeeks({ now: '2026-11-05T12:00:00Z', timeZone: tz, count: 2 });
+  assert.deepEqual(weeks.map((w) => [new Date(w.from).toISOString(), new Date(w.to).toISOString()]), [
+    ['2026-11-04T21:00:00.000Z', '2026-11-11T21:00:00.000Z'], // 16:00 EST
+    ['2026-10-28T20:00:00.000Z', '2026-11-04T21:00:00.000Z'], // 16:00 EDT: that week is 169 hours long
+  ]);
+  assert.equal(weekLabel(weeks[1].from, tz), 'Week from Wed 28 Oct, 4 pm');
+  assert.equal(planWeekStart('2026-11-04T20:59:00Z', { timeZone: tz }), Date.parse('2026-10-28T20:00:00Z'), '15:59 EST: still the week before');
 });
 
 test('percent per dollar: the weekly meter’s rise over the cost recorded, per plan week', () => {
@@ -139,7 +182,8 @@ test('share by model: one bar per plan week, everyone’s use, by cost', () => {
   assert.deepEqual(week.models.map((m) => [m.label, m.slot]), [['Opus 5.5', 1], ['Sonnet 5.5', 2]]);
   assert.equal(week.sentence, 'Opus 5.5 did 62% of the work by cost this week.');
   const month = data('30d')['by-model'];
-  assert.deepEqual(month.weeks.map((w) => w.label), ['22 Oct to 28 Oct', '15 Oct to 22 Oct', '8 Oct to 15 Oct', '1 Oct to 8 Oct', '28 Sept to 1 Oct']);
+  // The meter's reset (Thursdays 14:00 here) sets this week; the weeks before step back seven days.
+  assert.deepEqual(month.weeks.map((w) => w.label), ['Week from Thu 22 Oct, 2 pm', 'Week from Thu 15 Oct, 2 pm', 'Week from Thu 8 Oct, 2 pm', 'Week from Thu 1 Oct, 2 pm', 'Week from Thu 24 Sep, 2 pm']);
   // A whole week before the busy one: Opus $3 a day, Sonnet $2 a day, 7 days.
   assert.deepEqual(month.weeks[1].parts.map((p) => [p.key, p.usd, p.share]), [['opus', 21, 0.6], ['sonnet', 14, 0.4]]);
   // 28 Sep 12:00 to 1 Oct 14:00: Opus 07:00 × 3 + 19:00 × 3 = $9; Sonnet 01:00 × 3 + 13:00 × 4 = $7.
