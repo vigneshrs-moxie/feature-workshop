@@ -12,8 +12,8 @@ import { HowThisWorks } from '../../components/HowThisWorks';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 
-/** The settings with the usage warnings' switch (on unless turned off). */
-type NotifyAll = Notify & { usageWarnings?: boolean };
+/** The settings with the usage warnings' switch (on unless turned off): NotifySettings in api/types.ts. */
+type NotifyAll = Notify;
 
 export const NOTIFY_DEFAULTS: Notify = {
   enabled: true,

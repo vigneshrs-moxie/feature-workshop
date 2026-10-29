@@ -102,6 +102,26 @@ these: refine and spec-update are `spec`, implement is `build`, the PRs and stag
 | `--pane-pattern` | an optional `background-image` on each pane (a grid, dither, dots) | `none` |
 | `--font-heading` | the font of `h1`–`h3` (the brand, pane titles, job title, card headlines) | `var(--font-display)` |
 | `--row-alt` | the faint tint on every other row of a table in a rendered document (`.prose`); keep it subtle | `var(--border-1)` |
+| `--lane-<l>-fg/-bg/-line` | a lane of Jobs (`working`, `needs-you`, `in-review`, `ready`, and `resting`, `done` under the board): its word and icon, tint and edge; only Needs you is tinted | status tokens |
+| `--hover-bg` | the background of a row, tab or menu item under the pointer | `var(--bg-3)` |
+| `--grid-line` | the faint grid behind the go / no go console (Play full only) | `var(--border-1)` |
+| `--tooltip-bg`, `--tooltip-fg` | the small tooltip on a stop dot | `var(--text-1)`, `var(--bg-0)` |
+
+### Charts (`--chart-1` … `--chart-8`)
+
+Every chart takes its series colours from `--chart-1` to `--chart-8`, in order (blue, orange, aqua,
+yellow, violet, green, red, pink by default). Each theme sets all eight for its own background
+(darker on the light themes). Each series also has a pattern, `--chart-pattern-<n>`, laid over its
+colour as a second background layer, so two series never differ by colour alone; the patterns are
+drawn in the page's own `--bg-0` and need no copy per theme.
+
+### Sizes and motion
+
+`--control-h` (40 px, larger with a larger text size, never smaller) is the least height of every
+clickable thing: `.btn`, `.tab`, `.menu-item`, `.row-link`, `.chip-btn`, inputs and selects;
+`--control-h-lg` (44 px) is the big calls (`.btn-lg`). Transitions use `--dur-fast`, `--dur-menu` or
+`--dur-pane`, all 200 ms or shorter. A theme may restyle hover, but never moves anything under the
+pointer: no `transform` on `:hover`.
 
 ### The crew (`--crew-*`)
 

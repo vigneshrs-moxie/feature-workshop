@@ -62,7 +62,43 @@ export interface Job {
   wireframes?: JobWireframes | null;
   /** The review walkthrough built for the job's branch (dashboard/lib/docs.js walkthroughInfo); url: its published page. */
   walkthrough?: { updatedAt: string; size: number; url: string | null } | null;
+  /** Its lane on Jobs (dashboard/lib/snapshot.js laneFor) and the reason in words; dashboards from before send none. */
+  lane?: JobLane;
+  laneReason?: string;
+  /** Who is working on it right now and on what (runner boardCard nowDoing). */
+  nowDoing?: NowDoing[];
+  /** Stages done out of the job's own stages. */
+  progress?: { done: number; total: number };
+  /** Stages the job's route or level skips. */
+  skipped?: string[];
+  route?: string | null;
+  questions?: number;
+  starting?: boolean;
+  /** Another process holds the job (dashboard/lib/lock.js): a terminal, or another copy of the dashboard. */
+  lock?: JobLockInfo | null;
   [key: string]: unknown;
+}
+
+/** The four lanes of Jobs, and the two folded under the board (dashboard/lib/snapshot.js LANES). */
+export type JobLane = 'working' | 'needs-you' | 'in-review' | 'ready' | 'resting' | 'done';
+export const JOB_LANES: JobLane[] = ['working', 'needs-you', 'in-review', 'ready', 'resting', 'done'];
+
+/** One agent at work on a job right now (the Foreman, or a crew member by its agent type). */
+export interface NowDoing {
+  who: string;
+  name?: string;
+  doing?: string | null;
+  since?: string | null;
+  lastAt?: string | null;
+  quietMs?: number | null;
+}
+
+/** Who holds a job elsewhere (dashboard/lib/lock.js; a refused send's 409 carries the same). */
+export interface JobLockInfo {
+  owner: 'runner' | 'terminal';
+  pid: number | null;
+  branch: string | null;
+  acquiredAt: string | null;
 }
 
 export type NudgeId = 'pr1-merge' | 'pr2-open' | 'pr2-review' | 'pr2-changes' | 'pr2-merge' | 'pr1-merged' | 'pr2-merged';
@@ -398,17 +434,21 @@ export interface Settings {
 // ---------- Notifications outside the browser (dashboard/lib/notify.js) ----------
 
 export type NotifyLevel = 'needs' | 'problem' | 'done';
+/** The usage warnings' own level (dashboard/lib/notify.js USAGE_LEVEL): one switch, usageWarnings. */
+export type NotifyUsageLevel = 'usage';
 export type NotifyMode = 'sound' | 'silent' | 'off';
 export interface NotifySettings {
   enabled: boolean;
   levels: Record<NotifyLevel, NotifyMode>;
   quiet: { on: boolean; from: string; to: string };
   skipWhenWatching: boolean;
+  /** The usage warnings' switch (on unless turned off). */
+  usageWarnings?: boolean;
 }
 /** One notification, sent or not (GET /api/notifications history, newest first). */
 export interface NotificationEntry {
   at: string;
-  level: NotifyLevel;
+  level: NotifyLevel | NotifyUsageLevel;
   title: string;
   body: string;
   slug: string | null;
@@ -801,6 +841,18 @@ export interface PlanUsage {
   checkedAt: string | null;
   /** Why the last read failed, in words; the last good reading stays. */
   error: string | null;
+  /** The 80 %, 90 % and full warnings (dashboard/lib/usage-warnings.js); dashboards from before send none. */
+  warnings?: UsageWarning[];
+}
+
+/** One usage warning as the dashboard sends it (planUsage.warnings). */
+export interface UsageWarning {
+  id: string;
+  meter: 'fiveHour' | 'week';
+  threshold: 80 | 90 | 100;
+  percent: number;
+  resetsAt: string | null;
+  text: string;
 }
 
 /** One event on /api/events?v=2. */
@@ -1226,4 +1278,85 @@ export interface EvidenceView {
 export interface EvidenceRecordResult extends EvidenceView {
   ok: true;
   started: boolean;
+}
+
+// ---------- The Inbox: your Orbit tickets (dashboard/lib/orbit.js, GET /api/orbit/*) ----------
+
+export interface OrbitStatus {
+  tokenPresent: boolean;
+  /** Where the token is kept: keytar or keychain (the OS store), or file (a file only you can read). */
+  store: 'keytar' | 'keychain' | 'file' | null;
+  url: string | null;
+  savedAt: string | null;
+  expiresAt: string | null;
+  expired: boolean;
+  lastPoll: string | null;
+  lastTryAt?: string | null;
+  lastError: string | null;
+  errorKind: string | null;
+  everyMs: number;
+  watchers: number;
+  waitingMs: number;
+  mcp?: { name: string; file: string };
+}
+
+/** One ticket in the Inbox. Orbit has no priority any more: the page reads severity only. */
+export interface InboxItem {
+  key: string;
+  number: number;
+  title: string;
+  type: string | null;
+  status: string | null;
+  priority: string | null;
+  severity: string | null;
+  createdAt: string | null;
+  changedAt: string | null;
+  assignee: { name: string; you: boolean } | null;
+  why: string[];
+  url: string | null;
+  /** The open job already on this ticket. */
+  job: { slug: string; title: string } | null;
+}
+
+export type InboxAnswer = OrbitStatus & { items: InboxItem[]; view?: string; checkedAt?: string; truncated?: boolean };
+
+// ---------- The Stage: one stop of a job (dashboard/lib/stage-view.js, GET /api/job/:slug/stage/:stop) ----------
+
+/** The seven stops of the Job map; each groups one or more stages. */
+export type StopId = 'spec' | 'investigate' | 'plan' | 'build' | 'test' | 'review' | 'ship';
+
+export type StageAgentStatus = 'working' | 'waiting' | 'done' | 'stopped';
+
+/** One agent who works (or worked) on a stop: the Foreman, or a crew member. */
+export interface StageAgent {
+  /** 'conductor' for the Foreman, else the crew member's agent type. */
+  who: string;
+  /** Its generic role word (Foreman, Planner, Builder…). */
+  role: string;
+  model: string | null;
+  /** What it is doing now, in one plain line. */
+  doing: string | null;
+  since: string | null;
+  lastAt: string | null;
+  status: StageAgentStatus;
+  /** How to open it in a terminal: continue the Foreman's session, or follow a crew member's log (read-only). */
+  terminal: { kind: 'continue' | 'watch'; ready: boolean; why: string | null };
+  /** Its index in the job's activity, which the terminal command names. */
+  ref: string;
+}
+
+export interface StageView {
+  slug: string;
+  stop: StopId;
+  label: string;
+  state: 'done' | 'now' | 'waiting' | 'next' | 'skipped';
+  stateWords: string;
+  /** When the job reached this stop, if known. */
+  since: string | null;
+  stages: string[];
+  agents: StageAgent[];
+  finished: StageAgent[];
+  /** The terminal app Open in terminal uses (Try it's choice), and the ones this computer has. */
+  terminalApp: string | null;
+  terminalApps: string[];
 }

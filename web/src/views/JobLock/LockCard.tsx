@@ -5,12 +5,8 @@
 import { ApiError } from '../../api/client';
 import { clockTime, fullTime } from '../../lib/time';
 
-export interface JobLockInfo {
-  owner: 'runner' | 'terminal';
-  pid: number | null;
-  branch: string | null;
-  acquiredAt: string | null;
-}
+export type { JobLockInfo } from '../../api/types';
+import type { JobLockInfo } from '../../api/types';
 
 /** The lock a refused send carries, or null when the error is something else. */
 export function lockFromError(err: unknown): JobLockInfo | null {

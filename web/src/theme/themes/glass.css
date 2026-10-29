@@ -412,3 +412,38 @@ html[data-theme="glass"] .home-head { background: var(--glass-float); }
 /* The job header stays still while the conversation scrolls under it (app.css): the same solid float. */
 /* The stuck job header: the float tint over a solid base, so no word of the thread shows through it. */
 html[data-theme="glass"] .pane-foreman .job-header { --job-header-line: var(--glass-edge); background: linear-gradient(var(--glass-float), var(--glass-float)), oklch(.2 .03 272); }
+
+/* The redesign (packet M): the lanes of Jobs, hover, the go / no go console grid, the stop-dot
+   tooltip, and the eight chart series (each also has a pattern, --chart-pattern-<n>, in tokens.css). */
+html[data-theme="glass"] {
+  --lane-working-fg: var(--status-info);
+  --lane-working-bg: transparent;
+  --lane-working-line: var(--border-2);
+  --lane-needs-you-fg: var(--status-warn);
+  --lane-needs-you-bg: var(--status-warn-bg);
+  --lane-needs-you-line: var(--status-warn);
+  --lane-in-review-fg: var(--text-2);
+  --lane-in-review-bg: transparent;
+  --lane-in-review-line: var(--border-2);
+  --lane-ready-fg: var(--status-ok);
+  --lane-ready-bg: transparent;
+  --lane-ready-line: var(--border-2);
+  --lane-resting-fg: var(--text-3);
+  --lane-resting-bg: transparent;
+  --lane-resting-line: var(--border-1);
+  --lane-done-fg: var(--status-ok);
+  --lane-done-bg: transparent;
+  --lane-done-line: var(--border-1);
+  --hover-bg: var(--bg-3);
+  --grid-line: var(--border-1);
+  --tooltip-bg: var(--text-1);
+  --tooltip-fg: var(--bg-0);
+  --chart-1: oklch(.76 .13 255);
+  --chart-2: oklch(.76 .13 55);
+  --chart-3: oklch(.76 .13 195);
+  --chart-4: oklch(.76 .13 95);
+  --chart-5: oklch(.76 .13 300);
+  --chart-6: oklch(.76 .13 150);
+  --chart-7: oklch(.76 .13 25);
+  --chart-8: oklch(.76 .13 345);
+}

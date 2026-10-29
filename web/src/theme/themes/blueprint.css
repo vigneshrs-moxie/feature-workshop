@@ -187,7 +187,7 @@ html[data-theme="blueprint"] .job-row[data-group="needs-you"] { box-shadow: inse
 html[data-theme="blueprint"] .job-row[data-group="running"] { box-shadow: inset 3px 0 0 var(--group-running-line); background: var(--group-running-bg); }
 html[data-theme="blueprint"] .job-row[data-group="paused"] { box-shadow: inset 3px 0 0 var(--group-paused-line); background: var(--group-paused-bg); }
 html[data-theme="blueprint"] .job-row[data-group="done"] { box-shadow: inset 3px 0 0 var(--group-done-line); background: var(--group-done-bg); }
-html[data-theme="blueprint"] .job-row:hover { transform: translateX(2px); background: var(--bg-3); }
+html[data-theme="blueprint"] .job-row:hover { background: var(--bg-3); }
 html[data-theme="blueprint"] .job-row[aria-current="page"] {
   background-image: linear-gradient(oklch(1 0 0 / .1), oklch(1 0 0 / .1));
   outline: 1px solid var(--bp-chalk-2);
@@ -512,7 +512,7 @@ html[data-theme="blueprint"] .sheet .rule-option .chip { border-color: var(--bp-
 html[data-theme="blueprint"] .rule-list { border-color: var(--bp-chalk-2); }
 html[data-theme="blueprint"] .rule-row + .rule-row { border-top-color: var(--bp-chalk-3); }
 html[data-theme="blueprint"] .theme-option { transition: transform var(--dur-fast) var(--ease-out); }
-html[data-theme="blueprint"] .theme-option:hover { transform: translateX(2px); }
+
 html[data-theme="blueprint"] .how { border-color: var(--bp-chalk-3); background: oklch(1 0 0 / .05); }
 
 /* ---------- Usage banner: caution tape ---------- */
@@ -565,5 +565,40 @@ html[data-theme="blueprint"] {
 
 @media (prefers-reduced-motion: reduce) {
   html[data-theme="blueprint"] .job-row, html[data-theme="blueprint"] .theme-option { transition: none; }
-  html[data-theme="blueprint"] .job-row:hover, html[data-theme="blueprint"] .theme-option:hover { transform: none; }
+
+}
+
+/* The redesign (packet M): the lanes of Jobs, hover, the go / no go console grid, the stop-dot
+   tooltip, and the eight chart series (each also has a pattern, --chart-pattern-<n>, in tokens.css). */
+html[data-theme="blueprint"] {
+  --lane-working-fg: var(--status-info);
+  --lane-working-bg: transparent;
+  --lane-working-line: var(--border-2);
+  --lane-needs-you-fg: var(--status-warn);
+  --lane-needs-you-bg: var(--status-warn-bg);
+  --lane-needs-you-line: var(--status-warn);
+  --lane-in-review-fg: var(--text-2);
+  --lane-in-review-bg: transparent;
+  --lane-in-review-line: var(--border-2);
+  --lane-ready-fg: var(--status-ok);
+  --lane-ready-bg: transparent;
+  --lane-ready-line: var(--border-2);
+  --lane-resting-fg: var(--text-3);
+  --lane-resting-bg: transparent;
+  --lane-resting-line: var(--border-1);
+  --lane-done-fg: var(--status-ok);
+  --lane-done-bg: transparent;
+  --lane-done-line: var(--border-1);
+  --hover-bg: var(--bg-3);
+  --grid-line: var(--border-1);
+  --tooltip-bg: var(--text-1);
+  --tooltip-fg: var(--bg-0);
+  --chart-1: oklch(.76 .13 255);
+  --chart-2: oklch(.76 .13 55);
+  --chart-3: oklch(.76 .13 195);
+  --chart-4: oklch(.76 .13 95);
+  --chart-5: oklch(.76 .13 300);
+  --chart-6: oklch(.76 .13 150);
+  --chart-7: oklch(.76 .13 25);
+  --chart-8: oklch(.76 .13 345);
 }

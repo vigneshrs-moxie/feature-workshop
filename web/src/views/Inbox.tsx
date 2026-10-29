@@ -21,42 +21,8 @@ import { useWorkshop } from '../state/store';
 
 // ---------- What the dashboard sends (GET /api/orbit/*) ----------
 
-export interface OrbitStatus {
-  tokenPresent: boolean;
-  /** Where the token is kept: keytar or keychain (the OS store), or file (a file only you can read). */
-  store: 'keytar' | 'keychain' | 'file' | null;
-  url: string | null;
-  savedAt: string | null;
-  expiresAt: string | null;
-  expired: boolean;
-  lastPoll: string | null;
-  lastTryAt?: string | null;
-  lastError: string | null;
-  errorKind: string | null;
-  everyMs: number;
-  watchers: number;
-  waitingMs: number;
-  mcp?: { name: string; file: string };
-}
-
-export interface InboxItem {
-  key: string;
-  number: number;
-  title: string;
-  type: string | null;
-  status: string | null;
-  priority: string | null;
-  severity: string | null;
-  createdAt: string | null;
-  changedAt: string | null;
-  assignee: { name: string; you: boolean } | null;
-  why: string[];
-  url: string | null;
-  /** The open job already on this ticket. */
-  job: { slug: string; title: string } | null;
-}
-
-export type InboxAnswer = OrbitStatus & { items: InboxItem[]; view?: string; checkedAt?: string; truncated?: boolean };
+export type { InboxAnswer, InboxItem, OrbitStatus } from '../api/types';
+import type { InboxAnswer, InboxItem, OrbitStatus } from '../api/types';
 
 interface SavedView { id: string; name: string; isDefault: boolean }
 

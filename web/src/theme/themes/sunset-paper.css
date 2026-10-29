@@ -206,7 +206,7 @@ html[data-theme="sunset-paper"] .job-row[data-group="running"] { box-shadow: ins
 html[data-theme="sunset-paper"] .job-row[data-group="paused"] { box-shadow: inset 3px 0 0 var(--group-paused-line); background: oklch(.8 .16 75 / .12); }
 html[data-theme="sunset-paper"] .job-row[data-group="idle"] { background: oklch(.68 .1 285 / .07); }
 html[data-theme="sunset-paper"] .job-row[data-group="done"] { box-shadow: inset 3px 0 0 var(--group-done-line); background: oklch(.65 .14 150 / .07); }
-html[data-theme="sunset-paper"] .job-row:hover { background: var(--bg-3); transform: translateX(2px); }
+html[data-theme="sunset-paper"] .job-row:hover { background: var(--bg-3); }
 html[data-theme="sunset-paper"] .job-row[data-group="needs-you"]:hover { background: oklch(.62 .24 345 / .15); }
 html[data-theme="sunset-paper"] .job-row[aria-current="page"] { background: var(--bg-1); box-shadow: inset 3px 0 0 var(--accent), var(--shadow-1); }
 html[data-theme="sunset-paper"] .job-row[aria-current="page"][data-group="needs-you"] { box-shadow: inset 3px 0 0 var(--group-needs-you-line), var(--shadow-1); }
@@ -215,8 +215,8 @@ html[data-theme="sunset-paper"] .job-row-title { font-weight: var(--weight-mediu
 
 html[data-theme="sunset-paper"] .hue-dot { box-shadow: 0 0 0 2px var(--bg-1); }
 html[data-theme="sunset-paper"] .job-status-label { font-weight: var(--weight-medium); }
-html[data-theme="sunset-paper"] .job-row[data-group="running"] .glyph { transition: transform 240ms var(--ease-out); }
-html[data-theme="sunset-paper"] .job-row[data-group="running"]:hover .glyph { transform: rotate(180deg); }
+html[data-theme="sunset-paper"] .job-row[data-group="running"] .glyph { transition: transform var(--dur-pane) var(--ease-out); }
+
 
 html[data-theme="sunset-paper"] .stage-chip,
 html[data-theme="sunset-paper"] .chip,
@@ -388,7 +388,7 @@ html[data-theme="sunset-paper"] .settings-heading::before {
 html[data-theme="sunset-paper"] .rule-list { background: var(--bg-1); border-color: var(--border-1); border-radius: var(--radius-lg); box-shadow: var(--shadow-1); }
 html[data-theme="sunset-paper"] .rule-row + .rule-row { border-top-color: var(--border-1); }
 html[data-theme="sunset-paper"] .theme-option { transition: transform var(--dur-fast) var(--ease-out); }
-html[data-theme="sunset-paper"] .theme-option:hover { transform: translateX(2px); }
+
 html[data-theme="sunset-paper"] .theme-option.is-picked { background: linear-gradient(90deg, oklch(.62 .18 30 / .14), oklch(.78 .16 75 / .14) 40%, oklch(.6 .12 195 / .14)); }
 html[data-theme="sunset-paper"] .job-menu-list button[aria-checked="true"] { color: var(--accent-strong); }
 html[data-theme="sunset-paper"] .job-menu-heading { color: var(--text-2); }
@@ -440,7 +440,40 @@ html[data-theme="sunset-paper"] {
   html[data-theme="sunset-paper"] .job-row .glyph,
   html[data-theme="sunset-paper"] .palette-option,
   html[data-theme="sunset-paper"] .theme-option { transition: none; }
-  html[data-theme="sunset-paper"] .job-row:hover,
-  html[data-theme="sunset-paper"] .theme-option:hover,
-  html[data-theme="sunset-paper"] .job-row[data-group="running"]:hover .glyph { transform: none; }
+
+}
+
+/* The redesign (packet M): the lanes of Jobs, hover, the go / no go console grid, the stop-dot
+   tooltip, and the eight chart series (each also has a pattern, --chart-pattern-<n>, in tokens.css). */
+html[data-theme="sunset-paper"] {
+  --lane-working-fg: var(--status-info);
+  --lane-working-bg: transparent;
+  --lane-working-line: var(--border-2);
+  --lane-needs-you-fg: var(--status-warn);
+  --lane-needs-you-bg: var(--status-warn-bg);
+  --lane-needs-you-line: var(--status-warn);
+  --lane-in-review-fg: var(--text-2);
+  --lane-in-review-bg: transparent;
+  --lane-in-review-line: var(--border-2);
+  --lane-ready-fg: var(--status-ok);
+  --lane-ready-bg: transparent;
+  --lane-ready-line: var(--border-2);
+  --lane-resting-fg: var(--text-3);
+  --lane-resting-bg: transparent;
+  --lane-resting-line: var(--border-1);
+  --lane-done-fg: var(--status-ok);
+  --lane-done-bg: transparent;
+  --lane-done-line: var(--border-1);
+  --hover-bg: var(--bg-3);
+  --grid-line: var(--border-1);
+  --tooltip-bg: var(--text-1);
+  --tooltip-fg: var(--bg-0);
+  --chart-1: oklch(.55 .15 255);
+  --chart-2: oklch(.55 .15 55);
+  --chart-3: oklch(.55 .15 195);
+  --chart-4: oklch(.55 .15 95);
+  --chart-5: oklch(.55 .15 300);
+  --chart-6: oklch(.55 .15 150);
+  --chart-7: oklch(.55 .15 25);
+  --chart-8: oklch(.55 .15 345);
 }
