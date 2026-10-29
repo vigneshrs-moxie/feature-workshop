@@ -1,4 +1,4 @@
-# Packet T · Claude Code use outside the app, in Telemetry
+# Packet U · Claude Code use outside the app, in Telemetry
 
 **Goal.** Telemetry counts your own Claude Code use outside the app by name, read from Claude Code's own session logs on this computer, instead of folding it into the estimated "Other use". Asked for by Vignesh on 2026-10-29: "for the telemetry, we can choose to only take claude code usage from claude directly since any other usage is usually not me or sohum. idk if this helps telemetry calculations for the charts."
 
@@ -9,7 +9,7 @@
 
 **Limits, said on screen:** only this computer's logs are read. A teammate's terminal use on their own computer stays in Other use until they run the app too, or the team site (v2) exists.
 
-**Port 4497 · worktree `../ground-control-T` · branch `packet/T-claude-code-usage`.** Server side now, beside R and S. The Telemetry page's few words and its new segment wait for R to be merged (R is restyling Telemetry), as the second step.
+**Port 4497 · worktree `../ground-control-U` · branch `packet/U-claude-code-usage`.** Server side now, beside R and S. The Telemetry page's few words and its new segment wait for R to be merged (R is restyling Telemetry), as the second step.
 
 ## Owns
 - `dashboard/lib/claude-code-usage.js` (new): the reader and its cache.
@@ -53,7 +53,7 @@
 - All tests are green, with no model calls, and nothing reads the real `~/.claude` in tests.
 
 ## Rules that apply to every packet (read once, obey always)
-- **Base:** `main`. **Worktree:** `git worktree add ../ground-control-T -b packet/T-claude-code-usage main`.
+- **Base:** `main`. **Worktree:** `git worktree add ../ground-control-U -b packet/U-claude-code-usage main`.
 - **Port:** 4497 (screens 4498).
   - **Never use 4477, 4479 or 4485.**
   - Leave 4481, 4483, 4487, 4489, 4491, 4493 and 4495 alone.
