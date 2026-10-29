@@ -16,6 +16,7 @@ import {
   sectionSlug, stackPhase, stackSummary, writeStack,
 } from '../lib/stack.js';
 import { stackNames, stackRules, loadProfile } from '../lib/profile.js';
+import { parseStatusJson, validate } from '../lib/status-json.js';
 
 const PLAN = `# ORBIT-512 Work orders v2
 
@@ -410,4 +411,14 @@ test('decisions.md of a stack: each section’s decisions under its heading, num
   assert.deepEqual([...at].sort((x, y) => x - y), at, t);
   assert.equal(t.match(/## Not doing/g).length, 1);
   assert.equal(t.includes('ORBIT-512.D6'), false);
+});
+
+test('status.json: the first brief may say the ticket looks big enough for a stack (stack_suggested), in one sentence', () => {
+  const why = 'It touches the booking page, the email and the API, which can be built side by side.';
+  const sj = parseStatusJson(JSON.stringify({ schema_version: 1, slug: 'orbit-600', stage: 'spec', stack_suggested: why }));
+  assert.equal(sj.stackSuggested, why);
+  assert.equal(parseStatusJson(JSON.stringify({ schema_version: 1, slug: 'x', stage: 'spec' })).stackSuggested, null);
+  assert.equal(parseStatusJson(JSON.stringify({ schema_version: 1, slug: 'x', stage: 'spec', stack_suggested: 'x'.repeat(900) })).stackSuggested.length, 400, 'cut, not refused');
+  assert.deepEqual(validate({ schema_version: 1, slug: 'orbit-600', title: 'T', stage: 'spec', stage_state: 'waiting_for_you', stack_suggested: why }).errors.filter((e) => /stack_suggested/.test(e)), []);
+  assert.ok(validate({ schema_version: 1, slug: 'x', title: 'T', stage: 'spec', stage_state: 'working', stack_suggested: 5 }).errors.some((e) => /stack_suggested/.test(e)), 'a number is refused');
 });

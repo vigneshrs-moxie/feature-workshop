@@ -11,7 +11,8 @@
 // A job started from a ticket (its options.json names one: ticketKey) must write version 2 with
 // that ticket's key. Version 1 files stay valid for every other job.
 // A section of a stack (plan §6, lib/stack.js) names its stack (the parent job's folder name) and
-// its section (its name in stack.md), both or neither, in either version.
+// its section (its name in stack.md), both or neither, in either version. Any job's first brief may
+// say the ticket looks big enough for a stack (stack_suggested: why, in one sentence).
 
 import fs from 'node:fs';
 import { STAGE_IDS } from './stages.js';
@@ -28,6 +29,8 @@ const str = (v) => (typeof v === 'string' && v.trim() ? v : null);
 const arr = (v) => (Array.isArray(v) ? v : []);
 // The Foreman's one-line reason for the level it suggests; longer text is cut, not refused.
 export const LEVEL_REASON_MAX = 400;
+// Why the first brief suggests a stack (stack_suggested), in one sentence: cut, not refused.
+export const STACK_SUGGESTED_MAX = 400;
 export const MAX_QUESTIONS = 3;
 export const MAX_CLARIFY_QUESTIONS = 5;
 // An option's consequence is one line (status-json.md says under 120 characters); longer text is cut.
@@ -142,6 +145,9 @@ export function parseStatusJson(text) {
     ticket: ticketBlock(raw.ticket),
     stack: str(raw.stack),
     section: str(raw.section),
+    // The first brief thinks the ticket is big enough for a stack: why, in one sentence (the Job page
+    // offers "Run as a stack instead"). Longer text is cut, not refused.
+    stackSuggested: str(raw.stack_suggested)?.trim().slice(0, STACK_SUGGESTED_MAX) ?? null,
   };
 }
 
