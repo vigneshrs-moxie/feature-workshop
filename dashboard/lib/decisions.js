@@ -9,6 +9,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { PRODUCT } from './state.js';
 
 const firstLine = (text, max = 160) => {
   const line = String(text ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
@@ -377,4 +378,122 @@ export function repoFileName({ ticketKey = null, title = null, slug = null } = {
   if (!picked.length) picked = from(slug);
   const short = picked.slice(0, 6).join('-');
   return `${prefix}-${String(n).padStart(4, '0')}${short ? `-${short}` : ''}.md`;
+}
+
+// ---------- The index: docs/decisions/README.md ----------
+// Rebuilt from the files each time one is written: a table of the ticket files (ticket, title,
+// how many decisions, the newest "when"), sorted by ticket number, then the files under general/
+// (decisions that span tickets) in a second table. No clock and no locale in it: the same files
+// always give the same index, byte for byte, so two branches that rebuild it conflict only when
+// their files really differ.
+
+export const INDEX_FILE = 'README.md';
+export const GENERAL_FOLDER = 'general';
+const ROW_SPLIT = /(?<!\\)\|/;
+const SEPARATOR = /^\|(\s*:?-{3,}:?\s*\|)+\s*$/;
+const DATE = /\d{4}-\d{2}-\d{2}/;
+const isIndexName = (name) => /^readme\.md$/i.test(name);
+
+const cells = (line) => line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '').split(ROW_SPLIT).map((c) => c.trim());
+
+/**
+ * What the index says about one decision file. name: its path in the folder ("ORBIT-0479-x.md",
+ * "general/0002-y.md"); text: its contents. The ticket comes from the name ("ORBIT-0479-…" is
+ * ORBIT-479, "0001-…" is 0001), the title from the "# <ticket> · <title>" line (else the name's
+ * words), the count from the decision tables' rows (every table but "## Not doing"), and the last
+ * update from the newest date in a "when" column.
+ * Returns { name, ticket, prefix, number, title, count, updated }.
+ */
+export function indexEntry(name, text) {
+  const base = path.posix.basename(name).replace(/\.md$/i, '');
+  let ticket = base;
+  let prefix = '';
+  let number = null;
+  let rest = base;
+  let m = /^([A-Za-z][A-Za-z0-9]*)-(\d+)(?:-(.*))?$/.exec(base);
+  if (m) { prefix = m[1].toUpperCase(); number = Number(m[2]); ticket = `${prefix}-${number}`; rest = m[3] ?? ''; }
+  else if ((m = /^(\d+)(?:-(.*))?$/.exec(base))) { number = Number(m[1]); ticket = m[1]; rest = m[2] ?? ''; }
+  const lines = String(text ?? '').replace(/<!--[\s\S]*?-->/g, '').split(/\r?\n/);
+  const head = lines.find((l) => /^#\s/.test(l))?.replace(/^#\s+/, '').trim() ?? '';
+  const dot = head.indexOf(' · ');
+  let title = dot >= 0 ? head.slice(dot + 3).trim() : head;
+  if (!title || title.toUpperCase() === ticket.toUpperCase()) title = rest.replace(/-+/g, ' ').trim();
+  let count = 0;
+  let updated = '';
+  let when = -1;
+  let inNot = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (/^##\s/.test(line)) { inNot = NOT_DOING.test(line); continue; } // a stack's sections share the table's columns
+    if (inNot || !line.startsWith('|') || SEPARATOR.test(line)) continue;
+    if (SEPARATOR.test(lines[i + 1]?.trim() ?? '')) { when = cells(line).findIndex((c) => /^when$/i.test(c)); continue; }
+    count++;
+    const date = when >= 0 ? DATE.exec(cells(line)[when] ?? '')?.[0] : null;
+    if (date && date > updated) updated = date;
+  }
+  return { name, ticket, prefix, number, title, count, updated };
+}
+
+// Ticket order: by key (ORBIT before others' keys), then number, then name; no number last.
+const byTicket = (a, b) => (a.number === null) - (b.number === null) || (a.prefix < b.prefix ? -1 : a.prefix > b.prefix ? 1 : 0) || (a.number ?? 0) - (b.number ?? 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+const link = (name) => name.split('/').map(encodeURIComponent).join('/');
+
+function indexTable(entries, first) {
+  const out = [`| ${first} | Title | Decisions | Last updated |`, '|---|---|---|---|'];
+  for (const e of [...entries].sort(byTicket)) out.push(`| [${cell(e.ticket)}](${link(e.name)}) | ${cell(e.title) || '—'} | ${e.count} | ${e.updated || '—'} |`);
+  return out;
+}
+
+/**
+ * The index's text from the files: files [{ name, text }] in the folder itself, general
+ * [{ name: 'general/…', text }] from its general/ folder.
+ */
+export function indexText({ files = [], general = [] } = {}) {
+  const top = files.map((f) => indexEntry(f.name, f.text));
+  const across = general.map((f) => indexEntry(f.name, f.text));
+  const out = [
+    '# Decisions',
+    '',
+    `One file per ticket with the decisions made while building it (id, question, options, choice, who, when, why) and what was left out on purpose, so engineers and agents can read later why the code is the way it is. Files that span tickets are under ${GENERAL_FOLDER}/. ${PRODUCT} rebuilds this table from the files: change a file, not the table.`,
+    '',
+  ];
+  if (top.length) out.push(...indexTable(top, top.every((e) => e.prefix) ? 'Ticket' : 'Number'));
+  else out.push('No decision files yet.');
+  if (across.length) out.push('', '## Across tickets', '', ...indexTable(across, 'Number'));
+  out.push('');
+  return out.join('\n');
+}
+
+// The .md files in a folder that are plain files (no links, no index), with their text.
+async function markdownFiles(dir, prefix = '') {
+  let list = [];
+  try { list = await fs.readdir(dir, { withFileTypes: true }); } catch { return []; }
+  const out = [];
+  for (const d of list) {
+    if (!d.isFile() || !/\.md$/i.test(d.name) || d.name.startsWith('.') || isIndexName(d.name)) continue;
+    out.push({ name: `${prefix}${d.name}`, text: await fs.readFile(path.join(dir, d.name), 'utf8') });
+  }
+  return out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+// Write a plain file by a temp file and a rename, only when the text changed; never through a link
+// or over anything but a plain file. Returns { file, text, changed }.
+async function writePlain(file, text) {
+  const st = await fs.lstat(file).catch(() => null);
+  if (st && !st.isFile()) throw Object.assign(new Error(`${file} isn’t a plain file, so it was left alone.`), { plain: true });
+  const now = st ? await fs.readFile(file, 'utf8') : null;
+  if (now === text) return { file, text, changed: false };
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+  await fs.writeFile(tmp, text, { mode: 0o644 });
+  await fs.rename(tmp, file);
+  return { file, text, changed: true };
+}
+
+/**
+ * Rebuild dir/README.md (dir is the decisions folder itself, like <repo>/docs/decisions) from every
+ * dir/*.md and dir/general/*.md except README.md. Returns { file, text, changed }.
+ */
+export async function renderIndex(dir) {
+  const text = indexText({ files: await markdownFiles(dir), general: await markdownFiles(path.join(dir, GENERAL_FOLDER), `${GENERAL_FOLDER}/`) });
+  return writePlain(path.join(dir, INDEX_FILE), text);
 }
