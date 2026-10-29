@@ -15,6 +15,7 @@ import {
   mergeSection, newStack, nextRunnable, nextToMerge, notchUp, parseStackPlan, readStack, sectionProgress, sectionReady,
   sectionSlug, stackPhase, stackSummary, writeStack,
 } from '../lib/stack.js';
+import { stackNames, stackRules, loadProfile } from '../lib/profile.js';
 
 const PLAN = `# ORBIT-512 Work orders v2
 
@@ -232,6 +233,17 @@ test('describeStack: the steps, the one next thing in words, and each part’s s
   assert.equal(describeStack({ slug: 'orbit-512', plan, planText: `${PLAN}\nmore`, stack }).plan.changedSinceApproval, true);
 });
 
+test('stackRules and stackNames: the profile’s section patterns (Orbit), and the general ones', async () => {
+  const orbit = await loadProfile(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'profiles', 'orbit.md'));
+  assert.equal(orbit.ok, true, orbit.errors?.join('\n'));
+  const rules = stackRules(orbit.profile);
+  assert.deepEqual(stackNames(rules, '/x/repo', { slug: 'orbit-512-work-orders', n: '512', kind: 'bug', section: 'api' }), { worktree: path.resolve('/x/orbit-512-api'), branch: 'fix/orbit-512-api' });
+  assert.ok(rules.checks.length >= 1);
+  const general = stackRules(null);
+  assert.deepEqual(stackNames(general, '/x/repo', { slug: 'big-job', section: 'ui' }), { worktree: path.resolve('/x/big-job--ui'), branch: 'feature/big-job--ui' });
+  assert.deepEqual(general.checks, []);
+});
+
 // ---------- Merging in a temp git repo ----------
 
 const roots = [];
@@ -335,6 +347,23 @@ test('readStack and writeStack: through a temp file, read back the same', async 
   await writeStack(dir, s);
   assert.deepEqual(await readStack(dir), s);
   assert.deepEqual((await fs.readdir(dir)).sort(), ['stack.json']);
+});
+
+test('status.json: a section names its stack and its section, both or neither, in either version', async () => {
+  const { parseStatusJson, validate } = await import('../lib/status-json.js');
+  const base = { schema_version: 1, slug: 'orbit-512--api', stage: 'plan', stage_state: 'working' };
+  const both = validate({ ...base, stack: 'orbit-512-work-orders', section: 'api' });
+  assert.deepEqual([both.ok, both.warnings], [true, []], JSON.stringify(both));
+  assert.equal(validate({ ...base }).ok, true, 'a job that isn’t a section names neither');
+  assert.equal(validate({ ...base, stack: 'orbit-512' }).ok, false, 'a stack without a section');
+  assert.equal(validate({ ...base, section: 'api' }).ok, false, 'a section without a stack');
+  assert.equal(validate({ ...base, stack: 'orbit-512', section: 'Not A Name' }).ok, false, 'a section name as stack.md has it');
+  const v2 = validate({ ...base, schema_version: 2, ticket: { key: 'ORBIT-512', title: 'Work orders', url: null, level: 'L2' }, stack: 'orbit-512', section: 'ui' });
+  assert.equal(v2.ok, true, JSON.stringify(v2));
+  const read = parseStatusJson(JSON.stringify({ ...base, stack: 'orbit-512', section: 'api' }));
+  assert.deepEqual([read.stack, read.section], ['orbit-512', 'api']);
+  const plain = parseStatusJson(JSON.stringify(base));
+  assert.deepEqual([plain.stack, plain.section], [null, null]);
 });
 
 test('Settings → Workflow: sections at once across every stack, 1 to 20, default 3, there only once set', async () => {

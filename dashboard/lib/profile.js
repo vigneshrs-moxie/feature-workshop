@@ -55,6 +55,11 @@ export const GENERAL = deepFreeze({
   },
   filesToCopy: [{ from: '{app}/.env.local', to: '{app}/.env.local', portKeys: GENERAL_URL_KEYS, signInSkip: 'DEV_BYPASS_AUTH' }],
   database: { urlKey: 'DATABASE_URL', name: null, check: null },
+  // Stacks (plan §6): each section's worktree and branch, made from the parent's branch, and the
+  // checks the coordinator's merge runs on the parent's branch after each section (none here).
+  sectionWorktree: '../{slug}--{section}',
+  sectionBranch: '{kind}/{slug}--{section}',
+  checks: [],
 });
 
 // ---------- Patterns ----------
@@ -278,6 +283,11 @@ const KNOWN = {
     },
   },
   setup: { check: (v, say) => lines(v, say, 'must be a list of commands, one “- ” line each.') },
+  // Stacks: a section's worktree and branch ({section} is its name in stack.md), and the checks run
+  // on the parent's branch after each section merges.
+  sectionWorktree: { check: (v, say) => pattern(v, say, { need: ['section'], allow: ['slug', 'n', 'title', 'section'], like: '../orbit-{n}-{section}', path: true }) },
+  sectionBranch: { check: (v, say) => pattern(v, say, { need: ['section'], allow: ['kind', 'slug', 'n', 'title', 'section'], like: '{kind}/orbit-{n}-{section}', ref: true }) },
+  checks: { check: (v, say) => lines(v, say, 'must be a list of commands, one “- ” line each, like - cd app && npm run check.') },
   cleanup: { check: (v, say) => lines(v, say, 'must be a list of commands, one “- ” line each.') },
 };
 
@@ -418,6 +428,38 @@ export function tryItRules(profile) {
     files: files.map((f) => ({ from: f.from, to: f.to, portKeys: f.portKeys ?? [], signInSkip: f.signInSkip ?? null })),
     dbUrlKey: profile?.database?.urlKey ?? (profile ? null : GENERAL.database.urlKey),
     dbName: profile?.database?.name ?? null,
+  };
+}
+
+/**
+ * A stack's rules in a repository with this profile (null: the general case): where each section's
+ * worktree and branch go, the checks run after each merge, the ports sections take, and the fork
+ * and org remotes. stackNames(rules, values) fills the two patterns.
+ */
+export function stackRules(profile) {
+  return {
+    sectionWorktree: profile?.sectionWorktree ?? GENERAL.sectionWorktree,
+    sectionBranch: profile?.sectionBranch ?? GENERAL.sectionBranch,
+    branch: profile?.branch ?? GENERAL.branch,
+    worktree: profile?.worktree ?? GENERAL.worktree,
+    kinds: { ...GENERAL.kinds, ...(profile?.kinds ?? {}) },
+    checks: [...(profile?.checks ?? GENERAL.checks)],
+    ports: profile?.tryIt?.ports ?? GENERAL.tryIt.ports,
+    base: profile?.base ?? null,
+    fork: profile?.remotes?.fork ?? 'origin',
+    org: profile?.remotes?.org ?? null,
+  };
+}
+
+/**
+ * A section's worktree (resolved next to the repository at `repoPath`) and branch. values: { slug
+ * (the parent's), n, title, kind ('feature' | 'bug'), section }.
+ */
+export function stackNames(rules, repoPath, { slug, n = null, title = null, kind = 'feature', section }) {
+  const values = { slug, n, title, section, kind: rules.kinds[kind] ?? rules.kinds.feature ?? 'feature' };
+  return {
+    worktree: path.resolve(repoPath, fillPattern(rules.sectionWorktree, values)),
+    branch: fillPattern(rules.sectionBranch, values),
   };
 }
 

@@ -10,6 +10,8 @@
 // Versions: 1, and 2 = version 1 plus the ticket block { key, title, url, level }, required in 2.
 // A job started from a ticket (its options.json names one: ticketKey) must write version 2 with
 // that ticket's key. Version 1 files stay valid for every other job.
+// A section of a stack (plan §6, lib/stack.js) names its stack (the parent job's folder name) and
+// its section (its name in stack.md), both or neither, in either version.
 
 import fs from 'node:fs';
 import { STAGE_IDS } from './stages.js';
@@ -138,6 +140,8 @@ export function parseStatusJson(text) {
     predictedPaths: predictedPaths(raw.predicted_paths, warnings),
     levelReason: str(raw.level_reason)?.trim().slice(0, LEVEL_REASON_MAX) ?? null,
     ticket: ticketBlock(raw.ticket),
+    stack: str(raw.stack),
+    section: str(raw.section),
   };
 }
 

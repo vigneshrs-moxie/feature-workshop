@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ground-control.local/status-schema.json",
   "title": "status.json",
-  "description": "The record the Foreman writes after every brief (skills/feature/status-json.md in the skill repository). Version 1, and version 2 = version 1 plus the ticket block, required in version 2. lib/status-json.js validate() checks a file against this schema: a wrong type or a value outside a list is an error; a key the schema doesn't know is a warning. Keep the stage list in step with lib/stages.js (a test checks it).",
+  "description": "The record the Foreman writes after every brief (skills/feature/status-json.md in the skill repository). Version 1, and version 2 = version 1 plus the ticket block, required in version 2. A section of a stack (plan §6) also names its `stack` and its `section`, both or neither, in either version. lib/status-json.js validate() checks a file against this schema: a wrong type or a value outside a list is an error; a key the schema doesn't know is a warning. Keep the stage list in step with lib/stages.js (a test checks it).",
   "type": "object",
   "required": ["schema_version", "slug", "stage", "stage_state"],
   "properties": {
@@ -121,6 +121,8 @@
         "level": { "enum": ["L0", "L1", "L2", "L3", null] }
       }
     },
+    "stack": { "type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9._-]{0,199}$", "description": "the parent job's folder name, like orbit-512-tech-schedule (a section of a stack names its stack)" },
+    "section": { "type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9-]{0,39}$", "description": "a section's name from stack.md: lower-case letters, numbers and dashes, like api" },
     "session_id": { "type": ["string", "null"] },
     "cwd": { "type": ["string", "null"] },
     "updated_at": { "type": ["string", "null"] }
@@ -130,6 +132,14 @@
     {
       "if": { "required": ["schema_version"], "properties": { "schema_version": { "const": 2 } } },
       "then": { "required": ["ticket"], "properties": { "ticket": { "type": "object" } } }
+    },
+    {
+      "if": { "required": ["stack"], "properties": { "stack": { "type": "string" } } },
+      "then": { "required": ["section"], "properties": { "section": { "type": "string" } } }
+    },
+    {
+      "if": { "required": ["section"], "properties": { "section": { "type": "string" } } },
+      "then": { "required": ["stack"], "properties": { "stack": { "type": "string" } } }
     }
   ]
 }
