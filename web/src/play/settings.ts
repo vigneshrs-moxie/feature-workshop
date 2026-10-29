@@ -13,3 +13,17 @@ export function playOf(settings: Settings | null | undefined): PlaySettings {
     sounds: typeof p?.sounds === 'boolean' ? p.sounds : PLAY_DEFAULTS.sounds,
   };
 }
+
+/**
+ * ?play=full, ?play=subtle or ?play=off in the page's address (before the hash, or after it): the
+ * page shows in that mode without saving anything, for a click-through or a screenshot. The mode you
+ * saved in Settings is untouched. null when the address doesn't say.
+ */
+export function playModeFromAddress(loc: { search: string; hash: string } | null = typeof window !== 'undefined' ? window.location : null): PlayMode | null {
+  if (!loc) return null;
+  for (const query of [loc.search.replace(/^\?/, ''), /\?(.*)$/.exec(loc.hash)?.[1] ?? '']) {
+    const mode = new URLSearchParams(query).get('play');
+    if (mode && (PLAY_MODES as readonly string[]).includes(mode)) return mode as PlayMode;
+  }
+  return null;
+}

@@ -202,9 +202,6 @@
 }
 
 /* The Foreman as the mascot by the brand (Play on), and the classic page's tagline beside it. */
-.brand-mascot { margin: -6px -2px -6px 0; }
-.brand-tagline { color: var(--text-2); font-size: var(--text-xs); letter-spacing: .04em; white-space: nowrap; }
-@media (max-width: 1100px) { .brand-tagline { display: none; } }
 
 /* Not met yet (the Crew-dex): every painted part in --crew-silhouette, no face, no effects, never moving. */
 .crew.is-silhouette .rig [fill]:not([fill="none"]) { fill: var(--crew-silhouette); }

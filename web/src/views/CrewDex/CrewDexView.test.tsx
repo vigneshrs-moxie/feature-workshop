@@ -239,11 +239,12 @@ function renderApp(mode: PlayMode) {
 }
 
 describe('Crew-dex in the shell', () => {
-  it('Play on: a Crew-dex link in the top bar, and #/crew opens it', async () => {
+  it('Play on: a Crew-dex item in the gear menu, and #/crew opens it', async () => {
     window.location.hash = '#/crew';
     renderApp('subtle');
     expect(await screen.findByRole('main', { name: 'Crew-dex' })).toBeInTheDocument();
-    const link = screen.getByRole('link', { name: 'Crew-dex' });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
+    const link = screen.getByRole('menuitem', { name: /^Crew-dex/ });
     expect(link).toHaveAttribute('href', '#/crew');
     expect(link).toHaveAttribute('aria-current', 'page');
     expect(link).toHaveAttribute('title');
@@ -254,7 +255,8 @@ describe('Crew-dex in the shell', () => {
     const { get } = renderApp('off');
     expect(await screen.findByRole('main', { name: 'Foreman' })).toBeInTheDocument();
     expect(screen.queryByRole('main', { name: 'Crew-dex' })).toBeNull();
-    expect(screen.queryByRole('link', { name: 'Crew-dex' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
+    expect(screen.queryByRole('menuitem', { name: /^Crew-dex/ })).toBeNull();
     expect(get).not.toHaveBeenCalledWith('/api/play');
   });
 });

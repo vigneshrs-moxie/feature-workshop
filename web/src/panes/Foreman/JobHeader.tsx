@@ -1,7 +1,7 @@
 // The open job's header: title, kind, repository and branch, what it has cost so far, its status,
 // its permission setting, whether it was marked done or dropped, and the job menu:
 //   Mark done or dropped… (the classic options, in a sheet), Reopen, Notes and options… (the job
-//   drawer), the job's classic page (decision D4), and this job's own permission setting
+//   drawer), and this job's own permission setting
 //   (POST /api/job/:slug/policy).
 // ⌘K offers the same actions (app/commands.ts); both call app/jobActions.ts.
 // The level chip (LevelChip.tsx) shows the job's level and changes it.
@@ -12,7 +12,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Job, PolicyId, Run } from '../../api/types';
 import { reopenJob, setJobPolicy } from '../../app/jobActions';
-import { classicHref } from '../../app/router';
 import { useUi } from '../../app/ui';
 import { autoBlockedReason, autoModeOf, HARD_LINES_NOTE, POLICIES, policyLabel } from '../../components/permissions/policies';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
@@ -129,7 +128,6 @@ function JobMenu({ job, dir, policyOverride, run, worktree }: MenuProps) {
               Try it on your computer
             </button>
           </li>
-          <li><a href={classicHref.job(slug)} title="Open this job in the classic view: details, costs and provided documents.">Open in classic view</a></li>
           <li role="presentation"><p className="job-menu-heading" id={`perm-${slug}`}>Permissions for this job</p></li>
           <li>
             <ul role="group" aria-labelledby={`perm-${slug}`}>

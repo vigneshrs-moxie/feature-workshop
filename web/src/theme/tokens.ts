@@ -142,7 +142,7 @@ export const STATIC_TOKENS: Record<string, string> = {
   'motion-shift': '4px',
   'motion-scale-from': '.96',
   // Layout. The two heights follow the text size; the widths do not.
-  'topbar-h': scaled(40),
+  'topbar-h': scaled(56),
   'row-h': scaled(32),
   'jobs-w': '264px',
   'jobs-w-min': '240px',

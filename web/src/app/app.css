@@ -115,13 +115,6 @@ body.is-resizing-panes iframe { pointer-events: none; }
 .spacer { flex: 1; }
 .topbar .spacer { flex: 1 1 0; min-width: var(--space-2); }
 .brand { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-base); }
-/* A link's short words (App.tsx Words) stand in for the full ones under 1100 px; its name stays the full one. */
-.topbar-short { display: none; }
-@media (max-width: 1100px) {
-  .topbar-long { display: none; }
-  .topbar-short { display: inline; }
-  .palette-button .kbd { margin-left: 0; }
-}
 
 .conn { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-2); font-size: var(--text-sm); }
 .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status-paused); }
@@ -935,7 +928,6 @@ body.is-resizing-panes iframe { pointer-events: none; }
   font-size: var(--text-xs);
   text-align: center;
 }
-.palette-button { gap: var(--space-2); }
 
 .palette-backdrop { align-items: flex-start; padding-top: 12vh; }
 .palette {
@@ -1486,13 +1478,6 @@ body.is-resizing-panes iframe { pointer-events: none; }
 /* The Walkthrough tab (panes/Preview/WalkthroughTab.tsx): the screens frame, plus a quiet note. */
 .walkthrough-note { margin: 0 0 var(--space-2); }
 
-/* The top bar's status summary (components/StatusSummary.tsx): each group's glyph, count and word. */
-.status-summary { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-2); font-size: var(--text-sm); }
-.status-summary:hover { color: var(--text-1); text-decoration: none; }
-.status-summary-part { display: inline-flex; align-items: center; gap: 4px; }
-.status-summary-part[data-group='needs-you'] { color: var(--group-needs-you-fg); font-weight: var(--weight-medium); }
-.status-summary-sep { margin-right: var(--space-1); color: var(--text-3); }
-@media (max-width: 1100px) { .status-summary { display: none; } }
 
 /* The Decisions tab (panes/Preview/DecisionsTab.tsx): one line per choice, glyph, words, time. */
 .decision-log { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }

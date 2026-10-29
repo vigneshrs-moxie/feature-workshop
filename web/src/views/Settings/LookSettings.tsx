@@ -70,7 +70,7 @@ export function LookSettings() {
       <TextSizePicker />
       <FollowSystem />
       <p className="muted theme-hint">
-        Each of these changes only how things look; nothing moves and nothing works differently, and the classic view wears the same. Your choices are remembered in this browser.
+        Each of these changes only how things look; nothing moves and nothing works differently. Your choices are remembered in this browser.
         To try a theme from a link, add <code className="num">?theme=&lt;name&gt;</code> to the address.
       </p>
     </section>

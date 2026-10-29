@@ -23,6 +23,7 @@ import { useWorkshop } from '../state/store';
 
 export type { InboxAnswer, InboxItem, OrbitStatus } from '../api/types';
 import type { InboxAnswer, InboxItem, OrbitStatus } from '../api/types';
+import { BRAND } from '../app/brand';
 
 interface SavedView { id: string; name: string; isDefault: boolean }
 
@@ -220,7 +221,7 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
 function NoToken() {
   return (
     <div className="how-body">
-      <p>Your Portal Feedback tickets show here once Ground Control has your Orbit token.</p>
+      <p>Your Portal Feedback tickets show here once {BRAND.name} has your Orbit token.</p>
       <p className="muted">Make a token on Orbit’s API tokens page (it can only read), then paste it with Orbit’s address in <a href={settingsHref('workflow')}>Settings → Workflow</a>.</p>
     </div>
   );

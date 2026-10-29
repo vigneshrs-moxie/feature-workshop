@@ -103,7 +103,7 @@ describe('Docs tab', () => {
     expect(within(reader).getByRole('table')).toBeInTheDocument();
     expect(reader.querySelector('.prose.doc-page pre code')).toHaveTextContent('const x = 1;');
     expect(reader).toHaveTextContent('implementation-plan.md');
-    expect(within(reader).getByRole('link', { name: 'Open in classic view' })).toHaveAttribute('href', '/#/job/alpha');
+    expect(reader.textContent).not.toMatch(/classic/i);
     const back = within(reader).getByRole('button', { name: /All documents/ });
     expect(back).toHaveFocus();
     fireEvent.click(back);

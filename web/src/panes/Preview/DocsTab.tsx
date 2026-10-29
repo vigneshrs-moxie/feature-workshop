@@ -8,7 +8,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type { JobDoc, JobDocEntry } from '../../api/types';
 import { loadJobDoc, loadJobDocs } from '../../app/jobActions';
-import { classicHref } from '../../app/router';
 import { useUi } from '../../app/ui';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop } from '../../state/store';
@@ -143,7 +142,6 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
           <button type="button" className="btn btn-quiet" disabled={!doc || typeof doc.text !== 'string'} onClick={() => void copy(text)} title={doc?.type === 'json' ? 'Copy the JSON as written.' : 'Copy the document’s Markdown, to paste it somewhere else.'}>
             {doc?.type === 'json' ? 'Copy JSON' : 'Copy as markdown'}
           </button>
-          <a className="btn btn-quiet" href={classicHref.job(slug)} title="Open this job in the classic view. Its Files and Briefs tabs show the same documents.">Open in classic view</a>
         </div>
         {copied === 'ok' && <p className="doc-copied drawer-state is-ok" role="status">✓ Copied</p>}
         {copied === 'failed' && <p className="field-problem" role="alert">Couldn’t copy: this browser didn’t allow it. Choose Source and copy the text yourself.</p>}

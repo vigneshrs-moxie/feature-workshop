@@ -84,7 +84,7 @@ export function SendPreview({
       setBusy(false);
       if (err instanceof ApiError && err.body.code === 'terminal-open') setAskTerminal(true);
       setError(err instanceof ApiError && err.body.code === 'terminal'
-        ? 'This job’s Foreman was last used in your terminal. Take it over in the classic view first, or carry on in the terminal.'
+        ? 'This job’s Foreman was last used in your terminal. Carry on there, or close it in the terminal and try again here.'
         : message(err));
       return;
     }

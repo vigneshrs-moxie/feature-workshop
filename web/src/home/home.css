@@ -26,8 +26,6 @@
 .home-read { font-size: var(--text-sm); }
 .home-empty { margin: var(--space-6) 0; }
 .desk-link { gap: var(--space-1); }
-.brand a { color: inherit; }
-.brand a:hover { text-decoration: none; }
 
 .home-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); align-items: start; padding: var(--space-4); }
 .home-main { min-width: 0; display: grid; gap: var(--space-4); align-content: start; }

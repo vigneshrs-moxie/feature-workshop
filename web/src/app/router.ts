@@ -1,7 +1,8 @@
 // Hash routes, so the dashboard only ever serves /next/index.html:
-//   #/            Home: the flow map, full width (home/HomeView.tsx)
-//   #/table       Home's Table: the jobs as rows
-//   #/desk        Home's Desk: every decision waiting for you, one at a time
+//   #/            Jobs: every job in four lanes (or one list), full width; #/jobs is the same page
+//   #/map         the flow map (home/HomeView.tsx), from the gear menu
+//   #/table       the Table: the jobs as rows, from the gear menu
+//   #/desk        the Desk: every decision waiting for you, one at a time
 //   #/job/<slug>  that job's thread in the Foreman pane
 //   #/job/<slug>/id/<id>  the same job: the dashboard links requirement IDs (FR-001...) in
 //                 replies and briefs this way; the job stays open (the ID itself is ignored for now)
@@ -23,7 +24,7 @@ export const SETTINGS_SECTIONS = ['permissions', 'notifications', 'look', 'keys'
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export const isSettingsSection = (v: string): v is SettingsSection => (SETTINGS_SECTIONS as readonly string[]).includes(v);
 
-export type Route = { name: 'home' } | { name: 'table' } | { name: 'desk' } | { name: 'inbox' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
+export type Route = { name: 'home' } | { name: 'map' } | { name: 'table' } | { name: 'desk' } | { name: 'inbox' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
   | { name: 'screens'; slug: string } | { name: 'integrate' } | { name: 'telemetry' } | { name: 'not-found'; hash: string };
 
 export function parseHash(rawHash: string): Route {
@@ -33,6 +34,8 @@ export function parseHash(rawHash: string): Route {
   if (sec && isSettingsSection(sec[1])) return { name: 'settings', section: sec[1] };
   if (/^#\/crew\/?$/.test(hash)) return { name: 'crew' };
   if (/^#\/table\/?$/.test(hash)) return { name: 'table' };
+  if (/^#\/map\/?$/.test(hash)) return { name: 'map' };
+  if (/^#\/jobs\/?$/.test(hash)) return { name: 'home' };
   if (/^#\/desk\/?$/.test(hash)) return { name: 'desk' };
   if (/^#\/inbox\/?$/.test(hash)) return { name: 'inbox' };
   if (/^#\/achievements\/?$/.test(hash)) return { name: 'achievements' };
@@ -55,6 +58,7 @@ export function hrefFor(route: Route): string {
   if (route.name === 'crew') return '#/crew';
   if (route.name === 'achievements') return '#/achievements';
   if (route.name === 'table') return '#/table';
+  if (route.name === 'map') return '#/map';
   if (route.name === 'desk') return '#/desk';
   if (route.name === 'integrate') return '#/integrate';
   if (route.name === 'telemetry') return '#/telemetry';
@@ -91,13 +95,39 @@ export function openFromHash(rawHash: string): 'new-job' | 'options' | null {
   return open === 'new-job' || open === 'options' ? open : null;
 }
 
-/** Links into the old UI at / for features not rebuilt yet (decision D4). */
+/** What a page is called: the top bar's page name at phone width and the browser tab's title. */
+export function pageName(route: Route, jobTitle?: string | null): string {
+  switch (route.name) {
+    case 'home': return 'Jobs';
+    case 'map': return 'Flow map';
+    case 'table': return 'Table';
+    case 'desk': return 'Desk';
+    case 'inbox': return 'Inbox';
+    case 'settings': return 'Settings';
+    case 'crew': return 'Crew-dex';
+    case 'achievements': return 'Achievements';
+    case 'job': return jobTitle || 'Job';
+    case 'screens': return jobTitle ? `${jobTitle}: screens` : 'Screens';
+    case 'integrate': return 'Integrate';
+    case 'telemetry': return 'Telemetry';
+    default: return 'Not a page';
+  }
+}
+
+/**
+ * The old pages at / (decision D4). Nothing in this app links there or names them: the one way in
+ * is the command box's hidden word (components/CommandPalette.tsx). Their own "New view" button
+ * comes back.
+ */
 export const classicHref = {
   home: () => '/#/',
   job: (slug: string) => `/#/job/${encodeURIComponent(slug)}`,
   costs: () => '/#/costs',
   history: () => '/#/history',
 };
+
+/** Leaves this app for one of the old pages (a seam, so tests can watch it without leaving). */
+export const oldPages = { open(href: string) { window.location.href = href; } };
 
 export function navigate(route: Route) {
   const href = hrefFor(route);

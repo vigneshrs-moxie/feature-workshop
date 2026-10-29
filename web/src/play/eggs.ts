@@ -14,6 +14,7 @@
 //   seasonal-hats  the crew in seasonal hats on a few dates (and nightcaps, midnight to 5am)
 import { useSyncExternalStore } from 'react';
 import type { Permission } from '../api/types';
+import { BRAND } from '../app/brand';
 
 export type PageSecret = 'konami' | 'hammertime' | 'sandwich' | 'rm-rf' | 'git-blame' | 'console' | 'sleuth-404' | 'foreman-clicks' | 'friday-push' | 'seasonal-hats';
 
@@ -117,7 +118,7 @@ export const CONSOLE_ART = String.raw`
   --(_)--    --(_)--    --(_)--    --(_)--
    Foreman    Scribe     Sleuth     Builder
 
-  The Feature Workshop crew, at your service.
+  The ${BRAND.name} crew, at your service.
   Psst: say hello. Type  crew.hello()  here.`;
 
 export const CONSOLE_HELLO = 'Hello back from all fifteen of us. A hint, since you asked nicely: the kettle is on at /api/teapot.';

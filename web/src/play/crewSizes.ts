@@ -23,7 +23,7 @@ export const CREW_SIZE = {
   floorForeman: 96,
   /** A job's crew member in the Jobs list. */
   row: 30,
-  /** The Foreman mascot by "Feature Workshop" in the top bar. */
+  /** The Foreman mascot (the old top bar; kept for the Crew-dex and the floor). */
   mascot: 30,
   /** A scene with the toasts: one actor, or the git blame group. */
   scene: 56,

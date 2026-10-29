@@ -11,6 +11,7 @@ import { THEMES } from '../../theme/theme';
 import { LEVELS, NOTIFY_DEFAULTS } from './NotifySettings';
 import { PLAY_MODE_CHOICES } from './PlaySettings';
 import { finishLineLabel } from './WorkflowSettings';
+import { BRAND } from '../../app/brand';
 
 export const SECTION_WORDS: Record<SettingsSection, { label: string; hint: string }> = {
   permissions: { label: 'Permissions', hint: 'How much the Foreman and its crew may do without asking you.' },
@@ -18,7 +19,7 @@ export const SECTION_WORDS: Record<SettingsSection, { label: string; hint: strin
   look: { label: 'Look', hint: 'Theme, text size and following the system’s light or dark.' },
   keys: { label: 'Keys', hint: 'Keyboard shortcuts on or off, and the key hints on buttons.' },
   workflow: { label: 'Workflow', hint: 'The finish line, and what a new job starts with.' },
-  repos: { label: 'Repos', hint: 'The repositories Ground Control knows, and the profile each one follows.' },
+  repos: { label: 'Repos', hint: `The repositories ${BRAND.name} knows, and the profile each one follows.` },
   play: { label: 'Play', hint: 'The workshop crew, achievements and sounds.' },
   rules: { label: 'Rules', hint: 'The “Always allow” rules you saved from permission cards.' },
 };

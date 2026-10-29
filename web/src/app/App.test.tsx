@@ -5,6 +5,7 @@ import type { Snapshot } from '../api/types';
 import type { EventSourceLike } from '../state/live';
 import { ev, job, permission, snapshot } from '../state/test-fixtures';
 import { App } from './App';
+import { oldPages } from './router';
 
 class FakeStream implements EventSourceLike {
   readyState = 0;
@@ -39,14 +40,26 @@ describe('App shell', () => {
     expect(within(needs).getByRole('link', { name: /^Job alpha/ })).toHaveAttribute('href', '#/job/alpha');
     expect(screen.getByRole('region', { name: 'Running' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Paused' })).toBeNull();
-    // The top bar: the Desk button's badge, and the status summary in words with glyphs, linking Home.
+    // The top bar: the product's name, the five pages (the Desk with what waits for you), and the gear.
     const bar = document.querySelector<HTMLElement>('.topbar')!;
-    expect(within(bar).getByRole('link', { name: /^Desk/ })).toHaveAttribute('href', '#/desk');
-    expect(bar.querySelector('.status-summary')).toHaveAttribute('href', '#/');
-    expect(bar.querySelector('.status-summary')!.textContent).toMatch(/needs you/);
-    // Every right-hand link keeps its full name while a short form stands in under 1100 px.
-    for (const name of ['Settings', 'Classic view', 'Crew-dex']) expect(within(bar).getByRole('link', { name })).toBeInTheDocument();
-    expect(within(bar).getByRole('link', { name: 'Settings' }).querySelector('.topbar-short')).toHaveTextContent('⚙');
+    expect(within(bar).getByRole('link', { name: 'Ground Control, back to Jobs' })).toHaveAttribute('href', '#/');
+    const pages = within(bar).getByRole('navigation', { name: 'Pages' });
+    expect(within(pages).getAllByRole('link').map((a) => a.textContent)).toEqual(['Inbox', 'Desk', 'Jobs', 'Integrate', 'Telemetry']);
+    expect(within(pages).getByRole('link', { name: 'Jobs' })).toHaveAttribute('aria-current', 'page');
+    expect(within(bar).getByRole('link', { name: 'Desk' })).toHaveAttribute('href', '#/desk');
+    // The gear: Settings, the Crew-dex in Play, the flow map, the Table, the keys and every action.
+    fireEvent.click(within(bar).getByRole('button', { name: 'Settings and more' }));
+    const gear = within(bar).getByRole('menu', { name: 'Settings and more' });
+    expect(within(gear).getAllByRole('menuitem').map((m) => m.querySelector('.menu-label')?.textContent)).toEqual(['Settings', 'Crew-dex', 'Achievements', 'Flow map', 'Table', 'Keys', 'Every action']);
+    expect(within(gear).getByRole('menuitem', { name: /^Settings/ })).toHaveFocus();
+    fireEvent.keyDown(document.body, { key: 'g' }); // the menu is open: page keys wait
+    fireEvent.keyDown(document.body, { key: 't' });
+    expect(window.location.hash).toBe('#/job/beta');
+    fireEvent.keyDown(gear, { key: 'Escape' });
+    expect(within(bar).queryByRole('menu')).toBeNull();
+    expect(within(bar).getByRole('button', { name: 'Settings and more' })).toHaveFocus();
+    // The browser tab: the page and the product.
+    expect(document.title).toBe('(1) Job beta · Ground Control');
   });
 
   it('opens Settings on a section from the hash; j and k move between sections, / finds a setting', async () => {
@@ -69,16 +82,36 @@ describe('App shell', () => {
     expect(window.location.hash).toBe('#/settings/keys');
   });
 
-  it('opens a job from the hash, with a link to its classic page', async () => {
+  it('opens a job from the hash; the old pages are named nowhere, and only the exact word in ⌘K opens them', async () => {
+    const open = vi.spyOn(oldPages, 'open').mockImplementation(() => {});
     window.location.hash = '#/job/beta';
     renderApp(snapshot());
     expect(await screen.findByRole('heading', { name: 'Job beta' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /^Job beta/ })).toHaveAttribute('aria-current', 'page');
-    // The Preview pane opens on Plan; the classic page is in the top bar (and the job menu).
     expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.queryByRole('tab', { name: 'Classic view' })).toBeNull();
-    // The top bar's Classic view opens the same job there; its New view button brings you back.
-    expect(within(document.querySelector<HTMLElement>('.topbar')!).getByRole('link', { name: 'Classic view' })).toHaveAttribute('href', '/#/job/beta');
+    // Not in the page, the gear, the job menu, the keys sheet or any hover text.
+    const said = () => [document.body.textContent ?? '', ...[...document.querySelectorAll('[title], [aria-label]')].map((e) => `${e.getAttribute('title') ?? ''} ${e.getAttribute('aria-label') ?? ''}`)].join(' ');
+    fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
+    expect(said()).not.toMatch(/classic/i);
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: /Job menu/ }));
+    expect(said()).not.toMatch(/classic/i);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.keyDown(document.body, { key: '?' });
+    expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument();
+    expect(said()).not.toMatch(/classic/i);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    // ⌘K lists nothing for it; part of the word finds nothing; the exact word shows one row and Enter opens this job there.
+    fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
+    const box = screen.getByRole('combobox', { name: 'Search actions' });
+    expect(said().replace(/Search actions/, '')).not.toMatch(/classic/i);
+    fireEvent.change(box, { target: { value: 'class' } });
+    expect(screen.queryAllByRole('option')).toHaveLength(0);
+    fireEvent.change(box, { target: { value: 'classic' } });
+    expect(screen.getAllByRole('option').map((o) => o.querySelector('.palette-label')?.textContent)).toEqual(['Open the old view of this page']);
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(open).toHaveBeenCalledWith('/#/job/beta');
+    open.mockRestore();
     act(() => { window.location.hash = '#/'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     // Back home: the flow map, full width, with the Foreman's "what needs you" (Play is on by default).
     expect(screen.getByRole('main', { name: 'Home' })).toBeInTheDocument();
@@ -98,8 +131,6 @@ describe('App shell', () => {
     expect(view.querySelector('iframe.screens-frame')).toHaveAttribute('src', 'http://127.0.0.1:4478/job/beta/wireframes');
     expect(within(view).getByRole('button', { name: 'Copy feedback' })).toBeInTheDocument();
     expect(within(view).queryByRole('link', { name: 'Open full screen' })).toBeNull();
-    // The top bar's Classic view link is this job's.
-    expect(within(document.querySelector<HTMLElement>('.topbar')!).getByRole('link', { name: 'Classic view' })).toHaveAttribute('href', '/#/job/beta');
     // Back on the job: the Preview pane has a Screens tab for it; a job without screens has none.
     act(() => { window.location.hash = '#/job/beta'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     expect(await screen.findByRole('tab', { name: 'Screens' })).toBeInTheDocument();
@@ -123,7 +154,7 @@ describe('App shell', () => {
     window.location.hash = '#/?open=new-job';
     renderApp(snapshot());
     expect(await screen.findByRole('dialog', { name: /new job/i })).toBeInTheDocument();
-    expect(within(document.querySelector<HTMLElement>('.topbar')!).getByRole('link', { name: 'Classic view' })).toHaveAttribute('href', '/#/');
+    expect(window.location.hash).toBe('#/');
   });
 
   it('updates live from the stream', async () => {
@@ -163,7 +194,8 @@ describe('App shell', () => {
     window.location.hash = '#/job/alpha';
     renderApp(snapshot({ jobs: [job('alpha', 'idle')] }));
     await screen.findByRole('heading', { name: 'Job alpha' });
-    fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Every action/ }));
     fireEvent.change(screen.getByRole('combobox', { name: 'Search actions' }), { target: { value: 'mark' } });
     fireEvent.keyDown(screen.getByRole('combobox', { name: 'Search actions' }), { key: 'Enter' });
     expect(screen.getByRole('dialog', { name: 'Mark “Job alpha” as done' })).toBeInTheDocument();

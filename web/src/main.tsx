@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './theme/tokens.css';
 import './app/app.css';
+import './app/shell.css';
 import './play/play.css';
 import './play/achievements.css';
 import './play/extras.css';

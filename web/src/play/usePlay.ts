@@ -6,7 +6,7 @@
 import { useContext, useSyncExternalStore } from 'react';
 import type { PlaySettings, Settings } from '../api/types';
 import { WorkshopContext, type Store } from '../state/store';
-import { playOf } from './settings';
+import { playModeFromAddress, playOf } from './settings';
 
 const REDUCED = '(prefers-reduced-motion: reduce)';
 
@@ -41,7 +41,8 @@ export interface PlayState extends PlaySettings {
 }
 
 function playState(settings: Settings | null | undefined, reducedMotion: boolean): PlayState {
-  const play = playOf(settings);
+  const saved = playOf(settings);
+  const play = { ...saved, mode: playModeFromAddress() ?? saved.mode };
   const full = play.mode === 'full';
   return { ...play, on: play.mode !== 'off', full, animated: full && !reducedMotion, reducedMotion };
 }

@@ -54,7 +54,9 @@ export const KEYS = {
   'palette': { keys: ['Mod+K'], label: 'Search every action you can take right now', scope: 'global', where: 'Everywhere, even while typing or with a sheet open.', always: true },
   'keys': { keys: ['?'], label: 'Show this list', scope: 'global' },
   'new-job': { keys: ['c'], label: 'Start a new job', scope: 'global' },
-  'go-home': { keys: ['g h'], label: 'Go Home (the flow map)', scope: 'global' },
+  'go-home': { keys: ['g j', 'g h'], label: 'Go to Jobs', scope: 'global' },
+  'go-inbox': { keys: ['g i'], label: 'Go to the Inbox', scope: 'global' },
+  'go-map': { keys: ['g m'], label: 'Go to the flow map', scope: 'global' },
   'go-table': { keys: ['g t'], label: 'Go to the Table', scope: 'global' },
   'go-desk': { keys: ['g d'], label: 'Go to the Desk', scope: 'global' },
   'go-settings': { keys: ['g s'], label: 'Go to Settings', scope: 'global' },
@@ -125,8 +127,8 @@ export function isTypingTarget(target: EventTarget | null): boolean {
   return false;
 }
 
-/** A dialog (the send preview, Always allow…, a sheet) is open: page keys wait. */
-export const dialogOpen = () => document.querySelector('[aria-modal="true"]') !== null;
+/** A dialog (the send preview, Always allow…, a sheet) or a dropped menu (the gear, ☰) is open: page keys wait. */
+export const dialogOpen = () => document.querySelector('[aria-modal="true"], [data-keys-wait]') !== null;
 
 export const isMac = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 
