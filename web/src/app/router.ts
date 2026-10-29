@@ -13,8 +13,9 @@
 //   #/crew        the Crew-dex in the middle pane (Play mode only; with Play Off it shows #/'s view)
 //   #/inbox       your Portal Feedback tickets from Orbit, in the middle pane (views/Inbox.tsx)
 //   #/achievements  your achievements in the middle pane (Play mode only, like the Crew-dex)
-//   #/integrate   the integration board: the packet worktrees and Merge next, full width (views/Integrate.tsx)
-//   #/stacks      Stacks: every stack, a big ticket split into parts built side by side (views/Stack)
+//   #/stacks      Stacks: every stack, a big ticket split into parts built side by side (views/Stack);
+//                 the old #/integrate address opens it too (the integration board became a stack)
+//   #/stacks/build  this app's own packets as one stack: Merge next and both test suites (views/Stack/BuildStack)
 //   #/stack/<slug>  one stack: its map, its parts in merge order, the one next step (views/Stack)
 //   #/telemetry   where the Claude usage goes and when the limit hits: five graphs, full width (views/Telemetry.tsx)
 // Any other #/… is not a page: with Play on the Sleuth looks for it (views/NotFound), with Play
@@ -31,8 +32,11 @@ export const isSettingsSection = (v: string): v is SettingsSection => (SETTINGS_
 
 export type Route = { name: 'home' } | { name: 'map' } | { name: 'table' } | { name: 'desk' } | { name: 'inbox' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
   | { name: 'stage'; slug: string; stop: StopId }
-  | { name: 'screens'; slug: string } | { name: 'integrate' } | { name: 'telemetry' } | { name: 'stacks' } | { name: 'stack'; slug: string }
+  | { name: 'screens'; slug: string } | { name: 'telemetry' } | { name: 'stacks' } | { name: 'stack'; slug: string } | { name: 'stack-build' }
   | { name: 'not-found'; hash: string };
+
+/** The integration board's old address: it opens Stacks now (packet K2). */
+const OLD_INTEGRATE = /^#\/integrate\/?$/;
 
 export function parseHash(rawHash: string): Route {
   const hash = rawHash.replace(/\?.*$/, '');
@@ -46,9 +50,9 @@ export function parseHash(rawHash: string): Route {
   if (/^#\/desk\/?$/.test(hash)) return { name: 'desk' };
   if (/^#\/inbox\/?$/.test(hash)) return { name: 'inbox' };
   if (/^#\/achievements\/?$/.test(hash)) return { name: 'achievements' };
-  if (/^#\/integrate\/?$/.test(hash)) return { name: 'integrate' };
   if (/^#\/telemetry\/?$/.test(hash)) return { name: 'telemetry' };
-  if (/^#\/stacks\/?$/.test(hash)) return { name: 'stacks' };
+  if (/^#\/stacks\/?$/.test(hash) || OLD_INTEGRATE.test(hash)) return { name: 'stacks' };
+  if (/^#\/stacks\/build\/?$/.test(hash)) return { name: 'stack-build' };
   const sk = /^#\/stack\/([^/?#]+)\/?$/.exec(hash);
   if (sk) {
     try {
@@ -83,10 +87,10 @@ export function hrefFor(route: Route): string {
   if (route.name === 'table') return '#/table';
   if (route.name === 'map') return '#/map';
   if (route.name === 'desk') return '#/desk';
-  if (route.name === 'integrate') return '#/integrate';
   if (route.name === 'telemetry') return '#/telemetry';
   if (route.name === 'stacks') return '#/stacks';
   if (route.name === 'stack') return `#/stack/${encodeURIComponent(route.slug)}`;
+  if (route.name === 'stack-build') return '#/stacks/build';
   if (route.name === 'inbox') return '#/inbox';
   if (route.name === 'not-found') return route.hash;
   if (route.name === 'settings') return route.section ? `#/settings/${route.section}` : '#/settings';
@@ -98,9 +102,6 @@ export const settingsHref = (section?: SettingsSection) => hrefFor({ name: 'sett
 export const crewDexHref = () => hrefFor({ name: 'crew' });
 
 export const achievementsHref = () => hrefFor({ name: 'achievements' });
-
-/** The integration board (packet worktrees, Merge next). */
-export const integrateHref = () => hrefFor({ name: 'integrate' });
 
 /** Stacks: every stack. */
 export const stacksHref = () => hrefFor({ name: 'stacks' });
@@ -143,10 +144,10 @@ export function pageName(route: Route, jobTitle?: string | null): string {
     case 'job': return jobTitle || 'Job';
     case 'screens': return jobTitle ? `${jobTitle}: screens` : 'Screens';
     case 'stage': { const stop = STOPS.find((x) => x.id === route.stop)?.label ?? 'Stop'; return jobTitle ? `${stop} · ${jobTitle}` : stop; }
-    case 'integrate': return 'Integrate';
     case 'telemetry': return 'Telemetry';
     case 'stacks': return 'Stacks';
     case 'stack': return jobTitle || 'Stack';
+    case 'stack-build': return 'Build stack';
     default: return 'Not a page';
   }
 }
@@ -175,6 +176,8 @@ export function useRoute(): Route {
   const [route, setRoute] = useState(() => parseHash(window.location.hash));
   useEffect(() => {
     const onChange = () => {
+      // The old integration board's address says where it is now.
+      if (OLD_INTEGRATE.test(window.location.hash.replace(/\?.*$/, ''))) window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/stacks`);
       const next = parseHash(window.location.hash);
       setRoute((prev) => (hrefFor(prev) === hrefFor(next) ? prev : next));
     };

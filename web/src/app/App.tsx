@@ -21,7 +21,7 @@ import { CrewDexView } from '../views/CrewDex/CrewDexView';
 import { AchievementsView } from '../views/Achievements/AchievementsView';
 import { NotFoundView } from '../views/NotFound/NotFoundView';
 import { ScreensView } from '../views/Screens/ScreensView';
-import { IntegrateBoard } from '../views/Integrate';
+import { BuildStackPage } from '../views/Stack/BuildStack';
 import { StackPage } from '../views/Stack/StackPage';
 import { StacksPage } from '../views/Stack/StacksPage';
 import { InboxView } from '../views/Inbox';
@@ -192,9 +192,9 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   const page = route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} />
     : route.name === 'job' ? <JobPage key={route.slug} slug={route.slug} />
       : route.name === 'stage' ? <StagePage key={`${route.slug}/${route.stop}`} slug={route.slug} stop={route.stop} />
-      : route.name === 'integrate' ? <IntegrateBoard />
       : route.name === 'stacks' ? <StacksPage />
       : route.name === 'stack' ? <StackPage key={route.slug} slug={route.slug} />
+      : route.name === 'stack-build' ? <BuildStackPage />
         : route.name === 'telemetry' ? <TelemetryView />
           : route.name === 'inbox' ? <InboxView />
             : route.name === 'desk' ? <DeskPage />

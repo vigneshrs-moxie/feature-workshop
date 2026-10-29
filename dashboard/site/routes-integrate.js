@@ -1,4 +1,6 @@
 // ---------- The integration board (packet Z): /api/integrate/* (lib/integrate.js) ----------
+// Its page is gone (packet K2): the same packets show as one read-only stack, the build stack, on
+// the Stacks page (web/src/views/Stack/BuildStack.tsx, #/stacks/build), which reads and posts here.
 // The packet worktrees of the repository this dashboard runs from, and "Merge next" into its main
 // checkout (INTEGRATE_ROOT overrides which repository). Its settings live in
 // ~/.ground-control/integrate.json (GROUND_CONTROL_DIR overrides the folder). Never pushes.
