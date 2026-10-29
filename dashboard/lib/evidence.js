@@ -360,9 +360,10 @@ export async function evidenceFile(jobDir, rel) {
  *   dbCheck()        { ok } : whether the local database copy is up (null: there is no check)
  *   run({ configFile, cwd, specs })   runs Playwright: { code, output }
  *   playwrightUrl    the URL of the dashboard's @playwright/test (the guard imports it)
+ *   onStart()        called once the checks pass and the recording really starts (not for a refusal)
  * Returns { ok: true, evidence } or throws EvidenceError (status and plain words; fix when there is a line to run).
  */
-export async function recordEvidence({ job, server, dbCheck = null, run, playwrightUrl, cwd, now = () => new Date() }) {
+export async function recordEvidence({ job, server, dbCheck = null, run, playwrightUrl, cwd, now = () => new Date(), onStart = () => {} }) {
   const wanted = evidenceWanted(job.options);
   if (!wanted.on) throw new EvidenceError(409, wanted.why, { code: 'not-wanted' });
   const reportText = await fsp.readFile(path.join(job.dir, 'test-report.md'), 'utf8').catch(() => null);
@@ -378,12 +379,14 @@ export async function recordEvidence({ job, server, dbCheck = null, run, playwri
   // Nothing to see anywhere: no server, no browser, just the rows saying why.
   if (!specs.length) {
     if (!lines.size) throw new EvidenceError(409, 'The tester wrote no specs and the test report has no Evidence section, so there is nothing to record.', { code: 'no-specs' });
+    onStart();
     return { ok: true, evidence: await collectEvidence({ evidenceDir, commit, specs, lines, level, at: now().toISOString(), report: null, outputDir: evidenceDir }) };
   }
   if (dbCheck) {
     const db = await dbCheck();
     if (db && !db.ok) throw new EvidenceError(503, DB_DOWN, { code: 'database-down' });
   }
+  onStart();
   const started = await server.start();
   let prepared = null;
   try {

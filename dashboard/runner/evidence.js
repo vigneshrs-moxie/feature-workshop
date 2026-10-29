@@ -158,6 +158,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
       }
       const result = await recordEvidence({
         job: f, playwrightUrl: pw?.url, cwd,
+        onStart: () => events.emit('evidence', f.slug, { slug: f.slug, outcome: 'recording', at: new Date().toISOString() }),
         server: { start: async () => { const s = await server.start(); cwd = s.cwd ?? cwd; return s; }, stop: server.stop },
         dbCheck: await dbCheckFor(f),
         run: (opts) => runPlaywright(pw.script, { ...opts, cwd }),
@@ -186,7 +187,6 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
   function record(f, via) {
     if (recording.has(f.slug)) return Promise.reject(new EvidenceError(409, 'Evidence for this job is being recorded now.', { code: 'busy' }));
     recording.add(f.slug);
-    events.emit('evidence', f.slug, { slug: f.slug, outcome: 'recording', at: new Date().toISOString() });
     const job = queue.then(() => recordNow(f, via)).finally(() => { recording.delete(f.slug); });
     queue = job.catch(() => {});
     return job;
