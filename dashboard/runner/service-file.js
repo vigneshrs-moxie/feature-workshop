@@ -3,23 +3,13 @@
 // and removes it when it stops. `ground-control resume <job>` (bin/ground-control.js) reads it.
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 export const SERVICE_FILE = 'service.json';
 
-/**
- * The state folder, by the host's own rule (dashboard/server.js): WORKSHOP_STATE_DIR, else in demo
- * mode the folder `state` next to WORKSHOP_FEATURES_DIR, else ~/.feature-workshop.
- */
-export function stateDirFor(env = process.env, home = os.homedir()) {
-  if (env.WORKSHOP_STATE_DIR) return path.resolve(env.WORKSHOP_STATE_DIR);
-  if (env.WORKSHOP_DEMO) {
-    const features = path.resolve(env.WORKSHOP_FEATURES_DIR || path.join(home, '.claude', 'feature-work'));
-    return path.join(path.dirname(features), 'state');
-  }
-  return path.join(home, '.feature-workshop');
-}
+// The state folder, by the host's own rule: lib/state.js says it (~/.ground-control since
+// packet I, with the one-time move from ~/.feature-workshop). Kept here for older importers.
+export { stateDirFor } from '../lib/state.js';
 
 export const serviceFilePath = (stateDir) => path.join(stateDir, SERVICE_FILE);
 
