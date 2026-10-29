@@ -669,7 +669,7 @@ a:hover { text-decoration: underline; }
   align-items: center;
   justify-content: center;
   padding: var(--space-4);
-  background: oklch(0 0 0 / .5);
+  background: var(--scrim);
   animation: fade-in var(--dur-menu) var(--ease-out);
 }
 .sheet {
@@ -707,7 +707,7 @@ a:hover { text-decoration: underline; }
   z-index: 50;
   display: flex;
   justify-content: flex-end;
-  background: oklch(0 0 0 / .4);
+  background: var(--scrim-soft);
   animation: fade-in var(--dur-menu) var(--ease-out);
 }
 .drawer {
@@ -1405,7 +1405,7 @@ a:hover { text-decoration: underline; }
   position: absolute; z-index: 5; top: calc(100% + var(--space-1)); right: 0; left: 0;
   padding: var(--space-3);
   border: 1px solid var(--border-1); border-radius: var(--radius-md);
-  background: var(--bg-1); box-shadow: 0 6px 24px rgb(0 0 0 / .12);
+  background: var(--bg-1); box-shadow: var(--shadow-pop);
   color: var(--text-2); font-size: var(--text-sm);
 }
 .how.is-icon .how-body p { margin: 0; }

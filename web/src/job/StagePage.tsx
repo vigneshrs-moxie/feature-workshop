@@ -44,13 +44,13 @@ export const STOP_PURPOSE: Record<StopId, string> = {
   test: 'Run the tests', review: 'Check the change', ship: 'Open the pull requests',
 };
 
-const STATUS: Record<StageAgent['status'], { word: string; icon: IconName }> = {
+export const AGENT_STATUS: Record<StageAgent['status'], { word: string; icon: IconName }> = {
   working: { word: 'Working', icon: 'activity' },
   waiting: { word: 'Waiting for you', icon: 'hand' },
   done: { word: 'Done', icon: 'circle-check' },
   stopped: { word: 'Stopped', icon: 'stop' },
 };
-const STATE_ICON: Record<StageView['state'], IconName> = { done: 'circle-check', now: 'activity', waiting: 'hand', next: 'circle-dashed', skipped: 'skip' };
+export const STATE_ICON: Record<StageView['state'], IconName> = { done: 'circle-check', now: 'activity', waiting: 'hand', next: 'circle-dashed', skipped: 'skip' };
 
 /** "18 min", "2 h", "3 days": how long since `iso`. */
 export function forHowLong(iso: string | null | undefined, now: Date): string | null {
@@ -230,7 +230,7 @@ function WhoIsOn({ job, view, now, faces, finishedOpen, setFinishedOpen }: { job
 
 function AgentRow({ a, now, faces, busy, onOpen }: { a: StageAgent; now: Date; faces: boolean; busy: boolean; onOpen(): void }) {
   const role = roleOf(a.who === 'conductor' ? null : a.who);
-  const status = STATUS[a.status];
+  const status = AGENT_STATUS[a.status];
   const long = forHowLong(a.since, now);
   const cont = a.terminal.kind === 'continue';
   const live = a.status === 'working' || a.status === 'waiting';

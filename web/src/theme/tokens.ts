@@ -77,6 +77,10 @@ export function colorTokens({ baseHue, accentHue, contrast }: ThemeInput): Recor
   // Two-layer translucent shadows.
   out['shadow-1'] = `0 1px 2px ${oklch(0, 0, 0, 0.3)}, 0 2px 8px ${oklch(0, 0, 0, 0.2)}`;
   out['shadow-2'] = `0 2px 4px ${oklch(0, 0, 0, 0.3)}, 0 12px 32px ${oklch(0, 0, 0, 0.35)}`;
+  // A popover's soft shadow, and the dimming behind a sheet (scrim) and a drawer (scrim-soft).
+  out['shadow-pop'] = `0 6px 24px ${oklch(0, 0, 0, 0.12)}`;
+  out['scrim'] = oklch(0, 0, 0, 0.5);
+  out['scrim-soft'] = oklch(0, 0, 0, 0.4);
   return out;
 }
 

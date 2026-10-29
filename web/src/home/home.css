@@ -19,7 +19,7 @@
 .home-view.is-on { background: var(--accent-soft); color: var(--text-1); }
 .home-view-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--group-needs-you-bg); color: var(--group-needs-you-fg); border: 1px solid var(--group-needs-you-line); font-family: var(--font-mono); font-size: var(--text-xs); }
 .home-seg { display: flex; flex-wrap: wrap; gap: 2px; }
-.home-seg-btn { min-height: 28px; padding: 0 var(--space-3); border: 1px solid var(--border-2); border-radius: var(--radius-md); background: transparent; color: var(--text-2); font: inherit; cursor: pointer; }
+.home-seg-btn { min-height: var(--control-h); padding: 0 var(--space-3); border: 1px solid var(--border-2); border-radius: var(--radius-md); background: transparent; color: var(--text-2); font: inherit; cursor: pointer; }
 .home-seg-btn:hover { color: var(--text-1); background: var(--bg-2); }
 .home-seg-btn.is-on { background: var(--accent-soft); border-color: var(--accent); color: var(--text-1); }
 .home-seg-btn .count { margin-left: var(--space-1); color: var(--text-2); font-size: var(--text-xs); }
@@ -53,7 +53,7 @@
 .map-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
 .map-chips { gap: 2px; }
 .map-layers { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); }
-.map-layers .home-seg-btn { min-height: 24px; padding: 0 var(--space-2); font-size: var(--text-sm); }
+.map-layers .home-seg-btn { min-height: var(--control-h); padding: 0 var(--space-2); font-size: var(--text-sm); }
 .map-keys { margin: 0; font-size: var(--text-xs); }
 
 /* A repo: its name and release train on one line, then the groups of rows. */

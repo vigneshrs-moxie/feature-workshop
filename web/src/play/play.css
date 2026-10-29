@@ -217,7 +217,7 @@
 .dex-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: var(--space-3); list-style: none; margin: 0 0 var(--space-6); padding: 0; }
 .dex-card { position: relative; display: flex; flex-direction: column; perspective: 900px; }
 .dex-card.is-met { cursor: pointer; }
-.dex-card-inner { display: grid; flex: 1; transform-style: preserve-3d; transition: transform .45s ease; }
+.dex-card-inner { display: grid; flex: 1; transform-style: preserve-3d; transition: transform var(--dur-pane) var(--ease-out); }
 .dex-card.is-flipped .dex-card-inner { transform: rotateY(180deg); }
 .dex-face {
   grid-area: 1 / 1;
