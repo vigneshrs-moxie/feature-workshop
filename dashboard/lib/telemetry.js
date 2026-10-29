@@ -361,15 +361,17 @@ export function forecast(lines, { now, reading = null, timeZone } = {}) {
  * titles: job slug → title. jobs: the job list ([{ slug, title, route, finished, finishedAt, dir }])
  * and audit: the audit lines, when the runner hands them in (graphs 2, 6, 7 and 8 use them).
  * readFrom: where the lines read start (the runner's last 31 days when omitted; null: all there is),
- * so a graph never shows a week or month that wasn't read as one with nothing in it.
+ * so a graph never shows a week or month that wasn't read as one with nothing in it. tempRoots: the
+ * temp folders whose jobs are test runs (lib/insights.js tempDirs() when omitted; [] when this
+ * dashboard's own job folder is a temp one, as in a test or a demo, so its jobs count).
  * timeZone: for days, times and the plan week (the computer's own when omitted).
  */
-export function telemetry(allLines, { window = 'week', now = new Date(), me = null, meters = null, titles = {}, timeZone, shortStretch = SHORT_STRETCH, jobs = null, audit = null, readFrom = undefined } = {}) {
+export function telemetry(allLines, { window = 'week', now = new Date(), me = null, meters = null, titles = {}, timeZone, shortStretch = SHORT_STRETCH, jobs = null, audit = null, readFrom = undefined, tempRoots = undefined } = {}) {
   if (!WINDOWS.includes(window)) throw new RangeError('The window is one of 5h, week or 30d.');
   const end = ms(now);
   // Where the lines read start: the runner reads the last 31 days unless it says otherwise.
   const from = readFrom === undefined ? end - READ_DAYS * DAY : readFrom;
-  const ins = insightsFor(allLines, { window, now: end, me, meters, timeZone, titles, jobs, audit, shortStretch, readFrom: from });
+  const ins = insightsFor(allLines, { window, now: end, me, meters, timeZone, titles, jobs, audit, shortStretch, readFrom: from, tempRoots });
   return {
     window, windowLabel: WINDOW_LABELS[window], from: iso(ins.from), to: iso(end), me,
     percentPerDollar: ins.ratio === null ? null : r4(ins.ratio),

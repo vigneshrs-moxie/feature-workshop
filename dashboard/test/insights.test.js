@@ -348,3 +348,10 @@ test('a week or month that wasn’t read is never shown as one with nothing in i
   assert.deepEqual(r['ticket-cost'].data.weeks.map((w) => w.label), ['Week from Wed 21 Oct, 4 pm', 'Week from Wed 28 Oct, 4 pm']);
   assert.deepEqual(r.cache.data.weeks.map((w) => w.label), ['Week from Wed 21 Oct, 4 pm', 'Week from Wed 28 Oct, 4 pm']);
 });
+
+test('a dashboard that itself runs from a temp folder (a test, a demo) keeps its own jobs: no temp folders to drop', () => {
+  const lines = [line({ job: 'job-t' })];
+  const jobs = [{ slug: 'job-t', dir: '/tmp/fw-demo/feature-work/job-t' }];
+  assert.equal(clean(lines, { jobs }).rows.length, 0, 'a test folder’s job in the real log goes');
+  assert.equal(cleanRecord(lines, { now: NOW, jobs, tempRoots: [] }).rows.length, 1);
+});
