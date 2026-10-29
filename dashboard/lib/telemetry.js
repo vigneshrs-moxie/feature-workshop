@@ -37,7 +37,8 @@ export const pct = (n) => `${Math.round(n)}%`;
 const both = (u, p) => (p === null ? usd(u) : `${pct(p)} of the week (${usd(u)})`);
 
 const FORMATS = new Map(); // one Intl formatter per zone and options: making them is the slow part
-function parts(t, timeZone, opts) {
+/** The clock's parts at t in the time zone (Intl's formatToParts, en-GB), as { type: value }. */
+export function parts(t, timeZone, opts) {
   const key = `${timeZone ?? ''}|${JSON.stringify(opts)}`;
   let f = FORMATS.get(key);
   if (!f) { f = new Intl.DateTimeFormat('en-GB', { timeZone, ...opts }); FORMATS.set(key, f); }
@@ -77,12 +78,12 @@ function zoneOffset(t, timeZone) {
   return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - Math.floor(t / 1000) * 1000;
 }
 /** The moment the local clock shows this date and time (month from 0; days may run over). */
-function localTime(y, mo, d, h, mi, timeZone) {
+export function localTime(y, mo, d, h, mi, timeZone) {
   const wall = Date.UTC(y, mo, d, h, mi);
   const first = wall - zoneOffset(wall, timeZone);
   return wall - zoneOffset(first, timeZone);
 }
-const localDate = (t, timeZone) => {
+export const localDate = (t, timeZone) => {
   const p = parts(t, timeZone, { year: 'numeric', month: '2-digit', day: '2-digit' });
   return { y: +p.year, mo: +p.month - 1, d: +p.day };
 };
@@ -293,6 +294,31 @@ export function limitSplit(lines, { meter = 'week', now, reading = null, ratio =
     people: people.map((p) => ({ ...p, percent: r2(p.percent) })),
     stretches: stretches.map((x) => (x.known ? { ...x, other: r2(Math.max(0, x.other)) } : x)),
   };
+}
+
+/**
+ * Every known stretch between two readings of one meter, across all its windows, with the part of
+ * its rise this app's spend doesn't explain: [{ from, to, other }] in ms (other > 0 only). A
+ * window's first reading counts from the window's start, at 0. For spreading Other use over the
+ * hours it happened in ("When the limit goes"); empty without percent per dollar.
+ */
+export function otherStretches(lines, { meter = 'week', ratio = null, reading = null } = {}) {
+  if (ratio === null || ratio === undefined) return [];
+  const sorted = byTime(lines);
+  const spend = spender(sorted);
+  const pts = readingsOf(sorted, meter, { reading });
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    if (b.resetsAt === null) continue;
+    const start = a && a.resetsAt === b.resetsAt ? a.t : b.resetsAt - SPANS[meter];
+    const base = a && a.resetsAt === b.resetsAt ? a.percent : 0;
+    if (start >= b.t || b.percent < base) continue;
+    const other = b.percent - base - spend(start, b.t) * ratio;
+    if (other > 0) out.push({ from: start, to: b.t, other: r4(other) });
+  }
+  return out;
 }
 
 /** "This week: 63% used. In this app 22% (vignesh), other use 41% (estimated)." */
