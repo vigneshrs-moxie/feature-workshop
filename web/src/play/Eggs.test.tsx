@@ -226,7 +226,7 @@ describe('not found', () => {
   it('Play Off: the same view as #/', async () => {
     window.location.hash = '#/nowhere';
     const { secrets } = renderApp('off');
-    expect(await screen.findByText('Pick a job on the left to see its conversation.')).toBeInTheDocument();
+    expect(await screen.findByRole('main', { name: 'Jobs' })).toBeInTheDocument();
     expect(screen.queryByText('Page not found')).toBeNull();
     expect(secrets()).toEqual([]);
   });

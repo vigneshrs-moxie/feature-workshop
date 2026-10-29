@@ -1,0 +1,96 @@
+/* The Job page (job/JobPage.tsx) and its Code tab, and the permission alert
+   (components/permissions/PermissionAlert.tsx). Every value is a token; controls are at least
+   var(--control-h) tall; status is a word with an icon, never a colour alone. */
+
+/* ---------- The map of seven stops ---------- */
+.job-map { padding: var(--space-4) var(--space-3); border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-1); }
+/* Play full: faint grid lines behind the map. */
+.job-map.has-grid { background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px); background-size: 24px 24px; }
+.job-map .stop-dot { width: 40px; height: 40px; }
+.job-map .stop + .stop::before { top: 19px; }
+.job-map .stop-link { min-height: var(--control-h); }
+/* The crew member's face on its stop's circle (Play full). */
+.stop-face { position: absolute; top: -8px; right: -10px; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--bg-1); border: 1px solid var(--border-2); overflow: hidden; pointer-events: none; }
+.stop-dot { position: relative; }
+
+/* ---------- The go / no go bar and the gate card under it ---------- */
+.job-go { display: flex; flex-direction: column; gap: var(--space-3); }
+.job-gate-body:empty { display: none; }
+
+/* ---------- The tabs ---------- */
+.job-tabs-wrap { display: flex; flex-direction: column; gap: var(--space-3); }
+.job-tabs { display: flex; flex-wrap: wrap; gap: var(--space-1); border-bottom: 1px solid var(--border-1); }
+.job-tab {
+  min-height: var(--control-h); padding: 0 var(--space-3); border: 0; border-bottom: 2px solid transparent; background: none;
+  color: var(--text-2); font: inherit; cursor: pointer; transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.job-tab:hover { color: var(--text-1); }
+.job-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.job-tab[aria-selected='true'] { border-bottom-color: var(--accent); color: var(--text-1); font-weight: var(--weight-medium); }
+/* A stop the job hasn't reached: greyed, and its title says so. */
+.job-tab.is-later { color: var(--text-3); }
+.job-tab-more { font-weight: var(--weight-bold); }
+.job-tab-panel { min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.job-try { margin-top: var(--space-2); }
+
+/* ---------- The Code tab ---------- */
+.job-tiles { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-3); }
+.job-tile { display: flex; align-items: center; gap: var(--space-2); min-width: 140px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-1); }
+.job-tile div { display: flex; flex-direction: column; }
+.job-tile span { font-size: var(--text-xs); color: var(--text-2); }
+.code-commits { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
+.code-commit {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: var(--control-h); padding: 0 var(--space-3);
+  border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-1); color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.code-commit:hover { background: var(--hover-bg); }
+.code-commit:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.code-commit.is-open { border-color: var(--border-2); }
+.code-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-change { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) 0 var(--space-2) var(--space-4); }
+.code-file summary { min-height: var(--control-h); display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); cursor: pointer; overflow-wrap: anywhere; }
+.code-lines { margin: 0; max-height: 420px; overflow: auto; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--bg-2); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.5; }
+.code-lines span { display: block; white-space: pre; }
+/* Added and removed lines keep their + and −, so the colour is never the only sign. */
+.code-lines .is-add { background: var(--status-ok-bg); }
+.code-lines .is-del { background: var(--status-error-bg); }
+.code-lines .is-hunk { color: var(--text-3); }
+
+/* ---------- The permission alert ---------- */
+.perm-alert-slot { display: flex; flex-direction: column; gap: var(--space-2); }
+.perm-alert {
+  display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--ask-permission-line); border-left-width: 4px; border-radius: var(--card-radius); background: var(--ask-permission-bg);
+}
+.perm-alert.is-hard { border-color: var(--ask-hardline-line); background: var(--ask-hardline-bg); }
+.perm-alert-top { display: flex; align-items: center; gap: var(--space-3); }
+.perm-alert-shield { display: inline-grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 50%; background: var(--bg-1); border: 1px solid var(--border-2); color: var(--ask-permission-fg); }
+.perm-alert.is-hard .perm-alert-shield { color: var(--ask-hardline-fg); }
+.perm-alert-say { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.perm-alert-head { margin: 0; font-size: var(--text-lg); }
+.perm-hard-chip { flex: none; }
+.perm-alert .perm-detail { margin: 0; }
+.perm-step { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-1); }
+.perm-step summary { min-height: var(--control-h); display: flex; align-items: center; gap: var(--space-1); cursor: pointer; }
+.perm-step.is-short code { font-family: var(--font-mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.perm-why { margin: 0; color: var(--text-2); }
+.perm-what { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.perm-what > div { display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-1); font-size: var(--text-sm); }
+.perm-what span { color: var(--text-2); }
+.perm-alert-actions { align-items: center; margin-top: 0; }
+.perm-alert-actions .btn { min-height: var(--control-h); }
+.perm-more .fold-note { font-size: var(--text-sm); }
+
+/* ---------- Phone width ---------- */
+@media (max-width: 760px) {
+  /* The map becomes a list down the page: circle, name and state on one line each. */
+  .job-map .stop-map { flex-direction: column; gap: var(--space-1); }
+  .job-map .stop { justify-content: flex-start; }
+  .job-map .stop + .stop::before { display: none; }
+  .job-map .stop-link { flex-direction: row; gap: var(--space-3); width: 100%; font-size: var(--text-sm); }
+  .job-map .stop-dot { width: 32px; height: 32px; }
+  .perm-alert { padding: var(--space-3) var(--space-4); }
+  .perm-what { grid-template-columns: 1fr; }
+  .perm-alert-actions .btn { flex: 1; justify-content: center; }
+  .job-tabs { flex-wrap: nowrap; overflow-x: auto; }
+}

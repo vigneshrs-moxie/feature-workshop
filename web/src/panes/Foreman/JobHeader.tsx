@@ -13,6 +13,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { Job, PolicyId, Run } from '../../api/types';
 import { reopenJob, setJobPolicy } from '../../app/jobActions';
 import { useUi } from '../../app/ui';
+import { Icon } from '../../components/Icon';
 import { autoBlockedReason, autoModeOf, HARD_LINES_NOTE, POLICIES, policyLabel } from '../../components/permissions/policies';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
@@ -41,9 +42,11 @@ interface MenuProps {
   policyOverride?: PolicyId | null;
   run?: Run | null;
   worktree?: string | null;
+  /** The Job page's gear: an icon button named "Job menu" instead of the words. */
+  gear?: boolean;
 }
 
-function JobMenu({ job, dir, policyOverride, run, worktree }: MenuProps) {
+export function JobMenu({ job, dir, policyOverride, run, worktree, gear = false }: MenuProps) {
   const { api, store } = useWorkshop();
   const ui = useUi();
   const slug = job.slug;
@@ -80,13 +83,14 @@ function JobMenu({ job, dir, policyOverride, run, worktree }: MenuProps) {
     <div className="job-menu" ref={box}>
       <button
         type="button"
-        className="btn btn-quiet"
+        className={gear ? 'btn btn-quiet btn-icon job-gear' : 'btn btn-quiet'}
         aria-haspopup="true"
         aria-expanded={open}
+        aria-label={gear ? 'Job menu' : undefined}
         onClick={() => setOpen((o) => !o)}
         title="More things you can do with this job. ⌘K lists them too."
       >
-        Job menu <span aria-hidden="true">▾</span>
+        {gear ? <Icon name="settings" size={18} /> : <>Job menu <span aria-hidden="true">▾</span></>}
       </button>
       {open && (
         <ul className="job-menu-list">

@@ -2,17 +2,13 @@
 // (⌘K, New job, Mark done, the keys list, the job drawer with notes and options) and the page keys.
 // Owns the store, the API client and the live sync; tests pass their own (a fake fetch and a fake
 // EventSource). The browser tab's title is the page's name and the product's (app/brand.ts).
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createApi, type ApiClient } from '../api/client';
 import type { PolicyId } from '../api/types';
-import { ForemanPane } from '../panes/Foreman/ForemanPane';
 import { useAlerts, usePresence } from '../alerts/useAlerts';
 import { CommandPalette } from '../components/CommandPalette';
 import { UsageBanner } from '../components/UsageBanner';
 import { UsageWarningBanner } from '../components/UsageWarningBanner';
-import { PaneResizer, usePreviewWidth } from '../components/PaneResizer';
-import { JobsPane, useJobsRail } from '../panes/Jobs/JobsPane';
-import { PreviewPane } from '../panes/Preview/PreviewPane';
 import { createLiveSync, type EventSourceLike, type LiveSync } from '../state/live';
 import { jobBySlug } from '../state/reducer';
 import { createStore, useWorkshop, useWorkshopState, WorkshopContext, type Store } from '../state/store';
@@ -29,6 +25,7 @@ import { IntegrateBoard } from '../views/Integrate';
 import { InboxView } from '../views/Inbox';
 import { DeskPage } from '../home/DeskPage';
 import { JobsPage } from '../home/JobsPage';
+import { JobPage } from '../job/JobPage';
 import { TelemetryView } from '../views/Telemetry';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
@@ -151,15 +148,11 @@ function Sheets({ route }: { route: Route }) {
 function Shell({ onRetry }: { onRetry: () => void }) {
   const state = useWorkshopState();
   const route = useRoute();
-  const [rail] = useJobsRail();
   const play = usePlay();
-  // The Preview pane's width, if you dragged the handle between it and the middle pane.
-  const [previewWidth] = usePreviewWidth();
-  const panes = useRef<HTMLDivElement>(null);
   useKeyListener();
   const { api } = useWorkshop();
   const post = useMemo(() => (path: string, body: unknown) => api.post(path, body), [api]);
-  const slug = route.name === 'job' || route.name === 'screens' ? route.slug : null;
+  const slug = route.name === 'job' || route.name === 'stage' || route.name === 'screens' ? route.slug : null;
   const job = jobBySlug(state, slug);
   const jobTitle = job ? job.title || job.slug : slug;
   useAlerts(state, pageTitle(pageName(route, jobTitle)));
@@ -191,32 +184,25 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       </div>
     );
   }
-  // Jobs, the flow map, the Table, the Desk, the Inbox, Settings, the Crew-dex, Achievements, a lost
-  // address, a job's screens, Integrate and Telemetry: full width, no Jobs or Preview pane.
-  const fullPage = route.name === 'settings' || crew || achievements || lost !== null;
-  if (home || fullPage || route.name === 'screens' || route.name === 'integrate' || route.name === 'telemetry' || route.name === 'inbox') {
-    return (
-      <div className="app">
-        {top}
-        <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
-        <Sheets route={route} />
-        {route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} /> : route.name === 'integrate' ? <IntegrateBoard /> : route.name === 'telemetry' ? <TelemetryView /> : route.name === 'inbox' ? <InboxView /> : route.name === 'desk' ? <DeskPage /> : route.name === 'home' ? <JobsPage /> : route.name === 'settings' ? <div className="page-wide"><SettingsView section={route.section} /></div> : crew ? <div className="page-wide"><CrewDexView /></div> : achievements ? <div className="page-wide"><AchievementsView /></div> : lost !== null ? <div className="page-wide"><NotFoundView hash={lost} /></div> : <HomeView view={home === 'jobs' || home === null ? 'map' : home} />}
-        <PlayToasts />
-        <PlayEggs />
-      </div>
-    );
-  }
+  // Every page is full width: a job is the Job page (and its stops' Stages); there are no panes.
+  const page = route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} />
+    : route.name === 'job' || route.name === 'stage' ? <JobPage key={route.slug} slug={route.slug} />
+      : route.name === 'integrate' ? <IntegrateBoard />
+        : route.name === 'telemetry' ? <TelemetryView />
+          : route.name === 'inbox' ? <InboxView />
+            : route.name === 'desk' ? <DeskPage />
+              : route.name === 'settings' ? <div className="page-wide"><SettingsView section={route.section} /></div>
+                : crew ? <div className="page-wide"><CrewDexView /></div>
+                  : achievements ? <div className="page-wide"><AchievementsView /></div>
+                    : lost !== null ? <div className="page-wide"><NotFoundView hash={lost} /></div>
+                      : home === 'map' || home === 'table' ? <HomeView view={home} />
+                        : <JobsPage />;
   return (
     <div className="app">
       {top}
       <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
       <Sheets route={route} />
-      <div ref={panes} className={rail ? 'panes panes-rail' : 'panes'} style={previewWidth ? ({ '--preview-w': `${previewWidth}px` } as CSSProperties) : undefined}>
-        <JobsPane selected={slug} />
-        <ForemanPane slug={slug} />
-        <PreviewPane slug={slug} />
-        <PaneResizer panes={panes} />
-      </div>
+      {page}
       <PlayToasts />
       <PlayEggs />
     </div>

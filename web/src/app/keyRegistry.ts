@@ -16,16 +16,18 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { readKeysSetting } from './keysSetting';
 
-export type KeyScope = 'global' | 'rows' | 'job' | 'gate' | 'desk' | 'jobs' | 'map' | 'table' | 'settings' | 'sheet';
+export type KeyScope = 'global' | 'rows' | 'job' | 'stage' | 'alert' | 'gate' | 'desk' | 'jobs' | 'map' | 'table' | 'settings' | 'sheet';
 
 /** Highest priority first: the scope that gets the key when several bind it. */
-export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'gate', 'job', 'jobs', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
+export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'alert', 'gate', 'stage', 'job', 'jobs', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
 
 /** Each scope in the ? sheet: its title and where its keys work, in plain words. */
 export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
   global: { title: 'Everywhere', where: 'On every page, outside a text box.' },
   rows: { title: 'Jobs', where: 'On every page but the Desk; the order is the Jobs list’s.' },
-  job: { title: 'The open job', where: 'With a job open in the Foreman pane.' },
+  job: { title: 'The open job', where: 'On a job’s page and its stops.' },
+  stage: { title: 'A stop of a job', where: 'On a stop’s page (the Stage).' },
+  alert: { title: 'The permission alert', where: 'While a permission waits at the top of a job or a stop.' },
   gate: { title: 'The gate card', where: 'While a gate card waits for your decision, on the job or on the Desk.' },
   desk: { title: 'The Desk', where: 'On the Desk, while something waits for you.' },
   jobs: { title: 'Jobs', where: 'On Jobs, the four lanes.' },
@@ -68,12 +70,16 @@ export const KEYS = {
   'prev-job': { keys: ['k'], label: 'Open the previous job', scope: 'rows' },
   // The open job
   'notes': { keys: ['n'], label: 'Open the job’s Notes and options', scope: 'job' },
-  'write': { keys: ['i'], label: 'Put the cursor in the message box', scope: 'job' },
-  'preview-prev': { keys: ['['], label: 'The previous Preview tab', scope: 'job' },
-  'preview-next': { keys: [']'], label: 'The next Preview tab', scope: 'job' },
+  'write': { keys: ['c', 'i'], label: 'Put the cursor in the message box', scope: 'job', where: 'On a job or a stop; elsewhere c is New job.' },
   'screens-focus': { keys: ['Enter'], label: 'Step into the screens (the page’s own keys then work)', scope: 'job', where: 'With the Screens tab showing and nothing else focused.' },
   'screens-leave': { keys: ['Escape'], label: 'Step out of the screens, back to the page', scope: 'job', where: 'Inside the screens.', listOnly: true },
   'send': { keys: ['Mod+Enter'], label: 'In the message box: preview and send, or steer a reply in progress', scope: 'job', always: true, listOnly: true },
+  // A stop of a job (the Stage)
+  'stage-prev': { keys: ['['], label: 'The stop before this one', scope: 'stage' },
+  'stage-next': { keys: [']'], label: 'The stop after this one', scope: 'stage' },
+  // The permission alert
+  'alert-allow': { keys: ['a'], label: 'Allow once', scope: 'alert', where: 'Never for a hard line or a risky step.' },
+  'alert-deny': { keys: ['d'], label: 'Deny (you can say why)', scope: 'alert' },
   // The gate card
   'gate-approve': { keys: ['a'], label: 'Approve', scope: 'gate', where: 'Only when the card asks no questions and the plan hasn’t changed.' },
   'gate-edit': { keys: ['e'], label: 'Edit, then approve', scope: 'gate' },

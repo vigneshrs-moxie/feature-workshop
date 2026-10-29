@@ -253,7 +253,7 @@ describe('Crew-dex in the shell', () => {
   it('Play Off: no link, and #/crew shows the usual page without asking for the ledger', async () => {
     window.location.hash = '#/crew';
     const { get } = renderApp('off');
-    expect(await screen.findByRole('main', { name: 'Foreman' })).toBeInTheDocument();
+    expect(await screen.findByRole('main', { name: 'Jobs' })).toBeInTheDocument();
     expect(screen.queryByRole('main', { name: 'Crew-dex' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
     expect(screen.queryByRole('menuitem', { name: /^Crew-dex/ })).toBeNull();

@@ -30,16 +30,14 @@ function renderApp(snap: Snapshot | Error) {
 afterEach(() => { window.location.hash = ''; localStorage.clear(); });
 
 describe('App shell', () => {
-  it('shows the three panes with the jobs grouped', async () => {
+  it('shows a job full width: the Job page with its seven stops, no Jobs or Preview pane', async () => {
     window.location.hash = '#/job/beta';
     renderApp(snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'running'), job('gamma', 'done')] }));
-    expect(await screen.findByRole('navigation', { name: 'Jobs' })).toBeInTheDocument();
-    expect(screen.getByRole('main', { name: 'Foreman' })).toBeInTheDocument();
-    expect(screen.getByRole('complementary', { name: 'Preview' })).toBeInTheDocument();
-    const needs = screen.getByRole('region', { name: 'Needs you' });
-    expect(within(needs).getByRole('link', { name: /^Job alpha/ })).toHaveAttribute('href', '#/job/alpha');
-    expect(screen.getByRole('region', { name: 'Running' })).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Paused' })).toBeNull();
+    const page = await screen.findByRole('main', { name: 'Job' });
+    expect(within(page).getByRole('heading', { name: 'Job beta' })).toBeInTheDocument();
+    expect(within(page).getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('#/job/beta/stage/'))).toHaveLength(7);
+    expect(screen.queryByRole('navigation', { name: 'Jobs' })).toBeNull();
+    expect(screen.queryByRole('complementary', { name: 'Preview' })).toBeNull();
     // The top bar: the product's name, the five pages (the Desk with what waits for you), and the gear.
     const bar = document.querySelector<HTMLElement>('.topbar')!;
     expect(within(bar).getByRole('link', { name: 'Ground Control, back to Jobs' })).toHaveAttribute('href', '#/');
@@ -87,8 +85,7 @@ describe('App shell', () => {
     window.location.hash = '#/job/beta';
     renderApp(snapshot());
     expect(await screen.findByRole('heading', { name: 'Job beta' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /^Job beta/ })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Brief', 'Spec', 'Plan', 'Code', 'Tests', 'Review', 'Decisions', 'Ship']);
     // Not in the page, the gear, the job menu, the keys sheet or any hover text.
     const said = () => [document.body.textContent ?? '', ...[...document.querySelectorAll('[title], [aria-label]')].map((e) => `${e.getAttribute('title') ?? ''} ${e.getAttribute('aria-label') ?? ''}`)].join(' ');
     fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
@@ -119,7 +116,7 @@ describe('App shell', () => {
     expect(screen.getByRole('region', { name: 'Next step' })).toHaveTextContent('needs you');
   });
 
-  it('shows a job’s screens full width at #/job/<slug>/screens, with Back to the job; the job page gets a Screens tab', async () => {
+  it('shows a job’s screens full width at #/job/<slug>/screens, with Back to the job; the Spec tab links to them', async () => {
     window.location.hash = '#/job/beta/screens';
     renderApp(snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'running', { wireframes: { version: '2' } })] }));
     const view = await screen.findByRole('main', { name: 'Screens' });
@@ -131,12 +128,14 @@ describe('App shell', () => {
     expect(view.querySelector('iframe.screens-frame')).toHaveAttribute('src', 'http://127.0.0.1:4478/job/beta/wireframes');
     expect(within(view).getByRole('button', { name: 'Copy feedback' })).toBeInTheDocument();
     expect(within(view).queryByRole('link', { name: 'Open full screen' })).toBeNull();
-    // Back on the job: the Preview pane has a Screens tab for it; a job without screens has none.
+    // Back on the job: its Spec tab links to the screens; a job without screens has no link.
     act(() => { window.location.hash = '#/job/beta'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
-    expect(await screen.findByRole('tab', { name: 'Screens' })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Spec' }));
+    expect(screen.getByRole('link', { name: /Review the screens/ })).toHaveAttribute('href', '#/job/beta/screens');
     act(() => { window.location.hash = '#/job/alpha'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
-    await screen.findByRole('main', { name: 'Foreman' });
-    expect(screen.queryByRole('tab', { name: 'Screens' })).toBeNull();
+    await screen.findByRole('heading', { name: 'Job alpha' });
+    fireEvent.click(screen.getByRole('tab', { name: 'Spec' }));
+    expect(screen.queryByRole('link', { name: /Review the screens/ })).toBeNull();
     // A job without screens at the screens address says so.
     act(() => { window.location.hash = '#/job/alpha/screens'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     expect(await screen.findByRole('main', { name: 'Screens' })).toHaveTextContent('This job has no screens yet.');
@@ -160,12 +159,14 @@ describe('App shell', () => {
   it('updates live from the stream', async () => {
     window.location.hash = '#/job/beta';
     const { streams } = renderApp(snapshot());
-    await screen.findByRole('navigation', { name: 'Jobs' });
+    await screen.findByRole('main', { name: 'Job' });
     expect(screen.getByText('Connecting…')).toBeInTheDocument();
     act(() => { streams[0].readyState = 1; streams[0].onopen?.(new Event('open')); });
     expect(screen.getByText('Live')).toBeInTheDocument();
-    act(() => { streams[0].onmessage?.(new MessageEvent('message', { data: JSON.stringify(ev(11, 'permission', 'alpha', permission('p1', 'alpha'))) })); });
-    expect(within(screen.getByRole('region', { name: 'Needs you' })).getByRole('link', { name: /^Job alpha/ })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /^Permission/ })).toBeNull();
+    act(() => { streams[0].onmessage?.(new MessageEvent('message', { data: JSON.stringify(ev(11, 'permission', 'beta', permission('p1', 'beta'))) })); });
+    // The permission alert takes the next-step bar's place on the job's page.
+    expect(screen.getByRole('region', { name: 'Permission: Run a command' })).toHaveTextContent('The Foreman wants to run a command');
   });
 
   it('says so when the dashboard can’t be reached', async () => {
@@ -223,10 +224,17 @@ describe('App shell', () => {
     expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).toBeNull();
+    // On a job, c is the message box; elsewhere it starts a new job.
+    fireEvent.keyDown(document.body, { key: 'c' });
+    expect(composer).toHaveFocus();
+    expect(screen.queryByRole('dialog', { name: 'Start a new job' })).toBeNull();
+    composer.blur();
+    act(() => { window.location.hash = '#/'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    await screen.findByRole('main', { name: 'Jobs' });
     fireEvent.keyDown(document.body, { key: 'c' });
     expect(screen.getByRole('dialog', { name: 'Start a new job' })).toBeInTheDocument();
     fireEvent.keyDown(document.body, { key: 'j' }); // a sheet is open: page keys wait
-    expect(window.location.hash).toBe('#/job/alpha');
+    expect(window.location.hash).toBe('#/');
   });
 
   it('shows the usage-limit banner under the top bar', async () => {
@@ -236,20 +244,20 @@ describe('App shell', () => {
   });
 
   it('“How this works” boxes start folded, and one you opened stays open', async () => {
-    window.location.hash = '#/job/beta';
+    window.location.hash = '#/map';
     renderApp(snapshot());
-    await screen.findByRole('navigation', { name: 'Jobs' });
-    const box = () => within(screen.getByRole('navigation', { name: 'Jobs' })).getByText('How this works').closest('details')!;
-    expect(box().open).toBe(false);
-    act(() => { box().open = true; box().dispatchEvent(new Event('toggle')); });
-    expect(localStorage.getItem('fw.how.jobs')).toBe('open');
+    const box = async () => (await screen.findByText('How this works')).closest('details')!;
+    const first = await box();
+    expect(first.open).toBe(false);
+    act(() => { first.open = true; first.dispatchEvent(new Event('toggle')); });
+    expect(localStorage.getItem('fw.how.home-map')).toBe('open');
     cleanup();
-    window.location.hash = '#/job/beta';
+    window.location.hash = '#/map';
     renderApp(snapshot());
-    await screen.findByRole('navigation', { name: 'Jobs' });
-    expect(box().open).toBe(true);
-    act(() => { box().open = false; box().dispatchEvent(new Event('toggle')); });
-    expect(localStorage.getItem('fw.how.jobs')).toBe('closed');
+    const again = await box();
+    expect(again.open).toBe(true);
+    act(() => { again.open = false; again.dispatchEvent(new Event('toggle')); });
+    expect(localStorage.getItem('fw.how.home-map')).toBe('closed');
   });
 });
 
@@ -314,20 +322,13 @@ describe('Keys through the registry', () => {
     expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
   });
 
-  it('on a job: n opens Notes and options, i puts the cursor in the message box, [ and ] move the Preview tabs', async () => {
+  it('on a job: n opens Notes and options, i puts the cursor in the message box', async () => {
     window.location.hash = '#/job/alpha';
     const get = vi.fn(async (path: string) => (path === '/api/job/alpha/notes' ? { text: '', updatedAt: null } : { slug: 'alpha', thread: [], threadMore: false, options: null }));
     const api = { snapshot: vi.fn(async () => snapshot({ jobs: [job('alpha', 'idle')] })), setToken: vi.fn(), get, post: vi.fn(), put: vi.fn() } as unknown as ApiClient;
     render(<App api={api} openStream={() => new FakeStream()} />);
     await screen.findByRole('heading', { name: 'Job alpha' });
     expect(screen.getByRole('button', { name: 'New job' }).querySelector('kbd')).toHaveTextContent('c');
-    fireEvent.keyDown(document.body, { key: ']' });
-    expect(screen.getByRole('tab', { name: 'Briefs' })).toHaveAttribute('aria-selected', 'true');
-    fireEvent.keyDown(document.body, { key: '[' });
-    fireEvent.keyDown(document.body, { key: '[' });
-    expect(screen.getByRole('tab', { name: 'Decisions' })).toHaveAttribute('aria-selected', 'true');
-    fireEvent.keyDown(document.body, { key: ']' });
-    expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
     fireEvent.keyDown(document.body, { key: 'i' });
     const composer = screen.getByRole('textbox', { name: /Your message to the Foreman/ });
     expect(composer).toHaveFocus();

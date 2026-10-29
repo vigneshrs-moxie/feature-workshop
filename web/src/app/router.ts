@@ -3,7 +3,8 @@
 //   #/map         the flow map (home/HomeView.tsx), from the gear menu
 //   #/table       the Table: the jobs as rows, from the gear menu
 //   #/desk        the Desk: every decision waiting for you, one at a time
-//   #/job/<slug>  that job's thread in the Foreman pane
+//   #/job/<slug>  that job's page: the map of seven stops, the next step, the tabs, the conversation
+//   #/job/<slug>/stage/<stop>  one stop of the job (the Stage): who works it, what each is doing
 //   #/job/<slug>/id/<id>  the same job: the dashboard links requirement IDs (FR-001...) in
 //                 replies and briefs this way; the job stays open (the ID itself is ignored for now)
 //   #/job/<slug>/screens  that job's wireframes page full width (views/Screens), with a Back link
@@ -18,6 +19,8 @@
 // Off it shows #/'s view. No hash, "#", "#/" or an in-page "#section" is #/. A query after the hash (#/?theme=x,
 // read by theme/theme.ts) is ignored here, so it changes nothing about the route.
 import { useEffect, useState } from 'react';
+import type { StopId } from '../api/types';
+import { isStopId, STOPS } from '../components/stops/stops';
 
 /** The Settings page's sections, in the rail's order (views/Settings/sections.ts has their words). */
 export const SETTINGS_SECTIONS = ['permissions', 'notifications', 'look', 'keys', 'workflow', 'repos', 'play', 'rules'] as const;
@@ -25,6 +28,7 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export const isSettingsSection = (v: string): v is SettingsSection => (SETTINGS_SECTIONS as readonly string[]).includes(v);
 
 export type Route = { name: 'home' } | { name: 'map' } | { name: 'table' } | { name: 'desk' } | { name: 'inbox' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
+  | { name: 'stage'; slug: string; stop: StopId }
   | { name: 'screens'; slug: string } | { name: 'integrate' } | { name: 'telemetry' } | { name: 'not-found'; hash: string };
 
 export function parseHash(rawHash: string): Route {
@@ -41,6 +45,13 @@ export function parseHash(rawHash: string): Route {
   if (/^#\/achievements\/?$/.test(hash)) return { name: 'achievements' };
   if (/^#\/integrate\/?$/.test(hash)) return { name: 'integrate' };
   if (/^#\/telemetry\/?$/.test(hash)) return { name: 'telemetry' };
+  const st = /^#\/job\/([^/?#]+)\/stage\/([a-z]+)\/?$/.exec(hash);
+  if (st && isStopId(st[2])) {
+    try {
+      const slug = decodeURIComponent(st[1]);
+      if (slug) return { name: 'stage', slug, stop: st[2] };
+    } catch { /* a malformed escape: not a page */ }
+  }
   const m = /^#\/job\/([^/?#]+)(?:\/id\/[^/?#]+|\/(screens))?\/?$/.exec(hash);
   if (m) {
     try {
@@ -55,6 +66,7 @@ export function parseHash(rawHash: string): Route {
 export function hrefFor(route: Route): string {
   if (route.name === 'job') return `#/job/${encodeURIComponent(route.slug)}`;
   if (route.name === 'screens') return `#/job/${encodeURIComponent(route.slug)}/screens`;
+  if (route.name === 'stage') return `#/job/${encodeURIComponent(route.slug)}/stage/${route.stop}`;
   if (route.name === 'crew') return '#/crew';
   if (route.name === 'achievements') return '#/achievements';
   if (route.name === 'table') return '#/table';
@@ -82,6 +94,9 @@ export const telemetryHref = () => hrefFor({ name: 'telemetry' });
 
 export const jobHref = (slug: string) => hrefFor({ name: 'job', slug });
 
+/** One stop of a job: its Stage page. */
+export const stageHref = (slug: string, stop: StopId) => hrefFor({ name: 'stage', slug, stop });
+
 /** The job's wireframes page, full width. */
 export const screensHref = (slug: string) => hrefFor({ name: 'screens', slug });
 
@@ -108,6 +123,7 @@ export function pageName(route: Route, jobTitle?: string | null): string {
     case 'achievements': return 'Achievements';
     case 'job': return jobTitle || 'Job';
     case 'screens': return jobTitle ? `${jobTitle}: screens` : 'Screens';
+    case 'stage': { const stop = STOPS.find((x) => x.id === route.stop)?.label ?? 'Stop'; return jobTitle ? `${stop} · ${jobTitle}` : stop; }
     case 'integrate': return 'Integrate';
     case 'telemetry': return 'Telemetry';
     default: return 'Not a page';

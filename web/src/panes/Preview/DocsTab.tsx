@@ -161,8 +161,12 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
   );
 }
 
-export function DocsTab({ slug, section = 'plan', onSection, changedAt, focusRequest = 0, requestFile = null, active = true }: {
+export function DocsTab({ slug, section = 'plan', onSection, changedAt, focusRequest = 0, requestFile = null, active = true, pick: only, replay = false }: {
   slug: string;
+  /** The request that opened this tab is new to it: act on it once it mounts (the Job page switched tabs for it). */
+  replay?: boolean;
+  /** Only these of the section's documents (the Job page splits the plan into Spec and Plan). */
+  pick?: (d: JobDocEntry) => boolean;
   /** Which of the Preview pane's document tabs this is. */
   section?: DocSection;
   /** A link or request opened a document of another tab: switch to it. */
@@ -192,7 +196,7 @@ export function DocsTab({ slug, section = 'plan', onSection, changedAt, focusReq
   // first document (or the Docs tab when there is none) once the tab shows and the list is loaded.
   // A link to another document (requestFile): that document, once the list is loaded, when it is
   // one of this job's; otherwise the link isn't followed and a line says why.
-  const seenRequest = useRef(focusRequest);
+  const seenRequest = useRef(replay ? focusRequest - 1 : focusRequest);
   const focusPending = useRef(false);
   const filePending = useRef<string | null>(null);
   const [linkHint, setLinkHint] = useState<string | null>(null);
@@ -273,7 +277,7 @@ export function DocsTab({ slug, section = 'plan', onSection, changedAt, focusReq
   return (
     <div className="docs-tab">
       {hint}
-      <DocList {...sectionDocs(docs, section)} section={section} now={now} onPick={pick} pickedRef={first} />
+      <DocList {...sectionDocs(only ? docs.filter(only) : docs, section)} section={section} now={now} onPick={pick} pickedRef={first} />
     </div>
   );
 }

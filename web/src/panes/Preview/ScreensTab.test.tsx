@@ -15,7 +15,6 @@ import { readStored, writeStored } from '../../lib/stored';
 import { createStore, WorkshopContext } from '../../state/store';
 import { job, SCREENS_ORIGIN, snapshot } from '../../state/test-fixtures';
 import { draftKey } from '../Foreman/Composer';
-import { PreviewPane } from './PreviewPane';
 import { addFeedbackToDraft, gateWaiting, NO_ORIGIN, ScreensTab, wireframesUrl } from './ScreensTab';
 import { clearWireframes, frameMounted } from './wireframes';
 
@@ -216,34 +215,6 @@ describe('ScreensTab', () => {
     const { container } = setup({ full: true });
     expect(screen.queryByRole('link', { name: 'Open full screen' })).toBeNull();
     expect(container.querySelector('.screens-tab')).toHaveClass('is-full');
-  });
-});
-
-describe('PreviewPane with screens', () => {
-  function pane(extra: Partial<Job>) {
-    const store = createStore();
-    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'needs-you', extra)] }) });
-    const api = { get: vi.fn(async () => ({ docs: [] })) } as unknown as ApiClient;
-    return render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><PreviewPane slug="alpha" /></UiProvider></WorkshopContext.Provider>);
-  }
-
-  it('has a Screens tab only for a job with screens, between Docs and Classic view', () => {
-    const { unmount } = pane({});
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Plan', 'Briefs', 'Review', 'Try it', 'Decisions']);
-    unmount();
-    clearWireframes();
-    pane(WITH_SCREENS);
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Plan', 'Briefs', 'Review', 'Screens', 'Try it', 'Decisions']);
-    const tab = screen.getByRole('tab', { name: 'Screens' });
-    expect(tab).toHaveAttribute('aria-selected', 'false');
-    // Mounted even while hidden, so the page's report reaches the gate card.
-    expect(document.querySelector('iframe.screens-frame')).not.toBeNull();
-    fireEvent.click(tab);
-    expect(tab).toHaveAttribute('aria-selected', 'true');
-    expect(document.getElementById('preview-panel-screens')).not.toHaveAttribute('hidden');
-    // ] from the Screens tab goes on to Try it; [ back.
-    fireEvent.keyDown(tab, { key: 'ArrowRight' });
-    expect(screen.getByRole('tab', { name: 'Try it' })).toHaveAttribute('aria-selected', 'true');
   });
 });
 

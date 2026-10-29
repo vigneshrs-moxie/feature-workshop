@@ -153,7 +153,7 @@ describe('Achievements in the shell', () => {
   it('Play Off: #/achievements shows the usual page', async () => {
     window.location.hash = '#/achievements';
     renderApp('off');
-    expect(await screen.findByRole('main', { name: 'Foreman' })).toBeInTheDocument();
+    expect(await screen.findByRole('main', { name: 'Jobs' })).toBeInTheDocument();
     expect(screen.queryByRole('main', { name: 'Achievements' })).toBeNull();
   });
 
