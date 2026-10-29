@@ -1,0 +1,23 @@
+# Ground Control as your own background service on Linux (packet I): a systemd user unit.
+# `ground-control install` fills in the {{…}} parts, writes it to
+# ~/.config/systemd/user/ground-control.service and runs systemctl --user enable --now
+# ground-control.service. It starts when you sign in, starts again if it stops by failing (not when
+# you stop it with `ground-control stop`), and logs to ~/.ground-control/logs/.
+
+[Unit]
+Description=Ground Control
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{NODE}} {{SERVER}}
+WorkingDirectory={{HOME}}
+Environment=PORT={{PORT}}
+Environment={{PATH_SETTING}}
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:{{LOG}}
+StandardError=append:{{LOG}}
+
+[Install]
+WantedBy=default.target
