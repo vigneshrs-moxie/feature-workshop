@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useEffect, type ReactNode } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../api/client';
+import { installKeyListener } from '../app/keyRegistry';
 import { writeKeysSetting } from '../app/keysSetting';
 import { hrefFor, parseHash } from '../app/router';
 import { UiProvider, useUi, type SheetState } from '../app/ui';
@@ -86,7 +87,10 @@ function setup({ get, answer = INBOX }: { get?: (path: string) => Promise<unknow
   return { get: getFn, api, stream, sheets, wrap, store };
 }
 
-afterEach(() => { localStorage.clear(); });
+// The page's one key listener, as App installs it: the Inbox's s is the registry's (inbox-start).
+let offKeys = () => {};
+beforeEach(() => { offKeys = installKeyListener(); });
+afterEach(() => { offKeys(); localStorage.clear(); });
 
 describe('Inbox', () => {
   it('is its own page at #/inbox', () => {

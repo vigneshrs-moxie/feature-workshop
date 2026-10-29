@@ -2,8 +2,9 @@
 //
 // A view registers the keys it answers for with useKeyScope(scope, handlers, active) while it is
 // mounted; App installs the single document listener (useKeyListener). A key goes to the
-// highest-priority active scope that binds it (desk > gate > job > jobs > map > rows > table > settings >
-// sheet > global), so the Desk's j and k win over the page's, and the Map's over the Jobs list's. Rules, the same everywhere:
+// highest-priority active scope that binds it (desk > alert > gate > stage > job > jobs > inbox >
+// map > rows > table > settings > sheet > global), so the Desk's j and k win over the page's, and
+// the Map's over the Jobs list's. Rules, the same everywhere:
 //   - single-letter keys never fire while you type in a field, or while a dialog is open;
 //   - Enter and Space with the focus on a button, link, fold, option or tab belong to that control;
 //     only an `always` binding of them runs there;
@@ -16,10 +17,10 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { readKeysSetting } from './keysSetting';
 
-export type KeyScope = 'global' | 'rows' | 'job' | 'stage' | 'alert' | 'gate' | 'desk' | 'jobs' | 'map' | 'table' | 'settings' | 'sheet';
+export type KeyScope = 'global' | 'rows' | 'job' | 'stage' | 'alert' | 'gate' | 'desk' | 'jobs' | 'inbox' | 'map' | 'table' | 'settings' | 'sheet';
 
 /** Highest priority first: the scope that gets the key when several bind it. */
-export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'alert', 'gate', 'stage', 'job', 'jobs', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
+export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'alert', 'gate', 'stage', 'job', 'jobs', 'inbox', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
 
 /** Each scope in the ? sheet: its title and where its keys work, in plain words. */
 export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
@@ -30,7 +31,8 @@ export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
   alert: { title: 'The permission alert', where: 'While a permission waits at the top of a job or a stop.' },
   gate: { title: 'The gate card', where: 'While a gate card waits for your decision, on the job or on the Desk.' },
   desk: { title: 'The Desk', where: 'On the Desk, while something waits for you.' },
-  jobs: { title: 'Jobs', where: 'On Jobs, the four lanes.' },
+  jobs: { title: 'The Jobs page', where: 'On Jobs, the four lanes.' },
+  inbox: { title: 'The Inbox', where: 'On the Inbox, outside a text box.' },
   map: { title: 'The Flow map', where: 'On the Flow map.' },
   table: { title: 'The Table', where: 'With the focus on a job in the Table.' },
   settings: { title: 'Settings', where: 'On the Settings page.' },
@@ -101,6 +103,8 @@ export const KEYS = {
   'desk-send-back': { keys: ['r'], label: 'No go: send back', scope: 'desk', where: 'On a go-ahead: say what to change.' },
   'desk-reply': { keys: ['c'], label: 'Reply without deciding', scope: 'desk', where: 'On a go-ahead; elsewhere c is New job.' },
   'desk-brief': { keys: ['b'], label: 'Show or hide the brief', scope: 'desk', where: 'On a go-ahead.' },
+  // The Inbox
+  'inbox-start': { keys: ['s'], label: 'Start a job on the ticket', scope: 'inbox', where: 'The open ticket, else the row with the focus, else the one the next-step bar names.' },
   // The Map (Home)
   'map-next': { keys: ['j'], label: 'Highlight the next row', scope: 'map' },
   'map-prev': { keys: ['k'], label: 'Highlight the previous row', scope: 'map' },

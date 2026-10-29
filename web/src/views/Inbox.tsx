@@ -7,18 +7,18 @@
 //
 // The next-step bar names one ticket: the most severe with no job, nobody on it first. Start (key s)
 // works on the open ticket, the row with the focus, else the bar's ticket. It opens New job with the
-// ticket filled in (read-only) and "ORBIT-<n>: <title>" as the description. The s key is this page's
-// own listener, with the page's rules: never while typing, with a dialog open, or with keys off.
+// ticket filled in (read-only) and "ORBIT-<n>: <title>" as the description. The s key is the
+// registry's (inbox-start, app/keyRegistry.ts): never while typing, with a dialog open, or with keys off.
 //
 // While this page is open it holds /api/orbit/events, so the dashboard checks Orbit every 3 minutes
 // instead of every 15; the stream also brings each new list. Nothing here writes to Orbit.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from '../api/client';
-import { dialogOpen, isTypingTarget } from '../app/keyRegistry';
-import { useKeysSetting } from '../app/keysSetting';
+import { useKeyScope } from '../app/keyRegistry';
 import { jobHref, settingsHref } from '../app/router';
 import { useUi } from '../app/ui';
 import { Icon, type IconName } from '../components/Icon';
+import { Kbd } from '../components/Kbd';
 import { GuideCards, Hero, NextBar, Page, type GuideSpec } from '../components/page/Page';
 import { clockTime, fullTime, relativeTime, useNow } from '../lib/time';
 import { useWorkshop, useWorkshopState } from '../state/store';
@@ -144,7 +144,6 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
   const [open, setOpen] = useState<InboxItem | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const focused = useRef<InboxItem | null>(null);
-  const [{ enabled: keysOn, hints }] = useKeysSetting();
 
   const loadMine = useCallback(async (refresh = false) => {
     try {
@@ -197,27 +196,21 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
   const items = useMemo(() => (shown.state === 'ready' ? sortInbox(shown.data.items) : []), [shown]);
   const pick = useMemo(() => nextTicket(items), [items]);
 
-  // s: Start on the open ticket, else the row with the focus, else the bar's ticket. Same rules as every page key.
-  useEffect(() => {
-    if (!keysOn) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 's' || e.repeat || e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
-      if (isTypingTarget(e.target) || dialogOpen()) return;
+  // s: Start on the open ticket, else the row with the focus, else the bar's ticket.
+  useKeyScope('inbox', {
+    'inbox-start': () => {
       const item = open ?? focused.current ?? pick;
-      if (!item || item.job) return;
-      e.preventDefault();
+      if (!item || item.job) return false;
       start(item);
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [keysOn, open, pick, start]);
+    },
+  });
 
   async function refresh() {
     setRefreshing(true);
     try { await loadMine(true); } finally { setRefreshing(false); }
   }
 
-  const sKey = keysOn && hints ? <kbd className="kbd key-hint" aria-hidden="true">s</kbd> : null;
+  const sKey = <Kbd id="inbox-start" />;
   const lists = [{ id: 'mine', name: 'Mine' }, ...views];
   const head = configured && !open ? (
     <>
@@ -418,7 +411,6 @@ function TicketDetail({ item, onBack, onStart }: { item: InboxItem; onBack: () =
   const now = useNow();
   const [detail, setDetail] = useState<Load<TicketAnswer>>({ state: 'loading' });
   const [refs, setRefs] = useState<Load<Reference[]>>({ state: 'loading' });
-  const [{ enabled: keysOn, hints }] = useKeysSetting();
 
   useEffect(() => {
     let live = true;
@@ -458,7 +450,7 @@ function TicketDetail({ item, onBack, onStart }: { item: InboxItem; onBack: () =
             onClick={() => onStart(current)}
             title={current.job ? 'You are already on this: open its job instead.' : 'Start a job on this ticket: opens New job with the key and title filled in (key: s).'}
           >
-            Start {keysOn && hints && <kbd className="kbd key-hint" aria-hidden="true">s</kbd>}
+            Start {!current.job && <Kbd id="inbox-start" />}
           </button>
           {current.job && <span>You are already on this: <a href={jobHref(current.job.slug)}>{current.job.title}</a></span>}
           {current.url && <a className="btn btn-quiet" href={current.url} target="_blank" rel="noreferrer noopener" title="Open the ticket on Orbit, in a new tab.">Open on Orbit</a>}
