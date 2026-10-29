@@ -280,6 +280,7 @@ export function semanticTokens(): Record<string, string> {
   out['elev-lg'] = 'var(--shadow-2)';
   // The solid needs-you colour for dots, the stop map and the next-step bar's edge.
   out['needs-solid'] = 'var(--status-warn)';
+  out['on-needs'] = 'var(--bg-0)';
   return out;
 }
 
@@ -287,7 +288,7 @@ export function semanticTokens(): Record<string, string> {
  * Packet R's semantic tokens that follow each theme's own base tokens by default (its page, cards,
  * accent, shadows and warn colour), so a theme needn't set them; Default and Light tune them.
  */
-export const FOLLOWING_TOKENS: readonly string[] = ['surface-0', 'surface-1', 'surface-2', 'btn-primary-bg', 'btn-primary-fg', 'elev-xs', 'elev-sm', 'elev-md', 'elev-lg', 'needs-solid'];
+export const FOLLOWING_TOKENS: readonly string[] = ['surface-0', 'surface-1', 'surface-2', 'btn-primary-bg', 'btn-primary-fg', 'elev-xs', 'elev-sm', 'elev-md', 'elev-lg', 'needs-solid', 'on-needs'];
 
 /**
  * The crew's colours (play/CrewMember.tsx, play/play.css), the palette of the original rig

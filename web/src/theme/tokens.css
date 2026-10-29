@@ -186,6 +186,7 @@
   --elev-md: var(--shadow-pop);
   --elev-lg: var(--shadow-2);
   --needs-solid: var(--status-warn);
+  --on-needs: var(--bg-0);
   --crew-shade-base: #000000;
   --crew-silhouette: color-mix(in srgb, var(--text-1) 24%, var(--bg-2));
   --crew-silhouette-line: color-mix(in srgb, var(--text-1) 42%, var(--bg-2));

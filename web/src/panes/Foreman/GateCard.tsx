@@ -39,6 +39,7 @@ import { draftKey, SendPreview } from './Composer';
 import { EVIDENCE_STAGES, EvidenceStrip } from './EvidenceStrip';
 import { isActiveRun } from './thread';
 import { LockCard, lockFromError, lockHeadline } from '../../views/JobLock/LockCard';
+import { Button } from '../../components/Button';
 import { Choice } from '../../components/Choice';
 
 // Refusals that mean the card is out of date: the Foreman moved on to a new brief, or the spec or
@@ -447,7 +448,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       {gate.stage === 'wireframe' && <ScreensRow slug={slug} hasPage={Boolean(job.wireframes)} />}
       {['implement', 'test', 'review'].includes(gate.stage ?? '') && (
         <p className="gate-try">
-          <button type="button" className="link-button" onClick={() => tryUi.openTry(slug)} title="Open the Try it tab: start this job’s app on your computer and click around before you decide.">Try it on your computer</button>
+          <Button kind="quiet" size="sm" icon="terminal" onClick={() => tryUi.openTry(slug)} title="Open the Try it tab: start this job’s app on your computer and click around before you decide.">Try it on your computer</Button>
         </p>
       )}
       {EVIDENCE_STAGES.includes(gate.stage ?? '') && <EvidenceStrip slug={slug} tested={gate.proof?.tested ?? null} refresh={detail} />}

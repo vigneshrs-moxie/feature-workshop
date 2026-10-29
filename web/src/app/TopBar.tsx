@@ -9,7 +9,7 @@ import { UsageMeters } from '../components/UsageMeters';
 import { StaminaBar } from '../play/FullExtras';
 import { usePlay } from '../play/usePlay';
 import { Icon } from '../components/Icon';
-import { Kbd } from '../components/Kbd';
+import { Button } from '../components/Button';
 import { deskQueue } from '../home/homeModel';
 import { deskEntries, isShipping } from '../home/nudges';
 import { BRAND } from './brand';
@@ -89,10 +89,10 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
       {ready && (
         <nav className="gc-nav" aria-label="Pages">
           {pages.map((p) => (
-            <a key={p.id} className="btn btn-quiet gc-nav-link" href={p.href} aria-current={p.current ? 'page' : undefined} title={p.hint}>
+            <Button key={p.id} kind="quiet" className="gc-nav-link" href={p.href} aria-current={p.current ? 'page' : undefined} title={p.hint}>
               {p.label}
               {p.count ? <span className="home-view-count" title={`${p.count} waiting for you`}>{p.count}</span> : null}
-            </a>
+            </Button>
           ))}
         </nav>
       )}
@@ -105,18 +105,17 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
         <span className="conn-label">{conn.label}</span>
       </span>
       {state.error && ready && (
-        <button type="button" className="btn btn-quiet" onClick={onRetry} title="Fetch everything from the dashboard again now.">Refresh</button>
+        <Button kind="quiet" onClick={onRetry} title="Fetch everything from the dashboard again now.">Refresh</Button>
       )}
       {ready && (
-        <button type="button" className="btn gc-new-job" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job: describe it, pick the repository, kind and Foreman model (key: c).">
-          New job <Kbd id="new-job" />
-        </button>
+        <Button icon="plus" keyId="new-job" className="gc-new-job" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job: describe it, pick the repository, kind and Foreman model (key: c).">
+          New job
+        </Button>
       )}
       {ready && (
-        <a className="btn btn-quiet gc-phone-desk" href={hrefFor({ name: 'desk' })} aria-label={desk ? `Desk, ${desk} waiting for you` : 'Desk, nothing waiting'} title={deskHint}>
-          <Icon name="hand" size={18} />
+        <Button kind="quiet" icon="hand" className="gc-phone-desk" href={hrefFor({ name: 'desk' })} aria-label={desk ? `Desk, ${desk} waiting for you` : 'Desk, nothing waiting'} title={deskHint}>
           {desk > 0 && <span className="home-view-count">{desk}</span>}
-        </a>
+        </Button>
       )}
       <MenuButton className="gc-gear" label="Settings and more" icon="settings" current={route.name === 'settings'} hint="Settings, the flow map, the Table, the keys and every action." entries={more} />
       <MenuButton className="gc-burger" label="Menu" icon="menu" hint="Every page, New job, Settings and the rest." entries={phoneMenu} />

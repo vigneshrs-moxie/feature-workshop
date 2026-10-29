@@ -314,6 +314,8 @@ html[data-theme="sunset-paper"] .perm-card[data-ask="hardline"] .ask-label { bac
 html[data-theme="sunset-paper"] .perm-card[data-ask="question"] .ask-label { background: var(--ask-question-line); }
 html[data-theme="sunset-paper"] .perm-who strong { color: var(--ask-permission-fg); }
 html[data-theme="sunset-paper"] .perm-card[data-ask="question"] .perm-who strong { color: var(--ask-question-fg); }
+/* Packet R: inside the Desk's card the gate card is unframed, so its stripe is not drawn there. */
+html[data-theme="sunset-paper"] .desk-console .gate-card::before { display: none; }
 html[data-theme="sunset-paper"] .perm-card[data-ask="hardline"] .perm-who strong { color: var(--ask-hardline-line); }
 html[data-theme="sunset-paper"] .perm-preview { background: oklch(.3 .035 40); color: oklch(.95 .02 80); border-radius: var(--radius-md); }
 html[data-theme="sunset-paper"] .perm-warn { background: var(--status-warn-bg); color: var(--status-warn); border-radius: 999px; }

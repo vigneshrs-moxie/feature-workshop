@@ -89,7 +89,7 @@
   cursor: not-allowed;
   transform: none;
 }
-.btn:disabled .key-hint, .btn[aria-disabled='true'] .key-hint { opacity: .6; }
+.btn:disabled .key-hint:not(.is-quiet), .btn[aria-disabled='true'] .key-hint:not(.is-quiet) { opacity: .6; }
 .btn-quiet:disabled, .btn-quiet:disabled:hover { border-color: transparent; background-color: transparent; }
 
 /* Busy: a small spinner in place of the words, at the same width. */
@@ -326,8 +326,9 @@ label:has(> .choice:not(:disabled)) { cursor: pointer; }
 .chip-needs-you { background: var(--lane-needs-you-bg); color: var(--lane-needs-you-fg); }
 .chip-outline { border-color: var(--border-2); background: transparent; }
 
-/* ---------- Option rows (components/Choice.tsx OptionRow): the brief's a / b / Other ---------- */
-.option-row {
+/* ---------- Option rows (components/Choice.tsx OptionRow, and a question's .answer-option): the
+   brief's a / b / Other, full-width rows that highlight on hover and show the one you picked ---------- */
+.answer-option, .option-row {
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
@@ -340,11 +341,11 @@ label:has(> .choice:not(:disabled)) { cursor: pointer; }
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
-.option-row > .choice { margin-top: 2px; }
-.option-row:hover { border-color: var(--border-3); background: var(--hover-bg); }
-.option-row:has(> .choice:checked) { border-color: var(--accent); background: var(--accent-soft); }
-.option-row:has(> .choice:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.option-row:has(> .choice:disabled) { cursor: not-allowed; opacity: .7; }
+:is(.answer-option, .option-row) .choice { margin-top: 2px; }
+:is(.answer-option, .option-row):hover { border-color: var(--border-3); background: var(--hover-bg); }
+:is(.answer-option, .option-row):has(.choice:checked) { border-color: var(--accent); background: var(--accent-soft); }
+:is(.answer-option, .option-row):has(.choice:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+:is(.answer-option, .option-row):has(.choice:disabled) { cursor: not-allowed; opacity: .7; }
 
 @media (prefers-reduced-motion: reduce) {
   .btn, .choice, .option-row, .text-input, .text-area, .select, .key-hint.is-quiet { transition: none; }

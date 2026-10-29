@@ -25,9 +25,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEv
 import type { Job } from '../api/types';
 import { useKeyScope, type KeyId } from '../app/keyRegistry';
 import { hrefFor, jobHref, navigate } from '../app/router';
-import { Kbd, KeyLegend } from '../components/Kbd';
+import { Button } from '../components/Button';
+import { Chip } from '../components/Chip';
+import { Kbd, KeyLegend, KeyText } from '../components/Kbd';
 import { Icon } from '../components/Icon';
-import { Fold, Hero } from '../components/page/Page';
+import { Fold, Hero, useMinWidth } from '../components/page/Page';
 import { StopMap } from '../components/stops/StopMap';
 import { Card } from '../components/permissions/PendingCards';
 import { fullTime, relativeTime } from '../lib/time';
@@ -100,7 +102,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
           <button type="button" className="fold-head" aria-expanded={briefOpen} onClick={toggleBrief} title={briefOpen ? 'Hide the Foreman’s brief (key: b).' : 'Read the Foreman’s brief in full (key: b).'}>
             <Icon name="file" size={16} />
             <span className="fold-name">The Foreman’s brief</span>
-            <span className="muted">· <Kbd id="desk-brief" /></span>
+            <Kbd id="desk-brief" />
             <span className="fold-show">{briefOpen ? 'Hide ▾' : 'Details ▸'}</span>
           </button>
           {briefOpen && <div className="fold-body"><ServerHtml html={brief.html} className="prose" /></div>}
@@ -111,21 +113,26 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
       </div>
       {gate ? (
         <div className={`desk-calls${call ? ' is-call' : ''}`}>
-          <button type="button" className={`btn desk-call-reply${call ? ' btn-lg' : ' btn-quiet'}`} onClick={() => press('guidance')} title="Ask or tell the Foreman something without deciding: nothing is approved (key: c).">
-            Reply <Kbd id="desk-reply" />
-          </button>
-          <button type="button" className={`btn desk-call-no${call ? ' btn-lg' : ''}`} onClick={() => press('revise')} title="No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).">
-            {call ? <>No go<span className="call-long">: send back</span></> : 'Send back'} <Kbd id="desk-send-back" />
-          </button>
-          <button
-            type="button"
-            className={`btn btn-primary desk-call-go${call ? ' btn-lg' : ''}`}
-            disabled={go.off || go.asks}
+          <Button kind="quiet" keyId="desk-reply" className="desk-call-reply" onClick={() => press('guidance')} title="Ask or tell the Foreman something without deciding: nothing is approved (key: c).">
+            Reply
+          </Button>
+          <Button keyId="desk-send-back" className="desk-call-no" onClick={() => press('revise')} title="No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).">
+            {call ? <>No go<span className="call-long">: send back</span></> : 'Send back'}
+          </Button>
+          {/* Go is on whenever the card's own Approve is: with questions it sends your answers too, but
+              the a key never answers a question, so it shows no key then. */}
+          <Button
+            kind="primary"
+            size="lg"
+            keyId={go.asks ? undefined : 'desk-approve'}
+            keyShown
+            className="desk-call-go"
+            disabled={go.off}
             onClick={() => press('approve')}
-            title={go.asks ? 'Answer the questions on the card first: a for go never answers a question.' : go.off ? 'Go is off for now: the card says why.' : `${goWords} (key: a).`}
+            title={go.off ? 'Go is off for now: the card says why.' : go.asks ? `${goWords}, with your answers to the questions on the card. The a key never answers a question.` : `${goWords} (key: a).`}
           >
-            {call ? <>Go<span className="call-long">: {lowerFirst(goWords)}</span></> : goWords} <Kbd id="desk-approve" />
-          </button>
+            {call ? <>Go<span className="call-long">: {lowerFirst(goWords)}</span></> : goWords}
+          </Button>
         </div>
       ) : (
         <p className="muted">The Foreman is waiting for your reply. <a href={jobHref(job.slug)}>Open the job</a> to read its last message and answer in the message box.</p>
@@ -134,7 +141,24 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
   );
 }
 
-/** The whole queue, in a drawer from the side (One at a time). */
+/** The queue's rows: one button each, the current one marked (the drawer, and the column from 1280 px). */
+function QueueItems({ items, index, now, onPick }: { items: DeskEntry[]; index: number; now: Date; onPick(key: string): void }) {
+  return (
+    <>
+      {items.map((it, i) => (
+        <li key={it.key}>
+          <button type="button" className={`desk-item${i === index ? ' is-current' : ''}${isShipping(it) ? ' is-shipping' : ''}`} aria-current={i === index ? 'true' : undefined} onClick={() => onPick(it.key)}>
+            <span className="desk-item-top"><span className="hue-dot" style={jobHueStyle(it.slug)} aria-hidden="true" /><span className="desk-item-title">{it.title}</span></span>
+            <span className="desk-item-what">{it.what}</span>
+            {it.since && it.kind !== 'nudge' && <span className="desk-item-since muted">waiting {relativeTime(it.since, now)}</span>}
+          </button>
+        </li>
+      ))}
+    </>
+  );
+}
+
+/** The whole queue, in a drawer from the side (One at a time, under 1280 px). */
 function QueueDrawer({ items, index, now, onPick, onClose }: { items: DeskEntry[]; index: number; now: Date; onPick(key: string): void; onClose(): void }) {
   const list = useRef<HTMLOListElement>(null);
   useEffect(() => {
@@ -149,18 +173,10 @@ function QueueDrawer({ items, index, now, onPick, onClose }: { items: DeskEntry[
       <section className="drawer" role="dialog" aria-modal="true" aria-label="The queue">
         <header className="drawer-head">
           <h3>The queue · {items.length}</h3>
-          <button type="button" className="btn btn-quiet btn-icon" aria-label="Close the queue" onClick={onClose}><Icon name="x" /></button>
+          <Button kind="quiet" icon="x" iconOnly aria-label="Close the queue" onClick={onClose} />
         </header>
         <ol ref={list} className="drawer-list">
-          {items.map((it, i) => (
-            <li key={it.key}>
-              <button type="button" className={`desk-item${i === index ? ' is-current' : ''}`} aria-current={i === index ? 'true' : undefined} onClick={() => { onPick(it.key); onClose(); }}>
-                <span className="desk-item-top"><span className="desk-item-title">{it.title}</span></span>
-                <span className="desk-item-what">{it.what}</span>
-                {it.since && it.kind !== 'nudge' && <span className="desk-item-since muted">waiting {relativeTime(it.since, now)}</span>}
-              </button>
-            </li>
-          ))}
+          <QueueItems items={items} index={index} now={now} onPick={(key) => { onPick(key); onClose(); }} />
         </ol>
       </section>
     </div>
@@ -204,9 +220,9 @@ function DeskGate({ job, now, briefOpen, toggleBrief }: { job: Job; now: Date; b
         <section className="desk-brief" aria-label={label}>
           <header className="desk-brief-head">
             <h4>{label}</h4>
-            <button type="button" className="btn btn-quiet" aria-expanded={briefOpen} onClick={toggleBrief} title={briefOpen ? 'Hide the Foreman’s brief (key: b).' : 'Read the Foreman’s latest brief in full (key: b).'}>
-              {briefOpen ? 'Hide the brief' : 'Show the brief'} <Kbd id="desk-brief" />
-            </button>
+            <Button kind="quiet" keyId="desk-brief" aria-expanded={briefOpen} onClick={toggleBrief} title={briefOpen ? 'Hide the Foreman’s brief (key: b).' : 'Read the Foreman’s latest brief in full (key: b).'}>
+              {briefOpen ? 'Hide the brief' : 'Show the brief'}
+            </Button>
           </header>
           {briefOpen && <ServerHtml html={brief.html} className="prose" />}
         </section>
@@ -232,18 +248,18 @@ function NudgeCard({ item, busy, error, onYes, onDismiss }: { item: NudgeItem; b
       <p className="desk-nudge-text">{n.text}</p>
       <div className="perm-actions">
         {n.action && (
-          <button type="button" className="btn btn-primary" disabled={busy} onClick={onYes} title={`Yes: the Foreman gets “${n.action.send}” and takes it from there.`}>
-            Yes, ask the Foreman<Kbd id="desk-approve" />
-          </button>
+          <Button kind="primary" keyId="desk-approve" keyShown busy={busy} onClick={onYes} title={`Yes: the Foreman gets “${n.action.send}” and takes it from there.`}>
+            Yes, ask the Foreman
+          </Button>
         )}
         {n.link && (
-          <a className={`btn${n.action ? '' : ' btn-primary'} desk-nudge-link`} href={n.link} target="_blank" rel="noopener noreferrer" title="Open it on GitHub, in a new tab (key: o). The dashboard never merges or approves anything itself.">
-            Open on GitHub<Kbd id="desk-open" />
-          </a>
+          <Button kind={n.action ? 'secondary' : 'primary'} keyId="desk-open" keyShown={!n.action} icon="external" className="desk-nudge-link" href={n.link} target="_blank" rel="noopener noreferrer" title="Open it on GitHub, in a new tab (key: o). The dashboard never merges or approves anything itself.">
+            Open on GitHub
+          </Button>
         )}
-        <button type="button" className="btn btn-quiet" disabled={busy} onClick={onDismiss} title="Put this nudge away for this job. It doesn’t come back; the job is unchanged.">
-          Not now<Kbd id="desk-deny" />
-        </button>
+        <Button kind="quiet" keyId="desk-deny" disabled={busy} onClick={onDismiss} title="Put this nudge away for this job. It doesn’t come back; the job is unchanged.">
+          Not now
+        </Button>
       </div>
       {error && <p className="field-problem" role="alert">{error}</p>}
     </section>
@@ -400,6 +416,10 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
   });
 
   const onPanelClick = (e: ReactMouseEvent) => pressed(buttonWords(e.target));
+  // One at a time from 1280 px: the queue is a column on the left; from 1440 px the job's facts and
+  // Decided today are a column on the right (packet R). Narrower, the queue is a drawer.
+  const wide = useMinWidth(1280);
+  const sideOn = useMinWidth(1440);
 
   if (!items.length && layout === 'one') {
     return (
@@ -408,7 +428,7 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
           icon="circle-check"
           quiet
           title="Desk clear"
-          actions={<a className="btn btn-primary btn-lg" href={hrefFor({ name: 'home' })} title="Every job, in four lanes (keys: g j).">See all jobs <kbd className="kbd key-hint" aria-hidden="true">g j</kbd></a>}
+          actions={<Button kind="primary" size="lg" href={hrefFor({ name: 'home' })} title="Every job, in four lanes (keys: g j).">See all jobs <KeyText keys="g j" shown /></Button>}
         >
           {play?.on && <CrewMember type="conductor" state="celebrating" size={96} label="" />}
           <p>The crew carries on with your decisions. Go-aheads, questions and permissions land here as they come.</p>
@@ -421,8 +441,20 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
   if (layout === 'one') {
     const call = Boolean(play?.on);
     return (
-      <div className="desk-one">
-        <div className="desk-qbar">
+      <div className={`desk-one${wide ? ' is-wide' : ''}${sideOn ? ' has-side' : ''}`}>
+        {wide && (
+          <nav className="desk-queue-col" aria-label="The queue">
+            <header className="desk-queue-head">
+              <h3>Waiting for you</h3>
+              <span className="desk-queue-count num">{index + 1} of {items.length}</span>
+            </header>
+            <ol className="desk-queue-list">
+              <QueueItems items={items} index={index} now={now} onPick={setCurrentKey} />
+            </ol>
+          </nav>
+        )}
+        <div className="desk-one-main">
+        {!wide && <div className="desk-qbar">
           <span className="desk-dots" aria-hidden="true">
             {items.slice(0, DOTS).map((it, i) => <span key={it.key} className={`desk-dot${i === index ? ' is-current' : ''}`} />)}
             {items.length > DOTS && <span className="desk-dots-more">+{items.length - DOTS}</span>}
@@ -430,19 +462,19 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
           <b>{index + 1} of {items.length}</b>
           <span className="muted desk-qbar-words">waiting for you</span>
           <span className="spacer" />
-          <button type="button" className="btn btn-quiet" aria-haspopup="dialog" aria-expanded={queueOpen} onClick={() => setQueueOpen(true)} title="The whole queue, oldest first (j and k move through it here).">
-            <Icon name="list" size={16} /> Queue
-          </button>
-        </div>
+          <Button kind="quiet" icon="list" aria-haspopup="dialog" aria-expanded={queueOpen} onClick={() => setQueueOpen(true)} title="The whole queue, oldest first (j and k move through it here).">
+            Queue
+          </Button>
+        </div>}
         <section className={`desk-console${call && current?.kind === 'gate' ? ' is-call' : ''}`} aria-label={current ? `${current.title}: ${current.what}` : 'Decision'} ref={panel} tabIndex={-1} onClickCapture={onPanelClick}>
           {current && (
             <>
               <header className="desk-console-head">
                 <span className="desk-console-title">{current.title}</span>
-                {typeof job?.ticket === 'object' && job?.ticket && 'key' in job.ticket && <span className="chip">{String((job.ticket as { key: unknown }).key)}</span>}
+                {typeof job?.ticket === 'object' && job?.ticket && 'key' in job.ticket && <Chip className="num">{String((job.ticket as { key: unknown }).key)}</Chip>}
                 <span className="spacer" />
-                {current.since && current.kind !== 'nudge' && <span className="muted">waiting {relativeTime(current.since, now)}</span>}
-                <a className="btn btn-quiet" href={jobHref(current.slug)} title="Open the whole job: its stops, documents and conversation (key: o).">Open the job <Kbd id="desk-open" /></a>
+                {current.since && current.kind !== 'nudge' && <span className="muted desk-waiting">waiting {relativeTime(current.since, now)}</span>}
+                <Button kind="quiet" size="sm" keyId="desk-open" iconOnly={false} href={jobHref(current.slug)} title="Open the whole job: its stops, documents and conversation (key: o).">Open the job</Button>
               </header>
               {job && current.kind !== 'nudge' && <StopMap job={job} />}
               {current.kind === 'gate' && (job
@@ -456,8 +488,10 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
             </>
           )}
         </section>
-        <DecidedFold />
-        {queueOpen && <QueueDrawer items={items} index={index} now={now} onPick={setCurrentKey} onClose={closeQueue} />}
+        {!sideOn && <DecidedFold />}
+        </div>
+        {sideOn && <DeskSide job={job} />}
+        {queueOpen && !wide && <QueueDrawer items={items} index={index} now={now} onPick={setCurrentKey} onClose={closeQueue} />}
       </div>
     );
   }
@@ -502,7 +536,7 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
             <header className="desk-current-head">
               <span className="muted">{index + 1} of {items.length}</span>
               <h3>{current.title}</h3>
-              <a className="btn btn-quiet" href={jobHref(current.slug)} title="Open the whole job: its conversation, documents and options (key: o).">Open the job <Kbd id="desk-open" /></a>
+              <Button kind="quiet" keyId="desk-open" href={jobHref(current.slug)} title="Open the whole job: its conversation, documents and options (key: o).">Open the job</Button>
             </header>
             {current.kind === 'gate' && (job
               ? <DeskGate key={current.key} job={job} now={now} briefOpen={briefOpen} toggleBrief={() => setBriefOpen((o) => !o)} />

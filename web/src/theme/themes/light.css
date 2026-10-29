@@ -34,7 +34,7 @@ html[data-theme="light"] {
   --accent-strong: oklch(.42 .18 275);
   --accent-soft: oklch(.52 .2 274 / .1);
   --on-accent: oklch(.995 0 0);
-  --focus-ring: oklch(.55 .2 274 / .55);
+  --focus-ring: oklch(.55 .2 274);
   --btn-primary-bg: oklch(.52 .2 274);
   --btn-primary-fg: oklch(.995 0 0);
 
@@ -51,6 +51,7 @@ html[data-theme="light"] {
   --status-paused: oklch(.46 0 0);
   --status-paused-bg: oklch(.5 0 0 / .1);
   --needs-solid: oklch(.76 .16 72);
+  --on-needs: oklch(.25 .05 60);
   --job-hue-l: .5;
   --job-hue-c: .14;
 
@@ -93,14 +94,14 @@ html[data-theme="light"] {
   --group-done-bg: var(--status-ok-bg);
   --group-done-line: var(--status-ok);
   --ask-permission-fg: var(--text-2);
-  --ask-permission-bg: var(--bg-2);
-  --ask-permission-line: var(--accent);
+  --ask-permission-bg: var(--bg-0);
+  --ask-permission-line: var(--border-2);
   --ask-question-fg: var(--text-2);
-  --ask-question-bg: var(--bg-2);
-  --ask-question-line: var(--accent);
+  --ask-question-bg: var(--bg-0);
+  --ask-question-line: var(--border-2);
   --ask-hardline-fg: var(--text-2);
-  --ask-hardline-bg: var(--bg-2);
-  --ask-hardline-line: var(--accent);
+  --ask-hardline-bg: var(--bg-0);
+  --ask-hardline-line: var(--status-error);
   --ask-blocked-fg: var(--text-3);
   --ask-blocked-bg: transparent;
   --ask-blocked-line: var(--border-2);

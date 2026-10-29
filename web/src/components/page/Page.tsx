@@ -193,6 +193,22 @@ function Guide({ spec, onClose }: { spec: GuideSpec; onClose: () => void }) {
 // ---------- Phone width ----------
 
 export const NARROW = '(max-width: 760px)';
+
+const media = (q: string) => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(q) : null);
+
+/**
+ * True while the window is at least `px` wide, live as it changes (false where it can't be asked, as
+ * in tests). Wide windows get more columns, not wider ones (packet R): the Job page's side column
+ * and the Desk's queue column from 1280 px, the Desk's job column from 1440 px.
+ */
+export function useMinWidth(px: number): boolean {
+  const q = `(min-width: ${px}px)`;
+  return useSyncExternalStore(
+    (fn) => { const m = media(q); m?.addEventListener('change', fn); return () => m?.removeEventListener('change', fn); },
+    () => media(q)?.matches ?? false,
+    () => false,
+  );
+}
 const narrowList = () => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(NARROW) : null);
 
 /** True at phone width (the same 760 px as the CSS), live as the window changes. */

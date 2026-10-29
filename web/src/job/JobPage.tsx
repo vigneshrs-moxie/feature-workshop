@@ -10,14 +10,16 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type 
 import type { Job, JobDocEntry, StopId } from '../api/types';
 import { jobHref, navigate, screensHref, stageHref } from '../app/router';
 import { useUi } from '../app/ui';
+import { Button } from '../components/Button';
+import { Chip } from '../components/Chip';
 import { Icon, type IconName } from '../components/Icon';
-import { Kbd } from '../components/Kbd';
-import { Fold, NextBar, Page, useNarrow, type GuideSpec, type NextTone } from '../components/page/Page';
+import { Fold, NextBar, Page, useMinWidth, useNarrow, type GuideSpec, type NextTone } from '../components/page/Page';
 import { PermissionAlert } from '../components/permissions/PermissionAlert';
 import { StopMap } from '../components/stops/StopMap';
 import { STOPS, stopOf } from '../components/stops/stops';
-import { laneOf, LANE_INFO, stateChip } from '../home/JobsPage';
-import { useNow } from '../lib/time';
+import { chipTone, laneOf, LANE_INFO, stateChip } from '../home/JobsPage';
+import { jobFacts, whereLine } from '../home/nudges';
+import { relativeTime, useNow } from '../lib/time';
 import { EvidenceStrip } from '../panes/Foreman/EvidenceStrip';
 import { ThreadList, useCurrentJob, useJobConversation } from '../panes/Foreman/ForemanPane';
 import { Composer } from '../panes/Foreman/Composer';
@@ -159,18 +161,24 @@ function JobView({ job }: { job: Job }) {
 
   const ticket = ticketOf(job);
   const messages = thread.items.length;
+  const messagesNote = messages ? `${messages} ${messages === 1 ? 'message' : 'messages'}` : undefined;
   const stacks = useStackIndex(); // a stack's part says which stack it belongs to (packet K2)
+  // From 1280 px the page is two columns (packet R): the next step, the brief and the tabs on the
+  // left; the conversation and the message box, who is working and the job's details on the right,
+  // staying in view as the left one scrolls. Narrower, one column as before.
+  const wide = useMinWidth(1280);
+  const thread_ = <ThreadList job={job} conversation={conversation} now={now} cards={false} />;
   return (
     <Page
       label="Job"
       title={job.title || job.slug}
-      className={`page-job play-${play.mode}`}
+      className={`page-job play-${play.mode}${wide ? ' is-wide' : ''}`}
       guide={JOB_GUIDE}
       head={(
         <>
-          {ticket && <span className="chip num">{ticket}</span>}
+          {ticket && <Chip className="num">{ticket}</Chip>}
           <PartOfStack slug={job.slug} index={stacks} />
-          <span className={`chip state-chip is-${lane}`} title={LANE_INFO[lane].hint}><Icon name={chip.icon} size={14} /> {chip.word}</span>
+          <Chip tone={chipTone(lane, chip.word)} icon={chip.icon} className={`state-chip is-${lane}`} title={LANE_INFO[lane].hint}>{chip.word}</Chip>
           <LevelChip job={job} ready={Boolean(thread.detail)} />
           <span className="spacer" />
           <JobMenu job={job} dir={thread.detail?.dir} policyOverride={thread.detail?.policyOverride} run={run} worktree={thread.detail?.worktree} gear />
@@ -181,13 +189,56 @@ function JobView({ job }: { job: Job }) {
         <StopMap job={{ ...job, lane }} hrefFor={(s) => stageHref(job.slug, s)} faces={play.full && !narrow} label="The job’s stops: each opens who works on it" />
       </section>
       <StackSuggestion job={job} index={stacks} />
-      <NextStep job={job} conversation={conversation} now={now} onShip={() => setTab('ship')} />
-      <JobTabs job={job} tab={tab} onTab={setTab} narrow={narrow} tryOpen={tryOpen} onTry={setTryOpen} docs={{ focusRequest: ui.docsRequest, requestFile: ui.docsFile, replay }} />
-      <Fold icon="message" name="Conversation" note={messages ? `${messages} ${messages === 1 ? 'message' : 'messages'}` : undefined} id={`job-convo-${job.slug}`}>
-        <ThreadList job={job} conversation={conversation} now={now} cards={false} />
-      </Fold>
-      <Composer key={job.slug} slug={job.slug} detail={thread.detail} run={run} />
+      <div className="job-layout">
+        <div className="job-main">
+          <NextStep job={job} conversation={conversation} now={now} onShip={() => setTab('ship')} />
+          <JobTabs job={job} tab={tab} onTab={setTab} narrow={narrow} tryOpen={tryOpen} onTry={setTryOpen} docs={{ focusRequest: ui.docsRequest, requestFile: ui.docsFile, replay }} />
+        </div>
+        <aside className="job-side" aria-label="The conversation and the job">
+          {wide ? (
+            <section className="job-convo" aria-label="Conversation">
+              <header className="job-side-head"><Icon name="message" size={16} /><h3>Conversation</h3>{messagesNote && <span className="muted">· {messagesNote}</span>}</header>
+              <div className="job-convo-thread">{thread_}</div>
+              <Composer key={job.slug} slug={job.slug} detail={thread.detail} run={run} />
+            </section>
+          ) : (
+            <>
+              <Fold icon="message" name="Conversation" note={messagesNote} id={`job-convo-${job.slug}`}>{thread_}</Fold>
+              <Composer key={job.slug} slug={job.slug} detail={thread.detail} run={run} />
+            </>
+          )}
+          {wide && <JobFacts job={job} now={now} />}
+        </aside>
+      </div>
     </Page>
+  );
+}
+
+/** Who is working on the job now, and its facts and where its work is (the wide Job page's side). */
+function JobFacts({ job, now }: { job: Job; now: Date }) {
+  const crew = job.nowDoing ?? [];
+  return (
+    <section className="job-side-card" aria-label="This job">
+      {crew.length > 0 && (
+        <div className="job-side-group">
+          <h4 className="eyebrow">Working now</h4>
+          <ul className="job-crew">
+            {crew.map((c, i) => (
+              <li key={`${c.who}-${i}`}>
+                <span className="job-crew-who">{c.name || c.who}</span>
+                {c.doing && <span className="muted job-crew-doing">{c.doing}</span>}
+                {c.since && <time className="muted num" dateTime={c.since}>{relativeTime(c.since, now)}</time>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="job-side-group">
+        <h4 className="eyebrow">This job</h4>
+        <p className="job-facts-line">{jobFacts(job).map((f, i) => <span key={i}>{f}</span>)}</p>
+        <p className="job-where" title="Where the job’s work is, from the finish line and its PRs.">{whereLine(job)}</p>
+      </div>
+    </section>
   );
 }
 
@@ -244,18 +295,22 @@ function GoBar({ job, detail, now, reload, call }: { job: Job; detail: NonNullab
         say={gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead'}
         sub={gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason}
       >
-        <button type="button" className="btn btn-lg" disabled={go.backOff} onClick={() => press('revise')} title={go.backOff ? 'Off for now: the card under this says why.' : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
-          {call ? 'No go: send back' : 'Send back'} <Kbd id="gate-revise" />
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary btn-lg"
-          disabled={go.off || go.asks}
+        <Button size="lg" keyId="gate-revise" disabled={go.backOff} onClick={() => press('revise')} title={go.backOff ? 'Off for now: the card under this says why.' : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
+          {call ? 'No go: send back' : 'Send back'}
+        </Button>
+        {/* Go is on whenever the card's own Approve is: with questions it sends your answers too (the
+            picked ones show under this), but the a key never answers a question, so it shows no key. */}
+        <Button
+          kind="primary"
+          size="lg"
+          keyId={go.asks ? undefined : 'gate-approve'}
+          keyShown
+          disabled={go.off}
           onClick={() => press('approve')}
-          title={go.asks ? 'Answer the questions under this first: a for go never answers a question.' : go.off ? 'Go is off for now: the card under this says why.' : `${goWords} (key: a).`}
+          title={go.off ? 'Go is off for now: the card under this says why.' : go.asks ? `${goWords}, with your answers to the questions under this. The a key never answers a question.` : `${goWords} (key: a).`}
         >
-          {call ? `Go: ${lowerFirst(goWords)}` : goWords} <Kbd id="gate-approve" />
-        </button>
+          {call ? `Go: ${lowerFirst(goWords)}` : goWords}
+        </Button>
       </NextBar>
       <div ref={body} className="job-gate-body">
         <GateSlot job={job} detail={detail} now={now} reload={reload} callsOutside />
@@ -273,11 +328,11 @@ function StateBar({ job, onShip }: { job: Job; onShip?: () => void }) {
   let icon: IconName = 'clock';
   let say = 'Nothing to do right now';
   let sub: string | null | undefined = doing ?? job.laneReason;
-  let action: ReactNode = <button type="button" className="btn btn-primary btn-lg" disabled title="Greyed until there is something to approve.">{at ? STOP_ACTION[at] : 'Approve'}</button>;
+  let action: ReactNode = <Button size="lg" disabled title="Greyed until there is something to approve.">{at ? STOP_ACTION[at] : 'Approve'}</Button>;
   const prs = onShip
-    ? <button type="button" className="btn btn-primary btn-lg" onClick={onShip} title="The pull requests and what waits on them.">See the pull requests</button>
-    : <a className="btn btn-primary btn-lg" href={jobHref(job.slug)} title="The job’s page: its Ship tab has the pull requests.">See the pull requests</a>;
-  const write = <button type="button" className="btn btn-primary btn-lg" onClick={() => document.querySelector<HTMLTextAreaElement>('[data-composer-input]')?.focus()} title="Write to the Foreman (key: c).">Reply <Kbd id="write" /></button>;
+    ? <Button kind="primary" size="lg" onClick={onShip} title="The pull requests and what waits on them.">See the pull requests</Button>
+    : <Button kind="primary" size="lg" href={jobHref(job.slug)} title="The job’s page: its Ship tab has the pull requests.">See the pull requests</Button>;
+  const write = <Button kind="primary" size="lg" keyId="write" keyShown onClick={() => document.querySelector<HTMLTextAreaElement>('[data-composer-input]')?.focus()} title="Write to the Foreman (key: c).">Reply</Button>;
   if (job.closed) {
     tone = 'quiet'; icon = 'circle-check';
     say = job.closed.as === 'done' ? 'This job is marked done' : 'This job was dropped';
@@ -369,7 +424,7 @@ function TabBody({ job, tab, tryOpen, onTry, docs }: { job: Job; tab: JobTab; tr
     case 'spec':
       return (
         <>
-          {job.wireframes && <p><a className="btn" href={screensHref(slug)} title="The feature’s screens, full width: mark each one, pick the design choices, and Copy feedback puts your notes in your reply."><Icon name="eye" size={16} /> Review the screens</a></p>}
+          {job.wireframes && <p><Button icon="eye" href={screensHref(slug)} title="The feature’s screens, full width: mark each one, pick the design choices, and Copy feedback puts your notes in your reply.">Review the screens</Button></p>}
           <DocsTab key="spec" {...docs} slug={slug} section="plan" pick={isSpecDoc} changedAt={changed} />
         </>
       );

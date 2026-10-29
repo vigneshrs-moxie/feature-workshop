@@ -68,14 +68,14 @@
   --group-done-bg: var(--status-ok-bg);
   --group-done-line: var(--status-ok);
   --ask-permission-fg: var(--text-2);
-  --ask-permission-bg: var(--bg-2);
-  --ask-permission-line: var(--accent);
+  --ask-permission-bg: var(--bg-1);
+  --ask-permission-line: var(--border-2);
   --ask-question-fg: var(--text-2);
-  --ask-question-bg: var(--bg-2);
-  --ask-question-line: var(--accent);
+  --ask-question-bg: var(--bg-1);
+  --ask-question-line: var(--border-2);
   --ask-hardline-fg: var(--text-2);
-  --ask-hardline-bg: var(--bg-2);
-  --ask-hardline-line: var(--accent);
+  --ask-hardline-bg: var(--bg-1);
+  --ask-hardline-line: var(--status-error);
   --ask-blocked-fg: var(--text-3);
   --ask-blocked-bg: transparent;
   --ask-blocked-line: var(--border-2);
@@ -100,7 +100,7 @@
   --lane-working-bg: transparent;
   --lane-working-line: var(--border-2);
   --lane-needs-you-fg: var(--status-warn);
-  --lane-needs-you-bg: var(--status-warn-bg);
+  --lane-needs-you-bg: oklch(.8 .15 82 / .09);
   --lane-needs-you-line: var(--status-warn);
   --lane-in-review-fg: var(--text-2);
   --lane-in-review-bg: transparent;
@@ -128,6 +128,7 @@
   --elev-md: var(--shadow-md);
   --elev-lg: var(--shadow-lg);
   --needs-solid: var(--status-warn);
+  --on-needs: var(--bg-0);
   --crew-c-amber: oklch(.8 .12 100);
   --crew-c-amber-deep: oklch(.64 .11 98);
   --crew-gold: oklch(.79 .13 102);
@@ -1089,7 +1090,7 @@
   --accent-strong: oklch(.42 .18 275);
   --accent-soft: oklch(.52 .2 274 / .1);
   --on-accent: oklch(.995 0 0);
-  --focus-ring: oklch(.55 .2 274 / .55);
+  --focus-ring: oklch(.55 .2 274);
   --btn-primary-bg: oklch(.52 .2 274);
   --btn-primary-fg: oklch(.995 0 0);
   --status-ok: oklch(.45 .13 155);
@@ -1103,6 +1104,7 @@
   --status-paused: oklch(.46 0 0);
   --status-paused-bg: oklch(.5 0 0 / .1);
   --needs-solid: oklch(.76 .16 72);
+  --on-needs: oklch(.25 .05 60);
   --job-hue-l: .5;
   --job-hue-c: .14;
   --shadow-1: 0 1px 2px oklch(.25 .02 260 / .06), 0 2px 8px oklch(.25 .02 260 / .06);
@@ -1142,14 +1144,14 @@
   --group-done-bg: var(--status-ok-bg);
   --group-done-line: var(--status-ok);
   --ask-permission-fg: var(--text-2);
-  --ask-permission-bg: var(--bg-2);
-  --ask-permission-line: var(--accent);
+  --ask-permission-bg: var(--bg-0);
+  --ask-permission-line: var(--border-2);
   --ask-question-fg: var(--text-2);
-  --ask-question-bg: var(--bg-2);
-  --ask-question-line: var(--accent);
+  --ask-question-bg: var(--bg-0);
+  --ask-question-line: var(--border-2);
   --ask-hardline-fg: var(--text-2);
-  --ask-hardline-bg: var(--bg-2);
-  --ask-hardline-line: var(--accent);
+  --ask-hardline-bg: var(--bg-0);
+  --ask-hardline-line: var(--status-error);
   --ask-blocked-fg: var(--text-3);
   --ask-blocked-bg: transparent;
   --ask-blocked-line: var(--border-2);
@@ -1379,6 +1381,14 @@
   --chart-8: oklch(.55 .15 345);
   background-color: var(--glass-day);
   background-image: var(--glass-aurora);
+}
+
+.theme-swatch[data-theme="light-glass"] {
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --card-radius: 12px;
+  --chip-radius: 999px;
 }
 
 .theme-swatch[data-theme="crt"] {

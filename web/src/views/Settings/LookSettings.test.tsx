@@ -52,14 +52,14 @@ describe('Settings → Look', () => {
     expect(buttons.map((b) => b.textContent)).toEqual(['S', 'M', 'L', 'XL']);
     expect(within(group).getByRole('button', { name: 'M' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText(/The quick brown fox/)).toBeInTheDocument();
-    expect(screen.getByText(/Medium: body text 13 px/)).toBeInTheDocument();
+    expect(screen.getByText(/Medium: body text 14 px/)).toBeInTheDocument();
 
     fireEvent.click(within(group).getByRole('button', { name: 'XL' }));
     expect(document.documentElement.getAttribute('data-text')).toBe('xl');
     expect(localStorage.getItem(TEXT_SIZE_KEY)).toBe('xl');
     expect(within(group).getByRole('button', { name: 'XL' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(group).getByRole('button', { name: 'M' })).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByText(/Extra large: body text 16.3 px/)).toBeInTheDocument();
+    expect(screen.getByText(/Extra large: body text 17.5 px/)).toBeInTheDocument();
     expect(screen.getByText(/The quick brown fox/)).toHaveAttribute('data-size', 'xl');
   });
 

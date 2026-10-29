@@ -602,3 +602,6 @@ html[data-theme="blueprint"] {
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
 }
+
+/* Packet R: inside the Desk's card the gate card is unframed, so its decoration is not drawn there. */
+html[data-theme="blueprint"] .desk-console .gate-card::before { display: none; }

@@ -21,4 +21,11 @@ html[data-theme="default"] {
   --elev-lg: var(--shadow-lg);
   --hover-bg: var(--bg-2);
   --accent-soft: oklch(.7 .15 275 / .14);
+  --lane-needs-you-bg: oklch(.8 .15 82 / .09);
+  --ask-permission-bg: var(--bg-1);
+  --ask-permission-line: var(--border-2);
+  --ask-question-bg: var(--bg-1);
+  --ask-question-line: var(--border-2);
+  --ask-hardline-bg: var(--bg-1);
+  --ask-hardline-line: var(--status-error);
 }

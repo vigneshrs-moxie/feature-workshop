@@ -1,11 +1,12 @@
-/* Daylight: the calm layer shared by the two light themes, Light and Light glass. Loaded after both
+/* Daylight: the calm layer of Light glass (it was shared with Light until packet R, which drew Light's
+   calm look into the shared controls and surfaces themselves). Loaded after both
    theme files, so it settles what they leave busy. It borrows a studio's drafting-table manner:
    IBM Plex for words and for paths and branches (Light glass only since packet R); small upper-case section labels with air between
    the letters; flat, tinted panels instead of boxes inside boxes; hairline rules rather than borders
    on every side; rounded pills for kinds of thing; the accent kept for the one main action and the
    open job. Looks only, as every theme (theme/THEMING.md): nothing moves, hides or changes meaning.
 
-   Every rule is under :is(html[data-theme="light"], html[data-theme="light-glass"]). Light glass
+   Every rule is under html[data-theme="light-glass"]. Light glass
    keeps its aurora and frosted panes; this file only quietens what sits on them. */
 
 @font-face { font-family: 'IBM Plex Sans'; src: url('/fonts/ibm-plex-sans-latin-400-normal.woff2') format('woff2'); font-weight: 400; font-display: swap; }
@@ -22,21 +23,20 @@ html[data-theme="light-glass"] {
   --card-radius: 12px;
   --chip-radius: 999px;
 }
-/* Light (the default, packet R) keeps the app's UI font, 6 px chips, its own white page and the
-   shared controls (components/controls.css); only the calm layout rules below apply to it. */
+
 
 /* ---- Type: one family, quiet weights, labels in small capitals ---- */
 html[data-theme="light-glass"] body { font-family: var(--font-sans); letter-spacing: 0; }
 html[data-theme="light-glass"] :is(code, kbd, pre, .num, .inline-code, .kbd, .job-row-time, .doc-time, .thread-time) { font-family: var(--font-mono); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) :is(.pane-title, .job-title, .brand) { font-weight: 600; letter-spacing: -.005em; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .pane-title:not(.job-title) { font-size: var(--text-xs); color: var(--text-2); text-transform: uppercase; letter-spacing: .12em; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) :is(.job-group-title, .doc-group-title) { font-size: 11px; font-weight: 600; letter-spacing: .12em; color: var(--text-3); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .job-group-title[data-group="needs-you"] { color: var(--group-needs-you-fg); }
+html[data-theme="light-glass"] :is(.pane-title, .job-title, .brand) { font-weight: 600; letter-spacing: -.005em; }
+html[data-theme="light-glass"] .pane-title:not(.job-title) { font-size: var(--text-xs); color: var(--text-2); text-transform: uppercase; letter-spacing: .12em; }
+html[data-theme="light-glass"] :is(.job-group-title, .doc-group-title) { font-size: 11px; font-weight: 600; letter-spacing: .12em; color: var(--text-3); }
+html[data-theme="light-glass"] .job-group-title[data-group="needs-you"] { color: var(--group-needs-you-fg); }
 
 /* ---- Top bar: a flat strip with one hairline; controls are words until hovered ---- */
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .topbar { border-bottom: 1px solid var(--border-1); box-shadow: none; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .topbar .btn:not(.btn-primary) { border-color: transparent; background: transparent; box-shadow: none; color: var(--text-2); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .topbar .btn:not(.btn-primary):hover { background: var(--bg-2); color: var(--text-1); }
+html[data-theme="light-glass"] .topbar { border-bottom: 1px solid var(--border-1); box-shadow: none; }
+html[data-theme="light-glass"] .topbar .btn:not(.btn-primary) { border-color: transparent; background: transparent; box-shadow: none; color: var(--text-2); }
+html[data-theme="light-glass"] .topbar .btn:not(.btn-primary):hover { background: var(--bg-2); color: var(--text-1); }
 
 /* ---- Controls (Light glass only; Light uses the shared controls): soft fills, no outline box unless it's a field ---- */
 html[data-theme="light-glass"] .btn { border-radius: 8px; font-weight: 500; }
@@ -47,46 +47,46 @@ html[data-theme="light-glass"] .kbd { border-color: var(--border-1); background:
 html[data-theme="light-glass"] :is(.text-input, .text-area, .select) { border-radius: 10px; border-color: var(--border-2); box-shadow: none; }
 
 /* ---- Jobs list: rows are text on the pane, the open one a tinted bar ---- */
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .job-row { border-color: transparent; border-radius: 10px; background: transparent; box-shadow: none; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .job-row:hover { background: var(--bg-2); border-color: transparent; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .job-row[data-group="needs-you"] { background: transparent; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .job-row[aria-current='page'],
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .job-row[data-group="needs-you"][aria-current='page'] { border-color: transparent; background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .job-row .chip { padding: 0 6px; font-size: 11px; }
+html[data-theme="light-glass"] .job-row { border-color: transparent; border-radius: 10px; background: transparent; box-shadow: none; }
+html[data-theme="light-glass"] .job-row:hover { background: var(--bg-2); border-color: transparent; }
+html[data-theme="light-glass"] .job-row[data-group="needs-you"] { background: transparent; }
+html[data-theme="light-glass"] .job-row[aria-current='page'],
+html[data-theme="light-glass"] .job-row[data-group="needs-you"][aria-current='page'] { border-color: transparent; background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+html[data-theme="light-glass"] .job-row .chip { padding: 0 6px; font-size: 11px; }
 
 /* ---- Cards: one flat white sheet with a hairline, no shadow, no second frame inside ---- */
-:is(html[data-theme="light"], html[data-theme="light-glass"]) :is(.reply, .brief-card, .live-row, .perm-card) { border: 1px solid var(--border-1); box-shadow: none; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .reply { padding: var(--space-3) var(--space-4); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .reply .who { font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .you { border-color: transparent; background: var(--accent-soft); box-shadow: none; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .prose { line-height: 1.6; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) :is(.prose code, .inline-code) { border: 0; background: var(--bg-2); padding: 0 4px; border-radius: 5px; font-size: .92em; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .how { border-color: transparent; background: var(--bg-1); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .composer :is(.text-area) { background: var(--bg-0); }
+html[data-theme="light-glass"] :is(.reply, .brief-card, .live-row, .perm-card) { border: 1px solid var(--border-1); box-shadow: none; }
+html[data-theme="light-glass"] .reply { padding: var(--space-3) var(--space-4); }
+html[data-theme="light-glass"] .reply .who { font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); }
+html[data-theme="light-glass"] .you { border-color: transparent; background: var(--accent-soft); box-shadow: none; }
+html[data-theme="light-glass"] .prose { line-height: 1.6; }
+html[data-theme="light-glass"] :is(.prose code, .inline-code) { border: 0; background: var(--bg-2); padding: 0 4px; border-radius: 5px; font-size: .92em; }
+html[data-theme="light-glass"] .how { border-color: transparent; background: var(--bg-1); }
+html[data-theme="light-glass"] .composer :is(.text-area) { background: var(--bg-0); }
 
 /* ---- Preview: underline tabs, file rows as a plain list ---- */
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .preview-tabs { border-bottom-color: var(--border-1); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .preview-tab { font-weight: 500; color: var(--text-3); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .preview-tab[aria-selected='true'] { color: var(--text-1); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .doc-item { border-radius: 8px; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .doc-version { border: 0; background: transparent; color: var(--text-3); font-family: var(--font-mono); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .job-github { border-color: transparent; background: var(--bg-1); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .job-github .ask-label { font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); }
+html[data-theme="light-glass"] .preview-tabs { border-bottom-color: var(--border-1); }
+html[data-theme="light-glass"] .preview-tab { font-weight: 500; color: var(--text-3); }
+html[data-theme="light-glass"] .preview-tab[aria-selected='true'] { color: var(--text-1); }
+html[data-theme="light-glass"] .doc-item { border-radius: 8px; }
+html[data-theme="light-glass"] .doc-version { border: 0; background: transparent; color: var(--text-3); font-family: var(--font-mono); }
+html[data-theme="light-glass"] .job-github { border-color: transparent; background: var(--bg-1); }
+html[data-theme="light-glass"] .job-github .ask-label { font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); }
 
 /* ---- Home and the Desk: sheets without frames; the needs-you bar stays, the boxes go ---- */
-:is(html[data-theme="light"], html[data-theme="light-glass"]) :is(.floor-foreman, .flow-repo, .desk-side-box) { border-color: var(--border-1); box-shadow: none; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .floor-foreman-face { border-width: 1px; border-color: var(--border-1); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .floor-ask { border: 0; border-radius: 10px; background: var(--bg-0); box-shadow: inset 3px 0 0 var(--group-needs-you-line); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .floor-ask:hover { background: var(--group-needs-you-bg); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .floor-eyebrow,
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .map-group-title { font-size: 11px; font-weight: 600; letter-spacing: .12em; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .home-views { border-color: transparent; background: var(--bg-2); border-radius: 10px; }
+html[data-theme="light-glass"] :is(.floor-foreman, .flow-repo, .desk-side-box) { border-color: var(--border-1); box-shadow: none; }
+html[data-theme="light-glass"] .floor-foreman-face { border-width: 1px; border-color: var(--border-1); }
+html[data-theme="light-glass"] .floor-ask { border: 0; border-radius: 10px; background: var(--bg-0); box-shadow: inset 3px 0 0 var(--group-needs-you-line); }
+html[data-theme="light-glass"] .floor-ask:hover { background: var(--group-needs-you-bg); }
+html[data-theme="light-glass"] .floor-eyebrow,
+html[data-theme="light-glass"] .map-group-title { font-size: 11px; font-weight: 600; letter-spacing: .12em; }
+html[data-theme="light-glass"] .home-views { border-color: transparent; background: var(--bg-2); border-radius: 10px; }
 html[data-theme="light-glass"] .home-seg-btn { border-color: transparent; border-radius: 999px; background: var(--bg-2); }
 html[data-theme="light-glass"] .home-seg-btn.is-on { border-color: transparent; background: var(--text-1); color: var(--bg-0); }
 html[data-theme="light-glass"] .home-seg-btn.is-on .count { color: inherit; opacity: .75; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .desk-item { border-color: transparent; background: transparent; }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .desk-item:hover { border-color: transparent; background: var(--bg-2); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .desk-item.is-current { border-color: transparent; background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .desk-brief .prose { border-color: var(--border-1); }
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .desk-side-box h4,
-:is(html[data-theme="light"], html[data-theme="light-glass"]) .desk-decided-title { font-size: 11px; font-weight: 600; letter-spacing: .12em; color: var(--text-3); }
+html[data-theme="light-glass"] .desk-item { border-color: transparent; background: transparent; }
+html[data-theme="light-glass"] .desk-item:hover { border-color: transparent; background: var(--bg-2); }
+html[data-theme="light-glass"] .desk-item.is-current { border-color: transparent; background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+html[data-theme="light-glass"] .desk-brief .prose { border-color: var(--border-1); }
+html[data-theme="light-glass"] .desk-side-box h4,
+html[data-theme="light-glass"] .desk-decided-title { font-size: 11px; font-weight: 600; letter-spacing: .12em; color: var(--text-3); }

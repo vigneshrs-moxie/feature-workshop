@@ -26,7 +26,7 @@ const labelOf = (id: string) => THEMES.find((t) => t.id === id)?.label ?? id;
 
 export function TextSizePicker() {
   const [size, setSize] = useTextSize();
-  const base = Math.round(13 * TEXT_SCALES[size] * 10) / 10;
+  const base = Math.round(14 * TEXT_SCALES[size] * 10) / 10; // body text is 14 px at Medium (packet R)
   return (
     <fieldset className="text-size" data-setting="text-size">
       <legend className="look-heading">Text size</legend>

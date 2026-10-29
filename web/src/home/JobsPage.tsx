@@ -12,8 +12,10 @@ import type { Job, JobLane } from '../api/types';
 import { useKeyScope } from '../app/keyRegistry';
 import { hrefFor, jobHref, navigate, stackHref } from '../app/router';
 import { useUi } from '../app/ui';
+import { Button } from '../components/Button';
+import { Chip, type ChipTone } from '../components/Chip';
 import { Icon, type IconName } from '../components/Icon';
-import { Kbd } from '../components/Kbd';
+import { KeyText } from '../components/Kbd';
 import { Fold, GuideCards, NextBar, Page, useNarrow, type GuideSpec } from '../components/page/Page';
 import { StopMap } from '../components/stops/StopMap';
 import { STOPS, stopOf } from '../components/stops/stops';
@@ -94,6 +96,14 @@ export function stateChip(job: Job, permissions?: readonly Permission[]): { word
   return { word: LANE_INFO[lane].word, icon: LANE_INFO[lane].icon };
 }
 
+/** The state chip's tint: needs you amber, working blue, paused grey, ready green, the rest neutral. */
+export function chipTone(lane: JobLane, word: string): ChipTone {
+  if (lane === 'needs-you') return 'needs-you';
+  if (lane === 'working') return word === 'Paused' ? 'neutral' : 'info';
+  if (lane === 'ready' || lane === 'done') return 'ok';
+  return 'neutral';
+}
+
 function JobCard({ job, now, play, review }: { job: Job; now: Date; play: 'full' | 'subtle' | 'off'; review?: ReviewView | null }) {
   const lane = laneOf(job);
   const { permissions } = useWorkshopState();
@@ -113,8 +123,8 @@ function JobCard({ job, now, play, review }: { job: Job; now: Date; play: 'full'
         ? <span className={`job-card-reason review-card-line is-${review.state}`}><Icon name={cardIcon(review.state)} size={14} /> {review.card.line}</span>
         : job.laneReason && <span className="job-card-reason">{job.laneReason}</span>}
       <div className="job-card-foot">
-        <span className={`chip state-chip is-${lane}`}><Icon name={chip.icon} size={14} /> {chip.word}</span>
-        {t && <span className="muted">{relativeTime(t, now)}</span>}
+        <Chip tone={chipTone(lane, chip.word)} icon={chip.icon} className={`state-chip is-${lane}`}>{chip.word}</Chip>
+        {t && <span className="muted job-card-time">{relativeTime(t, now)}</span>}
       </div>
     </li>
   );
@@ -160,7 +170,7 @@ export function JobsPage() {
 
   const bar = pick ? (
     <NextBar tone="stop" icon="hand" say={`${pick.title || pick.slug} needs you`} sub={`${reviews.get(pick.slug)?.desk?.headline ?? pick.laneReason ?? 'Waiting for you'}. ${needCount === 1 ? 'It is the only one.' : `${needCount} jobs need you. This one has waited longest.`}`}>
-      <a className="btn btn-primary btn-lg" href={jobHref(pick.slug)} title={`Open ${pick.title || pick.slug} (key: o).`}>Open <Kbd id="jobs-open" /></a>
+      <Button kind="primary" size="lg" keyId="jobs-open" keyShown href={jobHref(pick.slug)} title={`Open ${pick.title || pick.slug} (key: o).`}>Open</Button>
     </NextBar>
   ) : open.length ? (
     <NextBar tone="quiet" icon="circle-check" say="Nothing needs you right now" sub="The crew carries on; a job that needs you shows here first." />
@@ -185,7 +195,7 @@ export function JobsPage() {
           <header className="lane-head">
             <span className="lane-icon"><Icon name={LANE_INFO[l].icon} size={16} /></span>
             <h3 className="lane-word">{LANE_INFO[l].word}</h3>
-            <span className="lane-count">{byLane[l].length}</span>
+            <span className="lane-count num">{byLane[l].length}</span>
           </header>
           {byLane[l].length ? <Cards jobs={byLane[l]} now={now} play={play} stacks={stacks} reviews={reviews} /> : <p className="muted lane-empty">None right now.</p>}
         </section>
@@ -199,7 +209,7 @@ export function JobsPage() {
         const l = laneOf(j);
         return (
           <li key={j.slug} className={`jobs-list-row lane-${l}`}>
-            <span className={`chip state-chip is-${l}`}><Icon name={LANE_INFO[l].icon} size={14} /> {LANE_INFO[l].word}</span>
+            <Chip tone={chipTone(l, LANE_INFO[l].word)} icon={LANE_INFO[l].icon} className={`state-chip is-${l}`}>{LANE_INFO[l].word}</Chip>
             <a className="job-card-title" href={stacks.stackOf(j.slug) ? stackHref(j.slug) : jobHref(j.slug)}>{j.title || j.slug}</a>
             {stacks.stackOf(j.slug)
               ? <StepDots steps={stacks.stackOf(j.slug)!.steps} label="Stack" />
@@ -218,8 +228,8 @@ export function JobsPage() {
           <h3 className="hero-title">No jobs yet. Start one from a ticket.</h3>
           <GuideCards cards={JOBS_GUIDE.cards} />
           <div className="hero-actions jobs-empty-actions">
-            <a className="btn btn-primary btn-lg" href={hrefFor({ name: 'inbox' })} title="Your Orbit tickets (keys: g i).">Pick a ticket in the Inbox <kbd className="kbd key-hint" aria-hidden="true">g i</kbd></a>
-            <button type="button" className="btn btn-lg" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job of your own (key: c).">New job <Kbd id="new-job" /></button>
+            <Button kind="primary" size="lg" href={hrefFor({ name: 'inbox' })} title="Your Orbit tickets (keys: g i).">Pick a ticket in the Inbox <KeyText keys="g i" shown /></Button>
+            <Button keyId="new-job" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job of your own (key: c).">New job</Button>
           </div>
         </section>
       ) : (

@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FlowView, GithubLine as Line } from '../../api/types';
 import { useKeyScope } from '../../app/keyRegistry';
 import { Icon } from '../../components/Icon';
-import { Kbd } from '../../components/Kbd';
+import { Button } from '../../components/Button';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import './review.css';
 
@@ -96,13 +96,13 @@ export function GithubLine({ keys = true, className = '' }: { keys?: boolean; cl
         <span className="gh-line-words">{words}</span>
         {run && <code className="gh-line-run">{run}</code>}
         {run && (
-          <button type="button" className="btn btn-quiet gh-line-btn" onClick={() => void copy()} title={`Copy “${run}” to paste in a terminal.`}>
-            <Icon name="copy" size={14} /> {copied ? 'Copied' : 'Copy'}
-          </button>
+          <Button kind="quiet" size="sm" icon="copy" className="gh-line-btn" onClick={() => void copy()} title={`Copy “${run}” to paste in a terminal.`}>
+            {copied ? 'Copied' : 'Copy'}
+          </Button>
         )}
-        <button type="button" className="btn btn-quiet gh-line-btn" onClick={() => void check()} title="Read every repository’s pull requests on GitHub again (key: u). Nothing is written.">
-          Try again <Kbd id="github-check" />
-        </button>
+        <Button kind="quiet" size="sm" keyId="github-check" className="gh-line-btn" onClick={() => void check()} title="Read every repository’s pull requests on GitHub again (key: u). Nothing is written.">
+          Try again
+        </Button>
       </p>
     );
   }
@@ -113,10 +113,9 @@ export function GithubLine({ keys = true, className = '' }: { keys?: boolean; cl
       <span className="gh-line-words">{checking ? 'Checking GitHub…' : ago ? `GitHub checked ${ago}` : 'GitHub not checked yet'}</span>
       {!checking && (
         <>
-          <span aria-hidden="true">·</span>
-          <button type="button" className="link-button gh-line-btn" onClick={() => void check()} title="Read every repository’s pull requests on GitHub now, read-only, instead of waiting (key: u).">
-            Check now <Kbd id="github-check" />
-          </button>
+          <Button kind="quiet" size="sm" keyId="github-check" className="gh-line-btn" onClick={() => void check()} title="Read every repository’s pull requests on GitHub now, read-only, instead of waiting (key: u).">
+            Check now
+          </Button>
         </>
       )}
     </p>
