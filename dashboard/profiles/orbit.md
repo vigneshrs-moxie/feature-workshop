@@ -22,7 +22,7 @@ worktree: "../orbit-{slug}"
 # and "@login" after a name for that person's GitHub login.
 prRoute:
   - "PR #1: your fork's branch into the same-named branch on moxie (you review and merge it)"
-  - "PR #2: the moxie branch into staging (Raj reviews and merges it)"
+  - "PR #2: the moxie branch into staging (Raj @rajmehta0311 reviews and merges it)"
   - "PR #3: staging into main (the release owner reviews and merges it)"
 
 # Changes here raise the review level to at least the one given (as lib/level-rules.js does today).
