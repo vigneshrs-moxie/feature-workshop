@@ -22,6 +22,8 @@ import { AchievementsView } from '../views/Achievements/AchievementsView';
 import { NotFoundView } from '../views/NotFound/NotFoundView';
 import { ScreensView } from '../views/Screens/ScreensView';
 import { IntegrateBoard } from '../views/Integrate';
+import { StackPage } from '../views/Stack/StackPage';
+import { StacksPage } from '../views/Stack/StacksPage';
 import { InboxView } from '../views/Inbox';
 import { DeskPage } from '../home/DeskPage';
 import { JobsPage } from '../home/JobsPage';
@@ -154,7 +156,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   useKeyListener();
   const { api } = useWorkshop();
   const post = useMemo(() => (path: string, body: unknown) => api.post(path, body), [api]);
-  const slug = route.name === 'job' || route.name === 'stage' || route.name === 'screens' ? route.slug : null;
+  const slug = route.name === 'job' || route.name === 'stage' || route.name === 'screens' || route.name === 'stack' ? route.slug : null;
   const job = jobBySlug(state, slug);
   const jobTitle = job ? job.title || job.slug : slug;
   useAlerts(state, pageTitle(pageName(route, jobTitle)));
@@ -191,6 +193,8 @@ function Shell({ onRetry }: { onRetry: () => void }) {
     : route.name === 'job' ? <JobPage key={route.slug} slug={route.slug} />
       : route.name === 'stage' ? <StagePage key={`${route.slug}/${route.stop}`} slug={route.slug} stop={route.stop} />
       : route.name === 'integrate' ? <IntegrateBoard />
+      : route.name === 'stacks' ? <StacksPage />
+      : route.name === 'stack' ? <StackPage key={route.slug} slug={route.slug} />
         : route.name === 'telemetry' ? <TelemetryView />
           : route.name === 'inbox' ? <InboxView />
             : route.name === 'desk' ? <DeskPage />

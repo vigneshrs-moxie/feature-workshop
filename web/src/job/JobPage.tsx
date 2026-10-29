@@ -33,6 +33,7 @@ import { usePlay } from '../play/usePlay';
 import { jobBySlug } from '../state/reducer';
 import { useWorkshopState } from '../state/store';
 import { CodeTab } from './CodeTab';
+import { PartOfStack, StackSuggestion, useStackIndex } from '../views/Stack/StackRows';
 
 export const JOB_GUIDE: GuideSpec = {
   id: 'job',
@@ -153,6 +154,7 @@ function JobView({ job }: { job: Job }) {
 
   const ticket = ticketOf(job);
   const messages = thread.items.length;
+  const stacks = useStackIndex(); // a stack's part says which stack it belongs to (packet K2)
   return (
     <Page
       label="Job"
@@ -162,6 +164,7 @@ function JobView({ job }: { job: Job }) {
       head={(
         <>
           {ticket && <span className="chip num">{ticket}</span>}
+          <PartOfStack slug={job.slug} index={stacks} />
           <span className={`chip state-chip is-${lane}`} title={LANE_INFO[lane].hint}><Icon name={chip.icon} size={14} /> {chip.word}</span>
           <LevelChip job={job} ready={Boolean(thread.detail)} />
           <span className="spacer" />
@@ -172,6 +175,7 @@ function JobView({ job }: { job: Job }) {
       <section className={`job-map${play.full ? ' has-grid' : ''}`} aria-label="The job’s stops">
         <StopMap job={{ ...job, lane }} hrefFor={(s) => stageHref(job.slug, s)} faces={play.full && !narrow} label="The job’s stops: each opens who works on it" />
       </section>
+      <StackSuggestion job={job} index={stacks} />
       <NextStep job={job} conversation={conversation} now={now} onShip={() => setTab('ship')} />
       <JobTabs job={job} tab={tab} onTab={setTab} narrow={narrow} tryOpen={tryOpen} onTry={setTryOpen} docs={{ focusRequest: ui.docsRequest, requestFile: ui.docsFile, replay }} />
       <Fold icon="message" name="Conversation" note={messages ? `${messages} ${messages === 1 ? 'message' : 'messages'}` : undefined} id={`job-convo-${job.slug}`}>

@@ -1,5 +1,5 @@
-// The top bar of every page: the mark and the product's name (app/brand.ts), the five pages (Inbox,
-// Desk with what waits for you, Jobs, Integrate, Telemetry), the usage meters, the live connection
+// The top bar of every page: the mark and the product's name (app/brand.ts), the pages (Inbox,
+// Desk with what waits for you, Jobs, Stacks, Integrate, Telemetry), the usage meters, the live connection
 // in words, New job (c) and the gear (Settings, the Crew-dex and Achievements in Play, the flow map,
 // the Table, the keys, every action). At phone width (app.css) it is the short form: the mark, the
 // page's name, the Desk count and a ☰ menu with everything else.
@@ -15,7 +15,7 @@ import { deskEntries, isShipping } from '../home/nudges';
 import { BRAND } from './brand';
 import { paletteKeyLabel } from './keyRegistry';
 import { MenuButton, type MenuEntry } from './Menu';
-import { hrefFor, integrateHref, pageName, settingsHref, telemetryHref, type Route } from './router';
+import { hrefFor, integrateHref, pageName, settingsHref, stacksHref, telemetryHref, type Route } from './router';
 import { useUi } from './ui';
 
 const CONNECTION: Record<Connection, { label: string; hint: string }> = {
@@ -25,11 +25,12 @@ const CONNECTION: Record<Connection, { label: string; hint: string }> = {
 };
 
 /** Which of the five pages the route belongs to (a job and its screens are under Jobs). */
-function section(route: Route): 'inbox' | 'desk' | 'jobs' | 'integrate' | 'telemetry' | null {
+function section(route: Route): 'inbox' | 'desk' | 'jobs' | 'stacks' | 'integrate' | 'telemetry' | null {
   switch (route.name) {
     case 'home': case 'job': case 'stage': case 'screens': return 'jobs';
     case 'inbox': return 'inbox';
     case 'desk': return 'desk';
+    case 'stacks': case 'stack': return 'stacks';
     case 'integrate': return 'integrate';
     case 'telemetry': return 'telemetry';
     default: return null;
@@ -56,6 +57,7 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
     { kind: 'link', id: 'inbox', label: 'Inbox', href: hrefFor({ name: 'inbox' }), icon: 'inbox', current: at === 'inbox', hint: 'The Inbox: your Portal Feedback tickets from Orbit, most severe first, with Start for a new job on one (key: g i).' },
     { kind: 'link', id: 'desk', label: 'Desk', href: hrefFor({ name: 'desk' }), icon: 'hand', current: at === 'desk', count: desk, hint: deskHint },
     { kind: 'link', id: 'jobs', label: 'Jobs', href: hrefFor({ name: 'home' }), icon: 'activity', current: at === 'jobs', hint: 'Jobs: every job in four lanes, Working, Needs you, In review and Ready to merge (key: g j).' },
+    { kind: 'link', id: 'stacks', label: 'Stacks', href: stacksHref(), icon: 'layers', current: at === 'stacks', hint: 'Stacks: a big ticket split into parts that are built side by side, then joined in order and pushed with your go.' },
     { kind: 'link', id: 'integrate', label: 'Integrate', href: integrateHref(), icon: 'layers', current: at === 'integrate', hint: 'The integration board: the packet worktrees, their order, and Merge next.' },
     { kind: 'link', id: 'telemetry', label: 'Telemetry', href: telemetryHref(), icon: 'gauge', current: at === 'telemetry', hint: 'Telemetry: where the Claude usage goes and when the weekly limit will be reached.' },
   ];

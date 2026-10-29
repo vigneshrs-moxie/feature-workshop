@@ -37,7 +37,7 @@ import { readOptions, writeOptions } from '../lib/options.js';
 import { fillPattern, stackNames, stackRules } from '../lib/profile.js';
 import { writeDecisionsFile } from '../lib/decisions.js';
 import {
-  DEFAULT_CAP, SECTION_BRIEF_FILE, STACK_FILE, STACK_PLAN_FILE, STUCK_AT, StackError, WORD,
+  DEFAULT_CAP, SECTION_BRIEF_FILE, STACK_FILE, STACK_PLAN_FILE, STUCK_AT, StackError, WORD, FILE_WORD,
   afterChecks, cleanCap, cleanSettings, describeStack, ensureWorktree, logEvent, mergeSection, newStack, nextRunnable,
   nextToMerge, notchUp, readPlan, readStack, refExists, runningCount, sectionBrief, sectionReady, sectionSlug, stackPhase,
   stackSummary, writeStack,
@@ -298,7 +298,7 @@ export function createStacks({ driver, state, featuresDir, registry = null, inte
     const text = [
       `/feature ${title} Private folder: ${dir}`,
       '',
-      `This job is ${WORD.one} ${index} of ${stack.sections.length} (${sec.name}) of stack ${p.ticketKey ?? slug}. Its spec is the ${WORD.one} brief in ${SECTION_BRIEF_FILE} in that folder; the whole plan is ${path.join(dirOf(slug), STACK_PLAN_FILE)}.`,
+      `This job is ${FILE_WORD.one} ${index} of ${stack.sections.length} (${sec.name}) of stack ${p.ticketKey ?? slug}. Its spec is the ${FILE_WORD.one} brief in ${SECTION_BRIEF_FILE} in that folder; the whole plan is ${path.join(dirOf(slug), STACK_PLAN_FILE)}.`,
       `Start at plan: clarify and spec are skipped, because the stack plan is the spec. Work only in the worktree ${names.worktree} on the branch ${names.branch} (made from ${stack.parentBranch}), and change only these paths: ${sec.owns.join(', ')}. Writes anywhere else are refused.`,
       `Try it on port ${port ?? 'none'}. Don’t push and don’t open pull requests: the coordinator merges your branch into ${stack.parentBranch} once your checks pass. When review is done, write status.json with stage "review" and stage_state "done", keeping its stack and section fields.`,
       '',
@@ -335,7 +335,7 @@ export function createStacks({ driver, state, featuresDir, registry = null, inte
       Object.assign(sec, { state: 'ready', readyAt: new Date().toISOString(), problem: null });
       logEvent(stack, 'ready', `${cap0(WORD.one)} ${sec.name} is ready to merge.`, { section: sec.name });
       await audit(slug, 'ready', `${cap0(WORD.one)} ${sec.name} is ready to merge.`, { section: sec.name });
-      tellCoordinator(slug, 'stack-ready', `${cap0(WORD.one)} ${sec.name} is ready to merge.${stack.autoIntegrate ? ' “Merge on its own” is on: the runner merges it when it is next in order.' : ' The person says yes to the merge on the Stack page.'}`);
+      tellCoordinator(slug, 'stack-ready', `${cap0(FILE_WORD.one)} ${sec.name} is ready to merge.${stack.autoIntegrate ? ' “Merge on its own” is on: the runner merges it when it is next in order.' : ' The person says yes to the merge on the Stack page.'}`);
       dirty = true;
     }
 
@@ -403,22 +403,22 @@ export function createStacks({ driver, state, featuresDir, registry = null, inte
     if (r.outcome === 'merged') {
       Object.assign(s, { state: 'integrated', mergedAt: at, mergeSha: r.sha, problem: null });
       logEvent(fresh, 'merged', r.words, { section: s.name, sha: r.sha, checks: (r.checks ?? []).map((c) => ({ command: c.command, ok: c.ok })) });
-      tellCoordinator(slug, 'stack-merged', `${r.words.replace(/\.$/, '')} (merge commit ${String(r.sha).slice(0, 12)}).${fresh.sections.every((x) => x.state === 'integrated') ? ` Every ${WORD.one} is merged. Pushing waits for the person’s go on the Stack page: don’t push before you are told.` : ''}`);
+      tellCoordinator(slug, 'stack-merged', `${r.words.replace(/\.$/, '')} (merge commit ${String(r.sha).slice(0, 12)}).${fresh.sections.every((x) => x.state === 'integrated') ? ` Every ${FILE_WORD.one} is merged. Pushing waits for the person’s go on the Stack page: don’t push before you are told.` : ''}`);
     } else if (r.outcome === 'checks-failed') {
       const after = afterChecks(s, false);
       Object.assign(s, after, { problem: { kind: 'checks', words: r.words, files: [], tail: tail.slice(-3000) }, sentBackAt: at, readyAt: null });
       logEvent(fresh, 'checks-failed', `${r.words} That is ${s.failures} of ${STUCK_AT}.`, { section: s.name, before: r.before, undone: r.undone });
       if (s.state === 'failed') {
         logEvent(fresh, 'stuck', `${cap0(WORD.one)} ${s.name} failed its checks ${STUCK_AT} times. It has stopped and needs you.`, { section: s.name });
-        tellCoordinator(slug, 'stack-stuck', `${cap0(WORD.one)} ${s.name} failed its checks ${STUCK_AT} times and has stopped. The person decides what happens next.`);
+        tellCoordinator(slug, 'stack-stuck', `${cap0(FILE_WORD.one)} ${s.name} failed its checks ${STUCK_AT} times and has stopped. The person decides what happens next.`);
       } else {
-        sendTo(dirOf(s.slug), { parent: slug, kind: 'stack-checks-failed', words: `Sent the failure to ${WORD.one} ${s.name}.`, text: `The checks failed after your branch ${s.branch} was merged into ${fresh.parentBranch}, so the merge was undone. This is ${s.failures} of ${STUCK_AT}: at ${STUCK_AT} the ${WORD.one} stops and waits for the person.\n\n${tail}\n\nFix it on your branch, run the checks, and write status.json again (stage "review", stage_state "done") when your gates pass.` });
-        tellCoordinator(slug, 'stack-checks-failed', `${r.words} It went back to ${WORD.one} ${s.name}’s Foreman (${s.failures} of ${STUCK_AT}).`);
+        sendTo(dirOf(s.slug), { parent: slug, kind: 'stack-checks-failed', words: `Sent the failure to ${WORD.one} ${s.name}.`, text: `The checks failed after your branch ${s.branch} was merged into ${fresh.parentBranch}, so the merge was undone. This is ${s.failures} of ${STUCK_AT}: at ${STUCK_AT} the ${FILE_WORD.one} stops and waits for the person.\n\n${tail}\n\nFix it on your branch, run the checks, and write status.json again (stage "review", stage_state "done") when your gates pass.` });
+        tellCoordinator(slug, 'stack-checks-failed', `${r.words} It went back to ${FILE_WORD.one} ${s.name}’s Foreman (${s.failures} of ${STUCK_AT}).`);
       }
     } else if (['conflict', 'outside', 'empty'].includes(r.outcome)) {
       Object.assign(s, { state: 'blocked', problem: { kind: r.outcome === 'conflict' ? 'conflict' : r.outcome, words: r.words, files: r.files ?? [] }, readyAt: null });
       logEvent(fresh, r.outcome, r.words, { section: s.name, files: r.files ?? [] });
-      tellCoordinator(slug, `stack-${r.outcome}`, `${r.words} The person hands it back to the ${WORD.one}’s Foreman from the Stack page.`);
+      tellCoordinator(slug, `stack-${r.outcome}`, `${r.words} The person hands it back to the ${FILE_WORD.one}’s Foreman from the Stack page.`);
     } else {
       logEvent(fresh, 'merge-refused', r.words, { section: s.name });
     }
@@ -531,7 +531,7 @@ export function createStacks({ driver, state, featuresDir, registry = null, inte
       await writeStack(dir, stack);
       for (const s of read.plan.sections) sectionParent.set(dirOf(sectionSlug(slug, s.name)), dir);
       await audit(slug, 'plan-approved', stack.log[0].words, { cap: stack.cap, autoIntegrate: stack.autoIntegrate });
-      tellCoordinator(slug, 'stack-plan', `The person approved the stack plan (stack.md) on the Stack page. The runner starts the ${WORD.many} now, at most ${stack.cap} at once, each in its own worktree from ${stack.parentBranch}. Don’t start ${WORD.many} yourself: you are told as each one is ready to merge, and when it has merged. Pushing waits for the person’s go.`);
+      tellCoordinator(slug, 'stack-plan', `The person approved the stack plan (stack.md) on the Stack page. The runner starts the ${FILE_WORD.many} now, at most ${stack.cap} at once, each in its own worktree from ${stack.parentBranch}. Don’t start ${FILE_WORD.many} yourself: you are told as each one is ready to merge, and when it has merged. Pushing waits for the person’s go.`);
       changed(slug);
       tickSoon();
       return view(slug);
@@ -599,11 +599,11 @@ export function createStacks({ driver, state, featuresDir, registry = null, inte
       const p = s.problem;
       const files = p?.files?.length ? `: ${p.files.join(', ')}` : '';
       const why = s.state === 'failed'
-        ? `The person has looked at the failed checks and sends this ${WORD.one} back to you. The count of failed checks starts again.`
+        ? `The person has looked at the failed checks and sends this ${FILE_WORD.one} back to you. The count of failed checks starts again.`
         : p?.kind === 'conflict' ? `Your branch ${s.branch} clashes with ${stack.parentBranch}${files}. Merge ${stack.parentBranch} into your branch, settle those files, and run the checks.`
-          : p?.kind === 'outside' ? `Your branch ${s.branch} changes files outside the paths this ${WORD.one} owns${files}. Take those changes out (they belong to another ${WORD.one}, or ask the coordinator to change the plan).`
+          : p?.kind === 'outside' ? `Your branch ${s.branch} changes files outside the paths this ${FILE_WORD.one} owns${files}. Take those changes out (they belong to another ${FILE_WORD.one}, or ask the coordinator to change the plan).`
             : p?.kind === 'empty' ? `Your branch ${s.branch} has nothing committed to merge. Commit your work on it.`
-              : s.state === 'ready' ? `The person isn’t merging this ${WORD.one} yet.` : 'A note from the person.';
+              : s.state === 'ready' ? `The person isn’t merging this ${FILE_WORD.one} yet.` : 'A note from the person.';
       const text = `${why}${note ? `\n\nThe person’s note: ${note}` : ''}\n\nWhen your gates pass again, write status.json with stage "review" and stage_state "done".`;
       Object.assign(s, { state: 'running', sentBackAt: new Date().toISOString(), problem: null, readyAt: null, ...(s.state === 'failed' ? { failures: 0 } : {}) });
       logEvent(stack, 'sent-back', `You sent ${WORD.one} ${name} back to its Foreman${note ? `: ${note}` : '.'}`, { section: name });

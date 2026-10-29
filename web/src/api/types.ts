@@ -76,6 +76,8 @@ export interface Job {
   starting?: boolean;
   /** Another process holds the job (dashboard/lib/lock.js): a terminal, or another copy of the dashboard. */
   lock?: JobLockInfo | null;
+  /** The Foreman's first brief says the ticket looks big enough for a stack, and why (status.json stack_suggested). */
+  stackSuggested?: string | null;
   [key: string]: unknown;
 }
 
@@ -1170,7 +1172,7 @@ export interface StackView {
   steps: StackStep[];
   next: StackNext;
   /** stack.md as read now (null when there is none yet): its problems, and whether it changed after approval. */
-  plan: { ok: boolean; errors: string[]; warnings: string[]; changedSinceApproval: boolean } | null;
+  plan: { ok: boolean; why?: string | null; errors: string[]; warnings: string[]; changedSinceApproval: boolean } | null;
   approved: boolean;
   /** Sections at once for this stack. */
   cap: number;
@@ -1214,6 +1216,8 @@ export interface StackSummary {
   /** What it needs, in words. */
   needs: string;
   action: StackNext['action'];
+  /** Each part's job (its slug once started), so Jobs shows a stack as one row that opens into its parts. Older dashboards send none. */
+  sections?: { n: number; name: string; slug: string | null; state: StackSectionState; stateWords: string }[];
 }
 
 /** GET /api/stacks. */

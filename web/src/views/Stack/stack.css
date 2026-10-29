@@ -1,0 +1,175 @@
+/* The Stack pages (views/Stack): the Stacks list, the merge map, the four big steps, the part
+   cards, the push box. Every value is a token; status is a word with an icon, never a colour alone.
+   Play full: grid lines behind the map and a pulsing front dot; subtle: steady lights; off: plain. */
+
+/* ---------- The Stacks list ---------- */
+.stacks-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-1); }
+.stacks-row + .stacks-row { border-top: 1px solid var(--border-1); }
+.stacks-row-link {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(180px, auto) auto; align-items: center; gap: var(--space-4);
+  min-height: 56px; padding: var(--space-2) var(--space-4); color: var(--text-1); text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.stacks-row-link:hover { background: var(--hover-bg); text-decoration: none; }
+.stacks-row-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.stacks-row-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stacks-row-name b { font-weight: var(--weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stacks-row-name .muted { font-size: var(--text-xs); }
+.stacks-row-go { color: var(--text-3); }
+.stacks-empty { display: flex; flex-direction: column; gap: var(--space-4); }
+.stacks-empty-actions { justify-content: flex-start; }
+.stack-empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); }
+.state-chip.is-done { border-color: var(--lane-ready-line); background: var(--lane-ready-bg); color: var(--lane-ready-fg); }
+
+/* The four dots: done (filled), now (ringed), not yet (hollow), joined by a line. */
+.step-dots { display: inline-flex; align-items: center; }
+.step-dot { position: relative; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border-2); background: var(--bg-1); }
+.step-dot + .step-dot { margin-left: 18px; }
+.step-dot + .step-dot::before { content: ''; position: absolute; top: 3px; right: 100%; width: 20px; border-top: 2px solid var(--border-2); }
+.step-dot.is-done { border-color: var(--status-ok); background: var(--status-ok); }
+.step-dot.is-done + .step-dot::before { border-top-color: var(--status-ok); }
+.step-dot.is-now { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* ---------- The merge map ---------- */
+.stack-map { position: relative; width: 100%; min-height: 200px; border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-1); overflow: hidden; }
+.stack-map.has-grid { background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px); background-size: 20px 20px; }
+.map-lines { position: absolute; inset: 0; width: 100%; height: 100%; }
+.map-track { fill: none; stroke: var(--border-2); stroke-width: 1.5; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; }
+.map-fill { fill: none; stroke-width: 3; stroke-linecap: round; vector-effect: non-scaling-stroke; stroke: var(--status-info); }
+.map-fill.tone-merged, .map-fill.tone-ready { stroke: var(--status-ok); }
+.map-fill.tone-needs-you { stroke: var(--status-warn); }
+.map-fill.tone-problem { stroke: var(--status-error); }
+.map-build { position: absolute; border: 1px dashed var(--border-2); border-radius: var(--radius-md); }
+.map-build.is-here { border: 1px solid var(--accent); background: var(--accent-soft); }
+.map-build-head { position: absolute; top: 4px; left: var(--space-2); display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-xs); }
+.map-row { position: absolute; left: 0; right: 0; height: 18px; pointer-events: none; }
+.map-row-name { position: absolute; top: 0; display: block; font-size: var(--text-xs); line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.map-row-name .part-n { margin-right: var(--space-1); }
+.part-n { display: inline-grid; vertical-align: middle; place-items: center; flex: none; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--bg-3); border: 1px solid var(--border-1); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.map-chip { position: absolute; top: -1px; padding: 0 var(--space-2); font-size: var(--text-xs); line-height: 16px; white-space: nowrap; background: var(--bg-2); }
+.chip.tone-building { border-color: var(--status-info); background: var(--status-info-bg); color: var(--status-info); }
+.chip.tone-ready, .chip.tone-merged { border-color: var(--lane-ready-line); background: var(--lane-ready-bg); color: var(--lane-ready-fg); }
+.chip.tone-needs-you { border-color: var(--lane-needs-you-line); background: var(--lane-needs-you-bg); color: var(--lane-needs-you-fg); }
+.chip.tone-problem { border-color: var(--status-error); background: var(--status-error-bg); color: var(--status-error); }
+.chip.tone-waiting { color: var(--text-2); }
+.map-dot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--status-info); box-shadow: 0 0 0 3px var(--bg-1); }
+.map-dot.tone-ready { background: var(--status-ok); }
+.map-dot.tone-needs-you { background: var(--status-warn); }
+.map-dot.tone-problem { background: var(--status-error); }
+.map-dot.is-pulse { animation: gc-map-pulse 1.6s ease-in-out infinite; }
+@keyframes gc-map-pulse { 50% { box-shadow: 0 0 0 6px var(--status-info-bg); } }
+@media (prefers-reduced-motion: reduce) { .map-dot.is-pulse { animation: none; } }
+.map-node { position: absolute; display: grid; place-items: center; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; border: 2px solid var(--border-2); background: var(--bg-1); color: var(--text-2); }
+.map-node.is-done { border-color: var(--status-ok); background: var(--status-ok-bg); color: var(--status-ok); }
+.map-node.is-here { border-color: var(--accent); background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.map-node-label { position: absolute; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; font-size: var(--text-xs); white-space: nowrap; }
+.map-node-label b { font-size: var(--text-sm); }
+.map-here { position: absolute; transform: translateX(-50%); padding: 0 var(--space-2); border-radius: var(--chip-radius); background: var(--accent); color: var(--on-accent); font-size: var(--text-xs); font-weight: var(--weight-medium); white-space: nowrap; z-index: 1; }
+.map-more { position: absolute; font-size: var(--text-xs); }
+.stack-map.is-dense .map-row-name { font-size: var(--text-xs); }
+
+/* ---------- B. Four big steps ---------- */
+.stack-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.stack-step { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: var(--space-3); border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-1); color: var(--text-2); text-align: center; }
+.stack-step b { color: var(--text-1); }
+.stack-step.is-done { color: var(--status-ok); }
+.stack-step.is-here { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
+
+/* ---------- Each step in one line ---------- */
+.stack-step-lines { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); color: var(--text-2); }
+.stack-step-lines li { display: flex; flex-direction: column; gap: 2px; padding-left: var(--space-2); border-left: 2px solid var(--border-1); }
+.stack-step-lines li b { color: var(--text-1); font-weight: var(--weight-medium); }
+.stack-step-lines li.is-here { border-left-color: var(--accent); }
+
+/* ---------- Why the plan splits it this way, problems, notes ---------- */
+.stack-why { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-1); }
+.stack-why b { display: inline-flex; align-items: center; gap: var(--space-1); }
+.stack-why p { margin: 0; color: var(--text-2); }
+.next-bar.stack-bar-problem { border-color: var(--status-error); background: var(--status-error-bg); }
+.stack-plan-errors { margin: 0; padding-left: var(--space-5); color: var(--status-error); }
+.stack-problem { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.stack-note { display: flex; align-items: center; gap: var(--space-1); margin: 0; }
+.stack-failed { display: flex; flex-direction: column; gap: var(--space-2); }
+.stack-tail { max-height: 260px; overflow: auto; margin: 0; padding: var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-0); font-family: var(--font-mono); font-size: var(--text-xs); white-space: pre-wrap; }
+
+/* ---------- The part cards ---------- */
+.stack-parts { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.stack-part { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding: var(--space-3); border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--bg-2); }
+.stack-part.tone-needs-you { border-color: var(--lane-needs-you-line); }
+.stack-part.tone-problem { border-color: var(--status-error); }
+.stack-part-top { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.stack-part-title { font-weight: var(--weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stack-light { margin-top: 0; }
+.stack-light.tone-building.is-on { background: var(--status-info); }
+.stack-light.tone-ready, .stack-light.tone-merged { background: var(--status-ok); }
+.stack-light.tone-needs-you { background: var(--status-warn); }
+.stack-light.tone-problem { background: var(--status-error); }
+.stack-bar { display: block; height: 4px; border-radius: 2px; background: var(--bg-3); overflow: hidden; }
+.stack-bar-fill { display: block; height: 100%; background: var(--status-info); }
+.stack-bar-fill.tone-ready, .stack-bar-fill.tone-merged { background: var(--status-ok); }
+.stack-bar-fill.tone-needs-you { background: var(--status-warn); }
+.stack-bar-fill.tone-problem { background: var(--status-error); }
+.stack-part-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.part-chip { display: inline-flex; align-items: center; gap: var(--space-1); }
+.stack-readout { font-size: var(--text-xs); }
+/* Play full and subtle: console cards (a light, mono words in capitals). Off: plain. */
+.stack-parts.play-full .part-chip, .stack-parts.play-subtle .part-chip,
+.stack-parts.play-full .stack-readout, .stack-parts.play-subtle .stack-readout { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .04em; font-size: var(--text-xs); }
+.stack-details > summary { display: flex; align-items: center; min-height: var(--control-h); color: var(--text-2); font-size: var(--text-sm); cursor: pointer; list-style: none; }
+.stack-details > summary::-webkit-details-marker { display: none; }
+.stack-details > summary::after { content: ' ▸'; white-space: pre; }
+.stack-details[open] > summary::after { content: ' ▾'; }
+.stack-details > summary:hover { color: var(--text-1); }
+.stack-details > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.stack-details dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-1) var(--space-3); margin: 0 0 var(--space-2); font-size: var(--text-sm); }
+.stack-details dt { color: var(--text-2); }
+.stack-details dd { margin: 0; overflow-wrap: anywhere; }
+.stack-files { margin: 0; padding: 0; list-style: none; }
+.stack-history { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); }
+
+/* ---------- Settings, notes, the push box ---------- */
+.stack-settings, .stack-note-form { display: flex; flex-direction: column; gap: var(--space-2); }
+.stack-settings input[type='number'] { width: 120px; }
+.stack-push { width: min(460px, 100%); padding: var(--space-5); border: 1px solid var(--border-2); border-radius: var(--radius-xl); background: var(--bg-2); box-shadow: var(--shadow-2); display: flex; flex-direction: column; gap: var(--space-3); }
+.stack-push h3 { margin: 0; font-size: var(--text-lg); }
+.stack-push p { margin: 0; }
+.stack-ticks { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
+.stack-ticks li { display: flex; align-items: center; gap: var(--space-2); }
+.stack-ticks .icon { padding: 2px; border: 1px solid var(--status-ok); border-radius: var(--radius-sm); background: var(--status-ok-bg); color: var(--status-ok); }
+.stack-calls { display: grid; grid-template-columns: 1fr 1.4fr; gap: var(--space-3); }
+.stack-calls .btn { min-height: 56px; }
+
+/* ---------- Jobs: a stack is one card that opens into its parts ---------- */
+.stack-card-parts > summary { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--control-h); position: relative; z-index: 1; color: var(--text-2); font-size: var(--text-sm); cursor: pointer; list-style: none; }
+.stack-card-parts > summary::-webkit-details-marker { display: none; }
+.stack-card-parts > summary:hover { color: var(--text-1); }
+.stack-card-parts > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.stack-card-parts ol { position: relative; z-index: 1; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); }
+.stack-card-parts li { display: flex; align-items: center; gap: var(--space-2); }
+.stack-card-parts li .muted { margin-left: auto; }
+.part-of-stack { display: inline-flex; align-items: center; gap: var(--space-1); }
+.stack-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-3) var(--space-4); border: 1px dashed var(--accent); border-radius: var(--card-radius); background: var(--accent-soft); }
+.stack-suggest p { margin: 0; flex: 1; min-width: 220px; }
+
+/* ---------- Phone width ---------- */
+@media (max-width: 760px) {
+  .stacks-row-link { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'name go' 'dots dots' 'chip chip'; gap: var(--space-2); padding: var(--space-3); }
+  .stacks-row-name { grid-area: name; }
+  .stacks-row-go { grid-area: go; }
+  .stacks-row-link .step-dots { grid-area: dots; }
+  .stacks-row-link .state-chip { grid-area: chip; justify-self: start; }
+  .stack-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stack-step-lines { grid-template-columns: 1fr; }
+  .stack-calls { grid-template-columns: 1fr 1fr; }
+}
+
+/* ---------- The three picture cards ---------- */
+.stack-pic-box { display: grid; place-items: center; min-height: 72px; padding: var(--space-2); border-radius: var(--radius-md); background: var(--bg-2); }
+.stack-pic { width: 100%; max-width: 180px; height: 56px; }
+.stack-pic .pic-stroke { fill: none; stroke: var(--accent-strong); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.stack-pic .pic-fill { fill: var(--accent-soft); }
+.stack-pic .pic-dash { stroke-dasharray: 3 3; }
+.stack-pic .pic-quiet { stroke: var(--text-3); }
+.stack-pic .pic-line { stroke-width: 2.5; }
+.stack-pic .pic-dot { fill: var(--accent-strong); }
+.stack-pic .pic-ok { stroke: var(--status-ok); }

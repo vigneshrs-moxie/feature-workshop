@@ -43,11 +43,13 @@ export const DEFAULT_EFFORT = 'high';
 export const notchUp = (effort) => EFFORTS[Math.min(EFFORTS.indexOf(EFFORTS.includes(effort) ? effort : DEFAULT_EFFORT) + 1, EFFORTS.length - 1)];
 
 /**
- * The word the page and the messages use for one piece of a stack. The plan files say "section";
- * the Stack wireframe says "part" on screen. Until that is settled, every sentence here takes its
- * noun from this one place.
+ * The word for one piece of a stack (settled in the Stack review): "part" in everything a person
+ * reads (the Stack page, its history, its refusals), "section" in the files (stack.md's
+ * "## Section:" headings, section.md) and in what the Foremen are told, which follows the files.
+ * Every sentence takes its noun from one of these two.
  */
-export const WORD = { one: 'section', many: 'sections' };
+export const WORD = { one: 'part', many: 'parts' };
+export const FILE_WORD = { one: 'section', many: 'sections' };
 
 /** A section's name: it goes into folder and branch names. */
 export const SECTION_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -67,7 +69,8 @@ function items(text) {
 // ---------- The plan: stack.md ----------
 
 /**
- * stack.md → { ok, title, sections, order, errors, warnings }. sections come in the plan's order
+ * stack.md → { ok, title, why, sections, order, errors, warnings }. why: the paragraph under the
+ * title, before the first section (why the work splits this way), or null. sections come in the plan's order
  * (the Order line), each { name, brief, owns, dependsOn, model, effort }. errors are plain lines:
  * a name used twice, an unknown dependency, a dependency loop, a section missing from Order, no
  * owned paths (and a few more a person can fix in the file).
@@ -82,6 +85,8 @@ export function parseStackPlan(text) {
   let current = null;
   let field = null; // the label a "- item" line below it belongs to
   let inOrderList = false;
+  const why = []; // the paragraph under the title, before the first section: why the work splits this way
+  let beforeSections = true;
 
   const startField = (sec, key, rest) => {
     field = key;
@@ -97,6 +102,7 @@ export function parseStackPlan(text) {
       inOrderList = false;
       const sec = /^Section:\s*(.*)$/i.exec(heading[2].trim());
       if (sec) {
+        beforeSections = false;
         current = { raw: sec[1].trim(), name: sec[1].trim(), brief: [], owns: [], dependsOn: [], model: [], effort: [] };
         found.push(current);
         continue;
@@ -113,7 +119,7 @@ export function parseStackPlan(text) {
       if (it) { order.push(...items(it[1])); continue; }
       if (t) inOrderList = false;
     }
-    if (!current) continue;
+    if (!current) { if (beforeSections && t && !/^(Owns|Depends on|Model|Effort)\s*:/i.test(t)) why.push(t); continue; }
     const label = /^\**(Owns|Depends on|Model|Effort)\**\s*:\s*(.*)$/i.exec(t);
     if (label) {
       const key = { owns: 'owns', 'depends on': 'dependsOn', model: 'model', effort: 'effort' }[label[1].toLowerCase()];
@@ -194,7 +200,7 @@ export function parseStackPlan(text) {
   }
 
   const ordered = order && !errors.length ? order.map((n) => sections.find((s) => s.name === n)) : sections;
-  return { ok: errors.length === 0, title, sections: ordered, order: order ?? [], errors, warnings };
+  return { ok: errors.length === 0, title, why: why.join(' ').replace(/\s+/g, ' ').trim() || null, sections: ordered, order: order ?? [], errors, warnings };
 }
 
 function findLoop(sections) {
@@ -402,7 +408,7 @@ export const sectionSlug = (parent, name) => `${parent}--${name}`;
 /** The section's brief (section.md in its job folder): its spec, as the stack plan has it. */
 export function sectionBrief({ parent, ticketKey = null, section, index, total, parentBranch, worktree, branch, port }) {
   return [
-    `# ${cap0(WORD.one)} ${index} of ${total}: ${section.name}`,
+    `# ${cap0(FILE_WORD.one)} ${index} of ${total}: ${section.name}`,
     '',
     `Part of stack ${ticketKey ?? parent}. The stack plan (stack.md in the parent's job folder, ${parent}) is this job's spec.`,
     '',
@@ -498,7 +504,7 @@ export async function mergeSection({ parentWorktree, parentBranch, section, chec
   }
 
   const before = await gitOk(parentWorktree, ['rev-parse', 'HEAD']);
-  const message = `Merge ${WORD.one} ${name} into ${parentBranch}`;
+  const message = `Merge ${FILE_WORD.one} ${name} into ${parentBranch}`;
   onOutput(`$ git merge --no-ff ${section.branch}\n`);
   const merged = await git(parentWorktree, ['merge', '--no-ff', '--no-edit', section.branch, '-m', message], { timeout: 120000 });
   if (merged.code !== 0) {
@@ -543,7 +549,7 @@ export const WRITE_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 export const WRITE_TOOLS_MATCHER = WRITE_TOOLS.join('|');
 
 /** The words a refused write gets. */
-export const ownedRefusal = (owns) => `This ${WORD.one} may only change: ${owns.join(', ')}.`;
+export const ownedRefusal = (owns) => `This ${FILE_WORD.one} may only change: ${owns.join(', ')}.`;
 
 /**
  * Whether a section may write `file`: inside its job folder always; inside its worktree only on
@@ -718,7 +724,7 @@ export function describeStack({ slug, title = null, ticketKey = null, plan = nul
   return {
     slug, title, ticketKey,
     phase, steps, next,
-    plan: plan ? { ok: plan.ok, errors: plan.errors, warnings: plan.warnings, changedSinceApproval: Boolean(stack && planText !== null && planHash(planText) !== stack.planHash) } : null,
+    plan: plan ? { ok: plan.ok, why: plan.why ?? null, errors: plan.errors, warnings: plan.warnings, changedSinceApproval: Boolean(stack && planText !== null && planHash(planText) !== stack.planHash) } : null,
     approved: Boolean(stack),
     cap: stack?.cap ?? DEFAULT_CAP,
     autoIntegrate: stack?.autoIntegrate ?? false,
@@ -746,5 +752,7 @@ export function stackSummary(view) {
   return {
     slug: view.slug, title: view.title, ticketKey: view.ticketKey, phase: view.phase, steps: view.steps,
     parts: view.parts.length, counts, needs: view.next.words, action: view.next.action,
+    // Each part's job, so Jobs can show a stack as one row that opens into its parts.
+    sections: view.parts.map((p) => ({ n: p.n, name: p.name, slug: p.slug, state: p.state, stateWords: p.stateWords })),
   };
 }
