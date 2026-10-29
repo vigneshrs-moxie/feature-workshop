@@ -359,6 +359,8 @@ async function readFeatureFolder(dir) {
     level: options?.level ?? null,
     suggestedLevel: status?.suggestedLevel ?? null,
     levelReason: status?.levelReason ?? null,
+    // The first brief thinks the ticket is big enough for a stack: why (status.json stack_suggested).
+    stackSuggested: status?.stackSuggested ?? null,
     predictedPaths: status?.predictedPaths ?? [],
     description,
     rulesLevel: { ...suggestLevel({ description }), fromDiff: false, changedFiles: null },

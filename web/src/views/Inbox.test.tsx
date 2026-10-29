@@ -209,7 +209,7 @@ describe('Inbox', () => {
     const row = await screen.findByRole('button', { name: 'Start ORBIT-12 as a stack' });
     expect(row).toHaveAttribute('title', expect.stringContaining('For a big ticket: the work is split into parts that are built side by side, then joined in order.'));
     fireEvent.click(row);
-    expect(sheets.at(-1)).toEqual(expect.objectContaining({ kind: 'new-job', description: 'ORBIT-12: Sample ticket 12', ticket: expect.objectContaining({ key: 'ORBIT-12' }) }));
+    expect(sheets.at(-1)).toEqual(expect.objectContaining({ kind: 'new-job', description: 'ORBIT-12: Sample ticket 12', ticket: expect.objectContaining({ key: 'ORBIT-12' }), stack: true }));
     expect(screen.queryByRole('button', { name: 'Start ORBIT-479 as a stack' })).toBeNull(); // already on a job: the row shows the job
     act(() => { sheets.length = 0; });
     const open13 = screen.getByRole('button', { name: /^ORBIT-13/ });

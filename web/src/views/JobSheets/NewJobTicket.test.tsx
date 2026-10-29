@@ -57,6 +57,27 @@ describe('NewJobSheet: the Orbit ticket', () => {
     }));
   });
 
+  it('Start as stack (packet K2): "Run as a stack" is ticked, says when to use one, and goes with the job’s options', async () => {
+    const { post, wrap } = setup();
+    wrap(<NewJobSheet onClose={vi.fn()} ticket={{ key: 'ORBIT-479', title: 'Feedback API', url: null }} stack />);
+    const dialog = screen.getByRole('dialog', { name: 'Start a new job' });
+    const box = within(dialog).getByRole('checkbox', { name: /Run as a stack/ });
+    expect(box).toBeChecked();
+    expect(within(dialog).getByText(/For a big ticket: the Foreman splits the work into parts that are built side by side, then joined in order/)).toBeInTheDocument();
+    await startJob(dialog);
+    expect(post).toHaveBeenCalledWith('/api/jobs', expect.objectContaining({ options: expect.objectContaining({ stack: true }) }));
+  });
+
+  it('without Start as stack, "Run as a stack" is not ticked and nothing extra goes with the job', async () => {
+    const { post, wrap } = setup();
+    wrap(<NewJobSheet onClose={vi.fn()} ticket={{ key: 'ORBIT-479', title: 'Feedback API', url: null }} />);
+    const dialog = screen.getByRole('dialog', { name: 'Start a new job' });
+    expect(within(dialog).getByRole('checkbox', { name: /Run as a stack/ })).not.toBeChecked();
+    await startJob(dialog);
+    expect(post.mock.calls[0]).toBeTruthy();
+    expect((post.mock.calls[0] as unknown[])[1]).not.toEqual(expect.objectContaining({ options: expect.objectContaining({ stack: true }) }));
+  });
+
   it('the Inbox’s description alone ("ORBIT-<n>: <title>") counts as started from the Inbox', async () => {
     const { post, wrap } = setup();
     wrap(<NewJobSheet onClose={vi.fn()} description="ORBIT-12: Comment save fails" />);

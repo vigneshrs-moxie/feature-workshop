@@ -80,7 +80,7 @@ export const STACK_WHEN = 'For a big ticket: the work is split into parts that a
 
 /** New job on a ticket, to run as a stack (Start as stack, S). */
 export function stackSheet(item: Pick<InboxItem, 'key' | 'title' | 'url'>): SheetState {
-  return { kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url } };
+  return { kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url }, stack: true };
 }
 
 // ---------- Severity, and the order ----------

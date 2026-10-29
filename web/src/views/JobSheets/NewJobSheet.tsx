@@ -148,7 +148,7 @@ function PastConversation({ picked, onPick, mode, onMode, canContinue }: {
   );
 }
 
-export function NewJobSheet({ onClose, description: initialDescription = '', ticket: givenTicket }: { onClose: () => void; description?: string; ticket?: TicketRef | null }) {
+export function NewJobSheet({ onClose, description: initialDescription = '', ticket: givenTicket, stack: startAsStack = false }: { onClose: () => void; description?: string; ticket?: TicketRef | null; stack?: boolean }) {
   const { api } = useWorkshop();
   const { meta } = useWorkshopState();
   const models: ModelChoice[] = meta?.models ?? [];
@@ -158,6 +158,8 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
   const [ticketText, setTicketText] = useState(fromInbox?.key ?? '');
   const ticketId = useId();
   const [kind, setKind] = useState<'feature' | 'bug'>('feature');
+  // Run as a stack (views/Stack): ticked by the Inbox's Start as stack.
+  const [asStack, setAsStack] = useState(startAsStack);
   const [repos, setRepos] = useState<Repos>({ state: 'loading' });
   const [repo, setRepo] = useState<string>('');
   const [otherPath, setOtherPath] = useState('');
@@ -219,7 +221,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
     setError(null);
     try {
       const fromSession = from ? { id: from.id, mode: fromMode } : undefined;
-      const options = level !== null ? { level } : {};
+      const options = { ...(level !== null ? { level } : {}), ...(asStack ? { stack: true } : {}) };
       const r = await api.post<{ slug: string }>('/api/jobs', { description: text, kind, repoPath, model: model || undefined, options, fromSession, ticket });
       writeStored(LAST_REPO_KEY, repoPath);
       onClose();
@@ -282,6 +284,14 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
           </div>
 
           <LevelPicker levels={meta?.levels} value={level} suggestion={suggestion} byHand={picked !== null} onPick={setPicked} disabled={busy} />
+
+          <label className="rule-option sheet-field" data-setting="run-as-stack" title="For a big ticket: the work is split into parts that are built side by side, then joined in order.">
+            <input type="checkbox" checked={asStack} onChange={(e) => setAsStack(e.target.checked)} disabled={busy} />
+            <span className="rule-option-body">
+              <span className="rule-option-kind">Run as a stack</span>
+              <span className="muted">For a big ticket: the Foreman splits the work into parts that are built side by side, then joined in order. You check the parts on the Stack page before anything is built.</span>
+            </span>
+          </label>
 
           <label className="field sheet-field" htmlFor={repoId}><span>Repository</span></label>
           <select

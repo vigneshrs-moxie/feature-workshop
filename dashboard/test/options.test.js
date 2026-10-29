@@ -39,6 +39,13 @@ test('job options: screens and clarify follow the job’s own choice, else Setti
   assert.equal(optionsAtLevel(own, 0).wireframes, 'off');
   assert.ok(describeOptions(own).includes('Screens (wireframes): off.'));
   assert.ok(!describeOptions(normalize({})).some((l) => l.startsWith('Screens')), 'Auto says nothing');
+  // Run as a stack (packet K2): New job's tick, kept with the job's options, told to the Foreman.
+  const stacked = normalize({ level: 3, stack: true });
+  assert.equal(stacked.stack, true);
+  assert.ok(describeOptions(stacked).some((l) => l.startsWith('Run as a stack: the human asked for one. You are its coordinator (stack.md)')));
+  assert.equal(normalize({ level: 3 }, { previous: stacked }).stack, true, 'kept when the options are saved again');
+  assert.equal(normalize({ level: 3, stack: false }, { previous: stacked }).stack, undefined, 'and can be taken off');
+  assert.ok(!describeOptions(normalize({ level: 3 })).some((l) => l.startsWith('Run as a stack')));
   assert.deepEqual(workflowSettings({ finishLine: 'main', wireframes: 'off', clarify: 'nope' }), { finishLine: 'main', wireframes: 'off', clarify: 'auto', autoLevel: false });
   assert.deepEqual(workflowSettings(undefined), { finishLine: 'pr1-merged', wireframes: 'auto', clarify: 'auto', autoLevel: false });
 });

@@ -611,6 +611,8 @@ export async function createRunner(config) {
       ...(restart ? { restartPaused: { how: restart.how, at: restart.at } } : {}),
       // Levels: chosen (options.json), the Foreman's suggestion (status.json), the rules' (description only here).
       level: f.level, suggestedLevel: f.suggestedLevel, levelReason: f.levelReason, rulesLevel: f.rulesLevel,
+      // A stack suggested in the first brief (packet K2): the Job page offers "Run as a stack instead".
+      stackSuggested: f.stackSuggested ?? null,
       // A gate left waiting past the parking time: still Needs you, with a "parked" chip.
       parked: gateParked(f, active),
       finish,

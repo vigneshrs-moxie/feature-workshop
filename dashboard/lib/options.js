@@ -258,6 +258,8 @@ export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previo
   out.skip = ids(SKIPPABLE).filter((s) => out.skip.includes(s)); // workflow order
   // Evidence at the test stage: the job's own choice, else what it had, else Auto (evidenceOn).
   out.evidence = evidenceChoice(input.evidence) ?? evidenceChoice(previous?.evidence) ?? 'auto';
+  // Run as a stack (New job, the Inbox's Start as stack): the Foreman is the stack's coordinator.
+  if (input.stack === true || (input.stack === undefined && previous?.stack === true)) out.stack = true;
   return out;
 }
 
@@ -344,6 +346,7 @@ export function describeOptions(o) {
   // Evidence (evidence.md): Auto says nothing, as for screens and clarify (job-options.md: on at L2 and L3).
   if (o.evidence === 'always') lines.push(`Evidence: always${o.level === 0 ? ' (but never at L0)' : ''}. The tester writes a Playwright spec for each acceptance line a person can see, and the dashboard records screenshots and a short video of each.`);
   else if (o.evidence === 'off') lines.push('Evidence: off. No screenshots or video at the test stage.');
+  if (o.stack) lines.push('Run as a stack: the human asked for one. You are its coordinator (stack.md): at plan, write stack.md (the sections, the files each owns, what each waits for, the merge order) and stop for approval on the Stack page.');
   if (o.notes) lines.push(`Notes: ${o.notes}`);
   if (o.from_session) lines.push(o.from_session.mode === 'continue'
     ? `Started by continuing an earlier conversation (session ${o.from_session.id}): the earlier messages are background, not approvals.`

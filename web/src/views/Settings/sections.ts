@@ -16,7 +16,7 @@ import { BRAND } from '../../app/brand';
 export const SECTION_WORDS: Record<SettingsSection, { label: string; hint: string }> = {
   permissions: { label: 'Permissions', hint: 'How much the Foreman and its crew may do without asking you.' },
   notifications: { label: 'Notifications', hint: 'What the dashboard tells macOS, and this browser’s own alerts.' },
-  look: { label: 'Look', hint: 'Theme, text size, following the system’s light or dark, the Desk and Jobs layouts, and Play.' },
+  look: { label: 'Look', hint: 'Theme, text size, following the system’s light or dark, the Desk and Jobs layouts, the Stack picture, and Play.' },
   keys: { label: 'Keys', hint: 'Keyboard shortcuts on or off, and the key hints on buttons.' },
   workflow: { label: 'Workflow', hint: 'The finish line, and what a new job starts with.' },
   repos: { label: 'Repos', hint: `The repositories ${BRAND.name} knows, and the profile each one follows.` },
@@ -115,6 +115,7 @@ export const SETTING_INDEX: SettingEntry[] = [
   { id: 'follow-system', label: 'Follow the system', section: 'look', keywords: 'dark mode light mode prefers color scheme' },
   { id: 'desk-layout', label: 'Desk layout: One at a time or Three columns', section: 'look', keywords: 'queue columns desk' },
   { id: 'jobs-layout', label: 'Jobs layout: Four lanes or One list', section: 'look', keywords: 'board lanes list kanban' },
+  { id: 'stack-picture', label: 'Stack picture: Merge map or Four big steps', section: 'look', keywords: 'stacks parts map steps' },
   { id: 'look-play', label: 'Play in Look: Full, Subtle, Off', section: 'look', keywords: 'console crew game' },
   { id: 'keys-enabled', label: 'Keyboard shortcuts on or off', section: 'keys', keywords: 'keys hotkeys bindings' },
   { id: 'keys-hints', label: 'Show key hints on buttons', section: 'keys', keywords: 'kbd' },

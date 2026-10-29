@@ -141,7 +141,7 @@ function Sheets({ route }: { route: Route }) {
           onOldPages={() => oldPages.open(slug ? classicHref.job(slug) : classicHref.home())}
         />
       )}
-      {sheet?.kind === 'new-job' && <NewJobSheet onClose={ui.closeSheet} description={sheet.description} ticket={sheet.ticket} />}
+      {sheet?.kind === 'new-job' && <NewJobSheet onClose={ui.closeSheet} description={sheet.description} ticket={sheet.ticket} stack={sheet.stack} />}
       {sheet?.kind === 'close-job' && <CloseJobSheet slug={sheet.slug} worktree={sheet.worktree} onClose={ui.closeSheet} />}
       {sheet?.kind === 'keys' && <KeysSheet onClose={ui.closeSheet} />}
       {sheet?.kind === 'job-drawer' && <JobDrawer key={sheet.slug} slug={sheet.slug} job={jobBySlug(state, sheet.slug)} tab={sheet.tab} onClose={ui.closeSheet} />}
