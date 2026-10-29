@@ -148,3 +148,7 @@
   .job-tab, .code-commit, .job-map .stop-dot, .stage-row { transition: none; }
   .stop-face *, .stage-face * { animation: none !important; }
 }
+
+/* The lock card above the message box (panes/Foreman/Composer.tsx): the box is off while it shows. */
+.composer-lock { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); margin-bottom: var(--space-2); }
+.composer-lock .lock-card { width: 100%; }

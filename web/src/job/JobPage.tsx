@@ -204,14 +204,15 @@ export function NextStep({ job, conversation, now, onShip }: { job: Job; convers
  */
 function GoBar({ job, detail, now, reload, call }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean }) {
   const body = useRef<HTMLDivElement>(null);
-  const [go, setGo] = useState({ words: '', off: true, asks: false });
+  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false });
   useLayoutEffect(() => {
     const el = body.current;
     if (!el) return;
     const read = () => {
       const b = el.querySelector<HTMLButtonElement>('[data-gate="approve"]');
-      const next = { words: wordsOf(b), off: !b || b.disabled, asks: Boolean(el.querySelector('.gate-question')) };
-      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks ? was : next));
+      const back = el.querySelector<HTMLButtonElement>('[data-gate="revise"]');
+      const next = { words: wordsOf(b), off: !b || b.disabled, asks: Boolean(el.querySelector('.gate-question')), backOff: !back || back.disabled };
+      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff ? was : next));
     };
     read();
     const watch = new MutationObserver(read);
@@ -230,7 +231,7 @@ function GoBar({ job, detail, now, reload, call }: { job: Job; detail: NonNullab
         say={gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead'}
         sub={gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason}
       >
-        <button type="button" className="btn btn-lg" onClick={() => press('revise')} title="No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).">
+        <button type="button" className="btn btn-lg" disabled={go.backOff} onClick={() => press('revise')} title={go.backOff ? 'Off for now: the card under this says why.' : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
           {call ? 'No go: send back' : 'Send back'} <Kbd id="gate-revise" />
         </button>
         <button

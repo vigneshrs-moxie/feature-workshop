@@ -14,7 +14,7 @@
 // the brief is answered, or changes when the Foreman moves on to a new brief).
 import { useEffect, useId, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
-import type { Gate, GateRequest, GateResult, Job, JobDetail } from '../../api/types';
+import type { Gate, GateRequest, GateResult, Job, JobDetail, JobLockInfo } from '../../api/types';
 import { loadJobDoc, sendGate, stopRun } from '../../app/jobActions';
 import { useKeyScope } from '../../app/keyRegistry';
 import { navigate } from '../../app/router';
@@ -38,6 +38,7 @@ import { stageLabel } from '../Jobs/stages';
 import { draftKey, SendPreview } from './Composer';
 import { EVIDENCE_STAGES, EvidenceStrip } from './EvidenceStrip';
 import { isActiveRun } from './thread';
+import { LockCard, lockFromError, lockHeadline } from '../../views/JobLock/LockCard';
 
 // Refusals that mean the card is out of date: the Foreman moved on to a new brief, or the spec or
 // plan changed since the card was raised. The slot says so and the job is fetched again.
@@ -204,6 +205,11 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const [error, setError] = useState<string | null>(null);
   const [askTerminal, setAskTerminal] = useState(false);
   const [noTerminal, setNoTerminal] = useState(false);
+  // The job is held elsewhere (a terminal, another dashboard): from the snapshot, or a refused answer.
+  const [refused, setRefused] = useState<JobLockInfo | null>(null);
+  const heldAt = job.lock ?? null;
+  useEffect(() => { setRefused(null); }, [heldAt?.pid, heldAt?.acquiredAt]);
+  const lock = heldAt ?? refused;
   const [editing, setEditing] = useState<string | null>(null);
   const edited = useRef<GateResult | null>(null);
   const moreBtn = useRef<HTMLButtonElement>(null);
@@ -235,6 +241,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   if (missingOverride) offReasons.push(`Say what “${missingOverride.decision}” should be instead, or undo that override.`);
   const openQuestion = unansweredQuestion(gate, c);
   if (openQuestion !== null) offReasons.push(`Question ${openQuestion} has no answer. Pick one, or write your own.`);
+  if (lock) offReasons.push(`${lockHeadline(lock, now)}. Only one place can work on a job at a time.`);
   const approveOff = offReasons.length > 0;
   // The two disclosures, remembered in this browser (closed until you open them).
   const [adjustRaw, setAdjustRaw] = useStored('fw.gate.adjust');
@@ -288,6 +295,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     try {
       return await sendGate(api, slug, body);
     } catch (err) {
+      const held = lockFromError(err);
+      if (held) setRefused(held);
       if (isStale(err)) {
         setEditing(null);
         reload();
@@ -433,6 +442,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
         )}
       </header>
 
+      {lock && <LockCard lock={lock} now={now} />}
       {gate.stage === 'wireframe' && <ScreensRow slug={slug} hasPage={Boolean(job.wireframes)} />}
       {['implement', 'test', 'review'].includes(gate.stage ?? '') && (
         <p className="gate-try">
@@ -540,13 +550,13 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
           </button>
         )}
         <span className="gate-links">
-          <button ref={editBtn} type="button" className="link-button" disabled={busy || stale} onClick={openEdit} title={stale ? staleHint : 'See the whole reply exactly as the Foreman will receive it, edit it, then send it as your approval.'}>
+          <button ref={editBtn} type="button" className="link-button" disabled={busy || stale || lock !== null} onClick={openEdit} title={stale ? staleHint : 'See the whole reply exactly as the Foreman will receive it, edit it, then send it as your approval.'}>
             Edit, then approve<Kbd id="gate-edit" />
           </button>
-          <button type="button" className="link-button" data-gate="revise" disabled={busy} aria-expanded={mode === 'changes'} onClick={() => openMode('changes')} title="Ask for changes: the Foreman stays in this stage and revises. Nothing is approved.">
+          <button type="button" className="link-button" data-gate="revise" disabled={busy || lock !== null} aria-expanded={mode === 'changes'} onClick={() => openMode('changes')} title="Ask for changes: the Foreman stays in this stage and revises. Nothing is approved.">
             Revise with feedback<Kbd id="gate-revise" />
           </button>
-          <button type="button" className="link-button" data-gate="guidance" disabled={busy} aria-expanded={mode === 'message'} onClick={() => openMode('message')} title="Tell the Foreman something else: a question or guidance. Nothing is approved.">
+          <button type="button" className="link-button" data-gate="guidance" disabled={busy || lock !== null} aria-expanded={mode === 'message'} onClick={() => openMode('message')} title="Tell the Foreman something else: a question or guidance. Nothing is approved.">
             Other guidance<Kbd id="gate-guidance" />
           </button>
         </span>
