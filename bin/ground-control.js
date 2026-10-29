@@ -12,9 +12,7 @@
 //   open <job>                     open the job's folder in your terminal and editor
 //   install | uninstall            set up (or remove) the background service from sign-in
 //   login                          pairing with the site (a later version)
-//
-// Not listed in the overview, for the Foreman at the ship stage (packet O; its own --help works):
-//   decisions <job> --worktree <path>   copy the job's decisions.md into docs/decisions/ and rebuild the index
+//   decisions <job> [--worktree]   copy the job's decisions.md into docs/decisions/, rebuild the index
 //
 // One small parser, no dependencies: --help on every command, plain errors, exit code 0 or 1.
 // Commands that talk to the running service find it through service.json in the state folder
@@ -162,9 +160,8 @@ const COMMANDS = {
     args: { min: 0, max: 1, names: '<code>' },
     run: (ctx) => { ctx.out('Pairing with the site comes in a later version.'); return 0; },
   },
-  // Not listed (the Foreman runs it at the ship stage, as the skill says): packet O.
+  // The Foreman runs it at the ship stage, as the skill says (packet O).
   decisions: {
-    hidden: true,
     usage: 'ground-control decisions <job> [--worktree <path>]',
     summary: 'Copy a job’s decisions into its repository, beside the index',
     help: [
