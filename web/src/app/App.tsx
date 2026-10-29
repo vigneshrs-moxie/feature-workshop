@@ -26,6 +26,7 @@ import { InboxView } from '../views/Inbox';
 import { DeskPage } from '../home/DeskPage';
 import { JobsPage } from '../home/JobsPage';
 import { JobPage } from '../job/JobPage';
+import { StagePage } from '../job/StagePage';
 import { TelemetryView } from '../views/Telemetry';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
@@ -53,7 +54,7 @@ function Sheets({ route }: { route: Route }) {
   const play = usePlay();
   const eggs = usePaletteEggs();
   const [problem, setProblem] = useState<string | null>(null);
-  const slug = route.name === 'job' ? route.slug : null;
+  const slug = route.name === 'job' || route.name === 'stage' ? route.slug : null;
 
   const attempt = (p: Promise<unknown>) => { setProblem(null); p.catch((err) => setProblem(err instanceof Error ? err.message : String(err))); };
   const handlers: CommandHandlers = {
@@ -186,7 +187,8 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   }
   // Every page is full width: a job is the Job page (and its stops' Stages); there are no panes.
   const page = route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} />
-    : route.name === 'job' || route.name === 'stage' ? <JobPage key={route.slug} slug={route.slug} />
+    : route.name === 'job' ? <JobPage key={route.slug} slug={route.slug} />
+      : route.name === 'stage' ? <StagePage key={`${route.slug}/${route.stop}`} slug={route.slug} stop={route.stop} />
       : route.name === 'integrate' ? <IntegrateBoard />
         : route.name === 'telemetry' ? <TelemetryView />
           : route.name === 'inbox' ? <InboxView />

@@ -8,7 +8,7 @@
 // evidence and Try it, Review, Decisions, Ship), the folded conversation, and the message box (c).
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Job, JobDocEntry, StopId } from '../api/types';
-import { navigate, screensHref, stageHref } from '../app/router';
+import { jobHref, navigate, screensHref, stageHref } from '../app/router';
 import { useUi } from '../app/ui';
 import { Icon, type IconName } from '../components/Icon';
 import { Kbd } from '../components/Kbd';
@@ -79,6 +79,14 @@ export const STOP_ACTION: Record<StopId, string> = {
 const isSpecDoc = (d: JobDocEntry) => /(^|\/)(spec|clarif|refine|acceptance|wirefram|screens)/i.test(d.file);
 const isTestDoc = (d: JobDocEntry) => /test/i.test(d.file);
 
+/** The job's ticket key (ORBIT-471), when it has one. */
+export function ticketOf(job: Job): string | null {
+  const t = job.ticket as unknown;
+  if (typeof t === 'string') return t;
+  const key = (t as { key?: unknown } | null | undefined)?.key;
+  return typeof key === 'string' ? key : null;
+}
+
 /** A button's words without its key hint. */
 function wordsOf(b: Element | null): string {
   if (!b) return '';
@@ -104,7 +112,6 @@ export function JobPage({ slug }: { slug: string }) {
 }
 
 function JobView({ job }: { job: Job }) {
-  const state = useWorkshopState();
   const now = useNow();
   const play = usePlay();
   const ui = useUi();
@@ -115,7 +122,6 @@ function JobView({ job }: { job: Job }) {
   const lane = laneOf(job);
   const chip = stateChip(job);
   const at = stopOf(job.stage);
-  const perms = state.permissions.filter((p) => p.slug === job.slug);
   const [tab, setTab] = useState<JobTab>(() => tabForStop(at));
   const [tryOpen, setTryOpen] = useState(false);
 
@@ -145,8 +151,7 @@ function JobView({ job }: { job: Job }) {
   const replay = replayDocs.current;
   useEffect(() => { replayDocs.current = false; });
 
-  const ticket = typeof job.ticket === 'string' ? job.ticket : typeof (job.ticket as { key?: unknown } | undefined)?.key === 'string' ? (job.ticket as { key: string }).key : null;
-  const gate = thread.detail?.gate ?? null;
+  const ticket = ticketOf(job);
   const messages = thread.items.length;
   return (
     <Page
@@ -167,11 +172,7 @@ function JobView({ job }: { job: Job }) {
       <section className={`job-map${play.full ? ' has-grid' : ''}`} aria-label="The job’s stops">
         <StopMap job={{ ...job, lane }} hrefFor={(s) => stageHref(job.slug, s)} faces={play.full && !narrow} label="The job’s stops: each opens who works on it" />
       </section>
-      {perms.length > 0
-        ? <PermissionAlert permissions={perms} now={now} />
-        : gate && thread.detail
-          ? <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} />
-          : <StateBar job={job} onTab={setTab} />}
+      <NextStep job={job} conversation={conversation} now={now} onShip={() => setTab('ship')} />
       <JobTabs job={job} tab={tab} onTab={setTab} narrow={narrow} tryOpen={tryOpen} onTry={setTryOpen} docs={{ focusRequest: ui.docsRequest, requestFile: ui.docsFile, replay }} />
       <Fold icon="message" name="Conversation" note={messages ? `${messages} ${messages === 1 ? 'message' : 'messages'}` : undefined} id={`job-convo-${job.slug}`}>
         <ThreadList job={job} conversation={conversation} now={now} cards={false} />
@@ -179,6 +180,21 @@ function JobView({ job }: { job: Job }) {
       <Composer key={job.slug} slug={job.slug} detail={thread.detail} run={run} />
     </Page>
   );
+}
+
+/**
+ * The one next step, on the Job page and each Stage: the permission alert while a permission waits
+ * (oldest first), else the go / no go bar while a gate waits, else what is happening in words.
+ * `onShip` shows the pull requests (the Ship tab); without it, the button goes to the Job page.
+ */
+export function NextStep({ job, conversation, now, onShip }: { job: Job; conversation: ReturnType<typeof useJobConversation>; now: Date; onShip?: () => void }) {
+  const state = useWorkshopState();
+  const play = usePlay();
+  const { thread } = conversation;
+  const perms = state.permissions.filter((p) => p.slug === job.slug);
+  if (perms.length > 0) return <PermissionAlert permissions={perms} now={now} />;
+  if (thread.detail?.gate) return <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} />;
+  return <StateBar job={job} onShip={onShip} />;
 }
 
 /**
@@ -235,7 +251,7 @@ function GoBar({ job, detail, now, reload, call }: { job: Job; detail: NonNullab
 }
 
 /** No gate and no permission: what is happening, in words, and the one thing you can do. */
-function StateBar({ job, onTab }: { job: Job; onTab(t: JobTab): void }) {
+function StateBar({ job, onShip }: { job: Job; onShip?: () => void }) {
   const lane = laneOf(job);
   const at = stopOf(job.stage);
   const doing = job.nowDoing?.[0]?.doing ?? null;
@@ -244,6 +260,9 @@ function StateBar({ job, onTab }: { job: Job; onTab(t: JobTab): void }) {
   let say = 'Nothing to do right now';
   let sub: string | null | undefined = doing ?? job.laneReason;
   let action: ReactNode = <button type="button" className="btn btn-primary btn-lg" disabled title="Greyed until there is something to approve.">{at ? STOP_ACTION[at] : 'Approve'}</button>;
+  const prs = onShip
+    ? <button type="button" className="btn btn-primary btn-lg" onClick={onShip} title="The pull requests and what waits on them.">See the pull requests</button>
+    : <a className="btn btn-primary btn-lg" href={jobHref(job.slug)} title="The job’s page: its Ship tab has the pull requests.">See the pull requests</a>;
   const write = <button type="button" className="btn btn-primary btn-lg" onClick={() => document.querySelector<HTMLTextAreaElement>('[data-composer-input]')?.focus()} title="Write to the Foreman (key: c).">Reply <Kbd id="write" /></button>;
   if (job.closed) {
     tone = 'quiet'; icon = 'circle-check';
@@ -258,10 +277,10 @@ function StateBar({ job, onTab }: { job: Job; onTab(t: JobTab): void }) {
     tone = 'warn'; icon = 'pause'; say = 'Paused'; sub = job.laneReason;
   } else if (lane === 'in-review') {
     icon = 'eye'; say = job.laneReason || 'Waiting on a review'; sub = 'Nothing for you to do. We’ll tell you if it gets comments.';
-    action = <button type="button" className="btn btn-primary btn-lg" onClick={() => onTab('ship')} title="The pull requests and what waits on them.">See the pull requests</button>;
+    action = prs;
   } else if (lane === 'ready') {
     tone = 'go'; icon = 'merge'; say = 'Ready to merge'; sub = job.laneReason;
-    action = <button type="button" className="btn btn-primary btn-lg" onClick={() => onTab('ship')} title="The pull requests and what waits on them.">See the pull requests</button>;
+    action = prs;
   } else if (lane === 'resting') {
     icon = 'moon'; say = 'Nothing happening'; sub = 'It waits for your next message.'; action = write;
   }

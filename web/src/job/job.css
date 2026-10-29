@@ -94,3 +94,51 @@
   .perm-alert-actions .btn { flex: 1; justify-content: center; }
   .job-tabs { flex-wrap: nowrap; overflow-x: auto; }
 }
+
+/* ---------- The Stage (job/StagePage.tsx) ---------- */
+.page-stage .page-title { display: inline-flex; align-items: center; gap: var(--space-2); }
+.page-stage .page-head .stop-map { flex: none; }
+.stage-for { font-size: var(--text-sm); }
+.stage-back { margin: 0; order: -1; font-size: var(--text-sm); }
+.stage-back a { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--control-h); }
+.stage-steps { display: inline-flex; gap: var(--space-1); }
+.stage-steps .btn { min-height: var(--control-h); display: inline-flex; align-items: center; gap: var(--space-1); text-decoration: none; }
+.stage-steps .is-off { color: var(--text-3); cursor: default; }
+.state-chip.is-done { color: var(--status-ok); background: var(--status-ok-bg); }
+.state-chip.is-now { color: var(--lane-working-fg); background: var(--lane-working-bg); }
+.state-chip.is-waiting { color: var(--text-1); background: var(--lane-needs-you-bg); }
+.state-chip.is-next, .state-chip.is-skipped { color: var(--text-2); }
+
+.stage-who { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-1); }
+.stage-who-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.stage-who-head h3 { margin: 0; font-size: var(--text-lg); }
+.stage-who-head .btn, .stage-app { min-height: var(--control-h); }
+.stage-note, .stage-empty { margin: 0; }
+.stage-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
+.stage-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto minmax(180px, auto); align-items: center; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-0);
+}
+.stage-row:not(:has(.stage-face)) { grid-template-columns: minmax(0, 1fr) auto auto minmax(180px, auto); }
+.stage-face { display: inline-grid; place-items: center; width: 56px; }
+.stage-row-say { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stage-row-who { display: inline-flex; align-items: center; gap: var(--space-2); }
+.stage-row-doing { color: var(--text-2); font-size: var(--text-sm); }
+.stage-row-time { display: inline-flex; align-items: center; gap: var(--space-1); font-family: var(--font-mono); font-size: var(--text-xs); }
+.stage-status.is-working { color: var(--lane-working-fg); background: var(--lane-working-bg); }
+.stage-status.is-waiting { color: var(--text-1); background: var(--lane-needs-you-bg); }
+.stage-status.is-done { color: var(--status-ok); background: var(--status-ok-bg); }
+.stage-row-term { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.stage-row-term .btn { min-height: var(--control-h); display: inline-flex; align-items: center; gap: var(--space-1); }
+.stage-row-term-note { font-size: var(--text-xs); }
+.stage-finished .fold-body { padding-top: var(--space-2); }
+
+@media (max-width: 760px) {
+  .page-stage .page-head .stop-map, .stage-for { display: none; }
+  .stage-row, .stage-row:not(:has(.stage-face)) { grid-template-columns: minmax(0, 1fr) auto; }
+  .stage-face { display: none; }
+  .stage-row-time { display: none; }
+  .stage-row-term { grid-column: 1 / -1; }
+  .stage-row-term .btn { width: 100%; justify-content: center; }
+  .stage-who-head .btn { width: 100%; justify-content: center; }
+}

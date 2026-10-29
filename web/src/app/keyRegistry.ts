@@ -69,7 +69,7 @@ export const KEYS = {
   'next-job': { keys: ['j'], label: 'Open the next job', scope: 'rows' },
   'prev-job': { keys: ['k'], label: 'Open the previous job', scope: 'rows' },
   // The open job
-  'notes': { keys: ['n'], label: 'Open the job’s Notes and options', scope: 'job' },
+  'notes': { keys: ['n'], label: 'Open the job’s Notes and options', scope: 'job', where: 'On a job; on a stop, n shows who finished there.' },
   'write': { keys: ['c', 'i'], label: 'Put the cursor in the message box', scope: 'job', where: 'On a job or a stop; elsewhere c is New job.' },
   'screens-focus': { keys: ['Enter'], label: 'Step into the screens (the page’s own keys then work)', scope: 'job', where: 'With the Screens tab showing and nothing else focused.' },
   'screens-leave': { keys: ['Escape'], label: 'Step out of the screens, back to the page', scope: 'job', where: 'Inside the screens.', listOnly: true },
@@ -77,6 +77,7 @@ export const KEYS = {
   // A stop of a job (the Stage)
   'stage-prev': { keys: ['['], label: 'The stop before this one', scope: 'stage' },
   'stage-next': { keys: [']'], label: 'The stop after this one', scope: 'stage' },
+  'stage-finished': { keys: ['n'], label: 'Show or hide who finished here', scope: 'stage', where: 'On a stop; on a job, n is Notes and options.' },
   // The permission alert
   'alert-allow': { keys: ['a'], label: 'Allow once', scope: 'alert', where: 'Never for a hard line or a risky step.' },
   'alert-deny': { keys: ['d'], label: 'Deny (you can say why)', scope: 'alert' },
