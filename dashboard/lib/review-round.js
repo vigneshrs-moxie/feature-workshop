@@ -1635,6 +1635,51 @@ export function createReviewRounds(deps) {
     },
   });
 
+  // ---------- Approved, then merged (step 6) ----------
+
+  Object.assign(actions, {
+    /**
+     * Merge: a hard line, always asked. Only when the route lets you merge this PR, it is approved
+     * (or yours to review) and green, and the ask's go came with confirm "merge PR #<n>".
+     */
+    async merge(slug, { go, confirm } = {}) {
+      const { f, fx } = await load(slug);
+      const v = needState(slug, ['approved-you-merge'], 'This pull request isn’t yours to merge now.');
+      const label = v.pr.label;
+      if (go !== true || String(confirm ?? '').trim().toLowerCase() !== `merge ${label}`.toLowerCase()) throw new ReviewRefused(400, `Merging is a hard line: it needs the go from the ask (“Merge ${label} into ${v.pr.base ?? 'its base'}?”).`, { code: 'merge-needs-confirm' });
+      needLock(f);
+      if (!deps.write) throw new ReviewRefused(409, 'Nothing can be written to GitHub from here.');
+      const pr = currentPr(fx);
+      const res = await deps.write.mergePr({ yes: yesFor({ what: `Merge ${label} into ${pr.base ?? 'its base'}` }), featureDir: f.dir, slug, repo: fx.repo, number: pr.number, method: v.merge?.method ?? 'merge' });
+      await deps.audit?.({ action: 'review-merge', featureDir: f.dir, slug, prLabel: label, number: pr.number, ok: res.ok, error: res.err ?? undefined });
+      if (!res.ok) throw new ReviewRefused(502, `GitHub didn’t merge it: ${res.err}`);
+      pr.state = 'merged';
+      pr.mergedAt = iso();
+      pr.mergedBy = Array.isArray(me) ? me[0] ?? null : me ?? null;
+      deps.refresh?.();
+      return refreshJob(slug);
+    },
+    /** Remind the person who merges: a comment from you, drafted, shown before it is sent. */
+    async remind(slug, { go, text } = {}) {
+      if (go !== true) throw new ReviewRefused(400, 'The reminder goes only on your go.');
+      const { f, fx } = await load(slug);
+      const v = needState(slug, ['approved-they-merge'], 'There is no one to remind now.');
+      if (!v.remind?.can) throw new ReviewRefused(409, `Remind is there from ${clock(v.remind?.at, iso())}, a day after the approval.`);
+      needLock(f);
+      if (!deps.write) throw new ReviewRefused(409, 'Nothing can be written to GitHub from here.');
+      const pr = currentPr(fx);
+      const body = String(text ?? v.remind.text).trim();
+      if (!body) throw new ReviewRefused(400, 'The reminder is empty.');
+      const res = await deps.write.comment({ yes: yesFor({ what: `Remind ${v.merge?.who ?? 'them'} to merge ${v.pr.label}` }), featureDir: f.dir, slug, repo: fx.repo, number: pr.number, body });
+      if (!res.ok) throw new ReviewRefused(502, `GitHub didn’t take it: ${res.err}`);
+      const mem = await prMemory(f);
+      mem[pr.number] = { ...(mem[pr.number] ?? {}), remindedAt: iso() };
+      await savePrMemory(f, mem);
+      await deps.audit?.({ action: 'review-remind', featureDir: f.dir, slug, who: v.merge?.who ?? null, prLabel: v.pr.label });
+      return refreshJob(slug);
+    },
+  });
+
   /** A round card's answer (lib/driver.js roundAnswer). */
   async function answerCard({ card, action, note }) {
     const fn = actions[action];
