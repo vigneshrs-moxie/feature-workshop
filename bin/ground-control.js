@@ -13,6 +13,9 @@
 //   install | uninstall            set up (or remove) the background service from sign-in
 //   login                          pairing with the site (a later version)
 //
+// Not listed in the overview, for the Foreman at the ship stage (packet O; its own --help works):
+//   decisions <job> --worktree <path>   copy the job's decisions.md into docs/decisions/ and rebuild the index
+//
 // One small parser, no dependencies: --help on every command, plain errors, exit code 0 or 1.
 // Commands that talk to the running service find it through service.json in the state folder
 // (dashboard/runner/service-file.js: pid, port, write token). What the commands reach for (the
@@ -159,6 +162,26 @@ const COMMANDS = {
     args: { min: 0, max: 1, names: '<code>' },
     run: (ctx) => { ctx.out('Pairing with the site comes in a later version.'); return 0; },
   },
+  // Not listed (the Foreman runs it at the ship stage, as the skill says): packet O.
+  decisions: {
+    hidden: true,
+    usage: 'ground-control decisions <job> [--worktree <path>]',
+    summary: 'Copy a job’s decisions into its repository, beside the index',
+    help: [
+      'Copies the job’s decisions.md into docs/decisions/ in the worktree, as ORBIT-0479-<short-title>.md,',
+      'without the notes meant for agents, and rebuilds docs/decisions/README.md, the list of them.',
+      'It never stages, commits or pushes: commit the two files on the feature branch yourself.',
+      'Only a job for a ticket gets a file. When the repository still ignores docs/decisions/, it',
+      'says so and writes nothing.',
+      '',
+      '<job> is the job’s name (its slug), the ticket it is for (like ORBIT-479), or its folder.',
+      '',
+      '  --worktree <path>   the checkout of the feature branch (the job’s own worktree when not given)',
+    ],
+    values: ['worktree'],
+    args: { min: 1, max: 1, names: '<job>' },
+    run: cmdDecisions,
+  },
   // Not listed: what the Windows task runs (lib/service.js superviseServer).
   'service-run': {
     hidden: true,
@@ -261,7 +284,7 @@ function makeContext(o = {}) {
   const err = o.err ?? ((l) => process.stderr.write(`${l}\n`));
   const stdin = o.stdin ?? process.stdin;
   const ctx = {
-    env, platform, home, out, err, stdin,
+    env, platform, home, out, err, stdin, cwd: o.cwd ?? process.cwd(),
     stateDir: o.stateDir ?? stateDirFor(env, home),
     interactive: o.interactive ?? Boolean(stdin.isTTY),
     ask: o.ask ?? ((question) => askLine(question, { stdin })),
@@ -689,6 +712,54 @@ async function cmdOpen(ctx, { args, flags }) {
     else { failed++; ctx.err(`Couldn’t open it in ${where}: ${r.message}`); }
   }
   return failed ? 1 : 0;
+}
+
+// ---------- decisions (packet O) ----------
+
+const readJsonFile = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
+const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+
+/** A job's folder from its slug, its ticket key or its path; null when there is none. */
+export function findJobDir(name, { env = process.env, home = os.homedir(), cwd = process.cwd() } = {}) {
+  const features = path.resolve(env.WORKSHOP_FEATURES_DIR || path.join(home, '.claude', 'feature-work'));
+  if (/[\\/]/.test(name) || name === '.' || name === '..') {
+    const dir = path.resolve(cwd, name);
+    return isDir(dir) ? dir : null;
+  }
+  if (!name.startsWith('.') && isDir(path.join(features, name))) return path.join(features, name);
+  const key = /^([A-Za-z][A-Za-z0-9]*)-(\d+)$/.exec(name);
+  if (!key) return null;
+  let names = [];
+  try { names = fs.readdirSync(features).sort(); } catch { return null; }
+  const want = `${key[1].toUpperCase()}-${Number(key[2])}`;
+  const hits = names.filter((n) => !n.startsWith('.') && isDir(path.join(features, n))).filter((n) => {
+    const t = readJsonFile(path.join(features, n, 'status.json'))?.ticket?.key;
+    if (typeof t === 'string') return t.toUpperCase() === want;
+    return key[1].toUpperCase() === 'ORBIT' && new RegExp(`^orbit-0*${Number(key[2])}(-|$)`, 'i').test(n);
+  });
+  // A stack's sections share its ticket (<parent>--<section>): the parent is the job.
+  const top = hits.filter((n) => !n.includes('--'));
+  return (top.length === 1 ? path.join(features, top[0]) : hits.length === 1 ? path.join(features, hits[0]) : null);
+}
+
+async function cmdDecisions(ctx, { args, values }) {
+  const name = args[0];
+  const jobDir = findJobDir(name, { env: ctx.env, home: ctx.home, cwd: ctx.cwd });
+  if (!jobDir) { ctx.err(`There is no job “${name}”. Give its name (the folder’s name), the ticket it is for, or its folder.`); return 1; }
+  const status = readJsonFile(path.join(jobDir, 'status.json'));
+  const worktree = values.worktree ? path.resolve(ctx.cwd, values.worktree) : (typeof status?.worktree === 'string' && status.worktree) || null;
+  if (!worktree) { ctx.err('This job doesn’t say where its worktree is. Give it with --worktree <path>.'); return 1; }
+  const { writeRepoCopy } = await lib(ctx, 'decisions');
+  const r = await writeRepoCopy({ jobDir, worktree });
+  if (!r.ok) { ctx.err(r.reason); return 1; }
+  const key = r.name.replace(/^([A-Z][A-Z0-9]*)-0*(\d+).*$/, '$1-$2');
+  ctx.out(`${r.changed.file ? 'Wrote' : 'Already up to date:'} ${r.file}`);
+  ctx.out(`${r.changed.index ? 'Rebuilt' : 'Already up to date:'} ${r.index}`);
+  ctx.out('Nothing is staged or committed. On the feature branch, commit just these two:');
+  const root = path.dirname(path.dirname(path.dirname(r.file))); // <root>/docs/decisions/<name>
+  ctx.out(`  git -C "${root}" add -- ${r.paths.join(' ')}`);
+  ctx.out(`  git -C "${root}" commit -m "docs(decisions): ${key} decisions" -- ${r.paths.join(' ')}`);
+  return 0;
 }
 
 // ---------- install, uninstall ----------
