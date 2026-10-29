@@ -36,6 +36,7 @@ import { clockTime, fullTime, relativeTime } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { stageLabel } from '../Jobs/stages';
 import { draftKey, SendPreview } from './Composer';
+import { EVIDENCE_STAGES, EvidenceStrip } from './EvidenceStrip';
 import { isActiveRun } from './thread';
 
 // Refusals that mean the card is out of date: the Foreman moved on to a new brief, or the spec or
@@ -437,6 +438,7 @@ function GateCard({ job, detail, gate, now, reload, report, running }: {
           <button type="button" className="link-button" onClick={() => tryUi.openTry(slug)} title="Open the Try it tab: start this job’s app on your computer and click around before you decide.">Try it on your computer</button>
         </p>
       )}
+      {EVIDENCE_STAGES.includes(gate.stage ?? '') && <EvidenceStrip slug={slug} tested={gate.proof?.tested ?? null} refresh={detail} />}
 
       {gate.questions.map((q, i) => {
         const group = `${uid}-q${i}`;

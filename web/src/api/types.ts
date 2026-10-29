@@ -696,6 +696,8 @@ export interface JobOptions {
   fable_checks?: string[];
   models?: { foreman?: string; build?: string; checks?: string };
   notes?: string;
+  /** Screenshots and a video of each acceptance line at the test stage (never at L0). */
+  evidence?: EvidenceChoice;
   /** When options.json was last written (the options editor's "changed elsewhere" check). */
   updated_at?: string;
   [key: string]: unknown;
@@ -1025,4 +1027,61 @@ export interface Decision {
 export interface RunTypical {
   all: number | null;
   byKind: Record<string, number>;
+}
+
+/** A job's evidence option (lib/options.js EVIDENCE_CHOICES): Auto is on at L2 and L3; never at L0. */
+export type EvidenceChoice = 'auto' | 'always' | 'off';
+
+/** One acceptance line's result in evidence.json (dashboard/lib/evidence.js). */
+export type EvidenceStatus = 'passed' | 'failed' | 'skipped';
+
+/** One picture of an acceptance line: its file (relative to the job's evidence/ folder) and what it shows. */
+export interface EvidenceShot {
+  file: string;
+  description: string;
+}
+
+/** One acceptance line in evidence.json: AC-<n>, its result, its pictures and its video. */
+export interface EvidenceCriterion {
+  id: string;
+  title: string;
+  status: EvidenceStatus;
+  /** Why it failed or was skipped ("Nothing to see: …" when it has no spec); null when it passed. */
+  reason: string | null;
+  /** The tester's spec, e.g. evidence/specs/AC-1.spec.mjs; null when the line has nothing to see. */
+  spec: string | null;
+  screenshots: EvidenceShot[];
+  video: string | null;
+}
+
+/** A job's evidence/evidence.json: one recording, for one commit. */
+export interface Evidence {
+  version: 1;
+  commit: string;
+  at: string;
+  level: LevelNumber | null;
+  criteria: EvidenceCriterion[];
+}
+
+/** GET /api/job/:slug/evidence: evidence.json and what the strip says around it. */
+export interface EvidenceView {
+  evidence: Evidence | null;
+  /** The commit the test report names now (null: no report yet). */
+  commit: string | null;
+  /** Whether this job records evidence (its level and its evidence option), and why in plain words. */
+  wanted: boolean;
+  why: string;
+  /** A recording is under way now. */
+  recording: boolean;
+  /** The last recording that couldn't finish: what to do, and a line to run when there is one. */
+  problem: { commit: string | null; message: string; fix: string | null; at: string } | null;
+  /** The evidence folder on this computer, and its address (what "Copy link" copies). */
+  folder: string;
+  folderUrl: string;
+}
+
+/** POST /api/job/:slug/evidence/record: the view again; started when the recording carries on by itself. */
+export interface EvidenceRecordResult extends EvidenceView {
+  ok: true;
+  started: boolean;
 }
