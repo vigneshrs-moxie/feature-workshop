@@ -2218,7 +2218,7 @@ export async function createRunner(config) {
       },
     },
     integrator,
-    stacks: createStacks({ driver, state, featuresDir: FEATURES_DIR, registry: local.registry, integrator, readDirs, models: MODELS.map((m) => m.id), onChange: () => { cached = null; notifyChange(); } }), // Stacks (packet K): runner/stacks.js
+    stacks: createStacks({ driver, state, featuresDir: FEATURES_DIR, registry: local.registry, integrator, readDirs, models: MODELS.map((m) => m.id), onChange: () => { cached = null; notifyChange(); }, onSettings: settingsChanged }), // Stacks (packet K): runner/stacks.js
     /** An integration board refusal (lib/integrate.js IntegrateError) as the answer the page has always had. */
     integrateHttpError: (err) => (err instanceof IntegrateError ? new HttpError(err.status, err.message) : err),
     /** Something outside the runner changed what the page shows (the screens server went down): every page fetches again. */

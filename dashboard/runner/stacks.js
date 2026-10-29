@@ -74,9 +74,9 @@ function canListen(port) {
  * job folders. registry: lib/repos.js Registry (profileFor). integrator: the integration board
  * (its integrate.json gives the global cap's first value). readDirs(): the folders the Foreman may
  * read. models: the model ids a stack may pick. onChange(): something on a stack changed (the page
- * fetches again). tickMs: how often it looks (WORKSHOP_STACK_TICK_MS; 0: only when asked).
+ * fetches again). onSettings(): the settings changed (the global cap: every open page hears). tickMs: how often it looks (WORKSHOP_STACK_TICK_MS; 0: only when asked).
  */
-export function createStacks({ driver, state, featuresDir, registry = null, integrator = null, readDirs = async () => [], models = null, onChange = null, tickMs = Number(process.env.WORKSHOP_STACK_TICK_MS) || 3000 }) {
+export function createStacks({ driver, state, featuresDir, registry = null, integrator = null, readDirs = async () => [], models = null, onChange = null, onSettings = null, tickMs = Number(process.env.WORKSHOP_STACK_TICK_MS) || 3000 }) {
   const out = new EventEmitter();
   out.setMaxListeners(0);
   if (onChange) out.on('change', onChange);
@@ -137,6 +137,7 @@ export function createStacks({ driver, state, featuresDir, registry = null, inte
     const was = (await state.getSettings()).workflow;
     await state.setSettings({ workflow: { ...was, sectionsAtOnce: slots } });
     await state.audit({ action: 'settings', workflow: { sectionsAtOnce: slots }, from: 'integrate.json' });
+    try { onSettings?.(); } catch { /* the pages read it at their next fetch */ }
   }
   async function globalCap() {
     await firstCap();
@@ -148,6 +149,7 @@ export function createStacks({ driver, state, featuresDir, registry = null, inte
     const was = (await state.getSettings()).workflow;
     await state.setSettings({ workflow: { ...was, sectionsAtOnce: cap } });
     await state.audit({ action: 'settings', workflow: { sectionsAtOnce: cap } });
+    try { onSettings?.(); } catch { /* the pages read it at their next fetch */ }
     tickSoon();
     return state.getSettings();
   }
