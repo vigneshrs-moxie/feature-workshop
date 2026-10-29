@@ -24,6 +24,27 @@ const feedbackWhat = (e) => {
 };
 const cap = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
+// A review round's audit line (lib/review-round.js, lib/gh-write.js) as one note, or null.
+const roundOf = (e) => `round ${e.round ?? '?'}${e.prLabel ? ` on ${e.prLabel}` : ''}`;
+function roundNote(e) {
+  const n = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+  switch (e.action) {
+    case 'review-round-opened': return `${e.reviewer ?? 'A reviewer'} ${e.reviewState === 'CHANGES_REQUESTED' ? 'asked for changes' : 'left comments'}: ${cap(roundOf(e))}, ${n(e.items ?? 0, 'item')}.`;
+    case 'review-round-joined': return e.late ? `${n(e.late, 'new comment')} joined ${roundOf(e)} while the Foreman works on it.` : null;
+    case 'review-round-fix': return e.added ? `You added ${n(e.items ?? 0, 'new comment')} to the Foreman’s list for ${roundOf(e)}.` : e.afterAll ? `You asked the Foreman to change ${e.afterAll} after all (${roundOf(e)}).` : e.again ? `You asked the Foreman to carry on with ${roundOf(e)}.` : `You sent ${roundOf(e)} to the Foreman: ${n(e.items ?? 0, 'item')}${e.left ? `, ${e.left} left out` : ''}.${e.outcome === 'queued' ? ' It goes once the reply in progress ends.' : ''}`;
+    case 'review-round-left': return `You left ${roundOf(e)} for now.`;
+    case 'review-round-message': return e.outcome === 'not-sent' ? `The review round’s message wasn’t sent${e.reason ? `: ${String(e.reason).replace(/[.\s]+$/, '')}` : ''}.` : null;
+    case 'review-round-send': return e.what === 'go' ? `You said go: ${roundOf(e)} goes back, ${n(e.steps ?? 0, 'step')}.` : e.what === 'not-yet' ? `You held ${roundOf(e)} back for now.` : e.what === 'stop-after' ? `You asked Send back to stop after the step it is on (${roundOf(e)}).` : null;
+    case 'review-round-step': return e.ok ? `${cap(roundOf(e))}, step ${e.number}: ${String(e.words ?? '').replace(/[.\s]+$/, '')}. Done.` : `${cap(roundOf(e))}, step ${e.number} stopped: ${String(e.error ?? 'it failed').replace(/[.\s]+$/, '')}.`;
+    case 'review-round-sent': return `${cap(roundOf(e))} went back to ${e.reviewer ?? 'the reviewer'}.`;
+    case 'review-merge': return e.ok ? `You merged ${e.prLabel ?? 'the pull request'}.` : `Merging ${e.prLabel ?? 'the pull request'} didn’t work: ${String(e.error ?? '').replace(/[.\s]+$/, '')}.`;
+    case 'review-remind': return `You reminded ${e.who ?? 'them'} to merge ${e.prLabel ?? 'the pull request'}.`;
+    case 'review-ask': return `You asked ${e.login ?? 'someone'} to review ${e.prLabel ?? 'the pull request'}.`;
+    case 'review-reopen': return `You reopened ${e.prLabel ?? 'the pull request'}.`;
+    default: return null;
+  }
+}
+
 // "14:02", or "Oct 28, 09:10" when `ref` (an earlier moment) was on another day. Local time.
 function clock(at, ref = null) {
   const d = new Date(at ?? '');
@@ -90,6 +111,9 @@ export function buildThread({ briefs = [], audit = [], autoResume = true, servic
     else if (e.action === 'pr-feedback-sent') note(`You sent ${feedbackWhat(e)} to the Foreman.`);
     else if (e.action === 'pr-feedback-queued') note(`${cap(feedbackWhat(e))} waits for the Foreman to finish its reply; it goes then.`);
     else if (e.action === 'pr-feedback-not-sent') note(`${cap(feedbackWhat(e))} wasn’t sent${e.reason ? `: ${String(e.reason).replace(/[.\s]+$/, '')}` : ''}. Its card is back under Needs you.`);
+    // Review rounds (lib/review-round.js): the round's message is shown by its notes, never as yours.
+    else if (e.action === 'send' && e.kind === 'review-round') continue;
+    else if (e.action?.startsWith('review-') || e.action === 'gh-write') { const text = roundNote(e); if (text) note(text); }
     // gateBrief: sent from a gate card, answering that brief.
     else if (e.action === 'send') thread.push({ id: id('you'), kind: 'you', at: e.at, text: e.text, sendKind: e.kind, ...(Number.isInteger(e.gateBrief) ? { gateBrief: e.gateBrief } : {}) });
     // A gate reply held until Claude's usage limit resets (lib/limits.js hold); sent then as a 'send'.

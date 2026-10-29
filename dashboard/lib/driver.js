@@ -60,6 +60,15 @@
 // ({ outcome: 'sent' | 'queued' | 'left' | 'waiting', featureDir, slug, item, … }); the runner
 // writes the audit lines and pr-feedback.json.
 //
+// Review rounds (packet Q, lib/review-round.js): one Needs you card per job for a round's next
+// yes (parkRoundCard), beside N's cards: "Raj asked for changes on PR #2 · 4 comments, 1 question"
+// with "Fix with the Foreman" / "Leave it for now", or "Round 1 is ready to send back" with "Send
+// back to Raj" / "Not yet". The answer goes to roundAnswer({ card, action, note }) (the runner's
+// lib/review-round.js coordinator), which does the work and may park the next card; a refusal is
+// thrown back to the page and the card stays. sendRoundMessage() carries on the job's session
+// (feedbackSession says which) with the round, kind 'review-round'; while the Foreman is working
+// it waits and goes when the reply ends, like N's. Each outcome is a 'review-round-message' event.
+//
 // Stacks (plan §6, lib/stack.js): startSection(...) starts a section's Foreman, a child job of a
 // stack, with the section's model and effort. Every reply of a section's job (the first and every
 // later one, whoever sends it) gets one more PreToolUse hook, on Edit|Write|MultiEdit|NotebookEdit:
@@ -145,6 +154,10 @@ export class Driver extends EventEmitter {
     this.feedbackCards = new Map();
     this.feedbackQueue = new Map();
     this.feedbackSession = feedbackSession;
+    // Review round cards (see the top): id -> card; the round messages waiting for a reply to end, by job folder.
+    this.roundCards = new Map();
+    this.roundQueue = new Map();
+    this.roundAnswer = null;
     // The status.json check (see the top): statusWatch(dir, onChange) -> stop(), injectable for
     // tests (null: no check); ticketKeyFor(featureDir) -> the job's ORBIT-<n> or null.
     this.statusWatch = statusWatch;
@@ -189,6 +202,7 @@ export class Driver extends EventEmitter {
       ...[...this.runs.values()].flatMap((r) => [...r.pending.values()].map((p) => this.viewPermission(p))),
       ...[...this.statusCards.values()].map((c) => this.viewPermission(c)),
       ...[...this.feedbackCards.values()].map((c) => this.viewPermission(c)),
+      ...[...this.roundCards.values()].map((c) => this.viewPermission(c)),
     ];
   }
 
@@ -220,7 +234,7 @@ export class Driver extends EventEmitter {
 
   /** A waiting request with its full input (for checking a rule against it), or null. */
   pendingRequest(requestId) {
-    const card = this.statusCards.get(requestId) ?? this.feedbackCards.get(requestId);
+    const card = this.statusCards.get(requestId) ?? this.feedbackCards.get(requestId) ?? this.roundCards.get(requestId);
     if (card) return { ...this.viewPermission(card), input: card.input };
     for (const run of this.runs.values()) {
       const req = run.pending.get(requestId);
@@ -377,6 +391,8 @@ export class Driver extends EventEmitter {
       if (followUp && run.status === 'done') this.#sendStatusFix(run.featureDir, followUp).catch(() => {});
       // PR feedback you sent while this reply ran goes now.
       this.#flushFeedback(run).catch(() => {});
+      // So does a review round's message (lib/review-round.js).
+      this.#flushRound(run).catch(() => {});
     }
   }
 
@@ -671,6 +687,114 @@ export class Driver extends EventEmitter {
         this.parkFeedbackCard({ featureDir: card.featureDir, slug: card.slug, title: card.title }, card.item, { notSent: why.charAt(0).toUpperCase() + why.slice(1) });
         this.emit('pr-feedback', { outcome: 'waiting', featureDir: card.featureDir, slug: card.slug, item: card.item, reason: why });
       }
+    }
+  }
+
+  // ---------- Review round cards (see the top of the file) ----------
+
+  /** The job's round card, or null. */
+  roundCardFor(featureDir) {
+    for (const c of this.roundCards.values()) if (c.featureDir === featureDir) return c;
+    return null;
+  }
+
+  /**
+   * Park the job's round card (one per job; a different key replaces the one there, the same key
+   * and words keep it). job: { featureDir, slug, title }. card: { key (the round and its state),
+   * header ('PR #2'), headline, detail, sentence, actions: [{ id, label, description }] (the go
+   * first, the no go second), review: what the page needs to draw it }. Returns what a page sees.
+   */
+  parkRoundCard(job, card) {
+    const had = this.roundCardFor(job.featureDir);
+    const words = JSON.stringify([card.headline, card.detail, card.sentence, card.actions.map((a) => [a.id, a.label]), card.disabled ?? null]);
+    if (had && had.key === card.key && had.words === words) return this.viewPermission(had);
+    if (had) this.dropRoundCard(job.featureDir, 'replaced');
+    const question = [card.headline, card.detail, card.sentence].filter(Boolean).join(' ');
+    const c = {
+      id: randomUUID(), runId: null, slug: job.slug, featureDir: job.featureDir, title: job.title ?? null,
+      toolName: 'AskUserQuestion', kind: 'question', roundCard: true, key: card.key, words, review: card.review ?? null,
+      actions: card.actions.map((a) => ({ id: a.id, label: a.label })),
+      input: { questions: [{ question, header: card.header ?? 'Pull request', multiSelect: false, options: card.actions.map((a) => ({ label: a.label, description: a.description ?? '' })) }] },
+      prompt: null, displayName: null, description: null, decisionReason: null, blockedPath: null,
+      agentID: null, agentType: null, defaultToNo: false, hardLine: null, fromAutoMode: false,
+      canAllowForRun: false, suggestions: [], draft: null, disabled: card.disabled ?? null,
+      plain: { headline: card.headline, detail: card.detail ?? null, preview: '', risk: 'low' },
+      createdAt: new Date().toISOString(),
+    };
+    this.roundCards.set(c.id, c);
+    this.emit('permission', this.viewPermission(c));
+    return this.viewPermission(c);
+  }
+
+  /** Take the job's round card away without an answer. */
+  dropRoundCard(featureDir, reason = 'resolved') {
+    const card = this.roundCardFor(featureDir);
+    if (!card) return false;
+    this.roundCards.delete(card.id);
+    this.emit('permission-gone', { id: card.id, slug: card.slug, reason });
+    return true;
+  }
+
+  // Your answer: the option's action goes to the coordinator; Don't answer is the no go.
+  async #answerRoundCard(card, { decision, note, answers }) {
+    const answer = decision === 'deny' ? null : String(Object.values(answers ?? {})[0] ?? '').trim() || null;
+    const picked = answer ? card.actions.find((a) => a.label === answer) : card.actions[1] ?? null;
+    if (card.disabled && picked && picked === card.actions[0]) throw new HttpError(409, card.disabled);
+    if (card.answering) throw new HttpError(409, 'This card is being answered already.');
+    if (!this.roundAnswer) throw new HttpError(409, 'Review rounds aren’t running here.');
+    card.answering = true;
+    try {
+      // Your own words instead of an option: a note with the go.
+      const action = picked?.id ?? card.actions[0]?.id;
+      await this.roundAnswer({ card, action, note: picked ? note || null : answer });
+      if (this.roundCards.get(card.id) === card) this.dropRoundCard(card.featureDir, 'answered');
+    } finally { card.answering = false; }
+  }
+
+  /**
+   * Carry on the job's Foreman session with a review round's message (kind 'review-round'). While
+   * the Foreman is replying it waits and goes when the reply ends. Returns { outcome: 'sent', runId }
+   * or { outcome: 'queued' }. Throws (nothing sent) when the job's lock is held elsewhere
+   * (JobLocked) or the job can't be carried on from here (HttpError 409, in words).
+   */
+  async sendRoundMessage({ featureDir, slug, title = null, text, key = null }) {
+    const queue = () => {
+      this.roundQueue.set(featureDir, [...(this.roundQueue.get(featureDir) ?? []).filter((q) => !key || q.key !== key), { featureDir, slug, title, text, key }]);
+      this.emit('review-round-message', { outcome: 'queued', featureDir, slug, key });
+      return { outcome: 'queued' };
+    };
+    if (this.activeRunFor({ featureDir })) return queue();
+    let s = null;
+    try { s = this.feedbackSession ? await this.feedbackSession(featureDir) : await this.state.sessionFor?.(featureDir); } catch { s = null; }
+    if (s?.refused) throw new HttpError(409, `${s.refused} Nothing was sent.`, { code: 'review-round-not-sent' });
+    if (!s?.sessionId) throw new HttpError(409, 'This job has no Foreman session here to carry on. Send the Foreman a message first.', { code: 'review-round-not-sent' });
+    let run;
+    try {
+      run = await this.start({ featureDir, slug: s.slug ?? slug, title: s.title ?? title, cwd: s.cwd, sessionId: s.sessionId, model: s.model ?? null, text, kind: 'review-round', additionalDirectories: s.additionalDirectories ?? [] });
+    } catch (err) {
+      if (err instanceof Busy) return queue();
+      throw err;
+    }
+    this.emit('review-round-message', { outcome: 'sent', featureDir, slug, key, runId: run.id, sessionId: s.sessionId });
+    return { outcome: 'sent', runId: run.id };
+  }
+
+  // A reply ended: the round's message that waited goes now (after a pause, an error or a usage
+  // limit it doesn't, and the coordinator says so on the panel).
+  async #flushRound(run) {
+    const list = this.roundQueue.get(run.featureDir);
+    if (!list?.length) return;
+    this.roundQueue.delete(run.featureDir);
+    for (const q of list) {
+      if (run.status !== 'done') {
+        const why = run.status === 'limited' || run.stopReason === 'usage-limit' ? 'Claude’s usage limit paused the Foreman’s reply first.' : run.status === 'error' ? 'The Foreman’s reply ended with a problem first.' : 'The Foreman’s reply was paused first.';
+        this.emit('review-round-message', { outcome: 'not-sent', featureDir: q.featureDir, slug: q.slug, key: q.key, reason: why });
+        continue;
+      }
+      try { await this.sendRoundMessage(q); } catch (err) {
+        this.emit('review-round-message', { outcome: 'not-sent', featureDir: q.featureDir, slug: q.slug, key: q.key, reason: String(err?.message ?? err).split('\n')[0].slice(0, 300) });
+      }
+      // One at a time: the first starts a reply, so the next ones wait for it (queued again).
     }
   }
 
@@ -980,6 +1104,8 @@ export class Driver extends EventEmitter {
     if (card) { await this.#answerStatusCard(card, { decision, note, answers }); return true; }
     const feedback = this.feedbackCards.get(requestId);
     if (feedback) { await this.#answerFeedbackCard(feedback, { decision, note, answers }); return true; }
+    const round = this.roundCards.get(requestId);
+    if (round) { await this.#answerRoundCard(round, { decision, note, answers }); return true; }
     for (const run of this.runs.values()) {
       const req = run.pending.get(requestId);
       if (!req) continue;

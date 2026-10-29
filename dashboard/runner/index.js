@@ -79,6 +79,7 @@ import { RESTART_TEXT, RESUME_KIND, replay, withRestartNotes } from './replay.js
 import { removeServiceFile, writeServiceFile } from './service-file.js';
 import { createStacks } from './stacks.js';
 import { itemSummary, lookAt, noteFeedback, readFeedback } from '../lib/pr-feedback.js';
+import { ReviewRefused, createReviewRounds, gitRead } from '../lib/review-round.js';
 
 /** The Foreman models the page offers (meta.models); a reply's model must be one of them. */
 export const MODELS = [
@@ -1097,6 +1098,51 @@ export async function createRunner(config) {
       else if (e.outcome === 'waiting') await state.audit({ action: 'pr-feedback-not-sent', ...line, reason: e.reason ?? undefined });
       cached = null;
     })().catch((err) => console.error('pr feedback:', err.message));
+  });
+
+  // ---------- Review rounds (packet Q, lib/review-round.js; every GitHub write in lib/gh-write.js) ----------
+  // One reviewer's "Request changes" (or two comments or more close together) is one round, with
+  // the failed checks on the same commit: one card (lib/driver.js parkRoundCard), Fix with the
+  // Foreman on one yes (the job's session, kind 'review-round'), Send back on one go, then the PR's
+  // own states up to the merge. It reads GitHub after each network refresh of the flow map, before
+  // N's look at the same PRs (prependListener), so a round's items are marked in pr-feedback.json
+  // before N would card them one by one. The panel's routes: site/routes-review.js.
+  let roundsFetchedAt = null;
+  const reviewRounds = createReviewRounds({
+    gh: feedbackGh, driver,
+    jobs: async () => (await featuresShared()).map((f) => ({ dir: f.dir, slug: f.slug, title: f.title, branch: f.branch ?? null, worktree: f.worktree ?? null, repoPath: f.repoPath ?? null, closed: f.closed ?? null, ticket: slugTicketKey(f.slug) ?? null })),
+    profileFor: async (repo) => { const hit = await local.registry?.profileFor(repo).catch(() => null); return hit?.ok ? hit.profile : null; },
+    audit: (line) => state.audit(line),
+    emit: (slug, view) => events.emit('pr', slug, view, { replay: false }),
+    changed: () => { cached = null; notifyChange(); },
+    lockFor: (dir) => heldElsewhere(dir),
+    readStatus: async (dir) => { try { const sj = parseStatusJson(await fsp.readFile(path.join(dir, 'status.json'), 'utf8')); return sj?.ok ? sj : null; } catch { return null; } },
+    login: () => git.ghLogin({ gh: feedbackGh }),
+    git: gitRead,
+    failedLog: (repo, runId) => git.failedLog(repo, runId, { gh: feedbackGh }),
+    settings: async () => (await state.getSettings()).review ?? {},
+    saveSettings: async (review) => { await state.setSettings({ review }); settingsChanged(); },
+    refresh: () => flow.refresh({ network: true }),
+    problem: (err) => console.error('review rounds:', err.message),
+  });
+  driver.roundAnswer = (a) => reviewRounds.answerCard(a);
+  flow.prependListener('flow', (view) => {
+    if (!feedbackGh || view.refreshing || !view.fetchedAt || view.fetchedAt === roundsFetchedAt) return;
+    roundsFetchedAt = view.fetchedAt;
+    feedbackPass = feedbackPass.then(() => reviewRounds.pass(view)).catch((err) => console.error('review rounds:', err.message));
+  });
+  // The Foreman's progress (status.json) and its replies starting and ending move the panel.
+  driver.on('run', (run) => { if (run.kind === 'review-round' || reviewRounds.facts.has(run.slug)) reviewRounds.refreshJob(run.slug).catch(() => {}); });
+  const roundsTimer = setInterval(() => {
+    if (!reviewRounds.isFixing()) return;
+    for (const slug of reviewRounds.facts.keys()) reviewRounds.refreshJob(slug).catch(() => {});
+  }, 5000);
+  roundsTimer.unref?.();
+  driver.on('review-round-message', (e) => {
+    const line = { featureDir: e.featureDir, slug: e.slug, key: e.key ?? undefined };
+    if (e.outcome === 'sent') state.audit({ action: 'review-round-message', ...line, outcome: 'sent', runId: e.runId, sessionId: e.sessionId }).catch(() => {});
+    else if (e.outcome === 'not-sent') state.audit({ action: 'review-round-message', ...line, outcome: 'not-sent', reason: e.reason ?? undefined }).catch(() => {});
+    reviewRounds.refreshJob(e.slug).catch(() => {});
   });
 
   // ---------- Notifications outside the browser (lib/notify.js) ----------
@@ -2219,6 +2265,13 @@ export async function createRunner(config) {
       },
     },
     integrator,
+    /** Review rounds (packet Q): the panel's routes (site/routes-review.js). */
+    review: {
+      list: () => reviewRounds.list(), view: (slug) => reviewRounds.view(slug), act: (slug, action, body) => reviewRounds.act(slug, action, body),
+      setSettings: (body) => reviewRounds.setSettings(body),
+      github: () => flow.view().github ?? null,
+      httpError: (err) => (err instanceof ReviewRefused ? new HttpError(err.status, err.message, err.code ? { code: err.code } : undefined) : err),
+    },
     stacks: createStacks({ driver, state, featuresDir: FEATURES_DIR, registry: local.registry, integrator, readDirs, models: MODELS.map((m) => m.id), onChange: () => { cached = null; notifyChange(); }, onSettings: settingsChanged }), // Stacks (packet K): runner/stacks.js
     /** An integration board refusal (lib/integrate.js IntegrateError) as the answer the page has always had. */
     integrateHttpError: (err) => (err instanceof IntegrateError ? new HttpError(err.status, err.message) : err),

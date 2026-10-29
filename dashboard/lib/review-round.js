@@ -25,10 +25,24 @@
 //
 // Nothing in this file writes to GitHub: every write is a lib/gh-write.js call with your yes.
 
+import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { scrub, scrubDeep } from './orbit.js';
-import { QUOTE_MAX, checkKey, commentKey, isSummaryBot } from './pr-feedback.js';
+import { QUOTE_MAX, checkKey, commentKey, isSummaryBot, lookedAt as lookedAtPr, noteFeedback, readFeedback as readFeedbackRecord } from './pr-feedback.js';
+
+// N's record: the items a round takes are marked 'round', so N never cards them too.
+const noteRound = (dir, key) => noteFeedback(dir, key, { state: 'round' });
+
+const READ_GIT = new Set(['rev-list', 'log', 'rev-parse', 'remote', 'status', 'diff']);
+/** Read-only git in a job's worktree (counts and commit lines for the words): never a write. */
+export function gitRead(dir, args, { timeout = 15000 } = {}) {
+  if (!READ_GIT.has(args[0]) || (args[0] === 'remote' && args[1] !== 'get-url')) return Promise.resolve({ ok: false, out: '', err: 'not a read' });
+  return new Promise((resolve) => {
+    execFile('git', ['-C', dir, ...args], { timeout, maxBuffer: 4 * 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } },
+      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout ?? ''), err: err ? String(stderr || err.message).split('\n')[0] : null }));
+  });
+}
 
 export const ROUNDS_DIR = path.join('review', 'rounds');
 /** Comments from one person this close together join the same round. */
@@ -226,9 +240,9 @@ export function itemOf(c, { late = false } = {}) {
 /** A failed check as a candidate (lib/git.js prChecks' check, on the commit `head`). */
 export const checkCandidate = (prNumber, c, head) => ({ type: 'check', key: checkKey({ number: prNumber }, c.name, head), name: c.name, runId: c.runId ?? null, link: c.link ?? null, head });
 
-function newRound({ number, prNumber, prLabel, prUrl, author, first, head, at }) {
+function newRound({ number, prNumber, route, prLabel, prUrl, author, first, head, at }) {
   return {
-    version: 1, round: number, pr: prNumber, prLabel, prUrl: prUrl ?? null, reviewer: author,
+    version: 1, round: number, pr: route ?? 1, prNumber, prLabel, prUrl: prUrl ?? null, reviewer: author,
     reviewId: first.reviewId ?? null, reviewState: first.reviewState ?? null, reviewAt: first.at ?? at,
     head: first.commit ?? head ?? null, openedAt: at, lastItemAt: first.at ?? at, state: 'asked', note: null,
     items: [], foreman: null, send: null, followUp: null, sentAt: null, sentHead: null, requestedAt: null,
@@ -242,7 +256,8 @@ const roundHas = (round, id) => round.items.some((i) => i.id === id);
  * Which items open a round, which join one, which stay N's. Pure.
  *   rounds: this job's rounds so far (every PR's); candidates: candidatesOf() for this PR;
  *   checks: prChecks().checks on `head`, the PR's newest commit; feedback: pr-feedback.json's items
- *   by key (N's states); firstLook: this PR was never looked at (N's lookedAt); pr: { number, label, url }.
+ *   by key (N's states); firstLook: this PR was never looked at (N's lookedAt); pr: { number (on
+ *   GitHub), route (its place on the route: 1, 2 or 3; round.pr), label, url }.
  * A comment joins the reviewer's round on this PR while that round is still being gathered or fixed
  * (asked, left, fixing); once it has gone back, a new comment from them opens the next round. A
  * comment from someone with no round yet opens one when it is part of a "Request changes" review,
@@ -276,10 +291,10 @@ export function groupRounds({ rounds = [], candidates = [], checks = [], head = 
     return item;
   };
   let next = Math.max(0, ...all.map((r) => r.round)) + 1;
-  const open = (author) => all.filter((r) => r.pr === pr.number && r.reviewer === author && GATHERING.has(r.state)).at(-1) ?? null;
-  const hadRound = (author) => all.some((r) => r.pr === pr.number && r.reviewer === author);
+  const open = (author) => all.filter((r) => r.prNumber === pr.number && r.reviewer === author && GATHERING.has(r.state)).at(-1) ?? null;
+  const hadRound = (author) => all.some((r) => r.prNumber === pr.number && r.reviewer === author);
   const startRound = (author, first) => {
-    const r = newRound({ number: next++, prNumber: pr.number, prLabel: pr.label, prUrl: pr.url, author, first, head, at });
+    const r = newRound({ number: next++, prNumber: pr.number, route: pr.route, prLabel: pr.label, prUrl: pr.url, author, first, head, at });
     all.push(r);
     changed.add(r.round);
     return r;
@@ -321,8 +336,8 @@ export function groupRounds({ rounds = [], candidates = [], checks = [], head = 
   // re-open a round that went back with that commit.
   const failed = (checks ?? []).filter((c) => c?.state === 'fail');
   if (failed.length && head) {
-    const gathering = all.filter((r) => r.pr === pr.number && GATHERING.has(r.state) && (!r.head || r.head === head)).at(-1) ?? null;
-    const sentWith = all.filter((r) => r.pr === pr.number && ['sent', 'check-failed'].includes(r.state) && r.sentHead === head).at(-1) ?? null;
+    const gathering = all.filter((r) => r.prNumber === pr.number && GATHERING.has(r.state) && (!r.head || r.head === head)).at(-1) ?? null;
+    const sentWith = all.filter((r) => r.prNumber === pr.number && ['sent', 'check-failed'].includes(r.state) && r.sentHead === head).at(-1) ?? null;
     const target = gathering ?? sentWith;
     if (target) {
       for (const c of failed) {
@@ -356,10 +371,19 @@ const PLANS = new Set(['fix', 'answer', 'wont_change']);
 export function applyForeman(round, report, { at = new Date().toISOString() } = {}) {
   if (!report || report.round !== round.round) return false;
   const before = JSON.stringify([round.items, round.foreman]);
-  round.foreman = { state: report.state ?? null, doing: report.doing ?? null, next: report.next ?? null, checks: report.checks ?? null, at: round.foreman?.at ?? at };
+  // Only what changed since the last report is taken: your own change (Change it after all, a kind
+  // you picked) stands until the Foreman reports that item again.
+  const sig = JSON.stringify([report.state, report.doing, report.next, report.checks]);
+  if (round.foremanSig !== sig) {
+    round.foreman = { state: report.state ?? null, doing: report.doing ?? null, next: report.next ?? null, checks: report.checks ?? null, at: round.foreman?.at ?? at };
+    round.foremanSig = sig;
+  }
   for (const r of report.items ?? []) {
     const item = round.items.find((i) => i.id === r.id);
     if (!item) continue;
+    const isig = JSON.stringify(r);
+    if (item.reportSig === isig) continue;
+    item.reportSig = isig;
     if (r.kind && KINDS.includes(r.kind) && item.kindBy !== 'you' && item.type !== 'check') { item.kind = r.kind; item.kindBy = 'foreman'; }
     if (r.plan && PLANS.has(r.plan)) item.plan = r.plan;
     if (r.planText != null) item.planText = cut(r.planText, 400);
@@ -370,7 +394,7 @@ export function applyForeman(round, report, { at = new Date().toISOString() } = 
     if (r.reply != null && !item.replyEdited && item.type !== 'check') item.reply = cut(r.reply, QUOTE_MAX);
   }
   const after = JSON.stringify([round.items, round.foreman]);
-  if (before !== after) round.foreman.at = at;
+  if (before !== after && round.foreman) round.foreman.at = at;
   return before !== after;
 }
 
@@ -854,3 +878,469 @@ export function remindText({ name, label, title, ticket, base }) {
 
 /** The job is waiting on someone else (GitHub is checked more often meanwhile). */
 export const WAITING_STATES = new Set(['waiting', 'after-pr1', 'approval-reset', 'sending', 'approved-they-merge']);
+
+// ---------- The runner's half: createReviewRounds ----------
+
+const PR_JSON = 'number,state,isDraft,reviewDecision,reviewRequests,mergeable,headRefOid,headRefName,baseRefName,statusCheckRollup,url,mergedAt,mergedBy,closedAt,title';
+const FAIL_WORDS = new Set(['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE']);
+const PASS_WORDS = new Set(['SUCCESS', 'NEUTRAL']);
+const SKIP_WORDS = new Set(['SKIPPED', 'STALE']);
+const REPO_SLUG = /^[\w.-]+\/[\w.-]+$/;
+
+function json(res, what) {
+  if (!res?.ok) throw new Error(`${what}: ${res?.err ?? 'gh failed'}`);
+  try { return JSON.parse(res.out); } catch { throw new Error(`${what}: unreadable output`); }
+}
+
+/** A check from gh's statusCheckRollup: { name, state: fail | pass | skipped | pending, link, runId }. */
+export function rollupCheck(c) {
+  const word = String(c?.conclusion || c?.state || c?.status || '').toUpperCase();
+  const state = FAIL_WORDS.has(word) ? 'fail' : PASS_WORDS.has(word) ? 'pass' : SKIP_WORDS.has(word) ? 'skipped' : 'pending';
+  const link = c?.detailsUrl ?? c?.targetUrl ?? null;
+  return { name: String(c?.name ?? c?.context ?? 'a check'), state, link, runId: /\/actions\/runs\/(\d+)/.exec(String(link ?? ''))?.[1] ?? null };
+}
+const checksWord = (checks) => (!checks.length ? null : checks.some((c) => c.state === 'fail') ? 'failing' : checks.some((c) => c.state === 'pending') ? 'pending' : 'passing');
+
+/**
+ * One PR on GitHub, read only (gh pr view and gh api --method GET): its state, review decision,
+ * requested reviewers, whether it merges cleanly, its newest commit and checks, its reviews,
+ * line comments and conversation comments, and who closed it.
+ */
+export async function readPr(gh, repo, number) {
+  if (!REPO_SLUG.test(String(repo)) || !Number.isInteger(number) || number < 1) throw new Error('Unexpected repository or PR number');
+  const get = (p) => gh(['api', '--method', 'GET', p]);
+  const v = json(await gh(['pr', 'view', String(number), '--repo', repo, '--json', PR_JSON]), 'gh pr view');
+  const reviews = json(await get(`repos/${repo}/pulls/${number}/reviews?per_page=100`), 'gh api reviews');
+  const lineComments = json(await get(`repos/${repo}/pulls/${number}/comments?per_page=100`), 'gh api comments');
+  const issueComments = json(await get(`repos/${repo}/issues/${number}/comments?per_page=100`), 'gh api issue comments');
+  const checks = (Array.isArray(v?.statusCheckRollup) ? v.statusCheckRollup : []).map(rollupCheck);
+  const state = v?.state === 'OPEN' && v?.isDraft ? 'draft' : String(v?.state ?? '').toLowerCase();
+  let closedBy = null;
+  if (state === 'closed') {
+    try {
+      const events = json(await get(`repos/${repo}/issues/${number}/events?per_page=100`), 'gh api events');
+      closedBy = (Array.isArray(events) ? events : []).filter((e) => e?.event === 'closed').at(-1)?.actor?.login ?? null;
+    } catch { closedBy = null; }
+  }
+  const list = (x) => (Array.isArray(x) ? x : []);
+  const approvals = list(reviews).filter((r) => r?.state === 'APPROVED');
+  return {
+    number, repo, url: v?.url ?? null, title: v?.title ?? '', state, draft: state === 'draft',
+    review: v?.reviewDecision ? String(v.reviewDecision).toLowerCase() : null,
+    reviewRequests: list(v?.reviewRequests).map((r) => r?.login ?? r?.name ?? null).filter(Boolean),
+    mergeable: v?.mergeable ?? null, head: v?.headRefOid ?? null, headRef: v?.headRefName ?? null, base: v?.baseRefName ?? null,
+    checks, checksWord: checksWord(checks), checkCount: checks.length,
+    mergedAt: v?.mergedAt ?? null, mergedBy: v?.mergedBy?.login ?? null, closedAt: v?.closedAt ?? null, closedBy,
+    closeReason: closedBy ? list(issueComments).filter((c) => c?.user?.login === closedBy).at(-1)?.body ?? null : null,
+    approvedAt: approvals.at(-1)?.submitted_at ?? null, approvedHead: approvals.at(-1)?.commit_id ?? null,
+    lastReviewer: list(reviews).at(-1)?.user?.login ?? null,
+    reviews: list(reviews), lineComments: list(lineComments), issueComments: list(issueComments),
+  };
+}
+
+/** The errors a page shows for the round's actions: HttpError-shaped ({ status, message }). */
+export class ReviewRefused extends Error {
+  constructor(status, message, extra = {}) { super(message); this.status = status; Object.assign(this, extra); }
+}
+
+/**
+ * The coordinator. deps:
+ *   gh(args)            read-only gh runner (lib/git.js ghRunner), or null: no GitHub is read
+ *   write               lib/gh-write.js createGhWrite(): the only writer, every call with a yes
+ *   driver              lib/driver.js: round cards, sendRoundMessage, activeRunFor
+ *   jobs()              [{ dir, slug, title, branch, worktree, repoPath, closed, ticket }]
+ *   profileFor(repo)    the repo's profile (prRoute, checks) or null
+ *   audit(line)         an audit line; emit(slug, view): the 'pr' event; changed(): pages fetch again
+ *   lockFor(dir)        the job's lock when another process holds it (lib/lock.js heldElsewhere), or null
+ *   readStatus(dir)     the job's parsed status.json (lib/status-json.js) or null
+ *   login()             your GitHub login(s)
+ *   git(dir, args)      read-only git → { ok, out }
+ *   settings() / saveSettings(patch)   { githubEveryMin, mergeFollowUp }
+ *   refresh()           a network refresh of the flow map now (after a push or reply)
+ *   now(), sleep(ms), checksEveryMs (polling a follow-up PR's checks), checksTimeoutMs
+ */
+export function createReviewRounds(deps) {
+  const now = deps.now ?? (() => Date.now());
+  const iso = () => new Date(now()).toISOString();
+  const sleep = deps.sleep ?? ((t) => new Promise((r) => setTimeout(r, t)));
+  const views = new Map(); // slug → the job's view
+  const facts = new Map(); // slug → { f, lane, repo, route, twoStep, org, fork, prs: Map(number → readPr), current }
+  const sent = new Map(); // slug → JSON of the last view sent
+  const busy = new Set(); // slugs with a Send back running
+  let passing = Promise.resolve();
+  let me;
+
+  const settings = async () => {
+    const s = (await deps.settings?.()) ?? {};
+    return { githubEveryMin: GITHUB_EVERY_CHOICES.includes(s.githubEveryMin) ? s.githubEveryMin : GITHUB_EVERY_DEFAULT, mergeFollowUp: s.mergeFollowUp !== false };
+  };
+
+  async function jobOf(slug) {
+    const f = (await deps.jobs()).find((j) => j.slug === slug);
+    if (!f) throw new ReviewRefused(404, 'No such job.');
+    return f;
+  }
+  const fileOfRound = (f, r) => path.join(f.dir, ROUNDS_DIR, `round-${r.round}.md`);
+
+  async function prMemory(f) {
+    try { return JSON.parse(await fs.readFile(path.join(f.dir, 'review', 'prs.json'), 'utf8')) ?? {}; } catch { return {}; }
+  }
+  async function savePrMemory(f, mem) {
+    await fs.mkdir(path.join(f.dir, 'review'), { recursive: true });
+    const file = path.join(f.dir, 'review', 'prs.json');
+    await fs.writeFile(`${file}.${process.pid}.tmp`, `${JSON.stringify(mem, null, 2)}\n`, { mode: 0o600 });
+    await fs.rename(`${file}.${process.pid}.tmp`, file);
+  }
+
+  // The round the job's view is about: the newest one not done, on the PR it is on.
+  const currentRound = (rounds) => [...rounds].reverse().find((r) => r.state !== 'done') ?? null;
+
+  async function aheadOf(f, fx) {
+    const dir = f.worktree ?? null;
+    const branch = fx.lane?.branch ?? f.branch;
+    if (dir && branch && fx.fork) {
+      const r = await deps.git?.(dir, ['rev-list', '--count', `${fx.fork}/${branch}..HEAD`]);
+      if (r?.ok && /^\d+$/.test(r.out.trim())) return Number(r.out.trim());
+      const all = await deps.git?.(dir, ['rev-list', '--count', 'HEAD', `^${fx.org ?? fx.fork}/${fx.base ?? 'main'}`]);
+      if (all?.ok && /^\d+$/.test(all.out.trim())) return Number(all.out.trim());
+    }
+    return fx.lane?.unpushed ?? 0;
+  }
+
+  // The job's view from what is known now (no GitHub read), parked and sent when it changed.
+  async function refreshJob(slug) {
+    const fx = facts.get(slug);
+    if (!fx) return null;
+    const f = (await deps.jobs()).find((j) => j.slug === slug) ?? fx.f;
+    fx.f = f;
+    const rounds = await readRounds(f.dir);
+    // The Foreman's report, from status.json prs[k].rounds.
+    const status = await deps.readStatus?.(f.dir).catch(() => null);
+    for (const r of rounds) {
+      if (!['fixing', 'asked', 'check-failed'].includes(r.state)) continue;
+      const report = status?.prs?.find((p) => p.number === r.pr)?.rounds?.find((x) => x.round === r.round) ?? null;
+      if (report && applyForeman(r, report, { at: iso() })) {
+        if (r.foreman?.state === 'ready' && foremanReady(r)) r.timeline.push({ at: iso(), words: 'The Foreman finished: ready to send back.' });
+        await saveRound(f.dir, r, { route: fx.route });
+      }
+    }
+    const round = currentRound(rounds);
+    const prNumber = round?.prNumber ?? fx.current ?? null;
+    const pr = prNumber ? fx.prs.get(prNumber) : null;
+    if (!pr) { views.delete(slug); return null; }
+    const mem = (await prMemory(f))[pr.number] ?? {};
+    const runActive = Boolean(deps.driver?.activeRunFor?.({ featureDir: f.dir }));
+    const ahead = await aheadOf(f, fx);
+    const s = await settings();
+    const followUp = round && fx.twoStep && round.pr === 2 ? openFollowUp(fx) : null;
+    const ctx = { ahead, fork: fx.fork, branch: fx.lane?.branch ?? f.branch, orgRemote: fx.org, twoStep: fx.twoStep, followUp, mergeFollowUp: round?.send?.mergeFollowUp ?? s.mergeFollowUp };
+    const lock = deps.lockFor?.(f.dir) ?? null;
+    const view = reviewView({
+      job: { slug: f.slug, title: f.title, ticket: f.ticket ?? null }, pr: { ...pr, routeNumber: routeOfPr(fx, pr.number), checks: pr.checksWord, label: labelOf(fx, pr.number) },
+      round, route: fx.route, runActive, lock, now: now(), approvalReset: Boolean(mem.resetAt), stagingNext: pr.base === 'staging' ? 'staging QA, then PR #3 with the release' : null,
+      ...ctx,
+    });
+    if (!view?.state) { views.delete(slug); deps.driver?.dropRoundCard?.(f.dir, 'resolved'); return publish(slug, null); }
+    view.rounds = rounds.map((r) => ({ round: r.round, pr: r.pr, prLabel: r.prLabel, state: r.state, items: r.items.filter((i) => i.added).length, openedAt: r.openedAt, sentAt: r.sentAt }));
+    view.title = f.title ?? null;
+    view.who = { reviewer: round ? nameFor(round.reviewer, fx.route) : null, mergesLine: whoMergesLine(fx.route) };
+    views.set(slug, view);
+    parkCard(f, view, round);
+    return publish(slug, view);
+  }
+
+  function publish(slug, view) {
+    const key = JSON.stringify(view);
+    if (sent.get(slug) === key) return view;
+    sent.set(slug, key);
+    deps.emit?.(slug, view ?? { slug, state: null });
+    deps.changed?.();
+    return view;
+  }
+
+  // A Needs you card for the states that wait for your yes (and only a go / no go: merging and
+  // asking someone to review need the panel).
+  const CARD_STATES = new Set(['asked', 'ready', 'new-comment', 'stopped', 'check-failed', 'conflicts', 'closed', 'fix-stalled', 'held']);
+  function parkCard(f, view, round) {
+    const d = deps.driver;
+    if (!d?.parkRoundCard) return;
+    if (!CARD_STATES.has(view.state) || !view.desk) { d.dropRoundCard(f.dir, 'resolved'); return; }
+    const acts = view.desk.actions.filter((a) => !a.client && a.go !== null);
+    if (!acts.length) { d.dropRoundCard(f.dir, 'resolved'); return; }
+    const go = acts.find((a) => a.go === true);
+    const noGo = acts.find((a) => a.go === false);
+    d.parkRoundCard({ featureDir: f.dir, slug: f.slug, title: f.title }, {
+      key: `${view.state}:${round?.round ?? 0}:${view.heldState ?? ''}`, header: view.pr.label, headline: view.bar.headline, detail: view.bar.detail ?? null, sentence: view.desk.sentence ?? null,
+      actions: [go, noGo].filter(Boolean).map((a) => ({ id: a.id, label: a.label, description: a.playLabel })),
+      disabled: go && !go.enabled ? go.reason : null,
+      review: { slug: f.slug, state: view.state, round: round?.round ?? null, pr: view.pr.number, prLabel: view.pr.label },
+    });
+  }
+
+  const labelOf = (fx, number) => (fx.twoStep ? (fx.lane?.pr1?.number === number ? 'PR #1' : 'PR #2') : `PR #${number}`);
+  const routeOfPr = (fx, number) => (fx.twoStep ? (fx.lane?.pr1?.number === number ? 1 : 2) : 1);
+  const openFollowUp = (fx) => (fx.lane?.pr1 && ['open', 'draft'].includes(fx.lane.pr1.state) ? { number: fx.lane.pr1.number, url: fx.lane.pr1.url ?? null } : null);
+
+  // One PR, read and grouped into rounds.
+  async function lookPr(f, fx, number, repo, mine) {
+    const pr = await readPr(deps.gh, repo, number);
+    fx.prs.set(number, pr);
+    const label = labelOf(fx, number);
+    const rounds = await readRounds(f.dir);
+    const record = await readFeedbackRecord(f.dir);
+    const firstLook = !lookedAtPr(record, number) && !rounds.some((r) => r.prNumber === number);
+    const candidates = candidatesOf({ reviews: pr.reviews, lineComments: pr.lineComments, issueComments: pr.issueComments, prNumber: number, me: mine });
+    const g = groupRounds({ rounds, candidates, checks: pr.checks, head: pr.head, feedback: record.items, firstLook, pr: { number, route: routeOfPr(fx, number), label, url: pr.url }, at: iso(), decision: pr.review });
+    for (const key of g.claimed) await noteRound(f.dir, key);
+    for (const key of g.takeFromN) { const c = deps.driver?.feedbackCardFor?.(f.dir, key); if (c) deps.driver.dropFeedbackCard(c.id, 'round'); }
+    // A sent round is answered: a new round from the same reviewer, or an approval, closes it.
+    for (const r of g.rounds) {
+      if (r.prNumber !== number) continue;
+      const newer = g.rounds.some((x) => x.prNumber === number && x.reviewer === r.reviewer && x.round > r.round);
+      if (r.state === 'sent' && (newer || pr.review === 'approved' || ['merged', 'closed'].includes(pr.state))) {
+        r.state = 'done';
+        r.timeline.push({ at: iso(), words: newer ? `${nameFor(r.reviewer, fx.route)} answered with a new round.` : pr.review === 'approved' ? `${nameFor(r.reviewer, fx.route)} approved.` : `${label} was ${pr.state}.` });
+        g.changed.push(r.round);
+      }
+      if (r.state === 'after-pr1' && fx.lane?.pr1?.state === 'merged' && fx.lane.pr1.number === r.followUp?.number) await deps.onFollowUpMerged?.(f, r);
+    }
+    const changed = new Set(g.changed);
+    for (const r of g.rounds) {
+      if (!changed.has(r.round)) continue;
+      // The logs of the checks that joined (gh run view, read only).
+      for (const i of r.items) {
+        if (i.type !== 'check' || i.log || !i.runId || !deps.failedLog) continue;
+        try { i.log = cut(await deps.failedLog(repo, i.runId), QUOTE_MAX); } catch { i.log = null; }
+      }
+      const isNew = !rounds.some((x) => x.round === r.round);
+      await saveRound(f.dir, r, { route: fx.route });
+      if (isNew) await deps.audit?.({ action: 'review-round-opened', featureDir: f.dir, slug: f.slug, round: r.round, pr: r.pr, prNumber: number, prLabel: label, reviewer: r.reviewer, items: r.items.length, reviewState: r.reviewState });
+      else await deps.audit?.({ action: 'review-round-joined', featureDir: f.dir, slug: f.slug, round: r.round, pr: r.pr, prLabel: label, items: r.items.length, late: r.items.filter((i) => i.late && !i.added).length, state: r.state });
+    }
+    // The approval, remembered: a push that drops it is said in words (approval-reset).
+    const mem = await prMemory(f);
+    const was = mem[number] ?? {};
+    const next = { ...was, decision: pr.review, head: pr.head };
+    if (pr.review === 'approved') Object.assign(next, { approvedAt: pr.approvedAt ?? was.approvedAt ?? iso(), approvedHead: pr.approvedHead ?? pr.head, resetAt: null });
+    else if (was.decision === 'approved' && pr.review === 'review_required' && was.approvedHead && pr.head !== was.approvedHead) next.resetAt = iso();
+    else if (pr.review !== 'review_required') next.resetAt = null;
+    if (JSON.stringify(next) !== JSON.stringify(was)) { mem[number] = next; await savePrMemory(f, mem); }
+  }
+
+  /**
+   * After each network refresh of the flow map (flow: its view): every open job's PRs, read and
+   * grouped. Runs before N's look at the same PRs (the runner chains it first), so a round's items
+   * are marked before N would card them. One pass at a time.
+   */
+  function pass(view) {
+    passing = passing.then(() => passNow(view)).catch((err) => deps.problem?.(err));
+    return passing;
+  }
+  async function passNow(view) {
+    if (!deps.gh) return;
+    const jobs = await deps.jobs();
+    if (me === undefined) me = (await deps.login?.().catch(() => null)) ?? null;
+    const seen = new Set();
+    for (const r of view?.repos ?? []) {
+      const repo = r.org?.slug ?? r.fork?.slug ?? null;
+      if (!r.prsKnown || !repo) continue;
+      const twoStep = Boolean(r.org && r.fork);
+      const profile = await deps.profileFor?.(r.repo).catch(() => null);
+      const route = parseRoute(profile?.prRoute, { twoStep });
+      const mine = [r.fork?.slug?.split('/')[0], ...(Array.isArray(me) ? me : [me])].filter(Boolean);
+      for (const lane of r.lanes ?? []) {
+        const f = jobs.find((j) => j.slug === lane.slug);
+        if (!f || f.closed) continue;
+        const fx = facts.get(f.slug) ?? { prs: new Map() };
+        Object.assign(fx, { f, lane, repo, route, twoStep, org: r.org?.remote ?? null, fork: r.fork?.remote ?? null, base: r.main?.ref?.split('/').slice(1).join('/') ?? 'main', checks: Array.isArray(profile?.checks) ? profile.checks : [] });
+        facts.set(f.slug, fx);
+        const rounds = await readRounds(f.dir);
+        const live = (p) => p && (['open', 'draft'].includes(p.state) || rounds.some((x) => x.prNumber === p.number && x.state !== 'done'));
+        const prs = [lane.pr1, lane.pr2].filter(live);
+        for (const p of prs) {
+          try { await lookPr(f, fx, p.number, repo, mine); } catch (err) { deps.problem?.(new Error(`review rounds (${f.slug}, PR ${p.number}): ${err.message}`)); }
+        }
+        // The PR the job is on: the newest round's, else PR #2 when open, else PR #1.
+        const after = await readRounds(f.dir);
+        const cur = currentRound(after);
+        fx.current = cur?.prNumber ?? prs.map((p) => p.number).at(-1) ?? null;
+        seen.add(f.slug);
+        await refreshJob(f.slug);
+      }
+    }
+    for (const slug of [...facts.keys()]) {
+      if (seen.has(slug)) continue;
+      const fx = facts.get(slug);
+      if (jobs.find((j) => j.slug === slug && !j.closed)) continue;
+      facts.delete(slug);
+      views.delete(slug);
+      if (fx?.f?.dir) deps.driver?.dropRoundCard?.(fx.f.dir, 'closed');
+      publish(slug, null);
+    }
+  }
+
+  // ---------- Your answers ----------
+
+  async function load(slug) {
+    const f = await jobOf(slug);
+    const fx = facts.get(slug);
+    if (!fx) throw new ReviewRefused(404, 'This job has no review round yet.');
+    const rounds = await readRounds(f.dir);
+    return { f, fx, rounds, round: currentRound(rounds) };
+  }
+  function needRound(round, states, words) {
+    if (!round) throw new ReviewRefused(409, 'This job has no review round open.');
+    if (!states.includes(round.state)) throw new ReviewRefused(409, words ?? `Round ${round.round} can’t do that now.`);
+  }
+  function needLock(f) {
+    const lock = deps.lockFor?.(f.dir);
+    if (lock) throw new ReviewRefused(409, `${lockWords(lock)} Send back is off until the terminal lets go.`, { code: 'job-locked' });
+  }
+  const lockWords = (lock) => `This job is being driven from a terminal (pid ${lock.pid ?? 'unknown'}${lock.branch ? `, branch ${lock.branch}` : ''}).`;
+
+  async function tellForeman(f, fx, round, what) {
+    const text = foremanMessage(round, { route: fx.route, checks: fx.checks ?? [], what, base: fx.prs.get(round.prNumber)?.base ?? 'staging', roundFile: fileOfRound(f, round) });
+    return deps.driver.sendRoundMessage({ featureDir: f.dir, slug: f.slug, title: f.title, text, key: `round-${round.round}` });
+  }
+
+  const actions = {
+    /** Fix with the Foreman: the round, the included items and your note, to the job's session. */
+    async fix(slug, { note } = {}) {
+      const { f, fx, round } = await load(slug);
+      const stalled = round?.state === 'fixing' && !deps.driver?.activeRunFor?.({ featureDir: f.dir });
+      if (!stalled) needRound(round, ['asked', 'left'], `Round ${round?.round} is with the Foreman already.`);
+      needLock(f);
+      if (typeof note === 'string') round.note = note.trim().slice(0, 2000) || null;
+      if (!round.items.some((i) => i.included)) throw new ReviewRefused(400, 'Every item is left out: tick at least one, or leave the round for now.');
+      const was = round.state;
+      round.state = 'fixing';
+      const res = await tellForeman(f, fx, round, stalled ? 'more' : 'fix').catch((err) => { round.state = was; throw err; });
+      round.timeline.push({ at: iso(), words: stalled ? 'You asked the Foreman to carry on.' : `You said go: the Foreman works on ${plural(round.items.filter((i) => i.included).length, 'item')}${res.outcome === 'queued' ? ' once its reply in progress ends' : ''}.` });
+      await saveRound(f.dir, round, { route: fx.route });
+      await deps.audit?.({ action: 'review-round-fix', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel, items: round.items.filter((i) => i.included).length, left: round.items.filter((i) => !i.included).length, outcome: res.outcome, runId: res.runId ?? undefined, again: stalled || undefined });
+      return refreshJob(slug);
+    },
+    /** Leave it for now: nothing is sent; the round waits on the panel. */
+    async leave(slug, { note } = {}) {
+      const { f, fx, round } = await load(slug);
+      needRound(round, ['asked', 'check-failed', 'left']);
+      round.state = 'left';
+      round.leftAt = iso();
+      round.timeline.push({ at: iso(), words: 'You left the round for now.' });
+      await saveRound(f.dir, round, { route: fx.route });
+      await deps.audit?.({ action: 'review-round-left', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel, note: note || undefined });
+      return refreshJob(slug);
+    },
+    /** One item: include or leave it out, its kind, its reply (edited or dropped), the reason it won't change. */
+    async item(slug, body = {}) {
+      const { f, fx, round } = await load(slug);
+      needRound(round, ['asked', 'left', 'fixing', 'check-failed', 'stopped'], 'The round is being sent back: items can’t change now.');
+      const item = round.items.find((i) => i.id === body.id);
+      if (!item) throw new ReviewRefused(404, 'No such item in this round.');
+      if (typeof body.included === 'boolean') {
+        if (round.state !== 'asked' && round.state !== 'left' && body.included === false && item.state !== 'todo') throw new ReviewRefused(409, 'The Foreman has worked on this one already.');
+        item.included = body.included;
+      }
+      if (body.kind !== undefined) {
+        if (!KINDS.includes(body.kind) || body.kind === 'check' || item.type === 'check') throw new ReviewRefused(400, 'A kind is change, question or nit.');
+        item.kind = body.kind; item.kindBy = 'you';
+      }
+      if (typeof body.reply === 'string') { if (item.type === 'check') throw new ReviewRefused(400, 'A check gets no reply.'); item.reply = cut(body.reply, QUOTE_MAX) || null; item.replyEdited = true; }
+      if (typeof body.replyDropped === 'boolean') item.replyDropped = body.replyDropped;
+      if (typeof body.reason === 'string') item.reason = cut(body.reason, 1000) || null;
+      await saveRound(f.dir, round, { route: fx.route });
+      return refreshJob(slug);
+    },
+    /** A note for the Foreman, sent with the go. */
+    async note(slug, { note } = {}) {
+      const { f, fx, round } = await load(slug);
+      needRound(round, ['asked', 'left', 'check-failed']);
+      round.note = String(note ?? '').trim().slice(0, 2000) || null;
+      await saveRound(f.dir, round, { route: fx.route });
+      return refreshJob(slug);
+    },
+    /** New comments that joined while the Foreman works: onto its list. */
+    async 'add-new'(slug) {
+      const { f, fx, round } = await load(slug);
+      needRound(round, ['fixing']);
+      const late = round.items.filter((i) => i.late && !i.added);
+      if (!late.length) throw new ReviewRefused(409, 'No new comments are waiting.');
+      needLock(f);
+      for (const i of late) i.added = true;
+      const res = await tellForeman(f, fx, { ...round, items: late }, 'more').catch((err) => { for (const i of late) i.added = false; throw err; });
+      round.timeline.push({ at: iso(), words: `You added ${plural(late.length, 'new comment')} to the Foreman’s list.` });
+      await saveRound(f.dir, round, { route: fx.route });
+      await deps.audit?.({ action: 'review-round-fix', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel, items: late.length, outcome: res.outcome, added: true });
+      return refreshJob(slug);
+    },
+    /** New comments left out of the round (they still show, marked Left out). */
+    async 'leave-new'(slug) {
+      const { f, fx, round } = await load(slug);
+      needRound(round, ['fixing']);
+      for (const i of round.items.filter((x) => x.late && !x.added)) { i.added = true; i.included = false; }
+      round.timeline.push({ at: iso(), words: 'You left the new comments out of the round.' });
+      await saveRound(f.dir, round, { route: fx.route });
+      return refreshJob(slug);
+    },
+    /** An item kept as it is, changed after all: back to the Foreman. */
+    async 'change-after-all'(slug, { id } = {}) {
+      const { f, fx, round } = await load(slug);
+      needRound(round, ['fixing', 'stopped']);
+      const item = round.items.find((i) => i.id === id);
+      if (!item || item.state !== 'wont_change') throw new ReviewRefused(409, 'Only an item kept as it is can be changed after all.');
+      needLock(f);
+      Object.assign(item, { state: 'todo', plan: 'fix', reason: null, reply: item.replyEdited ? item.reply : null });
+      if (round.foreman) round.foreman.state = 'fixing';
+      if (round.state === 'stopped') round.state = 'fixing';
+      const res = await tellForeman(f, fx, { ...round, items: [item], note: `Change it after all: the person wants ${item.id} fixed, not kept as it is.` }, 'more');
+      round.timeline.push({ at: iso(), words: `You asked for ${item.file ?? 'an item'} to be changed after all.` });
+      await saveRound(f.dir, round, { route: fx.route });
+      await deps.audit?.({ action: 'review-round-fix', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel, items: 1, outcome: res.outcome, afterAll: item.id });
+      return refreshJob(slug);
+    },
+  };
+
+  /** A round card's answer (lib/driver.js roundAnswer). */
+  async function answerCard({ card, action, note }) {
+    const fn = actions[action];
+    if (!fn) throw new ReviewRefused(400, 'Unknown answer.');
+    const body = action === 'send' || action === 'retry' || action === 'reopen' || action === 'sync' || action === 'fix-checks' ? { go: true, note } : { note };
+    return fn(card.slug, body);
+  }
+
+  return {
+    actions, answerCard, pass, refreshJob,
+    /** Every job's review state, and the settings. */
+    async list() { return { jobs: [...views.values()], settings: await settings() }; },
+    async view(slug) {
+      await jobOf(slug);
+      return views.get(slug) ?? { slug, state: null };
+    },
+    async act(slug, action, body = {}) {
+      const fn = actions[action];
+      if (!fn) throw new ReviewRefused(404, 'Not found');
+      return fn(slug, body);
+    },
+    settings,
+    async setSettings(body = {}) {
+      const patch = {};
+      if (body.githubEveryMin !== undefined) {
+        if (!GITHUB_EVERY_CHOICES.includes(body.githubEveryMin)) throw new ReviewRefused(400, `How often to check GitHub is every ${listWords(GITHUB_EVERY_CHOICES.map(String)).replace(' and ', ' or ')} minutes.`);
+        patch.githubEveryMin = body.githubEveryMin;
+      }
+      if (body.mergeFollowUp !== undefined) {
+        if (typeof body.mergeFollowUp !== 'boolean') throw new ReviewRefused(400, 'mergeFollowUp is true or false.');
+        patch.mergeFollowUp = body.mergeFollowUp;
+      }
+      await deps.saveSettings?.({ ...(await settings()), ...patch });
+      return settings();
+    },
+    /** A job is waiting on someone else: the flow map checks GitHub more often meanwhile. */
+    isWaiting: () => [...views.values()].some((v) => WAITING_STATES.has(v.heldState ?? v.state)),
+    /** A round is with the Foreman: the panel's items are re-read every few seconds. */
+    isFixing: () => [...views.values()].some((v) => ['fixing', 'new-comment'].includes(v.heldState ?? v.state)),
+    busy,
+    facts,
+  };
+}
+
