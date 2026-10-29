@@ -119,6 +119,14 @@ const SEEN_KEY = 'gc.guide.seen';
 /** Whether a guide opens by itself on a page's first visit. Tests turn it off (test-setup.ts), as setCrewClock does for hats. */
 let firstVisit = true;
 export function setGuideFirstVisit(on: boolean) { firstVisit = on; }
+/** Whether guides open by themselves on a first visit (off in tests); the review round's guide asks too. */
+export const guideFirstVisit = () => firstVisit;
+/** Whether this guide has been seen in this browser; markGuideSeen remembers it. */
+export const guideSeen = (id: string) => readSeen().includes(id);
+export function markGuideSeen(id: string) {
+  const seen = readSeen();
+  if (!seen.includes(id)) { try { localStorage.setItem(SEEN_KEY, JSON.stringify([...seen, id])); } catch { /* private window: shows again next time */ } }
+}
 
 function readSeen(): string[] {
   try { const v = JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]'); return Array.isArray(v) ? v : []; } catch { return []; }

@@ -30,6 +30,10 @@ import { DocsTab } from '../panes/Preview/DocsTab';
 import { TryTab } from '../panes/Preview/TryTab';
 import { WalkthroughTab } from '../panes/Preview/WalkthroughTab';
 import { usePlay } from '../play/usePlay';
+import { GithubLine } from '../views/Review/GithubLine';
+import { ReviewBar } from '../views/Review/ReviewBar';
+import { ReviewPanel } from '../views/Review/ReviewPanel';
+import { isRoundCard, ROUND_NUDGES, useReview } from '../views/Review/useReview';
 import { jobBySlug } from '../state/reducer';
 import { useWorkshopState } from '../state/store';
 import { CodeTab } from './CodeTab';
@@ -120,7 +124,8 @@ function JobView({ job }: { job: Job }) {
   useCurrentJob(job, conversation);
   const { thread, run } = conversation;
   const lane = laneOf(job);
-  const chip = stateChip(job);
+  const state = useWorkshopState();
+  const chip = stateChip(job, state.permissions);
   const at = stopOf(job.stage);
   const [tab, setTab] = useState<JobTab>(() => tabForStop(at));
   const [tryOpen, setTryOpen] = useState(false);
@@ -184,16 +189,20 @@ function JobView({ job }: { job: Job }) {
 
 /**
  * The one next step, on the Job page and each Stage: the permission alert while a permission waits
- * (oldest first), else the go / no go bar while a gate waits, else what is happening in words.
- * `onShip` shows the pull requests (the Ship tab); without it, the button goes to the Job page.
+ * (oldest first), else the go / no go bar while a gate waits, else, while a pull request is in
+ * review, the review round's bar (packet Q: its card is answered here, not as a permission), else
+ * what is happening in words. `onShip` shows the pull requests (the Ship tab); without it, the
+ * button goes to the Job page.
  */
 export function NextStep({ job, conversation, now, onShip }: { job: Job; conversation: ReturnType<typeof useJobConversation>; now: Date; onShip?: () => void }) {
   const state = useWorkshopState();
   const play = usePlay();
+  const review = useReview(job.slug);
   const { thread } = conversation;
-  const perms = state.permissions.filter((p) => p.slug === job.slug);
+  const perms = state.permissions.filter((p) => p.slug === job.slug && !isRoundCard(p));
   if (perms.length > 0) return <PermissionAlert permissions={perms} now={now} />;
   if (thread.detail?.gate) return <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} />;
+  if (review.view) return <ReviewBar view={review.view} act={review.act} problem={review.problem} />;
   return <StateBar job={job} onShip={onShip} />;
 }
 
@@ -327,12 +336,20 @@ function JobTabs({ job, tab, onTab, narrow, tryOpen, onTry, docs }: { job: Job; 
         {narrow && !all && (
           <button type="button" className="job-tab job-tab-more" onClick={() => setAll(true)} aria-label="Show every tab" title="Show every tab.">⋯</button>
         )}
+        {tab === 'ship' && !narrow && <GithubLine />}
       </div>
+      {tab === 'ship' && narrow && <GithubLine className="gh-line-row" />}
       <div className="job-tab-panel" id="job-tab-panel" role="tabpanel" aria-labelledby={`job-tab-${tab}`}>
         <TabBody job={job} tab={tab} tryOpen={tryOpen} onTry={onTry} docs={docs} />
       </div>
     </section>
   );
+}
+
+/** The hand-off nudges under the review panel: the PR ones a review round covers stay hidden while it shows. */
+function ShipNudges({ job }: { job: Job }) {
+  const { view } = useReview(job.slug);
+  return <JobGithub job={job} check={false} hide={view ? ROUND_NUDGES : undefined} />;
 }
 
 /** What the tab's documents list acts on: ⌘K "Open docs", a link to another document. */
@@ -382,7 +399,9 @@ function TabBody({ job, tab, tryOpen, onTry, docs }: { job: Job; tab: JobTab; tr
     case 'decisions': return <DecisionsTab slug={slug} active />;
     case 'ship': {
       const shipping = stopOf(job.stage) === 'ship' || (job.nudges?.length ?? 0) > 0;
-      return shipping ? <JobGithub job={job} /> : <p className="muted">Nothing to ship yet. The pull requests show here from PR #1 on.</p>;
+      return shipping
+        ? <><ReviewPanel slug={slug} /><ShipNudges job={job} /></>
+        : <p className="muted">Nothing to ship yet. The pull requests show here from PR #1 on.</p>;
     }
   }
 }

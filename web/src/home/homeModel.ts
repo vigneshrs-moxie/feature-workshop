@@ -421,7 +421,8 @@ export function deskQueue(jobs: readonly Job[], permissions: readonly Permission
     const kind = p.kind === 'question' ? 'question' : 'permission';
     items.push({
       kind, key: `perm:${p.id}`, slug: p.slug, title: job?.title || p.title || p.slug,
-      what: kind === 'question' ? 'A question from the crew' : p.plain?.headline || `Use ${p.toolName}`,
+      // A review round's card (packet Q) says what the reviewer asked for.
+      what: (p as { roundCard?: unknown }).roundCard === true ? p.plain?.headline || 'A review round' : kind === 'question' ? 'A question from the crew' : p.plain?.headline || `Use ${p.toolName}`,
       since: p.createdAt ?? null, permission: p,
     });
   }

@@ -21,7 +21,7 @@ describe('Settings sections', () => {
       notifications: 'Needs you, Problems and Done on',
       look: 'Glass · M · One at a time · Four lanes · Play subtle',
       keys: 'On',
-      workflow: 'Finish line: In main',
+      workflow: 'Finish line: In main · GitHub every 1 min',
       repos: 'Profiles for each repository',
       play: 'Subtle',
       rules: '3 rules',
@@ -32,7 +32,7 @@ describe('Settings sections', () => {
     expect(quiet.look).toBe('Default · XL · One at a time · Four lanes · Play off');
     expect(valueLines({ settings: { play: { mode: 'full' } } as never, finishLines: undefined, theme: 'default', textSize: 'm', keysOn: true, rules: 1, deskLayout: 'columns', jobsLayout: 'list' }).look).toBe('Default · M · Three columns · One list · Play full');
     expect(quiet.keys).toBe('Off');
-    expect(quiet.workflow).toBe('Finish line: PR #1 merged');
+    expect(quiet.workflow).toBe('Finish line: PR #1 merged · GitHub every 1 min');
     expect(quiet.play).toBe('Off');
     expect(quiet.rules).toBe('No rules');
     expect(valueLines({ settings: undefined, finishLines: undefined, theme: 'default', textSize: 'm', keysOn: true, rules: 1 }).rules).toBe('1 rule');
@@ -52,7 +52,7 @@ describe('Settings sections', () => {
     expect(findSettings('wireframe').map((e) => e.id)).toEqual(['wireframes']);
     expect(findSettings('finish').map((e) => e.id)).toEqual(['finish-line']);
     expect(findSettings('workflow').every((e) => e.section === 'workflow')).toBe(true);
-    expect(findSettings('workflow')).toHaveLength(5); // with the Orbit token
+    expect(findSettings('workflow')).toHaveLength(7); // with the Orbit token, how often GitHub is checked and who reviews and merges
     expect(findSettings('zebra')).toEqual([]);
     // Every entry belongs to a known section, and no anchor is used twice.
     for (const e of SETTING_INDEX) expect(SETTINGS_SECTIONS).toContain(e.section);

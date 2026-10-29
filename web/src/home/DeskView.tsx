@@ -38,6 +38,8 @@ import { CrewMember } from '../play/CrewMember';
 import { usePlayIfAny } from '../play/usePlay';
 import { useWorkshop, useWorkshopState } from '../state/store';
 import { jobHueStyle } from '../theme/hue';
+import { ReviewDeskCard } from '../views/Review/ReviewDeskCard';
+import { isRoundCard, ROUND_NUDGES, useReviewList } from '../views/Review/useReview';
 import type { DeskItem } from './homeModel';
 import { type DeskEntry, deskEntries, isShipping, jobFacts, type NudgeItem, nudgePath, oneKeyDecide, recordDecision, useDecidedToday, whereLine } from './nudges';
 
@@ -299,7 +301,10 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
   const play = usePlayIfAny();
   // Nudges you said yes to or put away just now: gone at once, before the next snapshot confirms it.
   const [settled, setSettled] = useState<ReadonlySet<string>>(() => new Set());
-  const items: DeskEntry[] = deskEntries(decisions, jobs).filter((e) => !settled.has(e.key));
+  // A job with a review round: the round's card takes the place of its PR nudges.
+  const { list: reviewList } = useReviewList(jobs.length > 0);
+  const reviewing = new Set((reviewList?.jobs ?? []).map((v) => v.slug));
+  const items: DeskEntry[] = deskEntries(decisions, jobs).filter((e) => !settled.has(e.key) && !(e.kind === 'nudge' && reviewing.has(e.slug) && ROUND_NUDGES.has(e.nudge.id)));
   const [currentKey, setCurrentKey] = useState<string | null>(null);
   const [briefOpen, setBriefOpen] = useState(layout === 'columns');
   const [queueOpen, setQueueOpen] = useState(false);
@@ -340,6 +345,8 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
   const inQueue = (e: KeyboardEvent) => e.target instanceof Element && Boolean(e.target.closest('.desk-queue'));
   // The card's own buttons: the gate's Approve, a permission's Allow once or Deny….
   const click = (selector: string) => panel.current?.querySelector<HTMLButtonElement>(selector)?.click();
+  // A review round's card (packet Q): a is its go, r its no go, o opens the round on the job.
+  const round = current && current.kind !== 'gate' && current.kind !== 'nudge' && isRoundCard(current.permission);
 
   /** A nudge: yes (the Foreman gets its sentence) or dismiss. The item goes at once; the snapshot confirms it. */
   async function settleNudge(item: NudgeItem, what: 'yes' | 'dismiss') {
@@ -370,6 +377,7 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
     },
     // A gate card that still asks questions is answered on the card, whatever the job says.
     'desk-approve': () => {
+      if (round) { pressed('Go'); click('[data-review-go]:not(:disabled)'); return; }
       if (!current || busy || !oneKeyDecide(current)) return;
       if (current.kind === 'nudge') { void settleNudge(current, 'yes'); return; }
       if (panel.current?.querySelector('.gate-question')) return;
@@ -383,7 +391,11 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
     },
     'desk-brief': () => { if (current?.kind === 'gate') setBriefOpen((o) => !o); else return false; },
     // r and c press the gate card's Revise with feedback and Other guidance (the same in both layouts).
-    'desk-send-back': () => { if (current?.kind !== 'gate') return false; click('[data-gate="revise"]:not(:disabled)'); },
+    'desk-send-back': () => {
+      if (round) { pressed('No go'); click('[data-review-nogo]:not(:disabled)'); return; }
+      if (current?.kind !== 'gate') return false;
+      click('[data-gate="revise"]:not(:disabled)');
+    },
     'desk-reply': () => { if (current?.kind !== 'gate') return false; click('[data-gate="guidance"]:not(:disabled)'); },
   });
 
@@ -436,7 +448,9 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
               {current.kind === 'gate' && (job
                 ? <DeskGateOne key={current.key} job={job} now={now} briefOpen={briefOpen} toggleBrief={() => setBriefOpen((o) => !o)} call={call} />
                 : <p className="muted">This job isn’t in the list any more.</p>)}
-              {(current.kind === 'permission' || current.kind === 'question') && <Card key={current.key} p={current.permission} now={now} />}
+              {(current.kind === 'permission' || current.kind === 'question') && (isRoundCard(current.permission)
+                ? <ReviewDeskCard key={current.key} permission={current.permission} call={call} />
+                : <Card key={current.key} p={current.permission} now={now} />)}
               {current.kind === 'nudge' && <NudgeCard key={current.key} item={current} busy={busy} error={error} onYes={() => void settleNudge(current, 'yes')} onDismiss={() => void settleNudge(current, 'dismiss')} />}
               {!oneKeyDecide(current) && current.kind === 'permission' && <p className="muted desk-note">A hard line or a step Claude Code flagged as risky: decide on the card itself (no one-key approve).</p>}
             </>
@@ -493,7 +507,9 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
             {current.kind === 'gate' && (job
               ? <DeskGate key={current.key} job={job} now={now} briefOpen={briefOpen} toggleBrief={() => setBriefOpen((o) => !o)} />
               : <p className="muted">This job isn’t in the list any more.</p>)}
-            {(current.kind === 'permission' || current.kind === 'question') && <Card key={current.key} p={current.permission} now={now} />}
+            {(current.kind === 'permission' || current.kind === 'question') && (isRoundCard(current.permission)
+              ? <ReviewDeskCard key={current.key} permission={current.permission} call={Boolean(play?.on)} />
+              : <Card key={current.key} p={current.permission} now={now} />)}
             {current.kind === 'nudge' && <NudgeCard key={current.key} item={current} busy={busy} error={error} onYes={() => void settleNudge(current, 'yes')} onDismiss={() => void settleNudge(current, 'dismiss')} />}
             {!oneKeyDecide(current) && current.kind === 'permission' && <p className="muted desk-note">A hard line or a step Claude Code flagged as risky: decide on the card itself (no one-key approve).</p>}
           </>

@@ -26,6 +26,7 @@ import { usePlay } from '../play/usePlay';
 import { jobBySlug } from '../state/reducer';
 import { useWorkshop, useWorkshopState } from '../state/store';
 import { NextStep, ticketOf } from './JobPage';
+import { ReviewPanel } from '../views/Review/ReviewPanel';
 
 export const STAGE_GUIDE: GuideSpec = {
   id: 'stage',
@@ -146,6 +147,7 @@ function StageBody({ job, stop }: { job: Job; stop: StopId }) {
         <span className="muted"> {ticket ? `· ${ticket} ` : ''}· stop {i + 1} of {STOPS.length}</span>
       </p>
       <NextStep job={job} conversation={conversation} now={now} />
+      {stop === 'ship' && <ReviewPanel slug={job.slug} line />}
       {load.state === 'loading' && <p className="muted" role="status">Reading who’s on this stop…</p>}
       {load.state === 'error' && (
         <div>
