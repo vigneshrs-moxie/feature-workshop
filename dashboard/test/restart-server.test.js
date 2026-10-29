@@ -160,7 +160,7 @@ test('a reply paused by a clean stop carries on after the restart, in the same s
   await fs.rm(lockFile);
   const resumed = await b.waitFor(() => audit().find((e) => e.action === 'send' && e.kind === 'resume-after-restart'), 'the carry-on message');
   assert.equal(resumed.sessionId, sessionId, 'the same session');
-  assert.equal(resumed.text, 'Ground Control restarted. Carry on from where you were.');
+  assert.equal(resumed.text, 'Dashboard restarted. Carry on from where you were.');
   assert.equal(resumed.slug, 'sample-job');
   const lines = audit();
   assert.ok(lines.findIndex((e) => e.action === 'send' && e.kind === 'resume-after-restart') > lines.findLastIndex((e) => e.action === 'service-start'), 'after service-start');
@@ -169,7 +169,7 @@ test('a reply paused by a clean stop carries on after the restart, in the same s
 
   // The thread says what happened, as a note, not as a message from you.
   const detail = await b.get('/api/job/sample-job');
-  const note = detail.thread.find((t) => t.kind === 'note' && t.text === 'Ground Control restarted, so it told the Foreman to carry on.');
+  const note = detail.thread.find((t) => t.kind === 'note' && t.text === 'Dashboard restarted, so it told the Foreman to carry on.');
   assert.ok(note, JSON.stringify(detail.thread.map((t) => [t.kind, t.text])));
   assert.ok(!detail.thread.some((t) => t.kind === 'you' && t.sendKind === 'resume-after-restart'));
 
@@ -183,7 +183,7 @@ test('a reply cut off by a crash shows paused with its note, and ground-control 
   const { env, audit } = await makeJob();
   const none = await cli(env, 'resume', 'sample-job');
   assert.equal(none.code, 1);
-  assert.equal(none.text, 'Ground Control isn\u2019t running. Start it with npm start (ground-control start once it is installed). A job paused by a clean stop carries on by itself.');
+  assert.equal(none.text, 'Dashboard isn\u2019t running. Start it with npm start (ground-control start once it is installed). A job paused by a clean stop carries on by itself.');
 
   const a = await startDashboard(env);
   const { id: runId, sessionId } = await replyThatWaits(a);
@@ -200,7 +200,7 @@ test('a reply cut off by a crash shows paused with its note, and ground-control 
   assert.equal(card.stageState, 'paused');
   assert.equal(card.restartPaused.how, 'crash');
   const detail = await b.get('/api/job/sample-job');
-  assert.equal(detail.thread.filter((t) => t.kind === 'note' && t.text === 'Ground Control stopped while the Foreman was working. Resume to carry on.').length, 1);
+  assert.equal(detail.thread.filter((t) => t.kind === 'note' && t.text === 'Dashboard stopped while the Foreman was working. Resume to carry on.').length, 1);
   // Nothing carries on by itself.
   await sleep(1500);
   assert.equal(audit().filter((e) => e.action === 'send' && e.kind === 'resume-after-restart').length, 0);

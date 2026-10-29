@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { PRODUCT } from './brand.js';
 
 // ---------- Tokens ----------
 
@@ -251,7 +252,7 @@ export function orbitClient({ baseUrl, getToken, fetchFn = globalThis.fetch, now
 
   async function get(pathname, params = null) {
     if (now() < waitUntil) {
-      throw new OrbitError('Orbit asked Ground Control to slow down; it tries again in a moment.', { kind: 'rate', status: 429, retryAfterMs: waitUntil - now() });
+      throw new OrbitError(`Orbit asked ${PRODUCT} to slow down; it tries again in a moment.`, { kind: 'rate', status: 429, retryAfterMs: waitUntil - now() });
     }
     const url = base();
     if (!url) throw new OrbitError('Orbit’s address isn’t set yet. Add it in Settings with your token.', { kind: 'settings' });
@@ -274,7 +275,7 @@ export function orbitClient({ baseUrl, getToken, fetchFn = globalThis.fetch, now
     if (res.status === 429) {
       const wait = retryAfterMs(res.headers?.get?.('retry-after'), now()) ?? WAIT_429_MS;
       waitUntil = now() + wait;
-      throw new OrbitError('Orbit asked Ground Control to slow down; it tries again in a moment.', { kind: 'rate', status: 429, retryAfterMs: wait });
+      throw new OrbitError(`Orbit asked ${PRODUCT} to slow down; it tries again in a moment.`, { kind: 'rate', status: 429, retryAfterMs: wait });
     }
     if (!res.ok) {
       const kind = res.status === 401 ? 'auth' : res.status === 403 ? 'scope' : res.status === 404 ? 'not-found' : 'http';

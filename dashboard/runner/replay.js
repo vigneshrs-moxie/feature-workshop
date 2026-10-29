@@ -27,13 +27,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { heldElsewhere } from '../lib/lock.js';
 import { answeredBriefs } from '../lib/gate.js';
+import { PRODUCT } from '../lib/brand.js';
 
 /** The message the Foreman gets when a reply paused by a clean stop carries on. */
-export const RESTART_TEXT = 'Ground Control restarted. Carry on from where you were.';
+export const RESTART_TEXT = `${PRODUCT} restarted. Carry on from where you were.`;
 /** The thread note for a reply cut off by a crash (or a kill): nothing carries on by itself. */
-export const CRASH_NOTE = 'Ground Control stopped while the Foreman was working. Resume to carry on.';
+export const CRASH_NOTE = `${PRODUCT} stopped while the Foreman was working. Resume to carry on.`;
 /** The thread note in place of the carry-on message the runner sent after a clean restart. */
-export const RESTART_NOTE = 'Ground Control restarted, so it told the Foreman to carry on.';
+export const RESTART_NOTE = `${PRODUCT} restarted, so it told the Foreman to carry on.`;
 /** The audit `send` kind of that carry-on message. */
 export const RESUME_KIND = 'resume-after-restart';
 

@@ -16,6 +16,7 @@ import { notifySettings } from './notify.js';
 import { DEFAULT_FINISH_LINE, finishLineOf } from './finish.js';
 import { WORKFLOW_CHOICES } from './options.js';
 import { scrub } from './orbit.js';
+import { PRODUCT } from './brand.js';
 
 /** Screens (wireframes) and Clarify questions for new jobs: Auto (the workflow decides), Always, or Off (lib/options.js). */
 export { WORKFLOW_CHOICES };
@@ -53,11 +54,8 @@ export function migrateSettings(raw) {
 
 // ---------- The state folder ----------
 
-/**
- * The product's name in every sentence a person reads (the CLI, doctor, the service, update, the
- * move note). "Ground Control" is a working name: change it here, and only here.
- */
-export const PRODUCT = 'Ground Control';
+/** The product's name (lib/brand.js), kept here too for the files that read it from state.js. */
+export { PRODUCT };
 
 /** The state folder's name in the home folder, and the one it had before (plan G31). */
 export const STATE_FOLDER = '.ground-control';

@@ -75,7 +75,7 @@ cleanup:
 
 # Orbit
 
-How work is done in Orbit, for Ground Control and for people reading this.
+How work is done in Orbit, for the app and for people reading this.
 
 - **Remotes.** `origin` is your fork; `moxie` is the org repository, which is never pushed to. Work
   starts from the latest `moxie/main`.
@@ -92,4 +92,4 @@ How work is done in Orbit, for Ground Control and for people reading this.
   stack's own branch, and a port from the same range. After each section merges into the stack's
   branch, `npm run check` and `npm run build` run in `app/`; a failure undoes that merge.
 - **Setup** (run these yourself in a new worktree for now): `npm install` and `npx prisma generate`
-  in `app/`. Ground Control doesn't run them by itself yet.
+  in `app/`. The app doesn't run them by itself yet.

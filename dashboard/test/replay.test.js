@@ -49,7 +49,7 @@ test('a reply paused by a clean stop is resumed, with the same session', async (
   assert.deepEqual(start.resumes, ['alpha']);
   assert.deepEqual(start.paused, []);
   assert.equal(lines.filter((e) => e.action === 'service-cut-off').length, 0);
-  assert.equal(RESTART_TEXT, 'Ground Control restarted. Carry on from where you were.');
+  assert.equal(RESTART_TEXT, 'Dashboard restarted. Carry on from where you were.');
 });
 
 test('a reply cut off by a crash is not resumed: it shows paused, with the crash note, once', async () => {

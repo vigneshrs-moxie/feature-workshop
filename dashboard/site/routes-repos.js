@@ -7,8 +7,9 @@
 //   POST   /api/repos/registry/check { path?, profileFile? }  read a profile and say what is wrong with it
 
 import { HttpError } from '../lib/http-guard.js';
+import { PRODUCT } from '../lib/brand.js';
 
-const NOT_READY = 'This copy of Ground Control can’t read the repository list yet. Restart it, and if this stays, tell whoever looks after it.';
+const NOT_READY = `This copy of ${PRODUCT} can’t read the repository list yet. Restart it, and if this stays, tell whoever looks after it.`;
 
 export default function reposRoutes({ local, str, sendJson }) {
   const door = () => {

@@ -146,7 +146,7 @@ test('ports: free, Ground Control’s own, or another program’s (with the line
   const busy = async () => true;
   let r = byId(await runDoctor(options(c, { portInUse: busy, service: { port: 4477, pid: 321 } })));
   assert.equal(r['port-4477'].ok, true);
-  assert.equal(r['port-4477'].found, 'used by Ground Control (pid 321)');
+  assert.equal(r['port-4477'].found, 'used by Dashboard (pid 321)');
   assert.equal(r['port-4478'].ok, true, 'its screens page is the next port');
   r = byId(await runDoctor(options(c, { portInUse: async (p) => p === 4477, service: null })));
   assert.equal(r['port-4477'].ok, false);
@@ -178,7 +178,7 @@ test('postgres in the usual folders counts, not only on PATH', async () => {
 test('the report in words: OK, MISSING or WARNING on every line, never colour alone', async () => {
   const c = computer({ platform: 'darwin', programs: ['git'] , answers: { 'git --version': { code: 0, stdout: 'git version 2.40.0', stderr: '' } } });
   const lines = formatDoctor(await runDoctor(options(c, { tokenSaved: async () => false })));
-  assert.equal(lines[0], 'Ground Control doctor (macOS)');
+  assert.equal(lines[0], 'Dashboard doctor (macOS)');
   assert.ok(lines.some((l) => /^ {2}OK {7}Git/.test(l)));
   assert.ok(lines.some((l) => /^ {2}MISSING {2}GitHub CLI /.test(l)));
   assert.ok(lines.some((l) => /^ {2}WARNING {2}Orbit token saved/.test(l)));

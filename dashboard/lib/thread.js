@@ -10,6 +10,7 @@
 
 import { createHash } from 'node:crypto';
 import { describeOptions, levelChangeLine } from './options.js';
+import { PRODUCT } from './brand.js';
 
 export const PAGE = 60;
 
@@ -47,8 +48,8 @@ function serviceNotes(service, featureDir) {
     if (e.action !== 'service-stop' || !(e.paused ?? []).some((p) => p.featureDir === featureDir)) return;
     const start = lines.slice(i + 1).find((x) => x.action === 'service-start');
     const text = start
-      ? `Ground Control stopped at ${clock(e.at)} and started again at ${clock(start.at, e.at)}.`
-      : `Ground Control stopped at ${clock(e.at)}.`;
+      ? `${PRODUCT} stopped at ${clock(e.at)} and started again at ${clock(start.at, e.at)}.`
+      : `${PRODUCT} stopped at ${clock(e.at)}.`;
     notes.push({ id: `note:service:${hash(e)}`, kind: 'note', at: e.at, text });
   });
   return notes;
@@ -83,7 +84,7 @@ export function buildThread({ briefs = [], audit = [], autoResume = true, servic
     const note = (text) => thread.push({ id: id('note'), kind: 'note', at: e.at, text });
     if (e.action === 'send' && e.kind === 'resume') note('Claude’s usage limit reset, so the workshop told the Foreman to carry on.');
     // status.json checks (lib/driver.js): an invalid write, and the fix sent by resuming the session.
-    else if (e.action === 'send' && e.kind === 'status-fix') note('Ground Control asked the Foreman to rewrite status.json.');
+    else if (e.action === 'send' && e.kind === 'status-fix') note(`${PRODUCT} asked the Foreman to rewrite status.json.`);
     else if (e.action === 'status_invalid') note(`The Foreman’s status.json didn’t match the format${Array.isArray(e.errors) && e.errors.length ? `: ${String(e.errors[0]).replace(/[.\s]+$/, '')}` : ''}.`);
     // PR feedback (lib/pr-feedback.js): the message itself is shown by its pr-feedback-sent note.
     else if (e.action === 'send' && e.kind === 'pr-feedback') continue;

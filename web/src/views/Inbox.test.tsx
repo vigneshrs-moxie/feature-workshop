@@ -101,7 +101,7 @@ describe('Inbox', () => {
   it('without a token, says where to paste one', async () => {
     const { wrap } = setup({ answer: { ...STATUS, tokenPresent: false, store: null, url: null, items: [] } });
     wrap(<InboxView openStream={() => null} />);
-    expect(await screen.findByText(/once Ground Control has your Orbit token/)).toBeInTheDocument();
+    expect(await screen.findByText(/once Dashboard has your Orbit token/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Settings → Workflow' })).toHaveAttribute('href', '#/settings/workflow');
   });
 

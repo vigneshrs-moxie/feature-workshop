@@ -71,7 +71,7 @@ test('a newer release: downloaded, its checksum checked, installed with npm i -g
   const r = await update(o);
   assert.equal(r.status, 'updated');
   assert.equal(r.latest, '1.6.0');
-  assert.equal(r.message, 'Updated Ground Control from 1.5.0 to 1.6.0 (checksum checked).');
+  assert.equal(r.message, 'Updated Dashboard from 1.5.0 to 1.6.0 (checksum checked).');
   assert.equal(tools.installed.length, 1);
   assert.equal(tools.installed[0].sha, release.sum, 'npm got exactly the file whose checksum was checked');
   assert.deepEqual(tools.calls[0], ['gh', 'release', 'view', '--repo', RELEASE_REPO, '--json', 'tagName,assets']);
@@ -94,7 +94,7 @@ test('the same version (or an older one): nothing is downloaded', async () => {
     const tools = fakeTools(fakeRelease({ version }));
     const r = await update(opts(tools));
     assert.equal(r.status, 'same');
-    assert.equal(r.message, 'Ground Control 1.5.0 is the newest version.');
+    assert.equal(r.message, 'Dashboard 1.5.0 is the newest version.');
     assert.equal(tools.calls.length, 1, 'only the question, no download');
     assert.equal(tools.installed.length, 0);
   }

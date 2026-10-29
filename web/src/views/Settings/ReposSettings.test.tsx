@@ -46,7 +46,7 @@ describe('Settings → Repos', () => {
     expect(orbit).toHaveTextContent('/Users/me/Projects/moxie-portal');
     expect(orbit).toHaveTextContent('GitHub Moxie-Pest-Control-Phoenix/moxie-portal');
     expect(orbit).toHaveTextContent('Ports 3001-3099');
-    expect(orbit).toHaveTextContent('Profile: a profile file Ground Control keeps for it');
+    expect(orbit).toHaveTextContent('Profile: a profile file Dashboard keeps for it');
     expect(orbit).toHaveTextContent('(moxie-portal)');
     const broken = rowOf('widgets');
     // The state is words, never a colour alone; each problem is its own line.
@@ -64,8 +64,8 @@ describe('Settings → Repos', () => {
   });
 
   it('a load error and an unreadable list file are said in plain words', async () => {
-    setup({ get: async () => { throw new ApiError(503, 'This copy of Ground Control can’t read the repository list yet.'); } });
-    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t load the repositories: This copy of Ground Control can’t read the repository list yet.');
+    setup({ get: async () => { throw new ApiError(503, 'This copy of Dashboard can’t read the repository list yet.'); } });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t load the repositories: This copy of Dashboard can’t read the repository list yet.');
   });
 
   it('an unreadable list file is a warning', async () => {
@@ -74,7 +74,7 @@ describe('Settings → Repos', () => {
   });
 
   it('Check reads a row’s profile again; Remove takes it off the list', async () => {
-    const api = setup({ post: async () => ({ ok: true, errors: [], warnings: ['Ground Control doesn’t know “stacks”, so it is kept but not used.'], name: 'Orbit', ports: '3001-3099' }) });
+    const api = setup({ post: async () => ({ ok: true, errors: [], warnings: ['Dashboard doesn’t know “stacks”, so it is kept but not used.'], name: 'Orbit', ports: '3001-3099' }) });
     await screen.findByText('Orbit');
     fireEvent.click(screen.getByRole('button', { name: 'Check Orbit’s profile' }));
     expect(await within(rowOf('Orbit')).findByText(/The profile reads well/)).toHaveTextContent('The profile reads well: Orbit, Try it ports 3001-3099.');

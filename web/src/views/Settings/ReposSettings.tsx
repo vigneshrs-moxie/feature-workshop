@@ -1,8 +1,8 @@
-// Settings → Repos: the repositories Ground Control knows, and the profile each one follows (plan
+// Settings → Repos: the repositories the app knows, and the profile each one follows (plan
 // G31; lib/repos.js and lib/profile.js on the dashboard). A profile says how work is done in that
 // repository: its ticket names and branches, where worktrees go, and how Try it runs the app (its
 // folder, command, ports and the settings file copied in). A repository's own ground-control.md wins;
-// otherwise Ground Control keeps the profile file you name here (Orbit's comes with it).
+// otherwise the app keeps the profile file you name here (Orbit's comes with it).
 //   GET    /api/repos/registry          the list, each with its profile's state in words
 //   POST   /api/repos/registry          add one: { path, profileFile? } (400 with each problem)
 //   DELETE /api/repos/registry?path=…   take one off the list (its folder and profile stay)

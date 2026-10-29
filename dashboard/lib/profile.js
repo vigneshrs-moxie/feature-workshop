@@ -25,6 +25,7 @@
 
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { PRODUCT } from './brand.js';
 
 /** The profile's file name in a repository's root. */
 export const PROFILE_FILE = 'ground-control.md';
@@ -332,7 +333,7 @@ function checkKeys(data, spec, where, errors, warnings, extra) {
     const rule = spec[key];
     if (!rule) {
       extra[key] = value;
-      warnings.push(`Ground Control doesn’t know “${key}”${where}, so it is kept but not used.`);
+      warnings.push(`${PRODUCT} doesn’t know “${key}”${where}, so it is kept but not used.`);
       continue;
     }
     const say = (msg) => { errors.push(`${key}${where} ${msg}`); return undefined; };

@@ -1,5 +1,5 @@
 // The page-wide side of alerts, used once by the shell:
-//   - the tab title is the page and the product (app/brand.ts), with the Needs-you count: "(2) Jobs · Ground Control";
+//   - the tab title is the page and the product (app/brand.ts), with the Needs-you count: "(2) Jobs · Dashboard";
 //   - on your first click anywhere, if you've never been asked, the browser asks whether this page
 //     may show notifications, and the answer is remembered (fw.alerts.notify);
 //   - when something new needs you, play the chime (if on) and show a notification (if allowed and
