@@ -107,7 +107,40 @@
           "number": { "type": "integer", "enum": [1, 2, 3] },
           "label": { "type": ["string", "null"] },
           "url": { "type": ["string", "null"] },
-          "state": { "enum": ["not_started", "open", "changes_requested", "approved", "merged", "closed"] }
+          "state": { "enum": ["not_started", "open", "changes_requested", "approved", "merged", "closed"] },
+          "rounds": {
+            "type": ["array", "null"],
+            "description": "review rounds on this PR (skills/ship/review-rounds.md): the Foreman's plan and progress per round",
+            "items": {
+              "type": "object",
+              "required": ["round"],
+              "properties": {
+                "round": { "type": "integer", "minimum": 1 },
+                "state": { "enum": ["planning", "fixing", "ready", null] },
+                "doing": { "type": ["string", "null"] },
+                "next": { "type": ["string", "null"] },
+                "checks": { "type": ["string", "null"] },
+                "items": {
+                  "type": ["array", "null"],
+                  "items": {
+                    "type": "object",
+                    "required": ["id"],
+                    "properties": {
+                      "id": { "type": "string" },
+                      "kind": { "enum": ["change", "question", "nit", "check", null] },
+                      "plan": { "enum": ["fix", "answer", "wont_change", null] },
+                      "plan_text": { "type": ["string", "null"] },
+                      "state": { "enum": ["todo", "working", "fixed", "answered", "wont_change", null] },
+                      "commit": { "type": ["string", "null"] },
+                      "done": { "type": ["boolean", "null"] },
+                      "reply": { "type": ["string", "null"] },
+                      "reason": { "type": ["string", "null"] }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
