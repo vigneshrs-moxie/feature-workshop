@@ -592,17 +592,18 @@ export async function writeRepoCopy({ jobDir, worktree, ticket = null } = {}) {
   if (top.code !== 0 || !top.out.trim()) return refuse('not-git', `${worktree} isn’t a git checkout, so there is nowhere to write the decisions.`);
   const root = path.resolve(top.out.trim());
   const rel = [`${REPO_FOLDER}/${name}`, `${REPO_FOLDER}/${INDEX_FILE}`];
+  // Never through a link: docs/ and docs/decisions/ are real folders inside the checkout, or not there yet.
+  const folders = [];
+  for (const part of REPO_FOLDER.split('/')) folders.push(path.join(folders.at(-1) ?? root, part));
+  for (const dir of folders) {
+    const st = await fs.lstat(dir).catch(() => null);
+    if (st && !st.isDirectory()) return refuse('in-the-way', `${dir} isn’t a plain folder, so nothing was written.`);
+  }
   const ignored = await git(root, ['check-ignore', '--', ...rel]); // exit 0: one of them is ignored, 1: neither
   if (ignored.code === 0) return refuse('ignored', IGNORED_REASON);
   if (ignored.code !== 1) return refuse('git', `Git couldn’t say whether docs/decisions/ is ignored there: ${oneLine(ignored.err) || 'no reason given'}.`);
-  // Never through a link: docs/ and docs/decisions/ are real folders inside the checkout.
-  let dir = root;
-  for (const part of REPO_FOLDER.split('/')) {
-    dir = path.join(dir, part);
-    const st = await fs.lstat(dir).catch(() => null);
-    if (st && !st.isDirectory()) return refuse('in-the-way', `${dir} isn’t a plain folder, so nothing was written.`);
-    if (!st) await fs.mkdir(dir);
-  }
+  const dir = folders.at(-1);
+  for (const f of folders) await fs.mkdir(f).catch((err) => { if (err.code !== 'EEXIST') throw err; });
   try {
     const file = await writePlain(path.join(dir, name), withoutAgentNotes(await fs.readFile(src, 'utf8')));
     const index = await renderIndex(dir);
