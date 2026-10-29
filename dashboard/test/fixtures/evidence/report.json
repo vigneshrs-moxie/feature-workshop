@@ -1,0 +1,80 @@
+{
+  "config": { "version": "1.64.1" },
+  "suites": [
+    {
+      "title": "AC-1.spec.mjs",
+      "file": "AC-1.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "AC-1: Managers see the Hours column",
+          "ok": true,
+          "file": "AC-1.spec.mjs",
+          "tests": [
+            {
+              "timeout": 60000,
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "status": "passed",
+                  "duration": 2140,
+                  "errors": [],
+                  "attachments": [
+                    { "name": "The home page, signed in as the dev user", "contentType": "image/png", "path": "{{output}}/AC-1-chromium/01.png" },
+                    { "name": "The Team page, with the Hours column next to Name", "contentType": "image/png", "path": "{{output}}/AC-1-chromium/02.png" },
+                    { "name": "screenshot", "contentType": "image/png", "path": "{{output}}/AC-1-chromium/test-finished-1.png" },
+                    { "name": "video", "contentType": "video/webm", "path": "{{output}}/AC-1-chromium/video.webm" },
+                    { "name": "outside", "contentType": "image/png", "path": "/etc/hosts.png" }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "AC-2.spec.mjs",
+      "file": "AC-2.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "AC-2: The export button is hidden from technicians",
+          "ok": false,
+          "file": "AC-2.spec.mjs",
+          "tests": [
+            {
+              "timeout": 60000,
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "status": "failed",
+                  "duration": 5874,
+                  "error": { "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeHidden\u001b[2m()\u001b[22m failed\n\nLocator: getByRole('button', { name: 'Export' })\nExpected: hidden\n\nCall log:\n  - waiting for getByRole('button', { name: 'Export' })\n" },
+                  "errors": [],
+                  "attachments": [
+                    { "name": "screenshot", "contentType": "image/png", "path": "{{output}}/AC-2-chromium/test-failed-1.png" },
+                    { "name": "video", "contentType": "video/webm", "path": "{{output}}/AC-2-chromium/video.webm" },
+                    { "name": "error-context", "contentType": "text/markdown", "path": "{{output}}/AC-2-chromium/error-context.md" }
+                  ]
+                }
+              ],
+              "status": "unexpected"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": { "expected": 1, "skipped": 0, "unexpected": 1, "flaky": 0 }
+}

@@ -2162,6 +2162,7 @@ export async function createRunner(config) {
     checkPlanUsage: () => planUsage.check(),
     /** Settings → Repos (site/routes-repos.js): the registry's list, add, remove and check. On a first start the list is seeded from the recent repositories. */
     repos: reposDoor(local.registry, { recent: () => repoList() }),
+    evidence: (await import('./evidence.js')).evidenceRunner({ jobs: features, local, state, events, on, demo: DEMO, env }), // evidence at the test stage: runner/evidence.js, site/routes-evidence.js
     recordSecret,
     /**
      * An easter egg found, or something the page saw you do (a theme tried), from fixed lists only.

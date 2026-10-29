@@ -29,9 +29,10 @@ import orbitRoutes from './routes-orbit.js';
 import telemetryRoutes from './routes-telemetry.js';
 import reposRoutes from './routes-repos.js';
 import stacksRoutes from './routes-stacks.js';
+import evidenceRoutes from './routes-evidence.js';
 
 // Every list of routes, in the order they are tried.
-const ROUTE_LISTS = [boardRoutes, jobRoutes, settingsRoutes, playRoutes, reposRoutes];
+const ROUTE_LISTS = [boardRoutes, evidenceRoutes, jobRoutes, settingsRoutes, playRoutes, reposRoutes];
 // The parts that answer every method under their own prefix, tried before the lists above.
 const MOUNTS = [integrateRoutes, stacksRoutes, orbitRoutes, telemetryRoutes];
 
