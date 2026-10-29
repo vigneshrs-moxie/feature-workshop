@@ -9,6 +9,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { PRODUCT } from './state.js';
 
 const firstLine = (text, max = 160) => {
   const line = String(text ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
@@ -335,4 +336,280 @@ export function ticketCopy(markdown, max = TICKET_LINES) {
   const kept = cut ? all.slice(-max) : all;
   while (kept.length && !kept[0]) kept.shift();
   return { text: kept.join('\n'), lines: kept.length, total: all.length, cut };
+}
+
+// ---------- The repository copy (plan G21, G22, G27) ----------
+// At the ship stage the job's decisions.md is copied into the repository's tracked docs/decisions/
+// folder on the feature branch (docs/decisions/ORBIT-0479-feedback-api.md), and the folder's index,
+// docs/decisions/README.md, is rebuilt beside it, so both ride PR #1. Only a job with a ticket gets
+// a file there.
+
+const KEY = /^([A-Za-z][A-Za-z0-9]*)-(\d+)$/;
+
+// Lowercase words from a title, accents dropped, anything that isn't a letter or digit a gap.
+const words = (s) => String(s ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+
+/**
+ * The file a job's decisions get in the repository: "ORBIT-0479-feedback-api.md". The ticket
+ * key's number zero-padded to four digits (so the files sort), then a short slug from the ticket's
+ * title: lowercase, words joined by "-", at most 6 words, the ticket's number not repeated. With no
+ * title, the job's slug gives the words (orbit-479-feedback-api → feedback-api). No ticket (or a
+ * key that isn't one, like "job"): null, since a job without a ticket isn't written into the repo.
+ */
+export function repoFileName({ ticketKey = null, title = null, slug = null } = {}) {
+  const m = KEY.exec(String(ticketKey ?? '').trim());
+  if (!m) return null;
+  const prefix = m[1].toUpperCase();
+  const n = Number(m[2]);
+  if (!Number.isSafeInteger(n) || n < 1) return null;
+  const p = prefix.toLowerCase();
+  const isNumber = (w) => /^\d+$/.test(w) && Number(w) === n;
+  const from = (text) => {
+    const ws = words(text);
+    const out = [];
+    for (let i = 0; i < ws.length; i++) {
+      if (ws[i] === p && isNumber(ws[i + 1] ?? '')) { i++; continue; } // "ORBIT-479", "orbit 479"
+      if (isNumber(ws[i])) continue; // "#479"
+      out.push(ws[i]);
+    }
+    return out;
+  };
+  let picked = from(title);
+  if (!picked.length) picked = from(slug);
+  const short = picked.slice(0, 6).join('-');
+  return `${prefix}-${String(n).padStart(4, '0')}${short ? `-${short}` : ''}.md`;
+}
+
+// ---------- The index: docs/decisions/README.md ----------
+// Rebuilt from the files each time one is written: a table of the ticket files (ticket, title,
+// how many decisions, the newest "when"), sorted by ticket number, then the files under general/
+// (decisions that span tickets) in a second table. No clock and no locale in it: the same files
+// always give the same index, byte for byte, so two branches that rebuild it conflict only when
+// their files really differ.
+
+export const INDEX_FILE = 'README.md';
+export const GENERAL_FOLDER = 'general';
+const ROW_SPLIT = /(?<!\\)\|/;
+const SEPARATOR = /^\|(\s*:?-{3,}:?\s*\|)+\s*$/;
+const DATE = /\d{4}-\d{2}-\d{2}/;
+const isIndexName = (name) => /^readme\.md$/i.test(name);
+
+const cells = (line) => line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '').split(ROW_SPLIT).map((c) => c.trim());
+
+/**
+ * What the index says about one decision file. name: its path in the folder ("ORBIT-0479-x.md",
+ * "general/0002-y.md"); text: its contents. The ticket comes from the name ("ORBIT-0479-…" is
+ * ORBIT-479, "0001-…" is 0001), the title from the "# <ticket> · <title>" line (else the name's
+ * words), the count from the decision tables' rows (every table but "## Not doing"), and the last
+ * update from the newest date in a "when" column.
+ * Returns { name, ticket, prefix, number, title, count, updated }.
+ */
+export function indexEntry(name, text) {
+  const base = path.posix.basename(name).replace(/\.md$/i, '');
+  let ticket = base;
+  let prefix = '';
+  let number = null;
+  let rest = base;
+  let m = /^([A-Za-z][A-Za-z0-9]*)-(\d+)(?:-(.*))?$/.exec(base);
+  if (m) { prefix = m[1].toUpperCase(); number = Number(m[2]); ticket = `${prefix}-${number}`; rest = m[3] ?? ''; }
+  else if ((m = /^(\d+)(?:-(.*))?$/.exec(base))) { number = Number(m[1]); ticket = m[1]; rest = m[2] ?? ''; }
+  const lines = String(text ?? '').replace(/<!--[\s\S]*?-->/g, '').split(/\r?\n/);
+  const head = lines.find((l) => /^#\s/.test(l))?.replace(/^#\s+/, '').trim() ?? '';
+  const dot = head.indexOf(' · ');
+  let title = dot >= 0 ? head.slice(dot + 3).trim() : head;
+  if (!title || title.toUpperCase() === ticket.toUpperCase()) title = rest.replace(/-+/g, ' ').trim();
+  let count = 0;
+  let updated = '';
+  let when = -1;
+  let inNot = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (/^##\s/.test(line)) { inNot = NOT_DOING.test(line); continue; } // a stack's sections share the table's columns
+    if (inNot || !line.startsWith('|') || SEPARATOR.test(line)) continue;
+    if (SEPARATOR.test(lines[i + 1]?.trim() ?? '')) { when = cells(line).findIndex((c) => /^when$/i.test(c)); continue; }
+    count++;
+    const date = when >= 0 ? DATE.exec(cells(line)[when] ?? '')?.[0] : null;
+    if (date && date > updated) updated = date;
+  }
+  return { name, ticket, prefix, number, title, count, updated };
+}
+
+// Ticket order: by key (ORBIT before others' keys), then number, then name; no number last.
+const byTicket = (a, b) => (a.number === null) - (b.number === null) || (a.prefix < b.prefix ? -1 : a.prefix > b.prefix ? 1 : 0) || (a.number ?? 0) - (b.number ?? 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+const link = (name) => name.split('/').map(encodeURIComponent).join('/');
+
+function indexTable(entries, first) {
+  const out = [`| ${first} | Title | Decisions | Last updated |`, '|---|---|---|---|'];
+  for (const e of [...entries].sort(byTicket)) out.push(`| [${cell(e.ticket)}](${link(e.name)}) | ${cell(e.title) || '—'} | ${e.count} | ${e.updated || '—'} |`);
+  return out;
+}
+
+/**
+ * The index's text from the files: files [{ name, text }] in the folder itself, general
+ * [{ name: 'general/…', text }] from its general/ folder.
+ */
+export function indexText({ files = [], general = [] } = {}) {
+  const top = files.map((f) => indexEntry(f.name, f.text));
+  const across = general.map((f) => indexEntry(f.name, f.text));
+  const out = [
+    '# Decisions',
+    '',
+    `One file per ticket (or per numbered record) with the decisions made while building it (id, question, options, choice, who, when, why) and what was left out on purpose, so engineers and agents can read later why the code is the way it is. Files that span tickets are under ${GENERAL_FOLDER}/. ${PRODUCT} rebuilds this table from the files: change a file, not the table.`,
+    '',
+  ];
+  if (top.length) out.push(...indexTable(top, top.every((e) => e.prefix) ? 'Ticket' : 'Number'));
+  else out.push('No decision files yet.');
+  if (across.length) out.push('', '## Across tickets', '', ...indexTable(across, 'Number'));
+  out.push('');
+  return out.join('\n');
+}
+
+// The .md files in a folder that are plain files (no links, no index), with their text.
+async function markdownFiles(dir, prefix = '') {
+  let list = [];
+  try { list = await fs.readdir(dir, { withFileTypes: true }); } catch { return []; }
+  const out = [];
+  for (const d of list) {
+    if (!d.isFile() || !/\.md$/i.test(d.name) || d.name.startsWith('.') || isIndexName(d.name)) continue;
+    out.push({ name: `${prefix}${d.name}`, text: await fs.readFile(path.join(dir, d.name), 'utf8') });
+  }
+  return out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+// Write a plain file by a temp file and a rename, only when the text changed; never through a link
+// or over anything but a plain file. Returns { file, text, changed }.
+async function writePlain(file, text) {
+  const st = await fs.lstat(file).catch(() => null);
+  if (st && !st.isFile()) throw Object.assign(new Error(`${file} isn’t a plain file, so it was left alone.`), { plain: true });
+  const now = st ? await fs.readFile(file, 'utf8') : null;
+  if (now === text) return { file, text, changed: false };
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+  await fs.writeFile(tmp, text, { mode: 0o644 });
+  await fs.rename(tmp, file);
+  return { file, text, changed: true };
+}
+
+/**
+ * Rebuild dir/README.md (dir is the decisions folder itself, like <repo>/docs/decisions) from every
+ * dir/*.md and dir/general/*.md except README.md. Returns { file, text, changed }.
+ */
+export async function renderIndex(dir) {
+  const text = indexText({ files: await markdownFiles(dir), general: await markdownFiles(path.join(dir, GENERAL_FOLDER), `${GENERAL_FOLDER}/`) });
+  return writePlain(path.join(dir, INDEX_FILE), text);
+}
+
+// ---------- Writing the copy into a worktree ----------
+
+/** Where a job's decisions go in a repository, from its root. */
+export const REPO_FOLDER = 'docs/decisions';
+// G22: Orbit's .gitignore has "docs/" until Vignesh changes it; Ground Control never changes it.
+export const IGNORED_REASON = 'Orbit still ignores docs/decisions/. Its .gitignore needs `docs/*` and `!docs/decisions/` first.';
+
+/**
+ * decisions.md without the notes meant for agents: every HTML comment (the note under the title,
+ * the foreman marks at the ends of rows) goes, and a line that held only a comment goes with it,
+ * with the blank line it would leave doubled. Everything else, the "## Section:" parts and
+ * "## Not doing" among it, stays exactly as it is.
+ */
+export function withoutAgentNotes(markdown) {
+  const out = [];
+  let inside = false;
+  let dropped = false;
+  for (const raw of String(markdown ?? '').split('\n')) {
+    let line = '';
+    let touched = inside;
+    let rest = raw;
+    while (rest) {
+      if (inside) {
+        const end = rest.indexOf('-->');
+        if (end < 0) { rest = ''; break; }
+        rest = rest.slice(end + 3);
+        inside = false;
+        continue;
+      }
+      const start = rest.indexOf('<!--');
+      if (start < 0) { line += rest; break; }
+      line += rest.slice(0, start);
+      rest = rest.slice(start + 4);
+      inside = true;
+      touched = true;
+    }
+    if (touched) {
+      const cr = raw.endsWith('\r') ? '\r' : '';
+      line = line.replace(/[ \t\r]+$/, '');
+      if (!line) { dropped = true; continue; }
+      line += cr;
+    }
+    const blank = !line.trim();
+    if (blank && dropped && (!out.length || !out.at(-1).trim())) continue;
+    dropped = false;
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+const git = (cwd, args) => new Promise((resolve) => {
+  execFile('git', ['-C', cwd, ...args], { timeout: 15_000, windowsHide: true }, (err, stdout, stderr) => {
+    resolve({ code: err ? (Number.isInteger(err.code) ? err.code : -1) : 0, out: String(stdout ?? ''), err: String(stderr ?? '') });
+  });
+});
+
+// The job's ticket: the one given ("ORBIT-479" or { key, title }), else status.json's ticket, else
+// the key in a slug made from a ticket (orbit-479-…). The title: the ticket's, else the job's.
+function ticketOf(ticket, status, slug) {
+  const given = typeof ticket === 'string' ? { key: ticket } : ticket && typeof ticket === 'object' ? ticket : null;
+  const fromStatus = status?.ticket && typeof status.ticket === 'object' ? status.ticket : null;
+  const m = /^orbit-(\d+)(?:-|$)/i.exec(slug);
+  const key = given?.key ?? fromStatus?.key ?? (m ? `ORBIT-${Number(m[1])}` : null);
+  const title = given?.title ?? fromStatus?.title ?? status?.title ?? null;
+  return { key: typeof key === 'string' ? key.trim() : null, title: typeof title === 'string' ? title : null };
+}
+
+const refuse = (code, reason) => ({ ok: false, code, reason });
+
+/**
+ * Copy a job's decisions.md into a worktree's docs/decisions/ folder and rebuild the folder's index
+ * (plan G22, G27). The copy is the file as it is, without the notes meant for agents. It never
+ * stages, commits or pushes: the Foreman commits the two files on the feature branch.
+ * jobDir: the job's folder. worktree: the checkout of the feature branch. ticket: "ORBIT-479" or
+ * { key, title }, read from the job's status.json when not given.
+ * Returns { ok: true, file, index, paths: [the two, from the repository's root], changed:
+ * { file, index } }, or { ok: false, code, reason } with the reason in plain words: no ticket,
+ * no decisions.md, not a git checkout, the folder is ignored, or something in the way.
+ */
+export async function writeRepoCopy({ jobDir, worktree, ticket = null } = {}) {
+  if (!jobDir || !worktree) return refuse('missing', 'Say which job and which worktree.');
+  const status = await readJson(path.join(jobDir, 'status.json'));
+  const t = ticketOf(ticket, status, path.basename(jobDir));
+  const name = repoFileName({ ticketKey: t.key, title: t.title, slug: path.basename(jobDir) });
+  if (!name) return refuse('no-ticket', 'This job has no ticket, so its decisions aren’t written into the repository: only a job for a ticket gets a file in docs/decisions/.');
+  const src = path.join(jobDir, DECISIONS_FILE);
+  const srcStat = await fs.lstat(src).catch(() => null);
+  if (!srcStat?.isFile()) return refuse('no-file', 'This job has no decisions.md yet. It is written after the first gate.');
+  const wtStat = await fs.stat(worktree).catch(() => null);
+  if (!wtStat?.isDirectory()) return refuse('not-git', `${worktree} isn’t a folder, so there is nowhere to write the decisions.`);
+  const top = await git(worktree, ['rev-parse', '--show-toplevel']);
+  if (top.code !== 0 || !top.out.trim()) return refuse('not-git', `${worktree} isn’t a git checkout, so there is nowhere to write the decisions.`);
+  const root = path.resolve(top.out.trim());
+  const rel = [`${REPO_FOLDER}/${name}`, `${REPO_FOLDER}/${INDEX_FILE}`];
+  // Never through a link: docs/ and docs/decisions/ are real folders inside the checkout, or not there yet.
+  const folders = [];
+  for (const part of REPO_FOLDER.split('/')) folders.push(path.join(folders.at(-1) ?? root, part));
+  for (const dir of folders) {
+    const st = await fs.lstat(dir).catch(() => null);
+    if (st && !st.isDirectory()) return refuse('in-the-way', `${dir} isn’t a plain folder, so nothing was written.`);
+  }
+  const ignored = await git(root, ['check-ignore', '--', ...rel]); // exit 0: one of them is ignored, 1: neither
+  if (ignored.code === 0) return refuse('ignored', IGNORED_REASON);
+  if (ignored.code !== 1) return refuse('git', `Git couldn’t say whether docs/decisions/ is ignored there: ${oneLine(ignored.err) || 'no reason given'}.`);
+  const dir = folders.at(-1);
+  for (const f of folders) await fs.mkdir(f).catch((err) => { if (err.code !== 'EEXIST') throw err; });
+  try {
+    const file = await writePlain(path.join(dir, name), withoutAgentNotes(await fs.readFile(src, 'utf8')));
+    const index = await renderIndex(dir);
+    return { ok: true, name, file: file.file, index: index.file, paths: rel, changed: { file: file.changed, index: index.changed } };
+  } catch (err) {
+    if (err?.plain) return refuse('in-the-way', err.message);
+    throw err;
+  }
 }

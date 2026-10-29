@@ -1,3 +1,5 @@
+> The same register, in the shape every decision file has (id, question, options, choice, who, when, why, and a Not doing list): [docs/decisions/0001-next-phase-register.md](../decisions/0001-next-phase-register.md).
+
 # Ground Control (Feature Workshop next phase): decisions
 
 Decisions made by Vignesh on 2026-10-27 while planning the next phase. Only the decisions, not the conversation. Same columns as the Portal Feedback plan §6. "Pending" rows are proposals that have not been decided yet.
