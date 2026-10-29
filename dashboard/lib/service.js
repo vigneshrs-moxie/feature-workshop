@@ -27,12 +27,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findOnPath } from './platform.js';
-import { STATE_FOLDER } from './state.js';
+import { PRODUCT, STATE_FOLDER } from './state.js';
 
 export const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const SERVICE_PORT = 4477;
 export const LABEL = 'com.moxie.ground-control';
-export const TASK_NAME = 'Ground Control';
+export const TASK_NAME = PRODUCT;
 export const UNIT = 'ground-control.service';
 export const LOG_NAME = 'ground-control.log';
 /** The file `ground-control stop` leaves in the state folder for a supervised dashboard (superviseServer). */
@@ -129,11 +129,11 @@ const said = (r) => `${r.stderr || ''}\n${r.stdout || ''}`.trim();
 const firstLine = (r) => said(r).split(/\r?\n/).find((l) => l.trim())?.trim() ?? '';
 
 export const NO_RIGHTS_WINDOWS = 'Windows didn’t let this account make the Task Scheduler task: making a task that starts at sign-in needs administrator rights on this computer. '
-  + 'Ground Control still works fully when you start it yourself: run ground-control start --here and keep that window open. '
+  + `${PRODUCT} still works fully when you start it yourself: run ground-control start --here and keep that window open. `
   + 'If your own account can run programs as administrator, open PowerShell with “Run as administrator” and run ground-control install again to have it start at sign-in.';
-export const NO_SYSTEMD = 'This computer has no systemd user services (systemctl --user doesn’t work here), so Ground Control can’t run as a service. '
+export const NO_SYSTEMD = `This computer has no systemd user services (systemctl --user doesn’t work here), so ${PRODUCT} can’t run as a service. `
   + 'It still works fully when you start it yourself: run ground-control start --here and keep that terminal open.';
-export const NO_RIGHTS_OTHER = 'This account isn’t allowed to set up the service. Ground Control still works fully when you start it yourself: run ground-control start --here and keep that terminal open.';
+export const NO_RIGHTS_OTHER = `This account isn’t allowed to set up the service. ${PRODUCT} still works fully when you start it yourself: run ground-control start --here and keep that terminal open.`;
 
 const deniedWindows = (r) => /access is denied|zugriff verweigert|accès refusé|acceso denegado/i.test(said(r));
 const noUserBus = (r) => r.missing || /failed to connect to bus|no medium found|not been booted with systemd|\$DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR/i.test(said(r));
@@ -190,7 +190,7 @@ export async function removeService({ platform = process.platform, home = os.hom
   } else if (platform === 'win32') {
     const r = await run('schtasks', ['/Delete', '/TN', TASK_NAME, '/F']);
     removed = r.code === 0;
-    if (r.code !== 0 && deniedWindows(r)) message = 'Windows didn’t let this account delete the Task Scheduler task “Ground Control”. Open PowerShell with “Run as administrator” and run ground-control uninstall again, or delete the task in Task Scheduler.';
+    if (r.code !== 0 && deniedWindows(r)) message = `Windows didn’t let this account delete the Task Scheduler task “${PRODUCT}”. Open PowerShell with “Run as administrator” and run ground-control uninstall again, or delete the task in Task Scheduler.`;
   } else {
     const r = await run('systemctl', ['--user', 'disable', '--now', UNIT]);
     removed = r.code === 0;
@@ -317,13 +317,13 @@ export function superviseServer({ serverPath = path.join(PACKAGE_ROOT, 'dashboar
     }
 
     function launch() {
-      if (log) { if (fd === null) fd = openLog(log); fs.writeSync(fd, `\n--- ${new Date().toISOString()} starting Ground Control on port ${port}\n`); }
+      if (log) { if (fd === null) fd = openLog(log); fs.writeSync(fd, `\n--- ${new Date().toISOString()} starting ${PRODUCT} on port ${port}\n`); }
       child = spawnFn(process.execPath, ['--import', STOP_HOOK, serverPath], {
         env: { ...env, PORT: String(port) },
         stdio: log ? ['ignore', fd, fd, 'ipc'] : ['inherit', 'inherit', 'inherit', 'ipc'],
         windowsHide: true,
       });
-      child.once('error', (err) => { say(`Ground Control couldn’t start: ${err.message}`); finish(1); });
+      child.once('error', (err) => { say(`${PRODUCT} couldn’t start: ${err.message}`); finish(1); });
       child.once('exit', (code, signal) => {
         if (stopping) return finish(0);
         if (!restart || code === 0) return finish(code ?? (signal ? 1 : 0));

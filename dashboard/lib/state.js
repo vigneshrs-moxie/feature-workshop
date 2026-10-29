@@ -48,6 +48,12 @@ export function migrateSettings(raw) {
 
 // ---------- The state folder ----------
 
+/**
+ * The product's name in every sentence a person reads (the CLI, doctor, the service, update, the
+ * move note). "Ground Control" is a working name: change it here, and only here.
+ */
+export const PRODUCT = 'Ground Control';
+
 /** The state folder's name in the home folder, and the one it had before (plan G31). */
 export const STATE_FOLDER = '.ground-control';
 export const OLD_STATE_FOLDER = '.feature-workshop';
@@ -116,13 +122,13 @@ export function moveOldState({ home = os.homedir(), now = () => new Date(), aliv
   const entry = { at, action: 'state-moved', from, to, moved, kept, ...(error ? { error } : {}) };
   try { fsSync.appendFileSync(path.join(to, 'audit.jsonl'), `${JSON.stringify(entry)}\n`, { mode: 0o600 }); } catch { /* the note below still says it */ }
   const lines = [
-    `Ground Control moved its files from this folder to ${to} on ${at}.`,
+    `${PRODUCT} moved its files from this folder to ${to} on ${at}.`,
     '',
     moved.length ? `Moved: ${moved.join(', ')}.` : 'Nothing needed moving.',
     ...(kept.length ? [`Left here, because ${to} already had its own copy: ${kept.join(', ')}.`] : []),
     ...(error ? [`Stopped early: ${error} Whatever is still here wasn’t moved; move it by hand.`] : []),
     '',
-    'Ground Control doesn’t read this folder any more. Once you have checked that nothing you need is left, you can delete it.',
+    `${PRODUCT} doesn’t read this folder any more. Once you have checked that nothing you need is left, you can delete it.`,
     '',
   ];
   try { fsSync.writeFileSync(path.join(from, MOVED_NOTE), lines.join('\n'), { mode: 0o600 }); } catch { /* the audit line still says it */ }
@@ -167,7 +173,7 @@ export class State extends EventEmitter {
       const r = moveOldState();
       dir = stateDirNow();
       if (r.moved) console.log(`state: moved ${r.moved.length} item${r.moved.length === 1 ? '' : 's'} from ${r.from} to ${r.to}${r.kept.length ? ` (kept the copies already there of ${r.kept.join(', ')})` : ''}${r.error ? `; ${r.error}` : ''}. A note is left in the old folder.`);
-      else if (r.skipped === 'old-copy-running') console.log(`state: ${dir} is still in use by another copy of Ground Control (pid ${r.pid}), so this one uses it too; it moves to ~/${STATE_FOLDER} on the first start after that copy stops.`);
+      else if (r.skipped === 'old-copy-running') console.log(`state: ${dir} is still in use by another copy of ${PRODUCT} (pid ${r.pid}), so this one uses it too; it moves to ~/${STATE_FOLDER} on the first start after that copy stops.`);
     }
     this.dir = dir;
     this.sessionsFile = path.join(dir, 'sessions.json');

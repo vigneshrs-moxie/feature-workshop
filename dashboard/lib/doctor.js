@@ -19,7 +19,7 @@ import path from 'node:path';
 import { envGet, findOnPath } from './platform.js';
 import { pgTool } from './local.js';
 import { readServiceFile } from '../runner/service-file.js';
-import { OLD_STATE_FOLDER, stateDirFor } from './state.js';
+import { OLD_STATE_FOLDER, PRODUCT, stateDirFor } from './state.js';
 import { checkService, runCommand, SERVICE_PORT } from './service.js';
 
 export const PORTS = [SERVICE_PORT, SERVICE_PORT + 1];
@@ -177,7 +177,7 @@ export async function runDoctor(opts = {}) {
     const ours = busy && service && (service.port === port || service.port + 1 === port);
     checks.push(check(`port-${port}`, `Port ${port} free${port === SERVICE_PORT ? '' : ' (its screens page)'}`, {
       ok: !busy || ours,
-      found: !busy ? 'free' : ours ? `used by Ground Control (pid ${service.pid})` : 'in use by another program',
+      found: !busy ? 'free' : ours ? `used by ${PRODUCT} (pid ${service.pid})` : 'in use by another program',
       fix: `${portLookLine(port, platform)}   (shows what is using it; stop that, then run ground-control doctor again)`,
     }));
   }
@@ -193,13 +193,13 @@ export async function runDoctor(opts = {}) {
     svcFound = running ? 'installed and running' : 'installed, not running';
     svcFix = 'ground-control start';
   } else if (platform === 'win32' && admin === false) {
-    svcFound = 'not installed: this account has no administrator rights, which Task Scheduler needs to start Ground Control at sign-in';
+    svcFound = `not installed: this account has no administrator rights, which Task Scheduler needs to start ${PRODUCT} at sign-in`;
     svcFix = 'ground-control start --here   (works fully without the service; keep that window open)';
   } else {
     svcFound = 'not installed';
     svcFix = 'ground-control install   (or ground-control start --here to run it in a terminal instead)';
   }
-  checks.push(check('service', 'Ground Control service', { ok: svc.installed && running, found: svcFound, fix: svcFix, needed: false }));
+  checks.push(check('service', `${PRODUCT} service`, { ok: svc.installed && running, found: svcFound, fix: svcFix, needed: false }));
   if (platform === 'win32') {
     checks.push(check('admin', 'Administrator rights (only to install the service)', {
       ok: admin === true || svc.installed,
@@ -224,7 +224,7 @@ function defaultTokenSaved({ env, home }) {
 /** Doctor's report as lines for a terminal: the words say each check's state, never colour alone. */
 export function formatDoctor(report) {
   const width = Math.max(...report.checks.map((c) => c.name.length));
-  const lines = [`Ground Control doctor (${report.system})`, ''];
+  const lines = [`${PRODUCT} doctor (${report.system})`, ''];
   for (const c of report.checks) {
     const word = c.ok ? 'OK' : c.needed ? 'MISSING' : 'WARNING';
     lines.push(`  ${word.padEnd(8)} ${c.name.padEnd(width)}  ${c.found}`);
