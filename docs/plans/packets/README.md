@@ -42,6 +42,8 @@ One file per packet. Start a terminal tab, paste the path of one file, and that 
 | 2C | `2C-inbox-poller.md` (v2) | 4511 |
 | 2D | `2D-lounge.md` (v2) | 4513 |
 | 2E | `2E-team-telemetry.md` (v2) | 4515 |
+| Y | `Y-rename-starbase.md` (runs alone, after X, 2B and 2C) | 4517 |
+| SB | `SB-starbase-look.md` (after Y, beside 2D and 2E) | 4519 |
 
 **Ports:** a packet takes a port only after the packet that last used it is merged, so no two packets running at the same time share one (H after G on 4481; I after H; K after J; L after N; M after I; O after K). 4477 and 4479 are never used.
 

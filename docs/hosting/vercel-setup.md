@@ -1,17 +1,17 @@
 # Hosting the site on Vercel, with Google sign-in
 
-Steps only a person can do. They set up the hosted site (v2) as a new project under Moxie's Vercel team, named **feature-workshop** for now. Nothing here is done by Claude: Claude never pushes, deploys or signs in to Vercel or Google.
+Steps only a person can do. They set up the hosted site (v2) as a new project under Moxie's Vercel team, named **starbase** (the product is Starbase; decided 2026-10-30). Nothing here is done by Claude: Claude never pushes, deploys or signs in to Vercel or Google.
 
 Do the steps in this order. Steps 1–3 can be done now; step 4 waits until the first v2 packet (2A) is merged and you push `main`.
 
 ## What you end up with
-- **The address:** `https://feature-workshop.<your domain>`.
+- **The address:** `https://starbase.<your domain>`.
 - **Sign-in:** Moxie Google sign-in only. The site refuses any account outside your Workspace domain.
 - **What the site keeps:**
   - Neon Postgres, from the Vercel Marketplace: users, laptops, mirrored job records, queued approvals and the audit copy.
   - Vercel Blob (private): screenshots and videos from evidence.
 - **One cron job:** it fills each person's Orbit inbox every 3 minutes. This needs the team to be on Vercel Pro, because Hobby allows a cron job only once a day.
-- **How laptops connect:** each laptop's runner calls the site over HTTPS. It is paired once with a one-time code, from `ground-control login`.
+- **How laptops connect:** each laptop's runner calls the site over HTTPS. It is paired once with a one-time code, from `starbase login`.
 
 ## 1. Google sign-in (Google Cloud Console)
 Use a **new Google Cloud project, just for this app.**
@@ -27,15 +27,15 @@ Use a **new Google Cloud project, just for this app.**
 - **Why the organization matters:** the project must sit inside the Moxie organization. Only then can sign-in be set to **Internal**, which limits it to Moxie accounts.
 
 **1.1 Create the project.** New Project:
-- **Project name:** `feature-workshop`.
-- **Project ID:** Google suggests one. It can never be changed, but nobody sees it, so any ID is fine (for example `feature-workshop-<4 digits>`).
+- **Project name:** `starbase`.
+- **Project ID:** Google suggests one. It can never be changed, but nobody sees it, so any ID is fine (for example `starbase-<4 digits>`).
 - **Location:** the Moxie organization, or the folder IT uses for internal tools.
 
 Press Create, then make sure the picker at the top shows the new project.
 
 **1.2 Open Google Auth Platform.** Menu → APIs & Services → OAuth consent screen. It opens **Google Auth Platform**. Press **Get started**.
 - **App information:**
-  - **App name:** `feature-workshop`. This is what people see on Google's "Sign in to …" screen. It can be renamed any time.
+  - **App name:** `starbase`. This is what people see on Google's "Sign in to …" screen. It can be renamed any time.
   - **User support email:** your email, or a Moxie group you manage.
 - **Audience:** **Internal**. If Internal is greyed out, the project isn't in the organization; go back to 1.0.
 - **Contact information:** your email. Google writes here about the project.
@@ -44,7 +44,7 @@ Press Create, then make sure the picker at the top shows the new project.
 **1.3 Branding** (left menu). Most of it is optional for an Internal app.
 - **App logo:** leave it empty for now.
 - **App domain** (home page, privacy policy, terms): optional for Internal. Leave it empty.
-- **Authorized domains:** add your root domain, the part after `feature-workshop.`, for example `moxie.example`.
+- **Authorized domains:** add your root domain, the part after `starbase.`, for example `moxie.example`.
   - Google only accepts redirect addresses on domains listed here.
   - A `*.vercel.app` address can't be added, so sign-in works only on your own subdomain, not the Vercel preview address.
 - Save.
@@ -58,12 +58,12 @@ These are the basic, non-sensitive ones: Google's review isn't needed, and the a
 
 **1.5 Create the client.** Clients (left menu) → **Create client**.
 - **Application type:** Web application.
-- **Name:** `feature-workshop`. Only you see it.
+- **Name:** `starbase`. Only you see it.
 - **Authorized JavaScript origins:**
-  - `https://feature-workshop.<your domain>`
+  - `https://starbase.<your domain>`
   - `http://localhost:4505`, for trying the site on your Mac. Google allows plain `http` only for localhost.
 - **Authorized redirect URIs:** exactly these, with no trailing slash:
-  - `https://feature-workshop.<your domain>/api/auth/callback`
+  - `https://starbase.<your domain>/api/auth/callback`
   - `http://localhost:4505/api/auth/callback`
 - Press **Create**.
 
@@ -74,7 +74,7 @@ These are the basic, non-sensitive ones: Google's review isn't needed, and the a
 
 **1.7 Check the Workspace side** (only if sign-in is blocked later). Some Workspace domains block apps their admin hasn't approved.
 - If signing in later says "Access blocked" or "This app is blocked", the Workspace admin opens Admin console → Security → Access and data control → API controls → Manage app access.
-- There they mark `feature-workshop`, found by its client ID, as **Trusted**, or turn on "Trust internal, domain-owned apps".
+- There they mark `starbase`, found by its client ID, as **Trusted**, or turn on "Trust internal, domain-owned apps".
 
 **What's fixed and what can change later:**
 
@@ -100,9 +100,9 @@ The app checks the domain itself too: `ALLOWED_DOMAIN` on Vercel, so a non-Moxie
 - **Your GitHub account must be connected to your Vercel user:** Account Settings → Authentication → GitHub. Vercel deploys a private repository's commits only when their author is a member of the team.
 
 **2.1 Create the project.** Add New… → Project.
-- **Import Git Repository:** pick `vigneshrs-moxie/feature-workshop`.
+- **Import Git Repository:** pick the repository: `vigneshrs-moxie/starbase` once you have renamed it on GitHub (section 6a), or `vigneshrs-moxie/feature-workshop` until then. Vercel follows a GitHub rename on its own.
   - If it isn't in the list, choose **Adjust GitHub App Permissions**, then on GitHub let Vercel's app see **only this repository**, and come back.
-- **Project Name:** `feature-workshop`. It can be renamed later (section 6).
+- **Project Name:** `starbase`. It can be renamed later (section 6).
 - **Framework Preset:** Other.
 - **Root Directory:** press Edit and pick `hosted`.
   - If the folder isn't there yet (2A isn't pushed), type `hosted` anyway, or create the project after the first push.
@@ -148,11 +148,11 @@ The app checks the domain itself too: `ALLOWED_DOMAIN` on Vercel, so a non-Moxie
 | `CRON_SECRET` | a new `openssl rand -base64 32`. Vercel sends it with each cron call and the site refuses calls without it. | **yes** |
 | `OWNER_EMAIL` | your work email. Your first sign-in becomes the owner. | no |
 | `ORBIT_BASE_URL` | Orbit's production address, for example `https://<orbit's domain>` | no |
-| `SITE_URL` | `https://feature-workshop.<your domain>` (this changes with the name, section 6) | no |
+| `SITE_URL` | `https://starbase.<your domain>` (this changes with the name, section 6) | no |
 
 Changes to variables apply to the **next** deployment. After editing, go to Deployments → the latest → ⋯ → **Redeploy**.
 
-**2.6 The address.** Project → Settings → **Domains** → Add `feature-workshop.<your domain>`, connected to **Production**.
+**2.6 The address.** Project → Settings → **Domains** → Add `starbase.<your domain>`, connected to **Production**.
 - If the domain's DNS is managed in this Vercel team (as Orbit's may be), it works within a minute.
 - If DNS is elsewhere, Vercel shows one **CNAME** record. Add it at the DNS provider, or ask IT to; it can take up to an hour.
 - HTTPS certificates are automatic.
@@ -174,7 +174,7 @@ Once you can sign in, open Settings → Orbit on the site and paste your Orbit r
 1. **Push `main`.** You do this; Claude never pushes. Vercel builds and deploys `hosted/`.
 2. **Open the site** and sign in with Google. You become the owner.
 3. **On your Mac:**
-   - run `ground-control login --site https://feature-workshop.<your domain>`;
+   - run `starbase login --site https://starbase.<your domain>`;
    - open the link it prints;
    - confirm the code shown on both sides.
 
@@ -190,16 +190,25 @@ Once you can sign in, open Settings → Orbit on the site and paste your Orbit r
   - each check that you see only your own.
 - **Approve a gate from your phone while your laptop is closed.** The card says "waiting for your laptop". When the laptop wakes, the runner picks the approval up and the job moves on.
 
-## 6. When the name changes
+## 6a. Renaming the GitHub repository to `starbase` (optional, any time)
+- **On GitHub:** open `vigneshrs-moxie/feature-workshop`, go to Settings → General → Repository name, type `starbase`, then Rename.
+  - GitHub redirects the old address.
+  - Vercel follows the rename by itself.
+- **On your Mac, in the repository folder:** run `git remote set-url origin https://github.com/vigneshrs-moxie/starbase.git`.
+- **Renaming the folder `~/Projects/feature-workshop` to `~/Projects/starbase`:**
+  - Wait until no packets are being built, because the packet worktrees point at the folder.
+  - Afterwards, run `git worktree repair` in the renamed folder.
+
+## 6. When the name changes again
 Do it in this order, so nobody is locked out in between:
 1. **Vercel → Domains:** add the new subdomain to Production. Keep the old one for now.
-2. **Google → Clients → `feature-workshop`:**
+2. **Google → Clients → `starbase`:**
    - add the new JavaScript origin and redirect URI (`https://<new>/api/auth/callback`);
    - if the root domain differs, add it under Branding → Authorized domains.
 3. **Google → Branding:** change the **App name**.
 4. **Vercel:** set `SITE_URL` to the new address, then redeploy.
 5. **Vercel → Domains:** edit the **old** subdomain and set it to **Redirect to** the new one (308, permanent). Old links and bookmarks keep working.
-6. **Each laptop:** run `ground-control login --site https://<new address>` once to point it at the new address.
+6. **Each laptop:** run `starbase login --site https://<new address>` once to point it at the new address.
 7. **Optional:** rename the Vercel project (Settings → General → Project Name) and the Google client and project display names. These are cosmetic: nothing depends on them, and the Google project ID never changes.
 8. **A few weeks later:** remove the old redirect URI from Google, and the old domain from Vercel.
 
