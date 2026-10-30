@@ -86,6 +86,45 @@ for (const [name, hash] of SCREENS) {
     }
   }
 }
+// Telemetry's graph menus: Fold then Unfold, and Hide then Show, on each card; nothing in the other
+// columns or above the card may move.
+await page.goto(BASE + '#/telemetry', { waitUntil: 'networkidle' });
+await page.waitForTimeout(800);
+const where = () => page.evaluate(() => {
+  const o = document.querySelector('.page-inner').getBoundingClientRect();
+  return [...document.querySelectorAll('.tele-card, .hidden-slot, .tele-dials, .tele-who')].map((el) => {
+    const r = el.getBoundingClientRect();
+    return { id: el.getAttribute('data-graph') || el.getAttribute('aria-label') || el.className, x: r.left - o.left, y: r.top - o.top, r: r.right - o.left, b: r.bottom - o.top };
+  });
+});
+const cards = await page.locator('.tele-card').count();
+for (let i = 0; i < cards; i++) {
+  for (const [first, second] of [['Fold', 'Unfold'], ['Hide', null]]) {
+    const card = page.locator('.tele-graph-col > *').nth(i);
+    const id = await card.getAttribute('data-graph');
+    if (!id) continue;
+    const before = await where();
+    const me = before.find((p) => p.id === id);
+    await page.locator(`[data-graph="${id}"] .tele-card-menu > button`).click();
+    await page.getByRole('menuitem', { name: first }).click();
+    await page.waitForTimeout(200);
+    const after = await where();
+    for (const b of before) {
+      const a = after.find((p) => p.id === b.id);
+      const keep = b.id !== id && (b.b <= me.y + 0.5 || b.r <= me.x + 0.5 || b.x >= me.r - 0.5);
+      if (keep && a && (Math.abs(a.x - b.x) > 0.5 || Math.abs(a.y - b.y) > 0.5)) problems.push(`Telemetry: ${first} on ${id} moved ${b.id}`);
+    }
+    pressed += 1;
+    if (second) {
+      await page.locator(`[data-graph="${id}"] .tele-card-menu > button`).click();
+      await page.getByRole('menuitem', { name: second }).click();
+    } else {
+      await page.getByRole('group', { name: /, hidden$/ }).getByRole('button', { name: 'Show' }).click();
+    }
+    await page.waitForTimeout(200);
+    pressed += 1;
+  }
+}
 await browser.close();
 if (problems.length) {
   console.log(`Things moved (${problems.length}):\n${[...new Set(problems)].slice(0, 60).join('\n')}`);

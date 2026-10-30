@@ -6,6 +6,7 @@ import type { LimitSplit, UsageMeter } from '../../api/types';
 import { WARN_AT } from '../../components/UsageMeters';
 import { OTHER_SLOT, pct, slotClass } from './words';
 import { ShareBar } from './charts';
+import { More } from '../../components/More';
 
 const CX = 80;
 const CY = 76;
@@ -86,7 +87,9 @@ export function WhoLine({ split, note, onPick }: { split: LimitSplit; note: stri
     <section className="tele-who" aria-labelledby="tele-who-title">
       <h3 id="tele-who-title" className="tele-who-title">Who used this week’s limit</h3>
       {body}
-      <p className="tele-who-note muted">{note}</p>
+      <More screen="telemetry" id="who-how" label="How this is worked out" icon="help" className="tele-who-how">
+        <p className="tele-who-note muted">{note}</p>
+      </More>
     </section>
   );
 }

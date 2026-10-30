@@ -34,8 +34,8 @@ test('classic: the theme picked in the new view is put on before the page draws'
   assert.equal(await boot({ stored: 'glass' }), 'glass');
   assert.equal(await boot({ stored: 'light-glass' }), 'light-glass');
   assert.equal(await boot({ stored: 'sunset-paper', search: '?theme=pixel-crew' }), 'pixel-crew', 'the address wins, as in the new view');
-  for (const stored of [null, 'dark', 'auto', 'crt', 'gold', 'nonsense']) assert.equal(await boot({ stored }), 'default', String(stored));
-  assert.equal(await boot({ storageThrows: true }), 'default', 'storage blocked: the default');
+  for (const stored of [null, 'dark', 'auto', 'crt', 'gold', 'nonsense']) assert.equal(await boot({ stored }), 'light', String(stored));
+  assert.equal(await boot({ storageThrows: true }), 'light', 'storage blocked: the default, Light');
 });
 
 test('classic: the text size picked in the new view goes on html[data-text] before the page draws', async () => {
@@ -45,7 +45,7 @@ test('classic: the text size picked in the new view goes on html[data-text] befo
 });
 
 test('classic: Follow the system swaps the stored theme for its twin by the system scheme, never one from the address', async () => {
-  assert.equal(await boot({ follow: 'on', system: 'light' }), 'light', 'nothing stored: Default follows to Light');
+  assert.equal(await boot({ follow: 'on', system: 'light' }), 'light', 'nothing stored: Light, and following a light system it stays Light');
   assert.equal(await boot({ stored: 'light', follow: 'on', system: 'dark' }), 'default');
   assert.equal(await boot({ stored: 'glass', follow: 'on', system: 'light' }), 'light-glass');
   assert.equal(await boot({ stored: 'light-glass', follow: 'on', system: 'dark' }), 'glass');

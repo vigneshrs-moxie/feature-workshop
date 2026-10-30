@@ -504,6 +504,9 @@ label:has(> .choice:not(:disabled)) { cursor: pointer; }
 .number-step:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
 /* ---------- No browser or Mac look anywhere (theme/nativeLook.test.ts checks) ---------- */
+/* Groups of choices: no browser frame around a fieldset. */
+fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+legend { padding: 0; }
 /* Folds: our chevron, never the browser's triangle. */
 summary { list-style: none; cursor: pointer; }
 summary::-webkit-details-marker { display: none; }

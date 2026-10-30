@@ -1007,9 +1007,11 @@ a:hover { text-decoration: underline; }
 /* views/Settings/SettingsView.tsx: a rail of sections on the left, each row with the section's current
    value in one muted line; one section on the right; "Find a setting" above the rail. Under 900 px
    the rail folds into a row of chips. Tokens only; the current row is told by its edge and the word. */
-.settings { max-width: calc(var(--foreman-max) + 260px); margin: 0 auto; padding-bottom: var(--space-6); }
+.settings { padding-bottom: var(--space-6); }
 .settings { container-type: inline-size; }
-.settings-layout { display: grid; grid-template-columns: minmax(200px, 240px) minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+.settings-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: var(--space-8); align-items: start; }
+.settings-section { max-width: 820px; min-width: 0; }
+.settings-rail-list .settings-rail-row.is-current { border-left-color: transparent; }
 .settings-rail { position: sticky; top: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .settings-search { display: flex; align-items: center; gap: var(--space-2); }
 .settings-search-input { flex: 1; min-width: 0; height: calc(32px * var(--ui-scale, 1)); padding: 0 var(--space-2); border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--bg-2); color: var(--text-1); font: inherit; }

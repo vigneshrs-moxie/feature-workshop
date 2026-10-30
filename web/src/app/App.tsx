@@ -200,7 +200,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
         : route.name === 'telemetry' ? <TelemetryView />
           : route.name === 'inbox' ? <InboxView />
             : route.name === 'desk' ? <DeskPage />
-              : route.name === 'settings' ? <div className="page-wide"><SettingsView section={route.section} /></div>
+              : route.name === 'settings' ? <SettingsView section={route.section} />
                 : crew ? <div className="page-wide"><CrewDexView /></div>
                   : achievements ? <div className="page-wide"><AchievementsView /></div>
                     : lost !== null ? <div className="page-wide"><NotFoundView hash={lost} /></div>

@@ -58,6 +58,12 @@ const ready = () => screen.findByRole('heading', { name: 'At this pace the week 
 
 afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
 
+/** Open a card's ⋯ menu and pick one of its actions. */
+function menu(el: HTMLElement, action: string) {
+  fireEvent.click(within(el).getByRole('button', { name: /^More for / }));
+  fireEvent.click(within(el).getByRole('menuitem', { name: action }));
+}
+
 describe('Telemetry', () => {
   it('is its own page at #/telemetry', () => {
     expect(parseHash('#/telemetry')).toEqual({ name: 'telemetry' });
@@ -69,7 +75,8 @@ describe('Telemetry', () => {
     const { get } = setup();
     await ready();
     expect(get).toHaveBeenCalledWith('/api/telemetry?window=week');
-    const cards = [...document.querySelectorAll('.tele-card')].map((c) => [c.getAttribute('data-graph'), c.querySelector('.tele-num')?.textContent, c.querySelector('.tele-card-name')?.textContent, c.querySelector('.tele-audience')?.textContent?.trim()]);
+    // Columns of their own (packet R): read them in their numbers' order.
+    const cards = [...document.querySelectorAll('.tele-card')].sort((a, b) => Number(a.querySelector('.tele-num')?.textContent) - Number(b.querySelector('.tele-num')?.textContent)).map((c) => [c.getAttribute('data-graph'), c.querySelector('.tele-num')?.textContent, c.querySelector('.tele-card-name')?.textContent, c.querySelector('.tele-audience')?.textContent?.trim()]);
     expect(cards).toEqual([
       ['limit', '1', 'Weekly limit and forecast', 'Whole account'],
       ['ticket-cost', '2', 'Cost per finished ticket, by week', 'Only yours'],
@@ -84,9 +91,13 @@ describe('Telemetry', () => {
     ]);
     for (const c of document.querySelectorAll('.tele-card')) {
       expect(c.querySelector('.tele-headline')?.textContent).toMatch(/\.$/);
-      expect(c.querySelector('.tele-todo')?.textContent?.trim()).toMatch(/^What to do .+\./);
+      // What to do shows only when there is something to do.
+      const todo = c.querySelector('.tele-todo')?.textContent?.trim();
+      if (todo) expect(todo).toMatch(/^What to do .+\./);
     }
-    expect(screen.getByText('Ten graphs')).toBeInTheDocument();
+    expect(document.querySelectorAll('.tele-todo').length).toBeGreaterThan(0);
+    // Simple's first three graphs, then More graphs with the other seven (open in Full).
+    expect(screen.getByRole('button', { name: /^More graphs \(7\)/ })).toHaveAttribute('aria-expanded', 'true');
     // Too little to say: the finding says so instead of guessing.
     expect(within(card('pr1')).getByRole('heading', { level: 3 })).toHaveTextContent('Not enough jobs at PR #1 yet to say');
     expect(within(card('rework')).getByRole('heading', { level: 3 })).toHaveTextContent('Can’t see send-backs here yet.');
@@ -120,39 +131,36 @@ describe('Telemetry', () => {
     expect(week.textContent).toContain('Other use 8%, estimated');
     expect(screen.getByRole('region', { name: 'Next step' })).toHaveTextContent('⚠ The week is at 95%');
     // People on the account has the Others row, estimated.
-    fireEvent.click(within(card('people')).getByRole('button', { name: /^Table/ }));
+    menu(card('people'), 'Show the table');
     expect(within(card('people')).getByRole('row', { name: /Others \(outside this app, estimated\) 8%/ })).toBeInTheDocument();
   });
 
   it('folds a card to its headline and hides one, remembered per person; Show again brings it back', async () => {
     setup();
     await ready();
-    fireEvent.click(within(card('stages')).getByRole('button', { name: /^Fold$/ }));
+    menu(card('stages'), 'Fold');
     expect(card('stages')).toHaveClass('is-folded');
     expect(card('stages').querySelector('.tele-todo')).toBeNull();
     expect(parsePrefs(localStorage.getItem(prefsKey('vignesh'))).folded.stages).toBe(true);
     // The folded headline is the way back too.
     fireEvent.click(within(card('stages')).getByRole('button', { name: /costs .* of your spend/ }));
     expect(card('stages')).not.toHaveClass('is-folded');
-    fireEvent.click(within(card('people')).getByRole('button', { name: /^Hide$/ }));
+    menu(card('people'), 'Hide');
     expect(card('people')).toBeNull();
-    const fold = screen.getByText('Show hidden graphs (1)').closest('details') as HTMLDetailsElement;
-    fold.open = true;
-    expect(within(fold).getByText('5 · People on the account')).toBeInTheDocument();
-    fireEvent.click(within(fold).getByRole('button', { name: 'Show again' }));
+    // A slim line keeps its place, with Show.
+    const slot = screen.getByRole('group', { name: 'People on the account, hidden' });
+    fireEvent.click(within(slot).getByRole('button', { name: 'Show' }));
     expect(card('people')).not.toBeNull();
-    expect(screen.queryByText(/Show hidden graphs/)).toBeNull();
-    expect(screen.getByText(/Fold and Hide are remembered in this browser, for you only\./)).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /, hidden$/ })).toBeNull();
+    expect(screen.getByText(/Fold, Hide and More graphs are remembered in this browser, for you only\./)).toBeInTheDocument();
   });
 
-  it('Table ▸ shows the numbers under the graph', async () => {
+  it('the ⋯ menu shows the numbers in place of the graph, and the graph again', async () => {
     setup();
     await ready();
     const stages = card('stages');
-    const btn = within(stages).getByRole('button', { name: 'Table' });
-    expect(btn).toHaveAttribute('aria-expanded', 'false');
-    fireEvent.click(btn);
-    expect(within(stages).getByRole('button', { name: 'Table' })).toHaveAttribute('aria-expanded', 'true');
+    menu(stages, 'Show the table');
+    expect(stages.querySelector('.tele-table')).not.toBeNull();
     expect(within(stages).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Stage', 'October', 'September', 'Change']);
   });
 

@@ -23,6 +23,7 @@ import { Choice, Segmented } from '../../components/Choice';
 import { Icon } from '../../components/Icon';
 import { Button } from '../../components/Button';
 import { DETAIL_INFO, useDetail, type Detail } from '../../app/detail';
+import { More } from '../../components/More';
 
 const SIZE_NAMES: Record<TextSize, string> = { s: 'Small', m: 'Medium', l: 'Large', xl: 'Extra large' };
 const labelOf = (id: string) => THEMES.find((t) => t.id === id)?.label ?? id;
@@ -155,33 +156,35 @@ export function LookSettings() {
       <h3 className="settings-heading">Look</h3>
       <ThemePicker />
       <DetailPicker />
-      <TextSizePicker />
-      <FollowSystem />
-      <LayoutPicker
-        id="desk-layout" title="Desk layout" value={desk} onPick={setDesk}
-        options={[
-          { id: 'one', label: 'One at a time', say: 'One decision fills the Desk; the whole queue opens in a drawer.', pic: 'one' },
-          { id: 'columns', label: 'Three columns', say: 'The queue, the item and Decided today side by side, as the Desk was.', pic: 'columns' },
-        ]}
-        see={{ label: 'See it on the Desk', href: hrefFor({ name: 'desk' }) }}
-      />
-      <LayoutPicker
-        id="jobs-layout" title="Jobs layout" value={jobs} onPick={setJobs}
-        options={[
-          { id: 'lanes', label: 'Four lanes', say: 'Working, Needs you, In review and Ready to merge, side by side.', pic: 'lanes' },
-          { id: 'list', label: 'One list', say: 'Every job in one list, its lane in words.', pic: 'list' },
-        ]}
-        see={{ label: 'See it in Jobs', href: hrefFor({ name: 'home' }) }}
-      />
-      <LayoutPicker
-        id="stack-picture" title="Stack picture" value={stackPicture} onPick={setStackPicture}
-        options={[
-          { id: 'map', label: 'Merge map', say: 'One line per part, built side by side, meeting at Merge: you see the parts join in order.', pic: 'list' },
-          { id: 'steps', label: 'Four big steps', say: 'Plan, Build, Merge and Push as four boxes, with a bar on each part’s card.', pic: 'lanes' },
-        ]}
-        see={{ label: 'See it in Stacks', href: hrefFor({ name: 'stacks' }) }}
-      />
-      <PlayPicker />
+      <More screen="settings" id="look-more" label="More: text size, follow the system, layouts, play" className="look-more">
+        <TextSizePicker />
+        <FollowSystem />
+        <LayoutPicker
+          id="desk-layout" title="Desk layout" value={desk} onPick={setDesk}
+          options={[
+            { id: 'one', label: 'One at a time', say: 'One decision fills the Desk; the whole queue opens in a drawer.', pic: 'one' },
+            { id: 'columns', label: 'Three columns', say: 'The queue, the item and Decided today side by side, as the Desk was.', pic: 'columns' },
+          ]}
+          see={{ label: 'See it on the Desk', href: hrefFor({ name: 'desk' }) }}
+        />
+        <LayoutPicker
+          id="jobs-layout" title="Jobs layout" value={jobs} onPick={setJobs}
+          options={[
+            { id: 'lanes', label: 'Four lanes', say: 'Working, Needs you, In review and Ready to merge, side by side.', pic: 'lanes' },
+            { id: 'list', label: 'One list', say: 'Every job in one list, its lane in words.', pic: 'list' },
+          ]}
+          see={{ label: 'See it in Jobs', href: hrefFor({ name: 'home' }) }}
+        />
+        <LayoutPicker
+          id="stack-picture" title="Stack picture" value={stackPicture} onPick={setStackPicture}
+          options={[
+            { id: 'map', label: 'Merge map', say: 'One line per part, built side by side, meeting at Merge: you see the parts join in order.', pic: 'list' },
+            { id: 'steps', label: 'Four big steps', say: 'Plan, Build, Merge and Push as four boxes, with a bar on each part’s card.', pic: 'lanes' },
+          ]}
+          see={{ label: 'See it in Stacks', href: hrefFor({ name: 'stacks' }) }}
+        />
+        <PlayPicker />
+      </More>
       <p className="muted theme-hint">
         Each of these changes only how things look; nothing is lost and the keys stay the same. Play is kept by the dashboard; the rest is remembered in this browser.
         To try a theme from a link, add <code className="num">?theme=&lt;name&gt;</code> to the address.

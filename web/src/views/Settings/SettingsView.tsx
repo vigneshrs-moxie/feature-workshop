@@ -16,7 +16,7 @@ import { useJobsLayout } from '../../home/JobsPage';
 import { useKeysSetting } from '../../app/keysSetting';
 import { jobHref, navigate, SETTINGS_SECTIONS, settingsHref, type SettingsSection } from '../../app/router';
 import { HowThisWorks } from '../../components/HowThisWorks';
-import { Kbd, KeyLegend } from '../../components/Kbd';
+import { Kbd } from '../../components/Kbd';
 import { autoBlockedReason, autoModeOf, HARD_LINES_NOTE, POLICIES } from '../../components/permissions/policies';
 import { sentence } from '../../components/permissions/rules';
 import { readStored, useStored } from '../../lib/stored';
@@ -255,16 +255,16 @@ export function SettingsView({ section }: { section?: SettingsSection }) {
   });
 
   return (
-    <main className="pane pane-foreman" data-pane="settings" aria-label="Settings">
-      <div className="settings">
-        <h2 className="pane-title">Settings</h2>
+    <main className="page page-settings" data-pane="settings" aria-label="Settings">
+      <div className="page-inner settings">
+        <header className="page-head"><h2 className="page-title">Settings</h2></header>
         <div className="settings-layout">
           <nav className="settings-rail" aria-label="Settings sections">
             <div className="settings-search">
               <input
                 ref={search}
                 type="search"
-                className="settings-search-input"
+                className="text-input settings-search-input"
                 aria-label="Find a setting"
                 placeholder="Find a setting"
                 value={query}
@@ -299,7 +299,6 @@ export function SettingsView({ section }: { section?: SettingsSection }) {
                 ))}
               </ul>
             )}
-            <KeyLegend ids={['settings-next', 'settings-prev', 'settings-find']} />
           </nav>
           <div className="settings-section" data-section={current}>
             {current === 'permissions' && <PolicyChoice />}
