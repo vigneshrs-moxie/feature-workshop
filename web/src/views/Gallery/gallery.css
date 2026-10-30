@@ -30,3 +30,11 @@
 .select-menu.is-static { width: 260px; }
 .toast.is-static { align-self: flex-start; }
 @media (max-width: 760px) { .gallery-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); } .gallery-cards { grid-template-columns: minmax(0, 1fr); } }
+.gallery-swatches { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; margin: 0; padding: 0; list-style: none; }
+.gallery-swatch { display: grid; grid-template-columns: 56px minmax(0, 170px) minmax(0, 150px) minmax(0, 1fr); align-items: center; gap: var(--space-3); min-height: 32px; font-size: var(--text-xs); }
+.gallery-swatch-box { display: inline-grid; place-items: center; width: 56px; height: 28px; border: 1px solid var(--border-1); border-radius: var(--radius-sm); }
+.gallery-swatch-box i { width: 28px; height: 10px; border-radius: 5px; }
+.gallery-swatch-name { overflow: hidden; text-overflow: ellipsis; }
+.gallery-swatch-ratio { font-variant-numeric: tabular-nums; }
+.gallery-swatch-ratio.is-low { color: var(--status-error); font-weight: var(--weight-medium); }
+.gallery-narrow > .btn { min-width: 0; max-width: 100%; }

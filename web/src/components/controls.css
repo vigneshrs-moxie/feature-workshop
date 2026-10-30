@@ -325,6 +325,7 @@ label:has(> .choice:not(:disabled)) { cursor: pointer; }
 .chip-info { background: var(--status-info-bg); color: var(--status-info); }
 .chip-warn { background: var(--status-warn-bg); color: var(--status-warn); }
 .chip-error { background: var(--status-error-bg); color: var(--status-error); }
+.chip-review { background: var(--status-review-bg); color: var(--status-review); }
 .chip-needs-you { background: var(--lane-needs-you-bg); color: var(--lane-needs-you-fg); }
 .chip-outline { border-color: var(--border-2); background: transparent; }
 

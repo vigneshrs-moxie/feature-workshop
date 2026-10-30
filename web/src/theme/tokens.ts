@@ -19,7 +19,7 @@ export interface ThemeInput {
   contrast: number;
 }
 
-export const DARK: ThemeInput = { baseHue: 260, accentHue: 275, contrast: 1 };
+export const DARK: ThemeInput = { baseHue: 262, accentHue: 280, contrast: 1 };
 
 /**
  * Text size (Settings → Look, theme/textSize.ts): one factor, --ui-scale, set by html[data-text].
@@ -34,7 +34,12 @@ export type TextSizeId = keyof typeof TEXT_SCALES;
 export const scaled = (px: number) => `calc(${px}px * var(--ui-scale, 1))`;
 
 /** Status hues. Status is always shown with text as well; colour only supports it. */
-export const STATUS_HUES = { ok: 155, warn: 80, error: 25, info: 235 } as const;
+export const STATUS_HUES = { ok: 155, warn: 80, error: 25, info: 245, review: 295 } as const;
+/**
+ * A hue per stop (packet R, more colour): Spec to Ship around one even-lightness ring, on the stop
+ * map, stop icons and stage edges. Never the only clue: each stop keeps its icon and word.
+ */
+export const STOP_HUES = { spec: 330, investigate: 285, plan: 245, build: 200, test: 160, review: 115, ship: 75 } as const;
 
 const num = (n: number) => String(Math.round(n * 1000) / 1000).replace(/^0\./, '.');
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -49,31 +54,33 @@ export function colorTokens({ baseHue, accentHue, contrast }: ThemeInput): Recor
   const k = clamp(contrast, 0.5, 2);
   const out: Record<string, string> = {};
   // Five background steps, darkest (the window) to lightest (raised controls).
-  [0.16, 0.19, 0.22, 0.25, 0.28].forEach((l, i) => { out[`bg-${i}`] = oklch(l, 0.006, baseHue); });
+  // Packet R, more contrast in dark: a deeper window, each layer up about 0.03.
+  [0.15, 0.18, 0.21, 0.24, 0.27].forEach((l, i) => { out[`bg-${i}`] = oklch(l, 0.008, baseHue); });
   // Borders: white at 7%, 12% and 20%, so an edge shows on every layer (packet R).
-  [0.07, 0.12, 0.2].forEach((a, i) => { out[`border-${i + 1}`] = oklch(1, 0, 0, clamp(a * k, 0, 1)); });
+  [0.1, 0.16, 0.26].forEach((a, i) => { out[`border-${i + 1}`] = oklch(1, 0, 0, clamp(a * k, 0, 1)); });
   // Text: primary (APCA Lc 90 target), secondary (Lc 60+), and faint for hints and disabled.
   out['text-1'] = oklch(0.95, 0.004, baseHue);
-  out['text-2'] = oklch(0.72 + (k - 1) * 0.12, 0.01, baseHue);
-  out['text-3'] = oklch(0.58 + (k - 1) * 0.15, 0.01, baseHue);
+  out['text-2'] = oklch(0.76 + (k - 1) * 0.12, 0.01, baseHue);
+  out['text-3'] = oklch(0.63 + (k - 1) * 0.15, 0.01, baseHue);
   // The accent and its variants.
-  out['accent'] = oklch(0.7, 0.15, accentHue);
-  out['accent-strong'] = oklch(0.78, 0.13, accentHue);
-  out['accent-soft'] = oklch(0.7, 0.15, accentHue, 0.16);
+  out['accent'] = oklch(0.72, 0.17, accentHue);
+  out['accent-strong'] = oklch(0.8, 0.14, accentHue);
+  out['accent-soft'] = oklch(0.72, 0.17, accentHue, 0.18);
   out['on-accent'] = oklch(0.16, 0.02, accentHue);
   out['focus-ring'] = oklch(0.78, 0.13, accentHue);
   // Status: a readable foreground and a quiet background for each, plus paused grey.
   for (const [name, hue] of Object.entries(STATUS_HUES)) {
-    out[`status-${name}`] = oklch(0.78, 0.14, hue);
-    out[`status-${name}-bg`] = oklch(0.78, 0.14, hue, 0.14);
+    out[`status-${name}`] = oklch(0.78, 0.16, hue);
+    out[`status-${name}-bg`] = oklch(0.78, 0.16, hue, 0.16);
   }
+  for (const [name, hue] of Object.entries(STOP_HUES)) out[`stop-${name}`] = oklch(0.76, 0.15, hue);
   // Per-job hue dots (theme/hue.ts): one lightness and chroma for every job's hue.
   out['job-hue-l'] = num(0.74);
   out['job-hue-c'] = num(0.13);
   out['status-paused'] = oklch(0.7, 0, 0);
   out['status-paused-bg'] = oklch(0.7, 0, 0, 0.12);
   // Charts: eight series colours, readable on the dark page, each with its pattern (--chart-pattern-<n>).
-  CHART_HUES.forEach((h, i) => { out[`chart-${i + 1}`] = oklch(0.74, 0.13, h); });
+  CHART_HUES.forEach((h, i) => { out[`chart-${i + 1}`] = oklch(0.75, 0.15, h); });
   // Two-layer translucent shadows.
   out['shadow-1'] = `0 1px 2px ${oklch(0, 0, 0, 0.3)}, 0 2px 8px ${oklch(0, 0, 0, 0.2)}`;
   out['shadow-2'] = `0 2px 4px ${oklch(0, 0, 0, 0.3)}, 0 12px 32px ${oklch(0, 0, 0, 0.35)}`;
@@ -249,7 +256,7 @@ export function semanticTokens(): Record<string, string> {
   const lanes: Record<(typeof LANE_NAMES)[number], [string, string, string]> = {
     working: ['var(--status-info)', 'transparent', 'var(--border-2)'],
     'needs-you': ['var(--status-warn)', 'var(--status-warn-bg)', 'var(--status-warn)'],
-    'in-review': ['var(--text-2)', 'transparent', 'var(--border-2)'],
+    'in-review': ['var(--status-review)', 'transparent', 'var(--border-2)'],
     ready: ['var(--status-ok)', 'transparent', 'var(--border-2)'],
     resting: ['var(--text-3)', 'transparent', 'var(--border-1)'],
     done: ['var(--status-ok)', 'transparent', 'var(--border-1)'],

@@ -103,6 +103,7 @@ export function chipTone(lane: JobLane, word: string): ChipTone {
   if (lane === 'needs-you') return 'needs-you';
   if (lane === 'working') return word === 'Paused' ? 'neutral' : 'info';
   if (lane === 'ready' || lane === 'done') return 'ok';
+  if (lane === 'in-review') return 'review';
   return 'neutral';
 }
 

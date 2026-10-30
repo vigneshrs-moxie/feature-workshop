@@ -145,15 +145,24 @@ details[open] > summary .fold-chevron, .fold-chevron.is-up { transform: rotate(1
 .stop-map { display: flex; align-items: flex-start; margin: 0; padding: 0; list-style: none; }
 .stop { position: relative; flex: 1; display: flex; justify-content: center; min-width: 0; }
 /* The line between stops: solid up to where the job is, dashed after. */
-.stop + .stop::before { content: ''; position: absolute; top: 14px; right: 50%; width: 100%; border-top: 2px solid var(--status-ok); z-index: 0; }
+.stop { --stop-hue: var(--status-ok); }
+.stop[data-stop='spec'] { --stop-hue: var(--stop-spec, var(--status-ok)); }
+.stop[data-stop='investigate'] { --stop-hue: var(--stop-investigate, var(--status-ok)); }
+.stop[data-stop='plan'] { --stop-hue: var(--stop-plan, var(--status-ok)); }
+.stop[data-stop='build'] { --stop-hue: var(--stop-build, var(--status-ok)); }
+.stop[data-stop='test'] { --stop-hue: var(--stop-test, var(--status-ok)); }
+.stop[data-stop='review'] { --stop-hue: var(--stop-review, var(--status-ok)); }
+.stop[data-stop='ship'] { --stop-hue: var(--stop-ship, var(--status-ok)); }
+/* The line into a stop the job has reached takes that stop's hue. */
+.stop + .stop::before { content: ''; position: absolute; top: 14px; right: 50%; width: 100%; border-top: 2px solid var(--stop-hue); z-index: 0; }
 .stop.is-next::before, .stop.is-skipped::before { border-top-style: dashed; border-top-color: var(--border-2); }
 .stop-link { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: var(--space-1); min-width: 0; padding: 0 var(--space-1); color: var(--text-2); font-size: var(--text-xs); text-decoration: none; border-radius: var(--radius-sm); }
 a.stop-link:hover { color: var(--text-1); text-decoration: none; }
 a.stop-link:hover .stop-dot { box-shadow: 0 0 0 3px var(--hover-bg); }
 a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .stop-dot { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--border-3); background: var(--surface-1); color: var(--text-3); transition: box-shadow var(--dur-fast) var(--ease-out); }
-.stop.is-done .stop-dot { border-color: var(--status-ok); background: linear-gradient(var(--status-ok-bg), var(--status-ok-bg)), var(--surface-1); color: var(--status-ok); }
-.stop.is-now .stop-dot { border-color: var(--lane-working-fg); background: linear-gradient(var(--status-info-bg), var(--status-info-bg)), var(--surface-1); color: var(--lane-working-fg); }
+.stop.is-done .stop-dot { border-color: var(--stop-hue); background: color-mix(in oklab, var(--stop-hue) 14%, var(--surface-1)); color: var(--stop-hue); }
+.stop.is-now .stop-dot { border-color: var(--stop-hue); background: var(--stop-hue); color: var(--surface-1); box-shadow: 0 0 0 3px color-mix(in oklab, var(--stop-hue) 22%, transparent); }
 .stop.is-waiting .stop-dot { border-color: var(--needs-solid); background: var(--needs-solid); color: var(--on-needs); }
 .stop.is-skipped .stop-dot { border-style: dashed; }
 .stop.is-skipped .stop-name { text-decoration: line-through; }
@@ -399,3 +408,10 @@ a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset
 .desk-item-top { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
 .desk-item-top .desk-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .desk-item-top .desk-item-since { flex: none; font-size: var(--text-xs); }
+
+/* ---------- More colour on small marks (packet R): the eye finds the active things ---------- */
+.next-bar:not(.tone-quiet) .next-icon { color: var(--next-tone); }
+.lane-working.has-cards .lane-count { background: var(--status-info-bg); color: var(--status-info); }
+.lane-in-review.has-cards .lane-count { background: var(--status-review-bg, var(--surface-2)); color: var(--status-review, var(--text-2)); }
+.lane-ready.has-cards .lane-count { background: var(--status-ok-bg); color: var(--status-ok); }
+.lane-in-review .lane-icon { color: var(--lane-in-review-fg); }

@@ -3,7 +3,7 @@
 import type { HTMLAttributes, ReactNode } from 'react';
 import { Icon, type IconName } from './Icon';
 
-export type ChipTone = 'neutral' | 'accent' | 'ok' | 'info' | 'warn' | 'error' | 'needs-you' | 'outline';
+export type ChipTone = 'neutral' | 'accent' | 'ok' | 'info' | 'warn' | 'error' | 'needs-you' | 'review' | 'outline';
 
 export function Chip({ tone = 'neutral', icon, className = '', children, ...rest }: { tone?: ChipTone; icon?: IconName; className?: string; children: ReactNode } & Omit<HTMLAttributes<HTMLSpanElement>, 'className' | 'children'>) {
   return (

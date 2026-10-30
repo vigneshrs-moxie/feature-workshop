@@ -13,6 +13,7 @@ import { Hero, NextBar } from '../../components/page/Page';
 import { Select } from '../../components/Select';
 import { Sheet } from '../../components/Sheet';
 import { useTheme } from '../../theme/theme';
+import { Swatches } from './Swatches';
 import './gallery.css';
 
 function Row({ name, children }: { name: string; children: ReactNode }) {
@@ -38,8 +39,8 @@ const MODELS = [
   { value: 'sonnet', label: 'Sonnet 5' },
   { value: 'haiku', label: 'Haiku 5', disabled: true },
 ];
-const TONES: ChipTone[] = ['neutral', 'accent', 'info', 'ok', 'warn', 'error', 'needs-you', 'outline'];
-const TONE_WORDS: Record<ChipTone, string> = { neutral: 'Paused', accent: 'L2', info: 'Working', ok: 'Ready', warn: 'Held', error: 'Failed', 'needs-you': 'Go-ahead', outline: 'Draft' };
+const TONES: ChipTone[] = ['neutral', 'accent', 'info', 'ok', 'warn', 'error', 'needs-you', 'review', 'outline'];
+const TONE_WORDS: Record<ChipTone, string> = { neutral: 'Paused', accent: 'L2', info: 'Working', ok: 'Ready', warn: 'Held', error: 'Failed', 'needs-you': 'Go-ahead', review: 'In review', outline: 'Draft' };
 const LONG = 'Customer merge across every repository, with the migration first and the tester after it, which is a very long title that has to wrap or truncate without breaking the row';
 
 function Column({ compact }: { compact: boolean }) {
@@ -54,6 +55,8 @@ function Column({ compact }: { compact: boolean }) {
   return (
     <div className={`gallery-col${compact ? ' is-compact' : ''}`}>
       <h2 className="gallery-col-title">{compact ? 'Small text' : 'Medium text'}</h2>
+
+      {!compact && <Group title="Colour tokens and their contrast"><Swatches /></Group>}
 
       <Group title="Buttons">
         {(['primary', 'secondary', 'quiet', 'danger'] as const).map((kind) => (

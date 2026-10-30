@@ -39,21 +39,24 @@ describe('design tokens', () => {
 
   it('the dark theme follows the research brief', () => {
     const c = colorTokens(DARK);
-    expect(c['bg-0']).toBe('oklch(.16 .006 260)');
-    expect(c['bg-4']).toBe('oklch(.28 .006 260)');
-    // Packet R: borders that show on every layer.
-    expect(c['border-1']).toBe('oklch(1 0 0 / .07)');
-    expect(c['border-3']).toBe('oklch(1 0 0 / .2)');
+    // Packet R, more contrast in dark: a deeper window and layers about 0.03 apart.
+    expect(c['bg-0']).toBe('oklch(.15 .008 262)');
+    expect(c['bg-4']).toBe('oklch(.27 .008 262)');
+    // Borders that show on every layer.
+    expect(c['border-1']).toBe('oklch(1 0 0 / .1)');
+    expect(c['border-3']).toBe('oklch(1 0 0 / .26)');
     expect(c['text-1']).toMatch(/^oklch\(\.95 /);
-    expect(c['text-2']).toMatch(/^oklch\(\.72 /);
-    expect(c['accent']).toBe('oklch(.7 .15 275)');
-    for (const s of ['ok', 'warn', 'error', 'info', 'paused']) expect(c[`status-${s}`]).toBeTruthy();
+    expect(c['text-2']).toMatch(/^oklch\(\.76 /);
+    // Marks lifted to glow a little against the dark.
+    expect(c['accent']).toBe('oklch(.72 .17 280)');
+    for (const s of ['ok', 'warn', 'error', 'info', 'review', 'paused']) expect(c[`status-${s}`]).toBeTruthy();
+    for (const s of ['spec', 'investigate', 'plan', 'build', 'test', 'review', 'ship']) expect(c[`stop-${s}`]).toMatch(/^oklch\(\.76 \.15 /);
   });
 
   it('higher contrast spreads text and borders', () => {
     const hi = colorTokens({ ...DARK, contrast: 1.5 });
     expect(hi['text-2']).not.toBe(colorTokens(DARK)['text-2']);
-    expect(hi['border-1']).toBe('oklch(1 0 0 / .105)');
+    expect(hi['border-1']).toBe('oklch(1 0 0 / .15)');
   });
 
   it('keeps every motion duration at or under 200ms and spacing on the 4px grid', () => {

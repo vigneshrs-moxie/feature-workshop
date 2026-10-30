@@ -30,27 +30,37 @@ html[data-theme="light"] {
 
   /* ----- The same indigo, deep enough to be text on bg-4; the primary button a touch more vivid,
      with white ink at 5.7:1 ----- */
-  --accent: oklch(.47 .18 275);
-  --accent-strong: oklch(.42 .18 275);
-  --accent-soft: oklch(.52 .2 274 / .1);
+  --accent: oklch(.52 .21 280);
+  --accent-strong: oklch(.46 .21 280);
+  --accent-soft: oklch(.55 .21 280 / .1);
   --on-accent: oklch(.995 0 0);
-  --focus-ring: oklch(.55 .2 274);
-  --btn-primary-bg: oklch(.52 .2 274);
+  --focus-ring: oklch(.56 .21 280);
+  --btn-primary-bg: oklch(.52 .21 280);
   --btn-primary-fg: oklch(.995 0 0);
 
   /* ----- Status: the Default's hues, dark enough for a pale ground; needs you is a soft amber
      tint with an amber dot, never brown or tan ----- */
-  --status-ok: oklch(.45 .13 155);
-  --status-ok-bg: oklch(.72 .15 155 / .14);
-  --status-warn: oklch(.52 .13 68);
-  --status-warn-bg: oklch(.86 .14 85 / .26);
-  --status-error: oklch(.5 .19 25);
-  --status-error-bg: oklch(.7 .17 25 / .12);
-  --status-info: oklch(.47 .14 245);
-  --status-info-bg: oklch(.72 .12 240 / .14);
+  --status-ok: oklch(.51 .16 155);
+  --status-ok-bg: oklch(.965 .04 155);
+  --status-warn: oklch(.5 .13 65);
+  --status-warn-bg: oklch(.955 .06 85);
+  --status-error: oklch(.53 .19 25);
+  --status-error-bg: oklch(.965 .03 25);
+  --status-info: oklch(.53 .17 250);
+  --status-info-bg: oklch(.965 .035 250);
+  /* More colour (packet R): review violet, and a hue per stop from one even-lightness ring. */
+  --status-review: oklch(.53 .2 295);
+  --status-review-bg: oklch(.965 .035 295);
+  --stop-spec: oklch(.58 .2 330);
+  --stop-investigate: oklch(.56 .2 285);
+  --stop-plan: oklch(.56 .17 245);
+  --stop-build: oklch(.58 .12 200);
+  --stop-test: oklch(.58 .16 160);
+  --stop-review: oklch(.6 .15 115);
+  --stop-ship: oklch(.64 .16 75);
   --status-paused: oklch(.46 0 0);
   --status-paused-bg: oklch(.5 0 0 / .1);
-  --needs-solid: oklch(.76 .16 72);
+  --needs-solid: oklch(.66 .17 60);
   --on-needs: oklch(.25 .05 60);
   --job-hue-l: .5;
   --job-hue-c: .14;
@@ -159,7 +169,7 @@ html[data-theme="light"] {
   --lane-needs-you-fg: var(--status-warn);
   --lane-needs-you-bg: var(--status-warn-bg);
   --lane-needs-you-line: var(--needs-solid);
-  --lane-in-review-fg: var(--text-2);
+  --lane-in-review-fg: var(--status-review);
   --lane-in-review-bg: transparent;
   --lane-in-review-line: var(--border-2);
   --lane-ready-fg: var(--status-ok);
@@ -175,12 +185,12 @@ html[data-theme="light"] {
   --grid-line: var(--border-1);
   --tooltip-bg: var(--text-1);
   --tooltip-fg: var(--bg-0);
-  --chart-1: oklch(.55 .15 255);
-  --chart-2: oklch(.55 .15 55);
-  --chart-3: oklch(.55 .15 195);
-  --chart-4: oklch(.55 .15 95);
-  --chart-5: oklch(.55 .15 300);
-  --chart-6: oklch(.55 .15 150);
-  --chart-7: oklch(.55 .15 25);
-  --chart-8: oklch(.55 .15 345);
+  --chart-1: oklch(.6 .17 250);
+  --chart-2: oklch(.6 .17 55);
+  --chart-3: oklch(.6 .17 195);
+  --chart-4: oklch(.6 .17 95);
+  --chart-5: oklch(.6 .17 295);
+  --chart-6: oklch(.6 .17 150);
+  --chart-7: oklch(.6 .17 25);
+  --chart-8: oklch(.6 .17 345);
 }
