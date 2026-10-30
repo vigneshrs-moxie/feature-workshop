@@ -1,0 +1,7 @@
+# The built page (npm run build: web/ built for the site), served at /.
+public/
+# The local server's PGlite database and secrets (npm run dev).
+.data/
+.env
+.env.*
+!.env.example
