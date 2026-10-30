@@ -1,0 +1,55 @@
+/* The Lounge (packet 2D): one card per person, full width, one column on a phone. Theme tokens only.
+   Online, away or off is in words with an icon whose shape differs too (a dot, a moon, a dashed
+   ring): never colour alone. Play subtle and full make each card a console tile (an edge along the
+   top, a light); full adds the readout and lets the light blink softly. */
+
+.lounge-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-4); margin: 0 0 var(--space-4); font-size: var(--text-sm); color: var(--text-2); }
+.lounge-key-one { font-weight: var(--weight-medium); }
+.lounge-key-count { font-variant-numeric: tabular-nums; color: var(--text-1); }
+.lounge-key-say { flex: 1 1 320px; min-width: 0; }
+
+.lounge-people { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.lounge-person {
+  position: relative; display: flex; flex-direction: column; gap: var(--space-2); min-width: 0;
+  padding: var(--space-3) var(--space-4); border: 1px solid var(--border-1); border-radius: var(--card-radius);
+  background: var(--surface-1); box-shadow: var(--elev-xs);
+}
+.lounge-person-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; min-height: 28px; }
+.lounge-name { flex: 0 1 auto; min-width: 0; margin: 0; overflow: hidden; font-size: var(--text-md); font-weight: var(--weight-bold); text-overflow: ellipsis; white-space: nowrap; }
+.lounge-name.is-unnamed { color: var(--text-2); font-weight: var(--weight-medium); }
+.lounge-you { flex: none; }
+.lounge-presence { display: inline-flex; flex: none; align-items: center; gap: 4px; font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.lounge-person-head .lounge-presence { margin-left: auto; }
+.lounge-presence > svg { flex: none; }
+.lounge-presence.is-online { color: var(--status-ok); }
+.lounge-presence.is-away { color: var(--text-2); }
+.lounge-presence.is-off { color: var(--text-2); }
+
+.lounge-jobs { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.lounge-job { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-2); min-width: 0; padding: 6px 0; border-top: 1px solid var(--border-1); }
+.lounge-job:first-child { border-top: 0; padding-top: 2px; }
+.lounge-job-title { flex: 1 1 160px; min-width: 0; color: var(--text-1); font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+a.lounge-job-title { text-decoration: none; }
+a.lounge-job-title:hover { text-decoration: underline; }
+a.lounge-job-title:focus-visible { border-radius: 4px; outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.lounge-job-meta { display: inline-flex; flex: none; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.lounge-more { align-self: flex-start; }
+.lounge-none { margin: 0; color: var(--text-2); font-size: var(--text-sm); }
+.lounge-last { display: flex; align-items: center; gap: 4px; margin: auto 0 0; padding-top: 2px; color: var(--text-2); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.lounge-last > svg { flex: none; }
+
+/* Play subtle and full: a console tile. Its edge says the same as its words (online, away, off),
+   drawn inside the card so it follows the rounded corners. */
+.lounge-person.play-subtle, .lounge-person.play-full { --edge: var(--border-2); overflow: hidden; padding-top: calc(var(--space-3) + 3px); }
+.lounge-person.play-subtle::before, .lounge-person.play-full::before { content: ''; position: absolute; inset: 0 0 auto; height: 3px; background: var(--edge); }
+.lounge-person.is-online:is(.play-subtle, .play-full) { --edge: var(--status-ok); }
+.lounge-person.is-away:is(.play-subtle, .play-full) { --edge: var(--status-warn); }
+.lounge-light { margin-top: 0; }
+.lounge-readout { color: var(--text-2); font-size: var(--text-xs); font-variant-numeric: tabular-nums; letter-spacing: .04em; text-transform: uppercase; }
+
+@media (max-width: 600px) {
+  .lounge-people { grid-template-columns: minmax(0, 1fr); }
+  .lounge-key-say { flex-basis: 100%; }
+  .lounge-job { padding: 8px 0; }
+  a.lounge-job-title { display: inline-flex; align-items: center; min-height: 40px; }
+}

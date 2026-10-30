@@ -36,6 +36,7 @@ import jobRoutes from './routes-jobs.js';
 import orbitRoutes from './routes-orbit.js';
 import fileRoutes from './routes-files.js';
 import mirrorRoutes from './routes-mirror.js';
+import loungeRoutes from './routes-lounge.js';
 
 const WRITES = new Set(['POST', 'PUT', 'DELETE']);
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.map': 'application/json; charset=utf-8', '.png': 'image/png', '.woff2': 'font/woff2', '.ico': 'image/x-icon' };
@@ -43,6 +44,7 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=
 /** The lists of routes, in the order they are tried. Later steps add theirs. */
 export const ROUTE_LISTS = [authRoutes, metaRoutes, cronRoutes, peopleRoutes, laptopRoutes, pairRoutes, runnerRoutes, jobRoutes, orbitRoutes,
   fileRoutes, mirrorRoutes, // packet 2B: evidence files, then the full mirror, queued decisions and live updates
+  loungeRoutes, // packet 2D: the Lounge, the team's one shared page
 ];
 
 const REAL_TIMERS = { now: () => Date.now(), sleep: (ms) => new Promise((r) => { setTimeout(r, ms).unref?.(); }) };
