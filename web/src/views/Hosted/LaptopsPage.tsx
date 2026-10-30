@@ -24,7 +24,7 @@ function LaptopRow({ laptop, now, onRemove }: { laptop: Laptop; now: Date; onRem
           {laptop.online
             ? <span className="hosted-online is-online"><Icon name="circle-dot" size={12} />Online</span>
             : <span className="hosted-online is-offline"><Icon name="circle-dashed" size={12} />Offline{laptop.lastSeenAt ? ` · last seen ${relativeTime(laptop.lastSeenAt, now)}` : ' · not seen yet'}</span>}
-          <span title={fullTime(laptop.pairedAt)}>Paired {relativeTime(laptop.pairedAt, now)}</span>
+          <span title={fullTime(laptop.pairedAt)}>· Paired {relativeTime(laptop.pairedAt, now)}</span>
         </p>
         {asking && (
           <div className="hosted-confirm" role="alert">

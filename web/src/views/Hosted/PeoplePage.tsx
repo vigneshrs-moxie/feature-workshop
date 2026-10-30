@@ -53,7 +53,7 @@ export function PeoplePage({ api, onSignedOut, person }: HostedProps) {
             <li key={p.id} className="rule-row hosted-person" data-person={p.email}>
               <div className="rule-row-main">
                 <p className="rule-row-label"><strong>{p.name}</strong>{p.you && <span className="chip">You</span>}</p>
-                <p className="rule-row-meta muted"><span>{p.email}</span>{p.lastSignInAt && <span>Signed in {relativeTime(p.lastSignInAt, now)}</span>}</p>
+                <p className="rule-row-meta muted"><span>{p.email}</span>{p.lastSignInAt && <span>· Signed in {relativeTime(p.lastSignInAt, now)}</span>}</p>
               </div>
               <div className="doc-actions">
                 {owner && p.role !== 'owner'
