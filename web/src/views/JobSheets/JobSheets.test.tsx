@@ -7,6 +7,7 @@ import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job, LEVELS, snapshot } from '../../state/test-fixtures';
 import { CloseJobSheet } from './CloseJobSheet';
 import { LAST_REPO_KEY, NewJobSheet } from './NewJobSheet';
+import { pickOption } from '../../components/Select.testing';
 
 // Invented repositories, jobs and conversations only.
 const MODELS = [
@@ -51,7 +52,7 @@ describe('NewJobSheet', () => {
     wrap(<NewJobSheet onClose={onClose} />);
     const dialog = screen.getByRole('dialog', { name: 'Start a new job' });
     const repo = within(dialog).getByRole('combobox', { name: 'Repository' });
-    await waitFor(() => expect(repo).toHaveValue('/tmp/fw-test/sample-two')); // the one you used last
+    await waitFor(() => expect(repo).toHaveAttribute('data-value', '/tmp/fw-test/sample-two')); // the one you used last
     expect(within(dialog).getByRole('textbox', { name: /What should the crew build/ })).toHaveFocus();
     fireEvent.change(within(dialog).getByRole('textbox', { name: /What should the crew build/ }), { target: { value: '  Add a sample export button  ' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Bug fix' }));
@@ -71,8 +72,8 @@ describe('NewJobSheet', () => {
     const { onClose, wrap } = setup({ post });
     wrap(<NewJobSheet onClose={onClose} />);
     const repo = screen.getByRole('combobox', { name: 'Repository' });
-    await waitFor(() => expect(repo).toHaveValue('/tmp/fw-test/sample-one'));
-    fireEvent.change(repo, { target: { value: '__other' } });
+    await waitFor(() => expect(repo).toHaveAttribute('data-value', '/tmp/fw-test/sample-one'));
+    pickOption(repo, '__other');
     fireEvent.change(screen.getByRole('textbox', { name: 'Folder path' }), { target: { value: '/tmp/fw-test/not-a-repo' } });
     fireEvent.change(screen.getByRole('textbox', { name: /What should the crew build/ }), { target: { value: 'Something small' } });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Start job' })); });
@@ -101,7 +102,7 @@ describe('NewJobSheet', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Use “Sketch the export button”' }));
     // Its title becomes the description and its repository is picked (added to the list).
     expect(screen.getByRole('textbox', { name: /What should the crew build/ })).toHaveValue('Sketch the export button');
-    expect(screen.getByRole('combobox', { name: 'Repository' })).toHaveValue('/tmp/fw-test/sample-three');
+    expect(screen.getByRole('combobox', { name: 'Repository' })).toHaveAttribute('data-value', '/tmp/fw-test/sample-three');
     expect(screen.getByRole('radio', { name: /Fresh Foreman with a summary/ })).toBeChecked();
     fireEvent.click(screen.getByRole('radio', { name: /Continue that conversation/ }));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Start job' })); });
@@ -118,7 +119,7 @@ describe('NewJobSheet', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Use “Loose notes outside a repo”' }));
     expect(screen.getByRole('radio', { name: /Continue that conversation/ })).toBeDisabled();
     expect(screen.getByText(/isn’t a git repository/)).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Repository' })).toHaveValue('__other');
+    expect(screen.getByRole('combobox', { name: 'Repository' })).toHaveAttribute('data-value', '__other');
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
     expect(screen.queryByRole('radio', { name: /Continue that conversation/ })).toBeNull();
   });
@@ -160,7 +161,7 @@ describe('NewJobSheet: the level', () => {
     describeAs('Fix the typo in the footer and the header');
     expect(radio('L1 Small')).toBeChecked();
     expect(screen.getByText(/You picked another level; it’s kept as you type\./)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Repository' })).toHaveValue('/tmp/fw-test/sample-one'));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Repository' })).toHaveAttribute('data-value', '/tmp/fw-test/sample-one'));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Start job' })); });
     expect(post).toHaveBeenCalledWith('/api/jobs', expect.objectContaining({ description: 'Fix the typo in the footer and the header', options: { level: 1 } }));
   });

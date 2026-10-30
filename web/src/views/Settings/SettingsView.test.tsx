@@ -7,6 +7,7 @@ import { useRoute, type SettingsSection } from '../../app/router';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { ev, snapshot } from '../../state/test-fixtures';
 import { SettingsView, STALE_SKILL } from './SettingsView';
+import { setDefaultDetail } from '../../app/detail';
 
 const RULE: Rule = { id: 'r1', tool: 'Bash', kind: 'prefix', value: 'npm run test:db', label: 'run any command starting with “npm run test:db”', createdAt: '2026-10-15T11:00:00Z', from: { slug: 'alpha', title: 'Job alpha' } };
 const FINISH_LINES: Meta['finishLines'] = [{ id: 'pr1-merged', label: 'PR #1 merged', hint: 'Done when your work is on the Moxie branch.' }, { id: 'main', label: 'In main', hint: 'Done when the release PR has carried it to main.' }];
@@ -46,7 +47,7 @@ describe('Settings: the rail', () => {
     expect(railRow('Rules')).not.toHaveAttribute('aria-current');
     expect(railValue('Permissions')).toBe('Auto mode');
     expect(railValue('Notifications')).toBe('Needs you and Problems on');
-    expect(railValue('Look')).toBe('Default · M · One at a time · Four lanes · Play subtle');
+    expect(railValue('Look')).toBe('Light · M · One at a time · Four lanes · Play subtle');
     expect(railValue('Keys')).toBe('On');
     expect(railValue('Workflow')).toBe('Finish line: PR #1 merged · GitHub every 1 min');
     expect(railValue('Play')).toBe('Subtle');
@@ -275,10 +276,11 @@ describe('Settings: permissions', () => {
 describe('Settings: look', () => {
   it('offers every theme, each described on hover and the chosen one under the grid; a pick applies at once, is remembered, and shows in the rail', async () => {
     document.documentElement.setAttribute('data-theme', 'default');
+    localStorage.setItem('workshop.theme', 'default');
     setup([{ rules: [], active: true, unreadable: null }], undefined, 'look');
     const picker = screen.getByRole('group', { name: 'How the Workshop looks' });
     const radios = within(picker).getAllByRole('radio');
-    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'candy-pop', 'glass', 'sunset-paper', 'light', 'light-glass']);
+    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(['light', 'default', 'neon-arcade', 'blueprint', 'pixel-crew', 'candy-pop', 'glass', 'sunset-paper', 'light-glass']);
     expect(within(picker).getByRole('radio', { name: /^Default/ })).toBeChecked();
     expect(within(picker).getByRole('radio', { name: /Neon arcade/ }).closest('label')).toHaveAttribute('title', expect.stringMatching(/Ink-navy night/));
     fireEvent.click(within(picker).getByRole('radio', { name: /Candy pop/ }));
@@ -288,9 +290,82 @@ describe('Settings: look', () => {
     expect(within(picker).getByRole('radio', { name: /Candy pop/ })).toBeChecked();
     expect(screen.getByText(/changes only how things look/)).toBeInTheDocument();
     expect(railValue('Look')).toBe('Candy pop · M · One at a time · Four lanes · Play subtle');
-    fireEvent.click(screen.getByRole('button', { name: 'XL' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'XL' }));
     expect(railValue('Look')).toBe('Candy pop · XL · One at a time · Four lanes · Play subtle');
     document.documentElement.removeAttribute('data-theme');
     document.documentElement.removeAttribute('data-text');
+  });
+});
+
+describe('Settings, simple first (packet R)', () => {
+  const moreButton = (name: RegExp) => screen.getByRole('button', { name });
+
+  it('each section shows its main choices first, then one More that names what is inside it', async () => {
+    setDefaultDetail('simple');
+    try {
+      const wants: [SettingsSection, RegExp, string][] = [
+        ['permissions', /^More: the hard lines and a job’s own setting/, '.policy-hard-lines'],
+        ['notifications', /^More: quiet hours, usage warnings, this browser, a test and the history/, '[data-setting="notify-quiet"]'],
+        ['look', /^More: text size, layouts, play/, '[data-setting="text-size"]'],
+        ['keys', /^More: key hints on buttons, and every key/, '[data-setting="keys-hints"]'],
+        ['workflow', /^More: GitHub, what new jobs start with, the level, stacks and the Orbit token/, '[data-setting="github-every"]'],
+        ['play', /^More: sounds/, '[data-setting="play-sounds"]'],
+      ];
+      for (const [section, label, inside] of wants) {
+        setup([{ rules: [], active: true, unreadable: null }], undefined, section);
+        const more = moreButton(label);
+        expect(more, section).toHaveAttribute('aria-expanded', 'false');
+        expect(document.querySelector(inside), `${section}: folded away`).toBeNull();
+        fireEvent.click(more);
+        expect(more).toHaveAttribute('aria-expanded', 'true');
+        expect(document.querySelector(inside), `${section}: shown once opened`).not.toBeNull();
+        await waitFor(() => expect(railValue('Rules')).toBe('No rules'));
+        cleanup();
+        localStorage.clear();
+      }
+    } finally { setDefaultDetail('full'); }
+  });
+
+  it('Look: Light, Default and Follow the system first; the other themes in All themes, which opens by itself when one of them is chosen', async () => {
+    setDefaultDetail('simple');
+    try {
+      setup([{ rules: [], active: true, unreadable: null }], undefined, 'look');
+      const picker = screen.getByRole('group', { name: 'How the Workshop looks' });
+      expect(within(picker).getAllByRole('radio').map((r) => (r as HTMLInputElement).value)).toEqual(['light', 'default']);
+      expect(within(picker).getByRole('checkbox', { name: /Follow the system/ })).toBeInTheDocument();
+      const all = moreButton(/^All themes \(7\)/);
+      expect(all).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getByTestId('theme-chosen-line')).toHaveTextContent(/^Chosen: Light — /);
+      fireEvent.click(all);
+      fireEvent.click(within(picker).getByRole('radio', { name: /^Glass/ }));
+      cleanup();
+      localStorage.setItem('workshop.theme', 'glass');
+      setup([{ rules: [], active: true, unreadable: null }], undefined, 'look');
+      // A theme from the nine is chosen: All themes is open, names it, and it reads as chosen.
+      expect(moreButton(/^All themes \(7\)/)).toHaveAttribute('aria-expanded', 'true');
+      expect(moreButton(/^All themes \(7\)/)).toHaveTextContent('Glass is chosen');
+      expect(screen.getByRole('radio', { name: /^Glass Chosen/ })).toBeChecked();
+      await waitFor(() => expect(railValue('Rules')).toBe('No rules'));
+      document.documentElement.removeAttribute('data-theme');
+    } finally { setDefaultDetail('full'); }
+  });
+
+  it('a change says "Saved" beside its control, as a status; Find a setting opens the More that holds the match', async () => {
+    setDefaultDetail('simple');
+    window.location.hash = '#/settings/look';
+    try {
+      setup([{ rules: [], active: true, unreadable: null }], undefined, 'routed');
+      const detail = screen.getByRole('group', { name: 'Detail' });
+      expect(within(detail).getByRole('status')).toHaveTextContent('');
+      fireEvent.click(within(detail).getByRole('radio', { name: 'Full' }));
+      expect(within(detail).getByRole('status')).toHaveTextContent('Saved');
+      fireEvent.click(within(detail).getByRole('radio', { name: 'Simple' }));
+      // Text size sits in Look's More, folded; finding it opens the More and rings it.
+      expect(document.querySelector('[data-setting="text-size"]')).toBeNull();
+      fireEvent.change(screen.getByRole('searchbox', { name: 'Find a setting' }), { target: { value: 'text size' } });
+      fireEvent.click(within(screen.getByRole('list', { name: 'Matching settings' })).getByRole('button', { name: /^Text size/ }));
+      await waitFor(() => expect(document.querySelector('[data-setting="text-size"]')).toHaveClass('is-found'));
+      expect(moreButton(/^More: text size, layouts, play/)).toHaveAttribute('aria-expanded', 'true');
+    } finally { setDefaultDetail('full'); document.documentElement.removeAttribute('data-text'); }
   });
 });

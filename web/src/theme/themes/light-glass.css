@@ -450,3 +450,16 @@ html[data-theme="light-glass"] {
   --chart-7: oklch(.55 .15 25);
   --chart-8: oklch(.55 .15 345);
 }
+
+/* More colour (packet R): the new mark tokens in daylight. */
+html[data-theme="light-glass"] {
+  --status-review: oklch(.53 .2 295);
+  --status-review-bg: oklch(.965 .035 295);
+  --stop-spec: oklch(.58 .2 330);
+  --stop-investigate: oklch(.56 .2 285);
+  --stop-plan: oklch(.56 .17 245);
+  --stop-build: oklch(.58 .12 200);
+  --stop-test: oklch(.58 .16 160);
+  --stop-review: oklch(.6 .15 115);
+  --stop-ship: oklch(.64 .16 75);
+}

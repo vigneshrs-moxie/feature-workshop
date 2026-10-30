@@ -12,13 +12,16 @@
 //     by its finding, with What to do, Table ▸, Fold and Hide. Fold and Hide are remembered in this
 //     browser, per person; hidden cards come back from "Show hidden graphs (n)".
 // Data: GET /api/telemetry?window= (dashboard/lib/telemetry.js, lib/insights.js), read again every
-// minute while the page is open and after Read now. Colours are the theme's --chart-* tokens, each
-// with its pattern (Telemetry.css); colour never works alone.
+// minute while the page is open and after Read now. Colours follow the colour rule (packet R): a single
+// series in the accent with grey for what it is compared with; people, models and stages in the
+// theme's status and stop hues, each with a pattern or its name on the mark (Telemetry.css); colour
+// never works alone.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { GraphId, LimitSplit, PlanUsage, TelemetryGraph, TelemetryResponse, TelemetryWindow, UsageMeter } from '../api/types';
 import { useKeyScope } from '../app/keyRegistry';
-import { Kbd } from '../components/Kbd';
-import { Fold, Hero, NextBar, Page, useNarrow, type GuideSpec } from '../components/page/Page';
+import { Button } from '../components/Button';
+import { Segmented } from '../components/Choice';
+import { Hero, NextBar, Page, useMinWidth, useNarrow, type GuideSpec } from '../components/page/Page';
 import { resetsIn } from '../components/UsageMeters';
 import { useStored } from '../lib/stored';
 import { clockTime, useNow } from '../lib/time';
@@ -27,6 +30,7 @@ import { GraphCard } from './Telemetry/Card';
 import { Dial, levelOf, WhoLine } from './Telemetry/Top';
 import { parsePrefs, pct, prefsKey, type Prefs } from './Telemetry/words';
 import './Telemetry.css';
+import { HiddenSlot, More } from '../components/More';
 
 export type { TelemetryResponse, TelemetryWindow };
 
@@ -43,7 +47,7 @@ const GUIDE: GuideSpec = {
   title: 'How Telemetry works',
   cards: [
     { icons: ['gauge'], title: 'Two limits', say: 'Claude limits use over five hours and over a week, for everyone on the account. The dials show how much is used, and by whom: this app, or other use.' },
-    { icons: ['activity', 'check'], title: 'Each graph says what it found', say: 'And one line on what to do about it. Table ▸ shows the numbers.' },
+    { icons: ['activity', 'check'], title: 'Each graph says what it found', say: 'And one line on what to do about it. Table shows the numbers.' },
     { icons: ['minus', 'eye-off'], title: 'Fold or hide', say: 'Keep the ones you use. Hidden graphs come back from the end of the page.' },
   ],
   done: 'Show me the graphs',
@@ -134,18 +138,19 @@ export function TelemetryView() {
   };
 
   const readButton = (
-    <button type="button" className="btn btn-primary btn-lg" onClick={() => void readNow()} disabled={!canRead || reading} title={canRead ? 'Read the limits from Claude now (they are read every minute by themselves).' : 'The limits aren’t read on this computer.'}>
-      {reading ? 'Reading…' : 'Read now'} <Kbd id="tele-read" />
-    </button>
+    <Button kind="primary" size="lg" keyId="tele-read" onClick={() => void readNow()} disabled={!canRead || reading} title={canRead ? 'Read the limits from Claude now (they are read every minute by themselves).' : 'The limits aren’t read on this computer.'}>
+      {reading ? 'Reading…' : 'Read now'}
+    </Button>
   );
+  // The window, one of three (packet R: the shared segmented choice; the short words on a phone).
   const head = (
-    <div className="tele-windows" role="group" aria-label="Window: what the dials’ graph and People cover">
-      {WINDOWS.map((w) => (
-        <button key={w.id} type="button" className="btn btn-quiet tele-window" aria-pressed={win === w.id} onClick={() => pick(w.id)} title={`Show ${w.label.toLowerCase()} in the weekly graph and People.`}>
-          <span className="tele-check" aria-hidden="true">{win === w.id ? '✓' : ''}</span><span className="tele-long">{w.label}</span><span className="tele-short">{w.short}</span>
-        </button>
-      ))}
-    </div>
+    <Segmented<TelemetryWindow>
+      className="tele-windows"
+      label="Window: what the dials’ graph and People cover"
+      value={win}
+      onChange={pick}
+      options={WINDOWS.map((w) => ({ value: w.id, label: <><span className="tele-long">{w.label}</span><span className="tele-short">{w.short}</span></>, title: `Show ${w.label.toLowerCase()} in the weekly graph and People.` }))}
+    />
   );
 
   // Nothing recorded and no reading of the limits: the empty state.
@@ -156,7 +161,7 @@ export function TelemetryView() {
       {error && (
         <p className="thread-error" role="alert">
           Couldn’t read the usage log: {error}{' '}
-          <button type="button" className="btn btn-quiet" onClick={() => void load(win)} title="Ask the dashboard again.">Try again</button>
+          <Button kind="quiet" size="sm" onClick={() => void load(win)} title="Ask the dashboard again.">Try again</Button>
         </p>
       )}
       {!data && loading && <p className="muted" role="status">Reading…</p>}
@@ -173,26 +178,58 @@ export function TelemetryView() {
           </section>
           <WhoLine split={data.limits.week} note={data.limits.note} onPick={openPeople} />
           <LimitBar usage={u} logged={weekMeter} limit={limit} now={now}>{readButton}</LimitBar>
-          <p className="tele-ishow"><b>{graphs.length === 10 ? 'Ten graphs' : `${graphs.length} graphs`}</b> <span className="muted">each says what it found and what to do</span></p>
-          <div className={`tele-grid${loading ? ' is-loading' : ''}`} aria-busy={loading}>
-            {graphs.filter((g) => !hidden.has(g.id)).map((g) => {
-              const f = folded(g);
-              return <GraphCard key={g.id} graph={g} folded={f} onFold={() => toggleFold(g.id, f)} onHide={() => hide(g.id)} />;
-            })}
-          </div>
-          {hidden.size > 0 && (
-            <Fold icon="eye-off" name={`Show hidden graphs (${graphs.filter((g) => hidden.has(g.id)).length})`} id="telemetry-hidden">
-              <ul className="tele-hidden">
-                {graphs.filter((g) => hidden.has(g.id)).map((g) => (
-                  <li key={g.id}><span>{g.n} · {g.title}</span><button type="button" className="btn btn-quiet" onClick={() => show(g.id)} title="Put this graph back in its place.">Show again</button></li>
-                ))}
-              </ul>
-            </Fold>
-          )}
-          <p className="muted tele-foot">Fold and Hide are remembered in this browser, for you only. Every Foreman turn on this computer is one line in {data.file ? <code>{data.file}</code> : 'the usage log'}; nothing is sent anywhere.</p>
+          <GraphColumns
+            graphs={graphs}
+            loading={loading}
+            hidden={hidden}
+            folded={folded}
+            onFold={(g, f) => toggleFold(g.id, f)}
+            onHide={(g) => hide(g.id)}
+            onShow={(g) => show(g.id)}
+          />
+          <p className="muted tele-foot">Fold, Hide and More graphs are remembered in this browser, for you only. Every Foreman turn on this computer is one line in {data.file ? <code>{data.file}</code> : 'the usage log'}; nothing is sent anywhere.</p>
         </>
       )}
     </Page>
+  );
+}
+
+/**
+ * The graphs as columns of their own (packet R): two, three from 1600 px. Folding or hiding a card
+ * changes only its own column; a hidden card leaves a slim line with Show in its place. Simple shows
+ * the three with the most to say first, then "More graphs (n)"; Full opens them all.
+ */
+function GraphColumns({ graphs, loading, hidden, folded, onFold, onHide, onShow }: {
+  graphs: TelemetryGraph[]; loading: boolean; hidden: ReadonlySet<GraphId>;
+  folded(g: TelemetryGraph): boolean; onFold(g: TelemetryGraph, was: boolean): void; onHide(g: TelemetryGraph): void; onShow(g: TelemetryGraph): void;
+}) {
+  const wide = useMinWidth(1600);
+  const narrow = useNarrow();
+  const cols = narrow ? 1 : wide ? 3 : 2;
+  const said = graphs.filter((g) => g.state === 'ok' && g.id !== 'limit');
+  const first = new Set((said.length >= 3 ? said : graphs).slice(0, 3).map((g) => g.id));
+  const top = graphs.filter((g) => first.has(g.id));
+  const rest = graphs.filter((g) => !first.has(g.id));
+  const lay = (list: TelemetryGraph[]) => (
+    <div className={`tele-graphs cols-${cols}${loading ? ' is-loading' : ''}`} aria-busy={loading}>
+      {Array.from({ length: cols }, (_, c) => (
+        <div key={c} className="tele-graph-col">
+          {list.filter((_, i) => i % cols === c).map((g) => (hidden.has(g.id)
+            ? <HiddenSlot key={g.id} name={g.title} onShow={() => onShow(g)} className="tele-hidden-slot" />
+            : <GraphCard key={g.id} graph={g} folded={folded(g)} onFold={() => onFold(g, folded(g))} onHide={() => onHide(g)} />))}
+        </div>
+      ))}
+    </div>
+  );
+  return (
+    <>
+      {lay(top)}
+      {rest.length > 0 && (
+        <More screen="telemetry" id="more-graphs" label={`More graphs (${rest.length})`} note={rest.map((g) => g.title.toLowerCase()).slice(0, 3).join(', ') + (rest.length > 3 ? '…' : '')} icon="activity" className="tele-more">
+          {lay(rest)}
+        </More>
+      )}
+    </>
   );
 }
 

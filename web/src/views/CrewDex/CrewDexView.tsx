@@ -6,8 +6,8 @@
 // while you point at or focus its card; Subtle keeps them still. The header counts crew met, secrets
 // found (never which) and achievements (a link to the Achievements view). Everything is local: no
 // model is asked anything.
-import { useState } from 'react';
-import type { CrewStats, Meta, PlayView } from '../../api/types';
+import { useState, type CSSProperties } from 'react';
+import type { CrewStats, Meta, PlayView, StopId } from '../../api/types';
 import { achievementsHref } from '../../app/router';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
@@ -17,9 +17,18 @@ import { usePlay, type PlayState } from '../../play/usePlay';
 import { usePlayLedger } from '../../play/usePlayLedger';
 import { useWorkshopState } from '../../state/store';
 import { CREW_SIZE } from '../../play/crewSizes';
-import { nameOf } from '../../play/crewPack';
+import { nameOf, STOP_CREW } from '../../play/crewPack';
+import { Page } from '../../components/page/Page';
+import { Button } from '../../components/Button';
+import { Icon } from '../../components/Icon';
 
 const MIN = 60_000;
+
+/** The stop each crew member works in (the stop map's own pairs; every reviewer works in Review), for its hue. */
+const CREW_STOP: Readonly<Record<string, StopId>> = Object.fromEntries(Object.entries(STOP_CREW).map(([stop, type]) => [type, stop as StopId]));
+export function crewStop(type: string): StopId | null {
+  return CREW_STOP[type] ?? (isLensType(type) || type === 'feature-fable-check' ? 'review' : null);
+}
 
 /** "under a minute", "38m", "1h 12m". */
 export function stageTime(ms: number): string {
@@ -80,6 +89,7 @@ function DexCard({ member, stats, meta, play, now }: { member: CrewInfo; stats: 
     <li
       className={`dex-card rarity-${rarity} ${met ? 'is-met' : 'is-unmet'}${back ? ' is-flipped' : ''}`}
       data-crew={member.type}
+      data-stop={crewStop(member.type) ?? undefined}
       onClick={toggle}
       onMouseEnter={() => setActive(true)}
       onMouseLeave={() => setActive(false)}
@@ -88,11 +98,11 @@ function DexCard({ member, stats, meta, play, now }: { member: CrewInfo; stats: 
     >
       <div className="dex-card-inner">
         <div className="dex-face dex-front" aria-hidden={back || undefined} inert={back || undefined}>
-          <div className="dex-card-top">
-            <span className="dex-no num">{number}</span>
-            <span className={`chip dex-rarity rarity-${rarity}`} title={RARITY_HINT[rarity]}>{RARITY_LABEL[rarity]}</span>
-          </div>
           <div className="dex-portrait">
+            <div className="dex-card-top">
+              <span className="dex-no num">{number}</span>
+              <span className={`chip dex-rarity rarity-${rarity}`} title={RARITY_HINT[rarity]}>{RARITY_LABEL[rarity]}</span>
+            </div>
             <CrewMember type={member.type} state={met && active && play.animated ? 'working' : 'idle'} size={CREW_SIZE.dex} label="" silhouette={!met} />
           </div>
           <h3 className="dex-name">{member.name}</h3>
@@ -103,7 +113,7 @@ function DexCard({ member, stats, meta, play, now }: { member: CrewInfo; stats: 
           {met && stats ? (
             <Stats member={member} stats={stats} now={now} />
           ) : (
-            <p className="dex-unmet-note" title="They join your Crew-dex the first time they work on one of your jobs on this computer.">Not met yet</p>
+            <p className="dex-unmet-note" title="They join your Crew-dex the first time they work on one of your jobs on this computer."><Icon name="lock" size={14} />Not met yet</p>
           )}
         </div>
         {met && (
@@ -116,9 +126,10 @@ function DexCard({ member, stats, meta, play, now }: { member: CrewInfo; stats: 
         )}
       </div>
       {met && (
-        <button
-          type="button"
-          className="btn btn-quiet dex-flip"
+        <Button
+          kind="quiet"
+          size="sm"
+          className="dex-flip"
           aria-pressed={back}
           aria-label={`${member.name}: card back`}
           title={back ? 'Turn the card back to the front.' : `Turn the card over to read ${member.name}’s bio.`}
@@ -126,11 +137,14 @@ function DexCard({ member, stats, meta, play, now }: { member: CrewInfo; stats: 
         >
           {/* A toggle: while the back shows it looks pressed (and ticked), so its name never changes. */}
           {back && <span aria-hidden="true">✓ </span>}Card back
-        </button>
+        </Button>
       )}
     </li>
   );
 }
+
+/** How full a count's thin meter is: "--dex-done: 73%". */
+const meter = (n: number, of: number): CSSProperties => ({ '--dex-done': `${Math.round((100 * n) / Math.max(1, of))}%` } as CSSProperties);
 
 function Counts({ view }: { view: PlayView }) {
   const visible = view.achievements.filter((a) => !a.secret);
@@ -138,14 +152,17 @@ function Counts({ view }: { view: PlayView }) {
   return (
     <ul className="dex-counts" aria-label="Your collection">
       <li title="Crew members you have met: each one the first time they worked on one of your jobs on this computer.">
-        Crew met <strong className="num">{view.crewMet}/{view.crewTotal}</strong>
+        <span className="dex-count-label">Crew met</span> <strong className="num">{view.crewMet}/{view.crewTotal}</strong>
+        <span className="dex-meter" aria-hidden="true" style={meter(view.crewMet, view.crewTotal)} />
       </li>
       <li title="A few secrets are hidden around the Workshop. This only says how many you have found.">
-        Secrets found <strong className="num">{view.secrets.found.length}/{view.secrets.total}</strong>
+        <span className="dex-count-label">Secrets found</span> <strong className="num">{view.secrets.found.length}/{view.secrets.total}</strong>
+        <span className="dex-meter" aria-hidden="true" style={meter(view.secrets.found.length, view.secrets.total)} />
       </li>
       <li className="dex-achievements">
         <a href={achievementsHref()} title="Achievements you have unlocked by finishing work (never by approving). Open the full list.">
-          Achievements <strong className="num">{got}/{visible.length}</strong>
+          <span className="dex-count-label">Achievements</span> <strong className="num">{got}/{visible.length}</strong>
+          <span className="dex-meter" aria-hidden="true" style={meter(got, visible.length)} />
         </a>
       </li>
     </ul>
@@ -158,32 +175,29 @@ export function CrewDexView() {
   const { load, retry } = usePlayLedger();
   const now = useNow();
   return (
-    <main className="pane pane-foreman" data-pane="crew" aria-label="Crew-dex">
-      <div className="foreman-column crew-dex">
-        <h2 className="pane-title">Crew-dex</h2>
-        <HowThisWorks id="crew-dex">
-          <p><strong>The crew</strong> are the helpers the Foreman hands work to: the {nameOf('feature-spec-writer')} writes the spec, the {nameOf('feature-investigator')} investigates the code, the {nameOf('feature-planner')} plans, the {nameOf('feature-implementer')} builds, the {nameOf('feature-tester')} runs the checks, the {nameOf('feature-reviewer')} and seven specialist reviewers look at the change, and the {nameOf('feature-fable-check')} takes Fable’s second look. Each card shows their number, job, the model they run on and how rare that model is (Haiku common, Sonnet uncommon, Opus rare, Fable legendary).</p>
-          <p><strong>You meet someone</strong> the first time they actually work on one of your jobs on this computer; until then they are a silhouette. Approving something never meets anyone. Click a card you have met (or its <strong>Card back</strong> button) to turn it over and read their bio.</p>
-          <p>The stats come from what the dashboard already records (its log, the session logs and each job’s review.md). It is personal: nothing is shared, Claude is never asked anything and it costs no usage. There are also a few secrets hidden around the Workshop; the counter says how many you have found, not where.</p>
-        </HowThisWorks>
-        {load.state === 'loading' && <p className="muted">Loading the Crew-dex…</p>}
-        {/* The dashboard answered that Play is Off before this page heard (another tab turned it off). */}
-        {load.state === 'off' && <p className="muted" role="status">Play mode is Off, so the Crew-dex is put away. Turn Play back on in Settings to see it.</p>}
-        {load.state === 'error' && (
-          <p className="thread-error" role="alert">
-            Couldn’t load the Crew-dex: {load.message}{' '}
-            <button type="button" className="btn btn-quiet" onClick={retry} title="Ask the dashboard again.">Try again</button>
-          </p>
-        )}
-        {load.state === 'ready' && (
-          <>
-            <Counts view={load.view} />
-            <ol className="dex-grid">
-              {CREW.map((m) => <DexCard key={m.type} member={m} stats={load.view.crew[m.type]} meta={meta} play={play} now={now} />)}
-            </ol>
-          </>
-        )}
-      </div>
-    </main>
+    <Page label="Crew-dex" title="Crew-dex" className="crew-dex">
+      <HowThisWorks id="crew-dex">
+        <p><strong>The crew</strong> are the helpers the Foreman hands work to: the {nameOf('feature-spec-writer')} writes the spec, the {nameOf('feature-investigator')} investigates the code, the {nameOf('feature-planner')} plans, the {nameOf('feature-implementer')} builds, the {nameOf('feature-tester')} runs the checks, the {nameOf('feature-reviewer')} and seven specialist reviewers look at the change, and the {nameOf('feature-fable-check')} takes Fable’s second look. Each card shows their number, job, the model they run on and how rare that model is (Haiku common, Sonnet uncommon, Opus rare, Fable legendary).</p>
+        <p><strong>You meet someone</strong> the first time they actually work on one of your jobs on this computer; until then they are a silhouette. Approving something never meets anyone. Click a card you have met (or its <strong>Card back</strong> button) to turn it over and read their bio.</p>
+        <p>The stats come from what the dashboard already records (its log, the session logs and each job’s review.md). It is personal: nothing is shared, Claude is never asked anything and it costs no usage. There are also a few secrets hidden around the Workshop; the counter says how many you have found, not where.</p>
+      </HowThisWorks>
+      {load.state === 'loading' && <p className="muted">Loading the Crew-dex…</p>}
+      {/* The dashboard answered that Play is Off before this page heard (another tab turned it off). */}
+      {load.state === 'off' && <p className="muted" role="status">Play mode is Off, so the Crew-dex is put away. Turn Play back on in Settings to see it.</p>}
+      {load.state === 'error' && (
+        <p className="thread-error" role="alert">
+          Couldn’t load the Crew-dex: {load.message}{' '}
+          <Button kind="quiet" size="sm" onClick={retry} title="Ask the dashboard again.">Try again</Button>
+        </p>
+      )}
+      {load.state === 'ready' && (
+        <>
+          <Counts view={load.view} />
+          <ol className="dex-grid">
+            {CREW.map((m) => <DexCard key={m.type} member={m} stats={load.view.crew[m.type]} meta={meta} play={play} now={now} />)}
+          </ol>
+        </>
+      )}
+    </Page>
   );
 }

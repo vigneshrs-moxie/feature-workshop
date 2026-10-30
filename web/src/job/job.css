@@ -3,15 +3,38 @@
    var(--control-h) tall; status is a word with an icon, never a colour alone. */
 
 /* ---------- The map of seven stops ---------- */
-.job-map { padding: var(--space-4) var(--space-3); border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-1); }
+.job-map { padding: var(--space-4) var(--space-3) var(--space-3); border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs); }
 /* Play full: faint grid lines behind the map. */
 .job-map.has-grid { background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px); background-size: 24px 24px; }
-.job-map .stop-dot { width: 40px; height: 40px; }
-.job-map .stop + .stop::before { top: 19px; }
+.job-map .stop-dot { width: 36px; height: 36px; }
+.job-map .stop + .stop::before { top: 17px; }
+.job-map .stop-name { font-size: var(--text-xs); }
 .job-map .stop-link { min-height: var(--control-h); }
 /* The crew member's face on its stop's circle (Play full). */
 .stop-face { position: absolute; top: -8px; right: -10px; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--bg-1); border: 1px solid var(--border-2); overflow: hidden; pointer-events: none; }
 .stop-dot { position: relative; }
+
+/* ---------- The two columns (packet R): the work on the left, the conversation on the right ---------- */
+.job-layout { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
+.job-main, .job-side { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
+.page-job.is-wide .job-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 420px); align-items: start; gap: var(--space-6); }
+.page-job.is-wide .job-side { position: sticky; top: var(--space-4); max-height: calc(100vh - var(--topbar-h) - var(--space-8)); gap: var(--space-4); }
+.job-convo { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 280px; overflow: hidden; border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs); }
+.job-side-head { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-4); border-bottom: 1px solid var(--border-1); color: var(--text-2); }
+.job-side-head h3 { margin: 0; color: var(--text-1); font-size: var(--text-base); }
+.job-convo-thread { flex: 1 1 auto; min-height: 200px; max-height: max(200px, calc(100vh - 540px)); overflow: auto; padding: var(--space-3) var(--space-4); }
+.job-convo .composer { position: static; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-1); background: var(--surface-2); }
+.job-convo .composer-input { min-height: 72px; }
+.job-side-card { display: flex; flex-direction: column; gap: var(--space-4); flex: none; padding: var(--space-4); border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs); }
+.job-side-group { display: flex; flex-direction: column; gap: var(--space-2); }
+.job-side-group h4 { margin: 0; }
+.job-crew { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
+.job-crew li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 var(--space-2); }
+.job-crew-who { font-weight: var(--weight-medium); }
+.job-crew-doing { grid-column: 1; overflow-wrap: anywhere; }
+.job-crew time { grid-column: 2; grid-row: 1; font-size: var(--text-xs); }
+.job-facts-line { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0; color: var(--text-2); font-size: var(--text-sm); }
+.job-where { margin: 0; font-size: var(--text-sm); }
 
 /* ---------- The go / no go bar and the gate card under it ---------- */
 .job-go { display: flex; flex-direction: column; gap: var(--space-3); }
@@ -19,14 +42,15 @@
 
 /* ---------- The tabs ---------- */
 .job-tabs-wrap { display: flex; flex-direction: column; gap: var(--space-3); }
-.job-tabs { display: flex; flex-wrap: wrap; gap: var(--space-1); border-bottom: 1px solid var(--border-1); }
+.job-tabs { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-1); border-bottom: 1px solid var(--border-2); }
 .job-tab {
-  min-height: var(--control-h); padding: 0 var(--space-3); border: 0; border-bottom: 2px solid transparent; background: none;
-  color: var(--text-2); font: inherit; cursor: pointer; transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  min-height: 38px; margin-bottom: -1px; padding: 0 var(--space-3); border: 0; border-bottom: 2px solid transparent; background: none;
+  color: var(--text-2); font: inherit; font-size: var(--text-sm); font-weight: var(--weight-medium); cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
-.job-tab:hover { color: var(--text-1); }
+.job-tab:hover { color: var(--text-1); border-bottom-color: var(--border-3); }
 .job-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.job-tab[aria-selected='true'] { border-bottom-color: var(--accent); color: var(--text-1); font-weight: var(--weight-medium); }
+.job-tab[aria-selected='true'] { border-bottom-color: var(--accent); color: var(--text-1); }
 /* A stop the job hasn't reached: greyed, and its title says so. */
 .job-tab.is-later { color: var(--text-3); }
 .job-tab-more { font-weight: var(--weight-bold); }
@@ -59,30 +83,35 @@
 /* ---------- The permission alert ---------- */
 .perm-alert-slot { display: flex; flex-direction: column; gap: var(--space-2); }
 .perm-alert {
-  display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4) var(--space-5);
-  border: 1px solid var(--ask-permission-line); border-left-width: 4px; border-radius: var(--card-radius); background: var(--ask-permission-bg);
+  display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4) var(--space-5) var(--space-4) calc(var(--space-5) + 3px);
+  border-radius: var(--card-radius); background: var(--status-warn-bg); box-shadow: inset 3px 0 0 var(--status-warn);
 }
-.perm-alert.is-hard { border-color: var(--ask-hardline-line); background: var(--ask-hardline-bg); }
+.perm-alert.is-hard { background: var(--status-error-bg); box-shadow: inset 3px 0 0 var(--status-error); }
 .perm-alert-top { display: flex; align-items: center; gap: var(--space-3); }
-.perm-alert-shield { display: inline-grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 50%; background: var(--bg-1); border: 1px solid var(--border-2); color: var(--ask-permission-fg); }
-.perm-alert.is-hard .perm-alert-shield { color: var(--ask-hardline-fg); }
+.perm-alert-shield { display: inline-grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--surface-1); box-shadow: var(--elev-xs); color: var(--status-warn); }
+.perm-alert.is-hard .perm-alert-shield { color: var(--status-error); }
 .perm-alert-say { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-.perm-alert-head { margin: 0; font-size: var(--text-lg); }
+.perm-alert-head { margin: 0; font-size: var(--text-md); font-weight: var(--weight-bold); }
 .perm-hard-chip { flex: none; }
 .perm-alert .perm-detail { margin: 0; }
-.perm-step { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-1); }
+/* The exact step: a quiet inset of the card's own surface, no second frame. */
+.perm-step { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: color-mix(in oklab, var(--surface-1) 72%, transparent); }
 .perm-step summary { min-height: var(--control-h); display: flex; align-items: center; gap: var(--space-1); cursor: pointer; }
 .perm-step.is-short code { font-family: var(--font-mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .perm-why { margin: 0; color: var(--text-2); }
-.perm-what { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
-.perm-what > div { display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-1); font-size: var(--text-sm); }
-.perm-what span { color: var(--text-2); }
 .perm-alert-actions { align-items: center; margin-top: 0; }
-.perm-alert-actions .btn { min-height: var(--control-h); }
+.perm-alert-actions .spacer { flex: 1; }
+.perm-what-more .more-body { padding-top: var(--space-2); }
+.perm-what { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2) var(--space-5); }
+.perm-what > div { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); }
+.perm-what b { display: inline-flex; align-items: center; gap: var(--space-1); }
+.perm-what span { color: var(--text-2); }
 .perm-more .fold-note { font-size: var(--text-sm); }
 
 /* ---------- Phone width ---------- */
 @media (max-width: 760px) {
+  .perm-what { grid-template-columns: 1fr; }
+  .perm-alert-actions .spacer { display: none; }
   /* The map becomes a list down the page: circle, name and state on one line each. */
   .job-map .stop-map { flex-direction: column; gap: var(--space-1); }
   .job-map .stop { justify-content: flex-start; }
@@ -102,7 +131,7 @@
 .stage-back { margin: 0; order: -1; font-size: var(--text-sm); }
 .stage-back a { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--control-h); }
 .stage-steps { display: inline-flex; gap: var(--space-1); }
-.stage-steps .btn { min-height: var(--control-h); display: inline-flex; align-items: center; gap: var(--space-1); text-decoration: none; }
+.stage-steps .btn { display: inline-flex; }
 .stage-steps .is-off { color: var(--text-3); cursor: default; }
 .state-chip.is-done { color: var(--status-ok); background: var(--status-ok-bg); }
 .state-chip.is-now { color: var(--lane-working-fg); background: var(--lane-working-bg); }
@@ -112,8 +141,10 @@
 .stage-who { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-1); }
 .stage-who-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
 .stage-who-head h3 { margin: 0; font-size: var(--text-lg); }
-.stage-who-head .btn, .stage-app { min-height: var(--control-h); }
+
 .stage-note, .stage-empty { margin: 0; }
+/* While a stop is read (components/Pending.tsx): about the height of Who's on it with two rows, so it doesn't jump. */
+.stage-who-skeleton { min-height: 12rem; }
 .stage-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
 .stage-row {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto minmax(180px, auto); align-items: center; gap: var(--space-3);
@@ -124,12 +155,12 @@
 .stage-row-say { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .stage-row-who { display: inline-flex; align-items: center; gap: var(--space-2); }
 .stage-row-doing { color: var(--text-2); font-size: var(--text-sm); }
-.stage-row-time { display: inline-flex; align-items: center; gap: var(--space-1); font-family: var(--font-mono); font-size: var(--text-xs); }
+.stage-row-time { display: inline-flex; align-items: center; gap: var(--space-1); font-variant-numeric: tabular-nums; font-size: var(--text-xs); }
 .stage-status.is-working { color: var(--lane-working-fg); background: var(--lane-working-bg); }
 .stage-status.is-waiting { color: var(--text-1); background: var(--lane-needs-you-bg); }
 .stage-status.is-done { color: var(--status-ok); background: var(--status-ok-bg); }
 .stage-row-term { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-.stage-row-term .btn { min-height: var(--control-h); display: inline-flex; align-items: center; gap: var(--space-1); }
+.stage-row-term .btn { display: inline-flex; }
 .stage-row-term-note { font-size: var(--text-xs); }
 .stage-finished .fold-body { padding-top: var(--space-2); }
 
@@ -152,3 +183,31 @@
 /* The lock card above the message box (panes/Foreman/Composer.tsx): the box is off while it shows. */
 .composer-lock { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); margin-bottom: var(--space-2); }
 .composer-lock .lock-card { width: 100%; }
+
+/* Simple (packet R): the newest message, with Earlier (n) above it. */
+.thread-earlier { align-self: center; margin-bottom: var(--space-2); }
+.thread-earlier > .icon { transform: rotate(180deg); }
+.thread-earlier.is-open > .icon { transform: none; }
+.job-details .job-side-card { padding: 0; border: 0; background: none; box-shadow: none; }
+
+/* ---------- The Job page, calmer (packet R and the design philosophy) ---------- */
+/* The stops as a thin strip on the header line. */
+.job-strip { display: inline-flex; align-items: center; margin-left: var(--space-2); }
+.job-strip .stop-map.is-compact .stop { width: 24px; }
+.job-strip .stop-map.is-compact .stop + .stop::before { width: 24px; top: 9px; border-top-width: 1.5px; }
+.job-strip .stop-link { border-radius: 50%; }
+/* The title once: the go / no go bar carries the ask, so the card under it starts at its questions. */
+.job-gate-body .gate-card .perm-headline, .job-gate-body .gate-card .gate-next { display: none; }
+.job-gate-body .gate-card .gate-meta .thread-time { display: none; }
+/* The right column: the now line, Details, then the conversation with the message box pinned at its foot. */
+.job-now { min-height: 24px; padding: 0 var(--space-1); }
+.job-details-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.job-details .job-map { padding: var(--space-3) 0; border: 0; background: none; box-shadow: none; }
+.page-job.is-wide .job-side { height: calc(100vh - var(--topbar-h) - 120px); min-height: 560px; max-height: none; }
+.page-job.is-wide .job-convo { flex: 1 1 0; min-height: 260px; }
+.page-job.is-wide .job-convo-thread { max-height: none; flex: 1 1 0; min-height: 0; }
+.page-job.is-wide .job-details { flex: none; max-height: 45vh; overflow: auto; }
+.job-gate-body[hidden] { display: none; }
+.stage-brief-row { margin-top: calc(-1 * var(--space-2)); }
+/* "The brief" stays on one line, even at 390 px: only the muted words after it give way. */
+.stage-brief-row .desk-details-words > b { flex: none; white-space: nowrap; }

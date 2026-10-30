@@ -8,8 +8,10 @@ import { useWorkshopState } from '../state/store';
 import { UsageMeters } from '../components/UsageMeters';
 import { StaminaBar } from '../play/FullExtras';
 import { usePlay } from '../play/usePlay';
+import { staminaOf } from '../play/extrasModel';
+import { useNow } from '../lib/time';
 import { Icon } from '../components/Icon';
-import { Kbd } from '../components/Kbd';
+import { Button } from '../components/Button';
 import { deskQueue } from '../home/homeModel';
 import { deskEntries, isShipping } from '../home/nudges';
 import { BRAND } from './brand';
@@ -49,13 +51,15 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
   const desk = useDeskCount();
   const ready = state.status === 'ready';
   const conn = CONNECTION[state.connection];
+  const now = useNow(60_000);
+  const staminaLow = play.full && staminaOf(state.usage, now).state !== 'fresh';
   const at = section(route);
   const deskHint = desk === 0 ? 'The Desk: nothing is waiting for you right now.' : `The Desk: ${desk === 1 ? 'one decision is' : `${desk} decisions are`} waiting for you, one at a time (key: g d).`;
 
   const pages: (MenuEntry & { kind: 'link' })[] = [
-    { kind: 'link', id: 'inbox', label: 'Inbox', href: hrefFor({ name: 'inbox' }), icon: 'inbox', current: at === 'inbox', hint: 'The Inbox: your Portal Feedback tickets from Orbit, most severe first, with Start for a new job on one (key: g i).' },
-    { kind: 'link', id: 'desk', label: 'Desk', href: hrefFor({ name: 'desk' }), icon: 'hand', current: at === 'desk', count: desk, hint: deskHint },
     { kind: 'link', id: 'jobs', label: 'Jobs', href: hrefFor({ name: 'home' }), icon: 'activity', current: at === 'jobs', hint: 'Jobs: every job in four lanes, Working, Needs you, In review and Ready to merge (key: g j).' },
+    { kind: 'link', id: 'desk', label: 'Desk', href: hrefFor({ name: 'desk' }), icon: 'hand', current: at === 'desk', count: desk, hint: deskHint },
+    { kind: 'link', id: 'inbox', label: 'Inbox', href: hrefFor({ name: 'inbox' }), icon: 'inbox', current: at === 'inbox', hint: 'The Inbox: your Portal Feedback tickets from Orbit, most severe first, with Start for a new job on one (key: g i).' },
     { kind: 'link', id: 'stacks', label: 'Stacks', href: stacksHref(), icon: 'layers', current: at === 'stacks', hint: 'Stacks: a big ticket split into parts that are built side by side, then joined in order and pushed with your go.' },
     { kind: 'link', id: 'telemetry', label: 'Telemetry', href: telemetryHref(), icon: 'gauge', current: at === 'telemetry', hint: 'Telemetry: where the Claude usage goes and when the weekly limit will be reached.' },
   ];
@@ -85,38 +89,47 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
         <span className="gc-mark"><Icon name="radar" size={16} /></span>
         <span className="gc-brand-name">{BRAND.name}</span>
       </a>
+      {state.meta?.demo ? <span className="gc-demo" title="Demo mode: a pretend Foreman answers and nothing real runs.">Demo</span> : null}
       <span className="gc-page-name" aria-hidden="true">{pageName(route, jobTitle)}</span>
       {ready && (
         <nav className="gc-nav" aria-label="Pages">
           {pages.map((p) => (
-            <a key={p.id} className="btn btn-quiet gc-nav-link" href={p.href} aria-current={p.current ? 'page' : undefined} title={p.hint}>
+            <Button key={p.id} kind="quiet" className="gc-nav-link" href={p.href} aria-current={p.current ? 'page' : undefined} title={p.hint}>
               {p.label}
               {p.count ? <span className="home-view-count" title={`${p.count} waiting for you`}>{p.count}</span> : null}
-            </a>
+            </Button>
           ))}
         </nav>
       )}
-      {state.meta?.demo ? <span className="chip gc-demo" title="Demo mode: a pretend Foreman answers and nothing real runs.">Demo</span> : null}
       <span className="spacer" />
-      {/* The plan's 5-hour and weekly usage; without it (demo, or turned off), Play Full's stamina bar. */}
-      {ready && <span className="gc-meters">{state.planUsage?.enabled ? <UsageMeters /> : <StaminaBar />}</span>}
-      <span className={`conn conn-${state.connection}`} title={conn.hint} role="status">
-        <span className="conn-dot" aria-hidden="true" />
-        <span className="conn-label">{conn.label}</span>
-      </span>
-      {state.error && ready && (
-        <button type="button" className="btn btn-quiet" onClick={onRetry} title="Fetch everything from the dashboard again now.">Refresh</button>
-      )}
       {ready && (
-        <button type="button" className="btn gc-new-job" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job: describe it, pick the repository, kind and Foreman model (key: c).">
-          New job <Kbd id="new-job" />
+        <button type="button" className="gc-command" onClick={() => ui.openSheet({ kind: 'palette' })} title={`Search jobs or run any action (${paletteKeyLabel()}).`}>
+          <Icon name="search" size={14} />
+          <span className="gc-command-words">Search or run a command</span>
+          <kbd className="kbd gc-command-key" aria-hidden="true">{paletteKeyLabel()}</kbd>
         </button>
       )}
+      {/* The plan's 5-hour and weekly usage; without it (demo, or turned off), Play Full's stamina bar. */}
+      {/* Without it, Play full's stamina shows only when it isn't fresh (low, or the crew resting). */}
+      {ready && (state.planUsage?.enabled ? <span className="gc-meters"><UsageMeters /></span> : staminaLow ? <span className="gc-meters"><StaminaBar /></span> : null)}
+      {/* The connection shows only when it isn't fine: nothing while live (a screen reader still
+          hears the change), a quiet "Reconnecting…" while it is down, and Try again after a failed fetch. */}
+      <span className={`conn conn-${state.connection}${state.connection === 'live' && !(state.error && ready) ? ' is-fine' : ''}`} title={conn.hint} role="status">
+        {state.connection !== 'live' && <span className="conn-spin" aria-hidden="true" />}
+        <span className="conn-label">{state.error && ready && state.connection === 'live' ? 'Couldn’t update' : conn.label}</span>
+      </span>
+      {state.error && ready && (
+        <Button kind="quiet" size="sm" icon="refresh" onClick={onRetry} title="Fetch everything from the dashboard again now.">Try again</Button>
+      )}
       {ready && (
-        <a className="btn btn-quiet gc-phone-desk" href={hrefFor({ name: 'desk' })} aria-label={desk ? `Desk, ${desk} waiting for you` : 'Desk, nothing waiting'} title={deskHint}>
-          <Icon name="hand" size={18} />
+        <Button icon="plus" keyId="new-job" className="gc-new-job" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job: describe it, pick the repository, kind and Foreman model (key: c).">
+          New job
+        </Button>
+      )}
+      {ready && (
+        <Button kind="quiet" icon="hand" className="gc-phone-desk" href={hrefFor({ name: 'desk' })} aria-label={desk ? `Desk, ${desk} waiting for you` : 'Desk, nothing waiting'} title={deskHint}>
           {desk > 0 && <span className="home-view-count">{desk}</span>}
-        </a>
+        </Button>
       )}
       <MenuButton className="gc-gear" label="Settings and more" icon="settings" current={route.name === 'settings'} hint="Settings, the flow map, the Table, the keys and every action." entries={more} />
       <MenuButton className="gc-burger" label="Menu" icon="menu" hint="Every page, New job, Settings and the rest." entries={phoneMenu} />

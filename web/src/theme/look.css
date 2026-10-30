@@ -72,3 +72,8 @@
 
 /* The look section's hint line, under everything. */
 .theme-hint { margin: var(--space-3) 0 0; }
+/* Look, simple first (packet R): Theme and Detail, then More. Even space between the groups. */
+.look-settings { display: flex; flex-direction: column; gap: var(--space-5); }
+.look-settings .look-heading { margin: 0 0 var(--space-2); color: var(--text-1); }
+.look-detail > p { margin: var(--space-2) 0 0; max-width: 75ch; }
+.look-more > .more-body { gap: var(--space-5); padding-top: var(--space-4); }

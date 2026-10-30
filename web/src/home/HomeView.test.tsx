@@ -64,7 +64,7 @@ describe('Home: the flow map as rows', () => {
     expect(screen.queryByRole('navigation', { name: 'Jobs' })).toBeNull();
     // The headings, in order, with their counts; Done folded.
     const repo = screen.getByRole('region', { name: 'moxie-portal' });
-    expect(within(repo).getAllByRole('heading', { level: 4 }).map((h) => h.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['Needs you 1', 'Running 1', '▸ Done 1']);
+    expect(within(repo).getAllByRole('heading', { level: 4 }).map((h) => h.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['Needs you 1', 'Running 1', 'Done 1']);
     expect(screen.queryByRole('list', { name: 'Done jobs in moxie-portal' })).toBeNull();
     // Alpha's row.
     const alpha = within(needs).getAllByRole('listitem')[0];

@@ -8,6 +8,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { filterCommands, type Command } from '../app/commands';
 import { Kbd } from './Kbd';
+import { Icon } from './Icon';
 import { CrewMember } from '../play/CrewMember';
 import { paletteEgg, type PaletteEgg } from '../play/eggs';
 import { CREW_SIZE } from '../play/crewSizes';
@@ -81,56 +82,84 @@ export function CommandPalette({ commands, onClose, onEgg, onOldPages }: { comma
     }
   }
 
+  // The results in runs of one section each (the commands come grouped), so each run gets a quiet label.
+  const runs: { section: string; items: { c: Command; i: number }[] }[] = [];
+  shown.forEach((c, i) => {
+    const last = runs[runs.length - 1];
+    if (last && last.section === c.section) last.items.push({ c, i });
+    else runs.push({ section: c.section, items: [{ c, i }] });
+  });
+
   return (
     <div className="sheet-backdrop palette-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="palette" role="dialog" aria-modal="true" aria-label="Command palette">
-        <input
-          ref={input}
-          className="text-input palette-input"
-          type="text"
-          role="combobox"
-          aria-expanded="true"
-          aria-controls={listId}
-          aria-autocomplete="list"
-          aria-activedescendant={at >= 0 ? optionId(at) : undefined}
-          aria-label="Search actions"
-          placeholder="What do you want to do?"
-          autoComplete="off"
-          spellCheck={false}
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setActive(0); }}
-          onKeyDown={onKeyDown}
-          title="Type to narrow the list. ↑ and ↓ move, Enter runs the highlighted action, Esc closes."
-        />
+        <div className="palette-search">
+          <Icon name="search" size={18} className="palette-search-icon" />
+          <input
+            ref={input}
+            className="palette-input"
+            type="text"
+            role="combobox"
+            aria-expanded="true"
+            aria-controls={listId}
+            aria-autocomplete="list"
+            aria-activedescendant={at >= 0 ? optionId(at) : undefined}
+            aria-label="Search actions"
+            placeholder="What do you want to do?"
+            autoComplete="off"
+            spellCheck={false}
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setActive(0); }}
+            onKeyDown={onKeyDown}
+            title="Type to narrow the list. ↑ and ↓ move, Enter runs the highlighted action, Esc closes."
+          />
+        </div>
         <ul id={listId} className="palette-list" role="listbox" aria-label="Actions you can take now" hidden={door}>
-          {shown.map((c, i) => (
-            <li
-              key={c.id}
-              id={optionId(i)}
-              role="option"
-              aria-selected={i === at}
-              aria-describedby={`${optionId(i)}-hint`}
-              className={i === at ? 'palette-option is-active' : 'palette-option'}
-              title={c.hint}
-              onMouseMove={() => { if (i !== at) setActive(i); }}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pick(c)}
-            >
-              <span className="palette-label">{c.label}</span>
-              <span className="palette-section muted">{c.section}</span>
-              {c.keys && <Kbd id={c.keys} className="palette-key" />}
-              <span id={`${optionId(i)}-hint`} className="sr-only">{c.hint}</span>
+          {runs.map((run, r) => (
+            <li key={`${run.section}-${r}`} role="presentation" className="palette-group">
+              <div className="palette-group-head" aria-hidden="true"><span className="palette-section" id={`${listId}-group-${r}`}>{run.section}</span></div>
+              <ul role="group" aria-labelledby={`${listId}-group-${r}`} className="palette-group-list">
+                {run.items.map(({ c, i }) => (
+                  <li
+                    key={c.id}
+                    id={optionId(i)}
+                    role="option"
+                    aria-selected={i === at}
+                    aria-describedby={`${optionId(i)}-hint`}
+                    className={i === at ? 'palette-option is-active' : 'palette-option'}
+                    title={c.hint}
+                    onMouseMove={() => { if (i !== at) setActive(i); }}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pick(c)}
+                  >
+                    <span className="palette-label">{c.label}</span>
+                    {c.keys && <Kbd id={c.keys} shown className="palette-key" />}
+                    <span id={`${optionId(i)}-hint`} className="sr-only">{c.hint}</span>
+                  </li>
+                ))}
+              </ul>
             </li>
           ))}
         </ul>
-        {shown.length === 0 && !door && <p className="muted palette-empty" role="status">Nothing matches “{query}”. Try fewer words.</p>}
+        {shown.length === 0 && !door && (
+          <div className="palette-empty" role="status">
+            <Icon name="search" size={20} className="palette-empty-icon" />
+            <p>Nothing matches “{query}”. Try fewer words.</p>
+          </div>
+        )}
         {door && (
           <div className="palette-door" role="status">
             <CrewMember type="feature-review-permissions" state="waiting" size={CREW_SIZE.door} label={nameOf('feature-review-permissions')} animated={false} />
             <p className="palette-door-line">Hard line. Nice try.</p>
           </div>
         )}
-        <p className="palette-foot muted">↑ ↓ to move · Enter to run · Esc to close</p>
+        <p className="palette-foot">
+          <span className="palette-foot-item"><kbd className="kbd">↑</kbd> <kbd className="kbd">↓</kbd> to move</span>
+          <span className="palette-foot-dot" aria-hidden="true"> · </span>
+          <span className="palette-foot-item"><kbd className="kbd">Enter</kbd> to run</span>
+          <span className="palette-foot-dot" aria-hidden="true"> · </span>
+          <span className="palette-foot-item"><kbd className="kbd">Esc</kbd> to close</span>
+        </p>
       </div>
     </div>
   );

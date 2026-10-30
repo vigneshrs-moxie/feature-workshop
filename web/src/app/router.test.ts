@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classicHref, hrefFor, jobHref, openFromHash, parseHash, screensHref } from './router';
+import { classicHref, hrefFor, jobHref, openFromHash, parseHash, peekFromHash, screensHref, withPeek } from './router';
 
 describe('hash router', () => {
   it.each([
@@ -74,5 +74,24 @@ describe('hash router', () => {
     expect(openFromHash('#/job/alpha?theme=glass&open=options')).toBe('options');
     expect(parseHash('#/job/alpha?open=options')).toEqual({ name: 'job', slug: 'alpha' });
     for (const hash of ['#/', '#/job/alpha', '#/?open=settings', '#/?theme=glass', '']) expect(openFromHash(hash)).toBeNull();
+  });
+
+  it('the open quick look on Jobs is ?peek=<slug> after the hash, and changes nothing about the route', () => {
+    expect(parseHash('#/?peek=customer-merge')).toEqual({ name: 'home' });
+    expect(parseHash('#/jobs?peek=customer-merge')).toEqual({ name: 'home' });
+    expect(peekFromHash('#/jobs?peek=customer-merge')).toBe('customer-merge');
+    expect(peekFromHash('#/?theme=glass&peek=a%20b')).toBe('a b');
+    for (const hash of ['#/', '#/jobs', '#/?peek=', '#/?theme=glass', '']) expect(peekFromHash(hash)).toBeNull();
+  });
+
+  it('withPeek sets or drops the quick look and keeps the route and the other words', () => {
+    expect(withPeek('#/', 'alpha')).toBe('#/?peek=alpha');
+    expect(withPeek('', 'alpha')).toBe('#/?peek=alpha');
+    expect(withPeek('#/jobs', 'alpha')).toBe('#/jobs?peek=alpha');
+    expect(withPeek('#/jobs?peek=alpha', 'beta')).toBe('#/jobs?peek=beta');
+    expect(withPeek('#/?theme=glass', 'alpha')).toBe('#/?theme=glass&peek=alpha');
+    expect(withPeek('#/?theme=glass&peek=alpha', null)).toBe('#/?theme=glass');
+    expect(withPeek('#/jobs?peek=alpha', null)).toBe('#/jobs');
+    expect(peekFromHash(withPeek('#/', 'a b/c'))).toBe('a b/c');
   });
 });

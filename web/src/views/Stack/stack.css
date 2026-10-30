@@ -116,11 +116,9 @@
 .stack-readout { font-size: var(--text-xs); }
 /* Play full and subtle: console cards (a light, mono words in capitals). Off: plain. */
 .stack-parts.play-full .part-chip, .stack-parts.play-subtle .part-chip,
-.stack-parts.play-full .stack-readout, .stack-parts.play-subtle .stack-readout { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .04em; font-size: var(--text-xs); }
+.stack-parts.play-full .stack-readout, .stack-parts.play-subtle .stack-readout { font-variant-numeric: tabular-nums;  letter-spacing: .04em; font-size: var(--text-xs); }
 .stack-details > summary { display: flex; align-items: center; min-height: var(--control-h); color: var(--text-2); font-size: var(--text-sm); cursor: pointer; list-style: none; }
 .stack-details > summary::-webkit-details-marker { display: none; }
-.stack-details > summary::after { content: ' ▸'; white-space: pre; }
-.stack-details[open] > summary::after { content: ' ▾'; }
 .stack-details > summary:hover { color: var(--text-1); }
 .stack-details > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .stack-details dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-1) var(--space-3); margin: 0 0 var(--space-2); font-size: var(--text-sm); }
@@ -139,7 +137,6 @@
 .stack-ticks li { display: flex; align-items: center; gap: var(--space-2); }
 .stack-ticks .icon { padding: 2px; border: 1px solid var(--status-ok); border-radius: var(--radius-sm); background: var(--status-ok-bg); color: var(--status-ok); }
 .stack-calls { display: grid; grid-template-columns: 1fr 1.4fr; gap: var(--space-3); }
-.stack-calls .btn { min-height: 56px; }
 
 /* ---------- Jobs: a stack is one card that opens into its parts ---------- */
 .stack-card-parts > summary { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--control-h); position: relative; z-index: 1; color: var(--text-2); font-size: var(--text-sm); cursor: pointer; list-style: none; }

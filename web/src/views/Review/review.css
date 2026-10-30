@@ -2,8 +2,9 @@
    Every value is a token. Every state is a word with an icon; colour only adds to it. */
 
 /* ---------- The GitHub line ---------- */
-.gh-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: 0; font-size: var(--text-sm); color: var(--text-2); }
-.gh-line .gh-line-btn { min-height: var(--control-h); padding: 0 var(--space-2); }
+.gh-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) 6px; margin: 0; color: var(--text-3); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+/* Tucked in: small and muted, Check now a quiet small button beside the time. */
+.gh-line:not(.is-problem) .gh-line-btn { color: var(--text-2); font-size: var(--text-xs); }
 .gh-line.is-problem { padding: 0 var(--space-3); border: 1px solid var(--status-error); border-radius: var(--radius-md); background: var(--status-error-bg); color: var(--text-1); }
 .gh-line-run { font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px var(--space-2); border-radius: var(--radius-sm); background: var(--bg-1); border: 1px solid var(--border-2); }
 .page-jobs .page-head .gh-line { margin-left: auto; }
@@ -21,7 +22,7 @@
 .review-reason, .review-was { margin: 0; font-size: var(--text-sm); display: flex; align-items: center; gap: var(--space-1); }
 .review-ask { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
 .review-ask .text-input { max-width: 260px; }
-.review-console { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--bg-1); font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); }
+.review-console { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--bg-1); font-variant-numeric: tabular-nums; font-size: var(--text-xs);  letter-spacing: .04em; color: var(--text-2); }
 .review-console-light { width: 10px; height: 10px; border-radius: 50%; background: var(--lane-working-line); }
 .review-console-light.is-blink { animation: gc-blink 1.6s ease-in-out infinite; }
 .review-console-last { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
@@ -37,7 +38,7 @@
 .review-step code { font-family: var(--font-mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .review-goes { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 .review-goes p { margin: 0; padding: var(--space-3); border: 1px solid var(--border-2); border-radius: var(--radius-md); font-size: var(--text-sm); display: flex; flex-direction: column; gap: var(--space-1); }
-.review-remind-text { width: 100%; resize: vertical; }
+.review-remind-text { width: 100%; resize: none; }
 
 /* ---------- The panel ---------- */
 .review-panel { display: flex; flex-direction: column; gap: var(--space-3); }
@@ -48,13 +49,36 @@
 .review-round-head h3 { margin: 0; font-size: var(--text-lg); }
 .review-from { margin: 0; font-size: var(--text-sm); }
 .review-group { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
+/* The round's files, each a fold row (components/More.tsx) with a divider between: one box deep. */
+.review-round > .more.review-group { margin-top: 0; border-top: 1px solid var(--border-1); }
+.review-round > .more.review-group .more-body { padding: 0 0 var(--space-2); }
+.review-group.is-file .more-label { font-family: var(--font-mono); font-size: var(--text-xs); }
+.review-group.is-answered .more-icon { color: var(--status-ok); }
+
+/* The status line on top, and each thing that went wrong in its own space. */
+.review-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-height: 34px; }
+.review-status-line { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: var(--space-1) 0; min-width: 0; margin: 0; color: var(--text-1); font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.review-status-part { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.review-status-part > .icon { color: var(--text-3); }
+.review-status-part.is-ok > .icon { color: var(--status-ok); }
+.review-status-part.is-warn > .icon { color: var(--status-warn); }
+.review-status-part.is-error > .icon { color: var(--status-error); }
+.review-status-sep { margin: 0 var(--space-2); color: var(--text-3); font-weight: var(--weight-regular); }
+.review-problems { display: flex; flex-direction: column; gap: var(--space-2); }
+.review-problem { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: var(--space-3); min-height: 56px; padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--status-error-bg); box-shadow: inset 3px 0 0 var(--status-error); }
+.review-problem.is-round { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.review-problem-icon { margin-top: 2px; color: var(--status-error); }
+.review-problem.is-round .review-problem-icon { color: var(--accent-strong); }
+.review-problem-words { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: var(--text-sm); }
+.review-problem-first { overflow: hidden; color: var(--text-1); font-family: var(--font-mono); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .review-group-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin: 0; font-size: var(--text-sm); font-weight: var(--weight-regular); color: var(--text-2); overflow-wrap: anywhere; }
-.review-group-head .num { font-family: var(--font-mono); font-size: var(--text-xs); }
-.review-items { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
-.review-item { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: start; gap: var(--space-2) var(--space-3); padding: var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-2); }
-.review-item.is-working { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.review-group-head .num { font-variant-numeric: tabular-nums; font-size: var(--text-xs); }
+.review-items { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.review-item { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: start; gap: var(--space-2) var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--border-1); }
+.review-items > .review-item:first-child { border-top: 0; }
+.review-item.is-working { padding-left: var(--space-3); box-shadow: inset 2px 0 0 var(--accent); background: var(--accent-soft); }
 .review-item.is-out .review-quote { text-decoration: line-through; color: var(--text-3); }
-.review-item.is-late { border-color: var(--status-info); }
+.review-item.is-late { padding-left: var(--space-3); box-shadow: inset 2px 0 0 var(--status-info); }
 .review-tick { width: 20px; height: 20px; margin: 10px 0 0; accent-color: var(--accent); }
 .review-item-body { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; grid-column: 3; }
 .review-item > .review-state { grid-column: 4; }
@@ -68,19 +92,26 @@
 
 /* Kinds and states: a word and an icon in a chip; the colour only helps. */
 .review-kind, .review-state, .review-new, .review-outdated { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
-.review-kind.is-change { border-color: var(--status-info); background: var(--status-info-bg); }
-.review-kind.is-question { border-color: var(--accent); background: var(--accent-soft); }
-.review-kind.is-nit { border-style: dashed; }
-.review-kind.is-check { border-color: var(--status-error); background: var(--status-error-bg); }
-.review-kind.is-menu { min-height: var(--control-h); cursor: pointer; }
-.review-kind.is-menu select { min-height: var(--control-h); border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.review-kind { border-color: transparent; }
+.review-kind.is-change { background: var(--status-info-bg); }
+.review-kind.is-change > .icon { color: var(--status-info); }
+.review-kind.is-question { background: var(--accent-soft); }
+.review-kind.is-question > .icon { color: var(--accent-strong); }
+.review-kind.is-nit { background: var(--surface-2); color: var(--text-2); }
+.review-kind.is-check { background: var(--status-error-bg); }
+.review-kind.is-check > .icon { color: var(--status-error); }
+.review-kind.is-menu { height: 30px; padding: 0 2px 0 var(--space-2); cursor: pointer; }
+/* The kind is a menu inside its chip: the chip is the only edge (one box deep). */
+.review-kind.is-menu .select-box { display: inline-flex; }
+.review-kind.is-menu .select { height: 28px; min-height: 0; padding: 0 var(--space-1); border: 0; background: transparent; box-shadow: none; color: inherit; font-size: var(--text-sm); }
+.review-kind.is-menu .select:hover { background: var(--hover-bg); }
 .review-state.is-fixed, .review-state.is-answered { border-color: var(--status-ok); background: var(--status-ok-bg); }
 .review-state.is-working { border-color: var(--accent); background: var(--accent-soft); }
 .review-state.is-left_out { border-style: dashed; color: var(--text-3); }
 .review-new { border-color: var(--status-info); background: var(--status-info-bg); }
 
 .review-note { display: flex; align-items: flex-start; gap: var(--space-2); }
-.review-note .text-input { flex: 1; min-height: var(--control-h); resize: vertical; }
+.review-note .text-input { flex: 1; min-height: var(--control-h); resize: none; }
 .review-note-read, .review-footer { margin: 0; display: flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); }
 .review-how { margin: 0; font-size: var(--text-sm); }
 .review-how .link-button { min-height: var(--control-h); }
@@ -116,7 +147,7 @@
 .review-reply-where { margin: 0; font-size: var(--text-xs); grid-column: 1; }
 .review-reply-where .num { font-family: var(--font-mono); }
 .review-reply-text { margin: 0; grid-column: 1; overflow-wrap: anywhere; }
-.review-reply .text-input { grid-column: 1; width: 100%; resize: vertical; }
+.review-reply .text-input { grid-column: 1; width: 100%; resize: none; }
 .review-reply-acts { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-1); }
 .review-reply-state { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); color: var(--text-2); white-space: nowrap; }
 .review-reply-state.is-fail { color: var(--status-error); }
@@ -137,13 +168,13 @@
 .review-desk { display: flex; flex-direction: column; gap: var(--space-3); }
 .review-desk-top { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--text-sm); }
 .review-desk-top a { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--control-h); }
-.review-desk-items, .review-desk-steps { margin: 0; padding: var(--space-1); list-style: none; border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-2); }
-.review-desk-items li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-2); border-bottom: 1px solid var(--border-1); font-size: var(--text-sm); }
+.review-desk-items, .review-desk-steps { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--border-1); border-bottom: 1px solid var(--border-1); }
+.review-desk-items li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--border-1); font-size: var(--text-sm); }
 .review-desk-items li:last-child, .review-desk-steps li:last-child { border-bottom: 0; }
 .review-desk-items .review-kind { min-width: 7.5em; }
 .review-desk-quote { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-desk-where { font-family: var(--font-mono); font-size: var(--text-xs); }
-.review-desk-steps li { display: flex; gap: var(--space-3); padding: var(--space-2); border-bottom: 1px solid var(--border-1); font-size: var(--text-sm); }
+.review-desk-steps li { display: flex; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--border-1); font-size: var(--text-sm); }
 .review-desk-note { margin: 0; font-size: var(--text-sm); }
 .review-desk-calls.is-call { grid-template-columns: 1fr 1fr 1.5fr; }
 

@@ -6,6 +6,7 @@ import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { ev, job, snapshot } from '../../state/test-fixtures';
 import { Composer, draftKey } from './Composer';
 import { ForemanPane } from './ForemanPane';
+import { pickOption } from '../../components/Select.testing';
 
 // Invented jobs only.
 const MODELS = [
@@ -41,8 +42,8 @@ describe('Composer', () => {
     fireEvent.change(box(), { target: { value: '  Please also check the export.  ' } });
     // The model defaults to the one the Foreman last used; change it.
     const select = screen.getByRole('combobox');
-    expect(select).toHaveValue('claude-fable-5-1');
-    fireEvent.change(select, { target: { value: 'claude-opus-5-5' } });
+    expect(select).toHaveAttribute('data-value', 'claude-fable-5-1');
+    pickOption(select, 'claude-opus-5-5');
     fireEvent.click(screen.getByRole('button', { name: 'Send…' }));
     const dialog = screen.getByRole('dialog', { name: 'Message the Foreman' });
     const preview = screen.getByRole('textbox', { name: /exactly what the Foreman will receive/ });
@@ -58,7 +59,7 @@ describe('Composer', () => {
 
   it('starts on the job’s current session model, else the everyday Opus: never Fable unless you pick it', () => {
     setup({ detail: { ...DETAIL, drive: { mode: 'none', model: null } } });
-    expect(screen.getByRole('combobox')).toHaveValue('claude-opus-5-5');
+    expect(screen.getByRole('combobox')).toHaveAttribute('data-value', 'claude-opus-5-5');
   });
 
   it('keeps each job’s draft across job switches', () => {

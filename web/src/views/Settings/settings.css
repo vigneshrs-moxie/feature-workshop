@@ -1,0 +1,62 @@
+/* Settings, simple first (packet R): views/Settings/*. Each section is one even column: its heading,
+   How this works, the main choices, then one labelled More (components/More.tsx) with the rest.
+   Group with space first; a heading carries its Saved note (components/Saved.tsx) beside it.
+   Theme tokens only. */
+
+/* ---------- The section: one column, even space between its parts ---------- */
+.settings-section > section { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.settings-section > section > * { margin-top: 0; margin-bottom: 0; }
+.settings-section > section > .how { margin: 0; }
+.settings-section > section > .settings-head + .how { margin-top: calc(-1 * var(--space-2)); }
+
+/* A section's heading with its Saved note beside it. */
+.settings-head { display: flex; align-items: center; }
+.settings-head > .settings-heading { margin: 0; font-size: var(--text-md); color: var(--text-1); }
+
+/* A group's heading (SettingGroup, and Look's own headings) with its Saved note beside it. */
+.setting-head { display: flex; align-items: center; min-height: 24px; margin: 0 0 var(--space-2); }
+.setting-head > .look-heading { margin: 0; }
+.setting-group { min-width: 0; margin: 0; padding: 0; border: 0; }
+.setting-group.rule-options > .setting-head { margin-bottom: var(--space-1); }
+
+/* A control and its Saved note on one line (a checkbox row, a segmented choice). */
+.setting-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.setting-row > .check, .setting-row > .drawer-check { margin-top: 0; }
+.settings-section .drawer-check { display: inline-flex; align-items: center; gap: var(--space-2); }
+
+/* Workflow's groups inside its More: the same even column. */
+.settings-more > .more-body { gap: var(--space-5); padding-top: var(--space-4); }
+.settings-more > .more-body > * { margin-top: 0; margin-bottom: 0; }
+.workflow-choice > .segmented { margin-top: var(--space-1); }
+.workflow-choice .settings-note-under + .segmented { margin-top: var(--space-2); }
+
+/* ---------- Look → Theme: Light, Default and Follow the system, then All themes ---------- */
+.theme-first { display: grid; grid-template-columns: repeat(3, minmax(0, calc(160px * var(--ui-scale, 1)))); gap: var(--space-2); }
+.theme-follow { position: relative; }
+.theme-swatch-pair { position: relative; display: block; height: calc(70px * var(--ui-scale, 1)); }
+.theme-swatch-pair > .theme-swatch { position: absolute; inset: 0; }
+.theme-swatch-pair > .theme-swatch + .theme-swatch { clip-path: inset(0 0 0 50%); }
+.theme-option.is-picked .theme-swatch-pair > .theme-swatch { box-shadow: none; }
+.theme-option.is-picked .theme-swatch-pair { border-radius: var(--radius-md); box-shadow: 0 0 0 2px var(--bg-0), 0 0 0 4px var(--accent); }
+.theme-follow input[type='checkbox'] { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.theme-follow:has(input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.theme-lines { display: flex; flex-direction: column; gap: 2px; margin: var(--space-2) 0 0; }
+.theme-lines > .theme-description { margin: 0; max-width: var(--prose-max); }
+.theme-more { margin-top: var(--space-2); }
+.theme-more > .more-body { gap: var(--space-3); }
+
+/* ---------- The forms (Add a repository, the Orbit token): a label sits on its field, fields apart ---------- */
+.settings-section form.rule-options { gap: var(--space-1); }
+.settings-section form.rule-options > .text-input + label, .settings-section form.rule-options > .select-box + label { margin-top: var(--space-2); }
+.settings-section form.rule-options > .doc-actions { margin-top: var(--space-2); }
+
+/* ---------- Notifications ---------- */
+.notify-history { display: flex; flex-direction: column; gap: var(--space-1); }
+.notify-history > .settings-subheading { margin: 0; }
+.notify-history-list { max-height: 240px; margin: 0; padding-left: var(--space-4); overflow: auto; font-size: var(--text-sm); }
+.notify-levels .setting-row { flex-wrap: nowrap; }
+
+/* ---------- Phone: the three theme tiles share the width ---------- */
+@media (max-width: 760px) {
+  .theme-first { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

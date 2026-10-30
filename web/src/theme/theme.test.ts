@@ -46,6 +46,13 @@ describe('theme resolution', () => {
     expect(resolveTheme({})).toBe(DEFAULT_THEME);
   });
 
+  it('Light is the default (packet R): a browser with nothing saved opens in Light, whatever the system says', () => {
+    expect(DEFAULT_THEME).toBe('light');
+    expect(resolveTheme({ scheme: 'dark' })).toBe('light');
+    expect(resolveTheme({ scheme: 'light' })).toBe('light');
+    expect(resolveTheme({ stored: 'default' }), 'a theme you picked is kept').toBe('default');
+  });
+
   it('Follow the system: with it on and the scheme known, the remembered theme gives way to its pair’s member; the address never does', () => {
     expect(THEME_PAIRS).toEqual([['default', 'light'], ['glass', 'light-glass']]);
     expect(THEME_FOLLOW_KEY).toBe('workshop.themeFollow');

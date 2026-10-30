@@ -7,6 +7,7 @@ import { useState } from 'react';
 import type { Job } from '../../api/types';
 import { nudgePath } from '../../home/nudges';
 import { useWorkshop } from '../../state/store';
+import { Button } from '../../components/Button';
 
 const PR_STAGES = new Set(['pr1', 'pr2', 'staging-qa', 'pr3']);
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -62,12 +63,12 @@ export function JobGithub({ job, check: withCheck = true, hide }: { job: Job; ch
           <p className="job-github-text">{n.text}</p>
           <div className="perm-actions">
             {n.action && (
-              <button type="button" className="btn btn-primary" disabled={busy !== null} onClick={() => void settle(n.id, 'yes')} title={`The Foreman gets “${n.action.send}” and takes it from there.`}>
+              <Button kind="primary" disabled={busy !== null} onClick={() => void settle(n.id, 'yes')} title={`The Foreman gets “${n.action.send}” and takes it from there.`}>
                 {n.id.endsWith('-merged') ? 'Yes, tell the Foreman' : 'Yes, ask the Foreman'}
-              </button>
+              </Button>
             )}
-            {n.link && <a className="btn" href={n.link} target="_blank" rel="noopener noreferrer" title="Open it on GitHub, in a new tab. The dashboard never merges or approves anything itself.">Open on GitHub</a>}
-            <button type="button" className="btn btn-quiet" disabled={busy !== null} onClick={() => void settle(n.id, 'dismiss')} title="Put this away for this job. The job is unchanged.">Not now</button>
+            {n.link && <Button href={n.link} target="_blank" rel="noopener noreferrer" title="Open it on GitHub, in a new tab. The dashboard never merges or approves anything itself.">Open on GitHub</Button>}
+            <Button kind="quiet" disabled={busy !== null} onClick={() => void settle(n.id, 'dismiss')} title="Put this away for this job. The job is unchanged.">Not now</Button>
           </div>
         </div>
       ))}

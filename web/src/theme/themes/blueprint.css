@@ -447,6 +447,13 @@ html[data-theme="blueprint"] .sheet .seg-label, html[data-theme="blueprint"] .sh
 html[data-theme="blueprint"] .sheet .from-search summary, html[data-theme="blueprint"] .sheet .history-meta,
 html[data-theme="blueprint"] .palette-section, html[data-theme="blueprint"] .palette-foot, html[data-theme="blueprint"] .palette-empty { color: var(--bp-ink-2); }
 html[data-theme="blueprint"] .sheet .from-search summary:hover { color: var(--bp-ink); }
+/* The shared fields and the keys list on the card (packet R): ink, not chalk. */
+html[data-theme="blueprint"] .sheet :is(.field-label, .key-label, .key-group-title, .sheet-lede strong),
+html[data-theme="blueprint"] .sheet .from-what strong { color: var(--bp-ink); }
+html[data-theme="blueprint"] .sheet :is(.field-hint, .sheet-lede, .key-where, .key-group-where, .key-group-off, .key-or, .from-status, .from-what) { color: var(--bp-ink-2); }
+html[data-theme="blueprint"] .sheet .history-row:hover { background: var(--bp-ink-tint); }
+html[data-theme="blueprint"] .sheet .history-title { color: var(--bp-ink); }
+html[data-theme="blueprint"] .sheet-actions, html[data-theme="blueprint"] .key-group + .key-group, html[data-theme="blueprint"] .palette :is(.palette-search, .palette-foot) { border-color: var(--bp-ink-line); }
 html[data-theme="blueprint"] .sheet-title { color: var(--bp-ink); background: linear-gradient(var(--bp-ink-line), var(--bp-ink-line)) 0 100% / 100% 1px no-repeat; }
 html[data-theme="blueprint"] .sheet .rule-option, html[data-theme="blueprint"] .sheet .seg-option, html[data-theme="blueprint"] .sheet .from-session,
 html[data-theme="blueprint"] .sheet .history-results, html[data-theme="blueprint"] .sheet .history-row + .history-row { border-color: var(--bp-ink-line); }
@@ -602,3 +609,6 @@ html[data-theme="blueprint"] {
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
 }
+
+/* Packet R: inside the Desk's card the gate card is unframed, so its decoration is not drawn there. */
+html[data-theme="blueprint"] .desk-console .gate-card::before { display: none; }

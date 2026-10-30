@@ -8,6 +8,7 @@ import { loadJobNotes, renderPreview, saveJobNotes } from '../../app/jobActions'
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { ServerHtml } from '../../panes/Foreman/ServerHtml';
 import { useWorkshop } from '../../state/store';
+import { Button } from '../../components/Button';
 
 type Preview = { text: string; state: 'loading' } | { text: string; state: 'ready'; html: string } | { text: string; state: 'error'; message: string };
 
@@ -34,7 +35,7 @@ function NotesPreview({ slug, text }: { slug: string; text: string }) {
       {p?.state === 'error' && (
         <>
           <p className="thread-error" role="alert">Couldn’t show the preview: {p.message}</p>
-          <button type="button" className="btn" onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for the preview again.">Try again</button>
+          <Button onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for the preview again.">Try again</Button>
         </>
       )}
       {p?.state === 'ready' && <ServerHtml html={p.html} />}
@@ -105,7 +106,7 @@ export function NotesEditor({ slug, max, onDirtyChange }: { slug: string; max: n
     return (
       <div>
         <p className="thread-error" role="alert">Couldn’t load the notes: {load.message}</p>
-        <button type="button" className="btn" onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for the notes again.">Try again</button>
+        <Button onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for the notes again.">Try again</Button>
       </div>
     );
   }
@@ -115,8 +116,8 @@ export function NotesEditor({ slug, max, onDirtyChange }: { slug: string; max: n
     <div className="drawer-notes">
       <p className="muted drawer-hint">{NOTES_HINT}</p>
       <div className="notes-mode doc-view-toggle" role="group" aria-label="Notes view">
-        <button type="button" className="btn btn-quiet" aria-pressed={mode === 'edit'} onClick={() => setMode('edit')} title="Write the notes, in Markdown.">Edit</button>
-        <button type="button" className="btn btn-quiet" aria-pressed={mode === 'preview'} onClick={() => setMode('preview')} title="See the notes as a clean page, exactly as you have them now (saved or not). Nothing is saved by previewing.">Preview</button>
+        <Button kind="quiet" aria-pressed={mode === 'edit'} onClick={() => setMode('edit')} title="Write the notes, in Markdown.">Edit</Button>
+        <Button kind="quiet" aria-pressed={mode === 'preview'} onClick={() => setMode('preview')} title="See the notes as a clean page, exactly as you have them now (saved or not). Nothing is saved by previewing.">Preview</Button>
       </div>
       {mode === 'preview' && <NotesPreview slug={slug} text={text} />}
       <label className="sr-only" htmlFor={id}>Notes for the Foreman (notes.md)</label>
@@ -141,24 +142,22 @@ export function NotesEditor({ slug, max, onDirtyChange }: { slug: string; max: n
         {!dirty && justSaved && <span className="drawer-state is-ok" role="status">✓ Saved</span>}
         {!dirty && !justSaved && updatedAt && <span className="drawer-state muted" title={fullTime(updatedAt)}>Saved {ago}{/^\d+[mhd]$/.test(ago) ? ' ago' : ''}</span>}
         {!dirty && !justSaved && !updatedAt && <span className="drawer-state muted">No notes yet</span>}
-        <button
-          type="button"
-          className="btn btn-quiet"
+        <Button
+          kind="quiet"
           disabled={!dirty || busy}
           onClick={() => { setText(saved); setError(null); }}
           title="Put the notes back as they were last saved."
         >
           Undo changes
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
+        </Button>
+        <Button
+          kind="primary"
           disabled={!dirty || over || busy}
           onClick={() => void save()}
           title={over ? `Too long: shorten the notes to ${max.toLocaleString('en')} characters to save them.` : 'Save notes.md for this job. The Foreman reads it at the start of its next session.'}
         >
           {busy ? 'Saving…' : 'Save notes'}
-        </button>
+        </Button>
       </div>
       {over && <p className="field-problem" role="alert">Too long: the notes can be at most {max.toLocaleString('en')} characters. Shorten them by {(text.length - max).toLocaleString('en')} to save.</p>}
       {error && <p className="field-problem" role="alert">{error}</p>}

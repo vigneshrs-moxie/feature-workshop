@@ -875,6 +875,78 @@ async function widgetThread() {
 }
 
 // Play layer: two secrets already found, so the Crew-dex's "Secrets found" counter shows some.
+// Telemetry's usage lines (packet R): about three weeks of made-up Foreman turns, so the dials, "Who
+// used this week's limit" and the graphs show something in the demo. Two people on one account,
+// several jobs, Opus for the Foreman and Sonnet for the crew, a meter reading with most turns, and
+// a stretch of use outside the app (the meter climbs faster than the app's own spend explains).
+// Always into the demo's own folder: GROUND_CONTROL_DIR is pointed there unless it already names a
+// folder inside the demo's temporary one, so ~/.ground-control is never touched.
+async function demoUsage() {
+  const inside = process.env.GROUND_CONTROL_DIR && !path.relative(os.tmpdir(), path.resolve(process.env.GROUND_CONTROL_DIR)).startsWith('..');
+  if (!inside) process.env.GROUND_CONTROL_DIR = path.join(ROOT, 'state');
+  const dir = path.resolve(process.env.GROUND_CONTROL_DIR);
+  await fs.mkdir(dir, { recursive: true });
+  let seed = 17;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const JOBS = [
+    ['customer-merge', 'ORBIT-512'], ['widget-export', 'ORBIT-498'], ['route-optimizer', 'ORBIT-505'], ['bulk-archive', 'ORBIT-501'],
+    ['login-redirect-loop', 'ORBIT-509'], ['visit-reminders', 'ORBIT-487'], ['report-scheduler', 'ORBIT-480'], ['dark-mode-toggle', null],
+  ];
+  const STAGES = ['spec', 'plan', 'implement', 'implement', 'test', 'review'];
+  const WORKER = { spec: 'feature-spec-writer', plan: 'feature-planner', implement: 'feature-implementer', test: 'feature-tester', review: 'feature-reviewer' };
+  const HOUR_MS = 3600e3;
+  // The plan's week resets Wednesday at 4 pm in Phoenix (23:00 UTC); the five hours from the first turn in them.
+  const weekStart = (t) => { const d = new Date(t); d.setUTCHours(23, 0, 0, 0); while (d.getUTCDay() !== 3 || d.getTime() > t) d.setTime(d.getTime() - 24 * HOUR_MS); return d.getTime(); };
+  // The first person is whoever runs the demo, so the graphs that show only your own jobs have some.
+  let me = 'vignesh';
+  try { me = process.env.GROUND_CONTROL_USER || os.userInfo().username || me; } catch { /* keep the made-up name */ }
+  const now = Date.now();
+  const lines = [];
+  let week = { start: 0, pct: 0 };
+  let five = { start: 0, pct: 0 };
+  let n = 0;
+  for (let t = now - 21 * 24 * HOUR_MS; t < now - 10 * 60e3; t += rnd() < 0.45 ? (8 + rnd() * 10) * 60e3 : (0.6 + rnd() * 1.6) * HOUR_MS) {
+    const local = new Date(t - 7 * HOUR_MS);
+    const hour = local.getUTCHours();
+    const weekend = [0, 6].includes(local.getUTCDay());
+    if (hour < 8 || hour > 19 || (weekend && rnd() < 0.8)) continue;
+    const ws = weekStart(t);
+    if (ws !== week.start) week = { start: ws, pct: 0 };
+    if (t - five.start >= 5 * HOUR_MS) five = { start: t, pct: 0 };
+    const user = rnd() < 0.68 ? me : 'sohum';
+    const [job, ticket] = JOBS[Math.floor(rnd() * JOBS.length)];
+    const stage = STAGES[Math.floor(rnd() * STAGES.length)];
+    const turn = `demo-turn-${++n}`;
+    const at = new Date(t).toISOString();
+    const parts = [{ worker: 'foreman', model: 'claude-opus-5-5', cost: 0.4 + rnd() * 2.2 }];
+    if (stage !== 'spec' && rnd() < 0.7) parts.push({ worker: WORKER[stage], model: rnd() < 0.8 ? 'claude-sonnet-5-5' : 'claude-opus-5-5', cost: 0.2 + rnd() * 1.6 });
+    // Days 9 to 12 ago: someone on claude.ai as well, which only the meter sees.
+    const outside = t > now - 12 * 24 * HOUR_MS && t < now - 9 * 24 * HOUR_MS ? 0.9 + rnd() * 1.2 : 0;
+    for (const p of parts) {
+      week.pct = Math.min(99, week.pct + p.cost * 0.55);
+      five.pct = Math.min(100, five.pct + p.cost * 4.5);
+    }
+    week.pct = Math.min(99, week.pct + outside);
+    five.pct = Math.min(100, five.pct + outside * 4);
+    // A reading with most turns; turns often come close together, which is how the split is worked out.
+    const meters = n % 4 !== 0 ? {
+      fiveHour: { percent: Math.round(five.pct), resetsAt: new Date(five.start + 5 * HOUR_MS).toISOString() },
+      week: { percent: Math.round(week.pct), resetsAt: new Date(week.start + 7 * 24 * HOUR_MS).toISOString() },
+    } : null;
+    for (const p of parts) {
+      const input = Math.round(800 + rnd() * 4000);
+      const output = Math.round(300 + rnd() * 2500);
+      const cacheRead = Math.round(20000 + rnd() * 90000);
+      lines.push({
+        t: at, user, account: 'acc-demo', job, ticket, stage, section: null, worker: p.worker, model: p.model,
+        tokens: { input, output, cacheRead, cacheWrite5m: Math.round(rnd() * 4000), cacheWrite1h: 0 },
+        costUsd: Math.round(p.cost * 100) / 100, costSource: 'cli', meters, turn, session: `demo-${job}`, cliTotalUsd: null,
+      });
+    }
+  }
+  await fs.writeFile(path.join(dir, 'usage.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+}
+
 async function playSecrets() {
   const state = path.join(ROOT, 'state');
   await fs.mkdir(state, { recursive: true });
@@ -927,6 +999,7 @@ await oldSkill();
 await demoAgents();
 await widgetThread();
 await playSecrets();
+await demoUsage();
 process.env.WORKSHOP_FEATURES_DIR = FEATURES;
 process.env.WORKSHOP_PROJECTS_DIR = path.dirname(PROJECTS);
 process.env.WORKSHOP_DEMO = '1';

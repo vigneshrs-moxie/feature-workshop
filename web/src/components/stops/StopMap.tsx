@@ -44,7 +44,7 @@ export function StopMap({ job, hrefFor, current, compact = false, tips = false, 
           </>
         );
         return (
-          <li key={s.id} className={`stop is-${state}${current === s.id ? ' is-current' : ''}`} title={tips ? undefined : words}>
+          <li key={s.id} data-stop={s.id} className={`stop is-${state}${current === s.id ? ' is-current' : ''}`} title={tips ? undefined : words}>
             {hrefFor
               ? <a className="stop-link" href={hrefFor(s.id)} aria-current={current === s.id ? 'page' : undefined}>{body}</a>
               : tips

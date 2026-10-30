@@ -20,7 +20,7 @@
     id = fromUrl;
   } else {
     var stored = read('workshop.theme');
-    id = THEMES.indexOf(stored) >= 0 ? stored : 'default';
+    id = THEMES.indexOf(stored) >= 0 ? stored : 'light';
     if (read('workshop.themeFollow') === 'on' && typeof matchMedia === 'function') {
       var light = matchMedia('(prefers-color-scheme: light)').matches;
       for (var i = 0; i < PAIRS.length; i++) {

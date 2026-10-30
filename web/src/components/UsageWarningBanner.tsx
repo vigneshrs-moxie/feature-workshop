@@ -5,6 +5,7 @@
 import type { PlanUsage } from '../api/types';
 import { useStored } from '../lib/stored';
 import { useWorkshopState } from '../state/store';
+import { Button } from './Button';
 
 export type { UsageWarning } from '../api/types';
 
@@ -39,9 +40,9 @@ export function UsageWarningBanner() {
           <span>
             <strong>{w.threshold >= 100 ? 'Usage full:' : 'Usage warning:'}</strong> {w.text}
           </span>
-          <button type="button" className="btn btn-quiet" onClick={() => dismiss(w.id)} title={w.threshold === 80 ? 'Hide this warning. The next one, at 90 % or when full, still shows.' : w.threshold === 90 ? 'Hide this warning. The next one, when usage is full, still shows.' : 'Hide this warning until the usage resets.'}>
+          <Button kind="quiet" onClick={() => dismiss(w.id)} title={w.threshold === 80 ? 'Hide this warning. The next one, at 90 % or when full, still shows.' : w.threshold === 90 ? 'Hide this warning. The next one, when usage is full, still shows.' : 'Hide this warning until the usage resets.'}>
             Dismiss
-          </button>
+          </Button>
         </div>
       ))}
     </>

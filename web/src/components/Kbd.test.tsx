@@ -37,6 +37,21 @@ describe('Kbd', () => {
     expect(document.querySelector('kbd')).toBeNull();
   });
 
+  it('is quiet (packet R) unless it is the main action’s key or every button shows its key; ? held shows them all', () => {
+    live();
+    const { rerender } = render(<Kbd id="new-job" />);
+    expect(document.querySelector('kbd')).toHaveClass('key-hint', 'is-quiet');
+    rerender(<Kbd id="new-job" shown />);
+    expect(document.querySelector('kbd')).not.toHaveClass('is-quiet');
+    rerender(<Kbd id="new-job" />);
+    act(() => writeKeysSetting({ everywhere: true }));
+    expect(document.querySelector('kbd')).not.toHaveClass('is-quiet');
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: '?' })); });
+    expect(document.documentElement).toHaveAttribute('data-keys-held');
+    act(() => { window.dispatchEvent(new KeyboardEvent('keyup', { key: '?' })); });
+    expect(document.documentElement).not.toHaveAttribute('data-keys-held');
+  });
+
   it('the legend lists each key with what it does, and goes when keys are off', () => {
     render(<KeyLegend ids={['desk-next', 'desk-prev']} />);
     expect(screen.getByText(/Next decision/).closest('p')).toHaveTextContent('j Next decision · k Previous decision');

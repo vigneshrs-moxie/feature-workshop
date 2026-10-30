@@ -1,0 +1,79 @@
+/* Achievements (#/achievements, Play on; views/Achievements/AchievementsView.tsx): the page across the
+   window, how many are unlocked with a thin meter, then a calm grid of badges one box deep. Unlocked:
+   the medal in colour on a card, a tick and the date. Locked: a quieter card, the grey medal and a
+   small "Locked" with its lock (the word says it; the grey only backs it up). The secrets left and the
+   hidden themes are designed slots, not a grey line. The medal itself is drawn by
+   play/achievements.css. Theme tokens only; themes restyle the hooks (.ach-badge, .is-locked). */
+
+.ach-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); }
+.ach-summary { margin: 0; color: var(--text-2); font-size: var(--text-sm); }
+.ach-summary .num { color: var(--text-1); font-size: var(--text-md); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.ach-meter { display: block; flex: 0 1 240px; height: 4px; overflow: hidden; border-radius: 2px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border-1); }
+.ach-meter::before { content: ''; display: block; width: var(--ach-done, 0%); height: 100%; border-radius: 2px; background: var(--accent); }
+
+.ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.ach-badge {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border-1);
+  border-radius: var(--card-radius);
+  background: var(--surface-1);
+  box-shadow: var(--elev-xs);
+}
+.ach-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ach-name { margin: 0; font-family: var(--font-heading); font-size: var(--text-base); font-weight: var(--weight-bold); line-height: 1.35; }
+.ach-how { margin: 0; color: var(--text-2); font-size: var(--text-sm); line-height: 1.45; }
+.ach-state { display: inline-flex; align-items: center; gap: 6px; margin: var(--space-1) 0 0; font-size: var(--text-xs); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
+.ach-state.is-unlocked { color: var(--text-1); }
+.ach-state.is-unlocked .icon { color: var(--status-ok); }
+/* Locked: a flat card on the page itself, no shadow (quieter than an unlocked one in every theme); the
+   word and its lock say it. */
+.ach-badge.is-locked { border-color: var(--border-1); background: transparent; box-shadow: none; }
+.ach-badge.is-locked .ach-name { color: var(--text-2); }
+.ach-state.is-locked { align-self: flex-start; min-height: var(--chip-h); padding: 0 var(--space-2); border: 1px solid var(--border-2); border-radius: var(--chip-radius); color: var(--text-2); }
+.ach-state.is-locked .icon { color: var(--text-3); }
+
+/* The secrets and the hidden themes. */
+.ach-secrets, .ach-unlocks { display: flex; flex-direction: column; gap: var(--space-3); }
+.ach-secrets .settings-heading, .ach-unlocks .settings-heading { margin: var(--space-2) 0 0; color: var(--text-1); font-size: var(--text-md); font-weight: var(--weight-bold); }
+.ach-secrets .settings-heading .num { margin-left: var(--space-1); color: var(--text-3); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
+/* What is left to find: a slot of its own in the grid, dashed, with its lock. */
+.ach-secrets-left {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 88px;
+  padding: var(--space-4);
+  border: 1px dashed var(--border-2);
+  border-radius: var(--card-radius);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+.ach-secrets-left p { margin: 0; }
+.ach-secrets-left .icon { flex: none; color: var(--text-3); }
+.ach-secrets-left.is-done .icon { color: var(--status-ok); }
+
+.ach-unlock-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
+.ach-unlock-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-1);
+  border-radius: var(--card-radius);
+  background: var(--surface-1);
+  box-shadow: var(--elev-xs);
+  color: var(--text-2);
+}
+.ach-unlock-list > li strong { color: var(--text-1); font-weight: var(--weight-bold); }
+.ach-unlock-list > li.is-locked { background: transparent; box-shadow: none; }
+.ach-unlock-icon { flex: none; color: var(--status-ok); }
+.ach-unlock-list > li.is-locked .ach-unlock-icon { color: var(--text-3); }
+.ach-unlock-list .ach-meter { flex: 1 0 100%; margin-top: var(--space-1); }
+.ach-unlock-list .num { color: var(--text-1); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
