@@ -26,7 +26,7 @@ Every document of a job as a clean page, in the Preview pane. Images 17–28 are
 | 17–22 | `17-docs-plan-default.png` … `22-docs-plan-candy-pop.png` | Customer merge's implementation plan v2 as a page: headings, the steps table, SQL and TypeScript code blocks, a task list, a quote and a rule. Default, Neon arcade, Blueprint, Pixel crew, Sunset paper, Candy pop. |
 | 23–28 | `23-docs-review-default.png` … `28-docs-review-candy-pop.png` | Widget Export's review: the findings table, a code block, linked IDs (R-2, FR-002) and the open next steps. Same six themes. |
 | 29 | `29-docs-plan-source.png` | The same plan with Source picked: the Markdown exactly as written. |
-| 30 | `30-drawer-notes-preview.png` | Job drawer, Notes with Preview picked: unsaved notes (a heading, bold, a table) rendered by the dashboard. |
+| 30 | `30-drawer-notes-preview.png` | Job drawer, Notes with Preview picked: unsaved notes (a heading, bold, a table) rendered by Starbase. |
 | 31 | `31-palette-open-docs.png` | ⌘K "Open docs" from the Classic view tab. Picking it brings back Docs with focus on the first document. |
 
 To take them again, run the demo (`npm run web:build && PORT=4479 npm run demo`), then open http://127.0.0.1:4479/next/. Every case above is seeded except 01, where you type the description yourself.

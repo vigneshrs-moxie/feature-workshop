@@ -1,6 +1,6 @@
-# Installing Ground Control
+# Installing Starbase
 
-Ground Control runs on your own computer: Windows, macOS or Linux. One line installs it. It then runs in the background as your own account, from the moment you sign in, at **http://127.0.0.1:4477/next/**.
+Starbase runs on your own computer: Windows, macOS or Linux. One line installs it. It then runs in the background as your own account, from the moment you sign in, at **http://127.0.0.1:4477/next/**.
 
 ## What it needs
 
@@ -37,9 +37,9 @@ curl -fsSL https://github.com/vigneshrs-moxie/feature-workshop/releases/latest/d
 ### What the line does
 
 1. Checks for Node 22 or later. If it isn't there, it shows the line that gets it (`winget` on Windows, `brew` on macOS, your package manager on Linux) and asks before running it.
-2. Downloads the newest release of Ground Control and its checksum file, `SHA256SUMS`, and checks the one against the other. If they don't match, it stops: "The download didn't match its checksum. Nothing was changed."
-3. Runs `ground-control doctor` and, for each thing missing, shows the fix and asks you yes or no before running it. Anything it can't do for you (like signing in to Claude Code) it lists for you to do.
-4. Installs Ground Control with `npm i -g`, sets up the background service with `ground-control install`, and opens http://127.0.0.1:4477/next/ in your browser.
+2. Downloads the newest release of Starbase and its checksum file, `SHA256SUMS`, and checks the one against the other. If they don't match, it stops: "The download didn't match its checksum. Nothing was changed."
+3. Runs `starbase doctor` and, for each thing missing, shows the fix and asks you yes or no before running it. Anything it can't do for you (like signing in to Claude Code) it lists for you to do.
+4. Installs Starbase with `npm i -g`, sets up the background service with `starbase install`, and opens http://127.0.0.1:4477/next/ in your browser.
 
 ### If you'd rather check the script before running it
 
@@ -58,7 +58,7 @@ Windows PowerShell:
 
 ```powershell
 $u = 'https://github.com/vigneshrs-moxie/feature-workshop/releases/latest/download'
-$d = Join-Path $env:TEMP 'ground-control-install'; New-Item -ItemType Directory -Force $d | Out-Null
+$d = Join-Path $env:TEMP 'starbase-install'; New-Item -ItemType Directory -Force $d | Out-Null
 Invoke-WebRequest -UseBasicParsing "$u/install.ps1" -OutFile "$d\install.ps1"
 Invoke-WebRequest -UseBasicParsing "$u/SHA256SUMS" -OutFile "$d\SHA256SUMS"
 (Get-FileHash "$d\install.ps1").Hash.ToLower(); Select-String 'install.ps1' "$d\SHA256SUMS"
@@ -72,13 +72,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1"
 
 ## No administrator rights?
 
-On Windows, starting Ground Control at sign-in uses a Task Scheduler task. If your account isn't allowed to make one, the install says so plainly. Ground Control still works fully without it:
+On Windows, starting Starbase at sign-in uses a Task Scheduler task. If your account isn't allowed to make one, the install says so plainly. Starbase still works fully without it:
 
 ```
-ground-control start --here
+starbase start --here
 ```
 
-Keep that window open while you use it. Close the window (or press Ctrl+C) to stop it. `ground-control doctor` says why there is no service.
+Keep that window open while you use it. Close the window (or press Ctrl+C) to stop it. `starbase doctor` says why there is no service.
 
 The same goes for a Linux computer without systemd user services.
 
@@ -86,43 +86,43 @@ The same goes for a Linux computer without systemd user services.
 
 | What you want | Type |
 | --- | --- |
-| Is everything in place? | `ground-control doctor` |
-| Is it running, and what is it doing? | `ground-control status` |
-| Start it (the service) | `ground-control start` |
-| Start it in this window instead | `ground-control start --here` |
-| Stop it (Foremen pause, and carry on at the next start) | `ground-control stop` |
-| Save your Orbit token | `ground-control token set` |
-| Add a repository | `ground-control repo add <folder>` |
-| Open a job's folder in your terminal and editor | `ground-control open <job>` |
-| Move to the newest version | `ground-control update` |
-| Help with any of them | `ground-control <command> --help` |
+| Is everything in place? | `starbase doctor` |
+| Is it running, and what is it doing? | `starbase status` |
+| Start it (the service) | `starbase start` |
+| Start it in this window instead | `starbase start --here` |
+| Stop it (Foremen pause, and carry on at the next start) | `starbase stop` |
+| Save your Orbit token | `starbase token set` |
+| Add a repository | `starbase repo add <folder>` |
+| Open a job's folder in your terminal and editor | `starbase open <job>` |
+| Move to the newest version | `starbase update` |
+| Help with any of them | `starbase <command> --help` |
 
 ## Updates
 
-`ground-control start` checks for a newer release first. You can also run `ground-control update` at any time, or `ground-control update --check` to only ask.
+`starbase start` checks for a newer release first. You can also run `starbase update` at any time, or `starbase update --check` to only ask.
 
-An update downloads the new release and its `SHA256SUMS`, checks the one against the other, installs it, and restarts the service. If the check fails, nothing is changed. If there's no network, the start goes on with the version you have. `ground-control start --no-update` skips the check.
+An update downloads the new release and its `SHA256SUMS`, checks the one against the other, installs it, and restarts the service. If the check fails, nothing is changed. If there's no network, the start goes on with the version you have. `starbase start --no-update` skips the check.
 
 ## Where your files are
 
-Everything Ground Control keeps is in the folder `.ground-control` in your home folder: settings, the list of repositories, the log (`logs/ground-control.log`) and its record of what happened.
+Everything Starbase keeps is in the folder `.starbase` in your home folder: settings, the list of repositories, the log (`logs/starbase.log`) and its record of what happened.
 
-Before this version the folder was `.feature-workshop`. The first time the new version starts, it moves your files across once and leaves a note, `MOVED.txt`, in the old folder saying what moved. Files already in `.ground-control` are kept. Once you've checked that nothing is left behind, you can delete the old folder.
+If you used Starbase under one of its earlier names, your folder, command, service and settings move over by themselves the first time it starts: [CHANGELOG.md](../CHANGELOG.md) says exactly what happens.
 
 ## Removing it
 
 ```
-ground-control uninstall
-npm rm -g @moxie/ground-control
+starbase uninstall
+npm rm -g @moxie/starbase
 ```
 
-The first line stops it and removes the background service; the second removes the program. Your files in `.ground-control` stay until you delete them.
+The first line stops it and removes the background service; the second removes the program. Your files in `.starbase` stay until you delete them.
 
 ## Later: from npm
 
-Ground Control isn't on the npm registry yet; the install line installs the release's package file. Once it is published, this will also work:
+Starbase isn't on the npm registry yet; the install line installs the release's package file. Once it is published, this will also work:
 
 ```
-npm i -g @moxie/ground-control
-ground-control install
+npm i -g @moxie/starbase
+starbase install
 ```

@@ -1,6 +1,6 @@
 # Light screenshots (2026-10-21)
 
-The demo (a pretend Foreman, invented jobs and invented branch and PR data), run fresh and on its own (its own port, temp folder and state folder), so nothing touched a real dashboard. Headless Chrome at 1440×900, 1× scale, unless a file says otherwise. A script walked through every control of the Light plan (`docs/plans/light-2026-10-21.md` §1–§12) the way a person would and checked 48 things on the way, with no console errors or warnings on any page. The Default theme is used except where a file names another.
+The demo (a pretend Foreman, invented jobs and invented branch and PR data), run fresh and on its own (its own port, temp folder and state folder), so nothing touched a real Starbase. Headless Chrome at 1440×900, 1× scale, unless a file says otherwise. A script walked through every control of the Light plan (`docs/plans/light-2026-10-21.md` §1–§12) the way a person would and checked 48 things on the way, with no console errors or warnings on any page. The Default theme is used except where a file names another.
 
 Two things were set up for the pictures: "With recently closed" is on for the map shots, and one demo job (Invoice footer typo) was marked done through the API first, so the Done group has a row. The gate card shots use Customer merge (two questions, one decision made for you); CRT Terminal and Gold are rewards the fresh demo hasn't earned, so for their pictures alone they were put on by hand (the page's `data-theme`).
 
@@ -10,7 +10,7 @@ Two things were set up for the pictures: "With recently closed" is on for the ma
 | `02-map-shipping.png` | The same map scrolled to its end: the end of Needs you, Running ("Nothing to do: the Foreman is working"), the folded "▸ Done 1", then field-app with Idle (PR #1 checks failing) and Shipping (Dark Mode Toggle waiting for Raj's review on PR #2; Report Scheduler in staging, waiting for release #184). The keys line at the foot comes from the registry. |
 | `03-table.png` | The Table: the chips now include Shipping and Done; the Where column says it in words, PR #1 and PR #2 as links. |
 | `04-desk.png` | The Desk's three columns: the queue (every item with what it asks and how long it has waited), the item with its brief open above the gate card (Hide the brief `b`), and on the right Decided today and This job. Keys are printed on the buttons. |
-| `05-desk-nudge.png` | A hand-off nudge on the Desk: "Self-review and merge PR #1 on GitHub", with Open on GitHub `o` and Not now `d`. The dashboard never merges. |
+| `05-desk-nudge.png` | A hand-off nudge on the Desk: "Self-review and merge PR #1 on GitHub", with Open on GitHub `o` and Not now `d`. Starbase never merges. |
 | `06-job-header-still.png` | A job (Customer merge) with the thread scrolled 600 px: the title row, the trail and the "Your move / Then / facts" lines stay put while the brief scrolls under them. |
 | `07-gate-card.png` | The gate card: the two questions with their recommendations picked, "1 decision made for you · review `v`" folded, one primary Approve, the three link-buttons with their keys (`e` `r` `o`), the ⋯ menu, and "Adjust the next step (Build) ▾ `.`" closed. |
 | `08-gate-adjust-open.png` | After `.`: the disclosure open with the chips (Skip next, Lighter, Heavier, Ask Fable, I'll do this part, L↑, L↓). |
