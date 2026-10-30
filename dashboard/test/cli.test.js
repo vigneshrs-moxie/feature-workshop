@@ -25,7 +25,7 @@ async function cli(argv, o = {}) {
   return { code, out, err, text: [...out, ...err].join('\n') };
 }
 
-const ALL = ['start', 'stop', 'status', 'doctor', 'repo', 'token', 'resume', 'update', 'open', 'install', 'uninstall', 'login', 'decisions'];
+const ALL = ['start', 'stop', 'status', 'doctor', 'repo', 'token', 'resume', 'update', 'open', 'install', 'uninstall', 'login', 'logout', 'decisions'];
 
 test('--help lists every command, and each command has its own --help', async () => {
   assert.deepEqual(COMMAND_NAMES, ALL, 'the commands of plan §4.1, the hidden service-run left out');
@@ -92,10 +92,16 @@ test('--version prints the version from package.json', async () => {
   assert.equal(r.out[0], version);
 });
 
-test('login is for a later version', async () => {
-  const r = await cli(['login']);
-  assert.equal(r.code, 0);
-  assert.deepEqual(r.out, ['Pairing with the site comes in a later version.']);
+test('login needs the site’s address the first time; logout on a laptop never paired says so (the pairing itself: hosted/test/pairing.test.js)', async () => {
+  const r = await cli(['login'], { env: { WORKSHOP_ORBIT_STORE: 'file' } });
+  assert.equal(r.code, 1);
+  assert.match(r.text, /Say which site with --site <address>/);
+  const bad = await cli(['login', '--site', 'http://feature-workshop.example.test'], { env: { WORKSHOP_ORBIT_STORE: 'file' } });
+  assert.equal(bad.code, 1);
+  assert.match(bad.text, /must start with https:\/\//);
+  const out = await cli(['logout'], { env: { WORKSHOP_ORBIT_STORE: 'file' } });
+  assert.equal(out.code, 0);
+  assert.deepEqual(out.out, ['This laptop isn’t paired with a site, so there was nothing to forget.']);
 });
 
 test('with no service running: stop says so, open and resume say how to start one, status still shows what it can', async () => {

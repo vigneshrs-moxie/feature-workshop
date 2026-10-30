@@ -28,12 +28,14 @@ import metaRoutes from './routes-meta.js';
 import cronRoutes from './routes-cron.js';
 import authRoutes from './routes-auth.js';
 import peopleRoutes from './routes-people.js';
+import laptopRoutes from './routes-laptops.js';
+import pairRoutes from './routes-pair.js';
 
 const WRITES = new Set(['POST', 'PUT', 'DELETE']);
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.map': 'application/json; charset=utf-8', '.png': 'image/png', '.woff2': 'font/woff2', '.ico': 'image/x-icon' };
 
 /** The lists of routes, in the order they are tried. Later steps add theirs. */
-export const ROUTE_LISTS = [authRoutes, metaRoutes, cronRoutes, peopleRoutes];
+export const ROUTE_LISTS = [authRoutes, metaRoutes, cronRoutes, peopleRoutes, laptopRoutes, pairRoutes];
 
 export function createSite({ db, config, fetch: fetchFn = globalThis.fetch, now = () => Date.now(), staticDir = null, extraRoutes = [] }) {
   const closers = [];

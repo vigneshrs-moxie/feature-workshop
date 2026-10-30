@@ -10,6 +10,8 @@
 //
 // Every store is { kind, get(), set(token), clear() }. Paths, the platform, the command runner and
 // the keytar import are injectable, so tests never touch the real Keychain or ~/.ground-control.
+// `names` ({ service, account, file }) keeps another secret the same way under its own names: the
+// laptop's site token (packet 2A, runner/site-link.js). Left out, it is the Orbit token's.
 
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -19,9 +21,11 @@ export const SERVICE = 'Ground Control Orbit token';
 export const ACCOUNT = 'orbit-feedback';
 export const TOKEN_FILE = 'orbit-token';
 
-/** The file store: <dir>/orbit-token, mode 600, the folder 700. */
-export function fileStore(dir) {
-  const file = path.join(dir, TOKEN_FILE);
+const ORBIT_NAMES = Object.freeze({ service: SERVICE, account: ACCOUNT, file: TOKEN_FILE });
+
+/** The file store: <dir>/orbit-token (or names.file), mode 600, the folder 700. */
+export function fileStore(dir, names = ORBIT_NAMES) {
+  const file = path.join(dir, names.file);
   return {
     kind: 'file',
     file,
@@ -42,12 +46,12 @@ export function fileStore(dir) {
 }
 
 /** The keytar store, given the loaded keytar module. */
-export function keytarStore(keytar) {
+export function keytarStore(keytar, { service, account } = ORBIT_NAMES) {
   return {
     kind: 'keytar',
-    async get() { return (await keytar.getPassword(SERVICE, ACCOUNT)) || null; },
-    async set(token) { await keytar.setPassword(SERVICE, ACCOUNT, token); },
-    async clear() { await keytar.deletePassword(SERVICE, ACCOUNT); },
+    async get() { return (await keytar.getPassword(service, account)) || null; },
+    async set(token) { await keytar.setPassword(service, account, token); },
+    async clear() { await keytar.deletePassword(service, account); },
   };
 }
 
@@ -71,20 +75,20 @@ function runSecurity(args, input = null) {
  * token only ever reaches `security` on its standard input (interactive mode, one command), so it
  * never shows in the process list.
  */
-export function keychainStore({ run = runSecurity } = {}) {
+export function keychainStore({ run = runSecurity, names: { service, account } = ORBIT_NAMES } = {}) {
   return {
     kind: 'keychain',
     async get() {
-      const r = await run(['find-generic-password', '-a', ACCOUNT, '-s', SERVICE, '-w']);
+      const r = await run(['find-generic-password', '-a', account, '-s', service, '-w']);
       return r.code === 0 ? r.out.trim() || null : null;
     },
     async set(token) {
       if (!/^[A-Za-z0-9_-]+$/.test(token)) throw new Error('The token has characters a token never has.');
-      const r = await run(['-i'], `add-generic-password -U -a ${ACCOUNT} -s "${SERVICE}" -w ${token}\n`);
+      const r = await run(['-i'], `add-generic-password -U -a ${account} -s "${service}" -w ${token}\n`);
       if (r.code !== 0) throw new Error('The Keychain did not take the token.');
     },
     async clear() {
-      await run(['delete-generic-password', '-a', ACCOUNT, '-s', SERVICE]);
+      await run(['delete-generic-password', '-a', account, '-s', service]);
     },
   };
 }
@@ -126,14 +130,14 @@ export function layeredStore(primary, file) {
  * The store for this computer. `prefer`: 'file' forces the file (demo mode, tests, a manual check
  * with a throwaway state folder); otherwise keytar if it loads, else the Keychain on macOS, else the file.
  */
-export async function tokenStore({ stateDir, prefer = 'auto', platform = process.platform, importKeytar = () => import('keytar'), run } = {}) {
-  const file = fileStore(stateDir);
+export async function tokenStore({ stateDir, prefer = 'auto', platform = process.platform, importKeytar = () => import('keytar'), run, names = ORBIT_NAMES } = {}) {
+  const file = fileStore(stateDir, names);
   if (prefer === 'file') return file;
   try {
     const mod = await importKeytar();
     const keytar = mod?.default ?? mod;
-    if (keytar?.getPassword) return layeredStore(keytarStore(keytar), file);
+    if (keytar?.getPassword) return layeredStore(keytarStore(keytar, names), file);
   } catch { /* not installed */ }
-  if (platform === 'darwin') return layeredStore(keychainStore(run ? { run } : {}), file);
+  if (platform === 'darwin') return layeredStore(keychainStore(run ? { run, names } : { names }), file);
   return file;
 }
