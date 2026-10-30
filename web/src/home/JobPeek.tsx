@@ -1,11 +1,11 @@
 // Peek before you open (packet R, principle 10): Space or a click on a card opens a sheet over the
 // right side of the list with the job's ask, its now line and the next step (Go / No go when it
 // waits). j and k move through the list, ↵ opens the whole job, Esc closes it, and the list behind
-// hasn't moved. Used by Jobs; the Desk, Inbox and Stacks have their own way to the same detail.
-import { useEffect, useRef } from 'react';
+// hasn't moved. Used by Jobs; the keys are components/Peek.tsx's, shared with the Inbox's ticket peek.
+import { useRef } from 'react';
 import type { Job } from '../api/types';
 import { jobHref, navigate } from '../app/router';
-import { isTypingTarget } from '../app/keyRegistry';
+import { usePeekKeys } from '../components/Peek';
 import { Button } from '../components/Button';
 import { Chip } from '../components/Chip';
 import { NowLine, nowOf } from '../components/NowLine';
@@ -32,37 +32,12 @@ function PeekBody({ job }: { job: Job }) {
 export function JobPeek({ job, order, onPick, onClose }: { job: Job; order: readonly string[]; onPick(slug: string): void; onClose(): void }) {
   const { permissions } = useWorkshopState();
   const box = useRef<HTMLElement>(null);
-  const latest = useRef({ job, order, onPick, onClose });
-  latest.current = { job, order, onPick, onClose };
   const chip = stateChip(job, permissions);
   const lane = laneOf(job);
   const name = job.title || job.slug;
 
   // j k ↵ Esc while it is open, ahead of the page's own keys (which would open the next job's page).
-  useEffect(() => {
-    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) return;
-      if (document.querySelector('[aria-modal="true"]')) return;
-      const { job: j, order: o, onPick: pick, onClose: close } = latest.current;
-      const at = o.indexOf(j.slug);
-      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(); return; }
-      if (e.key === 'j' || e.key === 'k') {
-        e.preventDefault(); e.stopImmediatePropagation();
-        const next = o[(at + (e.key === 'j' ? 1 : -1) + o.length) % o.length];
-        if (next) pick(next);
-        return;
-      }
-      if (e.key === 'Enter' && !(e.target instanceof HTMLButtonElement) && !(e.target instanceof HTMLAnchorElement)) {
-        e.preventDefault(); e.stopImmediatePropagation(); navigate({ name: 'job', slug: j.slug });
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => {
-      window.removeEventListener('keydown', onKey, true);
-      if (before?.isConnected) before.focus({ preventScroll: true });
-    };
-  }, []);
+  usePeekKeys({ current: job.slug, order, onPick, onClose, onEnter: (slug) => navigate({ name: 'job', slug }) });
 
   return (
     <aside ref={box} className="peek" role="dialog" aria-modal="false" aria-label={`${name}: a quick look`}>

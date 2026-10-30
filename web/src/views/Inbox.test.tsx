@@ -8,7 +8,7 @@ import { hrefFor, parseHash } from '../app/router';
 import { UiProvider, useUi, type SheetState } from '../app/ui';
 import { createStore, WorkshopContext } from '../state/store';
 import { LEVELS, snapshot } from '../state/test-fixtures';
-import { InboxView, levelWord, nextTicket, sortInbox, startText, statusWord, type InboxAnswer, type InboxItem, type OrbitStatus, type OrbitStream } from './Inbox';
+import { InboxView, levelWord, needsDecision, nextTicket, sortInbox, startText, statusWord, type InboxAnswer, type InboxItem, type OrbitStatus, type OrbitStream } from './Inbox';
 import { OrbitTokenSettings } from './Settings/OrbitTokenSettings';
 import { setGuideFirstVisit } from '../components/page/Page';
 import { pickOption } from '../components/Select.testing';
@@ -91,7 +91,7 @@ function setup({ get, answer = INBOX }: { get?: (path: string) => Promise<unknow
 // The page's one key listener, as App installs it: the Inbox's s is the registry's (inbox-start).
 let offKeys = () => {};
 beforeEach(() => { offKeys = installKeyListener(); });
-afterEach(() => { offKeys(); localStorage.clear(); });
+afterEach(() => { offKeys(); localStorage.clear(); window.history.replaceState(null, '', '/'); });
 
 describe('Inbox', () => {
   it('is its own page at #/inbox', () => {
@@ -109,10 +109,16 @@ describe('Inbox', () => {
   it('lists each ticket with severity, key, title, age and who is on it, all in words, most severe then oldest; no priority', async () => {
     const { wrap } = setup();
     wrap(<InboxView openStream={() => null} />);
-    const table = await screen.findByRole('table');
-    const rows = within(table).getAllByRole('row').slice(1);
-    expect(rows).toHaveLength(3);
-    const first = rows[0];
+    // Two groups (packet R): Needs a decision (no job yet, and severe or not triaged), then Can wait.
+    const tables = await screen.findAllByRole('table');
+    expect(tables.map((t) => t.querySelector('caption')?.textContent)).toEqual([
+      'Tickets that need a decision, 2, most severe first, then oldest.',
+      'Tickets that can wait, 1, most severe first, then oldest.',
+    ]);
+    const [decide, wait] = tables;
+    const rows = within(decide).getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(2);
+    const first = within(wait).getAllByRole('row')[1];
     expect(first).toHaveTextContent('ORBIT-479');
     expect(first).toHaveTextContent('Read-only feedback API');
     expect(within(first).getByText('Critical')).toBeInTheDocument();
@@ -122,10 +128,10 @@ describe('Inbox', () => {
     expect(within(first).getByRole('link', { name: 'Feedback API' })).toHaveAttribute('href', '#/job/orbit-479-feedback-api');
     expect(within(first).getByRole('link', { name: 'Open its job' })).toHaveAttribute('href', '#/job/orbit-479-feedback-api');
     expect(within(first).queryByRole('button', { name: 'Start a job on ORBIT-479' })).toBeNull();
-    expect(within(rows[1]).getByText('No one')).toBeInTheDocument();
-    expect(within(rows[2]).getByText('Not set')).toBeInTheDocument();
-    expect(within(rows[2]).getByText('Someone else')).toBeInTheDocument();
-    expect(table).not.toHaveTextContent(/Priority|High/);
+    expect(within(rows[0]).getByText('No one')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('Not set')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('Someone else')).toBeInTheDocument();
+    for (const t of tables) expect(t).not.toHaveTextContent(/Priority|High/);
     expect(screen.getByText(/Read 2m ago · checked every 3 minutes while this page is open/)).toBeInTheDocument();
   });
 
@@ -185,7 +191,7 @@ describe('Inbox', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     view.unmount();
     wrap(<InboxView openStream={() => null} />);
-    await screen.findByRole('table');
+    await screen.findAllByRole('table');
     expect(screen.queryByRole('dialog')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /How it works/ }));
     expect(screen.getByRole('dialog', { name: 'How the Inbox works' })).toBeInTheDocument();
@@ -219,7 +225,7 @@ describe('Inbox', () => {
     expect(sheets.at(-1)).toEqual(expect.objectContaining({ kind: 'new-job', ticket: expect.objectContaining({ key: 'ORBIT-13' }) }));
     expect(within(screen.getByRole('region', { name: 'Next step' })).getByRole('button', { name: /Start as stack/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^ORBIT-12/ }));
-    const detail = await screen.findByRole('region', { name: 'ORBIT-12: Sample ticket 12' });
+    const detail = await screen.findByRole('dialog', { name: 'ORBIT-12: Sample ticket 12' });
     expect(within(detail).getByRole('button', { name: /Start as stack/ })).toBeInTheDocument();
     expect(detail).toHaveTextContent('Start as stack: for a big ticket: the work is split into parts');
   });
@@ -245,23 +251,54 @@ describe('Inbox', () => {
     expect(sheets.filter((s) => s?.kind === 'new-job')).toHaveLength(0);
   });
 
-  it('a row opens the ticket: its facts, description, links and timeline; Back returns to the list', async () => {
+  it('a row opens the ticket in a quick look over the list (also with Space): its facts, description, links and timeline; j and k move, Esc closes, and it is in the address', async () => {
     const { wrap, get, sheets } = setup();
     wrap(<InboxView openStream={() => null} />);
     fireEvent.click(await screen.findByRole('button', { name: /^ORBIT-12/ }));
-    const detail = await screen.findByRole('region', { name: 'ORBIT-12: Sample ticket 12' });
+    const detail = await screen.findByRole('dialog', { name: 'ORBIT-12: Sample ticket 12' });
+    expect(window.location.hash).toBe('#/?peek=ORBIT-12');
+    expect(screen.getAllByRole('table')).toHaveLength(2); // the list stays where it was
     expect(get).toHaveBeenCalledWith('/api/orbit/tickets/ORBIT-12');
     expect(await within(detail).findByText(/Open the tracker/)).toBeInTheDocument();
-    expect(within(detail).getByText('Status: In progress')).toBeInTheDocument();
-    expect(within(detail).getByText('Severity: Not set')).toBeInTheDocument();
+    const fact = (name: string) => within(detail).getByText(name, { selector: 'dt' }).nextElementSibling;
+    expect(fact('Status')).toHaveTextContent('In progress');
+    expect(fact('Severity')).toHaveTextContent('Not set');
+    expect(fact('Assigned to')).toHaveTextContent('Someone else');
     expect(await within(detail).findByRole('link', { name: 'fix/orbit-12-filter' })).toBeInTheDocument();
     expect(within(detail).getByText('Looks like the filter.')).toBeInTheDocument();
     expect(within(detail).getByText('Status: New → Planning')).toBeInTheDocument();
     expect(within(detail).getByRole('link', { name: 'Open on Orbit' })).toHaveAttribute('href', 'https://orbit.example.com/admin/feedback/ORBIT-12');
     fireEvent.keyDown(document.body, { key: 's' }); // the open ticket
     expect(sheets.at(-1)).toEqual(expect.objectContaining({ kind: 'new-job', description: 'ORBIT-12: Sample ticket 12', ticket: expect.objectContaining({ key: 'ORBIT-12' }) }));
-    fireEvent.click(within(detail).getByRole('button', { name: /All tickets/ }));
-    expect(await screen.findByRole('table')).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: 'k' }); // the one before, in the list's order
+    expect(await screen.findByRole('dialog', { name: 'ORBIT-13: Sample ticket 13' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/?peek=ORBIT-13');
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(window.location.hash).toBe('#/');
+    expect(screen.getAllByRole('table')).toHaveLength(2);
+    const row = screen.getByRole('button', { name: /^ORBIT-12/ });
+    fireEvent.keyDown(row, { key: ' ' });
+    expect(await screen.findByRole('dialog', { name: 'ORBIT-12: Sample ticket 12' })).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('a quick look in the address opens again on load', async () => {
+    window.history.replaceState(null, '', '/#/inbox?peek=ORBIT-12');
+    const { wrap } = setup();
+    wrap(<InboxView openStream={() => null} />);
+    expect(await screen.findByRole('dialog', { name: 'ORBIT-12: Sample ticket 12' })).toBeInTheDocument();
+  });
+
+  it('splits the tickets: Needs a decision (no job, and critical, high, not triaged or hidden), then Can wait', () => {
+    expect(needsDecision(item(1))).toBe(true);
+    expect(needsDecision(item(2, { severity: 'high' }))).toBe(true);
+    expect(needsDecision(item(3, { severity: null }))).toBe(true);
+    expect(needsDecision(item(4, { severity: 'medium' }))).toBe(false);
+    expect(needsDecision(item(5, { severity: 'low' }))).toBe(false);
+    expect(needsDecision(item(6, { job: { slug: 'x', title: 'X' } }))).toBe(false);
+    expect(needsDecision(item(7, { severity: null, url: 'https://orbit.example.com/feedback/7' }))).toBe(true);
   });
 
   it('tabs: Mine, then your saved views from Orbit, each read when opened', async () => {
@@ -281,7 +318,7 @@ describe('Inbox', () => {
     const alerts = await screen.findAllByRole('alert');
     expect(alerts.map((a) => a.textContent).join(' ')).toMatch(/Your Orbit token expired, paste a new one/);
     expect(alerts.map((a) => a.textContent).join(' ')).toMatch(/expired or was revoked.*Showing the list as it was at/);
-    expect(screen.getAllByRole('row')).toHaveLength(4);
+    expect(screen.getAllByRole('row').filter((r) => r.closest('tbody'))).toHaveLength(3);
   });
 
   it('holds the stream while open (the dashboard then checks every 3 minutes) and takes each new list from it', async () => {
@@ -289,7 +326,7 @@ describe('Inbox', () => {
     const stream = fakeStream();
     const opened: string[] = [];
     const view = wrap(<InboxView openStream={(url) => { opened.push(url); return stream; }} />);
-    await screen.findByRole('table');
+    await screen.findAllByRole('table');
     expect(opened).toEqual(['/api/orbit/events']);
     stream.emit('inbox', { ...INBOX, items: [item(77, { title: 'Arrived by the stream' })] });
     await waitFor(() => expect(screen.getByText(/Arrived by the stream/)).toBeInTheDocument());
