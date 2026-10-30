@@ -2,6 +2,7 @@
 // fetch (no port is opened: the request goes straight to the router's handler), a clock the tests
 // move, and a browser-like cookie jar per made-up person.
 
+import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import { readConfig } from '../site/config.js';
@@ -111,3 +112,23 @@ export function browser(fetchFn, { origin = SITE } = {}) {
     },
   };
 }
+
+/** Signs a browser in through the fake Google. Resolves where the site sent it at the end. */
+export async function signIn(b, { email, name = '', fakeCase = '', returnTo = null } = {}) {
+  const start = await b.get(`/api/auth/start${returnTo ? `?return=${encodeURIComponent(returnTo)}` : ''}`);
+  assert.equal(start.status, 302);
+  const google = new URL(start.headers.get('location'));
+  assert.equal(google.origin + google.pathname, `${SITE}/fake-google/authorize`);
+  const cont = new URL(`${SITE}/fake-google/continue`);
+  for (const [k, v] of google.searchParams) cont.searchParams.set(k, v);
+  cont.searchParams.set('email', email);
+  if (name) cont.searchParams.set('name', name);
+  if (fakeCase) cont.searchParams.set('case', fakeCase);
+  const back = await b.get(cont.toString());
+  assert.equal(back.status, 302);
+  const callback = back.headers.get('location');
+  const done = await b.get(callback);
+  assert.equal(done.status, 302);
+  return { location: done.headers.get('location'), callback, google };
+}
+
