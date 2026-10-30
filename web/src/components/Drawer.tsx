@@ -5,6 +5,7 @@
 // where it was when it closes.
 import { useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { focusIsLost } from './CommandPalette';
+import { Button } from './Button';
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
 
@@ -92,9 +93,9 @@ export function Drawer({ title, onRequestClose, className = '', head, fallbackFo
       >
         <div className="drawer-head">
           <h3 id={titleId} className="drawer-title">{title}</h3>
-          <button type="button" className="btn btn-quiet drawer-close" onClick={onRequestClose} aria-label="Close the drawer" title="Close this drawer (Escape). If something isn’t saved yet, you’re asked first.">
+          <Button kind="quiet" className="drawer-close" onClick={onRequestClose} aria-label="Close the drawer" title="Close this drawer (Escape). If something isn’t saved yet, you’re asked first.">
             <span aria-hidden="true">✕</span>
-          </button>
+          </Button>
         </div>
         {head}
         <div className="drawer-body">{children}</div>

@@ -13,15 +13,26 @@ describe('Settings → Keys', () => {
     expect(screen.getByRole('checkbox', { name: 'Show key hints on buttons' })).toBeChecked();
     expect(screen.getByText(/Off keeps only what any web page has/)).toHaveTextContent(/Esc, Enter, the arrows inside a list or menu/);
     fireEvent.click(screen.getByRole('radio', { name: /^Off/ }));
-    expect(readKeysSetting()).toEqual({ enabled: false, hints: true });
-    expect(JSON.parse(localStorage.getItem('fw.keys') ?? '{}')).toEqual({ enabled: false, hints: true });
+    expect(readKeysSetting()).toEqual({ enabled: false, hints: true, everywhere: false });
+    expect(JSON.parse(localStorage.getItem('fw.keys') ?? '{}')).toEqual({ enabled: false, hints: true, everywhere: false });
     const hints = screen.getByRole('checkbox', { name: 'Show key hints on buttons' });
     expect(hints).toBeDisabled();
     expect(hints).not.toBeChecked();
     fireEvent.click(screen.getByRole('radio', { name: /^On/ }));
     expect(hints).toBeEnabled();
     fireEvent.click(hints);
-    expect(readKeysSetting()).toEqual({ enabled: true, hints: false });
+    expect(readKeysSetting()).toEqual({ enabled: true, hints: false, everywhere: false });
+  });
+
+  it('Show keys on every button: off by default (only the main action shows its key), remembered, and off while hints are off', () => {
+    render(<KeysSettings />);
+    const every = screen.getByRole('checkbox', { name: 'Show keys on every button' });
+    expect(every).not.toBeChecked();
+    fireEvent.click(every);
+    expect(readKeysSetting()).toEqual({ enabled: true, hints: true, everywhere: true });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show key hints on buttons' }));
+    expect(every).toBeDisabled();
+    expect(every).not.toBeChecked();
   });
 
   it('reads a stored setting, and treats a malformed one as the default', () => {

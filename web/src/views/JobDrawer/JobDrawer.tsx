@@ -11,6 +11,7 @@ import { isLevel } from '../../lib/levels';
 import { useWorkshopState } from '../../state/store';
 import { NotesEditor } from './NotesEditor';
 import { OptionsEditor } from './OptionsEditor';
+import { Button } from '../../components/Button';
 
 const TABS: { id: DrawerTab; label: string; hint: string }[] = [
   { id: 'notes', label: 'Notes', hint: 'This job’s notes.md: guidance the Foreman reads at the start of every session.' },
@@ -83,8 +84,8 @@ export function JobDrawer({ slug, job, tab = 'notes', onClose }: { slug: string;
         <div className="drawer-confirm perm-warn" role="alert">
           <p>Your {unsaved.join(' and ')} have unsaved changes. Close without saving?</p>
           <div className="drawer-confirm-actions">
-            <button ref={keep} type="button" className="btn" onClick={() => setConfirm(false)} title="Go back to the drawer; nothing is lost.">Keep editing</button>
-            <button type="button" className="btn btn-danger" onClick={onClose} title="Close the drawer and throw away the changes you haven’t saved.">Discard and close</button>
+            <Button ref={keep} onClick={() => setConfirm(false)} title="Go back to the drawer; nothing is lost.">Keep editing</Button>
+            <Button kind="danger" onClick={onClose} title="Close the drawer and throw away the changes you haven’t saved.">Discard and close</Button>
           </div>
         </div>
       )}

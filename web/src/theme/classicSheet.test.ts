@@ -34,7 +34,7 @@ describe('classicThemeCss', () => {
     expect(css).not.toContain('.btn');
     const real = classicThemeCss([{ name: 'tokens.css', css: read('./tokens.css') }]);
     for (const size of ['s', 'm', 'l', 'xl']) expect(real).toContain(`html[data-text="${size}"]`);
-    expect(real).toContain('--text-base: calc(13px * var(--ui-scale, 1));');
+    expect(real).toContain('--text-base: calc(14px * var(--ui-scale, 1));');
     expect(real).toContain('--row-h: calc(32px * var(--ui-scale, 1));');
   });
 

@@ -105,12 +105,12 @@ describe('Settings → Workflow', () => {
     };
     const { post, store } = setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged' } }, FINISH_LINES, answer);
     const box = screen.getByRole('spinbutton', { name: 'Sections at once, across every stack' });
-    expect(box).toHaveValue(3);
+    expect(box).toHaveValue('3');
     expect(screen.getByText(/A stack can set a lower number on its own page/)).toBeInTheDocument();
     fireEvent.change(box, { target: { value: '5' } });
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/stacks/cap', { cap: 5 }));
     await waitFor(() => expect(store.getState().meta?.settings?.workflow?.sectionsAtOnce).toBe(5));
-    expect(box).toHaveValue(5);
+    expect(box).toHaveValue('5');
     post.mockClear();
     fireEvent.change(box, { target: { value: '25' } });
     expect(await screen.findByRole('alert')).toHaveTextContent('Sections at once must be a whole number from 1 to 20.');
@@ -119,6 +119,6 @@ describe('Settings → Workflow', () => {
 
   it('Sections at once: reads a stored number', () => {
     setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged', sectionsAtOnce: 7 } });
-    expect(screen.getByRole('spinbutton', { name: 'Sections at once, across every stack' })).toHaveValue(7);
+    expect(screen.getByRole('spinbutton', { name: 'Sections at once, across every stack' })).toHaveValue('7');
   });
 });

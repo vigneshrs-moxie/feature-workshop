@@ -12,6 +12,7 @@ import type { ApiClient } from '../api/client';
 import type { PlanUsage, TelemetryResponse, TelemetryWindow } from '../api/types';
 import { installKeyListener, KEYS } from '../app/keyRegistry';
 import { hrefFor, parseHash, telemetryHref } from '../app/router';
+import { setDefaultDetail } from '../app/detail';
 import { KeyGroups } from './JobSheets/KeysSheet';
 import { createStore, WorkshopContext } from '../state/store';
 import { LEVELS, snapshot } from '../state/test-fixtures';
@@ -58,6 +59,12 @@ const ready = () => screen.findByRole('heading', { name: 'At this pace the week 
 
 afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
 
+/** Open a card's ⋯ menu and pick one of its actions. */
+function menu(el: HTMLElement, action: string) {
+  fireEvent.click(within(el).getByRole('button', { name: /^More for / }));
+  fireEvent.click(within(el).getByRole('menuitem', { name: action }));
+}
+
 describe('Telemetry', () => {
   it('is its own page at #/telemetry', () => {
     expect(parseHash('#/telemetry')).toEqual({ name: 'telemetry' });
@@ -69,7 +76,8 @@ describe('Telemetry', () => {
     const { get } = setup();
     await ready();
     expect(get).toHaveBeenCalledWith('/api/telemetry?window=week');
-    const cards = [...document.querySelectorAll('.tele-card')].map((c) => [c.getAttribute('data-graph'), c.querySelector('.tele-num')?.textContent, c.querySelector('.tele-card-name')?.textContent, c.querySelector('.tele-audience')?.textContent?.trim()]);
+    // Columns of their own (packet R): read them in their numbers' order.
+    const cards = [...document.querySelectorAll('.tele-card')].sort((a, b) => Number(a.querySelector('.tele-num')?.textContent) - Number(b.querySelector('.tele-num')?.textContent)).map((c) => [c.getAttribute('data-graph'), c.querySelector('.tele-num')?.textContent, c.querySelector('.tele-card-name')?.textContent, c.querySelector('.tele-audience')?.textContent?.trim()]);
     expect(cards).toEqual([
       ['limit', '1', 'Weekly limit and forecast', 'Whole account'],
       ['ticket-cost', '2', 'Cost per finished ticket, by week', 'Only yours'],
@@ -84,14 +92,41 @@ describe('Telemetry', () => {
     ]);
     for (const c of document.querySelectorAll('.tele-card')) {
       expect(c.querySelector('.tele-headline')?.textContent).toMatch(/\.$/);
-      expect(c.querySelector('.tele-todo')?.textContent?.trim()).toMatch(/^What to do .+\./);
+      // What to do shows only when there is something to do.
+      const todo = c.querySelector('.tele-todo')?.textContent?.trim();
+      if (todo) expect(todo).toMatch(/^What to do .+\./);
     }
-    expect(screen.getByText('Ten graphs')).toBeInTheDocument();
+    expect(document.querySelectorAll('.tele-todo').length).toBeGreaterThan(0);
+    // Simple's first three graphs, then More graphs with the other seven (open in Full).
+    expect(screen.getByRole('button', { name: /^More graphs \(7\)/ })).toHaveAttribute('aria-expanded', 'true');
     // Too little to say: the finding says so instead of guessing.
     expect(within(card('pr1')).getByRole('heading', { level: 3 })).toHaveTextContent('Not enough jobs at PR #1 yet to say');
     expect(within(card('rework')).getByRole('heading', { level: 3 })).toHaveTextContent('Can’t see send-backs here yet.');
     // No product name in anything the page says.
     expect(document.body.textContent).not.toMatch(/Ground Control/);
+  });
+
+  it('in Simple: the dials, Who used this week’s limit and three graphs, the rest behind More graphs (n), which opens them in place', async () => {
+    setDefaultDetail('simple');
+    try {
+      setup();
+      await screen.findByRole('region', { name: 'Who used this week’s limit' });
+      expect(document.querySelectorAll('.tele-dial')).toHaveLength(2);
+      const more = await screen.findByRole('button', { name: /^More graphs \(7\)/ });
+      expect(more).toHaveAttribute('aria-expanded', 'false');
+      const shown = () => [...document.querySelectorAll('.tele-card')];
+      expect(shown()).toHaveLength(3);
+      expect(shown().every((c) => !c.closest('.tele-more'))).toBe(true);
+      fireEvent.click(more);
+      expect(more).toHaveAttribute('aria-expanded', 'true');
+      expect(shown()).toHaveLength(10);
+      expect(document.querySelectorAll('.tele-more .tele-card')).toHaveLength(7);
+      // The stages, by their stop's hue, each named beside its bar.
+      const bars = [...card('stages').querySelectorAll('.tele-pair-row .tele-bar-track:first-child .tele-bar')];
+      expect(bars.length).toBeGreaterThan(0);
+      for (const bar of bars) expect(bar.className).toMatch(/tele-stop is-[a-z]+/);
+      expect(bars.some((b) => /is-(spec|plan|build|test|review|investigate|ship)\b/.test(b.className))).toBe(true);
+    } finally { setDefaultDetail('full'); }
   });
 
   it('shows who used this week’s limit: each person and Other use, with a name, a percent and a pattern, and what Other use means', async () => {
@@ -120,48 +155,50 @@ describe('Telemetry', () => {
     expect(week.textContent).toContain('Other use 8%, estimated');
     expect(screen.getByRole('region', { name: 'Next step' })).toHaveTextContent('⚠ The week is at 95%');
     // People on the account has the Others row, estimated.
-    fireEvent.click(within(card('people')).getByRole('button', { name: /^Table/ }));
+    menu(card('people'), 'Show the table');
     expect(within(card('people')).getByRole('row', { name: /Others \(outside this app, estimated\) 8%/ })).toBeInTheDocument();
   });
 
   it('folds a card to its headline and hides one, remembered per person; Show again brings it back', async () => {
     setup();
     await ready();
-    fireEvent.click(within(card('stages')).getByRole('button', { name: /^Fold$/ }));
+    menu(card('stages'), 'Fold');
     expect(card('stages')).toHaveClass('is-folded');
     expect(card('stages').querySelector('.tele-todo')).toBeNull();
     expect(parsePrefs(localStorage.getItem(prefsKey('vignesh'))).folded.stages).toBe(true);
     // The folded headline is the way back too.
     fireEvent.click(within(card('stages')).getByRole('button', { name: /costs .* of your spend/ }));
     expect(card('stages')).not.toHaveClass('is-folded');
-    fireEvent.click(within(card('people')).getByRole('button', { name: /^Hide$/ }));
+    menu(card('people'), 'Hide');
     expect(card('people')).toBeNull();
-    const fold = screen.getByText('Show hidden graphs (1)').closest('details') as HTMLDetailsElement;
-    fold.open = true;
-    expect(within(fold).getByText('5 · People on the account')).toBeInTheDocument();
-    fireEvent.click(within(fold).getByRole('button', { name: 'Show again' }));
+    // A slim line keeps its place, with Show.
+    const slot = screen.getByRole('group', { name: 'People on the account, hidden' });
+    fireEvent.click(within(slot).getByRole('button', { name: 'Show' }));
     expect(card('people')).not.toBeNull();
-    expect(screen.queryByText(/Show hidden graphs/)).toBeNull();
-    expect(screen.getByText(/Fold and Hide are remembered in this browser, for you only\./)).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /, hidden$/ })).toBeNull();
+    expect(screen.getByText(/Fold, Hide and More graphs are remembered in this browser, for you only\./)).toBeInTheDocument();
   });
 
-  it('Table ▸ shows the numbers under the graph', async () => {
+  it('the ⋯ menu shows the numbers in place of the graph, and the graph again', async () => {
     setup();
     await ready();
     const stages = card('stages');
-    const btn = within(stages).getByRole('button', { name: 'Table ▸' });
-    expect(btn).toHaveAttribute('aria-expanded', 'false');
-    fireEvent.click(btn);
-    expect(within(stages).getByRole('button', { name: 'Table ▾' })).toHaveAttribute('aria-expanded', 'true');
+    menu(stages, 'Show the table');
+    expect(stages.querySelector('.tele-table')).not.toBeNull();
     expect(within(stages).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Stage', 'October', 'September', 'Change']);
   });
 
   it('the window picker asks for that window and remembers it; Read now reads the limits', async () => {
     const { get, post } = setup();
     await ready();
-    fireEvent.click(screen.getByRole('button', { name: /30 days/ }));
+    // The shared segmented choice (packet R): one radio group, the arrow keys move the pick.
+    const windows = screen.getByRole('radiogroup', { name: /^Window/ });
+    expect(within(windows).getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['5h', 'week', '30d']);
+    expect(within(windows).getByRole('radio', { name: /This week/ })).toBeChecked();
+    fireEvent.click(within(windows).getByRole('radio', { name: /30 days/ }));
     await waitFor(() => expect(get).toHaveBeenCalledWith('/api/telemetry?window=30d'));
-    expect(screen.getByRole('button', { name: /30 days/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(windows).getByRole('radio', { name: /30 days/ })).toBeChecked();
+    expect(within(windows).getByRole('radio', { name: /This week/ })).not.toBeChecked();
     expect(localStorage.getItem('workshop.telemetryWindow')).toBe('30d');
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Read now/ })); });
     expect(post).toHaveBeenCalledWith('/api/usage/check', {});
@@ -259,9 +296,17 @@ describe('Telemetry.css', () => {
     expect(css).not.toMatch(/--tele-\d/);
   });
 
-  it('gives every series slot the chart token and its pattern, so colour never works alone', () => {
-    for (let n = 1; n <= 8; n++) expect(css).toMatch(new RegExp(`\\.tele-s${n} \\{ background: var\\(--chart-pattern-${n}\\), var\\(--chart-${n}\\); \\}`));
+  it('gives every categorical slot a status or stop hue and its pattern, so colour never works alone; Other use is grey', () => {
+    for (let n = 1; n <= 7; n++) expect(css).toMatch(new RegExp(`\\.tele-s${n} \\{ background: var\\(--chart-pattern-${n}\\), var\\(--(status|stop)-[a-z]+\\); \\}`));
+    expect(css).toMatch(/\.tele-s8 \{ background: var\(--chart-pattern-8\), var\(--text-3\); \}/);
     expect(css).toMatch(/@media \(forced-colors: active\)/);
+  });
+
+  it('draws a single series in the accent with grey for what it is compared with, and each stage in its stop’s hue', () => {
+    expect(css).toMatch(/\.tele-one \{ background: var\(--accent\); \}/);
+    expect(css).toMatch(/\.tele-svg \.week \{[^}]*stroke: var\(--accent\)/);
+    expect(css).toMatch(/\.tele-svg \.five \{[^}]*stroke: var\(--text-3\)/);
+    for (const stop of ['spec', 'investigate', 'plan', 'build', 'test', 'review', 'ship']) expect(css).toContain(`.tele-stop.is-${stop} { background: var(--stop-${stop}); }`);
   });
 
   it('no transition over 200 ms, and nothing you click shorter than 40 px', () => {

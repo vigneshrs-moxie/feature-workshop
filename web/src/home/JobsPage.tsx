@@ -1,23 +1,28 @@
 // Jobs (#/): every job in four lanes, Working, Needs you, In review and Ready to merge (the lane
 // comes from the dashboard: dashboard/lib/snapshot.js laneFor, with the reason in words). Resting
 // and Done fold under the board. The next-step bar names the job that has waited longest for you;
-// Open (o) opens it. A card that changes lane waits until the pointer leaves the board, so nothing
-// moves under it. The other layout (Settings → Look → Jobs layout) is One list.
+// Open (o) opens it. A card that changes lane or place waits until the pointer leaves the board, so
+// nothing moves under it, then slides there. The other layout (Settings → Look → Jobs layout) is One list.
 //
 // Play: full gives console cards (a soft blinking light while the crew works, and a readout line);
 // subtle keeps the card with a steady light and no readout; off has plain cards with the same dots
 // and words. At phone width the lanes become folded sections, Needs you open first.
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Job, JobLane } from '../api/types';
+import { useDetail } from '../app/detail';
 import { useKeyScope } from '../app/keyRegistry';
-import { hrefFor, jobHref, navigate, stackHref } from '../app/router';
+import { hrefFor, jobHref, navigate, peekFromHash, stackHref, withPeek } from '../app/router';
 import { useUi } from '../app/ui';
+import { Button } from '../components/Button';
+import { Chip, type ChipTone } from '../components/Chip';
 import { Icon, type IconName } from '../components/Icon';
-import { Kbd } from '../components/Kbd';
+import { KeyText } from '../components/Kbd';
 import { Fold, GuideCards, NextBar, Page, useNarrow, type GuideSpec } from '../components/page/Page';
 import { StopMap } from '../components/stops/StopMap';
 import { STOPS, stopOf } from '../components/stops/stops';
 import { useStored } from '../lib/stored';
+import { useFlip } from '../lib/flip';
+import { useHeldWhileHovered } from '../lib/useHeldWhileHovered';
 import { relativeTime, useNow } from '../lib/time';
 import { usePlayIfAny } from '../play/usePlay';
 import { useWorkshopState } from '../state/store';
@@ -25,6 +30,7 @@ import { StackJobCard, useStackIndex, type StackIndex } from '../views/Stack/Sta
 import { StepDots } from '../views/Stack/StacksPage';
 import type { Permission, ReviewView } from '../api/types';
 import { GithubLine } from '../views/Review/GithubLine';
+import { JobPeek } from './JobPeek';
 import { isRoundCard, useReviewList } from '../views/Review/useReview';
 import { cardIcon } from '../views/Review/words';
 
@@ -46,6 +52,8 @@ export const LANE_INFO: Record<JobLane, { word: string; icon: IconName; hint: st
   done: { word: 'Done', icon: 'circle-check', hint: 'Finished, marked done or dropped.' },
 };
 const BOARD: readonly BoardLane[] = ['working', 'needs-you', 'in-review', 'ready'];
+const LANES = Object.keys(LANE_INFO) as JobLane[];
+const slugOf = (j: Job) => j.slug;
 
 export const JOBS_GUIDE: GuideSpec = {
   id: 'jobs',
@@ -94,43 +102,74 @@ export function stateChip(job: Job, permissions?: readonly Permission[]): { word
   return { word: LANE_INFO[lane].word, icon: LANE_INFO[lane].icon };
 }
 
-function JobCard({ job, now, play, review }: { job: Job; now: Date; play: 'full' | 'subtle' | 'off'; review?: ReviewView | null }) {
+/** The state chip's tint: needs you amber, working blue, paused grey, ready green, the rest neutral. */
+export function chipTone(lane: JobLane, word: string): ChipTone {
+  if (lane === 'needs-you') return 'needs-you';
+  if (lane === 'working') return word === 'Paused' ? 'neutral' : 'info';
+  if (lane === 'ready' || lane === 'done') return 'ok';
+  if (lane === 'in-review') return 'review';
+  return 'neutral';
+}
+
+function JobCard({ job, now, play, review, full, onPeek, peeked }: { job: Job; now: Date; play: 'full' | 'subtle' | 'off'; review?: ReviewView | null; full: boolean; onPeek?: (slug: string) => void; peeked?: boolean }) {
   const lane = laneOf(job);
   const { permissions } = useWorkshopState();
   const chip = stateChip(job, permissions);
-  const stop = STOPS.find((s) => s.id === stopOf(job.stage));
   const t = since(job);
   const working = lane === 'working' && chip.word === 'Working';
+  const name = job.title || job.slug;
+  // Simple (packet R): the title, one status line, the state chip and the time. The stop dots show
+  // on hover and on focus, over the time, so the card never changes size; in Full on a row of their own.
+  const stops = <StopMap job={{ ...job, lane }} compact tips label={`${name}: its stops`} />;
   return (
-    <li className={`job-card lane-${lane} play-${play}`}>
+    <li
+      data-flip-key={job.slug}
+      className={`job-card lane-${lane} play-${play}${full ? ' is-full' : ''}${onPeek ? ' can-peek' : ''}${peeked ? ' is-peeked' : ''}`}
+      onClick={onPeek ? (e) => { if (!(e.target as Element).closest('a, button, [tabindex]')) onPeek(job.slug); } : undefined}
+    >
       <div className="job-card-top">
-        {play !== 'off' && <span className={`job-light${working ? ' is-on' : ''}${working && play === 'full' ? ' is-blink' : ''}`} aria-hidden="true" />}
-        <a className="job-card-title" href={jobHref(job.slug)} title={`Open ${job.title || job.slug}.`}>{job.title || job.slug}</a>
+        {play === 'full' && <span className={`job-light${working ? ' is-on' : ''}${working && play === 'full' ? ' is-blink' : ''}`} aria-hidden="true" />}
+        <a
+          className="job-card-title"
+          href={jobHref(job.slug)}
+          title={onPeek ? `Open ${name}. Space, or a click on the card, takes a quick look instead.` : `Open ${name}.`}
+          onKeyDown={onPeek ? (e) => { if (e.key === ' ') { e.preventDefault(); onPeek(job.slug); } } : undefined}
+        >
+          {name}
+        </a>
       </div>
-      <StopMap job={{ ...job, lane }} compact tips label={`${job.title || job.slug}: its stops`} />
-      {play === 'full' && <span className="job-readout">{[stop?.label, t ? relativeTime(t, now) : null].filter(Boolean).join(' · ')}</span>}
+      {full && stops}
+      {/* Play full's console readout (the stop and how long), with every detail shown. */}
+      {full && play === 'full' && <span className="job-readout">{[STOPS.find((x) => x.id === stopOf(job.stage))?.label, t ? relativeTime(t, now) : null].filter(Boolean).join(' · ')}</span>}
       {review?.card
         ? <span className={`job-card-reason review-card-line is-${review.state}`}><Icon name={cardIcon(review.state)} size={14} /> {review.card.line}</span>
         : job.laneReason && <span className="job-card-reason">{job.laneReason}</span>}
       <div className="job-card-foot">
-        <span className={`chip state-chip is-${lane}`}><Icon name={chip.icon} size={14} /> {chip.word}</span>
-        {t && <span className="muted">{relativeTime(t, now)}</span>}
+        <Chip tone={chipTone(lane, chip.word)} icon={chip.icon} className={`state-chip is-${lane}`}>{chip.word}</Chip>
+        <span className="job-card-end">
+          {t && <span className="muted job-card-time">{relativeTime(t, now)}</span>}
+          {!full && <span className="job-card-peek">{stops}</span>}
+        </span>
       </div>
     </li>
   );
 }
 
-function Cards({ jobs, now, play, stacks, reviews }: { jobs: readonly Job[]; now: Date; play: 'full' | 'subtle' | 'off'; stacks?: StackIndex; reviews?: ReadonlyMap<string, ReviewView> }) {
+function Cards({ jobs, now, play, stacks, reviews, onPeek, peeked }: { jobs: readonly Job[]; now: Date; play: 'full' | 'subtle' | 'off'; stacks?: StackIndex; reviews?: ReadonlyMap<string, ReviewView>; onPeek?: (slug: string) => void; peeked?: string | null }) {
+  const [detail] = useDetail();
   return (
     <ul className="job-cards">
       {jobs.map((j) => {
         // A stack is one card that opens into its parts (packet K2).
         const stack = stacks?.stackOf(j.slug);
-        return stack ? <StackJobCard key={j.slug} job={j} stack={stack} now={now} play={play} /> : <JobCard key={j.slug} job={j} now={now} play={play} review={reviews?.get(j.slug) ?? null} />;
+        return stack ? <StackJobCard key={j.slug} job={j} stack={stack} now={now} play={play} /> : <JobCard key={j.slug} job={j} now={now} play={play} review={reviews?.get(j.slug) ?? null} full={detail === 'full'} onPeek={onPeek} peeked={peeked === j.slug} />;
       })}
     </ul>
   );
 }
+
+/** How long a job has waited, in words ("5h"), or null. */
+const t0 = (j: Job) => { const t = since(j); return t ? relativeTime(t, new Date()) : null; };
 
 export function JobsPage() {
   const { jobs } = useWorkshopState();
@@ -146,24 +185,48 @@ export function JobsPage() {
   // Each job's review round (packet Q): the card says who it waits on, since when, and which round.
   const { list: reviewList } = useReviewList(jobs.length > 0);
   const reviews = new Map((reviewList?.jobs ?? []).map((v) => [v.slug, v] as const));
-  // While the pointer is over the board, a card keeps the lane it had when the pointer came in.
-  const frozen = useRef<Map<string, JobLane> | null>(null);
-  const [, setHover] = useState(false);
-  const laneFor = (j: Job) => frozen.current?.get(j.slug) ?? laneOf(j);
-  const byLane = Object.fromEntries(Object.keys(LANE_INFO).map((l) => [l, [] as Job[]])) as Record<JobLane, Job[]>;
-  for (const j of open) byLane[laneFor(j)].push(j);
-  byLane['needs-you'].sort((a, b) => age(a) - age(b));
+  // Each lane in its own order (Needs you: the longest wait first). While the pointer is over the
+  // board, every card keeps the lane and the place it had when the pointer came in, with fresh
+  // data (lib/useHeldWhileHovered.ts); when it leaves, each slides to where it belongs (lib/flip.ts).
+  const placed = LANES.flatMap((l) => {
+    const here = open.filter((j) => laneOf(j) === l);
+    return l === 'needs-you' ? here.sort((a, b) => age(a) - age(b)) : here;
+  });
+  const board = useHeldWhileHovered(placed, slugOf, laneOf, !narrow && layout === 'lanes');
+  const byLane = Object.fromEntries(LANES.map((l) => [l, [] as Job[]])) as Record<JobLane, Job[]>;
+  for (const p of board.arranged) byLane[p.group as JobLane].push(p.item);
+  const boardRef = useRef<HTMLDivElement>(null);
+  useFlip(boardRef, BOARD.map((l) => `${l}:${byLane[l].map(slugOf).join(',')}`).join('|'));
   const pick = nextJob(open);
   const needCount = byLane['needs-you'].length;
 
   useKeyScope('jobs', { 'jobs-open': () => { if (!pick) return false; navigate({ name: 'job', slug: pick.slug }); } });
+  // The quick look (packet R): over the right side of the board, in the board's order for j and k.
+  // It is in the address (#/?peek=<slug>), so a reload or Back to Jobs opens it again. Replaced, not
+  // pushed: j and k would otherwise fill Back with every card looked at.
+  const [peek, setPeekNow] = useState<string | null>(() => peekFromHash(window.location.hash));
+  const setPeek = useCallback((slug: string | null) => {
+    setPeekNow(slug);
+    const next = withPeek(window.location.hash, slug);
+    if (next !== window.location.hash) window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${next}`);
+  }, []);
+  useEffect(() => {
+    const onHash = () => setPeekNow(peekFromHash(window.location.hash));
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  const order = BOARD.flatMap((l) => byLane[l]).map((j) => j.slug);
+  const peekJob = peek ? open.find((j) => j.slug === peek) ?? null : null;
+  // A quick look at a job that isn't on the board (gone, or a part inside a stack): out of the address.
+  useEffect(() => { if (peek && !peekJob) setPeek(null); }, [peek, peekJob, setPeek]);
 
+  // One line of a fixed height (packet R): it keeps its space when nothing waits, so the lanes never move.
   const bar = pick ? (
-    <NextBar tone="stop" icon="hand" say={`${pick.title || pick.slug} needs you`} sub={`${reviews.get(pick.slug)?.desk?.headline ?? pick.laneReason ?? 'Waiting for you'}. ${needCount === 1 ? 'It is the only one.' : `${needCount} jobs need you. This one has waited longest.`}`}>
-      <a className="btn btn-primary btn-lg" href={jobHref(pick.slug)} title={`Open ${pick.title || pick.slug} (key: o).`}>Open <Kbd id="jobs-open" /></a>
+    <NextBar line tone="stop" icon="hand" say={`${pick.title || pick.slug} needs you`} sub={`${t0(pick) ? `Waiting ${t0(pick)}. ` : ''}${needCount === 1 ? 'It is the only one.' : `${needCount} jobs need you. This one has waited longest.`}`}>
+      <Button kind="primary" keyId="jobs-open" keyShown href={jobHref(pick.slug)} title={`Open ${pick.title || pick.slug}: ${reviews.get(pick.slug)?.desk?.headline ?? pick.laneReason ?? 'it waits for you'} (key: o).`}>Open</Button>
     </NextBar>
   ) : open.length ? (
-    <NextBar tone="quiet" icon="circle-check" say="Nothing needs you right now" sub="The crew carries on; a job that needs you shows here first." />
+    <NextBar line tone="quiet" icon="circle-check" say="Nothing needs you right now" sub="The crew carries on; a job that needs you shows here first." />
   ) : null;
 
   const lanesView = narrow ? (
@@ -176,18 +239,18 @@ export function JobsPage() {
     </div>
   ) : (
     <div
+      ref={boardRef}
       className="jobs-board"
-      onMouseEnter={() => { frozen.current = new Map(open.map((j) => [j.slug, laneOf(j)])); setHover(true); }}
-      onMouseLeave={() => { frozen.current = null; setHover(false); }}
+      {...board.hoverProps}
     >
       {BOARD.map((l) => (
         <section key={l} className={`lane lane-${l}${byLane[l].length ? ' has-cards' : ''}`} aria-label={`${LANE_INFO[l].word}, ${byLane[l].length}`} title={LANE_INFO[l].hint}>
           <header className="lane-head">
             <span className="lane-icon"><Icon name={LANE_INFO[l].icon} size={16} /></span>
             <h3 className="lane-word">{LANE_INFO[l].word}</h3>
-            <span className="lane-count">{byLane[l].length}</span>
+            <span className="lane-count num">{byLane[l].length}</span>
           </header>
-          {byLane[l].length ? <Cards jobs={byLane[l]} now={now} play={play} stacks={stacks} reviews={reviews} /> : <p className="muted lane-empty">None right now.</p>}
+          {byLane[l].length ? <Cards jobs={byLane[l]} now={now} play={play} stacks={stacks} reviews={reviews} onPeek={setPeek} peeked={peek} /> : <p className="lane-empty">None right now</p>}
         </section>
       ))}
     </div>
@@ -199,7 +262,7 @@ export function JobsPage() {
         const l = laneOf(j);
         return (
           <li key={j.slug} className={`jobs-list-row lane-${l}`}>
-            <span className={`chip state-chip is-${l}`}><Icon name={LANE_INFO[l].icon} size={14} /> {LANE_INFO[l].word}</span>
+            <Chip tone={chipTone(l, LANE_INFO[l].word)} icon={LANE_INFO[l].icon} className={`state-chip is-${l}`}>{LANE_INFO[l].word}</Chip>
             <a className="job-card-title" href={stacks.stackOf(j.slug) ? stackHref(j.slug) : jobHref(j.slug)}>{j.title || j.slug}</a>
             {stacks.stackOf(j.slug)
               ? <StepDots steps={stacks.stackOf(j.slug)!.steps} label="Stack" />
@@ -212,20 +275,21 @@ export function JobsPage() {
   );
 
   return (
-    <Page label="Jobs" title="Jobs" className={`page-jobs play-${play}`} guide={JOBS_GUIDE} head={open.length ? <GithubLine /> : undefined}>
+    <Page label="Jobs" title="Jobs" className={`page-jobs play-${play}`} guide={JOBS_GUIDE} head={open.length ? <GithubLine onlyStale /> : undefined}>
       {open.length === 0 ? (
         <section className="jobs-empty" aria-label="No jobs yet">
           <h3 className="hero-title">No jobs yet. Start one from a ticket.</h3>
           <GuideCards cards={JOBS_GUIDE.cards} />
           <div className="hero-actions jobs-empty-actions">
-            <a className="btn btn-primary btn-lg" href={hrefFor({ name: 'inbox' })} title="Your Orbit tickets (keys: g i).">Pick a ticket in the Inbox <kbd className="kbd key-hint" aria-hidden="true">g i</kbd></a>
-            <button type="button" className="btn btn-lg" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job of your own (key: c).">New job <Kbd id="new-job" /></button>
+            <Button kind="primary" size="lg" href={hrefFor({ name: 'inbox' })} title="Your Orbit tickets (keys: g i).">Pick a ticket in the Inbox <KeyText keys="g i" shown /></Button>
+            <Button keyId="new-job" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job of your own (key: c).">New job</Button>
           </div>
         </section>
       ) : (
         <>
           {bar}
           {layout === 'list' ? listView : lanesView}
+          {peekJob && <JobPeek job={peekJob} order={order} onPick={setPeek} onClose={() => setPeek(null)} />}
           <div className="jobs-folded">
             <Fold icon="moon" name="Resting" note={`${byLane.resting.length} idle`} id="jobs-resting">
               {byLane.resting.length ? <Cards jobs={byLane.resting} now={now} play={play} stacks={stacks} reviews={reviews} /> : <p className="muted">None.</p>}

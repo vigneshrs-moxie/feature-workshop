@@ -7,6 +7,7 @@ import { ApiError, type ApiClient } from '../../api/client';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { LEVELS, snapshot } from '../../state/test-fixtures';
 import { NewJobSheet, TICKET_KEY_PROBLEM, ticketFromDescription, ticketKeyOf } from './NewJobSheet';
+import {  } from '../../components/Select.testing';
 
 const MODELS = [{ id: 'claude-opus-5-5', label: 'Opus 5.5', note: 'Everyday.' }];
 const REPOS = [{ path: '/tmp/fw-test/sample-one', name: 'sample-one', lastUsed: null }];
@@ -27,7 +28,7 @@ function setup() {
 afterEach(() => { localStorage.clear(); window.location.hash = ''; });
 
 async function startJob(dialog: HTMLElement) {
-  await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Repository' })).toHaveValue('/tmp/fw-test/sample-one'));
+  await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Repository' })).toHaveAttribute('data-value', '/tmp/fw-test/sample-one'));
   await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Start job' })); });
 }
 

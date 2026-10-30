@@ -5,6 +5,8 @@
 import { useState } from 'react';
 import { useStored } from '../lib/stored';
 import { alertOutputs, askNotifyPermission, CHIME_KEY, notifySupport, NOTIFY_KEY } from './alerts';
+import { Button } from '../components/Button';
+import { Saved, useSaved } from '../components/Saved';
 
 const BLOCKED = 'Your browser blocks notifications from this page. You can allow them in the browser’s site settings.';
 
@@ -12,20 +14,22 @@ export function AlertSettings() {
   const [notify, setNotify] = useStored(NOTIFY_KEY);
   const [chime, setChime] = useStored(CHIME_KEY);
   const [note, setNote] = useState<string | null>(null);
+  const saved = useSaved();
   const support = notifySupport();
   const notifyOn = notify === 'on' && support === 'granted';
   const chimeOn = chime === 'on';
 
   async function toggleNotify() {
     setNote(null);
-    if (notifyOn) { setNotify('off'); return; }
+    if (notifyOn) { setNotify('off'); saved.mark(); return; }
     const answer = await askNotifyPermission();
-    if (answer === 'granted') { setNotify('on'); return; }
+    if (answer === 'granted') { setNotify('on'); saved.mark(); return; }
     setNotify('off');
     if (answer === 'denied') setNote(BLOCKED);
   }
 
   function toggleChime() {
+    saved.mark();
     if (chimeOn) { setChime('off'); return; }
     setChime('on');
     alertOutputs.chime(); // so you hear what it sounds like
@@ -44,25 +48,26 @@ export function AlertSettings() {
       <h4 className="settings-subheading alert-settings-title">In this browser</h4>
       <p className="muted alert-settings-lead">When a job newly needs you while this tab is in the background: a browser notification, a short chime, or both. Remembered in this browser only.</p>
       <div className="alert-settings-row">
-      <button
-        type="button"
-        className="btn btn-quiet btn-toggle"
+      <Button
+        kind="quiet"
+        className="btn-toggle"
         aria-pressed={notifyOn}
         disabled={support === 'unsupported'}
         onClick={() => void toggleNotify()}
         title={notifyHint}
       >
         Notifications <span className="toggle-state">{notifyOn ? 'On' : 'Off'}</span>
-      </button>
-      <button
-        type="button"
-        className="btn btn-quiet btn-toggle"
+      </Button>
+      <Button
+        kind="quiet"
+        className="btn-toggle"
         aria-pressed={chimeOn}
         onClick={toggleChime}
         title={chimeOn ? 'The chime is on: a short, soft sound plays when a job newly needs you. Click to turn it off.' : 'Turn on a short, soft chime that plays when a job newly needs you. You’ll hear it once now.'}
       >
         Chime <span className="toggle-state">{chimeOn ? 'On' : 'Off'}</span>
-      </button>
+      </Button>
+      <Saved tick={saved.tick()} />
       </div>
       {note && <p className="alert-settings-note" role="status">{note}</p>}
     </div>

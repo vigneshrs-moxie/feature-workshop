@@ -14,6 +14,7 @@ import type { Job, PolicyId, Run } from '../../api/types';
 import { reopenJob, setJobPolicy } from '../../app/jobActions';
 import { useUi } from '../../app/ui';
 import { Icon } from '../../components/Icon';
+import { Button } from '../../components/Button';
 import { autoBlockedReason, autoModeOf, HARD_LINES_NOTE, POLICIES, policyLabel } from '../../components/permissions/policies';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
@@ -81,17 +82,19 @@ export function JobMenu({ job, dir, policyOverride, run, worktree, gear = false 
 
   return (
     <div className="job-menu" ref={box}>
-      <button
-        type="button"
-        className={gear ? 'btn btn-quiet btn-icon job-gear' : 'btn btn-quiet'}
+      <Button
+        kind="quiet"
+        iconOnly={gear}
+        icon={gear ? 'settings' : undefined}
+        className={gear ? 'job-gear' : undefined}
         aria-haspopup="true"
         aria-expanded={open}
         aria-label={gear ? 'Job menu' : undefined}
         onClick={() => setOpen((o) => !o)}
         title="More things you can do with this job. ⌘K lists them too."
       >
-        {gear ? <Icon name="settings" size={18} /> : <>Job menu <span aria-hidden="true">▾</span></>}
-      </button>
+        {gear ? undefined : <>Job menu <Icon name="chevron-down" size={14} /></>}
+      </Button>
       {open && (
         <ul className="job-menu-list">
           {!job.closed && (

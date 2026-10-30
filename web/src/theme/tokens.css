@@ -6,13 +6,15 @@
   --font-display: "Inter Display", "Inter", "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --ui-scale: 1;
-  --text-xs: calc(11px * var(--ui-scale, 1));
-  --text-sm: calc(12px * var(--ui-scale, 1));
-  --text-base: calc(13px * var(--ui-scale, 1));
-  --text-md: calc(15px * var(--ui-scale, 1));
+  --text-2xs: calc(11px * var(--ui-scale, 1));
+  --text-xs: calc(12px * var(--ui-scale, 1));
+  --text-sm: calc(13px * var(--ui-scale, 1));
+  --text-base: calc(14px * var(--ui-scale, 1));
+  --text-md: calc(16px * var(--ui-scale, 1));
   --text-lg: calc(20px * var(--ui-scale, 1));
-  --text-xl: calc(28px * var(--ui-scale, 1));
-  --leading: 1.45;
+  --text-xl: calc(24px * var(--ui-scale, 1));
+  --text-2xl: calc(30px * var(--ui-scale, 1));
+  --leading: 1.5;
   --weight-regular: 400;
   --weight-medium: 500;
   --weight-bold: 600;
@@ -24,10 +26,10 @@
   --space-6: 24px;
   --space-8: 32px;
   --space-10: 40px;
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 10px;
-  --radius-xl: 14px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
   --dur-fast: 120ms;
   --dur-menu: 180ms;
   --dur-pane: 200ms;
@@ -42,9 +44,13 @@
   --rail-w: 48px;
   --foreman-max: 760px;
   --preview-w: 40%;
-  --control-h: max(40px, calc(40px * var(--ui-scale, 1)));
-  --control-h-lg: max(44px, calc(44px * var(--ui-scale, 1)));
-  --page-max: 1180px;
+  --control-h-sm: max(28px, calc(28px * var(--ui-scale, 1)));
+  --control-h: max(34px, calc(34px * var(--ui-scale, 1)));
+  --control-h-lg: max(40px, calc(40px * var(--ui-scale, 1)));
+  --chip-h: calc(22px * var(--ui-scale, 1));
+  --page-gutter: 24px;
+  --page-max: 2400px;
+  --prose-max: 75ch;
   --chart-pattern-1: none;
   --chart-pattern-2: repeating-linear-gradient(45deg, color-mix(in srgb, var(--bg-0) 55%, transparent) 0 2px, transparent 2px 7px);
   --chart-pattern-3: radial-gradient(color-mix(in srgb, var(--bg-0) 55%, transparent) 1.2px, transparent 1.6px) 0 0 / 6px 6px;
@@ -53,45 +59,61 @@
   --chart-pattern-6: repeating-linear-gradient(90deg, color-mix(in srgb, var(--bg-0) 55%, transparent) 0 2px, transparent 2px 6px);
   --chart-pattern-7: repeating-conic-gradient(color-mix(in srgb, var(--bg-0) 55%, transparent) 0 25%, transparent 0 50%) 0 0 / 8px 8px;
   --chart-pattern-8: repeating-linear-gradient(45deg, color-mix(in srgb, var(--bg-0) 55%, transparent) 0 1px, transparent 1px 4px), repeating-linear-gradient(-45deg, color-mix(in srgb, var(--bg-0) 55%, transparent) 0 1px, transparent 1px 4px);
-  --bg-0: oklch(.16 .006 260);
-  --bg-1: oklch(.19 .006 260);
-  --bg-2: oklch(.22 .006 260);
-  --bg-3: oklch(.25 .006 260);
-  --bg-4: oklch(.28 .006 260);
-  --border-1: oklch(1 0 0 / .06);
-  --border-2: oklch(1 0 0 / .1);
-  --border-3: oklch(1 0 0 / .18);
-  --text-1: oklch(.95 .004 260);
-  --text-2: oklch(.72 .01 260);
-  --text-3: oklch(.58 .01 260);
-  --accent: oklch(.7 .15 275);
-  --accent-strong: oklch(.78 .13 275);
-  --accent-soft: oklch(.7 .15 275 / .16);
-  --on-accent: oklch(.16 .02 275);
-  --focus-ring: oklch(.78 .13 275);
-  --status-ok: oklch(.78 .14 155);
-  --status-ok-bg: oklch(.78 .14 155 / .14);
-  --status-warn: oklch(.78 .14 80);
-  --status-warn-bg: oklch(.78 .14 80 / .14);
-  --status-error: oklch(.78 .14 25);
-  --status-error-bg: oklch(.78 .14 25 / .14);
-  --status-info: oklch(.78 .14 235);
-  --status-info-bg: oklch(.78 .14 235 / .14);
+  --bg-0: oklch(.15 .008 262);
+  --bg-1: oklch(.18 .008 262);
+  --bg-2: oklch(.21 .008 262);
+  --bg-3: oklch(.24 .008 262);
+  --bg-4: oklch(.27 .008 262);
+  --border-1: oklch(1 0 0 / .1);
+  --border-2: oklch(1 0 0 / .16);
+  --border-3: oklch(1 0 0 / .26);
+  --text-1: oklch(.95 .004 262);
+  --text-2: oklch(.76 .01 262);
+  --text-3: oklch(.63 .01 262);
+  --accent: oklch(.72 .17 280);
+  --accent-strong: oklch(.8 .14 280);
+  --accent-soft: oklch(.72 .17 280 / .18);
+  --on-accent: oklch(.16 .02 280);
+  --focus-ring: oklch(.78 .13 280);
+  --status-ok: oklch(.78 .16 155);
+  --status-ok-bg: oklch(.78 .16 155 / .16);
+  --status-warn: oklch(.78 .16 80);
+  --status-warn-bg: oklch(.78 .16 80 / .16);
+  --status-error: oklch(.78 .16 25);
+  --status-error-bg: oklch(.78 .16 25 / .16);
+  --status-info: oklch(.78 .16 245);
+  --status-info-bg: oklch(.78 .16 245 / .16);
+  --status-review: oklch(.78 .16 295);
+  --status-review-bg: oklch(.78 .16 295 / .16);
+  --stop-spec: oklch(.76 .15 330);
+  --stop-investigate: oklch(.76 .15 285);
+  --stop-plan: oklch(.76 .15 245);
+  --stop-build: oklch(.76 .15 200);
+  --stop-test: oklch(.76 .15 160);
+  --stop-review: oklch(.76 .15 115);
+  --stop-ship: oklch(.76 .15 75);
   --job-hue-l: .74;
   --job-hue-c: .13;
   --status-paused: oklch(.7 0 0);
   --status-paused-bg: oklch(.7 0 0 / .12);
-  --chart-1: oklch(.74 .13 255);
-  --chart-2: oklch(.74 .13 55);
-  --chart-3: oklch(.74 .13 195);
-  --chart-4: oklch(.74 .13 95);
-  --chart-5: oklch(.74 .13 300);
-  --chart-6: oklch(.74 .13 150);
-  --chart-7: oklch(.74 .13 25);
-  --chart-8: oklch(.74 .13 345);
+  --chart-1: oklch(.75 .15 255);
+  --chart-2: oklch(.75 .15 55);
+  --chart-3: oklch(.75 .15 195);
+  --chart-4: oklch(.75 .15 95);
+  --chart-5: oklch(.75 .15 300);
+  --chart-6: oklch(.75 .15 150);
+  --chart-7: oklch(.75 .15 25);
+  --chart-8: oklch(.75 .15 345);
   --shadow-1: 0 1px 2px oklch(0 0 0 / .3), 0 2px 8px oklch(0 0 0 / .2);
   --shadow-2: 0 2px 4px oklch(0 0 0 / .3), 0 12px 32px oklch(0 0 0 / .35);
   --shadow-pop: 0 6px 24px oklch(0 0 0 / .12);
+  --shadow-xs: 0 1px 2px oklch(0 0 0 / .16);
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / .3), 0 2px 6px oklch(0 0 0 / .22);
+  --shadow-md: 0 1px 3px oklch(0 0 0 / .3), 0 6px 18px oklch(0 0 0 / .36);
+  --shadow-lg: 0 2px 6px oklch(0 0 0 / .3), 0 16px 40px oklch(0 0 0 / .45);
+  --shade-hover: oklch(0 0 0 / .1);
+  --shade-press: oklch(0 0 0 / .18);
+  --shine: oklch(1 0 0 / .16);
   --scrim: oklch(0 0 0 / .5);
   --scrim-soft: oklch(0 0 0 / .4);
   --group-needs-you-fg: var(--status-warn);
@@ -147,7 +169,7 @@
   --lane-needs-you-fg: var(--status-warn);
   --lane-needs-you-bg: var(--status-warn-bg);
   --lane-needs-you-line: var(--status-warn);
-  --lane-in-review-fg: var(--text-2);
+  --lane-in-review-fg: var(--status-review);
   --lane-in-review-bg: transparent;
   --lane-in-review-line: var(--border-2);
   --lane-ready-fg: var(--status-ok);
@@ -163,6 +185,17 @@
   --grid-line: var(--border-1);
   --tooltip-bg: var(--text-1);
   --tooltip-fg: var(--bg-0);
+  --surface-0: var(--bg-0);
+  --surface-1: var(--bg-1);
+  --surface-2: var(--bg-2);
+  --btn-primary-bg: var(--accent);
+  --btn-primary-fg: var(--on-accent);
+  --elev-xs: var(--shadow-xs);
+  --elev-sm: var(--shadow-1);
+  --elev-md: var(--shadow-pop);
+  --elev-lg: var(--shadow-2);
+  --needs-solid: var(--status-warn);
+  --on-needs: var(--bg-0);
   --crew-shade-base: #000000;
   --crew-silhouette: color-mix(in srgb, var(--text-1) 24%, var(--bg-2));
   --crew-silhouette-line: color-mix(in srgb, var(--text-1) 42%, var(--bg-2));
@@ -219,6 +252,21 @@ html[data-text="l"] {
 }
 html[data-text="xl"] {
   --ui-scale: 1.25;
+}
+
+/* Phone width and wide windows (packet R): control heights and the page gutters. */
+@media (max-width: 760px) {
+  :root {
+    --control-h-sm: max(40px, calc(28px * var(--ui-scale, 1)));
+    --control-h: max(40px, calc(34px * var(--ui-scale, 1)));
+    --control-h-lg: max(44px, calc(40px * var(--ui-scale, 1)));
+    --page-gutter: 16px;
+  }
+}
+@media (min-width: 1280px) {
+  :root {
+    --page-gutter: 32px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

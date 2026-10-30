@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { HIDDEN_THEME_IDS, THEME_IDS } from './theme';
-import { CHART_SERIES, semanticTokens } from './tokens';
+import { CHART_SERIES, semanticTokens, FOLLOWING_TOKENS } from './tokens';
 
 const file = (name: string) => fileURLToPath(new URL(`./themes/${name}`, import.meta.url));
 const read = (id: string) => readFileSync(file(`${id}.css`), 'utf8');
@@ -21,7 +21,8 @@ export const REQUIRED_THEME_TOKENS: readonly string[] = [
   ...['ok', 'warn', 'error', 'info', 'paused'].flatMap((s) => [`status-${s}`, `status-${s}-bg`]),
   'shadow-1', 'shadow-2',
   ...Array.from({ length: CHART_SERIES }, (_, i) => `chart-${i + 1}`),
-  ...Object.keys(semanticTokens()),
+  // Packet R's surfaces, primary fill, elevation and needs-you dot follow each theme's own base tokens.
+  ...Object.keys(semanticTokens()).filter((k) => !FOLLOWING_TOKENS.includes(k)),
   'crew-ink', 'crew-shadow', 'crew-feet', 'crew-zzz',
   ...['clay', 'amber', 'amber-deep', 'plum', 'plum-deep', 'tweed', 'tweed-deep', 'blueprint', 'blueprint-deep', 'moss', 'teal', 'steel', 'forest', 'forest-deep'].map((p) => `crew-c-${p}`),
 ];

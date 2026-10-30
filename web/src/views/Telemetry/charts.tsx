@@ -1,10 +1,12 @@
-// The ten insight graphs' pictures (views/Telemetry.tsx puts each in its card). Every series has a
-// colour and a pattern (slotClass: --chart-n and --chart-pattern-n), a legend or a name on the
-// mark, and the card's Table ▸ has the numbers; colour never works alone. Hover or keyboard focus
+// The ten insight graphs' pictures (views/Telemetry.tsx puts each in its card). The colour rule
+// (packet R): a single series is the accent, with grey for what it is compared with (last month, the
+// 5-hour line); categorical series (people, models) take the status and stop hues with a pattern each
+// (slotClass); stages take their stop's hue, their name beside each bar. Every series has a legend or
+// a name on the mark, and the card's Table has the numbers; colour never works alone. Hover or keyboard focus
 // shows a mark's numbers on the line and the weekday map; the arrow keys step through them.
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { CacheData, LimitData, ModelsData, PeopleData, Pr1Data, ReworkData, StagesData, TelemetryGraph, TicketCostData, WaitingData, WhenData } from '../../api/types';
-import { niceMax, OTHER_SLOT, pct, slotClass, usd, weekTick } from './words';
+import { COMPARED, niceMax, ONE, OTHER_SLOT, pct, slotClass, stopClass, usd, weekTick } from './words';
 
 /** The width an element has, kept up to date (a fallback where nothing measures, as in tests). */
 export function useWidth(fallback = 520) {
@@ -180,7 +182,7 @@ export function TicketCostChart({ data }: { data: TicketCostData }) {
   const y = (v: number) => `${(Math.min(v, max) / max) * 100}%`;
   return (
     <div className="tele-plot">
-      <Legend items={[{ key: 'm', mark: <span className="tele-dot-key" aria-hidden="true" />, label: 'Median ticket' }, { key: 'r', mark: <Swatch slot={1} extra="is-soft" />, label: 'Middle half of tickets' }]} />
+      <Legend items={[{ key: 'm', mark: <span className="tele-dot-key" aria-hidden="true" />, label: 'Median ticket' }, { key: 'r', mark: <span className={`tele-swatch ${ONE} is-soft`} aria-hidden="true" />, label: 'Middle half of tickets' }]} />
       <div className="tele-cols-wrap">
         <div className="tele-yaxis" aria-hidden="true">{[0, max / 2, max].map((v) => <span key={v} style={{ bottom: `${(v / max) * 100}%` }}>{usd(v).replace(/\.00$/, '')}</span>)}</div>
         <ol className="tele-cols" aria-label="Median cost of a finished ticket, by plan week">
@@ -188,7 +190,7 @@ export function TicketCostChart({ data }: { data: TicketCostData }) {
             <li key={w.from} className="tele-col" aria-label={w.median === null ? `${w.label}: no finished ticket` : `${w.label}: median ${usd(w.median)}, middle half ${usd(w.low!)} to ${usd(w.high!)}, ${w.tickets} tickets`}>
               {w.median !== null && (
                 <>
-                  <span className={`tele-range ${slotClass(1)} is-soft`} style={{ bottom: y(w.low!), height: `calc(${y(w.high!)} - ${y(w.low!)} + 4px)` }} aria-hidden="true" />
+                  <span className={`tele-range ${ONE} is-soft`} style={{ bottom: y(w.low!), height: `calc(${y(w.high!)} - ${y(w.low!)} + 4px)` }} aria-hidden="true" />
                   <span className="tele-median" style={{ bottom: y(w.median) }} aria-hidden="true" />
                   {(w.high ?? 0) > max && <span className="tele-capped" aria-hidden="true">▲</span>}
                 </>
@@ -210,14 +212,14 @@ export function StagesChart({ data }: { data: StagesData }) {
   const both = data.stages.some((s) => s.lastShare !== null);
   return (
     <div className="tele-plot">
-      <Legend items={[{ key: 'a', mark: <Swatch slot={1} />, label: data.months[0] }, ...(both ? [{ key: 'b', mark: <Swatch slot={2} />, label: data.months[1] }] : [])]} />
+      <Legend items={[{ key: 'a', mark: <span className="tele-swatch tele-stops" aria-hidden="true" />, label: <>{data.months[0]} <span className="muted">· each stage in its stop’s colour</span></> }, ...(both ? [{ key: 'b', mark: <span className={`tele-swatch ${COMPARED}`} aria-hidden="true" />, label: data.months[1] }] : [])]} />
       <ul className="tele-pairs">
         {data.stages.map((s) => (
           <li key={s.label} className="tele-pair-row" aria-label={`${s.label}: ${pct(s.share * 100)} in ${data.months[0]}, ${s.lastShare === null ? 'nothing' : pct(s.lastShare * 100)} in ${data.months[1]}`}>
             <span className="tele-bar-label">{s.label}</span>
             <span className="tele-pair-bars" aria-hidden="true">
-              <span className="tele-bar-track"><span className={`tele-bar ${slotClass(1)}`} style={{ width: `${(s.share / max) * 100}%` }} /><span className="tele-bar-value">{pct(s.share * 100)}</span></span>
-              {both && <span className="tele-bar-track"><span className={`tele-bar ${slotClass(2)}`} style={{ width: `${((s.lastShare ?? 0) / max) * 100}%` }} /><span className="tele-bar-value muted">{s.lastShare === null ? '—' : pct(s.lastShare * 100)}</span></span>}
+              <span className="tele-bar-track"><span className={`tele-bar ${stopClass(s.stage)}`} style={{ width: `${(s.share / max) * 100}%` }} /><span className="tele-bar-value">{pct(s.share * 100)}</span></span>
+              {both && <span className="tele-bar-track"><span className={`tele-bar ${COMPARED}`} style={{ width: `${((s.lastShare ?? 0) / max) * 100}%` }} /><span className="tele-bar-value muted">{s.lastShare === null ? '—' : pct(s.lastShare * 100)}</span></span>}
             </span>
           </li>
         ))}
@@ -312,7 +314,7 @@ export function ReworkChart({ data }: { data: ReworkData }) {
       {stages.map((s) => (
         <li key={s.label} className="tele-hbar" aria-label={`${s.label}: ${usd(s.usd)} after ${s.sendBacks} send-backs`}>
           <span className="tele-bar-label">{s.label}</span>
-          <span className="tele-bar-track"><span className={`tele-bar ${slotClass(1)}`} style={{ width: `${(s.usd / max) * 100}%` }} aria-hidden="true" /><span className="tele-bar-value">{usd(s.usd)} · {s.sendBacks} {s.sendBacks === 1 ? 'send-back' : 'send-backs'}</span></span>
+          <span className="tele-bar-track"><span className={`tele-bar ${stopClass(s.stage)}`} style={{ width: `${(s.usd / max) * 100}%` }} aria-hidden="true" /><span className="tele-bar-value">{usd(s.usd)} · {s.sendBacks} {s.sendBacks === 1 ? 'send-back' : 'send-backs'}</span></span>
         </li>
       ))}
     </ul>

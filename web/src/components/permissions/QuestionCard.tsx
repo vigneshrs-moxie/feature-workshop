@@ -7,6 +7,7 @@ import { plainInline } from '../../lib/inlineMarkdown';
 import { InlineText } from '../InlineText';
 import { CardHead, DenyBox } from './PermissionCard';
 import { useAnswer } from './useAnswer';
+import { Button } from '../Button';
 
 interface Pick { picked: string[]; other: boolean; otherText: string }
 const EMPTY: Pick = { picked: [], other: false, otherText: '' };
@@ -83,8 +84,8 @@ export function QuestionCard({ permission: p, now, showJob = false }: { permissi
         {error && <p className="field-problem" role="alert">{error}</p>}
         {!denying && (
           <div className="perm-actions">
-            <button type="submit" className="btn btn-primary" disabled={busy || !ready} title={ready ? 'Send your answers to the Foreman.' : 'Answer every question first.'}>Send answers</button>
-            <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => setDenying(true)} title="Don’t answer. The Foreman carries on without your choice; you can tell it why.">Don’t answer…</button>
+            <Button type="submit" kind="primary" disabled={busy || !ready} title={ready ? 'Send your answers to the Foreman.' : 'Answer every question first.'}>Send answers</Button>
+            <Button kind="quiet" disabled={busy} onClick={() => setDenying(true)} title="Don’t answer. The Foreman carries on without your choice; you can tell it why.">Don’t answer…</Button>
           </div>
         )}
       </form>

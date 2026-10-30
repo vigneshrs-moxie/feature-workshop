@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Icon } from '../components/Icon';
 import { relativeTime, useNow } from '../lib/time';
 import { useWorkshop } from '../state/store';
+import { Button } from '../components/Button';
 
 interface Commit { sha: string; short: string; author: string; date: string; subject: string; step: string | null }
 interface Commits { commits: Commit[]; note?: string }
@@ -44,7 +45,7 @@ export function CodeTab({ slug, changedAt }: { slug: string; changedAt?: string 
     return (
       <div>
         <p className="thread-error" role="alert">Couldn’t read the commits: {load.message}</p>
-        <button type="button" className="btn" onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for the commits again.">Try again</button>
+        <Button onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for the commits again.">Try again</Button>
       </div>
     );
   }

@@ -52,12 +52,13 @@ describe('text size', () => {
   });
 
   it('the tokens read one factor: every type size and the two heights scale, the widths do not', () => {
-    for (const k of ['text-xs', 'text-sm', 'text-base', 'text-md', 'text-lg', 'text-xl', 'topbar-h', 'row-h']) {
+    for (const k of ['text-2xs', 'text-xs', 'text-sm', 'text-base', 'text-md', 'text-lg', 'text-xl', 'text-2xl', 'topbar-h', 'row-h', 'chip-h']) {
       expect(STATIC_TOKENS[k], k).toMatch(/^calc\(\d+px \* var\(--ui-scale, 1\)\)$/);
     }
     for (const k of ['jobs-w', 'jobs-w-min', 'jobs-w-max', 'rail-w', 'foreman-max', 'preview-w']) expect(STATIC_TOKENS[k], k).not.toContain('ui-scale');
-    expect(STATIC_TOKENS['text-base']).toBe('calc(13px * var(--ui-scale, 1))');
-    expect(STATIC_TOKENS['leading']).toBe('1.45');
+    // Packet R: 14 px body text with a line height of 1.5.
+    expect(STATIC_TOKENS['text-base']).toBe('calc(14px * var(--ui-scale, 1))');
+    expect(STATIC_TOKENS['leading']).toBe('1.5');
     const css = tokensCss();
     expect(css).toContain('--ui-scale: 1;');
     expect(css).toContain('html[data-text="s"] {\n  --ui-scale: .875;\n}');

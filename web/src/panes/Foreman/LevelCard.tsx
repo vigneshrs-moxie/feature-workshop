@@ -7,6 +7,7 @@
 import type { Job, JobDetail, LevelNumber } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { InlineText } from '../../components/InlineText';
+import { Button } from '../../components/Button';
 import { isLevel, levelCardKey, levelCardView, levelChange, levelLabel, lensNames } from '../../lib/levels';
 import { useStored } from '../../lib/stored';
 import { useWorkshopState } from '../../state/store';
@@ -75,30 +76,30 @@ export function LevelCard({ job, detail }: { job: Job; detail: JobDetail | null 
         <>
           <p className="level-done" role="status">{choice.done}</p>
           <div className="perm-actions">
-            <button type="button" className="btn btn-quiet" onClick={choice.clear} title="Close this note. The level stays as you set it; change it any time with the level chip in the job header.">Got it</button>
+            <Button kind="quiet" onClick={choice.clear} title="Close this note. The level stays as you set it; change it any time with the level chip in the job header.">Got it</Button>
           </div>
         </>
       ) : (
         <>
           <div className="perm-actions">
             {target !== null && (
-              <button type="button" className="btn btn-primary" disabled={choice.busy} onClick={() => void choice.set(target)} title={`Run this job at ${label(target)} from the next stage. ${consequence(target)}.`}>
+              <Button kind="primary" disabled={choice.busy} onClick={() => void choice.set(target)} title={`Run this job at ${label(target)} from the next stage. ${consequence(target)}.`}>
                 Use L{target}
-              </button>
+              </Button>
             )}
             {other !== null && (
-              <button type="button" className="btn" disabled={choice.busy} onClick={() => void choice.set(other)} title={`Run this job at ${label(other)}, as the rules suggest, from the next stage. ${consequence(other)}.`}>
+              <Button disabled={choice.busy} onClick={() => void choice.set(other)} title={`Run this job at ${label(other)}, as the rules suggest, from the next stage. ${consequence(other)}.`}>
                 Use L{other}
-              </button>
+              </Button>
             )}
             {chosen !== null ? (
-              <button type="button" className="btn btn-quiet" disabled={choice.busy} onClick={() => setDismissed(view.signature)} title={`Keep ${label(chosen)} and hide this card. It shows again only if the Foreman suggests a different level.`}>
+              <Button kind="quiet" disabled={choice.busy} onClick={() => setDismissed(view.signature)} title={`Keep ${label(chosen)} and hide this card. It shows again only if the Foreman suggests a different level.`}>
                 Keep L{chosen}
-              </button>
+              </Button>
             ) : (
-              <button type="button" className="btn btn-quiet" disabled={choice.busy} onClick={() => setDismissed(view.signature)} title="Hide this card without picking a level. The Foreman uses its own judgement until you pick one with the level chip in the job header.">
+              <Button kind="quiet" disabled={choice.busy} onClick={() => setDismissed(view.signature)} title="Hide this card without picking a level. The Foreman uses its own judgement until you pick one with the level chip in the job header.">
                 Not now
-              </button>
+              </Button>
             )}
           </div>
           {target !== null && <p className="level-consequence muted">If you use L{target}: {consequence(target)}.</p>}

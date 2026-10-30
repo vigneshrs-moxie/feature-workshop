@@ -22,9 +22,9 @@ const agentName = (type) => (type === 'conductor' ? 'Foreman' : meta?.agents[typ
 let unlocked = {};
 function applyTheme() {
   const fromUrl = new URLSearchParams(location.search).get('theme');
-  const wanted = fromUrl || prefs.get('theme', 'default');
+  const wanted = fromUrl || prefs.get('theme', 'light');
   const ok = THEMES.includes(wanted) || (HIDDEN_THEMES.includes(wanted) && unlocked[wanted] === true);
-  document.documentElement.dataset.theme = fromUrl && ok ? wanted : followTheme(ok ? wanted : 'default');
+  document.documentElement.dataset.theme = fromUrl && ok ? wanted : followTheme(ok ? wanted : 'light');
 }
 async function startTheme() {
   window.addEventListener('storage', (e) => {

@@ -20,6 +20,7 @@ import { Scenes } from './Scenes';
 import { playBlip } from './sound';
 import { usePlay } from './usePlay';
 import { MEDAL_SIZE } from './crewSizes';
+import { Button } from '../components/Button';
 
 export const TOAST_MS = 5000;
 export const MAX_VISIBLE = 3;
@@ -118,15 +119,15 @@ function Toast({ item, onDone }: { item: ToastItem; onDone: (key: number) => voi
         <p className="play-toast-name">{item.name}</p>
         <p className="play-toast-line">{item.line}</p>
       </div>
-      <button
-        type="button"
-        className="btn btn-quiet play-toast-close"
+      <Button
+        kind="quiet"
+        className="play-toast-close"
         aria-label={`Dismiss: ${item.name}`}
         title="Hide this now. It also goes by itself after a few seconds."
         onClick={() => onDone(item.key)}
       >
         <span aria-hidden="true">×</span>
-      </button>
+      </Button>
     </div>
   );
 }

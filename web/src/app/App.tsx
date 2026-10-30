@@ -7,6 +7,8 @@ import { createApi, type ApiClient } from '../api/client';
 import type { PolicyId } from '../api/types';
 import { useAlerts, usePresence } from '../alerts/useAlerts';
 import { CommandPalette } from '../components/CommandPalette';
+import { TooltipLayer } from '../components/Tooltip';
+import { GalleryView } from '../views/Gallery/GalleryView';
 import { UsageBanner } from '../components/UsageBanner';
 import { UsageWarningBanner } from '../components/UsageWarningBanner';
 import { createLiveSync, type EventSourceLike, type LiveSync } from '../state/live';
@@ -33,7 +35,6 @@ import { TelemetryView } from '../views/Telemetry';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
 import { PlayToasts } from '../play/PlayToasts';
-import { StatusStrip } from '../play/StatusStrip';
 import { usePlay } from '../play/usePlay';
 import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
 import { reopenJob, setJobPolicy, stopRun } from './jobActions';
@@ -43,6 +44,8 @@ import { pageTitle } from './brand';
 import { TopBar } from './TopBar';
 import { HomeView } from '../home/HomeView';
 import { UiProvider, useUi, type SheetState } from './ui';
+import { Button } from '../components/Button';
+import { useDelayedFlag } from '../lib/useDelayedFlag';
 
 /** Put the cursor in the message box at the foot of the Foreman pane. */
 export function focusComposer() {
@@ -130,7 +133,7 @@ function Sheets({ route }: { route: Route }) {
       {problem && (
         <div className="toast" role="alert">
           <span>{problem}</span>
-          <button type="button" className="btn btn-quiet" onClick={() => setProblem(null)} title="Hide this message.">Dismiss</button>
+          <Button kind="quiet" onClick={() => setProblem(null)} title="Hide this message.">Dismiss</Button>
         </div>
       )}
       {sheet?.kind === 'palette' && (
@@ -168,20 +171,22 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   const lost = route.name === 'not-found' && play.on ? route.hash : null;
   const home = route.name === 'home' ? 'jobs' : route.name === 'map' ? 'map' : route.name === 'table' ? 'table' : route.name === 'desk' ? 'desk' : null;
   const top = <TopBar route={route} onRetry={onRetry} jobTitle={jobTitle} />;
-  if (state.status !== 'ready') {
+  // Principle 5: "Loading jobs…" only after 200 ms, then for at least 400 ms (lib/useDelayedFlag.ts).
+  const slowLoad = useDelayedFlag(state.status === 'loading');
+  if (state.status !== 'ready' || slowLoad) {
     return (
       <div className="app">
         {top}
         <div className="banner-slot" />
         <Sheets route={route} />
         <div className="app-message" role={state.status === 'error' ? 'alert' : 'status'}>
-          {state.status === 'loading' ? (
-            <p>Loading jobs…</p>
+          {state.status !== 'error' ? (
+            <p className={slowLoad ? undefined : 'pending is-waiting'}>Loading jobs…</p>
           ) : (
             <>
               <p>{state.error}</p>
               <p className="muted">Is the dashboard running? This page keeps trying by itself.</p>
-              <button type="button" className="btn" onClick={onRetry} title="Try reaching the dashboard again now.">Try again</button>
+              <Button onClick={onRetry} title="Try reaching the dashboard again now.">Try again</Button>
             </>
           )}
         </div>
@@ -189,7 +194,8 @@ function Shell({ onRetry }: { onRetry: () => void }) {
     );
   }
   // Every page is full width: a job is the Job page (and its stops' Stages); there are no panes.
-  const page = route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} />
+  const page = route.name === 'gallery' ? <GalleryView />
+    : route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} />
     : route.name === 'job' ? <JobPage key={route.slug} slug={route.slug} />
       : route.name === 'stage' ? <StagePage key={`${route.slug}/${route.stop}`} slug={route.slug} stop={route.stop} />
       : route.name === 'stacks' ? <StacksPage />
@@ -198,7 +204,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
         : route.name === 'telemetry' ? <TelemetryView />
           : route.name === 'inbox' ? <InboxView />
             : route.name === 'desk' ? <DeskPage />
-              : route.name === 'settings' ? <div className="page-wide"><SettingsView section={route.section} /></div>
+              : route.name === 'settings' ? <SettingsView section={route.section} />
                 : crew ? <div className="page-wide"><CrewDexView /></div>
                   : achievements ? <div className="page-wide"><AchievementsView /></div>
                     : lost !== null ? <div className="page-wide"><NotFoundView hash={lost} /></div>
@@ -207,7 +213,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="app">
       {top}
-      <div className="banner-slot"><StatusStrip /><UsageBanner /><UsageWarningBanner /></div>
+      <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
       <Sheets route={route} />
       {page}
       <PlayToasts />
@@ -238,6 +244,7 @@ export function App({ api: givenApi, store: givenStore, openStream }: AppProps) 
       <UiProvider>
         <PlayLedgerProvider>
           <Shell onRetry={() => void sync?.refresh()} />
+          <TooltipLayer />
         </PlayLedgerProvider>
       </UiProvider>
     </WorkshopContext.Provider>

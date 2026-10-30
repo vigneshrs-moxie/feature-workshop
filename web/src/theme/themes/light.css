@@ -13,48 +13,81 @@
 html[data-theme="light"] {
   color-scheme: light;
 
-  /* ----- Greys, mirrored: the window near-white, each layer up a step darker ----- */
-  --bg-0: oklch(.985 .003 260);
-  --bg-1: oklch(.965 .004 260);
-  --bg-2: oklch(.945 .005 260);
-  --bg-3: oklch(.915 .006 260);
-  --bg-4: oklch(.885 .007 260);
-  --border-1: oklch(0 0 0 / .08);
-  --border-2: oklch(0 0 0 / .13);
-  --border-3: oklch(0 0 0 / .22);
-  --row-alt: oklch(0 0 0 / .04);
-  --text-1: oklch(.22 .006 260);
-  --text-2: oklch(.42 .01 260);
-  --text-3: oklch(.47 .01 260);
+  /* ----- Greys from one family (packet R): a white page, white cards with a crisp edge, and a
+     subtle tint for groups inside a card, the hover and the pressed step ----- */
+  --bg-0: oklch(1 0 0);
+  --bg-1: oklch(.984 .002 260);
+  --bg-2: oklch(.967 .003 260);
+  --bg-3: oklch(.943 .004 260);
+  --bg-4: oklch(.915 .005 260);
+  --border-1: oklch(.25 .01 260 / .08);
+  --border-2: oklch(.25 .01 260 / .13);
+  --border-3: oklch(.25 .01 260 / .24);
+  --row-alt: oklch(.25 .01 260 / .035);
+  --text-1: oklch(.21 .008 260);
+  --text-2: oklch(.44 .012 260);
+  --text-3: oklch(.53 .01 260);
 
-  /* ----- The same indigo, deep enough to be text on bg-4 ----- */
-  --accent: oklch(.46 .17 275);
-  --accent-strong: oklch(.4 .17 275);
-  --accent-soft: oklch(.46 .17 275 / .13);
-  --on-accent: oklch(.985 .003 260);
-  --focus-ring: oklch(.5 .17 275);
+  /* ----- The same indigo, deep enough to be text on bg-4; the primary button a touch more vivid,
+     with white ink at 5.7:1 ----- */
+  --accent: oklch(.52 .21 280);
+  --accent-strong: oklch(.46 .21 280);
+  --accent-soft: oklch(.55 .21 280 / .1);
+  --on-accent: oklch(.995 0 0);
+  --focus-ring: oklch(.56 .21 280);
+  --btn-primary-bg: oklch(.52 .21 280);
+  --btn-primary-fg: oklch(.995 0 0);
 
-  /* ----- Status: the Default's hues, dark enough for a pale ground ----- */
-  --status-ok: oklch(.43 .13 155);
-  --status-ok-bg: oklch(.6 .14 155 / .14);
-  --status-warn: oklch(.45 .12 80);
-  --status-warn-bg: oklch(.75 .15 80 / .18);
-  --status-error: oklch(.47 .18 25);
-  --status-error-bg: oklch(.6 .18 25 / .13);
-  --status-info: oklch(.43 .13 235);
-  --status-info-bg: oklch(.6 .13 235 / .14);
-  --status-paused: oklch(.45 0 0);
-  --status-paused-bg: oklch(.46 0 0 / .12);
+  /* ----- Status: the Default's hues, dark enough for a pale ground; needs you is a soft amber
+     tint with an amber dot, never brown or tan ----- */
+  --status-ok: oklch(.51 .16 155);
+  --status-ok-bg: oklch(.965 .04 155);
+  --status-warn: oklch(.5 .13 65);
+  --status-warn-bg: oklch(.955 .06 85);
+  --status-error: oklch(.53 .19 25);
+  --status-error-bg: oklch(.965 .03 25);
+  --status-info: oklch(.53 .17 250);
+  --status-info-bg: oklch(.965 .035 250);
+  /* More colour (packet R): review violet, and a hue per stop from one even-lightness ring. */
+  --status-review: oklch(.53 .2 295);
+  --status-review-bg: oklch(.965 .035 295);
+  --stop-spec: oklch(.58 .2 330);
+  --stop-investigate: oklch(.56 .2 285);
+  --stop-plan: oklch(.56 .17 245);
+  --stop-build: oklch(.58 .12 200);
+  --stop-test: oklch(.58 .16 160);
+  --stop-review: oklch(.6 .15 115);
+  --stop-ship: oklch(.64 .16 75);
+  --status-paused: oklch(.46 0 0);
+  --status-paused-bg: oklch(.5 0 0 / .1);
+  --needs-solid: oklch(.66 .17 60);
+  --on-needs: oklch(.25 .05 60);
   --job-hue-l: .5;
   --job-hue-c: .14;
 
-  --shadow-1: 0 1px 2px oklch(0 0 0 / .08), 0 2px 8px oklch(0 0 0 / .08);
-  --shadow-2: 0 2px 4px oklch(0 0 0 / .1), 0 12px 32px oklch(0 0 0 / .16);
+  --shadow-1: 0 1px 2px oklch(.25 .02 260 / .06), 0 2px 8px oklch(.25 .02 260 / .06);
+  --shadow-2: 0 2px 6px oklch(.25 .02 260 / .08), 0 16px 40px oklch(.25 .02 260 / .16);
+  --shadow-pop: 0 1px 3px oklch(.25 .02 260 / .08), 0 8px 24px oklch(.25 .02 260 / .12);
+  --shadow-xs: 0 1px 2px oklch(.25 .02 260 / .05);
+  --shadow-sm: 0 1px 2px oklch(.25 .02 260 / .06), 0 3px 8px oklch(.25 .02 260 / .06);
+  --shadow-md: 0 1px 3px oklch(.25 .02 260 / .08), 0 8px 24px oklch(.25 .02 260 / .12);
+  --shadow-lg: 0 2px 6px oklch(.25 .02 260 / .08), 0 16px 40px oklch(.25 .02 260 / .16);
+  --shade-hover: oklch(0 0 0 / .08);
+  --shade-press: oklch(0 0 0 / .15);
+  --surface-0: var(--bg-0);
+  --surface-1: var(--bg-0);
+  --surface-2: var(--bg-1);
+  --elev-xs: var(--shadow-xs);
+  --elev-sm: var(--shadow-sm);
+  --elev-md: var(--shadow-md);
+  --elev-lg: var(--shadow-lg);
+  --scrim: oklch(.2 .02 260 / .32);
+  --scrim-soft: oklch(.2 .02 260 / .24);
 
   /* ----- Semantic tokens: the Default's wiring ----- */
   --group-needs-you-fg: var(--status-warn);
   --group-needs-you-bg: var(--status-warn-bg);
-  --group-needs-you-line: var(--status-warn);
+  --group-needs-you-line: var(--needs-solid);
   --group-running-fg: var(--status-info);
   --group-running-bg: var(--status-info-bg);
   --group-running-line: var(--status-info);
@@ -71,14 +104,14 @@ html[data-theme="light"] {
   --group-done-bg: var(--status-ok-bg);
   --group-done-line: var(--status-ok);
   --ask-permission-fg: var(--text-2);
-  --ask-permission-bg: var(--bg-2);
-  --ask-permission-line: var(--accent);
+  --ask-permission-bg: var(--bg-0);
+  --ask-permission-line: var(--border-2);
   --ask-question-fg: var(--text-2);
-  --ask-question-bg: var(--bg-2);
-  --ask-question-line: var(--accent);
+  --ask-question-bg: var(--bg-0);
+  --ask-question-line: var(--border-2);
   --ask-hardline-fg: var(--text-2);
-  --ask-hardline-bg: var(--bg-2);
-  --ask-hardline-line: var(--accent);
+  --ask-hardline-bg: var(--bg-0);
+  --ask-hardline-line: var(--status-error);
   --ask-blocked-fg: var(--text-3);
   --ask-blocked-bg: transparent;
   --ask-blocked-line: var(--border-2);
@@ -135,8 +168,8 @@ html[data-theme="light"] {
   --lane-working-line: var(--border-2);
   --lane-needs-you-fg: var(--status-warn);
   --lane-needs-you-bg: var(--status-warn-bg);
-  --lane-needs-you-line: var(--status-warn);
-  --lane-in-review-fg: var(--text-2);
+  --lane-needs-you-line: var(--needs-solid);
+  --lane-in-review-fg: var(--status-review);
   --lane-in-review-bg: transparent;
   --lane-in-review-line: var(--border-2);
   --lane-ready-fg: var(--status-ok);
@@ -148,16 +181,16 @@ html[data-theme="light"] {
   --lane-done-fg: var(--status-ok);
   --lane-done-bg: transparent;
   --lane-done-line: var(--border-1);
-  --hover-bg: var(--bg-3);
+  --hover-bg: var(--bg-2);
   --grid-line: var(--border-1);
   --tooltip-bg: var(--text-1);
   --tooltip-fg: var(--bg-0);
-  --chart-1: oklch(.55 .15 255);
-  --chart-2: oklch(.55 .15 55);
-  --chart-3: oklch(.55 .15 195);
-  --chart-4: oklch(.55 .15 95);
-  --chart-5: oklch(.55 .15 300);
-  --chart-6: oklch(.55 .15 150);
-  --chart-7: oklch(.55 .15 25);
-  --chart-8: oklch(.55 .15 345);
+  --chart-1: oklch(.6 .17 250);
+  --chart-2: oklch(.6 .17 55);
+  --chart-3: oklch(.6 .17 195);
+  --chart-4: oklch(.6 .17 95);
+  --chart-5: oklch(.6 .17 295);
+  --chart-6: oklch(.6 .17 150);
+  --chart-7: oklch(.6 .17 25);
+  --chart-8: oklch(.6 .17 345);
 }

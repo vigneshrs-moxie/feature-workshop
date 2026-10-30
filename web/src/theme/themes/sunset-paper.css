@@ -314,6 +314,8 @@ html[data-theme="sunset-paper"] .perm-card[data-ask="hardline"] .ask-label { bac
 html[data-theme="sunset-paper"] .perm-card[data-ask="question"] .ask-label { background: var(--ask-question-line); }
 html[data-theme="sunset-paper"] .perm-who strong { color: var(--ask-permission-fg); }
 html[data-theme="sunset-paper"] .perm-card[data-ask="question"] .perm-who strong { color: var(--ask-question-fg); }
+/* Packet R: inside the Desk's card the gate card is unframed, so its stripe is not drawn there. */
+html[data-theme="sunset-paper"] .desk-console .gate-card::before { display: none; }
 html[data-theme="sunset-paper"] .perm-card[data-ask="hardline"] .perm-who strong { color: var(--ask-hardline-line); }
 html[data-theme="sunset-paper"] .perm-preview { background: oklch(.3 .035 40); color: oklch(.95 .02 80); border-radius: var(--radius-md); }
 html[data-theme="sunset-paper"] .perm-warn { background: var(--status-warn-bg); color: var(--status-warn); border-radius: 999px; }
@@ -476,4 +478,17 @@ html[data-theme="sunset-paper"] {
   --chart-6: oklch(.55 .15 150);
   --chart-7: oklch(.55 .15 25);
   --chart-8: oklch(.55 .15 345);
+}
+
+/* More colour (packet R): the new mark tokens in daylight. */
+html[data-theme="sunset-paper"] {
+  --status-review: oklch(.53 .2 295);
+  --status-review-bg: oklch(.965 .035 295);
+  --stop-spec: oklch(.58 .2 330);
+  --stop-investigate: oklch(.56 .2 285);
+  --stop-plan: oklch(.56 .17 245);
+  --stop-build: oklch(.58 .12 200);
+  --stop-test: oklch(.58 .16 160);
+  --stop-review: oklch(.6 .15 115);
+  --stop-ship: oklch(.64 .16 75);
 }
