@@ -54,7 +54,7 @@ html[data-theme="sunset-paper"] {
   --status-paused: oklch(.5 .02 60);
   --status-paused-bg: oklch(.5 .02 60 / .12);
 
-  --job-hue-l: .64;
+  --job-hue-l: .58; /* .64 left the cyan dots at 2.8:1 on the paper (packet X) */
   --job-hue-c: .17;
 
   --shadow-1: 0 1px 2px oklch(.3 .06 40 / .08), 0 3px 10px oklch(.3 .06 40 / .08);

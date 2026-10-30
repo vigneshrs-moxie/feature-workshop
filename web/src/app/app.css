@@ -776,7 +776,7 @@ a:hover { text-decoration: underline; }
 .seg-option input { accent-color: var(--accent); }
 
 .key-legend { margin: var(--space-3) 0 0; font-size: var(--text-xs); }
-.key-legend .kbd { background: var(--bg-3); color: var(--text-3); }
+.key-legend .kbd { background: var(--bg-3); color: var(--text-2); } /* text-3 on bg-3 was 4.46:1 in Light (packet X) */
 .keys-settings .check { margin-top: var(--space-2); }
 .keys-settings .settings-note { margin: var(--space-2) 0 0; font-size: var(--text-sm); }
 

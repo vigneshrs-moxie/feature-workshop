@@ -64,7 +64,7 @@
   white-space: nowrap;
 }
 .floor3d-role { color: var(--text-1); font-weight: var(--weight-medium); }
-.floor3d-sep { color: var(--text-3); }
+.floor3d-sep { color: var(--text-2); }
 .floor3d-line.is-hover .floor3d-now { color: var(--text-1); }
 .floor3d-more { color: var(--text-3); }
 

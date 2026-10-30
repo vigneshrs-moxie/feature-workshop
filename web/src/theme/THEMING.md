@@ -27,8 +27,11 @@ theme re-tunes the status colours for its pale ground so every status word is at
 (WCAG) on `--bg-0`..`--bg-4` and on its own chip background; `light.css` and `light-glass.css` were
 checked that way. Both Glass themes define `--glass-float`, `--glass-pane` and `--glass-pane-side`
 and put `--glass-float` on everything that floats over other content (sheets, the palette, the
-drawer and its Save row, menus, toasts, Home's sticky header), so nothing shows through the words;
-`light-glass.css` styles exactly the hooks `glass.css` does, with light values (a test compares).
+drawer and its Save row, menus, toasts, Home's sticky header), so nothing shows through the words.
+Since packet X they also set `--surface-float` to it (menus, the Select list and the Peek read that
+token), and set `--tooltip-fg` and `--on-needs` to solid colours, because their `--bg-*` are
+see-through; `light-glass.css` styles exactly the hooks `glass.css` does, with light values (a test
+compares).
 
 **Text size.** Settings → Look → Text size (S, M, L, XL; `theme/textSize.ts`, localStorage
 `workshop.textSize`, applied before the first paint like the theme) sets `html[data-text]`, and
@@ -139,6 +142,7 @@ default to each theme's own base tokens, so a theme needn't set them; Default an
 | `--btn-primary-bg`, `--btn-primary-fg` | the primary button's fill and ink (4.5:1 at least) | `--accent`, `--on-accent` |
 | `--elev-xs` … `--elev-lg` | the elevation scale: cards, raised on hover, menus and popovers, dialogs | `--shadow-xs`, `--shadow-1`, `--shadow-pop`, `--shadow-2` |
 | `--needs-solid` | the needs-you dot, the stop map's waiting stop and the next-step bar's edge | `--status-warn` |
+| `--surface-float` | what floats over the page: menus, the Select list, the Peek, sheets, the ⌘K palette; the icon on the current stop's filled dot and a label laid on a bar (packet X). Must be solid (90% or more): a see-through one lets the aurora and the page's words through | `--bg-1` |
 
 Base tokens added with them: `--shadow-xs` … `--shadow-lg`, `--shade-hover` and `--shade-press` (the
 shade a hovered or pressed filled control lays over its own colour) and `--shine` (the primary
@@ -238,6 +242,31 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `.play-toasts` | the play toasts' corner (`.at-bottom-end`: bottom right, over the Preview pane, under sheets): `.play-toast` (`.is-achievement` `.is-secret` `.is-quest`, `.has-burst` in Full mode), `.play-toast-badge`, `.play-toast-label`, `.play-toast-name`, `.play-toast-line`, `.play-toast-close`, `.play-toasts-more`; the burst `.play-burst` (`.burst-<kind>`) and its `.play-burst-piece` (`.tone-0`…`.tone-3`). Never move them over the middle pane |
 | `.theme-unlocked` | the "Unlocked" chip on a hidden theme in the picker (`.theme-option.is-hidden-theme`) |
 | `.toast` | the error toast |
+
+## Every theme, every element (packet X)
+
+Three checks keep a theme from quietly breaking:
+
+- **`tokenCoverage.test.ts`** lists every token the app reads (`var(--x)` with no fallback of its own,
+  and the names the scripts read, like the floor's `FLOOR_TOKENS`) and fails if a theme leaves one
+  unset with no fallback in `tokens.css`. It also resolves, theme by theme, the paints that must hide
+  what is under them (`SOLID_TOKENS`: `--surface-float`, `--tooltip-bg`, `--tooltip-fg`, `--on-needs`,
+  `--btn-primary-fg`, `--on-accent`, `--needs-solid`) and fails if one is under 90% opaque. In a theme
+  whose base tokens are see-through (Glass, Light glass) set these to solid colours.
+- **`REQUIRED_THEME_TOKENS`** (`themes.test.ts`) now includes packet R's stop ring (`--stop-spec` …
+  `--stop-ship`) and `--status-review`: the default ring's pink Spec would borrow the needs-you colour
+  of every theme whose needs-you is pink, so each theme draws the ring in its own stage walk.
+- **`web/e2e/themeSweep.mjs`** visits every screen and opens every kind of overlay in every theme, at
+  1512 and 390 px, in Play full and off, and measures words against the pixels really behind them
+  (so text on a frosted pane is measured over the aurora), marks, controls, focus rings, drawn
+  pieces, sideways scroll and cut-off words. It writes a contact sheet per theme. Run it before
+  changing a theme; it ends with "Every theme passes" or the list. `web/e2e/contrast.mjs` takes
+  `THEMES=all` too.
+
+Two shared rules sit above any theme's own look, because a theme's `.btn` and `.perm-card` rules
+(under `html[data-theme]`) outranked the plain ones: a disabled button is drawn off in every theme
+(`controls.css`), and the Desk's gate card stays flat (`pages.css`). A theme that wants its own
+disabled look writes it with `:disabled` under its scope; it ties and wins by coming later.
 
 ## Adding a theme
 

@@ -178,7 +178,7 @@
 .map-row[data-group="done"] .map-row-title { color: var(--text-2); }
 .map-row-words { grid-area: words; margin: 0; padding-left: calc(8px + var(--space-2)); color: var(--text-2); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .map-row-where { color: var(--text-1); }
-.map-row-counts { color: var(--text-3); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.map-row-counts { color: var(--text-2); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .map-row-branch { display: inline; max-width: 260px; margin-left: var(--space-2); vertical-align: bottom; }
 .map-row-hint { grid-area: hint; justify-self: end; max-width: 100%; margin: 0; color: var(--text-2); font-size: var(--text-sm); text-align: right; overflow-wrap: anywhere; }
 .map-row[data-group="needs-you"] .map-row-hint { color: var(--text-1); font-weight: var(--weight-medium); }
@@ -225,7 +225,7 @@ a.map-pr:hover { border-color: var(--border-3); text-decoration: none; }
 .ship-stop { position: relative; display: inline-flex; align-items: center; }
 .ship-line { display: block; width: 22px; height: 2px; border-radius: 1px; background: var(--border-2); }
 .ship-line.is-filled { background: var(--accent); }
-.ship-dot { display: block; width: 8px; height: 8px; border: 2px solid var(--border-3); border-radius: 50%; background: var(--surface-1); }
+.ship-dot { display: block; width: 8px; height: 8px; border: 2px solid color-mix(in oklab, var(--text-3) 80%, var(--surface-1)); border-radius: 50%; background: var(--surface-1); }
 .ship-stop.is-filled .ship-dot { border-color: var(--accent); background: var(--accent); }
 .ship-stop.is-here .ship-dot { width: 12px; height: 12px; border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 2px var(--surface-1), 0 0 0 3px color-mix(in oklab, var(--accent) 45%, transparent); }
 .ship-stop.is-here:is([data-stop="main"], [data-stop="staging"]) .ship-dot { border-color: var(--status-ok); background: var(--status-ok); box-shadow: 0 0 0 2px var(--surface-1), 0 0 0 3px color-mix(in oklab, var(--status-ok) 45%, transparent); }
@@ -245,7 +245,7 @@ a.map-pr:hover { border-color: var(--border-3); text-decoration: none; }
 .home-table table { width: 100%; min-width: 1100px; border-collapse: separate; border-spacing: 0; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .home-table :is(th, td) { height: 44px; padding: 0 var(--space-3); border-bottom: 1px solid var(--border-1); color: var(--text-1); text-align: left; vertical-align: middle; white-space: nowrap; }
 .home-table tbody tr:last-child > * { border-bottom: 0; }
-.home-table thead th { position: sticky; top: 0; z-index: 1; height: 36px; background: var(--surface-2); color: var(--text-3); font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.home-table thead th { position: sticky; top: 0; z-index: 1; height: 36px; background: var(--surface-2); color: var(--text-2); font-size: var(--text-xs); font-weight: var(--weight-medium); }
 .home-table thead th[aria-sort] { color: var(--text-1); }
 .home-table thead th:first-child { border-top-left-radius: calc(var(--card-radius) - 1px); }
 .home-table thead th:last-child { border-top-right-radius: calc(var(--card-radius) - 1px); }

@@ -9,8 +9,9 @@
 // Run it against a running app (the demo is best):
 //   PORT=4493 WORKSHOP_DEMO=1 node dashboard/demo/run-demo.js      # in one terminal
 //   node web/e2e/noJump.mjs                                         # in another
+// On a phone (under 600 px) the graphs start folded, so each is unfolded first and folded back.
 // Environment: BASE (default http://127.0.0.1:4493/next/), WIDTHS (comma list, default
-// 1280,1512,1728), WIDTH (one width only; overrides WIDTHS), THEME (light),
+// 1280,1512,1728; add 390 for a phone), WIDTH (one width only; overrides WIDTHS), THEME (light),
 // PLAYWRIGHT (the path to playwright's index.mjs, when it isn't installed here).
 // It reports each width, then exits 1 if anything moved at any width (listing what), or 0.
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
@@ -39,7 +40,7 @@ async function runAt(WIDTH) {
   await page.addInitScript((t) => {
     try {
       localStorage.setItem('workshop.theme', t);
-      localStorage.setItem('gc.guide.seen', JSON.stringify(['jobs', 'desk', 'stage', 'job', 'inbox', 'telemetry', 'stack', 'stacks', 'review']));
+      localStorage.setItem('gc.guide.seen', JSON.stringify(['jobs', 'desk', 'stage', 'job', 'inbox', 'telemetry', 'stack', 'stacks', 'review', 'review-round']));
     } catch { /* storage off */ }
   }, THEME);
 
@@ -103,14 +104,17 @@ async function runAt(WIDTH) {
   });
   const cards = await page.locator('.tele-card').count();
   for (let i = 0; i < cards; i++) {
-    for (const [first, second] of [['Fold', 'Unfold'], ['Hide', null]]) {
+    for (const pair of [['Fold', 'Unfold'], ['Hide', null]]) {
       const card = page.locator('.tele-graph-col > *').nth(i);
       const id = await card.getAttribute('data-graph');
       if (!id) continue;
+      // On a phone the graphs start folded (simple by default): then it is Unfold first, Fold after.
+      const folded = await card.evaluate((el) => el.classList.contains('is-folded'));
+      const [first, second] = pair[0] === 'Fold' && folded ? ['Unfold', 'Fold'] : pair;
       const before = await where();
       const me = before.find((p) => p.id === id);
       await page.locator(`[data-graph="${id}"] .tele-card-menu > button`).click();
-      await page.getByRole('menuitem', { name: first }).click();
+      await page.getByRole('menuitem', { name: first, exact: true }).click();
       await page.waitForTimeout(200);
       const after = await where();
       for (const b of before) {
@@ -121,7 +125,7 @@ async function runAt(WIDTH) {
       pressed += 1;
       if (second) {
         await page.locator(`[data-graph="${id}"] .tele-card-menu > button`).click();
-        await page.getByRole('menuitem', { name: second }).click();
+        await page.getByRole('menuitem', { name: second, exact: true }).click();
       } else {
         await page.getByRole('group', { name: /, hidden$/ }).getByRole('button', { name: 'Show' }).click();
       }

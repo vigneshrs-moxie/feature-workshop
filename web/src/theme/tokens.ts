@@ -279,6 +279,10 @@ export function semanticTokens(): Record<string, string> {
   out['surface-0'] = 'var(--bg-0)';
   out['surface-1'] = 'var(--bg-1)';
   out['surface-2'] = 'var(--bg-2)';
+  // Packet X: what floats over the page (menus, the Select list, the Peek, sheets, the palette).
+  // A card's surface (bg-1) by default; a theme whose cards are see-through (Glass) sets a solid one, so
+  // nothing behind a menu shows through its words.
+  out['surface-float'] = 'var(--bg-1)';
   out['btn-primary-bg'] = 'var(--accent)';
   out['btn-primary-fg'] = 'var(--on-accent)';
   out['elev-xs'] = 'var(--shadow-xs)';
@@ -295,7 +299,7 @@ export function semanticTokens(): Record<string, string> {
  * Packet R's semantic tokens that follow each theme's own base tokens by default (its page, cards,
  * accent, shadows and warn colour), so a theme needn't set them; Default and Light tune them.
  */
-export const FOLLOWING_TOKENS: readonly string[] = ['surface-0', 'surface-1', 'surface-2', 'btn-primary-bg', 'btn-primary-fg', 'elev-xs', 'elev-sm', 'elev-md', 'elev-lg', 'needs-solid', 'on-needs'];
+export const FOLLOWING_TOKENS: readonly string[] = ['surface-0', 'surface-1', 'surface-2', 'surface-float', 'btn-primary-bg', 'btn-primary-fg', 'elev-xs', 'elev-sm', 'elev-md', 'elev-lg', 'needs-solid', 'on-needs'];
 
 /**
  * The crew's colours (play/CrewMember.tsx, play/play.css), the palette of the original rig

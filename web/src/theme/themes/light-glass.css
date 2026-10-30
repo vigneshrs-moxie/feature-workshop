@@ -43,7 +43,7 @@ html[data-theme="light-glass"] {
   --glass-highlight: inset 0 1px 0 oklch(1 0 0 / .85);
   --glass-pane: oklch(1 0 0 / .55);
   --glass-pane-side: oklch(1 0 0 / .5);
-  --glass-float: oklch(.99 .004 272 / .95);
+  --glass-float: oklch(.99 .004 272 / .98); /* .95 let the page behind the Peek show faintly (packet X) */
 
   /* ---- Base palette: translucent ink layers over white glass ---- */
   --bg-0: oklch(1 0 0 / .55);
@@ -67,7 +67,7 @@ html[data-theme="light-glass"] {
   --focus-ring: oklch(.48 .13 205);
   --glass-gradient: linear-gradient(135deg, oklch(.48 .15 268), oklch(.5 .12 210));
 
-  --status-ok: oklch(.44 .13 160);
+  --status-ok: oklch(.42 .13 160); /* .44: 4.4:1 on its own tint over the aurora (packet X) */
   --status-ok-bg: oklch(.6 .14 160 / .16);
   --status-warn: oklch(.46 .12 82);
   --status-warn-bg: oklch(.75 .14 82 / .18);
@@ -220,6 +220,8 @@ html[data-theme="light-glass"] .btn-primary {
   box-shadow: 0 4px 18px oklch(.46 .15 262 / .3), inset 0 1px 0 oklch(1 0 0 / .35);
 }
 html[data-theme="light-glass"] .btn-primary:hover { background: linear-gradient(135deg, oklch(.42 .15 268), oklch(.44 .12 210)); }
+/* Off is clearly off (packet X): on glass the shared disabled fill is as see-through as a live one. */
+html[data-theme="light-glass"] .btn:is(:disabled, [aria-disabled='true']) { opacity: .55; }
 html[data-theme="light-glass"] .btn-danger { border-color: var(--ask-hardline-line); background: transparent; color: var(--status-error); }
 html[data-theme="light-glass"] .btn-danger:hover { background: var(--status-error-bg); }
 
@@ -273,6 +275,8 @@ html[data-theme="light-glass"] .job-title { font-weight: 650; letter-spacing: -.
 html[data-theme="light-glass"] .status { padding: 1px var(--space-2); border-radius: 999px; background: oklch(1 0 0 / .55); font-weight: var(--weight-bold); }
 html[data-theme="light-glass"] .status[data-group="needs-you"] { background: var(--group-needs-you-bg); }
 html[data-theme="light-glass"] .level-chip { border-radius: 999px; }
+/* The Recommended chip in full ink, as in Glass (a test keeps the two files on the same hooks). */
+html[data-theme="light-glass"] .gate-rec { color: var(--text-1); }
 
 /* ---------- Thread: cards of glass ---------- */
 
@@ -440,7 +444,11 @@ html[data-theme="light-glass"] {
   --hover-bg: var(--bg-3);
   --grid-line: var(--border-1);
   --tooltip-bg: var(--text-1);
-  --tooltip-fg: var(--bg-0);
+  /* The tooltip's words, the ink on the needs-you dot and what floats are solid (packet X): --bg-0
+     is see-through here, and a menu over the aurora let the colour and the page's words through. */
+  --tooltip-fg: var(--glass-day);
+  --on-needs: var(--glass-day);
+  --surface-float: var(--glass-float);
   --chart-1: oklch(.55 .15 255);
   --chart-2: oklch(.55 .15 55);
   --chart-3: oklch(.55 .15 195);
@@ -461,5 +469,5 @@ html[data-theme="light-glass"] {
   --stop-build: oklch(.58 .12 200);
   --stop-test: oklch(.58 .16 160);
   --stop-review: oklch(.6 .15 115);
-  --stop-ship: oklch(.64 .16 75);
+  --stop-ship: oklch(.6 .16 75); /* .64: 2.9:1 on the aurora (packet X) */
 }

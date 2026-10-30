@@ -308,6 +308,8 @@ html[data-theme="crt"] .palette-input { border-bottom-color: var(--border-2); ca
 html[data-theme="crt"] .palette-option.is-active { background: var(--crt-green); }
 html[data-theme="crt"] .palette-option.is-active,
 html[data-theme="crt"] .palette-option.is-active * { color: var(--bg-0); }
+/* Its key cap: clear on the green bar, so the dark ink reads (a dark cap under dark ink was 1:1; packet X). */
+html[data-theme="crt"] .palette-option.is-active .kbd { border-color: var(--bg-0); background: transparent; }
 html[data-theme="crt"] .palette-section { color: var(--crt-green-dim); letter-spacing: .08em; text-transform: uppercase; }
 html[data-theme="crt"] .drawer-tab[aria-selected="true"] { box-shadow: inset 0 -2px 0 var(--crt-green); color: var(--crt-green-bright); }
 html[data-theme="crt"] .preview-tab[aria-selected="true"] { box-shadow: inset 0 -2px 0 var(--crt-green); color: var(--crt-green-bright); }
@@ -415,4 +417,15 @@ html[data-theme="crt"] {
   --chart-6: oklch(.8 .14 120);
   --chart-7: oklch(.8 .14 25);
   --chart-8: oklch(.8 .14 300);
+  /* Packet R's stop ring and review colour in this theme's own stage walk (packet X): the default
+     ring's pink Spec would borrow needs-you's colour here. Ship is the one stop with no stage. */
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--group-shipping-fg);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
 }
