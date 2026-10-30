@@ -1,7 +1,8 @@
 // Stacks on the other pages (packet K2): a stack is one card on Jobs that opens into its parts (and
 // its parts get no cards of their own); a part's Job page says "Part 2 of stack ORBIT-512"; the
-// Foreman's suggestion with "Run as a stack instead"; Settings → Look → Stack picture. And the
-// plain words of the Stack pages (stackModel), state by state.
+// Foreman's suggestion with "Run as a stack instead"; Settings → Look no longer offers a Stack
+// picture (packet V's stack page has Board, Map and Timeline). And the plain words of the Stack
+// pages (stackModel), state by state.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,14 +11,12 @@ import type { Job } from '../../api/types';
 import { installKeyListener, KEYS } from '../../app/keyRegistry';
 import { UiProvider } from '../../app/ui';
 import { JobsPage } from '../../home/JobsPage';
-import { readStored } from '../../lib/stored';
 import { createStore, WorkshopContext } from '../../state/store';
 import { job, snapshot } from '../../state/test-fixtures';
 import { LookSettings } from '../Settings/LookSettings';
-import { part, stackView, summary } from './fixtures';
+import { stackView, summary } from './fixtures';
 import { indexStacks, PartOfStack, RUN_AS_STACK_TEXT, StackSuggestion } from './StackRows';
-import { STACK_PICTURE_KEY } from './StackPicture';
-import { mapParts, moreLine, nextStep, ownsFile, partLook, partTitle, splitWhy, startLine, stepLine, summaryChip } from './stackModel';
+import { nextStep, ownsFile, splitWhy, startLine, summaryChip } from './stackModel';
 
 const building = stackView({ next: { action: 'wait', label: null, key: null, words: 'Building.' } }, ['running', 'ready', 'pending']);
 const LIST = { stacks: [summary(building)], globalCap: 3, globalRunning: 1 };
@@ -108,42 +107,17 @@ describe('a part’s Job page, and the Foreman’s suggestion', () => {
   });
 });
 
-describe('Settings → Look → Stack picture', () => {
-  it('picks the merge map (default) or four big steps, kept in this browser', () => {
+describe('Settings → Look', () => {
+  it('has no Stack picture: the stack page itself offers Board, Map and Timeline', () => {
     const { wrap } = setup([]);
     wrap(<LookSettings />);
-    const group = screen.getByRole('group', { name: 'Stack picture' });
-    expect(within(group).getByRole('radio', { name: /Merge map/ })).toBeChecked();
-    fireEvent.click(within(group).getByRole('radio', { name: /Four big steps/ }));
-    expect(readStored(STACK_PICTURE_KEY)).toBe('steps');
-    expect(within(group).getByRole('link', { name: /See it in Stacks/ })).toHaveAttribute('href', '#/stacks');
+    expect(screen.queryByRole('group', { name: 'Stack picture' })).toBeNull();
+    expect(screen.queryByText(/Merge map|Four big steps/)).toBeNull();
   });
 });
 
 describe('the words (stackModel)', () => {
-  it('each part’s state is a word, never a colour alone', () => {
-    const v = stackView({}, ['integrated', 'running', 'pending']);
-    expect(partLook(v.parts[0], v)).toMatchObject({ tone: 'merged', word: '✓ Merged' });
-    expect(partLook(v.parts[1], v)).toMatchObject({ tone: 'building', word: 'Building', live: true });
-    expect(partLook(v.parts[2], v)).toMatchObject({ tone: 'waiting', word: 'Waits for part 2' });
-    expect(partLook(part(2, 'b', 'ready'), v)).toMatchObject({ word: 'Ready to merge' });
-    expect(partLook(part(2, 'b', 'failed', { failures: 3 }), v)).toMatchObject({ tone: 'needs-you', word: 'Needs you', readout: 'Try 3 of 3 · stopped' });
-    expect(partLook(part(2, 'b', 'blocked', { problem: { kind: 'conflict', words: '', files: ['a/b.ts'] } }), v)).toMatchObject({ word: 'Conflict', readout: 'b.ts', atMerge: true });
-    expect(partLook(part(2, 'b', 'blocked', { problem: { kind: 'outside', words: '', files: ['x'] } }), v).word).toBe('Outside its files');
-    expect(partLook(part(2, 'b', 'running', { failures: 1, problem: { kind: 'checks', words: '', files: [] } }), v)).toMatchObject({ word: 'Tests failed', readout: 'Try 1 of 3' });
-    expect(partLook(part(2, 'b', 'running', { progress: { stage: 'plan', step: 0, of: 4, words: 'Planning: waiting for you' } }), v)).toMatchObject({ tone: 'needs-you', word: 'Needs you' });
-    expect(partLook(part(2, 'b', 'pending', { reason: 'Waiting for a free slot: 3 of 3 in use' }), v).word).toBe('Waits for a free slot');
-    const plan = stackView();
-    expect(partLook(plan.parts[0], plan)).toMatchObject({ word: 'Waits for your yes', cardWord: 'Ready to start', readout: '2 files' });
-    expect(partLook(plan.parts[2], plan)).toMatchObject({ word: 'Waits for part 2', cardWord: 'After part 2' });
-  });
-
-  it('a part’s name on screen is its brief’s first words', () => {
-    expect(partTitle({ name: 'api', brief: 'The work order API: list, create and close.' })).toBe('The work order API');
-    expect(partTitle({ name: 'api', brief: '' })).toBe('api');
-  });
-
-  it('the start line, why it splits, each step’s line', () => {
+  it('the start line, and why it splits', () => {
     const v = stackView();
     expect(startLine(v)).toBe('Parts 1 and 2 start right away. Part 3 waits for part 2.');
     expect(startLine({ ...v, cap: 1 })).toBe('Part 1 starts right away. Part 2 starts when one of those finishes (1 at once). Part 3 waits for part 2.');
@@ -153,17 +127,6 @@ describe('the words (stackModel)', () => {
       'Part 3 waits for part 2, because it builds on it.',
       'They merge in this order, one at a time: 1, 2, 3.',
     ]);
-    for (const s of ['plan', 'build', 'merge', 'push'] as const) expect(stepLine(s, { autoIntegrate: false })).toMatch(/^[A-Z].+\.$/);
-    expect(stepLine('merge', { autoIntegrate: false })).toMatch(/You say yes to each one/);
-  });
-
-  it('the map bunches 4 to 6 parts closer, and above 6 shows the ones at work', () => {
-    const p = (n: number, s: 'running' | 'pending' | 'integrated') => part(n, `p${n}`, s);
-    expect(mapParts([p(1, 'running'), p(2, 'running'), p(3, 'pending')])).toMatchObject({ dense: false, waiting: 0 });
-    expect(mapParts([1, 2, 3, 4].map((n) => p(n, 'running'))).dense).toBe(true);
-    const rows = mapParts([p(1, 'integrated'), p(2, 'running'), p(3, 'running'), ...[4, 5, 6, 7, 8].map((n) => p(n, 'pending'))]);
-    expect(rows.shown.map((x) => x.n)).toEqual([2, 3]);
-    expect(moreLine(rows)).toBe('and 5 more waiting · 1 merged');
   });
 
   it('a clash is with the merged part that owns the file', () => {
