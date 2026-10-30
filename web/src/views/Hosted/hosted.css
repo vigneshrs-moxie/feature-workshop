@@ -70,3 +70,29 @@
 @media (max-width: 600px) {
   .hosted-laptop-row, .hosted-person { flex-wrap: wrap; }
 }
+
+/* The Inbox on the site (packet 2C): a Start on its way, in words with an icon (never colour
+   alone), the one calm banner when the token expired, and the laptop choice. */
+.inbox-start-row { display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+.inbox-start { display: inline-flex; align-items: flex-start; gap: 4px; width: max-content; max-width: 11em; white-space: normal; color: var(--text-2); font-size: var(--text-sm); font-weight: var(--weight-medium); line-height: 1.35; text-align: left; }
+.inbox-start > svg { flex: none; margin-top: 2px; }
+.inbox-start.is-started { color: var(--status-ok); }
+.inbox-start-problem { display: flex; align-items: flex-start; gap: 4px; margin-top: 2px; color: var(--status-error); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.inbox-start-problem > svg { flex: none; margin-top: 2px; }
+.inbox-token-banner { display: flex; align-items: flex-start; gap: var(--space-2); margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--status-info-bg); color: var(--text-1); }
+.inbox-token-banner > svg { flex: none; margin-top: 2px; color: var(--status-info); }
+.page-inbox.is-hosted .ticket-act .inbox-start-row { justify-content: flex-start; }
+
+.hosted-start-ticket { margin: 0 0 var(--space-3); overflow-wrap: anywhere; }
+.hosted-laptop-choice { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; margin: 0 0 var(--space-3); padding: 0; border: 0; }
+.hosted-choice-words { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.hosted-choice-name { color: var(--text-1); font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.hosted-choice-meta { font-size: var(--text-sm); }
+
+/* Settings → Orbit */
+.hosted-orbit-saved { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); margin: 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--border-1); border-radius: var(--radius-lg); background: var(--surface-1); }
+.hosted-orbit-saved-words { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: var(--weight-medium); }
+.hosted-orbit-saved-words > svg { color: var(--status-ok); }
+.hosted-orbit-form { display: flex; flex-direction: column; gap: var(--space-3); max-width: 560px; }
+.hosted-orbit-form label { font-weight: var(--weight-medium); }
+.hosted-orbit-field { display: flex; flex-direction: column; gap: var(--space-1); }

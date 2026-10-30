@@ -179,7 +179,7 @@ export default function orbitRoutes(ctx) {
           throw new HttpError(409, `${key} is already on its way to ${pending.laptop.name}.`, { code: 'already-starting' });
         }
         const laptops = await ctx.laptopsOf(person.id);
-        if (!laptops.length) throw new HttpError(409, 'Pair a laptop first: run ground-control login --site with this site’s address on it.', { code: 'no-laptop' });
+        if (!laptops.length) throw new HttpError(409, 'Pair a laptop first: Settings → Laptops shows the one command to run on it.', { code: 'no-laptop' });
         let laptop;
         if (b.laptopId !== undefined && b.laptopId !== null) {
           laptop = laptops.find((l) => l.id === Number(b.laptopId));

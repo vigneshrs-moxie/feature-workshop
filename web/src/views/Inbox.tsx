@@ -14,6 +14,14 @@
 //
 // While this page is open it holds /api/orbit/events, so the dashboard checks Orbit every 3 minutes
 // instead of every 15; the stream also brings each new list. Nothing here writes to Orbit.
+//
+// On the hosted site (packet 2C, `hosted`) the same page reads the inbox the site keeps for you
+// (hosted/site/routes-orbit.js): the site's cron job reads Orbit every 3 minutes with your token,
+// and while this page is open it asks for a fresh read once a minute. Start sends the ticket to
+// your laptop (views/Hosted/HostedInboxPage.tsx asks which, when you have more than one); the row
+// says how it is going, in words: on its way, starts when your laptop is back, started, or why
+// not. Mine only (saved views stay on the laptop), no Start as stack, and the quick look shows
+// what the site keeps, with the ticket's links and timeline on Orbit.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from '../api/client';
 import { useKeyScope } from '../app/keyRegistry';
@@ -32,7 +40,7 @@ import { useWorkshop, useWorkshopState } from '../state/store';
 // ---------- What the dashboard sends (GET /api/orbit/*) ----------
 
 export type { InboxAnswer, InboxItem, OrbitStatus } from '../api/types';
-import type { InboxAnswer, InboxItem, Job, OrbitStatus } from '../api/types';
+import type { InboxAnswer, InboxItem, InboxStart, Job, OrbitStatus } from '../api/types';
 import { BRAND } from '../app/brand';
 
 interface SavedView { id: string; name: string; isDefault: boolean }
@@ -156,7 +164,41 @@ function defaultOpenStream(url: string): OrbitStream | null {
   return typeof EventSource === 'undefined' ? null : new EventSource(url);
 }
 
-export function InboxView({ openStream = defaultOpenStream }: { openStream?: (url: string) => OrbitStream | null }) {
+/** What the hosted site gives the Inbox (views/Hosted/HostedInboxPage.tsx). */
+export interface HostedInbox {
+  /** Settings → Orbit on the site. */
+  settingsHref: string;
+  /** Start: the ticket to one of your laptops. */
+  onStart(item: InboxItem): void;
+  /** Cancel a Start your laptop hasn't picked up yet. */
+  onCancel(item: InboxItem): void;
+  /** Bumped when a Start or a Cancel changed the list: it is read again. */
+  version: number;
+  /** What went wrong with the last Start or Cancel, in words. */
+  notice?: string | null;
+}
+
+/** The hosted Inbox reads the site's list this often, and asks for a fresh read from Orbit every fourth time (once a minute). */
+export const HOSTED_READ_MS = 15_000;
+const HOSTED_REFRESH_EVERY = 4;
+
+/** A Start on its way to a laptop, or taken: the ticket isn't free to start again. */
+export const onItsWay = (i: Pick<InboxItem, 'start'>) => Boolean(i.start && i.start.state !== 'failed');
+
+const HOSTED_GUIDE: GuideSpec = {
+  id: 'hosted-inbox',
+  title: 'How the Inbox works here',
+  done: 'Show me my tickets',
+  cards: [
+    { icons: ['inbox'], title: 'Your Orbit tickets, laptop or not', say: 'The site reads the tickets assigned to you or that you watch every few minutes, with your own token, even while your laptop is closed.' },
+    { icons: ['send'], title: 'Start sends it to your laptop', say: 'The job runs on your laptop. If the laptop is off, it starts when the laptop is back.' },
+    { icons: ['hand', 'check'], title: 'You say go at each step', say: 'The Foreman reads the ticket first, on the laptop, and nothing moves on without you.' },
+  ],
+};
+
+export function InboxView({ openStream = defaultOpenStream, hosted }: { openStream?: (url: string) => OrbitStream | null; hosted?: HostedInbox }) {
+  const isHosted = Boolean(hosted);
+  const hostedVersion = hosted?.version ?? 0;
   const { api } = useWorkshop();
   const { jobs } = useWorkshopState();
   const ui = useUi();
@@ -178,28 +220,39 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
     }
   }, [api]);
 
-  useEffect(() => { void loadMine(); }, [loadMine]);
+  // On the site, the first look asks for a fresh read too (the site reads Orbit at most once a minute).
+  useEffect(() => { void loadMine(isHosted); }, [loadMine, isHosted]);
+
+  // The hosted site: the kept list every 15 seconds (a Start's progress), a fresh read once a minute.
+  useEffect(() => {
+    if (!isHosted) return;
+    let ticks = 0;
+    const id = setInterval(() => { ticks++; void loadMine(ticks % HOSTED_REFRESH_EVERY === 0); }, HOSTED_READ_MS);
+    return () => clearInterval(id);
+  }, [isHosted, loadMine]);
+  useEffect(() => { if (hostedVersion) void loadMine(); }, [hostedVersion, loadMine]);
 
   // The live stream: an open Inbox makes the dashboard check every 3 minutes, and brings each list.
   useEffect(() => {
+    if (isHosted) return;
     const es = openStream('/api/orbit/events');
     if (!es) return;
     es.addEventListener('inbox', (ev) => {
       try { setMine({ state: 'ready', data: JSON.parse(String(ev.data)) as InboxAnswer }); } catch { /* a bad line: the next one will do */ }
     });
     return () => es.close();
-  }, [openStream]);
+  }, [openStream, isHosted]);
 
   const ready = mine.state === 'ready' ? mine.data : null;
   const configured = Boolean(ready?.tokenPresent && ready?.url);
 
   // The saved views, for the tabs (Orbit gives them to the feedback team only: none is fine).
   useEffect(() => {
-    if (!configured) return;
+    if (!configured || isHosted) return;
     let live = true;
     api.get<{ views: SavedView[] }>('/api/orbit/views').then((r) => { if (live) setViews(r.views ?? []); }).catch(() => { if (live) setViews([]); });
     return () => { live = false; };
-  }, [api, configured]);
+  }, [api, configured, isHosted]);
 
   useEffect(() => {
     if (tab === 'mine') { setViewList(null); return; }
@@ -211,19 +264,21 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
     return () => { live = false; };
   }, [api, tab]);
 
+  const onHostedStart = hosted?.onStart;
   const start = useCallback((item: InboxItem) => {
-    if (item.job) return;
+    if (item.job || onItsWay(item)) return;
+    if (onHostedStart) { onHostedStart(item); return; }
     ui.openSheet({ kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url } });
-  }, [ui]);
-  // Start as stack (S): New job with the ticket filled in, to run as a stack (views/Stack).
+  }, [ui, onHostedStart]);
+  // Start as stack (S): New job with the ticket filled in, to run as a stack (views/Stack). Not on the site.
   const startStack = useCallback((item: InboxItem) => {
-    if (item.job) return;
+    if (item.job || isHosted) return;
     ui.openSheet(stackSheet(item));
-  }, [ui]);
+  }, [ui, isHosted]);
 
   const shown = tab === 'mine' ? mine : viewList ?? { state: 'loading' as const };
   const items = useMemo(() => (shown.state === 'ready' ? sortInbox(shown.data.items) : []), [shown]);
-  const pick = useMemo(() => nextTicket(items), [items]);
+  const pick = useMemo(() => nextTicket(items.filter((i) => !onItsWay(i))), [items]);
   // The ticket in the quick look (#/inbox?peek=ORBIT-12): from this list, else the last one seen.
   const lastOpen = useRef<InboxItem | null>(null);
   const open = peek ? items.find((i) => i.key === peek) ?? (lastOpen.current?.key === peek ? lastOpen.current : null) : null;
@@ -235,12 +290,12 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
   useKeyScope('inbox', {
     'inbox-start': () => {
       const item = open ?? focused.current ?? pick;
-      if (!item || item.job) return false;
+      if (!item || item.job || onItsWay(item)) return false;
       start(item);
     },
     'inbox-start-stack': () => {
       const item = open ?? focused.current ?? pick;
-      if (!item || item.job) return false;
+      if (!item || item.job || isHosted) return false;
       startStack(item);
     },
   });
@@ -273,15 +328,15 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
         })}
       </div>
       <span className="spacer" />
-      {ready && <ReadLine status={ready} now={now} />}
-      <Button kind="quiet" size="sm" icon="refresh" busy={refreshing} onClick={() => void refresh()} title="Read your tickets from Orbit now instead of at the next check.">
+      {ready && <ReadLine status={ready} now={now} hosted={isHosted} />}
+      <Button kind="quiet" size="sm" icon="refresh" busy={refreshing} onClick={() => void refresh()} title={isHosted ? 'Read your tickets from Orbit now (at most once a minute) instead of at the next check.' : 'Read your tickets from Orbit now instead of at the next check.'}>
         Read now
       </Button>
     </>
   ) : null;
 
-  const decide = items.filter(needsDecision);
-  const wait = items.filter((i) => !needsDecision(i));
+  const decide = items.filter((i) => !onItsWay(i) && needsDecision(i));
+  const wait = items.filter((i) => onItsWay(i) || !needsDecision(i));
   const order = [...decide, ...wait].map((i) => i.key);
   const table = (rows: InboxItem[], caption: string) => (
     <TicketTable
@@ -295,33 +350,37 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
       onStart={start}
       onStartStack={startStack}
       onFocusRow={(item) => { focused.current = item; }}
+      hosted={hosted}
     />
   );
 
   return (
-    <Page label="Inbox" title="Inbox" className="page-inbox" head={head} guide={INBOX_GUIDE}>
+    <Page label="Inbox" title="Inbox" className={`page-inbox${isHosted ? ' is-hosted' : ''}`} head={head} guide={isHosted ? HOSTED_GUIDE : INBOX_GUIDE}>
       {showLoading && <p className="muted" role="status">Reading your tickets…</p>}
-      {mine.state === 'error' && <p className="field-problem" role="alert">The dashboard couldn’t give the inbox: {mine.message}</p>}
-      {ready && !configured && <NoToken />}
+      {mine.state === 'error' && <p className="field-problem" role="alert">{isHosted ? 'The site' : 'The dashboard'} couldn’t give the inbox: {mine.message}</p>}
+      {ready && !configured && (hosted ? <HostedNoToken settingsHref={hosted.settingsHref} setup={ready.setup ?? []} /> : <NoToken />)}
       {ready && configured && (
         <>
-          <StatusLine status={ready} now={now} />
+          {hosted ? <HostedStatusLine status={ready} now={now} settingsHref={hosted.settingsHref} /> : <StatusLine status={ready} now={now} />}
+          {hosted?.notice && <p className="field-problem" role="alert">{hosted.notice}</p>}
           {shown.state === 'ready' && (pick ? (
             <NextBar
               tone="stop"
               icon={SEVERITY_ICON[pick.severity ?? ''] ?? 'inbox'}
               say={`${pick.key} is ${pick.severity ? levelWord(pick.severity).toLowerCase() : 'not triaged yet'}${pick.assignee ? pick.assignee.you ? ' and yours' : `, with ${pick.assignee.name}` : ' and nobody is on it'}`}
-              sub="Start a job and the Foreman reads the ticket first."
+              sub={isHosted ? 'Start sends it to your laptop, and the Foreman reads the ticket there first.' : 'Start a job and the Foreman reads the ticket first.'}
             >
-              <Button size="lg" keyId="inbox-start-stack" onClick={() => startStack(pick)} title={`${STACK_WHEN} Opens New job on ${pick.key}, run as a stack (key: Shift+S).`}>
-                Start as stack
-              </Button>
-              <Button kind="primary" size="lg" keyId="inbox-start" keyShown onClick={() => start(pick)} title={`Start a job on ${pick.key}: opens New job with the key and title filled in (key: s).`}>
+              {!isHosted && (
+                <Button size="lg" keyId="inbox-start-stack" onClick={() => startStack(pick)} title={`${STACK_WHEN} Opens New job on ${pick.key}, run as a stack (key: Shift+S).`}>
+                  Start as stack
+                </Button>
+              )}
+              <Button kind="primary" size="lg" keyId="inbox-start" keyShown onClick={() => start(pick)} title={isHosted ? `Start a job on ${pick.key} on your laptop (key: s).` : `Start a job on ${pick.key}: opens New job with the key and title filled in (key: s).`}>
                 Start {pick.key}
               </Button>
             </NextBar>
           ) : items.length > 0 ? (
-            <NextBar tone="quiet" icon="circle-check" say="Every ticket here already has a job" sub="Open a job from its row to see where it is." />
+            <NextBar tone="quiet" icon="circle-check" say={isHosted ? 'Every ticket here has a job, or is on its way to your laptop' : 'Every ticket here already has a job'} sub="Open a job from its row to see where it is." />
           ) : null)}
           {shown.state === 'loading' && showListLoading && <p className="muted" role="status">Reading the list…</p>}
           {shown.state === 'error' && <p className="field-problem" role="alert">{shown.message}</p>}
@@ -346,12 +405,14 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
               icon="circle-check"
               quiet
               title="Nothing for you right now"
-              actions={<Button size="lg" keyId="new-job" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job of your own (key: c).">New job</Button>}
+              actions={isHosted ? undefined : <Button size="lg" keyId="new-job" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job of your own (key: c).">New job</Button>}
             >
               {tab === 'mine' ? 'Nothing open is assigned to you or watched by you.' : 'No tickets in this view.'}
             </Hero>
           ))}
-          {open && <TicketPeek key={open.key} item={open} order={order} onPick={(key) => setPeek(key)} onClose={() => setPeek(null)} onStart={start} onStartStack={startStack} />}
+          {open && (hosted
+            ? <HostedTicketPeek key={open.key} item={open} order={order} onPick={(key) => setPeek(key)} onClose={() => setPeek(null)} onStart={start} onCancel={hosted.onCancel} />
+            : <TicketPeek key={open.key} item={open} order={order} onPick={(key) => setPeek(key)} onClose={() => setPeek(null)} onStart={start} onStartStack={startStack} />)}
         </>
       )}
     </Page>
@@ -404,19 +465,93 @@ function StatusLine({ status, now }: { status: OrbitStatus; now: Date }) {
 }
 
 /** When the list was read and how often, quietly in the page's header (beside Read now). */
-function ReadLine({ status, now }: { status: OrbitStatus; now: Date }) {
+function ReadLine({ status, now, hosted = false }: { status: OrbitStatus; now: Date; hosted?: boolean }) {
   const read = status.lastPoll ? `Read ${relativeTime(status.lastPoll, now)}${/^\d+[mhd]$/.test(relativeTime(status.lastPoll, now)) ? ' ago' : ''}` : 'Not read yet';
   return (
     <span className="muted page-note inbox-read" title={status.lastPoll ? fullTime(status.lastPoll) : undefined}>
-      {read} · checked every {minutes(status.everyMs)} minutes while this page is open
+      {read} · {hosted ? `checked every ${minutes(status.everyMs)} minutes, and every minute while this page is open` : `checked every ${minutes(status.everyMs)} minutes while this page is open`}
       {status.waitingMs > 0 && <> · Orbit asked to wait, next check in about {Math.max(1, minutes(status.waitingMs))} minutes</>}
     </span>
   );
 }
 
-function TicketTable({ items, caption, jobs, pick, now, peeked, onOpen, onStart, onStartStack, onFocusRow }: {
+/** A Start on its way, in words with an icon (never colour alone); Cancel while the laptop hasn't taken it. */
+export function StartState({ start, onCancel }: { start: InboxStart; onCancel?: () => void }) {
+  const laptop = start.laptop.name;
+  if (start.state === 'started') {
+    return <span className="inbox-start is-started" role="status"><Icon name="check" size={14} />Started on {laptop}</span>;
+  }
+  const waiting = start.state === 'waiting';
+  return (
+    <span className="inbox-start-row">
+      <span className={`inbox-start ${waiting ? 'is-waiting' : 'is-sending'}`} role="status" title={waiting ? `${laptop} is off. The job starts there as soon as it is back.` : `${laptop} is online: it starts in a moment.`}>
+        <Icon name={waiting ? 'hourglass' : 'send'} size={14} />
+        {waiting ? 'Starts when your laptop is back' : `Starting on ${laptop}…`}
+      </span>
+      {onCancel && !start.handedOut && (
+        <Button kind="quiet" size="sm" onClick={onCancel} title={`Don’t start it: ${laptop} hasn’t picked it up yet.`}>Cancel</Button>
+      )}
+    </span>
+  );
+}
+
+/** Why the laptop didn't start it, under the ticket's title; Start again sits on the right. */
+function StartProblem({ start }: { start: InboxStart }) {
+  return <span className="inbox-start-problem"><Icon name="warn" size={14} />{start.laptop.name} couldn’t start it: {start.error ?? 'it didn’t say why.'}</span>;
+}
+
+const HOSTED_SETUP_STEPS = [
+  { title: 'Make a token', say: 'On Orbit’s API tokens page. It can only read: nothing here writes to Orbit.' },
+  { title: 'Paste it in Settings → Orbit', say: 'The site keeps it encrypted and uses it for your inbox only.' },
+  { title: 'Your tickets show here', say: 'Read every few minutes, even while your laptop is closed.' },
+] as const;
+
+/** The hosted Inbox before a token: the three steps, and the way to Settings → Orbit. */
+function HostedNoToken({ settingsHref, setup }: { settingsHref: string; setup: readonly string[] }) {
+  return (
+    <section className="inbox-setup" aria-label="Connect Orbit">
+      <span className="inbox-setup-pic" aria-hidden="true"><Icon name="inbox" size={24} /></span>
+      <h2 className="inbox-setup-title">Connect Orbit to see your tickets</h2>
+      <p className="inbox-setup-say">Your Portal Feedback tickets show here once the site has your Orbit token, even while your laptop is closed.</p>
+      {setup.length > 0 && (
+        <p className="perm-warn" role="status">The site isn’t set up for Orbit yet: whoever runs it sets {setup.join(' and ')} in Vercel first.</p>
+      )}
+      <ol className="setup-steps">
+        {HOSTED_SETUP_STEPS.map((step, n) => (
+          <li key={step.title} className="setup-step">
+            <span className="setup-n num" aria-hidden="true">{n + 1}</span>
+            <span className="setup-words"><b className="setup-title">{step.title}</b><span className="setup-say">{step.say}</span></span>
+          </li>
+        ))}
+      </ol>
+      <Button kind="primary" size="lg" href={settingsHref} className="inbox-setup-go">Open Settings → Orbit</Button>
+    </section>
+  );
+}
+
+/** The hosted Inbox's one banner when the token is past its date or refused; else the last problem. */
+function HostedStatusLine({ status, now, settingsHref }: { status: OrbitStatus; now: Date; settingsHref: string }) {
+  if (status.expired) {
+    return (
+      <p className="inbox-token-banner" role="status">
+        <Icon name="clock" size={16} />
+        <span>Your Orbit token expired. Paste a new one in <a href={settingsHref}>Settings → Orbit</a>.{status.lastPoll && <span className="muted"> The list below is as it was at {clockTime(status.lastPoll, now)}.</span>}</span>
+      </p>
+    );
+  }
+  if (!status.lastError) return null;
+  return (
+    <p className="field-problem" role="alert">
+      {status.lastError}
+      {status.lastPoll && <> Showing the list as it was at {clockTime(status.lastPoll, now)}.</>}
+    </p>
+  );
+}
+
+function TicketTable({ items, caption, jobs, pick, now, peeked, onOpen, onStart, onStartStack, onFocusRow, hosted }: {
   items: InboxItem[]; caption: string; jobs: readonly Job[]; pick: InboxItem | null; now: Date; peeked: string | null;
   onOpen: (item: InboxItem) => void; onStart: (item: InboxItem) => void; onStartStack: (item: InboxItem) => void; onFocusRow: (item: InboxItem | null) => void;
+  hosted?: HostedInbox;
 }) {
   return (
     <div className="data-table inbox-table">
@@ -456,17 +591,20 @@ function TicketTable({ items, caption, jobs, pick, now, peeked, onOpen, onStart,
                     <span className="ticket-title">{i.title}</span>
                   </button>
                   {i.job && <span className="muted ticket-job">You are already on this: <a href={jobHref(i.job.slug)} title="Open the job on this ticket.">{i.job.title}</a></span>}
+                  {!i.job && i.start?.state === 'failed' && <StartProblem start={i.start} />}
                 </th>
                 <td className="cell-age num" title={i.createdAt ? `Opened ${fullTime(i.createdAt)}` : undefined}>{relativeTime(i.createdAt, now) || '—'}</td>
                 <td className="cell-who"><WhoIsOn who={i.assignee} /></td>
                 <td className="cell-act">
                   {i.job ? (
-                    <Button size="sm" href={jobHref(i.job.slug)} icon={job?.lane === 'needs-you' ? 'hand' : undefined} title={job?.laneReason ?? 'Open the job on this ticket.'}>
-                      {job?.lane === 'needs-you' ? 'Needs you' : 'Open its job'}
+                    <Button size="sm" href={jobHref(i.job.slug)} icon={job?.lane === 'needs-you' || i.job.state === 'needs-you' ? 'hand' : undefined} title={job?.laneReason ?? 'Open the job on this ticket.'}>
+                      {job?.lane === 'needs-you' || i.job.state === 'needs-you' ? 'Needs you' : 'Open its job'}
                     </Button>
+                  ) : hosted && i.start && onItsWay(i) ? (
+                    <StartState start={i.start} onCancel={() => hosted.onCancel(i)} />
                   ) : (
                     <>
-                      <Button
+                      {!hosted && <Button
                         kind="quiet"
                         size="sm"
                         className="inbox-stack-start"
@@ -475,15 +613,15 @@ function TicketTable({ items, caption, jobs, pick, now, peeked, onOpen, onStart,
                         title={`${STACK_WHEN} Opens New job on ${i.key}, run as a stack (key: Shift+S, with the focus on this row).`}
                       >
                         Start as stack
-                      </Button>
+                      </Button>}
                       <Button
                         size="sm"
                         keyId={isPick ? 'inbox-start' : undefined}
                         onClick={() => onStart(i)}
                         aria-label={`Start a job on ${i.key}`}
-                        title={`Start a job on ${i.key}: opens New job with the key and title filled in (key: s, with the focus on this row).`}
+                        title={hosted ? `Start a job on ${i.key} on your laptop (key: s, with the focus on this row).` : `Start a job on ${i.key}: opens New job with the key and title filled in (key: s, with the focus on this row).`}
                       >
-                        Start
+                        {i.start?.state === 'failed' ? 'Start again' : 'Start'}
                       </Button>
                     </>
                   )}
@@ -494,6 +632,49 @@ function TicketTable({ items, caption, jobs, pick, now, peeked, onOpen, onStart,
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** The quick look on the hosted site: what the site keeps; the ticket's links and timeline are on Orbit. */
+function HostedTicketPeek({ item, order, onPick, onClose, onStart, onCancel }: {
+  item: InboxItem; order: readonly string[]; onPick: (key: string) => void; onClose: () => void;
+  onStart: (item: InboxItem) => void; onCancel: (item: InboxItem) => void;
+}) {
+  const now = useNow();
+  usePeekKeys({ current: item.key, order, onPick, onClose });
+  return (
+    <Peek
+      label={`${item.key}: ${item.title}`}
+      className="ticket-peek"
+      title={<span className="num ticket-key">{item.key}</span>}
+      actions={item.url ? <Button kind="quiet" size="sm" icon="external" href={item.url} target="_blank" rel="noreferrer noopener" title="Open the ticket on Orbit, in a new tab.">Open on Orbit</Button> : null}
+      keys={[['j k', 'the next or previous ticket'], ['s', 'start a job'], ['Esc', 'close']]}
+      onClose={onClose}
+    >
+      <p className="ticket-peek-title">{item.title}</p>
+      <dl className="ticket-facts">
+        <div><dt>Status</dt><dd>{statusWord(item.status)}</dd></div>
+        <div><dt>Severity</dt><dd><Severity item={item} /></dd></div>
+        <div><dt>Opened</dt><dd className="num" title={item.createdAt ? fullTime(item.createdAt) : undefined}>{relativeTime(item.createdAt, now) || '—'}</dd></div>
+        <div><dt>Assigned to</dt><dd><WhoIsOn who={item.assignee} /></dd></div>
+      </dl>
+      <div className="ticket-act">
+        {item.job ? (
+          <p className="ticket-on">You are already on this: <a href={jobHref(item.job.slug)}>{item.job.title}</a></p>
+        ) : item.start && onItsWay(item) ? (
+          <StartState start={item.start} onCancel={() => onCancel(item)} />
+        ) : (
+          <>
+            {item.start?.state === 'failed' && <StartProblem start={item.start} />}
+            <Button kind="primary" keyId="inbox-start" keyShown onClick={() => onStart(item)} title="Start a job on this ticket on your laptop (key: s).">
+              {item.start?.state === 'failed' ? 'Start again' : 'Start'}
+            </Button>
+          </>
+        )}
+      </div>
+      {item.description && <p className="ticket-description">{item.description}</p>}
+      <p className="muted">Its links and timeline are on Orbit. Your laptop shows them too, and the Foreman reads the whole ticket there.</p>
+    </Peek>
   );
 }
 
