@@ -4,6 +4,7 @@
 //   Jobs                 my jobs from the mirror, by laptop (HostedJobsPage)
 //   Pair this laptop     the code `ground-control login` printed (PairPage)
 //   Inbox                your Orbit tickets, from the inbox the site keeps (HostedInboxPage)
+//   Lounge               the whole team, very little per person (packet 2D: views/Lounge)
 //   Settings             Laptops, Orbit and People (LaptopsPage, OrbitPage, PeoplePage)
 //   Desk, a job, its Stage, Stacks and a part
 //                        the laptop app's own pages, from the full mirror (packet 2B: HostedWorkshop)
@@ -25,6 +26,7 @@ import { PairPage } from './PairPage';
 import { PeoplePage } from './PeoplePage';
 import { SignInPage } from './SignInPage';
 import { HostedWorkshop, useHostedWorkshop } from './HostedWorkshop';
+import { LoungePage } from '../Lounge/LoungePage';
 import { useHostedRoute, type HostedRoute } from './route';
 import type { HostedMeta, HostedPerson } from './types';
 import { words, type HostedProps } from './shared';
@@ -45,12 +47,13 @@ function nameOf(route: HostedRoute): string {
     case 'people': return 'People';
     case 'orbit': return 'Orbit';
     case 'inbox': return 'Inbox';
+    case 'lounge': return 'Lounge';
     default: return route.page;
   }
 }
 
 function TopBar({ route, person, onSignOut, busy }: { route: HostedRoute; person: HostedPerson | null; onSignOut?: () => void; busy?: boolean }) {
-  const at = route.name === 'jobs' || route.name === 'inbox' ? route.name
+  const at = route.name === 'jobs' || route.name === 'inbox' || route.name === 'lounge' ? route.name
     : route.name === 'mirror' ? (['job', 'stage'].includes(route.route.name) ? 'jobs' : route.route.name === 'desk' ? 'Desk' : 'Stacks')
       : route.name === 'laptops' || route.name === 'people' || route.name === 'orbit' ? 'settings' : route.name === 'later' ? route.page : null;
   const pages: (MenuEntry & { kind: 'link' })[] = [
@@ -59,6 +62,7 @@ function TopBar({ route, person, onSignOut, busy }: { route: HostedRoute; person
     { kind: 'link', id: 'desk', label: 'Desk', href: '#/desk', icon: 'hand', current: at === 'Desk', hint: 'The Desk: every decision waiting for you, one at a time.' },
     { kind: 'link', id: 'stacks', label: 'Stacks', href: '#/stacks', icon: 'layers', current: at === 'Stacks', hint: 'Stacks: big jobs split into parts.' },
     { kind: 'link', id: 'telemetry', label: 'Telemetry', href: '#/telemetry', icon: 'gauge', current: at === 'Telemetry', hint: 'Telemetry: on your laptop for now.' },
+    { kind: 'link', id: 'lounge', label: 'Lounge', href: '#/lounge', icon: 'users', current: at === 'lounge', hint: 'The Lounge: who on the team is around, and what is running on their laptops.' },
   ];
   const settings: MenuEntry = { kind: 'link', id: 'settings', label: 'Settings', href: '#/settings/laptops', icon: 'settings', current: at === 'settings', hint: 'Your laptops, and the people on the site.' };
   return (
@@ -135,6 +139,7 @@ export function HostedApp({ api: given }: { api?: ApiClient }) {
         : route.name === 'people' ? <PeoplePage {...props} />
           : route.name === 'orbit' ? <OrbitPage {...props} />
             : route.name === 'inbox' ? <HostedInboxPage {...props} />
+            : route.name === 'lounge' ? <LoungePage {...props} />
           : route.name === 'later' ? <LaterPage page={route.page} />
             : route.name === 'mirror' ? <HostedWorkshop api={api} store={store} route={route.route} />
             : <HostedJobsPage {...props} />;
