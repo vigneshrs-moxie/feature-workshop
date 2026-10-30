@@ -4,8 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <!-- Light is the default (packet R): paint the page light until the theme's own sheet loads. -->
-    <style>html[data-theme="light"] { background: #fff; color-scheme: light; }</style>
+    <!-- Light is the default (packet R): paint the page light until the theme's own sheet loads.
+         A file, not an inline <style>: the CSP (style-src 'self') refuses inline styles. -->
+    <link rel="stylesheet" href="/first-paint.css" />
     <title>Dashboard</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   </head>
