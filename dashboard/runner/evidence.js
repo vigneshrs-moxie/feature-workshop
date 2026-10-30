@@ -252,3 +252,38 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     shortCommit,
   };
 }
+
+// ---------- Up to the hosted site (packet 2B) ----------
+
+const UPLOAD_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webm': 'video/webm', '.mp4': 'video/mp4' };
+
+/**
+ * Sends a job's pictures and videos to the site's private Blob store, each once (sent: a Map kept
+ * by the caller, `${slug}\n${file}` -> its size and time). For each new one the site makes a
+ * one-time upload link for exactly that path (ask → { url, pathname }), the file goes straight to
+ * the store with a PUT (putFile: fetch), and the site is told it is there (done). The file's bytes
+ * never pass through the site, and nothing but the evidence files leaves.
+ */
+export async function uploadEvidence({ slug, view, door, sent, ask, done, putFile, log = () => {} }) {
+  const fsp = await import('node:fs/promises');
+  for (const c of view?.evidence?.criteria ?? []) {
+    const files = [...(c.screenshots ?? []).map((x) => x?.file), typeof c.video === 'string' ? c.video : c.video?.file].filter((f) => typeof f === 'string');
+    for (const file of files) {
+      const type = UPLOAD_TYPES[path.extname(file).toLowerCase()];
+      if (!type) continue;
+      let f;
+      try { f = await door.file(slug, file); } catch { continue; }
+      const mark = `${f.size}:${f.mtimeMs ?? ''}`;
+      const key = `${slug}\n${file}`;
+      if (sent.get(key) === mark) continue;
+      const a = await ask({ slug, file, type, size: f.size });
+      if (a?.status !== 200 || !a.body?.url) { log(`evidence ${file}: the site didn’t give an upload link (${a?.body?.error ?? a?.status ?? 'no answer'}).`); continue; }
+      if (!a.body.upload) { sent.set(key, mark); continue; } // the site has it already
+      const bytes = await fsp.readFile(f.abs);
+      const put = await putFile(a.body.url, { method: 'PUT', headers: { 'content-type': type }, body: bytes });
+      if (!put.ok) { log(`evidence ${file}: the upload was refused (${put.status}).`); continue; }
+      const d = await done({ slug, file, pathname: a.body.pathname });
+      if (d?.status === 200) sent.set(key, mark);
+    }
+  }
+}

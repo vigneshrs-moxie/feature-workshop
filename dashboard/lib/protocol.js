@@ -18,8 +18,11 @@
 
 import { scrubDeep } from './orbit.js';
 
-/** Bumped whenever a command, a field or an event changes shape. 2: the events hello and job-list (packet 2A). */
-export const PROTOCOL_VERSION = 2;
+/**
+ * Bumped whenever a command, a field or an event changes shape. 2: the events hello and job-list
+ * (packet 2A). 3: the events record and audit, and the command stack-merge (packet 2B).
+ */
+export const PROTOCOL_VERSION = 3;
 
 /** The most a job's notes.md may hold (characters): the notes command's text, and meta.jobOptions.notesMax. */
 export const NOTES_MAX = 20000;
@@ -84,6 +87,8 @@ export const REMOTE_COMMANDS = freeze({
   'take-over': { slug: required(FIELD.slug) },
   // The live diff of one commit (answered to the asker only, never an event).
   'fetch-diff': { slug: required(FIELD.slug), commit: required(FIELD.commit) },
+  // Your yes to merging a stack's next section (packet 2B: "merge next", queued from the site).
+  'stack-merge': { slug: required(FIELD.slug), section: str(200) },
 });
 
 /** What only the page on this computer may ask. */
@@ -152,6 +157,9 @@ export const EVENT_TYPES = Object.freeze([
   // The hosted site's link (packet 2A, runner/site-link.js): who this runner is when it connects
   // (name, OS, version, protocol), and every open job as one row each (the site's mirror).
   'hello', 'job-list',
+  // The full mirror (packet 2B): one part of the job record as the laptop shows it now (its kind,
+  // its key, and the value, or null when it is gone), and one decision as the laptop's audit wrote it.
+  'record', 'audit',
 ]);
 
 /** Keys an event never carries, at any depth (§2.4 "Never carries"). */

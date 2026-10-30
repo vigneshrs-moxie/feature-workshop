@@ -28,6 +28,14 @@ export const PAIR_MINUTES = 10;
 /** How long after approval the laptop may still collect its token. */
 const COLLECT_MINUTES = 30;
 const MAX_WAITING = 100;
+/** One address may start at most this many pairings a minute (packet 2B), so nobody fills MAX_WAITING. */
+export const STARTS_PER_MINUTE = 5;
+
+/** Who is asking: the first address Vercel's proxy names (x-forwarded-for), else the connection's. */
+export function callerAddress(req) {
+  const fwd = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
+  return (fwd || String(req.headers['x-real-ip'] ?? '').trim() || req.socket?.remoteAddress || 'unknown').slice(0, 100);
+}
 const SEEN_EVERY = 10 * 1000;
 
 export function newCode() {
@@ -78,6 +86,11 @@ export default function pairRoutes(ctx) {
         const version = typeof b.version === 'string' ? b.version.slice(0, 40) : '';
         if (typeof b.deviceId !== 'string' || !/^[\w-]{8,64}$/.test(b.deviceId)) throw new HttpError(400, 'Send the laptop’s device id.');
         const t = now();
+        const address = sha256(callerAddress(req));
+        await db.query('DELETE FROM pair_starts WHERE at < $1', [iso(t - PAIR_MINUTES * 60 * 1000)]);
+        const recent = (await db.query('SELECT count(*)::int AS n FROM pair_starts WHERE address_hash = $1 AND at > $2', [address, iso(t - 60 * 1000)])).rows[0].n;
+        if (recent >= STARTS_PER_MINUTE) throw new HttpError(429, 'Too many pairings from here in the last minute. Wait a minute, then run ground-control login again.');
+        await db.query('INSERT INTO pair_starts (address_hash, at) VALUES ($1, $2)', [address, iso(t)]);
         await db.query('DELETE FROM pairings WHERE expires_at < $1 AND finished_at IS NULL', [iso(t - 24 * 60 * 60 * 1000)]);
         const waiting = (await db.query('SELECT count(*)::int AS n FROM pairings WHERE expires_at > $1 AND finished_at IS NULL', [iso(t)])).rows[0].n;
         if (waiting >= MAX_WAITING) throw new HttpError(429, 'Too many laptops are waiting to pair right now. Try again in ten minutes.');

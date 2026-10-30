@@ -21,7 +21,7 @@
 //   r      no go: send back (a go-ahead: the gate's Revise with feedback)
 //   c      reply without deciding (a go-ahead: the gate's Other guidance; elsewhere c stays New job)
 // After a decision the next item opens and its card takes the focus.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from 'react';
 import type { Job } from '../api/types';
 import { useKeyScope, type KeyId } from '../app/keyRegistry';
 import { hrefFor, jobHref, navigate } from '../app/router';
@@ -45,6 +45,7 @@ import { isRoundCard, ROUND_NUDGES, useReviewList } from '../views/Review/useRev
 import type { DeskItem } from './homeModel';
 import { type DeskEntry, deskEntries, isShipping, jobFacts, type NudgeItem, nudgePath, oneKeyDecide, recordDecision, useDecidedToday, whereLine } from './nudges';
 import { More } from '../components/More';
+import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
 
 const DESK_KEYS: readonly KeyId[] = ['desk-next', 'desk-prev', 'desk-approve', 'desk-deny', 'desk-open', 'desk-brief'];
 
@@ -58,6 +59,17 @@ function wordsOf(b: Element | null): string {
   copy.querySelectorAll('kbd').forEach((k) => k.remove());
   return (copy.textContent ?? '').trim();
 }
+const PHONE = '(max-width: 600px)';
+const phoneQuery = () => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(PHONE) : null);
+/** A phone-width screen (false where that can't be told). */
+function usePhone(): boolean {
+  return useSyncExternalStore(
+    (fn) => { const m = phoneQuery(); m?.addEventListener('change', fn); return () => m?.removeEventListener('change', fn); },
+    () => phoneQuery()?.matches ?? false,
+    () => false,
+  );
+}
+
 /** Dots for at most this many; the rest is a number. */
 const DOTS = 9;
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
@@ -70,6 +82,7 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now: Date; briefOpen: boolean; toggleBrief(): void; call: boolean }) {
   const state = useWorkshopState();
   const thread = useJobThread(job.slug, (state.threadVersions[job.slug] ?? 0) + state.threadEpoch);
+  const phone = usePhone();
   const body = useRef<HTMLDivElement>(null);
   const [go, setGo] = useState({ words: '', off: true, asks: false });
   const [extras, setExtras] = useState<HTMLDivElement | null>(null);
@@ -103,7 +116,9 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
   if (!thread.detail) return <p className="muted" role="status">Opening the Foreman’s brief…</p>;
   const brief = thread.detail.latestBrief as { html?: string; number?: number | null } | null | undefined;
   const press = (what: 'approve' | 'revise' | 'guidance') => body.current?.querySelector<HTMLButtonElement>(`[data-gate="${what}"]:not(:disabled)`)?.click();
-  const gate = Boolean(thread.detail.gate);
+  // On the hosted site, a Go made there waits for the laptop: the card says so, and the calls rest.
+  const gate = Boolean(thread.detail.gate) && !isOpen(queuedOf(thread.detail.queued));
+  // On a phone No go is as large as Go (at least 44 px: packet 2B's Desk on a phone).
   const goWords = go.words || 'Approve';
   return (
     <>
@@ -145,7 +160,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
           <Button kind="quiet" keyId="desk-reply" className="desk-call-reply" onClick={() => press('guidance')} title="Ask or tell the Foreman something without deciding: nothing is approved (key: c).">
             Reply
           </Button>
-          <Button keyId="desk-send-back" className="desk-call-no" onClick={() => press('revise')} title="No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).">
+          <Button size={phone ? 'lg' : undefined} keyId="desk-send-back" className="desk-call-no" onClick={() => press('revise')} title="No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).">
             {call ? <>No go<span className="call-long">: send back</span></> : 'Send back'}
           </Button>
           {/* Go is on whenever the card's own Approve is: with questions it sends your answers too, but
@@ -163,7 +178,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
             {call ? <>Go<span className="call-long">: {lowerFirst(goWords)}</span></> : goWords}
           </Button>
         </div>
-      ) : (
+      ) : thread.detail.gate ? null : (
         <p className="muted">The Foreman is waiting for your reply. <a href={jobHref(job.slug)}>Open the job</a> to read its last message and answer in the message box.</p>
       )}
     </>

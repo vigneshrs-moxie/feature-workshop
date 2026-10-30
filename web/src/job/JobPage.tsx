@@ -6,6 +6,7 @@
 // alert while a permission waits (it takes the bar's place), or what is happening in words. Then
 // one tab per kind of work, opened at the current stop (Brief, Spec, Plan, Code, Tests with L's
 // evidence and Try it, Review, Decisions, Ship), the folded conversation, and the message box (c).
+import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Job, JobDocEntry, StopId } from '../api/types';
 import { jobHref, navigate, screensHref, stageHref } from '../app/router';
@@ -316,6 +317,8 @@ function GoBar({ job, detail, now, reload, call, foldCard = false }: { job: Job;
         say={gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead'}
         sub={gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason}
       >
+        {/* On the hosted site a Go made there waits for the laptop (the card under this says so): no calls meanwhile. */}
+        {!isOpen(queuedOf(detail.queued)) && <>
         <Button size="lg" keyId="gate-revise" disabled={go.backOff} onClick={() => press('revise')} title={go.backOff ? 'Off for now: the card under this says why.' : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
           {call ? 'No go: send back' : 'Send back'}
         </Button>
@@ -332,6 +335,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false }: { job: Job;
         >
           {call ? `Go: ${lowerFirst(goWords)}` : goWords}
         </Button>
+        </>}
       </NextBar>
       {foldCard && (
         <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>

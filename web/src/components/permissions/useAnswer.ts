@@ -19,13 +19,16 @@ export function useAnswer(p: Permission) {
   async function send(body: AnswerBody) {
     setBusy(true);
     setError(null);
+    let r: { queued?: unknown } | null = null;
     try {
-      await api.post(`/api/permissions/${encodeURIComponent(p.id)}`, body);
+      r = await api.post<{ queued?: unknown }>(`/api/permissions/${encodeURIComponent(p.id)}`, body);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
       return;
     }
+    // On the hosted site the answer waits for the laptop: the card stays, saying so (its next fetch).
+    if (r && typeof r === 'object' && r.queued) { setBusy(false); return; }
     store.dispatch({ type: 'permission-answered', id: p.id });
   }
   return { busy, error, send };
