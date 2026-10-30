@@ -42,7 +42,7 @@ describe('App shell', () => {
     const bar = document.querySelector<HTMLElement>('.topbar')!;
     expect(within(bar).getByRole('link', { name: 'Dashboard, back to Jobs' })).toHaveAttribute('href', '#/');
     const pages = within(bar).getByRole('navigation', { name: 'Pages' });
-    expect(within(pages).getAllByRole('link').map((a) => a.textContent)).toEqual(['Inbox', 'Desk', 'Jobs', 'Stacks', 'Telemetry']);
+    expect(within(pages).getAllByRole('link').map((a) => a.textContent)).toEqual(['Jobs', 'Desk', 'Inbox', 'Stacks', 'Telemetry']);
     expect(within(pages).getByRole('link', { name: 'Jobs' })).toHaveAttribute('aria-current', 'page');
     expect(within(bar).getByRole('link', { name: 'Desk' })).toHaveAttribute('href', '#/desk');
     // The gear: Settings, the Crew-dex in Play, the flow map, the Table, the keys and every action.
@@ -87,7 +87,7 @@ describe('App shell', () => {
     expect(await screen.findByRole('heading', { name: 'Job beta' })).toBeInTheDocument();
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Brief', 'Spec', 'Plan', 'Code', 'Tests', 'Review', 'Decisions', 'Ship']);
     // Not in the page, the gear, the job menu, the keys sheet or any hover text.
-    const said = () => [document.body.textContent ?? '', ...[...document.querySelectorAll('[title], [aria-label]')].map((e) => `${e.getAttribute('title') ?? ''} ${e.getAttribute('aria-label') ?? ''}`)].join(' ');
+    const said = () => [document.body.textContent ?? '', ...[...document.querySelectorAll('[title], [aria-label], [data-tip]')].map((e) => `${e.getAttribute('title') ?? ''} ${e.getAttribute('aria-label') ?? ''} ${e.getAttribute('data-tip') ?? ''}`)].join(' ');
     fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
     expect(said()).not.toMatch(/classic/i);
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });

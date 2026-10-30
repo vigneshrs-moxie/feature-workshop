@@ -4,13 +4,26 @@
 // 'notification' event). A notification only opens the page: it never approves or sends anything.
 // "In this browser" (alerts/AlertSettings.tsx) is this browser's own notification and chime, kept here.
 // Usage warnings (80 %, 90 % and full, dashboard/lib/usage-warnings.js) have one switch of their own.
-// Send a test and the history come last.
-import { useEffect, useId, useState } from 'react';
+// Send a test and the history come last. Simple first (packet R): sending to macOS and the three
+// kinds show; the rest waits in one More that names it. Each change says "Saved" beside its control.
+import { useEffect, useState } from 'react';
 import { AlertSettings } from '../../alerts/AlertSettings';
 import type { NotificationsView, NotifyLevel, NotifyMode, NotifySettings as Notify, Settings } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
+import { Choice, Segmented } from '../../components/Choice';
+import { Select } from '../../components/Select';
+import { Button } from '../../components/Button';
+import { Saved, useSaved } from '../../components/Saved';
+import { SettingsMore } from './SettingsMore';
+
+/** The times quiet hours can start or end: every half hour, plus the one saved if it is between. */
+function timeOptions(current: string): { value: string; label: string }[] {
+  const all = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`);
+  if (/^\d\d:\d\d$/.test(current) && !all.includes(current)) all.push(current);
+  return all.sort().map((t) => ({ value: t, label: t }));
+}
 
 /** The settings with the usage warnings' switch (on unless turned off): NotifySettings in api/types.ts. */
 type NotifyAll = Notify;
@@ -46,7 +59,7 @@ export function NotifySettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tested, setTested] = useState<string | null>(null);
-  const id = useId();
+  const saved = useSaved();
 
   useEffect(() => {
     let live = true;
@@ -54,10 +67,10 @@ export function NotifySettings() {
     return () => { live = false; };
   }, [api, notificationsVersion]);
 
-  async function save(patch: Partial<NotifyAll>) {
+  async function save(patch: Partial<NotifyAll>, what: string) {
     setBusy(true);
     setError(null);
-    try { store.dispatch({ type: 'settings', settings: await api.post<Settings>('/api/settings', { notify: patch }) }); }
+    try { store.dispatch({ type: 'settings', settings: await api.post<Settings>('/api/settings', { notify: patch }) }); saved.mark(what); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { setBusy(false); }
   }
@@ -83,10 +96,13 @@ export function NotifySettings() {
           macOS hasn’t allowed terminal-notifier yet, so notifications go through the built-in notifier for now (a click can’t open the job). Turn it on once: <strong>System Settings → Notifications → terminal-notifier → Allow notifications</strong>, then Send a test.
         </p>
       )}
-      <label className="drawer-check" title="All notifications from the dashboard, on or off." data-setting="notify-enabled">
-        <input type="checkbox" checked={n.enabled} onChange={(e) => void save({ enabled: e.target.checked })} />
-        <span>Send notifications to macOS</span>
-      </label>
+      <div className="setting-row" data-setting="notify-enabled">
+        <label className="drawer-check" title="All notifications from the dashboard, on or off.">
+          <Choice type="checkbox" checked={n.enabled} onChange={(e) => void save({ enabled: e.target.checked }, 'enabled')} />
+          <span>Send notifications to macOS</span>
+        </label>
+        <Saved tick={saved.tick('enabled')} />
+      </div>
       <table className="notify-levels" data-setting="notify-levels">
         <caption className="sr-only">How each kind of notification reaches you</caption>
         <tbody>
@@ -94,56 +110,67 @@ export function NotifySettings() {
             <tr key={l.id}>
               <th scope="row" title={l.hint}>{l.label}<span className="muted notify-level-hint">{l.hint}</span></th>
               <td>
-                <div className="home-seg" role="radiogroup" aria-label={`${l.label}: how it reaches you`}>
-                  {MODES.map((m) => (
-                    <label key={m.id} className={`home-seg-btn${n.levels[l.id] === m.id ? ' is-on' : ''}`} title={`${l.label}: ${m.label.toLowerCase()}.`}>
-                      <input className="sr-only" type="radio" name={`${id}-${l.id}`} checked={n.levels[l.id] === m.id} disabled={!n.enabled} onChange={() => void save({ levels: { ...n.levels, [l.id]: m.id } })} />
-                      {m.label}
-                    </label>
-                  ))}
+                <div className="setting-row">
+                  <Segmented<NotifyMode>
+                    label={`${l.label}: how it reaches you`}
+                    value={n.levels[l.id]}
+                    disabled={!n.enabled}
+                    onChange={(m) => { if (m !== n.levels[l.id]) void save({ levels: { ...n.levels, [l.id]: m } }, `level-${l.id}`); }}
+                    options={MODES.map((m) => ({ value: m.id, label: m.label, title: `${l.label}: ${m.label.toLowerCase()}.` }))}
+                  />
+                  <Saved tick={saved.tick(`level-${l.id}`)} />
                 </div>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-      <label className="drawer-check" title="A notification when Claude’s 5-hour or weekly usage reaches 80 %, 90 % and full, once each until it resets. It only tells you: nothing is stopped." data-setting="notify-usage">
-        <input type="checkbox" checked={n.usageWarnings !== false} disabled={!n.enabled} onChange={(e) => void save({ usageWarnings: e.target.checked })} />
-        <span>Usage warnings at 80 %, 90 % and full</span>
-      </label>
-      <div className="notify-quiet" data-setting="notify-quiet">
-        <label className="drawer-check" title="Quiet hours: only problems show, without a sound.">
-          <input type="checkbox" checked={n.quiet.on} disabled={!n.enabled} onChange={(e) => void save({ quiet: { ...n.quiet, on: e.target.checked } })} />
-          <span>Quiet hours from</span>
-        </label>
-        <input type="time" aria-label="Quiet hours start" value={n.quiet.from} disabled={!n.enabled} onChange={(e) => { if (e.target.value) void save({ quiet: { ...n.quiet, from: e.target.value } }); }} title="When quiet hours start." />
-        <span>to</span>
-        <input type="time" aria-label="Quiet hours end" value={n.quiet.to} disabled={!n.enabled} onChange={(e) => { if (e.target.value) void save({ quiet: { ...n.quiet, to: e.target.value } }); }} title="When quiet hours end." />
-      </div>
-      <label className="drawer-check" title="Nothing pops while this page is in front of you: it already shows what changed." data-setting="notify-watching">
-        <input type="checkbox" checked={n.skipWhenWatching} disabled={!n.enabled} onChange={(e) => void save({ skipWhenWatching: e.target.checked })} />
-        <span>Not while I’m looking at the dashboard</span>
-      </label>
-      <AlertSettings />
-      <div className="perm-actions" data-setting="notify-test">
-        <button type="button" className="btn" onClick={() => void test()} title="Send a test notification to macOS now, even while you’re looking at this page.">Send a test</button>
-        {tested && <span className="muted" role="status">{tested}</span>}
-      </div>
+      <SettingsMore id="notify-more" label="More: quiet hours, usage warnings, this browser, a test and the history" holds={['notify-usage', 'notify-quiet', 'notify-watching', 'alerts-browser', 'notify-test', 'notify-history']}>
+        <div className="setting-row" data-setting="notify-usage">
+          <label className="drawer-check" title="A notification when Claude’s 5-hour or weekly usage reaches 80 %, 90 % and full, once each until it resets. It only tells you: nothing is stopped.">
+            <Choice type="checkbox" checked={n.usageWarnings !== false} disabled={!n.enabled} onChange={(e) => void save({ usageWarnings: e.target.checked }, 'usage')} />
+            <span>Usage warnings at 80 %, 90 % and full</span>
+          </label>
+          <Saved tick={saved.tick('usage')} />
+        </div>
+        <div className="notify-quiet" data-setting="notify-quiet">
+          <label className="drawer-check" title="Quiet hours: only problems show, without a sound.">
+            <Choice type="checkbox" checked={n.quiet.on} disabled={!n.enabled} onChange={(e) => void save({ quiet: { ...n.quiet, on: e.target.checked } }, 'quiet')} />
+            <span>Quiet hours from</span>
+          </label>
+          <Select className="notify-time" aria-label="Quiet hours start" value={n.quiet.from} options={timeOptions(n.quiet.from)} disabled={!n.enabled} onChange={(v) => void save({ quiet: { ...n.quiet, from: v } }, 'quiet')} title="When quiet hours start." />
+          <span>to</span>
+          <Select className="notify-time" aria-label="Quiet hours end" value={n.quiet.to} options={timeOptions(n.quiet.to)} disabled={!n.enabled} onChange={(v) => void save({ quiet: { ...n.quiet, to: v } }, 'quiet')} title="When quiet hours end." />
+          <Saved tick={saved.tick('quiet')} />
+        </div>
+        <div className="setting-row" data-setting="notify-watching">
+          <label className="drawer-check" title="Nothing pops while this page is in front of you: it already shows what changed.">
+            <Choice type="checkbox" checked={n.skipWhenWatching} disabled={!n.enabled} onChange={(e) => void save({ skipWhenWatching: e.target.checked }, 'watching')} />
+            <span>Not while I’m looking at the dashboard</span>
+          </label>
+          <Saved tick={saved.tick('watching')} />
+        </div>
+        <AlertSettings />
+        <div className="perm-actions" data-setting="notify-test">
+          <Button onClick={() => void test()} title="Send a test notification to macOS now, even while you’re looking at this page.">Send a test</Button>
+          {tested && <span className="muted" role="status">{tested}</span>}
+        </div>
+        <section className="notify-history" data-setting="notify-history" aria-labelledby="notify-history-title">
+          <h4 className="settings-subheading" id="notify-history-title" title="The last 50 notifications, sent or not, newest first.">History ({view?.history.length ?? 0})</h4>
+          {view?.history.length ? (
+            <ol className="notify-history-list">
+              {view.history.map((h, i) => (
+                <li key={`${h.at}-${i}`}>
+                  <span className="muted" title={fullTime(h.at)}>{relativeTime(h.at, now)}</span>{' '}
+                  <b>{h.title}</b> · {h.body}{' '}
+                  <span className="muted">{h.sent ? '· sent' : `· not sent${h.why ? `: ${h.why}` : ''}`}</span>
+                </li>
+              ))}
+            </ol>
+          ) : <p className="muted">Nothing yet.</p>}
+        </section>
+      </SettingsMore>
       {error && <p className="perm-warn" role="alert">{error}</p>}
-      <details className="how notify-history" data-setting="notify-history">
-        <summary title="The last 50 notifications, sent or not, newest first.">History ({view?.history.length ?? 0})</summary>
-        {view?.history.length ? (
-          <ol>
-            {view.history.map((h, i) => (
-              <li key={`${h.at}-${i}`}>
-                <span className="muted" title={fullTime(h.at)}>{relativeTime(h.at, now)}</span>{' '}
-                <b>{h.title}</b> · {h.body}{' '}
-                <span className="muted">{h.sent ? '· sent' : `· not sent${h.why ? `: ${h.why}` : ''}`}</span>
-              </li>
-            ))}
-          </ol>
-        ) : <p className="muted">Nothing yet.</p>}
-      </details>
     </section>
   );
 }

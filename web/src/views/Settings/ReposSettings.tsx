@@ -7,13 +7,17 @@
 //   POST   /api/repos/registry          add one: { path, profileFile? } (400 with each problem)
 //   DELETE /api/repos/registry?path=…   take one off the list (its folder and profile stay)
 //   POST   /api/repos/registry/check    read a profile and list what is wrong with it
-// A status is always in words, never colour alone.
+// A status is always in words, never colour alone. Simple first (packet R): the list shows; adding one
+// waits in a More (open by itself while the list is empty).
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { ApiError } from '../../api/client';
 import type { ProfileCheck, RegisteredRepo, RepoRegistry } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { useWorkshop } from '../../state/store';
 import { BRAND } from '../../app/brand';
+import { Button } from '../../components/Button';
+import { TextInput } from '../../components/Field';
+import { SettingsMore } from './SettingsMore';
 
 type Load = { state: 'loading' } | { state: 'ready'; list: RepoRegistry } | { state: 'error'; message: string };
 
@@ -120,12 +124,12 @@ function RepoRow({ repo, onChanged }: { repo: RegisteredRepo; onChanged: (list: 
         {problems.length > 0 && <div role="alert"><Lines items={problems} className="field-problem" label="What went wrong" /></div>}
       </div>
       <div className="doc-actions">
-        <button type="button" className="btn btn-quiet" disabled={busy !== null} onClick={() => void recheck()} aria-label={`Check ${repo.name}’s profile`} title="Read the profile again and list anything wrong with it.">
+        <Button kind="quiet" disabled={busy !== null} onClick={() => void recheck()} aria-label={`Check ${repo.name}’s profile`} title="Read the profile again and list anything wrong with it.">
           {busy === 'check' ? 'Checking…' : 'Check'}
-        </button>
-        <button type="button" className="btn btn-quiet" disabled={busy !== null} onClick={() => void remove()} aria-label={`Remove ${repo.name} from the list`} title="Take this repository off the list. Its folder, its jobs and its profile file are left as they are.">
+        </Button>
+        <Button kind="quiet" disabled={busy !== null} onClick={() => void remove()} aria-label={`Remove ${repo.name} from the list`} title="Take this repository off the list. Its folder, its jobs and its profile file are left as they are.">
           {busy === 'remove' ? 'Removing…' : 'Remove'}
-        </button>
+        </Button>
       </div>
     </li>
   );
@@ -179,16 +183,16 @@ function AddRepo({ onAdded }: { onAdded: (list: RepoRegistry) => void }) {
     <form className="rule-options" onSubmit={(e) => void add(e)} data-setting="repos-add" aria-label="Add a repository">
       <h4 className="settings-heading">Add a repository</h4>
       <label htmlFor={`${id}-path`}>The repository’s folder</label>
-      <input id={`${id}-path`} type="text" autoComplete="off" spellCheck={false} placeholder="/Users/you/Projects/your-repo" value={repoPath} onChange={(e) => setRepoPath(e.target.value)} />
+      <TextInput id={`${id}-path`} type="text" autoComplete="off" spellCheck={false} placeholder="/Users/you/Projects/your-repo" value={repoPath} onChange={(e) => setRepoPath(e.target.value)} />
       <label htmlFor={`${id}-profile`}>Profile file (only if the repository has no ground-control.md)</label>
-      <input id={`${id}-profile`} type="text" autoComplete="off" spellCheck={false} placeholder="/Users/you/profiles/your-repo.md" value={profileFile} onChange={(e) => setProfileFile(e.target.value)} />
+      <TextInput id={`${id}-profile`} type="text" autoComplete="off" spellCheck={false} placeholder="/Users/you/profiles/your-repo.md" value={profileFile} onChange={(e) => setProfileFile(e.target.value)} />
       <div className="doc-actions">
-        <button type="button" className="btn btn-quiet" disabled={busy !== null || (!repoPath.trim() && !profileFile.trim())} onClick={() => void runCheck()} title="Read the profile and list anything wrong with it, without adding anything.">
+        <Button kind="quiet" disabled={busy !== null || (!repoPath.trim() && !profileFile.trim())} onClick={() => void runCheck()} title="Read the profile and list anything wrong with it, without adding anything.">
           {busy === 'check' ? 'Checking…' : 'Check the profile'}
-        </button>
-        <button type="submit" className="btn" disabled={busy !== null || !repoPath.trim()} title="Add this repository, if its profile reads without problems.">
+        </Button>
+        <Button type="submit" disabled={busy !== null || !repoPath.trim()} title="Add this repository, if its profile reads without problems.">
           {busy === 'add' ? 'Adding…' : 'Add'}
-        </button>
+        </Button>
       </div>
       {check && <CheckResult check={check} />}
       {problems.length > 0 && (
@@ -242,7 +246,9 @@ export function ReposSettings() {
           </>
         )}
       </div>
-      <AddRepo onAdded={show} />
+      <SettingsMore id="repos-more" label="More: add a repository" holds={['repos-add']} simpleOpen={load.state === 'ready' && load.list.repos.length === 0}>
+        <AddRepo onAdded={show} />
+      </SettingsMore>
     </section>
   );
 }

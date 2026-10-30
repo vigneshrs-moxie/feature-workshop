@@ -13,6 +13,9 @@ import { saveJobOptions } from '../../app/jobActions';
 import { bodyFrom, formFrom, levelDefaults, MODEL_ROLES, modelName, optionLists, PROCESS_NOTES_MAX, providedSkips, sameOptions, inOrder, type ModelRole, type OptionsForm } from '../../lib/jobOptions';
 import { isLevel, LEVEL_NUMBERS, levelChange, levelLabel, lensNames } from '../../lib/levels';
 import { useWorkshop, useWorkshopState } from '../../state/store';
+import { Choice } from '../../components/Choice';
+import { Select } from '../../components/Select';
+import { Button } from '../../components/Button';
 
 export const OPTIONS_HINT = 'Options choose how much process this job gets, never what it may do without asking (that is the permission setting). A change applies from the next stage; a worker already running finishes first.';
 
@@ -114,7 +117,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
       return (
         <div>
           <p className="thread-error" role="alert">Couldn’t load the options: {load.message}</p>
-          <button type="button" className="btn" onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for this job’s options again.">Try again</button>
+          <Button onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for this job’s options again.">Try again</Button>
         </div>
       );
     }
@@ -168,7 +171,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
             const info = levels?.find((l) => l.level === n);
             return (
               <label key={n} className={`rule-option${form.level === n ? ' is-picked' : ''}`} title={`${levelLabel(n, levels)}: ${info?.hint ?? ''}${saved.level !== n ? ` ${levelChange(saved.level, n, levels, names, stage).text}.` : ' The level saved now.'}`}>
-                <input type="radio" name={`${id}-level`} value={n} checked={form.level === n} onChange={() => pickLevel(n)} />
+                <Choice type="radio" name={`${id}-level`} value={n} checked={form.level === n} onChange={() => pickLevel(n)} />
                 <span className="rule-option-body">
                   <span className="rule-option-kind">{levelLabel(n, levels)}{saved.level === n && <span className="chip">Saved</span>}</span>
                   {info?.hint && <span className="muted">{info.hint}</span>}
@@ -189,7 +192,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
             const always = alwaysField(s.id);
             return (
               <label key={s.id} className="check drawer-check" title={locked ? 'You provided this document, so the crew doesn’t write it. They can’t be changed from this page yet.' : always ? ALWAYS_NOTES[always] : `Skip ${s.label} for this job. ${STAGE_HINTS[s.id] ?? ''}`}>
-                <input type="checkbox" checked={(form.skip.includes(s.id) || locked) && !always} disabled={locked || always !== null} onChange={(e) => edit({ skip: inOrder(toggle(form.skip, s.id, e.target.checked), lists) })} />
+                <Choice type="checkbox" checked={(form.skip.includes(s.id) || locked) && !always} disabled={locked || always !== null} onChange={(e) => edit({ skip: inOrder(toggle(form.skip, s.id, e.target.checked), lists) })} />
                 <span>{s.label}{locked && <span className="muted"> (document provided)</span>}{always && <span className="muted"> (set to Always)</span>}</span>
               </label>
             );
@@ -203,16 +206,16 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
         <legend className="drawer-legend" title="Which review lenses look at the change after it is built.">Reviewers</legend>
         <div className="seg">
           <label className={`seg-option${form.reviewers === 'auto' ? ' is-picked' : ''}`} title="The Foreman picks the usual lenses for this kind of change (the head inspector, permissions and tests, plus database or screens when touched).">
-            <input type="radio" name={`${id}-rev`} checked={form.reviewers === 'auto'} onChange={() => edit({ reviewers: 'auto' })} /> Auto
+            <Choice type="radio" name={`${id}-rev`} checked={form.reviewers === 'auto'} onChange={() => edit({ reviewers: 'auto' })} /> Auto
           </label>
           <label className={`seg-option${form.reviewers !== 'auto' ? ' is-picked' : ''}`} title="Exactly the lenses you tick below, no others.">
-            <input type="radio" name={`${id}-rev`} checked={form.reviewers !== 'auto'} onChange={() => edit({ reviewers: lenses.length ? lenses : ['feature-reviewer'] })} /> Pick them
+            <Choice type="radio" name={`${id}-rev`} checked={form.reviewers !== 'auto'} onChange={() => edit({ reviewers: lenses.length ? lenses : ['feature-reviewer'] })} /> Pick them
           </label>
         </div>
         <div className="drawer-checks">
           {lists.reviewers.map((r) => (
             <label key={r.id} className={`check drawer-check${form.reviewers === 'auto' ? ' is-off' : ''}`} title={`${r.label}: checks ${r.what ?? 'its own area'}${r.model ? ` (runs on ${r.model})` : ''}.${form.reviewers === 'auto' ? ' Choose “Pick them” to tick lenses yourself.' : ''}`}>
-              <input type="checkbox" checked={form.reviewers === 'auto' ? false : lenses.includes(r.id)} disabled={form.reviewers === 'auto'} onChange={(e) => edit({ reviewers: toggle(lenses, r.id, e.target.checked) })} />
+              <Choice type="checkbox" checked={form.reviewers === 'auto' ? false : lenses.includes(r.id)} disabled={form.reviewers === 'auto'} onChange={(e) => edit({ reviewers: toggle(lenses, r.id, e.target.checked) })} />
               <span><strong>{r.label}</strong>{r.what ? <span className="muted"> — {r.what}</span> : null}</span>
             </label>
           ))}
@@ -226,7 +229,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
         <div className="seg">
           {([1, 2, 3] as const).map((n) => (
             <label key={n} className={`seg-option${form.review_rounds === n ? ' is-picked' : ''}`} title={`At most ${n} fix round${n === 1 ? '' : 's'}: the crew fixes the review’s findings and reviews again, up to ${n} time${n === 1 ? '' : 's'}, then briefs you.`}>
-              <input type="radio" name={`${id}-rounds`} checked={form.review_rounds === n} onChange={() => edit({ review_rounds: n })} /> {n}
+              <Choice type="radio" name={`${id}-rounds`} checked={form.review_rounds === n} onChange={() => edit({ review_rounds: n })} /> {n}
             </label>
           ))}
         </div>
@@ -235,7 +238,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
       <fieldset className="drawer-section" disabled={busy}>
         <legend className="drawer-legend" title="Whether you try the change on your computer before review.">You test it</legend>
         <label className="check drawer-check" title="The Foreman waits for you to try the change on your computer (Try it, on your computer) before the review.">
-          <input type="checkbox" checked={form.manual_test} onChange={(e) => edit({ manual_test: e.target.checked })} />
+          <Choice type="checkbox" checked={form.manual_test} onChange={(e) => edit({ manual_test: e.target.checked })} />
           <span>I test it by hand before review</span>
         </label>
       </fieldset>
@@ -245,7 +248,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
         <div className="drawer-checks">
           {lists.fablePoints.map((p) => (
             <label key={p.id} className="check drawer-check" title={`Fable takes a short second look ${p.label.toLowerCase()}. It costs more and uses your limits faster.`}>
-              <input type="checkbox" checked={form.fable_checks.includes(p.id)} onChange={(e) => edit({ fable_checks: lists.fablePoints.map((x) => x.id).filter((x) => (x === p.id ? e.target.checked : form.fable_checks.includes(x))) })} />
+              <Choice type="checkbox" checked={form.fable_checks.includes(p.id)} onChange={(e) => edit({ fable_checks: lists.fablePoints.map((x) => x.id).filter((x) => (x === p.id ? e.target.checked : form.fable_checks.includes(x))) })} />
               <span>{p.label}</span>
             </label>
           ))}
@@ -273,9 +276,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
             return (
               <label key={role} className="drawer-model" title={`${ROLE_LABELS[role].hint}${note ? ` ${note}` : ''}`}>
                 <span className="drawer-model-label">{ROLE_LABELS[role].label}</span>
-                <select className="select" value={value} onChange={(e) => edit({ models: { ...form.models, [role]: e.target.value } })}>
-                  {shown.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                </select>
+                <Select value={value} onChange={(v) => edit({ models: { ...form.models, [role]: v } })} options={shown.map((c) => ({ value: c.id, label: c.label }))} />
               </label>
             );
           })}
@@ -315,35 +316,31 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
       <div className="drawer-bar drawer-foot">
         {dirty && !busy && <span className="drawer-state" role="status">Unsaved changes</span>}
         <span className="composer-spacer" />
-        <button
-          type="button"
-          className="btn btn-quiet"
+        <Button
+          kind="quiet"
           disabled={busy || form.level === null}
           onClick={resetToLevel}
           title={form.level === null ? 'Pick a level first.' : `Put stages, reviewers, fix rounds, testing, Fable points and the build and checks models back to ${levelLabel(form.level, levels)}’s defaults. Provided documents, process notes and the Foreman’s model stay. Nothing is saved until you choose Save.`}
         >
           Reset to level defaults
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
+        </Button>
+        <Button
+          kind="primary"
           disabled={!dirty || busy}
           onClick={() => void save()}
           title="Save these options for this job. The Foreman reads them before its next stage; a worker already running finishes first."
         >
           {busy ? 'Saving…' : 'Save options'}
-        </button>
+        </Button>
         {changedElsewhere && (
           <div className="drawer-conflict" role="alert">
             <span>{OPTIONS_CHANGED}</span>
-            <button
-              type="button"
-              className="btn"
+            <Button
               onClick={() => { forceLoad.current = true; setTries((n) => n + 1); }}
               title="Load the options as they are saved now. Your unsaved edits here are lost."
             >
               Reload
-            </button>
+            </Button>
           </div>
         )}
       </div>

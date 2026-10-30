@@ -8,7 +8,7 @@ import { fullTime, relativeTime } from '../../lib/time';
 import { ServerHtml } from '../../panes/Foreman/ServerHtml';
 import { FridayEyebrow } from '../../play/FridayEyebrow';
 import { InlineText } from '../InlineText';
-import { Kbd } from '../Kbd';
+import { Button } from '../Button';
 import { AlwaysAllowSheet } from './AlwaysAllowSheet';
 import { useAnswer } from './useAnswer';
 
@@ -22,9 +22,9 @@ function MarkdownPreview({ html, source, startOnSource }: { html: string; source
   return (
     <div className="perm-md">
       <div className="perm-md-bar">
-        <button type="button" className="link-button" aria-pressed={raw} onClick={() => setRaw((r) => !r)} title={raw ? 'Show the file as a formatted page.' : 'Show exactly what it will write, as Markdown source.'}>
+        <Button kind="quiet" size="sm" icon={raw ? 'file' : 'code'} aria-pressed={raw} onClick={() => setRaw((r) => !r)} title={raw ? 'Show the file as a formatted page.' : 'Show exactly what it will write, as Markdown source.'}>
           {raw ? 'Show as page' : 'Show source'}
-        </button>
+        </Button>
       </div>
       {raw ? <pre className="perm-preview">{source}</pre> : <ServerHtml html={html} className="perm-preview-page" />}
     </div>
@@ -66,8 +66,8 @@ export function DenyBox({ busy, label, onDeny, onCancel }: { busy: boolean; labe
         />
       </label>
       <div className="perm-actions">
-        <button type="button" className="btn btn-danger" disabled={busy} onClick={() => onDeny(note)} title="Send your no (and note, if you wrote one).">{label}</button>
-        <button type="button" className="btn btn-quiet" disabled={busy} onClick={onCancel} title="Don’t say no after all; the card keeps waiting.">Cancel</button>
+        <Button kind="danger" disabled={busy} onClick={() => onDeny(note)} title="Send your no (and note, if you wrote one).">{label}</Button>
+        <Button kind="quiet" disabled={busy} onClick={onCancel} title="Don’t say no after all; the card keeps waiting.">Cancel</Button>
       </div>
     </div>
   );
@@ -116,22 +116,21 @@ export function PermissionCard({ permission: p, now, showJob = false }: { permis
         <DenyBox busy={busy} label="Deny" onDeny={(note) => void send({ decision: 'deny', note })} onCancel={() => setDenying(false)} />
       ) : (
         <div className="perm-actions">
-          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void send({ decision: 'allow' })} title="Let it do exactly this, one time. It asks again next time.">Allow once{!p.hardLine && !p.defaultToNo && <Kbd id="desk-approve" />}</button>
+          <Button kind="primary" keyId={!p.hardLine && !p.defaultToNo ? 'desk-approve' : undefined} keyShown disabled={busy} onClick={() => void send({ decision: 'allow' })} title="Let it do exactly this, one time. It asks again next time.">Allow once</Button>
           {p.canAllowForRun && (
-            <button type="button" className="btn" disabled={busy} onClick={() => void send({ decision: 'allow-run' })} title="Let it do this kind of step without asking again until this reply is finished. Nothing is saved.">Allow for this reply</button>
+            <Button disabled={busy} onClick={() => void send({ decision: 'allow-run' })} title="Let it do this kind of step without asking again until this reply is finished. Nothing is saved.">Allow for this reply</Button>
           )}
-          <button type="button" className="btn btn-danger" disabled={busy} onClick={() => setDenying(true)} title="Say no. It skips this and carries on; you can tell it why.">Deny…<Kbd id="desk-deny" /></button>
+          <Button keyId="desk-deny" disabled={busy} onClick={() => setDenying(true)} title="Say no. It skips this and carries on; you can tell it why.">Deny…</Button>
           {draft && (
-            <button
+            <Button
               ref={alwaysBtn}
-              type="button"
-              className="btn btn-quiet"
+              kind="quiet"
               disabled={busy}
               onClick={() => setSheet(true)}
               title="Save a rule so steps like this run without asking, in every job the dashboard runs. You choose how narrow it is and confirm it first; remove it any time in Settings."
             >
               Always allow…
-            </button>
+            </Button>
           )}
         </div>
       )}

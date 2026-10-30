@@ -15,12 +15,13 @@ import { useKeyScope } from '../../app/keyRegistry';
 import { stacksHref } from '../../app/router';
 import { Icon } from '../../components/Icon';
 import { Kbd } from '../../components/Kbd';
-import { NextBar, Page } from '../../components/page/Page';
+import { FoldShow, NextBar, Page } from '../../components/page/Page';
 import { Sheet } from '../../components/Sheet';
 import type { EventSourceLike } from '../../state/live';
 import { useWorkshop } from '../../state/store';
 import { editorHref, type SummaryTone } from './stackModel';
 import './stack.css';
+import { NumberInput } from '../../components/Field';
 
 /** The build stack's name: this app's own build. */
 export const BUILD_NAME = `${BRAND.name} build`;
@@ -234,7 +235,7 @@ export function BuildStackPage({ openStream }: { openStream?: (url: string) => E
         ))}
       </ol>
       <details className="fold" open={outputOpen} onToggle={(e) => setOutputOpen(e.currentTarget.open)}>
-        <summary className="fold-head"><Icon name="terminal" size={16} /><span className="fold-name">Output</span><span className="muted fold-note">· {running ? 'running now' : log ? 'the last step' : 'nothing has run yet'}</span><span className="fold-show" aria-hidden="true"><span className="when-closed">Show ▸</span><span className="when-open">Hide ▾</span></span></summary>
+        <summary className="fold-head"><Icon name="terminal" size={16} /><span className="fold-name">Output</span><span className="muted fold-note">· {running ? 'running now' : log ? 'the last step' : 'nothing has run yet'}</span><FoldShow /></summary>
         <div className="fold-body"><pre ref={logRef} className="stack-tail" role="log" aria-label="Output of the running step">{log || 'Nothing has run yet.'}</pre></div>
       </details>
       {settings && <SlotsSheet view={view} onClose={() => setSettings(false)} onSave={(n) => void attempt(api.post('/api/integrate/slots', { slots: n }).then(load)).then(() => setSettings(false))} />}
@@ -295,10 +296,10 @@ function SlotsSheet({ view, onClose, onSave }: { view: IntegrateView; onClose: (
   return (
     <Sheet title="Stack settings" onClose={onClose}>
       <form className="stack-settings" onSubmit={(e) => { e.preventDefault(); if (ok) onSave(n); }}>
-        <label className="field">
-          <span>Packets at once</span>
-          <input className="text-input" type="number" min={1} max={20} value={raw} onChange={(e) => setRaw(e.target.value)} />
-        </label>
+        <div className="field">
+          <span className="field-label">Packets at once</span>
+          <NumberInput value={raw} min={1} max={20} onChange={setRaw} aria-label="Packets at once" />
+        </div>
         <p className="muted">{view.inUse} of {view.slots} in use: a packet holds a place while its branch isn’t merged.</p>
         {!ok && <p className="field-problem">Pick a whole number from 1 to 20.</p>}
         <div className="sheet-actions">

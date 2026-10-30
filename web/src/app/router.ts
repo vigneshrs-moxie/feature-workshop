@@ -20,7 +20,8 @@
 //   #/telemetry   where the Claude usage goes and when the limit hits: five graphs, full width (views/Telemetry.tsx)
 // Any other #/… is not a page: with Play on the Sleuth looks for it (views/NotFound), with Play
 // Off it shows #/'s view. No hash, "#", "#/" or an in-page "#section" is #/. A query after the hash (#/?theme=x,
-// read by theme/theme.ts) is ignored here, so it changes nothing about the route.
+// read by theme/theme.ts; #/?peek=<slug>, the open quick look on Jobs) is ignored here, so it changes nothing
+// about the route.
 import { useEffect, useState } from 'react';
 import type { StopId } from '../api/types';
 import { isStopId, STOPS } from '../components/stops/stops';
@@ -33,6 +34,7 @@ export const isSettingsSection = (v: string): v is SettingsSection => (SETTINGS_
 export type Route = { name: 'home' } | { name: 'map' } | { name: 'table' } | { name: 'desk' } | { name: 'inbox' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
   | { name: 'stage'; slug: string; stop: StopId }
   | { name: 'screens'; slug: string } | { name: 'telemetry' } | { name: 'stacks' } | { name: 'stack'; slug: string } | { name: 'stack-build' }
+  | { name: 'gallery' }
   | { name: 'not-found'; hash: string };
 
 /** The integration board's old address: it opens Stacks now (packet K2). */
@@ -51,6 +53,8 @@ export function parseHash(rawHash: string): Route {
   if (/^#\/inbox\/?$/.test(hash)) return { name: 'inbox' };
   if (/^#\/achievements\/?$/.test(hash)) return { name: 'achievements' };
   if (/^#\/telemetry\/?$/.test(hash)) return { name: 'telemetry' };
+  // Every control in every state, for checking the look (packet R): only by typing the address.
+  if (/^#\/gallery\/?$/.test(hash)) return { name: 'gallery' };
   if (/^#\/stacks\/?$/.test(hash) || OLD_INTEGRATE.test(hash)) return { name: 'stacks' };
   if (/^#\/stacks\/build\/?$/.test(hash)) return { name: 'stack-build' };
   const sk = /^#\/stack\/([^/?#]+)\/?$/.exec(hash);
@@ -92,6 +96,7 @@ export function hrefFor(route: Route): string {
   if (route.name === 'stack') return `#/stack/${encodeURIComponent(route.slug)}`;
   if (route.name === 'stack-build') return '#/stacks/build';
   if (route.name === 'inbox') return '#/inbox';
+  if (route.name === 'gallery') return '#/gallery';
   if (route.name === 'not-found') return route.hash;
   if (route.name === 'settings') return route.section ? `#/settings/${route.section}` : '#/settings';
   return '#/';
@@ -130,6 +135,28 @@ export function openFromHash(rawHash: string): 'new-job' | 'options' | null {
   return open === 'new-job' || open === 'options' ? open : null;
 }
 
+/**
+ * The job whose quick look is open on Jobs (packet R, principle 14): #/?peek=<slug> or
+ * #/jobs?peek=<slug>, after the hash route like ?open=. null when there is none.
+ */
+export function peekFromHash(rawHash: string): string | null {
+  const peek = new URLSearchParams(/\?(.*)$/.exec(rawHash)?.[1] ?? '').get('peek');
+  return peek ? peek : null;
+}
+
+/**
+ * The same address with the quick look on `slug` (or none, with null); the route and any other
+ * ?… words (such as ?theme=) stay as they are. No hash at all is #/.
+ */
+export function withPeek(rawHash: string, slug: string | null): string {
+  const [, path = '', query = ''] = /^([^?]*)(?:\?(.*))?$/.exec(rawHash) ?? [];
+  const params = new URLSearchParams(query);
+  if (slug) params.set('peek', slug); else params.delete('peek');
+  const rest = params.toString();
+  const route = path === '' || path === '#' ? '#/' : path;
+  return rest ? `${route}?${rest}` : route;
+}
+
 /** What a page is called: the top bar's page name at phone width and the browser tab's title. */
 export function pageName(route: Route, jobTitle?: string | null): string {
   switch (route.name) {
@@ -148,6 +175,7 @@ export function pageName(route: Route, jobTitle?: string | null): string {
     case 'stacks': return 'Stacks';
     case 'stack': return jobTitle || 'Stack';
     case 'stack-build': return 'Build stack';
+    case 'gallery': return 'Gallery';
     default: return 'Not a page';
   }
 }

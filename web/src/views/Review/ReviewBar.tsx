@@ -11,7 +11,7 @@ import type { ReviewAction, ReviewView } from '../../api/types';
 import { useKeyScope, type KeyId } from '../../app/keyRegistry';
 import { useUi } from '../../app/ui';
 import { Icon } from '../../components/Icon';
-import { Kbd } from '../../components/Kbd';
+import { Button } from '../../components/Button';
 import { NextBar } from '../../components/page/Page';
 import { Sheet } from '../../components/Sheet';
 import { usePlay } from '../../play/usePlay';
@@ -88,17 +88,18 @@ export function ReviewBar({ view, act, problem, keys = true }: { view: ReviewVie
 
   const button = (a: ReviewAction) => {
     const words = play.on && a.go !== null && !a.client ? a.playLabel : a.label;
-    const kbd = a.key && KEY_ID[a.key] ? <Kbd id={KEY_ID[a.key]} /> : null;
+    const keyId = a.key ? KEY_ID[a.key] : undefined;
     // With nothing to decide, the one link (Open PR #2) is the next step.
     const lone = a.client && !shown.some((x) => x.go !== null || x.confirm || (!x.client && x.enabled)) && a === shown.find((x) => x.client);
-    const cls = `btn btn-lg${a.go === true || (a.confirm && a.enabled) || lone ? ' btn-primary' : a.client ? ' btn-quiet' : ''}`;
+    const primary = a.go === true || Boolean(a.confirm && a.enabled) || lone;
+    const kind = primary ? 'primary' : a.client ? 'quiet' : 'secondary';
     const title = !a.enabled ? a.reason ?? 'Off for now.' : a.confirm ? `${a.label} Shows the exact step first; nothing merges until you say go there (key: m).` : a.key ? `${a.label} (key: ${a.key}).` : a.label;
     const href = a.client ? linkFor(a, view) : null;
-    if (href) return <a key={a.id} className={cls} href={href} target="_blank" rel="noopener noreferrer" title={title}><Icon name="external" size={16} /> {words} {kbd}</a>;
+    if (href) return <Button key={a.id} kind={kind} size="lg" icon="external" keyId={keyId} keyShown={primary} href={href} target="_blank" rel="noopener noreferrer" title={title}>{words}</Button>;
     return (
-      <button key={a.id} type="button" className={cls} disabled={!a.enabled || busy} onClick={() => void run(a)} title={title} data-review-action={a.id}>
-        {words} {kbd}
-      </button>
+      <Button key={a.id} kind={kind} size="lg" keyId={keyId} keyShown={primary} disabled={!a.enabled || busy} onClick={() => void run(a)} title={title} data-review-action={a.id}>
+        {words}
+      </Button>
     );
   };
 
@@ -128,15 +129,14 @@ export function ReviewBar({ view, act, problem, keys = true }: { view: ReviewVie
           </div>
           <div className="sheet-actions">
             <span className="muted"><Icon name="alert" size={14} /> {merge.keyNote}</span>
-            <button type="button" className="btn btn-lg" disabled={busy} onClick={() => setAsking(null)}>{play.on ? 'No go' : merge.noGo.label} <kbd className="kbd key-hint" aria-hidden="true">Esc</kbd></button>
-            <button
-              type="button"
-              className="btn btn-primary btn-lg"
+            <Button disabled={busy} onClick={() => setAsking(null)}>{play.on ? 'No go' : merge.noGo.label} <kbd className="kbd key-hint" aria-hidden="true">Esc</kbd></Button>
+            <Button
+              kind="primary"
               disabled={busy}
               onClick={async () => { setBusy(true); try { if (await act('merge', { go: true, confirm: `merge ${view.pr.label}` })) setAsking(null); } finally { setBusy(false); } }}
             >
               {play.on ? merge.go.playLabel : merge.go.label}
-            </button>
+            </Button>
           </div>
           {problem && <p className="field-problem" role="alert">{problem}</p>}
         </Sheet>
@@ -156,15 +156,14 @@ function RemindSheet({ view, act, problem, onClose }: { view: ReviewView; act: A
       <textarea className="text-input review-remind-text" rows={4} value={text} onChange={(e) => setText(e.target.value)} aria-label="The comment, as it will be posted" data-autofocus />
       <p className="muted">{view.remind?.note}</p>
       <div className="sheet-actions">
-        <button type="button" className="btn btn-lg" disabled={busy} onClick={onClose}>Cancel <kbd className="kbd key-hint" aria-hidden="true">Esc</kbd></button>
-        <button
-          type="button"
-          className="btn btn-primary btn-lg"
+        <Button disabled={busy} onClick={onClose}>Cancel <kbd className="kbd key-hint" aria-hidden="true">Esc</kbd></Button>
+        <Button
+          kind="primary"
           disabled={busy || !text.trim()}
           onClick={async () => { setBusy(true); try { if (await act('remind', { go: true, text: text.trim() })) onClose(); } finally { setBusy(false); } }}
         >
           Post the comment
-        </button>
+        </Button>
       </div>
       {problem && <p className="field-problem" role="alert">{problem}</p>}
     </Sheet>

@@ -20,8 +20,12 @@ import { useKeyScope } from '../app/keyRegistry';
 import { jobHref, settingsHref } from '../app/router';
 import { useUi, type SheetState } from '../app/ui';
 import { Icon, type IconName } from '../components/Icon';
-import { Kbd } from '../components/Kbd';
-import { GuideCards, Hero, NextBar, Page, type GuideSpec } from '../components/page/Page';
+import { Button } from '../components/Button';
+import { More } from '../components/More';
+import { Peek, usePeekAddress, usePeekKeys } from '../components/Peek';
+import { Pending, Skeleton } from '../components/Pending';
+import { Hero, NextBar, Page, type GuideSpec } from '../components/page/Page';
+import { useDelayedFlag } from '../lib/useDelayedFlag';
 import { clockTime, fullTime, relativeTime, useNow } from '../lib/time';
 import { useWorkshop, useWorkshopState } from '../state/store';
 
@@ -105,6 +109,16 @@ export function nextTicket(items: readonly InboxItem[]): InboxItem | null {
   return free.find((i) => !i.assignee) ?? free[0] ?? null;
 }
 
+/**
+ * The two groups (like Linear's Priority tab): a ticket needs a decision while it has no job yet and
+ * is critical, high, not triaged, or its severity is hidden from you; everything else can wait.
+ */
+export function needsDecision(i: Pick<InboxItem, 'job' | 'severity' | 'url'>): boolean {
+  if (i.job) return false;
+  if (severityHidden(i)) return true;
+  return !i.severity || i.severity === 'critical' || i.severity === 'high';
+}
+
 export function Severity({ item, hidden = severityHidden(item) }: { item: Pick<InboxItem, 'severity' | 'url'>; hidden?: boolean }) {
   const sev = hidden ? null : item.severity;
   const icon: IconName = hidden ? 'eye-off' : sev ? SEVERITY_ICON[sev] ?? 'circle' : 'minus';
@@ -151,7 +165,7 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
   const [mine, setMine] = useState<Load<InboxAnswer>>({ state: 'loading' });
   const [viewList, setViewList] = useState<Load<InboxAnswer> | null>(null);
   const [views, setViews] = useState<SavedView[]>([]);
-  const [open, setOpen] = useState<InboxItem | null>(null);
+  const [peek, setPeek] = usePeekAddress();
   const [refreshing, setRefreshing] = useState(false);
   const focused = useRef<InboxItem | null>(null);
 
@@ -210,6 +224,12 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
   const shown = tab === 'mine' ? mine : viewList ?? { state: 'loading' as const };
   const items = useMemo(() => (shown.state === 'ready' ? sortInbox(shown.data.items) : []), [shown]);
   const pick = useMemo(() => nextTicket(items), [items]);
+  // The ticket in the quick look (#/inbox?peek=ORBIT-12): from this list, else the last one seen.
+  const lastOpen = useRef<InboxItem | null>(null);
+  const open = peek ? items.find((i) => i.key === peek) ?? (lastOpen.current?.key === peek ? lastOpen.current : null) : null;
+  lastOpen.current = open;
+  const showLoading = useDelayedFlag(mine.state === 'loading', 200, 400);
+  const showListLoading = useDelayedFlag(shown.state === 'loading', 200, 400);
 
   // s: Start on the open ticket, else the row with the focus, else the bar's ticket.
   useKeyScope('inbox', {
@@ -230,9 +250,8 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
     try { await loadMine(true); } finally { setRefreshing(false); }
   }
 
-  const sKey = <Kbd id="inbox-start" />;
   const lists = [{ id: 'mine', name: 'Mine' }, ...views];
-  const head = configured && !open ? (
+  const head = configured ? (
     <>
       <div className="seg" role="tablist" aria-label="Inbox lists">
         {lists.map((v) => {
@@ -254,100 +273,119 @@ export function InboxView({ openStream = defaultOpenStream }: { openStream?: (ur
         })}
       </div>
       <span className="spacer" />
-      <span className="muted page-note">Most severe first, then oldest</span>
-      <button type="button" className="btn btn-quiet" disabled={refreshing} onClick={() => void refresh()} title="Read your tickets from Orbit now instead of at the next check.">
-        <Icon name="refresh" size={16} /> {refreshing ? 'Reading…' : readWords(ready, now)}
-      </button>
+      {ready && <ReadLine status={ready} now={now} />}
+      <Button kind="quiet" size="sm" icon="refresh" busy={refreshing} onClick={() => void refresh()} title="Read your tickets from Orbit now instead of at the next check.">
+        Read now
+      </Button>
     </>
   ) : null;
 
+  const decide = items.filter(needsDecision);
+  const wait = items.filter((i) => !needsDecision(i));
+  const order = [...decide, ...wait].map((i) => i.key);
+  const table = (rows: InboxItem[], caption: string) => (
+    <TicketTable
+      items={rows}
+      caption={caption}
+      jobs={jobs}
+      pick={pick}
+      now={now}
+      peeked={open?.key ?? null}
+      onOpen={(item) => setPeek(item.key)}
+      onStart={start}
+      onStartStack={startStack}
+      onFocusRow={(item) => { focused.current = item; }}
+    />
+  );
+
   return (
     <Page label="Inbox" title="Inbox" className="page-inbox" head={head} guide={INBOX_GUIDE}>
-      {mine.state === 'loading' && <p className="muted" role="status">Reading your tickets…</p>}
+      {showLoading && <p className="muted" role="status">Reading your tickets…</p>}
       {mine.state === 'error' && <p className="field-problem" role="alert">The dashboard couldn’t give the inbox: {mine.message}</p>}
       {ready && !configured && <NoToken />}
       {ready && configured && (
         <>
           <StatusLine status={ready} now={now} />
-          {open ? (
-            <TicketDetail key={open.key} item={open} onBack={() => setOpen(null)} onStart={start} onStartStack={startStack} />
-          ) : (
+          {shown.state === 'ready' && (pick ? (
+            <NextBar
+              tone="stop"
+              icon={SEVERITY_ICON[pick.severity ?? ''] ?? 'inbox'}
+              say={`${pick.key} is ${pick.severity ? levelWord(pick.severity).toLowerCase() : 'not triaged yet'}${pick.assignee ? pick.assignee.you ? ' and yours' : `, with ${pick.assignee.name}` : ' and nobody is on it'}`}
+              sub="Start a job and the Foreman reads the ticket first."
+            >
+              <Button size="lg" keyId="inbox-start-stack" onClick={() => startStack(pick)} title={`${STACK_WHEN} Opens New job on ${pick.key}, run as a stack (key: Shift+S).`}>
+                Start as stack
+              </Button>
+              <Button kind="primary" size="lg" keyId="inbox-start" keyShown onClick={() => start(pick)} title={`Start a job on ${pick.key}: opens New job with the key and title filled in (key: s).`}>
+                Start {pick.key}
+              </Button>
+            </NextBar>
+          ) : items.length > 0 ? (
+            <NextBar tone="quiet" icon="circle-check" say="Every ticket here already has a job" sub="Open a job from its row to see where it is." />
+          ) : null)}
+          {shown.state === 'loading' && showListLoading && <p className="muted" role="status">Reading the list…</p>}
+          {shown.state === 'error' && <p className="field-problem" role="alert">{shown.message}</p>}
+          {shown.state === 'ready' && (items.length ? (
             <>
-              {shown.state === 'ready' && (pick ? (
-                <NextBar
-                  tone="stop"
-                  icon={SEVERITY_ICON[pick.severity ?? ''] ?? 'inbox'}
-                  say={`${pick.key} is ${pick.severity ? levelWord(pick.severity).toLowerCase() : 'not triaged yet'}${pick.assignee ? pick.assignee.you ? ' and yours' : `, with ${pick.assignee.name}` : ' and nobody is on it'}`}
-                  sub="Start a job and the Foreman reads the ticket first."
-                >
-                  <button type="button" className="btn btn-lg" onClick={() => startStack(pick)} title={`${STACK_WHEN} Opens New job on ${pick.key}, run as a stack (key: Shift+S).`}>
-                    Start as stack <Kbd id="inbox-start-stack" />
-                  </button>
-                  <button type="button" className="btn btn-primary btn-lg" onClick={() => start(pick)} title={`Start a job on ${pick.key}: opens New job with the key and title filled in (key: s).`}>
-                    Start {pick.key} {sKey}
-                  </button>
-                </NextBar>
-              ) : items.length > 0 ? (
-                <NextBar tone="quiet" icon="circle-check" say="Every ticket here already has a job" sub="Open a job from its row to see where it is." />
-              ) : null)}
-              {shown.state === 'loading' && <p className="muted" role="status">Reading the list…</p>}
-              {shown.state === 'error' && <p className="field-problem" role="alert">{shown.message}</p>}
-              {shown.state === 'ready' && (items.length ? (
-                <TicketTable
-                  items={items}
-                  jobs={jobs}
-                  pick={pick}
-                  now={now}
-                  sKey={sKey}
-                  onOpen={setOpen}
-                  onStart={start}
-                  onStartStack={startStack}
-                  onFocusRow={(item) => { focused.current = item; }}
-                />
-              ) : (
-                <Hero
-                  icon="circle-check"
-                  quiet
-                  title="Nothing for you right now"
-                  actions={<button type="button" className="btn btn-lg" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job of your own (key: c).">New job</button>}
-                >
-                  {tab === 'mine' ? 'Nothing open is assigned to you or watched by you.' : 'No tickets in this view.'}
-                </Hero>
-              ))}
+              <section className="inbox-group" aria-labelledby="inbox-decide">
+                <h3 className="inbox-group-head" id="inbox-decide">
+                  <Icon name="hand" size={16} className="inbox-group-icon is-decide" />
+                  Needs a decision <span className="inbox-group-count num">{decide.length}</span>
+                  <span className="inbox-group-note">No job yet, and severe or not triaged</span>
+                </h3>
+                {decide.length ? table(decide, `Tickets that need a decision, ${decide.length}, most severe first, then oldest.`) : <p className="lane-empty">Nothing needs a decision right now</p>}
+              </section>
+              {wait.length > 0 && (
+                <More screen="inbox" id="can-wait" label="Can wait" count={wait.length} icon="clock" note="Already on a job, or less severe" className="inbox-wait">
+                  {table(wait, `Tickets that can wait, ${wait.length}, most severe first, then oldest.`)}
+                </More>
+              )}
             </>
-          )}
+          ) : (
+            <Hero
+              icon="circle-check"
+              quiet
+              title="Nothing for you right now"
+              actions={<Button size="lg" keyId="new-job" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job of your own (key: c).">New job</Button>}
+            >
+              {tab === 'mine' ? 'Nothing open is assigned to you or watched by you.' : 'No tickets in this view.'}
+            </Hero>
+          ))}
+          {open && <TicketPeek key={open.key} item={open} order={order} onPick={(key) => setPeek(key)} onClose={() => setPeek(null)} onStart={start} onStartStack={startStack} />}
         </>
       )}
     </Page>
   );
 }
 
-/** "Read 2 min ago" for the refresh button. */
-function readWords(status: OrbitStatus | null, now: Date): string {
-  if (!status?.lastPoll) return 'Read now';
-  const mins = Math.max(0, Math.round((now.getTime() - Date.parse(status.lastPoll)) / 60_000));
-  return mins < 1 ? 'Read just now' : mins < 60 ? `Read ${mins} min ago` : `Read at ${clockTime(status.lastPoll, now)}`;
-}
+const SETUP_STEPS = [
+  { title: 'Make a token', say: 'On Orbit’s API tokens page. It can only read: nothing here writes to Orbit.' },
+  { title: 'Paste it in Settings', say: 'With Orbit’s address, in Settings → Workflow. It is kept in your Keychain.' },
+  { title: 'Your tickets show here', say: 'Most severe first, then oldest, checked every few minutes while this page is open.' },
+] as const;
 
+/** Before a token: what the Inbox is, the three steps as a numbered list, and the one action. */
 function NoToken() {
   return (
     <section className="inbox-setup" aria-label="Connect Orbit">
-      <Hero icon="inbox" title="Connect Orbit to see your tickets">
-        Your Portal Feedback tickets show here once {BRAND.name} has your Orbit token.
-      </Hero>
-      <GuideCards cards={[
-        { icons: ['external'], title: 'Make a token', say: 'On Orbit’s API tokens page. It can only read: nothing here writes to Orbit.' },
-        { icons: ['clipboard', 'settings'], title: 'Paste it in Settings', say: 'With Orbit’s address, in Settings → Workflow. It is kept in your Keychain.' },
-        { icons: ['inbox'], title: 'Your tickets show here', say: 'Most severe first, then oldest, checked every few minutes while this page is open.' },
-      ]} />
-      <p className="hero-actions"><a className="btn btn-primary btn-lg" href={settingsHref('workflow')}>Open Settings → Workflow</a></p>
+      <span className="inbox-setup-pic" aria-hidden="true"><Icon name="inbox" size={24} /></span>
+      <h2 className="inbox-setup-title">Connect Orbit to see your tickets</h2>
+      <p className="inbox-setup-say">Your Portal Feedback tickets show here once {BRAND.name} has your Orbit token.</p>
+      <ol className="setup-steps">
+        {SETUP_STEPS.map((step, n) => (
+          <li key={step.title} className="setup-step">
+            <span className="setup-n num" aria-hidden="true">{n + 1}</span>
+            <span className="setup-words"><b className="setup-title">{step.title}</b><span className="setup-say">{step.say}</span></span>
+          </li>
+        ))}
+      </ol>
+      <Button kind="primary" size="lg" href={settingsHref('workflow')} className="inbox-setup-go">Open Settings → Workflow</Button>
     </section>
   );
 }
 
 /** How often the list is read, and what went wrong (the last list stays). */
 function StatusLine({ status, now }: { status: OrbitStatus; now: Date }) {
-  const read = status.lastPoll ? `Read ${relativeTime(status.lastPoll, now)}${/^\d+[mhd]$/.test(relativeTime(status.lastPoll, now)) ? ' ago' : ''}` : 'Not read yet';
   const lasting = status.errorKind === 'auth' || status.errorKind === 'scope' || status.errorKind === 'token';
   return (
     <>
@@ -361,22 +399,29 @@ function StatusLine({ status, now }: { status: OrbitStatus; now: Date }) {
           {status.lastPoll && <> Showing the list as it was at {clockTime(status.lastPoll, now)}.</>}
         </p>
       )}
-      <p className="muted page-sub" title={status.lastPoll ? fullTime(status.lastPoll) : undefined}>
-        {read} · checked every {minutes(status.everyMs)} minutes while this page is open
-        {status.waitingMs > 0 && <> · Orbit asked to wait, next check in about {Math.max(1, minutes(status.waitingMs))} minutes</>}
-      </p>
     </>
   );
 }
 
-function TicketTable({ items, jobs, pick, now, sKey, onOpen, onStart, onStartStack, onFocusRow }: {
-  items: InboxItem[]; jobs: readonly Job[]; pick: InboxItem | null; now: Date; sKey: React.ReactNode;
+/** When the list was read and how often, quietly in the page's header (beside Read now). */
+function ReadLine({ status, now }: { status: OrbitStatus; now: Date }) {
+  const read = status.lastPoll ? `Read ${relativeTime(status.lastPoll, now)}${/^\d+[mhd]$/.test(relativeTime(status.lastPoll, now)) ? ' ago' : ''}` : 'Not read yet';
+  return (
+    <span className="muted page-note inbox-read" title={status.lastPoll ? fullTime(status.lastPoll) : undefined}>
+      {read} · checked every {minutes(status.everyMs)} minutes while this page is open
+      {status.waitingMs > 0 && <> · Orbit asked to wait, next check in about {Math.max(1, minutes(status.waitingMs))} minutes</>}
+    </span>
+  );
+}
+
+function TicketTable({ items, caption, jobs, pick, now, peeked, onOpen, onStart, onStartStack, onFocusRow }: {
+  items: InboxItem[]; caption: string; jobs: readonly Job[]; pick: InboxItem | null; now: Date; peeked: string | null;
   onOpen: (item: InboxItem) => void; onStart: (item: InboxItem) => void; onStartStack: (item: InboxItem) => void; onFocusRow: (item: InboxItem | null) => void;
 }) {
   return (
     <div className="data-table inbox-table">
       <table>
-        <caption className="sr-only">Your tickets, {items.length}, most severe first, then oldest.</caption>
+        <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>
             <th scope="col" aria-sort="ascending">Severity</th>
@@ -391,43 +436,56 @@ function TicketTable({ items, jobs, pick, now, sKey, onOpen, onStart, onStartSta
             const job = i.job ? jobs.find((j) => j.slug === i.job!.slug) : undefined;
             const isPick = pick?.key === i.key;
             return (
-              <tr key={i.key} data-ticket={i.key} className={isPick ? 'is-next' : undefined} onFocus={() => onFocusRow(i)} onBlur={() => onFocusRow(null)}>
+              <tr
+                key={i.key}
+                data-ticket={i.key}
+                className={[isPick ? 'is-next' : '', peeked === i.key ? 'is-peeked' : ''].filter(Boolean).join(' ') || undefined}
+                onFocus={() => onFocusRow(i)}
+                onBlur={() => onFocusRow(null)}
+              >
                 <td className="cell-sev"><Severity item={i} /></td>
                 <th scope="row" className="cell-ticket">
-                  <button type="button" className="row-link" onClick={() => onOpen(i)} title={`Open ${i.key}: its description, links and timeline.`}>
+                  <button
+                    type="button"
+                    className="row-link"
+                    onClick={() => onOpen(i)}
+                    onKeyDown={(e) => { if (e.key === ' ') { e.preventDefault(); onOpen(i); } }}
+                    title={`Take a quick look at ${i.key}: its description, links and timeline (key: Space).`}
+                  >
                     <span className="num ticket-key">{i.key}</span>
                     <span className="ticket-title">{i.title}</span>
                   </button>
                   {i.job && <span className="muted ticket-job">You are already on this: <a href={jobHref(i.job.slug)} title="Open the job on this ticket.">{i.job.title}</a></span>}
                 </th>
-                <td className="cell-age" title={i.createdAt ? `Opened ${fullTime(i.createdAt)}` : undefined}>{relativeTime(i.createdAt, now) || '—'}</td>
+                <td className="cell-age num" title={i.createdAt ? `Opened ${fullTime(i.createdAt)}` : undefined}>{relativeTime(i.createdAt, now) || '—'}</td>
                 <td className="cell-who"><WhoIsOn who={i.assignee} /></td>
                 <td className="cell-act">
                   {i.job ? (
-                    <a className="btn" href={jobHref(i.job.slug)} title={job?.laneReason ?? 'Open the job on this ticket.'}>
-                      {job?.lane === 'needs-you' ? <><Icon name="hand" size={16} /> Needs you ▸</> : 'Open its job ▸'}
-                    </a>
+                    <Button size="sm" href={jobHref(i.job.slug)} icon={job?.lane === 'needs-you' ? 'hand' : undefined} title={job?.laneReason ?? 'Open the job on this ticket.'}>
+                      {job?.lane === 'needs-you' ? 'Needs you' : 'Open its job'}
+                    </Button>
                   ) : (
-                    <button
-                      type="button"
-                      className={isPick ? 'btn btn-primary' : 'btn'}
-                      onClick={() => onStart(i)}
-                      aria-label={`Start a job on ${i.key}`}
-                      title={`Start a job on ${i.key}: opens New job with the key and title filled in (key: s, with the focus on this row).`}
-                    >
-                      Start {isPick && sKey}
-                    </button>
-                  )}
-                  {!i.job && (
-                    <button
-                      type="button"
-                      className="btn btn-quiet inbox-stack-start"
-                      onClick={() => onStartStack(i)}
-                      aria-label={`Start ${i.key} as a stack`}
-                      title={`${STACK_WHEN} Opens New job on ${i.key}, run as a stack (key: Shift+S, with the focus on this row).`}
-                    >
-                      Start as stack
-                    </button>
+                    <>
+                      <Button
+                        kind="quiet"
+                        size="sm"
+                        className="inbox-stack-start"
+                        onClick={() => onStartStack(i)}
+                        aria-label={`Start ${i.key} as a stack`}
+                        title={`${STACK_WHEN} Opens New job on ${i.key}, run as a stack (key: Shift+S, with the focus on this row).`}
+                      >
+                        Start as stack
+                      </Button>
+                      <Button
+                        size="sm"
+                        keyId={isPick ? 'inbox-start' : undefined}
+                        onClick={() => onStart(i)}
+                        aria-label={`Start a job on ${i.key}`}
+                        title={`Start a job on ${i.key}: opens New job with the key and title filled in (key: s, with the focus on this row).`}
+                      >
+                        Start
+                      </Button>
+                    </>
                   )}
                 </td>
               </tr>
@@ -441,11 +499,15 @@ function TicketTable({ items, jobs, pick, now, sKey, onOpen, onStart, onStartSta
 
 const DETAIL_EVERY_MS = 60_000;
 
-function TicketDetail({ item, onBack, onStart, onStartStack }: { item: InboxItem; onBack: () => void; onStart: (item: InboxItem) => void; onStartStack: (item: InboxItem) => void }) {
+function TicketPeek({ item, order, onPick, onClose, onStart, onStartStack }: {
+  item: InboxItem; order: readonly string[]; onPick: (key: string) => void; onClose: () => void;
+  onStart: (item: InboxItem) => void; onStartStack: (item: InboxItem) => void;
+}) {
   const { api } = useWorkshop();
   const now = useNow();
   const [detail, setDetail] = useState<Load<TicketAnswer>>({ state: 'loading' });
   const [refs, setRefs] = useState<Load<Reference[]>>({ state: 'loading' });
+  usePeekKeys({ current: item.key, order, onPick, onClose });
 
   useEffect(() => {
     let live = true;
@@ -467,61 +529,60 @@ function TicketDetail({ item, onBack, onStart, onStartStack }: { item: InboxItem
   const hidden = detail.state === 'ready' && detail.data.audience === 'participant';
 
   return (
-    <section aria-label={`${current.key}: ${current.title}`}>
-      <div className="doc-reader-head">
-        <button type="button" className="btn btn-quiet doc-back" onClick={onBack} title="Back to the list."><span className="doc-back-arrow" aria-hidden="true">←</span>All tickets</button>
-        <h3 className="doc-title"><span className="num">{current.key}</span> {current.title}</h3>
-        <p className="job-facts muted">
-          <span>Status: {statusWord(current.status)}</span>
-          <span>Severity: {levelWord(current.severity, hidden)}</span>
-          <span title={current.createdAt ? fullTime(current.createdAt) : undefined}>Opened {relativeTime(current.createdAt, now) || '—'}</span>
-          <span>Assigned to: {current.assignee?.name ?? 'No one'}</span>
-        </p>
-        <div className="doc-actions">
-          <button
-            type="button"
-            className="btn"
-            disabled={Boolean(current.job)}
-            onClick={() => onStart(current)}
-            title={current.job ? 'You are already on this: open its job instead.' : 'Start a job on this ticket: opens New job with the key and title filled in (key: s).'}
-          >
-            Start {!current.job && <Kbd id="inbox-start" />}
-          </button>
-          {!current.job && (
-            <button type="button" className="btn" onClick={() => onStartStack(current)} title={`${STACK_WHEN} Opens New job on this ticket, run as a stack (key: Shift+S).`}>
-              Start as stack <Kbd id="inbox-start-stack" />
-            </button>
-          )}
-          {current.job && <span>You are already on this: <a href={jobHref(current.job.slug)}>{current.job.title}</a></span>}
-          {current.url && <a className="btn btn-quiet" href={current.url} target="_blank" rel="noreferrer noopener" title="Open the ticket on Orbit, in a new tab.">Open on Orbit</a>}
-        </div>
-        {!current.job && <p className="muted inbox-stack-when">Start as stack: {STACK_WHEN.charAt(0).toLowerCase()}{STACK_WHEN.slice(1)}</p>}
+    <Peek
+      label={`${current.key}: ${current.title}`}
+      className="ticket-peek"
+      title={<span className="num ticket-key">{current.key}</span>}
+      actions={current.url ? <Button kind="quiet" size="sm" icon="external" href={current.url} target="_blank" rel="noreferrer noopener" title="Open the ticket on Orbit, in a new tab.">Open on Orbit</Button> : null}
+      keys={[['j k', 'the next or previous ticket'], ['s', 'start a job'], ['Esc', 'close']]}
+      onClose={onClose}
+    >
+      <p className="ticket-peek-title">{current.title}</p>
+      <dl className="ticket-facts">
+        <div><dt>Status</dt><dd>{statusWord(current.status)}</dd></div>
+        <div><dt>Severity</dt><dd><Severity item={current} hidden={hidden} /></dd></div>
+        <div><dt>Opened</dt><dd className="num" title={current.createdAt ? fullTime(current.createdAt) : undefined}>{relativeTime(current.createdAt, now) || '—'}</dd></div>
+        <div><dt>Assigned to</dt><dd><WhoIsOn who={current.assignee} /></dd></div>
+      </dl>
+      <div className="ticket-act">
+        {current.job ? (
+          <p className="ticket-on">You are already on this: <a href={jobHref(current.job.slug)}>{current.job.title}</a></p>
+        ) : (
+          <>
+            <Button size="md" keyId="inbox-start-stack" onClick={() => onStartStack(current)} title={`${STACK_WHEN} Opens New job on this ticket, run as a stack (key: Shift+S).`}>
+              Start as stack
+            </Button>
+            <Button kind="primary" keyId="inbox-start" keyShown onClick={() => onStart(current)} title="Start a job on this ticket: opens New job with the key and title filled in (key: s).">
+              Start
+            </Button>
+          </>
+        )}
       </div>
-      {detail.state === 'loading' && <p className="muted" role="status">Reading the ticket…</p>}
+      {!current.job && <p className="muted inbox-stack-when">Start as stack: {STACK_WHEN.charAt(0).toLowerCase()}{STACK_WHEN.slice(1)}</p>}
+      {detail.state === 'loading' && <Pending loading say="Reading the ticket…" skeleton={<Skeleton rows={3} className="ticket-skeleton" />} />}
       {detail.state === 'error' && <p className="field-problem" role="alert">{detail.message}</p>}
-      {description && <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{description}</p>}
+      {description && <p className="ticket-description">{description}</p>}
 
-      <h4 className="doc-group-title">Links on the ticket</h4>
-      {refs.state === 'loading' && <p className="muted">Reading the links…</p>}
+      <h4 className="ticket-part">Links on the ticket</h4>
       {refs.state === 'error' && <p className="field-problem">{refs.message}</p>}
       {refs.state === 'ready' && (refs.data.length ? (
-        <ul>
+        <ul className="ticket-links">
           {refs.data.map((r) => <li key={r.id}><span className="chip">{capital(r.kind)}</span> <a href={r.url} target="_blank" rel="noreferrer noopener">{r.label}</a></li>)}
         </ul>
       ) : <p className="muted">No branches, PRs or links yet.</p>)}
 
-      <h4 className="doc-group-title">Timeline</h4>
+      <h4 className="ticket-part">Timeline</h4>
       {detail.state === 'ready' && !timeline.length && <p className="muted">Nothing has happened on this ticket yet.</p>}
-      <ol className="thread" style={{ listStyle: 'none', padding: 0 }}>
+      <ol className="ticket-timeline">
         {timeline.map((e, n) => (
-          <li key={`${e.at}-${n}`} className="thread-item">
-            <p className="thread-meta"><span className="who">{e.type === 'comment' ? person(e.comment?.author) : e.type === 'status' ? person(e.by) : person(e.event?.actor)}</span><span className="thread-time" title={fullTime(e.at)}>{relativeTime(e.at, now)}</span></p>
-            {e.type === 'comment' && <p style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{e.comment?.deletedAt ? <span className="muted">This comment was deleted.</span> : e.comment?.body ?? ''}</p>}
-            {e.type === 'status' && <p className="thread-line">Status: {e.from ? `${statusWord(e.from)} → ` : ''}{statusWord(e.to ?? null)}</p>}
-            {e.type === 'event' && <p className="thread-line">{capital(e.event?.kind ?? 'change')}</p>}
+          <li key={`${e.at}-${n}`} className="ticket-event">
+            <p className="ticket-event-meta"><span className="who">{e.type === 'comment' ? person(e.comment?.author) : e.type === 'status' ? person(e.by) : person(e.event?.actor)}</span><span className="num" title={fullTime(e.at)}>{relativeTime(e.at, now)}</span></p>
+            {e.type === 'comment' && <p className="ticket-comment">{e.comment?.deletedAt ? <span className="muted">This comment was deleted.</span> : e.comment?.body ?? ''}</p>}
+            {e.type === 'status' && <p className="ticket-event-line">Status: {e.from ? `${statusWord(e.from)} → ` : ''}{statusWord(e.to ?? null)}</p>}
+            {e.type === 'event' && <p className="ticket-event-line">{capital(e.event?.kind ?? 'change')}</p>}
           </li>
         ))}
       </ol>
-    </section>
+    </Peek>
   );
 }

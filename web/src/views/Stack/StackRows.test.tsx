@@ -51,7 +51,7 @@ describe('a stack on Jobs', () => {
     expect(within(card).getByRole('img', { name: /Plan: done, Build: done, Merge: now, Push: not yet/ })).toBeInTheDocument();
     expect(card).toHaveTextContent('Stack · merge · 1 of 3 running');
     expect(card).toHaveTextContent('Merging');
-    fireEvent.click(within(card).getByText('3 parts ▾'));
+    fireEvent.click(within(card).getByText('3 parts'));
     const rows = card.querySelectorAll('.stack-card-parts li');
     expect([...rows].map((r) => r.textContent)).toEqual(['1export-buttonBuilding', '2csv-writerReady to merge', '3emailQueued']);
     expect(within(card).getByRole('link', { name: 'export-button' })).toHaveAttribute('href', '#/job/orbit-512--export-button');

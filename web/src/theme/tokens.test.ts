@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ASK_NAMES, CHART_SERIES, colorTokens, DARK, GROUP_NAMES, LANE_NAMES, oklch, semanticTokens, STAGE_NAMES, STATIC_TOKENS, tokensCss } from './tokens';
+import { ASK_NAMES, CHART_SERIES, colorTokens, DARK, GROUP_NAMES, LANE_NAMES, oklch, semanticTokens, STAGE_NAMES, STATIC_TOKENS, tokensCss, PHONE_TOKENS } from './tokens';
 
 describe('design tokens', () => {
   it('the committed tokens.css matches tokens.ts (run `npm run web:build` to regenerate)', () => {
@@ -39,20 +39,24 @@ describe('design tokens', () => {
 
   it('the dark theme follows the research brief', () => {
     const c = colorTokens(DARK);
-    expect(c['bg-0']).toBe('oklch(.16 .006 260)');
-    expect(c['bg-4']).toBe('oklch(.28 .006 260)');
-    expect(c['border-1']).toBe('oklch(1 0 0 / .06)');
-    expect(c['border-3']).toBe('oklch(1 0 0 / .18)');
+    // Packet R, more contrast in dark: a deeper window and layers about 0.03 apart.
+    expect(c['bg-0']).toBe('oklch(.15 .008 262)');
+    expect(c['bg-4']).toBe('oklch(.27 .008 262)');
+    // Borders that show on every layer.
+    expect(c['border-1']).toBe('oklch(1 0 0 / .1)');
+    expect(c['border-3']).toBe('oklch(1 0 0 / .26)');
     expect(c['text-1']).toMatch(/^oklch\(\.95 /);
-    expect(c['text-2']).toMatch(/^oklch\(\.72 /);
-    expect(c['accent']).toBe('oklch(.7 .15 275)');
-    for (const s of ['ok', 'warn', 'error', 'info', 'paused']) expect(c[`status-${s}`]).toBeTruthy();
+    expect(c['text-2']).toMatch(/^oklch\(\.76 /);
+    // Marks lifted to glow a little against the dark.
+    expect(c['accent']).toBe('oklch(.72 .17 280)');
+    for (const s of ['ok', 'warn', 'error', 'info', 'review', 'paused']) expect(c[`status-${s}`]).toBeTruthy();
+    for (const s of ['spec', 'investigate', 'plan', 'build', 'test', 'review', 'ship']) expect(c[`stop-${s}`]).toMatch(/^oklch\(\.76 \.15 /);
   });
 
   it('higher contrast spreads text and borders', () => {
     const hi = colorTokens({ ...DARK, contrast: 1.5 });
     expect(hi['text-2']).not.toBe(colorTokens(DARK)['text-2']);
-    expect(hi['border-1']).toBe('oklch(1 0 0 / .09)');
+    expect(hi['border-1']).toBe('oklch(1 0 0 / .15)');
   });
 
   it('keeps every motion duration at or under 200ms and spacing on the 4px grid', () => {
@@ -66,9 +70,12 @@ describe('design tokens', () => {
     expect(tokensCss()).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\n {2}:root \{\n {4}--motion-shift: 0px;/);
   });
 
-  it('every clickable thing is at least 40 px tall, at every text size', () => {
-    expect(STATIC_TOKENS['control-h']).toBe('max(40px, calc(40px * var(--ui-scale, 1)))');
-    expect(STATIC_TOKENS['control-h-lg']).toMatch(/^max\(44px, /);
+  it('controls are 28, 34 and 40 px (packet R), never smaller at any text size, and at least 40 px on a phone', () => {
+    expect(STATIC_TOKENS['control-h-sm']).toBe('max(28px, calc(28px * var(--ui-scale, 1)))');
+    expect(STATIC_TOKENS['control-h']).toBe('max(34px, calc(34px * var(--ui-scale, 1)))');
+    expect(STATIC_TOKENS['control-h-lg']).toBe('max(40px, calc(40px * var(--ui-scale, 1)))');
+    for (const k of ['control-h-sm', 'control-h', 'control-h-lg']) expect(PHONE_TOKENS[k], k).toMatch(/^max\(4[04]px, /);
+    expect(tokensCss()).toMatch(/@media \(max-width: 760px\) \{\n {2}:root \{\n {4}--control-h-sm: max\(40px,/);
   });
 
   it('gives the charts eight colours, each with its own pattern drawn without a literal colour', () => {

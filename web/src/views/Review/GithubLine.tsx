@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FlowView, GithubLine as Line } from '../../api/types';
 import { useKeyScope } from '../../app/keyRegistry';
 import { Icon } from '../../components/Icon';
-import { Kbd } from '../../components/Kbd';
+import { Button } from '../../components/Button';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import './review.css';
 
@@ -68,7 +68,7 @@ function useTick(ms: number) {
 }
 
 /** The line. keys: u checks now (off where another view owns the page's keys). */
-export function GithubLine({ keys = true, className = '' }: { keys?: boolean; className?: string }) {
+export function GithubLine({ keys = true, className = '', onlyStale = false }: { keys?: boolean; className?: string; /** Jobs (packet R): only when the last check is over ten minutes old, or failed; u still checks. */ onlyStale?: boolean }) {
   const { flow, refresh, problem: askProblem } = useGithub();
   const now = useTick(5000);
   const [asked, setAsked] = useState(false);
@@ -96,27 +96,28 @@ export function GithubLine({ keys = true, className = '' }: { keys?: boolean; cl
         <span className="gh-line-words">{words}</span>
         {run && <code className="gh-line-run">{run}</code>}
         {run && (
-          <button type="button" className="btn btn-quiet gh-line-btn" onClick={() => void copy()} title={`Copy “${run}” to paste in a terminal.`}>
-            <Icon name="copy" size={14} /> {copied ? 'Copied' : 'Copy'}
-          </button>
+          <Button kind="quiet" size="sm" icon="copy" className="gh-line-btn" onClick={() => void copy()} title={`Copy “${run}” to paste in a terminal.`}>
+            {copied ? 'Copied' : 'Copy'}
+          </Button>
         )}
-        <button type="button" className="btn btn-quiet gh-line-btn" onClick={() => void check()} title="Read every repository’s pull requests on GitHub again (key: u). Nothing is written.">
-          Try again <Kbd id="github-check" />
-        </button>
+        <Button kind="quiet" size="sm" keyId="github-check" className="gh-line-btn" onClick={() => void check()} title="Read every repository’s pull requests on GitHub again (key: u). Nothing is written.">
+          Try again
+        </Button>
       </p>
     );
   }
   const ago = agoWords(line.checkedAt, now);
+  const age = line.checkedAt ? now - Date.parse(line.checkedAt) : Infinity;
+  if (onlyStale && !checking && age < 10 * 60_000) return null;
   return (
     <p className={`gh-line ${className}`.trim()} role="status" aria-label="GitHub" title={`GitHub is read ${everyWords(line)}, and right after any push or reply.`}>
       <Icon name={checking ? 'loader' : 'refresh'} size={14} />
       <span className="gh-line-words">{checking ? 'Checking GitHub…' : ago ? `GitHub checked ${ago}` : 'GitHub not checked yet'}</span>
       {!checking && (
         <>
-          <span aria-hidden="true">·</span>
-          <button type="button" className="link-button gh-line-btn" onClick={() => void check()} title="Read every repository’s pull requests on GitHub now, read-only, instead of waiting (key: u).">
-            Check now <Kbd id="github-check" />
-          </button>
+          <Button kind="quiet" size="sm" keyId="github-check" className="gh-line-btn" onClick={() => void check()} title="Read every repository’s pull requests on GitHub now, read-only, instead of waiting (key: u).">
+            Check now
+          </Button>
         </>
       )}
     </p>

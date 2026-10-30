@@ -80,7 +80,7 @@ describe('the Desk', () => {
     expect(kbd(within(current).getByRole('button', { name: 'Approve and start Build' }))).toBe('a');
     expect(kbd(screen.getByRole('link', { name: 'Open the job' }))).toBe('o');
     // The side: nothing decided yet; the job's facts and where its work is.
-    expect(within(side()).getByRole('region', { name: 'Decided today' })).toHaveTextContent('Nothing yet this session.');
+    expect(within(side()).getByRole('region', { name: 'Decided today' })).toHaveTextContent('Nothing decided yet.');
     const jobBox = within(side()).getByRole('region', { name: 'This job' });
     expect(jobBox.querySelector('.desk-facts')).toHaveTextContent('Needs youFeatureL1portalfeature/alpha$0.42');
     expect(jobBox.querySelector('.desk-where')).toHaveTextContent('feature/alpha · Plan');

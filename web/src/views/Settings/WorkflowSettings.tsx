@@ -8,12 +8,19 @@
 // Review rounds (packet Q), next to the finish line: how often GitHub is checked while a job waits
 // on a reviewer or its checks (1, 5, 10 or 30 minutes; POST /api/review/settings), and who reviews
 // and merges each pull request, read from each repository's profile (GET /api/review routes).
-import { useEffect, useId, useState } from 'react';
+// Simple first (packet R): the finish line shows; the rest (GitHub, what a new job starts with, the
+// level, stacks, and the Orbit token SettingsView passes in) waits in one More that names it. Each
+// change says "Saved" beside its heading.
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { DEFAULT_FINISH_LINE, DEFAULT_SECTIONS_AT_ONCE, type FinishLine, MAX_SECTIONS_AT_ONCE, type Settings, WORKFLOW_CHOICES, type WorkflowChoice, type WorkflowSettings as Workflow } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { useReviewList } from '../Review/useReview';
 import '../Review/review.css';
+import { Choice, Segmented } from '../../components/Choice';
+import { NumberInput } from '../../components/Field';
+import { Saved, useSaved } from '../../components/Saved';
+import { SettingGroup, SettingsMore } from './SettingsMore';
 
 /** Only for a rail line before the dashboard has said its words (meta.finishLines is the source). */
 const FALLBACK_LABELS: Record<FinishLine, string> = { 'pr1-open': 'PR #1 open', 'pr1-merged': 'PR #1 merged', staging: 'In staging', main: 'In main', marked: 'When I mark it done' };
@@ -31,7 +38,7 @@ export const CHOICES: { id: 'wireframes' | 'clarify'; label: string; auto: strin
   { id: 'clarify', label: 'Clarify questions for new jobs', auto: 'When the request leaves a product decision open.', hint: 'Whether the Foreman asks you a few questions, with the consequence of each answer, before the spec is drafted. Always: every job. Off: never; the spec writer decides alone.' },
 ];
 
-export function WorkflowSettings() {
+export function WorkflowSettings({ children }: { children?: ReactNode }) {
   const { api, store } = useWorkshop();
   const { meta } = useWorkshopState();
   const w: Workflow = { finishLine: DEFAULT_FINISH_LINE, wireframes: 'auto', clarify: 'auto', ...(meta?.settings?.workflow ?? {}) };
@@ -39,6 +46,7 @@ export function WorkflowSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const id = useId();
+  const saved = useSaved();
 
   // Sections at once: typed into a box, saved once it is a whole number from 1 to 20.
   const atOnce = w.sectionsAtOnce ?? DEFAULT_SECTIONS_AT_ONCE;
@@ -52,15 +60,15 @@ export function WorkflowSettings() {
     if (n === atOnce) { setError(null); return; }
     setBusy(true);
     setError(null);
-    try { store.dispatch({ type: 'settings', settings: (await api.post<{ settings: Settings }>('/api/stacks/cap', { cap: n })).settings }); }
+    try { store.dispatch({ type: 'settings', settings: (await api.post<{ settings: Settings }>('/api/stacks/cap', { cap: n })).settings }); saved.mark('stacks'); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { setBusy(false); }
   }
 
-  async function save(patch: Partial<Workflow>) {
+  async function save(patch: Partial<Workflow>, what: string) {
     setBusy(true);
     setError(null);
-    try { store.dispatch({ type: 'settings', settings: await api.post<Settings>('/api/settings', { workflow: patch }) }); }
+    try { store.dispatch({ type: 'settings', settings: await api.post<Settings>('/api/settings', { workflow: patch }) }); saved.mark(what); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { setBusy(false); }
   }
@@ -72,11 +80,10 @@ export function WorkflowSettings() {
         <p>The <strong>finish line</strong> says what counts as a job being done, everywhere at once: the Done group and notification, the Play quest, the goal flag on each job’s trail. Marking a job done always counts. A job past the line but not in main yet sits in <strong>Shipping</strong>, where nothing asks you anything.</p>
         <p><strong>Screens</strong> and <strong>Clarify questions</strong> are what a new job starts with; its Notes and options can change them for that job. On Auto the workflow decides from the job’s level and what the request says.</p>
       </HowThisWorks>
-      <fieldset className="rule-options finish-line" disabled={busy} data-setting="finish-line">
-        <legend className="look-heading">Finish line</legend>
+      <SettingGroup className="rule-options finish-line" disabled={busy} setting="finish-line" title="Finish line" saved={<Saved tick={saved.tick('finish')} />}>
         {lines?.length ? lines.map((l) => (
           <label key={l.id} className={`rule-option${w.finishLine === l.id ? ' is-picked' : ''}`} title={l.hint}>
-            <input type="radio" name={`${id}-finish`} value={l.id} checked={w.finishLine === l.id} onChange={() => void save({ finishLine: l.id })} />
+            <Choice type="radio" name={`${id}-finish`} value={l.id} checked={w.finishLine === l.id} onChange={() => void save({ finishLine: l.id }, 'finish')} />
             <span className="rule-option-body">
               <span className="rule-option-kind">{l.label}{l.id === DEFAULT_FINISH_LINE && <span className="chip">Default</span>}</span>
               <span className="muted">{l.hint}</span>
@@ -85,39 +92,38 @@ export function WorkflowSettings() {
         )) : (
           <p className="muted" role="note">The dashboard didn’t send the finish line’s choices. Update it and start it again; until then it uses {finishLineLabel(w.finishLine, undefined)}.</p>
         )}
-      </fieldset>
-      <GithubEvery />
-      <RouteTable />
-      {CHOICES.map((c) => (
-        <fieldset key={c.id} className="workflow-choice" disabled={busy} data-setting={c.id} title={c.hint}>
-          <legend className="look-heading">{c.label}</legend>
-          <div className="home-seg" role="radiogroup" aria-label={c.label}>
-            {WORKFLOW_CHOICES.map((v) => (
-              <label key={v} className={`home-seg-btn${w[c.id] === v ? ' is-on' : ''}`}>
-                <input className="sr-only" type="radio" name={`${id}-${c.id}`} value={v} checked={w[c.id] === v} onChange={() => void save(c.id === 'wireframes' ? { wireframes: v } : { clarify: v })} />
-                {CHOICE_WORDS[v]}
-              </label>
-            ))}
+      </SettingGroup>
+      <SettingsMore id="workflow-more" label="More: GitHub, what new jobs start with, the level, stacks and the Orbit token" holds={['github-every', 'pr-route', 'wireframes', 'clarify', 'auto-level', 'sections-at-once', 'orbit-token']}>
+        <GithubEvery />
+        <RouteTable />
+        {CHOICES.map((c) => (
+          <SettingGroup key={c.id} className="workflow-choice" disabled={busy} setting={c.id} hint={c.hint} title={c.label} saved={<Saved tick={saved.tick(c.id)} />}>
+            <Segmented<WorkflowChoice>
+              label={c.label}
+              value={w[c.id] ?? 'auto'}
+              disabled={busy}
+              onChange={(v) => { if (v !== w[c.id]) void save(c.id === 'wireframes' ? { wireframes: v } : { clarify: v }, c.id); }}
+              options={WORKFLOW_CHOICES.map((v) => ({ value: v, label: CHOICE_WORDS[v] }))}
+            />
+            <p className="muted settings-note-under">Auto: {c.auto}</p>
+          </SettingGroup>
+        ))}
+        <SettingGroup className="workflow-choice" disabled={busy} setting="auto-level" title="Level" saved={<Saved tick={saved.tick('level')} />}>
+          <label className="check">
+            <Choice type="checkbox" checked={w.autoLevel === true} onChange={(e) => void save({ autoLevel: e.currentTarget.checked }, 'level')} />
+            Choose the level for me
+          </label>
+          <p className="muted settings-note-under">The higher of the rules’ level and the Foreman’s wins, and it is never lowered. After each build the real changes are checked again and the level raised if a rule says so; the Foreman then stops before any PR. You are asked instead when L3 applies, the two differ by 2 or more, or the request is too short to judge.</p>
+        </SettingGroup>
+        <SettingGroup className="workflow-choice" disabled={busy} setting="sections-at-once" title="Stacks" saved={<Saved tick={saved.tick('stacks')} />}>
+          <div className="check">
+            <NumberInput value={atOnceDraft} min={1} max={MAX_SECTIONS_AT_ONCE} onChange={(v) => void saveAtOnce(v)} aria-label="Sections at once, across every stack" />
+            <span>Sections at once, across every stack</span>
           </div>
-          <p className="muted settings-note-under">Auto: {c.auto}</p>
-        </fieldset>
-      ))}
-      <fieldset className="workflow-choice" disabled={busy} data-setting="auto-level">
-        <legend className="look-heading">Level</legend>
-        <label className="check">
-          <input type="checkbox" checked={w.autoLevel === true} onChange={(e) => void save({ autoLevel: e.currentTarget.checked })} />
-          Choose the level for me
-        </label>
-        <p className="muted settings-note-under">The higher of the rules’ level and the Foreman’s wins, and it is never lowered. After each build the real changes are checked again and the level raised if a rule says so; the Foreman then stops before any PR. You are asked instead when L3 applies, the two differ by 2 or more, or the request is too short to judge.</p>
-      </fieldset>
-      <fieldset className="workflow-choice" disabled={busy} data-setting="sections-at-once">
-        <legend className="look-heading">Stacks</legend>
-        <label className="check">
-          <input type="number" min={1} max={MAX_SECTIONS_AT_ONCE} step={1} value={atOnceDraft} onChange={(e) => void saveAtOnce(e.currentTarget.value)} style={{ width: '5rem' }} />
-          Sections at once, across every stack
-        </label>
-        <p className="muted settings-note-under">How many sections of big jobs split into a stack are built side by side, counting every stack. A stack can set a lower number on its own page. The rest wait, and the page says why. Default {DEFAULT_SECTIONS_AT_ONCE}.</p>
-      </fieldset>
+          <p className="muted settings-note-under">How many sections of big jobs split into a stack are built side by side, counting every stack. A stack can set a lower number on its own page. The rest wait, and the page says why. Default {DEFAULT_SECTIONS_AT_ONCE}.</p>
+        </SettingGroup>
+        {children}
+      </SettingsMore>
       {error && <p className="field-problem" role="alert">{error}</p>}
     </section>
   );
@@ -137,32 +143,32 @@ function GithubEvery() {
   const [picked, setPicked] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const id = useId();
+  const note = useSaved();
   useEffect(() => { setPicked(null); }, [saved]);
   const now = picked ?? saved;
   async function pick(n: 1 | 5 | 10 | 30) {
+    if (n === now) return;
     setPicked(n);
     setBusy(true);
     setError(null);
-    try { await api.post('/api/review/settings', { githubEveryMin: n }); }
+    try { await api.post('/api/review/settings', { githubEveryMin: n }); note.mark(); }
     catch (err) { setPicked(null); setError(err instanceof Error ? err.message : String(err)); }
     finally { setBusy(false); }
   }
+  const words = 'How often to check GitHub while waiting';
   return (
-    <fieldset className="workflow-choice" disabled={busy} data-setting="github-every">
-      <legend className="look-heading">How often to check GitHub while waiting</legend>
+    <SettingGroup className="workflow-choice" disabled={busy} setting="github-every" title={words} saved={<Saved tick={note.tick()} />}>
       <p className="muted settings-note-under">While a job waits on a reviewer, or on its checks after a push. The rest of the time GitHub is read every 10 minutes, and right after any push or reply.</p>
-      <div className="home-seg" role="radiogroup" aria-label="How often to check GitHub while waiting">
-        {GITHUB_EVERY.map((n) => (
-          <label key={n} className={`home-seg-btn${now === n ? ' is-on' : ''}`}>
-            <input className="sr-only" type="radio" name={`${id}-github`} value={n} checked={now === n} onChange={() => void pick(n)} />
-            {now === n ? '✓ ' : ''}{n} min
-          </label>
-        ))}
-      </div>
+      <Segmented
+        label={words}
+        value={String(now)}
+        disabled={busy}
+        onChange={(v) => void pick(Number(v) as 1 | 5 | 10 | 30)}
+        options={GITHUB_EVERY.map((n) => ({ value: String(n), label: `${n} min` }))}
+      />
       <p className="muted settings-note-under">Default: {GITHUB_EVERY_DEFAULT} min. Each check reads every repository’s pull requests, read-only. Check now (u), in Jobs and on a job’s Ship stop, works any time.</p>
       {error && <p className="field-problem" role="alert">{error}</p>}
-    </fieldset>
+    </SettingGroup>
   );
 }
 

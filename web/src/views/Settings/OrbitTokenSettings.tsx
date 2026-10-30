@@ -7,6 +7,9 @@ import { useEffect, useId, useState, type FormEvent } from 'react';
 import { useWorkshop } from '../../state/store';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import type { OrbitStatus } from '../Inbox';
+import { Select } from '../../components/Select';
+import { Button } from '../../components/Button';
+import { TextInput } from '../../components/Field';
 
 const STORE_WORDS: Record<string, string> = {
   keytar: 'in this computer’s credential store',
@@ -96,18 +99,15 @@ export function OrbitTokenSettings() {
       )}
       <form onSubmit={(e) => void save(e)} className="rule-options">
         <label htmlFor={`${id}-url`}>Orbit’s address</label>
-        <input id={`${id}-url`} type="url" inputMode="url" autoComplete="off" spellCheck={false} placeholder="https://orbit.example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
+        <TextInput id={`${id}-url`} type="url" inputMode="url" autoComplete="off" spellCheck={false} placeholder="https://orbit.example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
         <label htmlFor={`${id}-token`}>{status?.tokenPresent ? 'A new token' : 'Your token'}</label>
-        <input id={`${id}-token`} type="password" autoComplete="off" spellCheck={false} placeholder="orbfb_…" value={token} onChange={(e) => setToken(e.target.value)} />
+        <TextInput id={`${id}-token`} type="password" autoComplete="off" spellCheck={false} placeholder="orbfb_…" value={token} onChange={(e) => setToken(e.target.value)} />
         <label htmlFor={`${id}-days`}>How long it lasts</label>
-        <select id={`${id}-days`} value={days} onChange={(e) => setDays(e.target.value)}>
-          <option value="">I don’t know</option>
-          {LIFETIMES.map((l) => <option key={l.days} value={String(l.days)}>{l.label}</option>)}
-        </select>
+        <Select id={`${id}-days`} value={days} onChange={setDays} options={[{ value: '', label: 'I don’t know' }, ...LIFETIMES.map((l) => ({ value: String(l.days), label: l.label }))]} />
         <div className="doc-actions">
-          <button type="submit" className="btn" disabled={busy || !token.trim()} title="Keep the token on this computer and check it with Orbit.">{busy ? 'Saving…' : 'Save the token'}</button>
+          <Button type="submit" disabled={busy || !token.trim()} title="Keep the token on this computer and check it with Orbit.">{busy ? 'Saving…' : 'Save the token'}</Button>
           {status?.tokenPresent && (
-            <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => void forget()} title="Remove the token from this computer and the Foreman’s Orbit entry from Claude Code’s settings.">Forget the token</button>
+            <Button kind="quiet" disabled={busy} onClick={() => void forget()} title="Remove the token from this computer and the Foreman’s Orbit entry from Claude Code’s settings.">Forget the token</Button>
           )}
         </div>
       </form>

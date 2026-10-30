@@ -3,7 +3,8 @@
 //   - no literal colour outside the theme files (tokens.css, swatches.css, themes/*.css): every
 //     colour is a token, so a theme changes it everywhere;
 //   - no transition longer than 200 ms;
-//   - nothing you click is shorter than 40 px (var(--control-h) or more).
+//   - nothing you click is shorter than 28 px (packet R's small control; every control is at least
+//     40 px on a phone, tokens.ts PHONE_TOKENS).
 // Telemetry.css too, since packet P moved it to the --chart-* tokens.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -84,10 +85,10 @@ describe('the stylesheets', () => {
     expect(slow.map(at)).toEqual([]);
   });
 
-  it('nothing you click is shorter than 40 px', () => {
+  it('nothing you click is shorter than 28 px', () => {
     const short = DECLS.filter((d) => /^(min-)?height$/.test(d.prop) && CLICKABLE.test(d.selector)).filter((d) => {
       const px = /^(\d+(?:\.\d+)?)px$/.exec(d.value);
-      return px && Number(px[1]) < 40 && !/input\[type='radio'\]|sr-only/.test(d.selector);
+      return px && Number(px[1]) < 28 && !/input\[type='radio'\]|sr-only|::(before|after|marker)/.test(d.selector);
     });
     expect(short.map(at)).toEqual([]);
   });
@@ -105,8 +106,10 @@ describe('the stylesheets', () => {
     expect([...new Set(unknown)]).toEqual([]);
   });
 
-  it('the control height token is 40 px at the least, at every text size', () => {
+  it('the control height tokens are 28 and 34 px at the least, and 40 px on a phone', () => {
     const tokens = ALL.find((f) => f.name === 'theme/tokens.css')!.css;
-    expect(tokens).toMatch(/--control-h:\s*max\(40px,/);
+    expect(tokens).toMatch(/--control-h-sm:\s*max\(28px,/);
+    expect(tokens).toMatch(/--control-h:\s*max\(34px,/);
+    expect(tokens).toMatch(/@media \(max-width: 760px\) \{\n {2}:root \{\n {4}--control-h-sm: max\(40px,[^}]*--control-h: max\(40px,/);
   });
 });

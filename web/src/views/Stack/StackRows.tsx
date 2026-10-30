@@ -52,7 +52,7 @@ export function StackJobCard({ job, stack, now, play }: { job: Job; stack: Stack
       <StepDots steps={stack.steps} label="Stack" />
       <span className="job-readout">{['Stack', at.toLowerCase(), running ? `${running} of ${stack.parts} running` : parts(stack.parts)].join(' · ')}</span>
       <details className="stack-card-parts">
-        <summary title={`Show the ${PART.many} of this stack.`}>{parts(stack.parts)} ▾</summary>
+        <summary title={`Show the ${PART.many} of this stack.`}>{parts(stack.parts)}</summary>
         <ol>
           {(stack.sections ?? []).map((p) => (
             <li key={p.name}>

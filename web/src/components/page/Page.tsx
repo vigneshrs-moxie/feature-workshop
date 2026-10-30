@@ -1,11 +1,12 @@
 // The pieces every page of the new look is built from (packet M):
-//   <Page>       the full-width page, its heading row and its body, at most --page-max wide
+//   <Page>       the page across the whole window (even --page-gutter sides), its heading row and body
 //   <NextBar>    the one next step: what it is in a sentence, and one big button with its key
 //   <Guide>      the three-card "How it works", shown by itself the first time a page opens
-//   <Fold>       a folded section with its count ("Resting · 2 idle   Show ▸")
+//   <Fold>       a folded section with its count ("Resting · 2 idle   Show ⌄")
 //   <Hero>       an empty state: a picture, one sentence, one or two buttons
 // Words carry the meaning everywhere; icons are decoration and colour never stands alone.
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { Button } from '../Button';
 import { Icon, type IconName } from '../Icon';
 import { useStored } from '../../lib/stored';
 
@@ -27,9 +28,7 @@ export function Page({ label, title, head, children, className = '', guide }: {
           <h2 className="page-title">{title}</h2>
           {head}
           {guide && (
-            <button type="button" className="btn btn-quiet page-how" onClick={() => setGuideOpen(true)} title="The three things to know about this page.">
-              <Icon name="help" size={16} /> How it works
-            </button>
+            <Button kind="quiet" icon="help" className="page-how" onClick={() => setGuideOpen(true)} title="The three things to know about this page.">How it works</Button>
           )}
         </header>
         {children}
@@ -47,8 +46,10 @@ export type NextTone = 'stop' | 'go' | 'quiet' | 'warn';
  * The page's one next step. `tone` dresses it: stop (it waits for you: the hand), go (a go / no go
  * decision), warn (held, or near a limit) and quiet (nothing to do). The words say which.
  */
-export function NextBar({ tone = 'go', icon, label, say, sub, children, className = '' }: {
+export function NextBar({ tone = 'go', icon, label, say, sub, children, className = '', line = false }: {
   tone?: NextTone;
+  /** One line of a fixed height: the sentence and its note side by side (Jobs). */
+  line?: boolean;
   icon: IconName;
   /** A small word above the sentence, such as "Go / no go" (Play full and subtle only). */
   label?: string | null;
@@ -58,8 +59,8 @@ export function NextBar({ tone = 'go', icon, label, say, sub, children, classNam
   className?: string;
 }) {
   return (
-    <section className={`next-bar tone-${tone} ${className}`.trim()} aria-label="Next step">
-      <span className="next-icon"><Icon name={icon} size={22} /></span>
+    <section className={`next-bar tone-${tone}${line ? ' is-line' : ''} ${className}`.trim()} aria-label="Next step">
+      <span className="next-icon"><Icon name={icon} size={line ? 18 : 22} /></span>
       <div className="next-say">
         {label && <span className="next-label">{label}</span>}
         <b className="next-head">{say}</b>
@@ -89,10 +90,20 @@ export function Fold({ icon, name, note, children, open: startOpen = false, id }
         <Icon name={icon} size={16} />
         <span className="fold-name">{name}</span>
         {note !== undefined && note !== null && <span className="muted fold-note">· {note}</span>}
-        <span className="fold-show" aria-hidden="true"><span className="when-closed">Show ▸</span><span className="when-open">Hide ▾</span></span>
+        <FoldShow />
       </summary>
       <div className="fold-body">{children}</div>
     </details>
+  );
+}
+
+/** The words at the end of a fold's head: Show, or Hide once open, with the app's chevron. */
+export function FoldShow() {
+  return (
+    <span className="fold-show" aria-hidden="true">
+      <span className="when-closed">Show</span><span className="when-open">Hide</span>
+      <Icon name="chevron-down" size={14} className="fold-chevron" />
+    </span>
   );
 }
 
@@ -179,12 +190,12 @@ function Guide({ spec, onClose }: { spec: GuideSpec; onClose: () => void }) {
       <section className="guide" role="dialog" aria-modal="true" aria-label={spec.title}>
         <header className="guide-head">
           <h3>{spec.title}</h3>
-          <button type="button" className="btn btn-quiet" onClick={onClose} title="Close this; How it works opens it again.">Skip</button>
+          <Button kind="quiet" onClick={onClose} title="Close this; How it works opens it again.">Skip</Button>
         </header>
         <GuideCards cards={spec.cards} />
         <footer className="guide-foot">
           <span className="muted">Open this again any time with How it works.</span>
-          <button ref={done} type="button" className="btn btn-primary btn-lg" onClick={onClose}>{spec.done}</button>
+          <Button ref={done} kind="primary" size="lg" onClick={onClose}>{spec.done}</Button>
         </footer>
       </section>
     </div>
@@ -194,6 +205,22 @@ function Guide({ spec, onClose }: { spec: GuideSpec; onClose: () => void }) {
 // ---------- Phone width ----------
 
 export const NARROW = '(max-width: 760px)';
+
+const media = (q: string) => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(q) : null);
+
+/**
+ * True while the window is at least `px` wide, live as it changes (false where it can't be asked, as
+ * in tests). Wide windows get more columns, not wider ones (packet R): the Job page's side column
+ * and the Desk's queue column from 1280 px, the Desk's job column from 1440 px.
+ */
+export function useMinWidth(px: number): boolean {
+  const q = `(min-width: ${px}px)`;
+  return useSyncExternalStore(
+    (fn) => { const m = media(q); m?.addEventListener('change', fn); return () => m?.removeEventListener('change', fn); },
+    () => media(q)?.matches ?? false,
+    () => false,
+  );
+}
 const narrowList = () => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(NARROW) : null);
 
 /** True at phone width (the same 760 px as the CSS), live as the window changes. */

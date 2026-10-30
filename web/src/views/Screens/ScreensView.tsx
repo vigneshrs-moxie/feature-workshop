@@ -5,6 +5,7 @@ import { ScreensTab } from '../../panes/Preview/ScreensTab';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
 import { roleOf } from '../../play/crewPack';
+import { Button } from '../../components/Button';
 
 export function ScreensView({ slug }: { slug: string }) {
   const state = useWorkshopState();
@@ -12,7 +13,7 @@ export function ScreensView({ slug }: { slug: string }) {
   return (
     <main className="screens-view" aria-label="Screens">
       <div className="screens-view-head">
-        <a className="btn btn-quiet" href={jobHref(slug)} title="Back to the job: its conversation, the gate card and the Preview pane."><span aria-hidden="true">←</span> Back to the job</a>
+        <Button kind="quiet" href={jobHref(slug)} title="Back to the job: its conversation, the gate card and the Preview pane."><span aria-hidden="true">←</span> Back to the job</Button>
         <h2 className="pane-title screens-view-title">{job?.title ?? slug} <span className="muted">· Screens</span></h2>
       </div>
       {job && !job.wireframes ? (

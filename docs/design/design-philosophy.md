@@ -317,6 +317,7 @@ Fourteen principles. Each one has a rule, why it matters, its sources, and a do 
   - the stop map in its own framed card above a framed bar above a framed brief (today's Job).
 
 ### 8. Colour by rule, status colour only where status lives
+> **Update (2026-10-29, Vignesh):** more colour and more contrast in dark. Colours should pop, not just pastels, while staying calm. The rule stays, with a richer set: vivid mark colours and soft tints for each status, one hue per stop, categorical charts in colour, and big areas still neutral. The details are in `docs/plans/packets/R-look-and-feel.md`, section "More colour, more contrast in dark".
 - **Rule:**
   - One grey family with a named job per step.
   - One accent.

@@ -170,6 +170,6 @@ describe('Achievements in the shell', () => {
     await waitFor(() => expect(get).toHaveBeenCalledWith('/api/play'));
     await screen.findByRole('main', { name: 'Jobs' });
     expect(document.documentElement.getAttribute('data-theme')).not.toBe('gold');
-    expect(currentTheme()).toBe('default');
+    expect(currentTheme()).toBe('light');
   });
 });

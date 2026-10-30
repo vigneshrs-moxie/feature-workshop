@@ -12,9 +12,14 @@ export interface KeysSetting {
   enabled: boolean;
   /** Buttons show their key as a small hint. */
   hints: boolean;
+  /**
+   * Every button shows its key all the time. Off by default (packet R): only the main action of a
+   * next-step bar shows its key; the others show it on hover, on keyboard focus and while ? is held.
+   */
+  everywhere: boolean;
 }
 
-export const DEFAULT_KEYS_SETTING: KeysSetting = { enabled: true, hints: true };
+export const DEFAULT_KEYS_SETTING: KeysSetting = { enabled: true, hints: true, everywhere: false };
 
 /** The setting from its stored text; anything missing or malformed is the default. */
 export function parseKeysSetting(raw: string | null): KeysSetting {
@@ -24,6 +29,7 @@ export function parseKeysSetting(raw: string | null): KeysSetting {
     return {
       enabled: typeof v?.enabled === 'boolean' ? v.enabled : true,
       hints: typeof v?.hints === 'boolean' ? v.hints : true,
+      everywhere: typeof v?.everywhere === 'boolean' ? v.everywhere : false,
     };
   } catch {
     return DEFAULT_KEYS_SETTING;

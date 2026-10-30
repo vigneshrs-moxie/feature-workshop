@@ -22,8 +22,9 @@ import { WorkflowSettings } from '../Settings/WorkflowSettings';
 import { GithubLine } from './GithubLine';
 import { ReviewBar } from './ReviewBar';
 import { ReviewPanel } from './ReviewPanel';
-import { flow, held, PR_URL, view } from './test-fixtures';
+import { AT, flow, held, PR_URL, view } from './test-fixtures';
 import { useReview } from './useReview';
+import { pickOption } from '../../components/Select.testing';
 
 const SLUG = 'feedback-api';
 const JOB: Job = { slug: SLUG, title: 'Feedback API', group: 'needs-you', lane: 'needs-you', stage: 'pr2', permissions: 1 } as Job;
@@ -114,7 +115,7 @@ describe('the Ship stop: changes asked for', () => {
     const box = await screen.findByRole('checkbox', { name: /Included: Nit: `fbId`/ });
     fireEvent.click(box);
     await waitFor(() => expect(post).toHaveBeenCalledWith(`/api/review/${SLUG}/item`, { id: 'c7002', included: false }));
-    fireEvent.change(screen.getByRole('combobox', { name: /Kind of “Why 2,000 characters/ }), { target: { value: 'change' } });
+    pickOption(screen.getByRole('combobox', { name: /Kind of “Why 2,000 characters/ }), 'change');
     await waitFor(() => expect(post).toHaveBeenCalledWith(`/api/review/${SLUG}/item`, { id: 'c7004', kind: 'change' }));
     expect(screen.queryByRole('combobox', { name: /Kind of “lint/ })).toBeNull();
     const note = screen.getByRole('textbox', { name: 'A note for the Foreman (optional)' });
@@ -313,12 +314,43 @@ describe('waiting, and the unhappy paths', () => {
     open.mockRestore();
   });
 
+  it('the panel opens on one status line in words, with the one plain next action', async () => {
+    const { post } = setup(<Ship />, { v: view('asked') });
+    await screen.findByRole('region', { name: 'Next step' });
+    const status = document.querySelector('.review-status-line')!;
+    expect(status).toHaveTextContent('Round 1·4 comments to answer·checks failing');
+    const panel = screen.getByRole('region', { name: 'Round 1 · PR #2' });
+    fireEvent.click(within(panel.querySelector('.review-status') as HTMLElement).getByRole('button', { name: 'Fix with the Foreman' }));
+    await waitFor(() => expect(posted(post)).toEqual([[`/api/review/${SLUG}/fix`, {}]]));
+  });
+
+  it('a new round says so in its own space; answered comments fold under Answered (n)', async () => {
+    const v = view('asked', {
+      rounds: [
+        { round: 1, pr: 2, prLabel: 'PR #2', state: 'sent', items: 4, openedAt: AT, sentAt: AT },
+        { round: 2, pr: 2, prLabel: 'PR #2', state: 'asked', items: 5, openedAt: AT, sentAt: null },
+      ],
+    });
+    v.round = { ...v.round!, round: 2, title: 'Round 2 · PR #2', groups: v.round!.groups.map((g, n) => (n === 0 ? { ...g, items: g.items.map((i, k) => (k === 0 ? { ...i, state: 'fixed' as const, stateWords: 'Fixed in 3f9c2e1' } : i)) } : g)) };
+    setup(<Ship />, { v });
+    const fresh = await screen.findByRole('group', { name: 'New round: round 2' });
+    expect(fresh).toHaveTextContent('New round: 4 changes requested');
+    expect(fresh).toHaveTextContent('Round 1 went back at');
+    const answered = screen.getByRole('region', { name: 'Answered' });
+    expect(answered).toHaveTextContent('Fixed in 3f9c2e1');
+    expect(within(answered).getByRole('button', { name: /Answered/ })).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('a check failed after the push: which check, its log, Fix with the Foreman (a) sends the go', async () => {
     const { post } = setup(<Ship />, { v: view('check-failed') });
     const bar = await screen.findByRole('region', { name: 'Next step' });
     expect(bar).toHaveTextContent('lint failed on the push for round 1');
     expect(bar.closest('.review-bar')).toHaveClass('is-fail');
-    expect(screen.getByText(/'feedbackId' is not defined/)).toBeInTheDocument();
+    // Its own space in the panel: which check, the first line of its log, and where the whole log is.
+    const failed = screen.getByRole('group', { name: 'Checks failing' });
+    expect(failed).toHaveTextContent('lint failed');
+    expect(within(failed).getByText(/'feedbackId' is not defined/)).toBeInTheDocument();
+    expect(within(failed).getByRole('link', { name: /The whole log/ })).toHaveAttribute('href', expect.stringContaining(PR_URL));
     key('a');
     await waitFor(() => expect(post).toHaveBeenCalledWith(`/api/review/${SLUG}/fix-checks`, { go: true }));
   });
@@ -326,6 +358,10 @@ describe('waiting, and the unhappy paths', () => {
   it('staging moved and conflicts: Bring in staging with the Foreman (a)', async () => {
     const { post } = setup(<Ship />, { v: view('conflicts') });
     expect(await screen.findByRole('region', { name: 'Next step' })).toHaveTextContent('PR #2 conflicts with staging in 2 files');
+    const conflicts = screen.getByRole('group', { name: 'Conflicts' });
+    expect(conflicts).toHaveTextContent('Conflicts with staging');
+    expect(within(conflicts).getByRole('link', { name: /Open PR #2/ })).toHaveAttribute('href', PR_URL);
+    expect(screen.getByText('conflicts with staging')).toBeInTheDocument(); // in the status line, as words
     key('a');
     await waitFor(() => expect(post).toHaveBeenCalledWith(`/api/review/${SLUG}/sync`, { go: true }));
   });
@@ -479,13 +515,14 @@ describe('the Desk card and the Jobs card', () => {
     expect(screen.queryByText('Ask Raj for a review?')).toBeNull();
   });
 
-  it('the Jobs card says who it waits on, since when and which round, with an hourglass and words; the GitHub line in the header', async () => {
+  it('the Jobs card says who it waits on, since when and which round, with an hourglass and words; the GitHub line in the header only once it is over ten minutes old', async () => {
     const jobs = [{ ...JOB, group: 'shipping', lane: 'in-review', permissions: 0, laneReason: 'PR #2 waits on a review' }] as Job[];
     setup(<JobsPage />, { v: view('waiting'), jobs });
     expect(await screen.findByText('Waiting on Raj since 14:02 · round 2')).toBeInTheDocument();
     expect(screen.queryByText('PR #2 waits on a review')).toBeNull();
     const page = screen.getByRole('main', { name: 'Jobs' });
-    expect(within(page.querySelector('.page-head') as HTMLElement).getByRole('status', { name: 'GitHub' })).toHaveTextContent('GitHub checked 3 min ago');
+    // Checked 3 minutes ago: nothing to say in the header (u still checks).
+    expect(within(page.querySelector('.page-head') as HTMLElement).queryByRole('status', { name: 'GitHub' })).toBeNull();
   });
 });
 

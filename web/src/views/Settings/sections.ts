@@ -119,6 +119,7 @@ export const SETTING_INDEX: SettingEntry[] = [
   { id: 'look-play', label: 'Play in Look: Full, Subtle, Off', section: 'look', keywords: 'console crew game' },
   { id: 'keys-enabled', label: 'Keyboard shortcuts on or off', section: 'keys', keywords: 'keys hotkeys bindings' },
   { id: 'keys-hints', label: 'Show key hints on buttons', section: 'keys', keywords: 'kbd' },
+  { id: 'keys-everywhere', label: 'Show keys on every button', section: 'keys', keywords: 'kbd hints always' },
   { id: 'finish-line', label: 'Finish line: what counts as done', section: 'workflow', keywords: 'pr merged staging main done quest' },
   { id: 'github-every', label: 'How often to check GitHub while waiting', section: 'workflow', keywords: 'github refresh check pull requests review minutes poll' },
   { id: 'pr-route', label: 'Who reviews and merges each pull request', section: 'workflow', keywords: 'github reviewer merges route pull request owner' },
