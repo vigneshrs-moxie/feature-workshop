@@ -30,7 +30,7 @@ export function GraphTable({ graph }: { graph: TelemetryGraph }) {
 }
 
 /** Whether a graph's What to do says something to do (not "Nothing to do yet…"). */
-export const hasTodo = (g: TelemetryGraph) => Boolean(g.todo) && !/^nothing to do/i.test(g.todo.trim());
+export const hasTodo = (g: TelemetryGraph) => Boolean(g.todo) && !/^nothing (to do|to change)/i.test(g.todo.trim());
 
 export function GraphCard({ graph, folded, onFold, onHide }: { graph: TelemetryGraph; folded: boolean; onFold: () => void; onHide: () => void }) {
   const [table, setTable] = useState(false);
