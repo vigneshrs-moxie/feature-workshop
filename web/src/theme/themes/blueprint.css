@@ -343,8 +343,8 @@ html[data-theme="blueprint"] .who {
 html[data-theme="blueprint"] .problem .who { color: var(--bp-red-ink); }
 html[data-theme="blueprint"] .reply a, html[data-theme="blueprint"] .brief-card a, html[data-theme="blueprint"] .perm-card a { color: oklch(.45 .14 255); text-decoration: underline; }
 /* The gate card's link-style buttons (Override, Check again) and its decision boxes, in ink. */
-html[data-theme="blueprint"] .perm-card .link-button { color: oklch(.45 .14 255); }
-html[data-theme="blueprint"] .perm-card .link-button:hover { color: var(--bp-ink); }
+html[data-theme="blueprint"] :is(.reply, .brief-card, .problem, .perm-card):not(.desk-console .gate-card) .link-button { color: oklch(.45 .14 255); } /* on every paper card, not only the permission one (Summarise on a brief was 1.26:1; packet X) */
+html[data-theme="blueprint"] :is(.reply, .brief-card, .problem, .perm-card):not(.desk-console .gate-card) .link-button:hover { color: var(--bp-ink); }
 html[data-theme="blueprint"] .gate-decision { border-color: var(--bp-ink-line); }
 html[data-theme="blueprint"] .gate-decision.is-changed { border-color: oklch(.45 .14 255); }
 html[data-theme="blueprint"] .reply .chip, html[data-theme="blueprint"] .brief-card .chip, html[data-theme="blueprint"] .perm-card .chip { border-color: var(--bp-ink-line); color: var(--bp-ink-2); }
