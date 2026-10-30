@@ -112,7 +112,7 @@ a.stack-seg:focus-visible::before, button.stack-seg:focus-visible::before { outl
 .shc-numbers { flex: none; display: inline-flex; gap: 0; color: var(--text-3); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .shc-dot { padding: 0 6px; }
 
-.shc-work { min-height: calc(3 * 26px); }
+.shc-work { height: calc(3 * 28px + 22px); overflow: hidden; }
 .shc-now-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .shc-now { display: grid; grid-template-columns: 22px auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); height: 26px; font-size: var(--text-sm); }
 .shc-now-icon { justify-self: center; color: var(--mark); }
@@ -125,10 +125,12 @@ a.stack-seg:focus-visible::before, button.stack-seg:focus-visible::before { outl
 .shc-now-more { height: 22px; padding-left: 30px; font-size: var(--text-xs); }
 .shc-now-none { display: flex; align-items: center; height: 26px; margin: 0; font-size: var(--text-sm); }
 
-.shc-risks { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
-.shc-risk { display: flex; align-items: flex-start; gap: var(--space-2); color: var(--text-1); font-size: var(--text-sm); line-height: 1.4; }
-.shc-risk > .icon { flex: none; margin-top: 2px; color: var(--mark); }
-.shc-risk-more { padding-left: 22px; font-size: var(--text-xs); }
+.shc-risks { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.shc-risk-slot { height: 64px; overflow: hidden; }
+.shc-risk { display: flex; align-items: center; gap: var(--space-2); height: 22px; color: var(--text-1); font-size: var(--text-sm); }
+.shc-risk span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shc-risk > .icon { flex: none; color: var(--mark); }
+.shc-risk-more { height: 20px; padding-left: 22px; font-size: var(--text-xs); line-height: 20px; }
 
 /* What it needs from you: the same spot at the bottom of every card (the Desk's action row). */
 .shc-ask {
@@ -183,3 +185,7 @@ a.stack-peek-name:hover { text-decoration: underline; text-underline-offset: 3px
   .shc-ask { margin: auto calc(-1 * var(--space-4)) 0; padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4); flex-wrap: wrap; }
   .shc-counts { flex-wrap: wrap; }
 }
+
+/* Every link you click is at least 28 px tall, with the text where it was. */
+.shc-title, .shc-now-part, .stack-peek-name { display: inline-flex; align-items: center; min-height: 28px; }
+.shc-now { height: 28px; }

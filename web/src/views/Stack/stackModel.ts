@@ -28,7 +28,7 @@ const cap0 = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const clock = (iso: string | null | undefined) => {
   if (!iso) return null;
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 };
 const base = (file: string) => file.split('/').pop() || file;
 

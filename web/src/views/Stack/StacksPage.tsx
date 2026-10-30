@@ -340,14 +340,17 @@ function StackHomeCard({ s, href, now, mode, pulse, picked, peeked, busy, onPeek
         )}
       </section>
 
-      {(s.risks?.length ?? 0) > 0 && (
-        <ul className="shc-risks" aria-label="Risks">
-          {s.risks!.slice(0, 3).map((r) => (
-            <li key={r.words} className={`shc-risk tone-${r.tone}`}><Icon name={r.tone === 'error' ? 'warn' : 'alert'} size={14} /> <span>{r.words}</span></li>
-          ))}
-          {s.risks!.length > 3 && <li className="shc-risk-more muted">and {s.risks!.length - 3} more on the stack’s page</li>}
-        </ul>
-      )}
+      {/* Risks, only when there are some; their slot keeps its size either way, so a card never grows. */}
+      <div className="shc-risk-slot">
+        {(s.risks?.length ?? 0) > 0 && (
+          <ul className="shc-risks" aria-label="Risks">
+            {s.risks!.slice(0, 2).map((r) => (
+              <li key={r.words} className={`shc-risk tone-${r.tone}`}><Icon name={r.tone === 'error' ? 'warn' : 'alert'} size={14} /> <span>{r.words}</span></li>
+            ))}
+            {s.risks!.length > 2 && <li className="shc-risk-more muted">and {s.risks!.length - 2} more on the stack’s page</li>}
+          </ul>
+        )}
+      </div>
 
       <footer className={`shc-ask${s.ask ? ' has-ask' : ''}`}>
         {s.ask ? (

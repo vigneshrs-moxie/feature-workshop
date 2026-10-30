@@ -19,7 +19,7 @@
 
 /* ---------- Board ---------- */
 .stack-board { display: grid; grid-template-columns: repeat(7, minmax(176px, 1fr)); gap: var(--space-3); align-items: start; min-width: 0; overflow-x: auto; padding-bottom: var(--space-2); scrollbar-width: thin; }
-.board-col { display: grid; gap: var(--space-2); align-content: start; min-width: 0; }
+.board-col { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); align-content: start; min-width: 0; }
 .board-col-head { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 2px; border-bottom: 1px solid var(--border-1); font-size: var(--text-sm); }
 .board-col-icon { color: var(--mark); }
 .board-col-word { font-weight: var(--weight-medium); color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -178,3 +178,7 @@
   .stack-toolbar-note { display: none; }
   .dep-map { column-gap: 48px; grid-auto-columns: 200px; }
 }
+
+/* Every link you click is at least 28 px tall, with the text where it was. */
+.stack-crumbs { margin-top: calc(-1 * var(--space-3)); margin-bottom: calc(-1 * var(--space-1)); }
+.stack-crumbs a { display: inline-flex; align-items: center; min-height: 28px; }
