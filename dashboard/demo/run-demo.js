@@ -28,10 +28,11 @@
 //
 // The 3D floor (packet S, Play full): five more jobs give its benches every pose from real data.
 // Nightly export's Tester runs the unit tests with a count that goes up ("212 of 577"); Price
-// rounding is stopped on 3 failed tests; Route sharing is paused for the 5-hour usage limit (it
-// resets 20 minutes after the demo starts, then carries on by itself; sends ask "send anyway?"
-// until then); Invoice footer was marked done; and Tag colours' Foreman asks your permission to run
-// the database tests a few seconds after start (a real card on the Desk and in its thread).
+// rounding is stopped on 3 failed tests; Route sharing was stopped by hand halfway through S2 (its
+// own pause: the demo never trips Claude's usage limit, so no limit banner shows and sends are never
+// held; the floor's "paused for the limit" pose lives in #/floor-lab and the unit tests); Invoice
+// footer was marked done; and Tag colours' Foreman asks your permission to run the database tests a
+// few seconds after start (a real card on the Desk and in its thread).
 
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -381,7 +382,6 @@ async function build() {
 
 let countLog = null;
 const TAG_COLOURS = 'tag-colours';
-const LIMIT_RESET_MS = 20 * MIN;
 
 async function floorJobs() {
   // A command with a count: the Tester running the unit tests (tick() moves the count on).
@@ -410,7 +410,8 @@ async function floorJobs() {
     briefs: [{ stage: 'test', text: '**Price Rounding · 3 tests failed**\n\n3 of 214 tests failed: invoice totals round half-cents down.' }],
   });
 
-  // Paused for the usage limit: the 5-hour limit, resetting 20 minutes after the demo starts.
+  // Paused by hand: its last reply was stopped with Stop (a 'run-ended' line, below). That pause is
+  // this job's own and leaves the account-wide usage limit alone: no limit banner, sends never held.
   const sharing = await feature('route-sharing', {
     status: {
       title: 'Route Sharing', route: 'small', stage: 'implement', stage_state: 'working', waiting_for: null,
@@ -446,17 +447,14 @@ async function floorJobs() {
   await fs.writeFile(path.join(state, 'sessions.json'), JSON.stringify({
     [footer]: { closed: { as: 'done', at: iso(90 * MIN) } },
   }, null, 2));
-  await fs.writeFile(path.join(state, 'settings.json'), JSON.stringify({
-    usageLimit: {
-      kind: 'five_hour', since: Date.now() - 25 * MIN, resetsAt: Date.now() + LIMIT_RESET_MS, resetKnown: true,
-      jobs: [{ featureDir: sharing, slug: 'route-sharing', title: 'Route Sharing', cwd: ACME, sessionId: 'demo-sess-0091', model: 'claude-opus-5-5', additionalDirectories: [] }],
-    },
-  }, null, 2));
+  await fs.appendFile(path.join(state, 'audit.jsonl'), JSON.stringify({
+    at: iso(30 * MIN), action: 'run-ended', featureDir: sharing, slug: 'route-sharing', sessionId: 'demo-sess-0091', runId: 'demo-run-0091', status: 'stopped', costUsd: 0.42,
+  }) + '\n');
   return testLog;
 }
 
-// Tag colours' permission card: one message from the box once the server answers, sent despite the
-// demo's usage limit, so its pretend Foreman reaches the database tests and asks.
+// Tag colours' permission card: one message from the box once the server answers, so its pretend
+// Foreman reaches the database tests and asks.
 async function permissionAfterStart(port) {
   let token = null;
   for (let i = 0; i < 40 && !token; i++) {
@@ -466,7 +464,7 @@ async function permissionAfterStart(port) {
   if (!token) throw new Error('the server did not answer');
   const res = await fetch(`http://127.0.0.1:${port}/api/job/${TAG_COLOURS}/send`, {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-workshop-token': token },
-    body: JSON.stringify({ text: 'Please run the database tests for the colour migration, then brief me.', via: 'box', despiteLimit: true }),
+    body: JSON.stringify({ text: 'Please run the database tests for the colour migration, then brief me.', via: 'box' }),
   });
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
 }
