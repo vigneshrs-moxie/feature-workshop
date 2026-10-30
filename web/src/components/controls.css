@@ -91,6 +91,20 @@
 }
 .btn:disabled .key-hint:not(.is-quiet), .btn[aria-disabled='true'] .key-hint:not(.is-quiet) { opacity: .6; }
 .btn-quiet:disabled, .btn-quiet:disabled:hover { border-color: transparent; background-color: transparent; }
+/* The same, above any theme's own button look (packet X): a theme restyles .btn under
+   html[data-theme], which outranked the rules above, so in Glass and others a disabled button looked
+   live. A theme that wants its own disabled look still can: its :disabled rules come later and tie. */
+html[data-theme] .btn:is(:disabled, [aria-disabled='true']),
+html[data-theme] .btn:is(:disabled, [aria-disabled='true']):is(:hover, :active) {
+  border-color: var(--border-1);
+  background-color: var(--surface-2);
+  background-image: none;
+  box-shadow: none;
+  color: var(--text-3);
+  transform: none;
+}
+html[data-theme] .btn-quiet:is(:disabled, [aria-disabled='true']),
+html[data-theme] .btn-quiet:is(:disabled, [aria-disabled='true']):is(:hover, :active) { border-color: transparent; background-color: transparent; }
 
 /* Busy: a small spinner in place of the words, at the same width. */
 .btn.is-busy { cursor: progress; }
@@ -161,6 +175,9 @@
 /* On the primary it sits in a slightly darker chip, never a lighter one: a white shine under white ink
    at .85 fell to 3.1–3.6:1. Now 5.7:1 in Light and 5:1 in Default, about the label's own contrast. */
 .btn-primary .key-hint { background: var(--shade-hover); color: var(--btn-primary-fg); opacity: .9; }
+/* Above any theme's .kbd look (packet X), which outranked the line above: a key cap drawn in the
+   page's ink on the primary fill vanished (Light glass and Blueprint, about 1.1:1). */
+html[data-theme] .btn-primary .key-hint { border-color: transparent; background: var(--shade-hover); color: var(--btn-primary-fg); }
 /* Every other key: shown on hover or keyboard focus (and while ? is held), as a small keycap at the
    control's corner, so nothing moves; its tooltip says it too. Settings → Keys can show them all. */
 :has(> .key-hint.is-quiet) { position: relative; }
