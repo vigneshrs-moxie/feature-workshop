@@ -73,6 +73,7 @@ import { tokenStore } from '../lib/orbit-token.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, groundControlUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
+import { ClaudeCodeUsage, CLAUDE_CODE_NOTE, CLAUDE_CODE_WORDS, readSetting as claudeCodeSetting, writeSetting as setClaudeCodeSetting } from '../lib/claude-code-usage.js';
 import { EVENT_TYPES, NOTES_MAX, parseCommand } from '../lib/protocol.js';
 import { JobLocked, heldElsewhere } from '../lib/lock.js';
 import { RESTART_TEXT, RESUME_KIND, replay, withRestartNotes } from './replay.js';
@@ -942,7 +943,7 @@ export async function createRunner(config) {
       // Where a job's screens page is served from (its own origin): the Screens tab frames <origin>/job/<slug>/wireframes.
       // null when that server couldn't listen (screensDown): the tab then shows nothing and says so.
       wireframesOrigin,
-      settings: await state.getSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT, command: nodeCommand(HOOK_SCRIPT) },
+      settings: await allSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT, command: nodeCommand(HOOK_SCRIPT) },
       // The finish line's choices (lib/finish.js), with their words, for Settings → Workflow.
       finishLines: FINISH_LINES.map((id) => ({ id, ...FINISH_LINE_INFO[id] })),
       jobOptions: { flows: Object.entries(FLOWS).map(([id, f]) => ({ id, label: f.label, note: f.note, model: f.model, defaults: defaultsFor(id) })), skippable: SKIPPABLE, providable: PROVIDABLE, reviewers: REVIEWERS, fablePoints: FABLE_POINTS,
@@ -1374,7 +1375,12 @@ export async function createRunner(config) {
   rules.on('change', (list) => { events.emit('rules', null, { count: list.length }); });
   // Your permission settings changed (global, a job's own, or whether auto mode is available).
   function settingsChanged() {
-    state.getSettings().then((s) => events.emit('settings', null, s)).catch(() => {});
+    allSettings().then((s) => events.emit('settings', null, s)).catch(() => {});
+  }
+  /** The settings, with Settings → Workflow's "Count my Claude Code use outside the app" (kept by lib/claude-code-usage.js). */
+  async function allSettings() {
+    const s = await state.getSettings();
+    return { ...s, workflow: { ...s.workflow, countClaudeCode: (await claudeCodeSetting(state.dir)).count } };
   }
   state.on('audit', (e) => { if (e.featureDir) threadChanged(e.slug ?? path.basename(e.featureDir), e.action); });
   function featureFileChanged(_type, filename) {
@@ -1492,6 +1498,12 @@ export async function createRunner(config) {
     }).catch((err) => console.error('usage log:', err.message));
   }
   driver.on('usage', (e) => logTurn(turnMeter.onMessage(e)));
+  // Your Claude Code use outside this app (packet U, lib/claude-code-usage.js): this computer's
+  // Claude Code logs, read for usage numbers only, in the background, cached in the state folder.
+  // Never in the demo. The first read starts a little after the dashboard does (when the setting
+  // is on), so Telemetry rarely has to say it is still reading.
+  const claudeCodeUsage = DEMO ? null : new ClaudeCodeUsage({ projectsDir: PROJECTS_DIR, stateDir: state.dir, user: usageUser });
+  if (claudeCodeUsage) setTimeout(() => { claudeCodeSetting(state.dir).then((s) => { if (s.count) claudeCodeUsage.poke(); }, () => {}); }, 20_000).unref();
   // A reply stopped before its result: what it used so far is a turn too (an estimate).
   driver.on('run', (run) => { if (RUN_ENDED.has(run.status)) logTurn(turnMeter.forget(run.id, run)); });
 
@@ -1870,13 +1882,17 @@ export async function createRunner(config) {
         const w = body.workflow;
         if (!w || typeof w !== 'object' || Array.isArray(w)) throw new HttpError(400, 'The workflow settings must be an object.');
         const keys = Object.keys(w);
-        for (const k of keys) if (!['finishLine', 'wireframes', 'clarify', 'autoLevel'].includes(k)) throw new HttpError(400, `Unknown workflow setting: ${String(k).slice(0, 40)}.`);
-        if (!keys.length) throw new HttpError(400, 'Send a workflow setting to change: finishLine, wireframes, clarify or autoLevel.');
+        for (const k of keys) if (!['finishLine', 'wireframes', 'clarify', 'autoLevel', 'countClaudeCode'].includes(k)) throw new HttpError(400, `Unknown workflow setting: ${String(k).slice(0, 40)}.`);
+        if (!keys.length) throw new HttpError(400, 'Send a workflow setting to change: finishLine, wireframes, clarify, autoLevel or countClaudeCode.');
         if (w.autoLevel !== undefined && typeof w.autoLevel !== 'boolean') throw new HttpError(400, 'Choose the level for me: on or off.');
+        if (w.countClaudeCode !== undefined && typeof w.countClaudeCode !== 'boolean') throw new HttpError(400, 'Count my Claude Code use outside the app: on or off.');
         if (w.finishLine !== undefined && !FINISH_LINES.includes(w.finishLine)) throw new HttpError(400, 'The finish line is PR #1 open, PR #1 merged, in staging, in main, or when you mark it done.');
         for (const k of ['wireframes', 'clarify']) if (w[k] !== undefined && !WORKFLOW_CHOICES.includes(w[k])) throw new HttpError(400, `${k === 'wireframes' ? 'Screens' : 'Clarify questions'} for new jobs: Auto, Always or Off.`);
+        // Count my Claude Code use outside the app: kept by lib/claude-code-usage.js, not in settings.json.
+        const { countClaudeCode, ...rest } = w;
+        if (countClaudeCode !== undefined) await setClaudeCodeSetting(state.dir, { count: countClaudeCode });
         const was = (await state.getSettings()).workflow;
-        const next = { ...was, ...w };
+        const next = { ...was, ...rest };
         await state.setSettings({ workflow: next });
         finishLineNow = next.finishLine;
         if (next.finishLine !== was.finishLine) {
@@ -1894,7 +1910,7 @@ export async function createRunner(config) {
         await state.audit({ action: 'settings', workflow: w });
         settingsChanged();
         if (next.autoLevel && !was.autoLevel) checkLevels();
-        return state.getSettings();
+        return allSettings();
       }
       // play: Play mode and sounds (lib/play.js validatePlayPatch).
       if (body.play !== undefined) {
@@ -2256,7 +2272,27 @@ export async function createRunner(config) {
       // A dashboard whose own job folder is a temp one (a test, a demo) keeps its jobs: nothing to drop.
       const tempRoots = tempDirs().some((t) => FEATURES_DIR === t || FEATURES_DIR.startsWith(`${t}${path.sep}`)) ? [] : undefined;
       const meters = planUsage.view();
-      return { ...telemetryOf(lines, { window, now, me: usageUser, meters, titles, jobs, audit: await state.auditAll(), readFrom, tempRoots }), meters, file: usageLog.file };
+      // Your Claude Code use outside this app, when counted and read: never this app's own job
+      // sessions (by session id: usage.jsonl's and the jobs' own; and by the jobs' worktrees).
+      const counting = claudeCodeUsage ? (await claudeCodeSetting(state.dir)).count : false;
+      let cc = null;
+      if (counting) {
+        claudeCodeUsage.poke(); // reads what is new in the background; never waits
+        const sessions = new Set([
+          ...lines.map((l) => l.session), ...list.flatMap((f) => f.sessionIds ?? []),
+          ...Object.values(await state.allSessions()).map((x) => x?.sessionId), ...driver.list().map((r) => r.sessionId),
+        ].filter(Boolean));
+        const dirs = list.flatMap((f) => [f.worktree, f.statusWorktree]).filter(Boolean);
+        cc = claudeCodeUsage.view({ exclude: { sessions, dirs }, since: readFrom, until: now.getTime() });
+      }
+      const outside = cc?.state === 'ready' ? cc.replies : null;
+      const body = telemetryOf(lines, { window, now, me: usageUser, meters, titles, jobs, audit: await state.auditAll(), readFrom, tempRoots, outside });
+      const ccState = DEMO ? 'demo' : !counting ? 'off' : cc.state;
+      const claudeCode = {
+        state: ccState, counted: outside !== null, words: CLAUDE_CODE_WORDS[ccState], note: CLAUDE_CODE_NOTE,
+        usd: body.claudeCode?.usd ?? null, replies: body.claudeCode?.replies ?? null, readAt: cc?.readAt ?? null,
+      };
+      return { ...body, claudeCode, meters, file: usageLog.file };
     },
   };
 

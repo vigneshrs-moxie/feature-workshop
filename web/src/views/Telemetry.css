@@ -6,7 +6,9 @@
  * the status and stop hues with a pattern laid over each (.tele-s<n>: --chart-pattern-n), so no two
  * differ by colour alone; a stage's bar takes its stop's hue (.tele-stop.is-<stop>), its name beside
  * it. Each graph also has a legend or names on its marks, and Table. Other use always takes slot 8,
- * grey and cross-hatched. Status (near the limit, full) is a word and ⚠ or ⛔ as well as a colour.
+ * grey and cross-hatched. Your Claude Code use outside this app (packet U, .tele-cc) is laid over its
+ * person's slot or the accent: the same hue washed out, with dots of it showing through, and named
+ * "in Claude Code" wherever it is drawn. Status (near the limit, full) is a word and ⚠ or ⛔ as well as a colour.
  */
 
 /* ---------- The page ---------- */
@@ -38,6 +40,8 @@
 .tele-dial-sub { font-size: var(--text-sm); }
 .tele-dial-parts { display: flex; flex-direction: column; gap: 2px; margin-top: var(--space-1); color: var(--text-2); font-size: var(--text-sm); }
 .tele-dial-parts > span { display: inline-flex; align-items: center; gap: var(--space-2); }
+.tele-cc-fill { fill: var(--accent); opacity: .3; }
+.tele-cc-dot { fill: var(--accent); }
 
 /* ---------- Who used this week's limit ---------- */
 .tele-who { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4); border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--bg-1); }
@@ -52,6 +56,15 @@ button.tele-limit-part:hover { filter: brightness(1.1); }
 button.tele-limit-part:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .tele-unknown { background: repeating-linear-gradient(90deg, var(--text-3) 0 2px, transparent 2px 5px); opacity: .6; }
 .tele-free { background: var(--bg-3); box-shadow: inset 0 0 0 1px var(--border-2); }
+/* Your Claude Code use outside this app: its hue under a wash with round holes, so dots of the hue show. */
+.tele-cc { position: relative; overflow: hidden; }
+.tele-cc::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle, transparent 1.2px, color-mix(in srgb, var(--bg-1) 62%, transparent) 1.7px) 0 0 / 5px 5px; }
+/* Its line while Claude Code's logs are first read: an empty dashed key and the words, in its own place. */
+.tele-reading { box-sizing: border-box; border: 1.5px dashed var(--text-3); background: transparent; }
+.tele-waiting { color: var(--text-2); }
+.tele-cc-line { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--text-sm); }
+.tele-cc-line .icon { flex: none; }
+.tele-cc-line[role='status']:not(.muted) .icon { color: var(--status-warn); }
 
 /* ---------- The cards ---------- */
 .tele-graphs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); align-items: start; transition: opacity var(--dur-fast) var(--ease-out); }
@@ -168,6 +181,10 @@ button.tele-limit-part:focus-visible { outline: 2px solid var(--focus-ring); out
 .tele-bar-track { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .tele-bar { display: block; flex: none; height: 12px; min-width: 2px; max-width: calc(100% - 7em); border-radius: 0 3px 3px 0; }
 .tele-hbar .tele-bar { height: 16px; }
+/* A person's dollars in two parts: in this app, then in Claude Code. */
+.tele-bar-stack { display: flex; flex: none; gap: 2px; min-width: 2px; max-width: calc(100% - 7em); }
+.tele-bar-stack .tele-bar { flex: 1 1 0; min-width: 2px; max-width: none; border-radius: 0; }
+.tele-bar-stack .tele-bar:last-child { border-radius: 0 3px 3px 0; }
 .tele-bar-value { flex: none; color: var(--text-2); font-size: var(--text-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ---------- Share bars: models by month ---------- */
@@ -193,7 +210,12 @@ button.tele-limit-part:focus-visible { outline: 2px solid var(--focus-ring); out
 .tele-heat-day { align-self: center; }
 .tele-heat-cell { display: block; aspect-ratio: 1.6; min-height: 14px; border-radius: 2px; background: color-mix(in oklab, var(--accent) var(--heat, 0%), var(--bg-3)); }
 .tele-heat-cell.is-at { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-.tele-heat-key { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); color: var(--text-2); font-size: var(--text-xs); }
+/* A square that is mostly your Claude Code use outside this app: a ringed dot, read on any shade. */
+.tele-heat-cell.is-cc { position: relative; }
+.tele-heat-cell.is-cc::after { content: ''; position: absolute; inset: 0; width: 5px; height: 5px; margin: auto; border-radius: 50%; background: var(--bg-1); box-shadow: 0 0 0 1.5px var(--text-1); }
+.tele-heat-cc-key { display: inline-flex; align-items: center; gap: var(--space-2); }
+.tele-heat-cc-key .tele-heat-cell { width: 22px; min-height: 14px; }
+.tele-heat-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); color: var(--text-2); font-size: var(--text-xs); }
 .tele-heat-ramp { display: inline-block; width: 90px; height: 10px; border-radius: 2px; background: linear-gradient(90deg, var(--bg-3), var(--accent)); }
 .tele-heat-now { min-height: 1.4em; margin: var(--space-1) 0 0; color: var(--text-1); font-size: var(--text-sm); }
 

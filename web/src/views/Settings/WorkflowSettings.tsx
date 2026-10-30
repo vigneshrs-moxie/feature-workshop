@@ -8,9 +8,12 @@
 // Review rounds (packet Q), next to the finish line: how often GitHub is checked while a job waits
 // on a reviewer or its checks (1, 5, 10 or 30 minutes; POST /api/review/settings), and who reviews
 // and merges each pull request, read from each repository's profile (GET /api/review routes).
+// Telemetry (packet U): "Count my Claude Code use outside the app", on unless turned off
+// (POST /api/settings { workflow: { countClaudeCode } }; the dashboard keeps it beside Telemetry's
+// cache, lib/claude-code-usage.js). Off, Telemetry counts it in Other use, as before.
 // Simple first (packet R): the finish line shows; the rest (GitHub, what a new job starts with, the
-// level, stacks, and the Orbit token SettingsView passes in) waits in one More that names it. Each
-// change says "Saved" beside its heading.
+// level, stacks, Claude Code use and the Orbit token SettingsView passes in) waits in one More that
+// names it. Each change says "Saved" beside its heading.
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { DEFAULT_FINISH_LINE, DEFAULT_SECTIONS_AT_ONCE, type FinishLine, MAX_SECTIONS_AT_ONCE, type Settings, WORKFLOW_CHOICES, type WorkflowChoice, type WorkflowSettings as Workflow } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
@@ -93,7 +96,7 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
           <p className="muted" role="note">The dashboard didn’t send the finish line’s choices. Update it and start it again; until then it uses {finishLineLabel(w.finishLine, undefined)}.</p>
         )}
       </SettingGroup>
-      <SettingsMore id="workflow-more" label="More: GitHub, what new jobs start with, the level, stacks and the Orbit token" holds={['github-every', 'pr-route', 'wireframes', 'clarify', 'auto-level', 'sections-at-once', 'orbit-token']}>
+      <SettingsMore id="workflow-more" label="More: GitHub, what new jobs start with, the level, stacks, Claude Code use and the Orbit token" holds={['github-every', 'pr-route', 'wireframes', 'clarify', 'auto-level', 'sections-at-once', 'count-claude-code', 'orbit-token']}>
         <GithubEvery />
         <RouteTable />
         {CHOICES.map((c) => (
@@ -121,6 +124,13 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
             <span>Sections at once, across every stack</span>
           </div>
           <p className="muted settings-note-under">How many sections of big jobs split into a stack are built side by side, counting every stack. A stack can set a lower number on its own page. The rest wait, and the page says why. Default {DEFAULT_SECTIONS_AT_ONCE}.</p>
+        </SettingGroup>
+        <SettingGroup className="workflow-choice" disabled={busy} setting="count-claude-code" title="Telemetry" saved={<Saved tick={saved.tick('claude-code')} />}>
+          <label className="check">
+            <Choice type="checkbox" checked={w.countClaudeCode !== false} onChange={(e) => void save({ countClaudeCode: e.currentTarget.checked }, 'claude-code')} />
+            Count my Claude Code use outside the app
+          </label>
+          <p className="muted settings-note-under">Telemetry reads this computer’s Claude Code logs for usage numbers only (never what was said or which files), so your Claude Code use shows by name instead of in Other use. This app’s own jobs are never counted twice. A teammate’s Claude Code on their own computer stays in Other use. Off: it is in Other use, as before.</p>
         </SettingGroup>
         {children}
       </SettingsMore>

@@ -2,7 +2,7 @@
 // here, each number worked out by hand in the comments. No dashboard, no model.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { capOutliers, cleanRecord, GRAPH_IDS, insightsFor, isTempPath, median, meteredWeeks, quantile } from '../lib/insights.js';
+import { capOutliers, cleanOutside, cleanRecord, GRAPH_IDS, insightsFor, isTempPath, median, meteredWeeks, quantile } from '../lib/insights.js';
 
 const ROOTS = ['/tmp', '/private/tmp', '/var/folders/xy/T'];
 const NOW = '2026-10-29T12:00:00.000Z';
@@ -354,4 +354,24 @@ test('a dashboard that itself runs from a temp folder (a test, a demo) keeps its
   const jobs = [{ slug: 'job-t', dir: '/tmp/fw-demo/feature-work/job-t' }];
   assert.equal(clean(lines, { jobs }).rows.length, 0, 'a test folder’s job in the real log goes');
   assert.equal(cleanRecord(lines, { now: NOW, jobs, tempRoots: [] }).rows.length, 1);
+});
+
+test('your Claude Code replies outside this app, tidied: the oldest first, none after now, the person when a reply doesn’t say', () => {
+  assert.equal(cleanOutside(null), null, 'not counted');
+  assert.deepEqual(cleanOutside([
+    { t: '2026-10-29T11:00:00.000Z', user: 'sohum', usd: 0.5, family: 'opus' },
+    { t: '2026-10-29T09:00:00.000Z', usd: 0.25, family: 'sonnet' },
+    { t: '2026-10-29T13:00:00.000Z', user: 'vignesh', usd: 1 }, // after now
+    { t: 'not a time', usd: 1 },
+    { t: '2026-10-29T10:00:00.000Z', usd: -3 }, // never below nothing
+  ], { now: NOW, me: 'vignesh' }), [
+    { t: '2026-10-29T09:00:00.000Z', ms: Date.parse('2026-10-29T09:00:00.000Z'), user: 'vignesh', usd: 0.25, family: 'sonnet' },
+    { t: '2026-10-29T10:00:00.000Z', ms: Date.parse('2026-10-29T10:00:00.000Z'), user: 'vignesh', usd: 0, family: null },
+    { t: '2026-10-29T11:00:00.000Z', ms: Date.parse('2026-10-29T11:00:00.000Z'), user: 'sohum', usd: 0.5, family: 'opus' },
+  ]);
+  // Counted but nothing in it: the shapes carry the new parts, at nothing.
+  const ins = insightsFor([line({ meters: { fiveHour: null, week: { percent: 5, resetsAt: '2026-11-04T23:00:00.000Z' } } })], { now: NOW, tempRoots: ROOTS, outside: [] });
+  assert.equal(ins.limits.week.claudeCode === undefined || typeof ins.limits.week.claudeCode === 'number', true);
+  assert.equal(ins.limits.otherLabel, 'Other use (claude.ai, the Claude app, other people)');
+  assert.deepEqual(ins.outside, []);
 });

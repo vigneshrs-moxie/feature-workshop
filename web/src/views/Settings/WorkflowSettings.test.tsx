@@ -97,6 +97,28 @@ describe('Settings → Workflow', () => {
     await waitFor(() => expect(store.getState().meta?.settings?.workflow?.autoLevel).toBe(true));
   });
 
+  it('Count my Claude Code use outside the app: on by default, posts countClaudeCode and says Saved beside it', async () => {
+    const { post, store } = setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged' } });
+    const group = screen.getByRole('group', { name: 'Telemetry' });
+    const box = within(group).getByRole('checkbox', { name: 'Count my Claude Code use outside the app' });
+    expect(box).toBeChecked();
+    expect(group).toHaveTextContent('usage numbers only');
+    expect(group).toHaveTextContent('Off: it is in Other use, as before.');
+    fireEvent.click(box);
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/settings', { workflow: { countClaudeCode: false } }));
+    await waitFor(() => expect(store.getState().meta?.settings?.workflow?.countClaudeCode).toBe(false));
+    expect(box).not.toBeChecked();
+    expect(within(group).getByRole('status')).toHaveTextContent('Saved');
+    fireEvent.click(box);
+    await waitFor(() => expect(post).toHaveBeenLastCalledWith('/api/settings', { workflow: { countClaudeCode: true } }));
+    await waitFor(() => expect(box).toBeChecked());
+  });
+
+  it('Count my Claude Code use: reads a stored off', () => {
+    setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged', countClaudeCode: false } });
+    expect(screen.getByRole('checkbox', { name: 'Count my Claude Code use outside the app' })).not.toBeChecked();
+  });
+
   it('Sections at once across every stack: 3 until set, saved through the stacks cap, a plain refusal outside 1 to 20', async () => {
     const answer = async (p: string, body: unknown) => {
       const b = body as { cap: number };

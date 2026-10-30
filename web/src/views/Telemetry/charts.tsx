@@ -5,8 +5,8 @@
 // a name on the mark, and the card's Table has the numbers; colour never works alone. Hover or keyboard focus
 // shows a mark's numbers on the line and the weekday map; the arrow keys step through them.
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import type { CacheData, LimitData, ModelsData, PeopleData, Pr1Data, ReworkData, StagesData, TelemetryGraph, TicketCostData, WaitingData, WhenData } from '../../api/types';
-import { COMPARED, niceMax, ONE, OTHER_SLOT, pct, slotClass, stopClass, usd, weekTick } from './words';
+import type { CacheData, ClaudeCodeUse, LimitData, ModelsData, PeopleData, Pr1Data, ReworkData, StagesData, TelemetryGraph, TicketCostData, WaitingData, WhenData } from '../../api/types';
+import { CC, COMPARED, niceMax, ONE, OTHER_SLOT, pct, slotClass, stopClass, usd, weekTick } from './words';
 
 /** The width an element has, kept up to date (a fallback where nothing measures, as in tests). */
 export function useWidth(fallback = 520) {
@@ -261,42 +261,118 @@ export function ModelsChart({ data }: { data: ModelsData }) {
 // ---------- 5. People on the account ----------
 
 export function PeopleChart({ data }: { data: PeopleData }) {
+  const counted = data.people.some((p) => typeof p.claudeCode === 'number' || (p.claudeCodeUsd ?? 0) > 0);
   if (data.others === null) {
-    // No meter split: dollars in this app per person.
-    const max = Math.max(0, ...data.people.map((p) => p.usd)) || 1;
+    // No meter split: dollars per person, in this app and (when it is counted) in Claude Code outside it.
+    const total = (p: PeopleData['people'][number]) => p.usd + (p.claudeCodeUsd ?? 0);
+    const max = Math.max(0, ...data.people.map(total)) || 1;
     if (!data.people.length) return <Empty>Nobody used the account in this window, as far as this computer knows.</Empty>;
+    const spent = (p: PeopleData['people'][number]) => (counted ? `${usd(p.usd)} in the app · ${usd(p.claudeCodeUsd ?? 0)} in Claude Code` : usd(p.usd));
     return (
-      <ul className="tele-hbars" aria-label="Spend in this app per person">
-        {data.people.map((p, i) => (
-          <li key={p.user} className="tele-hbar" aria-label={`${p.user}: ${usd(p.usd)}${p.percent === null ? '' : `, ${pct(p.percent)}`}`}>
-            <span className="tele-bar-label">{p.user}</span>
-            <span className="tele-bar-track"><span className={`tele-bar ${slotClass(i + 1)}`} style={{ width: `${(p.usd / max) * 100}%` }} aria-hidden="true" /><span className="tele-bar-value">{usd(p.usd)}{p.percent === null ? '' : ` · ${pct(p.percent)}`}</span></span>
-          </li>
-        ))}
-      </ul>
+      <div className="tele-plot">
+        {counted && <Legend items={[{ key: 'a', mark: <Swatch slot={1} />, label: 'In the app' }, { key: 'c', mark: <Swatch slot={1} extra={CC} />, label: 'In Claude Code, outside this app' }]} />}
+        <ul className="tele-hbars" aria-label={counted ? 'Spend per person, in this app and in Claude Code' : 'Spend in this app per person'}>
+          {data.people.map((p, i) => (
+            <li key={p.user} className="tele-hbar" aria-label={`${p.user}: ${spent(p)}${p.percent === null ? '' : `, ${pct(p.percent)}`}`}>
+              <span className="tele-bar-label">{p.user}</span>
+              <span className="tele-bar-track">
+                <span className="tele-bar-stack" style={{ width: `${(total(p) / max) * 100}%` }} aria-hidden="true">
+                  {p.usd > 0 && <span className={`tele-bar ${slotClass(i + 1)}`} style={{ flexGrow: p.usd }} />}
+                  {(p.claudeCodeUsd ?? 0) > 0 && <span className={`tele-bar ${slotClass(i + 1)} ${CC}`} style={{ flexGrow: p.claudeCodeUsd }} />}
+                </span>
+                <span className="tele-bar-value">{spent(p)}{p.percent === null ? '' : ` · ${pct(p.percent)}`}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
     );
   }
-  const parts = [
-    ...data.people.map((p, i) => ({ key: p.user, label: p.user, slot: Math.min(7, i + 1), percent: p.percent ?? 0, words: `${p.user} · ${usd(p.usd)} · ${pct(p.percent ?? 0)}` })),
-    { key: '~other', label: 'Others (estimated)', slot: OTHER_SLOT, percent: data.others.percent, words: `Others · ${pct(data.others.percent)}, estimated` },
-  ];
+  const meterWords = data.window === '5h' ? 'of the 5-hour limit' : 'of this week’s limit';
+  const parts = counted
+    ? limitParts({
+      people: data.people.map((p) => ({ user: p.user, percent: p.app ?? p.percent, claudeCode: p.claudeCode ?? 0, usd: p.usd, claudeCodeUsd: p.claudeCodeUsd })),
+      other: data.others.percent, otherLabel: data.others.label, me: null, meterWords,
+      show: (p, where) => `${p.user} ${where === 'cc' ? 'in Claude Code' : 'in the app'} · ${usd(p.usd ?? 0)} · ${pct(p.percent)}`,
+    })
+    : [
+      ...data.people.map((p, i) => ({ key: p.user, label: p.user, slot: Math.min(7, i + 1), percent: p.percent ?? 0, words: `${p.user} · ${usd(p.usd)} · ${pct(p.percent ?? 0)}` })),
+      { key: '~other', label: 'Others (estimated)', slot: OTHER_SLOT, percent: data.others.percent, words: `Others · ${pct(data.others.percent)}, estimated` },
+    ];
   return <ShareBar parts={parts} unknown={data.unknown ?? 0} free={data.free ?? 0} label={`Share of ${data.window === '5h' ? 'the 5-hour limit' : 'this week’s limit'}`} />;
 }
 
+/**
+ * One part of a limit's bar. cc: your Claude Code use outside this app (its person's hue, washed and
+ * dotted). waiting: not known yet, in words (Claude Code's logs being read): a legend line that keeps
+ * its place, with no segment.
+ */
+export interface SharePart { key: string; label: string; slot: number; percent: number; words: string; cc?: boolean; waiting?: string }
+
+/** The parts of a limit for "Who used this week's limit" and People on the account: each person in
+ * this app, then their Claude Code use outside it when it is counted (same hue, washed and dotted),
+ * then Other use under its own name. While Claude Code's logs are first read, a line for yours keeps
+ * its place, saying so. */
+export function limitParts({ people, other, otherLabel, me, claudeCode, meterWords, show }: {
+  people: { user: string; percent: number | null; claudeCode?: number | null; usd?: number; claudeCodeUsd?: number }[];
+  other: number;
+  otherLabel?: string;
+  me: string | null;
+  claudeCode?: ClaudeCodeUse;
+  /** "of this week’s limit" */
+  meterWords: string;
+  /** The words for a person's segment (People shows the dollars too). */
+  show?: (p: { user: string; percent: number; usd?: number }, where: 'app' | 'cc') => string;
+}): SharePart[] {
+  const counted = people.some((p) => typeof p.claudeCode === 'number');
+  const reading = !counted && claudeCode?.state === 'reading';
+  const out: SharePart[] = [];
+  people.forEach((p, i) => {
+    const slot = Math.min(7, i + 1);
+    const app = p.percent ?? 0;
+    const cc = typeof p.claudeCode === 'number' ? p.claudeCode : 0;
+    if (reading) {
+      out.push({ key: p.user, label: `${p.user} in the app`, slot, percent: app, words: show?.({ user: p.user, percent: app, usd: p.usd }, 'app') ?? `${p.user}: ${pct(app)} ${meterWords}, in this app` });
+      return;
+    }
+    if (!counted) {
+      out.push({ key: p.user, label: p.user, slot, percent: app, words: show?.({ user: p.user, percent: app, usd: p.usd }, 'app') ?? `${p.user}: ${pct(app)} ${meterWords}, in this app` });
+      return;
+    }
+    if (app >= 0.5 || cc < 0.5) out.push({ key: p.user, label: `${p.user} in the app`, slot, percent: app, words: show?.({ user: p.user, percent: app, usd: p.usd }, 'app') ?? `${p.user}: ${pct(app)} ${meterWords}, in this app` });
+    if (cc >= 0.5) out.push({ key: `${p.user}~cc`, label: `${p.user} in Claude Code`, slot, cc: true, percent: cc, words: show?.({ user: p.user, percent: cc, usd: p.claudeCodeUsd }, 'cc') ?? `${p.user}: ${pct(cc)} ${meterWords}, in Claude Code outside this app` });
+  });
+  if (reading && claudeCode) {
+    const who = me ?? 'You';
+    const at = people.findIndex((p) => p.user === me);
+    const slot = Math.min(7, (at < 0 ? people.length : at) + 1);
+    const place = at < 0 ? out.length : out.findIndex((x) => x.key === me) + 1;
+    out.splice(place, 0, { key: `${who}~cc`, label: `${who} in Claude Code`, slot, cc: true, percent: 0, words: claudeCode.words, waiting: claudeCode.words });
+  }
+  // While the logs are read, Other use still holds your Claude Code: said so, in about the room its new name takes.
+  const label = counted && otherLabel ? `${otherLabel}, estimated` : reading ? 'Other use, estimated (your Claude Code is in it until its logs are read)' : 'Other use (estimated)';
+  out.push({ key: '~other', label, slot: OTHER_SLOT, percent: other, words: `${counted && otherLabel ? otherLabel : 'Other use'}: ${pct(other)} ${meterWords}, estimated` });
+  return out;
+}
+
 /** One bar of a limit's 100%: a segment per part (name, percent and pattern), Not known, and Still free. */
-export function ShareBar({ parts, unknown, free, label, onPick }: { parts: { key: string; label: string; slot: number; percent: number; words: string }[]; unknown: number; free: number; label: string; onPick?: (key: string) => void }) {
-  const segs = parts.filter((p) => p.percent > 0);
+export function ShareBar({ parts, unknown, free, label, onPick }: { parts: SharePart[]; unknown: number; free: number; label: string; onPick?: (key: string) => void }) {
+  const segs = parts.filter((p) => p.percent > 0 && !p.waiting);
+  const cls = (p: SharePart) => `${slotClass(p.slot)}${p.cc ? ` ${CC}` : ''}`;
   return (
     <div className="tele-plot">
       <Legend items={[
-        ...parts.map((p) => ({ key: p.key, mark: <Swatch slot={p.slot} />, label: <>{p.label} <b className="num">{pct(p.percent)}</b></> })),
+        ...parts.map((p) => (p.waiting
+          // Short, so it takes the one line the part will take once read; the words in full for a screen reader and on hover.
+          ? { key: p.key, mark: <span className="tele-swatch tele-reading" aria-hidden="true" />, label: <span className="tele-waiting" role="status" title={p.waiting}><span aria-hidden="true">{p.label} <span className="muted">· reading…</span></span><span className="sr-only">{p.label}: {p.waiting}</span></span> }
+          : { key: p.key, mark: <Swatch slot={p.slot} extra={p.cc ? CC : ''} />, label: <span>{p.label} <b className="num">{pct(p.percent)}</b></span> })),
         ...(unknown >= 1 ? [{ key: '~unknown', mark: <span className="tele-swatch tele-unknown" aria-hidden="true" />, label: <>Not known <b className="num">{pct(unknown)}</b></> }] : []),
         { key: '~free', mark: <span className="tele-swatch tele-free" aria-hidden="true" />, label: <>Still free <b className="num">{pct(free)}</b></> },
       ]} />
-      <div className="tele-limit-bar" role="img" aria-label={`${label}: ${[...parts.map((p) => `${p.label} ${pct(p.percent)}`), ...(unknown >= 1 ? [`not known ${pct(unknown)}`] : []), `still free ${pct(free)}`].join(', ')}.`}>
+      <div className="tele-limit-bar" role="img" aria-label={`${label}: ${[...parts.filter((p) => !p.waiting).map((p) => `${p.label} ${pct(p.percent)}`), ...(unknown >= 1 ? [`not known ${pct(unknown)}`] : []), `still free ${pct(free)}`].join(', ')}.`}>
         {segs.map((p) => (onPick
-          ? <button key={p.key} type="button" className={`tele-limit-part ${slotClass(p.slot)}`} style={{ width: `${p.percent}%` }} onClick={() => onPick(p.key)} title={`${p.words}. Show more.`} aria-label={`${p.words}. Show more.`} />
-          : <span key={p.key} className={`tele-limit-part ${slotClass(p.slot)}`} style={{ width: `${p.percent}%` }} title={p.words} aria-hidden="true" />))}
+          ? <button key={p.key} type="button" className={`tele-limit-part ${cls(p)}`} style={{ width: `${p.percent}%` }} onClick={() => onPick(p.key)} title={`${p.words}. Show more.`} aria-label={`${p.words}. Show more.`} />
+          : <span key={p.key} className={`tele-limit-part ${cls(p)}`} style={{ width: `${p.percent}%` }} title={p.words} aria-hidden="true" />))}
         {unknown >= 1 && <span className="tele-limit-part tele-unknown" style={{ width: `${unknown}%` }} aria-hidden="true" />}
       </div>
     </div>
@@ -387,9 +463,15 @@ export function WhenChart({ data }: { data: WhenData }) {
   const [at, setAt] = useState<number | null>(null);
   if (!(data.max > 0)) return <Empty>Nothing recorded in the last four weeks.</Empty>;
   const v = (n: number) => (data.unit === 'percent' ? pct(n) : usd(n));
+  // Your Claude Code use outside this app, when it is counted: in each square's words, and a dot on the squares it is most of.
+  const counted = data.cells.some((c) => typeof c.claudeCode === 'number');
+  const mostlyCc = (c: WhenData['cells'][number]) => (c.claudeCode ?? 0) > 0 && (c.claudeCode ?? 0) > c.app + c.other;
   const cellWords = (i: number) => {
     const c = data.cells[i];
-    return `${DAY_WORDS[c.day]} ${blockWords(c.block)}: ${v(c.total)}${data.unit === 'percent' ? ` (this app ${v(c.app)}, other use ${v(c.other)}, estimated)` : ''}`;
+    const parts = counted
+      ? (data.unit === 'percent' ? ` (this app ${v(c.app)}, your Claude Code ${v(c.claudeCode ?? 0)}, other use ${v(c.other)}, estimated)` : ` (this app ${v(c.app)}, your Claude Code ${v(c.claudeCode ?? 0)})`)
+      : data.unit === 'percent' ? ` (this app ${v(c.app)}, other use ${v(c.other)}, estimated)` : '';
+    return `${DAY_WORDS[c.day]} ${blockWords(c.block)}: ${v(c.total)}${parts}${counted && mostlyCc(c) ? '; mostly Claude Code' : ''}`;
   };
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const i = at ?? 0;
@@ -409,12 +491,15 @@ export function WhenChart({ data }: { data: WhenData }) {
             <span className="tele-heat-day">{d}</span>
             {data.cells.filter((c) => c.day === day).map((c) => {
               const i = day * 12 + c.block;
-              return <span key={c.block} className={`tele-heat-cell${at === i ? ' is-at' : ''}`} style={{ '--heat': `${Math.round((c.total / data.max) * 100)}%` } as CSSProperties} onPointerEnter={() => setAt(i)} title={cellWords(i)} />;
+              return <span key={c.block} className={`tele-heat-cell${at === i ? ' is-at' : ''}${counted && mostlyCc(c) ? ' is-cc' : ''}`} style={{ '--heat': `${Math.round((c.total / data.max) * 100)}%` } as CSSProperties} onPointerEnter={() => setAt(i)} title={cellWords(i)} />;
             })}
           </div>
         ))}
       </div>
-      <div className="tele-heat-key" aria-hidden="true"><span>None</span><span className="tele-heat-ramp" /><span>{v(data.max)}: the busiest two hours, over four weeks</span></div>
+      <div className="tele-heat-key" aria-hidden="true">
+        <span>None</span><span className="tele-heat-ramp" /><span>{v(data.max)}: the busiest two hours, over four weeks</span>
+        {counted && <span className="tele-heat-cc-key"><span className="tele-heat-cell is-cc" style={{ '--heat': '60%' } as CSSProperties} />Mostly your Claude Code use outside this app</span>}
+      </div>
       <p className="tele-heat-now" aria-live="polite">{at === null ? '' : cellWords(at)}</p>
     </div>
   );

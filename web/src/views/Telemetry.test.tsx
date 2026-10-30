@@ -9,14 +9,14 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
-import type { PlanUsage, TelemetryResponse, TelemetryWindow } from '../api/types';
+import type { ClaudeCodeUse, PlanUsage, TelemetryResponse, TelemetryWindow } from '../api/types';
 import { installKeyListener, KEYS } from '../app/keyRegistry';
 import { hrefFor, parseHash, telemetryHref } from '../app/router';
 import { setDefaultDetail } from '../app/detail';
 import { KeyGroups } from './JobSheets/KeysSheet';
 import { createStore, WorkshopContext } from '../state/store';
 import { LEVELS, snapshot } from '../state/test-fixtures';
-import { TelemetryView } from './Telemetry';
+import { READING_MS, TelemetryView } from './Telemetry';
 import { niceMax, parsePrefs, prefsKey, weekTick } from './Telemetry/words';
 
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
@@ -24,6 +24,9 @@ const FIXTURE = readFileSync(here('../../../dashboard/test/fixtures/telemetry/us
 const LIB = here('../../../dashboard/lib/telemetry.js');
 type Sums = (lines: unknown[], opts: Record<string, unknown>) => Omit<TelemetryResponse, 'meters' | 'file'>;
 const { telemetry } = (await import(/* @vite-ignore */ LIB)) as { telemetry: Sums };
+// The words the runner sends with claudeCode (dashboard/lib/claude-code-usage.js; nothing in it reads a log here).
+const CC_LIB = here('../../../dashboard/lib/claude-code-usage.js');
+const { CLAUDE_CODE_WORDS, CLAUDE_CODE_NOTE } = (await import(/* @vite-ignore */ CC_LIB)) as { CLAUDE_CODE_WORDS: Record<ClaudeCodeUse['state'], string>; CLAUDE_CODE_NOTE: string };
 
 const NOW = '2026-10-28T12:00:00.000Z';
 const TITLES = { 'orbit-479-feedback-api': 'Feedback API', 'orbit-512-export': 'Export', 'tidy-logs': 'Tidy logs' };
@@ -34,11 +37,20 @@ const METERS_ON: PlanUsage = { enabled: true, fiveHour: LAST.fiveHour, week: { p
 const METERS_OFF: PlanUsage = { enabled: false, fiveHour: null, week: null, checkedAt: null, error: null };
 
 /** What GET /api/telemetry?window= answers for the fixture at NOW (as the runner builds it). */
-const answer = (window: TelemetryWindow, meters: PlanUsage = METERS_ON, lines: unknown[] = FIXTURE): TelemetryResponse => ({
-  ...telemetry(lines, { window, now: NOW, me: 'vignesh', meters: meters.enabled ? meters : null, titles: TITLES, timeZone: 'UTC', shortStretch: 7 * 3600e3 }),
+const answer = (window: TelemetryWindow, meters: PlanUsage = METERS_ON, lines: unknown[] = FIXTURE, outside: unknown[] | null = null): TelemetryResponse => ({
+  ...telemetry(lines, { window, now: NOW, me: 'vignesh', meters: meters.enabled ? meters : null, titles: TITLES, timeZone: 'UTC', shortStretch: 7 * 3600e3, outside }),
   meters,
   file: '/home/you/.ground-control/usage.jsonl',
 });
+// vignesh's Claude Code outside this app, read from a made-up log: six replies of $0.50 between the
+// last line (87 %, 07:00) and the live reading (95 %, 11:59). At 2 % a dollar that is 6 of the 8 points.
+const OUTSIDE = Array.from({ length: 6 }, (_, i) => ({ t: new Date(Date.parse('2026-10-28T08:00:00Z') + i * 20 * 60e3).toISOString(), user: 'vignesh', usd: 0.5 }));
+/** The answer with claudeCode in each of its states, as the runner adds it (counted only when ready). */
+const answerCc = (state: ClaudeCodeUse['state'], window: TelemetryWindow = 'week'): TelemetryResponse => {
+  const body = answer(window, METERS_ON, FIXTURE, state === 'ready' ? OUTSIDE : null);
+  const sums = (body as TelemetryResponse & { claudeCode?: { usd: number; replies: number } }).claudeCode;
+  return { ...body, claudeCode: { state, counted: state === 'ready', words: CLAUDE_CODE_WORDS[state], note: CLAUDE_CODE_NOTE, usd: sums?.usd ?? null, replies: sums?.replies ?? null, readAt: state === 'ready' ? '2026-10-28T11:58:00.000Z' : null } };
+};
 
 function setup({ planUsage = METERS_ON as PlanUsage | null, get }: { planUsage?: PlanUsage | null; get?: (path: string) => Promise<unknown> } = {}) {
   const store = createStore();
@@ -274,6 +286,126 @@ describe('Telemetry', () => {
     expect(weekTick('Week from Wed 28 Oct, 4 pm')).toBe('28 Oct');
     expect(parsePrefs('not json')).toEqual({ folded: {}, hidden: [] });
     expect(prefsKey('sohum')).not.toBe(prefsKey('vignesh'));
+  });
+});
+
+// ---------- Your Claude Code use outside this app (packet U) ----------
+
+describe('Telemetry: your Claude Code use outside this app', () => {
+  const who = () => screen.getByRole('region', { name: 'Who used this week’s limit' });
+  const legend = (el: HTMLElement) => [...el.querySelectorAll('.tele-legend li')].map((li) => li.textContent);
+  const weekDial = () => document.querySelector('[data-dial="Weekly limit"]') as HTMLElement;
+  const how = () => within(who()).getByRole('region', { name: 'How this is worked out' });
+  const setupCc = (state: ClaudeCodeUse['state'] | (() => ClaudeCodeUse['state'])) => setup({
+    get: async (path: string) => answerCc(typeof state === 'function' ? state() : state, new URLSearchParams(path.split('?')[1]).get('window') as TelemetryWindow),
+  });
+
+  it('ready: each person splits into in the app and in Claude Code, each with its own pattern and words; Other use takes its new name', async () => {
+    setupCc('ready');
+    await screen.findByRole('region', { name: 'Who used this week’s limit' });
+    await waitFor(() => expect(legend(who())).toEqual(['vignesh in the app 69%', 'vignesh in Claude Code 6%', 'sohum in the app 18%', 'Other use (claude.ai, the Claude app, other people), estimated 2%', 'Still free 5%']));
+    // The two parts of a person: the same hue, the Claude Code one washed and dotted, never colour alone.
+    const keys = [...who().querySelectorAll('.tele-legend .tele-swatch')].map((s) => s.className);
+    expect(keys[0]).toContain('tele-s1');
+    expect(keys[0]).not.toContain('tele-cc');
+    expect(keys[1]).toContain('tele-s1');
+    expect(keys[1]).toContain('tele-cc');
+    expect(keys[3]).toContain('tele-s8');
+    // Each segment says in words whose it is and where.
+    expect(within(who()).getByRole('button', { name: 'vignesh: 69% of this week’s limit, in this app. Show more.' })).toHaveClass('tele-s1');
+    expect(within(who()).getByRole('button', { name: 'vignesh: 6% of this week’s limit, in Claude Code outside this app. Show more.' })).toHaveClass('tele-cc');
+    expect(within(who()).getByRole('img', { name: /^Who used this week’s limit: vignesh in the app 69%, vignesh in Claude Code 6%, sohum in the app 18%, Other use \(claude\.ai, the Claude app, other people\), estimated 2%, still free 5%\.$/ })).toBeInTheDocument();
+    // The dial draws its slice and names it.
+    expect(weekDial().querySelector('path.is-cc')).not.toBeNull();
+    expect(weekDial().textContent).toContain('In this app 87%');
+    expect(weekDial().textContent).toContain('In Claude Code 6%');
+    expect(weekDial().textContent).toContain('Other use 2%, estimated');
+    // Simple shows the line; the words and what it can't see sit behind How this is worked out.
+    expect(how()).toHaveTextContent(CLAUDE_CODE_WORDS.ready);
+    expect(how()).toHaveTextContent(/don’t explain: claude\.ai, the Claude app and other people/);
+    expect(how()).toHaveTextContent(/Only this computer’s Claude Code logs are read, so a teammate’s Claude Code on their own computer is in it too/);
+    expect(how()).not.toHaveTextContent(CLAUDE_CODE_NOTE); // said once, in Other use's note
+    // Graph 5: the same parts, with each part's spend; graph 9 says the part in each square's words.
+    const people = card('people');
+    expect(within(people).getByRole('img', { name: /^Share of this week’s limit: vignesh in the app 69%, vignesh in Claude Code 6%, sohum in the app 18%, Other use \(claude\.ai, the Claude app, other people\), estimated 2%/ })).toBeInTheDocument();
+    expect(people.querySelector('.tele-limit-part.tele-cc')).toHaveAttribute('title', 'vignesh in Claude Code · $3.00 · 6%');
+    const when = card('when');
+    expect(when.querySelectorAll('.tele-heat-cell.is-cc').length).toBeGreaterThan(1); // a square and the key
+    expect(within(when).getByText('Mostly your Claude Code use outside this app')).toBeInTheDocument();
+    expect([...when.querySelectorAll('.tele-heat-cell[title]')].some((c) => /your Claude Code [1-9]\d*%.*; mostly Claude Code$/.test(c.getAttribute('title') ?? ''))).toBe(true);
+    expect(document.body.textContent).not.toMatch(/Ground Control/);
+  });
+
+  it('ready, the last 30 days: People shows each person’s dollars in the app and in Claude Code', async () => {
+    localStorage.setItem('workshop.telemetryWindow', '30d');
+    setupCc('ready');
+    await waitFor(() => expect(card('people')?.querySelector('.tele-hbars')).not.toBeNull());
+    const people = card('people');
+    expect(legend(people)).toEqual(['In the app', 'In Claude Code, outside this app']);
+    expect(within(people).getByRole('listitem', { name: /^vignesh: \$131\.50 in the app · \$3\.00 in Claude Code/ })).toBeInTheDocument();
+    expect(people.querySelectorAll('.tele-bar-stack .tele-bar.tele-cc')).toHaveLength(1);
+  });
+
+  it('reading: the line for your Claude Code keeps its place and says so, the dial too, and the page asks again every 5 seconds until it is ready', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let state: ClaudeCodeUse['state'] = 'reading';
+      const { get } = setupCc(() => state);
+      await waitFor(() => expect(legend(who())).toEqual(['vignesh in the app 69%', 'vignesh in Claude Code · reading…vignesh in Claude Code: Reading Claude Code’s logs…', 'sohum in the app 18%', 'Other use, estimated (your Claude Code is in it until its logs are read) 8%', 'Still free 5%']));
+      expect(within(who()).getByRole('status')).toHaveTextContent('Reading Claude Code’s logs…');
+      expect(who().querySelector('.tele-legend .tele-reading')).not.toBeNull();
+      // No segment for it yet: nothing is guessed.
+      expect(who().querySelectorAll('.tele-limit-part.tele-cc')).toHaveLength(0);
+      expect(weekDial().textContent).toContain('In Claude Code: reading…');
+      expect(how()).toHaveTextContent(CLAUDE_CODE_NOTE);
+      expect(how()).toHaveTextContent('Reading Claude Code’s logs…');
+      expect(weekDial().querySelector('path.is-cc')).toBeNull();
+      expect(READING_MS).toBe(5000);
+      const asked = get.mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(READING_MS); });
+      expect(get.mock.calls.length).toBe(asked + 1);
+      // Read: the line becomes the real part, in the same place, and the asking slows to every minute.
+      state = 'ready';
+      await act(async () => { await vi.advanceTimersByTimeAsync(READING_MS); });
+      await waitFor(() => expect(legend(who())[1]).toBe('vignesh in Claude Code 6%'));
+      const done = get.mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(READING_MS * 3); });
+      expect(get.mock.calls.length).toBe(done);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('off: as before, and How this is worked out says where to turn it on', async () => {
+    setupCc('off');
+    await screen.findByRole('region', { name: 'Who used this week’s limit' });
+    await waitFor(() => expect(legend(who())).toEqual(['vignesh 69%', 'sohum 18%', 'Other use (estimated) 8%', 'Still free 5%']));
+    expect(how()).toHaveTextContent('Turn it on in Settings → Workflow → Count my Claude Code use outside the app.');
+    expect(how()).not.toHaveTextContent(CLAUDE_CODE_NOTE);
+    expect(weekDial().textContent).not.toContain('Claude Code');
+  });
+
+  it('demo: as before, and says the demo reads no Claude Code logs', async () => {
+    setupCc('demo');
+    await screen.findByRole('region', { name: 'Who used this week’s limit' });
+    await waitFor(() => expect(how()).toHaveTextContent('The demo doesn’t read Claude Code’s logs.'));
+    expect(legend(who())).toEqual(['vignesh 69%', 'sohum 18%', 'Other use (estimated) 8%', 'Still free 5%']);
+  });
+
+  it('error: says it couldn’t read them, with ⚠ and words, and counts this app’s own use only', async () => {
+    setupCc('error');
+    await screen.findByRole('region', { name: 'Who used this week’s limit' });
+    const line = await within(who()).findByRole('status');
+    expect(line).toHaveTextContent('Couldn’t read Claude Code’s logs, so they aren’t counted yet: this app’s own use only.');
+    expect(line.querySelector('svg.icon')).not.toBeNull();
+    expect(legend(who())).toEqual(['vignesh 69%', 'sohum 18%', 'Other use (estimated) 8%', 'Still free 5%']);
+  });
+
+  it('the old shape, from a dashboard without these fields: as before, no Claude Code anywhere on the top', async () => {
+    setup({ get: async () => { const b = answer('week'); delete (b as Partial<TelemetryResponse>).claudeCode; delete b.limits.otherLabel; return b; } });
+    await ready();
+    expect(legend(who())).toEqual(['vignesh 69%', 'sohum 18%', 'Other use (estimated) 8%', 'Still free 5%']);
+    expect(who().textContent).not.toMatch(/Claude Code’s logs/);
+    expect(weekDial().textContent).not.toContain('In Claude Code');
+    expect(document.querySelectorAll('.tele-cc')).toHaveLength(0);
   });
 });
 
