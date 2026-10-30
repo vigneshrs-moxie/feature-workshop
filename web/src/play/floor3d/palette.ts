@@ -145,6 +145,13 @@ export function over(top: Rgb, ground: Rgb): Rgb {
   return { ...mix(ground, { ...top, a: 1 }, top.a), a: 1 };
 }
 
+/** A see-through colour over a solid one as the browser paints it (blended in sRGB), solid. */
+export function paintedOver(top: Rgb, ground: Rgb): Rgb {
+  const t = clamp01(top.a);
+  const f = (x: number, y: number) => y + (x - y) * t;
+  return { r: f(top.r, ground.r), g: f(top.g, ground.g), b: f(top.b, ground.b), a: 1 };
+}
+
 /** Relative luminance (WCAG), 0..1. */
 export const luminance = (c: Rgb) => 0.2126 * toLinear(c.r) + 0.7152 * toLinear(c.g) + 0.0722 * toLinear(c.b);
 
@@ -273,11 +280,34 @@ function viaCanvas(text: string): Rgb | null {
 }
 
 /**
- * The tokens as the page has them now, resolved through every var() and color-mix(): a hidden probe
- * wears each token as its colour and getComputedStyle answers. Then derivePalette().
+ * The nearest solid surface under `el`, as the eye sees it: the first background colour with no
+ * see-through on the way up from `el`, with any see-through backgrounds between it and `el` laid
+ * over it in turn as the browser paints them (in Glass: the page's own night colour, under the
+ * pane's tint). Background
+ * images (Glass's aurora) are not counted. Null when nothing on the way up is solid.
  */
-export function readPalette(root: HTMLElement = document.documentElement): FloorPalette {
+export function solidGround(el: Element | null): Rgb | null {
+  const layers: Rgb[] = [];
+  for (let e = el; e; e = e.parentElement) {
+    const text = getComputedStyle(e).backgroundColor;
+    const c = text ? parseCssColor(text) ?? viaCanvas(text) : null;
+    if (!c || c.a <= 0) continue;
+    if (c.a >= 1) return layers.reduceRight((ground, layer) => paintedOver(layer, ground), { ...c, a: 1 });
+    layers.push(c);
+  }
+  return null;
+}
+
+/**
+ * The tokens as the page has them now, resolved through every var() and color-mix(): a hidden probe
+ * wears each token as its colour and getComputedStyle answers. A token that is see-through (alpha
+ * below 1, as Glass's backgrounds are) falls back to the nearest solid surface under the floor
+ * (`under`, solidGround) with the token laid over it, so the floor wears the colour the page shows
+ * there rather than the token over grey. Then derivePalette().
+ */
+export function readPalette(root: HTMLElement = document.documentElement, under: Element | null = document.body): FloorPalette {
   const raw: Partial<Record<FloorToken, Rgb>> = {};
+  let ground: Rgb | null | undefined;
   const probe = document.createElement('span');
   probe.setAttribute('aria-hidden', 'true');
   probe.hidden = true;
@@ -289,7 +319,9 @@ export function readPalette(root: HTMLElement = document.documentElement): Floor
       const text = getComputedStyle(probe).color;
       if (!text || !getComputedStyle(root).getPropertyValue(name).trim()) continue;
       const c = parseCssColor(text) ?? viaCanvas(text);
-      if (c) raw[name] = c;
+      if (!c) continue;
+      if (c.a < 1 && ground === undefined) ground = solidGround(under);
+      raw[name] = c.a < 1 && ground ? paintedOver(c, ground) : c;
     }
   } finally {
     probe.remove();

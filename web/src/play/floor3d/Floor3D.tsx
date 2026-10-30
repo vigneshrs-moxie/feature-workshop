@@ -176,7 +176,7 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, k
     loadScene()
       .then((mod) => {
         if (cancelled) return;
-        made = mod.createFloorScene(el, { palette: readPalette(), reducedMotion: reduced, icons: stopIcons(iconBox.current) });
+        made = mod.createFloorScene(el, { palette: readPalette(document.documentElement, el), reducedMotion: reduced, icons: stopIcons(iconBox.current) });
         sceneRef.current = made;
         made.onFrame(place);
         setReady(true);
@@ -201,7 +201,7 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, k
   // The theme: read again whenever it may have changed.
   useEffect(() => {
     if (!ready) return;
-    return watchTheme(() => requestAnimationFrame(() => sceneRef.current?.setPalette(readPalette())));
+    return watchTheme(() => requestAnimationFrame(() => sceneRef.current?.setPalette(readPalette(document.documentElement, canvas.current))));
   }, [ready]);
   // Nothing is drawn while the tab is hidden or the floor is scrolled out of view.
   useEffect(() => {
