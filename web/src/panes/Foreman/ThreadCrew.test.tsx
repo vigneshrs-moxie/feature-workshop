@@ -3,7 +3,7 @@
 // rendered (the snapshot below was recorded before the crew came in); Subtle draws them still and
 // small, Full animated; nothing play-related goes inside a gate card, a permission card or the
 // composer. Invented jobs only.
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../../api/client';
 import type { Gate, Job, JobDetail, PlayMode, ThreadItem } from '../../api/types';
@@ -81,9 +81,16 @@ function setup({ mode, jobs = [ALPHA], det = detail(), usage }: { mode?: PlayMod
   return { ...utils, store };
 }
 
+// Loaded: the briefs are in and the loading line has gone. Under a busy machine the load can take
+// over 200 ms, and then R's loading line (components/Pending) stays up at least 400 ms after it, so
+// waiting only for the briefs could catch "Loading the conversation…" still showing (packet W).
 async function loaded() {
   await screen.findByText('Investigation done');
   await screen.findByText('Two findings.');
+  await waitFor(() => {
+    expect(screen.queryByText('Loading the conversation…')).toBeNull();
+    expect(document.querySelector('.thread')).toHaveAttribute('aria-busy', 'false');
+  }, { timeout: 3000 });
 }
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW); });
