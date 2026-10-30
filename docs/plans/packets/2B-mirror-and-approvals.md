@@ -15,7 +15,7 @@
   - the crew activity and the now line, as the Stage gets them;
   - Stacks, with their parts.
 - **What it never sends:** source, diffs, `.env`, database contents or a token. The site checks this again (2A's check) and refuses a record that fails.
-- **Evidence** (screenshots and videos) goes to the private Vercel Blob store.
+- **Evidence** (screenshots and videos) goes to the private Vercel Blob store `site-files`. Private Blob is generally available; on Vercel, functions reach it with Vercel's own short-lived OIDC token, not a stored key. Check the current docs: https://vercel.com/docs/vercel-blob/private-storage.
   - The runner asks the site for a one-time client upload token scoped to that job's path, then uploads straight to Blob.
   - The site serves a file only to its owner, through a short-lived signed link.
   - Tests use a fake Blob.
