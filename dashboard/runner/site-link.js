@@ -106,7 +106,7 @@ export const removeSiteFile = (stateDir) => fs.rmSync(path.join(stateDir, SITE_F
 /** The site's address, checked: https, or http only for this computer itself. */
 export function normalizeSiteUrl(raw) {
   let u;
-  try { u = new URL(String(raw ?? '').trim()); } catch { throw new SiteError('That isn’t a web address. Give the site’s address, like https://feature-workshop.example.com.'); }
+  try { u = new URL(String(raw ?? '').trim()); } catch { throw new SiteError('That isn’t a web address. Give the site’s address, like https://starbase.example.com.'); }
   const local = ['localhost', '127.0.0.1'].includes(u.hostname);
   if (u.protocol !== 'https:' && !(local && u.protocol === 'http:')) throw new SiteError('The site’s address must start with https:// (http:// only for localhost).');
   if (u.username || u.password) throw new SiteError('The site’s address must not carry a name or password.');

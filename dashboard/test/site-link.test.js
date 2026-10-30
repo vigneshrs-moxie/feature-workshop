@@ -36,15 +36,15 @@ test('the runner token has its own names in the same stores as the Orbit token, 
 test('site.json: the address, the device id and who it is for; no token; readable by you only', () => {
   const dir = tmp();
   assert.equal(readSiteFile(dir), null);
-  writeSiteFile(dir, { url: 'https://feature-workshop.example.test', deviceId: 'device-aaaa-1111', runnerId: 3 });
+  writeSiteFile(dir, { url: 'https://starbase.example.test', deviceId: 'device-aaaa-1111', runnerId: 3 });
   assert.equal(readSiteFile(dir).runnerId, 3);
   if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(dir, 'site.json')).mode & 0o777, 0o600);
 });
 
 test('the site’s address: https, or http only for this computer', () => {
-  assert.equal(normalizeSiteUrl('https://feature-workshop.example.test/some/path'), 'https://feature-workshop.example.test');
+  assert.equal(normalizeSiteUrl('https://starbase.example.test/some/path'), 'https://starbase.example.test');
   assert.equal(normalizeSiteUrl('http://localhost:4507/'), 'http://localhost:4507');
-  assert.throws(() => normalizeSiteUrl('http://feature-workshop.example.test'), /must start with https/);
+  assert.throws(() => normalizeSiteUrl('http://starbase.example.test'), /must start with https/);
   assert.throws(() => normalizeSiteUrl('not an address'), /isn’t a web address/);
   assert.throws(() => normalizeSiteUrl('https://user:pw@example.test'), /name or password/);
 });

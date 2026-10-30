@@ -96,7 +96,7 @@ test('login needs the site’s address the first time; logout on a laptop never 
   const r = await cli(['login'], { env: { STARBASE_ORBIT_STORE: 'file' } });
   assert.equal(r.code, 1);
   assert.match(r.text, /Say which site with --site <address>/);
-  const bad = await cli(['login', '--site', 'http://feature-workshop.example.test'], { env: { STARBASE_ORBIT_STORE: 'file' } });
+  const bad = await cli(['login', '--site', 'http://starbase.example.test'], { env: { STARBASE_ORBIT_STORE: 'file' } });
   assert.equal(bad.code, 1);
   assert.match(bad.text, /must start with https:\/\//);
   const out = await cli(['logout'], { env: { STARBASE_ORBIT_STORE: 'file' } });

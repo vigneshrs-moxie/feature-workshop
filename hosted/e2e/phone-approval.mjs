@@ -7,7 +7,7 @@
 // 1. The site on http://localhost:4509 (hosted/dev.js startLocalSite: PGlite in memory, the fake
 //    Google, the fake Blob store, the page from hosted/scripts/build.js); a made-up person signs in.
 // 2. A laptop: the demo's runner (nothing real runs; e2e/laptop-host.mjs), paired with
-//    `ground-control login --site …`. Its record reaches the site, with a Foreman waiting at a gate.
+//    `starbase login --site …`. Its record reaches the site, with a Foreman waiting at a gate.
 // 3. The laptop closes: its process is suspended (SIGSTOP), as a sleeping laptop's is, and the site
 //    says it is offline once it hasn't been seen for a minute.
 // 4. On a phone-width page (390 px), the Desk shows that gate; Go is pressed.

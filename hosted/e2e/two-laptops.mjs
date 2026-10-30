@@ -9,7 +9,7 @@
 // 2. Signs in as two made-up people at example.test, through the sign-in page and the fake Google.
 // 3. Starts two laptops: the demo's runner (STARBASE_DEMO=1, nothing real runs), each with its own
 //    temporary home and folders, its local page on no port (laptop-host.mjs); the second keeps only
-//    five of the demo's jobs. Each is paired with `ground-control login --site …`: the person opens
+//    five of the demo's jobs. Each is paired with `starbase login --site …`: the person opens
 //    the link it prints and presses "Pair this laptop".
 // 4. Checks each person sees only their own laptop's jobs, and that a job id of the other's is a 404.
 // 5. Takes screenshots at 1512 and 390 px wide, in Light and Default: sign-in, the "Moxie accounts
@@ -66,7 +66,7 @@ function startLaptop(name, env) {
   });
 }
 
-/** `ground-control login` on a laptop; onCode(code, link) while it waits. Resolves its output. */
+/** `starbase login` on a laptop; onCode(code, link) while it waits. Resolves its output. */
 function login(env, laptopName, onCode) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.join(ROOT, 'bin', 'starbase.js'), 'login', '--site', SITE, '--name', laptopName], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });

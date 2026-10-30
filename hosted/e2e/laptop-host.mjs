@@ -1,7 +1,7 @@
 // A made-up laptop for the end-to-end run (two-laptops.mjs): the demo's runner, exactly as
 // dashboard/server.js makes it (STARBASE_DEMO=1: a pretend Foreman, nothing real runs), but its
 // local page opens no port. The demo's own start-up calls to that page are answered in this
-// process. The runner's link to the hosted site starts by itself once `ground-control login` has
+// process. The runner's link to the hosted site starts by itself once `starbase login` has
 // paired this laptop. E2E_KEEP_JOBS (slugs, comma-separated) keeps only those demo jobs, so the
 // two laptops have different lists.
 import '../../dashboard/lib/env-boot.js'; // first: the old environment names still work
