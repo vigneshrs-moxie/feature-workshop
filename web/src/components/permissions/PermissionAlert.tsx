@@ -16,7 +16,8 @@ import { roleOf } from '../../play/crewPack';
 import { Icon } from '../Icon';
 import { FoldShow } from '../page/Page';
 import { InlineText } from '../InlineText';
-import { Kbd } from '../Kbd';
+import { Button } from '../Button';
+import { More } from '../More';
 import { AlwaysAllowSheet } from './AlwaysAllowSheet';
 import { DenyBox } from './PermissionCard';
 import { Card } from './PendingCards';
@@ -90,32 +91,31 @@ function Alert({ p, now, more }: { p: Permission; now: Date; more: number }) {
         <div className="perm-step is-short"><span className="muted">The exact step</span><code>{step}</code></div>
       ))}
       {why && <p className="perm-why"><b>Why it asks:</b> <InlineText text={why} /></p>}
-      <div className="perm-what">
-        <div><b><Icon name="check" size={14} /> Allow once</b><span>It does exactly this, one time, then carries on. It asks again next time.</span></div>
-        <div><b><Icon name="x" size={14} /> Deny</b><span>It skips this and carries on without it; you can tell it why.</span></div>
-      </div>
       {error && <p className="field-problem" role="alert">{error}</p>}
       {denying ? (
         <DenyBox busy={busy} label="Deny" onDeny={(note) => void send({ decision: 'deny', note })} onCancel={() => setDenying(false)} />
       ) : (
         <div className="perm-actions perm-alert-actions">
-          <button type="button" className="btn btn-primary btn-lg" disabled={busy} onClick={() => void send({ decision: 'allow' })} title="Let it do exactly this, one time. It asks again next time.">
-            <Icon name="check" size={16} /> Allow once{keyOk && <Kbd id="alert-allow" />}
-          </button>
-          <button type="button" className="btn btn-danger btn-lg" disabled={busy} onClick={() => setDenying(true)} title="Say no. It skips this and carries on; you can tell it why.">
-            <Icon name="x" size={16} /> Deny…<Kbd id="alert-deny" />
-          </button>
           {p.canAllowForRun && !hard && (
-            <button type="button" className="btn" disabled={busy} onClick={() => void send({ decision: 'allow-run' })} title="Let it do this kind of step without asking again until this reply is finished. Nothing is saved.">Allow for this reply</button>
+            <Button kind="quiet" disabled={busy} onClick={() => void send({ decision: 'allow-run' })} title="Let it do this kind of step without asking again until this reply is finished. Nothing is saved.">Allow for this reply</Button>
           )}
           {jobAlways ? (
-            <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => void send({ decision: 'allow-job' })} title="Let steps like this run without asking for the rest of this job. Other jobs still ask; rules for every job are in Settings.">Always allow for this job</button>
+            <Button kind="quiet" disabled={busy} onClick={() => void send({ decision: 'allow-job' })} title="Let steps like this run without asking for the rest of this job. Other jobs still ask; rules for every job are in Settings.">Always allow for this job</Button>
           ) : draft && (
-            <button ref={alwaysBtn} type="button" className="btn btn-quiet" disabled={busy} onClick={() => setSheet(true)} title="Save a rule so steps like this run without asking, in every job. You choose how narrow it is and confirm it first; remove it any time in Settings.">Always allow…</button>
+            <Button ref={alwaysBtn} kind="quiet" disabled={busy} onClick={() => setSheet(true)} title="Save a rule so steps like this run without asking, in every job. You choose how narrow it is and confirm it first; remove it any time in Settings.">Always allow…</Button>
           )}
           {!keyOk && <span className="perm-reason"><Icon name="help" size={14} /> {hard ? 'A key never allows a hard line.' : 'A key never allows a risky step.'}</span>}
+          <span className="spacer" />
+          <Button icon="x" keyId="alert-deny" disabled={busy} onClick={() => setDenying(true)} title="Say no. It skips this and carries on; you can tell it why.">Deny…</Button>
+          <Button kind="primary" icon="check" keyId={keyOk ? 'alert-allow' : undefined} keyShown busy={busy} onClick={() => void send({ decision: 'allow' })} title="Let it do exactly this, one time. It asks again next time.">Allow once</Button>
         </div>
       )}
+      <More screen="job" id="perm-what" label="What each answer does" icon="help" className="perm-what-more">
+        <div className="perm-what">
+          <div><b><Icon name="check" size={14} /> Allow once</b><span>It does exactly this, one time, then carries on. It asks again next time.</span></div>
+          <div><b><Icon name="x" size={14} /> Deny</b><span>It skips this and carries on without it; you can tell it why.</span></div>
+        </div>
+      </More>
       {more > 0 && <span className="sr-only">{more} more waiting below.</span>}
       {sheet && draft && <AlwaysAllowSheet permission={p} draft={draft} onClose={() => { setSheet(false); alwaysBtn.current?.focus(); }} />}
     </section>

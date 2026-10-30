@@ -13,6 +13,7 @@ import { Hero, NextBar } from '../../components/page/Page';
 import { Select } from '../../components/Select';
 import { Sheet } from '../../components/Sheet';
 import { useTheme } from '../../theme/theme';
+import { GalleryReview } from './GalleryReview';
 import { Swatches } from './Swatches';
 import './gallery.css';
 
@@ -238,6 +239,7 @@ export function GalleryView() {
           <Column compact={false} />
           <Column compact />
         </div>
+        <Group title="Review rounds: the panel’s states and the Desk card"><GalleryReview /></Group>
       </div>
     </main>
   );

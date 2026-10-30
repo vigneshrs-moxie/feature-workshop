@@ -11,10 +11,10 @@ import type { Permission, ReviewCardFields, ReviewItemView } from '../../api/typ
 import { jobHref } from '../../app/router';
 import { Icon } from '../../components/Icon';
 import { InlineText } from '../../components/InlineText';
-import { Kbd } from '../../components/Kbd';
+import { Button } from '../../components/Button';
 import { guideFirstVisit, guideSeen, markGuideSeen, useNarrow } from '../../components/page/Page';
 import { useAnswer } from '../../components/permissions/useAnswer';
-import { ReviewGuide, whereOf } from './ReviewPanel';
+import { ReviewGuide, ReviewStatus, whereOf } from './ReviewPanel';
 import { useReview } from './useReview';
 import { KIND_ICON, REVIEW_GUIDE } from './words';
 import './review.css';
@@ -50,10 +50,11 @@ export function ReviewDeskCard({ permission: p, call }: { permission: Permission
       <p className="review-desk-top">
         <span className="next-label">{call ? 'Go / no go' : 'Waiting for you'}</span>
         <span className="spacer" />
-        {view?.pr.url && <a href={view.pr.url} target="_blank" rel="noopener noreferrer" title="Open the pull request on GitHub, in a new tab."><Icon name="external" size={14} /> {view.pr.label} on GitHub</a>}
+        {view?.pr.url && <Button kind="quiet" size="sm" icon="external" href={view.pr.url} target="_blank" rel="noopener noreferrer" title="Open the pull request on GitHub, in a new tab.">{view.pr.label} on GitHub</Button>}
       </p>
       <h3 className="desk-head">{headline}</h3>
       {detail && <p className="desk-sub">{detail}</p>}
+      {view && <ReviewStatus view={view} />}
       {shown.length > 0 && (
         <ul className="review-desk-items" aria-label="What is in the round">
           {shown.map((i) => (
@@ -64,7 +65,7 @@ export function ReviewDeskCard({ permission: p, call }: { permission: Permission
             </li>
           ))}
           {narrow && !more && items.length > PHONE_ITEMS && (
-            <li><button type="button" className="link-button" onClick={() => setMore(true)}>{items.length - PHONE_ITEMS} more</button></li>
+            <li><Button kind="quiet" size="sm" icon="chevron-down" onClick={() => setMore(true)}>{items.length - PHONE_ITEMS} more</Button></li>
           )}
         </ul>
       )}
@@ -78,18 +79,18 @@ export function ReviewDeskCard({ permission: p, call }: { permission: Permission
       </p>
       {error && <p className="field-problem" role="alert">{error}</p>}
       <div className={`desk-calls review-desk-calls${call ? ' is-call' : ''}`}>
-        <a className="btn btn-lg" href={jobHref(p.slug)} data-review-open title="The round on the job’s Ship stop: leave items out, change a kind, add a note, read the replies (key: o).">
-          Open the round <Kbd id="desk-open" />
-        </a>
+        <Button kind="quiet" keyId="desk-open" className="desk-call-reply" href={jobHref(p.slug)} data-review-open title="The round on the job’s Ship stop: leave items out, change a kind, add a note, read the replies (key: o).">
+          Open the round
+        </Button>
         {noGo && (
-          <button type="button" className="btn btn-lg" data-review-nogo disabled={busy} onClick={() => answer(noGo.label)} title={`${noGo.label}: nothing is sent to the Foreman or to GitHub; the round stays on the job (key: r).`}>
-            {playOf(noGo.id, noGo.label)} <Kbd id="desk-send-back" />
-          </button>
+          <Button keyId="desk-send-back" className="desk-call-no" data-review-nogo disabled={busy} onClick={() => answer(noGo.label)} title={`${noGo.label}: nothing is sent to the Foreman or to GitHub; the round stays on the job (key: r).`}>
+            {playOf(noGo.id, noGo.label)}
+          </Button>
         )}
         {go && (
-          <button type="button" className="btn btn-primary btn-lg" data-review-go disabled={busy || Boolean(off)} onClick={() => answer(go.label)} title={off ?? `${go.label} (key: a).`}>
-            {playOf(go.id, go.label)} <Kbd id="desk-approve" />
-          </button>
+          <Button kind="primary" size="lg" keyId="desk-approve" keyShown className="desk-call-go" data-review-go busy={busy} disabled={Boolean(off)} onClick={() => answer(go.label)} title={off ?? `${go.label} (key: a).`}>
+            {playOf(go.id, go.label)}
+          </Button>
         )}
       </div>
       {off && <p className="muted review-reason"><Icon name="lock" size={14} /> {off}</p>}

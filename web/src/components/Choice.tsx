@@ -48,7 +48,8 @@ export function Segmented<T extends string>({ value, options, onChange, label, c
           role="radio"
           className="segmented-option"
           aria-checked={o.value === value}
-          tabIndex={o.value === value ? 0 : -1}
+          value={o.value}
+          tabIndex={o.value === value || (i === 0 && !options.some((x) => x.value === value)) ? 0 : -1}
           data-segment={`${label}:${o.value}`}
           disabled={disabled}
           title={o.title}
