@@ -357,7 +357,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
   return (
     <Page label="Inbox" title="Inbox" className={`page-inbox${isHosted ? ' is-hosted' : ''}`} head={head} guide={isHosted ? HOSTED_GUIDE : INBOX_GUIDE}>
       {showLoading && <p className="muted" role="status">Reading your tickets…</p>}
-      {mine.state === 'error' && <p className="field-problem" role="alert">{isHosted ? 'The site' : 'The dashboard'} couldn’t give the inbox: {mine.message}</p>}
+      {mine.state === 'error' && <p className="field-problem" role="alert">{isHosted ? 'The site' : BRAND.name} couldn’t give the inbox: {mine.message}</p>}
       {ready && !configured && (hosted ? <HostedNoToken settingsHref={hosted.settingsHref} setup={ready.setup ?? []} /> : <NoToken />)}
       {ready && configured && (
         <>

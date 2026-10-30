@@ -17,6 +17,7 @@ import { Select } from '../../components/Select';
 import { Button } from '../../components/Button';
 import { Saved, useSaved } from '../../components/Saved';
 import { SettingsMore } from './SettingsMore';
+import { BRAND } from '../../app/brand';
 
 /** The times quiet hours can start or end: every half hour, plus the one saved if it is between. */
 function timeOptions(current: string): { value: string; label: string }[] {
@@ -47,7 +48,7 @@ const MODES: { id: NotifyMode; label: string }[] = [
 ];
 const METHOD: Record<string, string> = {
   'terminal-notifier': 'Sent with terminal-notifier: clicking one opens that job here.',
-  osascript: 'Sent with macOS’s built-in notifier: clicking one can’t open the job. Install terminal-notifier (brew install terminal-notifier) and restart the dashboard for that.',
+  osascript: `Sent with macOS’s built-in notifier: clicking one can’t open the job. Install terminal-notifier (brew install terminal-notifier) and restart ${BRAND.name} for that.`,
 };
 
 export function NotifySettings() {
@@ -85,19 +86,19 @@ export function NotifySettings() {
 
   return (
     <section aria-label="Notifications" className="notify-settings" aria-busy={busy}>
-      <h3 className="settings-heading" title="Notifications from the dashboard itself, so they reach you when this tab is closed or the browser is hidden.">Notifications</h3>
+      <h3 className="settings-heading" title={`Notifications from ${BRAND.name} itself, so they reach you when this tab is closed or the browser is hidden.`}>Notifications</h3>
       <HowThisWorks id="notify-settings">
-        <p>The dashboard tells macOS when something needs you, goes wrong or gets done, so you hear about it in any app, even with this tab closed. While you’re looking at the dashboard nothing pops (the page shows it already). A notification only opens the page: deciding stays here.</p>
+        <p>{BRAND.name} tells macOS when something needs you, goes wrong or gets done, so you hear about it in any app, even with this tab closed. While you’re looking at {BRAND.name} nothing pops (the page shows it already). A notification only opens the page: deciding stays here.</p>
         <p>Each kind can come with a sound, silently, or not at all. In quiet hours only problems show, without a sound; everything still goes into the history below.</p>
       </HowThisWorks>
-      <p className="muted">{view ? (view.method ? METHOD[view.method] : 'This computer can’t show them: the dashboard needs macOS.') : 'Checking how notifications reach macOS…'}</p>
+      <p className="muted">{view ? (view.method ? METHOD[view.method] : `This computer can’t show them: ${BRAND.name} needs macOS.`) : 'Checking how notifications reach macOS…'}</p>
       {view?.blocked && (
         <p className="perm-warn" role="status">
           macOS hasn’t allowed terminal-notifier yet, so notifications go through the built-in notifier for now (a click can’t open the job). Turn it on once: <strong>System Settings → Notifications → terminal-notifier → Allow notifications</strong>, then Send a test.
         </p>
       )}
       <div className="setting-row" data-setting="notify-enabled">
-        <label className="drawer-check" title="All notifications from the dashboard, on or off.">
+        <label className="drawer-check" title={`All notifications from ${BRAND.name}, on or off.`}>
           <Choice type="checkbox" checked={n.enabled} onChange={(e) => void save({ enabled: e.target.checked }, 'enabled')} />
           <span>Send notifications to macOS</span>
         </label>
@@ -146,7 +147,7 @@ export function NotifySettings() {
         <div className="setting-row" data-setting="notify-watching">
           <label className="drawer-check" title="Nothing pops while this page is in front of you: it already shows what changed.">
             <Choice type="checkbox" checked={n.skipWhenWatching} disabled={!n.enabled} onChange={(e) => void save({ skipWhenWatching: e.target.checked }, 'watching')} />
-            <span>Not while I’m looking at the dashboard</span>
+            <span>Not while I’m looking at {BRAND.name}</span>
           </label>
           <Saved tick={saved.tick('watching')} />
         </div>

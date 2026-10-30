@@ -10,11 +10,12 @@ import { useWorkshop, useWorkshopState } from '../../state/store';
 import { Choice } from '../../components/Choice';
 import { Saved, useSaved } from '../../components/Saved';
 import { SectionHead, SettingsMore } from './SettingsMore';
+import { BRAND } from '../../app/brand';
 
 export const PLAY_MODE_CHOICES: { id: PlayMode; label: string; note: string; hint: string }[] = [
   { id: 'full', label: 'Full', note: 'The crew moves, plus difficulty stars, boss fights, stamina and short celebrations.', hint: 'Everything in Subtle, animated, with the game extras. Sounds can be turned on below.' },
   { id: 'subtle', label: 'Subtle', note: 'The crew stand still beside the work: on each job’s trail, in the job list and the conversation; achievements and the Crew-dex are on.', hint: 'Quiet: still characters, achievements, the Crew-dex and the easter eggs.' },
-  { id: 'off', label: 'Off', note: 'No crew, achievements or secrets: the Workshop exactly as it was.', hint: 'Turns the whole Play layer off. Nothing else changes.' },
+  { id: 'off', label: 'Off', note: `No crew, achievements or secrets: ${BRAND.name} exactly as it was.`, hint: 'Turns the whole Play layer off. Nothing else changes.' },
 ];
 
 export function PlaySettings() {
@@ -43,7 +44,7 @@ export function PlaySettings() {
     <section className="play-settings" aria-label="Play">
       <SectionHead saved={<Saved tick={saved.tick('mode')} />}>Play</SectionHead>
       <HowThisWorks id="play">
-        <p><strong>Play</strong> adds the workshop crew, achievements, a Crew-dex and a few secrets on top of the work. It is personal: everything is worked out on this computer from what the dashboard already records, it never asks Claude anything and costs no usage.</p>
+        <p><strong>Play</strong> adds the workshop crew, achievements, a Crew-dex and a few secrets on top of the work. It is personal: everything is worked out on this computer from what {BRAND.name} already records, it never asks Claude anything and costs no usage.</p>
         <p><strong>Subtle</strong> (the default) shows the crew still. <strong>Full</strong> animates them and adds difficulty stars, boss fights for large reviews, stamina for your usage limit and short celebrations. <strong>Off</strong> turns all of it off.</p>
         <p>Achievements reward finished work, never clicks: approving something earns nothing. A job counts as a finished quest once, when it crosses the finish line you set under Workflow (or you mark it done); reopening it and finishing again doesn’t count twice. Nothing play-related ever stands between you and a card or the message box.</p>
       </HowThisWorks>

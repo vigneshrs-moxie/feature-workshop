@@ -31,6 +31,7 @@ import path from 'node:path';
 import { scrub, scrubDeep } from './orbit.js';
 import { runSteps, yes as yesFor } from './gh-write.js';
 import { QUOTE_MAX, checkKey, commentKey, isSummaryBot, lookedAt as lookedAtPr, noteFeedback, readFeedback as readFeedbackRecord } from './pr-feedback.js';
+import { PRODUCT } from './brand.js';
 
 // N's record: the items a round takes are marked 'round', so N never cards them too.
 const noteRound = (dir, key) => noteFeedback(dir, key, { state: 'round' });
@@ -265,7 +266,7 @@ const roundHas = (round, id) => round.items.some((i) => i.id === id);
  * when two or more of theirs come within JOIN_MS of each other, or when they had a round before;
  * a lone comment stays N's. Failed checks on a gathering round's commit join it; a check that fails
  * on the commit a round was sent back with re-opens it ('check-failed').
- * First look (the comments already there when Ground Control first saw the PR): only a "Request
+ * First look (the comments already there when Starbase first saw the PR): only a "Request
  * changes" that is still the reviewer's latest word on the PR's newest commit opens a round.
  * Returns { rounds, changed: [round numbers], claimed: [N keys], takeFromN: [N keys whose card is up] }.
  */
@@ -867,7 +868,7 @@ function held(out, lock, job) {
   out.held = { pid: lock.pid ?? null, branch: lock.branch ?? null, since: lock.acquiredAt ?? null };
   out.bar = {
     ...out.bar,
-    headline: lock.owner === 'terminal' || !lock.owner ? 'This job is being driven from a terminal' : 'This job is being run by another copy of the dashboard',
+    headline: lock.owner === 'terminal' || !lock.owner ? 'This job is being driven from a terminal' : `This job is being run by another copy of ${PRODUCT}`,
     detail: `pid ${lock.pid ?? 'unknown'}${lock.branch ? `, branch ${lock.branch}` : ''}, since ${clock(lock.acquiredAt)}. Carry on there, or close it there to send back from here.`,
     was: { headline: out.bar.headline, detail: out.bar.detail },
     actions: out.bar.actions.map((a) => (a.client ? a : { ...a, enabled: false, reason })),

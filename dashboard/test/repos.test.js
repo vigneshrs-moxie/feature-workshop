@@ -39,7 +39,7 @@ test('registry: add, list, remove; a profile with errors is refused line by line
 
   const none = await reg.addRepo(fx.other);
   assert.equal(none.ok, false);
-  assert.match(none.errors[0], /has no ground-control\.md in its root/);
+  assert.match(none.errors[0], /has no starbase\.md in its root/);
   assert.match((await reg.addRepo('relative/path')).errors[0], /full path/);
   assert.match((await reg.addRepo(path.join(fx.root, 'nope'))).errors[0], /doesn’t exist/);
 
@@ -86,7 +86,7 @@ test('registry: add, list, remove; a profile with errors is refused line by line
   await fs.rm(fx.root, { recursive: true, force: true });
 });
 
-test('registry: repoFor finds the repository from a worktree or a folder inside it; its own ground-control.md wins', async () => {
+test('registry: repoFor finds the repository from a worktree or a folder inside it; its own starbase.md wins', async () => {
   const fx = await fixture();
   const reg = new Registry({ dir: fx.state });
   assert.equal((await reg.addRepo(fx.orbit)).ok, true);

@@ -40,7 +40,7 @@ const METERS_OFF: PlanUsage = { enabled: false, fiveHour: null, week: null, chec
 const answer = (window: TelemetryWindow, meters: PlanUsage = METERS_ON, lines: unknown[] = FIXTURE, outside: unknown[] | null = null): TelemetryResponse => ({
   ...telemetry(lines, { window, now: NOW, me: 'vignesh', meters: meters.enabled ? meters : null, titles: TITLES, timeZone: 'UTC', shortStretch: 7 * 3600e3, outside }),
   meters,
-  file: '/home/you/.ground-control/usage.jsonl',
+  file: '/home/you/.starbase/usage.jsonl',
 });
 // vignesh's Claude Code outside this app, read from a made-up log: six replies of $0.50 between the
 // last line (87 %, 07:00) and the live reading (95 %, 11:59). At 2 % a dollar that is 6 of the 8 points.
@@ -115,7 +115,7 @@ describe('Telemetry', () => {
     expect(within(card('pr1')).getByRole('heading', { level: 3 })).toHaveTextContent('Not enough jobs at PR #1 yet to say');
     expect(within(card('rework')).getByRole('heading', { level: 3 })).toHaveTextContent('Can’t see send-backs here yet.');
     // No product name in anything the page says.
-    expect(document.body.textContent).not.toMatch(/Ground Control/);
+    expect(document.body.textContent).not.toMatch(/Starbase/);
   });
 
   it('in Simple: the dials, Who used this week’s limit and three graphs, the rest behind More graphs (n), which opens them in place', async () => {
@@ -333,7 +333,7 @@ describe('Telemetry: your Claude Code use outside this app', () => {
     expect(when.querySelectorAll('.tele-heat-cell.is-cc').length).toBeGreaterThan(1); // a square and the key
     expect(within(when).getByText('Mostly your Claude Code use outside this app')).toBeInTheDocument();
     expect([...when.querySelectorAll('.tele-heat-cell[title]')].some((c) => /your Claude Code [1-9]\d*%.*; mostly Claude Code$/.test(c.getAttribute('title') ?? ''))).toBe(true);
-    expect(document.body.textContent).not.toMatch(/Ground Control/);
+    expect(document.body.textContent).not.toMatch(/Starbase/);
   });
 
   it('ready, the last 30 days: People shows each person’s dollars in the app and in Claude Code', async () => {

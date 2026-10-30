@@ -29,7 +29,7 @@ async function freePort() {
 
 const roots = [];
 const children = new Set();
-const CLI = path.join(DASHBOARD, '..', 'bin', 'ground-control.js');
+const CLI = path.join(DASHBOARD, '..', 'bin', 'starbase.js');
 
 after(async () => {
   for (const c of children) {
@@ -50,7 +50,7 @@ async function startDashboard(env) {
   children.add(child);
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
+    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Starbase running')) { clearTimeout(timer); resolve(); } });
     child.stderr.on('data', (d) => output.push(String(d)));
     child.once('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
   });
@@ -58,7 +58,7 @@ async function startDashboard(env) {
   const token = (await (await fetch(`${base}/api/meta`)).json()).token;
   const get = async (p) => (await fetch(base + p)).json();
   const write = async (p, body = {}) => {
-    const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify(body) });
+    const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: JSON.stringify(body) });
     return { status: res.status, body: await res.json() };
   };
   const stop = async (signal = 'SIGTERM') => {
@@ -96,14 +96,14 @@ async function makeJob() {
   // Every step asks, so the pretend Foreman's reply waits on a permission card.
   await fs.writeFile(path.join(dirs.state, 'settings.json'), JSON.stringify({ policy: 'ask-all' }));
   const env = {
-    HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects,
-    WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
+    HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects,
+    STARBASE_AGENTS_DIR: dirs.agents, STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
   };
   const audit = () => fsSync.readFileSync(path.join(dirs.state, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   return { env, audit, dirs: { ...dirs, job } };
 }
 
-// ground-control itself, with the dashboard's environment (so it finds the same state folder).
+// starbase itself, with the dashboard's environment (so it finds the same state folder).
 function cli(env, ...args) {
   return new Promise((resolve) => {
     const out = [];
@@ -160,7 +160,7 @@ test('a reply paused by a clean stop carries on after the restart, in the same s
   await fs.rm(lockFile);
   const resumed = await b.waitFor(() => audit().find((e) => e.action === 'send' && e.kind === 'resume-after-restart'), 'the carry-on message');
   assert.equal(resumed.sessionId, sessionId, 'the same session');
-  assert.equal(resumed.text, 'Dashboard restarted. Carry on from where you were.');
+  assert.equal(resumed.text, 'Starbase restarted. Carry on from where you were.');
   assert.equal(resumed.slug, 'sample-job');
   const lines = audit();
   assert.ok(lines.findIndex((e) => e.action === 'send' && e.kind === 'resume-after-restart') > lines.findLastIndex((e) => e.action === 'service-start'), 'after service-start');
@@ -169,7 +169,7 @@ test('a reply paused by a clean stop carries on after the restart, in the same s
 
   // The thread says what happened, as a note, not as a message from you.
   const detail = await b.get('/api/job/sample-job');
-  const note = detail.thread.find((t) => t.kind === 'note' && t.text === 'Dashboard restarted, so it told the Foreman to carry on.');
+  const note = detail.thread.find((t) => t.kind === 'note' && t.text === 'Starbase restarted, so it told the Foreman to carry on.');
   assert.ok(note, JSON.stringify(detail.thread.map((t) => [t.kind, t.text])));
   assert.ok(!detail.thread.some((t) => t.kind === 'you' && t.sendKind === 'resume-after-restart'));
 
@@ -179,11 +179,11 @@ test('a reply paused by a clean stop carries on after the restart, in the same s
   await b.stop();
 });
 
-test('a reply cut off by a crash shows paused with its note, and ground-control resume carries it on', async () => {
+test('a reply cut off by a crash shows paused with its note, and starbase resume carries it on', async () => {
   const { env, audit } = await makeJob();
   const none = await cli(env, 'resume', 'sample-job');
   assert.equal(none.code, 1);
-  assert.equal(none.text, 'Dashboard isn\u2019t running. Start it with npm start (ground-control start once it is installed). A job paused by a clean stop carries on by itself.');
+  assert.equal(none.text, 'Starbase isn\u2019t running. Start it with npm start (starbase start once it is installed). A job paused by a clean stop carries on by itself.');
 
   const a = await startDashboard(env);
   const { id: runId, sessionId } = await replyThatWaits(a);
@@ -200,7 +200,7 @@ test('a reply cut off by a crash shows paused with its note, and ground-control 
   assert.equal(card.stageState, 'paused');
   assert.equal(card.restartPaused.how, 'crash');
   const detail = await b.get('/api/job/sample-job');
-  assert.equal(detail.thread.filter((t) => t.kind === 'note' && t.text === 'Dashboard stopped while the Foreman was working. Resume to carry on.').length, 1);
+  assert.equal(detail.thread.filter((t) => t.kind === 'note' && t.text === 'Starbase stopped while the Foreman was working. Resume to carry on.').length, 1);
   // Nothing carries on by itself.
   await sleep(1500);
   assert.equal(audit().filter((e) => e.action === 'send' && e.kind === 'resume-after-restart').length, 0);

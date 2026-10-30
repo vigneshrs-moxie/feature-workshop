@@ -1,6 +1,6 @@
 // A job's decisions in the repository (lib/decisions.js, packet O): the file's name, the copy written
 // into a worktree's docs/decisions/ (refused while the folder is ignored), the folder's index, and the
-// `ground-control decisions` command. Temp git repositories only: no network, no Orbit checkout.
+// `starbase decisions` command. Temp git repositories only: no network, no Orbit checkout.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IGNORED_REASON, indexEntry, indexText, render, renderIndex, repoFileName, withoutAgentNotes, writeRepoCopy } from '../lib/decisions.js';
-import { main } from '../../bin/ground-control.js';
+import { main } from '../../bin/starbase.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tmp = (prefix) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
@@ -220,7 +220,7 @@ test('an empty folder has an index that says so; a stack’s section rows are co
   assert.deepEqual(e, { name: 'ORBIT-0479-feedback-api.md', ticket: 'ORBIT-479', prefix: 'ORBIT', number: 479, title: 'Feedback API', count: 5, updated: '2026-10-29' });
 });
 
-test('Ground Control’s own docs/decisions/README.md is the index its files give', async () => {
+test('Starbase’s own docs/decisions/README.md is the index its files give', async () => {
   const dir = path.join(ROOT, 'docs', 'decisions');
   const files = fs.readdirSync(dir).filter((n) => n.endsWith('.md') && n !== 'README.md').map((name) => ({ name, text: fs.readFileSync(path.join(dir, name), 'utf8') }));
   assert.ok(files.some((f) => f.name === '0001-next-phase-register.md'));
@@ -239,10 +239,10 @@ async function cli(argv, o = {}) {
   return { code, out, err, text: [...out, ...err].join('\n') };
 }
 
-test('ground-control decisions <job> --worktree <path> writes the two files and prints their paths', async () => {
+test('starbase decisions <job> --worktree <path> writes the two files and prints their paths', async () => {
   const wt = repo();
   const { features, slug } = job();
-  const env = { WORKSHOP_FEATURES_DIR: features };
+  const env = { STARBASE_FEATURES_DIR: features };
   const r = await cli(['decisions', slug, '--worktree', wt], { env });
   assert.equal(r.code, 0, r.text);
   assert.ok(r.out.some((l) => l.includes(path.join(wt, 'docs', 'decisions', 'ORBIT-0479-feedback-api.md'))));
@@ -252,7 +252,7 @@ test('ground-control decisions <job> --worktree <path> writes the two files and 
 
   // By the ticket key, with the worktree from status.json; by the job's folder.
   const k = job({ status: { ticket: { key: 'ORBIT-88', title: 'Key lookup' }, worktree: wt }, slug: 'orbit-88-key-lookup' });
-  assert.equal((await cli(['decisions', 'ORBIT-88'], { env: { WORKSHOP_FEATURES_DIR: k.features } })).code, 0);
+  assert.equal((await cli(['decisions', 'ORBIT-88'], { env: { STARBASE_FEATURES_DIR: k.features } })).code, 0);
   assert.ok(fs.existsSync(path.join(wt, 'docs', 'decisions', 'ORBIT-0088-key-lookup.md')));
   assert.equal((await cli(['decisions', k.dir, '--worktree', wt])).code, 0);
 
@@ -269,5 +269,5 @@ test('ground-control decisions <job> --worktree <path> writes the two files and 
   assert.match(noWorktree.err[0], /--worktree/);
   const help = await cli(['decisions', '--help']);
   assert.equal(help.code, 0);
-  assert.match(help.out[0], /^Usage: ground-control decisions <job>/);
+  assert.match(help.out[0], /^Usage: starbase decisions <job>/);
 });

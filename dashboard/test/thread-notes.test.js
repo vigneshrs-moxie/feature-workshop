@@ -1,4 +1,4 @@
-// The thread's plain notes for what Ground Control did by itself (packet N step 5), from fixture
+// The thread's plain notes for what Starbase did by itself (packet N step 5), from fixture
 // audit lines: none of these shows as a message you wrote.
 
 import test from 'node:test';
@@ -20,18 +20,18 @@ test('status_invalid: the first error, as a note', () => {
 
 test('a status-fix send is a note, not a message from you', () => {
   const t = buildThread({ audit: [line('2026-10-27T10:00:00Z', { action: 'send', kind: 'status-fix', text: 'status.json is invalid: …', runId: 'r1', sessionId: 's1' })] });
-  assert.deepEqual(notes(t), ['Dashboard asked the Foreman to rewrite status.json.']);
+  assert.deepEqual(notes(t), ['Starbase asked the Foreman to rewrite status.json.']);
   assert.equal(yours(t).length, 0);
 });
 
-test('resume-after-restart: the carry-on Ground Control sent by itself is a note', () => {
+test('resume-after-restart: the carry-on Starbase sent by itself is a note', () => {
   const audit = [
     line('2026-10-27T14:05:01Z', { action: 'send', kind: RESUME_KIND, text: RESTART_TEXT, runId: 'r2', sessionId: 's1' }),
     line('2026-10-27T14:05:01Z', { action: 'resumed', runId: 'r2', sessionId: 's1', via: 'auto' }),
   ];
   const t = withRestartNotes(buildThread({ audit }), audit);
   assert.deepEqual(notes(t), [RESTART_NOTE]);
-  assert.equal(RESTART_NOTE, 'Dashboard restarted, so it told the Foreman to carry on.');
+  assert.equal(RESTART_NOTE, 'Starbase restarted, so it told the Foreman to carry on.');
   assert.equal(yours(t).length, 0);
 });
 
@@ -40,12 +40,12 @@ test('service-stop and service-start: one note with both times, for the job whos
   const start = { at: '2026-10-27T14:05:00Z', action: 'service-start', pid: 2, resumes: ['dark-mode'], paused: [] };
   const audit = [line('2026-10-27T14:00:00Z', { action: 'send', kind: 'message', text: 'Go on.', runId: 'r1', sessionId: 's1' })];
   const t = buildThread({ audit, service: [stop, start], featureDir: DIR });
-  assert.deepEqual(notes(t), [`Dashboard stopped at ${hm(stop.at)} and started again at ${hm(start.at)}.`]);
+  assert.deepEqual(notes(t), [`Starbase stopped at ${hm(stop.at)} and started again at ${hm(start.at)}.`]);
   assert.equal(t.at(-1).text, notes(t)[0], 'in time order, after the message');
   // Another job's thread: nothing (the stop didn't pause it).
   assert.deepEqual(notes(buildThread({ audit: [], service: [stop, start], featureDir: '/jobs/other' })), []);
   // Stopped and not started since (the thread read by another process): the stop alone.
-  assert.deepEqual(notes(buildThread({ audit, service: [stop], featureDir: DIR })), [`Dashboard stopped at ${hm(stop.at)}.`]);
+  assert.deepEqual(notes(buildThread({ audit, service: [stop], featureDir: DIR })), [`Starbase stopped at ${hm(stop.at)}.`]);
   // The ids stay the same on every read.
   assert.equal(buildThread({ audit, service: [stop, start], featureDir: DIR }).at(-1).id, t.at(-1).id);
 });

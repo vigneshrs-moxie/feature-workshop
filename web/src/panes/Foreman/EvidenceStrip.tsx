@@ -10,6 +10,7 @@ import { useEffect, useId, useState } from 'react';
 import { ApiError } from '../../api/client';
 import type { EvidenceCriterion, EvidenceRecordResult, EvidenceView } from '../../api/types';
 import { useWorkshop } from '../../state/store';
+import { BRAND } from '../../app/brand';
 
 /** The gates that show the strip: the test gate and every one after it. */
 export const EVIDENCE_STAGES = ['test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3'];
@@ -176,7 +177,7 @@ export function EvidenceStrip({ slug, tested = null, refresh = null }: { slug: s
         </p>
       )}
       {!ev && !view.recording && !view.problem && (
-        <p className="muted gate-evidence-none">Not recorded yet. The dashboard records it once the tester’s report names the commit it tested.</p>
+        <p className="muted gate-evidence-none">Not recorded yet. {BRAND.name} records it once the tester’s report names the commit it tested.</p>
       )}
       {ev && ev.criteria.length > 0 && (
         <ul className="evidence-list" aria-label="Each acceptance line">

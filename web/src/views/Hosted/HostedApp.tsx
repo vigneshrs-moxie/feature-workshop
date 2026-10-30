@@ -2,7 +2,7 @@
 // cookie (the API client in hosted mode), not by a page token, and has its own few screens:
 //   signed out           Sign in with Google (SignInPage), saying why a refused sign-in was refused
 //   Jobs                 my jobs from the mirror, by laptop (HostedJobsPage)
-//   Pair this laptop     the code `ground-control login` printed (PairPage)
+//   Pair this laptop     the code `starbase login` printed (PairPage)
 //   Inbox                your Orbit tickets, from the inbox the site keeps (HostedInboxPage)
 //   Lounge               the whole team, very little per person (packet 2D: views/Lounge)
 //   Settings             Laptops, Orbit and People (LaptopsPage, OrbitPage, PeoplePage)

@@ -1,4 +1,4 @@
-// The command line (packet I step 1, bin/ground-control.js): each command's --help, its plain
+// The command line (packet I step 1, bin/starbase.js): each command's --help, its plain
 // errors and its exit code (0 or 1). Everything a command reaches for (the service manager,
 // doctor, GitHub, the running service) is a fake here: nothing is installed, started or asked.
 
@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { COMMAND_NAMES, main, parseArgs, profileFromAnswers } from '../../bin/ground-control.js';
+import { COMMAND_NAMES, main, parseArgs, profileFromAnswers } from '../../bin/starbase.js';
 import { PRODUCT } from '../lib/state.js';
 import { parseProfile } from '../lib/profile.js';
 
@@ -40,32 +40,32 @@ test('--help lists every command, and each command has its own --help', async ()
     for (const flag of ['--help', '-h']) {
       const r = await cli([name, flag]);
       assert.equal(r.code, 0, `${name} ${flag}`);
-      assert.match(r.out[0], new RegExp(`^Usage: ground-control ${name}\\b`), `${name} ${flag}`);
+      assert.match(r.out[0], new RegExp(`^Usage: starbase ${name}\\b`), `${name} ${flag}`);
       assert.ok(r.out.length > 2, `${name} says more than its usage`);
     }
   }
   const about = await cli(['help', 'update']);
   assert.equal(about.code, 0);
-  assert.match(about.out[0], /^Usage: ground-control update/);
+  assert.match(about.out[0], /^Usage: starbase update/);
   // --help wins wherever it is, even after a value that would be wrong.
   assert.equal((await cli(['resume', 'a', 'b', '--help'])).code, 0);
 });
 
 test('plain errors and exit code 1: no such command, a flag it doesn’t take, too few or too many words', async () => {
   const cases = [
-    [['frobnicate'], /^There is no command “frobnicate”\. Run ground-control --help to see them\.$/],
+    [['frobnicate'], /^There is no command “frobnicate”\. Run starbase --help to see them\.$/],
     [['help', 'frobnicate'], /^There is no command “frobnicate”/],
-    [['start', '--fast'], /^start doesn’t take --fast\. Run ground-control start --help to see what it takes\.$/],
+    [['start', '--fast'], /^start doesn’t take --fast\. Run starbase start --help to see what it takes\.$/],
     [['doctor', '-x'], /^doctor doesn’t take -x\./],
-    [['resume'], /^Usage: ground-control resume <job>$/],
-    [['resume', 'a', 'b'], /^resume takes only <job>\. Usage: ground-control resume <job>$/],
-    [['stop', 'now'], /^stop takes nothing after it\. Usage: ground-control stop$/],
-    [['repo'], /^Usage: ground-control repo add <path>/],
+    [['resume'], /^Usage: starbase resume <job>$/],
+    [['resume', 'a', 'b'], /^resume takes only <job>\. Usage: starbase resume <job>$/],
+    [['stop', 'now'], /^stop takes nothing after it\. Usage: starbase stop$/],
+    [['repo'], /^Usage: starbase repo add <path>/],
     [['repo', 'list', 'x'], /^repo only has add for now\./],
     [['repo', 'add', '/x', '--profile'], /^--profile needs a value\./],
-    [['token'], /^Usage: ground-control token set/],
+    [['token'], /^Usage: starbase token set/],
     [['token', 'get'], /^token only has set\./],
-    [['open'], /^Usage: ground-control open <job>/],
+    [['open'], /^Usage: starbase open <job>/],
     [['here', '--start'], /^There is no command “here”/],
   ];
   for (const [argv, want] of cases) {
@@ -93,13 +93,13 @@ test('--version prints the version from package.json', async () => {
 });
 
 test('login needs the site’s address the first time; logout on a laptop never paired says so (the pairing itself: hosted/test/pairing.test.js)', async () => {
-  const r = await cli(['login'], { env: { WORKSHOP_ORBIT_STORE: 'file' } });
+  const r = await cli(['login'], { env: { STARBASE_ORBIT_STORE: 'file' } });
   assert.equal(r.code, 1);
   assert.match(r.text, /Say which site with --site <address>/);
-  const bad = await cli(['login', '--site', 'http://feature-workshop.example.test'], { env: { WORKSHOP_ORBIT_STORE: 'file' } });
+  const bad = await cli(['login', '--site', 'http://starbase.example.test'], { env: { STARBASE_ORBIT_STORE: 'file' } });
   assert.equal(bad.code, 1);
   assert.match(bad.text, /must start with https:\/\//);
-  const out = await cli(['logout'], { env: { WORKSHOP_ORBIT_STORE: 'file' } });
+  const out = await cli(['logout'], { env: { STARBASE_ORBIT_STORE: 'file' } });
   assert.equal(out.code, 0);
   assert.deepEqual(out.out, ['This laptop isn’t paired with a site, so there was nothing to forget.']);
 });
@@ -111,16 +111,16 @@ test('with no service running: stop says so, open and resume say how to start on
 
   const open = await cli(['open', 'sample-job']);
   assert.equal(open.code, 1);
-  assert.match(open.err[0], /isn’t running\. Start it with ground-control start \(or ground-control start --here to run it in this terminal\)\./);
+  assert.match(open.err[0], /isn’t running\. Start it with starbase start \(or starbase start --here to run it in this terminal\)\./);
 
   const resume = await cli(['resume', 'sample-job']);
   assert.equal(resume.code, 1);
-  assert.match(resume.err[0], /isn’t running\. Start it with npm start \(ground-control start once it is installed\)/, 'G’s words, unchanged');
+  assert.match(resume.err[0], /isn’t running\. Start it with npm start \(starbase start once it is installed\)/, 'G’s words, unchanged');
 
   const status = await cli(['status']);
   assert.equal(status.code, 0);
-  assert.match(status.text, /Service {4}not running\. Start it with ground-control start/);
-  assert.match(status.text, /Repos {6}none registered yet \(ground-control repo add <path>\)/);
+  assert.match(status.text, /Service {4}not running\. Start it with starbase start/);
+  assert.match(status.text, /Repos {6}none registered yet \(starbase repo add <path>\)/);
   assert.match(status.text, /Jobs, locks and usage show here while .* is running\./);
 });
 
@@ -132,7 +132,7 @@ test('status with the service running: port, jobs by group, locks and both meter
   const asked = [];
   const r = await cli(['status'], {
     running: () => ({ pid: 77, host: '127.0.0.1', port: 4481, token: 't' }),
-    fetch: async (url, init) => { asked.push([url, init.headers['X-Workshop-Token']]); return { ok: true, status: 200, json: async () => snapshot }; },
+    fetch: async (url, init) => { asked.push([url, init.headers['X-Starbase-Token']]); return { ok: true, status: 200, json: async () => snapshot }; },
   });
   assert.equal(r.code, 0);
   assert.deepEqual(asked, [['http://127.0.0.1:4481/api/snapshot', 't']]);
@@ -154,12 +154,12 @@ test('doctor prints the report, --json prints it as JSON, and the exit code says
 });
 
 /** A pretend lib/service.js; `installed` and `install` answer as asked, and every call is kept. */
-function fakeService({ installed = false, install = { ok: true, log: '/l/ground-control.log' }, start = { ok: true } } = {}) {
+function fakeService({ installed = false, install = { ok: true, log: '/l/starbase.log' }, start = { ok: true } } = {}) {
   const calls = [];
   return {
     calls,
     logDir: () => '/l',
-    LOG_NAME: 'ground-control.log',
+    LOG_NAME: 'starbase.log',
     checkService: async (o) => { calls.push(['check', o.platform]); return { installed }; },
     startService: async () => { calls.push(['start']); return start; },
     installService: async (o) => { calls.push(['install', o.platform]); return install; },
@@ -179,7 +179,7 @@ test('start: --here runs it in this terminal on PORT; without it, the service (o
 
   const none = await cli(['start', '--no-update'], { deps: { service: fakeService() } });
   assert.equal(none.code, 1);
-  assert.match(none.err[0], /isn’t set up as a service on this computer\. Run ground-control install to set it up, or ground-control start --here/);
+  assert.match(none.err[0], /isn’t set up as a service on this computer\. Run starbase install to set it up, or starbase start --here/);
 
   let up = null;
   const started = await cli(['start', '--no-update'], { deps: { service: fakeService({ installed: true }) }, running: () => up, sleep: async () => { up = { pid: 5, port: 4477 }; } });
@@ -208,21 +208,34 @@ test('install: the service is set up, or the plain no-rights message and exit 1'
   assert.equal(ok.code, 0);
   assert.match(ok.out[0], /^Installed\. .* starts by itself each time you sign in\.$/);
 
-  const message = 'Windows didn’t let this account make the Task Scheduler task … run ground-control start --here';
+  const message = 'Windows didn’t let this account make the Task Scheduler task … run starbase start --here';
   const denied = await cli(['install'], { platform: 'win32', deps: { service: fakeService({ install: { ok: false, reason: 'no-rights', message } }) } });
   assert.equal(denied.code, 1);
   assert.deepEqual(denied.err, [message]);
 
   const running = await cli(['install'], { deps: { service: fakeService() }, running: () => ({ pid: 8, port: 4481 }) });
   assert.equal(running.code, 1);
-  assert.match(running.err[0], /is running now outside the service \(pid 8\)\. Stop it first with ground-control stop/);
+  assert.match(running.err[0], /is running now outside the service \(pid 8\)\. Stop it first with starbase stop/);
+});
+
+test('install with the service from before the rename: the copy it runs is stopped, the old service removed, and it says so', async () => {
+  let up = { pid: 7, port: 4477 };
+  const svc = fakeService();
+  svc.findOldService = async () => ({ found: true, names: ['com.moxie.ground-control'], files: [] });
+  svc.installService = async (o) => { svc.calls.push(['install', o.platform]); return { ok: true, log: '/l/starbase.log', removedOld: ['com.moxie.ground-control'] }; }; // the old service, removed
+  let killed = null;
+  const r = await cli(['install'], { deps: { service: svc }, running: () => up, kill: (pid) => { killed = pid; up = null; }, alive: () => false, sleep: async () => { up = { pid: 9, port: 4477 }; } });
+  assert.equal(r.code, 0, r.text);
+  assert.equal(killed, 7, 'the old copy was stopped the gentle way first, not refused as “outside the service”');
+  assert.match(r.out[0], /^Removed the service from before the rename \(com\.moxie\.ground-control\): only Starbase’s own starts at sign-in now\.$/);
+  assert.match(r.out[1], /^Installed\./);
 });
 
 test('uninstall removes the service and keeps the files', async () => {
   const r = await cli(['uninstall'], { deps: { service: fakeService({ installed: true }) } });
   assert.equal(r.code, 0);
   assert.equal(r.out[0], `Removed the service: ${PRODUCT} no longer starts at sign-in.`);
-  assert.match(r.out[1], /Your files in ~\/\.ground-control are kept\./);
+  assert.match(r.out[1], /Your files in ~\/\.starbase are kept\./);
   const none = await cli(['uninstall'], { deps: { service: fakeService() } });
   assert.equal(none.out[0], 'There was no service to remove.');
 });
@@ -230,7 +243,7 @@ test('uninstall removes the service and keeps the files', async () => {
 test('update --check only says; update reports a mismatch with exit 1', async () => {
   const newer = await cli(['update', '--check'], { deps: { update: { checkForUpdate: async () => ({ status: 'newer', current: '1.5.0', latest: '1.6.0' }) } } });
   assert.equal(newer.code, 0);
-  assert.match(newer.out[0], /1\.6\.0 is out \(this is 1\.5\.0\)\. Run ground-control update to move to it\./);
+  assert.match(newer.out[0], /1\.6\.0 is out \(this is 1\.5\.0\)\. Run starbase update to move to it\./);
   const offline = await cli(['update', '--check'], { deps: { update: { checkForUpdate: async () => ({ status: 'offline', message: 'GitHub can’t be reached right now.' }) } } });
   assert.equal(offline.code, 1);
   const bad = await cli(['update'], { deps: { update: { update: async () => ({ status: 'mismatch', message: 'The download didn’t match its checksum. Nothing was changed.' }) } } });
@@ -274,7 +287,7 @@ test('open asks the running service for the job’s folder and opens it in the t
 
 const git = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe' }).toString();
 
-test('repo add: not a repository is a plain error; with no ground-control.md it asks five questions and saves a profile', async () => {
+test('repo add: not a repository is a plain error; with no starbase.md it asks five questions and saves a profile', async () => {
   const notRepo = await cli(['repo', 'add', tmp('gc-cli-plain-')]);
   assert.equal(notRepo.code, 1);
   assert.equal(notRepo.err[0], 'That folder isn’t a git repository.');
@@ -285,7 +298,7 @@ test('repo add: not a repository is a plain error; with no ground-control.md it 
 
   const quiet = await cli(['repo', 'add', repo]);
   assert.equal(quiet.code, 1);
-  assert.match(quiet.err[0], /has no ground-control\.md\. Run this in a terminal to answer five questions/);
+  assert.match(quiet.err[0], /has no starbase\.md\. Run this in a terminal to answer five questions/);
 
   const stateDir = tmp('gc-cli-state-');
   const questions = [];
@@ -314,4 +327,22 @@ test('the five answers make a profile the profile reader accepts', () => {
   assert.equal(r.ok, true, r.errors.join(' | '));
   assert.equal(r.profile.name, 'Widgets');
   assert.match(text, /2026-10-29/);
+});
+
+test('ground-control, the old name, says it is now starbase and runs the same command', async () => {
+  const OLD = 'ground-control'; // the command's old name, kept as an alias for one release
+  const { execFile } = await import('node:child_process');
+  const run = (bin, args) => new Promise((resolve) => {
+    const home = tmp('gc-cli-alias-');
+    execFile(process.execPath, [path.join(import.meta.dirname, '..', '..', 'bin', bin), ...args], { env: { PATH: process.env.PATH, HOME: home, USERPROFILE: home } }, (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout, stderr }));
+  });
+  const now = await run('starbase.js', ['--help']);
+  const was = await run(`${OLD}.js`, ['--help']);
+  assert.equal(was.code, 0);
+  assert.equal(was.stdout, now.stdout, 'the same output');
+  assert.equal(was.stderr.trim(), `${OLD} is now called starbase. This ran the same command; next time, type starbase.`);
+  assert.equal(now.stderr, '');
+  const bad = await run(`${OLD}.js`, ['frobnicate']);
+  assert.equal(bad.code, 1, 'and the same exit code');
+  assert.match(bad.stderr, /Run starbase --help to see them/);
 });

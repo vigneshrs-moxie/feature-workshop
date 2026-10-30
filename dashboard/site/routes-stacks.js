@@ -28,6 +28,7 @@ import path from 'node:path';
 import { HttpError } from '../lib/http-guard.js';
 import { enrichView, partPage, stackCard, usageByJob } from '../lib/stack-parts.js';
 import { USAGE_FILE, parseLine, usageDir } from '../lib/usage-log.js';
+import { PRODUCT } from '../lib/brand.js';
 
 const ONE = /^\/api\/stacks\/([a-z0-9][a-z0-9._-]{0,199})(?:\/([a-z-]+))?$/;
 const PART = /^\/api\/stacks\/([a-z0-9][a-z0-9._-]{0,199})\/part\/([1-9]\d{0,2})(\/diff)?$/;
@@ -52,7 +53,7 @@ export function liveReader({ read = null, usageFile = null, now = () => Date.now
     return cards.value;
   }
   async function readUsage() {
-    const file = usageFile ?? path.join(usageDir({ stateDir: process.env.WORKSHOP_STATE_DIR || null }), USAGE_FILE);
+    const file = usageFile ?? path.join(usageDir({ stateDir: process.env.STARBASE_STATE_DIR || null }), USAGE_FILE);
     const st = await fs.stat(file).catch(() => null);
     if (!st) return usageByJob([]);
     const key = `${st.mtimeMs}:${st.size}`;
@@ -72,7 +73,7 @@ export default function stacksRoutes({ local, read = null, sendJson, readBody, c
 
   async function routeStacks(req, res, urlPath, url) {
     try {
-      if (!stacks) throw new HttpError(404, 'Stacks run only on the dashboard on your own computer.');
+      if (!stacks) throw new HttpError(404, `Stacks run only in ${PRODUCT} on your own computer.`);
       if (req.method === 'GET') {
         if (urlPath === '/api/stacks') {
           const list = await stacks.list();
@@ -89,12 +90,12 @@ export default function stacksRoutes({ local, read = null, sendJson, readBody, c
           const name = page.part.name;
           const reader = raw.readChanges ?? null;
           if (diff) {
-            if (!reader) return sendJson(res, 200, { error: 'This dashboard can’t show a part’s changes.' });
+            if (!reader) return sendJson(res, 200, { error: `This copy of ${PRODUCT} can’t show a part’s changes.` });
             return sendJson(res, 200, await reader.diff(name, url?.searchParams?.get('file') ?? ''));
           }
           const changes = reader
             ? await reader.files(name).catch((err) => ({ error: String(err?.message ?? err).split('\n')[0], files: [], added: 0, removed: 0 }))
-            : { error: 'This dashboard can’t list a part’s changed files.', files: [], added: 0, removed: 0 };
+            : { error: `This copy of ${PRODUCT} can’t list a part’s changed files.`, files: [], added: 0, removed: 0 };
           return sendJson(res, 200, { ...page, changes });
         }
         const m = ONE.exec(urlPath);

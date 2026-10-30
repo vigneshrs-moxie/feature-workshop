@@ -109,7 +109,7 @@ describe('the hosted site', () => {
     const { api } = site();
     render(<HostedApp api={api} />);
     expect(await screen.findByText('Pair a laptop to see your jobs here')).toBeTruthy();
-    expect(screen.getByText(`ground-control login --site ${window.location.origin}`)).toBeTruthy();
+    expect(screen.getByText(`starbase login --site ${window.location.origin}`)).toBeTruthy();
   });
 
   it('a page the site doesn’t serve yet is a calm placeholder, never an error', async () => {

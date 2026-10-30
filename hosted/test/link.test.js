@@ -219,6 +219,6 @@ test('the heartbeat: a laptop waiting for commands shows online; one removed is 
     assert.equal(laptops[0].version, '0.1.0', 'from its hello');
     assert.equal((await person.send('DELETE', `/api/laptops/${laptops[0].id}`, {})).status, 200);
     await until(() => l.link.state === 'unpaired', { what: 'the link to stop' });
-    assert.ok(lines.some((x) => /no longer knows this laptop\. Run ground-control login/.test(x)));
+    assert.ok(lines.some((x) => /no longer knows this laptop\. Run starbase login/.test(x)));
   } finally { l.link.stop(); await s.close(); }
 });

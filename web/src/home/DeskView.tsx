@@ -46,6 +46,7 @@ import type { DeskItem } from './homeModel';
 import { type DeskEntry, deskEntries, isShipping, jobFacts, type NudgeItem, nudgePath, oneKeyDecide, recordDecision, useDecidedToday, whereLine } from './nudges';
 import { More } from '../components/More';
 import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
+import { BRAND } from '../app/brand';
 
 const DESK_KEYS: readonly KeyId[] = ['desk-next', 'desk-prev', 'desk-approve', 'desk-deny', 'desk-open', 'desk-brief'];
 
@@ -299,7 +300,7 @@ function NudgeCard({ item, busy, error, onYes, onDismiss }: { item: NudgeItem; b
           </Button>
         )}
         {n.link && (
-          <Button kind={n.action ? 'secondary' : 'primary'} keyId="desk-open" keyShown={!n.action} icon="external" className="desk-nudge-link" href={n.link} target="_blank" rel="noopener noreferrer" title="Open it on GitHub, in a new tab (key: o). The dashboard never merges or approves anything itself.">
+          <Button kind={n.action ? 'secondary' : 'primary'} keyId="desk-open" keyShown={!n.action} icon="external" className="desk-nudge-link" href={n.link} target="_blank" rel="noopener noreferrer" title={`Open it on GitHub, in a new tab (key: o). ${BRAND.name} never merges or approves anything itself.`}>
             Open on GitHub
           </Button>
         )}

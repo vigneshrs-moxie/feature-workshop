@@ -21,6 +21,7 @@
 
 import { finishLineReached } from './finish.js';
 import { STAGE_IDS } from './stages.js';
+import { PRODUCT } from './brand.js';
 
 export const NUDGE_IDS = ['pr1-merge', 'pr2-open', 'pr2-review', 'pr2-changes', 'pr2-merge', 'pr1-merged', 'pr2-merged'];
 /** The nudges a review round's own steps cover (packet Q). */
@@ -80,7 +81,7 @@ export function nudgesFor(card, lane, { finishLine, dismissed = [], sent = [], i
     if (!unseen(n, p)) continue;
     add(`pr${n}-merged`, 'ask', `PR #${n} is merged: tell the Foreman?`,
       `GitHub has PR #${n}${num(p)} merged, but the Foreman hasn’t seen it yet. Yes tells it, so it carries on instead of asking you to merge.`,
-      { link: p.url ?? null, action: { send: `PR #${n}${num(p)} is already merged on GitHub (the dashboard just checked). Update status.json and carry on from there; don't ask me to merge it.` } });
+      { link: p.url ?? null, action: { send: `PR #${n}${num(p)} is already merged on GitHub (${PRODUCT} just checked). Update status.json and carry on from there; don't ask me to merge it.` } });
   }
   if (isOpen(pr1)) {
     const checks = pr1.checks === 'failing' ? ' Its checks are failing.' : '';

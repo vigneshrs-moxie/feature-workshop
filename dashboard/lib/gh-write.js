@@ -1,4 +1,4 @@
-// The only code in Ground Control that writes to GitHub (packet Q). Every call needs your yes (a
+// The only code in Starbase that writes to GitHub (packet Q). Every call needs your yes (a
 // token from yes(), made where you said go: a route answering your click, never a timer), runs one
 // fixed command, and writes one audit line 'gh-write' with what it ran and how it went.
 //

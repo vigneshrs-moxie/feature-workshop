@@ -15,6 +15,7 @@ import { MEDAL_SIZE } from '../../play/crewSizes';
 import { Page } from '../../components/page/Page';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
+import { BRAND } from '../../app/brand';
 
 /** How full a thin progress meter is: "--ach-done: 40%". */
 const meter = (n: number, of: number): CSSProperties => ({ '--ach-done': `${Math.round((100 * n) / Math.max(1, of))}%` } as CSSProperties);
@@ -108,13 +109,13 @@ export function AchievementsView() {
       <HowThisWorks id="achievements">
         <p><strong>Achievements come from finished work</strong>: quests done (a job counts as done by your Settings → Play rule: its first PR is created, or you mark it done), clean reviews, the crew you have met. <strong>Approving something never earns anything</strong>, so the game never nudges anyone to click Approve.</p>
         <p>A few are <strong>secrets</strong>: they show here only once you find them, and the count says how many are left, not where. Some rewards also unlock a hidden theme.</p>
-        <p>Everything is <strong>local and personal</strong>: worked out from what this dashboard already records on this computer, never shared, and Claude is never asked anything.</p>
+        <p>Everything is <strong>local and personal</strong>: worked out from what {BRAND.name} already records on this computer, never shared, and Claude is never asked anything.</p>
       </HowThisWorks>
       {load.state === 'loading' && <p className="muted">Loading achievements…</p>}
       {load.state === 'error' && (
         <p className="thread-error" role="alert">
           Couldn’t load your achievements: {load.message}{' '}
-          <Button kind="quiet" size="sm" onClick={retry} title="Ask the dashboard again.">Try again</Button>
+          <Button kind="quiet" size="sm" onClick={retry} title={`Ask ${BRAND.name} again.`}>Try again</Button>
         </p>
       )}
       {view && (

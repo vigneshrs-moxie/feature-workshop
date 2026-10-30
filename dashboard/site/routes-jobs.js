@@ -155,7 +155,7 @@ export default function jobRoutes({ runner, read, send, sendJson, needJob, wiref
       });
     }),
     post(/^\/api\/job\/([^/]+)\/takeover$/, async ({ res, m }) => command(res, { type: 'take-over', slug: await needJob(m[1]) })),
-    // Carry on a reply a restart (or Stop) paused; `ground-control resume <job>` says via 'cli'.
+    // Carry on a reply a restart (or Stop) paused; `starbase resume <job>` says via 'cli'.
     // The job is named by its slug or by the ticket key it is for (ORBIT-479).
     post(/^\/api\/job\/([^/]+)\/resume$/, async ({ res, m, body }) => {
       const slug = await read.jobForName(m[1]);

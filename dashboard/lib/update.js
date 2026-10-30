@@ -1,4 +1,4 @@
-// `ground-control update`: moves Ground Control to the newest release, after checking the download
+// `starbase update`: moves Starbase to the newest release, after checking the download
 // against the release's checksum file (packet I step 4, plan G18, §4.3).
 //
 //   1. gh release view --repo <repo> --json tagName,assets: the newest release's tag and files
@@ -7,7 +7,7 @@
 //      "The download didn't match its checksum. Nothing was changed."
 //   4. npm i -g <file>, then the caller restarts the service
 //
-// `ground-control start` checks first unless --no-update is given; a check that fails (no network,
+// `starbase start` checks first unless --no-update is given; a check that fails (no network,
 // no gh) never stops the start. Every command goes through an injected `run(file, args)` that
 // resolves { code, stdout, stderr }, so tests use a fake release folder and never call GitHub.
 
@@ -22,12 +22,12 @@ import { runCommand } from './service.js';
 import { PRODUCT } from './state.js';
 
 export const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-/** The GitHub repository the releases come from (GROUND_CONTROL_RELEASE_REPO overrides it). */
+/** The GitHub repository the releases come from (STARBASE_RELEASE_REPO overrides it). */
 export const RELEASE_REPO = 'vigneshrs-moxie/feature-workshop';
 export const SUMS_FILE = 'SHA256SUMS';
 export const CHECKSUM_MISMATCH = 'The download didn’t match its checksum. Nothing was changed.';
 
-export const releaseRepo = (env = process.env) => env.GROUND_CONTROL_RELEASE_REPO || RELEASE_REPO;
+export const releaseRepo = (env = process.env) => env.STARBASE_RELEASE_REPO || RELEASE_REPO;
 
 /** The running version, from package.json. */
 export function currentVersion(root = PACKAGE_ROOT) {
@@ -65,7 +65,7 @@ const OFFLINE = /could not resolve|error connecting|dial tcp|no such host|networ
 export async function checkForUpdate({ run = runCommand, env = process.env, current = currentVersion() } = {}) {
   const repo = releaseRepo(env);
   const r = await run('gh', ['release', 'view', '--repo', repo, '--json', 'tagName,assets'], { timeout: 15_000 });
-  if (r.missing) return { status: 'unavailable', current, message: 'GitHub CLI (gh) isn’t on this computer, so updates can’t be checked. Install it (ground-control doctor says how).' };
+  if (r.missing) return { status: 'unavailable', current, message: 'GitHub CLI (gh) isn’t on this computer, so updates can’t be checked. Install it (starbase doctor says how).' };
   if (r.code !== 0) {
     if (OFFLINE.test(said(r))) return { status: 'offline', current, message: 'GitHub can’t be reached right now (no network?), so updates weren’t checked.' };
     if (/auth|login|401|403/i.test(said(r))) return { status: 'unavailable', current, message: 'GitHub CLI isn’t signed in, so updates can’t be checked. Run gh auth login.' };
@@ -108,7 +108,7 @@ export function sha256File(file) {
  * installed either way).
  */
 export async function downloadVerified({ run = runCommand, env = process.env, tag, asset, tmpRoot = os.tmpdir() }) {
-  const dir = await fsp.mkdtemp(path.join(tmpRoot, 'ground-control-update-'));
+  const dir = await fsp.mkdtemp(path.join(tmpRoot, 'starbase-update-'));
   const r = await run('gh', ['release', 'download', tag, '--repo', releaseRepo(env), '--pattern', asset, '--pattern', SUMS_FILE, '--dir', dir], { timeout: 300_000 });
   if (r.code !== 0) return { ok: false, dir, message: `The download of ${tag} didn’t finish (${said(r).split('\n')[0] || `gh stopped with code ${r.code}`}). Nothing was changed.` };
   const file = path.join(dir, asset);

@@ -1,5 +1,5 @@
 // PR feedback through the real dashboard in demo mode (packet N): the demo's flow map gives the job
-// an open PR #1, and a fake gh (WORKSHOP_GH) says one check failed and Ana left a comment. The first
+// an open PR #1, and a fake gh (STARBASE_GH) says one check failed and Ana left a comment. The first
 // look seeds: the check becomes a card under Needs you, the comment already there doesn't. A new
 // comment after it does. Send resumes the job's own session with kind pr-feedback; Leave it sends
 // nothing; a Refresh asks about neither again; gh is only ever asked to read.
@@ -99,8 +99,8 @@ async function makeJob() {
   await fs.writeFile(gh, FAKE_GH, { mode: 0o755 });
 
   const env = {
-    HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects,
-    WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state, WORKSHOP_GH: gh,
+    HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects,
+    STARBASE_AGENTS_DIR: dirs.agents, STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state, STARBASE_GH: gh,
   };
   const audit = () => (fsSync.existsSync(path.join(dirs.state, 'audit.jsonl')) ? fsSync.readFileSync(path.join(dirs.state, 'audit.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
   const ghCalls = () => (fsSync.existsSync(path.join(ghDir, 'calls.jsonl')) ? fsSync.readFileSync(path.join(ghDir, 'calls.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
@@ -116,7 +116,7 @@ async function startDashboard(env) {
   children.add(child);
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
+    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Starbase running')) { clearTimeout(timer); resolve(); } });
     child.stderr.on('data', (d) => output.push(String(d)));
     child.once('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
   });
@@ -124,7 +124,7 @@ async function startDashboard(env) {
   const token = (await (await fetch(`${base}/api/meta`)).json()).token;
   const get = async (p) => (await fetch(base + p)).json();
   const write = async (p, body = {}) => {
-    const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify(body) });
+    const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: JSON.stringify(body) });
     return { status: res.status, body: await res.json() };
   };
   const stop = async () => {

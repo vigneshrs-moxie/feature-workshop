@@ -57,7 +57,7 @@ function clock(at, ref = null) {
 }
 
 /**
- * The notes for Ground Control's own stops and starts (runner/index.js service-stop, service-start;
+ * The notes for Starbase's own stops and starts (runner/index.js service-stop, service-start;
  * they name no job folder, so the runner passes them as `service`): one note for each stop that
  * paused this job's reply, with the start that followed.
  */
@@ -84,9 +84,9 @@ function serviceNotes(service, featureDir) {
  * first (all of them, so ids don't depend on how far back was read). autoResume: whether jobs
  * carry on by themselves after a usage limit (changes one note's wording).
  * Replies carry their markdown in `reply`; the caller renders the ones it sends.
- * service: Ground Control's service-stop and service-start lines (they name no job), for the
+ * service: Starbase's service-stop and service-start lines (they name no job), for the
  * stop-and-start notes of this job (featureDir: the job folder; else the audit lines' own).
- * Messages Ground Control sent by itself (a status.json fix, PR feedback you chose to send) are
+ * Messages Starbase sent by itself (a status.json fix, PR feedback you chose to send) are
  * notes, never "you".
  */
 export function buildThread({ briefs = [], audit = [], autoResume = true, service = [], featureDir = null }) {
@@ -103,7 +103,7 @@ export function buildThread({ briefs = [], audit = [], autoResume = true, servic
       continue;
     }
     const note = (text) => thread.push({ id: id('note'), kind: 'note', at: e.at, text });
-    if (e.action === 'send' && e.kind === 'resume') note('Claude’s usage limit reset, so the workshop told the Foreman to carry on.');
+    if (e.action === 'send' && e.kind === 'resume') note(`Claude’s usage limit reset, so ${PRODUCT} told the Foreman to carry on.`);
     // status.json checks (lib/driver.js): an invalid write, and the fix sent by resuming the session.
     else if (e.action === 'send' && e.kind === 'status-fix') note(`${PRODUCT} asked the Foreman to rewrite status.json.`);
     else if (e.action === 'status_invalid') note(`The Foreman’s status.json didn’t match the format${Array.isArray(e.errors) && e.errors.length ? `: ${String(e.errors[0]).replace(/[.\s]+$/, '')}` : ''}.`);
@@ -144,7 +144,7 @@ export function buildThread({ briefs = [], audit = [], autoResume = true, servic
     else if (e.action === 'auto-level-ask') note(`Level not chosen automatically: ${e.reason} Pick one on the level card.`)
     else if (e.action === 'auto-unavailable') note('Auto mode isn’t available for your account, so this reply ran with routine steps automatic instead.');
     else if (e.action === 'job-policy') note(e.policy ? `You set this job’s permissions to “${POLICY_LABELS[e.policy] ?? e.policy}”. It applies straight away, also to a reply in progress.` : 'This job follows your global permission setting again.');
-    else if (e.action === 'rule-added') note(`You saved an “Always allow” rule: ${e.label ?? 'see Settings'}. It applies to every job run from the dashboard until you remove it in Settings.`);
+    else if (e.action === 'rule-added') note(`You saved an “Always allow” rule: ${e.label ?? 'see Settings'}. It applies to every job run from ${PRODUCT} until you remove it in Settings.`);
     else if (e.action === 'takeover') note('You took this job over from the terminal.');
     else if (e.action === 'close') note(`You marked this job ${e.as === 'dropped' ? 'dropped' : 'done'}${e.note ? ` (“${e.note}”)` : ''}${e.worktreeRemoved ? `, and removed its worktree (${e.worktreeRemoved}); the branch is kept` : ''}.`);
     else if (e.action === 'reopen') note(e.how === 'message' ? 'Reopened: you sent the Foreman a message.' : 'You reopened this job.');

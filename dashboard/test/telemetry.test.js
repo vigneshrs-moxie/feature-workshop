@@ -423,11 +423,11 @@ async function startDashboard(prepare = async () => {}) {
   await prepare(dirs);
   // Its own ports for the dashboard and the screens server (helpers/dashboard.js).
   const output = [];
-  const dashboard = await launchDashboard({ env: { HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: dirs['feature-work'], WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state, GROUND_CONTROL_USER: 'vignesh', GROUND_CONTROL_DIR: '' }, output }).catch(async (err) => { await fs.rm(root, { recursive: true, force: true }); throw err; });
+  const dashboard = await launchDashboard({ env: { HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: dirs['feature-work'], STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents, STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state, STARBASE_USER: 'vignesh', STARBASE_DIR: '' }, output }).catch(async (err) => { await fs.rm(root, { recursive: true, force: true }); throw err; });
   const { base } = dashboard;
   const token = (await (await fetch(`${base}/api/meta`)).json()).token;
   const write = async (method, p, body = {}) => {
-    const res = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify(body) });
+    const res = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: JSON.stringify(body) });
     return { status: res.status, body: await res.json() };
   };
   const stop = async () => {

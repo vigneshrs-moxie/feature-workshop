@@ -1,34 +1,38 @@
 #!/usr/bin/env bash
-# Installs Ground Control on macOS or Linux in one line (packet I step 6, plan §4.3):
+# Installs Starbase on macOS or Linux in one line (packet I step 6, plan §4.3):
 #
 #   curl -fsSL https://github.com/vigneshrs-moxie/feature-workshop/releases/latest/download/install.sh | bash
 #
 # 1. Node 22 or later: when it is missing it prints the line that gets it and asks before running it.
 # 2. Downloads the newest release's package file and SHA256SUMS and checks the one against the other.
 #    Nothing is installed or run from a download that doesn't match.
-# 3. Runs that package's `ground-control doctor --json`, and for each thing missing prints the fix
+# 3. Runs that package's `starbase doctor --json`, and for each thing missing prints the fix
 #    and asks (yes or no) before running it.
-# 4. npm i -g <the package file>, then `ground-control install` (the background service from
-#    sign-in), then opens http://127.0.0.1:4477/next/.
+# 4. npm i -g <the package file> (removing the package from before the rename, @moxie/ground-control,
+#    first), then `starbase install` (the background service from sign-in; it removes the old service,
+#    the one named ground-control before the rename, too), then opens http://127.0.0.1:4477/next/.
 #
 # Runs in bash and zsh. Answers come from the terminal even when the script itself comes through a
 # pipe; with no terminal to ask in, every question is answered no.
 #
 # Settings, for trying the script:
-#   GROUND_CONTROL_RELEASE_REPO   the GitHub repository the release comes from
-#   GROUND_CONTROL_FROM           a folder that already holds a package file and its SHA256SUMS
-#                                 (used instead of downloading; still checked)
-#   GROUND_CONTROL_NO_SERVICE=1   install the program only: no service, nothing opened
+#   STARBASE_RELEASE_REPO   the GitHub repository the release comes from
+#   STARBASE_FROM           a folder that already holds a package file and its SHA256SUMS
+#                           (used instead of downloading; still checked)
+#   STARBASE_NO_SERVICE=1   install the program only: no service, nothing opened
+# Their old names (GROUND_CONTROL_RELEASE_REPO, GROUND_CONTROL_FROM, GROUND_CONTROL_NO_SERVICE)
+# still work while the new one is unset.
 
 set -eu
 
-PRODUCT="Ground Control"
-PACKAGE="@moxie/ground-control"
-COMMAND="ground-control"
-REPO="${GROUND_CONTROL_RELEASE_REPO:-vigneshrs-moxie/feature-workshop}"
+PRODUCT="Starbase"
+PACKAGE="@moxie/starbase"
+OLD_PACKAGE="@moxie/ground-control"
+COMMAND="starbase"
+REPO="${STARBASE_RELEASE_REPO:-${GROUND_CONTROL_RELEASE_REPO:-vigneshrs-moxie/feature-workshop}}" # the new name, else the old one
 DASHBOARD_URL="http://127.0.0.1:4477/next/"
-FROM="${GROUND_CONTROL_FROM:-}"
-NO_SERVICE="${GROUND_CONTROL_NO_SERVICE:-}"
+FROM="${STARBASE_FROM:-${GROUND_CONTROL_FROM:-}}" # the new name, else the old one
+NO_SERVICE="${STARBASE_NO_SERVICE:-${GROUND_CONTROL_NO_SERVICE:-}}" # the new name, else the old one
 NODE_MAJOR=22
 
 say() { printf '%s\n' "$*"; }
@@ -103,16 +107,16 @@ main() {
 
   # ---------- 2. The package file, checked against SHA256SUMS ----------
 
-  WORK="$(mktemp -d "${TMPDIR:-/tmp}/ground-control-install.XXXXXX")"
+  WORK="$(mktemp -d "${TMPDIR:-/tmp}/starbase-install.XXXXXX")"
   trap 'rm -rf "$WORK"' EXIT
 
   if [ -n "$FROM" ]; then
     say "Using the release files in $FROM."
     cp "$FROM/SHA256SUMS" "$WORK/" 2> /dev/null || fail "$FROM has no SHA256SUMS. Nothing was changed."
-    for f in "$FROM"/moxie-ground-control-*.tgz; do [ -f "$f" ] && cp "$f" "$WORK/"; done
+    for f in "$FROM"/moxie-starbase-*.tgz; do [ -f "$f" ] && cp "$f" "$WORK/"; done
   elif has gh && gh auth status > /dev/null 2>&1; then
     say "Downloading the newest release of $PRODUCT from $REPO (with GitHub CLI)."
-    gh release download --repo "$REPO" --pattern 'moxie-ground-control-*.tgz' --pattern SHA256SUMS --dir "$WORK" \
+    gh release download --repo "$REPO" --pattern 'moxie-starbase-*.tgz' --pattern SHA256SUMS --dir "$WORK" \
       || fail "The download from $REPO didn't finish. Check the network and run this again. Nothing was changed."
   else
     has curl || fail "This script needs curl (or GitHub CLI) to download $PRODUCT. Install one, then run this again."
@@ -123,7 +127,7 @@ main() {
   fi
 
   # The package file's name, from SHA256SUMS ("<sha256>  <name>" lines).
-  NAME="$(sed -n 's/^[0-9a-fA-F]\{64\}[ *]*\(moxie-ground-control-[^ /]*\.tgz\)[[:space:]]*$/\1/p' "$WORK/SHA256SUMS" | head -n 1)"
+  NAME="$(sed -n 's/^[0-9a-fA-F]\{64\}[ *]*\(moxie-starbase-[^ /]*\.tgz\)[[:space:]]*$/\1/p' "$WORK/SHA256SUMS" | head -n 1)"
   [ -n "$NAME" ] || fail "SHA256SUMS doesn't name a package file, so nothing can be checked. Nothing was changed."
   if [ ! -f "$WORK/$NAME" ] && [ -z "$FROM" ]; then
     curl -fsSL -o "$WORK/$NAME" "https://github.com/$REPO/releases/latest/download/$NAME" \
@@ -143,7 +147,7 @@ main() {
 
   mkdir -p "$WORK/package-files"
   tar -xzf "$WORK/$NAME" -C "$WORK/package-files"
-  CLI="$WORK/package-files/package/bin/ground-control.js"
+  CLI="$WORK/package-files/package/bin/starbase.js"
 
   missing_list() {
     # One line per check that isn't OK: runnable<TAB>name<TAB>found<TAB>fix
@@ -157,7 +161,7 @@ main() {
       });' || true
   }
 
-  say "Checking what else $PRODUCT needs (ground-control doctor)."
+  say "Checking what else $PRODUCT needs ($COMMAND doctor)."
   missing_list > "$WORK/missing.txt"
   TAB="$(printf '\t')"
   if [ ! -s "$WORK/missing.txt" ]; then
@@ -178,6 +182,12 @@ main() {
 
   # ---------- 4. Install, set up the service, open it ----------
 
+  # The package from before the rename has the ground-control command, which this one keeps as an
+  # alias for a release: npm won't put two packages' commands in one place, so the old one goes first.
+  if npm ls -g "$OLD_PACKAGE" --depth=0 > /dev/null 2>&1; then
+    say "Removing $OLD_PACKAGE, $PRODUCT's name before the rename (your files are kept)."
+    npm rm -g "$OLD_PACKAGE" || say "npm couldn't remove $OLD_PACKAGE; the install below may say so too."
+  fi
   say "Installing $PRODUCT ($PACKAGE) with npm."
   if ! npm i -g "$WORK/$NAME"; then
     fail "npm couldn't install $PRODUCT. If it said EACCES, npm's global folder needs other rights: run npm config set prefix \"\$HOME/.npm-global\", add \$HOME/.npm-global/bin to your PATH, and run this again."

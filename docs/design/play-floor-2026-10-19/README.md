@@ -1,6 +1,6 @@
 # Play round 2 screenshots: the workshop floor (2026-10-19)
 
-The demo (a pretend Foreman, invented jobs, no Claude usage), run fresh and on its own, so nothing touched a real dashboard. Headless Chrome at 1440×900, 1× scale. The script clicks through the page the way a person would, and checked 34 things on the way with no console errors. The Default theme is used except where a file is named for another theme.
+The demo (a pretend Foreman, invented jobs, no Claude usage), run fresh and on its own, so nothing touched a real Starbase. Headless Chrome at 1440×900, 1× scale. The script clicks through the page the way a person would, and checked 34 things on the way with no console errors. The Default theme is used except where a file is named for another theme.
 
 | # | File | What it shows |
 |---|---|---|

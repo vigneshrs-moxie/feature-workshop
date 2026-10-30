@@ -94,6 +94,7 @@ import { HttpError } from './http-guard.js';
 import { scrubDeep } from './orbit.js';
 import { FEEDBACK_LEAVE, FEEDBACK_SEND, cardWords, feedbackMessage } from './pr-feedback.js';
 import { WRITE_TOOLS_MATCHER, ownedPathsHook, sectionOwnership } from './stack.js';
+import { PRODUCT } from './brand.js';
 
 /** How many corrective messages one run of invalid status.json writes gets before the card. */
 export const STATUS_RETRIES = 3;
@@ -1111,7 +1112,7 @@ export class Driver extends EventEmitter {
       if (!req) continue;
       let result;
       if (decision === 'deny') {
-        result = { behavior: 'deny', message: note.trim() ? `The person said no, with this note: ${note.trim()}` : 'The person said no to this from Feature Workshop.' };
+        result = { behavior: 'deny', message: note.trim() ? `The person said no, with this note: ${note.trim()}` : `The person said no to this from ${PRODUCT}.` };
       } else {
         const updatedInput = req.kind === 'question' ? { ...req.originalInput, answers: answers ?? {} } : req.originalInput;
         result = { behavior: 'allow', updatedInput };

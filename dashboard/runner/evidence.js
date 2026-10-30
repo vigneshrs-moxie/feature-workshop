@@ -18,7 +18,7 @@
 //
 // Playwright is the dashboard's own, pinned in package.json (@playwright/test), run as
 // `node <its cli.js> test --config <evidence/playwright.config.mjs>` in the job's worktree: that is
-// `npx playwright test` without npx looking anything up. WORKSHOP_PLAYWRIGHT names another script
+// `npx playwright test` without npx looking anything up. STARBASE_PLAYWRIGHT names another script
 // to run the same way (the tests' fake, which copies dashboard/test/fixtures/evidence/). In demo
 // mode nothing real runs, so only that script can record there.
 
@@ -30,6 +30,7 @@ import { HttpError } from '../lib/http-guard.js';
 import { EVIDENCE_DIR, EvidenceError, evidenceFile, evidenceWanted, readEvidence, readyToRecord, recordEvidence, reportCommit, shortCommit } from '../lib/evidence.js';
 import { fillPattern } from '../lib/profile.js';
 import { killTree, shellFor } from '../lib/platform.js';
+import { PRODUCT } from '../lib/brand.js';
 
 const require = createRequire(import.meta.url);
 const SERVER_WAIT_MS = 180_000;
@@ -72,10 +73,10 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     return f;
   };
 
-  /** The way Playwright runs here: the fake (WORKSHOP_PLAYWRIGHT), the dashboard's own, or none. */
+  /** The way Playwright runs here: the fake (STARBASE_PLAYWRIGHT), the dashboard's own, or none. */
   function playwright() {
     const own = ownPlaywright();
-    if (env.WORKSHOP_PLAYWRIGHT) return { script: env.WORKSHOP_PLAYWRIGHT, url: own?.url ?? '@playwright/test' };
+    if (env.STARBASE_PLAYWRIGHT) return { script: env.STARBASE_PLAYWRIGHT, url: own?.url ?? '@playwright/test' };
     if (demo || !own) return null;
     return { script: own.cli, url: own.url };
   }
@@ -154,7 +155,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     const at = new Date().toISOString();
     try {
       if (!pw && evidenceWanted(f.options).on) {
-        throw new EvidenceError(409, demo ? 'Demo mode: nothing real runs, so no evidence is recorded.' : 'Playwright isn’t installed with the dashboard. Run npm install in the dashboard’s folder, then press Record again.');
+        throw new EvidenceError(409, demo ? 'Demo mode: nothing real runs, so no evidence is recorded.' : `Playwright isn’t installed with ${PRODUCT}. Run npm install in ${PRODUCT}’s folder, then press Record again.`);
       }
       const result = await recordEvidence({
         job: f, playwrightUrl: pw?.url, cwd,

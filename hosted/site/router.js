@@ -59,7 +59,7 @@ export function createSite({ db, config, fetch: fetchFn = globalThis.fetch, now 
   // What each kind of caller must show (filled in by the sign-in and pairing parts).
   ctx.auth = {
     session: async () => { throw new HttpError(401, 'Sign in first.', { signIn: true }); },
-    runner: async () => { throw new HttpError(401, 'This laptop isn’t paired with the site. Run ground-control login --site <the site’s address>.'); },
+    runner: async () => { throw new HttpError(401, 'This laptop isn’t paired with the site. Run starbase login --site <the site’s address>.'); },
   };
   const routes = [...ROUTE_LISTS, ...extraRoutes].flatMap((list) => list(ctx));
   const extraHandlers = ctx.extraHandlers ?? [];

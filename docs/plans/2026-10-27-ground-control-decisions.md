@@ -43,3 +43,20 @@ Standing rules that apply to everything below: never push or merge without Vigne
 | G33 | **Play theme "Ground Control".** With Play full, simple mission-control pieces (status strip, console tiles per running job, go / no go gates, the lounge as consoles); off removes all of it; subtle keeps tiles and wording without strip, clock or animation; a look, not a layout. Quality bar: nothing chunky or hard to click, 40 px targets, one obvious next step per screen, Vignesh clicks through every screen and theme before the design packet is accepted. Reference for the feeling only: 0xRafy's "office" post (agents at desks, who is working or needs you, one-click approve). | — | — | Vignesh, 2026-10-28 |
 | G34 | **v2 hosting, changed from G23.** The site is a new Vercel project, **feature-workshop**, under Moxie's existing Vercel team, served at `feature-workshop.<Moxie domain>`. The name and subdomain will change later. The pieces: Neon Postgres from the Vercel Marketplace, a private Vercel Blob store for evidence, and Vercel Cron for the inbox poller (every 3 minutes, so the team must be on Pro). Google sign-in uses an Internal OAuth client in Moxie's Workspace, and the server also checks the `hd` claim. Runners talk to the site over HTTPS, not a held-open WebSocket: they send events up and wait for commands with a long-poll of 25 seconds at most. Vercel's WebSockets were in beta, and testers saw connections cut after about 5 minutes. The command list and the "never carries" rules of §2.4 are unchanged. Setup steps: `docs/hosting/vercel-setup.md`. | Railway · Vercel · Moxie VM | Vercel | Vignesh, 2026-10-30 |
 | G35 | **v2 test people and the Windows laptop.** The v2 people test is Vignesh's Mac and Sohum's Windows laptop. The Windows proof for v1.5 is also Sohum's laptop: Raj has a Mac. | — | as stated | Vignesh, 2026-10-30 |
+| G36 | **The product is called Starbase** (Vignesh, 2026-10-30: "we have decided on the name - starbase. change it everywhere from dashboard/feature-workshop/ground-control to starbase."). Replaces G1's name, the "Dashboard" placeholder and the Feature Workshop name everywhere a person reads it, and in the command, package, state folder, environment, service, installers and hosted site (the names below). Old names keep working for one release: the `ground-control` alias, old environment names as fallbacks, the old token header, the state folder moved with a link left behind. Not renamed: the `/feature` skill and `~/.claude/feature-work/`, and the code folders `dashboard/`, `web/`, `hosted/`. Built by packet Y. | — | as stated | Vignesh, 2026-10-30 |
+
+**G36, the names:**
+
+| Was | Now |
+|---|---|
+| "Dashboard" (the placeholder in `BRAND.name` / `PRODUCT`), "Ground Control", "Feature Workshop" in anything a person reads | **Starbase** |
+| CLI `ground-control` | `starbase`; `ground-control` stays one release as an alias that says "ground-control is now called starbase" and runs the same command |
+| npm `@moxie/ground-control` | `@moxie/starbase` |
+| State folder `~/.ground-control/` (and the older `~/.feature-workshop/`) | `~/.starbase/` |
+| `GROUND_CONTROL_DIR`, `GROUND_CONTROL_USER` | `STARBASE_DIR`, `STARBASE_USER` |
+| `WORKSHOP_DEMO`, `WORKSHOP_PROJECTS_DIR` and every other `WORKSHOP_*` | `STARBASE_DEMO`, `STARBASE_PROJECTS_DIR` and so on |
+| Header `X-Workshop-Token` | `X-Starbase-Token` (the old header is still accepted) |
+| launchd label, Windows scheduled task, systemd unit | `com.moxie.starbase`, task `Starbase`, `starbase.service` |
+| Hosted: Vercel project, subdomain, Google app name | `starbase`, `starbase.<domain>`, "Starbase" |
+| Package names inside the repo (root, `web`, `hosted`) | `@moxie/starbase`, `starbase-web`, `starbase-site` |
+| Worktrees for new packets | `../starbase-<id>` |

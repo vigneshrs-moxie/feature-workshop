@@ -1,7 +1,7 @@
 // The hosted site's pages, from the same hash addresses as the laptop's app (app/router.ts):
 //   #/ or #/jobs            my jobs, from the mirror
 //   #/sign-in?problem=…     the sign-in page, saying why the last sign-in was refused
-//   #/pair/<code>           "Pair this laptop?" for the code `ground-control login` printed
+//   #/pair/<code>           "Pair this laptop?" for the code `starbase login` printed
 //   #/settings[/laptops]    Settings → Laptops;  #/settings/people  Settings → People
 //   #/settings/orbit        Settings → Orbit: your Orbit token for the Inbox (packet 2C)
 //   #/inbox[?peek=ORBIT-n]  the Inbox, from the inbox the site keeps for you (packet 2C)

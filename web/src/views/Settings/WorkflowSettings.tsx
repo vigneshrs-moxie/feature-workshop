@@ -24,6 +24,7 @@ import { Choice, Segmented } from '../../components/Choice';
 import { NumberInput } from '../../components/Field';
 import { Saved, useSaved } from '../../components/Saved';
 import { SettingGroup, SettingsMore } from './SettingsMore';
+import { BRAND } from '../../app/brand';
 
 /** Only for a rail line before the dashboard has said its words (meta.finishLines is the source). */
 const FALLBACK_LABELS: Record<FinishLine, string> = { 'pr1-open': 'PR #1 open', 'pr1-merged': 'PR #1 merged', staging: 'In staging', main: 'In main', marked: 'When I mark it done' };
@@ -93,7 +94,7 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
             </span>
           </label>
         )) : (
-          <p className="muted" role="note">The dashboard didn’t send the finish line’s choices. Update it and start it again; until then it uses {finishLineLabel(w.finishLine, undefined)}.</p>
+          <p className="muted" role="note">{BRAND.name} didn’t send the finish line’s choices. Update it and start it again; until then it uses {finishLineLabel(w.finishLine, undefined)}.</p>
         )}
       </SettingGroup>
       <SettingsMore id="workflow-more" label="More: GitHub, what new jobs start with, the level, stacks, Claude Code use and the Orbit token" holds={['github-every', 'pr-route', 'wireframes', 'clarify', 'auto-level', 'sections-at-once', 'count-claude-code', 'orbit-token']}>

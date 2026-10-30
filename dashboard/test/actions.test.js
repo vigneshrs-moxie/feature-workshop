@@ -147,10 +147,14 @@ test('git: patch splitting trims very large diffs', () => {
 // ---------- request safety ----------
 
 test('checkWrite: token, origin and JSON are all required', () => {
-  const ok = { 'x-workshop-token': 't0k', origin: 'http://127.0.0.1:4477', 'content-type': 'application/json' };
+  const ok = { 'x-starbase-token': 't0k', origin: 'http://127.0.0.1:4477', 'content-type': 'application/json' };
   assert.doesNotThrow(() => checkWrite(ok, { port: 4477, token: 't0k' }));
   assert.doesNotThrow(() => checkWrite({ ...ok, origin: undefined }, { port: 4477, token: 't0k' }));
-  assert.throws(() => checkWrite({ ...ok, 'x-workshop-token': 'nope' }, { port: 4477, token: 't0k' }), (e) => e instanceof HttpError && e.status === 403);
+  assert.throws(() => checkWrite({ ...ok, 'x-starbase-token': 'nope' }, { port: 4477, token: 't0k' }), (e) => e instanceof HttpError && e.status === 403);
+  // The header's old name still counts: a page left open across the update keeps working.
+  const { 'x-starbase-token': _, ...withoutNew } = ok;
+  assert.doesNotThrow(() => checkWrite({ ...withoutNew, 'x-workshop-token': 't0k' }, { port: 4477, token: 't0k' }));
+  assert.throws(() => checkWrite({ ...withoutNew, 'x-workshop-token': 'nope' }, { port: 4477, token: 't0k' }), (e) => e instanceof HttpError && e.status === 403);
   assert.throws(() => checkWrite({ ...ok, origin: 'https://evil.example' }, { port: 4477, token: 't0k' }), /Wrong origin/);
   assert.throws(() => checkWrite({ ...ok, 'content-type': 'text/plain' }, { port: 4477, token: 't0k' }), /JSON/);
   assert.throws(() => checkWrite(ok, { port: 4477, token: '' }), /must come from/);

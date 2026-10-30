@@ -1,4 +1,4 @@
-// Pairing a laptop, once, with a one-time code (`ground-control login --site <url>`).
+// Pairing a laptop, once, with a one-time code (`starbase login --site <url>`).
 //   POST /api/pair/start   { name, os, deviceId, version }      the laptop asks; public
 //        → { code, secret, link, expiresAt, pollEvery }        an 8-character code (no look-alike
 //                                                              letters), a long secret, the link
@@ -7,7 +7,7 @@
 //   POST /api/pair/:code/approve                                "Pair this laptop" (same origin)
 //   POST /api/pair/finish  { secret }                           the laptop polls: 202 while
 //        → { token, runner, person, site }                     waiting, then its runner token once
-//   POST /api/runner/logout                                     `ground-control logout`: this
+//   POST /api/runner/logout                                     `starbase logout`: this
 //                                                              laptop's token stops working
 //
 // The runner token is 32 random bytes made at finish and handed over once; the site keeps its
@@ -59,7 +59,7 @@ export default function pairRoutes(ctx) {
 
   ctx.auth.runner = async (req) => {
     const m = /^Bearer ([\w-]{20,200})$/.exec(String(req.headers.authorization ?? ''));
-    const unpaired = () => new HttpError(401, 'This laptop isn’t paired with the site any more. Run ground-control login --site <the site’s address> on it.', { unpaired: true });
+    const unpaired = () => new HttpError(401, 'This laptop isn’t paired with the site any more. Run starbase login --site <the site’s address> on it.', { unpaired: true });
     if (!m) throw unpaired();
     const row = (await db.query('SELECT id, person_id, name, os, last_seen_at FROM runners WHERE token_hash = $1 AND revoked_at IS NULL', [sha256(m[1])])).rows[0];
     if (!row) throw unpaired();
@@ -71,7 +71,7 @@ export default function pairRoutes(ctx) {
   async function pairingByCode(raw) {
     const code = normalCode(raw);
     const row = code ? (await db.query('SELECT * FROM pairings WHERE code = $1', [code])).rows[0] : null;
-    if (!row) throw new HttpError(404, 'There is no pairing with that code. Check the code the laptop shows, or run ground-control login on it again.');
+    if (!row) throw new HttpError(404, 'There is no pairing with that code. Check the code the laptop shows, or run starbase login on it again.');
     return row;
   }
   const stateOf = (p, t = now()) => (p.finished_at ? 'paired' : p.approved_by ? 'approved' : new Date(p.expires_at).getTime() <= t ? 'expired' : 'waiting');
@@ -89,7 +89,7 @@ export default function pairRoutes(ctx) {
         const address = sha256(callerAddress(req));
         await db.query('DELETE FROM pair_starts WHERE at < $1', [iso(t - PAIR_MINUTES * 60 * 1000)]);
         const recent = (await db.query('SELECT count(*)::int AS n FROM pair_starts WHERE address_hash = $1 AND at > $2', [address, iso(t - 60 * 1000)])).rows[0].n;
-        if (recent >= STARTS_PER_MINUTE) throw new HttpError(429, 'Too many pairings from here in the last minute. Wait a minute, then run ground-control login again.');
+        if (recent >= STARTS_PER_MINUTE) throw new HttpError(429, 'Too many pairings from here in the last minute. Wait a minute, then run starbase login again.');
         await db.query('INSERT INTO pair_starts (address_hash, at) VALUES ($1, $2)', [address, iso(t)]);
         await db.query('DELETE FROM pairings WHERE expires_at < $1 AND finished_at IS NULL', [iso(t - 24 * 60 * 60 * 1000)]);
         const waiting = (await db.query('SELECT count(*)::int AS n FROM pairings WHERE expires_at > $1 AND finished_at IS NULL', [iso(t)])).rows[0].n;
@@ -118,13 +118,13 @@ export default function pairRoutes(ctx) {
         const t = now();
         const out = await db.tx(async (q) => {
           const p = (await q.query('SELECT * FROM pairings WHERE secret_hash = $1 FOR UPDATE', [sha256(b.secret)])).rows[0];
-          if (!p) throw new HttpError(404, 'The site doesn’t know this pairing. Run ground-control login again.');
-          if (p.finished_at) throw new HttpError(410, 'This pairing was used already. Run ground-control login again.', { used: true });
+          if (!p) throw new HttpError(404, 'The site doesn’t know this pairing. Run starbase login again.');
+          if (p.finished_at) throw new HttpError(410, 'This pairing was used already. Run starbase login again.', { used: true });
           if (!p.approved_by) {
-            if (new Date(p.expires_at).getTime() <= t) throw new HttpError(410, 'Nobody paired this laptop within ten minutes, so the code has run out. Run ground-control login again.', { expired: true });
+            if (new Date(p.expires_at).getTime() <= t) throw new HttpError(410, 'Nobody paired this laptop within ten minutes, so the code has run out. Run starbase login again.', { expired: true });
             return null;
           }
-          if (t - new Date(p.created_at).getTime() > COLLECT_MINUTES * 60 * 1000) throw new HttpError(410, 'This pairing ran out before the laptop collected it. Run ground-control login again.', { expired: true });
+          if (t - new Date(p.created_at).getTime() > COLLECT_MINUTES * 60 * 1000) throw new HttpError(410, 'This pairing ran out before the laptop collected it. Run starbase login again.', { expired: true });
           const token = randomToken(32);
           const existing = (await q.query('SELECT id FROM runners WHERE person_id = $1 AND device_id = $2 AND revoked_at IS NULL', [p.approved_by, p.device_id])).rows[0];
           let runnerId;
@@ -158,8 +158,8 @@ export default function pairRoutes(ctx) {
         await ctx.readJson(req);
         const p = await pairingByCode(m[1]);
         const state = stateOf(p);
-        if (state === 'expired') throw new HttpError(410, 'This code has run out (codes last ten minutes). Run ground-control login on the laptop again.');
-        if (state === 'paired') throw new HttpError(410, 'This code was used already. Run ground-control login on the laptop again.');
+        if (state === 'expired') throw new HttpError(410, 'This code has run out (codes last ten minutes). Run starbase login on the laptop again.');
+        if (state === 'paired') throw new HttpError(410, 'This code was used already. Run starbase login on the laptop again.');
         if (state === 'approved' && Number(p.approved_by) !== person.id) throw new HttpError(409, 'Someone else paired this laptop already.');
         await db.query('UPDATE pairings SET approved_by = $2, approved_at = $3 WHERE id = $1 AND approved_by IS NULL', [p.id, person.id, iso(now())]);
         sendJson(res, 200, { code: p.code, name: p.name, os: p.os, state: 'approved' });

@@ -1,6 +1,6 @@
 # Theme mockups, round 2 (2026-10-15)
 
-Real screenshots of the phase 1 Workshop UI in each candidate theme after the polish pass,
+Real screenshots of the phase 1 page in each candidate theme after the polish pass,
 taken from the demo (fake Foreman, invented jobs) in headless Chrome at 1440×900, 2× scale.
 Every theme shows the same content: the demo was restarted before each theme (rules cleared,
 permission policy "Routine steps automatic"), and the same eight screens were captured in the
@@ -93,7 +93,7 @@ Status colour key:
 An architect's blueprint: deep blue paper with a faint grid, white and chalk line art, and the
 thread's cards drawn as taped index cards (cream paper, a strip of tape at the top) with a
 coloured sticky-tab status down the side. Headings are hand-set caps in a clean geometric
-font, not handwriting. A nod to Workshop, Foreman and crew. Round 2 made the sheet fold
+font, not handwriting. A nod to the workshop, the Foreman and the crew. Round 2 made the sheet fold
 readable, coloured the asks by kind, and tinted the group headers.
 
 | | | | |

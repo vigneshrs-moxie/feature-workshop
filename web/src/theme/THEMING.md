@@ -1,4 +1,4 @@
-# Theming the Workshop
+# Theming Starbase
 
 A theme is one CSS file, `web/src/theme/themes/<id>.css`, with every rule scoped under
 `html[data-theme="<id>"]`. It is registered in `theme.ts` (`THEMES`: id, label, one-line
@@ -10,10 +10,10 @@ saves to localStorage and applies live.
 
 **Hidden themes.** Two themes are rewards from the Play layer: **CRT Terminal** (`crt`, unlocked
 by the Konami code) and **Gold** (`gold`, unlocked after 10 quests done). They carry `unlock` in
-`THEMES` and are listed in the picker (with an "Unlocked" tag) only once the dashboard's play
+`THEMES` and are listed in the picker (with an "Unlocked" tag) only once Starbase's play
 ledger says so (GET /api/play `unlocks`, handed to `setThemeUnlocks` by `play/PlayLedger.tsx`).
 Until then, and always with Play mode Off, a hidden id in the address or localStorage is skipped
-like an unknown one; the dashboard also refuses to record one as tried (409). They are full
+like an unknown one; Starbase also refuses to record one as tried (409). They are full
 themes like the others and keep every rule below.
 
 **Light twins and Follow the system.** Two themes come as a dark/light pair, Default ↔ Light and
@@ -93,7 +93,7 @@ Base tokens (`--bg-*`, `--text-*`, `--border-*`, `--accent*`, `--status-*`, `--f
 ### Stages (`--stage-<family>-fg` / `-bg`)
 
 `spec`, `investigate`, `plan`, `build`, `test`, `review`, in workflow order: give them a walk
-of distinct soft hues. `stageFamily()` in `panes/Jobs/stages.ts` maps the dashboard's ids onto
+of distinct soft hues. `stageFamily()` in `panes/Jobs/stages.ts` maps Starbase's ids onto
 these: refine and spec-update are `spec`, implement is `build`, the PRs and staging QA are
 `review`.
 
@@ -234,7 +234,7 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `.workshop-floor` | the Foreman pane with no job open, Play on (`play/floor.css`): `.floor-foreman` (the Foreman's word: `.floor-foreman-face` the portrait, `.floor-bubble`, `.floor-eyebrow`, `.floor-say`, `.floor-asks` with one `.floor-ask` link per job: `.floor-ask-arrow`, `.floor-ask-title`, `.floor-ask-what`; `.floor-more`), the `.needs-you-inbox`, then `.floor-jobs` (`.floor-hint`, `.floor-grid`, `.floor-card` with `data-group`, `.floor-card-head`, `.floor-card-title` whose link covers the card, and a `.job-trail.is-card`) |
 | `.home` | Home, full width (`home/home.css`): `.home-head` (sticky; `.home-views` with `.home-view.is-on` and `.home-view-count`, `.home-seg` with `.home-seg-btn.is-on`, `.home-read`), `.home-body`, `.home-main`, `.home-side` (the compact `.workshop-floor.is-compact`). The map: `.flow-repo` (`.flow-repo-head`, `.flow-warn`), `.flow-grid` (`.is-simple`), `.flow-lane` rows of `.flow-box` (`.flow-job` with `data-group`, `.flow-step`, `.flow-shared` with `.flow-staging` / `.flow-main`; each `.is-here`, `.is-passed` or `.is-ahead`), `.flow-arrow` (`.is-reached`, `.flow-release`) with its `.flow-pr` (`.is-merged` `.is-open` `.is-problem` `.is-closed` `.is-none`), `.flow-count` (`.is-behind`, `.is-note`), `.lane-crew`. The Table: `.home-table` (`tbody tr[data-group]`, `.th-sort`). The Desk: `.desk`, `.desk-queue`, `.desk-item` (`.is-current`), `.desk-current`, `.desk-clear` |
 | `.row-crew` | a job's crew member at the start of its row in the Jobs list (Play on): the row is then `.job-row.has-crew`; `.row-crew-ask` is its small "!" |
-| `.brand-mascot`, `.brand-tagline` | the Foreman by "Feature Workshop" in the top bar, and "Your crew, your features, your turn" (Play on) |
+| `.brand-mascot`, `.brand-tagline` | the Foreman by "Starbase" in the top bar, and "Your crew, your features, your turn" (Play on) |
 | `.boss-fight`, `.stamina` | the Full-mode extras (`play/extras.css`, Play mode Full only): the boss fight under an L3 review brief (`.boss-text`, `.boss-bar`, `.boss-bar-fill`, `.is-defeated`; on a theme's light brief card give `.boss-text` and `.boss-bar` its ink, as Blueprint does); stamina in the top bar (`.stamina-bar`, `.stamina-fill`, `.stamina-label`, `.is-fresh` `.is-warning` `.is-resting`); `.sleeping-crew` in a paused live row. Status, success and accent tokens only |
 | `.play-settings` | Settings → Play (`.play-options`, `.play-quest-done`, `.play-legend`, `.play-sounds` with `.is-off` outside Full mode) |
 | `.achievements` | the Achievements view (Play on, `play/achievements.css`): `.ach-summary`, `.ach-grid`, `.ach-badge` (`.is-unlocked` or `.is-locked`, `.is-secret`; `data-achievement` its id), `.ach-text`, `.ach-name`, `.ach-how`, `.ach-state` (`.is-unlocked` with the date, `.is-locked` with the word "Locked"), `.ach-secrets`, `.ach-secrets-left`, `.ach-unlocks`, `.ach-unlock-list` |

@@ -9,12 +9,12 @@ import { repoStatus, ReposSettings } from './ReposSettings';
 
 const ORBIT: RegisteredRepo = {
   path: '/Users/me/Projects/moxie-portal', folder: 'moxie-portal', name: 'Orbit', github: 'Moxie-Pest-Control-Phoenix/moxie-portal',
-  profileFile: '/Users/me/Projects/ground-control/dashboard/profiles/orbit.md', profileSource: 'registry',
+  profileFile: '/Users/me/Projects/starbase/dashboard/profiles/orbit.md', profileSource: 'registry',
   ok: true, errors: [], warnings: [], ports: '3001-3099', exists: true,
 };
 const BROKEN: RegisteredRepo = {
   path: '/Users/me/Projects/widgets', folder: 'widgets', name: 'widgets', github: null,
-  profileFile: '/Users/me/Projects/widgets/ground-control.md', profileSource: 'repo',
+  profileFile: '/Users/me/Projects/widgets/ground-control.md', profileSource: 'repo', // a profile by its old name
   ok: false, errors: ['github must look like org/repo, like acme/widgets.', 'ports (under tryIt) must look like 3001-3099, two numbers from 1024 to 65535.'], warnings: [], ports: null, exists: true,
 };
 const list = (repos: RegisteredRepo[], extra: Partial<RepoRegistry> = {}): RepoRegistry => ({ repos, file: '/state/repos.json', unreadable: null, ...extra });
@@ -46,12 +46,12 @@ describe('Settings → Repos', () => {
     expect(orbit).toHaveTextContent('/Users/me/Projects/moxie-portal');
     expect(orbit).toHaveTextContent('GitHub Moxie-Pest-Control-Phoenix/moxie-portal');
     expect(orbit).toHaveTextContent('Ports 3001-3099');
-    expect(orbit).toHaveTextContent('Profile: a profile file Dashboard keeps for it');
+    expect(orbit).toHaveTextContent('Profile: a profile file Starbase keeps for it');
     expect(orbit).toHaveTextContent('(moxie-portal)');
     const broken = rowOf('widgets');
     // The state is words, never a colour alone; each problem is its own line.
     expect(broken).toHaveTextContent('Its profile has 2 problems');
-    expect(broken).toHaveTextContent('Profile: its own ground-control.md');
+    expect(broken).toHaveTextContent('Profile: its own ground-control.md'); // a profile by its name before Starbase
     const problems = within(broken).getByRole('list', { name: 'Problems in widgets’s profile' });
     expect(within(problems).getAllByRole('listitem').map((li) => li.textContent)).toEqual(BROKEN.errors);
     expect(repoStatus({ ...ORBIT, exists: false })).toBe('Folder not found');
@@ -64,8 +64,8 @@ describe('Settings → Repos', () => {
   });
 
   it('a load error and an unreadable list file are said in plain words', async () => {
-    setup({ get: async () => { throw new ApiError(503, 'This copy of Dashboard can’t read the repository list yet.'); } });
-    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t load the repositories: This copy of Dashboard can’t read the repository list yet.');
+    setup({ get: async () => { throw new ApiError(503, 'This copy of Starbase can’t read the repository list yet.'); } });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t load the repositories: This copy of Starbase can’t read the repository list yet.');
   });
 
   it('an unreadable list file is a warning', async () => {
@@ -74,7 +74,7 @@ describe('Settings → Repos', () => {
   });
 
   it('Check reads a row’s profile again; Remove takes it off the list', async () => {
-    const api = setup({ post: async () => ({ ok: true, errors: [], warnings: ['Dashboard doesn’t know “stacks”, so it is kept but not used.'], name: 'Orbit', ports: '3001-3099' }) });
+    const api = setup({ post: async () => ({ ok: true, errors: [], warnings: ['Starbase doesn’t know “stacks”, so it is kept but not used.'], name: 'Orbit', ports: '3001-3099' }) });
     await screen.findByText('Orbit');
     fireEvent.click(screen.getByRole('button', { name: 'Check Orbit’s profile' }));
     expect(await within(rowOf('Orbit')).findByText(/The profile reads well/)).toHaveTextContent('The profile reads well: Orbit, Try it ports 3001-3099.');

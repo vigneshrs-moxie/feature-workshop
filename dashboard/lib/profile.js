@@ -1,5 +1,5 @@
 // A repository's profile: how work is done there (plan G10, §5 "Repos"). It is a short Markdown
-// file, ground-control.md, in the repository's root (or a copy the runner's registry keeps, as for
+// file, starbase.md, in the repository's root (or a copy the runner's registry keeps, as for
 // Orbit: dashboard/profiles/orbit.md). The settings sit in a block between two --- lines at the top;
 // everything below is free notes for people.
 //
@@ -15,7 +15,7 @@
 // Anything else (tabs, odd indents, [a, b], {a: b}, several documents) is an error in plain words.
 //
 //   parseProfile(text)        the text → { ok, profile, errors, warnings }
-//   loadProfile(dirOrFile)    reads <dir>/ground-control.md, or the file named, the same way
+//   loadProfile(dirOrFile)    reads <dir>/starbase.md (or its older name), or the file named, the same way
 //   fillPattern(p, values)    fills {slug}, {n}, {kind}, {title}, {port} (and {key}, {app})
 //   GENERAL                   what a repository with no profile gets: today's general case
 //   tryItRules(profile)       the Try it rules for a job: the profile's, or GENERAL's
@@ -23,12 +23,23 @@
 //
 // Unknown keys are kept (profile.extra) and named in `warnings`; they never stop a profile loading.
 
+import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { PRODUCT } from './brand.js';
 
 /** The profile's file name in a repository's root. */
-export const PROFILE_FILE = 'ground-control.md';
+export const PROFILE_FILE = 'starbase.md';
+/** Its name before Starbase (G36): still read when a repository has no starbase.md. */
+export const OLD_PROFILE_FILE = 'ground-control.md';
+
+/** A repository's own profile file: its starbase.md, else the older ground-control.md, else where starbase.md would be. */
+export function ownProfileFile(dir) {
+  const now = path.join(dir, PROFILE_FILE);
+  if (fs.existsSync(now)) return now;
+  const was = path.join(dir, OLD_PROFILE_FILE);
+  return fs.existsSync(was) ? was : now;
+}
 /** The largest profile read (bytes): a profile is a short file. */
 export const PROFILE_MAX_BYTES = 64 * 1024;
 
@@ -381,13 +392,13 @@ export function parseProfile(source) {
 }
 
 /**
- * Reads a profile: `dirOrFile` is a repository folder (its ground-control.md) or a profile file.
+ * Reads a profile: `dirOrFile` is a repository folder (its starbase.md, or the older ground-control.md) or a profile file.
  * Returns { ok, profile, errors, warnings, file }; a file that can't be read is an error, too.
  */
 export async function loadProfile(dirOrFile) {
   let file = String(dirOrFile ?? '');
   try {
-    if ((await fsp.stat(file)).isDirectory()) file = path.join(file, PROFILE_FILE);
+    if ((await fsp.stat(file)).isDirectory()) file = ownProfileFile(file);
   } catch { /* reported below */ }
   let st;
   try { st = await fsp.stat(file); } catch { return { ok: false, profile: null, errors: [`There is no profile at ${file}.`], warnings: [], file }; }
@@ -398,7 +409,7 @@ export async function loadProfile(dirOrFile) {
   return { ...parseProfile(source), file };
 }
 
-// ---------- What the rest of Ground Control reads ----------
+// ---------- What the rest of Starbase reads ----------
 
 /** The GitHub org of a profile (the part before the slash), or null. */
 export const githubOrg = (profile) => (profile?.github ? profile.github.split('/')[0] : null);

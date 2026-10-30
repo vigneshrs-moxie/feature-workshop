@@ -1,6 +1,6 @@
 // The gate card's route (POST /api/job/:slug/gate) and a job's notes (GET/PUT /api/job/:slug/notes)
 // through the real dashboard in demo mode (a pretend Foreman, nothing real runs) on temp folders:
-// no real job, ~/.claude or ~/.feature-workshop is touched and no Claude usage is spent.
+// no real job, ~/.claude or the real state folder is touched and no Claude usage is spent.
 // The dashboard starts with Claude's usage limit reached (seeded in its settings), so the first
 // test can hold a reply until "Carry on now"; the rest run with the limit lifted.
 
@@ -89,9 +89,9 @@ before(async () => {
 
   dashboard = await startDashboard({
     env: {
-      HOME: dirs.home, WORKSHOP_DEMO: '1',
-      WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
-      WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: stateDir,
+      HOME: dirs.home, STARBASE_DEMO: '1',
+      STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: stateDir,
     },
     output,
   });
@@ -105,7 +105,7 @@ after(async () => {
 });
 
 const write = async (method, p, body = {}, { auth = true } = {}) => {
-  const res = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Workshop-Token': token } : {}) }, body: JSON.stringify(body) });
+  const res = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Starbase-Token': token } : {}) }, body: JSON.stringify(body) });
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 const get = async (p) => (await fetch(base + p)).json();

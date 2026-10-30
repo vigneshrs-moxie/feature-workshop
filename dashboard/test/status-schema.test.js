@@ -115,7 +115,7 @@ test('validate: required fields, unknown keys, bad JSON', () => {
   assert.deepEqual(v.errors, ['slug: missing (it is required)', 'stage: missing (it is required)', 'stage_state: missing (it is required)']);
   const extra = validate({ ...V1, mood: 'sunny', brief: { ...V1.brief, colour: 'red' } });
   assert.equal(extra.ok, true, 'an unknown key is allowed');
-  assert.deepEqual(extra.warnings, ['brief.colour: not in the schema, so the dashboard ignores it', 'mood: not in the schema, so the dashboard ignores it'], 'in the order of the file');
+  assert.deepEqual(extra.warnings, ['brief.colour: not in the schema, so Starbase ignores it', 'mood: not in the schema, so Starbase ignores it'], 'in the order of the file');
   assert.deepEqual(validate('{nope'), { ok: false, errors: [validate('{nope').errors[0]], warnings: [] });
   assert.match(validate('{nope').errors[0], /^status\.json is not valid JSON: /);
   assert.deepEqual(validate('[]').errors, ['status.json: expected an object, got a list []']);

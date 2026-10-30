@@ -237,7 +237,7 @@ export interface Repo {
   registered?: boolean;
 }
 
-/** Where a registered repository's profile comes from: its own ground-control.md, or a file named in Settings → Repos. */
+/** Where a registered repository's profile comes from: its own starbase.md (or a profile file by its older name), or a file named in Settings → Repos. */
 export type ProfileSource = 'repo' | 'registry';
 
 /** One repository in Settings → Repos (GET /api/repos/registry, lib/repos.js), with what its profile says. */

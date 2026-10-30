@@ -9,19 +9,46 @@
 // for want of a keychain. The token is never logged, and never written anywhere else.
 //
 // Every store is { kind, get(), set(token), clear() }. Paths, the platform, the command runner and
-// the keytar import are injectable, so tests never touch the real Keychain or ~/.ground-control.
+// the keytar import are injectable, so tests never touch the real Keychain or the real state folder.
 // `names` ({ service, account, file }) keeps another secret the same way under its own names: the
 // laptop's site token (packet 2A, runner/site-link.js). Left out, it is the Orbit token's.
+// `names.oldService`: the credential store's name for it before Starbase (G36). A token saved under
+// that name is still read; the next save puts it under the new name and clears the old entry.
 
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-export const SERVICE = 'Ground Control Orbit token';
+export const SERVICE = 'Starbase Orbit token';
+/** The name before Starbase (G36): still read, cleared on the next save. */
+export const OLD_SERVICE = 'Ground Control Orbit token';
 export const ACCOUNT = 'orbit-feedback';
 export const TOKEN_FILE = 'orbit-token';
 
-const ORBIT_NAMES = Object.freeze({ service: SERVICE, account: ACCOUNT, file: TOKEN_FILE });
+const ORBIT_NAMES = Object.freeze({ service: SERVICE, account: ACCOUNT, file: TOKEN_FILE, oldService: OLD_SERVICE });
+
+/**
+ * A credential store under its new name with the old name behind it: get() reads the new entry,
+ * else the old one; set() saves under the new name and then clears the old entry; clear() clears both.
+ */
+export function renamedStore(now, was) {
+  return {
+    get kind() { return now.kind; },
+    async get() {
+      const t = await now.get();
+      if (t) return t;
+      try { return await was.get(); } catch { return null; }
+    },
+    async set(token) {
+      await now.set(token);
+      try { await was.clear(); } catch { /* nothing there */ }
+    },
+    async clear() {
+      try { await was.clear(); } catch { /* nothing there */ }
+      await now.clear();
+    },
+  };
+}
 
 /** The file store: <dir>/orbit-token (or names.file), mode 600, the folder 700. */
 export function fileStore(dir, names = ORBIT_NAMES) {
@@ -133,11 +160,12 @@ export function layeredStore(primary, file) {
 export async function tokenStore({ stateDir, prefer = 'auto', platform = process.platform, importKeytar = () => import('keytar'), run, names = ORBIT_NAMES } = {}) {
   const file = fileStore(stateDir, names);
   if (prefer === 'file') return file;
+  const renamed = (make) => (names.oldService ? renamedStore(make(names), make({ ...names, service: names.oldService })) : make(names));
   try {
     const mod = await importKeytar();
     const keytar = mod?.default ?? mod;
-    if (keytar?.getPassword) return layeredStore(keytarStore(keytar, names), file);
+    if (keytar?.getPassword) return layeredStore(renamed((n) => keytarStore(keytar, n)), file);
   } catch { /* not installed */ }
-  if (platform === 'darwin') return layeredStore(keychainStore(run ? { run, names } : { names }), file);
+  if (platform === 'darwin') return layeredStore(renamed((n) => keychainStore(run ? { run, names: n } : { names: n })), file);
   return file;
 }

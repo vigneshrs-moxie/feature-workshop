@@ -1,7 +1,7 @@
-// Portal Feedback (ORBIT-479) from Ground Control: the token and where it is kept, the read-only
+// Portal Feedback (ORBIT-479) from Starbase: the token and where it is kept, the read-only
 // client against a fake Orbit (an http server on a free port serving test/fixtures/orbit), the
 // inbox poller's cadence on a fake clock, the scrubber, and a grep that keeps every request to
-// Orbit a GET. Nothing here touches ~/.claude, the Keychain, ~/.ground-control or a real Orbit.
+// Orbit a GET. Nothing here touches ~/.claude, the Keychain, ~/.starbase or a real Orbit.
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -108,6 +108,22 @@ test('tokenStore picks keytar when it loads, the Keychain on macOS, else the fil
   assert.equal((await tokenStore({ stateDir, importKeytar: fakeKeytar })).kind, 'keytar');
   assert.equal((await tokenStore({ stateDir, importKeytar: noKeytar, platform: 'darwin', run: async () => ({ code: 44, out: '' }) })).kind, 'keychain');
   assert.equal((await tokenStore({ stateDir, importKeytar: noKeytar, platform: 'linux' })).kind, 'file');
+});
+
+test('a token saved under the credential store’s old name (Ground Control Orbit token) is still read; the next save moves it to the new name', async () => {
+  const stateDir = await tmp();
+  const kept = new Map([['Ground Control Orbit token/orbit-feedback', 'orbfb_old_saved']]); // a pretend credential store, with the token under the old name
+  const keytar = {
+    getPassword: async (s, a) => kept.get(`${s}/${a}`) ?? null,
+    setPassword: async (s, a, t) => { kept.set(`${s}/${a}`, t); },
+    deletePassword: async (s, a) => kept.delete(`${s}/${a}`),
+  };
+  const store = await tokenStore({ stateDir, importKeytar: async () => ({ default: keytar }) });
+  assert.equal(await store.get(), 'orbfb_old_saved');
+  await store.set('orbfb_new_one');
+  assert.deepEqual([...kept], [['Starbase Orbit token/orbit-feedback', 'orbfb_new_one']], 'under the new name only');
+  await store.clear();
+  assert.equal(kept.size, 0);
 });
 
 test('setToken stores the token and writes the Foreman’s MCP entry with a variable, never the token; clearToken undoes both', async () => {
@@ -549,9 +565,9 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   const output = [];
   const child = spawn(process.execPath, [path.join(HERE, '..', 'server.js')], {
     env: {
-      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(await freePort()), HOME: dirs.home, WORKSHOP_DEMO: '1',
-      WORKSHOP_FEATURES_DIR: dirs.features, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
-      WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state, GROUND_CONTROL_ORBIT_URL: '',
+      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(await freePort()), HOME: dirs.home, STARBASE_DEMO: '1',
+      STARBASE_FEATURES_DIR: dirs.features, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state, STARBASE_ORBIT_URL: '',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -560,7 +576,7 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   });
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running')) { clearTimeout(timer); resolve(); } });
+    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Starbase running')) { clearTimeout(timer); resolve(); } });
     child.stderr.on('data', (d) => output.push(String(d)));
     child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
   });
@@ -568,7 +584,7 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   const bodies = [];
   const get = async (p) => { const res = await fetch(base + p); const text = await res.text(); bodies.push(text); return { status: res.status, body: JSON.parse(text) }; };
   const write = async (method, p, body = {}, { auth = true } = {}) => {
-    const res = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Workshop-Token': pageToken } : {}) }, body: JSON.stringify(body) });
+    const res = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Starbase-Token': pageToken } : {}) }, body: JSON.stringify(body) });
     const text = await res.text();
     bodies.push(text);
     return { status: res.status, body: JSON.parse(text) };
@@ -616,7 +632,7 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   assert.equal(r.status, 200);
   assert.equal(r.body.items.length, 54);
   const item = (key) => r.body.items.find((i) => i.key === key);
-  assert.equal(item('ORBIT-479').title, 'Read-only feedback API and MCP for Ground Control');
+  assert.equal(item('ORBIT-479').title, 'Read-only feedback API and MCP for Starbase');
   assert.deepEqual(item('ORBIT-479').job, { slug: 'orbit-479-feedback-api', title: 'orbit-479-feedback-api' });
   assert.equal(item('ORBIT-501').job.slug, 'tidy-tracker', 'status.json ticket.key counts');
   assert.equal(item('ORBIT-502').job, null);
@@ -676,7 +692,7 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   await assert.rejects(fs.stat(path.join(dirs.state, 'orbit-token')));
   assert.equal(JSON.parse(await fs.readFile(path.join(dirs.home, '.claude.json'), 'utf8')).mcpServers, undefined);
   assert.deepEqual((await get('/api/orbit/inbox')).body.items, []);
-  assert.equal((await fetch(`${base}/api/orbit/token`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': pageToken }, body: '{}' })).status, 405);
+  assert.equal((await fetch(`${base}/api/orbit/token`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': pageToken }, body: '{}' })).status, 405);
 });
 
 // ---------- Step 7: no write path to Orbit ----------

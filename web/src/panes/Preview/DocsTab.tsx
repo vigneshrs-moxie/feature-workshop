@@ -15,6 +15,7 @@ import { KeyPoints } from '../../components/KeyPoints';
 import { Button } from '../../components/Button';
 import { ServerHtml } from '../Foreman/ServerHtml';
 import { sectionDocs, sectionOf, sizeLabel, versionLabel, type DocSection } from './docs';
+import { BRAND } from '../../app/brand';
 
 type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'error'; message: string };
 
@@ -151,7 +152,7 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
       {load.state === 'error' && (
         <div>
           <p className="thread-error" role="alert">Couldn’t load it: {load.message}</p>
-          <Button onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for this document again.">Try again</Button>
+          <Button onClick={() => setTries((n) => n + 1)} title={`Ask ${BRAND.name} for this document again.`}>Try again</Button>
         </div>
       )}
       {doc && !source && doc.type !== 'json' && (doc.summary || SUMMARISED.has(entry?.group ?? '')) && <KeyPoints summary={doc.summary} kind={file.startsWith('briefs/') ? 'brief' : 'doc'} slug={slug} file={file} version={entry?.version ?? null} />}
@@ -262,7 +263,7 @@ export function DocsTab({ slug, section = 'plan', onSection, changedAt, focusReq
     return (
       <div className="docs-tab">
         <p className="thread-error" role="alert">Couldn’t load the documents: {load.message}</p>
-        <Button onClick={reload} title="Ask the dashboard for this job’s documents again.">Try again</Button>
+        <Button onClick={reload} title={`Ask ${BRAND.name} for this job’s documents again.`}>Try again</Button>
       </div>
     );
   }

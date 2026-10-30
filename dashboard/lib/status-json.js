@@ -16,6 +16,7 @@
 
 import fs from 'node:fs';
 import { STAGE_IDS } from './stages.js';
+import { PRODUCT } from './brand.js';
 
 /** The JSON Schema for status.json (versions 1 and 2). */
 export const STATUS_SCHEMA = JSON.parse(fs.readFileSync(new URL('./status-schema.json', import.meta.url), 'utf8'));
@@ -233,7 +234,7 @@ function check(value, schema, where, out, main = true) {
     if (schema.properties) {
       for (const [k, v] of Object.entries(value)) {
         if (schema.properties[k]) check(v, schema.properties[k], at(where, k), out, main);
-        else if (main) out.warnings.push(`${at(where, k)}: not in the schema, so the dashboard ignores it`);
+        else if (main) out.warnings.push(`${at(where, k)}: not in the schema, so ${PRODUCT} ignores it`);
       }
     }
   }

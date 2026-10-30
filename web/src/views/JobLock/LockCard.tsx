@@ -7,6 +7,7 @@ import { clockTime, fullTime } from '../../lib/time';
 
 export type { JobLockInfo } from '../../api/types';
 import type { JobLockInfo } from '../../api/types';
+import { BRAND } from '../../app/brand';
 
 /** The lock a refused send carries, or null when the error is something else. */
 export function lockFromError(err: unknown): JobLockInfo | null {
@@ -26,7 +27,7 @@ export function lockHeadline(lock: JobLockInfo, now: Date = new Date()): string 
   const facts = `(pid ${lock.pid ?? 'unknown'}, since ${since})`;
   return lock.owner === 'terminal'
     ? `This job is open in a terminal ${facts}`
-    : `This job is being run by another copy of the dashboard ${facts}`;
+    : `This job is being run by another copy of ${BRAND.name} ${facts}`;
 }
 
 export function LockCard({ lock, now }: { lock: JobLockInfo; now?: Date }) {
@@ -41,7 +42,7 @@ export function LockCard({ lock, now }: { lock: JobLockInfo; now?: Date }) {
       <p className="muted">
         {terminal
           ? 'Finish there, or close that Claude Code session (/exit), then send again. Once that session has ended, sending again takes the job over.'
-          : 'Stop it in that dashboard first, then send again. Once that dashboard has stopped, sending again takes the job over.'}
+          : 'Stop it in that copy first, then send again. Once that copy has stopped, sending again takes the job over.'}
       </p>
       {lock.branch && <p className="muted">Branch there: <code className="inline-code num">{lock.branch}</code></p>}
     </section>

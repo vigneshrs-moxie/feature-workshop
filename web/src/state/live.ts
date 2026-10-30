@@ -13,6 +13,7 @@
 import type { ApiClient } from '../api/client';
 import type { LiveEvent } from '../api/types';
 import type { Store } from './store';
+import { BRAND } from '../app/brand';
 
 /** The parts of EventSource used here, so tests can pass a fake. */
 export interface EventSourceLike {
@@ -79,7 +80,7 @@ export function createLiveSync({
       hydrateDelay = retryMinMs;
     } catch (err) {
       if (stopped) return;
-      store.dispatch({ type: 'error', error: `Couldn’t reach the dashboard: ${message(err)}` });
+      store.dispatch({ type: 'error', error: `Couldn’t reach ${BRAND.name}: ${message(err)}` });
       // Try again by itself, a little later each time.
       if (hydrateTimer === null) {
         hydrateTimer = setTimer(() => { hydrateTimer = null; void refresh(); }, hydrateDelay);

@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-16"?>
-<!-- Ground Control as your own background service on Windows (packet I): a Task Scheduler task,
-     "Ground Control", that starts when you sign in and runs as you, with your normal rights.
-     `ground-control install` fills in the {{…}} parts, saves it (as UTF-16, which Task Scheduler
-     reads) in ~/.ground-control/service/ and makes the task with schtasks /Create /XML. The task
-     runs `ground-control service-run` in a hidden PowerShell window: that starts the dashboard on
-     port 4477, writes its output to ~/.ground-control/logs/, starts it again if it fails, and stops
-     it cleanly when you run `ground-control stop`. -->
+<!-- Starbase as your own background service on Windows (packet I): a Task Scheduler task,
+     "Starbase", that starts when you sign in and runs as you, with your normal rights.
+     `starbase install` fills in the {{…}} parts, saves it (as UTF-16, which Task Scheduler
+     reads) in ~/.starbase/service/ and makes the task with schtasks /Create /XML. The task
+     runs `starbase service-run` in a hidden PowerShell window: that starts Starbase on
+     port 4477, writes its output to ~/.starbase/logs/, starts it again if it fails, and stops
+     it cleanly when you run `starbase stop`. -->
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Author>{{USER}}</Author>
-    <Description>Ground Control: your dashboard, in the background from sign-in. Made by ground-control install; remove it with ground-control uninstall.</Description>
+    <Description>Starbase, in the background from sign-in. Made by starbase install; remove it with starbase uninstall.</Description>
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
