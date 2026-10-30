@@ -4,7 +4,7 @@
 // money, how long a stack has run.
 import type { IconName } from '../../components/Icon';
 import type { ChipTone } from '../../components/Chip';
-import type { PartLane, StackSummary, StackView } from '../../api/types';
+import type { PartLane, StackPart, StackSummary, StackView } from '../../api/types';
 
 export interface LaneLook {
   /** The column's heading and the chip's word. */
@@ -95,3 +95,41 @@ export const standingTone = (s: { standing?: StackSummary['standing'] }) => (s.s
 
 /** A view's parts as segments (older dashboards: none). */
 export const segmentsOf = (v: Pick<StackView, 'parts'>) => v.parts.filter((p) => p.lane).map((p) => ({ n: p.n, name: p.name, title: p.title ?? p.name, lane: p.lane!, laneWords: p.laneWords ?? '', slug: p.slug }));
+
+const partsWord = (ns: number[]) => (ns.length === 1 ? `part ${ns[0]}` : `parts ${ns.slice(0, -1).join(', ')} and ${ns.at(-1)}`);
+
+/** Where a part is, worked out here when the dashboard didn't say (dashboard/lib/stack-parts.js partLane, the same rule). */
+export function laneOfPart(p: StackPart, view: Pick<StackView, 'parts' | 'approved' | 'busy'>): { lane: PartLane; words: string } {
+  const waits = p.dependsOn.map((d) => view.parts.find((x) => x.name === d)).filter((x): x is StackPart => Boolean(x) && x!.state !== 'integrated').map((x) => x.n);
+  const pending = () => (waits.length ? { lane: 'waiting' as const, words: `Waiting on ${partsWord(waits)}` } : { lane: 'queued' as const, words: 'Ready to start' });
+  if (!view.approved) return pending();
+  if (view.busy?.section === p.name) return { lane: 'merging', words: 'Being merged' };
+  switch (p.state) {
+    case 'integrated': return { lane: 'merged', words: 'Merged' };
+    case 'failed': return { lane: 'stuck', words: 'Stuck' };
+    case 'ready': return { lane: 'ready', words: 'Ready to merge' };
+    case 'blocked': { const k = p.problem?.kind; return { lane: 'needs-you', words: k === 'conflict' ? 'Clash at its merge' : k === 'outside' ? 'Changed files not its own' : k === 'empty' ? 'Nothing to merge' : 'Back with its Foreman' }; }
+    case 'running':
+      if (/waiting for you/i.test(p.progress.words)) return { lane: 'needs-you', words: 'Waiting for your go-ahead' };
+      if (p.progress.stage === 'test' || p.progress.stage === 'review') return { lane: 'checks', words: p.progress.stage === 'review' ? 'In review' : 'Checks running' };
+      return { lane: 'working', words: 'At work' };
+    default: return pending();
+  }
+}
+
+/** The view with every part's lane, words, title and links filled in (an older dashboard sends none). */
+export function withLanes(view: StackView): StackView {
+  if (view.parts.every((p) => p.lane)) return view;
+  const parts = view.parts.map((p) => {
+    if (p.lane) return p;
+    const l = laneOfPart(p, view);
+    const brief = (p.brief ?? '').split(/(?<=[a-z0-9)])[.:;](?:\s|$)/i)[0].trim();
+    return {
+      ...p, lane: l.lane, laneWords: l.words, title: p.title ?? (brief ? (brief.length > 60 ? `${brief.slice(0, 57).trimEnd()}…` : brief) : p.name),
+      dependsOnN: p.dependsOnN ?? p.dependsOn.map((d) => view.parts.find((x) => x.name === d)?.n).filter((n): n is number => typeof n === 'number'),
+      unblocks: p.unblocks ?? view.parts.filter((x) => x.dependsOn.includes(p.name)).map((x) => x.n),
+    };
+  });
+  const counts = Object.fromEntries(Object.keys(LANE_LOOK).map((k) => [k, parts.filter((p) => p.lane === k).length])) as Record<PartLane, number>;
+  return { ...view, parts, counts: view.counts ?? counts };
+}

@@ -18,6 +18,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -26,6 +27,8 @@ const MODEL = 'claude-opus-5-5';
 
 const iso = (agoMs) => new Date(Date.now() - agoMs).toISOString();
 const json = (v) => `${JSON.stringify(v, null, 2)}\n`;
+// The plan's fingerprint, as the runner keeps it at approval (lib/stack.js planHash).
+const planHash = (text) => createHash('sha256').update(String(text)).digest('hex').slice(0, 16);
 
 // ---------- The plans ----------
 
@@ -326,7 +329,7 @@ async function invoiceExport({ features, repo, g, projects }) {
     'stack.md': EXPORT_PLAN,
     'stack.json': json({
       version: 1, parent: slug, cap: 5, autoIntegrate: false, model: MODEL, effort: 'high',
-      repo, parentBranch, parentWorktree: repo, base: 'main', planApprovedAt: iso(4 * DAY + 40 * MIN), planHash: null,
+      repo, parentBranch, parentWorktree: repo, base: 'main', planApprovedAt: iso(4 * DAY + 40 * MIN), planHash: planHash(EXPORT_PLAN),
       push: { state: 'waiting', approvedAt: null, pushedAt: null, note: null, remote: 'origin' },
       sections, log,
     }),
@@ -370,7 +373,7 @@ async function singleSignOn({ features, repo, g }) {
     'stack.md': SSO_PLAN,
     'stack.json': json({
       version: 1, parent: slug, cap: 3, autoIntegrate: true, model: MODEL, effort: 'high',
-      repo, parentBranch, parentWorktree: repo, base: 'main', planApprovedAt: iso(12 * DAY), planHash: null,
+      repo, parentBranch, parentWorktree: repo, base: 'main', planApprovedAt: iso(12 * DAY), planHash: planHash(SSO_PLAN),
       push: { state: 'pushed', approvedAt: iso(2 * DAY + 3 * HOUR), pushedAt: iso(2 * DAY), note: null, remote: 'origin' },
       sections, log,
     }),
