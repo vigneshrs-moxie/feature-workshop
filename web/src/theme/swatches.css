@@ -334,7 +334,7 @@
   --status-ok: oklch(.86 .15 150);
   --status-ok-bg: oklch(.86 .15 150 / .16);
   --status-warn: oklch(.87 .15 80);
-  --status-warn-bg: oklch(.87 .15 80 / .16);
+  --status-warn-bg: oklch(.87 .15 80 / .11);
   --status-error: oklch(.82 .15 25);
   --status-error-bg: oklch(.82 .15 25 / .18);
   --status-info: oklch(.86 .11 205);

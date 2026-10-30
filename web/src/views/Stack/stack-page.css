@@ -24,8 +24,8 @@
 .board-col-icon { color: var(--mark); }
 .board-col-word { font-weight: var(--weight-medium); color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .board-col-count { min-width: 20px; height: 18px; padding: 0 6px; border-radius: 9px; background: var(--bg-2); color: var(--text-2); font-size: var(--text-2xs); line-height: 18px; text-align: center; }
-.col-needs-you:not(.is-empty) .board-col-count { background: var(--lane-needs-you-bg); color: var(--lane-needs-you-fg); }
-.board-col-fold { display: inline-flex; align-items: center; gap: 2px; height: 28px; margin-left: auto; padding: 0 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-3); font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.col-needs-you:not(.is-empty) .board-col-count { background: var(--lane-needs-you-bg); color: var(--text-1); } /* the lane colour on its own tint was 4.1:1 (Sunset paper, Blueprint; packet X) */
+.board-col-fold { display: inline-flex; align-items: center; gap: 2px; height: 28px; margin-left: auto; padding: 0 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-2); font: inherit; font-size: var(--text-xs); cursor: pointer; }
 .board-col-fold:hover { background: var(--hover-bg); color: var(--text-1); }
 .board-col-fold[aria-expanded='true'] .icon { transform: rotate(180deg); }
 .board-col-empty { margin: 0; padding: var(--space-2) 2px; color: var(--text-3); font-size: var(--text-xs); }

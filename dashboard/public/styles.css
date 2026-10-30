@@ -372,7 +372,7 @@ main { padding: 18px clamp(16px, 3vw, 32px) 120px; max-width: 1360px; margin: 0 
 .station.done .name { color: var(--text-1); }
 .station.skipped .name { color: var(--text-2); text-decoration: line-through; }
 .station.current .node { transform: scale(1.2); background: var(--bg-1); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.station.current .name { color: var(--text-1); font-weight: var(--weight-bold); background: var(--bg-1); border: 1px solid var(--border-2); border-radius: var(--chip-radius); padding: 0 5px; overflow: visible; max-width: none; position: relative; z-index: 3; }
+.station.current .name { color: var(--text-1); font-weight: var(--weight-bold); background: var(--surface-float, var(--bg-1)); border: 1px solid var(--border-2); border-radius: var(--chip-radius); padding: 0 5px; overflow: visible; max-width: none; position: relative; z-index: 3; }
 .map.tone-needs .station.current .node { border-color: var(--needs-line); box-shadow: 0 0 0 3px var(--needs-bg); }
 .map.tone-working .station.current .node { border-color: var(--working); box-shadow: 0 0 0 3px var(--working-bg); }
 .map.tone-done .station.current .node { border-color: var(--done); background: var(--done); }
@@ -391,8 +391,8 @@ main { padding: 18px clamp(16px, 3vw, 32px) 120px; max-width: 1360px; margin: 0 
   animation: pop-in .4s var(--spring) both;
 }
 .bubble::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border: 5px solid transparent; border-top-color: var(--border-3); }
-.bubble.bang, .bubble.key { background: var(--needs); color: var(--on-needs, var(--bg-0)); border-color: var(--needs); }
-.bubble.bang::after, .bubble.key::after { border-top-color: var(--needs); }
+.bubble.bang, .bubble.key { background: var(--needs-solid, var(--needs)); color: var(--on-needs, var(--bg-0)); border-color: var(--needs-solid, var(--needs)); }
+.bubble.bang::after, .bubble.key::after { border-top-color: var(--needs-solid, var(--needs)); }
 .bubble.badge { background: var(--done-bg); color: var(--done); border-color: var(--done); }
 .bubble.quiet { background: var(--bg-2); color: var(--text-2); }
 .bubble.dots { display: flex; gap: 4px; }
@@ -674,7 +674,9 @@ td small { display: block; }
 /* ---------- Permission cards (the new view's PermissionCard) ---------- */
 
 .perm { padding: 14px 16px; border-color: var(--border-2); border-left: 3px solid var(--accent); animation: slide-in .3s var(--ease-out) both; }
-.perm.risky { border-left-color: var(--red); background: color-mix(in srgb, var(--red-bg) 55%, var(--panel)); }
+/* A solid card, so a see-through theme's tray or scene never shows through its words (packet X). */
+.perm.gbox:not(.risky) { background-color: var(--surface-float, var(--bg-1)); }
+.perm.risky { border-left-color: var(--red); background: color-mix(in srgb, var(--red-bg) 55%, var(--surface-float, var(--panel))); }
 .perm.decided { opacity: .5; pointer-events: none; }
 .perm-head { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
 .perm-face { flex: none; display: grid; place-items: center; width: 56px; height: 56px; border-radius: var(--radius-lg); background: var(--panel-2); }

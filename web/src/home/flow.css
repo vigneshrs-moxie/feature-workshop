@@ -245,7 +245,7 @@ a.map-pr:hover { border-color: var(--border-3); text-decoration: none; }
 .home-table table { width: 100%; min-width: 1100px; border-collapse: separate; border-spacing: 0; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .home-table :is(th, td) { height: 44px; padding: 0 var(--space-3); border-bottom: 1px solid var(--border-1); color: var(--text-1); text-align: left; vertical-align: middle; white-space: nowrap; }
 .home-table tbody tr:last-child > * { border-bottom: 0; }
-.home-table thead th { position: sticky; top: 0; z-index: 1; height: 36px; background: var(--surface-2); color: var(--text-3); font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.home-table thead th { position: sticky; top: 0; z-index: 1; height: 36px; background: var(--surface-2); color: var(--text-2); font-size: var(--text-xs); font-weight: var(--weight-medium); }
 .home-table thead th[aria-sort] { color: var(--text-1); }
 .home-table thead th:first-child { border-top-left-radius: calc(var(--card-radius) - 1px); }
 .home-table thead th:last-child { border-top-right-radius: calc(var(--card-radius) - 1px); }
