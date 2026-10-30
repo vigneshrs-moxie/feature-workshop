@@ -36,6 +36,7 @@ One file per packet. Start a terminal tab, paste the path of one file, and that 
 | U | `U-claude-code-usage.md` | 4497 |
 | V | `V-stacks-home.md` | 4499 |
 | W | `W-polish.md` | 4501 |
+| X | `X-every-theme.md` | 4503 |
 
 **Ports:** a packet takes a port only after the packet that last used it is merged, so no two packets running at the same time share one (H after G on 4481; I after H; K after J; L after N; M after I; O after K). 4477 and 4479 are never used.
 
