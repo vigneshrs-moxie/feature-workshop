@@ -4,59 +4,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PROTOCOL_VERSION } from '../../dashboard/lib/protocol.js';
 import { createSiteLink, eventQueue, QUEUE_FILE, siteTokenStore, writeSiteFile } from '../../dashboard/runner/site-link.js';
-import { browser, makeSite, signIn, SITE } from './helpers.js';
-
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'gc-2a-link-'));
-
-async function until(check, { ms = 8000, what = 'the condition' } = {}) {
-  const end = Date.now() + ms;
-  for (;;) {
-    const v = await check();
-    if (v) return v;
-    if (Date.now() > end) throw new Error(`Timed out waiting for ${what}.`);
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
-
-/** A signed-in made-up person and a laptop paired for them: { person, token, runnerId }. */
-async function paired(s, email, name = 'Test Laptop') {
-  const person = browser(s.fetch);
-  await signIn(person, { email });
-  const post = async (p, body) => (await s.fetch(`${SITE}${p}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
-  const st = await post('/api/pair/start', { name, os: 'macOS', deviceId: `device-${email.split('@')[0].replace(/\W/g, '')}-01` });
-  assert.equal((await person.send('POST', `/api/pair/${st.code}/approve`, {})).status, 200);
-  const fin = await post('/api/pair/finish', { secret: st.secret });
-  return { person, token: fin.token, runnerId: fin.runner.id };
-}
-
-/** A pretend runner: its open jobs as the board's cards, the commands it was asked to run. */
-function fakeRunner(cards = []) {
-  const ee = new EventEmitter();
-  const r = {
-    cards, handled: [],
-    read: { features: async () => ({ features: r.cards }) },
-    async handle(cmd) { r.handled.push(cmd); return { ok: true }; },
-    on(type, fn) { ee.on(type, fn); return () => ee.off(type, fn); },
-    changed() { ee.emit('change'); },
-  };
-  return r;
-}
-
-const card = (slug, extra = {}) => ({ slug, title: `Job ${slug}`, stage: 'build', lane: 'working', laneReason: 'Working', nowDoing: [{ name: 'Builder', doing: 'Writing the tests' }], updatedAt: '2026-10-30T15:00:00.000Z', ...extra });
-
-async function laptop(s, token, { runner = fakeRunner(), fetch = s.fetch, stateDir = tmp(), waitSeconds = 1, log = () => {} } = {}) {
-  writeSiteFile(stateDir, { url: SITE, deviceId: 'device-test-0001', runnerId: 1, name: 'Test Laptop' });
-  const store = await siteTokenStore({ stateDir, prefer: 'file' });
-  await store.set(token);
-  const link = createSiteLink({ runner, stateDir, store, fetch, waitSeconds, debounceMs: 20, watchEveryMs: 0, log, version: '0.1.0' });
-  return { link: link.start(), runner, stateDir, store };
-}
+import { makeSite, SITE } from './helpers.js';
+import { card, fakeRunner, laptop, paired, tmp, until } from './laptops.js';
 
 const storedEvents = async (s, runnerId) => (await s.db.query('SELECT type, job, data FROM events WHERE runner_id = $1 ORDER BY id', [runnerId])).rows;
 

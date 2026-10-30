@@ -1,0 +1,72 @@
+/* The hosted site's own screens (packet 2A): sign-in, Pair this laptop, Jobs from the mirror, and
+   Settings → Laptops and People. Theme tokens only; the controls are the app's own. */
+
+/* The top bar: Settings, who is signed in and Sign out sit on the right; at phone width they move
+   into the ☰ menu with the pages. */
+.hosted-who { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; max-width: 220px; color: var(--text-2); font-size: var(--text-sm); }
+.hosted-who-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 900px) {
+  .hosted-settings-link, .hosted-who, .hosted-sign-out { display: none; }
+}
+
+/* Sign in */
+.hosted-signin-page .page-inner { align-items: center; }
+.hosted-signin { display: flex; flex-direction: column; align-items: center; gap: var(--space-4); width: 100%; max-width: 460px; margin-top: var(--space-8); padding: var(--space-8) var(--space-6); border: 1px solid var(--border-1); border-radius: var(--radius-xl); background: var(--surface-1); box-shadow: var(--shadow-sm); text-align: center; }
+.hosted-signin p { margin: 0; }
+.hosted-signin-mark { display: inline-grid; place-items: center; width: 52px; height: 52px; border-radius: var(--radius-lg); background: var(--accent-soft); color: var(--accent-strong); }
+.hosted-signin-button { width: 100%; justify-content: center; }
+.hosted-signin-small, .hosted-fake-note, .hosted-small { font-size: var(--text-sm); }
+
+/* A problem, in words with an icon (never colour alone). */
+.hosted-problem { display: flex; align-items: flex-start; gap: var(--space-2); width: 100%; margin: 0; padding: var(--space-3); border: 1px solid var(--border-2); border-left: 3px solid var(--status-error); border-radius: var(--radius-md); background: var(--status-error-bg); text-align: left; }
+.hosted-problem > svg { flex: none; margin-top: 2px; color: var(--status-error); }
+.hosted-problem p { margin: 0; }
+.hosted-problem-title { font-weight: var(--weight-bold); }
+.hosted-done { display: flex; align-items: center; gap: var(--space-2); margin: 0; }
+.hosted-done > svg { color: var(--status-ok); }
+
+/* A command to type on the laptop. */
+.hosted-command { margin: 0; padding: var(--space-2) var(--space-3); overflow-x: auto; border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-2); font-family: var(--font-mono); font-size: var(--text-sm); white-space: pre; max-width: 100%; text-align: left; }
+
+/* Pair this laptop */
+.hosted-pair { display: flex; flex-direction: column; gap: var(--space-4); max-width: 560px; }
+.hosted-pair p { margin: 0; }
+.hosted-pair-facts { display: grid; grid-template-columns: repeat(3, minmax(0, auto)); justify-content: start; gap: var(--space-2) var(--space-8); margin: 0; padding: var(--space-4) var(--space-5); border: 1px solid var(--border-1); border-radius: var(--radius-lg); background: var(--surface-1); }
+.hosted-pair-facts dt { color: var(--text-2); font-size: var(--text-sm); }
+.hosted-pair-facts dd { margin: 0; font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.hosted-code { font-family: var(--font-mono); font-size: var(--text-xl); letter-spacing: .12em; }
+@media (max-width: 600px) { .hosted-pair-facts { grid-template-columns: minmax(0, 1fr); } }
+
+/* Jobs from the mirror */
+.hosted-laptops { display: flex; flex-direction: column; gap: var(--space-6); }
+.hosted-laptop { display: flex; flex-direction: column; gap: var(--space-3); }
+.hosted-laptop-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); }
+.hosted-laptop-name { margin: 0; font-size: var(--text-md); font-weight: var(--weight-bold); }
+.hosted-jobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.hosted-job { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--shadow-xs); }
+.hosted-job-link { color: var(--text-1); text-decoration: none; }
+.hosted-job-link:hover .hosted-job-title { text-decoration: underline; }
+.hosted-job-title { font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.hosted-job-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.hosted-job-state { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.hosted-job[data-state='needs-you'] .hosted-job-state { color: var(--lane-needs-you-fg); }
+.hosted-job-now { color: var(--text-2); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.hosted-job-foot { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); font-size: var(--text-xs); }
+.hosted-empty { margin: 0; }
+@media (max-width: 600px) { .hosted-jobs { grid-template-columns: minmax(0, 1fr); } }
+
+/* Online or not: the words carry it; the icon's shape differs too (a dot, a dashed ring). */
+.hosted-online { display: inline-flex; align-items: center; gap: 4px; }
+.hosted-online.is-online { color: var(--status-ok); }
+.hosted-online.is-offline { color: var(--text-2); }
+
+/* Settings */
+.hosted-settings-body { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.hosted-settings-body > p { margin: 0; }
+.hosted-confirm { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); padding: var(--space-3); border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--bg-2); }
+.hosted-confirm p { margin: 0; }
+.hosted-role { color: var(--text-2); font-weight: var(--weight-medium); }
+.hosted-person .chip { margin-left: var(--space-2); }
+@media (max-width: 600px) {
+  .hosted-laptop-row, .hosted-person { flex-wrap: wrap; }
+}

@@ -32,12 +32,13 @@ import peopleRoutes from './routes-people.js';
 import laptopRoutes from './routes-laptops.js';
 import pairRoutes from './routes-pair.js';
 import runnerRoutes from './routes-runner.js';
+import jobRoutes from './routes-jobs.js';
 
 const WRITES = new Set(['POST', 'PUT', 'DELETE']);
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.map': 'application/json; charset=utf-8', '.png': 'image/png', '.woff2': 'font/woff2', '.ico': 'image/x-icon' };
 
 /** The lists of routes, in the order they are tried. Later steps add theirs. */
-export const ROUTE_LISTS = [authRoutes, metaRoutes, cronRoutes, peopleRoutes, laptopRoutes, pairRoutes, runnerRoutes];
+export const ROUTE_LISTS = [authRoutes, metaRoutes, cronRoutes, peopleRoutes, laptopRoutes, pairRoutes, runnerRoutes, jobRoutes];
 
 const REAL_TIMERS = { now: () => Date.now(), sleep: (ms) => new Promise((r) => { setTimeout(r, ms).unref?.(); }) };
 

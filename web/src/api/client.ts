@@ -2,6 +2,9 @@
 // (header X-Workshop-Token, from /api/meta); the dashboard refuses a write without it (403). The
 // token changes when the dashboard restarts, so on a 403 the client fetches /api/meta once more
 // and retries the write once with the new token.
+// Hosted mode (packet 2A: /api/meta says mode 'hosted', or createApi({ hosted: true })): the site
+// knows you by its session cookie instead, so writes carry no page token and a 403 is final; a 401
+// means you aren't signed in (ApiError.status 401, which the hosted screens answer with Sign in).
 
 import type { Meta, Snapshot } from './types';
 
@@ -29,6 +32,8 @@ export interface ApiClient {
   snapshot(): Promise<Snapshot>;
   /** Use this token for writes (the snapshot carries one, saving a call). */
   setToken(token: string | null | undefined): void;
+  /** Whether this is the hosted site (the session cookie, no page token). */
+  hosted?(): boolean;
 }
 
 async function readError(res: Response): Promise<ApiError> {
@@ -38,8 +43,9 @@ async function readError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, message, body);
 }
 
-export function createApi({ fetch: f = (...a: Parameters<Fetch>) => fetch(...a), base = '' }: { fetch?: Fetch; base?: string } = {}): ApiClient {
+export function createApi({ fetch: f = (...a: Parameters<Fetch>) => fetch(...a), base = '', hosted: startHosted = false }: { fetch?: Fetch; base?: string; hosted?: boolean } = {}): ApiClient {
   let token: string | null = null;
+  let hosted = startHosted;
 
   async function get<T>(path: string): Promise<T> {
     const res = await f(base + path, { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
@@ -49,7 +55,8 @@ export function createApi({ fetch: f = (...a: Parameters<Fetch>) => fetch(...a),
 
   async function meta(): Promise<Meta> {
     const m = await get<Meta>('/api/meta');
-    token = m.token ?? null;
+    if (m.mode === 'hosted') hosted = true;
+    token = hosted ? null : m.token ?? null;
     return m;
   }
 
@@ -57,15 +64,15 @@ export function createApi({ fetch: f = (...a: Parameters<Fetch>) => fetch(...a),
     return f(base + path, {
       method,
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Workshop-Token': token ?? '' },
+      headers: hosted ? { 'Content-Type': 'application/json', Accept: 'application/json' } : { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Workshop-Token': token ?? '' },
       body: JSON.stringify(body ?? {}),
     });
   }
 
   async function write<T>(method: string, path: string, body?: unknown): Promise<T> {
-    if (!token) await meta();
+    if (!token && !hosted) await meta();
     let res = await writeOnce(method, path, body);
-    if (res.status === 403) {
+    if (res.status === 403 && !hosted) {
       // Most likely the dashboard restarted and the token changed: fetch it again, retry once.
       await meta();
       res = await writeOnce(method, path, body);
@@ -84,5 +91,5 @@ export function createApi({ fetch: f = (...a: Parameters<Fetch>) => fetch(...a),
     return s;
   }
 
-  return { get, post, put, del, meta, snapshot, setToken: (t) => { token = t || null; } };
+  return { get, post, put, del, meta, snapshot, setToken: (t) => { token = t || null; }, hosted: () => hosted };
 }
