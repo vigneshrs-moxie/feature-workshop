@@ -43,7 +43,7 @@ html[data-theme="light-glass"] {
   --glass-highlight: inset 0 1px 0 oklch(1 0 0 / .85);
   --glass-pane: oklch(1 0 0 / .55);
   --glass-pane-side: oklch(1 0 0 / .5);
-  --glass-float: oklch(.99 .004 272 / .95);
+  --glass-float: oklch(.99 .004 272 / .98); /* .95 let the page behind the Peek show faintly (packet X) */
 
   /* ---- Base palette: translucent ink layers over white glass ---- */
   --bg-0: oklch(1 0 0 / .55);
