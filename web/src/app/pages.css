@@ -351,7 +351,9 @@ a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset
 .state-chip.is-working { background: var(--status-info-bg); color: var(--lane-working-fg); }
 .state-chip.is-ready { background: var(--status-ok-bg); color: var(--lane-ready-fg); }
 /* The light: on while the crew works (blinks softly in Play full), steady grey otherwise. */
-.job-light { flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--border-3); }
+/* A light that is off is still a mark you can see (3:1): R's quiet mark, muted ink mixed into the
+   card, as the empty checkbox edge and a stack card's light. */
+.job-light { flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: color-mix(in oklab, var(--text-3) 80%, var(--surface-1)); }
 .job-light.is-on { background: var(--status-info); box-shadow: 0 0 0 3px var(--status-info-bg); }
 .job-light.is-blink { animation: gc-blink 1.6s ease-in-out infinite; }
 @keyframes gc-blink { 50% { opacity: .35; } }
