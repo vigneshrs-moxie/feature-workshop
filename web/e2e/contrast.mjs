@@ -25,16 +25,20 @@
 //   PORT=4493 WORKSHOP_DEMO=1 node dashboard/demo/run-demo.js      # in one terminal
 //   node web/e2e/contrast.mjs                                       # in another
 // Environment: BASE (default http://127.0.0.1:4493/next/), THEMES (comma list, default
-// light,default), SCREENS (comma list of screen names to limit the run, e.g. Jobs,Desk),
+// light,default; THEMES=all runs every theme in theme.ts, the hidden two included: the page is told
+// they are unlocked, as web/e2e/themeSweep.mjs does), SCREENS (comma list of screen names to limit the run, e.g. Jobs,Desk),
 // OUT (a path to also write every failure as JSON), PLAYWRIGHT (the path to playwright's
 // index.mjs, when it isn't installed here).
 // It prints a table of failures and a summary line per screen and theme, and exits 1 if any fail.
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 
 const BASE = process.env.BASE || 'http://127.0.0.1:4493/next/';
-const THEMES = (process.env.THEMES || 'light,default').split(',').map((t) => t.trim()).filter(Boolean);
+const ALL_THEMES = [...readFileSync(new URL('../src/theme/theme.ts', import.meta.url), 'utf8').matchAll(/\{ id: '([a-z-]+)', label:/g)].map((m) => m[1]);
+const THEMES = (process.env.THEMES || 'light,default').trim() === 'all'
+  ? ALL_THEMES
+  : (process.env.THEMES || 'light,default').split(',').map((t) => t.trim()).filter(Boolean);
 const ALL_SCREENS = [
   ['Jobs', '#/'],
   ['Job', '#/job/customer-merge'],
@@ -48,7 +52,7 @@ const ALL_SCREENS = [
 const EXTRA_SCREENS = [['Stacks', '#/stacks']];
 const only = process.env.SCREENS ? process.env.SCREENS.split(',').map((s) => s.trim().toLowerCase()) : null;
 const SCREENS = only ? [...ALL_SCREENS, ...EXTRA_SCREENS].filter(([n]) => only.includes(n.toLowerCase())) : ALL_SCREENS;
-const GUIDES = ['jobs', 'desk', 'stage', 'job', 'inbox', 'telemetry', 'stack', 'stacks', 'review'];
+const GUIDES = ['jobs', 'desk', 'stage', 'job', 'inbox', 'telemetry', 'stack', 'stacks', 'review', 'review-round'];
 
 // What counts as a mark, and how its colour is read (see measure() below).
 const MARKS = {
@@ -303,6 +307,14 @@ for (const theme of THEMES) {
       localStorage.setItem('gc.guide.seen', JSON.stringify(g));
     } catch { /* storage off */ }
   }, [theme, GUIDES]);
+  // CRT Terminal and Gold need their unlocks: only this page is told they are there.
+  await ctx.route(/\/api\/play(\?.*)?$/, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const res = await route.fetch();
+    const json = await res.json();
+    json.unlocks = { ...(json.unlocks ?? {}), crt: true, gold: true };
+    return route.fulfill({ response: res, json });
+  });
   const page = await ctx.newPage();
   for (const [name, hash] of SCREENS) {
     await page.goto(BASE + hash, { waitUntil: 'networkidle' });
@@ -319,7 +331,7 @@ for (const theme of THEMES) {
     }
     all.push(...groups.values());
     const warn = res.theme && res.theme !== theme ? ` (page says data-theme="${res.theme}")` : '';
-    summary.push(`${name.padEnd(10)} ${theme.padEnd(8)} ${fails.length ? `${fails.length} failing (${groups.size} distinct)` : 'pass'}: ${res.texts} texts, ${res.marks} marks${warn}`);
+    summary.push(`${name.padEnd(10)} ${theme.padEnd(12)} ${fails.length ? `${fails.length} failing (${groups.size} distinct)` : 'pass'}: ${res.texts} texts, ${res.marks} marks${warn}`);
   }
   await ctx.close();
 }

@@ -201,6 +201,9 @@
         const clip = clipOf(el);
         const vis = rects.map((r) => cut(r, clip)).filter((r) => r && r.w >= 2 && r.h >= 2);
         if (!vis.length) continue;
+        // Half under a scroller's edge (or a sticky bar): measured where it is whole, or from styles.
+        const partial = vis.reduce((a, r) => a + r.h, 0) < rects.reduce((a, r) => a + r.h, 0) * 0.9;
+        const origTop = Math.min(...rects.map((r) => r.y));
         rects.length = 0; rects.push(...vis);
         const left = Math.min(...rects.map((r) => r.x)), right = Math.max(...rects.map((r) => r.x + r.w));
         const top = Math.min(...rects.map((r) => r.y)), bottom = Math.max(...rects.map((r) => r.y + r.h));
@@ -221,7 +224,7 @@
         texts.push({ occluded,
           i: n++, path: pathOf(el), sample: nodes.map((x) => x.textContent.trim()).join(' ').replace(/\s+/g, ' ').slice(0, 48),
           fg: { r: c.r, g: c.g, b: c.b, a: c.a * op }, need: large ? 3 : 4.5, rects,
-          inView: top >= 0 && bottom <= H && left >= 0 && right <= W, docY: top + offset,
+          inView: !partial && top >= 0 && bottom <= H && left >= 0 && right <= W, docY: origTop + offset,
           gradient, styleRatio: Math.round(ratio(fgC, bgC) * 100) / 100, styleImg: chain.some((l) => l.img),
           size,
         });
@@ -298,6 +301,8 @@
       if (hit && !(el.contains(hit) || hit.contains(el))) continue;
       // A button inside a group is told apart by the group's edge (the group is checked itself).
       if (el.matches('.btn') && el.parentElement?.closest('.btn-group, .segmented, .seg-tabs')) continue;
+      // A Select set inside a chip: the chip is its edge.
+      if (el.matches('.select') && el.closest('.chip')) continue;
       const field = el.matches('.text-input, .text-area, .select');
       controls.push({ path: pathOf(el), box: rectOf(b), field, label: (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 30) });
     }

@@ -71,3 +71,19 @@ Station names over the classic map's meadow: 2.5–4.2:1 in most themes (`dashbo
 - Gradient-filled words (the brand in Neon arcade, Candy pop and Gold) measured as one colour.
 - Words cut with an ellipsis measured past their own box; hover states left by the previous visit's
   pointer; screenshot time-outs under load (24 visits, retried with a longer wait).
+
+## After (the same sweep on the packet's last commit)
+Every theme passes: all 11 themes at 1512 and 390 px, Play full and off (CRT Terminal and Gold in Play
+full), with no console error, no words under 4.5:1 (3:1 large), no see-through overlay, no mark under
+3:1, no invisible focus ring, no sideways scroll, and Follow the system switching both pairs. The
+second sweep round also found and fixed: Gold's 3D floor drawn in Light's colours when the theme
+arrived after the scene was made, the stack map fading its links to 1.5:1 while one part is lit, the
+desk count on a hovered menu row, CRT's picked palette row's key cap, and Blueprint's flat Desk gate
+card. The before and after contact sheets are in the run's scratchpad (`before/sheets`, `after/sheets`).
+
+Also run on the last commit: `web/e2e/noJump.mjs` at 390, 1280, 1512 and 1728 px (nothing moved at any
+width; at 390 the graphs start folded, so it unfolds first) and `web/e2e/contrast.mjs THEMES=all`. The
+latter reads colours from styles, not pixels: its remaining rows are all marked "img" (the gradient
+primaries of Neon arcade, Candy pop, Glass and Gold, and gradient-filled brand words), which it cannot
+composite and the sweep measures by pixel; one real one it found (Blueprint's link buttons on a brief
+card) is fixed.

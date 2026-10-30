@@ -21,7 +21,8 @@
 //              page (under 1.1:1; text fields, kept quiet on purpose, under 1.05:1);
 //   focus      a keyboard focus ring that can't be seen (Tab through the first eight controls on a
 //              few screens, in the first Play mode only, as rings don't change with Play: under
-//              3:1 against the same pixels without the focus, or round under half of the control);
+//              3:1 against the same pixels without the focus, or round under a third of it: a
+//              ring drawn on the card round a focused link counts);
 //   drawn      graph, map and dot shapes in an svg under 3:1 against what the graph sits on (svg
 //              words: 4.5:1); gridlines, tracks and other quiet parts are left out by class name;
 //   layout     sideways scroll on the page, words cut off without an ellipsis, things sticking out
@@ -67,7 +68,14 @@ const RESUME = process.env.RESUME === '1';
 
 // The themes, read from theme.ts so a new one is swept without a change here.
 const THEME_SRC = readFileSync(path.join(HERE, '../src/theme/theme.ts'), 'utf8');
-const ALL = [...THEME_SRC.matchAll(/\{ id: '([a-z-]+)', label: '([^']+)'.*?scheme: '(dark|light)'(, unlock: '([a-z]+)')?/g)].map((m) => ({ id: m[1], label: m[2], scheme: m[3], unlock: m[5] ?? null }));
+// Every entry of THEMES (one object per line), so a theme added there is swept with no change here.
+const THEMES_SRC = THEME_SRC.slice(THEME_SRC.indexOf('export const THEMES'), THEME_SRC.indexOf('];', THEME_SRC.indexOf('export const THEMES')));
+const ALL = THEMES_SRC.split('\n').filter((l) => /\{\s*id:\s*'/.test(l)).map((l) => ({
+  id: /id:\s*'([^']+)'/.exec(l)[1],
+  label: /label:\s*'((?:[^'\\]|\\.)*)'/.exec(l)?.[1] ?? /id:\s*'([^']+)'/.exec(l)[1],
+  scheme: /scheme:\s*'(dark|light)'/.exec(l)?.[1] ?? 'dark',
+  unlock: /unlock:\s*'([^']+)'/.exec(l)?.[1] ?? null,
+}));
 const PAIRS = [...THEME_SRC.matchAll(/\['([a-z-]+)', '([a-z-]+)'\],/g)].map((m) => [m[1], m[2]]);
 const ORDER = ['glass', 'light-glass'];
 const wanted = (process.env.THEMES || 'all').trim();
@@ -128,7 +136,7 @@ const OVERLAY_VISITS = [
   { name: 'Tooltip', hash: '#/', act: async (p) => { await p.locator('[title]').filter({ visible: true }).first().hover(); await p.waitForTimeout(700); }, scope: '[role="tooltip"]' },
   { name: 'Command search', hash: '#/', act: async (p) => { await p.keyboard.press('ControlOrMeta+k'); }, scope: '.palette' },
   { name: 'Keys sheet', hash: '#/', act: async (p) => { await p.keyboard.press('Shift+?'); }, scope: '.sheet' },
-  { name: 'Toast', hash: '#/job/nightly-export', act: async (p) => { await failWrites(p); await p.keyboard.press('ControlOrMeta+k'); await p.locator('.palette-input').fill('Ask about everything'); await p.waitForTimeout(150); await p.keyboard.press('Enter'); await p.waitForTimeout(600); }, scope: '.toast', expectErrors: /status of 500/, after: async (p) => { await p.unroute(/\/api\//); } },
+  { name: 'Toast', hash: '#/job/nightly-export', act: async (p) => { await failWrites(p); await p.keyboard.press('ControlOrMeta+k'); await p.locator('.palette-input').fill('Ask about everything'); await p.waitForTimeout(150); await p.keyboard.press('Enter'); await p.locator('.toast').waitFor({ timeout: 8000 }).catch(() => {}); }, scope: '.toast', expectErrors: /status of 500/, after: async (p) => { await p.unroute(/\/api\//); } },
   { name: 'Level sheet', hash: '#/stack/invoice-export/part/7', act: click('.part-level-choose'), scope: '.sheet' },
   // No part is next to merge in the demo, so this page is told part 5 is (only this page sees it), and
   // every write fails: the confirm opens and is looked at, nothing is merged.
@@ -167,7 +175,9 @@ async function runTheme(browser, theme, width, play) {
   }
   const mark = { f: findings.length, s: shotsIndex.length };
   const height = width < 600 ? 844 : 945;
-  const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, colorScheme: theme.scheme });
+  // Reduced motion: every theme stops its motion there (THEMING.md), so nothing moving (CRT Terminal's
+  // rolling band) is caught half way across the words in a still screenshot.
+  const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, colorScheme: theme.scheme, reducedMotion: 'reduce' });
   await ctx.addInitScript({ path: path.join(HERE, 'lib/inpage.js') });
   await ctx.addInitScript(([t, g]) => {
     try {
@@ -188,7 +198,7 @@ async function runTheme(browser, theme, width, play) {
       const json = await res.json();
       json.unlocks = { ...(json.unlocks ?? {}), crt: true, gold: true };
       await route.fulfill({ response: res, json });
-    } catch { /* the page moved on */ }
+    } catch { await route.continue().catch(() => {}); /* the page moved on, or the answer was slow */ }
   });
   const page = await ctx.newPage();
   page.setDefaultTimeout(8000);
@@ -217,7 +227,8 @@ async function runTheme(browser, theme, width, play) {
       await page.evaluate(() => window.__sweep?.still());
       // The pointer rests in the bottom corner, not wherever the last visit's click left it.
       { const vs = page.viewportSize(); await page.mouse.move(vs.width - 2, vs.height - 2); }
-      if (v.noTips) await page.evaluate(() => window.__sweep.tips(false));
+      // Tooltips only on their own visit: one shown by a sheet's first focus would cover the sheet's buttons.
+      if (v.noTips || (v.overlay && v.name !== 'Tooltip')) await page.evaluate(() => window.__sweep.tips(false));
       if (v.act) { await v.act(page); await page.waitForTimeout(450); }
       const got = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
       if (got !== theme.id) add({ ...where, screen, kind: 'theme', path: 'html', what: `data-theme is "${got}", not "${theme.id}"` });
@@ -243,6 +254,11 @@ async function runTheme(browser, theme, width, play) {
   writeFileSync(file, JSON.stringify({ findings: findings.slice(mark.f).filter((f) => f.theme === theme.id && f.width === width && f.play === play), shots: shotsIndex.slice(mark.s).filter((x) => x.theme === theme.id && x.width === width && x.play === play) }));
 }
 
+/** Two frames, so a scroll or a style change is painted before the next screenshot (slow machines). */
+async function settle(page) {
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+}
+
 async function shoot(page) {
   return page.screenshot({ animations: 'disabled', caret: 'hide', timeout: 30000 });
 }
@@ -258,11 +274,13 @@ async function measure(page, v, where, file) {
       const more = await page.evaluate((i) => window.__sweep.scrollStep(i), i);
       if (!more) break;
       await page.waitForTimeout(i ? 200 : 50);
+      await settle(page);
     }
     const data = await page.evaluate((s) => window.__sweep.collect({ scope: s }), scope);
     const shotBuf = await shoot(page);
     if (first) writeFileSync(file, shotBuf);
     await page.evaluate((s) => window.__sweep.bare(true, s), scope);
+    await settle(page);
     const bareBuf = await shoot(page);
     await page.evaluate(() => window.__sweep.bare(false));
     const shot = decodePng(shotBuf), bareShot = decodePng(bareBuf);
@@ -337,7 +355,7 @@ async function focusCheck(page, where) {
     const b = decodePng(await page.screenshot({ clip, animations: 'disabled', caret: 'hide' }));
     await page.evaluate(() => window.__sweep.refocus());
     const m = focusRing(f.box, clip, a, b);
-    if (m.max < 3 || m.coverage < 0.5) add({ ...where, kind: 'focus', path: f.path, sample: f.label, ratio: m.max, what: `focus ring hard to see: strongest change ${m.max}:1, round ${Math.round(m.coverage * 100)}% of it` });
+    if (m.max < 3 || m.coverage < 0.3) add({ ...where, kind: 'focus', path: f.path, sample: f.label, ratio: m.max, what: `focus ring hard to see: strongest change ${m.max}:1, round ${Math.round(m.coverage * 100)}% of it` });
   }
   await page.evaluate(() => window.__sweep.tips(true));
 }
