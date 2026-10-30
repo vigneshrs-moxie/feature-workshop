@@ -609,7 +609,7 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
       if (!parsed.ok) result = { ok: false, error: parsed.error };
       else {
         const check = madeOn ? await checkMadeOn(madeOn) : { ok: true };
-        if (!check.ok) result = { ok: false, stale: true, error: `This changed on your laptop: ${check.why} Nothing was run.` };
+        if (!check.ok) result = { ok: false, stale: true, error: `${check.why} Nothing was run.` };
         else {
           siteRunning = madeOn ? { slug, by, madeOn, id } : null;
           try {

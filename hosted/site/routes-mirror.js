@@ -121,6 +121,7 @@ export default function mirrorRoutes(ctx) {
     if (p.synced) await queue.release(runner.id);
   }];
   ctx.onCommandResult = [...(ctx.onCommandResult ?? []), (runner, id, r) => queue.result(runner, id, r)];
+  ctx.beforeCommands = [...(ctx.beforeCommands ?? []), (runner) => queue.release(runner.id)];
 
   // ---------- The mirror runner ----------
 
@@ -304,6 +305,8 @@ export default function mirrorRoutes(ctx) {
       v: 2, seq, epoch: HOSTED_EPOCH,
       meta: {
         ...(fresh.meta ?? {}), mode: 'hosted', token: null, wireframesOrigin: null, demo: Boolean(fresh.meta?.demo),
+        // Play stays on the laptop: the site shows the work plainly.
+        settings: { ...(fresh.meta?.settings ?? {}), play: { mode: 'off', sounds: false } },
         person: ctx.personView(person), laptops: [...laptops.values()],
       },
       jobs, needsYou: jobs.filter((j) => j.group === 'needs-you').length, permissions,
@@ -316,6 +319,11 @@ export default function mirrorRoutes(ctx) {
 
   return [
     ...mounted,
+    // Review rounds run on the laptop; the Desk asks, and the site has none to show.
+    { method: 'GET', path: '/api/review', auth: 'session', async run({ res }) { sendJson(res, 200, { jobs: [], hosted: true }); } },
+    { method: 'GET', path: /^\/api\/review\/[^/]+$/, auth: 'session', async run({ res }) { sendJson(res, 200, { hosted: true }); } },
+    // The integration board is this app's own packets on one laptop: not on the site.
+    { method: 'GET', path: '/api/integrate', auth: 'session', async run({ res }) { sendJson(res, 200, { hosted: true, packets: null }); } },
     { method: 'GET', path: '/api/snapshot', auth: 'session', async run({ res, person }) { sendJson(res, 200, await snapshot(person)); } },
     {
       method: 'GET', path: '/api/events', auth: 'session',

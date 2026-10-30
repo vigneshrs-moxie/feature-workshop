@@ -12,7 +12,8 @@
     "build": "node scripts/build.js",
     "migrate": "node scripts/migrate.js",
     "test": "node --test \"test/*.test.js\"",
-    "e2e": "node e2e/two-laptops.mjs"
+    "e2e": "node e2e/two-laptops.mjs",
+    "e2e:phone": "node e2e/phone-approval.mjs"
   },
   "dependencies": {
     "@vercel/blob": "2.8.2",

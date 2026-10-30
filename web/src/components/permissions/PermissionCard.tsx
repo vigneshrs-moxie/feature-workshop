@@ -5,6 +5,7 @@ import { useRef, useState } from 'react';
 import type { Permission } from '../../api/types';
 import { jobHref } from '../../app/router';
 import { fullTime, relativeTime } from '../../lib/time';
+import { askedLine, isOpen, needsLook, QueuedDecision, queuedOf } from '../../views/Hosted/QueuedDecision';
 import { ServerHtml } from '../../panes/Foreman/ServerHtml';
 import { FridayEyebrow } from '../../play/FridayEyebrow';
 import { InlineText } from '../InlineText';
@@ -39,6 +40,7 @@ export function CardHead({ p, now, showJob, verb }: { p: Permission; now: Date; 
         <strong>{who}</strong> {verb}
         {p.createdAt && <time className="thread-time num" dateTime={p.createdAt} title={`Asked ${fullTime(p.createdAt)}`}>{relativeTime(p.createdAt, now)}</time>}
       </p>
+      {typeof p.expiresAt === 'string' && <p className="perm-asked muted num">{askedLine(p.createdAt, p.expiresAt, now)}</p>}
       {showJob && (
         <p className="perm-job muted">
           Job: <a href={jobHref(p.slug)} title="Open this job’s conversation.">{p.title || p.slug}</a>
@@ -81,6 +83,7 @@ export function PermissionCard({ permission: p, now, showJob = false }: { permis
   const plain = p.plain ?? { headline: `Use ${p.toolName ?? 'a tool'}` };
   const risky = plain.risk === 'high';
   const draft = p.draft && p.draft.options?.length ? p.draft : null;
+  const queued = queuedOf(p.queued);
 
   return (
     <article className={`thread-item perm-card${risky ? ' is-risky' : ''}`} data-ask={p.hardLine ? 'hardline' : 'permission'} aria-label={`Permission: ${plain.headline}`}>
@@ -112,7 +115,8 @@ export function PermissionCard({ permission: p, now, showJob = false }: { permis
       )}
       {risky && <p className="perm-warn" role="note"><span aria-hidden="true">⚠ </span>Take a careful look: this may be hard to undo.</p>}
       {error && <p className="field-problem" role="alert">{error}</p>}
-      {denying ? (
+      {needsLook(queued) && <QueuedDecision queued={queued} />}
+      {isOpen(queued) ? <QueuedDecision queued={queued} /> : denying ? (
         <DenyBox busy={busy} label="Deny" onDeny={(note) => void send({ decision: 'deny', note })} onCancel={() => setDenying(false)} />
       ) : (
         <div className="perm-actions">

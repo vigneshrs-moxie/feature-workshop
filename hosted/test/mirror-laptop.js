@@ -85,10 +85,10 @@ export function cardOf(job) {
 }
 
 /** The laptop's link to the in-process site, with the mirror runner. */
-export async function mirrorLaptop(s, token, { runner = mirrorRunner(), stateDir = tmp(), waitSeconds = 1, log = () => {} } = {}) {
+export async function mirrorLaptop(s, token, { runner = mirrorRunner(), stateDir = tmp(), waitSeconds = 1, log = () => {}, fetch = s.fetch } = {}) {
   writeSiteFile(stateDir, { url: SITE, deviceId: 'device-test-0002', runnerId: 1, name: 'Test Laptop', person: { name: 'Olive Owner' } });
   const store = await siteTokenStore({ stateDir, prefer: 'file' });
   await store.set(token);
-  const link = createSiteLink({ runner, stateDir, store, fetch: s.fetch, waitSeconds, debounceMs: 20, watchEveryMs: 0, log, version: '0.1.0', audit: runner.audit, putFile: s.fetch });
+  const link = createSiteLink({ runner, stateDir, store, fetch, waitSeconds, debounceMs: 20, watchEveryMs: 0, log, version: '0.1.0', audit: runner.audit, putFile: s.fetch });
   return { link: link.start(), runner, stateDir, store };
 }

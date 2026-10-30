@@ -186,6 +186,26 @@ test('D9: Go from the site while the laptop is closed waits; when the laptop is 
   } finally { l.link.stop(); await s.close(); }
 });
 
+test('a laptop back from sleep (suspended, not restarted) collects what waited on its next call', async () => {
+  const s = await makeSite();
+  const olive = await paired(s, 'olive.owner@example.test', 'Olive’s Mac');
+  let asleep = false;
+  const sleepy = async (url, init) => { while (asleep) await new Promise((r) => setTimeout(r, 20)); return s.fetch(url, init); };
+  const l = await mirrorLaptop(s, olive.token, { fetch: sleepy });
+  try {
+    await synced(s, olive.runnerId);
+    asleep = true; // the lid closes: the runner is frozen, its link with it
+    await new Promise((r) => setTimeout(r, 100));
+    s.clock.t += OFF;
+    const r = await olive.person.send('POST', '/api/job/add-export/gate', { kind: 'approve', briefNumber: 2 });
+    assert.equal(r.body.queued.state, 'waiting');
+    assert.equal(l.runner.handled.length, 0);
+    asleep = false; // it wakes
+    await until(() => l.runner.handled.length === 1, { what: 'the approval to run after the wake' });
+    await until(async () => (await olive.person.json('/api/decisions')).body.decisions[0]?.state === 'done', { what: 'done' });
+  } finally { l.link.stop(); await s.close(); }
+});
+
 test('every kind of decision, online and offline: Go, send back, stop, a reply, allow, deny, merge next', async () => {
   const kinds = [
     ['approve', (b) => b.send('POST', '/api/job/add-export/gate', { kind: 'approve', briefNumber: 2 })],

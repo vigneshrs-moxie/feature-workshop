@@ -113,6 +113,8 @@ export default function runnerRoutes(ctx) {
       async run({ req, res, url, runner }) {
         const asked = Number(url.searchParams.get('wait') ?? MAX_WAIT_S);
         const waitMs = Math.max(0, Math.min(MAX_WAIT_S, Number.isFinite(asked) ? asked : MAX_WAIT_S)) * 1000;
+        // A laptop calling in (back from sleep, say) collects what waited for it (packet 2B).
+        for (const fn of ctx.beforeCommands ?? []) await fn(runner);
         const until = timers.now() + waitMs;
         let gone = false;
         req.once?.('close', () => { gone = true; });

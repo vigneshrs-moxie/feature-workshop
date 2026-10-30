@@ -16,6 +16,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ApiError } from '../../api/client';
 import type { Gate, GateRequest, GateResult, Job, JobDetail, JobLockInfo } from '../../api/types';
+import { isOpen, needsLook, QueuedDecision, queuedOf } from '../../views/Hosted/QueuedDecision';
 import { loadJobDoc, sendGate, stopRun } from '../../app/jobActions';
 import { useKeyScope } from '../../app/keyRegistry';
 import { navigate } from '../../app/router';
@@ -145,6 +146,9 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
 
   // Your reply to this brief waits in the composer (made while the Foreman was working).
   const waiting = gate !== null && memo !== null && gate.briefNumber !== null && memo.brief === gate.briefNumber;
+  // The hosted site (packet 2B): a decision made there waits for the laptop; the card says so.
+  const queued = queuedOf(detail.queued);
+  if (gate && isOpen(queued)) return <QueuedDecision queued={queued} onChange={reload} />;
 
   return (
     <>
@@ -159,6 +163,7 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
           <Button kind="quiet" onClick={() => setNotice(null)} title="Close this note.">Got it</Button>
         </div>
       )}
+      {needsLook(queued) && <QueuedDecision queued={queued} onChange={reload} />}
       {gate && (waiting ? (
         <section className="perm-card question-card gate-card gate-held" data-ask="question" aria-labelledby={headId}>
           <h3 className="perm-headline" id={headId}>Brief {gate.briefNumber}: your reply is in the message box</h3>
@@ -447,8 +452,9 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       </header>
 
       {lock && <LockCard lock={lock} now={now} />}
-      {gate.stage === 'wireframe' && <ScreensRow slug={slug} hasPage={Boolean(job.wireframes)} />}
-      {['implement', 'test', 'review'].includes(gate.stage ?? '') && (
+      {/* Screens and Try it run on the laptop: the hosted site (packet 2B) leaves them out. */}
+      {gate.stage === 'wireframe' && !api.hosted?.() && <ScreensRow slug={slug} hasPage={Boolean(job.wireframes)} />}
+      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && (
         <p className="gate-try">
           <Button kind="quiet" size="sm" icon="terminal" onClick={() => tryUi.openTry(slug)} title="Open the Try it tab: start this job’s app on your computer and click around before you decide.">Try it on your computer</Button>
         </p>

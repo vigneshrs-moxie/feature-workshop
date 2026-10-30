@@ -58,6 +58,9 @@ test('made on: a gate’s mark catches another brief, another stage or new versi
   assert.match(stillMadeOn(m, { job: { ...job, gate: { ...g, briefNumber: 3 } } }).why, /moved on to brief 3/);
   assert.match(stillMadeOn(m, { job: { ...job, gate: { ...g, raisedVersions: { plan: '3' } } } }).why, /brief changed/);
   assert.equal(stillMadeOn(m, { job: { ...job, gate: null } }).ok, false);
+  // Kept in Postgres (jsonb reorders keys), the mark is the same.
+  const reordered = { ...g, raisedVersions: { spec: '1', artifacts: { b: '1', a: '2' } } };
+  assert.equal(gateMark(reordered), gateMark({ ...g, raisedVersions: { artifacts: { a: '2', b: '1' }, spec: '1' } }));
   assert.throws(() => madeOnFor({ type: 'approve', slug: 'x' }, { job: { ...job, gate: null } }), /isn’t waiting/);
   assert.deepEqual(madeOnFor({ type: 'reply', slug: 'x', via: 'box', text: 'hi' }, { job }), { kind: 'job', slug: 'x', stage: 'plan' });
   const p = madeOnFor({ type: 'allow', requestId: 'p1' }, { permissions: [{ id: 'p1', slug: 'x' }] });

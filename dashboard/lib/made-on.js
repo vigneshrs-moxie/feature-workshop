@@ -19,11 +19,18 @@ import crypto from 'node:crypto';
 
 const GATE_TYPES = new Set(['approve', 'send-back', 'stop']);
 
+/** JSON with every object's keys in order, so the same value gives the same mark wherever it was kept (Postgres jsonb reorders keys). */
+export function canonical(v) {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+  if (v && typeof v === 'object') return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
+  return JSON.stringify(v ?? null);
+}
+
 /** The gate card's mark: which brief, at which stage, raised at which versions. Null: no gate. */
 export function gateMark(gate) {
   if (!gate || typeof gate !== 'object') return null;
   const parts = [gate.briefNumber ?? null, gate.briefFile ?? null, gate.stage ?? null, gate.raisedVersions ?? null];
-  return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 32);
+  return crypto.createHash('sha256').update(canonical(parts)).digest('hex').slice(0, 32);
 }
 
 /** The kind of decision a command is, for the card and the audit (null: not a queued decision). */

@@ -5,6 +5,8 @@
 //   Pair this laptop     the code `ground-control login` printed (PairPage)
 //   Inbox                your Orbit tickets, from the inbox the site keeps (HostedInboxPage)
 //   Settings             Laptops, Orbit and People (LaptopsPage, OrbitPage, PeoplePage)
+//   Desk, a job, its Stage, Stacks and a part
+//                        the laptop app's own pages, from the full mirror (packet 2B: HostedWorkshop)
 //   everything else      a calm "open this on your laptop for now" page (LaterPage), never an error
 // A 401 from any of them (the session ended) brings the sign-in page back.
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
@@ -22,6 +24,7 @@ import { OrbitPage } from './OrbitPage';
 import { PairPage } from './PairPage';
 import { PeoplePage } from './PeoplePage';
 import { SignInPage } from './SignInPage';
+import { HostedWorkshop, useHostedWorkshop } from './HostedWorkshop';
 import { useHostedRoute, type HostedRoute } from './route';
 import type { HostedMeta, HostedPerson } from './types';
 import { words, type HostedProps } from './shared';
@@ -30,8 +33,11 @@ import './hosted.css';
 
 type Load = { state: 'loading' } | { state: 'ready'; meta: HostedMeta } | { state: 'error'; message: string };
 
+const MIRROR_NAMES = { desk: 'Desk', job: 'Job', stage: 'Stage', stacks: 'Stacks', stack: 'Stack', 'stack-part': 'Part' } as const;
+
 function nameOf(route: HostedRoute): string {
   switch (route.name) {
+    case 'mirror': return MIRROR_NAMES[route.route.name];
     case 'jobs': return 'Jobs';
     case 'sign-in': return 'Sign in';
     case 'pair': return 'Pair this laptop';
@@ -44,12 +50,14 @@ function nameOf(route: HostedRoute): string {
 }
 
 function TopBar({ route, person, onSignOut, busy }: { route: HostedRoute; person: HostedPerson | null; onSignOut?: () => void; busy?: boolean }) {
-  const at = route.name === 'jobs' || route.name === 'inbox' ? route.name : route.name === 'laptops' || route.name === 'people' || route.name === 'orbit' ? 'settings' : route.name === 'later' ? route.page : null;
+  const at = route.name === 'jobs' || route.name === 'inbox' ? route.name
+    : route.name === 'mirror' ? (['job', 'stage'].includes(route.route.name) ? 'jobs' : route.route.name === 'desk' ? 'Desk' : 'Stacks')
+      : route.name === 'laptops' || route.name === 'people' || route.name === 'orbit' ? 'settings' : route.name === 'later' ? route.page : null;
   const pages: (MenuEntry & { kind: 'link' })[] = [
     { kind: 'link', id: 'jobs', label: 'Jobs', href: '#/', icon: 'activity', current: at === 'jobs', hint: 'Your jobs, from every laptop you paired.' },
     { kind: 'link', id: 'inbox', label: 'Inbox', href: '#/inbox', icon: 'inbox', current: at === 'inbox', hint: 'Your Orbit tickets, read by the site even while your laptop is closed.' },
-    { kind: 'link', id: 'desk', label: 'Desk', href: '#/desk', icon: 'hand', current: at === 'Desk', hint: 'The Desk: on your laptop for now.' },
-    { kind: 'link', id: 'stacks', label: 'Stacks', href: '#/stacks', icon: 'layers', current: at === 'Stacks', hint: 'Stacks: on your laptop for now.' },
+    { kind: 'link', id: 'desk', label: 'Desk', href: '#/desk', icon: 'hand', current: at === 'Desk', hint: 'The Desk: every decision waiting for you, one at a time.' },
+    { kind: 'link', id: 'stacks', label: 'Stacks', href: '#/stacks', icon: 'layers', current: at === 'Stacks', hint: 'Stacks: big jobs split into parts.' },
     { kind: 'link', id: 'telemetry', label: 'Telemetry', href: '#/telemetry', icon: 'gauge', current: at === 'Telemetry', hint: 'Telemetry: on your laptop for now.' },
   ];
   const settings: MenuEntry = { kind: 'link', id: 'settings', label: 'Settings', href: '#/settings/laptops', icon: 'settings', current: at === 'settings', hint: 'Your laptops, and the people on the site.' };
@@ -93,6 +101,10 @@ export function HostedApp({ api: given }: { api?: ApiClient }) {
   useEffect(() => { void refresh(); }, [refresh]);
 
   const person = load.state === 'ready' ? load.meta.person : null;
+  // The laptop app's store and its live stream start with the first of its pages you open, then stay.
+  const [mirrorOn, setMirrorOn] = useState(false);
+  useEffect(() => { if (route.name === 'mirror') setMirrorOn(true); }, [route.name]);
+  const store = useHostedWorkshop(api, Boolean(person) && (mirrorOn || route.name === 'mirror'));
   useEffect(() => { document.title = pageTitle(person ? nameOf(route) : 'Sign in'); }, [route, person]);
   // Signed in, the sign-in page has nothing to say: go to Jobs.
   useEffect(() => { if (person && route.name === 'sign-in') window.location.hash = '#/'; }, [person, route.name]);
@@ -124,12 +136,13 @@ export function HostedApp({ api: given }: { api?: ApiClient }) {
           : route.name === 'orbit' ? <OrbitPage {...props} />
             : route.name === 'inbox' ? <HostedInboxPage {...props} />
           : route.name === 'later' ? <LaterPage page={route.page} />
+            : route.name === 'mirror' ? <HostedWorkshop api={api} store={store} route={route.route} />
             : <HostedJobsPage {...props} />;
   }
   return (
     <div className="app hosted-app" data-mode="hosted">
       <TopBar route={route} person={person} onSignOut={() => void signOut()} busy={signingOut} />
-      <div className="banner-slot" />
+      {route.name !== 'mirror' && <div className="banner-slot" />}
       {body}
     </div>
   );

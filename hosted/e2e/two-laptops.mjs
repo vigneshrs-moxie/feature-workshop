@@ -208,7 +208,7 @@ async function main() {
         await op.goto(`${SITE}/#/settings/people`);
         await op.getByRole('list', { name: 'People' }).waitFor();
         await shot(op, `people-${tag}`);
-        await op.goto(`${SITE}/#/desk`);
+        await op.goto(`${SITE}/#/telemetry`);
         await op.getByText('Open this on your laptop for now').waitFor();
         await shot(op, `later-${tag}`);
         await olive.close();

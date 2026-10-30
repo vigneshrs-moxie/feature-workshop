@@ -110,6 +110,7 @@ export function decisionQueue(ctx, { records, live }) {
   }
 
   async function release(runnerId) {
+    if (!(await db.query(`SELECT 1 FROM decisions WHERE runner_id = $1 AND state = 'waiting' LIMIT 1`, [runnerId])).rows.length) return 0;
     const st = await runnerState(runnerId);
     if (!st.online || !st.synced) return 0;
     const { rows } = await db.query(`SELECT * FROM decisions WHERE runner_id = $1 AND state = 'waiting' ORDER BY created_at, id`, [runnerId]);

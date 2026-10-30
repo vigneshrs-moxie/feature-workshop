@@ -47,7 +47,13 @@ interface MenuProps {
   gear?: boolean;
 }
 
-export function JobMenu({ job, dir, policyOverride, run, worktree, gear = false }: MenuProps) {
+/** The job's menu. On the hosted site (packet 2B) everything in it is done on the laptop, so there is none. */
+export function JobMenu(props: MenuProps) {
+  const { api } = useWorkshop();
+  return api.hosted?.() ? null : <LaptopJobMenu {...props} />;
+}
+
+function LaptopJobMenu({ job, dir, policyOverride, run, worktree, gear = false }: MenuProps) {
   const { api, store } = useWorkshop();
   const ui = useUi();
   const slug = job.slug;

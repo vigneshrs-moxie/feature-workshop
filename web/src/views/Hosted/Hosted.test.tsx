@@ -113,7 +113,7 @@ describe('the hosted site', () => {
   });
 
   it('a page the site doesn’t serve yet is a calm placeholder, never an error', async () => {
-    for (const [hash, title] of [['#/job/add-export', 'A job’s page'], ['#/desk', 'Desk'], ['#/stacks', 'Stacks'], ['#/telemetry', 'Telemetry']] as const) {
+    for (const [hash, title] of [['#/job/add-export/screens', 'A job’s screens'], ['#/stacks/build', 'Stacks'], ['#/telemetry', 'Telemetry']] as const) {
       go(hash);
       const { api } = site();
       render(<HostedApp api={api} />);
@@ -201,7 +201,10 @@ describe('the hosted routes', () => {
     expect(parseHostedHash('#/sign-in?problem=domain')).toEqual({ name: 'sign-in', problem: 'domain' });
     expect(parseHostedHash('#/settings')).toEqual({ name: 'laptops' });
     expect(parseHostedHash('#/settings/people')).toEqual({ name: 'people' });
-    expect(parseHostedHash('#/job/x/stage/plan')).toEqual({ name: 'later', page: 'A job’s page' });
+    expect(parseHostedHash('#/job/x/stage/plan')).toEqual({ name: 'mirror', route: { name: 'stage', slug: 'x', stop: 'plan' } });
+    expect(parseHostedHash('#/desk')).toEqual({ name: 'mirror', route: { name: 'desk' } });
+    expect(parseHostedHash('#/stack/s/part/2')).toEqual({ name: 'mirror', route: { name: 'stack-part', slug: 's', n: 2 } });
+    expect(parseHostedHash('#/job/x/screens')).toEqual({ name: 'later', page: 'A job’s screens' });
     expect(parseHostedHash('#/settings/look')).toEqual({ name: 'later', page: 'This part of Settings' });
     expect(parseHostedHash('#/no-such-page')).toEqual({ name: 'jobs' });
     expect(returnTo('#/pair/ABCD2345')).toBe('/#/pair/ABCD2345');

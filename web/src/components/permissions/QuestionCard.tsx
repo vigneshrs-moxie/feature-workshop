@@ -6,6 +6,7 @@ import type { AskedQuestion, Permission } from '../../api/types';
 import { plainInline } from '../../lib/inlineMarkdown';
 import { InlineText } from '../InlineText';
 import { CardHead, DenyBox } from './PermissionCard';
+import { isOpen, needsLook, QueuedDecision, queuedOf } from '../../views/Hosted/QueuedDecision';
 import { useAnswer } from './useAnswer';
 import { Button } from '../Button';
 
@@ -70,6 +71,7 @@ export function QuestionCard({ permission: p, now, showJob = false }: { permissi
   const [denying, setDenying] = useState(false);
   const answers = questions.map((q, i) => [q.question, answerFor(picks[i] ?? EMPTY)] as const);
   const ready = questions.length > 0 && answers.every(([, a]) => a);
+  const queued = queuedOf(p.queued);
 
   return (
     <article className="thread-item perm-card question-card" data-ask="question" aria-label={`Question: ${questions[0]?.question ? plainInline(questions[0].question) : 'from the Foreman'}`}>
@@ -82,7 +84,9 @@ export function QuestionCard({ permission: p, now, showJob = false }: { permissi
         ))}
         {questions.length === 0 && <p className="muted">The question didn’t come through. You can say no, and the Foreman will ask again in its reply.</p>}
         {error && <p className="field-problem" role="alert">{error}</p>}
-        {!denying && (
+        {needsLook(queued) && <QueuedDecision queued={queued} />}
+        {isOpen(queued) && <QueuedDecision queued={queued} />}
+        {!denying && !isOpen(queued) && (
           <div className="perm-actions">
             <Button type="submit" kind="primary" disabled={busy || !ready} title={ready ? 'Send your answers to the Foreman.' : 'Answer every question first.'}>Send answers</Button>
             <Button kind="quiet" disabled={busy} onClick={() => setDenying(true)} title="Don’t answer. The Foreman carries on without your choice; you can tell it why.">Don’t answer…</Button>

@@ -1,7 +1,7 @@
 // Jobs on the hosted site: my jobs from the mirror (GET /api/jobs), grouped by laptop when there is
 // more than one. Each card says whether its laptop is online, in words with an icon (never colour
 // alone): an offline laptop's jobs show as they last were. Read every 15 seconds, and when the tab
-// comes back. Nothing here changes a job: that is still done on the laptop.
+// comes back. Each card opens the job's own page (packet 2B), where you can decide.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
@@ -29,7 +29,7 @@ const GUIDE: GuideSpec = {
   cards: [
     { icons: ['terminal', 'lock'], title: 'Pair each laptop once', say: 'On the laptop, ground-control login --site and this site’s address prints a link and a code. Open it here and press Pair this laptop.' },
     { icons: ['activity'], title: 'Its jobs show here', say: 'Each open job, what stage it is at and what is happening now. Only yours: nobody else sees them here.' },
-    { icons: ['hand'], title: 'Work on the laptop for now', say: 'Answering the Foreman and approving gates stay on the laptop for now. The code never leaves it.' },
+    { icons: ['hand'], title: 'Decide from anywhere', say: 'Open a job or the Desk to say go or no go. With your laptop closed, it waits and runs when the laptop is back. The code never leaves it.' },
   ],
   done: 'Got it',
 };
@@ -44,7 +44,7 @@ function JobCard({ job, laptop, now }: { job: MirroredJob; laptop: LaptopJobs; n
   const state = job.state ? STATE_WORDS[job.state] ?? job.stateWords ?? job.state : null;
   return (
     <li className="hosted-job" data-job={job.slug} data-state={job.state ?? undefined}>
-      <a className="hosted-job-link" href={`#/job/${encodeURIComponent(job.slug)}`} title="A job’s page is on your laptop for now.">
+      <a className="hosted-job-link" href={`#/job/${encodeURIComponent(job.slug)}`} title="Open the job: its brief, documents and decisions, from your laptop.">
         <span className="hosted-job-title">{job.title}</span>
       </a>
       <span className="hosted-job-meta">
