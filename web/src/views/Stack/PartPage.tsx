@@ -12,8 +12,10 @@
 //   - the side column: Changes (its files with + and − against the stack's branch, read-only, a
 //     click for one file's diff) and the conversation with its Foreman with the message box.
 //     Merge asks first, as the stack's does. Pushing stays on the stack's page.
-import { useEffect, useMemo, useState } from 'react';
-import type { Job, PartPageData } from '../../api/types';
+// The job's level sits in the context strip ("Level  Not chosen yet · Choose"), and its choice opens
+// in a sheet, so the conversation column holds only the conversation.
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { Job, JobDetail, PartPageData } from '../../api/types';
 import { useKeyScope } from '../../app/keyRegistry';
 import { useMinWidth } from '../../components/page/Page';
 import { jobHref, navigate, partHref, stackHref, stacksHref } from '../../app/router';
@@ -24,9 +26,12 @@ import { More } from '../../components/More';
 import { NextBar, Page } from '../../components/page/Page';
 import { Sheet } from '../../components/Sheet';
 import { NextStep } from '../../job/JobPage';
+import { isLevel, levelCardKey, levelCardView, levelLabel } from '../../lib/levels';
+import { useStored } from '../../lib/stored';
 import { relativeTime, useNow } from '../../lib/time';
 import { Composer } from '../../panes/Foreman/Composer';
 import { ThreadList, useCurrentJob, useJobConversation } from '../../panes/Foreman/ForemanPane';
+import { LevelCard, levelFacts } from '../../panes/Foreman/LevelCard';
 import { usePlay } from '../../play/usePlay';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
@@ -65,13 +70,15 @@ function PartBody({ state, page }: { state: PartState; page: PartPageData }) {
   const look = LANE_LOOK[lane];
   const [confirm, setConfirm] = useState(false);
   const [file, setFile] = useState<string | null>(null);
+  const [jobDetail, setJobDetail] = useState<JobDetail | null>(null);
+  const [levelOpen, setLevelOpen] = useState(false);
   const mode = play.full ? 'full' : play.on ? 'subtle' : 'off';
 
   useKeyScope('stack', {
     'part-prev': () => { if (page.prev) navigate({ name: 'stack-part', slug: stack.slug, n: page.prev.n }); },
     'part-next': () => { if (page.next) navigate({ name: 'stack-part', slug: stack.slug, n: page.next.n }); },
     'part-job': () => { if (p.slug) navigate({ name: 'job', slug: p.slug }); },
-  }, !confirm && !file);
+  }, !confirm && !file && !levelOpen);
 
   const canMerge = p.state === 'ready' && stack.nextToMerge === p.name && !stack.autoIntegrate && !stack.busy;
   return (
@@ -96,7 +103,7 @@ function PartBody({ state, page }: { state: PartState; page: PartPageData }) {
         <a href={stackHref(stack.slug)}>{stack.title || stack.slug}</a><Icon name="chevron-right" size={12} />
         <span>Part {p.n}</span>
       </nav>
-      <ContextStrip page={page} />
+      <ContextStrip page={page} level={job ? <LevelFact job={job} detail={jobDetail} onChoose={() => setLevelOpen(true)} /> : null} />
       <div className="job-layout part-layout">
         <div className="job-main">
           <PartProblemBar page={page} state={state} onMerge={() => setConfirm(true)} canMerge={canMerge} />
@@ -119,7 +126,7 @@ function PartBody({ state, page }: { state: PartState; page: PartPageData }) {
         </div>
         <aside className="job-side part-side" aria-label="Its conversation and changes">
           <Changes page={page} onOpen={setFile} />
-          {job && <Conversation job={job} now={now} wide={wide} />}
+          {job && <Conversation job={job} now={now} wide={wide} onDetail={setJobDetail} />}
         </aside>
       </div>
       {state.problem && <p className="field-problem" role="alert">{state.problem} <Button kind="quiet" size="sm" onClick={state.clearProblem}>Dismiss</Button></p>}
@@ -133,6 +140,7 @@ function PartBody({ state, page }: { state: PartState; page: PartPageData }) {
         </Sheet>
       )}
       {file && <DiffSheet file={file} state={state} onClose={() => setFile(null)} />}
+      {levelOpen && job && <LevelSheet n={p.n} job={job} detail={jobDetail} onClose={() => setLevelOpen(false)} />}
     </Page>
   );
 }
@@ -146,7 +154,7 @@ const linkList = (page: PartPageData, ns: number[] | undefined, none: string) =>
 ) : <span className="muted">{none}</span>);
 
 /** What this part is for, what it waits on and unblocks, its files, branch and port. */
-function ContextStrip({ page }: { page: PartPageData }) {
+function ContextStrip({ page, level }: { page: PartPageData; level: ReactNode }) {
   const p = page.part;
   const [owns, setOwns] = useState(false);
   return (
@@ -162,6 +170,7 @@ function ContextStrip({ page }: { page: PartPageData }) {
         {p.branch && <div><dt>Branch</dt><dd className="part-mono">{p.branch}</dd></div>}
         {p.port && <div><dt>Port</dt><dd className="num">{p.port}</dd></div>}
         {(p.costUsd ?? 0) > 0 && <div><dt>Claude cost</dt><dd className="num">{money(p.costUsd)}</dd></div>}
+        {level}
       </dl>
       {owns && <ul className="part-owns">{p.owns.map((o) => <li key={o} className="part-mono">{o}</li>)}</ul>}
     </section>
@@ -199,9 +208,53 @@ function JobNext({ job, now }: { job: Job; now: Date }) {
   return <NextStep job={job} conversation={conversation} now={now} />;
 }
 
-function Conversation({ job, now, wide }: { job: Job; now: Date; wide: boolean }) {
+/**
+ * The job's level, in the context strip: the chosen one, or "Not chosen yet", and "Choose" when
+ * the level card has something to offer (no level yet, or the Foreman suggests another).
+ */
+function LevelFact({ job, detail, onChoose }: { job: Job; detail: JobDetail | null; onChoose: () => void }) {
+  const { meta } = useWorkshopState();
+  const facts = levelFacts(job, detail);
+  const [dismissed] = useStored(levelCardKey(job.slug));
+  const view = levelCardView(facts, dismissed);
+  const chosen = isLevel(facts.level) ? facts.level : null;
+  const offer = view.show && view.target !== null;
+  return (
+    <div className="part-level">
+      <dt>Level</dt>
+      <dd>
+        <span>{chosen === null ? 'Not chosen yet' : levelLabel(chosen, meta?.levels)}</span>
+        {offer && (
+          <>
+            <span className="part-level-sep" aria-hidden="true">·</span>
+            <Button kind="quiet" size="sm" className="part-level-choose" onClick={onChoose} title={chosen === null ? 'Pick how much process this part’s job gets: the rules’ and the Foreman’s suggestions, side by side.' : `The Foreman suggests L${view.target}. See both suggestions and choose.`}>
+              {chosen === null ? 'Choose' : `Foreman suggests L${view.target} · Review`}
+            </Button>
+          </>
+        )}
+      </dd>
+    </div>
+  );
+}
+
+/** The level card in a sheet of its own. "Not now" or "Keep" closes it; after "Use" it says what changed. */
+function LevelSheet({ n, job, detail, onClose }: { n: number; job: Job; detail: JobDetail | null; onClose: () => void }) {
+  const [dismissed] = useStored(levelCardKey(job.slug));
+  const opened = useRef(dismissed);
+  useEffect(() => { if (dismissed !== opened.current) onClose(); }, [dismissed, onClose]);
+  return (
+    <Sheet title={`The level for part ${n}’s job`} onClose={onClose} className="part-level-sheet">
+      <LevelCard job={job} detail={detail} />
+      <div className="sheet-actions"><Button size="lg" onClick={onClose} data-autofocus>Close</Button></div>
+    </Sheet>
+  );
+}
+
+function Conversation({ job, now, wide, onDetail }: { job: Job; now: Date; wide: boolean; onDetail: (d: JobDetail | null) => void }) {
   const conversation = useJobConversation(job);
   const n = conversation.thread.items.length;
+  const detail = conversation.thread.detail;
+  useEffect(() => { onDetail(detail); }, [detail, onDetail]);
   return (
     <section className="job-convo part-convo" aria-label="Conversation">
       <header className="job-side-head"><Icon name="message" size={16} /><h3>Conversation with its Foreman</h3>{n > 0 && <span className="muted">· {n} {n === 1 ? 'message' : 'messages'}</span>}</header>

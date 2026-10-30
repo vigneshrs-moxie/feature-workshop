@@ -9,9 +9,13 @@ import { installKeyListener } from '../../app/keyRegistry';
 import { hrefFor, parseHash } from '../../app/router';
 import { UiProvider } from '../../app/ui';
 import { createStore, WorkshopContext } from '../../state/store';
-import { snapshot } from '../../state/test-fixtures';
+import { job, snapshot } from '../../state/test-fixtures';
 import { part } from './fixtures';
 import { PartPage } from './PartPage';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const partCss = readFileSync(join(process.cwd(), 'src/views/Stack/part-page.css'), 'utf8');
 
 const seg = (n: number, lane: 'merged' | 'needs-you' | 'ready' | 'waiting', title: string) => ({ n, name: `p${n}`, title, lane, laneWords: lane === 'needs-you' ? 'Clash at its merge' : lane === 'merged' ? 'Merged' : lane === 'ready' ? 'Ready to merge' : 'Waiting on part 2', slug: `s--p${n}` });
 
@@ -37,10 +41,10 @@ function page(over: Partial<PartPageData['part']> = {}): PartPageData {
   };
 }
 
-function setup(data: PartPageData) {
+function setup(data: PartPageData, jobs: ReturnType<typeof job>[] = []) {
   const store = createStore();
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) });
-  const get = vi.fn(async (path: string) => (path.includes('/diff?file=') ? { file: 'app/email/send.ts', diff: 'diff --git a/x b/x\nindex 1..2\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old line\n+new line\n' } : data));
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) });
+  const get = vi.fn(async (path: string) => (path.includes('/diff?file=') ? { file: 'app/email/send.ts', diff: 'diff --git a/x b/x\nindex 1..2\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old line\n+new line\n' } : path.startsWith('/api/job/') ? { slug: 'orbit-512--email', thread: [], threadMore: false } : data));
   const post = vi.fn(async () => ({}));
   const api = { get, post } as unknown as ApiClient;
   render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><PartPage slug="s" n={2} /></UiProvider></WorkshopContext.Provider> as ReactNode);
@@ -104,5 +108,21 @@ describe('a part’s own page', () => {
     expect(window.location.hash).toBe('#/stack/s/part/1');
     fireEvent.keyDown(document.body, { key: 'o' });
     expect(window.location.hash).toBe('#/job/orbit-512--email');
+  });
+
+  it('the job’s level is a fact in the strip with Choose, its card in a sheet; the conversation holds only the conversation', async () => {
+    setup(page(), [job('orbit-512--email', 'running', { level: null, suggestedLevel: 2 } as never)]);
+    const strip = await screen.findByRole('region', { name: 'Its place in the stack' });
+    await waitFor(() => expect(strip).toHaveTextContent('Level'));
+    expect(strip).toHaveTextContent('Not chosen yet');
+    // The thread's own level card is hidden here (part-page.css); the strip and its sheet carry it.
+    expect(document.querySelector('.part-convo .thread > .level-card')).toBeInTheDocument();
+    expect(partCss).toMatch(/\.part-convo \.thread > \.level-card \{ display: none; \}/);
+    fireEvent.click(within(strip).getByRole('button', { name: 'Choose' }));
+    const sheet = screen.getByRole('dialog', { name: 'The level for part 2’s job' });
+    expect(within(sheet).getByRole('heading', { name: 'Pick a level for this job' })).toBeInTheDocument();
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Not now' }));
+    expect(screen.queryByRole('dialog', { name: 'The level for part 2’s job' })).not.toBeInTheDocument();
+    expect(within(strip).queryByRole('button', { name: 'Choose' })).not.toBeInTheDocument();
   });
 });
