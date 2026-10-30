@@ -8,6 +8,10 @@
 //                      Credential Manager or the Secret Service, as the Orbit token is kept) and the
 //                      site's address in <state folder>/site.json. A login on a laptop already
 //                      paired rotates its token.
+//                      Run with a new --site (the site's address changed: setup page section 6), it
+//                      replaces the stored address and token: the queue and the ids done for the
+//                      old address are dropped, and the old address is told to forget its token
+//                      (when it is the same site behind a redirect, the login already rotated it).
 //   unpairFromSite()   tells the site to forget this laptop's token, then forgets it here too.
 //
 // The link (createSiteLink, started by runner/index.js; idle until site.json names a site and the
@@ -109,6 +113,7 @@ async function callSite(fetchFn, url, init) {
 export async function pairWithSite({ siteUrl, stateDir, store, fetch: fetchFn = globalThis.fetch, out = () => {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), version = '', name, os: osName, waitMs = 10 * 60 * 1000 }) {
   const url = normalizeSiteUrl(siteUrl);
   const before = readSiteFile(stateDir);
+  const oldToken = before ? await store.get().catch(() => null) : null;
   const deviceId = before?.deviceId && /^[\w-]{8,64}$/.test(before.deviceId) ? before.deviceId : crypto.randomUUID();
   const me = { ...thisLaptop(), ...(name ? { name } : {}), ...(osName ? { os: osName } : {}) };
   const start = await callSite(fetchFn, `${url}/api/pair/start`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...me, deviceId, version }) });
@@ -124,9 +129,16 @@ export async function pairWithSite({ siteUrl, stateDir, store, fetch: fetchFn = 
   for (let waited = 0; ; waited += every) {
     const r = await callSite(fetchFn, `${url}/api/pair/finish`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret }) });
     if (r.status === 200 && typeof r.body?.token === 'string') {
+      const moved = before && before.url !== url ? before.url : null;
+      // A new address: what waited for the old one isn't sent on, and the ids done start afresh.
+      if (moved) for (const f of [QUEUE_FILE, DONE_FILE]) fs.rmSync(path.join(stateDir, f), { force: true });
       await store.set(r.body.token);
       writeSiteFile(stateDir, { url, deviceId, runnerId: r.body.runner.id, name: r.body.runner.name, pairedAt: new Date().toISOString(), person: { name: r.body.person.name, email: r.body.person.email } });
-      return { runner: r.body.runner, person: r.body.person, rotated: Boolean(r.body.runner.rotated) };
+      if (moved && oldToken && oldToken !== r.body.token) {
+        // Best effort: the old address forgets the old token (a 401 means it already has).
+        await callSite(fetchFn, `${moved}/api/runner/logout`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${oldToken}` }, body: '{}', timeoutMs: 10_000 }).catch(() => null);
+      }
+      return { runner: r.body.runner, person: r.body.person, rotated: Boolean(r.body.runner.rotated), movedFrom: moved };
     }
     if (r.status !== 202) throw new SiteError(r.body?.error ?? `The pairing stopped (the site answered ${r.status}). Run ground-control login again.`);
     if (waited >= waitMs) throw new SiteError('Nobody pressed “Pair this laptop” within 10 minutes, so the code has run out. Run ground-control login again.');

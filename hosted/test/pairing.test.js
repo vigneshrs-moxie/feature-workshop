@@ -218,3 +218,67 @@ test('a pairing asks for the laptop’s name, OS and device id, and is told plai
     assert.ok(ok.body.secret.length >= 40);
   } finally { await s.close(); }
 });
+
+test('the site’s address changed: login --site <new address> replaces the stored address and token', async () => {
+  // The same site behind its new address (the old one redirects): the login rotates this laptop's token.
+  const s = await makeSite();
+  try {
+    const olive = browser(s.fetch);
+    await signIn(olive, { email: 'olive.owner@example.test' });
+    const a = await pair(s, olive, { name: 'Olive A' });
+    const oldToken = tokenIn(a.stateDir);
+    fs.writeFileSync(path.join(a.stateDir, 'site-queue.jsonl'), '{"eid":"left-over"}\n');
+    const NEW = 'http://127.0.0.1:4507';
+    const both = (url, init) => s.fetch(String(url).replace(NEW, SITE), init);
+    const out = [];
+    let code = null;
+    const exit = await main(['login', '--site', NEW, '--name', 'Olive A'], {
+      env: { WORKSHOP_ORBIT_STORE: 'file' }, home: tmp('gc-2a-home-'), stateDir: a.stateDir, running: () => null, interactive: false,
+      out: (l) => out.push(l), err: (l) => out.push(l), fetch: both,
+      sleep: async (ms) => { s.clock.t += ms; if (code) return; code = codeFrom(out.join('\n')); assert.equal((await olive.send('POST', `/api/pair/${code}/approve`, {})).status, 200); },
+    });
+    assert.equal(exit, 0, out.join('\n'));
+    assert.match(out.join('\n'), /This laptop now uses http:\/\/127\.0\.0\.1:4507 instead of http:\/\/localhost:4507\./);
+    assert.equal(readSiteFile(a.stateDir).url, NEW);
+    const newToken = tokenIn(a.stateDir);
+    assert.notEqual(newToken, oldToken);
+    assert.equal((await asRunner(s, oldToken)).status, 401);
+    assert.equal((await olive.json('/api/laptops')).body.laptops.length, 1, 'still the same one laptop');
+    assert.equal(fs.existsSync(path.join(a.stateDir, 'site-queue.jsonl')), false, 'nothing queued for the old address is sent on');
+    assert.equal((await asRunner(s, newToken)).status, 200);
+  } finally { await s.close(); }
+});
+
+test('moved to a different site: the old one is told to forget this laptop', async () => {
+  const OTHER = 'http://127.0.0.1:4507';
+  const one = await makeSite();
+  const two = await makeSite({ origin: OTHER });
+  try {
+    const oliveOne = browser(one.fetch);
+    await signIn(oliveOne, { email: 'olive.owner@example.test' });
+    const a = await pair(one, oliveOne, { name: 'Olive A' });
+    const oldToken = tokenIn(a.stateDir);
+    const oliveTwo = browser(two.fetch, { origin: OTHER });
+    // Sign in on the second site (its own origin).
+    const start = await oliveTwo.get(`${OTHER}/api/auth/start`);
+    const g = new URL(start.headers.get('location'));
+    const cont = new URL(`${OTHER}/fake-google/continue`);
+    for (const [k, v] of g.searchParams) cont.searchParams.set(k, v);
+    cont.searchParams.set('email', 'olive.owner@example.test');
+    await oliveTwo.get((await oliveTwo.get(cont.toString())).headers.get('location'));
+    const route = (url, init) => (String(url).startsWith(OTHER) ? two.fetch(url, init) : one.fetch(url, init));
+    const out = [];
+    let code = null;
+    const exit = await main(['login', '--site', OTHER], {
+      env: { WORKSHOP_ORBIT_STORE: 'file' }, home: tmp('gc-2a-home-'), stateDir: a.stateDir, running: () => null, interactive: false,
+      out: (l) => out.push(l), err: (l) => out.push(l), fetch: route,
+      sleep: async () => { if (code) return; code = codeFrom(out.join('\n')); assert.equal((await oliveTwo.send('POST', `/api/pair/${code}/approve`, {})).status, 200); },
+    });
+    assert.equal(exit, 0, out.join('\n'));
+    assert.equal(readSiteFile(a.stateDir).url, OTHER);
+    assert.equal((await asRunner(one, oldToken)).status, 401, 'the old site forgot the old token');
+    assert.deepEqual((await oliveOne.json('/api/laptops')).body.laptops, []);
+    const t = tokenIn(a.stateDir);
+    assert.equal((await two.fetch(`${OTHER}/api/runner/logout`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` }, body: '{}' })).status, 200);
+  } finally { await one.close(); await two.close(); }
+});

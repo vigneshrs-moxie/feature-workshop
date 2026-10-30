@@ -5,7 +5,7 @@
   "description": "The hosted site (v2): sign-in, laptops, the runner link and the job mirror. The Vercel project's Root Directory.",
   "type": "module",
   "engines": {
-    "node": "24.x"
+    "node": "22.x"
   },
   "scripts": {
     "dev": "node dev.js",

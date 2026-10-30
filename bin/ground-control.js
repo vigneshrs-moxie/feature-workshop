@@ -680,6 +680,7 @@ async function cmdLogin(ctx, { values }) {
   ctx.out(r.rotated
     ? `Paired again: this laptop is “${r.runner.name}” on the site, for ${r.person.email}. Its old token no longer works.`
     : `Paired: this laptop is “${r.runner.name}” on the site, for ${r.person.email}.`);
+  if (r.movedFrom) ctx.out(`This laptop now uses ${new URL(siteUrl).origin} instead of ${r.movedFrom}.`);
   ctx.out(ctx.running() ? 'Your jobs show on the site from now on.' : `Your jobs show on the site while ${PRODUCT} runs. ${START_HINT}`);
   return 0;
 }

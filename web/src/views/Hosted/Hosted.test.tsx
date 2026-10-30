@@ -67,6 +67,14 @@ describe('the hosted site', () => {
     expect(screen.getByText(/Sign in to pair your laptop/)).toBeTruthy();
   });
 
+  it('a deployment with no database (a preview) says so calmly, with no sign-in and no error', async () => {
+    const fetch = (async () => json(200, { mode: 'hosted', person: null, signIn: '/api/auth/start', missing: ['GOOGLE_CLIENT_ID', 'DATABASE_URL'], noDatabase: true })) as typeof globalThis.fetch;
+    render(<HostedApp api={createApi({ fetch, hosted: true })} />);
+    expect(await screen.findByRole('heading', { name: 'This deployment has no database' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: /Sign in with Google/ })).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('a refused sign-in says why in words: “This site is for Moxie accounts only”', async () => {
     go('#/sign-in?problem=domain');
     const { api } = site({ person: null });

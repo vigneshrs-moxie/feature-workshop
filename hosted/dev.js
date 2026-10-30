@@ -1,4 +1,5 @@
-// `npm run dev -w hosted`: the hosted site on this laptop, at http://localhost:4507, running the
+// `npm run dev -w hosted`: the hosted site on this laptop, at http://localhost:4507 (PORT=4505 for
+// the trial with real Google sign-in that docs/hosting/vercel-setup.md sets up), running the
 // very handler Vercel runs (site/router.js) under node:http, with:
 //   - PGlite for Postgres, kept in hosted/.data/ (--memory: a fresh one each start);
 //   - the fake Google (AUTH_FAKE=1) unless GOOGLE_CLIENT_ID is set, for trying it with no account;
@@ -64,6 +65,6 @@ export async function startLocalSite({ port = DEV_PORT, env = process.env, dataD
 const isMain = process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   try { process.loadEnvFile(path.join(HERE, '.env.local')); } catch { /* none: the environment and the defaults */ }
-  const s = await startLocalSite({ dataDir: process.argv.includes('--memory') ? null : path.join(HERE, '.data') });
+  const s = await startLocalSite({ port: Number(process.env.PORT) || DEV_PORT, dataDir: process.argv.includes('--memory') ? null : path.join(HERE, '.data') });
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { s.close().finally(() => process.exit(0)); });
 }

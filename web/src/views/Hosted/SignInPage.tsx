@@ -17,7 +17,24 @@ export const PROBLEMS: Record<string, { title: string; say: string }> = {
   account: { title: 'That address belongs to another account', say: 'The site already knows this email from a different Google account. Ask the site’s owner.' },
 };
 
+/** A deployment with no database (a preview): nothing works here, calmly said. */
+function NoDatabase() {
+  return (
+    <main className="page hosted-signin-page" aria-label="No database">
+      <div className="page-inner">
+        <section className="hosted-signin" aria-labelledby="hosted-nodb-title">
+          <span className="hosted-signin-mark" aria-hidden="true"><Icon name="layers" size={28} /></span>
+          <h2 id="hosted-nodb-title" className="page-title">This deployment has no database</h2>
+          <p>Only the site’s own address has the database, so nothing can be signed in to or shown here. That is on purpose: a trial deployment never touches the real data.</p>
+          <p className="muted hosted-signin-small">Open the site at its usual address instead.</p>
+        </section>
+      </div>
+    </main>
+  );
+}
+
 export function SignInPage({ meta, route }: { meta: HostedMeta; route: HostedRoute }) {
+  if (meta.noDatabase) return <NoDatabase />;
   const problem = route.name === 'sign-in' && route.problem ? PROBLEMS[route.problem] ?? { title: 'You aren’t signed in', say: 'Something went wrong with that sign-in. Try again.' } : null;
   const pairing = route.name === 'pair';
   const href = `${meta.signIn || '/api/auth/start'}?return=${encodeURIComponent(returnTo())}`;

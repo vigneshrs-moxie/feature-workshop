@@ -14,6 +14,8 @@ export interface HostedMeta {
   fakeSignIn?: boolean;
   /** The settings this deployment lacks, by name. */
   missing?: string[];
+  /** A deployment without the database (a preview: the database is connected to Production only). */
+  noDatabase?: boolean;
 }
 
 /** A paired laptop (GET /api/laptops). online: seen in the last 60 seconds. */

@@ -15,6 +15,9 @@
 //
 // A missing setting doesn't crash the function: the routes that need it answer 503 and say which
 // setting is missing (names only, never a value), and /api/meta lists them for the sign-in page.
+// No DATABASE_URL in a production build is its own case (noDatabase): the database and every
+// variable are set for Production only (docs/hosting/vercel-setup.md 2.3, 2.5), so a preview
+// deployment has none, and says calmly that it has no database instead of failing.
 
 export class ConfigError extends Error {}
 
@@ -63,6 +66,7 @@ export function readConfig(env = process.env, overrides = {}) {
   }
   config.redirectUri = `${config.siteUrl}/api/auth/callback`;
   config.missing = missingSettings(config);
+  config.noDatabase = config.production && !config.databaseUrl;
   return Object.freeze(config);
 }
 

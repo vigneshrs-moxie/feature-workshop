@@ -137,6 +137,9 @@ export function createSite({ db, config, fetch: fetchFn = globalThis.fetch, now 
         return send(res, 404, 'Not found');
       }
       const hit = find(req.method, urlPath);
+      if (!(hit?.r?.ready === false) && config.noDatabase) {
+        throw new HttpError(503, 'This deployment has no database, so the site doesn’t work here. The site runs at its own address.', { noDatabase: true });
+      }
       if (!(hit?.r?.ready === false) && config.missing.length) {
         throw new HttpError(503, `The site isn’t set up yet. These settings are missing in Vercel: ${config.missing.join(', ')}.`, { missing: config.missing });
       }

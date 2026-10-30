@@ -67,12 +67,12 @@ export function inProcessFetch(getHandler, { origin = SITE, fallback = null } = 
 }
 
 /** A site on a fresh database. env: overrides of TEST_ENV. clock: { t } in ms, moved by the test. */
-export async function makeSite({ env = {}, clock = { t: Date.parse('2026-10-30T16:00:00Z') }, timers } = {}) {
+export async function makeSite({ env = {}, clock = { t: Date.parse('2026-10-30T16:00:00Z') }, timers, origin = SITE } = {}) {
   const db = await openPglite();
   await migrate(db);
-  const config = readConfig({ ...TEST_ENV, ...env });
+  const config = readConfig({ ...TEST_ENV, SITE_URL: origin, ...env });
   let site = null;
-  const fetch = inProcessFetch(() => site);
+  const fetch = inProcessFetch(() => site, { origin });
   site = createSite({ db, config, fetch, now: () => clock.t, ...(timers ? { timers } : {}) });
   return {
     site, db, config, clock, fetch,

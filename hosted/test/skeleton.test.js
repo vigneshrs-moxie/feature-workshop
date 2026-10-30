@@ -147,3 +147,25 @@ test('a site missing settings says which, and answers 503 elsewhere', async () =
     assert.match(r.body.error, /These settings are missing in Vercel: SESSION_SECRET/);
   } finally { await s.close(); }
 });
+
+test('a deployment with no database (a preview: the database is for Production only) says so calmly', async () => {
+  const s = await makeSite({ env: { AUTH_FAKE: '', VERCEL: '1', VERCEL_ENV: 'preview', VERCEL_URL: 'feature-workshop-abc.vercel.app', DATABASE_URL: '', GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '' } });
+  try {
+    const fetchAt = (p) => s.fetch(`http://localhost:4507${p}`);
+    const meta = await (await fetchAt('/api/meta')).json();
+    assert.equal(meta.noDatabase, true);
+    assert.equal(meta.person, null);
+    const r = await fetchAt('/api/jobs');
+    assert.equal(r.status, 503);
+    assert.match((await r.json()).error, /This deployment has no database/);
+    assert.equal((await fetchAt('/api/auth/start')).status, 503, 'no sign-in is even started');
+  } finally { await s.close(); }
+});
+
+test('the build’s migrate step skips a deployment with no database, and the build goes on', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const env = { PATH: process.env.PATH, VERCEL: '1', VERCEL_ENV: 'preview' };
+  const r = spawnSync(process.execPath, [path.join(HOSTED, 'scripts', 'migrate.js')], { env, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /No database for this deployment; migrations skipped\./);
+});

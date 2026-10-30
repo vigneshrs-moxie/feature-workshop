@@ -21,6 +21,7 @@ export default function metaRoutes(ctx) {
           signIn: '/api/auth/start',
           fakeSignIn: ctx.config.authFake,
           missing: ctx.config.missing,
+          noDatabase: ctx.config.noDatabase,
         });
       },
     },

@@ -2,20 +2,19 @@
 // the database (site/migrate.js), in one transaction behind an advisory lock.
 //
 // It uses DATABASE_URL_UNPOOLED when Neon's integration set it (a direct connection, best for
-// schema changes), else DATABASE_URL. With neither: on Vercel that is a mistake and the build stops
-// in plain words; on a laptop there is nothing to migrate (the local server uses PGlite and
-// migrates it itself), so it says so and stops cleanly.
+// schema changes), else DATABASE_URL. With neither there is nothing to migrate, and the build goes
+// on: the database is connected for Production only (docs/hosting/vercel-setup.md 2.3), so a
+// preview build has none and must never touch the real one; on a laptop the local server migrates
+// its own PGlite database.
 
 import { openPostgres } from '../site/db.js';
 import { migrate, MigrationError } from '../site/migrate.js';
 
 const url = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
 if (!url) {
-  if (process.env.VERCEL) {
-    console.error('No database to migrate: DATABASE_URL isn’t set. Connect the Neon database to this project for Production and Preview (Storage → Neon), then deploy again.');
-    process.exit(1);
-  }
-  console.log('No DATABASE_URL here, so nothing to migrate. (The local server migrates its own PGlite database.)');
+  console.log(process.env.VERCEL
+    ? `No database for this deployment; migrations skipped.${process.env.VERCEL_ENV === 'production' ? ' This is the production build: connect the Neon database to Production (Storage → Neon) and deploy again.' : ''}`
+    : 'No DATABASE_URL here, so nothing to migrate. (The local server migrates its own PGlite database.)');
   process.exit(0);
 }
 
