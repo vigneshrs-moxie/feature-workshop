@@ -12,12 +12,15 @@
 //     by its finding, with What to do, Table ▸, Fold and Hide. Fold and Hide are remembered in this
 //     browser, per person; hidden cards come back from "Show hidden graphs (n)".
 // Data: GET /api/telemetry?window= (dashboard/lib/telemetry.js, lib/insights.js), read again every
-// minute while the page is open and after Read now. Colours are the theme's --chart-* tokens, each
-// with its pattern (Telemetry.css); colour never works alone.
+// minute while the page is open and after Read now. Colours follow the colour rule (packet R): a single
+// series in the accent with grey for what it is compared with; people, models and stages in the
+// theme's status and stop hues, each with a pattern or its name on the mark (Telemetry.css); colour
+// never works alone.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { GraphId, LimitSplit, PlanUsage, TelemetryGraph, TelemetryResponse, TelemetryWindow, UsageMeter } from '../api/types';
 import { useKeyScope } from '../app/keyRegistry';
-import { Kbd } from '../components/Kbd';
+import { Button } from '../components/Button';
+import { Segmented } from '../components/Choice';
 import { Hero, NextBar, Page, useMinWidth, useNarrow, type GuideSpec } from '../components/page/Page';
 import { resetsIn } from '../components/UsageMeters';
 import { useStored } from '../lib/stored';
@@ -135,18 +138,19 @@ export function TelemetryView() {
   };
 
   const readButton = (
-    <button type="button" className="btn btn-primary btn-lg" onClick={() => void readNow()} disabled={!canRead || reading} title={canRead ? 'Read the limits from Claude now (they are read every minute by themselves).' : 'The limits aren’t read on this computer.'}>
-      {reading ? 'Reading…' : 'Read now'} <Kbd id="tele-read" />
-    </button>
+    <Button kind="primary" size="lg" keyId="tele-read" onClick={() => void readNow()} disabled={!canRead || reading} title={canRead ? 'Read the limits from Claude now (they are read every minute by themselves).' : 'The limits aren’t read on this computer.'}>
+      {reading ? 'Reading…' : 'Read now'}
+    </Button>
   );
+  // The window, one of three (packet R: the shared segmented choice; the short words on a phone).
   const head = (
-    <div className="tele-windows" role="group" aria-label="Window: what the dials’ graph and People cover">
-      {WINDOWS.map((w) => (
-        <button key={w.id} type="button" className="btn btn-quiet tele-window" aria-pressed={win === w.id} onClick={() => pick(w.id)} title={`Show ${w.label.toLowerCase()} in the weekly graph and People.`}>
-          <span className="tele-check" aria-hidden="true">{win === w.id ? '✓' : ''}</span><span className="tele-long">{w.label}</span><span className="tele-short">{w.short}</span>
-        </button>
-      ))}
-    </div>
+    <Segmented<TelemetryWindow>
+      className="tele-windows"
+      label="Window: what the dials’ graph and People cover"
+      value={win}
+      onChange={pick}
+      options={WINDOWS.map((w) => ({ value: w.id, label: <><span className="tele-long">{w.label}</span><span className="tele-short">{w.short}</span></>, title: `Show ${w.label.toLowerCase()} in the weekly graph and People.` }))}
+    />
   );
 
   // Nothing recorded and no reading of the limits: the empty state.
@@ -157,7 +161,7 @@ export function TelemetryView() {
       {error && (
         <p className="thread-error" role="alert">
           Couldn’t read the usage log: {error}{' '}
-          <button type="button" className="btn btn-quiet" onClick={() => void load(win)} title="Ask the dashboard again.">Try again</button>
+          <Button kind="quiet" size="sm" onClick={() => void load(win)} title="Ask the dashboard again.">Try again</Button>
         </p>
       )}
       {!data && loading && <p className="muted" role="status">Reading…</p>}

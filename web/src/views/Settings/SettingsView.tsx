@@ -33,6 +33,9 @@ import { OrbitTokenSettings } from './OrbitTokenSettings';
 import { ReposSettings } from './ReposSettings';
 import { FIRST_SECTION, findSettings, SECTION_WORDS, stepSection, valueLines, type SettingEntry } from './sections';
 import { Choice } from '../../components/Choice';
+import { Button } from '../../components/Button';
+import { Saved, useSaved } from '../../components/Saved';
+import { FoundSetting, SectionHead, SettingsMore } from './SettingsMore';
 
 type Load = { state: 'loading' } | { state: 'ready'; list: RulesList } | { state: 'error'; message: string };
 
@@ -64,16 +67,15 @@ function RuleRow({ rule, now, onRemoved }: { rule: Rule; now: Date; onRemoved: (
         </p>
         {error && <p className="field-problem" role="alert">{error}</p>}
       </div>
-      <button
-        type="button"
-        className="btn btn-quiet"
-        disabled={busy}
+      <Button
+        kind="quiet"
+        busy={busy}
         onClick={() => void remove()}
         aria-label={`Remove the rule: ${sentence(rule.label)}`}
         title="Remove this rule. Steps like this ask you again from now on, including in replies already running."
       >
-        {busy ? 'Removing…' : 'Remove'}
-      </button>
+        Remove
+      </Button>
     </li>
   );
 }
@@ -90,12 +92,14 @@ function PolicyChoice() {
   const blocked = autoBlockedReason(auto);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const saved = useSaved();
 
   async function post(body: Record<string, unknown>) {
     setBusy(true);
     setError(null);
     try {
       store.dispatch({ type: 'settings', settings: await api.post<Settings>('/api/settings', body) });
+      saved.mark();
     } catch (err) {
       setError(message(err));
     } finally {
@@ -105,7 +109,7 @@ function PolicyChoice() {
 
   return (
     <section aria-label="Permissions">
-      <h3 className="settings-heading">Permissions</h3>
+      <SectionHead saved={<Saved tick={saved.tick()} />}>Permissions</SectionHead>
       <HowThisWorks id="settings">
         <p><strong>Permissions</strong> decide how much the Foreman and its crew may do without asking you. <strong>Routine steps automatic</strong> is the default. <strong>Auto mode</strong> lets Claude Code’s own safety model judge each step; what it blocks is listed in the conversation as a dim line, so nothing is hidden. A change applies at once, also to replies already running. {HARD_LINES_NOTE}</p>
         <p>When a permission card asks you about a step, <strong>Always allow…</strong> saves a rule so steps exactly like it run without asking; the rules are listed under <strong>Rules</strong>.</p>
@@ -129,12 +133,14 @@ function PolicyChoice() {
         })}
       </fieldset>
       {blocked && (
-        <button type="button" className="btn btn-quiet policy-recheck" disabled={busy} onClick={() => void post({ recheckAuto: true })} title="Forget that auto mode wasn’t available, so you can pick it and the next reply tries it again.">
+        <Button kind="quiet" className="policy-recheck" disabled={busy} onClick={() => void post({ recheckAuto: true })} title="Forget that auto mode wasn’t available, so you can pick it and the next reply tries it again.">
           Check again
-        </button>
+        </Button>
       )}
-      <p className="muted policy-hard-lines">{HARD_LINES_NOTE} A job can have its own setting: use its job menu.</p>
       {error && <p className="field-problem" role="alert">{error}</p>}
+      <SettingsMore id="permissions-more" label="More: the hard lines and a job’s own setting" holds={[]}>
+        <p className="muted policy-hard-lines">{HARD_LINES_NOTE} A job can have its own setting: use its job menu.</p>
+      </SettingsMore>
     </section>
   );
 }
@@ -153,7 +159,10 @@ function SkillWarning() {
   );
 }
 
-/** Settings → Rules: your "Always allow" rules, each removable. */
+/** How many rules show before "More: n more rules". */
+const RULES_FIRST = 8;
+
+/** Settings → Rules: your "Always allow" rules, each removable; past the first eight, the rest behind a More. */
 function RulesSettings({ load, onRemoved }: { load: Load; onRemoved: () => void }) {
   const now = useNow();
   return (
@@ -179,9 +188,18 @@ function RulesSettings({ load, onRemoved }: { load: Load; onRemoved: () => void 
           {load.list.rules.length === 0 ? (
             <p className="muted">No rules yet. Use <strong>Always allow…</strong> on a permission card to add one.</p>
           ) : (
-            <ul className="rule-list">
-              {load.list.rules.map((r) => <RuleRow key={r.id} rule={r} now={now} onRemoved={onRemoved} />)}
-            </ul>
+            <>
+              <ul className="rule-list">
+                {load.list.rules.slice(0, RULES_FIRST).map((r) => <RuleRow key={r.id} rule={r} now={now} onRemoved={onRemoved} />)}
+              </ul>
+              {load.list.rules.length > RULES_FIRST && (
+                <SettingsMore id="rules-more" label={`More: ${load.list.rules.length - RULES_FIRST} more ${load.list.rules.length - RULES_FIRST === 1 ? 'rule' : 'rules'}`} holds={[]}>
+                  <ul className="rule-list">
+                    {load.list.rules.slice(RULES_FIRST).map((r) => <RuleRow key={r.id} rule={r} now={now} onRemoved={onRemoved} />)}
+                  </ul>
+                </SettingsMore>
+              )}
+            </>
           )}
         </>
       )}
@@ -240,12 +258,22 @@ export function SettingsView({ section }: { section?: SettingsSection }) {
   }
   useEffect(() => {
     if (!found) return;
-    const el = document.querySelector<HTMLElement>(`[data-setting="${found}"]`);
-    if (!el) return; // the section is still on its way: this runs again when it has rendered
-    el.classList.add('is-found');
-    if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center' });
-    const t = setTimeout(() => { el.classList.remove('is-found'); setFound(null); }, FOUND_MS);
-    return () => { clearTimeout(t); el.classList.remove('is-found'); };
+    // The section, or the More holding the control (SettingsMore opens itself), may still be on its
+    // way: look again on the next frames for a moment.
+    let el: HTMLElement | null = null;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    let frame = 0;
+    let tries = 0;
+    const ring = () => {
+      el = document.querySelector<HTMLElement>(`[data-setting="${found}"]`);
+      if (!el) { if (tries++ < 30) frame = requestAnimationFrame(ring); return; }
+      el.classList.add('is-found');
+      if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center' });
+      const shown = el;
+      t = setTimeout(() => { shown.classList.remove('is-found'); setFound(null); }, FOUND_MS);
+    };
+    ring();
+    return () => { cancelAnimationFrame(frame); if (t) clearTimeout(t); el?.classList.remove('is-found'); };
   }, [found, current]);
 
   useKeyScope('settings', {
@@ -300,17 +328,18 @@ export function SettingsView({ section }: { section?: SettingsSection }) {
               </ul>
             )}
           </nav>
+          <FoundSetting.Provider value={found}>
           <div className="settings-section" data-section={current}>
             {current === 'permissions' && <PolicyChoice />}
             {current === 'notifications' && <NotifySettings />}
             {current === 'look' && <LookSettings />}
             {current === 'keys' && <KeysSettings />}
-            {current === 'workflow' && <WorkflowSettings />}
-            {current === 'workflow' && <OrbitTokenSettings />}
+            {current === 'workflow' && <WorkflowSettings><OrbitTokenSettings /></WorkflowSettings>}
             {current === 'repos' && <ReposSettings />}
             {current === 'play' && <PlaySettings />}
             {current === 'rules' && <RulesSettings load={load} onRemoved={() => setMine((n) => n + 1)} />}
           </div>
+          </FoundSetting.Provider>
         </div>
       </div>
     </main>

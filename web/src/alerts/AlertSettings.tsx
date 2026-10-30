@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { useStored } from '../lib/stored';
 import { alertOutputs, askNotifyPermission, CHIME_KEY, notifySupport, NOTIFY_KEY } from './alerts';
 import { Button } from '../components/Button';
+import { Saved, useSaved } from '../components/Saved';
 
 const BLOCKED = 'Your browser blocks notifications from this page. You can allow them in the browser’s site settings.';
 
@@ -13,20 +14,22 @@ export function AlertSettings() {
   const [notify, setNotify] = useStored(NOTIFY_KEY);
   const [chime, setChime] = useStored(CHIME_KEY);
   const [note, setNote] = useState<string | null>(null);
+  const saved = useSaved();
   const support = notifySupport();
   const notifyOn = notify === 'on' && support === 'granted';
   const chimeOn = chime === 'on';
 
   async function toggleNotify() {
     setNote(null);
-    if (notifyOn) { setNotify('off'); return; }
+    if (notifyOn) { setNotify('off'); saved.mark(); return; }
     const answer = await askNotifyPermission();
-    if (answer === 'granted') { setNotify('on'); return; }
+    if (answer === 'granted') { setNotify('on'); saved.mark(); return; }
     setNotify('off');
     if (answer === 'denied') setNote(BLOCKED);
   }
 
   function toggleChime() {
+    saved.mark();
     if (chimeOn) { setChime('off'); return; }
     setChime('on');
     alertOutputs.chime(); // so you hear what it sounds like
@@ -64,6 +67,7 @@ export function AlertSettings() {
       >
         Chime <span className="toggle-state">{chimeOn ? 'On' : 'Off'}</span>
       </Button>
+      <Saved tick={saved.tick()} />
       </div>
       {note && <p className="alert-settings-note" role="status">{note}</p>}
     </div>

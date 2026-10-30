@@ -12,6 +12,7 @@ import type { ApiClient } from '../api/client';
 import type { PlanUsage, TelemetryResponse, TelemetryWindow } from '../api/types';
 import { installKeyListener, KEYS } from '../app/keyRegistry';
 import { hrefFor, parseHash, telemetryHref } from '../app/router';
+import { setDefaultDetail } from '../app/detail';
 import { KeyGroups } from './JobSheets/KeysSheet';
 import { createStore, WorkshopContext } from '../state/store';
 import { LEVELS, snapshot } from '../state/test-fixtures';
@@ -105,6 +106,29 @@ describe('Telemetry', () => {
     expect(document.body.textContent).not.toMatch(/Ground Control/);
   });
 
+  it('in Simple: the dials, Who used this week’s limit and three graphs, the rest behind More graphs (n), which opens them in place', async () => {
+    setDefaultDetail('simple');
+    try {
+      setup();
+      await screen.findByRole('region', { name: 'Who used this week’s limit' });
+      expect(document.querySelectorAll('.tele-dial')).toHaveLength(2);
+      const more = await screen.findByRole('button', { name: /^More graphs \(7\)/ });
+      expect(more).toHaveAttribute('aria-expanded', 'false');
+      const shown = () => [...document.querySelectorAll('.tele-card')];
+      expect(shown()).toHaveLength(3);
+      expect(shown().every((c) => !c.closest('.tele-more'))).toBe(true);
+      fireEvent.click(more);
+      expect(more).toHaveAttribute('aria-expanded', 'true');
+      expect(shown()).toHaveLength(10);
+      expect(document.querySelectorAll('.tele-more .tele-card')).toHaveLength(7);
+      // The stages, by their stop's hue, each named beside its bar.
+      const bars = [...card('stages').querySelectorAll('.tele-pair-row .tele-bar-track:first-child .tele-bar')];
+      expect(bars.length).toBeGreaterThan(0);
+      for (const bar of bars) expect(bar.className).toMatch(/tele-stop is-[a-z]+/);
+      expect(bars.some((b) => /is-(spec|plan|build|test|review|investigate|ship)\b/.test(b.className))).toBe(true);
+    } finally { setDefaultDetail('full'); }
+  });
+
   it('shows who used this week’s limit: each person and Other use, with a name, a percent and a pattern, and what Other use means', async () => {
     const scroll = vi.fn();
     Element.prototype.scrollIntoView = scroll;
@@ -167,9 +191,14 @@ describe('Telemetry', () => {
   it('the window picker asks for that window and remembers it; Read now reads the limits', async () => {
     const { get, post } = setup();
     await ready();
-    fireEvent.click(screen.getByRole('button', { name: /30 days/ }));
+    // The shared segmented choice (packet R): one radio group, the arrow keys move the pick.
+    const windows = screen.getByRole('radiogroup', { name: /^Window/ });
+    expect(within(windows).getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['5h', 'week', '30d']);
+    expect(within(windows).getByRole('radio', { name: /This week/ })).toBeChecked();
+    fireEvent.click(within(windows).getByRole('radio', { name: /30 days/ }));
     await waitFor(() => expect(get).toHaveBeenCalledWith('/api/telemetry?window=30d'));
-    expect(screen.getByRole('button', { name: /30 days/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(windows).getByRole('radio', { name: /30 days/ })).toBeChecked();
+    expect(within(windows).getByRole('radio', { name: /This week/ })).not.toBeChecked();
     expect(localStorage.getItem('workshop.telemetryWindow')).toBe('30d');
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Read now/ })); });
     expect(post).toHaveBeenCalledWith('/api/usage/check', {});
@@ -267,9 +296,17 @@ describe('Telemetry.css', () => {
     expect(css).not.toMatch(/--tele-\d/);
   });
 
-  it('gives every series slot the chart token and its pattern, so colour never works alone', () => {
-    for (let n = 1; n <= 8; n++) expect(css).toMatch(new RegExp(`\\.tele-s${n} \\{ background: var\\(--chart-pattern-${n}\\), var\\(--chart-${n}\\); \\}`));
+  it('gives every categorical slot a status or stop hue and its pattern, so colour never works alone; Other use is grey', () => {
+    for (let n = 1; n <= 7; n++) expect(css).toMatch(new RegExp(`\\.tele-s${n} \\{ background: var\\(--chart-pattern-${n}\\), var\\(--(status|stop)-[a-z]+\\); \\}`));
+    expect(css).toMatch(/\.tele-s8 \{ background: var\(--chart-pattern-8\), var\(--text-3\); \}/);
     expect(css).toMatch(/@media \(forced-colors: active\)/);
+  });
+
+  it('draws a single series in the accent with grey for what it is compared with, and each stage in its stop’s hue', () => {
+    expect(css).toMatch(/\.tele-one \{ background: var\(--accent\); \}/);
+    expect(css).toMatch(/\.tele-svg \.week \{[^}]*stroke: var\(--accent\)/);
+    expect(css).toMatch(/\.tele-svg \.five \{[^}]*stroke: var\(--text-3\)/);
+    for (const stop of ['spec', 'investigate', 'plan', 'build', 'test', 'review', 'ship']) expect(css).toContain(`.tele-stop.is-${stop} { background: var(--stop-${stop}); }`);
   });
 
   it('no transition over 200 ms, and nothing you click shorter than 40 px', () => {

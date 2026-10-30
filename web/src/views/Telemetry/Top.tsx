@@ -4,7 +4,7 @@
 import { useId, type ReactNode } from 'react';
 import type { LimitSplit, UsageMeter } from '../../api/types';
 import { WARN_AT } from '../../components/UsageMeters';
-import { OTHER_SLOT, pct, slotClass } from './words';
+import { ONE, OTHER_SLOT, pct, slotClass } from './words';
 import { ShareBar } from './charts';
 import { More } from '../../components/More';
 
@@ -62,7 +62,7 @@ export function Dial({ name, meter, split, when, unread = 'Not read yet' }: { na
         <div className="tele-dial-sub muted">{when}</div>
         {split2 && (
           <div className="tele-dial-parts">
-            <span><span className={`tele-swatch ${slotClass(1)}`} aria-hidden="true" />In this app {pct(split.app!)}</span>
+            <span><span className={`tele-swatch ${ONE}`} aria-hidden="true" />In this app {pct(split.app!)}</span>
             <span><span className={`tele-swatch ${slotClass(OTHER_SLOT)}`} aria-hidden="true" />Other use {pct(split.other!)}, estimated</span>
           </div>
         )}

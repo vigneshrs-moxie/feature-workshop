@@ -21,14 +21,19 @@ function systemPrefers(scheme: 'dark' | 'light') {
   vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('light') ? scheme === 'light' : scheme === 'dark', addEventListener() {}, removeEventListener() {} }));
 }
 
-const DARK = ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'candy-pop', 'glass'];
-const LIGHT = ['sunset-paper', 'light', 'light-glass'];
+// Light and Default come first, beside Follow the system; All themes holds the rest in two groups.
+const FIRST = ['light', 'default'];
+const DARK = ['neon-arcade', 'blueprint', 'pixel-crew', 'candy-pop', 'glass'];
+const LIGHT = ['sunset-paper', 'light-glass'];
 
 describe('theme picker and the hidden themes', () => {
-  it('lists the nine in two groups, Dark then Light; CRT Terminal and Gold only once unlocked, each with an “Unlocked” tag', () => {
+  it('lists Light and Default first, then All themes: the rest in two groups, Dark then Light; CRT Terminal and Gold only once unlocked, each with an “Unlocked” tag', () => {
     setup();
     const radios = () => screen.getAllByRole('radio').map((r) => (r as HTMLInputElement).value);
-    expect(radios()).toEqual([...DARK, ...LIGHT]);
+    expect(radios()).toEqual([...FIRST, ...DARK, ...LIGHT]);
+    expect(screen.getByRole('button', { name: /^All themes \(7\)/ })).toHaveAttribute('aria-expanded', 'true');
+    // Light is what a new browser opens in: it carries the Default tag.
+    expect(within(screen.getByRole('radio', { name: /^Light( Chosen)? Default$/ }).closest('label')!).getByText('Default')).toBeInTheDocument();
     const inGroup = (name: string) => within(screen.getByRole('group', { name })).getAllByRole('radio').map((r) => (r as HTMLInputElement).value);
     expect(inGroup('Dark')).toEqual(DARK);
     expect(inGroup('Light')).toEqual(LIGHT);
@@ -42,7 +47,8 @@ describe('theme picker and the hidden themes', () => {
     expect(within(crt).getByText('Unlocked')).toHaveAttribute('title');
 
     act(() => setThemeUnlocks({ crt: true, gold: true }));
-    expect(radios()).toEqual([...DARK, 'crt', 'gold', ...LIGHT]);
+    expect(radios()).toEqual([...FIRST, ...DARK, 'crt', 'gold', ...LIGHT]);
+    expect(screen.getByRole('button', { name: /^All themes \(9\)/ })).toBeInTheDocument();
     expect(inGroup('Dark')).toEqual([...DARK, 'crt', 'gold']);
     expect(screen.getAllByText('Unlocked')).toHaveLength(2);
   });
@@ -76,7 +82,7 @@ describe('theme picker and the hidden themes', () => {
     localStorage.setItem(THEME_FOLLOW_KEY, 'on');
     setup();
     const option = (name: RegExp) => screen.getByRole('radio', { name }).closest('label')!;
-    const light = /^Light( Chosen)?$/; // the radio's name: label and the Chosen mark (the description is the card's title)
+    const light = /^Light( Chosen)? Default$/; // the radio's name: label, the Chosen mark and the Default tag (the description is the card's title)
     fireEvent.click(screen.getByRole('radio', { name: light }));
     // A dark system would show Default (Light's twin); the pick wins and Follow the system goes off.
     expect(currentTheme()).toBe('light');
@@ -99,7 +105,7 @@ describe('theme picker and the hidden themes', () => {
     initTheme();
     setup();
     expect(currentTheme()).toBe('default');
-    fireEvent.click(screen.getByRole('radio', { name: /^Light Chosen$/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /^Light Chosen Default$/ }));
     expect(currentTheme()).toBe('light');
     expect(localStorage.getItem(THEME_FOLLOW_KEY)).toBe('off');
   });
