@@ -8,6 +8,7 @@
 //   fetch      how the site reaches Google (the fake one in tests)
 //   now        the clock (tests move it)
 //   staticDir  the built page (the local server only; on Vercel the CDN serves it)
+//   timers     { now, sleep(ms) }: real time, for the long-poll's wait (tests pass instant ones)
 //
 // The routes live in routes-*.js, each a list of { method, path, auth, run }:
 //   path   an exact path, or a RegExp whose groups the route reads (ctx.m)
@@ -30,17 +31,20 @@ import authRoutes from './routes-auth.js';
 import peopleRoutes from './routes-people.js';
 import laptopRoutes from './routes-laptops.js';
 import pairRoutes from './routes-pair.js';
+import runnerRoutes from './routes-runner.js';
 
 const WRITES = new Set(['POST', 'PUT', 'DELETE']);
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.map': 'application/json; charset=utf-8', '.png': 'image/png', '.woff2': 'font/woff2', '.ico': 'image/x-icon' };
 
 /** The lists of routes, in the order they are tried. Later steps add theirs. */
-export const ROUTE_LISTS = [authRoutes, metaRoutes, cronRoutes, peopleRoutes, laptopRoutes, pairRoutes];
+export const ROUTE_LISTS = [authRoutes, metaRoutes, cronRoutes, peopleRoutes, laptopRoutes, pairRoutes, runnerRoutes];
 
-export function createSite({ db, config, fetch: fetchFn = globalThis.fetch, now = () => Date.now(), staticDir = null, extraRoutes = [] }) {
+const REAL_TIMERS = { now: () => Date.now(), sleep: (ms) => new Promise((r) => { setTimeout(r, ms).unref?.(); }) };
+
+export function createSite({ db, config, fetch: fetchFn = globalThis.fetch, now = () => Date.now(), staticDir = null, extraRoutes = [], timers = REAL_TIMERS }) {
   const closers = [];
   const ctx = {
-    db, config, now, fetch: fetchFn, readJson,
+    db, config, now, timers, fetch: fetchFn, readJson,
     /** Something to stop when the site closes (timers, waiting requests). */
     onClose: (fn) => closers.push(fn),
   };
@@ -110,7 +114,15 @@ export function createSite({ db, config, fetch: fetchFn = globalThis.fetch, now 
     res.end(body);
   }
 
+  // Requests still being answered: close() waits for them, so nothing touches a closed database.
+  const inflight = new Set();
   async function handler(req, res) {
+    const p = answer(req, res);
+    inflight.add(p);
+    try { return await p; } finally { inflight.delete(p); }
+  }
+
+  async function answer(req, res) {
     let url;
     let urlPath;
     try {
@@ -141,6 +153,9 @@ export function createSite({ db, config, fetch: fetchFn = globalThis.fetch, now 
   }
 
   handler.ctx = ctx;
-  handler.close = async () => { for (const fn of closers.splice(0)) await fn(); };
+  handler.close = async () => {
+    for (const fn of closers.splice(0)) await fn();
+    await Promise.allSettled([...inflight]);
+  };
   return handler;
 }

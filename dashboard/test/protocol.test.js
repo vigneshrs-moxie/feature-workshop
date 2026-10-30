@@ -128,3 +128,34 @@ test('makeEvent: known types only; never a diff, patch, environment, token or so
   assert.ok(!JSON.stringify(hidden.event).includes('orbfb_'), JSON.stringify(hidden.event));
   assert.match(hidden.event.data.text, /\[Orbit token hidden\]/);
 });
+
+test('the hosted site’s events (packet 2A): hello and job-list, checked like every other', () => {
+  assert.equal(PROTOCOL_VERSION, 2);
+  for (const type of ['hello', 'job-list']) assert.ok(EVENT_TYPES.includes(type), type);
+  const hello = makeEvent('hello', { name: 'Test Laptop', os: 'macOS', version: '0.1.0', protocol: PROTOCOL_VERSION });
+  assert.equal(hello.ok, true);
+  const list = makeEvent('job-list', { jobs: [{ slug: 'sample-job', title: 'Sample', ticket: 'ORBIT-479', stage: 'plan', state: 'needs-you', now: 'Waiting for your go-ahead', updatedAt: null }] });
+  assert.equal(list.ok, true);
+  assert.equal(makeEvent('job-list', { jobs: [{ slug: 'x', diff: '+ a line' }] }).ok, false, 'a job row never carries a diff');
+  assert.equal(makeEvent('hello', { env: { HOME: '/x' } }).ok, false);
+});
+
+// The site stores an event only when it passes the same check again there (hosted/site/events.js):
+// what makeEvent would make from it must be exactly what arrived.
+test('every event the site stores passes the “never carries” check again on the site side, and is refused if not', async () => {
+  const { checkStoredEvent } = await import('../../hosted/site/events.js');
+  const made = makeEvent('status', { slug: 'sample-job', stage: 'build' }, { job: 'sample-job' }).event;
+  assert.deepEqual(checkStoredEvent({ eid: 'e-1', ...made }), { ok: true, event: { eid: 'e-1', type: 'status', job: 'sample-job', data: made.data } });
+  for (const key of NEVER_CARRIED) {
+    const r = checkStoredEvent({ eid: 'e-2', v: PROTOCOL_VERSION, type: 'status', job: null, data: { deep: [{ [key]: 'x' }] } });
+    assert.equal(r.ok, false, key);
+    assert.match(r.error, new RegExp(`never carries “${key}”`));
+  }
+  const token = `orbfb_${'a'.repeat(43)}`;
+  const leak = checkStoredEvent({ eid: 'e-3', v: PROTOCOL_VERSION, type: 'job-list', job: null, data: { jobs: [{ title: `paste ${token}` }] } });
+  assert.equal(leak.ok, false, 'a token the runner failed to scrub is refused, not scrubbed and kept');
+  assert.equal(checkStoredEvent({ eid: 'e-4', v: PROTOCOL_VERSION, type: 'shell-output', job: null, data: {} }).ok, false);
+  assert.equal(checkStoredEvent({ eid: 'not ok!', v: PROTOCOL_VERSION, type: 'status', job: null, data: {} }).ok, false);
+  assert.equal(checkStoredEvent({ eid: 'e-5', v: PROTOCOL_VERSION, type: 'status', job: '../etc', data: {} }).ok, false);
+  assert.equal(checkStoredEvent({ eid: 'e-6', v: PROTOCOL_VERSION, type: 'status', job: null, data: [] }).ok, false);
+});
