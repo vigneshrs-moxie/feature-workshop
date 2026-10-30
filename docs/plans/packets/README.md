@@ -37,10 +37,15 @@ One file per packet. Start a terminal tab, paste the path of one file, and that 
 | V | `V-stacks-home.md` | 4499 |
 | W | `W-polish.md` | 4501 |
 | X | `X-every-theme.md` | 4503 |
+| 2A | `2A-site-service.md` (v2) | 4507 |
+| 2B | `2B-mirror-and-approvals.md` (v2) | 4509 |
+| 2C | `2C-inbox-poller.md` (v2) | 4511 |
+| 2D | `2D-lounge.md` (v2) | 4513 |
+| 2E | `2E-team-telemetry.md` (v2) | 4515 |
 
 **Ports:** a packet takes a port only after the packet that last used it is merged, so no two packets running at the same time share one (H after G on 4481; I after H; K after J; L after N; M after I; O after K). 4477 and 4479 are never used.
 
-v2 packet files are written when v1.5 ships, from plan §11.
+v2 packets are 2A–2E (plan §11's v2 table, renamed because P–U were taken, and moved to Vercel by G34). Order: 2A, then 2B+2C, then 2D+2E. Port 4505 is kept for Vignesh's own local trial of the hosted site. Setup steps for him: `docs/hosting/vercel-setup.md`.
 
 ## Rules that apply to every packet (read once, obey always)
 

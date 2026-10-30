@@ -410,7 +410,7 @@ No dates. Each phase has a stop line: when the acceptance holds, the phase is do
 | Phase | Contents | Stop line (acceptance) | Size |
 |---|---|---|---|
 | **v1 · Ticket in, local** | fast-forward `redesign/orbit-ready` into `main`; Orbit read client and inbox; Start from a ticket; `status.json` v2 with the ticket block and schema validation with retry (D11); job lock (D12); usage warnings (G20); `decisions.md` and the not-doing list, copy-for-ticket; facts-up-front review prompts (D13); Telemetry (D14) | D1, D2, D6 (job level), D8, D11, D12, D13, D14 hold; `npm test` and `web` tests green; one real Orbit ticket run end to end from the inbox to PR #1 | 9 to 11 days |
-| **v1.5 · Team-ready, still local** | runner and site split inside one process (the protocol, the command list, replay-on-restart); repo registry and `ground-control.md`; cross-platform audit (§4.4) and installers; stacks (§6); Playwright evidence (G17); the redesign (§7); PR feedback routing; decision files committed to Orbit | D3, D4, D5, D7 hold; a real job on the manager's Windows laptop through the three PRs; a stack of three sections on Orbit | 18 to 24 days |
+| **v1.5 · Team-ready, still local** | runner and site split inside one process (the protocol, the command list, replay-on-restart); repo registry and `ground-control.md`; cross-platform audit (§4.4) and installers; stacks (§6); Playwright evidence (G17); the redesign (§7); PR feedback routing; decision files committed to Orbit | D3, D4, D5, D7 hold; a real job on Sohum's Windows laptop through the three PRs (G35); a stack of three sections on Orbit | 18 to 24 days |
 | **v2 · Hosted** | the site on Railway: Google sign-in, pairing, the inbox poller with the encrypted token store, mirrored records, queued approvals, the lounge, phone-friendly Desk, team Telemetry | D9 holds; two people each run a job from their own laptop and see only their own; the lounge shows both; a gate approved from a phone while the laptop is closed executes when it wakes | 10 to 14 days |
 | **Later, each its own decision** | automatic ticket pickup; write-back scopes (G4); hand-over between computers; stacks across laptops; a second repo profile; the manager version of this plan as a page (G19) | — | — |
 
@@ -460,6 +460,8 @@ Integration order: Z first, then C, D, E, F (independent), then A and T, then B.
 Integration order: G, then H+J+N, then I+K+L, then M, then O.
 
 ### v2 packets
+
+**Changed 2026-10-30 (G34, G35):** the site is hosted on Vercel, not Railway, and runners use HTTPS with a long-poll, not a WebSocket. The packets below were renamed 2A–2E, because the letters P–U were already taken by v1.5 follow-ups: P → 2A, Q → 2B, R → 2C, S → 2D, U → 2E. Their files are under `docs/plans/packets/2*.md`, and the setup steps are in `docs/hosting/vercel-setup.md`.
 
 | Id | Packet | Owns | Depends on | Acceptance |
 |---|---|---|---|---|
