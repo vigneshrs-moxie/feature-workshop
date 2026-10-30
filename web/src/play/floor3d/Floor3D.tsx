@@ -44,11 +44,13 @@ export interface Floor3DProps {
   onStats?: (s: FrameStats) => void;
   /** The floor's accessible name. */
   label?: string;
+  /** The line above the floor (null: none, when the page already says it). */
+  hint?: string | null;
 }
 
 const openJob = (slug: string) => navigate({ name: 'job', slug });
 
-export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, onStats, label = 'The workshop floor' }: Floor3DProps) {
+export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, onStats, label = 'The workshop floor', hint }: Floor3DProps) {
   const [view, setViewState] = useState<View>(readView);
   const [webgl] = useState(hasWebGL);
   const [failed, setFailed] = useState(false);
@@ -66,22 +68,21 @@ export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, 
     <section className="floor3d" aria-label={label}>
       {view === 'list' ? (
         <>
-          <FloorBar view={view} onView={setView} />
+          <FloorBar view={view} onView={setView} hint={hint} />
           <FloorList benches={benches} onOpenJob={onOpenJob} />
         </>
       ) : (
-        <FloorStage benches={benches} onOpenJob={onOpenJob} busy={busy} onStats={onStats} onFail={() => setFailed(true)} onView={setView} />
+        <FloorStage benches={benches} onOpenJob={onOpenJob} busy={busy} onStats={onStats} onFail={() => setFailed(true)} onView={setView} hint={hint} />
       )}
     </section>
   );
 }
 
-function FloorBar({ view, onView, onFit }: { view: View; onView: (v: View) => void; onFit?: () => void }) {
+function FloorBar({ view, onView, onFit, hint }: { view: View; onView: (v: View) => void; onFit?: () => void; hint?: string | null }) {
+  const words = hint === undefined ? (view === 'floor' ? 'Each bench is a job. Pick a bench or a builder to open the job.' : 'The floor as a list: one row per bench.') : hint;
   return (
     <div className="floor3d-bar">
-      <p className="floor3d-hint muted">
-        {view === 'floor' ? 'Each bench is a job. Pick a bench or a builder to open the job.' : 'The floor as a list: one row per bench.'}
-      </p>
+      {words && <p className="floor3d-hint muted">{words}</p>}
       <div className="floor3d-actions">
         {onFit && (
           <FloorHint text="Show the whole floor again (after zooming with a pinch, or ⌘ and scroll).">
@@ -119,9 +120,10 @@ interface StageProps {
   onStats?: (s: FrameStats) => void;
   onFail: () => void;
   onView: (v: View) => void;
+  hint?: string | null;
 }
 
-function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView }: StageProps) {
+function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint }: StageProps) {
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<FloorScene | null>(null);
@@ -240,7 +242,7 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView }: Stage
 
   return (
     <>
-      <FloorBar view="floor" onView={onView} onFit={zoomed ? fit : undefined} />
+      <FloorBar view="floor" onView={onView} onFit={zoomed ? fit : undefined} hint={hint} />
       <div
         ref={box}
         className={`floor3d-stage${ready ? ' is-ready' : ''}`}

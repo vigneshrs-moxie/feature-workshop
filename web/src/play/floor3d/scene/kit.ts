@@ -392,7 +392,8 @@ export function createKit(palette: FloorPalette): Kit {
 
   function makeBench(): BenchParts {
     const top = mesh(shape.top, mats.bench, [0, BENCH.height - 0.0375, 0]);
-    top.receiveShadow = true;
+    // Only the floor takes shadows: a bench top would show stripes where the map is stretched thin.
+    top.receiveShadow = false;
     const legs = [-1, 1].map((s) => mesh(shape.leg, mats.benchLeg, [s * (BENCH.width / 2 - 0.13), (BENCH.height - 0.04) / 2, 0]));
     const shelf = mesh(shape.shelf, mats.benchLeg, [0, 0.13, 0]);
     const bulb = mesh(shape.bulb, lampMats.idle, [0.84, BENCH.height + 0.4, -0.3], false);
