@@ -59,6 +59,31 @@ describe('a stack on Jobs', () => {
     expect(screen.getByRole('link', { name: 'Something else' })).toBeInTheDocument();
   });
 
+  it('slides to its new lane like a job card, in 200 ms, and not at all with reduced motion', async () => {
+    // Each lane is 300 px to the right of the one before; a card is where its lane is.
+    const at = (el: Element) => { const lane = el.closest('section.lane'); return lane ? [...lane.parentElement!.children].indexOf(lane) * 300 : 0; };
+    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) { const x = at(this); return { left: x, x, top: 0, y: 0, width: 280, height: 90, right: x + 280, bottom: 90, toJSON: () => ({}) } as DOMRect; });
+    const animate = vi.fn(() => ({ finish() {} }) as unknown as Animation);
+    const had = Element.prototype.animate;
+    Element.prototype.animate = animate;
+    try {
+      const { wrap, store } = setup(jobs);
+      wrap(<JobsPage />);
+      await screen.findByRole('region', { name: 'Working, 2' });
+      const moved = jobs.map((j) => (j.slug === 'orbit-512' ? { ...j, group: 'needs-you' as const, lane: 'needs-you' as const, needsYou: true, waitingSince: new Date().toISOString() } : j));
+      act(() => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: moved, meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) }); });
+      await screen.findByRole('region', { name: 'Working, 1' });
+      const slid = animate.mock.contexts.find((el) => (el as HTMLElement).classList.contains('stack-card')) as HTMLElement | undefined;
+      expect(slid?.dataset.flipKey).toBe('orbit-512');
+      const call = animate.mock.calls[animate.mock.contexts.indexOf(slid)] as unknown as [Keyframe[], KeyframeAnimationOptions];
+      expect(call[0][0].transform).toMatch(/^translate\(-?\d+px, 0px\)$/);
+      expect(call[1]).toMatchObject({ duration: 200 });
+    } finally {
+      Element.prototype.animate = had;
+      rect.mockRestore();
+    }
+  });
+
   it('without stacks (or an older dashboard), Jobs is as before', async () => {
     const store = createStore();
     store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, meta: { token: 't' } as never }) });

@@ -1,7 +1,9 @@
 // Stacks on the other pages:
 //   - Jobs: a stack is one card with four dots for Plan, Build, Merge and Push (not the seven
 //     stops); "3 parts ▾" opens its parts inside the card, and the card opens the Stack page. Its
-//     parts' own jobs don't get cards of their own (useStackIndex says which jobs are parts).
+//     parts' own jobs don't get cards of their own (useStackIndex says which jobs are parts). Like
+//     a job's card it keeps its place while the pointer is over the board, then slides to its new
+//     lane in 200 ms (data-flip-key, lib/flip.ts; still with reduced motion).
 //   - A part's Job page says "Part 2 of <stack>" with a link; the stack's own job says it is one.
 //   - The Foreman's suggestion: when its first brief says a ticket looks big enough for a stack
 //     (status.json stack_suggested), the Job page says so in a line, with "Run as a stack instead".
@@ -44,7 +46,7 @@ export function StackJobCard({ job, stack, now, play }: { job: Job; stack: Stack
   const t = job.waitingSince ?? job.updatedAt ?? null;
   const working = chip.tone === 'working' && running > 0;
   return (
-    <li className={`job-card stack-card play-${play}`}>
+    <li data-flip-key={job.slug} className={`job-card stack-card play-${play}`}>
       <div className="job-card-top">
         {play !== 'off' && <span className={`job-light${working ? ' is-on' : ''}${working && play === 'full' ? ' is-blink' : ''}`} aria-hidden="true" />}
         <a className="job-card-title" href={stackHref(stack.slug)} title={`Open the Stack page of ${stack.title || job.title || stack.slug}.`}>{stack.title || job.title || stack.slug}</a>
