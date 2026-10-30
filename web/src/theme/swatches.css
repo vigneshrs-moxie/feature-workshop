@@ -130,6 +130,7 @@
   --surface-0: var(--bg-0);
   --surface-1: var(--bg-1);
   --surface-2: var(--bg-2);
+  --surface-float: var(--bg-1);
   --btn-primary-bg: oklch(.56 .19 274);
   --btn-primary-fg: oklch(.995 0 0);
   --elev-xs: var(--shadow-xs);
@@ -285,6 +286,15 @@
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--group-shipping-fg);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
 }
 
 .theme-swatch[data-theme="blueprint"] {
@@ -443,6 +453,15 @@
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--group-shipping-fg);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
 }
 
 .theme-swatch[data-theme="pixel-crew"] {
@@ -605,6 +624,15 @@
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--pc-blue);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
 }
 
 .theme-swatch[data-theme="sunset-paper"] {
@@ -938,6 +966,15 @@
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--candy-tangerine);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
 }
 
 .theme-swatch[data-theme="glass"] {
@@ -1078,7 +1115,9 @@
   --hover-bg: var(--bg-3);
   --grid-line: var(--border-1);
   --tooltip-bg: var(--text-1);
-  --tooltip-fg: var(--bg-0);
+  --tooltip-fg: var(--glass-night);
+  --on-needs: var(--glass-night);
+  --surface-float: var(--glass-float);
   --chart-1: oklch(.76 .13 255);
   --chart-2: oklch(.76 .13 55);
   --chart-3: oklch(.76 .13 195);
@@ -1087,6 +1126,15 @@
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: oklch(.86 .13 125);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
   background-color: var(--glass-night);
   background-image: var(--glass-aurora);
 }
@@ -1145,6 +1193,7 @@
   --shade-press: oklch(0 0 0 / .15);
   --surface-0: var(--bg-0);
   --surface-1: var(--bg-0);
+  --surface-float: var(--surface-1);
   --surface-2: var(--bg-1);
   --elev-xs: var(--shadow-xs);
   --elev-sm: var(--shadow-sm);
@@ -1397,7 +1446,9 @@
   --hover-bg: var(--bg-3);
   --grid-line: var(--border-1);
   --tooltip-bg: var(--text-1);
-  --tooltip-fg: var(--bg-0);
+  --tooltip-fg: var(--glass-day);
+  --on-needs: var(--glass-day);
+  --surface-float: var(--glass-float);
   --chart-1: oklch(.55 .15 255);
   --chart-2: oklch(.55 .15 55);
   --chart-3: oklch(.55 .15 195);
@@ -1585,6 +1636,15 @@
   --chart-6: oklch(.8 .14 120);
   --chart-7: oklch(.8 .14 25);
   --chart-8: oklch(.8 .14 300);
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--group-shipping-fg);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
   background: var(--bg-0);
 }
 
@@ -1729,4 +1789,13 @@
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--group-shipping-fg);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
 }

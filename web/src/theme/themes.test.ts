@@ -18,7 +18,10 @@ export const REQUIRED_THEME_TOKENS: readonly string[] = [
   ...[0, 1, 2, 3, 4].map((i) => `bg-${i}`),
   'border-1', 'border-2', 'border-3', 'text-1', 'text-2', 'text-3',
   'accent', 'accent-strong', 'accent-soft', 'on-accent', 'focus-ring',
-  ...['ok', 'warn', 'error', 'info', 'paused'].flatMap((s) => [`status-${s}`, `status-${s}-bg`]),
+  ...['ok', 'warn', 'error', 'info', 'paused', 'review'].flatMap((s) => [`status-${s}`, `status-${s}-bg`]),
+  // Packet R's stop ring (the job's seven stops, the floor's benches, Telemetry's series): every
+  // theme draws it in its own colours, so the default's pink Spec never borrows a theme's needs-you.
+  ...['spec', 'investigate', 'plan', 'build', 'test', 'review', 'ship'].map((s) => `stop-${s}`),
   'shadow-1', 'shadow-2',
   ...Array.from({ length: CHART_SERIES }, (_, i) => `chart-${i + 1}`),
   // Packet R's surfaces, primary fill, elevation and needs-you dot follow each theme's own base tokens.

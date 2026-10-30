@@ -440,7 +440,11 @@ html[data-theme="light-glass"] {
   --hover-bg: var(--bg-3);
   --grid-line: var(--border-1);
   --tooltip-bg: var(--text-1);
-  --tooltip-fg: var(--bg-0);
+  /* The tooltip's words, the ink on the needs-you dot and what floats are solid (packet X): --bg-0
+     is see-through here, and a menu over the aurora let the colour and the page's words through. */
+  --tooltip-fg: var(--glass-day);
+  --on-needs: var(--glass-day);
+  --surface-float: var(--glass-float);
   --chart-1: oklch(.55 .15 255);
   --chart-2: oklch(.55 .15 55);
   --chart-3: oklch(.55 .15 195);
