@@ -78,7 +78,7 @@
 /* ---------- Map ---------- */
 .dep-map { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(220px, 300px); justify-content: start; column-gap: 96px; padding: var(--space-4) var(--space-2) var(--space-6); overflow-x: auto; }
 .dep-edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
-.dep-edge { fill: none; stroke: var(--border-3); stroke-width: 1.5; transition: stroke var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
+.dep-edge { fill: none; stroke: color-mix(in oklab, var(--text-3) 80%, var(--surface-1)); stroke-width: 1.5; transition: stroke var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
 .dep-arrow { fill: var(--border-3); }
 .dep-arrow.is-lit { fill: var(--accent); }
 .dep-map.has-lit .dep-edge { opacity: .35; }

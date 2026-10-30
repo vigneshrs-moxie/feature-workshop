@@ -233,7 +233,7 @@ a.stop-link:hover .stop-dot { box-shadow: 0 0 0 3px var(--hover-bg); }
 a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .stop-dot { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--border-3); background: var(--surface-1); color: var(--text-3); transition: box-shadow var(--dur-fast) var(--ease-out); }
 .stop.is-done .stop-dot { border-color: var(--stop-hue); background: color-mix(in oklab, var(--stop-hue) 14%, var(--surface-1)); color: var(--stop-hue); }
-.stop.is-now .stop-dot { border-color: var(--stop-hue); background: var(--stop-hue); color: var(--surface-1); box-shadow: 0 0 0 3px color-mix(in oklab, var(--stop-hue) 22%, transparent); }
+.stop.is-now .stop-dot { border-color: var(--stop-hue); background: var(--stop-hue); color: var(--surface-float); box-shadow: 0 0 0 3px color-mix(in oklab, var(--stop-hue) 22%, transparent); }
 .stop.is-waiting .stop-dot { border-color: var(--needs-solid); background: var(--needs-solid); color: var(--on-needs); }
 .stop.is-skipped .stop-dot { border-style: dashed; }
 .stop.is-skipped .stop-name { text-decoration: line-through; }
