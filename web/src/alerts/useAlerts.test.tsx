@@ -177,7 +177,10 @@ describe('Alerts switches', () => {
     FakeNotification.permission = 'denied';
     renderWith(ready(), <AlertSettings />);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Notifications/ })); });
-    expect(screen.getByRole('status')).toHaveTextContent('Your browser blocks notifications');
+    // Two quiet lines live here (packet R): the note, and the Saved one beside the buttons, which stays empty: nothing changed.
+    const said = screen.getAllByRole('status').map((s) => s.textContent);
+    expect(said).toContainEqual(expect.stringContaining('Your browser blocks notifications'));
+    expect(said).not.toContain('Saved');
     expect(localStorage.getItem(NOTIFY_KEY)).toBe('off');
   });
 

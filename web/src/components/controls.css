@@ -495,6 +495,31 @@ label:has(> .choice:not(:disabled)) { cursor: pointer; }
 .segmented-option[aria-checked='true'] { background: var(--surface-1); box-shadow: var(--elev-xs), 0 0 0 1px var(--border-1); color: var(--text-1); }
 .segmented-option:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .segmented-option:disabled { color: var(--text-3); cursor: not-allowed; }
+/* A phone: every option is a full 40 px target. */
+@media (max-width: 760px) { .segmented-option { min-height: var(--control-h); } }
+
+/* ---------- Saved: a quiet note beside a setting that just changed (components/Saved.tsx) ----------
+   The anchor takes no room; the words are drawn over the space after the control, so nothing moves.
+   They fade in fast, hold about 1.5 s and fade out (opacity only); with less motion they just go. */
+.saved { position: relative; display: inline-block; flex: none; align-self: center; width: 0; height: 1em; overflow: visible; vertical-align: middle; }
+.saved-word {
+  position: absolute;
+  top: 50%;
+  left: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transform: translateY(-50%);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: saved-note 1900ms var(--ease-out) forwards;
+}
+.saved-word .icon { color: var(--status-ok); }
+@keyframes saved-note { 0% { opacity: 0; } 6% { opacity: 1; } 79% { opacity: 1; } 100% { opacity: 0; } }
 
 /* ---------- A number with − and + (components/Field.tsx NumberInput) ---------- */
 .number-input { display: inline-flex; align-items: stretch; height: var(--control-h); border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--surface-1); box-shadow: var(--elev-xs); overflow: hidden; }
@@ -555,7 +580,7 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 @media (prefers-reduced-motion: reduce) {
   .btn, .choice, .option-row, .text-input, .text-area, .select, .key-hint.is-quiet { transition: none; }
   .btn:active { transform: none; }
-  .select-menu, .app-tip, .more-body { animation: none; }
+  .select-menu, .app-tip, .more-body, .saved-word { animation: none; }
   .more-chevron, summary::before, .segmented-option, .number-step, .more-head { transition: none; }
   .spin-ring { animation-duration: 2s; }
 }

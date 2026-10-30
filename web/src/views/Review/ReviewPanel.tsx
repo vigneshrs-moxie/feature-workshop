@@ -15,12 +15,14 @@
 // the reminder do, through the bar.
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { ReviewItemKind, ReviewItemView, ReviewRoundPanel, ReviewSendStep, ReviewView } from '../../api/types';
-import { Icon } from '../../components/Icon';
+import { Button } from '../../components/Button';
+import { Icon, type IconName } from '../../components/Icon';
+import { More } from '../../components/More';
 import { InlineText } from '../../components/InlineText';
 import { Fold, GuideCards, guideFirstVisit, guideSeen, markGuideSeen } from '../../components/page/Page';
 import { useWorkshop } from '../../state/store';
 import { GithubLine } from './GithubLine';
-import { panelId } from './ReviewBar';
+import { bodyFor, panelId } from './ReviewBar';
 import { useReview } from './useReview';
 import { EDITABLE, ITEM_ICON, KIND_HINT, KIND_ICON, KIND_WORDS, REVIEW_GUIDE, ROUND_FIRST, STEP_ICON } from './words';
 import './review.css';
@@ -61,6 +63,8 @@ export function ReviewPanel({ slug, line = false }: { slug: string; line?: boole
   return (
     <section className="review-panel" id={panelId(slug)} tabIndex={-1} aria-label={round ? round.title : `${view.pr.label} in review`}>
       {line && <GithubLine className="review-gh" />}
+      <ReviewStatus view={view} act={act} />
+      <ReviewProblems view={view} />
       {round && state && ROUND_FIRST.has(state) && <RoundBlock round={round} view={view} act={act} editable={live && EDITABLE.has(state)} />}
       {view.send && <SendBlock view={view} act={act} reload={reload} />}
       {view.merge && <MergeBlock view={view} />}
@@ -71,12 +75,104 @@ export function ReviewPanel({ slug, line = false }: { slug: string; line?: boole
         </Fold>
       )}
       <p className="review-how">
-        <button type="button" className="link-button" onClick={() => setGuide(true)} title="Three pictures: what a round is, the one yes, the one go.">
-          <Icon name="help" size={14} /> How review rounds work
-        </button>
+        <Button kind="quiet" size="sm" icon="help" onClick={() => setGuide(true)} title="Three pictures: what a round is, the one yes, the one go.">How review rounds work</Button>
       </p>
       {guide && <ReviewGuide onClose={() => { markGuideSeen(REVIEW_GUIDE.id); setGuide(false); }} />}
     </section>
+  );
+}
+
+// ---------- The status line, and what went wrong ----------
+
+const isComment = (i: ReviewItemView) => i.type !== 'check' && i.type !== 'sync';
+
+/** "Round 2 · 3 comments to answer · checks passing", each part an icon and words, and the one next action. */
+export function ReviewStatus({ view, act }: { view: ReviewView; act?: Act }) {
+  const [busy, setBusy] = useState(false);
+  const r = view.round;
+  const pr = view.pr;
+  const parts: { icon: IconName; words: string; tone?: 'ok' | 'warn' | 'error' }[] = [];
+  if (r) parts.push({ icon: 'message', words: `Round ${r.round}` });
+  if (r) {
+    const comments = allItems(r).filter((i) => i.included && isComment(i));
+    const open = comments.filter((i) => !DONE.has(i.state)).length;
+    if (open) parts.push({ icon: 'message', words: `${open} ${open === 1 ? 'comment' : 'comments'} to answer`, tone: 'warn' });
+    else if (comments.length) parts.push({ icon: 'circle-check', words: 'every comment answered', tone: 'ok' });
+  }
+  if (pr.review === 'approved') parts.push({ icon: 'circle-check', words: 'approved', tone: 'ok' });
+  if (pr.checks === 'passing') parts.push({ icon: 'circle-check', words: 'checks passing', tone: 'ok' });
+  else if (pr.checks === 'failing') parts.push({ icon: 'x', words: 'checks failing', tone: 'error' });
+  else if (pr.checks === 'pending') parts.push({ icon: 'clock', words: 'checks running' });
+  if (pr.mergeable === 'CONFLICTING') parts.push({ icon: 'alert', words: `conflicts with ${pr.base ?? 'its base'}`, tone: 'error' });
+  if (!parts.length) return null;
+  // The one next action: the bar's yes when it is a plain one (Merge asks first, so it stays in the bar).
+  const go = act && view.state !== 'held' ? view.bar?.actions.find((a) => a.go === true && a.enabled && !a.confirm && !a.client && a.id !== 'ask-review' && a.id !== 'remind') : undefined;
+  return (
+    <div className="review-status">
+      <p className="review-status-line">
+        {parts.map((p, n) => (
+          <span key={p.words} className={`review-status-part${p.tone ? ` is-${p.tone}` : ''}`}>
+            {n > 0 && <span className="review-status-sep" aria-hidden="true">·</span>}
+            <Icon name={p.icon} size={14} />
+            {p.words}
+          </span>
+        ))}
+      </p>
+      {go && (
+        <Button size="sm" busy={busy} onClick={async () => { setBusy(true); try { await act!(go.id, bodyFor(go, view)); } finally { setBusy(false); } }} title={`${go.label}: the same as the next-step bar’s yes.`}>
+          {go.label}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** Each thing that went wrong, in its own space with what happened and where to see it. */
+function ReviewProblems({ view }: { view: ReviewView }) {
+  const r = view.round;
+  const pr = view.pr;
+  const state = view.heldState ?? view.state;
+  const failed = r ? allItems(r).filter((i) => i.type === 'check' && i.included && !DONE.has(i.state)) : [];
+  const checksFail = (pr.checks === 'failing' || state === 'check-failed') && failed.length > 0;
+  const conflicts = pr.mergeable === 'CONFLICTING';
+  const prev = view.rounds.length > 1 ? view.rounds[view.rounds.length - 2] : null;
+  const newRound = Boolean(r && prev && (state === 'asked' || state === 'left'));
+  if (!checksFail && !conflicts && !newRound) return null;
+  const first = failed.find((i) => i.log)?.log?.split('\n').find((l) => l.trim()) ?? null;
+  const asked = r ? allItems(r).filter((i) => i.included && isComment(i)).length : 0;
+  return (
+    <div className="review-problems">
+      {newRound && r && prev && (
+        <div className="review-problem is-round" role="group" aria-label={`New round: round ${r.round}`}>
+          <Icon name="refresh" size={16} className="review-problem-icon" />
+          <div className="review-problem-words">
+            <b>New round: {asked} {asked === 1 ? 'change' : 'changes'} requested</b>
+            <span className="muted">Round {prev.round} went back{prev.sentAt ? ` at ${clockOf(prev.sentAt)}` : ''}; {view.who.reviewer ?? 'the reviewer'} asked again.</span>
+          </div>
+          {pr.url && <Button kind="quiet" size="sm" icon="external" href={pr.url} target="_blank" rel="noopener noreferrer" title="Open the pull request on GitHub, in a new tab.">Open {pr.label}</Button>}
+        </div>
+      )}
+      {checksFail && (
+        <div className="review-problem is-fail" role="group" aria-label="Checks failing">
+          <Icon name="x" size={16} className="review-problem-icon" />
+          <div className="review-problem-words">
+            <b>{failed.map((i) => i.name ?? 'A check').join(', ')} failed</b>
+            {first && <code className="review-problem-first">{first}</code>}
+          </div>
+          {(failed[0].link ?? pr.url) && <Button kind="quiet" size="sm" icon="external" href={(failed[0].link ?? pr.url)!} target="_blank" rel="noopener noreferrer" title="Open the check and its whole log on GitHub, in a new tab.">The whole log</Button>}
+        </div>
+      )}
+      {conflicts && (
+        <div className="review-problem is-fail" role="group" aria-label="Conflicts">
+          <Icon name="alert" size={16} className="review-problem-icon" />
+          <div className="review-problem-words">
+            <b>Conflicts with {pr.base ?? 'its base'}</b>
+            <span className="muted">{pr.base ?? 'The base'} changed under {pr.label}. Nothing merges until it is brought in.</span>
+          </div>
+          {pr.url && <Button kind="quiet" size="sm" icon="external" href={pr.url} target="_blank" rel="noopener noreferrer" title="See the conflicting files on GitHub, in a new tab.">Open {pr.label}</Button>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -111,14 +207,48 @@ function RoundBlock({ round, view, act, editable, folded = false }: { round: Rev
         </header>
       )}
       <p className="review-from muted">{line}</p>
-      {round.groups.map((g) => (
+      {folded ? round.groups.map((g) => (
         <section key={g.heading} className="review-group" aria-label={g.heading}>
           <h4 className="review-group-head"><Icon name={g.file ? 'file' : g.heading.startsWith('Checks') ? 'x' : 'message'} size={14} /> <span className={g.file ? 'num' : ''}>{g.heading}</span> <span className="muted">· {countOf(g.items)}</span></h4>
           <ul className="review-items">
             {g.items.map((i) => <ItemRow key={i.id} item={i} act={act} editable={editable} who={round.reviewer} />)}
           </ul>
         </section>
-      ))}
+      )) : (
+        <>
+          {round.groups.map((g) => {
+            const open = g.items.filter((i) => !DONE.has(i.state));
+            if (!open.length) return null;
+            return (
+              <More
+                key={g.heading}
+                screen="review"
+                id={`file:${g.heading}`}
+                label={g.heading}
+                note={countOf(open)}
+                icon={g.file ? 'file' : g.heading.startsWith('Checks') ? 'x' : 'message'}
+                simpleOpen={editable}
+                className={`review-group${g.file ? ' is-file' : ''}`}
+              >
+                <ul className="review-items">
+                  {open.map((i) => <ItemRow key={i.id} item={i} act={act} editable={editable} who={round.reviewer} />)}
+                </ul>
+              </More>
+            );
+          })}
+          {(() => {
+            const answered = round.groups.flatMap((g) => g.items.filter((i) => DONE.has(i.state)));
+            if (!answered.length) return null;
+            return (
+              <More screen="review" id="answered" label="Answered" count={answered.length} note="fixed, answered or kept as is" icon="circle-check" className="review-group is-answered">
+                <ul className="review-items">
+                  {answered.map((i) => <ItemRow key={i.id} item={i} act={act} editable={editable} who={round.reviewer} />)}
+                </ul>
+              </More>
+            );
+          })()}
+        </>
+      )}
       {round.pending.length > 0 && (
         <section className="review-group is-new" aria-label="New while the Foreman works">
           <h4 className="review-group-head"><Icon name="plus" size={14} /> New while the Foreman works <span className="muted">· {round.pending.length}</span></h4>
@@ -174,9 +304,9 @@ function ItemRow({ item: i, act, editable, who }: { item: ReviewItemView; act: A
         )}
         {i.state === 'wont_change' && i.reason && <p className="review-plan"><span className="next-label">Why</span> <InlineText text={i.reason} /> <span className="muted">It is never resolved by us: the reviewer decides.</span></p>}
         {i.changeAfterAll && (
-          <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => void doIt('change-after-all', { id: i.id })} title="Turn this into a fix after all: the Foreman fixes it and the reply says so.">
+          <Button kind="quiet" size="sm" disabled={busy} onClick={() => void doIt('change-after-all', { id: i.id })} title="Turn this into a fix after all: the Foreman fixes it and the reply says so.">
             {i.changeAfterAll.label}
-          </button>
+          </Button>
         )}
       </div>
       <span className={`chip review-state is-${i.state}`}><Icon name={ITEM_ICON[i.state]} size={14} /> {i.stateWords}</span>
@@ -322,17 +452,17 @@ function ReplyCard({ item: i, act, ready }: { item: ReviewItemView; act: Act; re
       <div className="review-reply-acts">
         {ready && editing && (
           <>
-            <button type="button" className="btn btn-primary" disabled={busy || !text.trim()} onClick={() => void save()} title="Save this reply (Enter; Shift+Enter for a new line).">Save <kbd className="kbd key-hint" aria-hidden="true">↵</kbd></button>
-            <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => { setText(i.reply ?? ''); setEditing(false); }} title="Keep the reply as it was (Esc).">Cancel</button>
+            <Button kind="quiet" size="sm" disabled={busy} onClick={() => { setText(i.reply ?? ''); setEditing(false); }} title="Keep the reply as it was (Esc).">Cancel</Button>
+            <Button kind="primary" size="sm" disabled={busy || !text.trim()} onClick={() => void save()} title="Save this reply (Enter; Shift+Enter for a new line).">Save <kbd className="kbd key-hint" aria-hidden="true">↵</kbd></Button>
           </>
         )}
         {ready && !editing && !i.replyDropped && (
           <>
-            <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => { setText(i.reply ?? ''); setEditing(true); }} title="Change the words before they are posted."><Icon name="pencil" size={14} /> Edit</button>
-            <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => void doIt({ replyDropped: true })} title="Don’t post this reply. The comment stays open; you can put it back."><Icon name="x" size={14} /> Drop</button>
+            <Button kind="quiet" size="sm" icon="pencil" disabled={busy} onClick={() => { setText(i.reply ?? ''); setEditing(true); }} title="Change the words before they are posted.">Edit</Button>
+            <Button kind="quiet" size="sm" icon="x" disabled={busy} onClick={() => void doIt({ replyDropped: true })} title="Don’t post this reply. The comment stays open; you can put it back.">Drop</Button>
           </>
         )}
-        {ready && i.replyDropped && <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => void doIt({ replyDropped: false })} title="Post this reply after all.">Put it back</button>}
+        {ready && i.replyDropped && <Button kind="quiet" size="sm" disabled={busy} onClick={() => void doIt({ replyDropped: false })} title="Post this reply after all.">Put it back</Button>}
         {!ready && i.replyState && <span className={`review-reply-state${failed ? ' is-fail' : ''}`}><Icon name={REPLY_ICON[i.replyState] ?? 'clock'} size={14} /> {i.replyState}</span>}
       </div>
     </li>
@@ -393,12 +523,12 @@ export function ReviewGuide({ onClose }: { onClose(): void }) {
       <section className="guide" role="dialog" aria-modal="true" aria-label={REVIEW_GUIDE.title}>
         <header className="guide-head">
           <h3>{REVIEW_GUIDE.title}</h3>
-          <button type="button" className="btn btn-quiet" onClick={onClose} title="Close this; How review rounds work opens it again.">Skip</button>
+          <Button kind="quiet" onClick={onClose} title="Close this; How review rounds work opens it again.">Skip</Button>
         </header>
         <GuideCards cards={REVIEW_GUIDE.cards} />
         <footer className="guide-foot">
           <span className="muted">Open this again any time with How review rounds work.</span>
-          <button type="button" className="btn btn-primary btn-lg" onClick={onClose} autoFocus>{REVIEW_GUIDE.done}</button>
+          <Button kind="primary" size="lg" onClick={onClose} autoFocus>{REVIEW_GUIDE.done}</Button>
         </footer>
       </section>
     </div>

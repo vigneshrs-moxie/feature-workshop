@@ -1,6 +1,8 @@
-// Telemetry's small helpers: numbers in words, the series slots (a colour and a pattern each, from
-// the theme's --chart-* tokens) and what's remembered in this browser (Fold and Hide, per person).
+// Telemetry's small helpers: numbers in words, the series classes (a categorical slot: a status or
+// stop hue and a pattern; one series: the accent, grey for a comparison; a stage: its stop's hue) and
+// what's remembered in this browser (Fold and Hide, per person).
 import type { GraphId } from '../../api/types';
+import { stopOf } from '../../components/stops/stops';
 
 export const usd = (n: number) => `$${n.toFixed(2)}`;
 export const usd0 = (n: number) => `$${Math.round(n)}`;
@@ -15,11 +17,19 @@ export function niceMax(v: number): number {
 }
 
 /**
- * A series slot: its fill (--chart-n) and its pattern (--chart-pattern-n), so no series is told
- * apart by colour alone. Other use always takes slot 8 (cross-hatch), and the people slots 1 to 7.
+ * A series slot for categorical charts (people, models): a status or stop hue (Telemetry.css .tele-s<n>)
+ * with its pattern (--chart-pattern-n), so no series is told apart by colour alone. Other use always
+ * takes slot 8, grey and cross-hatched; the people slots are 1 to 7.
  */
 export const OTHER_SLOT = 8;
 export const slotClass = (slot: number) => `tele-s tele-s${Math.min(8, Math.max(1, slot))}`;
+
+/** A single series in the accent (soft for a range); what it is compared with in grey. */
+export const ONE = 'tele-one';
+export const COMPARED = 'tele-cmp';
+
+/** A stage's bar in its stop's hue (spec, plan, build…), its name always beside it; grey for no stop. */
+export const stopClass = (stage: string | null) => `tele-stop is-${stopOf(stage) ?? 'none'}`;
 
 /** "Week from Wed 28 Oct, 4 pm" → "28 Oct" for an axis. */
 export const weekTick = (label: string) => label.replace(/^Week from \w+ /, '').replace(/,.*$/, '');

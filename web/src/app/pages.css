@@ -474,3 +474,19 @@ a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset
 .lane-in-review.has-cards .lane-count { background: var(--status-review-bg, var(--surface-2)); color: var(--status-review, var(--text-2)); }
 .lane-ready.has-cards .lane-count { background: var(--status-ok-bg); color: var(--status-ok); }
 .lane-in-review .lane-icon { color: var(--lane-in-review-fg); }
+
+/* ---------- Hit areas (packet R): nothing you click is under 28 px high (40 px on a phone) ----------
+   Titles that are links and the small marks that are links grow their clickable box with padding,
+   and give the same space back with a negative margin, so nothing around them moves. */
+.job-card-title, .table-job, .flow-pr { padding-block: 6px; }
+a.map-pr, .link-button, .brief-toggle { padding-block: 5px; margin-block: -5px; }
+a.map-pr { min-height: 30px; }
+.stop-map.is-compact a.stop-link { padding: 5px; margin: -5px; }
+@media (max-width: 760px) {
+  .job-card-title, .table-job, .flow-pr { padding-block: 12px; }
+  a.map-pr, .link-button, .brief-toggle { padding-block: 11px; margin-block: -11px; }
+  a.map-pr { min-height: 42px; }
+  .stop-map.is-compact a.stop-link { padding: 11px; margin: -11px; }
+  .text-input, .answer-other .text-input { min-height: 40px; }
+  .settings-rail-row { min-height: 40px; justify-content: center; }
+}

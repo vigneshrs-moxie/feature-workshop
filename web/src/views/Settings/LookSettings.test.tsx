@@ -45,20 +45,20 @@ describe('Settings → Look', () => {
     expect(within(look).getByRole('checkbox', { name: /Follow the system/ })).toBeInTheDocument();
   });
 
-  it('text size: four buttons, S M L XL, the one on pressed; a pick sets html[data-text], is remembered, and the sample line follows', () => {
+  it('text size: four choices, S M L XL, the one on checked; a pick sets html[data-text], is remembered, and the sample line follows', () => {
     setup();
     const group = screen.getByRole('group', { name: 'Text size' });
-    const buttons = within(group).getAllByRole('button');
-    expect(buttons.map((b) => b.textContent)).toEqual(['S', 'M', 'L', 'XL']);
-    expect(within(group).getByRole('button', { name: 'M' })).toHaveAttribute('aria-pressed', 'true');
+    const choices = within(group).getAllByRole('radio');
+    expect(choices.map((b) => b.textContent)).toEqual(['S', 'M', 'L', 'XL']);
+    expect(within(group).getByRole('radio', { name: 'M' })).toBeChecked();
     expect(screen.getByText(/The quick brown fox/)).toBeInTheDocument();
     expect(screen.getByText(/Medium: body text 14 px/)).toBeInTheDocument();
 
-    fireEvent.click(within(group).getByRole('button', { name: 'XL' }));
+    fireEvent.click(within(group).getByRole('radio', { name: 'XL' }));
     expect(document.documentElement.getAttribute('data-text')).toBe('xl');
     expect(localStorage.getItem(TEXT_SIZE_KEY)).toBe('xl');
-    expect(within(group).getByRole('button', { name: 'XL' })).toHaveAttribute('aria-pressed', 'true');
-    expect(within(group).getByRole('button', { name: 'M' })).toHaveAttribute('aria-pressed', 'false');
+    expect(within(group).getByRole('radio', { name: 'XL' })).toBeChecked();
+    expect(within(group).getByRole('radio', { name: 'M' })).not.toBeChecked();
     expect(screen.getByText(/Extra large: body text 17.5 px/)).toBeInTheDocument();
     expect(screen.getByText(/The quick brown fox/)).toHaveAttribute('data-size', 'xl');
   });
@@ -133,7 +133,7 @@ describe('Look: the layouts and Play (packet M)', () => {
   it('Play sits beside them: Full, Subtle, Off, showing the saved mode', () => {
     setup();
     const play = screen.getByRole('group', { name: 'Play' });
-    expect(within(play).getAllByRole('button').map((b) => b.textContent)).toEqual(['Full', 'Subtle', 'Off']);
-    expect(within(play).getByRole('button', { name: 'Off' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(play).getAllByRole('radio').map((b) => b.textContent)).toEqual(['Full', 'Subtle', 'Off']);
+    expect(within(play).getByRole('radio', { name: 'Off' })).toBeChecked();
   });
 });

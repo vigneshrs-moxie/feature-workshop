@@ -4,6 +4,7 @@
 // found, with their name and date; the rest are only counted ("3 more secrets to find"), with no
 // hints. Below, the hidden themes: Gold with its progress, CRT Terminal only once found. All from
 // GET /api/play: personal, local, and never from approving anything.
+import type { CSSProperties } from 'react';
 import type { Achievement, PlayView } from '../../api/types';
 import { crewDexHref, settingsHref } from '../../app/router';
 import { HowThisWorks } from '../../components/HowThisWorks';
@@ -11,6 +12,12 @@ import { fullTime } from '../../lib/time';
 import { AchievementBadge } from '../../play/AchievementBadge';
 import { usePlayLedger } from '../../play/usePlayLedger';
 import { MEDAL_SIZE } from '../../play/crewSizes';
+import { Page } from '../../components/page/Page';
+import { Button } from '../../components/Button';
+import { Icon } from '../../components/Icon';
+
+/** How full a thin progress meter is: "--ach-done: 40%". */
+const meter = (n: number, of: number): CSSProperties => ({ '--ach-done': `${Math.round((100 * n) / Math.max(1, of))}%` } as CSSProperties);
 
 /** Quests done that unlock the Gold theme (dashboard/lib/play.js GOLD_QUESTS). */
 export const GOLD_QUESTS = 10;
@@ -30,9 +37,9 @@ function Badge({ a }: { a: Achievement }) {
         <h3 className="ach-name">{a.name}</h3>
         <p className="ach-how">{a.howTo}</p>
         {got ? (
-          <p className="ach-state is-unlocked" title={fullTime(a.unlockedAt)}>Unlocked {unlockDate(a.unlockedAt!)}</p>
+          <p className="ach-state is-unlocked" title={fullTime(a.unlockedAt)}><Icon name="circle-check" size={14} />Unlocked {unlockDate(a.unlockedAt!)}</p>
         ) : (
-          <p className="ach-state is-locked">Locked</p>
+          <p className="ach-state is-locked"><Icon name="lock" size={12} />Locked</p>
         )}
       </div>
     </li>
@@ -45,20 +52,21 @@ function Secrets({ view }: { view: PlayView }) {
   return (
     <section className="ach-secrets" aria-labelledby="ach-secrets-title">
       <h3 id="ach-secrets-title" className="settings-heading">Secrets <span className="num muted">{view.secrets.found.length}/{view.secrets.total}</span></h3>
-      {found.length > 0 && (
-        <ul className="ach-grid ach-secret-list">
-          {found.map((a) => (
-            <li key={a.id} className="ach-badge is-unlocked is-secret" data-achievement={a.id}>
-              <AchievementBadge id={a.id} size={MEDAL_SIZE.list} />
-              <div className="ach-text">
-                <h4 className="ach-name">{a.name}</h4>
-                <p className="ach-state is-unlocked" title={fullTime(a.unlockedAt)}>Found {unlockDate(a.unlockedAt!)}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="ach-secrets-left">{left === 0 ? 'Every secret found.' : `${left} more secret${left === 1 ? '' : 's'} to find.`}</p>
+      <ul className="ach-grid ach-secret-list">
+        {found.map((a) => (
+          <li key={a.id} className="ach-badge is-unlocked is-secret" data-achievement={a.id}>
+            <AchievementBadge id={a.id} size={MEDAL_SIZE.list} />
+            <div className="ach-text">
+              <h4 className="ach-name">{a.name}</h4>
+              <p className="ach-state is-unlocked" title={fullTime(a.unlockedAt)}><Icon name="circle-check" size={14} />Found {unlockDate(a.unlockedAt!)}</p>
+            </div>
+          </li>
+        ))}
+        <li className={`ach-secrets-left${left === 0 ? ' is-done' : ''}`}>
+          <Icon name={left === 0 ? 'circle-check' : 'lock'} size={18} />
+          <p>{left === 0 ? 'Every secret found.' : `${left} more secret${left === 1 ? '' : 's'} to find.`}</p>
+        </li>
+      </ul>
     </section>
   );
 }
@@ -70,15 +78,18 @@ function Unlocks({ view }: { view: PlayView }) {
       <h3 id="ach-unlocks-title" className="settings-heading">Hidden themes</h3>
       <ul className="ach-unlock-list">
         <li className={view.unlocks.gold ? 'is-unlocked' : 'is-locked'}>
+          <Icon name={view.unlocks.gold ? 'circle-check' : 'lock'} size={16} className="ach-unlock-icon" />
           <strong>Gold</strong>{' '}
           {view.unlocks.gold ? (
             <span>Unlocked: pick it under <a href={settingsHref()}>Settings → Theme</a>.</span>
           ) : (
             <span>Locked. Finish {GOLD_QUESTS} quests: <span className="num">{done}/{GOLD_QUESTS}</span> so far.</span>
           )}
+          {!view.unlocks.gold && <span className="ach-meter" aria-hidden="true" style={meter(done, GOLD_QUESTS)} />}
         </li>
         {view.unlocks.crt && (
           <li className="is-unlocked">
+            <Icon name="circle-check" size={16} className="ach-unlock-icon" />
             <strong>CRT Terminal</strong> <span>Unlocked: pick it under <a href={settingsHref()}>Settings → Theme</a>.</span>
           </li>
         )}
@@ -93,36 +104,36 @@ export function AchievementsView() {
   const visible = view ? view.achievements.filter((a) => !a.secret) : [];
   const got = visible.filter((a) => a.unlockedAt).length;
   return (
-    <main className="pane pane-foreman" data-pane="achievements" aria-label="Achievements">
-      <div className="foreman-column achievements">
-        <h2 className="pane-title">Achievements</h2>
-        <HowThisWorks id="achievements">
-          <p><strong>Achievements come from finished work</strong>: quests done (a job counts as done by your Settings → Play rule: its first PR is created, or you mark it done), clean reviews, the crew you have met. <strong>Approving something never earns anything</strong>, so the game never nudges anyone to click Approve.</p>
-          <p>A few are <strong>secrets</strong>: they show here only once you find them, and the count says how many are left, not where. Some rewards also unlock a hidden theme.</p>
-          <p>Everything is <strong>local and personal</strong>: worked out from what this dashboard already records on this computer, never shared, and Claude is never asked anything.</p>
-        </HowThisWorks>
-        {load.state === 'loading' && <p className="muted">Loading achievements…</p>}
-        {load.state === 'error' && (
-          <p className="thread-error" role="alert">
-            Couldn’t load your achievements: {load.message}{' '}
-            <button type="button" className="btn btn-quiet" onClick={retry} title="Ask the dashboard again.">Try again</button>
-          </p>
-        )}
-        {view && (
-          <>
+    <Page label="Achievements" title="Achievements" className="achievements">
+      <HowThisWorks id="achievements">
+        <p><strong>Achievements come from finished work</strong>: quests done (a job counts as done by your Settings → Play rule: its first PR is created, or you mark it done), clean reviews, the crew you have met. <strong>Approving something never earns anything</strong>, so the game never nudges anyone to click Approve.</p>
+        <p>A few are <strong>secrets</strong>: they show here only once you find them, and the count says how many are left, not where. Some rewards also unlock a hidden theme.</p>
+        <p>Everything is <strong>local and personal</strong>: worked out from what this dashboard already records on this computer, never shared, and Claude is never asked anything.</p>
+      </HowThisWorks>
+      {load.state === 'loading' && <p className="muted">Loading achievements…</p>}
+      {load.state === 'error' && (
+        <p className="thread-error" role="alert">
+          Couldn’t load your achievements: {load.message}{' '}
+          <Button kind="quiet" size="sm" onClick={retry} title="Ask the dashboard again.">Try again</Button>
+        </p>
+      )}
+      {view && (
+        <>
+          <div className="ach-head">
             <p className="ach-summary">
               <span className="num">{got}/{visible.length}</span> unlocked
               {' · '}
               <a href={crewDexHref()} title="Back to the Crew-dex: every crew member and what they have done.">Crew-dex</a>
             </p>
-            <ul className="ach-grid" aria-label="Achievements">
-              {visible.map((a) => <Badge key={a.id} a={a} />)}
-            </ul>
-            <Secrets view={view} />
-            <Unlocks view={view} />
-          </>
-        )}
-      </div>
-    </main>
+            <span className="ach-meter" aria-hidden="true" style={meter(got, visible.length)} />
+          </div>
+          <ul className="ach-grid" aria-label="Achievements">
+            {visible.map((a) => <Badge key={a.id} a={a} />)}
+          </ul>
+          <Secrets view={view} />
+          <Unlocks view={view} />
+        </>
+      )}
+    </Page>
   );
 }
