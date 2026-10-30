@@ -127,6 +127,35 @@ At Vignesh's request ("look at some websites that have really nice design for su
 
 **Stacks moved to V (2026-10-29).** Vignesh found the Stacks home "drab and boring" and asked for it to be redone for big features, with a page for each part. Packet V (`V-stacks-home.md`) does that, starting from R's branch. R leaves `web/src/views/Stack/` to V, apart from moving it onto the shared controls where they already work.
 
+## More colour, more contrast in dark (Vignesh, 2026-10-29)
+"consider adding a little more color to all the screens in light and dark mode and also adding more contrast in the dark mode. consider adding colors that make it pop a little but still have that calm and clean vibe that we talked about. it doesnt have to be purely light pastel colors, it should pop a little but still look cleanly beautiful."
+
+This refines principle 8 of the design philosophy ("colour by rule"): it stays a rule-built system, with more colour in it.
+- **Big areas stay calm; small marks carry the colour.**
+  - Page backgrounds and card surfaces stay neutral.
+  - Colour goes into the things the eye should find: the active stop, status dots and chip icons, progress segments, the next-step bar's left bar and icon, the main button, links, key numbers, selected rows, focus rings and chart series.
+  - As a guide, saturated colour covers no more than about a tenth of a screen.
+- **Colours that pop, not pastels:**
+  - Each status hue gets a vivid **mark** colour (dots, icons, bars, the text of chips) and a soft **tint** (chip and row backgrounds). Light mark colours sit around OKLCH lightness 0.55–0.65 and chroma 0.16–0.22; tints around lightness 0.95–0.97 and chroma 0.03–0.06.
+  - The status hues: working blue, needs-you amber, done green, stopped red, review violet and waiting slate.
+  - The accent is a clear, saturated indigo-violet.
+- **A hue per stop:** Spec, Investigate, Plan, Build, Test, Review and Ship each get their own hue from one even-lightness ring. It is used on the stop map, on stop icons and as a thin edge on stage-related cards, so where a job is reads at a glance.
+  - The hue is never the only clue: the stop's icon and word stay.
+  - Crew roles take the hue of the stop they work in.
+- **Charts:**
+  - Categorical charts (models, people, stages) use the stop and status hues, not greys.
+  - Single-series charts use the accent, with grey for comparison lines, as the research said.
+- **Dark (Default) gets real contrast:**
+  - A deeper background, around lightness 0.14–0.16.
+  - Surfaces step up clearly, about +0.03 per level.
+  - Body text around 0.95, muted text around 0.74.
+  - Borders that show, around 0.32–0.36.
+  - Mark colours lifted to about lightness 0.72–0.80 with the same chroma, so they glow a little against the dark without going neon.
+- **Checks:**
+  - text at least 4.5:1 and UI marks at least 3:1 against what is behind them, in both themes;
+  - add the new tokens to the gallery as swatches, with their contrast numbers;
+  - all 11 themes still work: the bold themes keep their own palettes and take the new token names.
+
 ## Owns
 Everything under `web/src/` that is styling or a shared control:
 - the CSS files: tokens, theme files, `app/*.css`, `home/*.css`, `job/*.css`, each view's CSS;
