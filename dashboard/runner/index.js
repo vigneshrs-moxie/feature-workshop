@@ -1682,6 +1682,13 @@ export async function createRunner(config) {
     },
 
     // GET /api/job/:slug/commit/:sha: one commit's diff, for the live view. Answered to the asker only.
+    // Merge next on a stack, queued from the hosted site (packet 2B): the stack page's own "merge".
+    async 'stack-merge'(body) {
+      const stacks = local_.stacks;
+      if (!stacks) throw new HttpError(404, 'Stacks run only on the dashboard on your own computer.');
+      try { return await stacks.merge(body.slug, { section: body.section ?? undefined }); } catch (err) { throw stacks.httpError(err); }
+    },
+
     async 'fetch-diff'(body) {
       const f = await jobOf(body.slug);
       const codeDir = f.worktree && fs.existsSync(f.worktree) ? f.worktree : f.repoPath;
@@ -2507,7 +2514,11 @@ export async function createRunner(config) {
     let version = '';
     try { version = JSON.parse(fs.readFileSync(path.join(HERE, '..', 'package.json'), 'utf8')).version ?? ''; } catch { /* unknown */ }
     if (stopping) return;
-    siteLink = createSiteLink({ runner: { read, handle, on }, stateDir: state.dir, store, version }).start();
+    siteLink = createSiteLink({
+      runner: { read, handle, on, local: local_ }, stateDir: state.dir, store, version,
+      // The site's decisions are audited here too (who, from the site, what on), and this laptop's go up.
+      audit: (line) => state.audit(line), onAudit: (fn) => { state.on('audit', fn); return () => state.off('audit', fn); },
+    }).start();
   }
 
   /**

@@ -32,6 +32,23 @@
 //   seen    the site counts a laptop online while it was seen in the last 60 seconds; the
 //           long-poll calls in at least every 25.
 //
+// The full mirror (packet 2B):
+//   records  after job-list, every part of the job record (runner/mirror.js: the board, each open
+//           job's page, documents, decisions and evidence, the stacks and their parts) as `record`
+//           events, then a `synced` mark. Afterwards only what changed: a runner event about a job
+//           looks at that job again, a `change` at the board and every job whose card moved, and
+//           everything is looked at again every five minutes. A part that is gone goes up as null.
+//   evidence  each picture and video goes to the site's private Blob store, straight from here, with
+//           a one-time signed upload link the site makes for that one path (runner/evidence.js).
+//   decisions  a command from the site may carry what it was decided on (madeOn, lib/made-on.js):
+//           it runs only when that still holds here, just before it runs; otherwise nothing runs and
+//           the answer says the job changed (stale). Every such decision writes an audit line here
+//           (who, from the site, what it was made on, how it ended) and sends the same up as an
+//           `audit` event; decisions made on this laptop go up as `audit` events too, from 'laptop'.
+//   answers  a command that asks for its answer (answerKey: the live diff) has the answer sealed
+//           to that key (lib/sealed.js), so only the page that asked can read it. It is kept in
+//           memory only, never in site-done.json.
+//
 // Nothing secret is ever printed, logged or written outside the credential store: site.json holds
 // the address, this laptop's own random device id and who it was paired for.
 
@@ -43,6 +60,12 @@ import path from 'node:path';
 import { tokenStore } from '../lib/orbit-token.js';
 import { slugTicketKey } from '../lib/orbit.js';
 import { makeEvent, parseCommand, PROTOCOL_VERSION } from '../lib/protocol.js';
+import { stillMadeOn } from '../lib/made-on.js';
+import { seal } from '../lib/sealed.js';
+import { enrichView, partPage, stackCard, usageByJob } from '../lib/stack-parts.js';
+import { USAGE_FILE, parseLine, usageDir } from '../lib/usage-log.js';
+import { boardRecord, decisionsRecord, docRecord, docsRecord, evidenceRecord, fit, jobRecord, partRecord, stackRecord, stacksRecord } from './mirror.js';
+import { uploadEvidence } from './evidence.js';
 
 /** Where the runner token is kept: its own names in the same stores as the Orbit token. */
 export const SITE_TOKEN_NAMES = Object.freeze({ service: 'Ground Control site token', account: 'runner', file: 'site-token' });
@@ -239,11 +262,22 @@ export function eventQueue(file, { max = MAX_QUEUED, log = () => {} } = {}) {
   };
 }
 
+/** Audit lines that are decisions, for the site's audit copy. */
+const DECISION_LINE = (e) => (e?.action === 'send' && (['approve', 'changes', 'stop'].includes(e.kind) || Number.isInteger(e.gateBrief)))
+  || e?.action === 'permission' || (e?.action === 'stack' && e.event === 'merge-yes');
+/** A refusal that means the job moved on meanwhile (nothing ran). */
+const MOVED_ON = (err) => (err?.status === 409 && (err.extra?.code === 'stale-brief' || /moved on|only in order|no longer/i.test(err.message ?? '')))
+  || (err?.status === 404 && /already answered|expired/i.test(err.message ?? ''));
+const FULL_EVERY_MS = 5 * 60 * 1000;
+const hashOf = (v) => crypto.createHash('sha256').update(JSON.stringify(v ?? null)).digest('hex').slice(0, 32);
+
 /**
- * The link. runner: { read, handle, on } (runner/index.js). store: siteTokenStore(). fetch, timers
- * ({ now, sleep }) and waitSeconds are for tests. Resolves nothing; start() and stop() are sync.
+ * The link. runner: { read, handle, on, local } (runner/index.js; local: its stacks and evidence
+ * doors, when there). store: siteTokenStore(). audit(line): this laptop's audit log; onAudit(fn):
+ * every line it writes. fetch, timers ({ now, sleep }) and waitSeconds are for tests. Resolves
+ * nothing; start() and stop() are sync.
  */
-export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globalThis.fetch, log = (l) => console.error(l), version = '', waitSeconds = 25, timers = REAL_TIMERS, debounceMs = 1000, watchEveryMs = 2000 }) {
+export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globalThis.fetch, log = (l) => console.error(l), version = '', waitSeconds = 25, timers = REAL_TIMERS, debounceMs = 1000, watchEveryMs = 2000, audit = null, onAudit = null, putFile = null }) {
   const queue = eventQueue(path.join(stateDir, QUEUE_FILE), { log });
   const doneFile = path.join(stateDir, DONE_FILE);
   const out = new EventEmitter();
@@ -327,8 +361,192 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
 
   function onChange() {
     clearTimeout(changeTimer);
-    changeTimer = setTimeout(() => { jobsChanged().catch((err) => log(`site link: ${err.message}`)); }, debounceMs);
+    changeTimer = setTimeout(() => {
+      jobsChanged().catch((err) => log(`site link: ${err.message}`));
+      records.sync().catch((err) => log(`site link: the record couldn’t be read: ${err.message}`));
+    }, debounceMs);
     changeTimer.unref?.();
+  }
+  /** Any runner event: a job's own marks that job to look at again; the rest, the board. */
+  function onRunnerEvent(type, job) {
+    if (job) records.dirty(job);
+    if (type !== 'change' && type !== 'run') onChange();
+  }
+
+  // ---- the full mirror (runner/mirror.js) ----
+  let me = null; // who this laptop was paired for (site.json)
+  const records = recordSync();
+  function recordSync() {
+    let sent = new Map(); // `${kind}\n${key}` -> hash last sent
+    let ofJob = new Map(); // slug -> the ids of its parts sent
+    let cards = new Map(); // slug -> its card as last seen
+    let docEntries = new Map(); // `${slug}\n${file}` -> its Docs list entry as last seen
+    let evidenceSent = new Map(); // `${slug}\n${file}` -> uploaded
+    const dirtyJobs = new Set();
+    let lastFull = -Infinity;
+    let uploads = [];
+    let evidenceChain = Promise.resolve();
+    let running = null;
+    let again = false;
+    const live = stackLive();
+
+    async function put(kind, key, value, job = null, ids = null) {
+      const id = `${kind}\n${key}`;
+      ids?.add(id);
+      const v = value === null ? null : fit(kind, value);
+      const h = hashOf(v);
+      if (sent.get(id) === h) return;
+      sent.set(id, h);
+      await send('record', { kind, key, value: v }, job);
+    }
+    async function gone(id, job = null) {
+      if (!sent.has(id)) return;
+      sent.delete(id);
+      const [kind, ...rest] = id.split('\n');
+      await send('record', { kind, key: rest.join('\n'), value: null }, job);
+    }
+
+    async function jobParts(slug) {
+      const ids = new Set();
+      const detail = await runner.read.job(slug).catch(() => null);
+      if (!detail) return ids;
+      await put('job', slug, jobRecord(detail), slug, ids);
+      const docs = await runner.read.docs?.(slug).catch(() => null);
+      if (docs) {
+        await put('docs', slug, docsRecord(docs), slug, ids);
+        for (const entry of docs.docs ?? []) {
+          if (typeof entry?.file !== 'string') continue;
+          const dk = `${slug}\n${entry.file}`;
+          const was = docEntries.get(dk);
+          const now = JSON.stringify(entry);
+          const id = `doc\n${dk}`;
+          if (was === now && sent.has(id)) { ids.add(id); continue; }
+          docEntries.set(dk, now);
+          const doc = await runner.read.doc?.(slug, entry.file).catch(() => null);
+          if (doc) await put('doc', dk, docRecord(doc), slug, ids);
+        }
+      }
+      const decisions = await runner.read.decisions?.(slug).catch(() => null);
+      if (decisions) await put('decisions', slug, decisionsRecord(decisions), slug, ids);
+      const door = runner.local?.evidence;
+      const ev = door ? await door.view(slug).catch(() => null) : null;
+      if (ev) {
+        await put('evidence', slug, evidenceRecord(ev), slug, ids);
+        uploads.push({ slug, view: ev, door }); // once the site has the list (after this look's events are sent)
+      }
+      return ids;
+    }
+
+    async function stackParts() {
+      const stacks = runner.local?.stacks;
+      if (!stacks?.list) return new Set();
+      const ids = new Set();
+      const list = await stacks.list().catch(() => null);
+      if (!list) return ids;
+      const l = await live();
+      await put('stacks', '', stacksRecord({ ...list, stacks: (list.stacks ?? []).map((x) => stackCard(x, l)) }), null, ids);
+      for (const one of list.stacks ?? []) {
+        const raw = await stacks.view(one.slug).catch(() => null);
+        if (!raw) continue;
+        const view = enrichView(raw, l);
+        await put('stack', one.slug, stackRecord(view), null, ids);
+        for (let n = 1; n <= (view.parts?.length ?? 0); n++) {
+          const page = partPage(view, n);
+          if (!page) continue;
+          const changes = raw.readChanges ? await raw.readChanges.files(page.part.name).catch(() => null) : null;
+          await put('stack-part', `${one.slug}/${n}`, partRecord({ ...page, changes: changes ?? { files: [], added: 0, removed: 0, error: 'Your laptop lists this part’s changed files.' } }), null, ids);
+        }
+      }
+      return ids;
+    }
+
+    /** Evidence files, after the site has this look's evidence lists (the queue sent): each file straight to Blob. */
+    async function sendEvidence(list) {
+      const end = timers.now() + 15_000;
+      while (site && queue.size() > 0 && timers.now() < end) await sleep(50);
+      if (!site || queue.size() > 0) return;
+      for (const u of list) {
+        await uploadEvidence({ ...u, sent: evidenceSent, ask: (body) => call('POST', '/api/runner/evidence/upload', body), done: (body) => call('POST', '/api/runner/evidence/done', body), putFile: putFile ?? fetchFn, log })
+          .catch((err) => log(`site link: evidence wasn’t uploaded: ${err.message}`));
+      }
+    }
+
+    async function syncOnce(full) {
+      const snap = await runner.read.snapshot({ token: null, wireframesOrigin: null });
+      await put('board', '', boardRecord(snap));
+      const open = (snap.jobs ?? []).filter((c) => c?.slug && !c.closed && !c.starting);
+      const openSlugs = new Set(open.map((c) => c.slug));
+      for (const c of open) {
+        const now = JSON.stringify(c);
+        const look = full || dirtyJobs.has(c.slug) || cards.get(c.slug) !== now || !ofJob.has(c.slug);
+        cards.set(c.slug, now);
+        if (!look) continue;
+        dirtyJobs.delete(c.slug);
+        const ids = await jobParts(c.slug);
+        for (const id of ofJob.get(c.slug) ?? []) if (!ids.has(id)) await gone(id, c.slug);
+        ofJob.set(c.slug, ids);
+      }
+      for (const [slug, ids] of [...ofJob]) {
+        if (openSlugs.has(slug)) continue;
+        for (const id of ids) await gone(id, slug);
+        ofJob.delete(slug);
+        cards.delete(slug);
+      }
+      const stackIds = await stackParts();
+      for (const id of [...sent.keys()]) if (/^(stacks|stack|stack-part)\n/.test(id) && !stackIds.has(id)) await gone(id);
+    }
+
+    return {
+      reset() { sent = new Map(); ofJob = new Map(); cards = new Map(); docEntries = new Map(); dirtyJobs.clear(); lastFull = -Infinity; },
+      dirty(slug) { dirtyJobs.add(slug); },
+      /** Looks at the record and sends what changed; one look at a time (asking during one queues one more). */
+      async sync({ full = false } = {}) {
+        if (!site || !runner.read.snapshot) return;
+        if (running) { again = true; return running; }
+        running = (async () => {
+          try {
+            do {
+              again = false;
+              const whole = full || timers.now() - lastFull > FULL_EVERY_MS;
+              await syncOnce(whole);
+              if (whole) lastFull = timers.now();
+              // Uploads go on beside the link (a video mustn't hold up a decision), one look at a time.
+              if (uploads.length) { const list = uploads.splice(0); evidenceChain = evidenceChain.then(() => sendEvidence(list)).catch(() => {}); }
+              full = false;
+            } while (again && site);
+          } finally { running = null; }
+        })();
+        return running;
+      },
+    };
+  }
+
+  /** The stack pages' live half (as site/routes-stacks.js liveReader): the jobs' cards and Telemetry's record by job. */
+  function stackLive() {
+    return async () => {
+      let cardsBySlug = new Map();
+      try { cardsBySlug = new Map(((await runner.read.features())?.features ?? []).map((c) => [c.slug, c])); } catch { /* none */ }
+      let usage = usageByJob([]);
+      try {
+        const file = path.join(usageDir({ stateDir }), USAGE_FILE);
+        const text = fs.readFileSync(file, 'utf8');
+        usage = usageByJob(text.split('\n').map(parseLine).filter(Boolean));
+      } catch { /* none yet */ }
+      return { cards: cardsBySlug, usage, now: Date.now() };
+    };
+  }
+
+  // ---- the audit copy ----
+  let siteRunning = null; // the site's decision running now: { slug, by, madeOn, id }
+  function onAuditLine(e) {
+    if (!site || !DECISION_LINE(e)) return;
+    const fromSite = siteRunning && siteRunning.slug === e.slug;
+    if (fromSite) return; // the site's own decision is sent up once, with its outcome (runOne)
+    const madeOn = Number.isInteger(e.gateBrief) ? { kind: 'gate', slug: e.slug, brief: e.gateBrief }
+      : e.action === 'permission' ? { kind: 'permission', slug: e.slug, tool: e.tool ?? null }
+        : e.action === 'stack' ? { kind: 'stack', slug: e.slug, section: e.section ?? null } : { kind: 'job', slug: e.slug };
+    const action = e.action === 'send' ? ({ approve: 'approve', changes: 'send-back', stop: 'stop' }[e.kind] ?? 'reply') : e.action === 'permission' ? (e.decision === 'deny' ? 'deny' : 'allow') : 'stack-merge';
+    send('audit', { at: e.at ?? new Date().toISOString(), from: 'laptop', who: me?.name ?? 'You, on this laptop', action, job: e.slug ?? null, madeOn, outcome: 'ran' }, e.slug ?? null).catch(() => {});
   }
 
   // ---- up: the queue to the site ----
@@ -375,24 +593,47 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
     } catch (err) { log(`site link: couldn’t note a command as done: ${err.message}`); }
   }
 
-  async function runOne({ id, command }) {
+  /** Whether a decision still holds here, now (lib/made-on.js). */
+  async function checkMadeOn(madeOn) {
+    const job = madeOn?.slug && madeOn.kind !== 'permission' && madeOn.kind !== 'stack' ? await runner.read.job(madeOn.slug).catch(() => null) : null;
+    const permissions = madeOn?.kind === 'permission' ? ((await runner.read.runs?.().catch(() => null))?.permissions ?? []) : [];
+    return stillMadeOn(madeOn, { job, permissions });
+  }
+
+  const sealedAnswers = new Map(); // id -> the sealed answer (memory only, for a repeat delivery)
+  async function runOne({ id, command, madeOn = null, by = null, answerKey = null }) {
     let result = done.get(id);
     if (!result) {
       const parsed = parseCommand(command, { from: 'site' });
+      const slug = command?.slug ?? madeOn?.slug ?? null;
       if (!parsed.ok) result = { ok: false, error: parsed.error };
       else {
-        try {
-          await runner.handle(command, { from: 'site' });
-          result = { ok: true };
-        } catch (err) {
-          result = { ok: false, error: String(err?.message ?? err).slice(0, 2000) };
+        const check = madeOn ? await checkMadeOn(madeOn) : { ok: true };
+        if (!check.ok) result = { ok: false, stale: true, error: `This changed on your laptop: ${check.why} Nothing was run.` };
+        else {
+          siteRunning = madeOn ? { slug, by, madeOn, id } : null;
+          try {
+            const answer = await runner.handle(command, { from: 'site' });
+            result = { ok: true };
+            if (typeof answerKey === 'string' && answerKey) sealedAnswers.set(id, seal(answerKey, answer ?? null));
+          } catch (err) {
+            result = { ok: false, error: String(err?.message ?? err).slice(0, 2000), ...(madeOn && MOVED_ON(err) ? { stale: true } : {}) };
+          } finally { siteRunning = null; }
         }
       }
       done.set(id, result);
       saveDone();
       out.emit('command', id, result);
+      if (madeOn) {
+        const outcome = result.ok ? 'ran' : result.stale ? 'changed' : 'failed';
+        const line = { action: 'site-decision', slug, type: command?.type ?? null, from: 'site', by: by?.name ?? null, madeOn, outcome, command: id, ...(result.ok ? {} : { error: result.error }) };
+        try { await audit?.(line); } catch (err) { log(`site link: couldn’t write the audit line: ${err.message}`); }
+        await send('audit', { at: new Date().toISOString(), from: 'site', who: by?.name ?? 'Someone on the site', action: command?.type ?? 'decision', job: slug, madeOn, outcome, command: id }, slug);
+      }
+      if (sealedAnswers.size > 50) sealedAnswers.delete(sealedAnswers.keys().next().value);
     }
-    const r = await call('POST', `/api/runner/commands/${encodeURIComponent(id)}/result`, result).catch(() => null);
+    const sealed = sealedAnswers.get(id);
+    const r = await call('POST', `/api/runner/commands/${encodeURIComponent(id)}/result`, sealed ? { ...result, sealed } : result).catch(() => null);
     if (r?.status === 401) unpaired();
   }
 
@@ -410,7 +651,7 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
         const commands = r.body?.commands ?? [];
         for (const c of commands) {
           if (gen !== generation) return;
-          if (c && typeof c.id === 'string') await runOne(c);
+          if (c && typeof c.id === 'string') await runOne(c).catch((err) => log(`site link: ${err.message}`));
         }
         // A site that answers "nothing" at once (not waiting) is asked again a second later, not in a tight loop.
         if (!commands.length && timers.now() - asked < 1000) await sleep(1000);
@@ -433,9 +674,18 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
     site = { url: file.url, token };
     const gen = ++generation;
     setState('connecting');
-    offRunner = [runner.on('change', onChange), runner.on('run', onChange)];
+    me = file.person ?? null;
+    offRunner = [runner.on('change', onChange), runner.on('run', onChange), runner.on('*', onRunnerEvent)];
+    if (onAudit) offRunner.push(onAudit(onAuditLine) ?? (() => {}));
     await send('hello', { name: file.name ?? thisLaptop().name, os: thisLaptop().os, version, protocol: PROTOCOL_VERSION });
     await sendJobList();
+    records.reset();
+    // A runner with a snapshot (every real one) mirrors its whole record, then says so.
+    if (runner.read.snapshot) {
+      await records.sync({ full: true }).catch((err) => log(`site link: the record couldn’t be read: ${err.message}`));
+      if (gen !== generation) return;
+      await send('record', { kind: 'synced', key: '', value: { at: new Date(timers.now()).toISOString() } });
+    }
     commandLoop(gen).catch((err) => log(`site link: ${err.message}`));
   }
 
