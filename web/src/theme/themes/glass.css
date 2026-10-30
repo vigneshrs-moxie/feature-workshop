@@ -57,12 +57,12 @@ html[data-theme="glass"] {
   --border-2: oklch(1 0 0 / .14);
   --border-3: oklch(1 0 0 / .24);
   --text-1: oklch(.97 .006 270);
-  --text-2: oklch(.84 .02 270);
+  --text-2: oklch(.88 .02 270); /* .84 fell to 4.35:1 on the brightest aurora with no pane (packet X) */
   --text-3: oklch(.8 .02 270);
 
   /* Accent: an indigo-to-cyan glow, so pink stays reserved for needs-you. */
   --accent: oklch(.74 .14 262);
-  --accent-strong: oklch(.85 .1 250);
+  --accent-strong: oklch(.88 .09 250); /* .85: the Recommended chip on a picked row was 4.4:1 (packet X) */
   --accent-soft: oklch(.74 .14 262 / .22);
   --on-accent: oklch(.18 .05 270);
   --focus-ring: oklch(.88 .12 205);
@@ -176,8 +176,10 @@ html[data-theme="glass"] .app { background: transparent; }
 
 /* ---------- Top bar: a strip of glass ---------- */
 
+/* A strip of dark glass (packet X): over the bright top of the aurora a white tint left the quiet
+   words of the bar (the search box, the Desk count) just under 4.5:1. */
 html[data-theme="glass"] .topbar {
-  background: oklch(1 0 0 / .05);
+  background: var(--glass-pane-side);
   border-bottom: 1px solid var(--glass-edge);
   box-shadow: var(--glass-highlight);
 }
@@ -217,6 +219,8 @@ html[data-theme="glass"] .btn-primary {
   box-shadow: 0 4px 18px oklch(.74 .14 262 / .35), inset 0 1px 0 oklch(1 0 0 / .35);
 }
 html[data-theme="glass"] .btn-primary:hover { background: linear-gradient(135deg, oklch(.82 .12 268), oklch(.87 .1 210)); }
+/* Off is clearly off (packet X): on glass the shared disabled fill is as see-through as a live one. */
+html[data-theme="glass"] .btn:is(:disabled, [aria-disabled='true']) { opacity: .55; }
 html[data-theme="glass"] .btn-danger { border-color: var(--ask-hardline-line); background: transparent; color: var(--status-error); }
 html[data-theme="glass"] .btn-danger:hover { background: var(--status-error-bg); }
 

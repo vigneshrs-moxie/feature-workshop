@@ -1001,10 +1001,10 @@
   --border-2: oklch(1 0 0 / .14);
   --border-3: oklch(1 0 0 / .24);
   --text-1: oklch(.97 .006 270);
-  --text-2: oklch(.84 .02 270);
+  --text-2: oklch(.88 .02 270);
   --text-3: oklch(.8 .02 270);
   --accent: oklch(.74 .14 262);
-  --accent-strong: oklch(.85 .1 250);
+  --accent-strong: oklch(.88 .09 250);
   --accent-soft: oklch(.74 .14 262 / .22);
   --on-accent: oklch(.18 .05 270);
   --focus-ring: oklch(.88 .12 205);
@@ -1336,7 +1336,7 @@
   --on-accent: oklch(.985 .005 270);
   --focus-ring: oklch(.48 .13 205);
   --glass-gradient: linear-gradient(135deg, oklch(.48 .15 268), oklch(.5 .12 210));
-  --status-ok: oklch(.44 .13 160);
+  --status-ok: oklch(.42 .13 160);
   --status-ok-bg: oklch(.6 .14 160 / .16);
   --status-warn: oklch(.46 .12 82);
   --status-warn-bg: oklch(.75 .14 82 / .18);
@@ -1465,7 +1465,7 @@
   --stop-build: oklch(.58 .12 200);
   --stop-test: oklch(.58 .16 160);
   --stop-review: oklch(.6 .15 115);
-  --stop-ship: oklch(.64 .16 75);
+  --stop-ship: oklch(.6 .16 75);
   background-color: var(--glass-day);
   background-image: var(--glass-aurora);
 }

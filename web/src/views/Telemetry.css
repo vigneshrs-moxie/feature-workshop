@@ -194,7 +194,7 @@ button.tele-limit-part:focus-visible { outline: 2px solid var(--focus-ring); out
 .tele-share-part:first-child { border-radius: 4px 0 0 4px; }
 .tele-share-part:last-child { border-radius: 0 4px 4px 0; }
 .tele-share-part:only-child { border-radius: 4px; }
-.tele-in { padding: 0 4px; border-radius: 3px; background: var(--bg-1); color: var(--text-1); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.tele-in { padding: 0 4px; border-radius: 3px; background: var(--surface-float); color: var(--text-1); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .tele-share-total { color: var(--text-2); font-size: var(--text-sm); }
 
 /* ---------- Dot strips: time to PR #1 ---------- */

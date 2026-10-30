@@ -67,7 +67,7 @@ html[data-theme="light-glass"] {
   --focus-ring: oklch(.48 .13 205);
   --glass-gradient: linear-gradient(135deg, oklch(.48 .15 268), oklch(.5 .12 210));
 
-  --status-ok: oklch(.44 .13 160);
+  --status-ok: oklch(.42 .13 160); /* .44: 4.4:1 on its own tint over the aurora (packet X) */
   --status-ok-bg: oklch(.6 .14 160 / .16);
   --status-warn: oklch(.46 .12 82);
   --status-warn-bg: oklch(.75 .14 82 / .18);
@@ -220,6 +220,8 @@ html[data-theme="light-glass"] .btn-primary {
   box-shadow: 0 4px 18px oklch(.46 .15 262 / .3), inset 0 1px 0 oklch(1 0 0 / .35);
 }
 html[data-theme="light-glass"] .btn-primary:hover { background: linear-gradient(135deg, oklch(.42 .15 268), oklch(.44 .12 210)); }
+/* Off is clearly off (packet X): on glass the shared disabled fill is as see-through as a live one. */
+html[data-theme="light-glass"] .btn:is(:disabled, [aria-disabled='true']) { opacity: .55; }
 html[data-theme="light-glass"] .btn-danger { border-color: var(--ask-hardline-line); background: transparent; color: var(--status-error); }
 html[data-theme="light-glass"] .btn-danger:hover { background: var(--status-error-bg); }
 
@@ -465,5 +467,5 @@ html[data-theme="light-glass"] {
   --stop-build: oklch(.58 .12 200);
   --stop-test: oklch(.58 .16 160);
   --stop-review: oklch(.6 .15 115);
-  --stop-ship: oklch(.64 .16 75);
+  --stop-ship: oklch(.6 .16 75); /* .64: 2.9:1 on the aurora (packet X) */
 }

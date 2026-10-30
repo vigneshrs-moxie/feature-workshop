@@ -241,7 +241,7 @@ html[data-keys-held] .key-hint.is-quiet { opacity: 1; }
   list-style: none;
   border: 1px solid var(--border-2);
   border-radius: var(--radius-lg);
-  background: var(--surface-1);
+  background: var(--surface-float);
   box-shadow: var(--elev-md);
   animation: pop-in var(--dur-fast) var(--ease-out);
 }

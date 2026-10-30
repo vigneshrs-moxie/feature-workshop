@@ -14,7 +14,7 @@
   overflow: hidden;
   border: 1px solid var(--border-2);
   border-radius: var(--radius-lg);
-  background: var(--surface-1);
+  background: var(--surface-float);
   box-shadow: var(--elev-lg);
   color: var(--text-1);
   animation: pop-in var(--dur-fast) var(--ease-out);
