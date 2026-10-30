@@ -9,8 +9,8 @@
 # 3. Runs that package's `starbase doctor --json`, and for each thing missing prints the fix
 #    and asks (yes or no) before running it.
 # 4. npm i -g <the package file> (removing the package from before the rename, @moxie/ground-control,
-#    first), then `starbase install` (the background service from sign-in; it removes the old
-#    ground-control service too), then opens http://127.0.0.1:4477/next/.
+#    first), then `starbase install` (the background service from sign-in; it removes the old service,
+#    the one named ground-control before the rename, too), then opens http://127.0.0.1:4477/next/.
 #
 # Runs in bash and zsh. Answers come from the terminal even when the script itself comes through a
 # pipe; with no terminal to ask in, every question is answered no.
@@ -29,10 +29,10 @@ PRODUCT="Starbase"
 PACKAGE="@moxie/starbase"
 OLD_PACKAGE="@moxie/ground-control"
 COMMAND="starbase"
-REPO="${STARBASE_RELEASE_REPO:-${GROUND_CONTROL_RELEASE_REPO:-vigneshrs-moxie/feature-workshop}}"
+REPO="${STARBASE_RELEASE_REPO:-${GROUND_CONTROL_RELEASE_REPO:-vigneshrs-moxie/feature-workshop}}" # the new name, else the old one
 DASHBOARD_URL="http://127.0.0.1:4477/next/"
-FROM="${STARBASE_FROM:-${GROUND_CONTROL_FROM:-}}"
-NO_SERVICE="${STARBASE_NO_SERVICE:-${GROUND_CONTROL_NO_SERVICE:-}}"
+FROM="${STARBASE_FROM:-${GROUND_CONTROL_FROM:-}}" # the new name, else the old one
+NO_SERVICE="${STARBASE_NO_SERVICE:-${GROUND_CONTROL_NO_SERVICE:-}}" # the new name, else the old one
 NODE_MAJOR=22
 
 say() { printf '%s\n' "$*"; }

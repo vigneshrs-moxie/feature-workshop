@@ -29,7 +29,7 @@ jobs:
           git config --global user.email "ci@example.com"
           git config --global init.defaultBranch main
       - run: npm ci
-      - name: Dashboard tests
+      - name: Server tests (dashboard/)
         run: npm test
       - name: Web tests
         working-directory: web

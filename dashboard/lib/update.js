@@ -1,4 +1,4 @@
-// `starbase update`: moves Ground Control to the newest release, after checking the download
+// `starbase update`: moves Starbase to the newest release, after checking the download
 // against the release's checksum file (packet I step 4, plan G18, §4.3).
 //
 //   1. gh release view --repo <repo> --json tagName,assets: the newest release's tag and files

@@ -1,6 +1,6 @@
 ---
-# Orbit (the Moxie portal). Ground Control's registry keeps this copy (plan G31): Orbit's own
-# repository doesn't carry a ground-control.md yet. Once it does, that one is used instead.
+# Orbit (the Moxie portal). Starbase's registry keeps this copy (plan G31): Orbit's own
+# repository doesn't carry a starbase.md yet. Once it does, that one is used instead.
 name: Orbit
 github: Moxie-Pest-Control-Phoenix/moxie-portal
 remotes:
@@ -71,7 +71,7 @@ sectionBranch: "{kind}/orbit-{n}-{section}"
 checks:
   - "cd app && npm run check"
   - "cd app && npm run build"
-# Ground Control removes the worktree itself when you mark the job done and everything is on GitHub.
+# Starbase removes the worktree itself when you mark the job done and everything is on GitHub.
 cleanup:
   - "git worktree remove ../orbit-{slug}"
 ---

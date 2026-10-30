@@ -199,24 +199,24 @@ test('install on Linux disables the old ground-control.service and removes its u
   assert.ok(fs.existsSync(path.join(home, '.config', 'systemd', 'user', UNIT)));
 });
 
-test('install on Windows deletes the old task only when it is ours (it runs service-run); another program’s “Dashboard” task is left', async () => {
+test('install on Windows deletes the old task only when it is ours (it runs service-run); another program’s task by the old placeholder name is left', async () => {
   const home = tmp('gc-svc-');
   const answers = { 'schtasks /Query': { code: 0, stdout: '' } };
   const { run, calls } = fakeRun(answers);
-  // "Ground Control" is ours; "Dashboard" belongs to something else.
+  // "Ground Control" (the old task) is ours; "Dashboard" belongs to something else.
   const realRun = async (file, args) => {
     if (file === 'schtasks' && args[0] === '/Query' && args.includes('/XML')) {
       calls.push([file, ...args]);
-      return { code: 0, stdout: args[2] === 'Ground Control' ? '<Arguments>… service-run</Arguments>' : '<Exec>other.exe</Exec>', stderr: '' };
+      return { code: 0, stdout: args[2] === OLD_SERVICE.tasks[0] ? '<Arguments>… service-run</Arguments>' : '<Exec>other.exe</Exec>', stderr: '' };
     }
     return run(file, args);
   };
   const r = await installService({ platform: 'win32', home, env: { USERNAME: 'sam' }, run: realRun, node: 'C:\\node.exe' });
   assert.equal(r.ok, true);
   const said = calls.map((c) => c.join(' '));
-  assert.ok(said.includes('schtasks /Delete /TN Ground Control /F'));
-  assert.ok(!said.includes('schtasks /Delete /TN Dashboard /F'), 'not a task of someone else’s');
-  assert.ok(said.indexOf('schtasks /Delete /TN Ground Control /F') < said.indexOf(`schtasks /Create /TN ${TASK_NAME} /XML ${r.file} /F`));
+  assert.ok(said.includes(`schtasks /Delete /TN ${OLD_SERVICE.tasks[0]} /F`));
+  assert.ok(!said.includes(`schtasks /Delete /TN ${OLD_SERVICE.tasks[1]} /F`), 'not a task of someone else’s');
+  assert.ok(said.indexOf(`schtasks /Delete /TN ${OLD_SERVICE.tasks[0]} /F`) < said.indexOf(`schtasks /Create /TN ${TASK_NAME} /XML ${r.file} /F`));
 });
 
 test('findOldService: nothing there, nothing found, and nothing is run but questions', async () => {

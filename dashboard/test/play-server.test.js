@@ -1,7 +1,7 @@
 // The Play layer through the real dashboard: the play settings (POST /api/settings, meta),
 // GET /api/play, POST /api/play/secret and /api/play/event (token, fixed lists), the 'play' live
 // event when an achievement unlocks, and play.json rebuilt from the audit when it is lost.
-// Demo mode on temp folders: no real job, ~/.claude or ~/.feature-workshop is touched and no
+// Demo mode on temp folders: no real job, ~/.claude or the real state folder is touched and no
 // Claude usage is spent.
 
 import { test, before, after } from 'node:test';

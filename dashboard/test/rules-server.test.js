@@ -1,7 +1,7 @@
 // "Always allow…" through the real dashboard: GET/POST/DELETE /api/rules, the permission it was
 // drafted from, and the audit and thread lines; then the permission settings and auto mode
 // (POST /api/settings, /api/job/:slug/policy). Starts the dashboard in demo mode (a pretend
-// Foreman, nothing real runs) on temp folders: no real job, ~/.claude or ~/.feature-workshop is
+// Foreman, nothing real runs) on temp folders: no real job, ~/.claude or the real state folder is
 // touched and no Claude usage is spent.
 
 import { test, before, after } from 'node:test';

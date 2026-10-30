@@ -266,7 +266,7 @@ const roundHas = (round, id) => round.items.some((i) => i.id === id);
  * when two or more of theirs come within JOIN_MS of each other, or when they had a round before;
  * a lone comment stays N's. Failed checks on a gathering round's commit join it; a check that fails
  * on the commit a round was sent back with re-opens it ('check-failed').
- * First look (the comments already there when Ground Control first saw the PR): only a "Request
+ * First look (the comments already there when Starbase first saw the PR): only a "Request
  * changes" that is still the reviewer's latest word on the PR's newest commit opens a round.
  * Returns { rounds, changed: [round numbers], claimed: [N keys], takeFromN: [N keys whose card is up] }.
  */

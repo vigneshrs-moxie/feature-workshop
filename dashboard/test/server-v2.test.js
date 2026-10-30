@@ -1,6 +1,6 @@
 // The new UI's routes, wired up in server.js: /api/snapshot, "load older" thread pages
 // (?before=<id>) and the v2 live stream. Starts the real dashboard in demo mode (a pretend
-// Foreman, nothing real runs) on temp folders, so no real job, ~/.claude or ~/.feature-workshop
+// Foreman, nothing real runs) on temp folders, so no real job, ~/.claude or the real state folder
 // is touched and no Claude usage is spent.
 
 import { test, before, after } from 'node:test';

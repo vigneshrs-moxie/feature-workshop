@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { parseProfile, parseBlock, loadProfile, fillPattern, tryItRules, devCommand, GENERAL, PROFILE_FILE, githubOfUrl, portsLabel } from '../lib/profile.js';
+import { parseProfile, parseBlock, loadProfile, fillPattern, tryItRules, devCommand, GENERAL, OLD_PROFILE_FILE, PROFILE_FILE, githubOfUrl, ownProfileFile, portsLabel } from '../lib/profile.js';
 
 const doc = (block, notes = '') => `---\n${block}\n---\n${notes}`;
 const errorsOf = (block) => parseProfile(doc(`name: X\n${block}`)).errors;
@@ -113,7 +113,20 @@ test('profile: patterns fill, and an empty value takes one separator with it', (
   assert.equal(fillPattern('http://localhost:{port}/{other}', { port: 1 }), 'http://localhost:1/{other}', 'what it isn’t given stays as it is');
 });
 
-test('profile: loadProfile reads a repository’s ground-control.md or a named file', async () => {
+test('profile: a repository with only the older ground-control.md still has its profile; starbase.md wins when both are there', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gc-profile-'));
+  assert.equal(PROFILE_FILE, 'starbase.md');
+  assert.equal(OLD_PROFILE_FILE, 'ground-control.md');
+  assert.equal(ownProfileFile(dir), path.join(dir, PROFILE_FILE), 'neither: where starbase.md would go');
+  await fs.writeFile(path.join(dir, OLD_PROFILE_FILE), doc('name: Old\ngithub: a/old'));
+  assert.equal(ownProfileFile(dir), path.join(dir, OLD_PROFILE_FILE));
+  assert.equal((await loadProfile(dir)).profile.github, 'a/old');
+  await fs.writeFile(path.join(dir, PROFILE_FILE), doc('name: New\ngithub: a/new'));
+  assert.equal((await loadProfile(dir)).profile.github, 'a/new');
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test('profile: loadProfile reads a repository’s starbase.md or a named file', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gc-profile-'));
   assert.match((await loadProfile(dir)).errors[0], /There is no profile at/);
   await fs.writeFile(path.join(dir, PROFILE_FILE), doc('name: Here\ngithub: a/b'));

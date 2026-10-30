@@ -1,5 +1,5 @@
 // Your "Always allow" rules: the dashboard's own list, kept in rules.json in its state folder
-// (~/.feature-workshop by default). Never written to ~/.claude/settings.json, so they only apply
+// (the state folder, ~/.starbase by default). Never written to ~/.claude/settings.json, so they only apply
 // to jobs the dashboard runs. policy.js checks them (matchRule) before a request comes to you.
 //
 // A rule is { id, tool, kind, value, label, createdAt, from? }. What each kind covers is described

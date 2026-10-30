@@ -10,7 +10,7 @@
 #    and asks (yes or no) before running it.
 # 4. npm i -g <the package file> (removing @moxie/ground-control, its name before the rename, first),
 #    then `starbase install` (a Task Scheduler task from sign-in, as you, never as administrator;
-#    it removes the old ground-control task too), then opens http://127.0.0.1:4477/next/. Without the rights
+#    it removes the old task, named ground-control before the rename, too), then opens http://127.0.0.1:4477/next/. Without the rights
 #    for the task, it says so: `starbase start --here` then runs it fully in a window.
 #
 # Runs in Windows PowerShell 5.1 and PowerShell 7. It never exits the window it runs in.
@@ -33,12 +33,12 @@ $NodeMajor = 22
 function Install-Starbase {
   $ErrorActionPreference = 'Continue'
   $repo = $env:STARBASE_RELEASE_REPO
-  if (-not $repo) { $repo = $env:GROUND_CONTROL_RELEASE_REPO }
+  if (-not $repo) { $repo = $env:GROUND_CONTROL_RELEASE_REPO } # the old name
   if (-not $repo) { $repo = 'vigneshrs-moxie/feature-workshop' }
   $from = $env:STARBASE_FROM
-  if (-not $from) { $from = $env:GROUND_CONTROL_FROM }
+  if (-not $from) { $from = $env:GROUND_CONTROL_FROM } # the old name
   $noService = [bool]$env:STARBASE_NO_SERVICE
-  if (-not $noService) { $noService = [bool]$env:GROUND_CONTROL_NO_SERVICE }
+  if (-not $noService) { $noService = [bool]$env:GROUND_CONTROL_NO_SERVICE } # the old name
 
   function Say([string]$text) { Write-Host $text }
   function Stop-Install([string]$text) { throw [System.OperationCanceledException]::new($text) }

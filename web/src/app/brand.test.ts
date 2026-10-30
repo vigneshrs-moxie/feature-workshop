@@ -35,7 +35,7 @@ describe('the product name', () => {
       // The token header's name (X-Starbase-Token) is part of the protocol, not the name a person reads.
       const code = readFileSync(file, 'utf8').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '').replace(/X-Starbase-Token/g, '');
       if (!file.endsWith(`${path.sep}brand.ts`)) expect(code.includes(BRAND.name), file).toBe(false);
-      expect(/Feature Workshop|Ground Control/.test(code), file).toBe(false);
+      expect(/Feature Workshop|Ground Control/.test(code), file).toBe(false); // the old names
     }
   });
 });

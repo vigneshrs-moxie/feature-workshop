@@ -2,7 +2,7 @@
 // job crosses the finish line you set; when the line moves further on, a job told Done at the old
 // line is told again when it reaches the new one. Starts the dashboard in demo mode (invented flow
 // facts from demo/fake-flow.js: a job's place follows its stage) on temp folders: no real job,
-// ~/.claude or ~/.feature-workshop is touched and no Claude usage is spent.
+// ~/.claude or the real state folder is touched and no Claude usage is spent.
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';

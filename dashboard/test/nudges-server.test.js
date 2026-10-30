@@ -2,7 +2,7 @@
 // `nudges`; POST /api/job/:slug/nudge/:id/dismiss remembers a dismissal for that job; …/yes sends
 // the nudge's sentence to the job's Foreman as a message from the box would, audited. Starts the
 // dashboard in demo mode (a pretend Foreman, nothing real runs) on temp folders: no real job,
-// ~/.claude or ~/.feature-workshop is touched and no Claude usage is spent.
+// ~/.claude or the real state folder is touched and no Claude usage is spent.
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';

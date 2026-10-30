@@ -502,7 +502,7 @@ export async function renderIndex(dir) {
 
 /** Where a job's decisions go in a repository, from its root. */
 export const REPO_FOLDER = 'docs/decisions';
-// G22: Orbit's .gitignore has "docs/" until Vignesh changes it; Ground Control never changes it.
+// G22: Orbit's .gitignore has "docs/" until Vignesh changes it; Starbase never changes it.
 export const IGNORED_REASON = 'Orbit still ignores docs/decisions/. Its .gitignore needs `docs/*` and `!docs/decisions/` first.';
 
 /**

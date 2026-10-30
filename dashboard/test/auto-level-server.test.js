@@ -2,7 +2,7 @@
 // off by default; on, it sets the level of a job the Foreman suggested one for, says why it asks
 // instead when the rules say so, raises a level when the branch's diff passes the L0 limits, and
 // stops raising once you change an automatic level yourself. Demo mode on temp folders: no real
-// job, ~/.claude or ~/.feature-workshop is touched and no Claude usage is spent.
+// job, ~/.claude or the real state folder is touched and no Claude usage is spent.
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';

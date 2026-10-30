@@ -1,4 +1,4 @@
-// Ground Control's side of Portal Feedback (ORBIT-479): read the person's tickets with their own
+// Starbase's side of Portal Feedback (ORBIT-479): read the person's tickets with their own
 // read-only token, and nothing else. Every request this file makes is a GET to /api/feedback/v1;
 // there is no write path, and a test (orbit.test.js) greps dashboard/lib to keep it that way.
 //

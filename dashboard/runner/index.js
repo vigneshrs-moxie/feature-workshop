@@ -1,4 +1,4 @@
-// The runner: Ground Control's machine half (plan §2, §2.1). It owns the Foreman driver, the job
+// The runner: Starbase's machine half (plan §2, §2.1). It owns the Foreman driver, the job
 // folders and their locks, git and worktrees, Try it on this computer, usage reading, the
 // notifications, the flow map, the integration board and the Orbit read token. It knows nothing
 // about HTTP: the site (dashboard/site/) asks it things through three doors only:
@@ -31,7 +31,7 @@ import crypto from 'node:crypto';
 import { loadFeatures, loadGateStates, SessionIndex } from '../lib/features.js';
 import { STAGES, AGENTS } from '../lib/stages.js';
 import { PRICES, PRICES_AS_OF, whatIfConductor, costCsv, costMarkdown } from '../lib/cost.js';
-import { State, WORKFLOW_CHOICES } from '../lib/state.js';
+import { OLD_STATE_FOLDER, State, WORKFLOW_CHOICES } from '../lib/state.js';
 import { Driver, Busy } from '../lib/driver.js';
 import { renderMarkdown, indexIds } from '../lib/markdown.js';
 import * as git from '../lib/git.js';
@@ -615,7 +615,7 @@ export async function createRunner(config) {
       // floor gives benches out in this order).
       createdAt: f.firstSessionAt ?? f.folderCreatedAt ?? null,
       // Another process working on this job (lib/lock.js heldElsewhere: a terminal, another copy of
-      // Ground Control), or null.
+      // Starbase), or null.
       lock: lockView(f.dir),
       // Paused by a restart (runner/replay.js): 'clean' carries on by itself, 'crash' waits for Resume.
       ...(restart ? { restartPaused: { how: restart.how, at: restart.at } } : {}),
@@ -704,7 +704,7 @@ export async function createRunner(config) {
       const versions = b.file === f.statusBriefFile ? raisedVersions.get(f.dir, b.file) ?? f.versions : null;
       briefs.push({ number: b.number, stage: b.stage, file: b.file, at: st?.mtime.toISOString() ?? null, headline: parsed.headline, point: parsed.happened[0] ?? parsed.next ?? null, versions });
     }
-    // Ground Control's own stops and starts name no job folder: read beside the job's lines (lib/thread.js).
+    // Starbase's own stops and starts name no job folder: read beside the job's lines (lib/thread.js).
     const service = (await state.auditAll()).filter((e) => e.action === 'service-stop' || e.action === 'service-start');
     const page = pageThread(withRestartNotes(buildThread({ briefs, audit, autoResume: limits.autoResume, service, featureDir: f.dir }), audit), { before });
     if (!page) return null;
@@ -1406,7 +1406,7 @@ export async function createRunner(config) {
   // ---------- The integration board (packet Z): /api/integrate/* (lib/integrate.js) ----------
   // The packet worktrees of the repository this dashboard runs from, and "Merge next" into its main
   // checkout (INTEGRATE_ROOT overrides which repository). Its settings live in
-  // ~/.ground-control/integrate.json (STARBASE_DIR overrides the folder). Never pushes.
+  // ~/.starbase/integrate.json (STARBASE_DIR overrides the folder). Never pushes.
   //   GET  /api/integrate              the packets, the order, packets at once, the last result
   //   GET  /api/integrate/stream       the running step's output, live (server-sent events)
   //   POST /api/integrate/order        { order: ['Z', 'C', …] }  save the order
@@ -1416,7 +1416,7 @@ export async function createRunner(config) {
   const integrator = new Integrator({
     root: integrateRoot,
     configDir: INTEGRATE_DIR,
-    stateDirs: [...new Set([INTEGRATE_DIR, path.join(os.homedir(), '.feature-workshop'), state.dir])],
+    stateDirs: [...new Set([INTEGRATE_DIR, path.join(os.homedir(), OLD_STATE_FOLDER), state.dir])],
     // This dashboard's own runs count too: a job it is driving on that checkout.
     extraRunning: async (root) => {
       const r = driver.list().find((x) => ACTIVE_RUN.has(x.status) && x.cwd && !path.relative(root, x.cwd).startsWith('..') && !path.isAbsolute(path.relative(root, x.cwd)));
@@ -1474,9 +1474,9 @@ export async function createRunner(config) {
 
 
   // ---------- Telemetry (packet T): usage.jsonl and /api/telemetry (lib/usage-log.js, lib/telemetry.js) ----------
-  // One line per Foreman turn in usage.jsonl: who (the Ground Control user), the Claude account, job,
+  // One line per Foreman turn in usage.jsonl: who (the Starbase user), the Claude account, job,
   // ticket, stage, section, worker, model, tokens, cost and both plan meters. It lives in
-  // ~/.ground-control, or in the state folder when one is set (STARBASE_STATE_DIR, demo mode);
+  // ~/.starbase, or in the state folder when one is set (STARBASE_STATE_DIR, demo mode);
   // STARBASE_DIR overrides both. Nothing is sent anywhere.
   const usageLog = new UsageLog({ dir: usageDir({ stateDir: env.STARBASE_STATE_DIR || DEMO ? state.dir : null }) });
   const turnMeter = new TurnMeter();
@@ -1844,7 +1844,7 @@ export async function createRunner(config) {
           if (DEMO) return { ok: true, demo: true, kind: plan.kind };
           const chosen = (await state.getSettings()).local?.terminalApp;
           const app = terminalApps().includes(chosen) ? chosen : terminalApps()[0];
-          const dir = path.join(os.tmpdir(), 'ground-control-terminal');
+          const dir = path.join(os.tmpdir(), 'starbase-terminal');
           await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
           // Scripts from earlier days are of no more use.
           for (const name of await fsp.readdir(dir).catch(() => [])) {
@@ -2418,7 +2418,7 @@ export async function createRunner(config) {
 
   // Replies a clean stop paused carry on by themselves: tried now and every few seconds while one
   // waits, once the job's lock is free (another process may hold it: a terminal, another copy of
-  // Ground Control) and no usage limit holds.
+  // Starbase) and no usage limit holds.
   let resumeTimer = null;
   let resuming = false;
   const RESUME_EVERY_MS = 3000;

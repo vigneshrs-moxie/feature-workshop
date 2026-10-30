@@ -1,4 +1,4 @@
-// The one protocol between Ground Control's two halves (plan §2, §2.4): the runner (the machine
+// The one protocol between Starbase's two halves (plan §2, §2.4): the runner (the machine
 // half: Foremen, job folders, locks, git, Try it, usage, the Orbit token) and the site (the web
 // half: pages, routes, the event streams). In local mode both run in one process; in hosted mode
 // (v2) the site runs elsewhere and only this protocol crosses the network.

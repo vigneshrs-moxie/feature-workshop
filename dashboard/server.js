@@ -40,8 +40,9 @@ const FEATURES_DIR = path.resolve(process.env.STARBASE_FEATURES_DIR || path.join
 const PROJECTS_DIR = path.resolve(process.env.STARBASE_PROJECTS_DIR || path.join(CLAUDE_DIR, 'projects'));
 const DEMO = Boolean(process.env.STARBASE_DEMO);
 const TOKEN = crypto.randomBytes(24).toString('hex');
-// The default state folder first, before anything writes to it: ~/.ground-control becomes
-// ~/.starbase (with a link by the old name), and ~/.feature-workshop moves in (lib/state.js).
+// The default state folder first, before anything writes to it: the folder from before the rename
+// becomes ~/.starbase (with a link by the old name), and the oldest folder's files move in
+// (lib/state-folder.js).
 const STATE_DIR = process.env.STARBASE_STATE_DIR || (DEMO ? path.join(path.dirname(FEATURES_DIR), 'state') : null);
 const ready = STATE_DIR ? null : prepareStateFolder();
 for (const line of ready?.lines ?? []) console.log(`state: ${line}`);

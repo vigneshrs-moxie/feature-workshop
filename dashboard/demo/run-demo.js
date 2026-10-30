@@ -981,7 +981,7 @@ async function widgetThread() {
 // several jobs, Opus for the Foreman and Sonnet for the crew, a meter reading with most turns, and
 // a stretch of use outside the app (the meter climbs faster than the app's own spend explains).
 // Always into the demo's own folder: STARBASE_DIR is pointed there unless it already names a
-// folder inside the demo's temporary one, so ~/.ground-control is never touched.
+// folder inside the demo's temporary one, so ~/.starbase is never touched.
 async function demoUsage() {
   const inside = process.env.STARBASE_DIR && !path.relative(os.tmpdir(), path.resolve(process.env.STARBASE_DIR)).startsWith('..');
   if (!inside) process.env.STARBASE_DIR = path.join(ROOT, 'state');

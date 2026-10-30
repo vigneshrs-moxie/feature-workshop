@@ -229,7 +229,7 @@ test('copy for the ticket: plain text with the pipes, no notes to agents, at mos
 });
 
 // Through the real dashboard in demo mode (a pretend Foreman, nothing real runs) on temp folders:
-// no real job, ~/.claude or ~/.feature-workshop is touched and no Claude usage is spent.
+// no real job, ~/.claude or the real state folder is touched and no Claude usage is spent.
 test('the dashboard writes decisions.md after a gate and serves it at GET /api/jobs/:slug/decisions.md', { timeout: 60_000 }, async () => {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fw-decisions-')));
   const dirs = Object.fromEntries(['feature-work', 'state', 'repo', 'projects', 'agents', 'skills', 'home'].map((d) => [d, path.join(root, d)]));

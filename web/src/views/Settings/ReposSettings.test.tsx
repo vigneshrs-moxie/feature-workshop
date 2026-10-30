@@ -9,12 +9,12 @@ import { repoStatus, ReposSettings } from './ReposSettings';
 
 const ORBIT: RegisteredRepo = {
   path: '/Users/me/Projects/moxie-portal', folder: 'moxie-portal', name: 'Orbit', github: 'Moxie-Pest-Control-Phoenix/moxie-portal',
-  profileFile: '/Users/me/Projects/ground-control/dashboard/profiles/orbit.md', profileSource: 'registry',
+  profileFile: '/Users/me/Projects/starbase/dashboard/profiles/orbit.md', profileSource: 'registry',
   ok: true, errors: [], warnings: [], ports: '3001-3099', exists: true,
 };
 const BROKEN: RegisteredRepo = {
   path: '/Users/me/Projects/widgets', folder: 'widgets', name: 'widgets', github: null,
-  profileFile: '/Users/me/Projects/widgets/ground-control.md', profileSource: 'repo',
+  profileFile: '/Users/me/Projects/widgets/ground-control.md', profileSource: 'repo', // a profile by its old name
   ok: false, errors: ['github must look like org/repo, like acme/widgets.', 'ports (under tryIt) must look like 3001-3099, two numbers from 1024 to 65535.'], warnings: [], ports: null, exists: true,
 };
 const list = (repos: RegisteredRepo[], extra: Partial<RepoRegistry> = {}): RepoRegistry => ({ repos, file: '/state/repos.json', unreadable: null, ...extra });
@@ -51,7 +51,7 @@ describe('Settings → Repos', () => {
     const broken = rowOf('widgets');
     // The state is words, never a colour alone; each problem is its own line.
     expect(broken).toHaveTextContent('Its profile has 2 problems');
-    expect(broken).toHaveTextContent('Profile: its own ground-control.md');
+    expect(broken).toHaveTextContent('Profile: its own ground-control.md'); // a profile by its name before Starbase
     const problems = within(broken).getByRole('list', { name: 'Problems in widgets’s profile' });
     expect(within(problems).getAllByRole('listitem').map((li) => li.textContent)).toEqual(BROKEN.errors);
     expect(repoStatus({ ...ORBIT, exists: false })).toBe('Folder not found');

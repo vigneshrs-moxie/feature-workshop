@@ -3,7 +3,7 @@
 // one route, GET /job/:slug/wireframes, the only way an HTML file from a job folder is ever served,
 // with its own content security policy; nothing else and no token there. The server runs in demo mode
 // (a pretend Foreman, nothing real runs) on temp folders, so no real job, ~/.claude or
-// ~/.feature-workshop is touched and no Claude usage is spent.
+// the real state folder is touched and no Claude usage is spent.
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';

@@ -103,7 +103,7 @@ async function makeJob() {
   return { env, audit, dirs: { ...dirs, job } };
 }
 
-// ground-control itself, with the dashboard's environment (so it finds the same state folder).
+// starbase itself, with the dashboard's environment (so it finds the same state folder).
 function cli(env, ...args) {
   return new Promise((resolve) => {
     const out = [];

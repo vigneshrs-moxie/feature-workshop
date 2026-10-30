@@ -38,7 +38,7 @@ export const CONFIG_FILE = 'playwright.config.mjs';
 export const EVIDENCE_VERSION = 1;
 /** How long one spec may take (ms). */
 export const SPEC_LIMIT_MS = 60_000;
-/** The fix line when Playwright's Chromium isn't installed (the same words as `ground-control doctor`). */
+/** The fix line when Playwright's Chromium isn't installed (the same words as `starbase doctor`). */
 export const BROWSER_FIX = 'Run npx playwright install chromium';
 export const DB_DOWN = 'The local database copy isn’t running. Start it from Try it, then press Record again.';
 const SPEC_FILE = /^AC-([1-9]\d{0,3})\.spec\.mjs$/;

@@ -77,7 +77,7 @@ test('parseWorktrees reads git worktree list --porcelain', () => {
 });
 
 test('the Owns paragraph is read leniently, and owned paths match folders, globs, tests beside a file and the route and nav entries', () => {
-  const text = '# Packet T · Telemetry\n\n## Owns\n`dashboard/lib/usage-log.js` (new: writes `~/.ground-control/usage.jsonl`), the `/api/telemetry/*` routes in `dashboard/server.js`, `telemetry.test.js`, `web/src/…/Usage*`, `web/src/views/Telemetry.tsx` plus its test, branch `packet/T-telemetry`, `set -o noclobber`, one route and the nav entry.\n\n## Steps\n`not/this.js`\n';
+  const text = '# Packet T · Telemetry\n\n## Owns\n`dashboard/lib/usage-log.js` (new: writes `~/.starbase/usage.jsonl`), the `/api/telemetry/*` routes in `dashboard/server.js`, `telemetry.test.js`, `web/src/…/Usage*`, `web/src/views/Telemetry.tsx` plus its test, branch `packet/T-telemetry`, `set -o noclobber`, one route and the nav entry.\n\n## Steps\n`not/this.js`\n';
   const owned = parseOwns(text);
   assert.deepEqual(owned, ['dashboard/lib/usage-log.js', 'dashboard/server.js', 'telemetry.test.js', 'web/src/…/Usage*', 'web/src/views/Telemetry.tsx', 'web/src/app/router.ts', 'web/src/app/App.tsx']);
   assert.equal(briefTitle(text), 'Telemetry');

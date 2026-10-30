@@ -1,6 +1,6 @@
 // The gate card's route (POST /api/job/:slug/gate) and a job's notes (GET/PUT /api/job/:slug/notes)
 // through the real dashboard in demo mode (a pretend Foreman, nothing real runs) on temp folders:
-// no real job, ~/.claude or ~/.feature-workshop is touched and no Claude usage is spent.
+// no real job, ~/.claude or the real state folder is touched and no Claude usage is spent.
 // The dashboard starts with Claude's usage limit reached (seeded in its settings), so the first
 // test can hold a reply until "Carry on now"; the rest run with the limit lifted.
 

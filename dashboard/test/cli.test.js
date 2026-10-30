@@ -222,7 +222,7 @@ test('install with the service from before the rename: the copy it runs is stopp
   let up = { pid: 7, port: 4477 };
   const svc = fakeService();
   svc.findOldService = async () => ({ found: true, names: ['com.moxie.ground-control'], files: [] });
-  svc.installService = async (o) => { svc.calls.push(['install', o.platform]); return { ok: true, log: '/l/starbase.log', removedOld: ['com.moxie.ground-control'] }; };
+  svc.installService = async (o) => { svc.calls.push(['install', o.platform]); return { ok: true, log: '/l/starbase.log', removedOld: ['com.moxie.ground-control'] }; }; // the old service, removed
   let killed = null;
   const r = await cli(['install'], { deps: { service: svc }, running: () => up, kill: (pid) => { killed = pid; up = null; }, alive: () => false, sleep: async () => { up = { pid: 9, port: 4477 }; } });
   assert.equal(r.code, 0, r.text);
@@ -330,18 +330,19 @@ test('the five answers make a profile the profile reader accepts', () => {
 });
 
 test('ground-control, the old name, says it is now starbase and runs the same command', async () => {
+  const OLD = 'ground-control'; // the command's old name, kept as an alias for one release
   const { execFile } = await import('node:child_process');
   const run = (bin, args) => new Promise((resolve) => {
     const home = tmp('gc-cli-alias-');
     execFile(process.execPath, [path.join(import.meta.dirname, '..', '..', 'bin', bin), ...args], { env: { PATH: process.env.PATH, HOME: home, USERPROFILE: home } }, (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout, stderr }));
   });
   const now = await run('starbase.js', ['--help']);
-  const was = await run('ground-control.js', ['--help']);
+  const was = await run(`${OLD}.js`, ['--help']);
   assert.equal(was.code, 0);
   assert.equal(was.stdout, now.stdout, 'the same output');
-  assert.equal(was.stderr.trim(), 'ground-control is now called starbase. This ran the same command; next time, type starbase.');
+  assert.equal(was.stderr.trim(), `${OLD} is now called starbase. This ran the same command; next time, type starbase.`);
   assert.equal(now.stderr, '');
-  const bad = await run('ground-control.js', ['frobnicate']);
+  const bad = await run(`${OLD}.js`, ['frobnicate']);
   assert.equal(bad.code, 1, 'and the same exit code');
   assert.match(bad.stderr, /Run starbase --help to see them/);
 });

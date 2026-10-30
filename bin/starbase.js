@@ -88,7 +88,7 @@ const COMMANDS = {
     summary: 'Register a repository',
     help: [
       `Adds the repository at <path> to ${PRODUCT}’s list. Its starbase.md (in the repository’s`,
-      'root; an older ground-control.md still counts) says how work is done there. When it has none,',
+      'root; an older starbase.md still counts) says how work is done there. When it has none,',
       'five questions make one: the GitHub name,',
       'where job worktrees go, the command that starts the app, the ports to use and the files to copy.',
       `The answers are saved as a profile in ${PRODUCT}’s own folder; the repository isn’t changed.`,
@@ -168,7 +168,7 @@ const COMMANDS = {
       'credential store; the running service picks it up by itself. Running it again on a laptop',
       'already paired gives it a new token (the old one stops working).',
       '',
-      '  --site <address>   the site’s address, like https://feature-workshop.example.com',
+      '  --site <address>   the site’s address, like https://starbase.example.com',
       '                     (not needed again once this laptop has been paired)',
       '  --name <name>      what the site calls this laptop (this computer’s name when not given)',
     ],
@@ -283,7 +283,7 @@ export async function main(argv = process.argv.slice(2), overrides = {}) {
     throw err;
   }
   if (parsed.help) { for (const l of commandHelp(spec)) ctx.out(l); return 0; }
-  // The default state folder first (~/.ground-control becomes ~/.starbase, lib/state.js), before a
+  // The default state folder first (the old one becomes ~/.starbase, lib/state-folder.js), before a
   // command writes to it; not when a folder is named (STARBASE_STATE_DIR, demo mode, or the caller's).
   if (!overrides.stateDir && !ctx.env.STARBASE_STATE_DIR && !ctx.env.STARBASE_DEMO) {
     const ready = (overrides.prepareStateFolder ?? prepareStateFolder)({ home: ctx.home, platform: ctx.platform });

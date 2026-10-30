@@ -4,7 +4,7 @@
 //
 // The registry is repos.json in the state folder: [{ path, github, profile }], where profile is the
 // profile file to use (a path inside the dashboard folder, like profiles/orbit.md, or a full path).
-// A ground-control.md in the repository's own root always wins over that file.
+// A starbase.md in the repository's own root always wins over that file.
 //
 //   openRegistry({ dir })   the registry for a state folder (one per folder in this process)
 //   listRepos()             each repository with its profile checked: name, GitHub, file, ports
@@ -33,7 +33,7 @@ import { setProfileOrgs } from './hard-lines.js';
 import { GENERAL, PROFILE_FILE, fillPattern, ownProfileFile, githubOfUrl, githubOrg, loadProfile, portsLabel } from './profile.js';
 
 export const REPOS_FILE = 'repos.json';
-/** The profiles Ground Control carries for repositories that don't carry their own yet. */
+/** The profiles Starbase carries for repositories that don't carry their own yet. */
 export const BUNDLED_DIR = fileURLToPath(new URL('../profiles/', import.meta.url));
 const LOOKUP_MS = 60_000; // how long a folder's checkout and remotes are remembered
 
@@ -228,7 +228,7 @@ export class Registry {
     return lower.length ? (await this.#bundled()).find((b) => lower.includes(b.profile.github.toLowerCase())) ?? null : null;
   }
 
-  /** The profile file a registered repository uses: its own starbase.md (or ground-control.md), else the saved one. */
+  /** The profile file a registered repository uses: its own starbase.md (or the file by its older name), else the saved one. */
   #profileFileOf(entry) {
     const own = ownProfileFile(entry.path);
     if (fs.existsSync(own)) return { file: own, source: 'repo' };
@@ -266,7 +266,7 @@ export class Registry {
 
   /**
    * Adds a repository. p: any folder in it (its top is saved). profileFile: the profile to use when
-   * the repository has no ground-control.md of its own; with neither, a bundled profile naming its
+   * the repository has no starbase.md of its own; with neither, a bundled profile naming its
    * GitHub repository is used. Returns { ok, repo, warnings } or { ok: false, errors, warnings }.
    */
   addRepo(p, { profileFile = null } = {}) {
@@ -322,7 +322,7 @@ export class Registry {
 
   /**
    * The profile for the repository a folder belongs to: { repo, file, source, ok, profile, errors,
-   * warnings } (repo is null when it isn't registered but carries its own ground-control.md), or
+   * warnings } (repo is null when it isn't registered but carries its own starbase.md), or
    * null when it has none. On a first start (no repos.json yet), a repository a bundled profile
    * names is registered on the way.
    */

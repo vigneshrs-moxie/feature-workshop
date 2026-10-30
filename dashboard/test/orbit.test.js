@@ -1,7 +1,7 @@
 // Portal Feedback (ORBIT-479) from Starbase: the token and where it is kept, the read-only
 // client against a fake Orbit (an http server on a free port serving test/fixtures/orbit), the
 // inbox poller's cadence on a fake clock, the scrubber, and a grep that keeps every request to
-// Orbit a GET. Nothing here touches ~/.claude, the Keychain, ~/.ground-control or a real Orbit.
+// Orbit a GET. Nothing here touches ~/.claude, the Keychain, ~/.starbase or a real Orbit.
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -112,7 +112,7 @@ test('tokenStore picks keytar when it loads, the Keychain on macOS, else the fil
 
 test('a token saved under the credential store’s old name (Ground Control Orbit token) is still read; the next save moves it to the new name', async () => {
   const stateDir = await tmp();
-  const kept = new Map([['Ground Control Orbit token/orbit-feedback', 'orbfb_old_saved']]); // a pretend credential store
+  const kept = new Map([['Ground Control Orbit token/orbit-feedback', 'orbfb_old_saved']]); // a pretend credential store, with the token under the old name
   const keytar = {
     getPassword: async (s, a) => kept.get(`${s}/${a}`) ?? null,
     setPassword: async (s, a, t) => { kept.set(`${s}/${a}`, t); },
@@ -632,7 +632,7 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   assert.equal(r.status, 200);
   assert.equal(r.body.items.length, 54);
   const item = (key) => r.body.items.find((i) => i.key === key);
-  assert.equal(item('ORBIT-479').title, 'Read-only feedback API and MCP for Ground Control');
+  assert.equal(item('ORBIT-479').title, 'Read-only feedback API and MCP for Starbase');
   assert.deepEqual(item('ORBIT-479').job, { slug: 'orbit-479-feedback-api', title: 'orbit-479-feedback-api' });
   assert.equal(item('ORBIT-501').job.slug, 'tidy-tracker', 'status.json ticket.key counts');
   assert.equal(item('ORBIT-502').job, null);

@@ -84,7 +84,7 @@ before(async () => {
   sh(repo, 'config', 'user.name', 'Test');
   sh(repo, 'config', 'commit.gpgsign', 'false');
   sh(repo, 'remote', 'add', 'origin', remote);
-  await fs.writeFile(path.join(repo, 'ground-control.md'), PROFILE);
+  await fs.writeFile(path.join(repo, 'starbase.md'), PROFILE);
   await fs.writeFile(path.join(repo, 'check.js'), CHECK);
   for (const d of ['a', 'b', 'c']) { await fs.mkdir(path.join(repo, d)); await fs.writeFile(path.join(repo, d, '.keep'), ''); }
   sh(repo, 'add', '.');

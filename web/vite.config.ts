@@ -1,4 +1,4 @@
-// Vite config for the new Feature Workshop UI.
+// Vite config for the new Starbase UI.
 // The dashboard serves the built files at /next/ (see dashboard/lib/web-app.js), so every
 // asset URL starts with /next/. `npm run web:dev` runs Vite on its own port and forwards
 // /api to a running dashboard (default http://127.0.0.1:4477, or set STARBASE_URL, e.g. the
@@ -12,7 +12,7 @@ import { tokensCss } from './src/theme/tokens.ts';
 import { classicThemeCss } from './src/theme/classicSheet.ts';
 import { swatchCss } from './src/theme/swatchSheet.ts';
 
-const target = process.env.STARBASE_URL || 'http://127.0.0.1:4477';
+const target = process.env.STARBASE_URL || process.env.WORKSHOP_URL || 'http://127.0.0.1:4477'; // the new name, else the old one
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 const writeIfChanged = (rel: string, css: string) => {

@@ -199,7 +199,7 @@ export function stateDirNow(home = os.homedir()) {
 export function prepareStateFolder({ home = os.homedir(), now, link, platform, alive } = {}) {
   const lines = [];
   const a = moveToStarbase({ home, now, link, platform });
-  if (a.moved) lines.push(`${a.message}${a.linked ? `, and left a link by the old name for a copy of ${PRODUCT} that is still running` : `; a note is left in ~/${GC_STATE_FOLDER}`}.`);
+  if (a.moved) lines.push(`${a.message}${a.linked ? ', and left a link by the old name, so a copy that is still running keeps finding its files' : `; a note is left in ~/${GC_STATE_FOLDER}`}.`);
   else if (a.skipped === 'both-there' && a.firstTime) lines.push(`~/${GC_STATE_FOLDER} and ~/${STATE_FOLDER} are both there, so nothing was merged: ${PRODUCT} uses ~/${STATE_FOLDER} and left ~/${GC_STATE_FOLDER} alone.`);
   else if (a.skipped === 'rename-failed') lines.push(`${a.error} ${PRODUCT} keeps using ~/${GC_STATE_FOLDER} for now and tries again at the next start.`);
   // ~/.feature-workshop moves only into ~/.starbase, never while ~/.ground-control is still in use.

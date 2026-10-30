@@ -57,7 +57,7 @@ function clock(at, ref = null) {
 }
 
 /**
- * The notes for Ground Control's own stops and starts (runner/index.js service-stop, service-start;
+ * The notes for Starbase's own stops and starts (runner/index.js service-stop, service-start;
  * they name no job folder, so the runner passes them as `service`): one note for each stop that
  * paused this job's reply, with the start that followed.
  */
@@ -84,9 +84,9 @@ function serviceNotes(service, featureDir) {
  * first (all of them, so ids don't depend on how far back was read). autoResume: whether jobs
  * carry on by themselves after a usage limit (changes one note's wording).
  * Replies carry their markdown in `reply`; the caller renders the ones it sends.
- * service: Ground Control's service-stop and service-start lines (they name no job), for the
+ * service: Starbase's service-stop and service-start lines (they name no job), for the
  * stop-and-start notes of this job (featureDir: the job folder; else the audit lines' own).
- * Messages Ground Control sent by itself (a status.json fix, PR feedback you chose to send) are
+ * Messages Starbase sent by itself (a status.json fix, PR feedback you chose to send) are
  * notes, never "you".
  */
 export function buildThread({ briefs = [], audit = [], autoResume = true, service = [], featureDir = null }) {

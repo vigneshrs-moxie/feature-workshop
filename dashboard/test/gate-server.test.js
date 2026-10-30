@@ -1,7 +1,7 @@
 // Levels, brief versions, the gate card and gate parking as the job page and the snapshot show
 // them. Starts the real dashboard in demo mode (a pretend Foreman, nothing real runs) on temp
 // folders with the parking time cut to under a second (STARBASE_GATE_PARK_MS), so no real job,
-// ~/.claude or ~/.feature-workshop is touched and no Claude usage is spent.
+// ~/.claude or the real state folder is touched and no Claude usage is spent.
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';

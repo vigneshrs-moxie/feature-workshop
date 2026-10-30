@@ -1,7 +1,7 @@
 // Settings → Repos: the repositories the app knows, and the profile each one follows (plan
 // G31; lib/repos.js and lib/profile.js on the dashboard). A profile says how work is done in that
 // repository: its ticket names and branches, where worktrees go, and how Try it runs the app (its
-// folder, command, ports and the settings file copied in). A repository's own starbase.md (or the older ground-control.md) wins;
+// folder, command, ports and the settings file copied in). A repository's own starbase.md (or its older name, which the row then shows) wins;
 // otherwise the app keeps the profile file you name here (Orbit's comes with it).
 //   GET    /api/repos/registry          the list, each with its profile's state in words
 //   POST   /api/repos/registry          add one: { path, profileFile? } (400 with each problem)
@@ -226,7 +226,7 @@ export function ReposSettings() {
       <h3 className="settings-heading">Repositories</h3>
       <HowThisWorks id="settings-repos">
         <p>Each repository here has a <strong>profile</strong>: how work is done in it. It names a ticket’s job and branch, where the worktree goes, and how <strong>Try it</strong> runs the app (its folder, the command, the ports and the settings file copied in from your main checkout).</p>
-        <p>A repository’s own <code>starbase.md</code> (or, from before, <code>ground-control.md</code>), in its top folder, is used first. Without one, name a profile file here. Orbit’s profile comes with {BRAND.name}. A job in a repository that isn’t here works as before, with the usual guesses.</p>
+        <p>A repository’s own <code>starbase.md</code>, in its top folder, is used first. Without one, name a profile file here. Orbit’s profile comes with {BRAND.name}. A job in a repository that isn’t here works as before, with the usual guesses.</p>
       </HowThisWorks>
       <div data-setting="repos-list">
         {load.state === 'loading' && <p className="muted">Loading the repositories…</p>}

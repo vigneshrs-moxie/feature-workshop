@@ -112,7 +112,7 @@ const check = (id, name, { ok, found, fix = null, needed = true, runnable = fals
  *   portInUse(port)          whether something listens there
  *   service                  the running Starbase ({ port, pid }) or null
  *   oldService()             { found, names, files }: the service from before the rename (lib/service.js findOldService)
- *   oldFolderLeft()          whether ~/.ground-control is still a folder of its own beside ~/.starbase
+ *   oldFolderLeft()          whether the old ~/.ground-control is still a folder of its own beside ~/.starbase
  *   serviceCheck()           { installed, running } (lib/service.js checkService)
  *   tokenSaved()             whether the Orbit token is saved
  *   isAdmin()                Windows: whether this account has administrator rights
@@ -238,7 +238,7 @@ export async function runDoctor(opts = {}) {
   return { ok: checks.every((c) => c.ok || !c.needed), system: systemName(platform), platform, checks };
 }
 
-/** Whether ~/.ground-control is a folder of its own (not the link the move leaves, nor the note) beside a ~/.starbase. */
+/** Whether the old ~/.ground-control is a folder of its own (not the link the move leaves, nor the note) beside a ~/.starbase. */
 function oldFolderBeside(home) {
   const gc = path.join(home, GC_STATE_FOLDER);
   try {

@@ -141,7 +141,7 @@ test('GitHub CLI there but signed out, and Claude Code there but signed out', as
   assert.equal(keyed['claude-login'].ok, true, 'a key in the environment counts as signed in');
 });
 
-test('ports: free, Ground Control’s own, or another program’s (with the line that shows which)', async () => {
+test('ports: free, Starbase’s own, or another program’s (with the line that shows which)', async () => {
   const c = everything('darwin');
   const busy = async () => true;
   let r = byId(await runDoctor(options(c, { portInUse: busy, service: { port: 4477, pid: 321 } })));

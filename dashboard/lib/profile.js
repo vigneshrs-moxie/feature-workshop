@@ -1,5 +1,5 @@
 // A repository's profile: how work is done there (plan G10, §5 "Repos"). It is a short Markdown
-// file, ground-control.md, in the repository's root (or a copy the runner's registry keeps, as for
+// file, starbase.md, in the repository's root (or a copy the runner's registry keeps, as for
 // Orbit: dashboard/profiles/orbit.md). The settings sit in a block between two --- lines at the top;
 // everything below is free notes for people.
 //
@@ -15,7 +15,7 @@
 // Anything else (tabs, odd indents, [a, b], {a: b}, several documents) is an error in plain words.
 //
 //   parseProfile(text)        the text → { ok, profile, errors, warnings }
-//   loadProfile(dirOrFile)    reads <dir>/ground-control.md, or the file named, the same way
+//   loadProfile(dirOrFile)    reads <dir>/starbase.md (or its older name), or the file named, the same way
 //   fillPattern(p, values)    fills {slug}, {n}, {kind}, {title}, {port} (and {key}, {app})
 //   GENERAL                   what a repository with no profile gets: today's general case
 //   tryItRules(profile)       the Try it rules for a job: the profile's, or GENERAL's
@@ -33,7 +33,7 @@ export const PROFILE_FILE = 'starbase.md';
 /** Its name before Starbase (G36): still read when a repository has no starbase.md. */
 export const OLD_PROFILE_FILE = 'ground-control.md';
 
-/** A repository's own profile file: its starbase.md, else its ground-control.md, else where starbase.md would be. */
+/** A repository's own profile file: its starbase.md, else the older ground-control.md, else where starbase.md would be. */
 export function ownProfileFile(dir) {
   const now = path.join(dir, PROFILE_FILE);
   if (fs.existsSync(now)) return now;
@@ -409,7 +409,7 @@ export async function loadProfile(dirOrFile) {
   return { ...parseProfile(source), file };
 }
 
-// ---------- What the rest of Ground Control reads ----------
+// ---------- What the rest of Starbase reads ----------
 
 /** The GitHub org of a profile (the part before the slash), or null. */
 export const githubOrg = (profile) => (profile?.github ? profile.github.split('/')[0] : null);

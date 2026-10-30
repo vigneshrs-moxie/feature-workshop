@@ -1,4 +1,4 @@
-// The site: Ground Control's web half (plan §2, §2.1). The page, its routes and its event streams.
+// The site: Starbase's web half (plan §2, §2.1). The page, its routes and its event streams.
 // It runs nothing on this computer itself: every change is one command of lib/protocol.js given to
 // the runner (runner.handle), every read is runner.read, and the streams are fed from runner.on.
 // So it imports no lib/driver.js, lib/local.js, lib/lock.js or child_process (a test checks).

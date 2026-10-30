@@ -1,4 +1,4 @@
-/* Feature Workshop — the classic view.
+/* Starbase — the classic view.
    It wears the new view's look: the same theme (picked in the new view's Settings and shared through
    localStorage 'workshop.theme', put on by theme-boot.js), the same tokens (/next/theme.css, built
    from web/src/theme), fonts, status colours and words. The meadow maps and the crew stay; they are

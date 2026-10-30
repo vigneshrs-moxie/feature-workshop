@@ -33,7 +33,7 @@ const GIT_PRESETS = [
   { id: 'git-log', label: 'Recent commits', command: 'git log --oneline -15', where: 'root' },
 ];
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
-const CHILD_ENV_DROP = /^(PORT|WORKSHOP_[A-Z_]*)$/;
+const CHILD_ENV_DROP = /^(PORT|STARBASE_[A-Z_]*|WORKSHOP_[A-Z_]*|GROUND_CONTROL_[A-Z_]*)$/; // ours, by the new and the old names
 // Where the Postgres tools usually are, per system; pgTool() also looks in the versioned folders
 // (Homebrew's opt/postgresql@<n>, Debian's /usr/lib/postgresql/<n>, Windows' PostgreSQL\<n>) and on PATH.
 const PG_DIRS = {

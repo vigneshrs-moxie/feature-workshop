@@ -145,7 +145,7 @@ test('no gh at all, or a git checkout: no update, said plainly', async () => {
   const none = await checkForUpdate({ run: async () => ({ code: null, missing: true, stdout: '', stderr: '' }), env: {}, current: '1.5.0' });
   assert.equal(none.status, 'unavailable');
   assert.match(none.message, /GitHub CLI \(gh\) isn’t on this computer/);
-  const dev = await update({ run: async () => assert.fail('nothing is asked'), checkout: true, root: '/src/ground-control', current: '1.5.0' });
+  const dev = await update({ run: async () => assert.fail('nothing is asked'), checkout: true, root: '/src/starbase', current: '1.5.0' });
   assert.equal(dev.status, 'checkout');
   assert.match(dev.message, /git pull/);
 });

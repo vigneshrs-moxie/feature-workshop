@@ -198,7 +198,7 @@ test('the ten graphs, in order, each with a finding, a What to do line, a table 
     assert.match(g.headline, /^\S.+\.$/, g.id);
     assert.match(g.todo, /^[A-Z].+\.$/, g.id);
     assert.ok(g.table.head.length >= 2 && Array.isArray(g.table.rows), g.id);
-    assert.ok(!/Ground Control/.test(JSON.stringify(g)), `${g.id} names no product`);
+    assert.ok(!/Starbase/.test(JSON.stringify(g)), `${g.id} names no product`);
   }
   // The whole-account graphs never name a job or a ticket.
   for (const g of r.graphs.filter((x) => x.audience === 'common')) assert.ok(!/job-\d|Job \d|ORBIT-/.test(JSON.stringify(g)), g.id);

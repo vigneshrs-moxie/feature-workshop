@@ -220,7 +220,7 @@ test('an empty folder has an index that says so; a stack’s section rows are co
   assert.deepEqual(e, { name: 'ORBIT-0479-feedback-api.md', ticket: 'ORBIT-479', prefix: 'ORBIT', number: 479, title: 'Feedback API', count: 5, updated: '2026-10-29' });
 });
 
-test('Ground Control’s own docs/decisions/README.md is the index its files give', async () => {
+test('Starbase’s own docs/decisions/README.md is the index its files give', async () => {
   const dir = path.join(ROOT, 'docs', 'decisions');
   const files = fs.readdirSync(dir).filter((n) => n.endsWith('.md') && n !== 'README.md').map((name) => ({ name, text: fs.readFileSync(path.join(dir, name), 'utf8') }));
   assert.ok(files.some((f) => f.name === '0001-next-phase-register.md'));

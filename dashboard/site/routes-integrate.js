@@ -3,7 +3,7 @@
 // the Stacks page (web/src/views/Stack/BuildStack.tsx, #/stacks/build), which reads and posts here.
 // The packet worktrees of the repository this dashboard runs from, and "Merge next" into its main
 // checkout (INTEGRATE_ROOT overrides which repository). Its settings live in
-// ~/.ground-control/integrate.json (STARBASE_DIR overrides the folder). Never pushes.
+// ~/.starbase/integrate.json (STARBASE_DIR overrides the folder). Never pushes.
 //   GET  /api/integrate              the packets, the order, packets at once, the last result
 //   GET  /api/integrate/stream       the running step's output, live (server-sent events)
 //   POST /api/integrate/order        { order: ['Z', 'C', …] }  save the order

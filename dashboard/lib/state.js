@@ -2,7 +2,7 @@
 //   sessions.json  which Claude Code session drives each job, and who took it over
 //   audit.jsonl    everything sent or decided from the browser, with the exact words
 // Default folder: ~/.starbase (STARBASE_STATE_DIR overrides it). Where it is, and its moves from
-// ~/.ground-control and ~/.feature-workshop, are lib/state-folder.js.
+// the folders it had before, are lib/state-folder.js.
 
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -124,7 +124,7 @@ export class State extends EventEmitter {
     return all[featureDir];
   }
 
-  // Dashboard settings.
+  // Starbase's settings.
   //   policy     'hands-off' (routine steps automatic), 'ask-all' or 'auto' (Claude Code's auto mode)
   //   jobPolicy  { [featureDir]: policy }: jobs that override it
   //   autoMode   { available: true | false | null (not tried yet), reason, checkedAt }
