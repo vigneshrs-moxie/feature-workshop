@@ -9,12 +9,13 @@
 //   - a fixed order: stacks that need you, then working, then finished (folded into "Finished (n)").
 //     Cards never reorder under the pointer;
 //   - peek: Space or a click on a card's body opens a quick look over the right side (the next step
-//     and the parts); j / k move between cards, Enter opens the stack;
+//     and the parts; R's shared Peek, kept in the address as #/stacks?peek=<slug>); j / k move
+//     between cards, Enter opens the stack;
 //   - Play full lays the Desk's faint grid behind the page, pulses each card's light while its
 //     parts are at work and puts the crew's faces beside their now lines; subtle keeps the lights
 //     steady; off is plain. Reduced motion keeps everything still.
 // The build stack (this app's own packets, views/Stack/BuildStack.tsx) is one card like the others.
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { IntegrateView, PartLane, StackSegment, StackStep, StackSummary } from '../../api/types';
 import { useKeyScope } from '../../app/keyRegistry';
 import { hrefFor, navigate, partHref, stackHref } from '../../app/router';
@@ -23,6 +24,8 @@ import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
 import { More } from '../../components/More';
 import { Page } from '../../components/page/Page';
+import { Peek, usePeekAddress, usePeekKeys } from '../../components/Peek';
+import { Pending } from '../../components/Pending';
 import { Sheet } from '../../components/Sheet';
 import { relativeTime, useNow } from '../../lib/time';
 import { useStored } from '../../lib/stored';
@@ -124,7 +127,7 @@ export function StacksPage() {
   const filter: Filter = isFilter(storedFilter) ? storedFilter : 'all';
   const [hovering, setHovering] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
-  const [peek, setPeek] = useState<string | null>(null);
+  const [peek, setPeek] = usePeekAddress();
   const [confirm, setConfirm] = useState<StackSummary | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -142,19 +145,22 @@ export function StacksPage() {
   const pickable = [...shown, ...shownDone].map((s) => s.slug);
 
   const hrefOf = (slug: string) => (slug === BUILD_SLUG ? hrefFor({ name: 'stack-build' }) : stackHref(slug));
+  const pickTo = (slug: string, open: boolean) => {
+    setPicked(slug);
+    if (open) setPeek(slug);
+    document.querySelector(`[data-stack="${CSS.escape(slug)}"]`)?.scrollIntoView({ block: 'nearest' });
+  };
   const step = (by: number) => {
     if (!pickable.length) return;
     const at = picked ? pickable.indexOf(picked) : -1;
-    const next = pickable[(at + by + pickable.length) % pickable.length] ?? pickable[0];
-    setPicked(next);
-    if (peek) setPeek(next);
-    document.querySelector(`[data-stack="${CSS.escape(next)}"]`)?.scrollIntoView({ block: 'nearest' });
+    pickTo(pickable[(at + by + pickable.length) % pickable.length] ?? pickable[0], Boolean(peek));
   };
+  const openStack = (slug: string) => navigate(slug === BUILD_SLUG ? { name: 'stack-build' } : { name: 'stack', slug });
   useKeyScope('stack', {
     'stacks-next': () => step(1),
     'stacks-prev': () => step(-1),
-    'stacks-peek': () => { const s = picked ?? pickable[0]; if (s) { setPicked(s); setPeek((p) => (p === s ? null : s)); } },
-    'stacks-open': () => { const s = picked ?? pickable[0]; if (s) navigate(s === BUILD_SLUG ? { name: 'stack-build' } : { name: 'stack', slug: s }); },
+    'stacks-peek': () => { const s = picked ?? pickable[0]; if (s) { setPicked(s); setPeek(peek === s ? null : s); } },
+    'stacks-open': () => { const s = picked ?? pickable[0]; if (s) openStack(s); },
   }, !confirm && !guideOpen);
 
   async function act(s: StackSummary) {
@@ -195,7 +201,7 @@ export function StacksPage() {
       </section>
     );
   } else if (!list) {
-    body = <SkeletonCards />;
+    body = <Pending loading say="Loading the stacks…" skeleton={<SkeletonCards />} />;
   } else if (!all.length) {
     body = <StacksEmpty onHow={() => setGuideOpen(true)} />;
   } else {
@@ -203,7 +209,7 @@ export function StacksPage() {
       <StackHomeCard
         key={s.slug} s={s} href={hrefOf(s.slug)} now={now} mode={mode} pulse={play.animated}
         picked={picked === s.slug} peeked={peek === s.slug} busy={busy === s.slug}
-        onPeek={() => { setPicked(s.slug); setPeek((p) => (p === s.slug ? null : s.slug)); }}
+        onPeek={() => { setPicked(s.slug); setPeek(peek === s.slug ? null : s.slug); }}
         onAct={() => void act(s)}
       />
     );
@@ -239,6 +245,7 @@ export function StacksPage() {
       {peeked && (
         <StackPeek
           s={peeked} href={hrefOf(peeked.slug)} now={now} busy={busy === peeked.slug}
+          order={pickable} onPick={(slug) => pickTo(slug, true)} onOpen={openStack}
           onAct={() => void act(peeked)} onClose={() => setPeek(null)}
         />
       )}
@@ -381,62 +388,53 @@ function askHint(s: StackSummary): string {
   }
 }
 
-/** A quick look: the next step and every part with its lane, over the right side of the page. */
-function StackPeek({ s, href, now, busy, onAct, onClose }: { s: StackSummary; href: string; now: Date; busy: boolean; onAct: () => void; onClose: () => void }) {
-  const close = useRef(onClose);
-  close.current = onClose;
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('[aria-modal="true"]')) { e.preventDefault(); close.current(); } };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+/** A quick look (R's Peek): the next step and every part with its lane, over the right side of the page. */
+function StackPeek({ s, href, now, busy, order, onPick, onOpen, onAct, onClose }: {
+  s: StackSummary; href: string; now: Date; busy: boolean; order: readonly string[];
+  onPick: (slug: string) => void; onOpen: (slug: string) => void; onAct: () => void; onClose: () => void;
+}) {
+  usePeekKeys({ current: s.slug, order, onPick, onClose, onEnter: onOpen });
   const chip = standingChip(s);
   const segs = s.segments ?? [];
   return (
-    <aside className="peek stack-peek" role="dialog" aria-modal="false" aria-label={`${s.title || s.slug}: a quick look`}>
-      <header className="peek-head">
-        <h3 className="peek-title">{s.title || s.slug}</h3>
-        <Chip tone={chip.tone} icon={chip.icon}>{chip.word}</Chip>
-        <span className="spacer" />
-        <Button kind="quiet" size="sm" href={href} title="Open the whole stack: its board, map and timeline (key: Enter).">Open the stack</Button>
-        <Button kind="quiet" size="sm" iconOnly icon="x" aria-label="Close" title="Close this quick look; the cards stay as they were (key: Esc)." onClick={onClose} />
-      </header>
-      <div className="peek-body">
-        <section className={`stack-peek-next${s.ask ? ' has-ask' : ''}`} aria-label="Next step">
-          <span className="eyebrow">{s.ask ? 'Needs you' : 'Next'}</span>
-          <p className="stack-peek-say">{s.ask?.words ?? (s.standing === 'done' ? 'Every part is merged and pushed.' : s.nextToMerge ? `Nothing needs you. Part ${s.nextToMerge} merges next, when it is ready.` : 'Nothing needs you right now.')}</p>
-          {s.ask && <div className="stack-peek-act"><Button kind="primary" busy={busy} onClick={onAct} title={askHint(s)}>{s.ask.label}</Button></div>}
-        </section>
-        <StackBar segments={segs} size="lg" hrefFor={s.slug === BUILD_SLUG ? undefined : (x) => partHref(s.slug, x.n)} />
-        <p className="muted stack-peek-counts">{countWords(s.lanes ?? {}, s.total ?? s.parts)}</p>
-        <ol className="stack-peek-parts" aria-label="Parts, in merge order">
-          {segs.map((x) => {
-            const look = LANE_LOOK[x.lane];
-            const now1 = s.atWork?.find((w) => w.n === x.n);
-            return (
-              <li key={x.n} className={`stack-peek-part lane-${x.lane}`}>
-                <span className="part-num num">{x.n}</span>
-                {s.slug === BUILD_SLUG ? <span className="stack-peek-name">{x.title}</span> : <a className="stack-peek-name" href={partHref(s.slug, x.n)}>{x.title}</a>}
-                <span className={`stack-peek-lane tone-${look.tone}`}><Icon name={look.icon} size={13} /> {x.laneWords || look.word}</span>
-                {now1 && <span className="stack-peek-now muted">{now1.who} · {now1.what}{now1.since ? ` · ${relativeTime(now1.since, now)}` : ''}</span>}
-              </li>
-            );
-          })}
-        </ol>
-      </div>
-      <footer className="peek-foot">
-        <span><kbd className="kbd">j</kbd> <kbd className="kbd">k</kbd> the next or previous stack</span>
-        <span><kbd className="kbd">↵</kbd> open it</span>
-        <span><kbd className="kbd">Esc</kbd> close</span>
-      </footer>
-    </aside>
+    <Peek
+      label={`${s.title || s.slug}: a quick look`}
+      className="stack-peek"
+      title={s.title || s.slug}
+      chip={<Chip tone={chip.tone} icon={chip.icon}>{chip.word}</Chip>}
+      actions={<Button kind="quiet" size="sm" href={href} title="Open the whole stack: its board, map and timeline (key: Enter).">Open the stack</Button>}
+      keys={[['j k', 'the next or previous stack'], ['↵', 'open it'], ['Esc', 'close']]}
+      onClose={onClose}
+    >
+      <section className={`stack-peek-next${s.ask ? ' has-ask' : ''}`} aria-label="Next step">
+        <span className="eyebrow">{s.ask ? 'Needs you' : 'Next'}</span>
+        <p className="stack-peek-say">{s.ask?.words ?? (s.standing === 'done' ? 'Every part is merged and pushed.' : s.nextToMerge ? `Nothing needs you. Part ${s.nextToMerge} merges next, when it is ready.` : 'Nothing needs you right now.')}</p>
+        {s.ask && <div className="stack-peek-act"><Button kind="primary" busy={busy} onClick={onAct} title={askHint(s)}>{s.ask.label}</Button></div>}
+      </section>
+      <StackBar segments={segs} size="lg" hrefFor={s.slug === BUILD_SLUG ? undefined : (x) => partHref(s.slug, x.n)} />
+      <p className="muted stack-peek-counts">{countWords(s.lanes ?? {}, s.total ?? s.parts)}</p>
+      <ol className="stack-peek-parts" aria-label="Parts, in merge order">
+        {segs.map((x) => {
+          const look = LANE_LOOK[x.lane];
+          const now1 = s.atWork?.find((w) => w.n === x.n);
+          return (
+            <li key={x.n} className={`stack-peek-part lane-${x.lane}`}>
+              <span className="part-num num">{x.n}</span>
+              {s.slug === BUILD_SLUG ? <span className="stack-peek-name">{x.title}</span> : <a className="stack-peek-name" href={partHref(s.slug, x.n)}>{x.title}</a>}
+              <span className={`stack-peek-lane tone-${look.tone}`}><Icon name={look.icon} size={13} /> {x.laneWords || look.word}</span>
+              {now1 && <span className="stack-peek-now muted">{now1.who} · {now1.what}{now1.since ? ` · ${relativeTime(now1.since, now)}` : ''}</span>}
+            </li>
+          );
+        })}
+      </ol>
+    </Peek>
   );
 }
 
 /** The cards' shape while the first answer comes: the same size as the cards, so nothing moves. */
 function SkeletonCards() {
   return (
-    <ul className="stacks-grid is-loading" aria-label="Loading the stacks" aria-busy="true">
+    <ul className="stacks-grid is-loading" aria-hidden="true">
       {[0, 1].map((i) => <li key={i} className="stack-home-card is-skeleton"><span /><span /><span /><span /></li>)}
     </ul>
   );

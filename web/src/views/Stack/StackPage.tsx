@@ -6,8 +6,9 @@
 //     o, Let the Foreman fix it f, Change something / Not yet r), and every problem state K2 drew;
 //   - the parts, three ways (StackViews.tsx), remembered per stack: Board (the default), Map and
 //     Timeline (keys 1, 2, 3). Full detail adds the timeline under the board;
-//   - a part's quick look beside the view (PartPeek.tsx, the Desk's console): j / k through the
-//     parts, Enter for its page, Esc to close, its one action in a row that never moves;
+//   - a part's quick look beside the view (PartPeek.tsx on R's Peek, the Desk's console): j / k
+//     through the parts, Enter for its page, Esc to close, its one action in a row that never
+//     moves; kept in the address (#/stack/<slug>?peek=<n>);
 //   - Details (d): the stack's settings, its history of merges and undos, and the plan as written.
 // Push asks go / no go in a box of its own, always, whatever "Merge on its own" says. Play full lays
 // the Desk's grid behind the page and pulses the lights of parts at work; subtle keeps them
@@ -24,6 +25,8 @@ import { Drawer } from '../../components/Drawer';
 import { NumberInput } from '../../components/Field';
 import { Icon, type IconName } from '../../components/Icon';
 import { NextBar, Page } from '../../components/page/Page';
+import { usePeekAddress } from '../../components/Peek';
+import { Pending, Skeleton } from '../../components/Pending';
 import { Sheet } from '../../components/Sheet';
 import { useStored } from '../../lib/stored';
 import { relativeTime, useNow } from '../../lib/time';
@@ -59,7 +62,7 @@ export function StackPage({ slug }: { slug: string }) {
             <p>Couldn’t load the stack: {error}</p>
             <button type="button" className="btn btn-lg" onClick={stack.refresh}>Try again</button>
           </section>
-        ) : <p className="muted" role="status">Loading the stack…</p>}
+        ) : <Pending loading say="Loading the stack…" skeleton={<Skeleton rows={4} className="stack-skeleton" />} />}
       </Page>
     );
   }
@@ -76,12 +79,14 @@ function StackBody({ stack, view: raw, guide, onHow }: { stack: StackState; view
   const [sheet, setSheet] = useState<null | 'settings' | 'push' | { note: 'plan' } | { note: 'not-yet'; section: string } | { merge: string }>(null);
   const [details, setDetails] = useState(false);
   const [failedOpen, setFailedOpen] = useState<string | null>(null);
-  const [picked, setPicked] = useState<number | null>(null);
-  const [peek, setPeek] = useState(false);
+  const [peekAt, setPeekAt] = usePeekAddress();
+  const [picked, setPicked] = useState<number | null>(() => (peekAt && Number(peekAt) > 0 ? Number(peekAt) : null));
   const [draft, setDraft] = useState<{ cap: number; autoIntegrate: boolean }>({ cap: view.cap, autoIntegrate: view.autoIntegrate });
   const next = nextStep(view);
   const mode = play.full ? 'full' : play.on ? 'subtle' : 'off';
-  const pickedPart = picked ? view.parts.find((p) => p.n === picked) ?? null : null;
+  // The part whose quick look is open (from the address), when it is one of this stack's.
+  const peekPart = peekAt ? view.parts.find((p) => String(p.n) === peekAt) ?? null : null;
+  const peek = peekPart !== null;
 
   function run(a: StackAction) {
     switch (a.kind) {
@@ -103,13 +108,12 @@ function StackBody({ stack, view: raw, guide, onHow }: { stack: StackState; view
     else if (a.kind === 'fix') void stack.act('send-back', { section: p.name });
     else if (p.slug) navigate({ name: 'job', slug: p.slug });
   }
-  const pick = (n: number) => { setPicked(n); setPeek(true); };
+  const pick = (n: number) => { setPicked(n); setPeekAt(String(n)); };
   const move = (by: number) => {
     const ns = view.parts.map((p) => p.n);
     if (!ns.length) return;
     const at = picked ? ns.indexOf(picked) : -1;
-    setPicked(ns[(at + by + ns.length) % ns.length]);
-    setPeek(true);
+    pick(ns[(at + by + ns.length) % ns.length]);
   };
 
   // The bar's keys: only the ones its buttons offer right now, and never while a box is open.
@@ -118,20 +122,13 @@ function StackBody({ stack, view: raw, guide, onHow }: { stack: StackState; view
   for (const b of keyed) handlers[b.key!] = () => { if (!stack.sending) run(b.action); };
   handlers['stacks-next'] = () => move(1);
   handlers['stacks-prev'] = () => move(-1);
-  handlers['stacks-peek'] = () => { if (picked) setPeek((o) => !o); else move(1); };
+  handlers['stacks-peek'] = () => { if (picked) setPeekAt(peek ? null : String(picked)); else move(1); };
   handlers['stacks-open'] = () => { if (picked) navigate({ name: 'stack-part', slug: view.slug, n: picked }); };
   handlers['stack-board'] = () => setKind('board');
   handlers['stack-map'] = () => setKind('map');
   handlers['stack-timeline'] = () => setKind('timeline');
   handlers['stack-details'] = () => setDetails(true);
   useKeyScope('stack', handlers, sheet === null && !details);
-  // Esc closes the quick look (a sheet's own Esc comes first).
-  useEffect(() => {
-    if (!peek) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('[aria-modal="true"]')) { e.preventDefault(); setPeek(false); } };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [peek]);
 
   const button = (b: StackButton | null, primary: boolean) => b && (
     <Button size="lg" kind={primary ? 'primary' : 'secondary'} disabled={b.disabled || stack.sending} onClick={() => run(b.action)} title={b.hint} keyId={b.key} keyShown={primary}>
@@ -151,7 +148,7 @@ function StackBody({ stack, view: raw, guide, onHow }: { stack: StackState; view
     <Page
       label="Stack"
       title={view.title || view.slug}
-      className={`page-stack-v play-${mode}${play.full ? ' has-grid' : ''}${peek && pickedPart ? ' has-peek' : ''}`}
+      className={`page-stack-v play-${mode}${play.full ? ' has-grid' : ''}${peek ? ' has-peek' : ''}`}
       head={(
         <>
           {view.ticketKey && <span className="shc-ticket num">{view.ticketKey}</span>}
@@ -222,7 +219,12 @@ function StackBody({ stack, view: raw, guide, onHow }: { stack: StackState; view
           </section>
         )}
       </div>
-      {peek && pickedPart && <PartPeek view={view} part={pickedPart} now={now} play={play.on} busy={stack.sending} onAction={partDo} onClose={() => setPeek(false)} />}
+      {peekPart && (
+        <PartPeek
+          view={view} part={peekPart} now={now} play={play.on} busy={stack.sending} onAction={partDo}
+          onPick={pick} onOpen={(n) => navigate({ name: 'stack-part', slug: view.slug, n })} onClose={() => setPeekAt(null)}
+        />
+      )}
       {details && (
         <Drawer title="Details" onRequestClose={() => setDetails(false)} className="stack-details-drawer">
           <StackDetails view={view} draft={draft} sending={stack.sending} onSave={async (s) => {

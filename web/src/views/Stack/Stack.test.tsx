@@ -99,16 +99,25 @@ describe('the Stacks list', () => {
     expect(within(sum).getByRole('button', { name: /needs? you/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('a click on a card’s body opens a quick look with its next step and parts; Escape closes it', async () => {
+  it('a click on a card’s body opens a quick look (R’s Peek, kept in the address) with its next step and parts; Escape closes it', async () => {
+    window.location.hash = '#/stacks';
     const { wrap } = setup({ '/api/stacks': list });
-    wrap(<StacksPage />);
+    const { unmount } = wrap(<StacksPage />);
     const cards = await screen.findByRole('list', { name: 'Stacks' });
-    fireEvent.click(cards.querySelector(':scope > li .shc-why')!);
+    const first = cards.querySelector<HTMLElement>(':scope > li')!;
+    fireEvent.click(first.querySelector('.shc-why')!);
     const peek = screen.getByRole('dialog', { name: /a quick look/ });
+    expect(peek).toHaveClass('peek', 'stack-peek');
     expect(within(peek).getByRole('region', { name: 'Next step' })).toBeInTheDocument();
     expect(within(peek).getByRole('link', { name: 'Open the stack' })).toBeInTheDocument();
+    expect(window.location.hash).toBe(`#/stacks?peek=${first.dataset.stack}`);
+    // Back on the page later, the quick look is open again.
+    unmount();
+    wrap(<StacksPage />);
+    expect(await screen.findByRole('dialog', { name: /a quick look/ })).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: /a quick look/ })).toBeNull();
+    expect(window.location.hash).toBe('#/stacks');
   });
 
   it('How stacks work brings back the three picture cards at any time; Escape closes them', async () => {
@@ -392,8 +401,10 @@ describe('one stack', () => {
     expect(peek).toHaveTextContent('24811');
     expect(within(peek).getByRole('link', { name: 'Open the job' })).toHaveAttribute('href', '#/job/orbit-512--export-button');
     expect(within(peek).getByRole('link', { name: 'Open part 1' })).toHaveAttribute('href', '#/stack/orbit-512/part/1');
+    expect(window.location.hash).toBe('#/stack/orbit-512?peek=1');
     fireEvent.keyDown(document.body, { key: 'j' });
     expect(screen.getByRole('dialog', { name: 'Part 2: a quick look' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/stack/orbit-512?peek=2');
     fireEvent.keyDown(document.body, { key: 'Enter' });
     expect(window.location.hash).toBe('#/stack/orbit-512/part/2');
     fireEvent.keyDown(window, { key: 'Escape' });

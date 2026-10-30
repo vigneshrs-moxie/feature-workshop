@@ -24,6 +24,7 @@ import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
 import { More } from '../../components/More';
 import { NextBar, Page } from '../../components/page/Page';
+import { Pending, Skeleton } from '../../components/Pending';
 import { Sheet } from '../../components/Sheet';
 import { NextStep } from '../../job/JobPage';
 import { isLevel, levelCardKey, levelCardView, levelLabel } from '../../lib/levels';
@@ -52,7 +53,7 @@ export function PartPage({ slug, n }: { slug: string; n: number }) {
           <section className="stacks-home-error" role="alert"><Icon name="warn" size={18} /><p>{missing}</p><Button href={stackHref(slug)}>Back to the stack</Button></section>
         ) : error ? (
           <section className="stacks-home-error" role="alert"><Icon name="warn" size={18} /><p>Couldn’t load the part: {error}. Nothing was lost.</p><Button onClick={part.refresh}>Try again</Button></section>
-        ) : <div className="part-skeleton" aria-busy="true" aria-label="Loading the part" />}
+        ) : <Pending loading say="Loading the part…" skeleton={<Skeleton rows={6} className="part-skeleton" />} />}
       </Page>
     );
   }
@@ -396,7 +397,7 @@ function DiffSheet({ file, state, onClose }: { file: string; state: PartState; o
   const lines = (d?.diff ?? '').split('\n').filter((l, i) => i > 3 || !/^(diff --git|index |--- |\+\+\+ )/.test(l));
   return (
     <Sheet title={file} onClose={onClose} className="part-diff-sheet">
-      {!d ? <p className="muted" role="status">Reading the changes…</p> : d.error ? <p className="field-problem">{d.error}</p> : (
+      {!d ? <Pending loading say="Reading the changes…" skeleton={<Skeleton rows={8} className="part-diff-skeleton" />} /> : d.error ? <p className="field-problem">{d.error}</p> : (
         <>
           <pre className="part-diff" aria-label={`Changes to ${file}`}>{lines.map((l, i) => <span key={i} className={l.startsWith('+') ? 'is-add' : l.startsWith('-') ? 'is-del' : l.startsWith('@@') ? 'is-hunk' : ''}>{l || ' '}{'\n'}</span>)}</pre>
           {d.cut && <p className="muted">The diff is long, so only its first part is shown.</p>}

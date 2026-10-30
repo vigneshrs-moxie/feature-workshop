@@ -9,7 +9,8 @@
 .page-part.is-wide .part-side { position: sticky; top: var(--space-4); max-height: calc(100vh - var(--topbar-h) - var(--space-8)); overflow: auto; gap: var(--space-4); scrollbar-width: thin; }
 .part-side > * { flex: none; }
 .part-merge-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-4); align-items: start; }
-.part-skeleton { height: 420px; border-radius: var(--card-radius); background: var(--bg-1); }
+.part-skeleton { min-height: 420px; }
+.part-diff-skeleton { min-height: 240px; border: 0; padding: 0; background: none; }
 
 /* The context strip: its place in the stack, in one band. */
 .part-context { display: grid; gap: var(--space-3); padding: var(--space-4) var(--space-5); border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs); }

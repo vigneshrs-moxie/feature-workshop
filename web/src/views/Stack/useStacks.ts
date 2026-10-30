@@ -2,8 +2,11 @@
 // stack), read again every few seconds while a page shows them and whenever the jobs change (a
 // part's job moving on is what moves a stack on). The actions post and show the answer at once.
 // Stacks run only on the dashboard on your own computer: elsewhere the list says so instead.
+// A page opened before starts from its last known answer (lib/lastKnown.ts), at once; the fresh
+// one fills in quietly (packet R, principle 5).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
+import { lastKnown, remember } from '../../lib/lastKnown';
 import { DEFAULT_SECTIONS_AT_ONCE, type PartPageData, type StackView, type StacksList } from '../../api/types';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 
@@ -35,7 +38,7 @@ export interface StacksState {
 /** Every stack (null until the first answer; an older dashboard without stacks gives null for good). */
 export function useStacksList(): StacksState {
   const { api } = useWorkshop();
-  const [list, setList] = useState<StacksList | null>(null);
+  const [list, setList] = useState<StacksList | null>(() => lastKnown<StacksList>(api, '/api/stacks') ?? null);
   const [unavailable, setUnavailable] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const busy = useRef(false);
@@ -44,7 +47,7 @@ export function useStacksList(): StacksState {
     busy.current = true;
     // (Promise.resolve: a test's bare api.get mock answers nothing, which counts as no stacks.)
     Promise.resolve().then(() => api.get<StacksList>('/api/stacks')).then(
-      (l) => { setList(l && Array.isArray(l.stacks) ? l : { stacks: [], globalCap: DEFAULT_SECTIONS_AT_ONCE, globalRunning: 0 }); setError(null); setUnavailable(null); },
+      (l) => { setList(remember(api, '/api/stacks', l && Array.isArray(l.stacks) ? l : { stacks: [], globalCap: DEFAULT_SECTIONS_AT_ONCE, globalRunning: 0 })); setError(null); setUnavailable(null); },
       (err) => {
         if (err instanceof ApiError && err.status === 404) setUnavailable(err.message);
         else setError(message(err));
@@ -72,13 +75,15 @@ export interface StackState {
 
 export function useStackView(slug: string): StackState {
   const { api } = useWorkshop();
-  const [view, setView] = useState<StackView | null>(null);
+  const path = `/api/stacks/${encodeURIComponent(slug)}`;
+  const [got, setGot] = useState<{ path: string; view: StackView | null }>(() => ({ path, view: lastKnown<StackView>(api, path) ?? null }));
+  const view = got.path === path ? got.view : lastKnown<StackView>(api, path) ?? null;
+  const setView = useCallback((v: StackView) => setGot({ path, view: remember(api, path, v) }), [api, path]);
   const [missing, setMissing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const busy = useRef(false);
-  const path = `/api/stacks/${encodeURIComponent(slug)}`;
   const refresh = useCallback(() => {
     if (busy.current) return;
     busy.current = true;
@@ -89,7 +94,7 @@ export function useStackView(slug: string): StackState {
         else setError(message(err));
       },
     ).finally(() => { busy.current = false; });
-  }, [api, path]);
+  }, [api, path, setView]);
   useLookAgain(refresh);
   const act: StackState['act'] = useCallback(async (action, body = {}) => {
     setSending(true);
@@ -105,7 +110,7 @@ export function useStackView(slug: string): StackState {
     } finally {
       setSending(false);
     }
-  }, [api, path]);
+  }, [api, path, setView]);
   return { view, missing, error, sending, problem, clearProblem: () => setProblem(null), refresh, act };
 }
 
@@ -126,19 +131,20 @@ export interface PartState {
 /** A part's own page (GET /api/stacks/:slug/part/:n), looked at again like the stack's. */
 export function useStackPart(slug: string, n: number): PartState {
   const { api } = useWorkshop();
-  const [page, setPage] = useState<PartPageData | null>(null);
+  const base = `/api/stacks/${encodeURIComponent(slug)}`;
+  const path = `${base}/part/${n}`;
+  const [got, setGot] = useState<{ path: string; page: PartPageData | null }>(() => ({ path, page: lastKnown<PartPageData>(api, path) ?? null }));
+  const page = got.path === path ? got.page : lastKnown<PartPageData>(api, path) ?? null;
   const [missing, setMissing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const busy = useRef(false);
-  const base = `/api/stacks/${encodeURIComponent(slug)}`;
-  const path = `${base}/part/${n}`;
   const refresh = useCallback(() => {
     if (busy.current) return;
     busy.current = true;
     Promise.resolve().then(() => api.get<PartPageData>(path)).then(
-      (p) => { setPage(p); setMissing(null); setError(null); },
+      (p) => { setGot({ path, page: remember(api, path, p) }); setMissing(null); setError(null); },
       (err) => {
         if (err instanceof ApiError && err.status === 404) setMissing(err.message);
         else setError(message(err));
