@@ -2,7 +2,11 @@
 // comes from the dashboard: dashboard/lib/snapshot.js laneFor, with the reason in words). Resting
 // and Done fold under the board. The next-step bar names the job that has waited longest for you;
 // Open (o) opens it. A card that changes lane or place waits until the pointer leaves the board, so
-// nothing moves under it, then slides there. The other layout (Settings → Look → Jobs layout) is One list.
+// nothing moves under it, then slides there. The other layouts (Settings → Look → Jobs layout, or
+// the switch in the heading in Play full) are One list and, in Play full only, Floor: the 3D
+// workshop floor (play/floor3d, packet S), a bench per job with its builders at work, where a
+// click (or Enter) takes the same quick look. In Play subtle or off, Floor shows Four lanes and no
+// 3D is loaded.
 //
 // Play: full gives console cards (a soft blinking light while the crew works, and a readout line);
 // subtle keeps the card with a steady light and no readout; off has plain cards with the same dots
@@ -33,13 +37,37 @@ import { GithubLine } from '../views/Review/GithubLine';
 import { JobPeek } from './JobPeek';
 import { isRoundCard, useReviewList } from '../views/Review/useReview';
 import { cardIcon } from '../views/Review/words';
+import { Segmented } from '../components/Choice';
+import { Floor3D } from '../play/floor3d/Floor3D';
+import { useFloorBenches } from '../play/floor3d/useFloorBenches';
 
-export type JobsLayout = 'lanes' | 'list';
+export type JobsLayout = 'lanes' | 'list' | 'floor';
 export const JOBS_LAYOUT_KEY = 'gc.jobs.layout';
 
 export function useJobsLayout(): [JobsLayout, (layout: JobsLayout) => void] {
   const [raw, set] = useStored(JOBS_LAYOUT_KEY);
-  return [raw === 'list' ? 'list' : 'lanes', (l) => set(l === 'lanes' ? null : l)];
+  return [raw === 'list' || raw === 'floor' ? raw : 'lanes', (l) => set(l === 'lanes' ? null : l)];
+}
+
+/** The heading's switch between the layouts (Play full: the only place Floor is offered on the page). */
+export const LAYOUT_CHOICES: readonly { value: JobsLayout; label: string; title: string }[] = [
+  { value: 'lanes', label: 'Four lanes', title: 'Working, Needs you, In review and Ready to merge, side by side.' },
+  { value: 'list', label: 'One list', title: 'Every job in one list, its lane in words.' },
+  { value: 'floor', label: 'Floor', title: 'The workshop floor in 3D: a bench per job, with its builders doing what each agent is really doing.' },
+];
+
+/** Jobs as the 3D floor: a click, or Enter on a picked bench, takes the quick look (j and k then move along the benches). */
+function JobsFloor({ peek, setPeek }: { peek: string | null; setPeek(slug: string | null): void }) {
+  const { jobs } = useWorkshopState();
+  const benches = useFloorBenches();
+  const order = benches.map((b) => b.slug);
+  const peekJob = peek ? jobs.find((j) => j.slug === peek) ?? null : null;
+  return (
+    <>
+      <Floor3D benches={benches} onOpenJob={setPeek} keys current={peek} hint="Each bench is a job, its builders doing what each agent is doing now. Pick one for a quick look." />
+      {peekJob && <JobPeek job={peekJob} order={order} onPick={setPeek} onClose={() => setPeek(null)} />}
+    </>
+  );
 }
 
 type BoardLane = Exclude<JobLane, 'resting' | 'done'>;
@@ -178,7 +206,9 @@ export function JobsPage() {
   const playState = usePlayIfAny();
   const play: 'full' | 'subtle' | 'off' = playState?.full ? 'full' : playState?.on ? 'subtle' : 'off';
   const narrow = useNarrow();
-  const [layout] = useJobsLayout();
+  const [chosen, setLayout] = useJobsLayout();
+  // Floor is Play full's: elsewhere it shows Four lanes, and no 3D loads.
+  const layout: JobsLayout = chosen === 'floor' && play !== 'full' ? 'lanes' : chosen;
   // Closed ones go to Done; a stack's parts are inside its card, not cards of their own.
   const stacks = useStackIndex();
   const open = jobs.filter((j) => !stacks.partOf(j.slug));
@@ -218,7 +248,8 @@ export function JobsPage() {
   const order = BOARD.flatMap((l) => byLane[l]).map((j) => j.slug);
   const peekJob = peek ? open.find((j) => j.slug === peek) ?? null : null;
   // A quick look at a job that isn't on the board (gone, or a part inside a stack): out of the address.
-  useEffect(() => { if (peek && !peekJob) setPeek(null); }, [peek, peekJob, setPeek]);
+  // On the floor, the floor keeps its own (a finished job's bench stays until the next visit).
+  useEffect(() => { if (layout !== 'floor' && peek && !peekJob) setPeek(null); }, [layout, peek, peekJob, setPeek]);
 
   // One line of a fixed height (packet R): it keeps its space when nothing waits, so the lanes never move.
   const bar = pick ? (
@@ -275,7 +306,15 @@ export function JobsPage() {
   );
 
   return (
-    <Page label="Jobs" title="Jobs" className={`page-jobs play-${play}`} guide={JOBS_GUIDE} head={open.length ? <GithubLine onlyStale /> : undefined}>
+    <Page
+      label="Jobs" title="Jobs" className={`page-jobs play-${play}`} guide={JOBS_GUIDE}
+      head={open.length ? (
+        <>
+          {play === 'full' && <Segmented<JobsLayout> className="jobs-layout-switch" label="Jobs layout" value={layout} onChange={setLayout} options={LAYOUT_CHOICES} />}
+          <GithubLine onlyStale />
+        </>
+      ) : undefined}
+    >
       {open.length === 0 ? (
         <section className="jobs-empty" aria-label="No jobs yet">
           <h3 className="hero-title">No jobs yet. Start one from a ticket.</h3>
@@ -288,8 +327,8 @@ export function JobsPage() {
       ) : (
         <>
           {bar}
-          {layout === 'list' ? listView : lanesView}
-          {peekJob && <JobPeek job={peekJob} order={order} onPick={setPeek} onClose={() => setPeek(null)} />}
+          {layout === 'floor' ? <JobsFloor peek={peek} setPeek={setPeek} /> : layout === 'list' ? listView : lanesView}
+          {layout !== 'floor' && peekJob && <JobPeek job={peekJob} order={order} onPick={setPeek} onClose={() => setPeek(null)} />}
           <div className="jobs-folded">
             <Fold icon="moon" name="Resting" note={`${byLane.resting.length} idle`} id="jobs-resting">
               {byLane.resting.length ? <Cards jobs={byLane.resting} now={now} play={play} stacks={stacks} reviews={reviews} /> : <p className="muted">None.</p>}

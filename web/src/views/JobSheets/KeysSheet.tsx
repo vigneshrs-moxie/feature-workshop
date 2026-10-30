@@ -7,7 +7,7 @@ import { Button } from '../../components/Button';
 import './jobSheets.css';
 
 /** The groups in the order they read best: everywhere first, then the places. Every scope is here. */
-export const GROUP_ORDER: readonly KeyScope[] = ['global', 'rows', 'inbox', 'desk', 'jobs', 'job', 'stage', 'stack', 'alert', 'review', 'gate', 'map', 'table', 'settings', 'sheet'];
+export const GROUP_ORDER: readonly KeyScope[] = ['global', 'rows', 'inbox', 'desk', 'jobs', 'floor', 'job', 'stage', 'stack', 'alert', 'review', 'gate', 'map', 'table', 'settings', 'sheet'];
 
 export function KeysSheet({ onClose }: { onClose: () => void }) {
   const [{ enabled }] = useKeysSetting();

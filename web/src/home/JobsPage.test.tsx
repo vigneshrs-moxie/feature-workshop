@@ -11,6 +11,19 @@ import { createStore, WorkshopContext, type Store } from '../state/store';
 import { job, snapshot } from '../state/test-fixtures';
 import { JobsPage, laneOf, nextJob, stateChip } from './JobsPage';
 import { setDefaultDetail } from '../app/detail';
+import { loadScene } from '../play/floor3d/loadScene';
+import { setWebGLForTests } from '../play/floor3d/webgl';
+import type { FloorScene } from '../play/floor3d/types';
+
+vi.mock('../play/floor3d/loadScene', () => ({ loadScene: vi.fn() }));
+
+function fakeScene(): FloorScene {
+  return {
+    setLayout: vi.fn(), setBenches: vi.fn(), setPalette: vi.fn(), setReducedMotion: vi.fn(), setHover: vi.fn(), setPointer: vi.fn(),
+    zoomAt: vi.fn(), fitAll: vi.fn(), zoomed: vi.fn(() => false), setActive: vi.fn(), onFrame: vi.fn(), setBusy: vi.fn(),
+    stats: vi.fn(() => ({ frames: 0, avgMs: 0, p95Ms: 0, maxMs: 0, fps: 0, figures: 0, benches: 0 })), dispose: vi.fn(),
+  };
+}
 
 const JOBS: Job[] = [
   job('alpha', 'needs-you', { title: 'Customer notes', stage: 'plan', lane: 'needs-you', laneReason: 'Waiting for your go-ahead on the plan', waitingFor: 'approval', waitingSince: '2026-10-21T09:00:00Z' }),
@@ -121,6 +134,40 @@ describe('Jobs', () => {
     expect(document.querySelector('.jobs-board')).toBeNull();
     const rows = document.querySelectorAll('.jobs-list-row');
     expect([...rows].map((r) => r.querySelector('.state-chip')?.textContent?.trim())).toEqual(['Working', 'Needs you', 'Needs you', 'In review', 'Ready to merge']);
+  });
+
+  it('Floor (Play full only) shows the 3D floor, and a click on a bench takes the quick look', async () => {
+    localStorage.setItem('gc.jobs.layout', 'floor');
+    setWebGLForTests(true);
+    vi.mocked(loadScene).mockReset().mockResolvedValue({ createFloorScene: () => fakeScene() } as never);
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1200);
+    try {
+      setup(JOBS, 'full');
+      expect(document.querySelector('.jobs-board')).toBeNull();
+      const floor = screen.getByRole('region', { name: 'The workshop floor' });
+      // The heading's switch, with Floor picked.
+      expect(screen.getByRole('radio', { name: 'Floor' })).toHaveAttribute('aria-checked', 'true');
+      fireEvent.click(within(floor).getByRole('link', { name: 'Customer notes' }));
+      expect(screen.getByRole('dialog', { name: 'Customer notes: a quick look' })).toBeInTheDocument();
+      expect(window.location.hash).toContain('peek=alpha');
+      // The switch goes back to the lanes, and remembers it.
+      fireEvent.click(screen.getByRole('radio', { name: 'Four lanes' }));
+      expect(document.querySelector('.jobs-board')).not.toBeNull();
+      expect(localStorage.getItem('gc.jobs.layout')).toBeNull();
+    } finally { setWebGLForTests(null); vi.restoreAllMocks(); }
+  });
+
+  it('Floor in Play subtle or off: Four lanes, no switch and no 3D', () => {
+    localStorage.setItem('gc.jobs.layout', 'floor');
+    vi.mocked(loadScene).mockReset();
+    for (const play of ['subtle', 'off'] as const) {
+      setup(JOBS, play);
+      expect(document.querySelector('.jobs-board')).not.toBeNull();
+      expect(document.querySelector('.floor3d')).toBeNull();
+      expect(screen.queryByRole('radiogroup', { name: 'Jobs layout' })).toBeNull();
+      cleanup();
+    }
+    expect(loadScene).not.toHaveBeenCalled();
   });
 
   it('with no jobs: the three picture cards and the way to the Inbox', () => {

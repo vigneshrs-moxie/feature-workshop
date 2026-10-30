@@ -2,7 +2,7 @@
 // (⌘K, New job, Mark done, the keys list, the job drawer with notes and options) and the page keys.
 // Owns the store, the API client and the live sync; tests pass their own (a fake fetch and a fake
 // EventSource). The browser tab's title is the page's name and the product's (app/brand.ts).
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { createApi, type ApiClient } from '../api/client';
 import type { PolicyId } from '../api/types';
 import { useAlerts, usePresence } from '../alerts/useAlerts';
@@ -46,6 +46,10 @@ import { HomeView } from '../home/HomeView';
 import { UiProvider, useUi, type SheetState } from './ui';
 import { Button } from '../components/Button';
 import { useDelayedFlag } from '../lib/useDelayedFlag';
+
+// A page reachable only by its address, for checking the 3D floor by eye (packet S). Never linked
+// or named anywhere in the app; in its own chunk, and it loads no 3D unless Play is full.
+const FloorLab = lazy(() => import('../play/floor3d/FloorLab'));
 
 /** Put the cursor in the message box at the foot of the Foreman pane. */
 export function focusComposer() {
@@ -207,6 +211,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
               : route.name === 'settings' ? <SettingsView section={route.section} />
                 : crew ? <div className="page-wide"><CrewDexView /></div>
                   : achievements ? <div className="page-wide"><AchievementsView /></div>
+                    : lost === '#/floor-lab' ? <Suspense fallback={null}><FloorLab /></Suspense>
                     : lost !== null ? <div className="page-wide"><NotFoundView hash={lost} /></div>
                       : home === 'map' || home === 'table' ? <HomeView view={home} />
                         : <JobsPage />;

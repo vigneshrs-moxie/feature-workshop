@@ -43,7 +43,7 @@ export interface SectionFacts {
   keysOn: boolean;
   /** Settings → Look's Desk and Jobs layouts (this browser); One at a time and Four lanes when not given. */
   deskLayout?: 'one' | 'columns';
-  jobsLayout?: 'lanes' | 'list';
+  jobsLayout?: 'lanes' | 'list' | 'floor';
   /** How many rules there are; null while loading, 'error' when they couldn't be read. */
   rules: number | null | 'error';
 }
@@ -80,7 +80,7 @@ export function valueLines(f: SectionFacts): Record<SettingsSection, string> {
     permissions: policyLine(f.settings?.policy),
     notifications: notifyLine(f.settings),
     // "Default · M · One at a time · Four lanes · Play full": everything Look sets, in its order.
-    look: [theme, TEXT_SIZE_LABELS[f.textSize], f.deskLayout === 'columns' ? 'Three columns' : 'One at a time', f.jobsLayout === 'list' ? 'One list' : 'Four lanes', `Play ${play.toLowerCase()}`].join(' · '),
+    look: [theme, TEXT_SIZE_LABELS[f.textSize], f.deskLayout === 'columns' ? 'Three columns' : 'One at a time', f.jobsLayout === 'list' ? 'One list' : f.jobsLayout === 'floor' ? 'Floor' : 'Four lanes', `Play ${play.toLowerCase()}`].join(' · '),
     keys: f.keysOn ? 'On' : 'Off',
     workflow: `Finish line: ${finishLineLabel(f.settings?.workflow?.finishLine, f.finishLines)} · ${githubEveryLine(f.settings)}`,
     repos: 'Profiles for each repository',
@@ -114,7 +114,7 @@ export const SETTING_INDEX: SettingEntry[] = [
   { id: 'text-size', label: 'Text size', section: 'look', keywords: 'font small medium large zoom' },
   { id: 'follow-system', label: 'Follow the system', section: 'look', keywords: 'dark mode light mode prefers color scheme' },
   { id: 'desk-layout', label: 'Desk layout: One at a time or Three columns', section: 'look', keywords: 'queue columns desk' },
-  { id: 'jobs-layout', label: 'Jobs layout: Four lanes or One list', section: 'look', keywords: 'board lanes list kanban' },
+  { id: 'jobs-layout', label: 'Jobs layout: Four lanes, One list or Floor', section: 'look', keywords: 'board lanes list kanban floor 3d builders' },
   { id: 'stack-picture', label: 'Stack picture: Merge map or Four big steps', section: 'look', keywords: 'stacks parts map steps' },
   { id: 'look-play', label: 'Play in Look: Full, Subtle, Off', section: 'look', keywords: 'console crew game' },
   { id: 'keys-enabled', label: 'Keyboard shortcuts on or off', section: 'keys', keywords: 'keys hotkeys bindings' },

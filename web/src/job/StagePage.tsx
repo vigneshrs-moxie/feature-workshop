@@ -26,6 +26,7 @@ import { ThreadList, useCurrentJob, useJobConversation } from '../panes/Foreman/
 import { CrewMember } from '../play/CrewMember';
 import { initialsOf, roleOf } from '../play/crewPack';
 import { usePlay } from '../play/usePlay';
+import { StageStrip } from '../play/floor3d/StageStrip';
 import { jobBySlug } from '../state/reducer';
 import { useWorkshop, useWorkshopState } from '../state/store';
 import { NextStep, ticketOf } from './JobPage';
@@ -154,6 +155,8 @@ function StageBody({ job, stop }: { job: Job; stop: StopId }) {
         <a href={jobHref(job.slug)} title="Back to the job’s page."><Icon name="arrow-left" size={16} /> {job.title || job.slug}</a>
         <span className="muted"> {ticket ? `· ${ticket} ` : ''}· stop {i + 1} of {STOPS.length}</span>
       </p>
+      {/* Play full: this job's bench in 3D, a fixed band that folds to a line (packet S). */}
+      {play.full && <StageStrip job={job} stop={stop} agents={view?.agents ?? null} />}
       <NextStep job={job} conversation={conversation} now={now} foldCard />
       {stop === 'ship' && <ReviewPanel slug={job.slug} line />}
       <Pending loading={load.state === 'loading'} say="Reading who’s on this stop…" skeleton={<Skeleton rows={4} className="stage-who-skeleton" />}>

@@ -8,6 +8,9 @@
 //      what it is waiting on. Click one to open it.
 // Draws nothing with Play Off (the pane then shows what phase 2 did). compact (Home's side column):
 // the Foreman and the cards waiting for you, without the floor's job cards (the map shows those).
+// In Play full the job cards become the 3D floor (floor3d/, packet S): a bench per job with its
+// builders at work. The cards stay as its fallback (no WebGL), and Play subtle keeps them as before.
+import type { ReactNode } from 'react';
 import type { Job } from '../api/types';
 import { jobHref } from '../app/router';
 import { useUi } from '../app/ui';
@@ -20,6 +23,8 @@ import { CrewMember } from './CrewMember';
 import { CREW_SIZE } from './crewSizes';
 import { closedText, floorJobs, floorSpeech } from './floorModel';
 import { JobTrail } from './JobTrail';
+import { Floor3D } from './floor3d/Floor3D';
+import { useFloorBenches } from './floor3d/useFloorBenches';
 import { usePlayIfAny } from './usePlay';
 import { Button } from '../components/Button';
 
@@ -42,6 +47,12 @@ function FloorCard({ job, now }: { job: Job; now: Date }) {
   );
 }
 
+/** Play full: the 3D floor, with the cards as its fallback. */
+function FullFloor({ cards }: { cards: ReactNode }) {
+  const benches = useFloorBenches();
+  return <Floor3D benches={benches} fallback={cards} hint={null} />;
+}
+
 export function WorkshopFloor({ compact = false }: { compact?: boolean } = {}) {
   const play = usePlayIfAny();
   const { jobs, usage } = useWorkshopState();
@@ -51,6 +62,11 @@ export function WorkshopFloor({ compact = false }: { compact?: boolean } = {}) {
   const speech = floorSpeech(jobs, usage, now);
   const open = floorJobs(jobs);
   const closed = closedText(jobs);
+  const cards = (
+    <ul className="floor-grid">
+      {open.map((j) => <FloorCard key={j.slug} job={j} now={now} />)}
+    </ul>
+  );
   return (
     <div className={`workshop-floor${compact ? ' is-compact' : ''}`}>
       <section className="floor-foreman" aria-label="The Foreman">
@@ -89,9 +105,7 @@ export function WorkshopFloor({ compact = false }: { compact?: boolean } = {}) {
         <section className="floor-jobs" aria-label="On the floor">
           <h3 className="settings-heading" title="Every open job, with its trail: the stages it runs and who is on the current one.">On the floor</h3>
           <p className="muted floor-hint">Pick a job to open its conversation.{closed ? ` ${closed} in the list on the left.` : ''}</p>
-          <ul className="floor-grid">
-            {open.map((j) => <FloorCard key={j.slug} job={j} now={now} />)}
-          </ul>
+          {play.full ? <FullFloor cards={cards} /> : cards}
         </section>
       )}
     </div>

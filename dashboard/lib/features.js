@@ -277,8 +277,8 @@ async function gateFields(dir, status, briefs, waitingSince) {
 async function readFeatureFolder(dir) {
   const slug = path.basename(dir);
   const wsFile = path.join(dir, 'workflow-status.md');
-  const [wsText, sjText, wsStat] = await Promise.all([
-    readText(wsFile), readText(path.join(dir, 'status.json')), statOrNull(wsFile),
+  const [wsText, sjText, wsStat, dirStat] = await Promise.all([
+    readText(wsFile), readText(path.join(dir, 'status.json')), statOrNull(wsFile), statOrNull(dir),
   ]);
   const ws = wsText ? parseWorkflowStatus(wsText) : null;
   const recordText = wsText ?? null;
@@ -369,6 +369,8 @@ async function readFeatureFolder(dir) {
     // (gateWaitingSince), and the versions status.json names now (null without status.json).
     ...gate,
     updatedAt: status?.updatedAt ?? wsStat?.mtime.toISOString() ?? null,
+    // When the job's folder was made (where the file system keeps it): the start time when no session says.
+    folderCreatedAt: dirStat && dirStat.birthtimeMs > 0 ? dirStat.birthtime.toISOString() : null,
     sources: { workflowStatus: Boolean(ws?.ok), statusJson: Boolean(status) },
     warnings: [...(ws?.warnings ?? []), ...(sj?.warnings ?? [])],
   };

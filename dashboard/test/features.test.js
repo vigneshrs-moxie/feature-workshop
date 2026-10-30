@@ -77,6 +77,10 @@ test('loads every feature folder, waiting ones first', async () => {
   assert.equal(empty.title, 'empty-idea');
   assert.equal(empty.stage, null);
   assert.equal(empty.cost.source, 'none');
+  // When each job started (the 3D floor's bench order): its folder's birth time where the file
+  // system keeps one, and the Foreman's first session where the logs have one.
+  for (const f of features) assert.ok(f.folderCreatedAt === null || Number.isFinite(Date.parse(f.folderCreatedAt)));
+  assert.ok(widget.firstSessionAt === null || Number.isFinite(Date.parse(widget.firstSessionAt)));
 });
 
 test('project and feature-or-bug labels', async () => {

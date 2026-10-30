@@ -609,6 +609,9 @@ export async function createRunner(config) {
       cost: { totalUsd: Math.max(f.cost.totalUsd, active?.costUsd ?? 0), source: f.cost.source },
       progress: { done: f.stageState === 'done' ? ids.length : Math.max(0, at), total: ids.length },
       updatedAt: f.updatedAt, sources: f.sources, permissions: pendingList.length, limitPaused, limitAuto: limits.autoResume,
+      // When the job started: the Foreman's first session, else when its folder was made (the 3D
+      // floor gives benches out in this order).
+      createdAt: f.firstSessionAt ?? f.folderCreatedAt ?? null,
       // Another process working on this job (lib/lock.js heldElsewhere: a terminal, another copy of
       // Ground Control), or null.
       lock: lockView(f.dir),
