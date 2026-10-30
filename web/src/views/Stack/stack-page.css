@@ -92,7 +92,11 @@
 .dep-node::before { content: ''; position: absolute; left: -1px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--mark); }
 .dep-node.lane-waiting::before, .dep-node.lane-queued::before { background: var(--border-3); }
 .dep-node:hover, .dep-node.is-lit { border-color: var(--accent); }
-.dep-map.has-lit .dep-node:not(.is-lit) { opacity: .55; }
+/* While one part is lit, the others step back by their edge and marks, never their words (packet X:
+   fading the whole card left its words at 2.4–3.8:1). */
+.dep-map.has-lit .dep-node:not(.is-lit) { border-color: var(--border-1); }
+.dep-map.has-lit .dep-node:not(.is-lit)::before,
+.dep-map.has-lit .dep-node:not(.is-lit) :is(.stack-light, .dep-node-lane .icon) { opacity: .45; }
 .dep-node.is-picked { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .dep-node:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .dep-node-body { display: grid; gap: 2px; min-width: 0; }

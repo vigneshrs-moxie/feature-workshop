@@ -262,7 +262,8 @@ a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset
 .desk-queue-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0 2px 0 0; overflow: auto; list-style: none; }
 .desk-qbar { display: flex; align-items: center; gap: var(--space-2); }
 .desk-dots { display: inline-flex; gap: 5px; }
-.desk-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--needs-solid); opacity: .5; }
+/* The queue's dots: needs-you with a touch of ink (packet X: half-faded, they were 1.8–2.2:1 on Light and Light glass). */
+.desk-dot { width: 8px; height: 8px; border-radius: 50%; background: color-mix(in oklab, var(--needs-solid) 70%, var(--text-1)); }
 .desk-dots-more { font-size: var(--text-xs); color: var(--text-2); margin-left: 2px; }
 .desk-dot.is-current { background: var(--accent); opacity: 1; box-shadow: 0 0 0 3px var(--accent-soft); }
 .desk-console { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-5) var(--space-6) var(--space-6); border: 1px solid var(--border-2); border-radius: var(--radius-xl); background: var(--surface-1); box-shadow: var(--elev-sm); }
@@ -338,6 +339,8 @@ html[data-theme] .desk-console .gate-card.perm-card { padding: 0; border: 0; bor
 .job-card:focus-within { box-shadow: 0 0 0 2px var(--surface-0), 0 0 0 4px var(--focus-ring); }
 .job-card.lane-needs-you { box-shadow: inset 3px 0 0 var(--needs-solid), var(--elev-xs); }
 .job-card.lane-needs-you:hover { box-shadow: inset 3px 0 0 var(--needs-solid), var(--elev-sm); }
+/* The focus ring on a Needs-you card too (packet X): the lane's stripe above replaced the ring. */
+.job-card.lane-needs-you:focus-within { box-shadow: inset 3px 0 0 var(--needs-solid), 0 0 0 2px var(--surface-0), 0 0 0 4px var(--focus-ring); }
 .job-card-top { display: flex; align-items: flex-start; gap: var(--space-2); }
 .job-card-title { font-weight: var(--weight-bold); color: var(--text-1); line-height: 1.35; }
 .job-card-title:hover { text-decoration: none; }

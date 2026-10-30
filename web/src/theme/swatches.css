@@ -663,7 +663,7 @@
   --status-info-bg: oklch(.6 .11 200 / .14);
   --status-paused: oklch(.5 .02 60);
   --status-paused-bg: oklch(.5 .02 60 / .12);
-  --job-hue-l: .64;
+  --job-hue-l: .58;
   --job-hue-c: .17;
   --shadow-1: 0 1px 2px oklch(.3 .06 40 / .08), 0 3px 10px oklch(.3 .06 40 / .08);
   --shadow-2: 0 2px 6px oklch(.3 .06 40 / .1), 0 16px 40px oklch(.3 .06 40 / .18);
