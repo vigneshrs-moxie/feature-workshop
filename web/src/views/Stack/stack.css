@@ -100,8 +100,16 @@
 .stack-card-parts > summary::-webkit-details-marker { display: none; }
 .stack-card-parts > summary:hover { color: var(--text-1); }
 .stack-card-parts > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.stack-card-parts ol { position: relative; z-index: 1; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); }
-.stack-card-parts li { display: flex; align-items: center; gap: var(--space-2); }
+/* The parts lie over the card, so the card keeps its size and nothing in the lanes moves. */
+.stack-card-parts { position: relative; }
+.stack-card-parts ol {
+  position: absolute; top: calc(100% + 4px); left: calc(-1 * var(--space-2)); z-index: 20; width: min(320px, 80vw); max-height: 280px; overflow: auto;
+  margin: 0; padding: var(--space-2) var(--space-3); list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm);
+  border: 1px solid var(--border-2); border-radius: var(--radius-lg); background: var(--surface-1); box-shadow: var(--elev-lg);
+}
+/* In Play full the light of a stack with no part at work is still a mark you can see (3:1). */
+.stack-card .job-light:not(.is-on) { background: color-mix(in oklab, var(--text-3) 80%, var(--surface-1)); }
+.stack-card-parts li { display: flex; align-items: center; gap: var(--space-2); min-height: 28px; }
 .stack-card-parts li .muted { margin-left: auto; }
 .part-of-stack { display: inline-flex; align-items: center; gap: var(--space-1); }
 .stack-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-3) var(--space-4); border: 1px dashed var(--accent); border-radius: var(--card-radius); background: var(--accent-soft); }

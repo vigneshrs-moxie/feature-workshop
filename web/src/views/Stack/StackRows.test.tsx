@@ -54,6 +54,15 @@ describe('a stack on Jobs', () => {
     const rows = card.querySelectorAll('.stack-card-parts li');
     expect([...rows].map((r) => r.textContent)).toEqual(['1export-buttonBuilding', '2csv-writerReady to merge', '3emailQueued']);
     expect(within(card).getByRole('link', { name: 'export-button' })).toHaveAttribute('href', '#/job/orbit-512--export-button');
+    // The parts lie over the card (it keeps its size); Esc, or a click anywhere else, closes them.
+    const fold = card.querySelector('details')!;
+    await waitFor(() => expect(fold.open).toBe(true));
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(fold.open).toBe(false);
+    fireEvent.click(within(card).getByText('3 parts'));
+    await waitFor(() => expect(fold.open).toBe(true));
+    fireEvent.pointerDown(document.body);
+    expect(fold.open).toBe(false);
     expect(screen.queryByText('Tech schedule export · export-button')).toBeNull();
     expect(screen.queryByText('Tech schedule export · csv-writer')).toBeNull();
     expect(screen.getByRole('link', { name: 'Something else' })).toBeInTheDocument();

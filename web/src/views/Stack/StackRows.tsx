@@ -1,13 +1,15 @@
 // Stacks on the other pages:
 //   - Jobs: a stack is one card with four dots for Plan, Build, Merge and Push (not the seven
-//     stops); "3 parts ▾" opens its parts inside the card, and the card opens the Stack page. Its
+//     stops); "3 parts ▾" opens its parts in a small list laid over the card (the card keeps its
+//     size, so nothing in the lanes moves; Esc or a click elsewhere closes it), and the card opens
+//     the Stack page. Its
 //     parts' own jobs don't get cards of their own (useStackIndex says which jobs are parts). Like
 //     a job's card it keeps its place while the pointer is over the board, then slides to its new
 //     lane in 200 ms (data-flip-key, lib/flip.ts; still with reduced motion).
 //   - A part's Job page says "Part 2 of <stack>" with a link; the stack's own job says it is one.
 //   - The Foreman's suggestion: when its first brief says a ticket looks big enough for a stack
 //     (status.json stack_suggested), the Job page says so in a line, with "Run as a stack instead".
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Job, StackSummary } from '../../api/types';
 import { jobHref, stackHref } from '../../app/router';
 import { Icon } from '../../components/Icon';
@@ -45,15 +47,27 @@ export function StackJobCard({ job, stack, now, play }: { job: Job; stack: Stack
   const at = stack.phase === 'pushed' ? 'pushed' : stack.steps.find((s) => s.state === 'now')?.label ?? 'Push';
   const t = job.waitingSince ?? job.updatedAt ?? null;
   const working = chip.tone === 'working' && running > 0;
+  const parts_ = useRef<HTMLDetailsElement>(null);
+  const [partsOpen, setPartsOpen] = useState(false);
+  // The parts list lies over the card; Esc or a click anywhere else closes it.
+  useEffect(() => {
+    if (!partsOpen) return;
+    const close = () => { if (parts_.current) parts_.current.open = false; };
+    const onDown = (e: PointerEvent) => { if (!parts_.current?.contains(e.target as Node)) close(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+    document.addEventListener('pointerdown', onDown, true);
+    document.addEventListener('keydown', onKey, true);
+    return () => { document.removeEventListener('pointerdown', onDown, true); document.removeEventListener('keydown', onKey, true); };
+  }, [partsOpen]);
   return (
     <li data-flip-key={job.slug} className={`job-card stack-card play-${play}`}>
       <div className="job-card-top">
-        {play !== 'off' && <span className={`job-light${working ? ' is-on' : ''}${working && play === 'full' ? ' is-blink' : ''}`} aria-hidden="true" />}
+        {play === 'full' && <span className={`job-light${working ? ' is-on' : ''}${working ? ' is-blink' : ''}`} aria-hidden="true" />}
         <a className="job-card-title" href={stackHref(stack.slug)} title={`Open the Stack page of ${stack.title || job.title || stack.slug}.`}>{stack.title || job.title || stack.slug}</a>
       </div>
       <StepDots steps={stack.steps} label="Stack" />
       <span className="job-readout">{['Stack', at.toLowerCase(), running ? `${running} of ${stack.parts} running` : parts(stack.parts)].join(' · ')}</span>
-      <details className="stack-card-parts">
+      <details ref={parts_} className="stack-card-parts" onToggle={(e) => setPartsOpen(e.currentTarget.open)}>
         <summary title={`Show the ${PART.many} of this stack.`}>{parts(stack.parts)}</summary>
         <ol>
           {(stack.sections ?? []).map((p) => (
