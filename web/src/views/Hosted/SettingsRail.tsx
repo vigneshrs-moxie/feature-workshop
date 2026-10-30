@@ -1,12 +1,13 @@
-// The hosted site's Settings: two sections, Laptops and People, in the laptop app's settings layout.
+// The hosted site's Settings: Laptops, Orbit and People, in the laptop app's settings layout.
 import type { ReactNode } from 'react';
 
 const SECTIONS = [
   { id: 'laptops', label: 'Laptops', hint: 'The laptops paired with your account: online or not, and Remove.' },
+  { id: 'orbit', label: 'Orbit', hint: 'Your Orbit token, so the Inbox fills while your laptop is closed.' },
   { id: 'people', label: 'People', hint: 'Everyone who has signed in, and their roles.' },
 ] as const;
 
-export function HostedSettings({ at, children }: { at: 'laptops' | 'people'; children: ReactNode }) {
+export function HostedSettings({ at, children }: { at: 'laptops' | 'orbit' | 'people'; children: ReactNode }) {
   return (
     <main className="page page-settings" aria-label="Settings">
       <div className="page-inner settings">

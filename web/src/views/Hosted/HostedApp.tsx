@@ -3,7 +3,8 @@
 //   signed out           Sign in with Google (SignInPage), saying why a refused sign-in was refused
 //   Jobs                 my jobs from the mirror, by laptop (HostedJobsPage)
 //   Pair this laptop     the code `ground-control login` printed (PairPage)
-//   Settings             Laptops and People (LaptopsPage, PeoplePage)
+//   Inbox                your Orbit tickets, from the inbox the site keeps (HostedInboxPage)
+//   Settings             Laptops, Orbit and People (LaptopsPage, OrbitPage, PeoplePage)
 //   everything else      a calm "open this on your laptop for now" page (LaterPage), never an error
 // A 401 from any of them (the session ended) brings the sign-in page back.
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
@@ -13,9 +14,11 @@ import { MenuButton, type MenuEntry } from '../../app/Menu';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { useDelayedFlag } from '../../lib/useDelayedFlag';
+import { HostedInboxPage } from './HostedInboxPage';
 import { HostedJobsPage } from './HostedJobsPage';
 import { LaptopsPage } from './LaptopsPage';
 import { LaterPage } from './LaterPage';
+import { OrbitPage } from './OrbitPage';
 import { PairPage } from './PairPage';
 import { PeoplePage } from './PeoplePage';
 import { SignInPage } from './SignInPage';
@@ -34,14 +37,17 @@ function nameOf(route: HostedRoute): string {
     case 'pair': return 'Pair this laptop';
     case 'laptops': return 'Laptops';
     case 'people': return 'People';
+    case 'orbit': return 'Orbit';
+    case 'inbox': return 'Inbox';
     default: return route.page;
   }
 }
 
 function TopBar({ route, person, onSignOut, busy }: { route: HostedRoute; person: HostedPerson | null; onSignOut?: () => void; busy?: boolean }) {
-  const at = route.name === 'jobs' ? 'jobs' : route.name === 'laptops' || route.name === 'people' ? 'settings' : route.name === 'later' ? route.page : null;
+  const at = route.name === 'jobs' || route.name === 'inbox' ? route.name : route.name === 'laptops' || route.name === 'people' || route.name === 'orbit' ? 'settings' : route.name === 'later' ? route.page : null;
   const pages: (MenuEntry & { kind: 'link' })[] = [
     { kind: 'link', id: 'jobs', label: 'Jobs', href: '#/', icon: 'activity', current: at === 'jobs', hint: 'Your jobs, from every laptop you paired.' },
+    { kind: 'link', id: 'inbox', label: 'Inbox', href: '#/inbox', icon: 'inbox', current: at === 'inbox', hint: 'Your Orbit tickets, read by the site even while your laptop is closed.' },
     { kind: 'link', id: 'desk', label: 'Desk', href: '#/desk', icon: 'hand', current: at === 'Desk', hint: 'The Desk: on your laptop for now.' },
     { kind: 'link', id: 'stacks', label: 'Stacks', href: '#/stacks', icon: 'layers', current: at === 'Stacks', hint: 'Stacks: on your laptop for now.' },
     { kind: 'link', id: 'telemetry', label: 'Telemetry', href: '#/telemetry', icon: 'gauge', current: at === 'Telemetry', hint: 'Telemetry: on your laptop for now.' },
@@ -115,6 +121,8 @@ export function HostedApp({ api: given }: { api?: ApiClient }) {
     body = route.name === 'pair' ? <PairPage key={route.code} code={route.code} {...props} />
       : route.name === 'laptops' ? <LaptopsPage {...props} />
         : route.name === 'people' ? <PeoplePage {...props} />
+          : route.name === 'orbit' ? <OrbitPage {...props} />
+            : route.name === 'inbox' ? <HostedInboxPage {...props} />
           : route.name === 'later' ? <LaterPage page={route.page} />
             : <HostedJobsPage {...props} />;
   }

@@ -4,10 +4,10 @@
 //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   the Internal OAuth client (step 1.5)
 //   ALLOWED_DOMAIN                           the Workspace domain: only its accounts may sign in (hd)
 //   SESSION_SECRET                           signs the session cookie (HMAC-SHA256)
-//   TOKEN_KEY                                encrypts each person's Orbit token (packet 2C; unused here)
+//   TOKEN_KEY                                encrypts each person's Orbit token (lib/token-store.js)
 //   CRON_SECRET                              Vercel Cron sends it as "Authorization: Bearer …"
 //   OWNER_EMAIL                              the first sign-in with it becomes the owner
-//   ORBIT_BASE_URL                           Orbit's address (packet 2C; unused here)
+//   ORBIT_BASE_URL                           Orbit's address, for the inbox poller (lib/poller.js)
 //   SITE_URL                                 the site's own address; on a preview, VERCEL_URL stands in
 //   DATABASE_URL                             Neon's pooled address (set by the Marketplace integration)
 //   AUTH_FAKE=1                              the fake Google of site/fake-google.js, for tests and a
@@ -59,6 +59,8 @@ export function readConfig(env = process.env, overrides = {}) {
     sessionSecret: clean(env.SESSION_SECRET),
     cronSecret: clean(env.CRON_SECRET),
     databaseUrl: clean(env.DATABASE_URL),
+    tokenKey: clean(env.TOKEN_KEY),
+    orbitBaseUrl: noSlash(clean(env.ORBIT_BASE_URL)),
     ...overrides,
   };
   if (authFake) {

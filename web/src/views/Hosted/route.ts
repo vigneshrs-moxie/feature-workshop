@@ -3,6 +3,8 @@
 //   #/sign-in?problem=…     the sign-in page, saying why the last sign-in was refused
 //   #/pair/<code>           "Pair this laptop?" for the code `ground-control login` printed
 //   #/settings[/laptops]    Settings → Laptops;  #/settings/people  Settings → People
+//   #/settings/orbit        Settings → Orbit: your Orbit token for the Inbox (packet 2C)
+//   #/inbox[?peek=ORBIT-n]  the Inbox, from the inbox the site keeps for you (packet 2C)
 //   anything else the laptop's app has (a job's page, the Desk, Stacks, Telemetry, …)
 //                           a calm "open this on your laptop for now" page, never an error
 import { useEffect, useState } from 'react';
@@ -14,6 +16,8 @@ export type HostedRoute =
   | { name: 'pair'; code: string }
   | { name: 'laptops' }
   | { name: 'people' }
+  | { name: 'orbit' }
+  | { name: 'inbox' }
   | { name: 'later'; page: string };
 
 export function parseHostedHash(raw: string): HostedRoute {
@@ -24,8 +28,10 @@ export function parseHostedHash(raw: string): HostedRoute {
   if (pair) return { name: 'pair', code: pair[1].toUpperCase() };
   if (/^#\/settings(\/laptops)?\/?$/.test(path)) return { name: 'laptops' };
   if (/^#\/settings\/people\/?$/.test(path)) return { name: 'people' };
+  if (/^#\/settings\/orbit\/?$/.test(path)) return { name: 'orbit' };
   const r = parseHash(raw);
   if (r.name === 'home' || r.name === 'not-found') return { name: 'jobs' };
+  if (r.name === 'inbox') return { name: 'inbox' };
   if (r.name === 'job' || r.name === 'stage' || r.name === 'screens') return { name: 'later', page: 'A job’s page' };
   if (r.name === 'stacks' || r.name === 'stack' || r.name === 'stack-part' || r.name === 'stack-build') return { name: 'later', page: 'Stacks' };
   if (r.name === 'settings') return { name: 'later', page: 'This part of Settings' };

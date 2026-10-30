@@ -1699,6 +1699,12 @@ export interface OrbitStatus {
   watchers: number;
   waitingMs: number;
   mcp?: { name: string; file: string };
+  /** The hosted site (packet 2C): Orbit refused the token, or the site's key can't open it (expired is true then too). */
+  refused?: boolean;
+  /** The hosted site: how often the open Inbox may ask for a fresh read. */
+  refreshMs?: number;
+  /** The hosted site: the settings it lacks to keep tokens and read Orbit (TOKEN_KEY, ORBIT_BASE_URL). */
+  setup?: string[];
 }
 
 /** One ticket in the Inbox. Orbit has no priority any more: the page reads severity only. */
@@ -1716,7 +1722,25 @@ export interface InboxItem {
   why: string[];
   url: string | null;
   /** The open job already on this ticket. */
-  job: { slug: string; title: string } | null;
+  job: { slug: string; title: string; state?: string | null; laptop?: string } | null;
+  /** The hosted site keeps the description, cut short (the ticket's page stays on the laptop). */
+  description?: string | null;
+  /** The hosted site: Start on its way to a laptop (packet 2C). */
+  start?: InboxStart | null;
+}
+
+/**
+ * A Start from the hosted site: sending (the laptop is online), waiting (it is off: it starts
+ * when the laptop is back), started (the laptop took it; the job shows once it reaches the
+ * mirror), or failed (the laptop couldn't, and says why).
+ */
+export interface InboxStart {
+  id: number;
+  state: 'sending' | 'waiting' | 'started' | 'failed';
+  laptop: { id: number; name: string; online: boolean };
+  at: string;
+  handedOut?: boolean;
+  error?: string;
 }
 
 export type InboxAnswer = OrbitStatus & { items: InboxItem[]; view?: string; checkedAt?: string; truncated?: boolean };
