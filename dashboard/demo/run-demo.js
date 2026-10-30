@@ -25,6 +25,13 @@
 // go again for the fix round (boss defeated, with only the minor left); go again for PR #1, and once
 // more to open it: its link is recorded, so the quest is done (Settings → Play → "the first PR is
 // created"). With "I mark the job done" instead, the quest is done when you mark it done (⌘K).
+//
+// The 3D floor (packet S, Play full): five more jobs give its benches every pose from real data.
+// Nightly export's Tester runs the unit tests with a count that goes up ("212 of 577"); Price
+// rounding is stopped on 3 failed tests; Route sharing is paused for the 5-hour usage limit (it
+// resets 20 minutes after the demo starts, then carries on by itself; sends ask "send anyway?"
+// until then); Invoice footer was marked done; and Tag colours' Foreman asks your permission to run
+// the database tests a few seconds after start (a real card on the Desk and in its thread).
 
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -366,7 +373,102 @@ async function build() {
   });
 
   await levelJobs();
+  countLog = await floorJobs();
   return [bulkLog, ...reviewLogs];
+}
+
+// ---------- the 3D floor's states (packet S) ----------
+
+let countLog = null;
+const TAG_COLOURS = 'tag-colours';
+const LIMIT_RESET_MS = 20 * MIN;
+
+async function floorJobs() {
+  // A command with a count: the Tester running the unit tests (tick() moves the count on).
+  const nightly = await feature('nightly-export', {
+    status: {
+      title: 'Nightly Export', route: 'small', stage: 'test', stage_state: 'working', waiting_for: null,
+      next_proposed: 'Finish the test run, then brief you', branch: 'feature/nightly-export', repo: { path: ACME },
+      session_id: 'demo-sess-0090', updated_at: iso(6 * MIN),
+    },
+  });
+  const [testLog] = await writeSession({
+    sessionId: 'demo-sess-0090', featureDir: nightly, prompt: '/feature Email the day’s export to the office every night.', startAgo: 8 * HOUR,
+    conductorTurns: [{ dispatch: 'feature-tester', description: 'Run the checks', ago: 6 * MIN, waiting: true }],
+    workers: [{ type: 'feature-tester', description: 'Run the checks', model: 'claude-sonnet-5-5', startAgo: 6 * MIN, finished: false,
+      steps: [['Bash', { description: 'Run the unit tests (npm test) · 212 of 577' }]] }],
+  });
+
+  // Stopped: the test stage is blocked on 3 failed tests.
+  await feature('price-rounding', {
+    status: {
+      title: 'Price Rounding', kind: 'bug', route: 'small', stage: 'test', stage_state: 'blocked', waiting_for: null,
+      brief: { number: 4, path: 'briefs/004-test.md', headline: 'Price Rounding · 3 tests failed' },
+      next_proposed: 'Fix the rounding in invoice totals, then run the tests again', branch: 'fix/price-rounding', repo: { path: ACME },
+      updated_at: iso(18 * MIN),
+    },
+    briefs: [{ stage: 'test', text: '**Price Rounding · 3 tests failed**\n\n3 of 214 tests failed: invoice totals round half-cents down.' }],
+  });
+
+  // Paused for the usage limit: the 5-hour limit, resetting 20 minutes after the demo starts.
+  const sharing = await feature('route-sharing', {
+    status: {
+      title: 'Route Sharing', route: 'small', stage: 'implement', stage_state: 'working', waiting_for: null,
+      next_proposed: 'Finish S2 (the share link)', branch: 'feature/route-sharing', repo: { path: ACME },
+      session_id: 'demo-sess-0091', updated_at: iso(30 * MIN),
+    },
+  });
+  await writeSession({
+    sessionId: 'demo-sess-0091', featureDir: sharing, prompt: '/feature Let a technician share today’s route with a customer.', startAgo: 3 * HOUR,
+    conductorTurns: [{ dispatch: 'feature-implementer', description: 'Implement S2: share link', ago: 40 * MIN }, { ago: 30 * MIN }],
+    workers: [{ type: 'feature-implementer', description: 'Implement S2: share link', model: 'claude-opus-5-5', startAgo: 40 * MIN, endAgo: 30 * MIN, finished: true,
+      steps: [['Edit', { file_path: `${ACME}/app/src/routes/share.ts` }]] }],
+  });
+
+  // Marked done (the dashboard's own record of it, newer than the job's last update).
+  const footer = await feature('invoice-footer', {
+    status: { title: 'Invoice Footer', route: 'small', stage: 'pr1', stage_state: 'done', next_proposed: 'Merged', repo: { path: ACME }, updated_at: iso(3 * HOUR) },
+  });
+
+  // A permission card: permissionAfterStart() sends Tag colours a message once the server is up,
+  // and the pretend Foreman asks to run the database tests.
+  await feature(TAG_COLOURS, {
+    status: {
+      title: 'Tag Colours', route: 'small', stage: 'implement', stage_state: 'working', waiting_for: null,
+      next_proposed: 'Run the database tests, then brief you', branch: 'feature/tag-colours', repo: { path: ACME },
+      updated_at: iso(12 * MIN),
+    },
+  });
+  await options(TAG_COLOURS, 2, 'Give each ticket tag its own colour.');
+
+  const state = path.join(ROOT, 'state');
+  await fs.mkdir(state, { recursive: true });
+  await fs.writeFile(path.join(state, 'sessions.json'), JSON.stringify({
+    [footer]: { closed: { as: 'done', at: iso(90 * MIN) } },
+  }, null, 2));
+  await fs.writeFile(path.join(state, 'settings.json'), JSON.stringify({
+    usageLimit: {
+      kind: 'five_hour', since: Date.now() - 25 * MIN, resetsAt: Date.now() + LIMIT_RESET_MS, resetKnown: true,
+      jobs: [{ featureDir: sharing, slug: 'route-sharing', title: 'Route Sharing', cwd: ACME, sessionId: 'demo-sess-0091', model: 'claude-opus-5-5', additionalDirectories: [] }],
+    },
+  }, null, 2));
+  return testLog;
+}
+
+// Tag colours' permission card: one message from the box once the server answers, sent despite the
+// demo's usage limit, so its pretend Foreman reaches the database tests and asks.
+async function permissionAfterStart(port) {
+  let token = null;
+  for (let i = 0; i < 40 && !token; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try { token = (await (await fetch(`http://127.0.0.1:${port}/api/meta`)).json()).token; } catch { /* not listening yet */ }
+  }
+  if (!token) throw new Error('the server did not answer');
+  const res = await fetch(`http://127.0.0.1:${port}/api/job/${TAG_COLOURS}/send`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-workshop-token': token },
+    body: JSON.stringify({ text: 'Please run the database tests for the colour migration, then brief me.', via: 'box', despiteLimit: true }),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
 }
 
 // ---------- levels and gate cards (phase 2) ----------
@@ -991,6 +1093,15 @@ function tick(logFiles) {
     return fs.appendFile(file, JSON.stringify(line) + '\n').catch(() => {});
   })).then(() => { i++; });
   setInterval(step, 6000);
+  // Nightly export's test run: the count goes up every few seconds, and starts again at the end.
+  let done = 212;
+  const count = () => {
+    if (!countLog) return Promise.resolve();
+    done = done >= 577 ? 40 : Math.min(577, done + 23);
+    const line = assistant('demo', new Date().toISOString(), 'claude-sonnet-5-5', [toolUse('Bash', { description: `Run the unit tests (npm test) · ${done} of 577` })], usage(200, 20000), 'tool_use', 'demo');
+    return fs.appendFile(countLog, JSON.stringify(line) + '\n').catch(() => {});
+  };
+  setInterval(count, 7000);
   return step();
 }
 
@@ -1010,3 +1121,4 @@ console.log(`Demo data in ${ROOT} (invented; safe to delete).`);
 await tick(logFiles);
 await import('../server.js');
 staleAfterStart(Number(process.env.PORT) || 4477).catch((err) => console.error('Demo: could not move the stale job’s plan on:', err.message));
+permissionAfterStart(Number(process.env.PORT) || 4477).catch((err) => console.error('Demo: could not start Tag colours’ permission card:', err.message));
