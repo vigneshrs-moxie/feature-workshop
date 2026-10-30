@@ -32,7 +32,7 @@ export const isSettingsSection = (v: string): v is SettingsSection => (SETTINGS_
 
 export type Route = { name: 'home' } | { name: 'map' } | { name: 'table' } | { name: 'desk' } | { name: 'inbox' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
   | { name: 'stage'; slug: string; stop: StopId }
-  | { name: 'screens'; slug: string } | { name: 'telemetry' } | { name: 'stacks' } | { name: 'stack'; slug: string } | { name: 'stack-build' }
+  | { name: 'screens'; slug: string } | { name: 'telemetry' } | { name: 'stacks' } | { name: 'stack'; slug: string } | { name: 'stack-part'; slug: string; n: number } | { name: 'stack-build' }
   | { name: 'gallery' }
   | { name: 'not-found'; hash: string };
 
@@ -56,6 +56,14 @@ export function parseHash(rawHash: string): Route {
   if (/^#\/gallery\/?$/.test(hash)) return { name: 'gallery' };
   if (/^#\/stacks\/?$/.test(hash) || OLD_INTEGRATE.test(hash)) return { name: 'stacks' };
   if (/^#\/stacks\/build\/?$/.test(hash)) return { name: 'stack-build' };
+  // A part's own page (packet V): #/stack/<slug>/part/<n>.
+  const sp = /^#\/stack\/([^/?#]+)\/part\/([1-9]\d{0,2})\/?$/.exec(hash);
+  if (sp) {
+    try {
+      const slug = decodeURIComponent(sp[1]);
+      if (slug) return { name: 'stack-part', slug, n: Number(sp[2]) };
+    } catch { /* a malformed escape: not a page */ }
+  }
   const sk = /^#\/stack\/([^/?#]+)\/?$/.exec(hash);
   if (sk) {
     try {
@@ -93,6 +101,7 @@ export function hrefFor(route: Route): string {
   if (route.name === 'telemetry') return '#/telemetry';
   if (route.name === 'stacks') return '#/stacks';
   if (route.name === 'stack') return `#/stack/${encodeURIComponent(route.slug)}`;
+  if (route.name === 'stack-part') return `#/stack/${encodeURIComponent(route.slug)}/part/${route.n}`;
   if (route.name === 'stack-build') return '#/stacks/build';
   if (route.name === 'inbox') return '#/inbox';
   if (route.name === 'gallery') return '#/gallery';
@@ -112,6 +121,9 @@ export const stacksHref = () => hrefFor({ name: 'stacks' });
 
 /** One stack's page. */
 export const stackHref = (slug: string) => hrefFor({ name: 'stack', slug });
+
+/** A part's own page (packet V). */
+export const partHref = (slug: string, n: number) => hrefFor({ name: 'stack-part', slug, n });
 
 /** Telemetry: where the Claude usage goes and when the limit hits. */
 export const telemetryHref = () => hrefFor({ name: 'telemetry' });
@@ -151,6 +163,7 @@ export function pageName(route: Route, jobTitle?: string | null): string {
     case 'telemetry': return 'Telemetry';
     case 'stacks': return 'Stacks';
     case 'stack': return jobTitle || 'Stack';
+    case 'stack-part': return jobTitle ? `Part ${route.n} · ${jobTitle}` : `Part ${route.n}`;
     case 'stack-build': return 'Build stack';
     case 'gallery': return 'Gallery';
     default: return 'Not a page';

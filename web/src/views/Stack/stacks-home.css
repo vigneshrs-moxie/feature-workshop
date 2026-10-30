@@ -1,0 +1,185 @@
+/* Stacks for big features (packet V): the segmented progress bar, the Stacks home's cards, its
+   summary line, its quick look and its empty state. Theme tokens only. Big areas stay neutral;
+   colour sits in the small marks (segments, lights, icons, the ask's edge). */
+
+/* ---------- Tones: one mark colour per lane, from the status tokens ---------- */
+.tone-ok { --mark: var(--status-ok); --tint: var(--status-ok-bg); }
+.tone-info { --mark: var(--status-info); --tint: var(--status-info-bg); }
+.tone-review { --mark: var(--status-review); --tint: var(--status-review-bg); }
+.tone-warn { --mark: var(--status-warn); --tint: var(--status-warn-bg); }
+.tone-error { --mark: var(--status-error); --tint: var(--status-error-bg); }
+.tone-quiet { --mark: var(--text-3); --tint: var(--bg-2); }
+
+/* ---------- The bar: one segment per part, a pattern per lane ---------- */
+/* Each segment is a 28 px tall target (32 px large) with the bar drawn in its middle. */
+.stack-segs { display: flex; gap: 3px; margin: -10px 0; padding: 0; list-style: none; min-width: 0; }
+.stack-segs.is-lg { margin: -9px 0; }
+.stack-seg-slot { flex: 1 1 0; min-width: 4px; display: flex; }
+.stack-seg { position: relative; display: block; flex: 1; height: 28px; padding: 0; border: 0; background: transparent; }
+.stack-segs.is-lg .stack-seg { height: 32px; }
+.stack-seg::before {
+  content: ''; position: absolute; inset: 10px 0; border-radius: 3px; background: var(--mark);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--mark) 70%, transparent);
+  transition: transform var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out);
+}
+.stack-segs.is-lg .stack-seg::before { inset: 9px 0; border-radius: 4px; }
+.stack-segs .stack-seg-slot:first-child .stack-seg::before { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
+.stack-segs .stack-seg-slot:last-child .stack-seg::before { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
+a.stack-seg, button.stack-seg { cursor: pointer; }
+a.stack-seg:hover::before, button.stack-seg:hover::before { transform: scaleY(1.4); filter: brightness(1.08); }
+a.stack-seg:focus-visible, button.stack-seg:focus-visible { outline: none; }
+a.stack-seg:focus-visible::before, button.stack-seg:focus-visible::before { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.stack-seg.is-picked::before { outline: 2px solid var(--text-1); outline-offset: 2px; }
+/* Patterns: status is never colour alone. */
+.stack-seg.pat-stripes::before { background: repeating-linear-gradient(135deg, var(--mark) 0 3px, color-mix(in oklch, var(--mark) 35%, transparent) 3px 6px); }
+.stack-seg.pat-hollow::before { background: var(--tint); box-shadow: inset 0 0 0 1.5px var(--mark); }
+.stack-seg.pat-dashed::before { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--mark) 45%, transparent); background-image: repeating-linear-gradient(90deg, var(--mark) 0 4px, transparent 4px 7px); background-size: 100% 2px; background-repeat: no-repeat; background-position: 0 50%; }
+.stack-seg.pat-hatch::before { background: repeating-linear-gradient(45deg, var(--mark) 0 2px, var(--tint) 2px 5px); box-shadow: inset 0 0 0 1.5px var(--mark); }
+.stack-seg.pat-solid.tone-warn::before { box-shadow: inset 0 0 0 1px var(--mark), 0 0 0 2px var(--tint); }
+@media (prefers-reduced-motion: reduce) { .stack-seg::before { transition: none; } a.stack-seg:hover::before, button.stack-seg:hover::before { transform: none; } }
+
+/* ---------- The light: steady in subtle, a slow pulse in Play full, still with less motion ---------- */
+.stack-light { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--border-3); }
+.stack-light.is-on { background: var(--mark); box-shadow: 0 0 0 3px var(--tint); }
+.stack-light.is-pulse { animation: stack-pulse 2.4s ease-in-out infinite; }
+@keyframes stack-pulse { 0%, 100% { box-shadow: 0 0 0 3px var(--tint); } 50% { box-shadow: 0 0 0 6px color-mix(in oklch, var(--tint) 40%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .stack-light.is-pulse { animation: none; } }
+
+/* ---------- The page ---------- */
+.page-stacks-home.has-grid, .page-stack-v.has-grid, .page-part.has-grid { background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px); background-size: 24px 24px; }
+.page-stacks-home .page-head { flex-wrap: wrap; row-gap: var(--space-2); }
+
+/* The summary line: words with numbers, each a filter. */
+.stacks-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-left: var(--space-4); }
+.stacks-sum-sep { color: var(--text-3); padding: 0 2px; }
+.stacks-sum-item {
+  display: inline-flex; align-items: baseline; gap: 5px; height: 28px; padding: 0 var(--space-2); border: 1px solid transparent; border-radius: var(--radius-md);
+  background: transparent; color: var(--text-2); font: inherit; font-size: var(--text-sm); cursor: pointer; line-height: 26px;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.stacks-sum-item b { color: var(--text-1); font-weight: var(--weight-bold); font-size: var(--text-base); }
+.stacks-sum-item.is-info b { color: var(--status-info); }
+.stacks-sum-item.is-warn b { color: var(--status-warn); }
+.stacks-sum-item.is-ok b { color: var(--status-ok); }
+.stacks-sum-item:hover { background: var(--hover-bg); color: var(--text-1); }
+.stacks-sum-item.is-on { border-color: var(--border-2); background: var(--surface-1); color: var(--text-1); box-shadow: var(--elev-xs); }
+.stacks-sum-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.stacks-home-body { display: grid; gap: var(--space-5); }
+.stacks-home-problem { margin: 0; }
+.stacks-none { margin: 0; padding: var(--space-4) 0; }
+.stacks-home-error { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--border-1); border-left: 3px solid var(--status-error); border-radius: var(--radius-lg); background: var(--surface-1); color: var(--text-1); }
+.stacks-home-error p { flex: 1; margin: 0; }
+.stacks-home-error > .icon { color: var(--status-error); }
+
+/* Two cards across on a Mac window, three from 1728 px, one on a phone. */
+.stacks-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); margin: 0; padding: 0; list-style: none; align-items: stretch; }
+@media (min-width: 900px) { .stacks-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1728px) { .stacks-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* ---------- A stack's card ---------- */
+.stack-home-card {
+  position: relative; display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; padding: var(--space-4) var(--space-5) 0;
+  border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs);
+  cursor: default; transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.stack-home-card:hover { border-color: var(--border-2); box-shadow: var(--elev-sm); }
+/* The Desk's console edge in Play full: a thin top bar in the stack's tone. */
+.play-full .stack-home-card::before { content: ''; position: absolute; inset: -1px -1px auto; height: 3px; border-radius: var(--card-radius) var(--card-radius) 0 0; background: var(--edge); }
+.stack-home-card.edge-warn { --edge: var(--status-warn); }
+.stack-home-card.edge-info { --edge: var(--status-info); }
+.stack-home-card.edge-ok { --edge: var(--status-ok); }
+/* Picked with j / k (the Desk queue's picked row): an accent ring. */
+.stack-home-card.is-picked { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--elev-sm); }
+.stack-home-card.is-peeked { border-color: var(--accent); }
+
+.shc-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; min-height: 24px; }
+.shc-head .stack-light { margin-right: 2px; }
+.shc-head.tone-warn, .stack-home-card.edge-warn .stack-light { --mark: var(--status-warn); --tint: var(--status-warn-bg); }
+.stack-home-card.edge-info .stack-light { --mark: var(--status-info); --tint: var(--status-info-bg); }
+.stack-home-card.edge-ok .stack-light { --mark: var(--status-ok); --tint: var(--status-ok-bg); }
+.shc-title { min-width: 0; overflow: hidden; color: var(--text-1); font-size: var(--text-md); font-weight: var(--weight-bold); text-decoration: none; text-overflow: ellipsis; white-space: nowrap; letter-spacing: -0.01em; }
+.shc-title:hover { text-decoration: underline; text-decoration-color: var(--border-3); text-underline-offset: 3px; }
+.shc-title:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 4px; }
+.shc-ticket { flex: none; padding: 1px 6px; border: 1px solid var(--border-1); border-radius: var(--radius-sm); color: var(--text-3); font-family: var(--font-mono); font-size: var(--text-2xs); }
+.shc-head .chip { flex: none; }
+
+.shc-why { display: -webkit-box; margin: -4px 0 0; overflow: hidden; color: var(--text-2); font-size: var(--text-sm); line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-height: calc(2 * 1.45em); }
+
+.shc-progress { display: grid; gap: var(--space-2); }
+.shc-counts { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); min-width: 0; font-size: var(--text-sm); }
+.shc-count-words { min-width: 0; overflow: hidden; color: var(--text-1); text-overflow: ellipsis; white-space: nowrap; }
+.shc-numbers { flex: none; display: inline-flex; gap: 0; color: var(--text-3); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.shc-dot { padding: 0 6px; }
+
+.shc-work { min-height: calc(3 * 26px); }
+.shc-now-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.shc-now { display: grid; grid-template-columns: 22px auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); height: 26px; font-size: var(--text-sm); }
+.shc-now-icon { justify-self: center; color: var(--mark); }
+.shc-face { display: grid; place-items: center; width: 22px; height: 22px; overflow: hidden; }
+.shc-now-part { color: var(--text-2); font-weight: var(--weight-medium); text-decoration: none; font-variant-numeric: tabular-nums; }
+.shc-now-part:hover { color: var(--text-1); text-decoration: underline; text-underline-offset: 3px; }
+.shc-now-text { min-width: 0; overflow: hidden; color: var(--text-2); text-overflow: ellipsis; white-space: nowrap; }
+.shc-now-text b { color: var(--text-1); font-weight: var(--weight-medium); }
+.shc-now-time { color: var(--text-3); font-size: var(--text-xs); }
+.shc-now-more { height: 22px; padding-left: 30px; font-size: var(--text-xs); }
+.shc-now-none { display: flex; align-items: center; height: 26px; margin: 0; font-size: var(--text-sm); }
+
+.shc-risks { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.shc-risk { display: flex; align-items: flex-start; gap: var(--space-2); color: var(--text-1); font-size: var(--text-sm); line-height: 1.4; }
+.shc-risk > .icon { flex: none; margin-top: 2px; color: var(--mark); }
+.shc-risk-more { padding-left: 22px; font-size: var(--text-xs); }
+
+/* What it needs from you: the same spot at the bottom of every card (the Desk's action row). */
+.shc-ask {
+  display: flex; align-items: center; gap: var(--space-2); min-height: 52px; margin: auto calc(-1 * var(--space-5)) 0; padding: 0 var(--space-4) 0 var(--space-5);
+  border-top: 1px solid var(--border-1); border-radius: 0 0 var(--card-radius) var(--card-radius); font-size: var(--text-sm);
+}
+.shc-ask.has-ask { background: var(--lane-needs-you-bg); box-shadow: inset 3px 0 0 var(--needs-solid); }
+.shc-ask-icon { flex: none; color: var(--text-3); }
+.shc-ask.has-ask .shc-ask-icon { color: var(--needs-solid); }
+.shc-ask-words { flex: 1; min-width: 0; overflow: hidden; color: var(--text-1); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
+.shc-ask-words.muted { font-weight: var(--weight-regular); }
+.shc-ask .btn { flex: none; }
+
+/* Loading: the cards' own shape. */
+.stack-home-card.is-skeleton { min-height: 300px; gap: var(--space-4); padding-bottom: var(--space-5); }
+.stack-home-card.is-skeleton span { display: block; height: 12px; border-radius: 6px; background: var(--bg-2); }
+.stack-home-card.is-skeleton span:nth-child(1) { width: 40%; height: 16px; }
+.stack-home-card.is-skeleton span:nth-child(3) { height: 8px; }
+
+/* ---------- The quick look ---------- */
+.stack-peek .peek-body { gap: var(--space-4); }
+.stack-peek-next { display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-radius: var(--radius-lg); background: var(--bg-1); box-shadow: inset 3px 0 0 var(--border-3); }
+.stack-peek-next.has-ask { background: var(--lane-needs-you-bg); box-shadow: inset 3px 0 0 var(--needs-solid); }
+.stack-peek-say { margin: 0; color: var(--text-1); font-size: var(--text-base); font-weight: var(--weight-medium); }
+.stack-peek-act { display: flex; justify-content: flex-end; }
+.stack-peek-counts { margin: -6px 0 0; font-size: var(--text-sm); }
+.stack-peek-parts { display: grid; margin: 0; padding: 0; list-style: none; }
+.stack-peek-part { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; column-gap: var(--space-2); padding: 7px 0; border-top: 1px solid var(--border-1); font-size: var(--text-sm); }
+.stack-peek-part:first-child { border-top: 0; }
+.stack-peek-name { min-width: 0; overflow: hidden; color: var(--text-1); text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+a.stack-peek-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+.stack-peek-lane { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); font-size: var(--text-xs); white-space: nowrap; }
+.stack-peek-lane > .icon { color: var(--mark); }
+.stack-peek-now { grid-column: 2 / -1; overflow: hidden; font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.part-num { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: var(--bg-2); color: var(--text-2); font-size: var(--text-2xs); font-weight: var(--weight-bold); }
+.eyebrow { color: var(--text-3); font-size: var(--text-2xs); font-weight: var(--weight-bold); letter-spacing: .08em; text-transform: uppercase; }
+
+/* ---------- No stacks yet ---------- */
+.stacks-empty-v { display: grid; justify-items: center; gap: var(--space-3); max-width: 620px; margin: var(--space-10) auto; text-align: center; }
+.stacks-empty-pic { display: grid; gap: 6px; width: 180px; margin-bottom: var(--space-2); }
+.stacks-empty-bar { display: block; height: 10px; border-radius: 5px; background: var(--bg-2); }
+.stacks-empty-bar.b0 { width: 70%; background: var(--status-ok); }
+.stacks-empty-bar.b1 { width: 100%; background: repeating-linear-gradient(135deg, var(--status-review) 0 3px, var(--status-review-bg) 3px 6px); }
+.stacks-empty-bar.b2 { width: 45%; background: var(--status-info); }
+.stacks-empty-title { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-bold); }
+.stacks-empty-say { max-width: 75ch; margin: 0; color: var(--text-2); line-height: 1.55; }
+.stacks-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); margin-top: var(--space-3); }
+
+@media (max-width: 760px) {
+  .stacks-sum { margin-left: 0; width: 100%; order: 3; }
+  .stack-home-card { padding: var(--space-4) var(--space-4) 0; }
+  .shc-ask { margin: auto calc(-1 * var(--space-4)) 0; padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4); flex-wrap: wrap; }
+  .shc-counts { flex-wrap: wrap; }
+}

@@ -59,18 +59,56 @@ describe('the Stacks list', () => {
     expect(hrefFor({ name: 'stacks' })).toBe('#/stacks');
   });
 
-  it('each stack: its title, ticket and parts, four dots with their words, and what it needs in a word; the row opens it', async () => {
+  it('each stack is a card: its goal, why, a segment per part with words, who is at work, its risks and its one ask', async () => {
+    const card = {
+      ...summary(building), why: 'The model first, because everything reads it.', standing: 'needs-you' as const, approved: true, total: 3, merged: 1, atWorkCount: 1,
+      lanes: { merged: 1, working: 1, stuck: 1, 'needs-you': 0, waiting: 0, queued: 0, checks: 0, ready: 0, merging: 0 },
+      segments: [
+        { n: 1, name: 'model', title: 'The model', lane: 'merged' as const, laneWords: 'Merged', slug: 'orbit-512--model' },
+        { n: 2, name: 'api', title: 'The API', lane: 'working' as const, laneWords: 'At work', slug: 'orbit-512--api' },
+        { n: 3, name: 'ui', title: 'The screens', lane: 'stuck' as const, laneWords: 'Stuck', slug: 'orbit-512--ui' },
+      ],
+      atWork: [{ n: 2, title: 'The API', slug: 'orbit-512--api', lane: 'working' as const, who: 'Builder', crew: 'feature-implementer', what: 'editing api.ts', since: null, tone: 'working' as const }],
+      ask: { action: 'open-part' as const, label: 'Open part 3', part: 3, words: 'Part 3 got stuck after 3 failed tries' },
+      risks: [{ kind: 'stuck' as const, tone: 'error' as const, parts: [3], words: 'Part 3 is stuck: its tests failed 3 times' }],
+      costUsd: 12.5, startedAt: new Date(Date.now() - 2 * 86400e3).toISOString(), lastActivityAt: new Date().toISOString(), mergedToday: 1,
+    };
+    const { wrap } = setup({ '/api/stacks': { stacks: [summary(plan), card], globalCap: 3, globalRunning: 2 } });
+    wrap(<StacksPage />);
+    const cards = await screen.findByRole('list', { name: 'Stacks' });
+    const items = [...cards.querySelectorAll(':scope > li')] as HTMLElement[];
+    expect(items).toHaveLength(2);
+    // Needs you first, whatever the server's order.
+    expect(items[0]).toHaveTextContent('Tech schedule export');
+    const c = items[0];
+    expect(c).toHaveTextContent('The model first, because everything reads it.');
+    expect(within(c).getByRole('link', { name: 'Part 2 · The API · At work' })).toHaveAttribute('href', '#/stack/orbit-512/part/2');
+    expect(within(c).getByRole('link', { name: 'Part 3 · The screens · Stuck' })).toBeInTheDocument();
+    expect(c).toHaveTextContent('1 of 3 merged · 1 at work · 1 needs you');
+    expect(c).toHaveTextContent('Builder · editing api.ts');
+    expect(c).toHaveTextContent('Part 3 is stuck: its tests failed 3 times');
+    expect(c).toHaveTextContent('2 days');
+    expect(c).toHaveTextContent('$12.50');
+    expect(within(c).getByRole('button', { name: 'Open part 3' })).toBeInTheDocument();
+    expect(within(c).getByRole('link', { name: 'Tech schedule export' })).toHaveAttribute('href', '#/stack/orbit-512');
+    // The summary line, each number a filter.
+    const sum = screen.getByRole('navigation', { name: 'Stacks at a glance' });
+    expect(sum).toHaveTextContent('2 stacks');
+    expect(sum).toHaveTextContent('1 part at work');
+    fireEvent.click(within(sum).getByRole('button', { name: /needs? you/ }));
+    expect(within(sum).getByRole('button', { name: /needs? you/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('a click on a card’s body opens a quick look with its next step and parts; Escape closes it', async () => {
     const { wrap } = setup({ '/api/stacks': list });
     wrap(<StacksPage />);
-    const rows = await screen.findAllByRole('listitem');
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toHaveTextContent('Holiday hours');
-    expect(rows[0]).toHaveTextContent('ORBIT-600 · 3 parts');
-    expect(within(rows[0]).getByRole('img', { name: /Plan: now, Build: not yet, Merge: not yet, Push: not yet/ })).toBeInTheDocument();
-    expect(rows[0]).toHaveTextContent('Needs you: check the plan');
-    expect(within(rows[1]).getByRole('img', { name: /Plan: done, Build: now/ })).toBeInTheDocument();
-    expect(rows[1]).toHaveTextContent('Building');
-    expect(within(rows[1]).getByRole('link')).toHaveAttribute('href', '#/stack/orbit-512');
+    const cards = await screen.findByRole('list', { name: 'Stacks' });
+    fireEvent.click(cards.querySelector(':scope > li .shc-why')!);
+    const peek = screen.getByRole('dialog', { name: /a quick look/ });
+    expect(within(peek).getByRole('region', { name: 'Next step' })).toBeInTheDocument();
+    expect(within(peek).getByRole('link', { name: 'Open the stack' })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: /a quick look/ })).toBeNull();
   });
 
   it('How stacks work brings back the three picture cards at any time; Escape closes them', async () => {
@@ -96,15 +134,15 @@ describe('the Stacks list', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('with no stacks: the same three cards on the page, and one button to the Inbox', async () => {
+  it('with no stacks: what a stack is, when to use one, a way to start from a ticket, and How stacks work', async () => {
     setStackGuideFirstVisit(true);
     const { wrap } = setup({ '/api/stacks': { stacks: [], globalCap: 3, globalRunning: 0 } });
     wrap(<StacksPage />);
-    const empty = await screen.findByRole('region', { name: 'No stacks yet' });
-    expect(empty).toHaveTextContent('Big ticket? Build it as a stack.');
-    expect(within(empty).getAllByRole('listitem')).toHaveLength(3);
-    expect(within(empty).getByRole('link', { name: /Pick a ticket in the Inbox/ })).toHaveAttribute('href', '#/inbox');
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull()); // not on top of the page’s own cards
+    const empty = await screen.findByRole('region', { name: 'Build a big feature as a stack' });
+    expect(empty).toHaveTextContent('A stack splits a big ticket into parts.');
+    expect(empty).toHaveTextContent('Use one when a ticket touches several areas');
+    expect(within(empty).getByRole('link', { name: /Start a stack from a ticket/ })).toHaveAttribute('href', '#/inbox');
+    expect(within(empty).getByRole('button', { name: /How stacks work/ })).toBeInTheDocument();
   });
 
   it('away from your own computer, says stacks run there; a failed read says so with Try again', async () => {
