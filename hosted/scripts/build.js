@@ -1,6 +1,7 @@
 // `npm run build -w hosted`, which Vercel runs (vercel.json buildCommand):
 //   1. refuses a production build with AUTH_FAKE on (site/config.js), before anything is built;
-//   2. builds the same web/ app the laptop serves, for the site's root: its files go to
+//   2. builds the same web/ app the laptop serves, for the site’s root, without source maps (the
+//      hosted page is reachable before sign-in): its files go to
 //      hosted/public/ (vercel.json outputDirectory), and web/dist (the laptop's copy, at /next/) is
 //      left alone;
 //   3. marks that index.html as the hosted page (<meta name="dashboard-mode" content="hosted">),
@@ -29,7 +30,7 @@ try { readConfig(process.env); } catch (err) {
   throw err;
 }
 
-run('npm', ['run', 'build', '-w', 'web', '--', '--base=/', `--outDir=${PUBLIC_DIR}`, '--emptyOutDir'], ROOT);
+run('npm', ['run', 'build', '-w', 'web', '--', '--base=/', `--outDir=${PUBLIC_DIR}`, '--emptyOutDir', '--sourcemap=false'], ROOT);
 
 const index = path.join(PUBLIC_DIR, 'index.html');
 const html = fs.readFileSync(index, 'utf8');
