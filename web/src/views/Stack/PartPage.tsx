@@ -259,7 +259,7 @@ function Conversation({ job, now, wide, onDetail }: { job: Job; now: Date; wide:
   return (
     <section className="job-convo part-convo" aria-label="Conversation">
       <header className="job-side-head"><Icon name="message" size={16} /><h3>Conversation with its Foreman</h3>{n > 0 && <span className="muted">· {n} {n === 1 ? 'message' : 'messages'}</span>}</header>
-      <div className="job-convo-thread"><ThreadList job={job} conversation={conversation} now={now} cards={false} newest={wide ? undefined : 1} /></div>
+      <div className="job-convo-thread"><ThreadList job={job} conversation={conversation} now={now} cards={false} level={false} newest={wide ? undefined : 1} /></div>
       <Composer key={job.slug} slug={job.slug} detail={conversation.thread.detail} run={conversation.run} />
     </section>
   );

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { FLOOR_TOKENS, STOP_HUES, contrast, derivePalette, luminance, mix, parseCssColor, readPalette, watchTheme, type FloorToken, type Rgb } from './palette';
+import { FLOOR_TOKENS, STOP_HUES, contrast, derivePalette, luminance, mix, over, paintedOver, parseCssColor, readPalette, solidGround, watchTheme, type FloorToken, type Rgb } from './palette';
 
 const close = (a: Rgb | null, b: Partial<Rgb>, d = 0.01) => {
   expect(a).not.toBeNull();
@@ -136,6 +136,68 @@ describe('readPalette', () => {
     expect(p.floor.r).toBeCloseTo(240 / 255, 2);
     expect(p.badge.b).toBeGreaterThan(p.badge.r);
     expect(FLOOR_TOKENS).toContain('--accent');
+  });
+
+  // Glass (packet W): its backgrounds are see-through tokens; read as they are, the floor was the
+  // token laid over grey. A see-through token falls back to the nearest solid surface under the floor.
+  it('lays a see-through token over the nearest solid surface under the floor, not over grey', () => {
+    const night = 'rgb(20, 24, 44)';
+    const values: Record<string, string> = {
+      '--bg-0': 'oklch(0.16 0.03 272 / 0.58)', '--bg-2': 'rgba(255, 255, 255, 0.07)', '--bg-3': 'rgba(255, 255, 255, 0.11)',
+      '--bg-4': 'rgba(255, 255, 255, 0.16)', '--text-1': 'rgb(245, 245, 250)', '--text-3': 'rgb(190, 192, 205)', '--accent': 'rgb(120, 150, 240)',
+    };
+    for (const k of Object.keys(values)) document.documentElement.style.setProperty(k, 'x');
+    const pane = document.createElement('main');
+    const host = document.createElement('div');
+    pane.appendChild(host);
+    document.body.appendChild(pane);
+    const backgrounds = new Map<Element, string>([[document.body, night], [pane, values['--bg-0']], [host, 'rgba(0, 0, 0, 0)']]);
+    const real = window.getComputedStyle;
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el: Element) => {
+      const cs = real(el);
+      if (el === document.documentElement) return { getPropertyValue: (n: string) => (values[n] ? 'set' : ''), colorScheme: 'dark', backgroundColor: 'rgba(0, 0, 0, 0)' } as unknown as CSSStyleDeclaration;
+      const want = /var\((--[\w-]+)\)/.exec((el as HTMLElement).style.color)?.[1];
+      return { ...cs, color: want ? values[want] ?? '' : '', backgroundColor: backgrounds.get(el) ?? 'rgba(0, 0, 0, 0)' } as CSSStyleDeclaration;
+    });
+    try {
+      // The ground: the body's solid night with the pane's tint over it, solid.
+      const ground = solidGround(host)!;
+      const nightRgb = parseCssColor(night)!;
+      expect(ground.a).toBe(1);
+      expect(ground).toEqual(paintedOver(parseCssColor(values['--bg-0'])!, nightRgb));
+      expect(solidGround(null)).toBeNull();
+
+      const p = readPalette(document.documentElement, host);
+      // Dark glass: the floor is --bg-2 over that ground, a step lighter than the night, far from grey.
+      expect(p.floor).toEqual(paintedOver(parseCssColor(values['--bg-2'])!, ground));
+      expect(p.floor.a).toBe(1);
+      expect(luminance(p.floor)).toBeLessThan(0.05);
+      expect(luminance(p.floor)).toBeGreaterThan(luminance(nightRgb));
+      // A solid token is read as it is.
+      expect(p.paper.r).toBeCloseTo(245 / 255, 2);
+    } finally {
+      pane.remove();
+    }
+  });
+
+  it('paints a see-through colour over a solid one the way the browser does (in sRGB)', () => {
+    expect(paintedOver({ r: 1, g: 1, b: 1, a: 0.5 }, { r: 0, g: 0, b: 0, a: 1 })).toEqual({ r: 0.5, g: 0.5, b: 0.5, a: 1 });
+    const solid = paintedOver({ r: 0.2, g: 0.4, b: 0.6, a: 1 }, { r: 1, g: 1, b: 1, a: 1 });
+    expect([solid.r, solid.g, solid.b, solid.a].map((n) => Number(n.toFixed(6)))).toEqual([0.2, 0.4, 0.6, 1]);
+  });
+
+  it('keeps the old behaviour when nothing under the floor is solid', () => {
+    const values: Record<string, string> = { '--bg-0': 'rgba(255, 255, 255, 0.5)', '--text-1': 'rgb(20, 20, 20)' };
+    for (const k of Object.keys(values)) document.documentElement.style.setProperty(k, 'x');
+    const real = window.getComputedStyle;
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el: Element) => {
+      const cs = real(el);
+      if (el === document.documentElement) return { getPropertyValue: (n: string) => (values[n] ? 'set' : ''), colorScheme: 'light', backgroundColor: 'rgba(0, 0, 0, 0)' } as unknown as CSSStyleDeclaration;
+      const want = /var\((--[\w-]+)\)/.exec((el as HTMLElement).style.color)?.[1];
+      return { ...cs, color: want ? values[want] ?? '' : '', backgroundColor: 'rgba(0, 0, 0, 0)' } as CSSStyleDeclaration;
+    });
+    const p = readPalette();
+    expect(p.wall).toEqual(over(parseCssColor(values['--bg-0'])!, { r: 0.5, g: 0.5, b: 0.5, a: 1 }));
   });
 
   it('calls back when the theme changes', async () => {

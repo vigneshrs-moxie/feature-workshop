@@ -49,7 +49,18 @@
 .next-bar.is-line.tone-quiet { background: transparent; box-shadow: inset 0 0 0 1px var(--border-1); }
 .next-bar.is-line.tone-quiet .next-head { color: var(--text-2); font-weight: var(--weight-medium); }
 .next-bar.is-line.tone-quiet .next-icon { color: var(--status-ok); }
-@media (max-width: 760px) { .next-bar.is-line .next-sub { display: none; } }
+/* On a phone the line keeps its one row and its 56 px: the sentence takes up to two lines beside the
+   button instead of the button wrapping out of the bar (packet W). */
+@media (max-width: 760px) {
+  .next-bar.is-line { flex-wrap: nowrap; gap: var(--space-3); }
+  .next-bar.is-line .next-sub { display: none; }
+  .next-bar.is-line .next-head {
+    flex: 1 1 auto; min-width: 0; display: -webkit-box; overflow: hidden; white-space: normal;
+    font-size: var(--text-sm); line-height: 1.3; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  }
+  .next-bar.is-line .next-actions { flex: none; width: auto; flex-wrap: nowrap; }
+  .next-bar.is-line .next-actions .btn { flex: none; }
+}
 .next-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); flex: none; }
 
 /* ---------- Folded sections ---------- */
@@ -351,7 +362,9 @@ a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset
 .state-chip.is-working { background: var(--status-info-bg); color: var(--lane-working-fg); }
 .state-chip.is-ready { background: var(--status-ok-bg); color: var(--lane-ready-fg); }
 /* The light: on while the crew works (blinks softly in Play full), steady grey otherwise. */
-.job-light { flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--border-3); }
+/* A light that is off is still a mark you can see (3:1): R's quiet mark, muted ink mixed into the
+   card, as the empty checkbox edge and a stack card's light. */
+.job-light { flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: color-mix(in oklab, var(--text-3) 80%, var(--surface-1)); }
 .job-light.is-on { background: var(--status-info); box-shadow: 0 0 0 3px var(--status-info-bg); }
 .job-light.is-blink { animation: gc-blink 1.6s ease-in-out infinite; }
 @keyframes gc-blink { 50% { opacity: .35; } }

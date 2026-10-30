@@ -1,0 +1,4 @@
+/* Light is the default (packet R): paint the page light until the theme's own sheet loads. Linked
+   from index.html before anything else, so it blocks the first paint as an inline <style> would,
+   without one (the dashboard's CSP is style-src 'self': an inline <style> is refused). */
+html[data-theme="light"] { background: #fff; color-scheme: light; }
