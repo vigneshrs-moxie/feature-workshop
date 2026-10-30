@@ -158,7 +158,9 @@
 }
 /* The main action's key: small and low-contrast inside the button. */
 .key-hint { flex: none; border-color: transparent; background: var(--shade-hover); color: inherit; opacity: .72; }
-.btn-primary .key-hint { background: var(--shine); color: var(--btn-primary-fg); opacity: .85; }
+/* On the primary it sits in a slightly darker chip, never a lighter one: a white shine under white ink
+   at .85 fell to 3.1–3.6:1. Now 5.7:1 in Light and 5:1 in Default, about the label's own contrast. */
+.btn-primary .key-hint { background: var(--shade-hover); color: var(--btn-primary-fg); opacity: .9; }
 /* Every other key: shown on hover or keyboard focus (and while ? is held), as a small keycap at the
    control's corner, so nothing moves; its tooltip says it too. Settings → Keys can show them all. */
 :has(> .key-hint.is-quiet) { position: relative; }
@@ -274,7 +276,9 @@ html[data-keys-held] .key-hint.is-quiet { opacity: 1; }
   width: 16px;
   height: 16px;
   margin: 0;
-  border: 1px solid var(--border-3);
+  /* The empty box's edge is the only thing that shows it is there, so it gets 3:1 (WCAG 1.4.11):
+     muted ink mixed into the card, 3.6:1 on Light's page and 3.9:1 on Default's (3:1 on bg-3). */
+  border: 1px solid color-mix(in oklab, var(--text-3) 80%, var(--surface-1));
   background-color: var(--surface-1);
   box-shadow: var(--elev-xs);
   vertical-align: middle;
