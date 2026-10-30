@@ -417,6 +417,8 @@ export interface WorkflowSettings {
   clarify?: WorkflowChoice;
   /** Let the dashboard pick each job's level (dashboard/lib/auto-level.js). Off by default. */
   autoLevel?: boolean;
+  /** Count my Claude Code use outside the app in Telemetry (dashboard/lib/claude-code-usage.js). On unless turned off. */
+  countClaudeCode?: boolean;
   /** Sections of stacks that build at once, across every stack (1 to 20; absent: the default, 3). Saved by POST /api/stacks/cap. */
   sectionsAtOnce?: number;
 }

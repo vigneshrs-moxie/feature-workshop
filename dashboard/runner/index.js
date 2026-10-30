@@ -73,7 +73,7 @@ import { tokenStore } from '../lib/orbit-token.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, groundControlUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
-import { ClaudeCodeUsage, CLAUDE_CODE_NOTE, CLAUDE_CODE_WORDS, readSetting as claudeCodeSetting } from '../lib/claude-code-usage.js';
+import { ClaudeCodeUsage, CLAUDE_CODE_NOTE, CLAUDE_CODE_WORDS, readSetting as claudeCodeSetting, writeSetting as setClaudeCodeSetting } from '../lib/claude-code-usage.js';
 import { EVENT_TYPES, NOTES_MAX, parseCommand } from '../lib/protocol.js';
 import { JobLocked, heldElsewhere } from '../lib/lock.js';
 import { RESTART_TEXT, RESUME_KIND, replay, withRestartNotes } from './replay.js';
@@ -943,7 +943,7 @@ export async function createRunner(config) {
       // Where a job's screens page is served from (its own origin): the Screens tab frames <origin>/job/<slug>/wireframes.
       // null when that server couldn't listen (screensDown): the tab then shows nothing and says so.
       wireframesOrigin,
-      settings: await state.getSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT, command: nodeCommand(HOOK_SCRIPT) },
+      settings: await allSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT, command: nodeCommand(HOOK_SCRIPT) },
       // The finish line's choices (lib/finish.js), with their words, for Settings → Workflow.
       finishLines: FINISH_LINES.map((id) => ({ id, ...FINISH_LINE_INFO[id] })),
       jobOptions: { flows: Object.entries(FLOWS).map(([id, f]) => ({ id, label: f.label, note: f.note, model: f.model, defaults: defaultsFor(id) })), skippable: SKIPPABLE, providable: PROVIDABLE, reviewers: REVIEWERS, fablePoints: FABLE_POINTS,
@@ -1375,7 +1375,12 @@ export async function createRunner(config) {
   rules.on('change', (list) => { events.emit('rules', null, { count: list.length }); });
   // Your permission settings changed (global, a job's own, or whether auto mode is available).
   function settingsChanged() {
-    state.getSettings().then((s) => events.emit('settings', null, s)).catch(() => {});
+    allSettings().then((s) => events.emit('settings', null, s)).catch(() => {});
+  }
+  /** The settings, with Settings → Workflow's "Count my Claude Code use outside the app" (kept by lib/claude-code-usage.js). */
+  async function allSettings() {
+    const s = await state.getSettings();
+    return { ...s, workflow: { ...s.workflow, countClaudeCode: (await claudeCodeSetting(state.dir)).count } };
   }
   state.on('audit', (e) => { if (e.featureDir) threadChanged(e.slug ?? path.basename(e.featureDir), e.action); });
   function featureFileChanged(_type, filename) {
@@ -1877,13 +1882,17 @@ export async function createRunner(config) {
         const w = body.workflow;
         if (!w || typeof w !== 'object' || Array.isArray(w)) throw new HttpError(400, 'The workflow settings must be an object.');
         const keys = Object.keys(w);
-        for (const k of keys) if (!['finishLine', 'wireframes', 'clarify', 'autoLevel'].includes(k)) throw new HttpError(400, `Unknown workflow setting: ${String(k).slice(0, 40)}.`);
-        if (!keys.length) throw new HttpError(400, 'Send a workflow setting to change: finishLine, wireframes, clarify or autoLevel.');
+        for (const k of keys) if (!['finishLine', 'wireframes', 'clarify', 'autoLevel', 'countClaudeCode'].includes(k)) throw new HttpError(400, `Unknown workflow setting: ${String(k).slice(0, 40)}.`);
+        if (!keys.length) throw new HttpError(400, 'Send a workflow setting to change: finishLine, wireframes, clarify, autoLevel or countClaudeCode.');
         if (w.autoLevel !== undefined && typeof w.autoLevel !== 'boolean') throw new HttpError(400, 'Choose the level for me: on or off.');
+        if (w.countClaudeCode !== undefined && typeof w.countClaudeCode !== 'boolean') throw new HttpError(400, 'Count my Claude Code use outside the app: on or off.');
         if (w.finishLine !== undefined && !FINISH_LINES.includes(w.finishLine)) throw new HttpError(400, 'The finish line is PR #1 open, PR #1 merged, in staging, in main, or when you mark it done.');
         for (const k of ['wireframes', 'clarify']) if (w[k] !== undefined && !WORKFLOW_CHOICES.includes(w[k])) throw new HttpError(400, `${k === 'wireframes' ? 'Screens' : 'Clarify questions'} for new jobs: Auto, Always or Off.`);
+        // Count my Claude Code use outside the app: kept by lib/claude-code-usage.js, not in settings.json.
+        const { countClaudeCode, ...rest } = w;
+        if (countClaudeCode !== undefined) await setClaudeCodeSetting(state.dir, { count: countClaudeCode });
         const was = (await state.getSettings()).workflow;
-        const next = { ...was, ...w };
+        const next = { ...was, ...rest };
         await state.setSettings({ workflow: next });
         finishLineNow = next.finishLine;
         if (next.finishLine !== was.finishLine) {
@@ -1901,7 +1910,7 @@ export async function createRunner(config) {
         await state.audit({ action: 'settings', workflow: w });
         settingsChanged();
         if (next.autoLevel && !was.autoLevel) checkLevels();
-        return state.getSettings();
+        return allSettings();
       }
       // play: Play mode and sounds (lib/play.js validatePlayPatch).
       if (body.play !== undefined) {

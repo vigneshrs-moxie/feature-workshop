@@ -481,6 +481,31 @@ test('GET /api/telemetry: the ten graphs for the window, from usage.jsonl in the
   }
 });
 
+test('Settings → Workflow → Count my Claude Code use outside the app: on by default, saved through POST /api/settings { workflow }, kept in the state folder', { timeout: 60_000 }, async () => {
+  const d = await startDashboard();
+  try {
+    const meta = async () => (await (await fetch(`${d.base}/api/meta`)).json()).settings.workflow;
+    assert.equal((await meta()).countClaudeCode, true, 'on unless turned off');
+    for (const bad of ['no', 0, null]) {
+      const r = await d.write('POST', '/api/settings', { workflow: { countClaudeCode: bad } });
+      assert.equal(r.status, 400, JSON.stringify(bad));
+      assert.equal(r.body.error, 'Count my Claude Code use outside the app: on or off.');
+    }
+    const off = await d.write('POST', '/api/settings', { workflow: { countClaudeCode: false } });
+    assert.equal(off.status, 200);
+    assert.equal(off.body.workflow.countClaudeCode, false);
+    assert.equal(off.body.workflow.finishLine, 'pr1-merged', 'the other workflow settings stay');
+    assert.equal((await meta()).countClaudeCode, false);
+    assert.equal(JSON.parse(await fs.readFile(path.join(d.dirs.state, 'claude-code-usage.json'), 'utf8')).count, false);
+    const settings = JSON.parse(await fs.readFile(path.join(d.dirs.state, 'settings.json'), 'utf8').catch(() => '{}'));
+    assert.equal(settings.workflow?.countClaudeCode, undefined, 'not written into settings.json');
+    assert.equal((await d.write('POST', '/api/settings', { workflow: { countClaudeCode: true } })).body.workflow.countClaudeCode, true);
+    assert.equal((await meta()).countClaudeCode, true);
+  } finally {
+    await d.stop();
+  }
+});
+
 test('every turn of a sample job gives one usage line in the state folder (demo dashboard, no model)', { timeout: 60_000 }, async () => {
   const slug = 'orbit-479-sample';
   const d = await startDashboard(async (dirs) => {
