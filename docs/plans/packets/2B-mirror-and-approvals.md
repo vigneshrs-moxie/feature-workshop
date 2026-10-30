@@ -77,3 +77,8 @@ No horizontal scroll. R's rules apply: nothing jumps, and no native controls.
 
 ## Rules
 The same as `2A-site-service.md`'s rules section, with this packet's own worktree, branch and port 4509.
+
+## From 2A's hand-back (2026-10-30)
+- **Build on 2A's internal `queueCommand`.** Command results today carry only `{ ok, error }`. Add answer data for the live diff here, sent straight back to the page that asked and never stored.
+- **`POST /api/pair/start` is public and capped only at 100 waiting pairings in total.** Add a per-address limit (for example 5 a minute) so nobody can fill the cap, with a test.
+- **The hosted tests run with `npm test -w hosted`.** Run them as well before each commit.

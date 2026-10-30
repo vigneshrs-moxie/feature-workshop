@@ -56,3 +56,8 @@ When the token expires or is refused, the Inbox shows the banner "Your Orbit tok
 
 ## Rules
 The same as `2A-site-service.md`'s rules section, with this packet's own worktree, branch and port 4511.
+
+## From 2A's hand-back (2026-10-30)
+- `/api/cron/inbox` exists: it answers 204, and 401 without `CRON_SECRET`. Fill it.
+- `TOKEN_KEY` and `ORBIT_BASE_URL` are read by `hosted/site/config.js` but not used yet.
+- The hosted tests run with `npm test -w hosted`. Run them as well before each commit.
