@@ -24,6 +24,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { conflictedFiles, git, outsideOwned, ownedMatcher } from './integrate.js';
+import { diffStat, fileDiff } from './stack-parts.js';
 
 export const STACK_PLAN_FILE = 'stack.md';
 export const STACK_FILE = 'stack.json';
@@ -689,6 +690,10 @@ export function describeStack({ slug, title = null, ticketKey = null, plan = nul
       effort: s.effort ?? fromPlan.effort ?? null,
       mergedAt: s.mergedAt ?? null,
       mergeSha: s.mergeSha ?? null,
+      // Packet V: when it started and became ready, and when it was last sent back (stack.json).
+      startedAt: s.startedAt ?? null,
+      readyAt: s.readyAt ?? null,
+      sentBackAt: s.sentBackAt ?? null,
     };
   });
 
@@ -721,11 +726,12 @@ export function describeStack({ slug, title = null, ticketKey = null, plan = nul
     next = { action: 'wait', label: null, key: null, words: merge.reason ?? 'Building.' };
   }
 
-  return {
+  return withChanges({
     slug, title, ticketKey,
     phase, steps, next,
-    plan: plan ? { ok: plan.ok, why: plan.why ?? null, errors: plan.errors, warnings: plan.warnings, changedSinceApproval: Boolean(stack && planText !== null && planHash(planText) !== stack.planHash) } : null,
+    plan: plan ? { ok: plan.ok, why: plan.why ?? null, errors: plan.errors, warnings: plan.warnings, changedSinceApproval: Boolean(stack && planText !== null && planHash(planText) !== stack.planHash), text: planText ?? null } : null,
     approved: Boolean(stack),
+    planApprovedAt: stack?.planApprovedAt ?? null,
     cap: stack?.cap ?? DEFAULT_CAP,
     autoIntegrate: stack?.autoIntegrate ?? false,
     model: stack?.model ?? DEFAULT_MODEL,
@@ -742,7 +748,31 @@ export function describeStack({ slug, title = null, ticketKey = null, plan = nul
     parts,
     log: [...(stack?.log ?? [])].reverse().slice(0, 100),
     coordinator,
+  });
+}
+
+/**
+ * A part's changed files and one file's diff against the stack's branch, read-only (packet V). They
+ * ride on the view as a reader that isn't part of its JSON (view.readChanges), so the site's routes
+ * can ask without running git themselves. Git runs in the part's worktree when it is there, else in
+ * the repository. gitFn: for tests.
+ */
+export function withChanges(view, gitFn = git) {
+  const where = async (name) => {
+    const p = view.parts.find((x) => x.name === name);
+    if (!p) return null;
+    const there = p.worktree ? await fs.stat(p.worktree).then((st) => st.isDirectory(), () => false) : false;
+    return { dir: there ? p.worktree : view.repo, base: view.parentBranch, branch: p.branch };
   };
+  Object.defineProperty(view, 'readChanges', {
+    enumerable: false,
+    configurable: true,
+    value: {
+      async files(name) { const w = await where(name); return w ? diffStat({ git: gitFn, ...w }) : { error: 'No such part.', files: [], added: 0, removed: 0 }; },
+      async diff(name, file) { const w = await where(name); return w ? fileDiff({ git: gitFn, ...w, file }) : { error: 'No such part.' }; },
+    },
+  });
+  return view;
 }
 
 /** One stack's line on the Stacks list: its steps, where it is, and what it needs, in words. */
@@ -754,5 +784,8 @@ export function stackSummary(view) {
     parts: view.parts.length, counts, needs: view.next.words, action: view.next.action,
     // Each part's job, so Jobs can show a stack as one row that opens into its parts.
     sections: view.parts.map((p) => ({ n: p.n, name: p.name, slug: p.slug, state: p.state, stateWords: p.stateWords })),
+    // Packet V: what the Stacks home's card is worked out from (lib/stack-parts.js stackCard); the
+    // route turns it into the card's fields and leaves it out of the answer.
+    detail: { ...view, log: view.log.slice(0, 60), plan: view.plan ? { ...view.plan, text: null } : null },
   };
 }

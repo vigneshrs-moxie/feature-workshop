@@ -1000,6 +1000,7 @@ await demoAgents();
 await widgetThread();
 await playSecrets();
 await demoUsage();
+await (await import('./demo-stacks.js')).demoStacks({ features: FEATURES, root: ROOT }); // packet V: three demo stacks
 process.env.WORKSHOP_FEATURES_DIR = FEATURES;
 process.env.WORKSHOP_PROJECTS_DIR = path.dirname(PROJECTS);
 process.env.WORKSHOP_DEMO = '1';
