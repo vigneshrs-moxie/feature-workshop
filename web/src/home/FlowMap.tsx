@@ -21,6 +21,7 @@ import { useStored } from '../lib/stored';
 import { RowCrew } from '../play/RowCrew';
 import { jobHueStyle } from '../theme/hue';
 import { Icon } from '../components/Icon';
+import { Button } from '../components/Button';
 import {
   activePr, countsSuffix, countsWords, filterRepos, finishStop, groupLanes, knownChip, type MapLane, type MapRepo, mapChips,
   newestPr, nextHint, POSITION_LABELS, prPhrase, prText, prTone, releaseLine, trackStops, whereText,
@@ -131,9 +132,9 @@ function ReleaseTrain({ repo, lanes }: { repo: FlowRepo; lanes: readonly MapLane
         {parts.map((p, i) => <span key={i}>{i > 0 && <span aria-hidden="true"> · </span>}{p}</span>)}
       </span>
       {aboard.length > 0 && (
-        <button type="button" className="btn btn-quiet release-aboard" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((o) => !o)} title="The jobs whose work is in staging, waiting for the release.">
+        <Button kind="quiet" size="sm" className="release-aboard" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((o) => !o)} title="The jobs whose work is in staging, waiting for the release.">
           {aboard.length} aboard <Icon name="chevron-down" size={14} className={`fold-chevron${open ? ' is-up' : ''}`} />
-        </button>
+        </Button>
       )}
       {open && aboard.length > 0 && (
         <ul id={listId} className="release-aboard-list" aria-label={`Jobs in staging, ${repo.name}`}>
@@ -258,14 +259,14 @@ export function FlowMap({ repos, now, finishLine, withClosed, setWithClosed, rea
           With recently closed
         </button>
         <span className="map-layers" role="group" aria-label="Show">
-          <span className="muted">Show:</span>
+          <span className="map-layers-label">Show:</span>
           {LAYERS.map((l) => (
             <button key={l.id} type="button" className={`home-seg-btn${layers.has(l.id) ? ' is-on' : ''}`} aria-pressed={layers.has(l.id)} onClick={() => toggleLayer(l.id)} title={l.hint}>{l.label}</button>
           ))}
         </span>
         <span className="spacer" />
         <span className="muted home-read" role="status">{refreshing ? 'Reading branches and PRs…' : read}</span>
-        <button type="button" className="btn" onClick={onRefresh} disabled={refreshing} title="Fetch the branches and read the PRs now (read-only: git fetch and gh).">Refresh</button>
+        <Button icon="refresh" onClick={onRefresh} disabled={refreshing} title="Fetch the branches and read the PRs now (read-only: git fetch and gh).">Refresh</Button>
       </div>
       {repos.length > 0 && shown.length === 0 && <p className="muted home-empty">No job matches this chip.</p>}
       {shown.map(({ repo, lanes }) => (

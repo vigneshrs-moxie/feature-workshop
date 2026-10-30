@@ -10,7 +10,10 @@ import { useStored } from '../lib/stored';
 import { relativeTime } from '../lib/time';
 import { jobHueStyle } from '../theme/hue';
 import { countsText, countsWords, filterRows, prText, prTone, sortRows, type SortKey, type TableFilter, type TableRow } from './homeModel';
-import { Icon } from '../components/Icon';
+import { Icon, type IconName } from '../components/Icon';
+import { Chip, type ChipTone } from '../components/Chip';
+import { TextInput } from '../components/Field';
+import { stopOf } from '../components/stops/stops';
 
 export const TABLE_FILTER_KEY = 'fw.home.table.filter';
 export const TABLE_SORT_KEY = 'fw.home.table.sort';
@@ -38,6 +41,18 @@ const COLUMNS: { key: SortKey | null; label: string; hint: string }[] = [
   { key: null, label: 'PR #2', hint: 'The Moxie branch → staging (or into main where there is no staging).' },
   { key: 'updated', label: 'Updated', hint: 'When the job last changed.' },
 ];
+
+/** The status chip's tint and icon: needs you amber, running blue, done green, the rest quiet. The word is always there. */
+function statusLook(r: TableRow): { tone: ChipTone; icon: IconName } {
+  switch (r.group) {
+    case 'needs-you': return { tone: 'needs-you', icon: r.status === 'Question' ? 'help' : r.status === 'Permission' ? 'shield' : 'hand' };
+    case 'running': return { tone: 'info', icon: 'loader' };
+    case 'paused': return { tone: 'neutral', icon: 'pause' };
+    case 'shipping': return { tone: 'review', icon: 'rocket' };
+    case 'done': return { tone: 'ok', icon: 'circle-check' };
+    default: return { tone: 'neutral', icon: 'moon' };
+  }
+}
 
 function PrCell({ pr }: { pr: FlowPr | null }) {
   if (!pr) return <span className="muted">—</span>;
@@ -83,7 +98,8 @@ export function TableView({ rows, now }: { rows: TableRow[]; now: Date }) {
         </div>
         <label className="home-search">
           <span className="sr-only">Search jobs</span>
-          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search title, branch, repo…" title="Search the jobs’ titles, branches, repos, stages and statuses." />
+          <Icon name="search" size={16} className="home-search-icon" />
+          <TextInput type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search title, branch, repo…" title="Search the jobs’ titles, branches, repos, stages and statuses." />
         </label>
       </div>
       <div className="home-table-scroll">
@@ -112,18 +128,23 @@ export function TableView({ rows, now }: { rows: TableRow[]; now: Date }) {
                 <td>{r.repo || <span className="muted">—</span>}</td>
                 <td>{r.branch ? <code className="flow-branch">{r.branch}</code> : <span className="muted">—</span>}</td>
                 <td>{r.level === null ? <span className="muted">—</span> : `L${r.level}`}</td>
-                <td>{r.stage || <span className="muted">—</span>}</td>
-                <td><span className={`job-status status-${r.group}`} title={r.statusHint}>{r.status}</span></td>
+                <td>{r.stage ? <span className="table-stage" data-stop={stopOf(r.stageId) ?? undefined}><span className="table-stop-dot" aria-hidden="true" />{r.stage}</span> : <span className="muted">—</span>}</td>
+                <td><Chip {...statusLook(r)} className={`job-status status-${r.group}`} title={r.statusHint}>{r.status}</Chip></td>
                 <td className="table-where">{r.where || <span className="muted">—</span>}</td>
                 <td>{r.vsMain ? <span className={`flow-count${r.vsMain.behind > 0 ? ' is-behind' : ''}`} title={countsWords(r.vsMain, 'main')}>{countsText(r.vsMain)}</span> : <span className="muted">—</span>}</td>
                 <td><PrCell pr={r.pr1} /></td>
                 <td><PrCell pr={r.pr2} /></td>
-                <td className="muted">{relativeTime(r.updatedAt, now) || '—'}</td>
+                <td className="muted table-time">{relativeTime(r.updatedAt, now) || '—'}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        {shown.length === 0 && <p className="muted home-empty">No jobs match. Try another filter or clear the search.</p>}
+        {shown.length === 0 && (
+          <div className="table-empty">
+            <Icon name="search" size={20} />
+            <p>No jobs match. Try another filter or clear the search.</p>
+          </div>
+        )}
       </div>
       <KeyLegend ids={['table-down', 'table-up', 'table-open']} className="table-keys" />
     </div>

@@ -22,8 +22,12 @@ import { readStored, writeStored } from '../../lib/stored';
 import { relativeTime, useNow } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { LevelPicker } from './LevelPicker';
-import { Choice } from '../../components/Choice';
+import { OptionRow, Segmented } from '../../components/Choice';
 import { Select } from '../../components/Select';
+import { Button } from '../../components/Button';
+import { TextArea, TextInput } from '../../components/Field';
+import { Chip } from '../../components/Chip';
+import './jobSheets.css';
 
 export const LAST_REPO_KEY = 'fw.newJob.repo';
 const OTHER = '__other';
@@ -46,6 +50,7 @@ export function ticketFromDescription(text: string): TicketRef | null {
 }
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+const tilde = (p: string) => p.replace(/^\/Users\/[^/]+/, '~');
 const tokens = (n: number | null | undefined) => (!n ? null : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 
 type Repos = { state: 'loading' } | { state: 'ready'; list: Repo[] } | { state: 'error'; message: string };
@@ -81,31 +86,35 @@ function PastConversation({ picked, onPick, mode, onMode, canContinue }: {
     const size = tokens(picked.contextTokens);
     return (
       <fieldset className="from-session">
-        <legend>Starting from a past conversation</legend>
-        <p className="from-what">
-          <strong>{plainInline(picked.title)}</strong>
-          <span className="muted"> · {relativeTime(picked.lastAt, now) || 'unknown time'}{picked.messages ? ` · ${picked.messages} message${picked.messages === 1 ? '' : 's'}` : ''}{picked.branch ? ` · branch ${picked.branch}` : ''}</span>
-          <button type="button" className="btn btn-quiet" onClick={() => onPick(null, canContinue)} title="Don’t start from this conversation after all.">Remove</button>
-        </p>
+        <legend className="field-label">Starting from a past conversation</legend>
+        <div className="from-what">
+          <span className="from-what-words">
+            <strong>{plainInline(picked.title)}</strong>
+            <span className="muted"> · {relativeTime(picked.lastAt, now) || 'unknown time'}{picked.messages ? ` · ${picked.messages} message${picked.messages === 1 ? '' : 's'}` : ''}{picked.branch ? ` · branch ${picked.branch}` : ''}</span>
+          </span>
+          <Button kind="quiet" size="sm" onClick={() => onPick(null, canContinue)} title="Don’t start from this conversation after all.">Remove</Button>
+        </div>
         {!picked.repo && <p className="perm-warn">That conversation ran in {picked.cwd ?? 'an unknown folder'}, which isn’t a git repository. Pick the repository this job is for above.</p>}
-        <div className="rule-options">
-          <label className={`rule-option${mode === 'summary' ? ' is-picked' : ''}`} title="The Foreman reads a short extract of it, saved as history.md in the job’s private folder. Cheap, and a clean start.">
-            <Choice type="radio" name="fromMode" checked={mode === 'summary'} onChange={() => onMode('summary')} />
-            <span className="rule-option-body">
-              <span className="rule-option-kind">Fresh Foreman with a summary<span className="chip">Recommended</span></span>
-              <span className="muted">It reads what you asked, the files changed, the branch and how it ended.</span>
+        <div className="sheet-options">
+          <OptionRow type="radio" name="fromMode" checked={mode === 'summary'} onChange={() => onMode('summary')} title="The Foreman reads a short extract of it, saved as history.md in the job’s private folder. Cheap, and a clean start.">
+            <span className="option-body">
+              <span className="option-title">Fresh Foreman with a summary<Chip tone="accent">Recommended</Chip></span>
+              <span className="option-desc">It reads what you asked, the files changed, the branch and how it ended.</span>
             </span>
-          </label>
-          <label
-            className={`rule-option${mode === 'continue' ? ' is-picked' : ''}${continueOff ? ' is-off' : ''}`}
+          </OptionRow>
+          <OptionRow
+            type="radio"
+            name="fromMode"
+            checked={mode === 'continue'}
+            disabled={Boolean(continueOff)}
+            onChange={() => onMode('continue')}
             title={continueOff ?? 'A copy of the conversation becomes the Foreman, so it remembers everything said. Your original stays as it was.'}
           >
-            <Choice type="radio" name="fromMode" checked={mode === 'continue'} disabled={Boolean(continueOff)} onChange={() => onMode('continue')} />
-            <span className="rule-option-body">
-              <span className="rule-option-kind">Continue that conversation</span>
-              <span className="muted">{continueOff ?? `It remembers everything said, and costs more: ${size ? `about ${size} tokens` : 'the whole conversation'} re-read on every reply.`}</span>
+            <span className="option-body">
+              <span className="option-title">Continue that conversation</span>
+              <span className="option-desc">{continueOff ?? `It remembers everything said, and costs more: ${size ? `about ${size} tokens` : 'the whole conversation'} re-read on every reply.`}</span>
             </span>
-          </label>
+          </OptionRow>
         </div>
       </fieldset>
     );
@@ -114,23 +123,22 @@ function PastConversation({ picked, onPick, mode, onMode, canContinue }: {
   return (
     <details className="from-search" open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
       <summary title="Optional: start from something you already discussed with Claude Code in a terminal.">Start from a past conversation (optional)</summary>
-      <label className="field sheet-field" htmlFor={searchId}>
-        <span>Search your past Claude Code conversations</span>
-      </label>
-      <input
-        id={searchId}
-        className="text-input"
-        type="search"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Words from its title or first message"
-        title="Searches the titles and first messages of your past conversations. Leave it empty to see the latest."
-      />
-      {search.state === 'loading' && <p className="muted" role="status">Searching…</p>}
+      <div className="field from-search-body">
+        <label className="field-label" htmlFor={searchId}>Search your past Claude Code conversations</label>
+        <TextInput
+          id={searchId}
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Words from its title or first message"
+          title="Searches the titles and first messages of your past conversations. Leave it empty to see the latest."
+        />
+      </div>
+      {search.state === 'loading' && <p className="muted from-status" role="status">Searching…</p>}
       {search.state === 'error' && <p className="field-problem" role="alert">{search.message}</p>}
       {search.state === 'ready' && (
         search.list.rows.length === 0 ? (
-          <p className="muted" role="status">{query ? `No conversation matches “${query}”.` : 'No past conversations found.'}</p>
+          <p className="muted from-status" role="status">{query ? `No conversation matches “${query}”.` : 'No past conversations found.'}</p>
         ) : (
           <ul className="history-results" aria-label="Past conversations">
             {search.list.rows.slice(0, SHOWN_ROWS).map((r) => (
@@ -139,13 +147,13 @@ function PastConversation({ picked, onPick, mode, onMode, canContinue }: {
                   <span className="history-title">{plainInline(r.title)}</span>
                   <span className="muted history-meta">{[relativeTime(r.lastAt, now), r.repo ? r.repo.split('/').pop() : 'no repository', r.messages ? `${r.messages} messages` : ''].filter(Boolean).join(' · ')}</span>
                 </span>
-                <button type="button" className="btn" onClick={() => onPick(r, search.list.canContinue)} aria-label={`Use “${plainInline(r.title)}”`} title="Start this job from that conversation. You choose how on the next step.">Use this</button>
+                <Button size="sm" onClick={() => onPick(r, search.list.canContinue)} aria-label={`Use “${plainInline(r.title)}”`} title="Start this job from that conversation. You choose how on the next step.">Use this</Button>
               </li>
             ))}
           </ul>
         )
       )}
-      {search.state === 'ready' && search.list.matched > SHOWN_ROWS && <p className="muted sheet-fine">Showing {SHOWN_ROWS} of {search.list.matched}. Add words to narrow it.</p>}
+      {search.state === 'ready' && search.list.matched > SHOWN_ROWS && <p className="sheet-fine">Showing {SHOWN_ROWS} of {search.list.matched}. Add words to narrow it.</p>}
     </details>
   );
 }
@@ -244,111 +252,125 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
       </HowThisWorks>
       <form onSubmit={(e) => { e.preventDefault(); void submit(); }}>
         <fieldset className="sheet-fields" disabled={busy}>
-          <label className="field sheet-field" htmlFor={descId}><span>What should the crew build or fix?</span></label>
-          <textarea
-            id={descId}
-            data-autofocus
-            className="text-area"
-            rows={2}
-            maxLength={600}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void submit(); } }}
-            placeholder="e.g. Add a Copy ID button next to the ticket ID on the admin ticket page"
-            title="One or two sentences. It also becomes the job’s name. ⌘/Ctrl+Enter starts the job."
-          />
-
-          <label className="field sheet-field" htmlFor={ticketId}><span>{fromInbox ? 'Orbit ticket' : 'Orbit ticket (optional)'}</span></label>
-          <input
-            id={ticketId}
-            className="text-input num"
-            type="text"
-            value={ticketText}
-            readOnly={Boolean(fromInbox)}
-            aria-readonly={fromInbox ? true : undefined}
-            onChange={(e) => setTicketText(e.target.value)}
-            placeholder="ORBIT-479"
-            spellCheck={false}
-            title={fromInbox ? 'Started from this ticket in the Inbox. The job, its branch and the ticket share this key.' : 'The Orbit ticket this job is for, like ORBIT-479. The job’s folder and branch are then named after it. Leave it empty for a job without a ticket.'}
-          />
-          {fromInbox
-            ? <p className="muted sheet-fine">From the Inbox. The job, its branch and the ticket share this key, and the Foreman reads the ticket through Orbit (read only).</p>
-            : ticketText.trim() && !ticketKeyOf(ticketText) ? <p className="field-problem">{TICKET_KEY_PROBLEM}</p> : null}
-
-          <div className="seg" role="radiogroup" aria-label="Kind">
-            <span className="seg-label muted">Kind</span>
-            <label className={kind === 'feature' ? 'seg-option is-picked' : 'seg-option'} title="Something new, or a change to how something works.">
-              <Choice type="radio" name="kind" value="feature" checked={kind === 'feature'} onChange={() => setKind('feature')} /> Feature
-            </label>
-            <label className={kind === 'bug' ? 'seg-option is-picked' : 'seg-option'} title="Something that’s broken. The Foreman starts by finding the cause.">
-              <Choice type="radio" name="kind" value="bug" checked={kind === 'bug'} onChange={() => setKind('bug')} /> Bug fix
-            </label>
+          <div className="field">
+            <label className="field-label" htmlFor={descId}>What should the crew build or fix?</label>
+            <TextArea
+              id={descId}
+              data-autofocus
+              rows={3}
+              maxLength={600}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void submit(); } }}
+              placeholder="e.g. Add a Copy ID button next to the ticket ID on the admin ticket page"
+              title="One or two sentences. It also becomes the job’s name. ⌘/Ctrl+Enter starts the job."
+            />
           </div>
 
-          <LevelPicker levels={meta?.levels} value={level} suggestion={suggestion} byHand={picked !== null} onPick={setPicked} disabled={busy} />
-
-          <label className="rule-option sheet-field" data-setting="run-as-stack" title="For a big ticket: the work is split into parts that are built side by side, then joined in order.">
-            <Choice type="checkbox" checked={asStack} onChange={(e) => setAsStack(e.target.checked)} disabled={busy} />
-            <span className="rule-option-body">
-              <span className="rule-option-kind">Run as a stack</span>
-              <span className="muted">For a big ticket: the Foreman splits the work into parts that are built side by side, then joined in order. You check the parts on the Stack page before anything is built.</span>
-            </span>
-          </label>
-
-          <label className="field sheet-field" htmlFor={repoId}><span>Repository</span></label>
-          <Select
-            id={repoId}
-            className="sheet-select"
-            value={repo}
-            onChange={setRepo}
-            disabled={repos.state === 'loading'}
-            title="The git repository the job works in. The ones you used most recently with Claude Code are listed first."
-            options={[
-              ...(repos.state === 'loading' ? [{ value: '', label: 'Loading your repositories…' }] : []),
-              ...options.map((r) => ({ value: r.path, label: `${r.name} — ${r.path}`, text: r.name })),
-              { value: OTHER, label: 'Another folder…' },
-            ]}
-          />
-          {repos.state === 'error' && <p className="muted sheet-fine">Couldn’t list your repositories ({repos.message}). Type the folder’s path instead.</p>}
+          <div className="field">
+            <label className="field-label" htmlFor={repoId}>Repository</label>
+            <Select
+              id={repoId}
+              className="sheet-select"
+              value={repo}
+              onChange={setRepo}
+              disabled={repos.state === 'loading'}
+              title="The git repository the job works in. The ones you used most recently with Claude Code are listed first."
+              options={[
+                ...(repos.state === 'loading' ? [{ value: '', label: 'Loading your repositories…' }] : []),
+                ...options.map((r) => ({ value: r.path, label: <><span className="repo-name">{r.name}</span><span className="repo-path">{tilde(r.path)}</span></>, text: r.name })),
+                { value: OTHER, label: 'Another folder…' },
+              ]}
+            />
+            {repos.state === 'error' && <p className="field-hint">Couldn’t list your repositories ({repos.message}). Type the folder’s path instead.</p>}
+          </div>
           {repo === OTHER && (
-            <>
-              <label className="field sheet-field" htmlFor={pathId}><span>Folder path</span></label>
-              <input
+            <div className="field">
+              <label className="field-label" htmlFor={pathId}>Folder path</label>
+              <TextInput
                 id={pathId}
-                className="text-input num"
-                type="text"
+                className="num"
                 value={otherPath}
                 onChange={(e) => setOtherPath(e.target.value)}
                 placeholder="/Users/you/Projects/your-repo"
                 spellCheck={false}
                 title="The full path of a folder inside a git repository, starting with /."
               />
-            </>
+            </div>
           )}
 
-          <div className="rule-options" role="radiogroup" aria-label="Foreman model">
-            <span className="seg-label muted">Foreman model</span>
-            {models.map((m) => (
-              <label key={m.id} className={`rule-option${model === m.id ? ' is-picked' : ''}`} title={`Run this job’s Foreman on ${m.label}. You can change it for any later message.`}>
-                <Choice type="radio" name="model" value={m.id} checked={model === m.id} onChange={() => setModel(m.id)} />
-                <span className="rule-option-body">
-                  <span className="rule-option-kind">{m.label}</span>
-                  {m.note && <span className="muted">{m.note}</span>}
-                </span>
-              </label>
-            ))}
+          <div className="sheet-row">
+            <div className="field">
+              <label className="field-label" htmlFor={ticketId}>{fromInbox ? 'Orbit ticket' : 'Orbit ticket (optional)'}</label>
+              <TextInput
+                id={ticketId}
+                className="num"
+                value={ticketText}
+                readOnly={Boolean(fromInbox)}
+                aria-readonly={fromInbox ? true : undefined}
+                onChange={(e) => setTicketText(e.target.value)}
+                placeholder="ORBIT-479"
+                spellCheck={false}
+                title={fromInbox ? 'Started from this ticket in the Inbox. The job, its branch and the ticket share this key.' : 'The Orbit ticket this job is for, like ORBIT-479. The job’s folder and branch are then named after it. Leave it empty for a job without a ticket.'}
+              />
+            </div>
+            <div className="field">
+              <span className="field-label" aria-hidden="true">Kind</span>
+              <Segmented
+                label="Kind"
+                className="kind-segments"
+                value={kind}
+                onChange={(v) => setKind(v === 'bug' ? 'bug' : 'feature')}
+                disabled={busy}
+                options={[
+                  { value: 'feature', label: 'Feature', title: 'Something new, or a change to how something works.' },
+                  { value: 'bug', label: 'Bug fix', title: 'Something that’s broken. The Foreman starts by finding the cause.' },
+                ]}
+              />
+            </div>
           </div>
+          {fromInbox
+            ? <p className="field-hint">From the Inbox. The job, its branch and the ticket share this key, and the Foreman reads the ticket through Orbit (read only).</p>
+            : ticketText.trim() && !ticketKeyOf(ticketText) ? <p className="field-problem">{TICKET_KEY_PROBLEM}</p> : null}
+
+          <LevelPicker levels={meta?.levels} value={level} suggestion={suggestion} byHand={picked !== null} onPick={setPicked} disabled={busy} />
+
+          {models.length > 0 && (
+            <div className="field">
+              <span className="field-label" aria-hidden="true">Foreman model</span>
+              <Segmented
+                label="Foreman model"
+                className="model-segments"
+                value={model}
+                onChange={setModel}
+                disabled={busy}
+                options={models.map((m) => ({
+                  value: m.id,
+                  title: `Run this job’s Foreman on ${m.label}. You can change it for any later message.`,
+                  label: <>{m.label}{m.note && <span className="sr-only">: {m.note}</span>}</>,
+                }))}
+              />
+              <p className="field-hint">{models.find((m) => m.id === model)?.note ?? '\u00a0'}</p>
+            </div>
+          )}
+
+          <OptionRow type="checkbox" className="sheet-option" checked={asStack} onChange={(e) => setAsStack(e.target.checked)} disabled={busy} title="For a big ticket: the work is split into parts that are built side by side, then joined in order.">
+            <span className="option-body" data-setting="run-as-stack">
+              <span className="option-title">Run as a stack</span>
+              <span className="option-desc">For a big ticket: the Foreman splits the work into parts that are built side by side, then joined in order. You check the parts on the Stack page before anything is built.</span>
+            </span>
+          </OptionRow>
 
           <PastConversation picked={from} onPick={pick} mode={fromMode} onMode={setFromMode} canContinue={canContinue} />
         </fieldset>
 
-        <p className="muted sheet-fine">Runs with your own Claude Code login. Workers use the models set in their agent files.{meta?.demo ? ' Demo mode: a pretend Foreman answers; nothing real runs.' : ''}</p>
+        <p className="sheet-fine">Runs with your own Claude Code login. Workers use the models set in their agent files.{meta?.demo ? ' Demo mode: a pretend Foreman answers; nothing real runs.' : ''}</p>
         {error && <p className="field-problem" role="alert">{error}</p>}
         <div className="sheet-actions">
-          <button type="submit" className="btn btn-primary" disabled={busy} title="Start the job now. Its Foreman reads your request and replies in the conversation.">
+          <Button onClick={onClose} disabled={busy} title="Close without starting anything.">Cancel</Button>
+          <Button type="submit" kind="primary" disabled={busy} title="Start the job now. Its Foreman reads your request and replies in the conversation.">
             {busy ? 'Starting…' : 'Start job'}
-          </button>
-          <button type="button" className="btn btn-quiet" onClick={onClose} disabled={busy} title="Close without starting anything.">Cancel</button>
+          </Button>
         </div>
       </form>
     </Sheet>

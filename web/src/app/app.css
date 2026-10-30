@@ -601,33 +601,6 @@ a:hover { text-decoration: underline; }
 .answer-other { display: flex; flex: 1; align-items: center; gap: var(--space-2); }
 .answer-other .answer-label { flex: none; }
 
-/* The "Always allow" sheet. */
-.sheet-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
-  background: var(--scrim);
-  animation: fade-in var(--dur-menu) var(--ease-out);
-}
-.sheet {
-  width: min(560px, 100%);
-  max-height: 100%;
-  overflow: auto;
-  padding: var(--space-4);
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-xl);
-  background: var(--bg-2);
-  box-shadow: var(--shadow-2);
-  animation: rise-in var(--dur-pane) var(--ease-out);
-}
-.sheet-title { margin-bottom: var(--space-2); font-size: var(--text-md); }
-.sheet-facts { margin: 0 0 var(--space-2) var(--space-4); list-style: disc; font-size: var(--text-sm); }
-.sheet-facts li { margin: 2px 0; }
-.sheet-actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
 .rule-options { display: flex; flex-direction: column; gap: var(--space-1); margin: 0; padding: 0; border: 0; }
 .rule-option { display: flex; align-items: flex-start; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--border-1); border-radius: var(--radius-md); cursor: pointer; }
 .rule-option.is-picked { border-color: var(--accent); background: var(--accent-soft); }
@@ -793,72 +766,15 @@ a:hover { text-decoration: underline; }
 /* ---------- Top bar extras, ⌘K, sheets ---------- */
 
 
-.palette-backdrop { align-items: flex-start; padding-top: 12vh; }
-.palette {
-  display: flex;
-  flex-direction: column;
-  width: min(600px, 100%);
-  max-height: 70vh;
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-xl);
-  background: var(--bg-2);
-  box-shadow: var(--shadow-2);
-  animation: rise-in var(--dur-pane) var(--ease-out);
-  overflow: hidden;
-}
-.palette-input { height: 44px; border: 0; border-bottom: 1px solid var(--border-1); border-radius: 0; background: transparent; padding: 0 var(--space-4); font-size: var(--text-md); }
-.palette-input:focus-visible { outline: none; border-bottom-color: var(--focus-ring); }
-.palette-list { flex: 1; overflow: auto; padding: var(--space-1); }
-.palette-option {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-}
-.palette-option.is-active { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
-.palette-label { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.palette-section { font-size: var(--text-xs); }
-.palette-empty { padding: var(--space-3) var(--space-4); margin: 0; }
-.palette-foot { margin: 0; padding: var(--space-1) var(--space-4); border-top: 1px solid var(--border-1); font-size: var(--text-xs); }
+/* The ⌘K palette: components/palette.css. */
 
-.sheet-field { margin-top: var(--space-3); }
 .sheet-fine { margin: var(--space-2) 0 0; font-size: var(--text-sm); }
-.sheet-fields { display: flex; flex-direction: column; gap: var(--space-1); margin: 0; padding: 0; border: 0; min-width: 0; }
-.new-job-sheet { width: min(640px, 100%); }
-.new-job-sheet .rule-options { margin-top: var(--space-3); }
 .seg { display: flex; align-items: center; gap: var(--space-1); margin-top: var(--space-3); }
 .seg-label { margin-right: var(--space-2); font-size: var(--text-sm); }
 .seg-option { display: inline-flex; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-3); border: 1px solid var(--border-2); border-radius: var(--radius-md); cursor: pointer; }
 .seg-option.is-picked { border-color: var(--accent); background: var(--accent-soft); }
 .seg-option input { accent-color: var(--accent); }
 
-.from-search { margin-top: var(--space-3); }
-.from-search summary { cursor: pointer; color: var(--text-2); font-size: var(--text-sm); }
-.from-search summary:hover { color: var(--text-1); }
-.from-search .text-input { margin-top: var(--space-1); }
-.history-results { display: flex; flex-direction: column; margin-top: var(--space-2); border: 1px solid var(--border-1); border-radius: var(--radius-md); }
-.history-row { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); }
-.history-row + .history-row { border-top: 1px solid var(--border-1); }
-.history-row-main { display: flex; flex: 1; min-width: 0; flex-direction: column; }
-.history-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.history-meta { font-size: var(--text-xs); }
-.from-session { margin: var(--space-3) 0 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-2); border-radius: var(--radius-md); }
-.from-session legend { padding: 0 var(--space-1); color: var(--text-2); font-size: var(--text-sm); }
-.from-what { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
-.from-what .btn { margin-left: auto; }
-
-.key-list { margin: 0; }
-.key-row { display: flex; align-items: baseline; gap: var(--space-3); padding: var(--space-1) 0; }
-.key-row dt { flex: none; width: 96px; }
-.key-row dd { margin: 0; }
-.key-row .key-where { display: block; font-size: var(--text-xs); }
-.key-group + .key-group { margin-top: var(--space-3); }
-.key-group-title { margin: 0; font-size: var(--text-base); color: var(--text-2); }
-.key-group-title .muted { font-weight: var(--weight-regular); }
-.key-group-where { margin: 0 0 var(--space-1); font-size: var(--text-xs); }
-.keys-sheet .keys-off { margin: 0 0 var(--space-2); }
 .key-legend { margin: var(--space-3) 0 0; font-size: var(--text-xs); }
 .key-legend .kbd { background: var(--bg-3); color: var(--text-3); }
 .keys-settings .check { margin-top: var(--space-2); }
@@ -868,9 +784,6 @@ a:hover { text-decoration: underline; }
 
 /* ---------- Levels: the New job picker, the LevelCard, the header's level chip ---------- */
 
-.level-picker .rule-option-kind .chip { font-weight: var(--weight-regular); }
-.level-suggested { margin-top: var(--space-1); }
-.level-floor { margin: var(--space-2) 0 0; }
 
 /* The LevelCard is a question card (.perm-card[data-ask='question']): its colours come from there. */
 .level-card-head { margin: 0 0 var(--space-2); }
