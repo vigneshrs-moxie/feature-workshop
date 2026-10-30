@@ -20,7 +20,8 @@
     "node": ">=22"
   },
   "workspaces": [
-    "web"
+    "web",
+    "hosted"
   ],
   "scripts": {
     "start": "node dashboard/server.js",

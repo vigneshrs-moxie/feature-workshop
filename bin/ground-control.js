@@ -11,7 +11,8 @@
 //   update                         move to the newest release, after checking its checksum
 //   open <job>                     open the job's folder in your terminal and editor
 //   install | uninstall            set up (or remove) the background service from sign-in
-//   login                          pairing with the site (a later version)
+//   login --site <address>         pair this laptop with the hosted site (packet 2A)
+//   logout                         unpair it
 //   decisions <job> [--worktree]   copy the job's decisions.md into docs/decisions/, rebuild the index
 //
 // One small parser, no dependencies: --help on every command, plain errors, exit code 0 or 1.
@@ -154,11 +155,27 @@ const COMMANDS = {
     run: cmdUninstall,
   },
   login: {
-    usage: 'ground-control login <code>',
-    summary: 'Pair this computer with the site (a later version)',
-    help: [`Pairing this computer with the ${PRODUCT} site comes in a later version.`],
-    args: { min: 0, max: 1, names: '<code>' },
-    run: (ctx) => { ctx.out('Pairing with the site comes in a later version.'); return 0; },
+    usage: 'ground-control login --site <address> [--name <name>]',
+    summary: 'Pair this laptop with the hosted site, once',
+    help: [
+      `Pairs this laptop with the ${PRODUCT} site, so your jobs here show there. It prints a link and a`,
+      'short code: open the link, sign in with your Moxie Google account, check the site shows the same',
+      'code and press “Pair this laptop”. The laptop then keeps its own token in this computer’s',
+      'credential store; the running service picks it up by itself. Running it again on a laptop',
+      'already paired gives it a new token (the old one stops working).',
+      '',
+      '  --site <address>   the site’s address, like https://feature-workshop.example.com',
+      '                     (not needed again once this laptop has been paired)',
+      '  --name <name>      what the site calls this laptop (this computer’s name when not given)',
+    ],
+    values: ['site', 'name'],
+    run: cmdLogin,
+  },
+  logout: {
+    usage: 'ground-control logout',
+    summary: 'Unpair this laptop from the hosted site',
+    help: ['Tells the site to forget this laptop’s token, then forgets it here too. Your jobs stay on this laptop; they stop showing on the site.'],
+    run: cmdLogout,
   },
   // The Foreman runs it at the ship stage, as the skill says (packet O).
   decisions: {
@@ -644,6 +661,37 @@ async function cmdToken(ctx, { args, values }) {
     await state.audit({ action: 'orbit-token', what: 'saved', store: store.kind, mcp: orbit.MCP_NAME, via: 'cli' });
   }
   ctx.out(`Saved the Orbit token and wrote the ${orbit.MCP_NAME} entry into ${s ? 'Claude Code’s settings' : claudeSettingsFile}. Claude Code sessions started from now on can read tickets.`);
+  return 0;
+}
+
+// ---------- login, logout (packet 2A): pairing with the hosted site ----------
+
+async function siteStore(ctx) {
+  const link = ctx.deps['site-link'] ?? await import('../dashboard/runner/site-link.js');
+  const store = await link.siteTokenStore({ stateDir: ctx.stateDir, prefer: ctx.env.WORKSHOP_ORBIT_STORE === 'file' || ctx.env.WORKSHOP_DEMO ? 'file' : 'auto' });
+  return { link, store };
+}
+
+async function cmdLogin(ctx, { values }) {
+  const { link, store } = await siteStore(ctx);
+  const siteUrl = values.site || link.readSiteFile(ctx.stateDir)?.url;
+  if (!siteUrl) { ctx.err(`Say which site with --site <address>. Usage: ${COMMANDS.login.usage}`); return 1; }
+  const r = await link.pairWithSite({ siteUrl, stateDir: ctx.stateDir, store, fetch: ctx.fetch, out: ctx.out, sleep: ctx.sleep, version: ctx.version(), name: values.name });
+  ctx.out(r.rotated
+    ? `Paired again: this laptop is “${r.runner.name}” on the site, for ${r.person.email}. Its old token no longer works.`
+    : `Paired: this laptop is “${r.runner.name}” on the site, for ${r.person.email}.`);
+  if (r.movedFrom) ctx.out(`This laptop now uses ${new URL(siteUrl).origin} instead of ${r.movedFrom}.`);
+  ctx.out(ctx.running() ? 'Your jobs show on the site from now on.' : `Your jobs show on the site while ${PRODUCT} runs. ${START_HINT}`);
+  return 0;
+}
+
+async function cmdLogout(ctx) {
+  const { link, store } = await siteStore(ctx);
+  const r = await link.unpairFromSite({ stateDir: ctx.stateDir, store, fetch: ctx.fetch });
+  if (!r) { ctx.out('This laptop isn’t paired with a site, so there was nothing to forget.'); return 0; }
+  ctx.out(r.told
+    ? `Unpaired: ${r.url} has forgotten this laptop, and its token is gone from here too.`
+    : `Unpaired here: the token is gone from this laptop. ${r.url ?? 'The site'} couldn’t be reached, so the token still works there until you remove this laptop in the site’s Settings → Laptops.`);
   return 0;
 }
 

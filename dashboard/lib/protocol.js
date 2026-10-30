@@ -18,8 +18,8 @@
 
 import { scrubDeep } from './orbit.js';
 
-/** Bumped whenever a command, a field or an event changes shape. */
-export const PROTOCOL_VERSION = 1;
+/** Bumped whenever a command, a field or an event changes shape. 2: the events hello and job-list (packet 2A). */
+export const PROTOCOL_VERSION = 2;
 
 /** The most a job's notes.md may hold (characters): the notes command's text, and meta.jobOptions.notesMax. */
 export const NOTES_MAX = 20000;
@@ -149,6 +149,9 @@ export const EVENT_TYPES = Object.freeze([
   // What the page's streams carry today (/api/events and ?v=2)
   'run', 'steer', 'permission-gone', 'change', 'thread', 'flow', 'notification', 'gate-stale', 'play', 'rules',
   'settings', 'usage', 'plan-usage', 'local', 'local-state', 'run-typical',
+  // The hosted site's link (packet 2A, runner/site-link.js): who this runner is when it connects
+  // (name, OS, version, protocol), and every open job as one row each (the site's mirror).
+  'hello', 'job-list',
 ]);
 
 /** Keys an event never carries, at any depth (§2.4 "Never carries"). */

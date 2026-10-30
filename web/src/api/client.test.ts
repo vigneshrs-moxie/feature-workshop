@@ -87,4 +87,36 @@ describe('api client', () => {
     expect(err).toBeInstanceOf(ApiError);
     expect(err.message).toBe('The dashboard answered 500.');
   });
+
+  // Packet 2A: the hosted site knows you by its session cookie, never by a page token.
+  it('in hosted mode, writes carry the session cookie and no page token, and a 403 is not retried', async () => {
+    const calls: Array<{ path: string; token: string | null; credentials?: RequestCredentials }> = [];
+    const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(url);
+      calls.push({ path, token: new Headers(init?.headers).get('X-Workshop-Token'), credentials: init?.credentials });
+      if (path === '/api/meta') return json(200, { mode: 'hosted', person: null });
+      return json(403, { error: 'This change must come from the site’s own page.' });
+    }) as unknown as typeof globalThis.fetch;
+    const api = createApi({ fetch });
+    expect(api.hosted?.()).toBe(false);
+    await api.meta();
+    expect(api.hosted?.()).toBe(true);
+    const err = await failure(api.post('/api/people/2/role', { role: 'manager' }));
+    expect(err.status).toBe(403);
+    const writes = calls.filter((c) => c.path !== '/api/meta');
+    expect(writes).toHaveLength(1);
+    expect(writes[0].token).toBeNull();
+    expect(writes[0].credentials).toBe('same-origin');
+  });
+
+  it('started hosted, it never asks for a page token; a 401 says sign in', async () => {
+    const paths: string[] = [];
+    const fetch = vi.fn(async (url: RequestInfo | URL) => { paths.push(String(url)); return json(401, { error: 'Sign in first.', signIn: true }); }) as unknown as typeof globalThis.fetch;
+    const api = createApi({ fetch, hosted: true });
+    const err = await failure(api.del('/api/laptops/3'));
+    expect(err.status).toBe(401);
+    expect(err.body.signIn).toBe(true);
+    expect(paths).toEqual(['/api/laptops/3']);
+  });
 });
+

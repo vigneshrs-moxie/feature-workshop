@@ -1,0 +1,25 @@
+{
+  "name": "@moxie/ground-control-site",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The hosted site (v2): sign-in, laptops, the runner link and the job mirror. The Vercel project's Root Directory.",
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "dev": "node dev.js",
+    "build": "node scripts/build.js",
+    "migrate": "node scripts/migrate.js",
+    "test": "node --test \"test/*.test.js\"",
+    "e2e": "node e2e/two-laptops.mjs"
+  },
+  "dependencies": {
+    "@vercel/functions": "3.10.1",
+    "jose": "6.2.12",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.9"
+  }
+}

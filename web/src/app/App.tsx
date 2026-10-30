@@ -2,6 +2,8 @@
 // (⌘K, New job, Mark done, the keys list, the job drawer with notes and options) and the page keys.
 // Owns the store, the API client and the live sync; tests pass their own (a fake fetch and a fake
 // EventSource). The browser tab's title is the page's name and the product's (app/brand.ts).
+// On the hosted site (packet 2A: its index.html says so, views/Hosted/mode.ts) it is the hosted
+// app instead: sign-in, my jobs from the mirror, pairing, Laptops and People (views/Hosted).
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { createApi, type ApiClient } from '../api/client';
 import type { PolicyId } from '../api/types';
@@ -47,6 +49,8 @@ import { HomeView } from '../home/HomeView';
 import { UiProvider, useUi, type SheetState } from './ui';
 import { Button } from '../components/Button';
 import { useDelayedFlag } from '../lib/useDelayedFlag';
+import { HostedApp } from '../views/Hosted/HostedApp';
+import { hostedPage } from '../views/Hosted/mode';
 
 // A page reachable only by its address, for checking the 3D floor by eye (packet S). Never linked
 // or named anywhere in the app; in its own chunk, and it loads no 3D unless Play is full.
@@ -235,7 +239,11 @@ export interface AppProps {
   openStream?: (url: string) => EventSourceLike;
 }
 
-export function App({ api: givenApi, store: givenStore, openStream }: AppProps) {
+export function App(props: AppProps) {
+  return hostedPage() ? <HostedApp api={props.api} /> : <LocalApp {...props} />;
+}
+
+function LocalApp({ api: givenApi, store: givenStore, openStream }: AppProps) {
   const [api] = useState(() => givenApi ?? createApi());
   const [store] = useState(() => givenStore ?? createStore());
   const [sync, setSync] = useState<LiveSync | null>(null);

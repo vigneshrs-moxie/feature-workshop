@@ -82,6 +82,7 @@ import { createStacks } from './stacks.js';
 import { itemSummary, lookAt, noteFeedback, readFeedback } from '../lib/pr-feedback.js';
 import { ReviewRefused, createReviewRounds, gitRead } from '../lib/review-round.js';
 import { createGhWrite } from '../lib/gh-write.js';
+import { createSiteLink, siteTokenStore } from './site-link.js';
 
 /** The Foreman models the page offers (meta.models); a reply's model must be one of them. */
 export const MODELS = [
@@ -119,7 +120,7 @@ export async function createRunner(config) {
     featuresDir: FEATURES_DIR, projectsDir: PROJECTS_DIR, agentsDir: AGENTS_DIR, skillsDir: SKILLS_DIR,
     stateDir, demo: DEMO = false, claudePath = null, claudeSettingsFile: CLAUDE_SETTINGS_FILE, legacySettingsFile = null,
     gateParkMs = null, planUsage: planUsageOn = true, orbitStore: orbitStorePrefer = 'auto',
-    integrateDir: INTEGRATE_DIR, integrateRoot, env = process.env,
+    integrateDir: INTEGRATE_DIR, integrateRoot, env = process.env, siteLink: siteLinkOn = true,
   } = config;
   // Whether the installed /feature skill knows levels (read only; Settings warns when it doesn't).
   const skill = skillChecker(SKILLS_DIR);
@@ -2496,6 +2497,17 @@ export async function createRunner(config) {
     checkWaiting().catch(() => {});
     // Replies the last clean stop paused carry on.
     startCarryingOn();
+    // The hosted site (packet 2A): idle until `ground-control login` pairs this laptop.
+    if (siteLinkOn) startSiteLink().catch((err) => console.error('site link:', err.message));
+  }
+
+  let siteLink = null;
+  async function startSiteLink() {
+    const store = await siteTokenStore({ stateDir: state.dir, prefer: orbitStorePrefer === 'file' ? 'file' : 'auto' });
+    let version = '';
+    try { version = JSON.parse(fs.readFileSync(path.join(HERE, '..', 'package.json'), 'utf8')).version ?? ''; } catch { /* unknown */ }
+    if (stopping) return;
+    siteLink = createSiteLink({ runner: { read, handle, on }, stateDir: state.dir, store, version }).start();
   }
 
   /**
@@ -2507,6 +2519,7 @@ export async function createRunner(config) {
   function stop() {
     stopping ??= (async () => {
       if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; }
+      siteLink?.stop();
       const active = driver.list().filter((r) => ACTIVE_RUN.has(r.status));
       const paused = active.map((r) => ({ runId: r.id, slug: r.slug, featureDir: r.featureDir, sessionId: r.sessionId, model: r.model, cwd: r.cwd, kind: r.kind }));
       for (const [dir, p] of restartPaused) {
