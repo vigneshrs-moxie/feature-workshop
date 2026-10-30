@@ -1,5 +1,6 @@
 // The floor lab's benches (FloorLab.tsx, #/floor-lab): every pose for every role, for checking by
 // eye. Invented words, never sent anywhere.
+import type { Job, Permission } from '../../api/types';
 import { roleOf } from '../crewPack';
 import type { LampGroup } from './palette';
 import { POSES, POSE_WORDS, type Pose } from './rig';
@@ -71,4 +72,39 @@ export function busyBenches(): FloorBench[] {
       figures: [figure(slug, 'conductor', poses[(i + 4) % poses.length], 'head'), ...crew.map((who, j) => figure(slug, who, poses[(i + j) % poses.length], j as 0 | 1))],
     };
   });
+}
+
+// ---------- The live floor's made-up jobs: the states the demo has none of ----------
+
+const MIN = 60 * 1000;
+const at = (msAgo: number, now: Date) => new Date(now.getTime() - msAgo).toISOString();
+/** Today at 4 pm (tomorrow's when that has passed): when the made-up limit resets. */
+function fourPm(now: Date): string {
+  const d = new Date(now);
+  d.setHours(16, 0, 0, 0);
+  if (d.getTime() < now.getTime()) d.setDate(d.getDate() + 1);
+  return d.toISOString();
+}
+
+/**
+ * Jobs for the states the demo's own jobs lack: a command with a count (running), failed tests
+ * (stopped), the usage limit (paused), a finished job (done), and a permission card waiting
+ * (asking). Every title says it is an example.
+ */
+export function labJobs(now: Date = new Date()): { jobs: Job[]; permissions: Permission[] } {
+  const jobs: Job[] = [
+    { slug: 'lab-running-tests', title: 'Nightly export (example)', group: 'running', lane: 'working', stage: 'test', stageState: 'working', working: true,
+      nowDoing: [{ who: 'feature-tester', doing: 'Running npm test · 212 of 577', since: at(4 * MIN, now) }] },
+    { slug: 'lab-failed-tests', title: 'Price rounding (example)', group: 'idle', lane: 'resting', stage: 'test', stageState: 'blocked',
+      headline: 'Price rounding · 3 tests failed', laneReason: '3 tests failed', updatedAt: at(18 * MIN, now) },
+    { slug: 'lab-limit-pause', title: 'Route sharing (example)', group: 'paused', lane: 'working', stage: 'implement', stageState: 'working', limitPaused: fourPm(now),
+      nowDoing: [{ who: 'feature-implementer', doing: 'Editing share.ts', since: at(30 * MIN, now) }] },
+    { slug: 'lab-finished', title: 'Invoice footer (example)', group: 'done', lane: 'done', stage: 'pr3', stageState: 'done', closed: { as: 'done', at: at(60 * MIN, now) } as Job['closed'] },
+    { slug: 'lab-permission', title: 'Tag colours (example)', group: 'needs-you', lane: 'needs-you', stage: 'implement', stageState: 'working', waitingFor: 'permission', permissions: 1,
+      waitingSince: at(3 * MIN, now), nowDoing: [{ who: 'feature-implementer', doing: 'Run the linter', since: at(5 * MIN, now) }] },
+  ];
+  const permissions: Permission[] = [
+    { id: 'lab-perm-1', slug: 'lab-permission', kind: 'permission', toolName: 'Bash', agentType: 'feature-implementer', createdAt: at(3 * MIN, now), input: { command: 'npm run lint' } },
+  ];
+  return { jobs, permissions };
 }

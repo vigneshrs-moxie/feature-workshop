@@ -1,7 +1,8 @@
 // The floor lab, #/floor-lab: a page reachable only by its address (never linked or named in the
 // app), for checking the 3D floor by eye. Three tabs:
 //   Poses           every pose for every role (labFixtures.ts)
-//   Live floor      the floor from the dashboard's own jobs, with the states the demo lacks added
+//   Live floor      the floor from the dashboard's own jobs, with made-up jobs for the states
+//                   the demo lacks (labFixtures.ts labJobs)
 //   Twelve benches  twelve benches and thirty figures all at work, with the frame time shown
 // and a switch between Light and Default. Like the floor itself it needs Play full; ?play=full in
 // the address turns it on for this page without saving anything.
@@ -10,7 +11,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { usePlay } from '../usePlay';
 import { applyTheme, currentTheme } from '../../theme/theme';
 import { Floor3D } from './Floor3D';
-import { busyBenches, poseBenches } from './labFixtures';
+import { busyBenches, labJobs, poseBenches } from './labFixtures';
+import { useFloorBenches } from './useFloorBenches';
 import type { FrameStats } from './types';
 
 type Tab = 'poses' | 'live' | 'twelve';
@@ -36,7 +38,7 @@ declare global {
   interface Window { __floorStats?: FrameStats }
 }
 
-export function FloorLab({ live }: { live?: () => ReturnType<typeof poseBenches> }) {
+export function FloorLab() {
   const play = usePlay();
   const [tab, setTab] = useState<Tab>(tabFromHash);
   const [theme, setTheme] = useState(currentTheme);
@@ -52,7 +54,11 @@ export function FloorLab({ live }: { live?: () => ReturnType<typeof poseBenches>
     return () => applyTheme(before);
   }, []);
   const pick = (id: string) => { applyTheme(id); setTheme(id); };
-  const benches = useMemo(() => (tab === 'poses' ? poseBenches() : tab === 'twelve' ? busyBenches() : live?.() ?? []), [tab, live]);
+  // The live floor: the dashboard's own jobs, plus made-up ones for the states they lack.
+  const extra = useMemo(() => labJobs(), []);
+  const live = useFloorBenches(extra);
+  const made = useMemo(() => (tab === 'poses' ? poseBenches() : busyBenches()), [tab]);
+  const benches = tab === 'live' ? live : made;
   const onStats = (s: FrameStats) => { window.__floorStats = s; setStats(s); };
 
   return (
