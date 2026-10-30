@@ -16,6 +16,7 @@ import { stacksHref } from '../../app/router';
 import { Icon } from '../../components/Icon';
 import { Kbd } from '../../components/Kbd';
 import { FoldShow, NextBar, Page } from '../../components/page/Page';
+import { Pending, Skeleton } from '../../components/Pending';
 import { Sheet } from '../../components/Sheet';
 import type { EventSourceLike } from '../../state/live';
 import { useWorkshop } from '../../state/store';
@@ -155,7 +156,7 @@ export function BuildStackPage({ openStream }: { openStream?: (url: string) => E
               <p>Couldn’t load the packets: {error}</p>
               <button type="button" className="btn btn-lg" onClick={() => void load()}>Try again</button>
             </section>
-          ) : <p className="muted" role="status">Loading the packets…</p>}
+          ) : <Pending loading say="Loading the packets…" skeleton={<Skeleton rows={4} className="stack-skeleton" />} />}
       </Page>
     );
   }

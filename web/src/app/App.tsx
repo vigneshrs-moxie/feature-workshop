@@ -24,6 +24,7 @@ import { AchievementsView } from '../views/Achievements/AchievementsView';
 import { NotFoundView } from '../views/NotFound/NotFoundView';
 import { ScreensView } from '../views/Screens/ScreensView';
 import { BuildStackPage } from '../views/Stack/BuildStack';
+import { PartPage } from '../views/Stack/PartPage';
 import { StackPage } from '../views/Stack/StackPage';
 import { StacksPage } from '../views/Stack/StacksPage';
 import { InboxView } from '../views/Inbox';
@@ -204,6 +205,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       : route.name === 'stage' ? <StagePage key={`${route.slug}/${route.stop}`} slug={route.slug} stop={route.stop} />
       : route.name === 'stacks' ? <StacksPage />
       : route.name === 'stack' ? <StackPage key={route.slug} slug={route.slug} />
+      : route.name === 'stack-part' ? <PartPage key={`${route.slug}/${route.n}`} slug={route.slug} n={route.n} />
       : route.name === 'stack-build' ? <BuildStackPage />
         : route.name === 'telemetry' ? <TelemetryView />
           : route.name === 'inbox' ? <InboxView />

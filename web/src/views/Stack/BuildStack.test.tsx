@@ -87,15 +87,16 @@ describe('the build stack', () => {
     window.location.hash = '';
   });
 
-  it('is the first row on Stacks, read-only, with its four dots and a word', async () => {
+  it('is a card on Stacks like the others, marked as this app’s build, with its packets as parts', async () => {
     const { wrap } = setup();
     wrap(<StacksPage />);
-    const row = (await screen.findByText(BUILD_NAME)).closest('li')!;
-    expect(row).toHaveTextContent('This app’s packets · 3 parts · read-only');
-    expect(row).toHaveTextContent('Needs you: merge next');
-    expect(within(row).getByRole('link')).toHaveAttribute('href', '#/stacks/build');
-    expect(within(row).getByRole('img', { name: /Plan: done, Build: done, Merge: now, Push: not yet/ })).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'No stacks yet' })).toBeNull();
+    const card = (await screen.findByRole('link', { name: 'This app’s build' })).closest('li')!;
+    expect(within(card).getByRole('link', { name: 'This app’s build' })).toHaveAttribute('href', '#/stacks/build');
+    expect(card).toHaveTextContent('Read-only here: nothing pushes.');
+    expect(card).toHaveTextContent('is next to merge');
+    expect(within(card).getAllByRole('img', { name: /^Part \d · / })).toHaveLength(3);
+    expect(screen.queryByRole('region', { name: 'Build a big feature as a stack' })).toBeNull();
+    void BUILD_NAME;
   });
 
   it('its parts are the packets in the saved order, then those not in it, every state in words', async () => {

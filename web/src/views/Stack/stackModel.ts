@@ -2,14 +2,10 @@
 // describeStack), so every word can be tested on its own. "Part" on screen, "section" in the files:
 // the dashboard's own sentences already say part.
 //
-//   partLook(part, view)   one part's state for its line on the map and its card: a word (never a
-//                          colour alone), a tone, how full its line is, and a short readout
 //   nextStep(view)         the one next step: what it is in a sentence, one primary button and its
 //                          key, and at most one second button
-//   STEP_INFO / stepLine   each of the four steps in one plain line: what happens, what you do
+//   STEP_INFO              each of the four steps' name, icon and short line
 //   splitWhy(view)         why the plan splits the work the way it does, in words
-//   mapParts(parts)        the parts the map draws (4 to 6 bunch closer; above 6, the ones at work
-//                          plus "and 3 more waiting")
 //   summaryChip(summary)   a stack's word on the Stacks list
 import type { IconName } from '../../components/Icon';
 import type { NextTone } from '../../components/page/Page';
@@ -28,38 +24,11 @@ const cap0 = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const clock = (iso: string | null | undefined) => {
   if (!iso) return null;
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 };
 const base = (file: string) => file.split('/').pop() || file;
 
 // ---------- One part ----------
-
-/** A part's name on screen: its brief's first words ("The export button"), else its name in the plan. */
-export function partTitle(p: Pick<StackPart, 'name' | 'brief'>): string {
-  const s = (p.brief ?? '').split(/(?<=[a-z0-9)])[.:;](?:\s|$)/i)[0].trim();
-  if (!s) return p.name;
-  return s.length > 60 ? `${s.slice(0, 57).trimEnd()}…` : s;
-}
-
-/** A part's tone: what colour repeats its word. */
-export type PartTone = 'waiting' | 'building' | 'ready' | 'merged' | 'needs-you' | 'problem';
-
-export interface PartLook {
-  tone: PartTone;
-  /** The word on its line on the map and on its card: never the colour alone. */
-  word: string;
-  /** The card's word before the plan is approved, when it differs ("Ready to start", "After part 2"). */
-  cardWord: string;
-  icon: IconName;
-  /** How far its line is filled, 0 to 1. */
-  fill: number;
-  /** The card's small readout: "Step 2 of 4 · Building", "Merged · 14:46", "4 files". */
-  readout: string;
-  /** Its Foreman is at work right now (the light; it pulses in Play full). */
-  live: boolean;
-  /** It went wrong at the merge point: a red mark where the lines meet. */
-  atMerge: boolean;
-}
 
 /** The parts a part waits for, by number: "part 2", "parts 1 and 2". */
 function waitsFor(part: StackPart, view: Pick<StackView, 'parts'>): string | null {
@@ -70,48 +39,6 @@ function waitsFor(part: StackPart, view: Pick<StackView, 'parts'>): string | nul
   return open.length === 1 ? `${PART.one} ${open[0].n}` : `${PART.many} ${list(open.map((p) => String(p.n)))}`;
 }
 
-export function partLook(part: StackPart, view: Pick<StackView, 'parts' | 'approved'>): PartLook {
-  const files = part.owns.length === 1 ? '1 file' : `${part.owns.length} files`;
-  const wait = waitsFor(part, view);
-  const base0 = { cardWord: '', live: false, atMerge: false };
-  if (!view.approved) {
-    return {
-      ...base0, tone: 'waiting', icon: 'circle-dashed', fill: 0, readout: files,
-      word: wait ? `Waits for ${wait}` : 'Waits for your yes',
-      cardWord: wait ? `After ${wait}` : 'Ready to start',
-    };
-  }
-  const step = `Step ${Math.min(part.progress.step + 1, part.progress.of)} of ${part.progress.of}`;
-  const p = part.problem;
-  switch (part.state) {
-    case 'integrated':
-      return { ...base0, tone: 'merged', icon: 'check', fill: 1, word: '✓ Merged', cardWord: 'Merged', readout: ['Merged', clock(part.mergedAt)].filter(Boolean).join(' · ') };
-    case 'ready':
-      return { ...base0, tone: 'ready', icon: 'circle-check', fill: 1, word: 'Ready to merge', cardWord: 'Ready to merge', readout: 'Checks passed' };
-    case 'failed':
-      return { ...base0, tone: 'needs-you', icon: 'hand', fill: Math.max(0.15, part.progress.step / part.progress.of), word: 'Needs you', cardWord: 'Needs you', readout: `Try ${part.failures || STUCK_AT} of ${STUCK_AT} · stopped` };
-    case 'blocked': {
-      const word = p?.kind === 'conflict' ? 'Conflict' : p?.kind === 'outside' ? 'Outside its files' : p?.kind === 'empty' ? 'Nothing to merge' : p?.kind === 'checks' ? 'Tests failed' : 'Back with its Foreman';
-      const readout = p?.files?.length ? `${base(p.files[0])}${p.files.length > 1 ? ` and ${p.files.length - 1} more` : ''}` : 'Not merged';
-      return { ...base0, tone: 'problem', icon: 'warn', fill: 1, word, cardWord: word, readout, atMerge: p?.kind === 'conflict' || p?.kind === 'checks' };
-    }
-    case 'running': {
-      if (p?.kind === 'checks') {
-        return { ...base0, tone: 'problem', icon: 'warn', fill: 1, word: 'Tests failed', cardWord: 'Tests failed', readout: `Try ${part.failures} of ${STUCK_AT}`, live: Boolean(part.run), atMerge: true };
-      }
-      const asks = /waiting for you/i.test(part.progress.words);
-      const fill = Math.max(0.12, Math.min(0.92, (part.progress.step + 0.5) / part.progress.of));
-      if (asks) return { ...base0, tone: 'needs-you', icon: 'hand', fill, word: 'Needs you', cardWord: 'Needs you', readout: `${step} · waiting for you` };
-      const doing = part.progress.words && part.progress.words !== 'Building' ? ` · ${part.progress.words}` : '';
-      return { ...base0, tone: 'building', icon: 'loader', fill, word: 'Building', cardWord: 'Building', readout: `${step}${doing}`, live: Boolean(part.run) };
-    }
-    default: {
-      const word = wait ? `Waits for ${wait}` : /free slot/i.test(part.reason ?? '') ? 'Waits for a free slot' : 'Starting soon';
-      return { ...base0, tone: 'waiting', icon: 'circle-dashed', fill: 0, word, cardWord: word, readout: 'Not started' };
-    }
-  }
-}
-
 // ---------- The steps ----------
 
 export const STEP_INFO: Record<StackStepId, { label: string; icon: IconName; sub: string }> = {
@@ -120,23 +47,6 @@ export const STEP_INFO: Record<StackStepId, { label: string; icon: IconName; sub
   merge: { label: 'Merge', icon: 'merge', sub: 'One at a time' },
   push: { label: 'Push', icon: 'rocket', sub: 'With your yes' },
 };
-
-/** Each step in one plain line: what happens there, and what you do. */
-export function stepLine(step: StackStepId, view: Pick<StackView, 'autoIntegrate'>): string {
-  switch (step) {
-    case 'plan': return 'The Foreman splits the ticket into parts that each change their own files. You check them and approve.';
-    case 'build': return 'Each part is built side by side, by its own Foreman on its own copy of the code. You wait, or answer a part that asks.';
-    case 'merge': return view.autoIntegrate
-      ? 'Finished parts join your branch one at a time, in order, and the tests run after each. “Merge on its own” is on, so they join by themselves.'
-      : 'Finished parts join your branch one at a time, in order, and the tests run after each. You say yes to each one.';
-    default: return 'Your branch goes to your fork, never the team’s repository. Nothing leaves your computer until you say go.';
-  }
-}
-
-/** Where the "You are here" marker sits. */
-export function hereStep(view: Pick<StackView, 'phase'>): StackStepId | null {
-  return view.phase === 'pushed' ? null : view.phase;
-}
 
 // ---------- Why the plan splits this way ----------
 
@@ -170,26 +80,6 @@ export function startLine(view: Pick<StackView, 'parts' | 'cap'>): string {
     if (w) out.push(`${cap0(PART.one)} ${p.n} waits for ${w}.`);
   }
   return out.join(' ');
-}
-
-// ---------- The map's rows ----------
-
-/** At most this many lines; more and the map keeps the ones at work and counts the rest. */
-export const MAP_MAX = 6;
-
-export interface MapRows { shown: StackPart[]; waiting: number; merged: number; dense: boolean }
-
-export function mapParts(all: readonly StackPart[]): MapRows {
-  if (all.length <= MAP_MAX) return { shown: [...all], waiting: 0, merged: 0, dense: all.length > 3 };
-  const atWork = all.filter((p) => p.state !== 'pending' && p.state !== 'integrated');
-  const shown = atWork.slice(0, MAP_MAX);
-  return { shown, waiting: all.filter((p) => p.state === 'pending').length + (atWork.length - shown.length), merged: all.filter((p) => p.state === 'integrated').length, dense: true };
-}
-
-/** "and 3 more waiting · 2 merged". */
-export function moreLine(rows: MapRows): string | null {
-  const bits = [rows.waiting ? `and ${rows.waiting} more waiting` : null, rows.merged ? `${rows.merged} merged` : null].filter(Boolean);
-  return bits.length ? bits.join(' · ') : null;
 }
 
 // ---------- The next step ----------

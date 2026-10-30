@@ -2,16 +2,14 @@
 // theme (ThemePicker: Light, Default and Follow the system, then All themes) and Detail, then one
 // More: the text size (S M L XL, theme/textSize.ts: one factor on every type token and the row
 // heights, with a live sample line), the two layouts from packet M, Desk layout (One at a time or
-// Three columns) and Jobs layout (Four lanes or One list), packet K2's Stack picture (the merge map,
-// or four big steps with a bar per part), and Play. Each change applies at once and says "Saved"
-// beside its control (components/Saved.tsx).
+// Three columns) and Jobs layout (Four lanes or One list), and Play. Each change applies at once
+// and says "Saved" beside its control (components/Saved.tsx).
 import { useState } from 'react';
 import '../../theme/look.css';
 import type { PlayMode, Settings } from '../../api/types';
 import { hrefFor, settingsHref } from '../../app/router';
 import { useDeskLayout } from '../../home/DeskPage';
 import { useJobsLayout } from '../../home/JobsPage';
-import { useStackPicture } from '../Stack/StackPicture';
 import { playOf } from '../../play/settings';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { PLAY_MODE_CHOICES } from './PlaySettings';
@@ -130,13 +128,12 @@ function DetailPicker() {
 export function LookSettings() {
   const [desk, setDesk] = useDeskLayout();
   const [jobs, setJobs] = useJobsLayout();
-  const [stackPicture, setStackPicture] = useStackPicture();
   return (
     <section className="look-settings" aria-label="Look">
       <h3 className="settings-heading">Look</h3>
       <ThemePicker />
       <DetailPicker />
-      <SettingsMore id="look-more" label="More: text size, layouts, play" holds={['text-size', 'desk-layout', 'jobs-layout', 'stack-picture', 'look-play']} className="look-more">
+      <SettingsMore id="look-more" label="More: text size, layouts, play" holds={['text-size', 'desk-layout', 'jobs-layout', 'look-play']} className="look-more">
         <TextSizePicker />
         <LayoutPicker
           id="desk-layout" title="Desk layout" value={desk} onPick={setDesk}
@@ -154,14 +151,6 @@ export function LookSettings() {
             { id: 'floor', label: 'Floor', say: 'Play full only: the workshop floor in 3D, a bench per job with its builders at work. In Play subtle or off, Jobs shows the lanes.', pic: 'floor' },
           ]}
           see={{ label: 'See it in Jobs', href: hrefFor({ name: 'home' }) }}
-        />
-        <LayoutPicker
-          id="stack-picture" title="Stack picture" value={stackPicture} onPick={setStackPicture}
-          options={[
-            { id: 'map', label: 'Merge map', say: 'One line per part, built side by side, meeting at Merge: you see the parts join in order.', pic: 'list' },
-            { id: 'steps', label: 'Four big steps', say: 'Plan, Build, Merge and Push as four boxes, with a bar on each part’s card.', pic: 'lanes' },
-          ]}
-          see={{ label: 'See it in Stacks', href: hrefFor({ name: 'stacks' }) }}
         />
         <PlayPicker />
       </SettingsMore>

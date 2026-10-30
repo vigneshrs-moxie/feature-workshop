@@ -1174,7 +1174,37 @@ export interface StackPart {
   effort: string | null;
   mergedAt: string | null;
   mergeSha: string | null;
+  /** Packet V: when it started, became ready, and was last sent back (null until then; older dashboards send none). */
+  startedAt?: string | null;
+  readyAt?: string | null;
+  sentBackAt?: string | null;
+  /** Packet V (GET /api/stacks/:slug): its name on screen, where it is in a word, its now line and cost. */
+  title?: string;
+  lane?: PartLane;
+  laneWords?: string;
+  now?: PartNow | null;
+  costUsd?: number;
+  costSource?: 'telemetry' | 'job' | null;
+  /** The parts it still waits on, every part it depends on, and the parts that wait on it (by number). */
+  waitsOn?: number[];
+  dependsOnN?: number[];
+  unblocks?: number[];
+  /** Its own job's stage (plan, implement, test, review). */
+  stage?: string | null;
+  lastActivityAt?: string | null;
 }
+
+/** Where a part is in its life (dashboard/lib/stack-parts.js partLane): the board's columns, the bar's segments. */
+export type PartLane = 'needs-you' | 'stuck' | 'waiting' | 'queued' | 'working' | 'checks' | 'ready' | 'merging' | 'merged';
+
+/** A part's one line of now: "Builder · editing invoice.ts · 6m". crew: the crew member's type, for its face in Play. */
+export interface PartNow { who: string; crew: string | null; what: string; since: string | null; tone: 'working' | 'waiting' | 'quiet' }
+
+/** Something that could go wrong on a stack, or did: a clash, a failed merge undone, a stuck part. */
+export interface StackRisk { kind: 'stuck' | 'clash' | 'outside' | 'empty' | 'checks' | 'overlap'; tone: 'error' | 'warn'; parts: number[]; words: string }
+
+/** The one thing a stack needs from you, and its one action. */
+export interface StackAsk { action: 'approve-plan' | 'fix-plan' | 'merge' | 'fix' | 'open-part' | 'push'; label: string; part: number | null; words: string }
 
 /** One line of stack.json's log: what happened when, in words. */
 export interface StackLogLine {
@@ -1194,7 +1224,7 @@ export interface StackView {
   steps: StackStep[];
   next: StackNext;
   /** stack.md as read now (null when there is none yet): its problems, and whether it changed after approval. */
-  plan: { ok: boolean; why?: string | null; errors: string[]; warnings: string[]; changedSinceApproval: boolean } | null;
+  plan: { ok: boolean; why?: string | null; errors: string[]; warnings: string[]; changedSinceApproval: boolean; text?: string | null } | null;
   approved: boolean;
   /** Sections at once for this stack. */
   cap: number;
@@ -1217,6 +1247,19 @@ export interface StackView {
   parts: StackPart[];
   /** Newest first. */
   log: StackLogLine[];
+  /** Packet V: the lanes counted, the risks, the one ask, cost and times (older dashboards send none). */
+  counts?: Record<PartLane, number>;
+  merged?: number;
+  total?: number;
+  atWork?: number;
+  needsYou?: number;
+  risks?: StackRisk[];
+  ask?: StackAsk | null;
+  costUsd?: number;
+  startedAt?: string | null;
+  lastActivityAt?: string | null;
+  mergedToday?: number;
+  planApprovedAt?: string | null;
   /** The parent's Foreman: whether it has a session here, the messages waiting for it, and what it was told. */
   coordinator: {
     session: boolean;
@@ -1240,6 +1283,41 @@ export interface StackSummary {
   action: StackNext['action'];
   /** Each part's job (its slug once started), so Jobs shows a stack as one row that opens into its parts. Older dashboards send none. */
   sections?: { n: number; name: string; slug: string | null; state: StackSectionState; stateWords: string }[];
+  /** Packet V: the card on the Stacks home (older dashboards send none of these). */
+  why?: string | null;
+  standing?: 'needs-you' | 'working' | 'done';
+  approved?: boolean;
+  total?: number;
+  merged?: number;
+  atWorkCount?: number;
+  needsYouCount?: number;
+  lanes?: Record<PartLane, number>;
+  segments?: StackSegment[];
+  atWork?: (PartNow & { n: number; title: string; slug: string | null; lane: PartLane })[];
+  ask?: StackAsk | null;
+  risks?: StackRisk[];
+  costUsd?: number;
+  startedAt?: string | null;
+  lastActivityAt?: string | null;
+  mergedToday?: number;
+  nextToMerge?: number | null;
+  parentBranch?: string | null;
+}
+
+/** One part as a segment of a stack's progress bar. */
+export interface StackSegment { n: number; name: string; title: string; lane: PartLane; laneWords: string; slug: string | null }
+
+/** GET /api/stacks/:slug/part/:n: a part's own page. */
+export interface PartPageData {
+  stack: { slug: string; title: string | null; ticketKey: string | null; total: number; why: string | null; parentBranch: string | null; approved: boolean; nextToMerge: string | null; busy: StackView['busy']; autoIntegrate: boolean; parts: StackSegment[] };
+  part: StackPart;
+  prev: StackSegment | null;
+  next: StackSegment | null;
+  history: { at: string; event: string; words: string; checks: { command: string; ok: boolean }[] | null; undone: boolean | null }[];
+  checklist: { id: 'checks' | 'clash' | 'owned' | 'waits' | 'order'; ok: boolean | null; words: string }[];
+  /** The stack's risks that name this part (older dashboards send none). */
+  risks?: StackRisk[];
+  changes: { files: { file: string; added: number; removed: number; binary: boolean }[]; added: number; removed: number; base?: string; branch?: string; error?: string };
 }
 
 /** GET /api/stacks. */
