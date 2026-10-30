@@ -116,13 +116,13 @@ describe('a part’s own page', () => {
     await waitFor(() => expect(strip).toHaveTextContent('Level'));
     expect(strip).toHaveTextContent('Not chosen yet');
     // The thread's own level card is hidden here (part-page.css); the strip and its sheet carry it.
-    expect(document.querySelector('.part-convo .thread > .level-card')).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector('.part-convo .thread > .level-card')).toBeInTheDocument());
     expect(partCss).toMatch(/\.part-convo \.thread > \.level-card \{ display: none; \}/);
     fireEvent.click(within(strip).getByRole('button', { name: 'Choose' }));
-    const sheet = screen.getByRole('dialog', { name: 'The level for part 2’s job' });
+    const sheet = await screen.findByRole('dialog', { name: 'The level for part 2’s job' });
     expect(within(sheet).getByRole('heading', { name: 'Pick a level for this job' })).toBeInTheDocument();
     fireEvent.click(within(sheet).getByRole('button', { name: 'Not now' }));
-    expect(screen.queryByRole('dialog', { name: 'The level for part 2’s job' })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'The level for part 2’s job' })).not.toBeInTheDocument());
     expect(within(strip).queryByRole('button', { name: 'Choose' })).not.toBeInTheDocument();
   });
 });
