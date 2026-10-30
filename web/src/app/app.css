@@ -846,7 +846,7 @@ a:hover { text-decoration: underline; }
 .answer-other { flex-wrap: wrap; cursor: default; }
 .answer-other:hover { background: transparent; }
 .answer-other-pick { display: flex; align-items: flex-start; gap: var(--space-2); cursor: pointer; }
-.answer-other .text-input { flex: 1; min-width: 180px; min-height: 30px; }
+.answer-other .text-input { flex: 1; min-width: 180px; min-height: var(--control-h); }
 .gate-subhead { margin: 0 0 var(--space-1); font-size: var(--text-sm); }
 .gate-decided { margin: 0 0 var(--space-2); }
 .gate-decided-list { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
