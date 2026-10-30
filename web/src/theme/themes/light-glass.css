@@ -275,6 +275,8 @@ html[data-theme="light-glass"] .job-title { font-weight: 650; letter-spacing: -.
 html[data-theme="light-glass"] .status { padding: 1px var(--space-2); border-radius: 999px; background: oklch(1 0 0 / .55); font-weight: var(--weight-bold); }
 html[data-theme="light-glass"] .status[data-group="needs-you"] { background: var(--group-needs-you-bg); }
 html[data-theme="light-glass"] .level-chip { border-radius: 999px; }
+/* The Recommended chip in full ink, as in Glass (a test keeps the two files on the same hooks). */
+html[data-theme="light-glass"] .gate-rec { color: var(--text-1); }
 
 /* ---------- Thread: cards of glass ---------- */
 

@@ -81,7 +81,7 @@
 .dep-edge { fill: none; stroke: color-mix(in oklab, var(--text-3) 80%, var(--surface-1)); stroke-width: 1.5; transition: stroke var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
 .dep-arrow { fill: var(--border-3); }
 .dep-arrow.is-lit { fill: var(--accent); }
-.dep-map.has-lit .dep-edge { opacity: .35; }
+/* (Other links stay at full strength while one is lit: faded to .35 they fell to 1.5:1; the lit one is the accent; packet X.) */
 .dep-map.has-lit .dep-edge.is-lit { stroke: var(--accent); stroke-width: 2; opacity: 1; }
 .dep-col { position: relative; display: flex; flex-direction: column; justify-content: center; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
 .dep-node {

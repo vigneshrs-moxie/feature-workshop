@@ -178,7 +178,7 @@
 .map-row[data-group="done"] .map-row-title { color: var(--text-2); }
 .map-row-words { grid-area: words; margin: 0; padding-left: calc(8px + var(--space-2)); color: var(--text-2); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .map-row-where { color: var(--text-1); }
-.map-row-counts { color: var(--text-3); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.map-row-counts { color: var(--text-2); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .map-row-branch { display: inline; max-width: 260px; margin-left: var(--space-2); vertical-align: bottom; }
 .map-row-hint { grid-area: hint; justify-self: end; max-width: 100%; margin: 0; color: var(--text-2); font-size: var(--text-sm); text-align: right; overflow-wrap: anywhere; }
 .map-row[data-group="needs-you"] .map-row-hint { color: var(--text-1); font-weight: var(--weight-medium); }

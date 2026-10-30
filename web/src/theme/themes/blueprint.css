@@ -315,6 +315,9 @@ html[data-theme="blueprint"] :is(.reply, .brief-card, .problem, .perm-card, .toa
 }
 /* The Desk's gate card is flat on the blue console, not a paper card: its ink rules below draw chalk. */
 html[data-theme="blueprint"] .desk-console .gate-card { --bp-ink: var(--text-1); --bp-ink-2: var(--text-2); --bp-ink-3: var(--text-3); }
+html[data-theme="blueprint"] .desk-console .gate-card.perm-card .ask-label { color: oklch(.84 .1 300); }
+/* On the needs-you tint the secondary chalk fell just under 4.5:1 (packet X). */
+html[data-theme="blueprint"] .next-bar.tone-stop .next-sub { color: var(--text-1); }
 /* A ticked box on paper: the cyan accent is a chalk colour (1.55:1 on cream), so boxes take ink blue. */
 html[data-theme="blueprint"] :is(.reply, .brief-card, .problem, .perm-card):not(.desk-console .gate-card) .choice { --accent: oklch(.45 .14 245); --btn-primary-bg: oklch(.45 .14 245); --btn-primary-fg: var(--bp-paper); }
 

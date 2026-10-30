@@ -198,10 +198,14 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, k
   useEffect(() => { if (ready) sceneRef.current?.setReducedMotion(reduced); }, [ready, reduced]);
   useEffect(() => { if (ready) sceneRef.current?.setBusy(busy); }, [ready, busy]);
   useEffect(() => { if (ready) sceneRef.current?.setHover(hover?.key ?? null); }, [ready, hover]);
-  // The theme: read again whenever it may have changed.
+  // The theme: read again whenever it may have changed, and once now, in case it changed between the
+  // scene being made and this watch starting (a hidden theme is put on when the play ledger arrives;
+  // packet X found Gold's floor drawn in Light's colours that way).
   useEffect(() => {
     if (!ready) return;
-    return watchTheme(() => requestAnimationFrame(() => sceneRef.current?.setPalette(readPalette(document.documentElement, canvas.current))));
+    const reread = () => sceneRef.current?.setPalette(readPalette(document.documentElement, canvas.current));
+    reread();
+    return watchTheme(() => requestAnimationFrame(reread));
   }, [ready]);
   // Nothing is drawn while the tab is hidden or the floor is scrolled out of view.
   useEffect(() => {

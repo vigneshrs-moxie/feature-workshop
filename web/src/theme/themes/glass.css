@@ -274,6 +274,8 @@ html[data-theme="glass"] .job-title { font-weight: 650; letter-spacing: -.015em;
 html[data-theme="glass"] .status { padding: 1px var(--space-2); border-radius: 999px; background: oklch(1 0 0 / .08); font-weight: var(--weight-bold); }
 html[data-theme="glass"] .status[data-group="needs-you"] { background: var(--group-needs-you-bg); }
 html[data-theme="glass"] .level-chip { border-radius: 999px; }
+/* The Recommended chip in full ink: on a picked answer row the accent fell to 4.4:1 (packet X). */
+html[data-theme="glass"] .gate-rec { color: var(--text-1); }
 
 /* ---------- Thread: cards of glass ---------- */
 

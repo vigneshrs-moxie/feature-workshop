@@ -439,9 +439,9 @@ html[data-theme] .desk-console .gate-card.perm-card { padding: 0; border: 0; bor
 .now-line.is-working .now-icon { color: var(--lane-working-fg); }
 .now-line.is-waiting .now-icon { color: var(--lane-needs-you-fg); }
 .now-who { flex: none; color: var(--text-1); font-weight: var(--weight-medium); }
-.now-sep { flex: none; color: var(--text-3); }
+.now-sep { flex: none; color: var(--text-2); }
 .now-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.now-time { flex: none; color: var(--text-3); }
+.now-time { flex: none; color: var(--text-2); }
 
 /* ---------- The quick look (home/JobPeek.tsx): a sheet over the right side of the list ---------- */
 .peek {
