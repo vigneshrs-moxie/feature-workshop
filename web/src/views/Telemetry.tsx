@@ -37,6 +37,7 @@ import { Dial, levelOf, WhoLine } from './Telemetry/Top';
 import { parsePrefs, pct, prefsKey, type Prefs } from './Telemetry/words';
 import './Telemetry.css';
 import { HiddenSlot, More } from '../components/More';
+import { BRAND } from '../app/brand';
 
 export type { TelemetryResponse, TelemetryWindow };
 
@@ -178,7 +179,7 @@ export function TelemetryView() {
       {error && (
         <p className="thread-error" role="alert">
           Couldn’t read the usage log: {error}{' '}
-          <Button kind="quiet" size="sm" onClick={() => void load(win)} title="Ask the dashboard again.">Try again</Button>
+          <Button kind="quiet" size="sm" onClick={() => void load(win)} title={`Ask ${BRAND.name} again.`}>Try again</Button>
         </p>
       )}
       {!data && loading && <p className="muted" role="status">Reading…</p>}

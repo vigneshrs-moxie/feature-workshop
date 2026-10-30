@@ -200,8 +200,8 @@ const COMMANDS = {
   'service-run': {
     hidden: true,
     usage: 'ground-control service-run',
-    summary: 'Run the dashboard as the service does (the Windows task runs this)',
-    help: ['Runs the dashboard on port 4477, writes its output to ~/.ground-control/logs/, starts it again when it fails and stops it cleanly on ground-control stop. The Windows service runs this; you don’t need to.'],
+    summary: `Run ${PRODUCT} as the service does (the Windows task runs this)`,
+    help: [`Runs ${PRODUCT} on port 4477, writes its output to ~/.ground-control/logs/, starts it again when it fails and stops it cleanly on ground-control stop. The Windows service runs this; you don’t need to.`],
     run: cmdServiceRun,
   },
 };

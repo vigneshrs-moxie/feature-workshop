@@ -755,7 +755,7 @@ function renderApprovals(panel, d) {
     ${d.approvals.length ? `<div class="table-wrap"><table class="approvals"><thead><tr><th>When</th><th>Who</th><th>What they said</th><th>About</th><th>Allows</th><th>State</th></tr></thead><tbody>
       ${d.approvals.map((a) => `<tr class="${a.superseded ? 'superseded' : ''}"><td>${esc(a.date ?? '')}</td><td>${esc(a.who ?? '')}</td><td><q>${esc(a.said ?? '')}</q></td><td>${esc(a.artifact ?? '')}</td><td>${esc([a.authorizes, a.scope].filter(Boolean).join(' · '))}</td><td>${a.superseded ? `<span class="badge-old" title="${esc(a.state ?? '')}">Replaced</span>` : esc(a.state ?? '')}</td></tr>`).join('')}
     </tbody></table></div>` : '<p class="muted">No approvals recorded yet.</p>'}
-    <h3>Sent from the workshop</h3>
+    <h3>Sent from Starbase</h3>
     ${sent.length ? `<ul class="audit">${sent.map((a) => `<li><span class="muted">${esc(when(a.at))}</span> <b>${esc(actionWords[a.action] ?? a.action)}</b>${a.action === 'permission' ? `: ${esc(a.decision === 'deny' ? 'Denied' : a.decision === 'allow-run' ? 'Allowed for that reply' : 'Allowed once')} · ${esc(a.headline ?? a.tool ?? '')}${a.note ? ` · “${esc(a.note)}”` : ''}` : ''}${a.text ? `<pre>${esc(a.text)}</pre>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Nothing sent from here yet.</p>'}`;
 }
 

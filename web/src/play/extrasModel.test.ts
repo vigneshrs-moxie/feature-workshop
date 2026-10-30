@@ -163,7 +163,7 @@ describe('stamina', () => {
     expect(backAt(usage({ ...auto, resetsAt: at(15, 42) }), NOW)).toBe('back at 3:42pm (in 42m)');
     expect(backAt(usage({ ...auto, resetsAt: at(17, 5) }), NOW)).toBe('back at 5:05pm (in 2h 5m)');
     expect(backAt(usage(auto), NOW)).toBe('');
-    expect(backAt(usage({ ...auto, resetKnown: false, resetsAt: at(15, 42) }), NOW)).toBe('the dashboard tries again at about 3:42pm');
+    expect(backAt(usage({ ...auto, resetKnown: false, resetsAt: at(15, 42) }), NOW)).toBe('Starbase tries again at about 3:42pm');
     expect(backAt(usage({ limited: true, autoResume: false, resetKnown: true, resetsAt: at(15, 42) }), NOW)).toBe('waiting for Carry on now (automatic carry-on is off)');
   });
 });

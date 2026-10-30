@@ -74,7 +74,7 @@ test('a lock held by a live process refuses, with a plain sentence saying who an
     assert.equal(err.extra.code, 'job-locked');
     assert.deepEqual(err.extra.lock, { owner: 'terminal', pid: p.pid, branch: 'feat/x', acquiredAt: got.by.acquiredAt });
     assert.match(err.message, /open in a terminal .* Only one place can work on a job at a time\. .*\/exit.* Nothing was sent\.$/);
-    assert.match(describeLock({ ...got.by, owner: 'runner' }), /another copy of the dashboard/);
+    assert.match(describeLock({ ...got.by, owner: 'runner' }), /another copy of Starbase/);
   } finally {
     p.kill('SIGKILL');
   }

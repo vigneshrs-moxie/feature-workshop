@@ -77,7 +77,7 @@ before(async () => {
   });
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running') && output.join('').includes('screens:')) { clearTimeout(timer); resolve(); } });
+    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Starbase running') && output.join('').includes('screens:')) { clearTimeout(timer); resolve(); } });
     child.stderr.on('data', (d) => output.push(String(d)));
     child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
   });
@@ -216,7 +216,7 @@ test('with the screens port taken, the dashboard runs without the screens server
   try {
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`The second dashboard didn't start:\n${lines.join('')}`)), 15000);
-      const check = () => { const all = lines.join(''); if (all.includes('Feature Workshop running') && all.includes('WIREFRAMES_PORT')) { clearTimeout(timer); resolve(); } };
+      const check = () => { const all = lines.join(''); if (all.includes('Starbase running') && all.includes('WIREFRAMES_PORT')) { clearTimeout(timer); resolve(); } };
       second.stdout.on('data', (d) => { lines.push(String(d)); check(); });
       second.stderr.on('data', (d) => { lines.push(String(d)); check(); });
       second.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The second dashboard exited (${code}):\n${lines.join('')}`)); });

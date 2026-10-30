@@ -30,6 +30,7 @@ import { HttpError } from '../lib/http-guard.js';
 import { EVIDENCE_DIR, EvidenceError, evidenceFile, evidenceWanted, readEvidence, readyToRecord, recordEvidence, reportCommit, shortCommit } from '../lib/evidence.js';
 import { fillPattern } from '../lib/profile.js';
 import { killTree, shellFor } from '../lib/platform.js';
+import { PRODUCT } from '../lib/brand.js';
 
 const require = createRequire(import.meta.url);
 const SERVER_WAIT_MS = 180_000;
@@ -154,7 +155,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     const at = new Date().toISOString();
     try {
       if (!pw && evidenceWanted(f.options).on) {
-        throw new EvidenceError(409, demo ? 'Demo mode: nothing real runs, so no evidence is recorded.' : 'Playwright isn’t installed with the dashboard. Run npm install in the dashboard’s folder, then press Record again.');
+        throw new EvidenceError(409, demo ? 'Demo mode: nothing real runs, so no evidence is recorded.' : `Playwright isn’t installed with ${PRODUCT}. Run npm install in ${PRODUCT}’s folder, then press Record again.`);
       }
       const result = await recordEvidence({
         job: f, playwrightUrl: pw?.url, cwd,

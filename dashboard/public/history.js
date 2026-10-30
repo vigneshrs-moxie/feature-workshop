@@ -7,7 +7,7 @@ import { openNewJob } from './panels.js';
 const KIND_TIPS = {
   job: 'A job already uses this conversation. Open the job instead of starting another.',
   workflow: 'This conversation already ran the /feature workflow.',
-  dashboard: 'A conversation the dashboard itself ran (a Foreman or a test). Hidden unless you ask for it.',
+  dashboard: 'A conversation Starbase itself ran (a Foreman or a test). Hidden unless you ask for it.',
   test: 'Ran in a temporary folder, usually a test. Hidden unless you ask for it.',
 };
 const short = (p) => String(p ?? '').replace(/^\/Users\/[^/]+/, '~');
@@ -32,7 +32,7 @@ export async function showHistory(meta, { onStarted } = {}) {
       <label class="field inline"><span>Search</span><input type="search" id="h-q" placeholder="Words from the title or the first message" spellcheck="false"></label>
       <label class="field inline"><span>Repository</span><select id="h-repo"><option value="">All</option></select></label>
       <label class="check-line" title="${esc(KIND_TIPS.job)}"><input type="checkbox" id="h-linked"> Show conversations a job already uses</label>
-      <label class="check-line" title="${esc(KIND_TIPS.dashboard)}"><input type="checkbox" id="h-dash"> Show the dashboard’s own runs</label>
+      <label class="check-line" title="${esc(KIND_TIPS.dashboard)}"><input type="checkbox" id="h-dash"> Show Starbase’s own runs</label>
       <label class="check-line" title="${esc(KIND_TIPS.test)}"><input type="checkbox" id="h-test"> Show test runs</label>
     </div>
     <p class="muted" id="h-count">Reading your conversations…</p>
@@ -102,7 +102,7 @@ function rowHtml(r) {
   const badges = [
     r.job ? `<span class="hbadge" title="${esc(KIND_TIPS.job)}">Job</span>` : '',
     r.workflow ? `<span class="hbadge" title="${esc(KIND_TIPS.workflow)}">Workflow</span>` : '',
-    r.kind === 'dashboard' ? `<span class="hbadge" title="${esc(KIND_TIPS.dashboard)}">Dashboard</span>` : '',
+    r.kind === 'dashboard' ? `<span class="hbadge" title="${esc(KIND_TIPS.dashboard)}">Starbase</span>` : '',
     r.kind === 'test' ? `<span class="hbadge" title="${esc(KIND_TIPS.test)}">Test</span>` : '',
   ].join('');
   const facts = [

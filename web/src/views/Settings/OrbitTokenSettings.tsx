@@ -10,11 +10,12 @@ import type { OrbitStatus } from '../Inbox';
 import { Select } from '../../components/Select';
 import { Button } from '../../components/Button';
 import { TextInput } from '../../components/Field';
+import { BRAND } from '../../app/brand';
 
 const STORE_WORDS: Record<string, string> = {
   keytar: 'in this computer’s credential store',
   keychain: 'in your macOS Keychain',
-  file: 'in a file only you can read, in the dashboard’s own folder',
+  file: `in a file only you can read, in ${BRAND.name}’s own folder`,
 };
 
 export const LIFETIMES = [

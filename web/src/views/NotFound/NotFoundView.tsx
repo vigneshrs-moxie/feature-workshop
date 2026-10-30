@@ -8,6 +8,7 @@ import { useFindSecret } from '../../play/useSecret';
 import { CREW_SIZE } from '../../play/crewSizes';
 import { nameOf } from '../../play/crewPack';
 import { Button } from '../../components/Button';
+import { BRAND } from '../../app/brand';
 
 export function NotFoundView({ hash }: { hash: string }) {
   const find = useFindSecret();
@@ -23,7 +24,7 @@ export function NotFoundView({ hash }: { hash: string }) {
           The {nameOf('feature-investigator')} searched every corner for <code className="inline-code not-found-path">{hash}</code> and found only footprints.
           There’s no page at that address.
         </p>
-        <p><Button href={hrefFor({ name: 'home' })} title="Back to the Workshop: your jobs and the Foreman.">Back to the Workshop</Button></p>
+        <p><Button href={hrefFor({ name: 'home' })} title={`Back to ${BRAND.name}: your jobs and the Foreman.`}>Back to {BRAND.name}</Button></p>
       </div>
     </main>
   );

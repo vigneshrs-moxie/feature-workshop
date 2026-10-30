@@ -16,6 +16,7 @@ import { useTheme } from '../../theme/theme';
 import { GalleryReview } from './GalleryReview';
 import { Swatches } from './Swatches';
 import './gallery.css';
+import { BRAND } from '../../app/brand';
 
 function Row({ name, children }: { name: string; children: ReactNode }) {
   return (
@@ -213,7 +214,7 @@ function Column({ compact }: { compact: boolean }) {
       </Group>
 
       <Group title="Toast and sheet">
-        <div className="toast is-static" role="presentation"><Icon name="warn" size={16} /><span>Couldn’t save: the dashboard isn’t answering.</span><Button kind="quiet" size="sm">Dismiss</Button></div>
+        <div className="toast is-static" role="presentation"><Icon name="warn" size={16} /><span>Couldn’t save: {BRAND.name} isn’t answering.</span><Button kind="quiet" size="sm">Dismiss</Button></div>
         <Button onClick={() => setSheet(true)}>Open a sheet</Button>
         {sheet && (
           <Sheet title="A sheet" onClose={() => setSheet(false)}>

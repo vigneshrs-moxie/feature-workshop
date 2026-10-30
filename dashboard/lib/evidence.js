@@ -29,6 +29,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { evidenceOn, evidenceWhy, isLevel } from './options.js';
 import { testedCommit } from './proof.js';
+import { PRODUCT } from './brand.js';
 
 export const EVIDENCE_DIR = 'evidence';
 export const EVIDENCE_FILE = 'evidence.json';
@@ -117,7 +118,7 @@ export function evidenceLines(reportText) {
 /** The Playwright config for one recording: video and screenshots on, one worker, Chromium only. */
 export function playwrightConfig({ testDir, outputDir, reportFile, baseURL, specs = 1 }) {
   const j = (v) => JSON.stringify(v);
-  return `// Written by the dashboard for one evidence recording (lib/evidence.js). It is written again
+  return `// Written by ${PRODUCT} for one evidence recording (lib/evidence.js). It is written again
 // for every recording, so a change here doesn't last.
 export default {
   testDir: ${j(testDir)},
@@ -142,7 +143,7 @@ export default {
  */
 export function guardModule(playwrightUrl) {
   const u = JSON.stringify(playwrightUrl);
-  return `// Written by the dashboard (lib/evidence.js): the specs' @playwright/test, with every page kept on this computer.
+  return `// Written by ${PRODUCT} (lib/evidence.js): the specs' @playwright/test, with every page kept on this computer.
 import { test as base, expect } from ${u};
 export * from ${u};
 const HERE = new Set(['127.0.0.1', 'localhost', '[::1]']);

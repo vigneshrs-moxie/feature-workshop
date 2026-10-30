@@ -16,8 +16,9 @@
 
 import fs from 'node:fs';
 import { HttpError } from '../lib/http-guard.js';
+import { PRODUCT } from '../lib/brand.js';
 
-const NOT_READY = 'This dashboard can’t record evidence yet. Restart it, and if this stays, tell whoever looks after it.';
+const NOT_READY = `This copy of ${PRODUCT} can’t record evidence yet. Restart it, and if this stays, tell whoever looks after it.`;
 const VIEW = /^\/api\/job\/([^/]+)\/evidence$/;
 const FILE = /^\/api\/job\/([^/]+)\/evidence\/file$/;
 const RECORD = /^\/api\/job\/([^/]+)\/evidence\/record$/;

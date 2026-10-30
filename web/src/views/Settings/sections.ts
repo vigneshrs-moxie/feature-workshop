@@ -15,7 +15,7 @@ import { BRAND } from '../../app/brand';
 
 export const SECTION_WORDS: Record<SettingsSection, { label: string; hint: string }> = {
   permissions: { label: 'Permissions', hint: 'How much the Foreman and its crew may do without asking you.' },
-  notifications: { label: 'Notifications', hint: 'What the dashboard tells macOS, and this browser’s own alerts.' },
+  notifications: { label: 'Notifications', hint: `What ${BRAND.name} tells macOS, and this browser’s own alerts.` },
   look: { label: 'Look', hint: 'Theme, text size, following the system’s light or dark, the Desk and Jobs layouts, and Play.' },
   keys: { label: 'Keys', hint: 'Keyboard shortcuts on or off, and the key hints on buttons.' },
   workflow: { label: 'Workflow', hint: 'The finish line, how often GitHub is checked, what a new job starts with, and whether Telemetry counts your Claude Code use.' },
@@ -105,7 +105,7 @@ export const SETTING_INDEX: SettingEntry[] = [
   { id: 'notify-enabled', label: 'Send notifications to macOS', section: 'notifications', keywords: 'mac os terminal-notifier outside the browser' },
   { id: 'notify-levels', label: 'Needs you, Problems, Done: with a sound, silent or off', section: 'notifications', keywords: 'sound silent kinds levels' },
   { id: 'notify-quiet', label: 'Quiet hours', section: 'notifications', keywords: 'night do not disturb' },
-  { id: 'notify-watching', label: 'Not while I’m looking at the dashboard', section: 'notifications', keywords: 'watching focus tab' },
+  { id: 'notify-watching', label: `Not while I’m looking at ${BRAND.name}`, section: 'notifications', keywords: 'watching focus tab' },
   { id: 'alerts-browser', label: 'In this browser: notifications and chime', section: 'notifications', keywords: 'alerts browser chime sound tab' },
   { id: 'notify-test', label: 'Send a test notification', section: 'notifications', keywords: 'try' },
   { id: 'notify-history', label: 'Notification history', section: 'notifications', keywords: 'sent log' },

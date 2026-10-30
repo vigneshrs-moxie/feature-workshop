@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { HttpError } from './http-guard.js';
+import { PRODUCT } from './brand.js';
 
 export const LOCK_FILE = 'lock.json';
 
@@ -146,7 +147,7 @@ export function describeLock(lock) {
   const facts = `(pid ${lock?.pid ?? 'unknown'}, since ${when(lock?.acquiredAt)})`;
   return lock?.owner === 'terminal'
     ? `This job is open in a terminal ${facts}.`
-    : `This job is being run by another copy of the dashboard ${facts}.`;
+    : `This job is being run by another copy of ${PRODUCT} ${facts}.`;
 }
 
 /** The refusal when the job is held elsewhere: a 409 the page shows as the lock card (code 'job-locked'). */

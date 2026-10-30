@@ -21,6 +21,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { findOnPath } from './platform.js';
 import { STAGES } from './stages.js';
+import { PRODUCT } from './brand.js';
 
 export const LEVELS = ['needs', 'problem', 'done'];
 export const USAGE_LEVEL = 'usage';
@@ -95,7 +96,7 @@ export function decide(level, settings, { now = new Date(), watching = false, de
   if (level === USAGE_LEVEL && mode === 'off') return { send: false, sound: false, why: 'Usage warnings are off.' };
   if (mode === 'off') return { send: false, sound: false, why: 'This kind is off.' };
   if (demo) return { send: false, sound: false, why: 'Demo: nothing is sent to macOS (the test is).' };
-  if (s.skipWhenWatching && watching) return { send: false, sound: false, why: 'You were looking at the dashboard.' };
+  if (s.skipWhenWatching && watching) return { send: false, sound: false, why: `You were looking at ${PRODUCT}.` };
   if (inQuietHours(s.quiet, now)) return level === 'problem' ? { send: true, sound: false, why: 'Quiet hours: shown without a sound.' } : { send: false, sound: false, why: 'Quiet hours.' };
   return { send: true, sound: mode === 'sound', why: null };
 }
@@ -319,7 +320,7 @@ export class Notifier {
     let why = verdict.why;
     if (verdict.send) {
       const execute = method === 'terminal-notifier' ? await this.#openTab(url) : null;
-      const what = { title: 'Feature Workshop', subtitle: title, body, url, execute, group: key ?? slug ?? undefined, sound: verdict.sound ? SOUNDS[level] ?? 'Glass' : null };
+      const what = { title: PRODUCT, subtitle: title, body, url, execute, group: key ?? slug ?? undefined, sound: verdict.sound ? SOUNDS[level] ?? 'Glass' : null };
       const cmd = method && commandFor(method, what);
       if (!cmd) why = 'No way to show a notification on this computer.';
       else {

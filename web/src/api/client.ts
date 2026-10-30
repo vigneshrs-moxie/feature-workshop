@@ -7,6 +7,7 @@
 // means you aren't signed in (ApiError.status 401, which the hosted screens answer with Sign in).
 
 import type { Meta, Snapshot } from './types';
+import { BRAND } from '../app/brand';
 
 export class ApiError extends Error {
   status: number;
@@ -39,7 +40,7 @@ export interface ApiClient {
 async function readError(res: Response): Promise<ApiError> {
   let body: Record<string, unknown> = {};
   try { body = await res.json(); } catch { /* not JSON */ }
-  const message = typeof body.error === 'string' ? body.error : `The dashboard answered ${res.status}.`;
+  const message = typeof body.error === 'string' ? body.error : `${BRAND.name} answered ${res.status}.`;
   return new ApiError(res.status, message, body);
 }
 

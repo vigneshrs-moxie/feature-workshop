@@ -216,11 +216,11 @@ test('notifications: a PowerShell toast or balloon tip on Windows, notify-send o
   assert.equal(await findMethod({ platform: 'freebsd', which: has('notify-send') }), null);
   assert.equal(await findMethod({ platform: 'darwin', which: has('osascript') }), 'osascript', 'macOS as before');
 
-  const what = { title: 'Feature Workshop', subtitle: 'Widget’s export', body: 'Go-ahead on Plan', url: 'http://127.0.0.1:4481/next/#/job/w', execute: null, group: 'w', sound: 'Glass' };
-  assert.deepEqual(commandFor('notify-send', what), ['notify-send', ['--app-name', 'Feature Workshop', 'Feature Workshop · Widget’s export', 'Go-ahead on Plan']]);
+  const what = { title: 'Starbase', subtitle: 'Widget’s export', body: 'Go-ahead on Plan', url: 'http://127.0.0.1:4481/next/#/job/w', execute: null, group: 'w', sound: 'Glass' };
+  assert.deepEqual(commandFor('notify-send', what), ['notify-send', ['--app-name', 'Starbase', 'Starbase · Widget’s export', 'Go-ahead on Plan']]);
   const [toast, targs] = commandFor('burnt-toast', { ...what, subtitle: "Bob's job" });
   assert.equal(toast, 'powershell.exe');
-  assert.equal(targs.at(-1), "New-BurntToastNotification -Text 'Feature Workshop · Bob''s job', 'Go-ahead on Plan'");
+  assert.equal(targs.at(-1), "New-BurntToastNotification -Text 'Starbase · Bob''s job', 'Go-ahead on Plan'");
   assert.match(commandFor('burnt-toast', { ...what, sound: null })[1].at(-1), / -Silent$/);
   const balloon = commandFor('windows-balloon', { ...what, body: "it's done" })[1].at(-1);
   assert.match(balloon, /System\.Windows\.Forms\.NotifyIcon/);

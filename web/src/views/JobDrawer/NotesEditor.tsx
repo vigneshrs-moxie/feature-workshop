@@ -9,6 +9,7 @@ import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { ServerHtml } from '../../panes/Foreman/ServerHtml';
 import { useWorkshop } from '../../state/store';
 import { Button } from '../../components/Button';
+import { BRAND } from '../../app/brand';
 
 type Preview = { text: string; state: 'loading' } | { text: string; state: 'ready'; html: string } | { text: string; state: 'error'; message: string };
 
@@ -35,7 +36,7 @@ function NotesPreview({ slug, text }: { slug: string; text: string }) {
       {p?.state === 'error' && (
         <>
           <p className="thread-error" role="alert">Couldn’t show the preview: {p.message}</p>
-          <Button onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for the preview again.">Try again</Button>
+          <Button onClick={() => setTries((n) => n + 1)} title={`Ask ${BRAND.name} for the preview again.`}>Try again</Button>
         </>
       )}
       {p?.state === 'ready' && <ServerHtml html={p.html} />}
@@ -106,7 +107,7 @@ export function NotesEditor({ slug, max, onDirtyChange }: { slug: string; max: n
     return (
       <div>
         <p className="thread-error" role="alert">Couldn’t load the notes: {load.message}</p>
-        <Button onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for the notes again.">Try again</Button>
+        <Button onClick={() => setTries((n) => n + 1)} title={`Ask ${BRAND.name} for the notes again.`}>Try again</Button>
       </div>
     );
   }

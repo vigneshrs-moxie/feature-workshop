@@ -32,6 +32,7 @@ import stacksRoutes from './routes-stacks.js';
 import evidenceRoutes from './routes-evidence.js';
 import reviewRoutes from './routes-review.js';
 import stageRoutes from './routes-stage.js';
+import { PRODUCT } from '../lib/brand.js';
 
 // Every list of routes, in the order they are tried.
 // stageRoutes before jobRoutes: the job routes answer every other GET /api/job/:slug/... with a 404.
@@ -194,7 +195,7 @@ export function createSite({ runner, port, token, wireframesOrigin, dashboardDir
     } catch (err) {
       if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message, ...err.extra });
       console.error(err);
-      return sendJson(res, 500, { error: 'Something went wrong. The details are in the terminal running the dashboard.' });
+      return sendJson(res, 500, { error: `Something went wrong. The details are in the terminal running ${PRODUCT}.` });
     }
   }
 
@@ -230,7 +231,7 @@ export function createSite({ runner, port, token, wireframesOrigin, dashboardDir
     } catch (err) {
       if (err instanceof HttpError) return sendScreens(res, err.status, JSON.stringify({ error: err.message }), TYPES['.json']);
       console.error(err);
-      return sendScreens(res, 500, JSON.stringify({ error: 'Something went wrong. The details are in the terminal running the dashboard.' }), TYPES['.json']);
+      return sendScreens(res, 500, JSON.stringify({ error: `Something went wrong. The details are in the terminal running ${PRODUCT}.` }), TYPES['.json']);
     }
   }
 

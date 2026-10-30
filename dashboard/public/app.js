@@ -97,7 +97,7 @@ export function situation(f) {
     return { tone: 'working', main: `<b>${esc(agentName(a.who))}</b> ${esc(verbFor(a.who))}`, detail: a.doing, time: since(a.since), crew: [a], bubble: quiet ? 'quiet' : 'dots', hint };
   }
   if (f.limitPaused) return { tone: 'idle', main: '<b>Paused</b> for Claude’s usage limit.', detail: f.limitAuto ? `It carries on by itself at about ${clockTime(f.limitPaused)}.` : 'Automatic carry-on is off: use “Carry on now” at the top of the page once the limit has reset.', crew: [], bubble: null };
-  if (f.paused) return { tone: 'idle', main: '<b>Paused.</b> Nothing is running.', detail: 'You paused this from the workshop. Send the Foreman a message to carry on.', crew: [], bubble: null };
+  if (f.paused) return { tone: 'idle', main: '<b>Paused.</b> Nothing is running.', detail: 'You paused this from Starbase. Send the Foreman a message to carry on.', crew: [], bubble: null };
   if (f.stageState === 'working') return { tone: 'working', main: '<b>The crew</b> is working', detail: f.nextProposed, crew: [], bubble: 'dots' };
   if (f.stageState === 'blocked') return { tone: 'blocked', main: '<b>Waiting</b> on someone else', detail: f.nextProposed, crew: [], bubble: null };
   if (f.stageState === 'done') return { tone: 'done', main: '<b>Done!</b> This job is finished.', detail: null, crew: [], bubble: 'badge' };
@@ -117,7 +117,7 @@ function renderUsage() {
     const jobs = u.jobs.length ? `${esc(plural(u.jobs.length, 'job'))} paused: ${u.jobs.map((j) => esc(j.title)).join(', ')}.` : 'Nothing was running from here.';
     const plan = !u.autoResume ? (u.passed ? 'The limit has reset. Automatic carry-on is off, so use <b>Carry on now</b> when you’re ready; new messages go through again.' : 'Automatic carry-on is off, so use <b>Carry on now</b> when you’re ready.')
       : u.resetKnown ? `${u.jobs.length ? 'They carry on' : 'Jobs can start again'} by themselves at about <b>${esc(t)}</b> (in ${esc(left)}).`
-        : `Claude didn’t say when it resets, so the workshop tries again at about <b>${esc(t)}</b>.`;
+        : `Claude didn’t say when it resets, so Starbase tries again at about <b>${esc(t)}</b>.`;
     html = `<section class="usage-banner gbox" role="status" aria-label="Usage limit">
       <p><b>Claude’s ${esc(u.label)} is reached.</b> ${jobs} ${plan}</p>
       <p class="fineprint">Jobs you run in a terminal can’t be paused from here: they stop with a limit message instead.</p>
@@ -401,7 +401,7 @@ function updateCounter() {
   $('#needs-num').textContent = n;
   $('#needs-label').textContent = n === 1 ? 'needs you' : 'need you';
   $('#needs-badge').dataset.count = n;
-  document.title = n ? `(${n}) Feature Workshop` : 'Feature Workshop';
+  document.title = n ? `(${n}) Starbase` : 'Starbase';
 }
 
 function alertOnChanges() {
@@ -444,7 +444,7 @@ async function refresh() {
     renderUsage();
     await show();
   } catch (err) {
-    if (!board) $('#app').innerHTML = `<div class="empty gbox">${sprite('conductor', { size: 120, state: 'asleep' })}<h2>Can’t reach the workshop</h2><p>${esc(err.message || 'The dashboard may have stopped. Start it again with npm start.')}</p></div>`;
+    if (!board) $('#app').innerHTML = `<div class="empty gbox">${sprite('conductor', { size: 120, state: 'asleep' })}<h2>Can’t reach Starbase</h2><p>${esc(err.message || 'Starbase may have stopped. Start it again with npm start.')}</p></div>`;
   } finally {
     refreshing = false;
     if (again) { again = false; setTimeout(refresh, 50); }

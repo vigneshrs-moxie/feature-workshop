@@ -18,6 +18,7 @@ import { dispatchType, handoffLine } from '../../play/crewLines';
 import { ExtrasLines } from './ExtrasLines';
 import { ServerHtml } from './ServerHtml';
 import { STEER_LABELS } from './thread';
+import { BRAND } from '../../app/brand';
 
 function When({ at, now }: { at: string | null; now: Date }) {
   if (!at) return null;
@@ -133,7 +134,7 @@ export function ThreadItemView({ item, now, steer = null, playOn }: { item: Thre
           data-ask="blocked"
           title={item.by === 'auto'
             ? 'Auto mode’s safety model refused this step by itself, so it never came to you. The Foreman was told and carries on without it.'
-            : 'The dashboard refuses this step in every setting (a hard line). The Foreman was told and carries on without it.'}
+            : `${BRAND.name} refuses this step in every setting (a hard line). The Foreman was told and carries on without it.`}
         >
           <span className="glyph" aria-hidden="true">⊘</span> {item.text}
           {item.who && item.who !== 'conductor' ? <Worker who={item.who} playOn={playOn} /> : null}

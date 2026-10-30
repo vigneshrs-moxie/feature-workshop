@@ -21,6 +21,7 @@ import { Button } from '../../components/Button';
 import { Saved, useSaved } from '../../components/Saved';
 import { DETAIL_INFO, useDetail, type Detail } from '../../app/detail';
 import { SettingGroup, SettingsMore } from './SettingsMore';
+import { BRAND } from '../../app/brand';
 
 export { followLine } from './ThemePicker';
 
@@ -155,7 +156,7 @@ export function LookSettings() {
         <PlayPicker />
       </SettingsMore>
       <p className="muted theme-hint">
-        Each of these changes only how things look; nothing is lost and the keys stay the same. Play is kept by the dashboard; the rest is remembered in this browser.
+        Each of these changes only how things look; nothing is lost and the keys stay the same. Play is kept by {BRAND.name}; the rest is remembered in this browser.
         To try a theme from a link, add <code className="num">?theme=&lt;name&gt;</code> to the address.
       </p>
     </section>

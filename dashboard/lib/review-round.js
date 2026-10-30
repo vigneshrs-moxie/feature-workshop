@@ -31,6 +31,7 @@ import path from 'node:path';
 import { scrub, scrubDeep } from './orbit.js';
 import { runSteps, yes as yesFor } from './gh-write.js';
 import { QUOTE_MAX, checkKey, commentKey, isSummaryBot, lookedAt as lookedAtPr, noteFeedback, readFeedback as readFeedbackRecord } from './pr-feedback.js';
+import { PRODUCT } from './brand.js';
 
 // N's record: the items a round takes are marked 'round', so N never cards them too.
 const noteRound = (dir, key) => noteFeedback(dir, key, { state: 'round' });
@@ -867,7 +868,7 @@ function held(out, lock, job) {
   out.held = { pid: lock.pid ?? null, branch: lock.branch ?? null, since: lock.acquiredAt ?? null };
   out.bar = {
     ...out.bar,
-    headline: lock.owner === 'terminal' || !lock.owner ? 'This job is being driven from a terminal' : 'This job is being run by another copy of the dashboard',
+    headline: lock.owner === 'terminal' || !lock.owner ? 'This job is being driven from a terminal' : `This job is being run by another copy of ${PRODUCT}`,
     detail: `pid ${lock.pid ?? 'unknown'}${lock.branch ? `, branch ${lock.branch}` : ''}, since ${clock(lock.acquiredAt)}. Carry on there, or close it there to send back from here.`,
     was: { headline: out.bar.headline, detail: out.bar.detail },
     actions: out.bar.actions.map((a) => (a.client ? a : { ...a, enabled: false, reason })),

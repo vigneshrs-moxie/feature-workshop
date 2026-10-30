@@ -18,6 +18,7 @@ import { DEFAULT_THEME, themePair, THEMES, type ColorScheme, type ThemeInfo, use
 import { Choice } from '../../components/Choice';
 import { Saved, useSaved } from '../../components/Saved';
 import { SettingsMore } from './SettingsMore';
+import { BRAND } from '../../app/brand';
 
 const GROUPS: { scheme: ColorScheme; title: string }[] = [
   { scheme: 'dark', title: 'Dark' },
@@ -114,7 +115,7 @@ export function ThemePicker() {
     <section className="theme-picker" aria-label="Theme" data-setting="theme">
       <div className="setting-head"><h4 className="look-heading">Theme</h4><Saved tick={saved.tick()} /></div>
       <fieldset className="rule-options theme-options">
-        <legend className="sr-only">How the Workshop looks</legend>
+        <legend className="sr-only">How {BRAND.name} looks</legend>
         <div className="theme-first">
           {first.map(option)}
           <FollowTile chosen={chosenId} onSaved={() => saved.mark()} />

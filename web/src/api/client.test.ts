@@ -85,7 +85,7 @@ describe('api client', () => {
     const api = createApi({ fetch: fetch as unknown as typeof globalThis.fetch });
     const err = await failure(api.get('/api/snapshot'));
     expect(err).toBeInstanceOf(ApiError);
-    expect(err.message).toBe('The dashboard answered 500.');
+    expect(err.message).toBe('Starbase answered 500.');
   });
 
   // Packet 2A: the hosted site knows you by its session cookie, never by a page token.

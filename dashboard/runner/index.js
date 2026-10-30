@@ -83,12 +83,13 @@ import { itemSummary, lookAt, noteFeedback, readFeedback } from '../lib/pr-feedb
 import { ReviewRefused, createReviewRounds, gitRead } from '../lib/review-round.js';
 import { createGhWrite } from '../lib/gh-write.js';
 import { createSiteLink, siteTokenStore } from './site-link.js';
+import { PRODUCT } from '../lib/brand.js';
 
 /** The Foreman models the page offers (meta.models); a reply's model must be one of them. */
 export const MODELS = [
   { id: 'claude-opus-5-5', label: 'Opus 5.5', note: 'The everyday Foreman: strong and much cheaper than Fable. Asks Fable for a second look where your job options say.' },
   { id: 'claude-fable-5-1', label: 'Fable 5.1', note: 'Best judgment, highest cost and quickest to use up your limits. Only if you want it: the Foreman is Opus at every level, and Fable already takes second looks at L3.' },
-  { id: 'claude-haiku-5-5', label: 'Haiku 5.5', note: 'Cheapest. For trying the dashboard out, not real jobs.' },
+  { id: 'claude-haiku-5-5', label: 'Haiku 5.5', note: `Cheapest. For trying ${PRODUCT} out, not real jobs.` },
 ];
 
 /** A reply still going (the driver's states before it ends). */
@@ -921,7 +922,7 @@ export async function createRunner(config) {
 
   /** Replace notes.md, atomically (a new temp file renamed over it), only inside the job's own folder. */
   async function writeNotes(f, text) {
-    if (!isInside(f.dir, FEATURES_DIR) || path.resolve(f.dir) === FEATURES_DIR) throw new HttpError(400, 'This job’s folder isn’t where the workshop keeps jobs.');
+    if (!isInside(f.dir, FEATURES_DIR) || path.resolve(f.dir) === FEATURES_DIR) throw new HttpError(400, `This job’s folder isn’t where ${PRODUCT} keeps jobs.`);
     const tmp = path.join(f.dir, `.notes.md.${crypto.randomBytes(6).toString('hex')}.tmp`);
     await fsp.writeFile(tmp, text, { flag: 'wx', mode: 0o600 });
     try { await fsp.rename(tmp, notesFile(f)); } catch (err) { await fsp.rm(tmp, { force: true }); throw err; }
@@ -1612,7 +1613,7 @@ export async function createRunner(config) {
           // The continued conversation runs where it ran before, so that must be inside the job's repository.
           if (!isInside(d.cwd, repo.path)) throw new HttpError(400, `That conversation ran in ${d.cwd}, which isn’t inside ${repo.path}. Pick that repository, or use “Fresh Foreman with a summary”.`);
           const { forkSession } = await import('@anthropic-ai/claude-agent-sdk');
-          sessionId = (await forkSession(d.id, { dir: d.cwd, title: `${d.title} (Feature Workshop)` })).sessionId;
+          sessionId = (await forkSession(d.id, { dir: d.cwd, title: `${d.title} (${PRODUCT})` })).sessionId;
           cwd = d.cwd;
           from.forkedTo = sessionId;
         }
@@ -1632,7 +1633,7 @@ export async function createRunner(config) {
       if (fromDetail) await fsp.writeFile(path.join(featureDir, 'history.md'), historyMarkdown(fromDetail), { mode: 0o600 });
       // The /feature command must come first in the message, or it doesn't run.
       const tail = from?.mode === 'continue'
-        ? '\n\nThis conversation is now a Feature Workshop job: carry it on through the feature workflow from here. Everything said earlier in it is background, not approval.'
+        ? `\n\nThis conversation is now a ${PRODUCT} job: carry it on through the feature workflow from here. Everything said earlier in it is background, not approval.`
         : '';
       const text = `/feature ${description}${kind === 'bug' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${describeOptions(optionsOut).map((l) => `- ${l}`).join('\n')}${fromTicket ? `\n\n${fromTicket.brief}` : ''}${tail}`;
       const run = await driver.start({ featureDir, slug, title: description, cwd, sessionId, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
@@ -1692,7 +1693,7 @@ export async function createRunner(config) {
     // Merge next on a stack, queued from the hosted site (packet 2B): the stack page's own "merge".
     async 'stack-merge'(body) {
       const stacks = local_.stacks;
-      if (!stacks) throw new HttpError(404, 'Stacks run only on the dashboard on your own computer.');
+      if (!stacks) throw new HttpError(404, `Stacks run only in ${PRODUCT} on your own computer.`);
       try { return await stacks.merge(body.slug, { section: body.section ?? undefined }); } catch (err) { throw stacks.httpError(err); }
     },
 
@@ -2323,7 +2324,7 @@ export async function createRunner(config) {
       else if (visible === false) notifier.unseen();
     },
     async testNotification() {
-      const entry = await notifier.notify({ level: 'needs', title: 'A test from Feature Workshop', body: 'Notifications reach you here. Clicking one opens the dashboard.', test: true });
+      const entry = await notifier.notify({ level: 'needs', title: `A test from ${PRODUCT}`, body: `Notifications reach you here. Clicking one opens ${PRODUCT}.`, test: true });
       events.emit('notification', null, entry);
       return entry;
     },

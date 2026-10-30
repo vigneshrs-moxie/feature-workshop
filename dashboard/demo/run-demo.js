@@ -160,7 +160,7 @@ async function makeRepo() {
   await fs.mkdir(path.join(ACME, 'app'), { recursive: true });
   git('init', '-q', '-b', 'main');
   git('config', 'user.name', 'Demo'); git('config', 'user.email', 'demo@example.invalid');
-  await fs.writeFile(path.join(ACME, 'README.md'), '# Acme portal (demo)\nA pretend app for Feature Workshop\'s demo.\n');
+  await fs.writeFile(path.join(ACME, 'README.md'), '# Acme portal (demo)\nA pretend app for Starbase\'s demo.\n');
   await fs.writeFile(path.join(ACME, 'docs', 'plans', '2026-10-01-widget-export-product-spec.md'), [
     '# Widget Export: product spec (demo)', '', '**Version:** 0.3 · **Status:** DRAFT', '', '## Requirements', '',
     '| ID | Requirement |', '|---|---|',

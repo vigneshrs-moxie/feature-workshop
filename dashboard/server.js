@@ -20,6 +20,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createRunner } from './runner/index.js';
 import { createSite } from './site/index.js';
+import { PRODUCT } from './lib/brand.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -70,14 +71,14 @@ screensServer.on('error', (err) => {
 await runner.start({
   listen: () => new Promise((resolve) => {
     server.listen(PORT, HOST, () => {
-      console.log(`Feature Workshop running at http://${HOST}:${PORT}  (Ctrl+C to stop)`);
+      console.log(`${PRODUCT} running at http://${HOST}:${PORT}  (Ctrl+C to stop)`);
       console.log(`  jobs:     ${FEATURES_DIR}`);
       console.log(`  sessions: ${PROJECTS_DIR}`);
       if (DEMO) console.log('  demo mode: a pretend Foreman answers; nothing real runs.');
       resolve();
     });
     screensServer.listen(WIREFRAMES_PORT, HOST, () => {
-      console.log(`  screens:  ${WIREFRAMES_ORIGIN} (a job’s wireframes page, framed by the dashboard)`);
+      console.log(`  screens:  ${WIREFRAMES_ORIGIN} (a job’s wireframes page, framed by ${PRODUCT})`);
     });
   }),
 });

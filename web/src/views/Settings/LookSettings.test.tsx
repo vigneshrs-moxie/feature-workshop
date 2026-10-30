@@ -40,7 +40,7 @@ describe('Settings → Look', () => {
     setup();
     const look = screen.getByRole('region', { name: 'Look' });
     expect(within(look).getByRole('heading', { name: 'Look' })).toBeInTheDocument();
-    expect(within(look).getByRole('group', { name: 'How the Workshop looks' })).toBeInTheDocument();
+    expect(within(look).getByRole('group', { name: 'How Starbase looks' })).toBeInTheDocument();
     expect(within(look).getByRole('group', { name: 'Text size' })).toBeInTheDocument();
     expect(within(look).getByRole('checkbox', { name: /Follow the system/ })).toBeInTheDocument();
   });

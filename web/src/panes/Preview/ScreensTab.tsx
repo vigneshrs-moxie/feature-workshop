@@ -22,12 +22,13 @@ import { useWorkshopState } from '../../state/store';
 import { draftKey } from '../Foreman/Composer';
 import { versionLabel } from './docs';
 import { gotoScreen, isEscapeMessage, mountFrame, receive, requestFeedback, takeScreensRequest, useWireframes } from './wireframes';
+import { BRAND } from '../../app/brand';
 
 /** The page's address for a job: on the screens server's own origin (meta.wireframesOrigin), under its own content security policy (dashboard/server.js). */
 export const wireframesUrl = (origin: string, slug: string) => `${origin.replace(/\/+$/, '')}/job/${encodeURIComponent(slug)}/wireframes`;
 
 /** What the Screens tab says when the dashboard named no screens origin (an older dashboard behind a newer page). */
-export const NO_ORIGIN = 'The dashboard didn’t say where it serves the screens from. Restart the dashboard and reload this page.';
+export const NO_ORIGIN = `${BRAND.name} didn’t say where it serves the screens from. Restart ${BRAND.name} and reload this page.`;
 
 /** Whether the Foreman waits for your decision on this job (a gate, not a permission): the feedback then joins your reply. */
 export const gateWaiting = (job: Job | null | undefined) => Boolean(job?.needsYou && (job.waitingFor === 'approval' || job.waitingFor === 'answers'));

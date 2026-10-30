@@ -18,6 +18,7 @@ import path from 'node:path';
 import { envGet, findOnPath, folderLabel, killTree as stopProcessTree, openIn, shellFor, terminalApps } from './platform.js';
 import { GENERAL, GENERAL_FILE_RULE, devCommand, fillPattern, tryItRules } from './profile.js';
 import { openRegistry } from './repos.js';
+import { PRODUCT } from './brand.js';
 
 const OUTPUT_MAX = 200_000; // characters kept per output box
 const PRESETS = [
@@ -514,13 +515,13 @@ export class LocalRunner extends EventEmitter {
     const url = envValue(text, key);
     if (!url) return { reason: `Your main folder’s ${path.basename(rule.from)} has no ${key}.` };
     let u;
-    try { u = new URL(url); } catch { return { reason: `${key} isn’t a database address the workshop can read.` }; }
+    try { u = new URL(url); } catch { return { reason: `${key} isn’t a database address ${PRODUCT} can read.` }; }
     if (!/^postgres(ql)?:$/.test(u.protocol)) return { reason: 'Only Postgres databases can be switched from here.' };
-    if (!isLocalHost(u.hostname)) return { reason: 'Your app’s database isn’t on this computer, so the workshop won’t touch it.' };
+    if (!isLocalHost(u.hostname)) return { reason: `Your app’s database isn’t on this computer, so ${PRODUCT} won’t touch it.` };
     let name;
     let env;
-    try { name = decodeURIComponent(u.pathname.slice(1)); env = pgEnv(url); } catch { return { reason: `${key} has characters the workshop can’t read.` }; }
-    if (!/^[A-Za-z0-9_]{1,50}$/.test(name)) return { reason: 'The database name has characters the workshop won’t risk.' };
+    try { name = decodeURIComponent(u.pathname.slice(1)); env = pgEnv(url); } catch { return { reason: `${key} has characters ${PRODUCT} can’t read.` }; }
+    if (!/^[A-Za-z0-9_]{1,50}$/.test(name)) return { reason: `The database name has characters ${PRODUCT} won’t risk.` };
     return { url, name, original: `${name}__original`, incoming: `${name}__incoming`, env };
   }
 
@@ -560,7 +561,7 @@ export class LocalRunner extends EventEmitter {
     const saved0 = (await this.#settings()).db?.[db.name] ?? {};
     if (!facts.exists && facts.originalExists) return { available: true, gone: true, name: db.name, busy: this.dbBusy, original: { exists: true, savedAt: saved0.originalAt ?? null }, matches: saved0.matches ?? null, missing: [], extra: [], connections: 0 };
     if (!facts.exists) return { available: false, name: db.name, reason: `The database ${db.name} doesn’t exist on this computer.` };
-    if (!facts.ledger) return { available: false, name: db.name, reason: 'This database has no applied_migrations table, so the workshop can’t tell which changes it has.' };
+    if (!facts.ledger) return { available: false, name: db.name, reason: `This database has no applied_migrations table, so ${PRODUCT} can’t tell which changes it has.` };
     const disk = await diskMigrations(w.app.dir);
     const have = new Set(facts.ledger);
     const saved = (await this.#settings()).db?.[db.name] ?? {};
@@ -622,7 +623,7 @@ export class LocalRunner extends EventEmitter {
     if (this.dbBusy) throw new Error('The database is already being switched. Wait for it to finish.');
     const w = await this.where(f);
     const db = w.app ? await this.#database(w) : { reason: w.reason };
-    if (!db.url) throw new Error(db.reason ?? 'This job’s app has no database the workshop can switch.');
+    if (!db.url) throw new Error(db.reason ?? `This job’s app has no database ${PRODUCT} can switch.`);
     if (!['match', 'original', 'save-original'].includes(action)) throw new Error('Unknown database action.');
     const slot = this.#slot(f.slug);
     if (slot.cmd?.status === 'running') throw new Error('A command is still running here. Stop it first, or wait for it.');

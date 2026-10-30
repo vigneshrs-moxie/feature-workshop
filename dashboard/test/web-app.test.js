@@ -26,7 +26,7 @@ before(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'fw-web-'));
   dist = path.join(tmp, 'dist');
   await fs.mkdir(path.join(dist, 'assets'), { recursive: true });
-  await fs.writeFile(path.join(dist, 'index.html'), '<!doctype html><title>Feature Workshop</title>');
+  await fs.writeFile(path.join(dist, 'index.html'), '<!doctype html><title>Starbase</title>');
   await fs.writeFile(path.join(dist, 'favicon.ico'), 'ico');
   await fs.writeFile(path.join(dist, 'logo.png'), 'png');
   for (const name of ['index-DHFFf3mL.js', 'index-DHFFf3mL.js.map', 'index-Ab12_-Cd.css', 'inter-Zz9Yx8Wv.woff2', 'inter-Zz9Yx8Wv.woff', 'shot-Qq1Ww2Ee.webp', 'worker-Pp0Oo9Ii.mjs', 'plain.js']) {
@@ -78,7 +78,7 @@ test('/next and /next/ serve the app page, never cached', async () => {
     const r = await get(p);
     assert.equal(r.status, 200, p);
     assert.match(r.type, /^text\/html/);
-    assert.match(r.body, /Feature Workshop/);
+    assert.match(r.body, /Starbase/);
     assert.equal(r.cache, 'no-store');
   }
 });
@@ -87,7 +87,7 @@ test('app routes without a file extension fall back to the page', async () => {
   for (const p of ['/next/job/demo-x', '/next/settings', '/next/assets/']) {
     const r = await get(p);
     assert.equal(r.status, 200, p);
-    assert.match(r.body, /Feature Workshop/, p);
+    assert.match(r.body, /Starbase/, p);
   }
 });
 
@@ -95,7 +95,7 @@ test('missing files are a 404, not the page', async () => {
   for (const p of ['/next/assets/missing-AAAAAAAA.js', '/next/nope.png', '/next/robots.txt']) {
     const r = await get(p);
     assert.equal(r.status, 404, p);
-    assert.doesNotMatch(r.body, /Feature Workshop/, p);
+    assert.doesNotMatch(r.body, /Starbase/, p);
   }
 });
 

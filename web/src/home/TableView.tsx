@@ -14,12 +14,13 @@ import { Icon, type IconName } from '../components/Icon';
 import { Chip, type ChipTone } from '../components/Chip';
 import { TextInput } from '../components/Field';
 import { stopOf } from '../components/stops/stops';
+import { BRAND } from '../app/brand';
 
 export const TABLE_FILTER_KEY = 'fw.home.table.filter';
 export const TABLE_SORT_KEY = 'fw.home.table.sort';
 
 const FILTERS: { id: TableFilter; label: string; hint: string }[] = [
-  { id: 'all', label: 'All', hint: 'Every job the dashboard knows.' },
+  { id: 'all', label: 'All', hint: `Every job ${BRAND.name} knows.` },
   { id: 'needs-you', label: 'Needs you', hint: 'Waiting for your go-ahead, an answer or a click.' },
   { id: 'running', label: 'Running', hint: 'The Foreman or its crew are working on it now.' },
   { id: 'idle', label: 'Idle', hint: 'Nothing happening and nothing asked of you.' },

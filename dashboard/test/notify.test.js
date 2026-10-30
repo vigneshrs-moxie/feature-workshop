@@ -46,9 +46,9 @@ test('notify: what is sent, with a sound or not', () => {
 });
 
 test('notify: the macOS commands', async () => {
-  const [cmd, args] = commandFor('terminal-notifier', { title: 'Feature Workshop', subtitle: 'Widget Export', body: 'Go-ahead on Plan', url: 'http://127.0.0.1:4477/next/#/job/w', group: 'w', sound: 'Glass' });
+  const [cmd, args] = commandFor('terminal-notifier', { title: 'Starbase', subtitle: 'Widget Export', body: 'Go-ahead on Plan', url: 'http://127.0.0.1:4477/next/#/job/w', group: 'w', sound: 'Glass' });
   assert.equal(cmd, 'terminal-notifier');
-  assert.deepEqual(args, ['-title', 'Feature Workshop', '-subtitle', 'Widget Export', '-message', 'Go-ahead on Plan', '-open', 'http://127.0.0.1:4477/next/#/job/w', '-group', 'w', '-sound', 'Glass']);
+  assert.deepEqual(args, ['-title', 'Starbase', '-subtitle', 'Widget Export', '-message', 'Go-ahead on Plan', '-open', 'http://127.0.0.1:4477/next/#/job/w', '-group', 'w', '-sound', 'Glass']);
   const [osa, oargs] = commandFor('osascript', { title: 'T', subtitle: 'Say "hi"', body: 'a\\b', sound: null });
   assert.equal(osa, 'osascript');
   assert.equal(oargs[1], 'display notification "a\\\\b" with title "T" subtitle "Say \\"hi\\""');
@@ -70,7 +70,7 @@ test('notify: Notifier sends, links to the job, and keeps the last 50 in its his
   n.seen();
   const skipped = await n.notify({ level: 'needs', title: 'X', slug: 'x' });
   assert.equal(skipped.sent, false);
-  assert.match(skipped.why, /looking at the dashboard/);
+  assert.match(skipped.why, /looking at Starbase/);
   clock = new Date(clock.getTime() + 60000);
   assert.equal((await n.notify({ level: 'done', title: 'Y' })).sent, true, 'a minute later you aren’t watching any more');
   const test1 = await n.notify({ level: 'needs', title: 'Test', test: true });

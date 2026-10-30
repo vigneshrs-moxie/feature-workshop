@@ -36,6 +36,7 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 
 import { commandParts, isInside, NOT_DB_SCRIPT, orgRefWrite, resolvePath, splitCommand, TEMP_DIRS } from './policy.js';
+import { PRODUCT } from './brand.js';
 
 /**
  * Remote names and addresses that mean the org repository. Pushing there is never allowed.
@@ -134,7 +135,7 @@ function ghSub(rest) {
 function pushVerdict(args, dir = null) {
   const force = args.some((a) => /^--(force|force-with-lease|force-if-includes|mirror)(=|$)/.test(a) || /^-[A-Za-z]*f/.test(a))
     || args.filter((a) => !a.startsWith('-')).slice(1).some((a) => a.startsWith('+'));
-  if (force) return { decision: 'deny', line: 'force-push', reason: 'Force pushes are never allowed from the dashboard.' };
+  if (force) return { decision: 'deny', line: 'force-push', reason: `Force pushes are never allowed from ${PRODUCT}.` };
   const positional = [];
   for (let k = 0; k < args.length; k++) {
     const a = args[k];
@@ -162,9 +163,9 @@ function rmVerdict(args) {
 }
 
 // Says how to do the one allowed thing, so the Foreman doesn't take the create-only call for a way around the block.
-const ORG_PUSH_REASON = 'Pushing to the org repository is never allowed from the dashboard. Push to your fork (origin) instead. To create the job’s matching org branch, the user has allowed one create-only call (not a workaround): gh api -X POST repos/<org>/<repo>/git/refs -f ref=refs/heads/<branch> -f sha=<full moxie/main SHA>, both values written out.';
+const ORG_PUSH_REASON = `Pushing to the org repository is never allowed from ${PRODUCT}. Push to your fork (origin) instead. To create the job’s matching org branch, the user has allowed one create-only call (not a workaround): gh api -X POST repos/<org>/<repo>/git/refs -f ref=refs/heads/<branch> -f sha=<full moxie/main SHA>, both values written out.`;
 
-const ORG_REF = { decision: 'deny', line: 'org-ref-write', reason: 'Changing branches on the org repository is never allowed from the dashboard. Only creating a new feature branch is.' };
+const ORG_REF = { decision: 'deny', line: 'org-ref-write', reason: `Changing branches on the org repository is never allowed from ${PRODUCT}. Only creating a new feature branch is.` };
 
 const DB = { decision: 'ask', line: 'database', reason: 'Database migrations are a hard line: they ask you before they run.' };
 

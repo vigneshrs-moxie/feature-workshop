@@ -32,6 +32,7 @@ import { useWorkshop, useWorkshopState } from '../state/store';
 import { NextStep, ticketOf } from './JobPage';
 import { ReviewPanel } from '../views/Review/ReviewPanel';
 import { Select } from '../components/Select';
+import { BRAND } from '../app/brand';
 
 export const STAGE_GUIDE: GuideSpec = {
   id: 'stage',
@@ -163,7 +164,7 @@ function StageBody({ job, stop }: { job: Job; stop: StopId }) {
         {load.state === 'error' && (
           <div>
             <p className="thread-error" role="alert">Couldn’t read this stop: {load.message}</p>
-            <Button onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for this stop again.">Try again</Button>
+            <Button onClick={() => setTries((n) => n + 1)} title={`Ask ${BRAND.name} for this stop again.`}>Try again</Button>
           </div>
         )}
         {view && <WhoIsOn job={job} view={view} now={now} faces={play.full} finishedOpen={finishedOpen} setFinishedOpen={setFinishedOpen} />}
