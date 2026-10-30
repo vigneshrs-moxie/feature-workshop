@@ -98,8 +98,7 @@
 .part-link { min-height: 28px; }
 
 /* The job's level: a fact in the context strip with "Choose", its card in a sheet (LevelSheet), so
-   the conversation column holds only the conversation. */
-.part-convo .thread > .level-card { display: none; }
+   the conversation column holds only the conversation (its ThreadList leaves the card out). */
 .part-level-sep { margin: 0 var(--space-1); color: var(--text-3); }
 .part-level-choose { margin-left: calc(-1 * var(--space-1)); color: var(--accent-strong); }
 .part-level-sheet .level-card { margin: 0; }

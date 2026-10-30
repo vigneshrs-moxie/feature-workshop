@@ -115,12 +115,17 @@ describe('a part’s own page', () => {
     const strip = await screen.findByRole('region', { name: 'Its place in the stack' });
     await waitFor(() => expect(strip).toHaveTextContent('Level'));
     expect(strip).toHaveTextContent('Not chosen yet');
-    // The thread's own level card is hidden here (part-page.css); the strip and its sheet carry it.
-    await waitFor(() => expect(document.querySelector('.part-convo .thread > .level-card')).toBeInTheDocument());
-    expect(partCss).toMatch(/\.part-convo \.thread > \.level-card \{ display: none; \}/);
+    // The thread leaves its own level card out (ThreadList level={false}), so the page has one level
+    // heading, not a hidden twin with the same id; the strip and its sheet carry it.
+    // (The strip's level comes from the same loaded conversation the card would wait for.)
+    await waitFor(() => expect(document.querySelector('.part-convo .thread[aria-busy="false"]')).toBeInTheDocument());
+    expect(document.querySelector('.part-convo .level-card')).not.toBeInTheDocument();
+    expect(partCss).not.toMatch(/level-card \{ display: none/);
     fireEvent.click(within(strip).getByRole('button', { name: 'Choose' }));
     const sheet = await screen.findByRole('dialog', { name: 'The level for part 2’s job' });
     expect(within(sheet).getByRole('heading', { name: 'Pick a level for this job' })).toBeInTheDocument();
+    const ids = [...document.querySelectorAll('[id]')].map((e) => e.id);
+    expect(ids.length).toBe(new Set(ids).size);
     fireEvent.click(within(sheet).getByRole('button', { name: 'Not now' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'The level for part 2’s job' })).not.toBeInTheDocument());
     expect(within(strip).queryByRole('button', { name: 'Choose' })).not.toBeInTheDocument();

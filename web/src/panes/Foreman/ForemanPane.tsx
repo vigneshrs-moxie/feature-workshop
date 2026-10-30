@@ -72,10 +72,12 @@ export function useCurrentJob(job: Job, { thread, run }: Conversation) {
  * just now, the level card, the cards waiting for you (unless the page shows them elsewhere) and
  * the live row. `stages`: only the part of the conversation at these stages (the Stage page).
  */
-export function ThreadList({ job, conversation, now, cards = true, sectionRef, stages, newest }: {
+export function ThreadList({ job, conversation, now, cards = true, level = true, sectionRef, stages, newest }: {
   job: Job; conversation: Conversation; now: Date; cards?: boolean; sectionRef?: Ref<HTMLElement>; stages?: readonly string[];
   /** Simple (packet R, the Job page): only the newest few, with "Earlier (n)" above them. */
   newest?: number;
+  /** false: leave out the level card (a part's page shows the level in its strip and its card in a sheet). */
+  level?: boolean;
 }) {
   const state = useWorkshopState();
   const { thread, run } = conversation;
@@ -146,7 +148,7 @@ export function ThreadList({ job, conversation, now, cards = true, sectionRef, s
       {/* Steered just now: shown at once, until the conversation (refetched a moment later) has it. */}
       {justSteered.map((s) => <YouMessage key={s.id} text={s.text} at={s.queuedAt ?? null} now={now} steer={s.state} steered />)}
       {/* The level: when the Foreman's suggestion differs from the chosen one, or none is chosen yet. */}
-      {loaded && !stages && <LevelCard job={job} detail={thread.detail} />}
+      {loaded && !stages && level && <LevelCard job={job} detail={thread.detail} />}
       {cards && <JobCards slug={job.slug} now={now} />}
       {!stages && <LiveRow run={run} job={job} usage={state.usage} />}
     </section>
