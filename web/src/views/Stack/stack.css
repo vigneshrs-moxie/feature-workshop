@@ -23,7 +23,7 @@
 
 /* The four dots: done (filled), now (ringed), not yet (hollow), joined by a line. */
 .step-dots { display: inline-flex; align-items: center; }
-.step-dot { position: relative; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border-2); background: var(--bg-1); }
+.step-dot { position: relative; width: 12px; height: 12px; border-radius: 50%; border: 2px solid color-mix(in oklab, var(--text-3) 80%, var(--surface-1)); background: var(--bg-1); }
 .step-dot + .step-dot { margin-left: 18px; }
 .step-dot + .step-dot::before { content: ''; position: absolute; top: 3px; right: 100%; width: 20px; border-top: 2px solid var(--border-2); }
 .step-dot.is-done { border-color: var(--status-ok); background: var(--status-ok); }

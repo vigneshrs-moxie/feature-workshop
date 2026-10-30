@@ -39,7 +39,8 @@ a.stack-seg:focus-visible::before, button.stack-seg:focus-visible::before { outl
 @media (prefers-reduced-motion: reduce) { .stack-seg::before { transition: none; } a.stack-seg:hover::before, button.stack-seg:hover::before { transform: none; } }
 
 /* ---------- The light: steady in subtle, a slow pulse in Play full, still with less motion ---------- */
-.stack-light { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--border-3); }
+/* A light that is off is still a mark you can see (3:1): the muted text colour, as R's empty checkbox edge. */
+.stack-light { flex: none; width: 8px; height: 8px; border-radius: 50%; background: color-mix(in oklab, var(--text-3) 80%, var(--surface-1)); }
 .stack-light.is-on { background: var(--mark); box-shadow: 0 0 0 3px var(--tint); }
 .stack-light.is-pulse { animation: stack-pulse 2.4s ease-in-out infinite; }
 @keyframes stack-pulse { 0%, 100% { box-shadow: 0 0 0 3px var(--tint); } 50% { box-shadow: 0 0 0 6px color-mix(in oklch, var(--tint) 40%, transparent); } }
