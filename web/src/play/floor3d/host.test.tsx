@@ -88,6 +88,13 @@ describe('the 3D floor in the workshop floor', () => {
     expect(region.querySelector('canvas')).toHaveAttribute('aria-hidden', 'true');
   });
 
+  it('reads the theme again once the scene is up, so a theme put on meanwhile is never missed (packet X)', async () => {
+    floor('full');
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    // Gold, say, is put on when the play ledger arrives: before the watch on the theme starts.
+    await waitFor(() => expect(scene.setPalette).toHaveBeenCalled());
+  });
+
   it('shows the cards with the same words when the browser can’t draw 3D', () => {
     setWebGLForTests(false);
     floor('full');

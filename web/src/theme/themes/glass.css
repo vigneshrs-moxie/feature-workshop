@@ -44,7 +44,7 @@ html[data-theme="glass"] {
   --glass-highlight: inset 0 1px 0 oklch(1 0 0 / .12);
   --glass-pane: oklch(.16 .03 272 / .58);
   --glass-pane-side: oklch(.14 .03 272 / .6);
-  --glass-float: oklch(.2 .03 272 / .95);
+  --glass-float: oklch(.2 .03 272 / .98); /* .95 let the page behind the Peek show faintly (packet X) */
 
   /* ---- Base palette: translucent layers over the night ---- */
   --bg-0: oklch(.16 .03 272 / .58);
@@ -57,12 +57,12 @@ html[data-theme="glass"] {
   --border-2: oklch(1 0 0 / .14);
   --border-3: oklch(1 0 0 / .24);
   --text-1: oklch(.97 .006 270);
-  --text-2: oklch(.84 .02 270);
+  --text-2: oklch(.88 .02 270); /* .84 fell to 4.35:1 on the brightest aurora with no pane (packet X) */
   --text-3: oklch(.8 .02 270);
 
   /* Accent: an indigo-to-cyan glow, so pink stays reserved for needs-you. */
   --accent: oklch(.74 .14 262);
-  --accent-strong: oklch(.85 .1 250);
+  --accent-strong: oklch(.88 .09 250); /* .85: the Recommended chip on a picked row was 4.4:1 (packet X) */
   --accent-soft: oklch(.74 .14 262 / .22);
   --on-accent: oklch(.18 .05 270);
   --focus-ring: oklch(.88 .12 205);
@@ -176,8 +176,10 @@ html[data-theme="glass"] .app { background: transparent; }
 
 /* ---------- Top bar: a strip of glass ---------- */
 
+/* A strip of dark glass (packet X): over the bright top of the aurora a white tint left the quiet
+   words of the bar (the search box, the Desk count) just under 4.5:1. */
 html[data-theme="glass"] .topbar {
-  background: oklch(1 0 0 / .05);
+  background: var(--glass-pane-side);
   border-bottom: 1px solid var(--glass-edge);
   box-shadow: var(--glass-highlight);
 }
@@ -217,6 +219,8 @@ html[data-theme="glass"] .btn-primary {
   box-shadow: 0 4px 18px oklch(.74 .14 262 / .35), inset 0 1px 0 oklch(1 0 0 / .35);
 }
 html[data-theme="glass"] .btn-primary:hover { background: linear-gradient(135deg, oklch(.82 .12 268), oklch(.87 .1 210)); }
+/* Off is clearly off (packet X): on glass the shared disabled fill is as see-through as a live one. */
+html[data-theme="glass"] .btn:is(:disabled, [aria-disabled='true']) { opacity: .55; }
 html[data-theme="glass"] .btn-danger { border-color: var(--ask-hardline-line); background: transparent; color: var(--status-error); }
 html[data-theme="glass"] .btn-danger:hover { background: var(--status-error-bg); }
 
@@ -270,6 +274,8 @@ html[data-theme="glass"] .job-title { font-weight: 650; letter-spacing: -.015em;
 html[data-theme="glass"] .status { padding: 1px var(--space-2); border-radius: 999px; background: oklch(1 0 0 / .08); font-weight: var(--weight-bold); }
 html[data-theme="glass"] .status[data-group="needs-you"] { background: var(--group-needs-you-bg); }
 html[data-theme="glass"] .level-chip { border-radius: 999px; }
+/* The Recommended chip in full ink: on a picked answer row the accent fell to 4.4:1 (packet X). */
+html[data-theme="glass"] .gate-rec { color: var(--text-1); }
 
 /* ---------- Thread: cards of glass ---------- */
 
@@ -437,7 +443,11 @@ html[data-theme="glass"] {
   --hover-bg: var(--bg-3);
   --grid-line: var(--border-1);
   --tooltip-bg: var(--text-1);
-  --tooltip-fg: var(--bg-0);
+  /* The tooltip's words, the ink on the needs-you dot and what floats are solid (packet X): --bg-0
+     is see-through here, and a menu over the aurora let the colour and the page's words through. */
+  --tooltip-fg: var(--glass-night);
+  --on-needs: var(--glass-night);
+  --surface-float: var(--glass-float);
   --chart-1: oklch(.76 .13 255);
   --chart-2: oklch(.76 .13 55);
   --chart-3: oklch(.76 .13 195);
@@ -446,4 +456,15 @@ html[data-theme="glass"] {
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  /* Packet R's stop ring and review colour in this theme's own stage walk (packet X): the default
+     ring's pink Spec would borrow needs-you's colour here. Ship is the one stop with no stage. */
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: oklch(.86 .13 125);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
 }

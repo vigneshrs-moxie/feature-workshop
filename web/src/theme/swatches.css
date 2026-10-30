@@ -130,6 +130,7 @@
   --surface-0: var(--bg-0);
   --surface-1: var(--bg-1);
   --surface-2: var(--bg-2);
+  --surface-float: var(--bg-1);
   --btn-primary-bg: oklch(.56 .19 274);
   --btn-primary-fg: oklch(.995 0 0);
   --elev-xs: var(--shadow-xs);
@@ -285,6 +286,15 @@
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--group-shipping-fg);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
 }
 
 .theme-swatch[data-theme="blueprint"] {
@@ -324,7 +334,7 @@
   --status-ok: oklch(.86 .15 150);
   --status-ok-bg: oklch(.86 .15 150 / .16);
   --status-warn: oklch(.87 .15 80);
-  --status-warn-bg: oklch(.87 .15 80 / .16);
+  --status-warn-bg: oklch(.87 .15 80 / .11);
   --status-error: oklch(.82 .15 25);
   --status-error-bg: oklch(.82 .15 25 / .18);
   --status-info: oklch(.86 .11 205);
@@ -443,6 +453,15 @@
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--group-shipping-fg);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
 }
 
 .theme-swatch[data-theme="pixel-crew"] {
@@ -605,6 +624,15 @@
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--pc-blue);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
 }
 
 .theme-swatch[data-theme="sunset-paper"] {
@@ -635,7 +663,7 @@
   --status-info-bg: oklch(.6 .11 200 / .14);
   --status-paused: oklch(.5 .02 60);
   --status-paused-bg: oklch(.5 .02 60 / .12);
-  --job-hue-l: .64;
+  --job-hue-l: .58;
   --job-hue-c: .17;
   --shadow-1: 0 1px 2px oklch(.3 .06 40 / .08), 0 3px 10px oklch(.3 .06 40 / .08);
   --shadow-2: 0 2px 6px oklch(.3 .06 40 / .1), 0 16px 40px oklch(.3 .06 40 / .18);
@@ -938,6 +966,15 @@
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--candy-tangerine);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
 }
 
 .theme-swatch[data-theme="glass"] {
@@ -953,7 +990,7 @@
   --glass-highlight: inset 0 1px 0 oklch(1 0 0 / .12);
   --glass-pane: oklch(.16 .03 272 / .58);
   --glass-pane-side: oklch(.14 .03 272 / .6);
-  --glass-float: oklch(.2 .03 272 / .95);
+  --glass-float: oklch(.2 .03 272 / .98);
   --bg-0: oklch(.16 .03 272 / .58);
   --bg-1: oklch(1 0 0 / .045);
   --bg-2: oklch(1 0 0 / .07);
@@ -964,10 +1001,10 @@
   --border-2: oklch(1 0 0 / .14);
   --border-3: oklch(1 0 0 / .24);
   --text-1: oklch(.97 .006 270);
-  --text-2: oklch(.84 .02 270);
+  --text-2: oklch(.88 .02 270);
   --text-3: oklch(.8 .02 270);
   --accent: oklch(.74 .14 262);
-  --accent-strong: oklch(.85 .1 250);
+  --accent-strong: oklch(.88 .09 250);
   --accent-soft: oklch(.74 .14 262 / .22);
   --on-accent: oklch(.18 .05 270);
   --focus-ring: oklch(.88 .12 205);
@@ -1078,7 +1115,9 @@
   --hover-bg: var(--bg-3);
   --grid-line: var(--border-1);
   --tooltip-bg: var(--text-1);
-  --tooltip-fg: var(--bg-0);
+  --tooltip-fg: var(--glass-night);
+  --on-needs: var(--glass-night);
+  --surface-float: var(--glass-float);
   --chart-1: oklch(.76 .13 255);
   --chart-2: oklch(.76 .13 55);
   --chart-3: oklch(.76 .13 195);
@@ -1087,6 +1126,15 @@
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: oklch(.86 .13 125);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
   background-color: var(--glass-night);
   background-image: var(--glass-aurora);
 }
@@ -1145,6 +1193,7 @@
   --shade-press: oklch(0 0 0 / .15);
   --surface-0: var(--bg-0);
   --surface-1: var(--bg-0);
+  --surface-float: var(--surface-1);
   --surface-2: var(--bg-1);
   --elev-xs: var(--shadow-xs);
   --elev-sm: var(--shadow-sm);
@@ -1268,7 +1317,7 @@
   --glass-highlight: inset 0 1px 0 oklch(1 0 0 / .85);
   --glass-pane: oklch(1 0 0 / .55);
   --glass-pane-side: oklch(1 0 0 / .5);
-  --glass-float: oklch(.99 .004 272 / .95);
+  --glass-float: oklch(.99 .004 272 / .98);
   --bg-0: oklch(1 0 0 / .55);
   --bg-1: oklch(.3 .05 272 / .035);
   --bg-2: oklch(.3 .05 272 / .06);
@@ -1287,7 +1336,7 @@
   --on-accent: oklch(.985 .005 270);
   --focus-ring: oklch(.48 .13 205);
   --glass-gradient: linear-gradient(135deg, oklch(.48 .15 268), oklch(.5 .12 210));
-  --status-ok: oklch(.44 .13 160);
+  --status-ok: oklch(.42 .13 160);
   --status-ok-bg: oklch(.6 .14 160 / .16);
   --status-warn: oklch(.46 .12 82);
   --status-warn-bg: oklch(.75 .14 82 / .18);
@@ -1397,7 +1446,9 @@
   --hover-bg: var(--bg-3);
   --grid-line: var(--border-1);
   --tooltip-bg: var(--text-1);
-  --tooltip-fg: var(--bg-0);
+  --tooltip-fg: var(--glass-day);
+  --on-needs: var(--glass-day);
+  --surface-float: var(--glass-float);
   --chart-1: oklch(.55 .15 255);
   --chart-2: oklch(.55 .15 55);
   --chart-3: oklch(.55 .15 195);
@@ -1414,7 +1465,7 @@
   --stop-build: oklch(.58 .12 200);
   --stop-test: oklch(.58 .16 160);
   --stop-review: oklch(.6 .15 115);
-  --stop-ship: oklch(.64 .16 75);
+  --stop-ship: oklch(.6 .16 75);
   background-color: var(--glass-day);
   background-image: var(--glass-aurora);
 }
@@ -1585,6 +1636,15 @@
   --chart-6: oklch(.8 .14 120);
   --chart-7: oklch(.8 .14 25);
   --chart-8: oklch(.8 .14 300);
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--group-shipping-fg);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
   background: var(--bg-0);
 }
 
@@ -1729,4 +1789,13 @@
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--group-shipping-fg);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
 }

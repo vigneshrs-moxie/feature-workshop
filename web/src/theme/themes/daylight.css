@@ -35,7 +35,7 @@ html[data-theme="light-glass"] .job-group-title[data-group="needs-you"] { color:
 
 /* ---- Top bar: a flat strip with one hairline; controls are words until hovered ---- */
 html[data-theme="light-glass"] .topbar { border-bottom: 1px solid var(--border-1); box-shadow: none; }
-html[data-theme="light-glass"] .topbar .btn:not(.btn-primary) { border-color: transparent; background: transparent; box-shadow: none; color: var(--text-2); }
+html[data-theme="light-glass"] .topbar .btn:not(.btn-primary, .gc-new-job) { border-color: transparent; background: transparent; box-shadow: none; color: var(--text-2); }
 html[data-theme="light-glass"] .topbar .btn:not(.btn-primary):hover { background: var(--bg-2); color: var(--text-1); }
 
 /* ---- Controls (Light glass only; Light uses the shared controls): soft fills, no outline box unless it's a field ---- */
@@ -82,8 +82,9 @@ html[data-theme="light-glass"] .floor-eyebrow,
 html[data-theme="light-glass"] .map-group-title { font-size: 11px; font-weight: 600; letter-spacing: .12em; }
 html[data-theme="light-glass"] .home-views { border-color: transparent; background: var(--bg-2); border-radius: 10px; }
 html[data-theme="light-glass"] .home-seg-btn { border-color: transparent; border-radius: 999px; background: var(--bg-2); }
-html[data-theme="light-glass"] .home-seg-btn.is-on { border-color: transparent; background: var(--text-1); color: var(--bg-0); }
-html[data-theme="light-glass"] .home-seg-btn.is-on .count { color: inherit; opacity: .75; }
+/* The picked chip's words in solid day white (packet X): --bg-0 is see-through, and its count fell to 4:1. */
+html[data-theme="light-glass"] .home-seg-btn.is-on { border-color: transparent; background: var(--text-1); color: var(--glass-day); }
+html[data-theme="light-glass"] .home-seg-btn.is-on .count { color: inherit; opacity: .85; }
 html[data-theme="light-glass"] .desk-item { border-color: transparent; background: transparent; }
 html[data-theme="light-glass"] .desk-item:hover { border-color: transparent; background: var(--bg-2); }
 html[data-theme="light-glass"] .desk-item.is-current { border-color: transparent; background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }

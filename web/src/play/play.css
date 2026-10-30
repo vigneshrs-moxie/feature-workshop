@@ -193,8 +193,10 @@
   height: 14px;
   border: 1.5px solid var(--bg-1);
   border-radius: 50%;
-  background: var(--group-needs-you-fg);
-  color: var(--bg-1);
+  /* The needs-you dot and its own ink (packet X): the page colour on the needs-you text colour fell
+     to 3.2–4:1 in Light, CRT and Sunset paper. */
+  background: var(--needs-solid);
+  color: var(--on-needs);
   font-size: 9px;
   font-weight: var(--weight-bold);
   line-height: 11px;

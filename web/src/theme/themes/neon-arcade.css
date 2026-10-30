@@ -590,6 +590,17 @@ html[data-theme="neon-arcade"] {
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  /* Packet R's stop ring and review colour in this theme's own stage walk (packet X): the default
+     ring's pink Spec would borrow needs-you's colour here. Ship is the one stop with no stage. */
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--group-shipping-fg);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
 }
 
 /* Packet R: inside the Desk's card the gate card is unframed, so its decoration is not drawn there. */

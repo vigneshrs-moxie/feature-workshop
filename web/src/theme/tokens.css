@@ -188,6 +188,7 @@
   --surface-0: var(--bg-0);
   --surface-1: var(--bg-1);
   --surface-2: var(--bg-2);
+  --surface-float: var(--bg-1);
   --btn-primary-bg: var(--accent);
   --btn-primary-fg: var(--on-accent);
   --elev-xs: var(--shadow-xs);

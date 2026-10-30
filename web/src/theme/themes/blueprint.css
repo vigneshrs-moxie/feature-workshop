@@ -49,7 +49,7 @@ html[data-theme="blueprint"] {
   --status-ok: oklch(.86 .15 150);
   --status-ok-bg: oklch(.86 .15 150 / .16);
   --status-warn: oklch(.87 .15 80);
-  --status-warn-bg: oklch(.87 .15 80 / .16);
+  --status-warn-bg: oklch(.87 .15 80 / .11); /* .16 lifted the blue so far that words on it fell to 4:1 (packet X) */
   --status-error: oklch(.82 .15 25);
   --status-error-bg: oklch(.82 .15 25 / .18);
   --status-info: oklch(.86 .11 205);
@@ -292,16 +292,45 @@ html[data-theme="blueprint"] .perm-card[data-ask="hardline"].is-risky { border-t
 html[data-theme="blueprint"] .perm-card[data-ask="hardline"].is-risky::after { background: var(--ask-hardline-line); }
 html[data-theme="blueprint"] .problem { border-top: 2px solid var(--bp-red); box-shadow: inset 4px 0 0 var(--bp-red), 0 1px 2px oklch(0 0 0 / .35), 0 6px 14px oklch(.1 .06 255 / .5); }
 
+/* Paper carries its own ink (packet X). Packet R's controls inside a card (answer rows, fields,
+   chips, buttons) read the page's tokens, chalk on blue, so on the cream card an unpicked answer row
+   turned navy with navy words (1.2:1). On every paper surface the page tokens become the card's ink
+   and paper, and every control inside follows. */
+html[data-theme="blueprint"] :is(.reply, .brief-card, .problem, .perm-card, .toast):not(.desk-console .gate-card) {
+  --text-1: var(--bp-ink);
+  --text-2: var(--bp-ink-2);
+  --text-3: var(--bp-ink-3);
+  --surface-1: var(--bp-paper);
+  --surface-2: var(--bp-paper-dim);
+  --surface-float: var(--bp-paper);
+  --border-1: var(--bp-ink-line);
+  --border-2: oklch(.3 .07 255 / .32);
+  --border-3: oklch(.3 .07 255 / .45);
+  --hover-bg: oklch(.3 .07 255 / .08);
+  --status-ok: oklch(.46 .13 155);
+  --status-warn: oklch(.48 .12 70);
+  --status-error: oklch(.5 .19 28);
+  --status-info: oklch(.46 .12 235);
+  --status-review: oklch(.47 .17 300);
+}
+/* The Desk's gate card is flat on the blue console, not a paper card: its ink rules below draw chalk. */
+html[data-theme="blueprint"] .desk-console .gate-card { --bp-ink: var(--text-1); --bp-ink-2: var(--text-2); --bp-ink-3: var(--text-3); }
+html[data-theme="blueprint"] .desk-console .gate-card.perm-card .ask-label { color: oklch(.84 .1 300); }
+/* On the needs-you tint the secondary chalk fell just under 4.5:1 (packet X). */
+html[data-theme="blueprint"] .next-bar.tone-stop .next-sub { color: var(--text-1); }
+/* A ticked box on paper: the cyan accent is a chalk colour (1.55:1 on cream), so boxes take ink blue. */
+html[data-theme="blueprint"] :is(.reply, .brief-card, .problem, .perm-card):not(.desk-console .gate-card) .choice { --accent: oklch(.45 .14 245); --btn-primary-bg: oklch(.45 .14 245); --btn-primary-fg: var(--bp-paper); }
+
 /* Ink on paper: everything inside a card uses the navy ink scale. */
 html[data-theme="blueprint"] .reply .muted, html[data-theme="blueprint"] .brief-card .muted, html[data-theme="blueprint"] .problem .muted, html[data-theme="blueprint"] .perm-card .muted,
 html[data-theme="blueprint"] .reply .who, html[data-theme="blueprint"] .brief-card .who, html[data-theme="blueprint"] .perm-card .who,
-html[data-theme="blueprint"] .perm-who, html[data-theme="blueprint"] .perm-detail, html[data-theme="blueprint"] .perm-reason,
+html[data-theme="blueprint"] :is(.reply, .brief-card, .problem, .perm-card, .sheet) :is(.perm-who, .perm-detail, .perm-reason),
 html[data-theme="blueprint"] .brief-toggle, html[data-theme="blueprint"] .brief-detail summary, html[data-theme="blueprint"] :is(.brief-card, .perm-card) .gate-fold,
 html[data-theme="blueprint"] .extras dt, html[data-theme="blueprint"] .extras dd,
 html[data-theme="blueprint"] .answer-desc, html[data-theme="blueprint"] .question-hint,
 html[data-theme="blueprint"] .perm-card .field { color: var(--bp-ink-2); }
 html[data-theme="blueprint"] .reply .thread-time, html[data-theme="blueprint"] .brief-card .thread-time, html[data-theme="blueprint"] .problem .thread-time, html[data-theme="blueprint"] .perm-card .thread-time { color: var(--bp-ink-3); }
-html[data-theme="blueprint"] .perm-who strong, html[data-theme="blueprint"] .brief-headline, html[data-theme="blueprint"] .brief-toggle:hover .brief-label { color: var(--bp-ink); }
+html[data-theme="blueprint"] .brief-headline, html[data-theme="blueprint"] .brief-toggle:hover .brief-label { color: var(--bp-ink); }
 /* Play's boss fight on a cream brief card: ink words, an ink-tinted track. */
 html[data-theme="blueprint"] .brief-card .boss-text { color: var(--bp-ink); }
 html[data-theme="blueprint"] .brief-card .boss-bar { border-color: var(--bp-ink-line); background: var(--bp-ink-tint); }
@@ -314,8 +343,8 @@ html[data-theme="blueprint"] .who {
 html[data-theme="blueprint"] .problem .who { color: var(--bp-red-ink); }
 html[data-theme="blueprint"] .reply a, html[data-theme="blueprint"] .brief-card a, html[data-theme="blueprint"] .perm-card a { color: oklch(.45 .14 255); text-decoration: underline; }
 /* The gate card's link-style buttons (Override, Check again) and its decision boxes, in ink. */
-html[data-theme="blueprint"] .perm-card .link-button { color: oklch(.45 .14 255); }
-html[data-theme="blueprint"] .perm-card .link-button:hover { color: var(--bp-ink); }
+html[data-theme="blueprint"] :is(.reply, .brief-card, .problem, .perm-card):not(.desk-console .gate-card) .link-button { color: oklch(.45 .14 255); } /* on every paper card, not only the permission one (Summarise on a brief was 1.26:1; packet X) */
+html[data-theme="blueprint"] :is(.reply, .brief-card, .problem, .perm-card):not(.desk-console .gate-card) .link-button:hover { color: var(--bp-ink); }
 html[data-theme="blueprint"] .gate-decision { border-color: var(--bp-ink-line); }
 html[data-theme="blueprint"] .gate-decision.is-changed { border-color: oklch(.45 .14 255); }
 html[data-theme="blueprint"] .reply .chip, html[data-theme="blueprint"] .brief-card .chip, html[data-theme="blueprint"] .perm-card .chip { border-color: var(--bp-ink-line); color: var(--bp-ink-2); }
@@ -357,7 +386,9 @@ html[data-theme="blueprint"] :is(.reply, .brief-card, .perm-card, .sheet) .prose
 /* Table headers: ink on a light ink tint, not ink on the page's dark blue --bg-3. */
 html[data-theme="blueprint"] :is(.reply, .brief-card, .perm-card, .sheet) .prose th { background: var(--bp-ink-tint); color: var(--bp-ink); }
 html[data-theme="blueprint"] .perm-preview { background: var(--bg-1); color: var(--bp-chalk); border: 1px solid var(--bp-ink-line); }
-html[data-theme="blueprint"] .perm-warn { background: oklch(.75 .17 80 / .22); color: oklch(.42 .13 70); }
+/* Amber ink for a warning on a card; on the blue page the default amber reads (packet X: this rule
+   made Settings' warning 1.2:1 on blue). */
+html[data-theme="blueprint"] :is(.reply, .brief-card, .problem, .perm-card, .sheet, .palette) .perm-warn { background: oklch(.75 .17 80 / .22); color: oklch(.42 .13 70); }
 html[data-theme="blueprint"] .perm-card .field-problem, html[data-theme="blueprint"] .perm-card .btn-danger { color: var(--bp-red-ink); }
 html[data-theme="blueprint"] .perm-card .btn-danger { border-color: var(--bp-red); }
 html[data-theme="blueprint"] .perm-card .btn-danger:hover { background: oklch(.68 .21 25 / .14); }
@@ -608,6 +639,17 @@ html[data-theme="blueprint"] {
   --chart-6: oklch(.76 .13 150);
   --chart-7: oklch(.76 .13 25);
   --chart-8: oklch(.76 .13 345);
+  /* Packet R's stop ring and review colour in this theme's own stage walk (packet X): the default
+     ring's pink Spec would borrow needs-you's colour here. Ship is the one stop with no stage. */
+  --stop-spec: var(--stage-spec-fg);
+  --stop-investigate: var(--stage-investigate-fg);
+  --stop-plan: var(--stage-plan-fg);
+  --stop-build: var(--stage-build-fg);
+  --stop-test: var(--stage-test-fg);
+  --stop-review: var(--stage-review-fg);
+  --stop-ship: var(--group-shipping-fg);
+  --status-review: var(--stage-review-fg);
+  --status-review-bg: color-mix(in oklab, var(--stage-review-fg) 16%, transparent);
 }
 
 /* Packet R: inside the Desk's card the gate card is unframed, so its decoration is not drawn there. */

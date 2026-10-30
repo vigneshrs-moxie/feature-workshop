@@ -76,6 +76,7 @@ html[data-theme="light"] {
   --shade-press: oklch(0 0 0 / .15);
   --surface-0: var(--bg-0);
   --surface-1: var(--bg-0);
+  --surface-float: var(--surface-1);
   --surface-2: var(--bg-1);
   --elev-xs: var(--shadow-xs);
   --elev-sm: var(--shadow-sm);
