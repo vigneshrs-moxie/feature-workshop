@@ -70,7 +70,15 @@
 .floor3d-row { display: grid; gap: 4px; padding: var(--space-3) 0; border-top: 1px solid var(--border-1); }
 .floor3d-row:first-child { border-top: 0; }
 .floor3d-row .floor3d-plate-title { flex: 0 1 auto; }
-.floor3d-stop { font-size: var(--text-xs); }
+.floor3d-stop { display: inline-flex; flex: none; align-items: center; gap: 4px; color: var(--text-2); font-size: var(--text-xs); white-space: nowrap; }
+.floor3d-stop-icon { flex: none; }
+.floor3d-stop[data-stop="spec"] .floor3d-stop-icon { color: var(--stop-spec); }
+.floor3d-stop[data-stop="investigate"] .floor3d-stop-icon { color: var(--stop-investigate); }
+.floor3d-stop[data-stop="plan"] .floor3d-stop-icon { color: var(--stop-plan); }
+.floor3d-stop[data-stop="build"] .floor3d-stop-icon { color: var(--stop-build); }
+.floor3d-stop[data-stop="test"] .floor3d-stop-icon { color: var(--stop-test); }
+.floor3d-stop[data-stop="review"] .floor3d-stop-icon { color: var(--stop-review); }
+.floor3d-stop[data-stop="ship"] .floor3d-stop-icon { color: var(--stop-ship); }
 .floor3d-row .floor3d-status { margin-left: auto; }
 .floor3d-row .floor3d-lines { padding-left: calc(var(--space-2) + 8px); }
 .floor3d-empty { margin: 0; }

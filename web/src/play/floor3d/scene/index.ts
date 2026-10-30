@@ -13,6 +13,7 @@ import { aroundPath, frustum, seatSpot } from '../layout';
 import type { Pose, Rig } from '../rig';
 import { changeRig, isSeated, nextBurstIn, burstAt, phaseOf, pointAt, poseRig, rigAt, transitionMs, walkMs, walkPath, walkRig, LOOPS, pathLength } from '../rig';
 import type { FloorAnchors, FloorScene, FloorSceneOptions, FrameStats, PropId, RendererLike, SceneBench, SceneFigure } from '../types';
+import type { StopHue } from '../palette';
 import { FIGURE, HEAD_Y, createKit, type BenchParts, type FigureParts } from './kit';
 
 const FRAME_MS = 1000 / 30;
@@ -29,6 +30,7 @@ interface FigureView {
   prop: PropId;
   pose: Pose;
   seat: Seat;
+  hue: StopHue;
   helpers: number;
   progress: number | null;
   phase: number;
@@ -42,7 +44,7 @@ interface FigureView {
   hover: number;
 }
 
-interface BenchView { slug: string; index: number; parts: BenchParts; figures: Map<string, FigureView> }
+interface BenchView { slug: string; index: number; hue: StopHue | null; parts: BenchParts; figures: Map<string, FigureView> }
 
 function makeRenderer(canvas: HTMLCanvasElement): RendererLike {
   const r = new WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'default' });
@@ -61,16 +63,16 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
 
   let palette = opts.palette;
   let reduced = opts.reducedMotion;
-  const kit = createKit(palette);
+  const kit = createKit(palette, opts.icons);
   const scene = new Scene();
   const camera = new OrthographicCamera(-1, 1, 0, -1, 0.1, 200);
-  const { hemi, sun } = kit.lights();
+  const { hemi, sun, rim } = kit.lights();
   sun.castShadow = true;
   const sunShadow = sun.shadow;
   sunShadow.bias = -0.0006;
   sunShadow.normalBias = 0.025;
   sunShadow.radius = 5;
-  scene.add(hemi, sun, sun.target);
+  scene.add(hemi, sun, sun.target, rim, rim.target);
 
   let layout: FloorLayout | null = null;
   let room: Group | null = null;
@@ -127,6 +129,10 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
     sun.position.set(cx - 5, 10, cz + 4.5);
     sun.target.position.set(cx, 0, cz);
     sun.target.updateMatrixWorld();
+    // The rim: from behind and to the right, low, so it catches the figures' shoulders and heads.
+    rim.position.set(cx + 4, 5, cz - 9);
+    rim.target.position.set(cx, 0.4, cz);
+    rim.target.updateMatrixWorld();
     const span = Math.max(layout.right - layout.left, layout.front - layout.back) / 2 + 2;
     const cam = sunShadow.camera as OrthographicCamera;
     cam.left = -span; cam.right = span; cam.top = span; cam.bottom = -span;
@@ -169,10 +175,11 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
   }
 
   function newFigure(b: BenchView, fig: SceneFigure, helpers: number, t: number): FigureView {
-    const parts = kit.makeFigure(fig.prop);
+    const parts = kit.makeFigure(fig.prop, fig.hue);
+    kit.raiseHand(parts, fig.pose === 'waiting');
     const rig = rigAt(fig.pose, fig.seat, helpers, t, phaseOf(fig.key), animated(), fig.progress);
     const f: FigureView = {
-      key: fig.key, slug: b.slug, prop: fig.prop, pose: fig.pose, seat: fig.seat, helpers, progress: fig.progress,
+      key: fig.key, slug: b.slug, prop: fig.prop, pose: fig.pose, seat: fig.seat, hue: fig.hue, helpers, progress: fig.progress,
       phase: phaseOf(fig.key), parts, rig, from: rig, fromPose: fig.pose, changeStart: -Infinity, changeMs: 0, walk: null, hover: 0,
     };
     placeFigure(b, f);
@@ -206,12 +213,12 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
       const fresh = !b;
       if (!b) {
         const parts = kit.makeBench();
-        b = { slug: sb.slug, index: sb.index, parts, figures: new Map() };
+        b = { slug: sb.slug, index: sb.index, hue: null, parts, figures: new Map() };
         benches.set(sb.slug, b);
         scene.add(parts.group);
       }
       b.index = sb.index;
-      b.parts.bulb.material = kit.lampMaterial(sb.lamp);
+      if (b.hue !== sb.hue) { b.hue = sb.hue; kit.hueBench(b.parts, sb.hue); }
       placeBench(b);
       const helpers = sb.figures.filter((x) => x.seat !== 'head').length;
       const keep = new Set<string>();
@@ -225,6 +232,7 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
           if (!first && !fresh && fig.seat !== 'head' && animated()) startWalk(b, f, false, t);
           continue;
         }
+        if (f.hue !== fig.hue) { f.hue = fig.hue; kit.hueFigure(f.parts, fig.hue); }
         const reseat = f.seat !== fig.seat || f.helpers !== helpers;
         f.seat = fig.seat;
         f.helpers = helpers;
@@ -235,6 +243,7 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
           f.from = f.rig;
           f.fromPose = f.pose;
           f.pose = fig.pose;
+          kit.raiseHand(f.parts, fig.pose === 'waiting');
           f.changeStart = t;
           f.changeMs = animated() ? transitionMs(f.fromPose, fig.pose) : 0;
           // A helper sitting down walks round the bench's end to its crate in front (and back).

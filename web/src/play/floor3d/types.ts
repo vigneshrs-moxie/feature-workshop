@@ -1,7 +1,7 @@
 // The shapes the 3D floor passes between its parts: the React side (no three.js) and the scene
 // (scene/, the lazy chunk with three.js in it). Types, and one plain helper (sceneBenches).
 import type { FloorLayout, Rect, Seat } from './layout';
-import type { FloorPalette, LampGroup } from './palette';
+import type { FloorPalette, LampGroup, StopHue } from './palette';
 import type { Pose } from './rig';
 
 /** The five role props: the Foreman's clipboard, the Builder's hammer, the Tester's flask, a Reviewer's magnifier, the Planner's ruler. */
@@ -17,6 +17,8 @@ export interface SceneFigure {
   seat: Seat;
   /** How far a command has got (0..1), for the device's lamps; null when not known. */
   progress: number | null;
+  /** The stop it works in: its badge, belt and prop accents wear that stop's hue. */
+  hue: StopHue;
 }
 
 /** One bench as the scene draws it. */
@@ -24,8 +26,10 @@ export interface SceneBench {
   slug: string;
   /** Its place in the grid (bench assignment: never reshuffled). */
   index: number;
-  /** The status lamp's colour (the words next to it say the same). */
+  /** The status (the words next to the bench say it). */
   lamp: LampGroup;
+  /** The job's current stop: the bench's thin edge, its lamp and the icon on its front. */
+  hue: StopHue;
   figures: SceneFigure[];
 }
 
@@ -63,6 +67,8 @@ export interface RendererLike {
 
 export interface FloorSceneOptions {
   palette: FloorPalette;
+  /** Each stop's icon as SVG markup on a 24-unit grid (the app's own Icon), drawn on the benches' fronts. */
+  icons?: Partial<Record<StopHue, string>>;
   reducedMotion: boolean;
   /** Tests: a fake renderer instead of WebGL. */
   makeRenderer?: (canvas: HTMLCanvasElement) => RendererLike;
@@ -118,6 +124,8 @@ export interface FloorBench {
   status: string;
   /** The stop it is at ("Build"), '' when none. */
   stop: string;
+  /** The same stop as an id, for its hue and icon ('none' when there is no stop). */
+  hue: StopHue;
   figures: FloorFigure[];
   /** Helpers at work beyond the ones drawn. */
   more: number;
@@ -129,6 +137,7 @@ export function sceneBenches(benches: readonly FloorBench[]): SceneBench[] {
     slug: b.slug,
     index: b.index,
     lamp: b.lamp,
-    figures: b.figures.map(({ key, prop, pose, seat, progress }) => ({ key, prop, pose, seat, progress })),
+    hue: b.hue,
+    figures: b.figures.map(({ key, prop, pose, seat, progress, hue }) => ({ key, prop, pose, seat, progress, hue })),
   }));
 }

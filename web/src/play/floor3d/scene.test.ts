@@ -2,7 +2,7 @@
 // while something moves, at most 30 frames a second, never while inactive, walks helpers in, and
 // frees every geometry, material and texture, and the renderer, when it goes.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BufferGeometry, Material, Mesh, Texture, type Object3D } from 'three';
+import { BufferGeometry, Color, Material, Mesh, SRGBColorSpace, Texture, type Object3D } from 'three';
 import { floorLayout } from './layout';
 import { derivePalette } from './palette';
 import { createFloorScene } from './scene/index';
@@ -127,6 +127,30 @@ describe('the floor scene', () => {
       else expect(fig.rect.top).toBeLessThan(seat.rect.top + 80);
       scene.dispose();
     }
+  });
+
+  it('dresses each bench in its stop’s hue, and raises a waiting hand in needs-you amber', () => {
+    const { renderer, scene } = make();
+    const c = (r: number, g: number, b: number) => ({ r, g, b, a: 1 });
+    const p = derivePalette({ '--bg-0': c(0.1, 0.1, 0.1), '--text-1': c(0.9, 0.9, 0.9), '--stop-test': c(0.1, 0.8, 0.4), '--stop-ship': c(0.9, 0.6, 0.1), '--status-warn': c(1, 0.7, 0) }, 'dark');
+    scene.setPalette(p);
+    scene.setLayout(floorLayout(1200, 2), 1);
+    const one = benches(1)[0];
+    const waiting = { ...one, hue: 'test' as const, figures: one.figures.map((f) => ({ ...f, pose: 'waiting' as const })) };
+    scene.setBenches([waiting]);
+    tick();
+    const colours = () => {
+      const seen = new Set<string>();
+      renderer.scenes.at(-1)?.traverse((o) => { if (o instanceof Mesh && o.visible) for (const m of [o.material].flat()) if ('color' in m) seen.add((m as unknown as { color: { getHexString(): string } }).color.getHexString()); });
+      return seen;
+    };
+    const hex = (c: { r: number; g: number; b: number }) => new Color().setRGB(c.r, c.g, c.b, SRGBColorSpace).getHexString();
+    expect(colours()).toContain(hex(p.hue.test));
+    expect(colours()).toContain(hex(p.needsYou));
+    scene.setBenches([{ ...waiting, hue: 'ship', figures: one.figures }]);
+    tick(400);
+    expect(colours()).toContain(hex(p.hue.ship));
+    scene.dispose();
   });
 
   it('frees every geometry, material and texture, and the renderer, when it goes', () => {

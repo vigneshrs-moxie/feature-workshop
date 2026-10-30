@@ -18,11 +18,12 @@ import { clockTime } from '../../lib/time';
 import { jobStatus, shippingWhere } from '../../panes/Jobs/jobStatus';
 import { stageLabel } from '../../panes/Jobs/stages';
 import { STAGE_CHARACTER } from '../crew';
-import { CREW_PACK, roleOf } from '../crewPack';
+import { CREW_PACK, PACK_ALIASES, STOP_CREW, roleOf } from '../crewPack';
+import { stopOf } from '../../components/stops/stops';
 import { usagePaused } from '../crewLines';
 import { waited } from '../floorModel';
 import { MAX_HELPERS, type Seat } from './layout';
-import type { LampGroup } from './palette';
+import type { LampGroup, StopHue } from './palette';
 import { propFor } from './props';
 import type { Pose } from './rig';
 import type { FloorBench, FloorFigure } from './types';
@@ -220,6 +221,22 @@ export function labelFor(agent: AgentFacts, facts: JobFacts, crew: readonly stri
 
 // ---------- A whole bench ----------
 
+/** Each crew member's own stop (STOP_CREW turned round); the Foreman has none of its own. */
+const ROLE_STOP: Record<string, StopHue> = Object.fromEntries(
+  Object.entries(STOP_CREW).filter(([, type]) => type !== 'conductor').map(([stop, type]) => [type, stop as StopHue]),
+);
+
+/** The stop a figure works in, for its colour: its role's own stop, else the job's (the Foreman's is always the job's). */
+export function hueFor(who: string, jobStop: StopHue): StopHue {
+  if (isConductor(who)) return jobStop;
+  // The wireframer draws the screens, part of the spec.
+  if (who === 'feature-wireframer') return 'spec';
+  const type = PACK_ALIASES[who] ?? who;
+  if (ROLE_STOP[type]) return ROLE_STOP[type];
+  if (/^feature-review-/.test(type)) return 'review';
+  return jobStop;
+}
+
 const LAMP: Record<string, LampGroup> = { 'needs-you': 'needs-you', running: 'running', paused: 'paused', idle: 'idle', shipping: 'shipping', done: 'done' };
 const ROLE_ORDER = CREW_PACK.map((m) => m.type);
 const rank = (who: string) => { const i = ROLE_ORDER.indexOf(who); return i < 0 ? ROLE_ORDER.length : i; };
@@ -250,6 +267,7 @@ export function benchFor(job: Job, index: number, facts: Omit<JobFacts, 'job'>):
   const crewTypes = shown.map((h) => h.who);
   const foreman: AgentFacts = { who: 'conductor', doing: foremanLine?.doing ?? null, since: foremanLine?.since ?? null };
   const seen = new Map<string, number>();
+  const jobStop: StopHue = stopOf(job.stage) ?? 'none';
   const figure = (a: AgentFacts, seat: Seat): FloorFigure => {
     const n = seen.get(a.who) ?? 0;
     seen.set(a.who, n + 1);
@@ -262,6 +280,7 @@ export function benchFor(job: Job, index: number, facts: Omit<JobFacts, 'job'>):
       pose,
       seat,
       progress: pose === 'running' ? progressOf(a) : null,
+      hue: hueFor(a.who, jobStop),
       label: labelFor(a, f, isConductor(a.who) ? crewTypes : []),
     };
   };
@@ -273,6 +292,7 @@ export function benchFor(job: Job, index: number, facts: Omit<JobFacts, 'job'>):
     glyph: status.glyph,
     status: status.label,
     stop: job.stage ? stageLabel(job.stage) : '',
+    hue: jobStop,
     figures: [figure(foreman, 'head'), ...shown.map((h, i) => figure(h, i as Seat))],
     more: Math.max(0, helpers.length - shown.length),
   };

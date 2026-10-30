@@ -2,7 +2,8 @@
 // eye. Invented words, never sent anywhere.
 import type { Job, Permission } from '../../api/types';
 import { roleOf } from '../crewPack';
-import type { LampGroup } from './palette';
+import type { LampGroup, StopHue } from './palette';
+import { hueFor } from './model';
 import { POSES, POSE_WORDS, type Pose } from './rig';
 import { propFor } from './props';
 import type { FloorBench, FloorFigure } from './types';
@@ -28,10 +29,14 @@ const LAMP: Record<Pose, LampGroup> = {
 const GLYPH: Record<LampGroup, string> = { 'needs-you': '◆', running: '◐', paused: '‖', idle: '○', shipping: '↗', done: '✓' };
 const STATUS: Record<LampGroup, string> = { 'needs-you': 'Needs you', running: 'Working', paused: 'Paused', idle: 'Idle', shipping: 'Shipping', done: 'Done' };
 
-function figure(slug: string, who: string, pose: Pose, seat: FloorFigure['seat']): FloorFigure {
+/** A stop for each made-up bench, round the ring, so the lab shows every hue. */
+const RING: StopHue[] = ['build', 'test', 'review', 'plan', 'investigate', 'spec', 'ship'];
+const STOP_WORD: Record<StopHue, string> = { spec: 'Spec', investigate: 'Investigate', plan: 'Plan', build: 'Build', test: 'Test', review: 'Review', ship: 'Ship', none: '' };
+
+function figure(slug: string, who: string, pose: Pose, seat: FloorFigure['seat'], stop: StopHue = 'build'): FloorFigure {
   const role = roleOf(who);
   return {
-    key: `${slug}:${who}`, who, role, prop: propFor(who), pose, seat,
+    key: `${slug}:${who}`, who, role, prop: propFor(who), pose, seat, hue: hueFor(who, stop),
     progress: pose === 'running' ? 212 / 577 : null,
     label: EXAMPLE[pose].replace('{role}', role),
   };
@@ -45,14 +50,16 @@ export function poseBenches(): FloorBench[] {
     const lamp = LAMP[pose];
     const a = `lab-${pose}-a`;
     const b = `lab-${pose}-b`;
+    const sa = RING[out.length % RING.length];
+    const sb = RING[(out.length + 1) % RING.length];
     out.push({
-      slug: a, index: out.length, title: words, lamp, glyph: GLYPH[lamp], status: STATUS[lamp], stop: '',
-      figures: [figure(a, 'conductor', pose, 'head'), figure(a, 'feature-implementer', pose, 0), figure(a, 'feature-tester', pose, 1), figure(a, 'feature-reviewer', pose, 2)],
+      slug: a, index: out.length, title: words, lamp, glyph: GLYPH[lamp], status: STATUS[lamp], stop: STOP_WORD[sa], hue: sa,
+      figures: [figure(a, 'conductor', pose, 'head', sa), figure(a, 'feature-implementer', pose, 0, sa), figure(a, 'feature-tester', pose, 1, sa), figure(a, 'feature-reviewer', pose, 2, sa)],
       more: 0,
     });
     out.push({
-      slug: b, index: out.length, title: `${words.split(':')[0]}, one helper`, lamp, glyph: GLYPH[lamp], status: STATUS[lamp], stop: '',
-      figures: [figure(b, 'conductor', pose, 'head'), figure(b, 'feature-planner', pose, 0)],
+      slug: b, index: out.length, title: `${words.split(':')[0]}, one helper`, lamp, glyph: GLYPH[lamp], status: STATUS[lamp], stop: STOP_WORD[sb], hue: sb,
+      figures: [figure(b, 'conductor', pose, 'head', sb), figure(b, 'feature-planner', pose, 0, sb)],
       more: 0,
     });
   });
@@ -67,9 +74,10 @@ export function busyBenches(): FloorBench[] {
   return Array.from({ length: 12 }, (_, i) => {
     const slug = `busy-${i + 1}`;
     const crew = i % 2 ? one : two;
+    const stop = RING[i % RING.length];
     return {
-      slug, index: i, title: `Bench ${i + 1}`, lamp: 'running' as const, glyph: GLYPH.running, status: STATUS.running, stop: '', more: 0,
-      figures: [figure(slug, 'conductor', poses[(i + 4) % poses.length], 'head'), ...crew.map((who, j) => figure(slug, who, poses[(i + j) % poses.length], j as 0 | 1))],
+      slug, index: i, title: `Bench ${i + 1}`, lamp: 'running' as const, glyph: GLYPH.running, status: STATUS.running, stop: STOP_WORD[stop], hue: stop, more: 0,
+      figures: [figure(slug, 'conductor', poses[(i + 4) % poses.length], 'head', stop), ...crew.map((who, j) => figure(slug, who, poses[(i + j) % poses.length], j as 0 | 1, stop))],
     };
   });
 }

@@ -3,13 +3,16 @@
 // its own: derivePalette() only chooses which token each part wears and mixes two tokens where a
 // part sits between them (a bench edge, a figure's clay). Pure apart from readPalette().
 
+import type { StopId } from '../../api/types';
+
 /** The tokens the floor reads, and nothing else. */
 export const FLOOR_TOKENS = [
   '--bg-0', '--bg-1', '--bg-2', '--bg-3', '--bg-4',
   '--text-1', '--text-2', '--text-3',
   '--accent',
   '--group-needs-you-fg', '--group-running-fg', '--group-paused-fg', '--group-idle-fg', '--group-shipping-fg', '--group-done-fg',
-  '--status-error', '--ask-permission-line',
+  '--status-error', '--status-warn', '--ask-permission-line',
+  '--stop-spec', '--stop-investigate', '--stop-plan', '--stop-build', '--stop-test', '--stop-review', '--stop-ship',
 ] as const;
 export type FloorToken = (typeof FLOOR_TOKENS)[number];
 
@@ -17,6 +20,10 @@ export type FloorToken = (typeof FLOOR_TOKENS)[number];
 export interface Rgb { r: number; g: number; b: number; a: number }
 
 export type LampGroup = 'needs-you' | 'running' | 'paused' | 'idle' | 'shipping' | 'done';
+
+/** The seven stops, each with its own hue (R's --stop-* ring); 'none' for a job with no stop yet. */
+export type StopHue = StopId | 'none';
+export const STOP_HUES: readonly StopHue[] = ['spec', 'investigate', 'plan', 'build', 'test', 'review', 'ship', 'none'];
 
 export interface FloorPalette {
   scheme: 'light' | 'dark';
@@ -32,8 +39,18 @@ export interface FloorPalette {
   shadow: Rgb; shadowStrength: number;
   /** The status lamp on each bench, by the job's group (the words beside it say the same). */
   lamp: Record<LampGroup, Rgb>;
-  /** The "!" sign of a stopped figure, and the card a figure holds up to ask. */
+  /** The "!" sign of a stopped figure (stopped red), and the card a figure holds up to ask (needs-you amber). */
   stop: Rgb; ask: Rgb;
+  /** Needs-you amber: the waiting hand and the asking card. */
+  needsYou: Rgb;
+  /** Each stop's hue: a bench's edge and lamp, a figure's badge, belt and prop accents. */
+  hue: Record<StopHue, Rgb>;
+  /** What is drawn on a hue (the stop's icon on a bench's front tag): whichever of the page's lightest and darkest reads best. */
+  onHue: Record<StopHue, Rgb>;
+  /** The bench's front and its top's trim, a step off the top so the bench reads as a surface. */
+  benchFront: Rgb;
+  /** The light: a warm key from the upper left, a cool soft rim from behind, both near white. */
+  key: Rgb; rim: Rgb; rimStrength: number;
 }
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
@@ -132,6 +149,11 @@ export function over(top: Rgb, ground: Rgb): Rgb {
 export const luminance = (c: Rgb) => 0.2126 * toLinear(c.r) + 0.7152 * toLinear(c.g) + 0.0722 * toLinear(c.b);
 
 const GREY: Rgb = { r: 0.5, g: 0.5, b: 0.5, a: 1 };
+const WHITE: Rgb = { r: 1, g: 1, b: 1, a: 1 };
+
+/** WCAG contrast of two colours. */
+export const contrast = (a: Rgb, b: Rgb) => { const x = luminance(a) + 0.05; const y = luminance(b) + 0.05; return x > y ? x / y : y / x; };
+
 
 /**
  * Which token each part wears. raw: the tokens as read (any missing one falls back to its nearest
@@ -143,7 +165,12 @@ const GREY: Rgb = { r: 0.5, g: 0.5, b: 0.5, a: 1 };
  *   they stand clear of the floor in both schemes, and
  *   wear one dot of --accent on the chest (it marks their front: they have no faces);
  * - paper is the lightest neutral (--bg-0 or --text-1), ink and metal are --text-2 and --text-3;
- * - lamps wear their group's colour, the "!" sign --status-error, the asking card --ask-permission-line.
+ * - each stop's hue is its --stop-* token (the accent where a theme has none): the bench's thin
+ *   edge and its lamp take the job's stop, a figure's badge, belt and prop accents the stop it works in;
+ * - the "!" sign is stopped red (--status-error), the waiting hand and the asking card needs-you
+ *   amber (--status-warn); big areas (floor, benches, clay) stay neutral;
+ * - the light is near white, warmed a touch toward the ship stop's amber (the key) and cooled a
+ *   touch toward the accent (the rim).
  */
 export function derivePalette(raw: Partial<Record<FloorToken, Rgb>>, schemeHint?: 'light' | 'dark' | null): FloorPalette {
   const pick = (...names: FloorToken[]): Rgb => {
@@ -161,9 +188,24 @@ export function derivePalette(raw: Partial<Record<FloorToken, Rgb>>, schemeHint?
   const accent = ground(pick('--accent', '--text-2'));
   const scheme: 'light' | 'dark' = schemeHint ?? (luminance(bg0) > luminance(text1) ? 'light' : 'dark');
   const light = scheme === 'light';
-  const floor = bg2;
-  const bench = light ? bg0 : mix(bg4, text3, 0.16);
-  const clay = light ? mix(floor, text3, 0.42) : mix(floor, text2, 0.58);
+  const floor = light ? bg4 : bg2;
+  const warn = ground(pick('--status-warn', '--group-needs-you-fg', '--accent'));
+  const hueOf = (name: FloorToken) => ground(pick(name, '--accent', '--text-2'));
+  const hue: Record<StopHue, Rgb> = {
+    spec: hueOf('--stop-spec'), investigate: hueOf('--stop-investigate'), plan: hueOf('--stop-plan'), build: hueOf('--stop-build'),
+    test: hueOf('--stop-test'), review: hueOf('--stop-review'), ship: hueOf('--stop-ship'), none: mix(text3, bg0, light ? 0.2 : 0),
+  };
+  // Needs-you amber as a mark (R: marks are vivid; the text token is deepened for contrast on pale
+  // grounds, so in a light theme it is lifted part way to the ship stop's amber).
+  const needsYou = light ? mix(warn, hue.ship, 0.8) : warn;
+  // Benches: in light themes a warm, pale top a step under white (white on a pale floor washes
+  // out), in dark ones a raised neutral.
+  const bench = light ? mix(bg0, text3, 0.035) : mix(bg4, text3, 0.16);
+  const lightest = luminance(bg0) > luminance(text1) ? bg0 : text1;
+  const darkest = luminance(bg0) > luminance(text1) ? text1 : bg0;
+  const onHue = Object.fromEntries(STOP_HUES.map((k) => [k, contrast(hue[k], lightest) >= contrast(hue[k], darkest) ? lightest : darkest])) as Record<StopHue, Rgb>;
+  // The clay: a soft neutral, a touch warm; in light themes a step above the floor (pale figures on a grey floor, outlined by the edge shade), in dark ones well above it.
+  const clay = light ? mix(mix(bg0, text3, 0.1), hue.ship, 0.05) : mix(mix(floor, text2, 0.58), hue.ship, 0.04);
   const paper = luminance(bg0) > luminance(text1) ? bg0 : text1;
   const lamp = (name: FloorToken, ...more: FloorToken[]) => ground(pick(name, ...more, '--text-2'));
   return {
@@ -171,8 +213,8 @@ export function derivePalette(raw: Partial<Record<FloorToken, Rgb>>, schemeHint?
     floor,
     floorEdge: light ? bg4 : bg3,
     wall: light ? bg0 : bg3,
-    doorway: mix(floor, text1, light ? 0.32 : 0.06),
-    doorFrame: bench,
+    doorway: mix(floor, text1, light ? 0.5 : 0.06),
+    doorFrame: mix(bench, text3, light ? 0.26 : 0.14),
     bench,
     benchLeg: mix(bench, text3, light ? 0.18 : 0.12),
     crate: mix(bench, text3, light ? 0.3 : 0.22),
@@ -195,7 +237,14 @@ export function derivePalette(raw: Partial<Record<FloorToken, Rgb>>, schemeHint?
       done: lamp('--group-done-fg'),
     },
     stop: ground(pick('--status-error', '--text-1')),
-    ask: ground(pick('--ask-permission-line', '--accent')),
+    ask: needsYou,
+    needsYou,
+    hue,
+    onHue,
+    benchFront: mix(bench, text3, light ? 0.26 : 0.14),
+    key: mix(WHITE, hue.ship, light ? 0.1 : 0.06),
+    rim: mix(WHITE, accent, 0.18),
+    rimStrength: light ? 0.32 : 0.42,
   };
 }
 

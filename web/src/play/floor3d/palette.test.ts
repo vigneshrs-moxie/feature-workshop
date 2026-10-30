@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { FLOOR_TOKENS, derivePalette, luminance, mix, parseCssColor, readPalette, watchTheme, type FloorToken, type Rgb } from './palette';
+import { FLOOR_TOKENS, STOP_HUES, contrast, derivePalette, luminance, mix, parseCssColor, readPalette, watchTheme, type FloorToken, type Rgb } from './palette';
 
 const close = (a: Rgb | null, b: Partial<Rgb>, d = 0.01) => {
   expect(a).not.toBeNull();
@@ -62,8 +62,35 @@ describe('derivePalette', () => {
     expect(p.lamp.running).toEqual(raw['--group-running-fg']);
     // Shipping has no token here: it borrows running's.
     expect(p.lamp.shipping).toEqual(raw['--group-running-fg']);
+    // The "!" is stopped red; the waiting hand and the asking card are needs-you amber.
     expect(p.stop).toEqual(raw['--status-error']);
-    expect(p.ask).toEqual(raw['--ask-permission-line']);
+    expect(p.ask).toEqual(raw['--group-needs-you-fg']);
+    expect(p.needsYou).toEqual(raw['--group-needs-you-fg']);
+  });
+
+  it('gives each stop its own hue from its --stop-* token, the accent where a theme has none', () => {
+    const build = { r: 0.1, g: 0.6, b: 0.7, a: 1 };
+    const test = { r: 0.2, g: 0.7, b: 0.4, a: 1 };
+    const p = derivePalette({ ...tokens(true), '--stop-build': build, '--stop-test': test }, 'dark');
+    expect(p.hue.build).toEqual(build);
+    expect(p.hue.test).toEqual(test);
+    expect(p.hue.spec).toEqual(tokens(true)['--accent']);
+    // What is drawn on a hue is whichever of the page's lightest and darkest reads best on it.
+    for (const k of STOP_HUES) expect(contrast(p.hue[k], p.onHue[k])).toBeGreaterThan(2.5);
+  });
+
+  it('keeps big areas neutral: floor, benches and clay carry no stop hue', () => {
+    for (const dark of [true, false]) {
+      const p = derivePalette({ ...tokens(dark), '--stop-ship': { r: 0.9, g: 0.6, b: 0.1, a: 1 } }, dark ? 'dark' : 'light');
+      for (const c of [p.floor, p.bench, p.clay]) expect(Math.max(c.r, c.g, c.b) - Math.min(c.r, c.g, c.b)).toBeLessThan(0.06);
+    }
+  });
+
+  it('warms the key light and cools the rim, both near white', () => {
+    const p = derivePalette({ ...tokens(false), '--stop-ship': { r: 0.9, g: 0.6, b: 0.1, a: 1 } }, 'light');
+    expect(p.key.r).toBeGreaterThan(p.key.b);
+    expect(p.rim.b).toBeGreaterThan(p.rim.r);
+    expect(Math.min(p.key.b, p.rim.r)).toBeGreaterThan(0.8);
   });
 
   it('keeps the figures clear of the floor in both schemes', () => {

@@ -8,14 +8,15 @@
 // hands that float at its sides. A small accent badge on the chest marks its front. Its role is the
 // prop in its right hand.
 import {
-  BoxGeometry, BufferGeometry, CircleGeometry, Color, CylinderGeometry, DataTexture, DoubleSide, ExtrudeGeometry, Group,
+  BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, CircleGeometry, Color, CylinderGeometry, DataTexture, DoubleSide, ExtrudeGeometry, Group,
   HemisphereLight, DirectionalLight, LatheGeometry, LinearFilter, Material, Mesh, MeshBasicMaterial, MeshLambertMaterial,
   Object3D, PlaneGeometry, RGBAFormat, SRGBColorSpace, Shape, ShapeGeometry, ShadowMaterial, SphereGeometry, SplineCurve, TorusGeometry, Vector2,
 } from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { FloorLayout } from '../layout';
 import { BENCH } from '../layout';
-import type { FloorPalette, LampGroup, Rgb } from '../palette';
+import type { FloorPalette, LampGroup, Rgb, StopHue } from '../palette';
+import { STOP_HUES } from '../palette';
 import type { PropId } from '../types';
 
 const LAMP_GROUPS: readonly LampGroup[] = ['needs-you', 'running', 'paused', 'idle', 'shipping', 'done'];
@@ -34,6 +35,101 @@ export const HEAD_Y = FIGURE.bodyHeight + FIGURE.neck;
 const EDGE = 0.13;
 
 function setColor(c: Color, rgb: Rgb) { c.setRGB(rgb.r, rgb.g, rgb.b, SRGBColorSpace); }
+
+/** The attributes of one SVG element's markup. */
+function attrs(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of text.matchAll(/([\w-]+)="([^"]*)"/g)) out[m[1]] = m[2];
+  return out;
+}
+
+/**
+ * A stop's icon (the app's own Icon markup: paths, circles, rects and lines on a 24-unit grid),
+ * stroked in white into a small texture, so the material's colour inks it. Null where the browser
+ * can't draw paths (tests).
+ */
+export function iconTexture(markup: string, size = 128): CanvasTexture | null {
+  if (typeof Path2D === 'undefined' || typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  const pad = size * 0.06;
+  const k = (size - pad * 2) / 24;
+  ctx.setTransform(k, 0, 0, k, pad, pad);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2.1;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const m of markup.matchAll(/<(path|circle|rect|line|polyline|ellipse)\b([^>]*)>/g)) {
+    const a = attrs(m[2]);
+    const n = (key: string, d = 0) => (a[key] !== undefined ? parseFloat(a[key]) : d);
+    let path: Path2D;
+    if (m[1] === 'path') path = new Path2D(a.d ?? '');
+    else {
+      path = new Path2D();
+      if (m[1] === 'circle') path.arc(n('cx'), n('cy'), n('r'), 0, Math.PI * 2);
+      else if (m[1] === 'ellipse') path.ellipse(n('cx'), n('cy'), n('rx'), n('ry'), 0, 0, Math.PI * 2);
+      else if (m[1] === 'rect') {
+        const x = n('x'); const y = n('y'); const w = n('width'); const h = n('height'); const r = Math.min(n('rx'), w / 2, h / 2);
+        if (r > 0 && typeof path.roundRect === 'function') path.roundRect(x, y, w, h, r); else path.rect(x, y, w, h);
+      } else if (m[1] === 'line') { path.moveTo(n('x1'), n('y1')); path.lineTo(n('x2'), n('y2')); }
+      else {
+        const pts = (a.points ?? '').trim().split(/[\s,]+/).map(Number);
+        for (let i = 0; i + 1 < pts.length; i += 2) (i ? path.lineTo(pts[i], pts[i + 1]) : path.moveTo(pts[i], pts[i + 1]));
+      }
+    }
+    ctx.stroke(path);
+  }
+  const t = new CanvasTexture(canvas);
+  t.colorSpace = SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+/**
+ * A soft rim light, in the material's own shader: surfaces turning away from you catch a little
+ * light at their edge, so a figure stands clear of the floor even where both are pale. The colour
+ * and strength are shared (one uniform for every material), set from the palette.
+ */
+function withRim<T extends MeshLambertMaterial>(mat: T, rim: { value: Color }, edge: { value: number }): T {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uRim = rim;
+    shader.uniforms.uEdge = edge;
+    // f: how far the surface turns away from you (1 at the outline). Up-facing edges catch the rim;
+    // the sides take a soft shade (uEdge), which draws a quiet outline on a pale floor.
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uRim;\nuniform float uEdge;')
+      .replace('#include <opaque_fragment>', [
+        'vec3 nV = normalize(normal);',
+        'float fr = pow(1.0 - clamp(abs(nV.z), 0.0, 1.0), 2.2);',
+        'float up = clamp(nV.y * 1.4, 0.0, 1.0);',
+        'outgoingLight += uRim * fr * up;',
+        'outgoingLight *= 1.0 - uEdge * fr * (1.0 - up);',
+        '#include <opaque_fragment>',
+      ].join('\n'));
+  };
+  mat.customProgramCacheKey = () => 'floor-rim';
+  return mat;
+}
+
+/**
+ * The bench top's own light falloff, as vertex colours: a touch darker toward its back and on its
+ * sides and underside, so the top reads as a surface under a lamp rather than a flat white card.
+ */
+function shadeTop<T extends BufferGeometry>(geo: T): T {
+  const pos = geo.getAttribute('position');
+  const nor = geo.getAttribute('normal');
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const back = Math.min(1, Math.max(0, 0.5 - pos.getZ(i) / BENCH.depth));
+    const side = nor ? 1 - Math.max(0, nor.getY(i)) : 0;
+    const k = 1 - 0.09 * back - 0.08 * side;
+    colors[i * 3] = k; colors[i * 3 + 1] = k; colors[i * 3 + 2] = k;
+  }
+  geo.setAttribute('color', new BufferAttribute(colors, 3));
+  return geo;
+}
 
 /** A soft round shadow, drawn into a small texture in code. */
 function blobTexture(): DataTexture {
@@ -104,19 +200,33 @@ export interface FigureParts {
   lamps: Mesh[];
   workpiece: Group;
   stack: Group;
+  /** The meshes that wear the figure's stop hue (badge, belt, prop accents). */
+  hued: Mesh[];
+  /** The free (left) hand's meshes: needs-you amber while it is raised to wait for you. */
+  freeHand: Mesh[];
 }
 
 export interface BenchParts {
   group: Group;
   bulb: Mesh;
+  /** The thin edge round the top, the tag on its front and the icon on the tag: the job's stop. */
+  edge: Mesh;
+  tag: Mesh;
+  icon: Mesh;
 }
 
 export interface Kit {
-  makeFigure(prop: PropId): FigureParts;
+  makeFigure(prop: PropId, hue: StopHue): FigureParts;
   makeBench(): BenchParts;
+  /** Dress a figure in a stop's hue. */
+  hueFigure(parts: FigureParts, hue: StopHue): void;
+  /** Dress a bench in its job's stop: the edge, the tag, the icon and the lamp. */
+  hueBench(parts: BenchParts, hue: StopHue): void;
+  /** The free hand in needs-you amber (waiting for you) or in clay. */
+  raiseHand(parts: FigureParts, waiting: boolean): void;
   /** The floor, its edge and the door, sized for a layout (rebuilt when it changes). */
   makeRoom(layout: FloorLayout): Group;
-  lights(): { hemi: HemisphereLight; sun: DirectionalLight };
+  lights(): { hemi: HemisphereLight; sun: DirectionalLight; rim: DirectionalLight };
   lampMaterial(group: LampGroup): Material;
   deviceLamp(on: boolean): Material;
   setPalette(p: FloorPalette): void;
@@ -125,7 +235,7 @@ export interface Kit {
   dispose(): void;
 }
 
-export function createKit(palette: FloorPalette): Kit {
+export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, string>> = {}): Kit {
   const geos: BufferGeometry[] = [];
   const roomGeos: BufferGeometry[] = [];
   const g = <T extends BufferGeometry>(geo: T): T => { geos.push(geo); return geo; };
@@ -133,8 +243,11 @@ export function createKit(palette: FloorPalette): Kit {
 
   // ---------- Materials ----------
   const lambert = () => new MeshLambertMaterial();
+  const rimUniform = { value: new Color(0, 0, 0) };
+  const edgeUniform = { value: 0 };
+  const rimmed = () => withRim(new MeshLambertMaterial(), rimUniform, edgeUniform);
   const mats = {
-    clay: lambert(), badge: lambert(), paper: lambert(), ink: lambert(), metal: lambert(), handle: lambert(),
+    clay: rimmed(), badge: lambert(), benchFront: lambert(), benchTop: new MeshLambertMaterial({ vertexColors: true }), paper: lambert(), ink: lambert(), metal: lambert(), handle: lambert(),
     liquid: lambert(), bench: lambert(), benchLeg: lambert(), crate: lambert(), wall: lambert(), doorFrame: lambert(),
     stop: lambert(), ask: lambert(), lampOff: lambert(),
     glass: new MeshLambertMaterial({ transparent: true, opacity: 0.42, depthWrite: false }),
@@ -148,8 +261,19 @@ export function createKit(palette: FloorPalette): Kit {
   const blobTex = blobTexture();
   mats.blob.alphaMap = blobTex;
   const lampMats = Object.fromEntries(LAMP_GROUPS.map((k) => [k, new MeshBasicMaterial()])) as Record<LampGroup, MeshBasicMaterial>;
+  // Each stop's hue: the figures' accents (lit, with the rim), the benches' lamps (glowing), and the
+  // stop's icon on each bench's tag.
+  const hueMats = Object.fromEntries(STOP_HUES.map((k) => [k, rimmed()])) as Record<StopHue, MeshLambertMaterial>;
+  const glowMats = Object.fromEntries(STOP_HUES.map((k) => [k, new MeshBasicMaterial()])) as Record<StopHue, MeshBasicMaterial>;
+  const iconTex: Partial<Record<StopHue, CanvasTexture>> = {};
+  const iconMats = Object.fromEntries(STOP_HUES.map((k) => {
+    const tex = icons[k] ? iconTexture(icons[k] as string) : null;
+    if (tex) iconTex[k] = tex;
+    return [k, new MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, visible: Boolean(tex) })];
+  })) as Record<StopHue, MeshBasicMaterial>;
   const hemi = new HemisphereLight(0xffffff, 0xffffff, 1);
   const sun = new DirectionalLight(0xffffff, 1);
+  const rim = new DirectionalLight(0xffffff, 1);
 
   function setPalette(p: FloorPalette) {
     setColor(mats.clay.color, p.clay);
@@ -161,6 +285,7 @@ export function createKit(palette: FloorPalette): Kit {
     setColor(mats.liquid.color, p.liquid);
     setColor(mats.glass.color, p.glass);
     setColor(mats.bench.color, p.bench);
+    setColor(mats.benchTop.color, p.bench);
     setColor(mats.benchLeg.color, p.benchLeg);
     setColor(mats.crate.color, p.crate);
     setColor(mats.wall.color, p.wall);
@@ -175,14 +300,26 @@ export function createKit(palette: FloorPalette): Kit {
     mats.catcher.opacity = p.shadowStrength;
     setColor(mats.blob.color, p.shadow);
     mats.blob.opacity = Math.min(1, p.shadowStrength * 1.5);
+    setColor(mats.benchFront.color, p.benchFront);
     for (const k of LAMP_GROUPS) setColor(lampMats[k].color, p.lamp[k]);
-    // The light: a soft sky from above and one still sun from the upper left, tuned per scheme so a
-    // surface facing up shows close to its token's own colour.
+    for (const k of STOP_HUES) {
+      setColor(hueMats[k].color, p.hue[k]);
+      setColor(glowMats[k].color, p.hue[k]);
+      setColor(iconMats[k].color, p.onHue[k]);
+    }
+    // The light: a soft sky from above, one still, warm key from the upper left, and a cool rim
+    // from behind; tuned per scheme so a surface facing up shows close to its token's own colour.
     const dark = p.scheme === 'dark';
     hemi.color.setRGB(1, 1, 1);
     setColor(hemi.groundColor, p.floor);
-    hemi.intensity = dark ? 1.55 : 1.35;
-    sun.intensity = dark ? 2.1 : 2.0;
+    hemi.intensity = dark ? 1.5 : 1.3;
+    setColor(sun.color, p.key);
+    sun.intensity = dark ? 2.1 : 2.05;
+    setColor(rim.color, p.rim);
+    rim.intensity = dark ? 0.9 : 0.6;
+    setColor(rimUniform.value, p.rim);
+    rimUniform.value.multiplyScalar(p.rimStrength);
+    edgeUniform.value = dark ? 0.12 : 0.22;
   }
   setPalette(palette);
 
@@ -190,8 +327,15 @@ export function createKit(palette: FloorPalette): Kit {
   const shape = {
     torso: g(new LatheGeometry(bodyProfile(), 32)),
     head: g(new SphereGeometry(FIGURE.headRadius, 32, 22)),
-    hand: g(new SphereGeometry(FIGURE.handRadius, 20, 14)),
+    // A mitten: a soft, slightly flat ball with a thumb.
+    hand: g(new SphereGeometry(FIGURE.handRadius, 20, 14).scale(1, 0.92, 0.8)),
+    thumb: g(new SphereGeometry(FIGURE.handRadius * 0.46, 12, 10)),
     badge: g(new CylinderGeometry(0.04, 0.04, 0.014, 24).rotateX(Math.PI / 2)),
+    // A belt round the middle, in the figure's stop hue.
+    belt: g(new CylinderGeometry(FIGURE.bodyRadius + 0.006, FIGURE.bodyRadius + 0.01, 0.062, 36, 1, true)),
+    buckle: rb(0.07, 0.056, 0.02, 0.01, 1),
+    hammerGrip: g(new CylinderGeometry(0.021, 0.022, 0.1, 12)),
+    hammerClaw: rb(0.05, 0.03, 0.05, 0.01, 1),
     blob: g(new CircleGeometry(0.36, 28).rotateX(-Math.PI / 2)),
     benchBlob: g(new PlaneGeometry(2.5, 1.3).rotateX(-Math.PI / 2)),
     // Props.
@@ -235,7 +379,12 @@ export function createKit(palette: FloorPalette): Kit {
     peg: g(new CylinderGeometry(0.016, 0.016, 0.045, 12)),
     page: rb(0.2, 0.01, 0.15, 0.003, 1),
     // The bench.
-    top: rb(BENCH.width, 0.075, BENCH.depth, 0.026),
+    top: shadeTop(rb(BENCH.width, 0.075, BENCH.depth, 0.026)),
+    edge: rb(BENCH.width + 0.012, 0.022, BENCH.depth + 0.012, 0.01, 2),
+    apron: rb(BENCH.width - 0.34, 0.1, 0.03, 0.012),
+    tag: rb(0.2, 0.2, 0.024, 0.04, 3),
+    tagIcon: g(new PlaneGeometry(0.15, 0.15)),
+    shade: g(new CylinderGeometry(0.038, 0.07, 0.05, 20, 1, true)),
     leg: rb(0.07, BENCH.height - 0.04, BENCH.depth - 0.14, 0.018),
     shelf: rb(BENCH.width - 0.36, 0.034, BENCH.depth - 0.3, 0.012),
     lampPost: g(new CylinderGeometry(0.012, 0.014, 0.36, 10)),
@@ -257,18 +406,24 @@ export function createKit(palette: FloorPalette): Kit {
   };
   const group = (...kids: Object3D[]) => { const gr = new Group(); if (kids.length) gr.add(...kids); return gr; };
 
+  // The meshes the figure being built wears its stop hue on (collected while makeFigure runs).
+  let huedNow: Mesh[] = [];
+  const hued = (m: Mesh) => { huedNow.push(m); return m; };
+
   // ---------- Props: built upright from the grip (the hand is at the origin) ----------
   function makeProp(id: PropId): Group {
     switch (id) {
       case 'hammer':
         return group(
           mesh(shape.hammerHandle, mats.handle, [0, 0.07, 0]),
+          hued(mesh(shape.hammerGrip, hueMats.none, [0, 0.0, 0])),
           mesh(shape.hammerBand, mats.metal, [0, 0.175, 0]),
-          mesh(shape.hammerHead, mats.metal, [0.012, 0.205, 0]),
+          mesh(shape.hammerHead, mats.metal, [0.03, 0.205, 0]),
+          mesh(shape.hammerClaw, mats.metal, [-0.06, 0.212, 0]),
         );
       case 'clipboard':
         return group(
-          mesh(shape.board, mats.handle, [0, 0.05, 0.012]),
+          hued(mesh(shape.board, hueMats.none, [0, 0.05, 0.012])),
           mesh(shape.boardPaper, mats.paper, [0, 0.04, 0.0201], false),
           mesh(shape.clip, mats.metal, [0, 0.162, 0.026]),
           line(0.1, 0.006, 0.001, [-0.01, 0.1, 0.0207]),
@@ -279,27 +434,28 @@ export function createKit(palette: FloorPalette): Kit {
       case 'flask': {
         const glass = mesh(shape.flask, mats.glass, [0, -0.02, 0], false);
         glass.renderOrder = 2;
-        return group(mesh(shape.liquid, mats.liquid, [0, -0.02, 0]), glass);
+        return group(hued(mesh(shape.liquid, hueMats.none, [0, -0.02, 0])), glass);
       }
       case 'magnifier': {
         const lens = mesh(shape.lens, mats.glass, [0, 0.2, 0], false);
         lens.renderOrder = 2;
         return group(
-          mesh(shape.magHandle, mats.handle, [0, 0.035, 0]),
+          hued(mesh(shape.magHandle, hueMats.none, [0, 0.035, 0])),
           mesh(shape.magCollar, mats.metal, [0, 0.115, 0]),
           mesh(shape.magRing, mats.metal, [0, 0.2, 0]),
           lens,
         );
       }
       case 'ruler': {
-        const r = group(mesh(shape.ruler, mats.paper, [0, 0.11, 0]));
-        for (let i = 0; i < 9; i++) r.add(line(i % 2 ? 0.012 : 0.022, 0.004, 0.002, [-0.022 + (i % 2 ? 0.006 : 0.011), -0.02 + i * 0.033, 0.0058]));
+        const r = group(hued(mesh(shape.ruler, hueMats.none, [0, 0.11, 0])));
+        for (let i = 0; i < 9; i++) r.add(line(i % 2 ? 0.012 : 0.022, 0.004, 0.002, [-0.022 + (i % 2 ? 0.006 : 0.011), -0.02 + i * 0.033, 0.0058], mats.paper));
         return r;
       }
     }
   }
 
-  function makeFigure(prop: PropId): FigureParts {
+  function makeFigure(prop: PropId, hue: StopHue): FigureParts {
+    huedNow = [];
     const anchor = new Group();
     const root = new Group();
     anchor.add(root);
@@ -307,14 +463,18 @@ export function createKit(palette: FloorPalette): Kit {
     blob.renderOrder = 1;
     root.add(blob);
 
-    const torso = mesh(shape.torso, mats.clay);
-    const badge = mesh(shape.badge, mats.badge, [0, 0.5, FIGURE.bodyRadius - 0.012], false);
+    const torso = (mesh(shape.torso, mats.clay));
+    const badge = hued(mesh(shape.badge, hueMats.none, [0, 0.5, FIGURE.bodyRadius - 0.012], false));
     badge.rotation.x = -0.32;
-    const head = mesh(shape.head, mats.clay, [0, FIGURE.headRadius, 0]);
+    const belt = hued(mesh(shape.belt, hueMats.none, [0, 0.2, 0], false));
+    const buckle = mesh(shape.buckle, mats.metal, [0, 0.2, FIGURE.bodyRadius + 0.01], false);
+    const head = (mesh(shape.head, mats.clay, [0, FIGURE.headRadius, 0]));
     const headPivot = group(head);
     headPivot.position.y = HEAD_Y;
-    const handL = group(mesh(shape.hand, mats.clay));
-    const handR = group(mesh(shape.hand, mats.clay));
+    // Mittens, thumbs forward and in.
+    const freeHand = [(mesh(shape.hand, mats.clay)), (mesh(shape.thumb, mats.clay, [-0.03, 0.018, 0.036]))];
+    const handL = group(...freeHand);
+    const handR = group((mesh(shape.hand, mats.clay)), (mesh(shape.thumb, mats.clay, [0.03, 0.018, 0.036])));
     const propGroup = makeProp(prop);
     propGroup.scale.setScalar(1.3);
     handR.add(propGroup);
@@ -333,7 +493,7 @@ export function createKit(palette: FloorPalette): Kit {
     );
     handL.add(sheet, card);
 
-    const body = group(torso, badge, headPivot, handL, handR);
+    const body = group(torso, belt, buckle, badge, headPivot, handL, handR);
     root.add(body);
 
     // Sitting: a crate under it. Stopped: a "!" sign at its side. Paused: a small clock.
@@ -387,23 +547,53 @@ export function createKit(palette: FloorPalette): Kit {
     const items = group(device, workpiece, stack);
     anchor.add(items);
 
-    return { anchor, root, blob, body, torso, headPivot, handL, handR, prop: propGroup, sheet, card, crate, sign, clock, items, device, crank, lamps, workpiece, stack };
+    const parts: FigureParts = { anchor, root, blob, body, torso, headPivot, handL, handR, prop: propGroup, sheet, card, crate, sign, clock, items, device, crank, lamps, workpiece, stack, hued: huedNow, freeHand };
+    huedNow = [];
+    hueFigure(parts, hue);
+    return parts;
+  }
+
+  function hueFigure(parts: FigureParts, hue: StopHue) {
+    for (const m of parts.hued) m.material = hueMats[hue];
+  }
+
+  function raiseHand(parts: FigureParts, waiting: boolean) {
+    for (const m of parts.freeHand) m.material = waiting ? mats.ask : mats.clay;
+    // Raised, the hand opens a little bigger, so it reads as a hand up rather than a dot.
+    for (const m of parts.freeHand) m.scale.setScalar(waiting ? 1.3 : 1);
   }
 
   function makeBench(): BenchParts {
-    const top = mesh(shape.top, mats.bench, [0, BENCH.height - 0.0375, 0]);
+    const top = mesh(shape.top, mats.benchTop, [0, BENCH.height - 0.0375, 0]);
     // Only the floor takes shadows: a bench top would show stripes where the map is stretched thin.
     top.receiveShadow = false;
     const legs = [-1, 1].map((s) => mesh(shape.leg, mats.benchLeg, [s * (BENCH.width / 2 - 0.13), (BENCH.height - 0.04) / 2, 0]));
     const shelf = mesh(shape.shelf, mats.benchLeg, [0, 0.13, 0]);
-    const bulb = mesh(shape.bulb, lampMats.idle, [0.84, BENCH.height + 0.4, -0.3], false);
+    // A thin edge round the top in the job's stop hue, and an apron under the front with the
+    // stop's tag hung on it.
+    const edge = mesh(shape.edge, glowMats.none, [0, BENCH.height - 0.05, 0], false);
+    const apron = mesh(shape.apron, mats.benchFront, [0, BENCH.height - 0.12, BENCH.depth / 2 - 0.05]);
+    const tag = mesh(shape.tag, glowMats.none, [0.56, BENCH.height - 0.19, BENCH.depth / 2 - 0.018], false);
+    const icon = mesh(shape.tagIcon, iconMats.none, [0.56, BENCH.height - 0.19, BENCH.depth / 2 - 0.004], false);
+    icon.renderOrder = 2;
+    const bulb = mesh(shape.bulb, glowMats.none, [0.84, BENCH.height + 0.4, -0.3], false);
     const blob = mesh(shape.benchBlob, mats.blob, [0, 0.003, 0.02], false);
     blob.renderOrder = 1;
     const group0 = group(blob, top, ...legs, shelf,
       mesh(shape.lampPost, mats.metal, [0.84, BENCH.height + 0.18, -0.3]),
       mesh(shape.lampSocket, mats.metal, [0.84, BENCH.height + 0.36, -0.3]),
-      bulb);
-    return { group: group0, bulb };
+      mesh(shape.shade, mats.metal, [0.84, BENCH.height + 0.45, -0.3], false),
+      bulb, edge, apron, tag, icon);
+    return { group: group0, bulb, edge, tag, icon };
+  }
+
+  function hueBench(parts: BenchParts, hue: StopHue) {
+    parts.bulb.material = glowMats[hue];
+    parts.edge.material = glowMats[hue];
+    parts.tag.material = glowMats[hue];
+    parts.icon.material = iconMats[hue];
+    parts.tag.visible = hue !== 'none';
+    parts.icon.visible = hue !== 'none';
   }
 
   function makeRoom(layout: FloorLayout): Group {
@@ -453,18 +643,23 @@ export function createKit(palette: FloorPalette): Kit {
   return {
     makeFigure,
     makeBench,
+    hueFigure,
+    hueBench,
+    raiseHand,
     makeRoom,
-    lights: () => ({ hemi, sun }),
+    lights: () => ({ hemi, sun, rim }),
     lampMaterial: (k) => lampMats[k],
     deviceLamp: (on) => (on ? lampMats.running : mats.lampOff),
     setPalette,
-    disposables: () => [...geos, ...roomGeos, ...Object.values(mats), ...Object.values(lampMats), blobTex],
+    disposables: () => [...geos, ...roomGeos, ...Object.values(mats), ...Object.values(lampMats), ...Object.values(hueMats), ...Object.values(glowMats), ...Object.values(iconMats), ...Object.values(iconTex), blobTex],
     dispose() {
       for (const d of [...geos.splice(0), ...roomGeos.splice(0)]) d.dispose();
-      for (const m of [...Object.values(mats), ...Object.values(lampMats)]) m.dispose();
+      for (const m of [...Object.values(mats), ...Object.values(lampMats), ...Object.values(hueMats), ...Object.values(glowMats), ...Object.values(iconMats)]) m.dispose();
+      for (const t of Object.values(iconTex)) t?.dispose();
       blobTex.dispose();
       hemi.dispose();
       sun.dispose();
+      rim.dispose();
     },
   };
 }

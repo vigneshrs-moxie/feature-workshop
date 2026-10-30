@@ -5,6 +5,8 @@
 import { jobHref } from '../../app/router';
 import { jobHueStyle } from '../../theme/hue';
 import type { FloorBench, FloorFigure } from './types';
+import { Icon } from '../../components/Icon';
+import { STOPS } from '../../components/stops/stops';
 
 /** "Builder · reading merge.ts" → ["Builder", "reading merge.ts"]; a line without a role ("Done") → [null, "Done"]. */
 export function splitLabel(label: string, role: string): [string | null, string] {
@@ -18,6 +20,17 @@ export function FigureLine({ figure, hover = false }: { figure: FloorFigure; hov
     <li className={`floor3d-line${hover ? ' is-hover' : ''}`} data-pose={figure.pose} title={figure.label}>
       {role ? <><span className="floor3d-role">{role}</span><span className="floor3d-sep" aria-hidden="true"> · </span><span className="floor3d-now">{rest}</span></> : <span className="floor3d-now">{rest}</span>}
     </li>
+  );
+}
+
+/** The stop the job is at, in words, with its icon in the stop's hue (the bench's edge says the same in colour). */
+export function StopWord({ bench }: { bench: FloorBench }) {
+  const stop = STOPS.find((s) => s.id === bench.hue);
+  return (
+    <span className="floor3d-stop" data-stop={bench.hue}>
+      {stop && <Icon name={stop.icon} size={12} className="floor3d-stop-icon" />}
+      {bench.stop}
+    </span>
   );
 }
 
@@ -36,7 +49,7 @@ export function FloorList({ benches, onOpenJob }: { benches: readonly FloorBench
             >
               {b.title}
             </a>
-            {b.stop && <span className="floor3d-stop muted">{b.stop}</span>}
+            {b.stop && <StopWord bench={b} />}
             <span className="floor3d-status" data-group={b.lamp}>
               <span className="floor3d-glyph" aria-hidden="true">{b.glyph}</span>
               {b.status}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Job, Permission } from '../../api/types';
-import { askWords, benchFor, kindOf, labelFor, poseFor, QUIET_MS, stuckReason } from './model';
+import { askWords, benchFor, hueFor, kindOf, labelFor, poseFor, QUIET_MS, stuckReason } from './model';
 
 const NOW = new Date(2026, 9, 29, 12, 0, 0);
 const ago = (min: number) => new Date(NOW.getTime() - min * 60000).toISOString();
@@ -170,5 +170,23 @@ describe('benchFor', () => {
     const b = benchFor(job({ group: 'done', nowDoing: [{ who: 'feature-tester', doing: 'x' }] }), 0, { now: NOW });
     expect(b.figures).toHaveLength(1);
     expect(b.figures[0].label).toBe('Done');
+  });
+
+  it('colours the bench by the job’s stop, and each figure by the stop it works in', () => {
+    const b = benchFor(job({ stage: 'review', nowDoing: [{ who: 'feature-tester', doing: 'Running npm test' }, { who: 'feature-review-db', doing: 'Reading a.ts' }] }), 0, { now: NOW });
+    expect(b.hue).toBe('review');
+    expect(b.figures.map((f) => [f.who, f.hue])).toEqual([['conductor', 'review'], ['feature-tester', 'test'], ['feature-review-db', 'review']]);
+    expect(benchFor(job({ stage: undefined }), 0, { now: NOW }).hue).toBe('none');
+  });
+});
+
+describe('hueFor', () => {
+  it('gives each crew member its own stop, the Foreman and strangers the job’s', () => {
+    expect(hueFor('conductor', 'test')).toBe('test');
+    expect(hueFor('feature-implementer', 'test')).toBe('build');
+    expect(hueFor('feature-planner', 'build')).toBe('plan');
+    expect(hueFor('feature-review-ui', 'build')).toBe('review');
+    expect(hueFor('feature-wireframer', 'build')).toBe('spec');
+    expect(hueFor('someone-new', 'ship')).toBe('ship');
   });
 });

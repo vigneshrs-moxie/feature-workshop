@@ -15,9 +15,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { jobHref, navigate } from '../../app/router';
 import { jobHueStyle } from '../../theme/hue';
+import { Icon } from '../../components/Icon';
+import { STOPS } from '../../components/stops/stops';
+import type { StopHue } from './palette';
 import { usePrefersReducedMotion } from '../usePlay';
 import { FloorHint } from './FloorHint';
-import { FloorList, FigureLine } from './FloorList';
+import { FloorList, FigureLine, StopWord } from './FloorList';
 import { floorLayout, type FloorLayout } from './layout';
 import { loadScene } from './loadScene';
 import { readPalette, watchTheme } from './palette';
@@ -126,6 +129,7 @@ interface StageProps {
 function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint }: StageProps) {
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const iconBox = useRef<HTMLSpanElement>(null);
   const sceneRef = useRef<FloorScene | null>(null);
   const plates = useRef(new Map<string, HTMLElement>());
   const hits = useRef(new Map<string, HTMLElement>());
@@ -164,7 +168,7 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint }:
     loadScene()
       .then((mod) => {
         if (cancelled) return;
-        made = mod.createFloorScene(el, { palette: readPalette(), reducedMotion: reduced });
+        made = mod.createFloorScene(el, { palette: readPalette(), reducedMotion: reduced, icons: stopIcons(iconBox.current) });
         sceneRef.current = made;
         made.onFrame(place);
         setReady(true);
@@ -251,6 +255,10 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint }:
         onPointerLeave={onLeave}
         data-benches={benches.length}
       >
+        {/* The stops' icons, the app's own, read once for the benches' front tags. */}
+        <span ref={iconBox} hidden aria-hidden="true">
+          {STOPS.map((s) => <span key={s.id} data-stop={s.id}><Icon name={s.icon} /></span>)}
+        </span>
         <canvas ref={canvas} className="floor3d-canvas" aria-hidden="true" style={layout ? { width: layout.width, height: layout.height } : undefined} />
         {/* What the pointer can pick: each bench's cell, and each figure over it. Mouse only: the words below say the same. */}
         <div className="floor3d-hits" aria-hidden="true">
@@ -302,6 +310,16 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint }:
   );
 }
 
+/** Each stop's icon markup, from the hidden icons the floor renders. */
+function stopIcons(box: HTMLElement | null): Partial<Record<StopHue, string>> {
+  const out: Partial<Record<StopHue, string>> = {};
+  box?.querySelectorAll<HTMLElement>('[data-stop]').forEach((el) => {
+    const svg = el.querySelector('svg');
+    if (svg) out[el.dataset.stop as StopHue] = svg.innerHTML;
+  });
+  return out;
+}
+
 function Plate({ bench, onOpenJob, hoverKey }: { bench: FloorBench; onOpenJob: (slug: string) => void; hoverKey: string | null }) {
   const lines = bench.figures.slice(0, 4);
   return (
@@ -316,6 +334,7 @@ function Plate({ bench, onOpenJob, hoverKey }: { bench: FloorBench; onOpenJob: (
         >
           {bench.title}
         </a>
+        {bench.stop && <StopWord bench={bench} />}
         <span className="floor3d-status" data-group={bench.lamp}>
           <span className="floor3d-glyph" aria-hidden="true">{bench.glyph}</span>
           {bench.status}

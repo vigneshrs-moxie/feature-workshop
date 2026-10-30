@@ -115,7 +115,7 @@ export function poseRig(pose: Pose, seat: Seat, helpers: number, progress: numbe
       return { ...r, handL: CRANK_HAND(0), handR: [-0.3, 0.32, 0.08], device: 1, headNod: 0.26, lampFill: progress ?? 0 };
     case 'waiting':
       // Turned to you, standing tall, looking up, the free hand raised.
-      return { ...r, lean: -0.05, roll: -0.04, headNod: -0.22, headTilt: -0.08, handL: [0.27, 1.13, 0.1], handR: [-0.3, 0.3, 0.06] };
+      return { ...r, lean: -0.05, roll: -0.04, headNod: -0.22, headTilt: -0.08, handL: [0.27, 1.04, 0.12], handR: [-0.3, 0.3, 0.06] };
     case 'asking':
       // Turned to you, the card held up high in the free hand.
       return { ...r, lean: -0.02, headNod: -0.12, handL: [0.15, 0.9, 0.2], card: 1, handR: [-0.3, 0.3, 0.06] };
