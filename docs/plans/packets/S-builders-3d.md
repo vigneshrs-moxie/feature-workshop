@@ -58,6 +58,21 @@ Nowhere else gets 3D: no 3D on the Desk, Inbox, Telemetry or Settings.
   - Without WebGL, the 2D floor shows instead, with the same words.
   - With reduced motion, figures hold their pose and don't walk or animate.
 
+## After run 1 (2026-10-29): a look pass in run 2
+Run 1 works: 12 benches at 1.6 ms a frame, three.js in a 148 KB chunk loaded only in Play full, and every pose tied to real state. The look still needs a pass. The shots (`scratchpad/s/shots/`) were made on main's old tokens, from before R:
+- in Light, the white benches on pale grey look washed out;
+- the figures are flat grey clay;
+- there is almost no colour.
+
+Run 2, built on R's new colour tokens, adds:
+- **Colour:** each bench takes its job's current stop hue (`--stop-*`) as a thin edge and on its lamp. Each figure's badge and prop accents take the hue of the stop it works in. Status marks use R's mark colours: the waiting hand and card in needs-you amber, the "!" in stopped red. Big areas stay calm.
+- **Light:** a warmer key light and a soft rim light, so figures separate from the floor in Light. The bench reads as a surface, not a white box.
+- **Detail:** the stop's icon on the bench's front, and slightly more shaped hands and props. Look at 2× zoom and keep it calm and charming.
+- **Run 1's needs, done in run 2:**
+  - the `#/floor-lab` route;
+  - demo states (a failed test, a limit pause, a finished job, a command with a count, a permission card);
+  - the job card's start time.
+
 ## Owns
 **First run:**
 - `web/src/play/floor3d/` (new): the scene, figure, bench, props, poses, animation, the data hook, the list mirror and tests;
