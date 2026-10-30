@@ -13,13 +13,13 @@
 //   paused for the usage limit   paused    "Paused until the limit resets, 4:00pm"
 //   finished                     done      "Done"
 // and two of the Foreman's own: watching the crew ("Foreman · watching the Builder") and idle.
-import type { Job, Permission, Run, Usage } from '../../api/types';
+import type { Job, Permission, Run, StageAgent, StopId, Usage } from '../../api/types';
 import { clockTime } from '../../lib/time';
 import { jobStatus, shippingWhere } from '../../panes/Jobs/jobStatus';
 import { stageLabel } from '../../panes/Jobs/stages';
 import { STAGE_CHARACTER } from '../crew';
 import { CREW_PACK, PACK_ALIASES, STOP_CREW, roleOf } from '../crewPack';
-import { stopOf } from '../../components/stops/stops';
+import { STOPS, stopOf } from '../../components/stops/stops';
 import { usagePaused } from '../crewLines';
 import { waited } from '../floorModel';
 import { MAX_HELPERS, type Seat } from './layout';
@@ -241,7 +241,20 @@ const LAMP: Record<string, LampGroup> = { 'needs-you': 'needs-you', running: 'ru
 const ROLE_ORDER = CREW_PACK.map((m) => m.type);
 const rank = (who: string) => { const i = ROLE_ORDER.indexOf(who); return i < 0 ? ROLE_ORDER.length : i; };
 
-interface NowLine { who?: string; doing?: string | null; since?: string | null; quietMs?: number | null }
+interface NowLine { who?: string; doing?: string | null; since?: string | null; quietMs?: number | null; status?: AgentFacts['status'] }
+
+/**
+ * The Stage strip's bench: the job at one stop, with the crew the Stage lists there (its rows, from
+ * dashboard/lib/stage-view.js) instead of the job card's now lines, in that stop's hue.
+ */
+export function stageBench(job: Job, stop: StopId, agents: readonly Pick<StageAgent, 'who' | 'doing' | 'since' | 'status'>[], facts: Omit<JobFacts, 'job'>): FloorBench {
+  const nowDoing = agents
+    .filter((a) => a.status !== 'done')
+    .map((a) => ({ who: a.who, doing: a.doing, since: a.since, status: a.status === 'working' || a.status === 'waiting' || a.status === 'stopped' ? a.status : null }));
+  const bench = benchFor({ ...job, nowDoing }, 0, facts);
+  const label = STOPS.find((x) => x.id === stop)?.label ?? bench.stop;
+  return { ...bench, hue: stop, stop: label, figures: bench.figures.map((f) => (f.who === 'conductor' ? { ...f, hue: stop } : f)) };
+}
 
 /** One job's bench: its status in words and its figures, the Foreman first, then up to three helpers. */
 export function benchFor(job: Job, index: number, facts: Omit<JobFacts, 'job'>): FloorBench {
@@ -250,7 +263,7 @@ export function benchFor(job: Job, index: number, facts: Omit<JobFacts, 'job'>):
   const status = jobStatus(job, now);
   const lines = (Array.isArray(job.nowDoing) ? (job.nowDoing as NowLine[]) : []).filter((d) => typeof d?.who === 'string');
   const foremanLine = lines.find((d) => d.who === 'conductor');
-  let helpers: AgentFacts[] = job.group === 'done' ? [] : lines.filter((d) => d.who !== 'conductor').map((d) => ({ who: d.who as string, doing: d.doing, since: d.since, quietMs: d.quietMs }));
+  let helpers: AgentFacts[] = job.group === 'done' ? [] : lines.filter((d) => d.who !== 'conductor').map((d) => ({ who: d.who as string, doing: d.doing, since: d.since, quietMs: d.quietMs, status: d.status ?? null }));
   // A crew member who asks for a permission is at the bench even if its line has gone quiet.
   for (const p of facts.permissions ?? []) {
     if (p.slug === job.slug && p.agentType && p.agentType !== 'conductor' && !helpers.some((h) => h.who === p.agentType)) helpers.push({ who: p.agentType });

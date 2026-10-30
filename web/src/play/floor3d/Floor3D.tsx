@@ -55,11 +55,15 @@ export interface Floor3DProps {
   hint?: string | null;
   keys?: boolean;
   current?: string | null;
+  /** Where things go (default: the floor's grid; the Stage strip passes its own band). Keep it stable. */
+  layoutFor?: (width: number, count: number) => FloorLayout;
+  /** The bar above the floor (its line, Fit all, Show as a list); the Stage strip has none. */
+  bar?: boolean;
 }
 
 const openJob = (slug: string) => navigate({ name: 'job', slug });
 
-export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, onStats, label = 'The workshop floor', hint, keys = false, current = null }: Floor3DProps) {
+export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, onStats, label = 'The workshop floor', hint, keys = false, current = null, layoutFor = floorLayout, bar = true }: Floor3DProps) {
   const [view, setViewState] = useState<View>(readView);
   const [webgl] = useState(hasWebGL);
   const [failed, setFailed] = useState(false);
@@ -75,13 +79,13 @@ export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, 
   }
   return (
     <section className="floor3d" aria-label={label}>
-      {view === 'list' ? (
+      {view === 'list' && bar ? (
         <>
           <FloorBar view={view} onView={setView} hint={hint} />
           <FloorList benches={benches} onOpenJob={onOpenJob} />
         </>
       ) : (
-        <FloorStage benches={benches} onOpenJob={onOpenJob} busy={busy} onStats={onStats} onFail={() => setFailed(true)} onView={setView} hint={hint} keys={keys} current={current} />
+        <FloorStage benches={benches} onOpenJob={onOpenJob} busy={busy} onStats={onStats} onFail={() => setFailed(true)} onView={setView} hint={hint} keys={keys} current={current} layoutFor={layoutFor} bar={bar} />
       )}
     </section>
   );
@@ -127,9 +131,11 @@ interface StageProps {
   hint?: string | null;
   keys: boolean;
   current: string | null;
+  layoutFor: (width: number, count: number) => FloorLayout;
+  bar: boolean;
 }
 
-function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, keys, current }: StageProps) {
+function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, keys, current, layoutFor, bar }: StageProps) {
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const iconBox = useRef<HTMLSpanElement>(null);
@@ -142,7 +148,7 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, k
   const reduced = usePrefersReducedMotion();
   const width = useWidth(box);
   const count = benches.reduce((n, b) => Math.max(n, b.index + 1), 0);
-  const layout = useMemo<FloorLayout | null>(() => (width > 0 ? floorLayout(width, Math.max(1, count)) : null), [width, count]);
+  const layout = useMemo<FloorLayout | null>(() => (width > 0 ? layoutFor(width, Math.max(1, count)) : null), [width, count, layoutFor]);
 
   // Where the words and pointer targets go after each frame (zoom and parallax move them).
   const place = useCallback((a: FloorAnchors) => {
@@ -280,7 +286,7 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, k
 
   return (
     <>
-      <FloorBar view="floor" onView={onView} onFit={zoomed ? fit : undefined} hint={hint} />
+      {bar && <FloorBar view="floor" onView={onView} onFit={zoomed ? fit : undefined} hint={hint} />}
       <div
         ref={box}
         className={`floor3d-stage${ready ? ' is-ready' : ''}`}

@@ -91,6 +91,19 @@
   .floor3d-canvas { transition: none; }
 }
 
+/* ---------- The Stage strip (StageStrip.tsx): a fixed 220 px band, or one line folded ---------- */
+
+.stage-strip { position: relative; box-sizing: border-box; height: 220px; overflow: hidden; border: 1px solid var(--border-1); border-radius: var(--radius-lg); background: var(--bg-1); }
+.stage-strip .floor3d { gap: 0; }
+.stage-strip .floor3d-note { margin: var(--space-3) var(--space-4) var(--space-2); }
+.stage-strip .floor3d-list { padding: 0 var(--space-4); }
+.stage-strip-fold { position: absolute; top: var(--space-2); right: var(--space-2); z-index: 4; }
+.stage-strip.is-folded { display: flex; align-items: center; gap: var(--space-3); height: 44px; padding: 0 var(--space-2) 0 var(--space-4); }
+.stage-strip.is-folded .stage-strip-fold { position: static; margin-left: auto; }
+.stage-strip-line { display: flex; flex: 1; gap: var(--space-4); min-width: 0; margin: 0; overflow: hidden; color: var(--text-2); font-size: var(--text-sm); white-space: nowrap; }
+.stage-strip-who { overflow: hidden; text-overflow: ellipsis; }
+.stage-strip-who:first-child { flex: none; max-width: 60%; }
+
 /* Settings → Look → Jobs layout: Floor's little picture, two rows of benches. */
 .layout-pic.pic-floor { grid-template-columns: repeat(2, 1fr); align-content: center; gap: 6px 5px; }
 .layout-pic.pic-floor i { height: 6px; border-bottom: 2px solid var(--accent); }

@@ -117,6 +117,57 @@ export function floorLayout(width: number, count: number, cols = columnsFor(widt
   };
 }
 
+/** The Stage strip's fixed height (px). */
+export const STRIP_PX = 220;
+
+/**
+ * The Stage strip (StageStrip.tsx): one bench in a band `height` px tall, the bench and its crew on
+ * the left on their own patch of floor, and its words to the right. The same camera as the floor,
+ * scaled to fit the band; the door stands at the patch's back left, so helpers still walk in.
+ */
+export function stripLayout(width: number, height = STRIP_PX): FloorLayout {
+  const w = Math.max(240, Math.round(width));
+  const s = Math.sin(ELEVATION);
+  const k = Math.cos(ELEVATION);
+  const scene = SCENE_ABOVE + SCENE_BELOW;
+  // Wide: the bench fills the band's height on the left, the words to its right. Narrow (a phone):
+  // a smaller bench across the top, and the words full width under it, so no line is cut short.
+  const narrow = w < 720;
+  const ppu = narrow
+    ? Math.max(40, Math.min((height * 0.48) / scene, (w - 24) / (CELL_X + AISLE)))
+    : Math.max(48, Math.min(MAX_PPU, (height - 14) / (scene + 0.12)));
+  const cellW = CELL_X * ppu;
+  const x0 = narrow ? (w - cellW - AISLE * ppu) / 2 + AISLE * ppu : 8 + AISLE * ppu;
+  const cx = x0 + cellW / 2;
+  const cy = (narrow ? 4 : 6) + SCENE_ABOVE * ppu;
+  const sceneBottom = cy + SCENE_BELOW * ppu;
+  const wordsLeft = Math.round(x0 + cellW + 12);
+  const plate: Rect = narrow
+    ? { left: 12, top: Math.round(sceneBottom + 6), width: w - 24, height: Math.round(height - sceneBottom - 10) }
+    // Room on the right for the strip's Fold button.
+    : { left: wordsLeft, top: 18, width: Math.max(120, w - wordsLeft - 112), height: height - 36 };
+  const bench: BenchSpot = {
+    index: 0, col: 0, row: 0,
+    x: (cx - w / 2) / ppu,
+    z: cy / ppu / s,
+    plate,
+    cell: { left: Math.round(x0 - AISLE * ppu), top: 0, width: Math.round(cellW + AISLE * ppu), height: Math.round(narrow ? sceneBottom : height) },
+  };
+  const left = (x0 - AISLE * ppu - (narrow ? 0 : 8) - w / 2) / ppu;
+  const right = (x0 + cellW - w / 2) / ppu;
+  // The patch of floor fills the band from its top (on a phone, down to the words); the door
+  // stands on it, its top just inside.
+  const back = -0.05;
+  const doorZ = (WALL_HEIGHT * k + 6 / ppu) / s;
+  const front = (narrow ? sceneBottom : height) / ppu / s + (narrow ? 0 : 0.2);
+  return {
+    mode: 'column', width: w, height, cols: 1, rows: 1, ppu, elevation: ELEVATION,
+    left, right, back, front,
+    door: { x: left + AISLE / 2 + 0.32, z: doorZ, aisleX: left + AISLE / 2 },
+    rowPx: height, benches: [bench],
+  };
+}
+
 /** A world point on screen (px), as the scene's camera sees it at rest. */
 export function project(layout: FloorLayout, x: number, y: number, z: number): { x: number; y: number } {
   const s = Math.sin(layout.elevation);
