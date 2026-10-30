@@ -52,7 +52,7 @@ describe('Settings sections', () => {
     expect(findSettings('wireframe').map((e) => e.id)).toEqual(['wireframes']);
     expect(findSettings('finish').map((e) => e.id)).toEqual(['finish-line']);
     expect(findSettings('workflow').every((e) => e.section === 'workflow')).toBe(true);
-    expect(findSettings('workflow')).toHaveLength(7); // with the Orbit token, how often GitHub is checked and who reviews and merges
+    expect(findSettings('workflow')).toHaveLength(8); // with the Orbit token, how often GitHub is checked, who reviews and merges, and Claude Code use
     expect(findSettings('zebra')).toEqual([]);
     // Every entry belongs to a known section, and no anchor is used twice.
     for (const e of SETTING_INDEX) expect(SETTINGS_SECTIONS).toContain(e.section);

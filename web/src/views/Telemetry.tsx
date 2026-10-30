@@ -11,6 +11,12 @@
 //   - Ten cards, two columns wide (one on a phone, folded to their headlines but the first): each headed
 //     by its finding, with What to do, Table ▸, Fold and Hide. Fold and Hide are remembered in this
 //     browser, per person; hidden cards come back from "Show hidden graphs (n)".
+//   - Your Claude Code use outside this app (packet U, claudeCode in the answer): when it is counted,
+//     each person splits into "in the app" and "in Claude Code" (the same hue, washed and dotted, and
+//     named), the dials get its slice, and Other use takes its new name (limits.otherLabel). While the
+//     first read of Claude Code's logs is under way its line keeps its place and says so, and the page
+//     asks again every 5 seconds until it is done. Its words and what it can't see sit behind "How this
+//     is worked out". Settings → Workflow turns it off.
 // Data: GET /api/telemetry?window= (dashboard/lib/telemetry.js, lib/insights.js), read again every
 // minute while the page is open and after Read now. Colours follow the colour rule (packet R): a single
 // series in the accent with grey for what it is compared with; people, models and stages in the
@@ -41,12 +47,14 @@ export const WINDOWS: { id: TelemetryWindow; label: string; short: string }[] = 
 ];
 const WINDOW_KEY = 'workshop.telemetryWindow';
 const REFRESH_MS = 60_000;
+/** While Claude Code's logs are first read: ask again this soon, until they are. */
+export const READING_MS = 5_000;
 
 const GUIDE: GuideSpec = {
   id: 'telemetry',
   title: 'How Telemetry works',
   cards: [
-    { icons: ['gauge'], title: 'Two limits', say: 'Claude limits use over five hours and over a week, for everyone on the account. The dials show how much is used, and by whom: this app, or other use.' },
+    { icons: ['gauge'], title: 'Two limits', say: 'Claude limits use over five hours and over a week, for everyone on the account. The dials show how much is used, and by whom: this app, your Claude Code use outside it, or other use.' },
     { icons: ['activity', 'check'], title: 'Each graph says what it found', say: 'And one line on what to do about it. Table shows the numbers.' },
     { icons: ['minus', 'eye-off'], title: 'Fold or hide', say: 'Keep the ones you use. Hidden graphs come back from the end of the page.' },
   ],
@@ -73,9 +81,10 @@ export function TelemetryView() {
   const [reading, setReading] = useState(false);
   const asked = useRef(0);
 
-  const load = useCallback(async (w: TelemetryWindow) => {
+  // quiet: a read again while Claude Code's logs are read, without dimming the graphs.
+  const load = useCallback(async (w: TelemetryWindow, { quiet = false } = {}) => {
     const n = ++asked.current;
-    setLoading(true);
+    if (!quiet) setLoading(true);
     try {
       const body = await api.get<TelemetryResponse>(`/api/telemetry?window=${w}`);
       if (n !== asked.current) return;
@@ -93,6 +102,14 @@ export function TelemetryView() {
     const id = setInterval(() => void load(win), REFRESH_MS);
     return () => clearInterval(id);
   }, [load, win]);
+
+  // While Claude Code's logs are first read, ask again every 5 seconds until they are.
+  const ccReading = data?.claudeCode?.state === 'reading';
+  useEffect(() => {
+    if (!ccReading) return;
+    const id = setTimeout(() => void load(win, { quiet: true }), READING_MS);
+    return () => clearTimeout(id);
+  }, [ccReading, data, load, win]);
 
   // Fold and Hide, per person (the computer's user name the dashboard says this page is for).
   const me = data?.me ?? null;
@@ -173,10 +190,10 @@ export function TelemetryView() {
       {data && !nothing && (
         <>
           <section className="tele-dials" aria-label="The Claude limits now">
-            <Dial name="5-hour limit" unread="No reading in this five hours yet" meter={fiveMeter} split={data.limits.fiveHour} when={dialWhen(fiveMeter, u?.fiveHour ?? null, data.limits.fiveHour, (r) => `Resets ${resetsIn(r, now)}`, now)} />
-            <Dial name="Weekly limit" meter={weekMeter} split={data.limits.week} when={dialWhen(weekMeter, u?.week ?? null, data.limits.week, (r) => `Resets ${clockTime(r, now)}`, now)} />
+            <Dial name="5-hour limit" claudeCode={data.claudeCode} unread="No reading in this five hours yet" meter={fiveMeter} split={data.limits.fiveHour} when={dialWhen(fiveMeter, u?.fiveHour ?? null, data.limits.fiveHour, (r) => `Resets ${resetsIn(r, now)}`, now)} />
+            <Dial name="Weekly limit" claudeCode={data.claudeCode} meter={weekMeter} split={data.limits.week} when={dialWhen(weekMeter, u?.week ?? null, data.limits.week, (r) => `Resets ${clockTime(r, now)}`, now)} />
           </section>
-          <WhoLine split={data.limits.week} note={data.limits.note} onPick={openPeople} />
+          <WhoLine split={data.limits.week} note={data.limits.note} otherLabel={data.limits.otherLabel} me={data.me} claudeCode={data.claudeCode} onPick={openPeople} />
           <LimitBar usage={u} logged={weekMeter} limit={limit} now={now}>{readButton}</LimitBar>
           <GraphColumns
             graphs={graphs}

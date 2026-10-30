@@ -24,6 +24,13 @@ export function niceMax(v: number): number {
 export const OTHER_SLOT = 8;
 export const slotClass = (slot: number) => `tele-s tele-s${Math.min(8, Math.max(1, slot))}`;
 
+/**
+ * Your Claude Code use outside this app (packet U): laid over its person's slot (or the accent), the
+ * same hue washed out with dots of it showing through, so it reads as theirs and apart from this app's
+ * part without colour alone; its words always say "in Claude Code".
+ */
+export const CC = 'tele-cc';
+
 /** A single series in the accent (soft for a range); what it is compared with in grey. */
 export const ONE = 'tele-one';
 export const COMPARED = 'tele-cmp';

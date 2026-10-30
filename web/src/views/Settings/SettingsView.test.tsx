@@ -308,7 +308,7 @@ describe('Settings, simple first (packet R)', () => {
         ['notifications', /^More: quiet hours, usage warnings, this browser, a test and the history/, '[data-setting="notify-quiet"]'],
         ['look', /^More: text size, layouts, play/, '[data-setting="text-size"]'],
         ['keys', /^More: key hints on buttons, and every key/, '[data-setting="keys-hints"]'],
-        ['workflow', /^More: GitHub, what new jobs start with, the level, stacks and the Orbit token/, '[data-setting="github-every"]'],
+        ['workflow', /^More: GitHub, what new jobs start with, the level, stacks, Claude Code use and the Orbit token/, '[data-setting="github-every"]'],
         ['play', /^More: sounds/, '[data-setting="play-sounds"]'],
       ];
       for (const [section, label, inside] of wants) {
