@@ -19,6 +19,7 @@ import { StopMap } from '../components/stops/StopMap';
 import { STOPS, stagesOf } from '../components/stops/stops';
 import { useNow } from '../lib/time';
 import { Composer } from '../panes/Foreman/Composer';
+import { Button } from '../components/Button';
 import { ThreadList, useCurrentJob, useJobConversation } from '../panes/Foreman/ForemanPane';
 import { CrewMember } from '../play/CrewMember';
 import { initialsOf, roleOf } from '../play/crewPack';
@@ -134,11 +135,11 @@ function StageBody({ job, stop }: { job: Job; stop: StopId }) {
           <span className="spacer" />
           <nav className="stage-steps" aria-label="Stops before and after">
             {prev
-              ? <a className="btn btn-quiet" href={stageHref(job.slug, prev.id)} title={`The stop before: ${prev.label} (key: [).`}><Icon name="chevron-left" size={16} /> {prev.label}<Kbd id="stage-prev" /></a>
-              : <span className="btn btn-quiet is-off" aria-disabled="true" title="This is the first stop."><Icon name="chevron-left" size={16} /> First stop</span>}
+              ? <Button kind="quiet" icon="chevron-left" keyId="stage-prev" href={stageHref(job.slug, prev.id)} title={`The stop before: ${prev.label} (key: [).`}>{prev.label}</Button>
+              : <Button kind="quiet" icon="chevron-left" disabled title="This is the first stop.">First stop</Button>}
             {next
-              ? <a className="btn btn-quiet" href={stageHref(job.slug, next.id)} title={`The stop after: ${next.label} (key: ]).`}>{next.label} <Icon name="chevron-right" size={16} /><Kbd id="stage-next" /></a>
-              : <span className="btn btn-quiet is-off" aria-disabled="true" title="This is the last stop.">Last stop <Icon name="chevron-right" size={16} /></span>}
+              ? <Button kind="quiet" keyId="stage-next" href={stageHref(job.slug, next.id)} title={`The stop after: ${next.label} (key: ]).`}>{next.label}<Icon name="chevron-right" size={16} /></Button>
+              : <Button kind="quiet" disabled title="This is the last stop.">Last stop<Icon name="chevron-right" size={16} /></Button>}
           </nav>
         </>
       )}
@@ -147,13 +148,13 @@ function StageBody({ job, stop }: { job: Job; stop: StopId }) {
         <a href={jobHref(job.slug)} title="Back to the job’s page."><Icon name="arrow-left" size={16} /> {job.title || job.slug}</a>
         <span className="muted"> {ticket ? `· ${ticket} ` : ''}· stop {i + 1} of {STOPS.length}</span>
       </p>
-      <NextStep job={job} conversation={conversation} now={now} />
+      <NextStep job={job} conversation={conversation} now={now} foldCard />
       {stop === 'ship' && <ReviewPanel slug={job.slug} line />}
       {load.state === 'loading' && <p className="muted" role="status">Reading who’s on this stop…</p>}
       {load.state === 'error' && (
         <div>
           <p className="thread-error" role="alert">Couldn’t read this stop: {load.message}</p>
-          <button type="button" className="btn" onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for this stop again.">Try again</button>
+          <Button onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for this stop again.">Try again</Button>
         </div>
       )}
       {view && <WhoIsOn job={job} view={view} now={now} faces={play.full} finishedOpen={finishedOpen} setFinishedOpen={setFinishedOpen} />}
@@ -199,9 +200,9 @@ function WhoIsOn({ job, view, now, faces, finishedOpen, setFinishedOpen }: { job
         <h3 id="stage-who-title">Who’s on it</h3>
         <span className="muted">{view.agents.length === 0 ? 'Nobody right now' : working ? `${working} working` : `${view.agents.length} here`}</span>
         <span className="spacer" />
-        <button type="button" className="btn btn-quiet" disabled={busy !== null} onClick={() => void openFolder()} title="Open a terminal in the job’s folder (its worktree).">
-          <Icon name="folder" size={16} /> Open the job’s folder in a terminal
-        </button>
+        <Button kind="quiet" icon="folder" disabled={busy !== null} onClick={() => void openFolder()} title="Open a terminal in the job’s folder (its worktree).">
+          Open the job’s folder in a terminal
+        </Button>
         {apps.length > 1 && (
           <Select className="stage-app" value={app ?? apps[0]} aria-label="Terminal app" disabled={busy !== null} onChange={(t) => void pickApp(t)} title="Which terminal app the buttons here open." options={apps.map((t) => ({ value: t, label: `in ${t}`, text: t }))} />
         )}
@@ -247,15 +248,15 @@ function AgentRow({ a, now, faces, busy, onOpen }: { a: StageAgent; now: Date; f
       <span className="muted stage-row-time" title={a.since ? `Since ${new Date(a.since).toLocaleString()}` : undefined}>{long && <><Icon name="clock" size={14} /> {long}</>}</span>
       <span className={`chip stage-status is-${a.status}`}><Icon name={status.icon} size={14} /> {status.word}</span>
       <div className="stage-row-term">
-        <button
-          type="button"
-          className={cont ? 'btn' : 'btn btn-quiet'}
+        <Button
+          kind={cont ? 'secondary' : 'quiet'}
+          icon={cont ? 'terminal' : 'scroll'}
           disabled={!a.terminal.ready || busy}
           onClick={onOpen}
           title={a.terminal.ready ? (cont ? 'Open the Foreman in a terminal and carry on its session there.' : `Follow the ${role}’s log in a terminal. Read-only: nothing you type reaches it.`) : a.terminal.why ?? 'Not available now.'}
         >
-          <Icon name={cont ? 'terminal' : 'scroll'} size={16} /> {cont ? 'Open in terminal' : 'Watch in terminal'}
-        </button>
+          {cont ? 'Open in terminal' : 'Watch in terminal'}
+        </Button>
         <span className="muted stage-row-term-note">{a.terminal.ready ? (cont ? 'Continues its session' : 'Read-only: follows its log') : a.terminal.why}</span>
       </div>
     </li>

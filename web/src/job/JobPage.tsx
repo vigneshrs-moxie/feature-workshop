@@ -10,7 +10,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type 
 import type { Job, JobDocEntry, StopId } from '../api/types';
 import { jobHref, navigate, screensHref, stageHref } from '../app/router';
 import { useUi } from '../app/ui';
-import { useDetail } from '../app/detail';
+import { useDetail, useShown } from '../app/detail';
 import { More } from '../components/More';
 import { NowLine } from '../components/NowLine';
 import { Button } from '../components/Button';
@@ -268,14 +268,14 @@ function JobFacts({ job, now }: { job: Job; now: Date }) {
  * what is happening in words. `onShip` shows the pull requests (the Ship tab); without it, the
  * button goes to the Job page.
  */
-export function NextStep({ job, conversation, now, onShip }: { job: Job; conversation: ReturnType<typeof useJobConversation>; now: Date; onShip?: () => void }) {
+export function NextStep({ job, conversation, now, onShip, foldCard = false }: { job: Job; conversation: ReturnType<typeof useJobConversation>; now: Date; onShip?: () => void; /** A stop's page: the brief under the bar folds to one row (the Job page has it in full). */ foldCard?: boolean }) {
   const state = useWorkshopState();
   const play = usePlay();
   const review = useReview(job.slug);
   const { thread } = conversation;
   const perms = state.permissions.filter((p) => p.slug === job.slug && !isRoundCard(p));
   if (perms.length > 0) return <PermissionAlert permissions={perms} now={now} />;
-  if (thread.detail?.gate) return <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} />;
+  if (thread.detail?.gate) return <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} />;
   if (review.view) return <ReviewBar view={review.view} act={review.act} problem={review.problem} />;
   return <StateBar job={job} onShip={onShip} />;
 }
@@ -285,7 +285,9 @@ export function NextStep({ job, conversation, now, onShip }: { job: Job; convers
  * the decisions made for you, a stale plan, the evidence); its own row of buttons is hidden, and
  * the bar's two calls press them. Go is off while the card asks a question: a never answers one.
  */
-function GoBar({ job, detail, now, reload, call }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean }) {
+function GoBar({ job, detail, now, reload, call, foldCard = false }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean }) {
+  const [cardShown, setCardShown] = useShown('stage', 'brief');
+  const folded = foldCard && !cardShown;
   const body = useRef<HTMLDivElement>(null);
   const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false });
   useLayoutEffect(() => {
@@ -331,7 +333,14 @@ function GoBar({ job, detail, now, reload, call }: { job: Job; detail: NonNullab
           {call ? `Go: ${lowerFirst(goWords)}` : goWords}
         </Button>
       </NextBar>
-      <div ref={body} className="job-gate-body">
+      {foldCard && (
+        <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
+          <Icon name="file" size={16} />
+          <span className="desk-details-words"><b>The brief</b><span className="muted">its questions and details, also on the job’s page; Go sends the answers picked in it</span></span>
+          <Icon name="chevron-down" size={14} className={`fold-chevron${folded ? '' : ' is-up'}`} />
+        </button>
+      )}
+      <div ref={body} className="job-gate-body" hidden={folded}>
         <GateSlot job={job} detail={detail} now={now} reload={reload} callsOutside />
       </div>
     </div>

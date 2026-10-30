@@ -75,7 +75,7 @@ describe('one set of controls', () => {
 
   it('the screens moved onto <Button> keep no hand-made button class list', () => {
     // The rest of the app moves in packet R's step 3; until then their .btn classes draw the same.
-    const MOVED = ['components/page/Page.tsx', 'app/TopBar.tsx', 'home/JobsPage.tsx', 'home/DeskView.tsx', 'job/JobPage.tsx', 'views/Review/GithubLine.tsx'];
+    const MOVED = ['components/page/Page.tsx', 'app/TopBar.tsx', 'home/JobsPage.tsx', 'home/DeskView.tsx', 'job/JobPage.tsx', 'views/Review/GithubLine.tsx', 'job/StagePage.tsx', 'home/JobPeek.tsx', 'components/More.tsx', 'views/Gallery/GalleryView.tsx', 'views/Telemetry/Card.tsx'];
     const handMade = CODE.filter((f) => MOVED.includes(f.name)).filter((f) => /className=["'{`][^>]*?(?<![\w-])btn(?![\w-])/.test(f.text)).map((f) => f.name);
     expect(handMade).toEqual([]);
   });

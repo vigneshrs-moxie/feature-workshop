@@ -199,3 +199,5 @@
 .page-job.is-wide .job-convo { flex: 1 1 0; min-height: 260px; }
 .page-job.is-wide .job-convo-thread { max-height: none; flex: 1 1 0; min-height: 0; }
 .page-job.is-wide .job-details { flex: none; max-height: 45vh; overflow: auto; }
+.job-gate-body[hidden] { display: none; }
+.stage-brief-row { margin-top: calc(-1 * var(--space-2)); }
