@@ -2,7 +2,7 @@
 //
 // A view registers the keys it answers for with useKeyScope(scope, handlers, active) while it is
 // mounted; App installs the single document listener (useKeyListener). A key goes to the
-// highest-priority active scope that binds it (desk > alert > review > gate > stage > stack > job > jobs > inbox >
+// highest-priority active scope that binds it (desk > alert > review > gate > stage > stack > job > floor > jobs > inbox >
 // map > rows > table > settings > sheet > global), so the Desk's j and k win over the page's, and
 // the Map's over the Jobs list's. Rules, the same everywhere:
 //   - single-letter keys never fire while you type in a field, or while a dialog is open;
@@ -17,10 +17,10 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { readKeysSetting } from './keysSetting';
 
-export type KeyScope = 'global' | 'rows' | 'job' | 'stage' | 'stack' | 'alert' | 'review' | 'gate' | 'desk' | 'jobs' | 'inbox' | 'map' | 'table' | 'settings' | 'sheet';
+export type KeyScope = 'global' | 'rows' | 'floor' | 'job' | 'stage' | 'stack' | 'alert' | 'review' | 'gate' | 'desk' | 'jobs' | 'inbox' | 'map' | 'table' | 'settings' | 'sheet';
 
 /** Highest priority first: the scope that gets the key when several bind it. */
-export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'alert', 'review', 'gate', 'stage', 'stack', 'job', 'jobs', 'inbox', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
+export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'alert', 'review', 'gate', 'stage', 'stack', 'job', 'floor', 'jobs', 'inbox', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
 
 /** Each scope in the ? sheet: its title and where its keys work, in plain words. */
 export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
@@ -34,6 +34,7 @@ export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
   gate: { title: 'The gate card', where: 'While a gate card waits for your decision, on the job or on the Desk.' },
   desk: { title: 'The Desk', where: 'On the Desk, while something waits for you.' },
   jobs: { title: 'The Jobs page', where: 'On Jobs, the four lanes.' },
+  floor: { title: 'The floor', where: 'On Jobs with the Floor layout (Play full): each bench is a job.' },
   inbox: { title: 'The Inbox', where: 'On the Inbox, outside a text box.' },
   map: { title: 'The Flow map', where: 'On the Flow map.' },
   table: { title: 'The Table', where: 'With the focus on a job in the Table.' },
@@ -113,6 +114,13 @@ export const KEYS = {
   'gate-decided': { keys: ['v'], label: 'Open or close the decisions made for you', scope: 'gate', where: 'Only when the card has some.' },
   // The Desk
   'jobs-open': { keys: ['o'], label: 'Open the job the next-step bar names', scope: 'jobs', where: 'When a job needs you.' },
+  // The floor (Jobs' Floor layout, Play full)
+  'floor-next': { keys: ['j'], label: 'The next bench', scope: 'floor' },
+  'floor-prev': { keys: ['k'], label: 'The previous bench', scope: 'floor' },
+  'floor-move': { keys: ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'], label: 'Move between benches, row by row', scope: 'floor', where: 'With the focus on the floor (Tab to it).', always: true, listOnly: true },
+  'floor-peek': { keys: ['Enter'], label: 'A quick look at the bench’s job, with Go / No go when it waits', scope: 'floor', where: 'When a bench is picked.' },
+  'floor-open': { keys: ['o'], label: 'Open the picked bench’s job', scope: 'floor', where: 'When a bench is picked; otherwise o opens the job the next-step bar names.' },
+  'floor-leave': { keys: ['Escape'], label: 'Put the bench down (close the quick look first)', scope: 'floor', always: true },
   'desk-next': { keys: ['j'], label: 'Next decision', scope: 'desk' },
   'desk-prev': { keys: ['k'], label: 'Previous decision', scope: 'desk' },
   'desk-down': { keys: ['ArrowDown'], label: 'Next decision', scope: 'desk', where: 'Inside the queue.', always: true },

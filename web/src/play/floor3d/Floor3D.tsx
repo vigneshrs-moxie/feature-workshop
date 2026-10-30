@@ -4,9 +4,12 @@
 // by a pose or a colour alone).
 //
 //   benches    the floor's benches (model.ts floorBenches / the floor lab's fixtures), in grid order
-//   onOpenJob  what clicking a bench or a figure does (default: open the job's page). Packet R's
-//              peek sheet hooks in here.
+//   onOpenJob  what clicking a bench or a figure does (default: open the job's page). On Jobs it
+//              opens R's quick look (home/JobPeek.tsx), with Go / No go when the job waits.
 //   fallback   what to show when the browser can't draw 3D (the 2D floor); the plain list otherwise
+//   keys       answer the floor's keys (keyRegistry.ts, scope floor): j / k and the arrows pick a
+//              bench, Enter opens it with onOpenJob, o opens its job's page, Esc puts it down
+//   current    the bench being looked at (the quick look's job), shown as picked
 //
 // The 3D itself (three.js) loads only when this first mounts, from loadScene(). Until it has, the
 // words are already where they'll stay: the layout is worked out without three.js (layout.ts), so
@@ -19,7 +22,8 @@ import { Icon } from '../../components/Icon';
 import { STOPS } from '../../components/stops/stops';
 import type { StopHue } from './palette';
 import { usePrefersReducedMotion } from '../usePlay';
-import { FloorHint } from './FloorHint';
+import { useKeyScope } from '../../app/keyRegistry';
+import { Button } from '../../components/Button';
 import { FloorList, FigureLine, StopWord } from './FloorList';
 import { floorLayout, type FloorLayout } from './layout';
 import { loadScene } from './loadScene';
@@ -49,11 +53,13 @@ export interface Floor3DProps {
   label?: string;
   /** The line above the floor (null: none, when the page already says it). */
   hint?: string | null;
+  keys?: boolean;
+  current?: string | null;
 }
 
 const openJob = (slug: string) => navigate({ name: 'job', slug });
 
-export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, onStats, label = 'The workshop floor', hint }: Floor3DProps) {
+export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, onStats, label = 'The workshop floor', hint, keys = false, current = null }: Floor3DProps) {
   const [view, setViewState] = useState<View>(readView);
   const [webgl] = useState(hasWebGL);
   const [failed, setFailed] = useState(false);
@@ -75,7 +81,7 @@ export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, 
           <FloorList benches={benches} onOpenJob={onOpenJob} />
         </>
       ) : (
-        <FloorStage benches={benches} onOpenJob={onOpenJob} busy={busy} onStats={onStats} onFail={() => setFailed(true)} onView={setView} hint={hint} />
+        <FloorStage benches={benches} onOpenJob={onOpenJob} busy={busy} onStats={onStats} onFail={() => setFailed(true)} onView={setView} hint={hint} keys={keys} current={current} />
       )}
     </section>
   );
@@ -87,16 +93,11 @@ function FloorBar({ view, onView, onFit, hint }: { view: View; onView: (v: View)
     <div className="floor3d-bar">
       {words && <p className="floor3d-hint muted">{words}</p>}
       <div className="floor3d-actions">
-        {onFit && (
-          <FloorHint text="Show the whole floor again (after zooming with a pinch, or ⌘ and scroll).">
-            <button type="button" className="btn btn-quiet floor3d-btn" onClick={onFit}>Fit all</button>
-          </FloorHint>
-        )}
-        <FloorHint text={view === 'floor' ? 'Show the benches as a plain list of words instead of the 3D floor.' : 'Show the 3D floor again.'}>
-          <button type="button" className="btn btn-quiet floor3d-btn" aria-pressed={view === 'list'} onClick={() => onView(view === 'floor' ? 'list' : 'floor')}>
-            {view === 'floor' ? 'Show as a list' : 'Show the floor'}
-          </button>
-        </FloorHint>
+        {/* Fit all keeps its place while hidden, so the bar never moves. */}
+        <Button kind="quiet" size="sm" className={`floor3d-btn${onFit ? '' : ' is-idle'}`} aria-hidden={onFit ? undefined : true} tabIndex={onFit ? undefined : -1} onClick={onFit} title="Show the whole floor again (after zooming with a pinch, or ⌘ and scroll).">Fit all</Button>
+        <Button kind="quiet" size="sm" className="floor3d-btn" aria-pressed={view === 'list'} onClick={() => onView(view === 'floor' ? 'list' : 'floor')} title={view === 'floor' ? 'Show the benches as a plain list of words instead of the 3D floor.' : 'Show the 3D floor again.'}>
+          {view === 'floor' ? 'Show as a list' : 'Show the floor'}
+        </Button>
       </div>
     </div>
   );
@@ -124,9 +125,11 @@ interface StageProps {
   onFail: () => void;
   onView: (v: View) => void;
   hint?: string | null;
+  keys: boolean;
+  current: string | null;
 }
 
-function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint }: StageProps) {
+function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, keys, current }: StageProps) {
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const iconBox = useRef<HTMLSpanElement>(null);
@@ -232,6 +235,37 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint }:
   }, [ready]);
   const fit = () => { sceneRef.current?.fitAll(); setZoomed(false); };
 
+  // The picked bench (keys, or the quick look's job): a ring round its cell and its words.
+  const [picked, setPicked] = useState<string | null>(current);
+  useEffect(() => { if (current) setPicked(current); }, [current]);
+  const ordered = useMemo(() => [...benches].sort((a, b) => a.index - b.index), [benches]);
+  const pick = useCallback((slug: string | null) => {
+    setPicked(slug);
+    if (slug) cells.current.get(slug)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, []);
+  const step = (by: number) => {
+    if (!ordered.length) return;
+    const at = ordered.findIndex((b) => b.slug === picked);
+    const next = at < 0 ? (by > 0 ? 0 : ordered.length - 1) : (at + by + ordered.length) % ordered.length;
+    pick(ordered[next].slug);
+  };
+  // Up and down move a whole row: as many benches as the grid has columns.
+  const cols = layout?.cols ?? 1;
+  useKeyScope('floor', {
+    'floor-next': () => step(1),
+    'floor-prev': () => step(-1),
+    'floor-peek': () => { if (!picked) return false; onOpenJob(picked); },
+    'floor-open': () => { if (!picked) return false; navigate({ name: 'job', slug: picked }); },
+    'floor-leave': () => { if (!picked) return false; setPicked(null); },
+  }, keys);
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!keys || e.target !== e.currentTarget) return;
+    const by = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowDown' ? cols : e.key === 'ArrowUp' ? -cols : 0;
+    if (!by) return;
+    e.preventDefault();
+    step(by);
+  };
+
   const onMove = (e: React.PointerEvent) => {
     const el = box.current;
     if (!el || reduced || e.pointerType !== 'mouse') return;
@@ -254,6 +288,12 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint }:
         onPointerMove={onMove}
         onPointerLeave={onLeave}
         data-benches={benches.length}
+        {...(keys ? {
+          tabIndex: 0,
+          role: 'group',
+          'aria-label': 'The floor. The arrows, or j and k, pick a bench; Enter takes a quick look; o opens its job.',
+          onKeyDown,
+        } : {})}
       >
         {/* The stops' icons, the app's own, read once for the benches' front tags. */}
         <span ref={iconBox} hidden aria-hidden="true">
@@ -268,24 +308,25 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint }:
               <div
                 key={b.slug}
                 ref={refFor(cells, b.slug)}
-                className="floor3d-cell"
+                className={`floor3d-cell${picked === b.slug ? ' is-picked' : ''}`}
                 style={spot ? { transform: `translate(${spot.cell.left}px, ${spot.cell.top}px)`, width: spot.cell.width, height: spot.cell.height } : undefined}
                 onPointerEnter={() => setHover({ slug: b.slug, key: null })}
-                onClick={() => onOpenJob(b.slug)}
+                onClick={() => { setPicked(b.slug); onOpenJob(b.slug); }}
               />
             );
           })}
+          {/* Each figure's now line in the app's tooltip (R's TooltipLayer draws every data-tip). */}
           {ready && benches.flatMap((b) => b.figures.map((f) => (
-            <FloorHint key={f.key} text={f.label}>
-              <div
-                ref={refFor(hits, f.key)}
-                className="floor3d-hit"
-                hidden
-                onPointerEnter={() => setHover({ slug: b.slug, key: f.key })}
-                onPointerLeave={() => setHover({ slug: b.slug, key: null })}
-                onClick={() => onOpenJob(b.slug)}
-              />
-            </FloorHint>
+            <div
+              key={f.key}
+              ref={refFor(hits, f.key)}
+              className="floor3d-hit"
+              hidden
+              data-tip={f.label}
+              onPointerEnter={() => setHover({ slug: b.slug, key: f.key })}
+              onPointerLeave={() => setHover({ slug: b.slug, key: null })}
+              onClick={() => { setPicked(b.slug); onOpenJob(b.slug); }}
+            />
           )))}
         </div>
         <ol className="floor3d-plates">
@@ -296,7 +337,7 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint }:
               <li
                 key={b.slug}
                 ref={refFor(plates, b.slug)}
-                className={`floor3d-plate${hover?.slug === b.slug ? ' is-hover' : ''}`}
+                className={`floor3d-plate${hover?.slug === b.slug ? ' is-hover' : ''}${picked === b.slug ? ' is-picked' : ''}`}
                 data-group={b.lamp}
                 style={{ transform: `translate(${spot.plate.left}px, ${spot.plate.top}px)`, width: spot.plate.width }}
               >

@@ -8,7 +8,7 @@
 .floor3d-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: var(--control-h); }
 .floor3d-hint { margin: 0; font-size: var(--text-sm); }
 .floor3d-actions { display: flex; gap: var(--space-1); margin-left: auto; }
-.floor3d-btn { font-size: var(--text-sm); }
+.floor3d-btn.is-idle { visibility: hidden; }
 .floor3d-note { margin: 0 0 var(--space-2); font-size: var(--text-sm); }
 
 /* ---------- The stage: the canvas, the pointer targets, the words ---------- */
@@ -20,6 +20,10 @@
 .floor3d-hits { position: absolute; inset: 0; }
 .floor3d-cell, .floor3d-hit { position: absolute; top: 0; left: 0; cursor: pointer; }
 .floor3d-hit { z-index: 2; border-radius: 40% 40% 30% 30%; }
+/* The picked bench (keys, or the quick look's job): a ring round its cell, and its title underlined. */
+.floor3d-cell.is-picked { border-radius: var(--radius-lg); box-shadow: inset 0 0 0 2px var(--focus-ring); }
+.floor3d-plate.is-picked .floor3d-plate-title { text-decoration: underline; text-decoration-color: var(--focus-ring); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.floor3d-stage:focus-visible { border-radius: var(--radius-lg); outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 .floor3d-plates { position: absolute; inset: 0; margin: 0; padding: 0; list-style: none; pointer-events: none; }
 .floor3d-plate { position: absolute; top: 0; left: 0; z-index: 3; display: grid; align-content: start; gap: 3px; min-width: 0; padding: 0 2px; }
@@ -86,6 +90,10 @@
 @media (prefers-reduced-motion: reduce) {
   .floor3d-canvas { transition: none; }
 }
+
+/* Settings → Look → Jobs layout: Floor's little picture, two rows of benches. */
+.layout-pic.pic-floor { grid-template-columns: repeat(2, 1fr); align-content: center; gap: 6px 5px; }
+.layout-pic.pic-floor i { height: 6px; border-bottom: 2px solid var(--accent); }
 
 /* ---------- The floor lab (#/floor-lab, only by its address) ---------- */
 

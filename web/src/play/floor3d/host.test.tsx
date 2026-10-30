@@ -13,6 +13,11 @@ import { Floor3D, FLOOR_VIEW_KEY } from './Floor3D';
 import { loadScene } from './loadScene';
 import type { FloorBench, FloorScene } from './types';
 import { setWebGLForTests } from './webgl';
+import { installKeyListener } from '../../app/keyRegistry';
+
+let uninstall: (() => void) | null = null;
+const installKeys = () => { uninstall ??= installKeyListener(); };
+afterEach(() => { uninstall?.(); uninstall = null; });
 
 vi.mock('./loadScene', () => ({ loadScene: vi.fn() }));
 
@@ -128,7 +133,8 @@ describe('<Floor3D>', () => {
   it('gives each figure its words on hover', async () => {
     render(<Floor3D benches={BENCHES} onOpenJob={vi.fn()} />);
     await waitFor(() => expect(document.querySelectorAll('.floor3d-hit')).toHaveLength(2));
-    expect(document.querySelector('.floor3d-hit')).toHaveAttribute('title', 'Foreman · watching the Builder');
+    // The words go to the app's own tooltip (components/Tooltip.tsx draws every data-tip).
+    expect(document.querySelector('.floor3d-hit')).toHaveAttribute('data-tip', 'Foreman · watching the Builder');
     fireEvent.pointerEnter(document.querySelectorAll('.floor3d-hit')[1]);
     await waitFor(() => expect(scene.setHover).toHaveBeenLastCalledWith('merge:feature-implementer:0'));
     expect(document.querySelector('.floor3d-line.is-hover')).toHaveTextContent('Builder · editing merge.ts');
@@ -171,7 +177,42 @@ describe('<Floor3D>', () => {
     vi.mocked(scene.zoomed).mockReturnValue(true);
     fireEvent.wheel(stage, { deltaY: -100, ctrlKey: true });
     expect(scene.zoomAt).toHaveBeenCalled();
-    fireEvent.click(await screen.findByRole('button', { name: 'Fit all' }));
+    await waitFor(() => expect(document.querySelector('.floor3d-btn.is-idle')).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: 'Fit all' }));
     expect(scene.fitAll).toHaveBeenCalled();
+  });
+
+  it('answers the floor’s keys only when asked: j and k pick a bench, Enter opens it, Esc puts it down', async () => {
+    const two: FloorBench[] = [BENCHES[0], { ...BENCHES[0], slug: 'notes', index: 1, title: 'Customer notes', figures: [] }];
+    const open = vi.fn();
+    const { unmount } = render(<Floor3D benches={two} onOpenJob={open} keys />);
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    const key = (k: string) => act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); });
+    installKeys();
+    key('j');
+    expect(document.querySelector('.floor3d-cell.is-picked')).not.toBeNull();
+    expect(document.querySelector('.floor3d-plate.is-picked')).toHaveTextContent('Customer merge');
+    key('j');
+    expect(document.querySelector('.floor3d-plate.is-picked')).toHaveTextContent('Customer notes');
+    key('Enter');
+    expect(open).toHaveBeenCalledWith('notes');
+    key('Escape');
+    expect(document.querySelector('.floor3d-plate.is-picked')).toBeNull();
+    // The arrows work with the focus on the floor itself.
+    const stage = screen.getByRole('group', { name: /The floor/ });
+    fireEvent.keyDown(stage, { key: 'ArrowRight' });
+    expect(document.querySelector('.floor3d-plate.is-picked')).toHaveTextContent('Customer merge');
+    unmount();
+    // Without keys (the floor lab, the workshop floor) j does nothing here.
+    render(<Floor3D benches={two} onOpenJob={open} />);
+    key('j');
+    expect(document.querySelector('.floor3d-cell.is-picked')).toBeNull();
+    expect(screen.queryByRole('group', { name: /The floor/ })).toBeNull();
+  });
+
+  it('shows the quick look’s job as picked', async () => {
+    render(<Floor3D benches={BENCHES} onOpenJob={vi.fn()} keys current="merge" />);
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    expect(document.querySelector('.floor3d-plate.is-picked')).toHaveTextContent('Customer merge');
   });
 });

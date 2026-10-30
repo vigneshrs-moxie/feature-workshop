@@ -55,7 +55,7 @@ export function TextSizePicker() {
 /** A layout choice: two options, each with a small picture and one line on what it does, and a way to see it. */
 function LayoutPicker<T extends string>({ id, title, value, onPick, options, see }: {
   id: string; title: string; value: T; onPick(v: T): void;
-  options: readonly { id: T; label: string; say: string; pic: 'one' | 'columns' | 'lanes' | 'list' }[];
+  options: readonly { id: T; label: string; say: string; pic: 'one' | 'columns' | 'lanes' | 'list' | 'floor' }[];
   see: { label: string; href: string };
 }) {
   const saved = useSaved();
@@ -151,6 +151,7 @@ export function LookSettings() {
           options={[
             { id: 'lanes', label: 'Four lanes', say: 'Working, Needs you, In review and Ready to merge, side by side.', pic: 'lanes' },
             { id: 'list', label: 'One list', say: 'Every job in one list, its lane in words.', pic: 'list' },
+            { id: 'floor', label: 'Floor', say: 'Play full only: the workshop floor in 3D, a bench per job with its builders at work. In Play subtle or off, Jobs shows the lanes.', pic: 'floor' },
           ]}
           see={{ label: 'See it in Jobs', href: hrefFor({ name: 'home' }) }}
         />
