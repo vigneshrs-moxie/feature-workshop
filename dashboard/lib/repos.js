@@ -16,6 +16,7 @@
 //   seed(paths)             first start only: registers the repositories a bundled profile
 //                           (dashboard/profiles/*.md) names by GitHub, such as Orbit
 //   reposDoor(registry)     what Settings → Repos asks (site/routes-repos.js), through the runner
+//   ticketRepo(registry)    where a ticket's job goes when the hosted site's Start names no folder
 //
 // Whenever the list or a registered profile is read anew, lib/hard-lines.js learns the profiles'
 // org remotes and GitHub orgs (on top of its floor), so pushes there are refused too.
@@ -422,6 +423,20 @@ export class Registry {
     })();
     return telling.done;
   }
+}
+
+/**
+ * The repository a ticket's job goes in when a Start names none: the hosted site's Inbox (packet
+ * 2C) knows the ticket but not this laptop's folders. The one registered repository whose profile
+ * is Orbit's (the tickets are Orbit's), else the only registered repository. Null when neither is
+ * clear: the runner then says so in plain words instead of guessing.
+ */
+export async function ticketRepo(registry) {
+  const repos = ((await registry?.listRepos().catch(() => [])) ?? []).filter((r) => r.ok);
+  const orbit = repos.filter((r) => String(r.name ?? '').trim().toLowerCase() === 'orbit');
+  if (orbit.length === 1) return orbit[0].path;
+  if (!orbit.length && repos.length === 1) return repos[0].path;
+  return null;
 }
 
 /**

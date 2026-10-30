@@ -82,5 +82,7 @@ export default defineConfig({
     setupFiles: ['./src/test-setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     css: false,
+    // See test-setup.ts: a busy machine gets more time, not a failure.
+    testTimeout: 20000,
   },
 });

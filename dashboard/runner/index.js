@@ -35,7 +35,7 @@ import { State, WORKFLOW_CHOICES } from '../lib/state.js';
 import { Driver, Busy } from '../lib/driver.js';
 import { renderMarkdown, indexIds } from '../lib/markdown.js';
 import * as git from '../lib/git.js';
-import { recentRepos, checkRepo, reposDoor } from '../lib/repos.js';
+import { recentRepos, checkRepo, reposDoor, ticketRepo } from '../lib/repos.js';
 import { HttpError } from '../lib/http-guard.js';
 import { liveTerminals } from '../lib/live.js';
 import { readHookSessions } from '../lib/hook-events.js';
@@ -1576,7 +1576,14 @@ export async function createRunner(config) {
       const description = str(body.description, 600).replace(/\s+/g, ' ').trim();
       if (description.length < 4) throw new HttpError(400, 'Describe the job in a few words.');
       if (limits.isLimited() && body.despiteLimit !== true) throw new HttpError(409, limitMessage(), { code: 'limited' });
-      const repo = await checkRepo(str(body.repoPath, 1000));
+      // A ticket's Start from the hosted site names no folder (the site doesn't know this laptop's):
+      // the registered repository for Orbit's tickets (lib/repos.js ticketRepo).
+      let repoPath = str(body.repoPath, 1000);
+      if (!repoPath && body.ticket) {
+        repoPath = await ticketRepo(local.registry);
+        if (!repoPath) throw new HttpError(400, 'This laptop doesn’t know which repository a ticket’s job goes in. Add the repository in Settings → Repos on the laptop, then press Start again.');
+      }
+      const repo = await checkRepo(repoPath);
       if (!repo.ok) throw new HttpError(400, repo.reason);
       let options;
       // A new job starts with Settings → Workflow's screens and clarify defaults, unless you chose here.

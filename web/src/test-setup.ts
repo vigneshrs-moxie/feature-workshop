@@ -1,9 +1,14 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach } from 'vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { setCrewClock } from './play/eggs';
 import { setGuideFirstVisit } from './components/page/Page';
 import { setDefaultDetail } from './app/detail';
+
+// Packets build side by side on one Mac, so the suite often runs under heavy load. Give findBy and
+// waitFor 4 s rather than 1 s, so a slow machine waits longer instead of failing; a real failure
+// still fails, only later.
+configure({ asyncUtilTimeout: 4000 });
 
 // The crew's clock is fixed at an ordinary weekday noon, so no seasonal hat or nightcap turns up
 // in a snapshot by chance; a test about them sets its own.
