@@ -1,17 +1,17 @@
 // Jobs (#/): every job in four lanes, Working, Needs you, In review and Ready to merge (the lane
 // comes from the dashboard: dashboard/lib/snapshot.js laneFor, with the reason in words). Resting
 // and Done fold under the board. The next-step bar names the job that has waited longest for you;
-// Open (o) opens it. A card that changes lane waits until the pointer leaves the board, so nothing
-// moves under it. The other layout (Settings → Look → Jobs layout) is One list.
+// Open (o) opens it. A card that changes lane or place waits until the pointer leaves the board, so
+// nothing moves under it, then slides there. The other layout (Settings → Look → Jobs layout) is One list.
 //
 // Play: full gives console cards (a soft blinking light while the crew works, and a readout line);
 // subtle keeps the card with a steady light and no readout; off has plain cards with the same dots
 // and words. At phone width the lanes become folded sections, Needs you open first.
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Job, JobLane } from '../api/types';
 import { useDetail } from '../app/detail';
 import { useKeyScope } from '../app/keyRegistry';
-import { hrefFor, jobHref, navigate, stackHref } from '../app/router';
+import { hrefFor, jobHref, navigate, peekFromHash, stackHref, withPeek } from '../app/router';
 import { useUi } from '../app/ui';
 import { Button } from '../components/Button';
 import { Chip, type ChipTone } from '../components/Chip';
@@ -21,6 +21,8 @@ import { Fold, GuideCards, NextBar, Page, useNarrow, type GuideSpec } from '../c
 import { StopMap } from '../components/stops/StopMap';
 import { STOPS, stopOf } from '../components/stops/stops';
 import { useStored } from '../lib/stored';
+import { useFlip } from '../lib/flip';
+import { useHeldWhileHovered } from '../lib/useHeldWhileHovered';
 import { relativeTime, useNow } from '../lib/time';
 import { usePlayIfAny } from '../play/usePlay';
 import { useWorkshopState } from '../state/store';
@@ -50,6 +52,8 @@ export const LANE_INFO: Record<JobLane, { word: string; icon: IconName; hint: st
   done: { word: 'Done', icon: 'circle-check', hint: 'Finished, marked done or dropped.' },
 };
 const BOARD: readonly BoardLane[] = ['working', 'needs-you', 'in-review', 'ready'];
+const LANES = Object.keys(LANE_INFO) as JobLane[];
+const slugOf = (j: Job) => j.slug;
 
 export const JOBS_GUIDE: GuideSpec = {
   id: 'jobs',
@@ -119,6 +123,7 @@ function JobCard({ job, now, play, review, full, onPeek, peeked }: { job: Job; n
   const stops = <StopMap job={{ ...job, lane }} compact tips label={`${name}: its stops`} />;
   return (
     <li
+      data-flip-key={job.slug}
       className={`job-card lane-${lane} play-${play}${full ? ' is-full' : ''}${onPeek ? ' can-peek' : ''}${peeked ? ' is-peeked' : ''}`}
       onClick={onPeek ? (e) => { if (!(e.target as Element).closest('a, button, [tabindex]')) onPeek(job.slug); } : undefined}
     >
@@ -180,21 +185,40 @@ export function JobsPage() {
   // Each job's review round (packet Q): the card says who it waits on, since when, and which round.
   const { list: reviewList } = useReviewList(jobs.length > 0);
   const reviews = new Map((reviewList?.jobs ?? []).map((v) => [v.slug, v] as const));
-  // While the pointer is over the board, a card keeps the lane it had when the pointer came in.
-  const frozen = useRef<Map<string, JobLane> | null>(null);
-  const [, setHover] = useState(false);
-  const laneFor = (j: Job) => frozen.current?.get(j.slug) ?? laneOf(j);
-  const byLane = Object.fromEntries(Object.keys(LANE_INFO).map((l) => [l, [] as Job[]])) as Record<JobLane, Job[]>;
-  for (const j of open) byLane[laneFor(j)].push(j);
-  byLane['needs-you'].sort((a, b) => age(a) - age(b));
+  // Each lane in its own order (Needs you: the longest wait first). While the pointer is over the
+  // board, every card keeps the lane and the place it had when the pointer came in, with fresh
+  // data (lib/useHeldWhileHovered.ts); when it leaves, each slides to where it belongs (lib/flip.ts).
+  const placed = LANES.flatMap((l) => {
+    const here = open.filter((j) => laneOf(j) === l);
+    return l === 'needs-you' ? here.sort((a, b) => age(a) - age(b)) : here;
+  });
+  const board = useHeldWhileHovered(placed, slugOf, laneOf, !narrow && layout === 'lanes');
+  const byLane = Object.fromEntries(LANES.map((l) => [l, [] as Job[]])) as Record<JobLane, Job[]>;
+  for (const p of board.arranged) byLane[p.group as JobLane].push(p.item);
+  const boardRef = useRef<HTMLDivElement>(null);
+  useFlip(boardRef, BOARD.map((l) => `${l}:${byLane[l].map(slugOf).join(',')}`).join('|'));
   const pick = nextJob(open);
   const needCount = byLane['needs-you'].length;
 
   useKeyScope('jobs', { 'jobs-open': () => { if (!pick) return false; navigate({ name: 'job', slug: pick.slug }); } });
   // The quick look (packet R): over the right side of the board, in the board's order for j and k.
-  const [peek, setPeek] = useState<string | null>(null);
+  // It is in the address (#/?peek=<slug>), so a reload or Back to Jobs opens it again. Replaced, not
+  // pushed: j and k would otherwise fill Back with every card looked at.
+  const [peek, setPeekNow] = useState<string | null>(() => peekFromHash(window.location.hash));
+  const setPeek = useCallback((slug: string | null) => {
+    setPeekNow(slug);
+    const next = withPeek(window.location.hash, slug);
+    if (next !== window.location.hash) window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${next}`);
+  }, []);
+  useEffect(() => {
+    const onHash = () => setPeekNow(peekFromHash(window.location.hash));
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
   const order = BOARD.flatMap((l) => byLane[l]).map((j) => j.slug);
   const peekJob = peek ? open.find((j) => j.slug === peek) ?? null : null;
+  // A quick look at a job that isn't on the board (gone, or a part inside a stack): out of the address.
+  useEffect(() => { if (peek && !peekJob) setPeek(null); }, [peek, peekJob, setPeek]);
 
   // One line of a fixed height (packet R): it keeps its space when nothing waits, so the lanes never move.
   const bar = pick ? (
@@ -215,9 +239,9 @@ export function JobsPage() {
     </div>
   ) : (
     <div
+      ref={boardRef}
       className="jobs-board"
-      onMouseEnter={() => { frozen.current = new Map(open.map((j) => [j.slug, laneOf(j)])); setHover(true); }}
-      onMouseLeave={() => { frozen.current = null; setHover(false); }}
+      {...board.hoverProps}
     >
       {BOARD.map((l) => (
         <section key={l} className={`lane lane-${l}${byLane[l].length ? ' has-cards' : ''}`} aria-label={`${LANE_INFO[l].word}, ${byLane[l].length}`} title={LANE_INFO[l].hint}>

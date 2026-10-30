@@ -137,6 +137,8 @@
 .stage-who-head h3 { margin: 0; font-size: var(--text-lg); }
 
 .stage-note, .stage-empty { margin: 0; }
+/* While a stop is read (components/Pending.tsx): about the height of Who's on it with two rows, so it doesn't jump. */
+.stage-who-skeleton { min-height: 12rem; }
 .stage-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
 .stage-row {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto minmax(180px, auto); align-items: center; gap: var(--space-3);

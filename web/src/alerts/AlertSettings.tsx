@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { useStored } from '../lib/stored';
 import { alertOutputs, askNotifyPermission, CHIME_KEY, notifySupport, NOTIFY_KEY } from './alerts';
+import { Button } from '../components/Button';
 
 const BLOCKED = 'Your browser blocks notifications from this page. You can allow them in the browser’s site settings.';
 
@@ -44,25 +45,25 @@ export function AlertSettings() {
       <h4 className="settings-subheading alert-settings-title">In this browser</h4>
       <p className="muted alert-settings-lead">When a job newly needs you while this tab is in the background: a browser notification, a short chime, or both. Remembered in this browser only.</p>
       <div className="alert-settings-row">
-      <button
-        type="button"
-        className="btn btn-quiet btn-toggle"
+      <Button
+        kind="quiet"
+        className="btn-toggle"
         aria-pressed={notifyOn}
         disabled={support === 'unsupported'}
         onClick={() => void toggleNotify()}
         title={notifyHint}
       >
         Notifications <span className="toggle-state">{notifyOn ? 'On' : 'Off'}</span>
-      </button>
-      <button
-        type="button"
-        className="btn btn-quiet btn-toggle"
+      </Button>
+      <Button
+        kind="quiet"
+        className="btn-toggle"
         aria-pressed={chimeOn}
         onClick={toggleChime}
         title={chimeOn ? 'The chime is on: a short, soft sound plays when a job newly needs you. Click to turn it off.' : 'Turn on a short, soft chime that plays when a job newly needs you. You’ll hear it once now.'}
       >
         Chime <span className="toggle-state">{chimeOn ? 'On' : 'Off'}</span>
-      </button>
+      </Button>
       </div>
       {note && <p className="alert-settings-note" role="status">{note}</p>}
     </div>

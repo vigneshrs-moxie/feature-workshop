@@ -21,6 +21,7 @@ import { isActiveRun } from './thread';
 import { LockCard, lockFromError } from '../../views/JobLock/LockCard';
 import { Choice } from '../../components/Choice';
 import { Select } from '../../components/Select';
+import { Button } from '../../components/Button';
 
 export const draftKey = (slug: string) => `fw.draft.${slug}`;
 
@@ -121,10 +122,10 @@ export function SendPreview({
         {blocked && <p className="perm-warn" role="alert">{blocked}</p>}
         {error && <p className="field-problem" role="alert">{error}</p>}
         <div className="sheet-actions">
-          <button type="button" className="btn btn-primary" onClick={() => void send()} disabled={busy || Boolean(blocked)} title={blocked ?? sendHint}>
+          <Button kind="primary" onClick={() => void send()} disabled={busy || Boolean(blocked)} title={blocked ?? sendHint}>
             {busy ? 'Sending…' : sendLabel}
-          </button>
-          <button type="button" className="btn btn-quiet" onClick={onClose} disabled={busy} title="Go back without sending. Nothing is lost.">Back</button>
+          </Button>
+          <Button kind="quiet" onClick={onClose} disabled={busy} title="Go back without sending. Nothing is lost.">Back</Button>
         </div>
       </div>
     </div>
@@ -266,9 +267,9 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
         <div className="composer-lock">
           <LockCard lock={lock} />
           {!heldAt && (
-            <button type="button" className="btn btn-quiet" onClick={() => setRefused(null)} title="You closed it there: turn the message box back on and send again.">
+            <Button kind="quiet" onClick={() => setRefused(null)} title="You closed it there: turn the message box back on and send again.">
               It’s closed there now
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -297,36 +298,33 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
         <span className="composer-spacer" />
         {running ? (
           <>
-            <button
-              type="button"
-              className="btn btn-danger"
+            <Button
+              kind="danger"
               onClick={() => void stop()}
               disabled={stopping || busy !== null}
               title="End the Foreman’s reply now. Anything waiting for your answer is declined, your draft is kept, and the job waits for your next message."
             >
               {stopping || busy === 'stop' ? 'Stopping…' : 'Stop'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
+            </Button>
+            <Button
+              kind="primary"
               onClick={() => void steer()}
               disabled={empty || stopping || busy !== null || gateWaits}
               title={gateWaits ? `This is your reply to brief ${gate?.brief}; it goes as its own message once the Foreman finishes. Make it a plain message to steer it.`
                 : stopping ? 'The reply is stopping. Send your message once it has stopped.' : 'Add your message to the reply in progress. The Foreman reads it at its next step; its state shows on your message.'}
             >
               {busy === 'steer' ? 'Steering…' : 'Steer'}
-            </button>
+            </Button>
           </>
         ) : (
-          <button
-            type="button"
-            className="btn btn-primary"
+          <Button
+            kind="primary"
             onClick={openPreview}
             disabled={empty || lock !== null}
             title={lock ? 'Off while the job is open somewhere else.' : 'See exactly what the Foreman will receive, then send it.'}
           >
             Send…
-          </button>
+          </Button>
         )}
       </div>
       {note && <p className="muted composer-note" role="status">{note}</p>}

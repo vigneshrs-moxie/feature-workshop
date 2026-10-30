@@ -15,6 +15,7 @@ import { isLevel, LEVEL_NUMBERS, levelChange, levelLabel, lensNames } from '../.
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { Choice } from '../../components/Choice';
 import { Select } from '../../components/Select';
+import { Button } from '../../components/Button';
 
 export const OPTIONS_HINT = 'Options choose how much process this job gets, never what it may do without asking (that is the permission setting). A change applies from the next stage; a worker already running finishes first.';
 
@@ -116,7 +117,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
       return (
         <div>
           <p className="thread-error" role="alert">Couldn’t load the options: {load.message}</p>
-          <button type="button" className="btn" onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for this job’s options again.">Try again</button>
+          <Button onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for this job’s options again.">Try again</Button>
         </div>
       );
     }
@@ -315,35 +316,31 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
       <div className="drawer-bar drawer-foot">
         {dirty && !busy && <span className="drawer-state" role="status">Unsaved changes</span>}
         <span className="composer-spacer" />
-        <button
-          type="button"
-          className="btn btn-quiet"
+        <Button
+          kind="quiet"
           disabled={busy || form.level === null}
           onClick={resetToLevel}
           title={form.level === null ? 'Pick a level first.' : `Put stages, reviewers, fix rounds, testing, Fable points and the build and checks models back to ${levelLabel(form.level, levels)}’s defaults. Provided documents, process notes and the Foreman’s model stay. Nothing is saved until you choose Save.`}
         >
           Reset to level defaults
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
+        </Button>
+        <Button
+          kind="primary"
           disabled={!dirty || busy}
           onClick={() => void save()}
           title="Save these options for this job. The Foreman reads them before its next stage; a worker already running finishes first."
         >
           {busy ? 'Saving…' : 'Save options'}
-        </button>
+        </Button>
         {changedElsewhere && (
           <div className="drawer-conflict" role="alert">
             <span>{OPTIONS_CHANGED}</span>
-            <button
-              type="button"
-              className="btn"
+            <Button
               onClick={() => { forceLoad.current = true; setTries((n) => n + 1); }}
               title="Load the options as they are saved now. Your unsaved edits here are lost."
             >
               Reload
-            </button>
+            </Button>
           </div>
         )}
       </div>

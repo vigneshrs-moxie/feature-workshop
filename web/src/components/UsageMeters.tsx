@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { PlanUsage, UsageMeter } from '../api/types';
 import { clockTime, fullTime, useNow } from '../lib/time';
 import { useWorkshop, useWorkshopState } from '../state/store';
+import { Button } from './Button';
 
 export const WARN_AT = 80;
 
@@ -109,7 +110,7 @@ export function UsageMeters() {
           {u.error && <p className="perm-warn" role="alert">⚠ The last read failed: {u.error}</p>}
           <div className="usage-panel-foot">
             <span className="muted">{u.checkedAt ? `Read ${clockTime(u.checkedAt, now)} · every minute` : 'Read every minute'}</span>
-            <button type="button" className="btn" onClick={() => void checkNow()} disabled={checking}>{checking ? 'Reading…' : 'Read now'}</button>
+            <Button onClick={() => void checkNow()} disabled={checking}>{checking ? 'Reading…' : 'Read now'}</Button>
           </div>
         </div>
       )}

@@ -12,6 +12,7 @@ import { useUi } from '../../app/ui';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
 import { useWorkshop } from '../../state/store';
 import { KeyPoints } from '../../components/KeyPoints';
+import { Button } from '../../components/Button';
 import { ServerHtml } from '../Foreman/ServerHtml';
 import { sectionDocs, sectionOf, sizeLabel, versionLabel, type DocSection } from './docs';
 
@@ -122,9 +123,9 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
   return (
     <article className="doc-reader" aria-label={name}>
       <header className="doc-reader-head">
-        <button ref={back} type="button" className="btn btn-quiet doc-back" onClick={onBack} title="Back to the list of this job’s documents.">
+        <Button ref={back} kind="quiet" className="doc-back" onClick={onBack} title="Back to the list of this job’s documents.">
           <span className="doc-back-arrow" aria-hidden="true">←</span>All documents
-        </button>
+        </Button>
         <h3 className="doc-title">
           {name}
           {entry?.version && <> <span className="chip doc-version">{versionLabel(entry.version)}</span></>}
@@ -136,12 +137,12 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
         </p>
         <div className="doc-actions">
           <div className="doc-view-toggle" role="group" aria-label="Show as">
-            <button type="button" className="btn btn-quiet" aria-pressed={!source} onClick={() => setSource(false)} title="Show the document as a formatted page.">Page</button>
-            <button type="button" className="btn btn-quiet" aria-pressed={source} onClick={() => setSource(true)} title={doc?.type === 'json' ? 'Show the JSON exactly as written.' : 'Show the Markdown source exactly as written.'}>Source</button>
+            <Button kind="quiet" aria-pressed={!source} onClick={() => setSource(false)} title="Show the document as a formatted page.">Page</Button>
+            <Button kind="quiet" aria-pressed={source} onClick={() => setSource(true)} title={doc?.type === 'json' ? 'Show the JSON exactly as written.' : 'Show the Markdown source exactly as written.'}>Source</Button>
           </div>
-          <button type="button" className="btn btn-quiet" disabled={!doc || typeof doc.text !== 'string'} onClick={() => void copy(text)} title={doc?.type === 'json' ? 'Copy the JSON as written.' : 'Copy the document’s Markdown, to paste it somewhere else.'}>
+          <Button kind="quiet" disabled={!doc || typeof doc.text !== 'string'} onClick={() => void copy(text)} title={doc?.type === 'json' ? 'Copy the JSON as written.' : 'Copy the document’s Markdown, to paste it somewhere else.'}>
             {doc?.type === 'json' ? 'Copy JSON' : 'Copy as markdown'}
-          </button>
+          </Button>
         </div>
         {copied === 'ok' && <p className="doc-copied drawer-state is-ok" role="status">✓ Copied</p>}
         {copied === 'failed' && <p className="field-problem" role="alert">Couldn’t copy: this browser didn’t allow it. Choose Source and copy the text yourself.</p>}
@@ -150,7 +151,7 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
       {load.state === 'error' && (
         <div>
           <p className="thread-error" role="alert">Couldn’t load it: {load.message}</p>
-          <button type="button" className="btn" onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for this document again.">Try again</button>
+          <Button onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for this document again.">Try again</Button>
         </div>
       )}
       {doc && !source && doc.type !== 'json' && (doc.summary || SUMMARISED.has(entry?.group ?? '')) && <KeyPoints summary={doc.summary} kind={file.startsWith('briefs/') ? 'brief' : 'doc'} slug={slug} file={file} version={entry?.version ?? null} />}
@@ -261,7 +262,7 @@ export function DocsTab({ slug, section = 'plan', onSection, changedAt, focusReq
     return (
       <div className="docs-tab">
         <p className="thread-error" role="alert">Couldn’t load the documents: {load.message}</p>
-        <button type="button" className="btn" onClick={reload} title="Ask the dashboard for this job’s documents again.">Try again</button>
+        <Button onClick={reload} title="Ask the dashboard for this job’s documents again.">Try again</Button>
       </div>
     );
   }

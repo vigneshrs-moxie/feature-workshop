@@ -18,6 +18,8 @@ import { Fold, FoldShow, Page, type GuideSpec } from '../components/page/Page';
 import { StopMap } from '../components/stops/StopMap';
 import { STOPS, stagesOf } from '../components/stops/stops';
 import { useNow } from '../lib/time';
+import { lastKnown, remember } from '../lib/lastKnown';
+import { Pending, Skeleton } from '../components/Pending';
 import { Composer } from '../panes/Foreman/Composer';
 import { Button } from '../components/Button';
 import { ThreadList, useCurrentJob, useJobConversation } from '../panes/Foreman/ForemanPane';
@@ -90,13 +92,17 @@ function StageBody({ job, stop }: { job: Job; stop: StopId }) {
   const conversation = useJobConversation(job);
   useCurrentJob(job, conversation);
   const { thread, run } = conversation;
-  const [load, setLoad] = useState<Load<StageView>>({ state: 'loading' });
-  const [tries, setTries] = useState(0);
   const path = `/api/job/${encodeURIComponent(job.slug)}/stage/${stop}`;
+  // Back on a stop seen before: what it showed last time, at once; the fresh answer fills in.
+  const [load, setLoad] = useState<Load<StageView>>(() => {
+    const known = lastKnown<StageView>(api, path);
+    return known ? { state: 'ready', value: known } : { state: 'loading' };
+  });
+  const [tries, setTries] = useState(0);
   useEffect(() => {
     let off = false;
     const get = () => api.get<StageView>(path).then(
-      (value) => { if (!off) setLoad({ state: 'ready', value }); },
+      (value) => { if (!off) setLoad({ state: 'ready', value: remember(api, path, value) }); },
       (err) => { if (!off) setLoad((l) => (l.state === 'ready' ? l : { state: 'error', message: err instanceof Error ? err.message : String(err) })); },
     );
     void get();
@@ -150,14 +156,15 @@ function StageBody({ job, stop }: { job: Job; stop: StopId }) {
       </p>
       <NextStep job={job} conversation={conversation} now={now} foldCard />
       {stop === 'ship' && <ReviewPanel slug={job.slug} line />}
-      {load.state === 'loading' && <p className="muted" role="status">Reading who’s on this stop…</p>}
-      {load.state === 'error' && (
-        <div>
-          <p className="thread-error" role="alert">Couldn’t read this stop: {load.message}</p>
-          <Button onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for this stop again.">Try again</Button>
-        </div>
-      )}
-      {view && <WhoIsOn job={job} view={view} now={now} faces={play.full} finishedOpen={finishedOpen} setFinishedOpen={setFinishedOpen} />}
+      <Pending loading={load.state === 'loading'} say="Reading who’s on this stop…" skeleton={<Skeleton rows={4} className="stage-who-skeleton" />}>
+        {load.state === 'error' && (
+          <div>
+            <p className="thread-error" role="alert">Couldn’t read this stop: {load.message}</p>
+            <Button onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for this stop again.">Try again</Button>
+          </div>
+        )}
+        {view && <WhoIsOn job={job} view={view} now={now} faces={play.full} finishedOpen={finishedOpen} setFinishedOpen={setFinishedOpen} />}
+      </Pending>
       <Fold icon="message" name="Conversation at this stop" note={messages ? `${messages} ${messages === 1 ? 'message' : 'messages'}` : undefined} id={`stage-convo-${job.slug}-${stop}`}>
         <ThreadList job={job} conversation={conversation} now={now} cards={false} stages={stagesHere} />
       </Fold>

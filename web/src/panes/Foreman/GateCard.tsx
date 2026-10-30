@@ -114,9 +114,9 @@ function ScreensRow({ slug, hasPage }: { slug: string; hasPage: boolean }) {
       {screens.map((s) => {
         const word = screenWord(s);
         return (
-          <button key={s.key} type="button" className="btn gate-screen" onClick={() => open(s.key)} title={`${s.kind === 'choice' ? 'Design choice' : 'Screen'}: ${s.name}. Open the Screens tab at this section${word ? ` (you marked it: ${word})` : ''}.`}>
+          <Button key={s.key} className="gate-screen" onClick={() => open(s.key)} title={`${s.kind === 'choice' ? 'Design choice' : 'Screen'}: ${s.name}. Open the Screens tab at this section${word ? ` (you marked it: ${word})` : ''}.`}>
             {s.name}{word && <span className="gate-screen-word">· {word}</span>}
-          </button>
+          </Button>
         );
       })}
       <button type="button" className="link-button" onClick={() => open()} title="Open the Screens tab: review each screen on the page, pick the design choices, and Copy feedback puts your notes in your reply.">Review the screens</button>
@@ -156,7 +156,7 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
               {notice.lines.map((l) => <li key={l}>{l}</li>)}
             </ul>
           )}
-          <button type="button" className="btn btn-quiet" onClick={() => setNotice(null)} title="Close this note.">Got it</button>
+          <Button kind="quiet" onClick={() => setNotice(null)} title="Close this note.">Got it</Button>
         </div>
       )}
       {gate && (waiting ? (
@@ -168,14 +168,13 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
               : 'The Foreman has finished; send your reply from the message box. Until it goes, this brief stays open.'}
           </p>
           <div className="perm-actions">
-            <button
-              type="button"
-              className="btn btn-quiet"
+            <Button
+              kind="quiet"
               onClick={() => { if (memo) setMemo(reopenMemo(memo)); }}
               title="Decide on this brief again here. Your new decision replaces the one in the message box if you haven’t changed it; otherwise it is added after it, and the card says so."
             >
               Decide again here
-            </button>
+            </Button>
           </div>
         </section>
       ) : (
@@ -540,19 +539,17 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
         </div>
       )}
       <div className="perm-actions gate-actions" hidden={callsOutside}>
-        <button type="button" className="btn btn-primary" data-gate="approve" disabled={busy || approveOff} onClick={() => void act('approve')} title={approveOff ? `Off: ${offReasons[0]}` : approveHint}>
-          {approve}{oneKeyGateApprove(gate, job.waitingFor) && <Kbd id="gate-approve" />}
-        </button>
+        <Button kind="primary" keyId={oneKeyGateApprove(gate, job.waitingFor) ? 'gate-approve' : undefined} data-gate="approve" disabled={busy || approveOff} onClick={() => void act('approve')} title={approveOff ? `Off: ${offReasons[0]}` : approveHint}>
+          {approve}
+        </Button>
         {limited && (
-          <button
-            type="button"
-            className="btn"
+          <Button
             disabled={busy || approveOff}
             onClick={() => void act('approve', { startAfterReset: true })}
             title={approveOff ? `Off: ${offReasons[0]}` : `Approve now; the reply is held and goes to the Foreman when Claude’s usage limit resets${resetAt ? ` (around ${resetAt})` : ''}.`}
           >
             Approve, start after reset
-          </button>
+          </Button>
         )}
         <span className="gate-links">
           <button ref={editBtn} type="button" className="link-button" disabled={busy || stale || lock !== null} onClick={openEdit} title={stale ? staleHint : 'See the whole reply exactly as the Foreman will receive it, edit it, then send it as your approval.'}>
@@ -566,10 +563,9 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
           </button>
         </span>
         <div className="job-menu gate-more" ref={menuBox}>
-          <button
+          <Button
             ref={moreBtn}
-            type="button"
-            className="btn btn-quiet"
+            kind="quiet"
             aria-label="More actions"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
@@ -578,7 +574,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
             title="More: stop this job."
           >
             ⋯
-          </button>
+          </Button>
           {menuOpen && (
             <ul className="job-menu-list gate-menu" role="menu" aria-label="More actions">
               <li role="none">
@@ -608,16 +604,15 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
             />
           </label>
           <div className="perm-actions">
-            <button
-              type="button"
-              className="btn btn-primary"
+            <Button
+              kind="primary"
               disabled={busy || !note.trim()}
               onClick={() => void act(mode, { note })}
               title={note.trim() ? (mode === 'changes' ? 'Send your answers and the changes you want. The Foreman revises before moving on.' : 'Send your answers and this guidance. The Foreman replies; the gate stays open.') : 'Write something first.'}
             >
               {mode === 'changes' ? 'Send the changes' : 'Send the guidance'}
-            </button>
-            <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => setMode(null)} title="Close this without sending. What you wrote is kept until the card goes.">Cancel</button>
+            </Button>
+            <Button kind="quiet" disabled={busy} onClick={() => setMode(null)} title="Close this without sending. What you wrote is kept until the card goes.">Cancel</Button>
           </div>
         </div>
       )}
@@ -653,9 +648,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
             />
           </label>
           <div className="perm-actions">
-            <button
-              type="button"
-              className="btn btn-danger"
+            <Button
+              kind="danger"
               disabled={busy || stopName.trim() !== slug}
               onClick={() => void stopJob()}
               title={stopName.trim() !== slug ? 'Type the job’s name above first.'
@@ -663,8 +657,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
                   : 'Stop the job now. No answers or option changes go with it.'}
             >
               Stop the job
-            </button>
-            <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => setMode(null)} title="Don’t stop. Nothing is sent.">Cancel</button>
+            </Button>
+            <Button kind="quiet" disabled={busy} onClick={() => setMode(null)} title="Don’t stop. Nothing is sent.">Cancel</Button>
           </div>
         </div>
       )}
@@ -679,10 +673,9 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
           {views.map((v) => {
             const on = v.enabled && c.chips.includes(v.id);
             return (
-              <button
+              <Button
                 key={v.id}
-                type="button"
-                className="btn gate-chip"
+                className="gate-chip"
                 aria-label={v.name}
                 aria-pressed={on}
                 aria-disabled={!v.enabled || busy ? true : undefined}
@@ -690,7 +683,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
                 title={v.hint}
               >
                 {on ? '✓ ' : ''}{v.label}
-              </button>
+              </Button>
             );
           })}
         </div>

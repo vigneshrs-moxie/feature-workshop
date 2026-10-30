@@ -20,7 +20,8 @@
 //   #/telemetry   where the Claude usage goes and when the limit hits: five graphs, full width (views/Telemetry.tsx)
 // Any other #/… is not a page: with Play on the Sleuth looks for it (views/NotFound), with Play
 // Off it shows #/'s view. No hash, "#", "#/" or an in-page "#section" is #/. A query after the hash (#/?theme=x,
-// read by theme/theme.ts) is ignored here, so it changes nothing about the route.
+// read by theme/theme.ts; #/?peek=<slug>, the open quick look on Jobs) is ignored here, so it changes nothing
+// about the route.
 import { useEffect, useState } from 'react';
 import type { StopId } from '../api/types';
 import { isStopId, STOPS } from '../components/stops/stops';
@@ -144,6 +145,28 @@ export const screensHref = (slug: string) => hrefFor({ name: 'screens', slug });
 export function openFromHash(rawHash: string): 'new-job' | 'options' | null {
   const open = new URLSearchParams(/\?(.*)$/.exec(rawHash)?.[1] ?? '').get('open');
   return open === 'new-job' || open === 'options' ? open : null;
+}
+
+/**
+ * The job whose quick look is open on Jobs (packet R, principle 14): #/?peek=<slug> or
+ * #/jobs?peek=<slug>, after the hash route like ?open=. null when there is none.
+ */
+export function peekFromHash(rawHash: string): string | null {
+  const peek = new URLSearchParams(/\?(.*)$/.exec(rawHash)?.[1] ?? '').get('peek');
+  return peek ? peek : null;
+}
+
+/**
+ * The same address with the quick look on `slug` (or none, with null); the route and any other
+ * ?… words (such as ?theme=) stay as they are. No hash at all is #/.
+ */
+export function withPeek(rawHash: string, slug: string | null): string {
+  const [, path = '', query = ''] = /^([^?]*)(?:\?(.*))?$/.exec(rawHash) ?? [];
+  const params = new URLSearchParams(query);
+  if (slug) params.set('peek', slug); else params.delete('peek');
+  const rest = params.toString();
+  const route = path === '' || path === '#' ? '#/' : path;
+  return rest ? `${route}?${rest}` : route;
 }
 
 /** What a page is called: the top bar's page name at phone width and the browser tab's title. */
