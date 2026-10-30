@@ -21,6 +21,7 @@ import { CREW_SIZE } from './crewSizes';
 import { closedText, floorJobs, floorSpeech } from './floorModel';
 import { JobTrail } from './JobTrail';
 import { usePlayIfAny } from './usePlay';
+import { Button } from '../components/Button';
 
 function FloorCard({ job, now }: { job: Job; now: Date }) {
   const status = jobStatus(job, now);
@@ -72,9 +73,9 @@ export function WorkshopFloor({ compact = false }: { compact?: boolean } = {}) {
           )}
           {speech.more > 0 && <p className="floor-more muted">…and {speech.more} more in the list on the left.</p>}
           {open.length === 0 && (
-            <button type="button" className="btn btn-primary" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job: describe it, pick the repository, kind and Foreman model (key: c).">
+            <Button kind="primary" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job: describe it, pick the repository, kind and Foreman model (key: c).">
               New job
-            </button>
+            </Button>
           )}
         </div>
       </section>

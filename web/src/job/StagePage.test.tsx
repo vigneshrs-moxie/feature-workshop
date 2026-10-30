@@ -2,14 +2,15 @@
 // Roles come from the crew pack; status is a word with an icon; the Foreman opens in a terminal
 // (continues its session), a crew member is watched (read-only); [ and ] step through the stops;
 // n folds Finished here. Invented jobs and agents only; no model calls, nothing opens.
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
-import type { StageAgent, StageView } from '../api/types';
+import type { Gate, JobDetail, StageAgent, StageView } from '../api/types';
+import { setDefaultDetail } from '../app/detail';
 import { installKeyListener } from '../app/keyRegistry';
 import { UiProvider } from '../app/ui';
 import { createStore, WorkshopContext } from '../state/store';
-import { job, permission, snapshot } from '../state/test-fixtures';
+import { job, LEVELS, permission, snapshot } from '../state/test-fixtures';
 import { forHowLong, StagePage } from './StagePage';
 import { pickOption } from '../components/Select.testing';
 
@@ -29,18 +30,35 @@ const VIEW: StageView = {
   terminalApp: 'iTerm', terminalApps: ['iTerm', 'Terminal'],
 };
 
-function setup({ view = VIEW, play = 'subtle', stop = 'build' as StageView['stop'], permissions = [] as ReturnType<typeof permission>[] } = {}) {
+const NO_GATE = { slug: 'alpha', thread: [], threadMore: false, gate: null, options: { level: 1 } } as unknown as JobDetail;
+
+function setup({ view = VIEW, play = 'subtle', stop = 'build' as StageView['stop'], permissions = [] as ReturnType<typeof permission>[], detail = NO_GATE } = {}) {
   const store = createStore();
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'running', { stage: 'implement', ticket: 'ORBIT-471' } as never)], permissions, meta: { token: 't', settings: { play: { mode: play } } } as never }) });
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'running', { stage: 'implement', ticket: 'ORBIT-471' } as never)], permissions, meta: { token: 't', levels: LEVELS, settings: { play: { mode: play } } } as never }) });
   const get = vi.fn(async (path: string): Promise<unknown> => {
     if (/\/stage\//.test(path)) return { ...view, stop };
-    return { slug: 'alpha', thread: [], threadMore: false, gate: null, options: { level: 1 } };
+    if (/\/doc\?/.test(path)) return { file: 'briefs/005-test.md', html: '<p>The brief in full.</p>', summary: null };
+    if (/\/evidence$/.test(path)) return { slug: 'alpha', shots: [], runs: [] };
+    return detail;
   });
   const post = vi.fn(async (path: string): Promise<unknown> => (path.endsWith('/terminal') ? { ok: true, kind: 'watch', terminalApp: 'iTerm' } : { ok: true }));
   const api = { get, post } as unknown as ApiClient;
-  render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><StagePage slug="alpha" stop={stop} /></UiProvider></WorkshopContext.Provider>);
-  return { get, post };
+  const page = () => <WorkshopContext.Provider value={{ store, api }}><UiProvider><StagePage slug="alpha" stop={stop} /></UiProvider></WorkshopContext.Provider>;
+  const { unmount } = render(page());
+  return { get, post, page, unmount };
 }
+
+// A gate waiting on the Foreman's brief, so the stop's page shows its go / no go bar and the brief.
+const GATE: Gate = {
+  briefNumber: 5, briefFile: 'briefs/005-test.md', headline: 'Checks done', stage: 'test', nextStage: 'review', nextProposed: 'Review',
+  questions: [], decided: [], versions: null, raisedVersions: null, stale: false, waitingSince: null, runActive: false, parked: false,
+  level: 1, suggestedLevel: null, levelReason: null, usage: null,
+};
+const WITH_GATE = {
+  slug: 'alpha', thread: [], threadMore: false, options: { level: 1 },
+  statusForCompose: { questions: [], decidedOnYourBehalf: [], nextProposed: 'Review', spec: null, artifacts: [], brief: { number: 5 } },
+  drive: { mode: 'workshop', model: 'claude-opus-5-5' }, gate: GATE, answeredBriefs: [], heldReply: null,
+} as unknown as JobDetail;
 
 let off = () => {};
 beforeEach(() => { off = installKeyListener(); window.location.hash = '#/job/alpha/stage/build'; });
@@ -121,6 +139,64 @@ describe('the Stage', () => {
   it('a waiting permission shows its alert on the stop too', () => {
     setup({ permissions: [{ ...permission('p1', 'alpha'), agentType: 'feature-implementer' }] });
     expect(screen.getByRole('region', { name: 'Permission: Run a command' })).toHaveTextContent('The Builder wants to run a command');
+  });
+
+  it('back on a stop seen before, who’s on it shows at once from last time; the fresh answer fills in', async () => {
+    const { get, page, unmount } = setup();
+    await screen.findByRole('region', { name: 'Who’s on it' });
+    unmount();
+    // The next answer is slow: the page still shows what it knew, with no loading line.
+    let answer: (v: unknown) => void = () => {};
+    get.mockImplementation((path: string) => (/\/stage\//.test(path) ? new Promise((r) => { answer = r; }) : Promise.resolve(NO_GATE)));
+    const again = render(page());
+    expect(screen.getByRole('region', { name: 'Who’s on it' })).toHaveTextContent('Writing step 3 of 6');
+    expect(screen.queryByText('Reading who’s on this stop…')).toBeNull();
+    await act(async () => { answer({ ...VIEW, agents: [agent('conductor', { doing: 'Reading the test report' })] }); });
+    expect(screen.getByRole('region', { name: 'Who’s on it' })).toHaveTextContent('Reading the test report');
+    again.unmount();
+  });
+
+  it('a first visit keeps the space for who’s on it, quiet for a moment, then a stand-in the shape of it', async () => {
+    vi.useFakeTimers();
+    try {
+      const store = createStore();
+      store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'running', { stage: 'implement' } as never)], meta: { token: 't' } as never }) });
+      const get = vi.fn((path: string) => (/\/stage\//.test(path) ? new Promise(() => {}) : Promise.resolve(NO_GATE)));
+      const api = { get, post: vi.fn() } as unknown as ApiClient;
+      render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><StagePage slug="alpha" stop="build" /></UiProvider></WorkshopContext.Provider>);
+      const box = document.querySelector('.pending')!;
+      expect(box).toHaveClass('is-waiting');
+      expect(box.querySelector('.skeleton-card')).not.toBeNull();
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(document.querySelector('.pending')).not.toHaveClass('is-waiting');
+      expect(document.querySelector('.pending')).toHaveTextContent('Reading who’s on this stop…');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Simple: the brief under the go / no go bar folds to one labelled row; opening it shows the brief', async () => {
+    setDefaultDetail('simple');
+    setup({ detail: WITH_GATE });
+    const row = await screen.findByRole('button', { name: /^The brief/ });
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    expect(row).toHaveTextContent('its questions and details, also on the job’s page');
+    const body = document.querySelector('.job-gate-body')!;
+    expect(body).not.toBeVisible();
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-expanded', 'true');
+    expect(document.querySelector('.job-gate-body')).toBeVisible();
+    expect(document.querySelector('.job-gate-body')).toHaveTextContent('Checks done');
+  });
+
+  it('Full: the brief starts open on a stop’s page', async () => {
+    setup({ detail: WITH_GATE });
+    const row = await screen.findByRole('button', { name: /^The brief/ });
+    expect(row).toHaveAttribute('aria-expanded', 'true');
+    expect(document.querySelector('.job-gate-body')).toBeVisible();
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelector('.job-gate-body')).not.toBeVisible();
   });
 
   it('forHowLong says how long in words', () => {

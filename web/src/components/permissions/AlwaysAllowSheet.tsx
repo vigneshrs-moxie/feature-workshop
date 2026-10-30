@@ -9,6 +9,7 @@ import { settingsHref } from '../../app/router';
 import { useWorkshop } from '../../state/store';
 import { coverProblem, describeRule, editable, kindLabel, sentence } from './rules';
 import { Choice } from '../Choice';
+import { Button } from '../Button';
 
 interface Saved { rule: Rule; added: boolean; allowed: boolean; alsoAllowed: number; active: boolean }
 
@@ -89,8 +90,8 @@ export function AlwaysAllowSheet({ permission: p, draft, onClose }: { permission
             </fieldset>
             {problem && <p className="field-problem" role="alert">{problem}</p>}
             <div className="sheet-actions">
-              <button type="button" className="btn btn-primary" disabled={Boolean(problem)} onClick={() => setStep('confirm')} title="Check the rule once more before saving it.">Next</button>
-              <button type="button" className="btn btn-quiet" onClick={onClose} title="Close this without saving a rule. The request keeps waiting.">Cancel</button>
+              <Button kind="primary" disabled={Boolean(problem)} onClick={() => setStep('confirm')} title="Check the rule once more before saving it.">Next</Button>
+              <Button kind="quiet" onClick={onClose} title="Close this without saving a rule. The request keeps waiting.">Cancel</Button>
             </div>
           </>
         ) : (
@@ -104,10 +105,10 @@ export function AlwaysAllowSheet({ permission: p, draft, onClose }: { permission
             </ul>
             {error && <p className="field-problem" role="alert">{error}</p>}
             <div className="sheet-actions">
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void save()} title={`Save the rule “${sentence(summary)}” and allow the waiting request.`}>
+              <Button kind="primary" disabled={busy} onClick={() => void save()} title={`Save the rule “${sentence(summary)}” and allow the waiting request.`}>
                 {busy ? 'Saving…' : 'Save rule and allow'}
-              </button>
-              <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => { setError(null); setStep('edit'); }} title="Go back and change the rule.">Back</button>
+              </Button>
+              <Button kind="quiet" disabled={busy} onClick={() => { setError(null); setStep('edit'); }} title="Go back and change the rule.">Back</Button>
             </div>
           </>
         )}

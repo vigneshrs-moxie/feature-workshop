@@ -44,6 +44,8 @@ import { pageTitle } from './brand';
 import { TopBar } from './TopBar';
 import { HomeView } from '../home/HomeView';
 import { UiProvider, useUi, type SheetState } from './ui';
+import { Button } from '../components/Button';
+import { useDelayedFlag } from '../lib/useDelayedFlag';
 
 /** Put the cursor in the message box at the foot of the Foreman pane. */
 export function focusComposer() {
@@ -131,7 +133,7 @@ function Sheets({ route }: { route: Route }) {
       {problem && (
         <div className="toast" role="alert">
           <span>{problem}</span>
-          <button type="button" className="btn btn-quiet" onClick={() => setProblem(null)} title="Hide this message.">Dismiss</button>
+          <Button kind="quiet" onClick={() => setProblem(null)} title="Hide this message.">Dismiss</Button>
         </div>
       )}
       {sheet?.kind === 'palette' && (
@@ -169,20 +171,22 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   const lost = route.name === 'not-found' && play.on ? route.hash : null;
   const home = route.name === 'home' ? 'jobs' : route.name === 'map' ? 'map' : route.name === 'table' ? 'table' : route.name === 'desk' ? 'desk' : null;
   const top = <TopBar route={route} onRetry={onRetry} jobTitle={jobTitle} />;
-  if (state.status !== 'ready') {
+  // Principle 5: "Loading jobs…" only after 200 ms, then for at least 400 ms (lib/useDelayedFlag.ts).
+  const slowLoad = useDelayedFlag(state.status === 'loading');
+  if (state.status !== 'ready' || slowLoad) {
     return (
       <div className="app">
         {top}
         <div className="banner-slot" />
         <Sheets route={route} />
         <div className="app-message" role={state.status === 'error' ? 'alert' : 'status'}>
-          {state.status === 'loading' ? (
-            <p>Loading jobs…</p>
+          {state.status !== 'error' ? (
+            <p className={slowLoad ? undefined : 'pending is-waiting'}>Loading jobs…</p>
           ) : (
             <>
               <p>{state.error}</p>
               <p className="muted">Is the dashboard running? This page keeps trying by itself.</p>
-              <button type="button" className="btn" onClick={onRetry} title="Try reaching the dashboard again now.">Try again</button>
+              <Button onClick={onRetry} title="Try reaching the dashboard again now.">Try again</Button>
             </>
           )}
         </div>

@@ -4,6 +4,7 @@
 // whenever the job's thread moves on, so it has the decisions made since.
 import { useEffect, useState } from 'react';
 import { useWorkshop, useWorkshopState } from '../../state/store';
+import { Button } from '../../components/Button';
 
 export interface DecisionsFile {
   file: string;
@@ -51,9 +52,9 @@ export function CopyForTicket({ slug, active }: { slug: string; active: boolean 
   return (
     <div className="decisions-file">
       <div className="doc-actions">
-        <button type="button" className="btn btn-quiet" disabled={!file} onClick={() => void copy()} title="Copy the decision table and the Not doing list as plain text, to paste into the ticket.">
+        <Button kind="quiet" disabled={!file} onClick={() => void copy()} title="Copy the decision table and the Not doing list as plain text, to paste into the ticket.">
           Copy for the ticket
-        </button>
+        </Button>
         <span className="doc-facts muted">
           {file ? <>{file.file} in the job folder · {file.copy.total} {file.copy.total === 1 ? 'line' : 'lines'}</> : error ? <>Couldn’t read decisions.md: {error}</> : 'Reading decisions.md…'}
         </span>

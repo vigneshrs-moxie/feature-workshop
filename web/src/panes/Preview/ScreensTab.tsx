@@ -16,7 +16,7 @@ import type { Job } from '../../api/types';
 import { useKeyScope } from '../../app/keyRegistry';
 import { screensHref } from '../../app/router';
 import { useUi } from '../../app/ui';
-import { Kbd } from '../../components/Kbd';
+import { Button } from '../../components/Button';
 import { readStored, writeStored } from '../../lib/stored';
 import { useWorkshopState } from '../../state/store';
 import { draftKey } from '../Foreman/Composer';
@@ -151,15 +151,15 @@ export function ScreensTab({ slug, job, active, full = false }: {
         </span>
         {version && <span className="chip doc-version" title="The version of the screens the job’s records name.">{versionLabel(version)}</span>}
         <span className="doc-spacer" />
-        <button ref={firstButton} type="button" className="btn btn-quiet" disabled={busy} onClick={() => void copyFeedback()} title="Ask the page for your verdicts, picks and notes as text, copy it, and, while the Foreman waits for your decision, add it to your message to the Foreman.">
+        <Button ref={firstButton} kind="quiet" disabled={busy} onClick={() => void copyFeedback()} title="Ask the page for your verdicts, picks and notes as text, copy it, and, while the Foreman waits for your decision, add it to your message to the Foreman.">
           Copy feedback
-        </button>
+        </Button>
         {!full && (
-          <a className="btn btn-quiet" href={screensHref(slug)} title="Show the screens on their own, full width (Back brings you here).">Open full screen</a>
+          <Button kind="quiet" href={screensHref(slug)} title="Show the screens on their own, full width (Back brings you here).">Open full screen</Button>
         )}
-        <button type="button" className="btn btn-quiet" onClick={() => frame.current?.focus()} title="Put the keyboard inside the screens page: its own keys then work (J K to move, 1 2 3 verdicts, A B picks, Esc back here).">
-          Step in <Kbd id="screens-focus" />
-        </button>
+        <Button kind="quiet" keyId="screens-focus" onClick={() => frame.current?.focus()} title="Put the keyboard inside the screens page: its own keys then work (J K to move, 1 2 3 verdicts, A B picks, Esc back here).">
+          Step in
+        </Button>
       </div>
       {notice && <p className={`screens-status ${notice.tone === 'ok' ? 'muted' : 'field-problem'}`} role={notice.tone === 'ok' ? 'status' : 'alert'}>{notice.text}</p>}
       {origin ? (

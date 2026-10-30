@@ -87,6 +87,21 @@ describe('Jobs', () => {
     expect(within(screen.getByRole('region', { name: /^Needs you/ })).getByRole('link', { name: 'Technician photo' })).toBeInTheDocument();
   });
 
+  it('cards keep their order within a lane while the pointer is over the board too', () => {
+    const { store } = setup();
+    const titles = () => within(screen.getByRole('region', { name: /^Needs you/ })).getAllByRole('link').map((a) => a.textContent);
+    expect(titles()).toEqual(['Weekly hours email', 'Customer notes']);
+    const board = document.querySelector('.jobs-board')!;
+    fireEvent.mouseEnter(board);
+    // Customer notes now has waited longest: it would go first, but not under the pointer.
+    const swapped = JOBS.map((j) => (j.slug === 'alpha' ? { ...j, waitingSince: '2026-10-21T07:00:00Z', laneReason: 'Asks 1 question' } : j));
+    act(() => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: swapped, meta: { token: 't' } }) }); });
+    expect(titles()).toEqual(['Weekly hours email', 'Customer notes']);
+    expect(screen.getByText('Asks 1 question')).toBeInTheDocument();
+    fireEvent.mouseLeave(board);
+    expect(titles()).toEqual(['Customer notes', 'Weekly hours email']);
+  });
+
   it('Play full: console cards with a readout and a blinking light; off: plain cards, the same dots and words', () => {
     setup(JOBS, 'full');
     const card = screen.getByRole('link', { name: 'Technician photo' }).closest('li')!;
@@ -145,5 +160,39 @@ describe('Jobs, simple by default (packet R)', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(container.querySelector('.jobs-board')!.innerHTML.replace(/ is-peeked/g, '')).toBe(lanes);
+  });
+
+  it('the open quick look is in the address: opening sets it, j changes it, Esc clears it, with nothing added to Back', () => {
+    window.location.hash = '#/?theme=glass';
+    const before = window.history.length;
+    setup();
+    fireEvent.keyDown(screen.getByRole('link', { name: 'Technician photo' }), { key: ' ' });
+    expect(window.location.hash).toBe('#/?theme=glass&peek=beta');
+    fireEvent.keyDown(window, { key: 'j' });
+    expect(window.location.hash).toBe('#/?theme=glass&peek=older');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(window.location.hash).toBe('#/?theme=glass');
+    expect(window.history.length).toBe(before);
+  });
+
+  it('an address with ?peek=<slug> opens that quick look; one for a job that isn’t here is dropped', () => {
+    window.location.hash = '#/jobs?peek=gamma';
+    setup();
+    expect(screen.getByRole('dialog', { name: 'Gate code: a quick look' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(window.location.hash).toBe('#/jobs');
+    cleanup();
+    window.location.hash = '#/?peek=nobody';
+    setup();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(window.location.hash).toBe('#/');
+  });
+
+  it('a click on a card’s empty area opens its quick look and puts it in the address', () => {
+    setup();
+    const card = screen.getByRole('link', { name: 'Gate code' }).closest('li')!;
+    fireEvent.click(card);
+    expect(screen.getByRole('dialog', { name: 'Gate code: a quick look' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/?peek=gamma');
   });
 });

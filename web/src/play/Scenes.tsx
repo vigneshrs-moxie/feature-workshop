@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { CrewMember } from './CrewMember';
 import { endScene, SCENE_MS, useScenes, type Scene, type SceneKind } from './eggs';
 import { CREW_SIZE } from './crewSizes';
+import { Button } from '../components/Button';
 
 const CAST: Record<SceneKind, { types: string[]; label: string }> = {
   hammertime: { types: ['feature-implementer'], label: 'Hammer time' },
@@ -35,9 +36,9 @@ function SceneCard({ scene }: { scene: Scene }) {
         <p className="play-toast-label">{cast.label}</p>
         <p className="play-toast-line scene-line">{scene.line}</p>
       </div>
-      <button type="button" className="btn btn-quiet play-toast-close" aria-label="Dismiss" title="Hide this now. It also goes by itself in a moment." onClick={() => endScene(scene.key)}>
+      <Button kind="quiet" className="play-toast-close" aria-label="Dismiss" title="Hide this now. It also goes by itself in a moment." onClick={() => endScene(scene.key)}>
         <span aria-hidden="true">×</span>
-      </button>
+      </Button>
     </div>
   );
 }

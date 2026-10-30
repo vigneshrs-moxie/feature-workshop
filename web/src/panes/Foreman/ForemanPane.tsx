@@ -26,6 +26,7 @@ import { Composer } from './Composer';
 import { useJobThread } from './useJobThread';
 import { useShown } from '../../app/detail';
 import { Button } from '../../components/Button';
+import { Pending } from '../../components/Pending';
 
 const HOW = 'This is your conversation with the job’s Foreman, the Claude session that plans the work and runs the crew. Its briefs, questions and permission requests appear here for you to answer.';
 
@@ -123,18 +124,18 @@ export function ThreadList({ job, conversation, now, cards = true, sectionRef, s
         </Button>
       )}
       {!cut && thread.more && (
-        <button
-          type="button"
-          className="btn btn-quiet load-older"
+        <Button
+          kind="quiet"
+          className="load-older"
           onClick={thread.loadOlder}
           disabled={thread.loadingOlder}
           title="Show the earlier part of this conversation."
         >
           {thread.loadingOlder ? 'Loading…' : 'Load older'}
-        </button>
+        </Button>
       )}
       {thread.error && <p className="thread-error" role="alert">{thread.error}</p>}
-      {thread.loading && <p className="muted">Loading the conversation…</p>}
+      <Pending loading={thread.loading} say="Loading the conversation…" />
       {loaded && shown.length === 0 && !run && <p className="muted">{stages ? 'Nothing was said at this stop yet.' : 'Nothing here yet. The Foreman’s briefs and replies appear here as it works.'}</p>}
       {visible.map((s) =>
         s.kind === 'brief-card'

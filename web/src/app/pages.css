@@ -347,6 +347,8 @@ a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset
 .skeleton-line.is-wide { width: 92%; height: 12px; }
 .skeleton-line.is-short { width: 38%; }
 @keyframes skeleton-shine { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+/* components/Pending.tsx: for its first 200 ms a load keeps its space but shows nothing, so a quick one never flashes. */
+.pending.is-waiting { visibility: hidden; }
 .error-state { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border-1); border-left: 3px solid var(--status-error); border-radius: var(--card-radius); background: var(--surface-1); font-size: var(--text-sm); }
 .error-state > .icon { flex: none; color: var(--status-error); }
 .error-state > div { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }

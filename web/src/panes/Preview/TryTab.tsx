@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type Keyboard
 import { settingsHref } from '../../app/router';
 import { useWorkshop } from '../../state/store';
 import { Select } from '../../components/Select';
+import { Button, type ButtonKind } from '../../components/Button';
 
 interface LocalView {
   slug: string;
@@ -164,13 +165,13 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
   const dbN = v.env ? 2 : 1;
   const appN = dbN + (v.db ? 1 : 0);
   const d = v.db;
-  const btn = (key: string, label: string, fn: () => Promise<void>, cls = 'btn') => (
-    <button type="button" className={cls} disabled={busy !== null} onClick={() => run(key, fn)}>{busy === key ? '…' : label}</button>
+  const btn = (key: string, label: string, fn: () => Promise<void>, kind: ButtonKind = 'secondary') => (
+    <Button kind={kind} disabled={busy !== null} onClick={() => run(key, fn)}>{busy === key ? '…' : label}</Button>
   );
   const dbButtons = d && d.available && !d.busy ? (
     <>
-      {d.missing.length > 0 && <button type="button" className="btn btn-primary" onClick={() => setConfirm({ what: 'match' })}>Match this job</button>}
-      {(d.gone || d.original.exists) && <button type="button" className={d.gone ? 'btn btn-primary' : 'btn btn-quiet'} onClick={() => setConfirm({ what: 'original' })}>Put the original back</button>}
+      {d.missing.length > 0 && <Button kind="primary" onClick={() => setConfirm({ what: 'match' })}>Match this job</Button>}
+      {(d.gone || d.original.exists) && <Button kind={d.gone ? 'primary' : 'quiet'} onClick={() => setConfirm({ what: 'original' })}>Put the original back</Button>}
     </>
   ) : null;
   // This computer's terminal apps and folder button, as the job's local view names them.
@@ -188,12 +189,12 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
         {!v.app ? (
           <p className="muted">No app to start here (no package.json with a “dev” script in the job’s folder). You can still run commands below.</p>
         ) : s === 'running' ? (
-          <><a className="btn btn-primary try-big" href={v.url ?? '#'} target="_blank" rel="noopener noreferrer">Open the app ↗</a>
+          <><Button kind="primary" className="try-big" href={v.url ?? '#'} target="_blank" rel="noopener noreferrer">Open the app ↗</Button>
             <p>Running at <a href={v.url ?? '#'} target="_blank" rel="noopener noreferrer">{v.url}</a>. {signIn}</p></>
         ) : s === 'starting' ? (
-          <><button type="button" className="btn try-big" disabled>Starting…</button><p>Starting the app on port {v.port}. The first start takes a little while.</p></>
+          <><Button className="try-big" disabled>Starting…</Button><p>Starting the app on port {v.port}. The first start takes a little while.</p></>
         ) : (
-          <><button type="button" className="btn btn-primary try-big" disabled={busy !== null} onClick={() => run('go', tryIt)}>▶ Try it</button>
+          <><Button kind="primary" className="try-big" disabled={busy !== null} onClick={() => run('go', tryIt)}>▶ Try it</Button>
             <p>Sets up anything missing, starts the app on port {v.port} and gives you the link. {signIn}</p></>
         )}
       </div>
@@ -212,9 +213,9 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
             {confirm.thenStart && <li>You can also start without switching: pages that use the new database changes will then fail.</li>}
           </ul>
           <div className="try-confirm-actions">
-            {btn('db', confirm.what === 'match' ? (confirm.thenStart ? 'Match and start' : 'Match this job') : confirm.what === 'original' ? 'Put it back' : 'Save as the original', () => switchDb(confirm.what, confirm.thenStart), 'btn btn-primary')}
+            {btn('db', confirm.what === 'match' ? (confirm.thenStart ? 'Match and start' : 'Match this job') : confirm.what === 'original' ? 'Put it back' : 'Save as the original', () => switchDb(confirm.what, confirm.thenStart), 'primary')}
             {confirm.thenStart && btn('go', 'Start without switching', async () => { setConfirm(null); await start(); })}
-            <button type="button" className="btn btn-quiet" onClick={() => setConfirm(null)}>Cancel</button>
+            <Button kind="quiet" onClick={() => setConfirm(null)}>Cancel</Button>
           </div>
         </div>
       )}
@@ -222,15 +223,15 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
       <ol className="try-steps" aria-label="Steps">
         {v.env && (
           !v.env.exists ? (
-            <Step state="todo" n={1} title="Settings file" actions={v.env.sourceExists ? btn('env', 'Set up', setupEnv, 'btn btn-primary') : undefined}>
+            <Step state="todo" n={1} title="Settings file" actions={v.env.sourceExists ? btn('env', 'Set up', setupEnv, 'primary') : undefined}>
               {v.env.sourceExists ? <>Not set up yet. Copies your main folder’s <code>{v.env.file}</code>, points it at port {v.port} and skips sign-in.</> : <>Your main folder has no <code>{v.env.file}</code> to copy. Create <code>{v.env.file}</code> yourself.</>}
             </Step>
           ) : v.env.ready ? (
-            <Step state="ok" n={1} title="Settings file" actions={btn('env', 'Redo', setupEnv, 'btn btn-quiet')}>
+            <Step state="ok" n={1} title="Settings file" actions={btn('env', 'Redo', setupEnv, 'quiet')}>
               Ready: port {v.port}{v.env.signInSkipped ? ', sign-in skipped' : ''}.{v.env.notes.length > 0 && <span className="muted"> {v.env.notes.join(' ')}</span>}
             </Step>
           ) : (
-            <Step state="todo" n={1} title="Settings file" actions={btn('env', 'Fix it', setupEnv, 'btn btn-primary')}>
+            <Step state="todo" n={1} title="Settings file" actions={btn('env', 'Fix it', setupEnv, 'primary')}>
               There, but not pointed at port {v.port}{v.env.signInSkipped === false ? ' and sign-in isn’t skipped' : ''}.{v.env.notes.length > 0 && <span className="muted"> {v.env.notes.join(' ')}</span>}
             </Step>
           )
@@ -252,7 +253,7 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
         {v.app && (
           s === 'running' ? <Step state="ok" n={appN} title="App" actions={btn('stop', 'Stop', async () => { await act('stop'); setNote({ text: 'Stopping the app.', tone: 'info' }); })}>Running at <a href={v.url ?? '#'} target="_blank" rel="noopener noreferrer">{v.url}</a>.</Step>
             : s === 'starting' ? <Step state="busy" n={appN} title="App" actions={btn('stop', 'Stop', async () => { await act('stop'); })}>Starting on port {v.port}…</Step>
-              : <Step state="todo" n={appN} title="App" actions={btn('start', 'Start', start, 'btn btn-primary')}>{s === 'exited' ? 'It stopped by itself. The app log below says why.' : 'Not running.'}</Step>
+              : <Step state="todo" n={appN} title="App" actions={btn('start', 'Start', start, 'primary')}>{s === 'exited' ? 'It stopped by itself. The app log below says why.' : 'Not running.'}</Step>
         )}
       </ol>
 
@@ -263,8 +264,8 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
       </div>
       <div className="try-open">
         {btn('open-terminal', 'Open terminal here', async () => { const r = await act('open', { what: 'terminal' }); setNote({ text: `Opened a terminal in ${short(r.dir as string)}.`, tone: 'good' }); })}
-        {btn('open-vscode', 'VS Code', async () => { await act('open', { what: 'vscode' }); setNote({ text: 'Opened in VS Code.', tone: 'good' }); }, 'btn btn-quiet')}
-        {btn('open-finder', folder, async () => { await act('open', { what: 'finder' }); setNote({ text: folder === 'Finder' ? 'Opened in Finder.' : 'Opened the folder.', tone: 'good' }); }, 'btn btn-quiet')}
+        {btn('open-vscode', 'VS Code', async () => { await act('open', { what: 'vscode' }); setNote({ text: 'Opened in VS Code.', tone: 'good' }); }, 'quiet')}
+        {btn('open-finder', folder, async () => { await act('open', { what: 'finder' }); setNote({ text: folder === 'Finder' ? 'Opened in Finder.' : 'Opened the folder.', tone: 'good' }); }, 'quiet')}
         {terminals.length > 1 && (
           <label className="try-term">in{' '}
             <Select value={v.terminalApp ?? terminals[0]} aria-label="Terminal app" onChange={(name) => run('term', async () => { await act('terminal-app', { name }); setNote({ text: `“Open terminal here” now uses ${name}.`, tone: 'good' }); })} options={terminals.map((t) => ({ value: t, label: t }))} />
@@ -278,7 +279,7 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
           <div className="try-presets">
             <h4 className="kp-label">Quick commands</h4>
             {v.presets.map((p) => (
-              <button key={p.id} type="button" className="btn" disabled={busy !== null} title={`${p.hint ? `${p.hint}. ` : ''}Runs: ${p.command}`} onClick={() => run('preset', async () => { await act('run', { preset: p.id }); })}>{p.label}</button>
+              <Button key={p.id} disabled={busy !== null} title={`${p.hint ? `${p.hint}. ` : ''}Runs: ${p.command}`} onClick={() => run('preset', async () => { await act('run', { preset: p.id }); })}>{p.label}</Button>
             ))}
           </div>
         )}
@@ -292,7 +293,7 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
           <div className="try-cmd-row">
             <span aria-hidden="true">$</span>
             <input type="text" value={command} spellCheck={false} placeholder="Type a command, for example: npm test" aria-label="Command to run in the job’s folder" onChange={(e) => setCommand(e.target.value)} onKeyDown={onCmdKey} />
-            <button type="submit" className="btn btn-primary" disabled={busy !== null || !command.trim()}>Run</button>
+            <Button kind="primary" type="submit" disabled={busy !== null || !command.trim()}>Run</Button>
           </div>
           <p className="muted try-fine">Runs in the job’s folder. Commands can’t ask you questions here; for those, use Open terminal here. ↑ and ↓ bring back earlier commands.</p>
         </form>
@@ -302,8 +303,8 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
             <div className="try-out-head">
               <b>{v.cmd.label ?? v.cmd.command}</b>
               <span className={`chip is-${v.cmd.status}`}>{v.cmd.status === 'failed' && v.cmd.exitCode != null ? `Failed (exit ${v.cmd.exitCode})` : STATUS_WORDS[v.cmd.status] ?? v.cmd.status}</span>
-              {v.cmd.status === 'running' && v.cmd.stoppable && btn('stop-cmd', 'Stop', async () => { await act('stop-cmd'); }, 'btn btn-danger')}
-              <button type="button" className="btn btn-quiet" onClick={copyOut}>Copy</button>
+              {v.cmd.status === 'running' && v.cmd.stoppable && btn('stop-cmd', 'Stop', async () => { await act('stop-cmd'); }, 'danger')}
+              <Button kind="quiet" onClick={copyOut}>Copy</Button>
             </div>
             <pre ref={outRef} className="try-pre" tabIndex={0} aria-label="Command output">{v.cmd.output}</pre>
           </div>

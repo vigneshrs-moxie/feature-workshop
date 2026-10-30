@@ -7,6 +7,7 @@ import { ApiError } from '../../api/client';
 import type { JobDetail, ThreadItem, ThreadPage } from '../../api/types';
 import { useWorkshop } from '../../state/store';
 import { mergeThread, olderStillJoins } from './thread';
+import { lastKnown, remember } from '../../lib/lastKnown';
 
 export interface JobThread {
   detail: JobDetail | null;
@@ -31,15 +32,21 @@ interface Pages {
 }
 
 const empty = (slug: string): Pages => ({ slug, detail: null, latest: [], older: [], more: false, error: null });
+/** A job opened before: its last known page at once (lib/lastKnown.ts); the fresh one fills in. */
+const knownOrEmpty = (api: object, slug: string): Pages => {
+  const detail = lastKnown<JobDetail>(api, jobPath(slug));
+  if (!detail) return empty(slug);
+  return { slug, detail, latest: Array.isArray(detail.thread) ? detail.thread : [], older: [], more: Boolean(detail.threadMore), error: null };
+};
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const jobPath = (slug: string) => `/api/job/${encodeURIComponent(slug)}`;
 
 export function useJobThread(slug: string, version: number): JobThread {
   const { api } = useWorkshop();
-  const [pages, setPages] = useState<Pages>(() => empty(slug));
+  const [pages, setPages] = useState<Pages>(() => knownOrEmpty(api, slug));
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [reloads, setReloads] = useState(0);
-  const current = pages.slug === slug ? pages : empty(slug);
+  const current = pages.slug === slug ? pages : knownOrEmpty(api, slug);
   const ref = useRef(current);
   ref.current = current;
 
@@ -48,6 +55,7 @@ export function useJobThread(slug: string, version: number): JobThread {
     api.get<JobDetail>(jobPath(slug)).then(
       (detail) => {
         if (cancelled) return;
+        remember(api, jobPath(slug), detail);
         const latest = Array.isArray(detail.thread) ? detail.thread : [];
         setPages((prev) => {
           const keep = prev.slug === slug && prev.older.length > 0 && olderStillJoins(prev.latest, latest);

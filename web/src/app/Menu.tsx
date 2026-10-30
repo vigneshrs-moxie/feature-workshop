@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Icon, type IconName } from '../components/Icon';
 import { Kbd } from '../components/Kbd';
 import type { KeyId } from './keyRegistry';
+import { Button } from '../components/Button';
 
 export type MenuEntry =
   | { kind: 'link'; id: string; label: string; href: string; icon?: IconName; hint?: string; keys?: KeyId; current?: boolean; count?: number }
@@ -53,10 +54,12 @@ export function MenuButton({ label, hint, icon, children, entries, className = '
 
   return (
     <div ref={box} className={`menu-box ${className}`.trim()} onKeyDown={onKeyDown}>
-      <button
+      <Button
         ref={button}
-        type="button"
-        className={`btn btn-quiet btn-icon${children ? ' has-words' : ''}`}
+        kind="quiet"
+        iconOnly
+        icon={icon}
+        className={children ? 'has-words' : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? id : undefined}
@@ -65,9 +68,8 @@ export function MenuButton({ label, hint, icon, children, entries, className = '
         title={hint}
         onClick={() => setOpen((o) => !o)}
       >
-        {icon && <Icon name={icon} size={20} />}
         {children}
-      </button>
+      </Button>
       {open && (
         <div id={id} className="menu" role="menu" aria-label={label} data-keys-wait="">
           {entries.map((e) => {

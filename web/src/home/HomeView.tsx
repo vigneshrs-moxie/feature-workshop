@@ -23,6 +23,7 @@ import { deskQueue, type HomeView as View, type MapFilter, mapRepos, tableRows }
 import { deskEntries, isShipping } from './nudges';
 import { TableView } from './TableView';
 import { useFlow } from './useFlow';
+import { Button } from '../components/Button';
 
 export const MAP_FILTER_KEY = 'fw.home.map.filter';
 
@@ -84,10 +85,10 @@ export function HomeView({ view }: { view: Exclude<View, 'desk'> }) {
             <span className="muted home-read" role="status" title={flow?.nextFetchAt ? `The next read is due ${relativeTime(flow.nextFetchAt, now) || 'soon'}. Local counts are redone every minute.` : undefined}>
               {flow?.refreshing ? 'Reading branches and PRs…' : read}
             </span>
-            <button type="button" className="btn" onClick={() => void refresh()} disabled={flow?.refreshing} title="Fetch the branches and read the PRs now (read-only: git fetch and gh).">Refresh</button>
+            <Button onClick={() => void refresh()} disabled={flow?.refreshing} title="Fetch the branches and read the PRs now (read-only: git fetch and gh).">Refresh</Button>
           </>
         )}
-        <button type="button" className="btn" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job (key: c).">New job</button>
+        <Button onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job (key: c).">New job</Button>
       </header>
       {problem && <p className="perm-warn" role="alert">Couldn’t read the flow map: {problem}</p>}
       <div className="home-body">

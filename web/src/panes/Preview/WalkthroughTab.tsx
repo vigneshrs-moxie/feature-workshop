@@ -7,6 +7,7 @@ import { useState } from 'react';
 import type { Job } from '../../api/types';
 import { relativeTime, useNow } from '../../lib/time';
 import { useWorkshopState } from '../../state/store';
+import { Button } from '../../components/Button';
 import { NO_ORIGIN } from './ScreensTab';
 
 export const walkthroughUrl = (origin: string, slug: string) => `${origin.replace(/\/+$/, '')}/job/${encodeURIComponent(slug)}/walkthrough`;
@@ -27,19 +28,19 @@ export function WalkthroughTab({ slug, job, active }: { slug: string; job: Job |
         <span className="muted">built {relativeTime(w.updatedAt, now)}</span>
         <span className="doc-spacer" />
         {origin && (
-          <a className="btn btn-quiet" href={`${walkthroughUrl(origin, slug)}?download=1`} title="Save the walkthrough as one HTML file to send to a teammate (Slack, email). It opens in any browser; their notes stay on their own computer.">
+          <Button kind="quiet" href={`${walkthroughUrl(origin, slug)}?download=1`} title="Save the walkthrough as one HTML file to send to a teammate (Slack, email). It opens in any browser; their notes stay on their own computer.">
             Download
-          </a>
+          </Button>
         )}
         {w.url && (
-          <button type="button" className="btn btn-quiet" onClick={() => void copyLink(w.url!)} title="Copy the published walkthrough’s link, to send to your reviewer.">
+          <Button kind="quiet" onClick={() => void copyLink(w.url!)} title="Copy the published walkthrough’s link, to send to your reviewer.">
             Copy link
-          </button>
+          </Button>
         )}
         {w.url && (
-          <a className="btn btn-quiet" href={w.url} target="_blank" rel="noopener noreferrer" title="Open the published walkthrough on claude.ai, where verdicts and notes are saved and shared.">
+          <Button kind="quiet" href={w.url} target="_blank" rel="noopener noreferrer" title="Open the published walkthrough on claude.ai, where verdicts and notes are saved and shared.">
             Open the published page
-          </a>
+          </Button>
         )}
       </div>
       {copied && (

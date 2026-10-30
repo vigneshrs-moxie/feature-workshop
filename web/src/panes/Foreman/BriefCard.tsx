@@ -18,6 +18,8 @@ import { ServerHtml } from './ServerHtml';
 import { ExtrasLines } from './ExtrasLines';
 import type { ShownBrief } from './thread';
 import { Icon } from '../../components/Icon';
+import { Pending } from '../../components/Pending';
+import { lastKnown, remember } from '../../lib/lastKnown';
 
 type Doc = { state: 'loading' } | { state: 'ready'; html: string; summary: DocSummary | null } | { state: 'error'; message: string };
 
@@ -25,18 +27,21 @@ function useDoc(slug: string, file: string | null): Doc | null {
   const { api } = useWorkshop();
   const [doc, setDoc] = useState<{ key: string; doc: Doc } | null>(null);
   const key = file ? `${slug}\n${file}` : '';
+  const path = file ? `/api/job/${encodeURIComponent(slug)}/doc?file=${encodeURIComponent(file)}` : '';
+  // A brief read before shows at once (lib/lastKnown.ts); the fresh copy fills in.
+  const known = path ? lastKnown<Doc>(api, path) : undefined;
   useEffect(() => {
     if (!file) return;
     let cancelled = false;
-    setDoc({ key, doc: { state: 'loading' } });
-    api.get<JobDoc>(`/api/job/${encodeURIComponent(slug)}/doc?file=${encodeURIComponent(file)}`).then(
-      (d) => { if (!cancelled) setDoc({ key, doc: { state: 'ready', html: String(d.html ?? ''), summary: d.summary ?? null } }); },
+    setDoc({ key, doc: lastKnown<Doc>(api, path) ?? { state: 'loading' } });
+    api.get<JobDoc>(path).then(
+      (d) => { if (!cancelled) setDoc({ key, doc: remember<Doc>(api, path, { state: 'ready', html: String(d.html ?? ''), summary: d.summary ?? null }) }); },
       (err) => { if (!cancelled) setDoc({ key, doc: { state: 'error', message: err instanceof Error ? err.message : String(err) } }); },
     );
     return () => { cancelled = true; };
-  }, [api, slug, file, key]);
+  }, [api, slug, file, key, path]);
   if (!file) return null;
-  return doc?.key === key ? doc.doc : { state: 'loading' };
+  return doc?.key === key ? doc.doc : known ?? { state: 'loading' };
 }
 
 // The words of a bit of the dashboard's HTML: tags off, the entities it writes turned back.
@@ -62,9 +67,12 @@ export function withoutLeadHeadline(html: string, headline: string): string {
 const folderOf = (file: string | null | undefined) => (file && file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : '');
 
 function DocBody({ doc, what, headline, file }: { doc: Doc | null; what: string; headline?: string; file?: string | null }) {
-  if (!doc || doc.state === 'loading') return <p className="muted">Loading the {what}…</p>;
-  if (doc.state === 'error') return <p className="thread-error" role="alert">Couldn’t load the {what}: {doc.message}</p>;
-  return <ServerHtml html={headline ? withoutLeadHeadline(doc.html, headline) : doc.html} base={folderOf(file)} />;
+  return (
+    <Pending loading={!doc || doc.state === 'loading'} say={`Loading the ${what}…`}>
+      {doc?.state === 'error' && <p className="thread-error" role="alert">Couldn’t load the {what}: {doc.message}</p>}
+      {doc?.state === 'ready' && <ServerHtml html={headline ? withoutLeadHeadline(doc.html, headline) : doc.html} base={folderOf(file)} />}
+    </Pending>
+  );
 }
 
 /**
