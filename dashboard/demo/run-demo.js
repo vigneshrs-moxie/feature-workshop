@@ -42,7 +42,7 @@ import { execFileSync } from 'node:child_process';
 import { defaultsFor, defaultsForLevel, writeOptions } from '../lib/options.js';
 import { suggestLevel } from '../lib/level-rules.js';
 
-const ROOT = path.join(os.tmpdir(), 'feature-workshop-demo');
+const ROOT = path.join(os.tmpdir(), 'starbase-demo');
 const FEATURES = path.join(ROOT, 'feature-work');
 const PROJECTS = path.join(ROOT, 'projects', '-demo-acme-portal');
 const ACME = path.join(ROOT, 'acme-portal');

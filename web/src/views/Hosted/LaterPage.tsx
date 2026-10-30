@@ -12,7 +12,7 @@ export function LaterPage({ page }: { page: string }) {
     <Page label={page} title={page}>
       <Hero icon="terminal" title={LATER_TITLE} quiet actions={<Button href="#/" icon="arrow-left" title="Back to your jobs.">Back to Jobs</Button>}>
         <p>{LATER_SAY}</p>
-        <p className="muted">On your laptop it works as it always has: run ground-control start if it isn’t running, then open it there.</p>
+        <p className="muted">On your laptop it works as it always has: run starbase start if it isn’t running, then open it there.</p>
       </Hero>
     </Page>
   );

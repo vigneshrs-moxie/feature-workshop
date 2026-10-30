@@ -27,7 +27,7 @@ const GUIDE: GuideSpec = {
   id: 'hosted-jobs',
   title: 'Your jobs, from anywhere',
   cards: [
-    { icons: ['terminal', 'lock'], title: 'Pair each laptop once', say: 'On the laptop, ground-control login --site and this site’s address prints a link and a code. Open it here and press Pair this laptop.' },
+    { icons: ['terminal', 'lock'], title: 'Pair each laptop once', say: 'On the laptop, starbase login --site and this site’s address prints a link and a code. Open it here and press Pair this laptop.' },
     { icons: ['activity'], title: 'Its jobs show here', say: 'Each open job, what stage it is at and what is happening now. Only yours: nobody else sees them here.' },
     { icons: ['hand'], title: 'Decide from anywhere', say: 'Open a job or the Desk to say go or no go. With your laptop closed, it waits and runs when the laptop is back. The code never leaves it.' },
   ],
@@ -95,7 +95,7 @@ export function HostedJobsPage({ api, onSignedOut }: HostedProps) {
     body = (
       <Hero icon="terminal" title="Pair a laptop to see your jobs here" actions={<Button href="#/settings/laptops" icon="settings" title="Settings → Laptops: the laptops paired with the site.">Your laptops</Button>}>
         <p>On your laptop, in a terminal:</p>
-        <pre className="hosted-command"><code>ground-control login --site {site}</code></pre>
+        <pre className="hosted-command"><code>starbase login --site {site}</code></pre>
         <p className="muted">It prints a link and a code. Open the link here, check the code and press Pair this laptop.</p>
       </Hero>
     );

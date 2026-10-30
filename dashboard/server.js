@@ -1,4 +1,4 @@
-// Feature Workshop: local-only dashboard server.
+// Starbase: the local server (the code folder is still called dashboard/).
 // Listens on 127.0.0.1 only. Reads workflow files, session logs and git (read-only).
 // What it changes goes through a job's Foreman session, and only when you click. The one exception
 // is "Try it on your computer" (lib/local.js): on your click it runs the job's app, your commands
@@ -23,6 +23,7 @@ import { createRunner } from './runner/index.js';
 import { createSite } from './site/index.js';
 import { PRODUCT } from './lib/brand.js';
 import { withOldNames } from './lib/env-names.js';
+import { defaultStateDir, prepareStateFolder } from './lib/state.js';
 
 withOldNames(process.env); // again: the demo sets its STARBASE_* names after env-boot ran
 
@@ -39,13 +40,18 @@ const FEATURES_DIR = path.resolve(process.env.STARBASE_FEATURES_DIR || path.join
 const PROJECTS_DIR = path.resolve(process.env.STARBASE_PROJECTS_DIR || path.join(CLAUDE_DIR, 'projects'));
 const DEMO = Boolean(process.env.STARBASE_DEMO);
 const TOKEN = crypto.randomBytes(24).toString('hex');
+// The default state folder first, before anything writes to it: ~/.ground-control becomes
+// ~/.starbase (with a link by the old name), and ~/.feature-workshop moves in (lib/state.js).
+const STATE_DIR = process.env.STARBASE_STATE_DIR || (DEMO ? path.join(path.dirname(FEATURES_DIR), 'state') : null);
+const ready = STATE_DIR ? null : prepareStateFolder();
+for (const line of ready?.lines ?? []) console.log(`state: ${line}`);
 
 const runner = await createRunner({
   host: HOST, port: PORT, token: TOKEN, dashboardDir: HERE, claudeDir: CLAUDE_DIR,
   featuresDir: FEATURES_DIR, projectsDir: PROJECTS_DIR,
   agentsDir: path.resolve(process.env.STARBASE_AGENTS_DIR || path.join(CLAUDE_DIR, 'agents')),
   skillsDir: path.resolve(process.env.STARBASE_SKILLS_DIR || path.join(CLAUDE_DIR, 'skills')),
-  stateDir: process.env.STARBASE_STATE_DIR || (DEMO ? path.join(path.dirname(FEATURES_DIR), 'state') : undefined),
+  stateDir: STATE_DIR ?? ready.dir,
   demo: DEMO, claudePath: process.env.STARBASE_CLAUDE_PATH || null,
   // Claude Code reads user MCP servers from ~/.claude.json, not ~/.claude/settings.json (checked in packet G);
   // an entry v1 left in settings.json is moved on the next token save.
@@ -54,7 +60,7 @@ const runner = await createRunner({
   gateParkMs: process.env.STARBASE_GATE_PARK_MS,
   planUsage: !DEMO && process.env.STARBASE_PLAN_USAGE !== 'off',
   orbitStore: DEMO || process.env.STARBASE_ORBIT_STORE === 'file' ? 'file' : 'auto',
-  integrateDir: path.resolve(process.env.STARBASE_DIR || path.join(os.homedir(), '.ground-control')),
+  integrateDir: path.resolve(process.env.STARBASE_DIR || ready?.dir || defaultStateDir()),
   integrateRoot: path.resolve(process.env.INTEGRATE_ROOT || path.join(HERE, '..')),
 });
 // The site: the page, its routes and its streams, on PORT (site/index.js); the screens server's

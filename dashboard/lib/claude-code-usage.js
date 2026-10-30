@@ -108,7 +108,7 @@ const newEntry = (st) => ({ size: 0, mtimeMs: 0, ino: st.ino, born: st.birthtime
 export class ClaudeCodeUsage {
   /**
    * projectsDir: Claude Code's projects folder (injected: tests never read the real one).
-   * stateDir: where the cache goes (null: no cache on disk). user: the person (groundControlUser).
+   * stateDir: where the cache goes (null: no cache on disk). user: the person (starbaseUser).
    * tempRoots: the temp folders (insights.js tempDirs()). days: how far back to read.
    */
   constructor({ projectsDir, stateDir = null, user = 'unknown', tempRoots = tempDirs(), days = READ_DAYS, now = () => Date.now(), minRefreshMs = MIN_REFRESH_MS } = {}) {

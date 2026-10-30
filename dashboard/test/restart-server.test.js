@@ -29,7 +29,7 @@ async function freePort() {
 
 const roots = [];
 const children = new Set();
-const CLI = path.join(DASHBOARD, '..', 'bin', 'ground-control.js');
+const CLI = path.join(DASHBOARD, '..', 'bin', 'starbase.js');
 
 after(async () => {
   for (const c of children) {
@@ -179,11 +179,11 @@ test('a reply paused by a clean stop carries on after the restart, in the same s
   await b.stop();
 });
 
-test('a reply cut off by a crash shows paused with its note, and ground-control resume carries it on', async () => {
+test('a reply cut off by a crash shows paused with its note, and starbase resume carries it on', async () => {
   const { env, audit } = await makeJob();
   const none = await cli(env, 'resume', 'sample-job');
   assert.equal(none.code, 1);
-  assert.equal(none.text, 'Starbase isn\u2019t running. Start it with npm start (ground-control start once it is installed). A job paused by a clean stop carries on by itself.');
+  assert.equal(none.text, 'Starbase isn\u2019t running. Start it with npm start (starbase start once it is installed). A job paused by a clean stop carries on by itself.');
 
   const a = await startDashboard(env);
   const { id: runId, sessionId } = await replyThatWaits(a);

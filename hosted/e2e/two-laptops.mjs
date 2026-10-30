@@ -48,7 +48,7 @@ function laptopEnv(name) {
   const tmp = path.join(WORK, name, 'tmp');
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(tmp, { recursive: true });
-  const env = { ...process.env, HOME: home, USERPROFILE: home, TMPDIR: tmp, TEMP: tmp, TMP: tmp, PORT: String(PORT), STARBASE_STATE_DIR: path.join(tmp, 'feature-workshop-demo', 'state'), STARBASE_ORBIT_STORE: 'file', STARBASE_DEMO: '1' };
+  const env = { ...process.env, HOME: home, USERPROFILE: home, TMPDIR: tmp, TEMP: tmp, TMP: tmp, PORT: String(PORT), STARBASE_STATE_DIR: path.join(tmp, 'starbase-demo', 'state'), STARBASE_ORBIT_STORE: 'file', STARBASE_DEMO: '1' };
   for (const k of ['STARBASE_DIR', 'STARBASE_FEATURES_DIR', 'STARBASE_PROJECTS_DIR', 'STARBASE_SKILLS_DIR', 'STARBASE_AGENTS_DIR']) { delete env[k]; delete env[OLD_NAMES[k]]; }
   return env;
 }
@@ -69,7 +69,7 @@ function startLaptop(name, env) {
 /** `ground-control login` on a laptop; onCode(code, link) while it waits. Resolves its output. */
 function login(env, laptopName, onCode) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [path.join(ROOT, 'bin', 'ground-control.js'), 'login', '--site', SITE, '--name', laptopName], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [path.join(ROOT, 'bin', 'starbase.js'), 'login', '--site', SITE, '--name', laptopName], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
     children.add(child);
     let text = '';
     let told = false;

@@ -17,8 +17,8 @@ const CTX = { at: '2026-10-28T10:00:00.000Z', user: 'vignesh', account: 'acc-1',
 // The plan's line shape (§7a.1, packet T), plus the turn id, the session and Claude Code's running total.
 const SHAPE = ['t', 'user', 'account', 'job', 'ticket', 'stage', 'section', 'worker', 'model', 'tokens', 'costUsd', 'costSource', 'meters', 'turn', 'session', 'cliTotalUsd'];
 
-test('usageDir: ~/.ground-control, the state folder when one is given, STARBASE_DIR over both', () => {
-  assert.equal(usageDir({ env: {}, home: '/h' }), path.join('/h', '.ground-control'));
+test('usageDir: the state folder in use (~/.starbase), the state folder when one is given, STARBASE_DIR over both', () => {
+  assert.equal(usageDir({ env: {}, home: '/h' }), path.join('/h', '.starbase'));
   assert.equal(usageDir({ env: {}, home: '/h', stateDir: '/s' }), path.resolve('/s'));
   assert.equal(usageDir({ env: { STARBASE_DIR: '/g' }, home: '/h', stateDir: '/s' }), path.resolve('/g'));
 });

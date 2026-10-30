@@ -23,12 +23,23 @@
 //
 // Unknown keys are kept (profile.extra) and named in `warnings`; they never stop a profile loading.
 
+import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { PRODUCT } from './brand.js';
 
 /** The profile's file name in a repository's root. */
-export const PROFILE_FILE = 'ground-control.md';
+export const PROFILE_FILE = 'starbase.md';
+/** Its name before Starbase (G36): still read when a repository has no starbase.md. */
+export const OLD_PROFILE_FILE = 'ground-control.md';
+
+/** A repository's own profile file: its starbase.md, else its ground-control.md, else where starbase.md would be. */
+export function ownProfileFile(dir) {
+  const now = path.join(dir, PROFILE_FILE);
+  if (fs.existsSync(now)) return now;
+  const was = path.join(dir, OLD_PROFILE_FILE);
+  return fs.existsSync(was) ? was : now;
+}
 /** The largest profile read (bytes): a profile is a short file. */
 export const PROFILE_MAX_BYTES = 64 * 1024;
 
@@ -381,13 +392,13 @@ export function parseProfile(source) {
 }
 
 /**
- * Reads a profile: `dirOrFile` is a repository folder (its ground-control.md) or a profile file.
+ * Reads a profile: `dirOrFile` is a repository folder (its starbase.md, or the older ground-control.md) or a profile file.
  * Returns { ok, profile, errors, warnings, file }; a file that can't be read is an error, too.
  */
 export async function loadProfile(dirOrFile) {
   let file = String(dirOrFile ?? '');
   try {
-    if ((await fsp.stat(file)).isDirectory()) file = path.join(file, PROFILE_FILE);
+    if ((await fsp.stat(file)).isDirectory()) file = ownProfileFile(file);
   } catch { /* reported below */ }
   let st;
   try { st = await fsp.stat(file); } catch { return { ok: false, profile: null, errors: [`There is no profile at ${file}.`], warnings: [], file }; }

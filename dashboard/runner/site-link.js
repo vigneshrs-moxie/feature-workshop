@@ -1,7 +1,7 @@
 // The laptop's half of the hosted site (packet 2A, plan §2.4, decision G34): pairing this laptop
 // once, and the link the runner and the site talk over. HTTPS only, no WebSocket.
 //
-// Pairing (`ground-control login --site <url>`, `ground-control logout`: bin/ground-control.js):
+// Pairing (`starbase login --site <url>`, `starbase logout`: bin/starbase.js):
 //   pairWithSite()     asks the site for a pairing, prints the link and the code, waits for the
 //                      person to press "Pair this laptop" on the site, then keeps the runner token
 //                      in this computer's credential store (siteTokenStore: the Keychain, Windows
@@ -68,7 +68,8 @@ import { boardRecord, decisionsRecord, docRecord, docsRecord, evidenceRecord, fi
 import { uploadEvidence } from './evidence.js';
 
 /** Where the runner token is kept: its own names in the same stores as the Orbit token. */
-export const SITE_TOKEN_NAMES = Object.freeze({ service: 'Ground Control site token', account: 'runner', file: 'site-token' });
+// oldService: its name before Starbase (G36), still read (lib/orbit-token.js renamedStore).
+export const SITE_TOKEN_NAMES = Object.freeze({ service: 'Starbase site token', account: 'runner', file: 'site-token', oldService: 'Ground Control site token' });
 export const SITE_FILE = 'site.json';
 export const QUEUE_FILE = 'site-queue.jsonl';
 export const DONE_FILE = 'site-done.json';
@@ -130,7 +131,7 @@ async function callSite(fetchFn, url, init) {
 }
 
 /**
- * `ground-control login --site <url>`: resolves { runner, person, rotated }.
+ * `starbase login --site <url>`: resolves { runner, person, rotated }.
  * out(line) prints; sleep(ms) waits (tests pass a fake); waitMs: how long to wait for the person.
  */
 export async function pairWithSite({ siteUrl, stateDir, store, fetch: fetchFn = globalThis.fetch, out = () => {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), version = '', name, os: osName, waitMs = 10 * 60 * 1000 }) {
@@ -163,14 +164,14 @@ export async function pairWithSite({ siteUrl, stateDir, store, fetch: fetchFn = 
       }
       return { runner: r.body.runner, person: r.body.person, rotated: Boolean(r.body.runner.rotated), movedFrom: moved };
     }
-    if (r.status !== 202) throw new SiteError(r.body?.error ?? `The pairing stopped (the site answered ${r.status}). Run ground-control login again.`);
-    if (waited >= waitMs) throw new SiteError('Nobody pressed “Pair this laptop” within 10 minutes, so the code has run out. Run ground-control login again.');
+    if (r.status !== 202) throw new SiteError(r.body?.error ?? `The pairing stopped (the site answered ${r.status}). Run starbase login again.`);
+    if (waited >= waitMs) throw new SiteError('Nobody pressed “Pair this laptop” within 10 minutes, so the code has run out. Run starbase login again.');
     await sleep(every);
   }
 }
 
 /**
- * `ground-control logout`: the site forgets this laptop's token, then this laptop forgets it.
+ * `starbase logout`: the site forgets this laptop's token, then this laptop forgets it.
  * Resolves { told: whether the site heard, url } (null when this laptop wasn't paired).
  */
 export async function unpairFromSite({ stateDir, store, fetch: fetchFn = globalThis.fetch }) {
@@ -323,7 +324,7 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
   }
 
   function unpaired() {
-    log('site link: the site no longer knows this laptop. Run ground-control login --site <the site’s address> to pair it again.');
+    log('site link: the site no longer knows this laptop. Run starbase login --site <the site’s address> to pair it again.');
     disconnect('unpaired');
   }
 

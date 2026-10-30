@@ -1,0 +1,23 @@
+# Starbase as your own background service on Linux (packet I): a systemd user unit.
+# `starbase install` fills in the {{…}} parts, writes it to
+# ~/.config/systemd/user/starbase.service and runs systemctl --user enable --now
+# starbase.service. It starts when you sign in, starts again if it stops by failing (not when
+# you stop it with `starbase stop`), and logs to ~/.starbase/logs/.
+
+[Unit]
+Description=Starbase
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{NODE}} {{SERVER}}
+WorkingDirectory={{HOME}}
+Environment=PORT={{PORT}}
+Environment={{PATH_SETTING}}
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:{{LOG}}
+StandardError=append:{{LOG}}
+
+[Install]
+WantedBy=default.target

@@ -1,4 +1,4 @@
-// Portal Feedback (ORBIT-479) from Ground Control: the token and where it is kept, the read-only
+// Portal Feedback (ORBIT-479) from Starbase: the token and where it is kept, the read-only
 // client against a fake Orbit (an http server on a free port serving test/fixtures/orbit), the
 // inbox poller's cadence on a fake clock, the scrubber, and a grep that keeps every request to
 // Orbit a GET. Nothing here touches ~/.claude, the Keychain, ~/.ground-control or a real Orbit.
@@ -108,6 +108,22 @@ test('tokenStore picks keytar when it loads, the Keychain on macOS, else the fil
   assert.equal((await tokenStore({ stateDir, importKeytar: fakeKeytar })).kind, 'keytar');
   assert.equal((await tokenStore({ stateDir, importKeytar: noKeytar, platform: 'darwin', run: async () => ({ code: 44, out: '' }) })).kind, 'keychain');
   assert.equal((await tokenStore({ stateDir, importKeytar: noKeytar, platform: 'linux' })).kind, 'file');
+});
+
+test('a token saved under the credential store’s old name (Ground Control Orbit token) is still read; the next save moves it to the new name', async () => {
+  const stateDir = await tmp();
+  const kept = new Map([['Ground Control Orbit token/orbit-feedback', 'orbfb_old_saved']]); // a pretend credential store
+  const keytar = {
+    getPassword: async (s, a) => kept.get(`${s}/${a}`) ?? null,
+    setPassword: async (s, a, t) => { kept.set(`${s}/${a}`, t); },
+    deletePassword: async (s, a) => kept.delete(`${s}/${a}`),
+  };
+  const store = await tokenStore({ stateDir, importKeytar: async () => ({ default: keytar }) });
+  assert.equal(await store.get(), 'orbfb_old_saved');
+  await store.set('orbfb_new_one');
+  assert.deepEqual([...kept], [['Starbase Orbit token/orbit-feedback', 'orbfb_new_one']], 'under the new name only');
+  await store.clear();
+  assert.equal(kept.size, 0);
 });
 
 test('setToken stores the token and writes the Foreman’s MCP entry with a variable, never the token; clearToken undoes both', async () => {

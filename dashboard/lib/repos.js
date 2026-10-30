@@ -30,7 +30,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isGitRepo } from './git.js';
 import { setProfileOrgs } from './hard-lines.js';
-import { GENERAL, PROFILE_FILE, fillPattern, githubOfUrl, githubOrg, loadProfile, portsLabel } from './profile.js';
+import { GENERAL, PROFILE_FILE, fillPattern, ownProfileFile, githubOfUrl, githubOrg, loadProfile, portsLabel } from './profile.js';
 
 export const REPOS_FILE = 'repos.json';
 /** The profiles Ground Control carries for repositories that don't carry their own yet. */
@@ -228,9 +228,9 @@ export class Registry {
     return lower.length ? (await this.#bundled()).find((b) => lower.includes(b.profile.github.toLowerCase())) ?? null : null;
   }
 
-  /** The profile file a registered repository uses: its own ground-control.md, else the saved one. */
+  /** The profile file a registered repository uses: its own starbase.md (or ground-control.md), else the saved one. */
   #profileFileOf(entry) {
-    const own = path.join(entry.path, PROFILE_FILE);
+    const own = ownProfileFile(entry.path);
     if (fs.existsSync(own)) return { file: own, source: 'repo' };
     const saved = this.resolveProfile(entry.profile);
     return saved ? { file: saved, source: 'registry' } : { file: null, source: null };
@@ -287,7 +287,7 @@ export class Registry {
   }
 
   async #pickProfile(top, profileFile) {
-    const own = path.join(top, PROFILE_FILE);
+    const own = ownProfileFile(top);
     if (fs.existsSync(own)) return { file: own, own: true };
     if (profileFile) {
       if (typeof profileFile !== 'string' || !path.isAbsolute(profileFile)) return { errors: ['Name the profile file with a full path, starting with /.'] };
@@ -339,7 +339,7 @@ export class Registry {
       return { repo: entry, file, source, ...(await this.readProfile(file)) };
     }
     const { main } = await this.#lookup(p);
-    const own = main ? path.join(main, PROFILE_FILE) : null;
+    const own = main ? ownProfileFile(main) : null;
     if (own && fs.existsSync(own)) return { repo: null, file: own, source: 'repo', ...(await this.readProfile(own)) };
     return null;
   }

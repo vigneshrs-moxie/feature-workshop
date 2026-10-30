@@ -1,6 +1,6 @@
 // A job's decisions in the repository (lib/decisions.js, packet O): the file's name, the copy written
 // into a worktree's docs/decisions/ (refused while the folder is ignored), the folder's index, and the
-// `ground-control decisions` command. Temp git repositories only: no network, no Orbit checkout.
+// `starbase decisions` command. Temp git repositories only: no network, no Orbit checkout.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IGNORED_REASON, indexEntry, indexText, render, renderIndex, repoFileName, withoutAgentNotes, writeRepoCopy } from '../lib/decisions.js';
-import { main } from '../../bin/ground-control.js';
+import { main } from '../../bin/starbase.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tmp = (prefix) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
@@ -239,7 +239,7 @@ async function cli(argv, o = {}) {
   return { code, out, err, text: [...out, ...err].join('\n') };
 }
 
-test('ground-control decisions <job> --worktree <path> writes the two files and prints their paths', async () => {
+test('starbase decisions <job> --worktree <path> writes the two files and prints their paths', async () => {
   const wt = repo();
   const { features, slug } = job();
   const env = { STARBASE_FEATURES_DIR: features };
@@ -269,5 +269,5 @@ test('ground-control decisions <job> --worktree <path> writes the two files and 
   assert.match(noWorktree.err[0], /--worktree/);
   const help = await cli(['decisions', '--help']);
   assert.equal(help.code, 0);
-  assert.match(help.out[0], /^Usage: ground-control decisions <job>/);
+  assert.match(help.out[0], /^Usage: starbase decisions <job>/);
 });

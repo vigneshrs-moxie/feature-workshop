@@ -1,13 +1,13 @@
-// Packet 2A step 3: pairing a laptop with a one-time code, from `ground-control login` to the
+// Packet 2A step 3: pairing a laptop with a one-time code, from `starbase login` to the
 // runner token in the laptop's store; expiry and reuse; rotation; Settings → Laptops and Remove;
-// `ground-control logout`. The CLI runs in this process against the in-process site.
+// `starbase logout`. The CLI runs in this process against the in-process site.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { main } from '../../bin/ground-control.js';
+import { main } from '../../bin/starbase.js';
 import { readSiteFile, SITE_TOKEN_NAMES } from '../../dashboard/runner/site-link.js';
 import { CODE_LETTERS } from '../site/routes-pair.js';
 import { browser, makeSite, signIn, SITE } from './helpers.js';
@@ -98,7 +98,7 @@ test('a code works for ten minutes: after that the site refuses it and login say
       },
     });
     assert.equal(late.exit, 1);
-    assert.match(late.text, /the code has run out\. Run ground-control login again/);
+    assert.match(late.text, /the code has run out\. Run starbase login again/);
     assert.equal((await s.db.query('SELECT count(*)::int AS n FROM runners')).rows[0].n, 0);
   } finally { await s.close(); }
 });

@@ -28,9 +28,9 @@ test('the runner token has its own names in the same stores as the Orbit token, 
   const kc = keychainStore({ run: async (args, input) => { calls.push({ args, input }); return { code: 0, out: '' }; }, names: SITE_TOKEN_NAMES });
   await kc.set('abc_DEF-123');
   await kc.get();
-  assert.match(calls[0].input, /-a runner -s "Ground Control site token" -w abc_DEF-123/);
+  assert.match(calls[0].input, /-a runner -s "Starbase site token" -w abc_DEF-123/);
   assert.ok(!calls[0].args.join(' ').includes('abc_DEF-123'), 'never on the command line');
-  assert.deepEqual(calls[1].args, ['find-generic-password', '-a', 'runner', '-s', 'Ground Control site token', '-w']);
+  assert.deepEqual(calls[1].args, ['find-generic-password', '-a', 'runner', '-s', 'Starbase site token', '-w']);
 });
 
 test('site.json: the address, the device id and who it is for; no token; readable by you only', () => {

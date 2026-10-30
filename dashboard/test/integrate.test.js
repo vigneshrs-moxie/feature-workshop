@@ -305,7 +305,7 @@ test('the /api/integrate routes: the list, saving the order and slots (with the 
     assert.equal((await post('/api/integrate/order', { order: ['C', 'no good'] })).status, 400);
     assert.deepEqual((await post('/api/integrate/order', { order: ['C', 'D'] })).body.order, ['C', 'D']);
     assert.equal((await post('/api/integrate/slots', { slots: 2 })).body.slots, 2);
-    const saved = JSON.parse(await fs.readFile(path.join(home, '.ground-control', 'integrate.json'), 'utf8'));
+    const saved = JSON.parse(await fs.readFile(path.join(home, '.starbase', 'integrate.json'), 'utf8'));
     assert.deepEqual([saved.order, saved.slots], [['C', 'D'], 2]);
     assert.equal((await post('/api/integrate/run-tests', { id: 'Q' })).status, 404);
 

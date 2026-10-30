@@ -1,6 +1,6 @@
 // service.json: how a command on this computer finds the running Ground Control (packet G step 6).
 // The runner writes it in the state folder when it starts (mode 600: pid, port, its write token)
-// and removes it when it stops. `ground-control resume <job>` (bin/ground-control.js) reads it.
+// and removes it when it stops. `starbase resume <job>` (bin/starbase.js) reads it.
 
 import fs from 'node:fs';
 import path from 'node:path';

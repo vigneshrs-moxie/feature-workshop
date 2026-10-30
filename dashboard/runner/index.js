@@ -70,7 +70,7 @@ import { noticeBody, Notifier, validateNotifyPatch } from '../lib/notify.js';
 import { Integrator, IntegrateError } from '../lib/integrate.js';
 import { MCP_NAME, OrbitError, OrbitInbox, canonicalKey, clearToken, jobsByTicket, removeMcpEntry, sessionEnv, normalizeOrbitUrl, orbitClient, setToken } from '../lib/orbit.js';
 import { tokenStore } from '../lib/orbit-token.js';
-import { UsageLog, TurnMeter, turnLines, usageDir, groundControlUser, claudeAccountId } from '../lib/usage-log.js';
+import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
 import { ClaudeCodeUsage, CLAUDE_CODE_NOTE, CLAUDE_CODE_WORDS, readSetting as claudeCodeSetting, writeSetting as setClaudeCodeSetting } from '../lib/claude-code-usage.js';
@@ -1480,7 +1480,7 @@ export async function createRunner(config) {
   // STARBASE_DIR overrides both. Nothing is sent anywhere.
   const usageLog = new UsageLog({ dir: usageDir({ stateDir: env.STARBASE_STATE_DIR || DEMO ? state.dir : null }) });
   const turnMeter = new TurnMeter();
-  const usageUser = groundControlUser();
+  const usageUser = starbaseUser();
   const usageAccount = DEMO ? Promise.resolve(null) : claudeAccountId();
   const RUN_ENDED = new Set(['done', 'stopped', 'error', 'limited']);
   // One turn at a time, in order, so each one's cost is worked out after the one before is written.
@@ -2054,7 +2054,7 @@ export async function createRunner(config) {
       return { ok: true, repoPath: repo.path };
     },
 
-    // POST /api/job/:slug/resume, and `ground-control resume <job>` (via 'cli'): carry on a reply a
+    // POST /api/job/:slug/resume, and `starbase resume <job>` (via 'cli'): carry on a reply a
     // restart paused (a crash's waits for this), or one you paused with Stop. The same session,
     // audited as a 'send' of kind 'resume-after-restart' plus a 'resumed' line saying who asked.
     async resume(body) {
@@ -2497,7 +2497,7 @@ export async function createRunner(config) {
     watch(FEATURES_DIR, featureFileChanged);
     watch(PROJECTS_DIR);
     await listen();
-    // How `ground-control resume` finds this service (runner/service-file.js): pid, port, token.
+    // How `starbase resume` finds this service (runner/service-file.js): pid, port, token.
     if (TOKEN && PORT) { try { writeServiceFile(state.dir, { pid: process.pid, host: HOST, port: PORT, token: TOKEN }); } catch (err) { console.error('service.json:', err.message); } }
     // The play ledger: read play.json, or rebuild it from the audit log when it is missing. Not while Play is Off.
     if (playOn()) playbook.refresh().catch((err) => console.error('play ledger:', err));
@@ -2512,7 +2512,7 @@ export async function createRunner(config) {
     checkWaiting().catch(() => {});
     // Replies the last clean stop paused carry on.
     startCarryingOn();
-    // The hosted site (packet 2A): idle until `ground-control login` pairs this laptop.
+    // The hosted site (packet 2A): idle until `starbase login` pairs this laptop.
     if (siteLinkOn) startSiteLink().catch((err) => console.error('site link:', err.message));
   }
 
