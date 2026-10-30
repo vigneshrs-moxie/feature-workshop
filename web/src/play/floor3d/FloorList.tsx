@@ -3,7 +3,6 @@
 // shows when the browser can't draw 3D and there is no 2D floor to fall back on.
 // <FigureLine figure />: one figure's words, its role word first ("Builder · reading merge.ts").
 import { jobHref } from '../../app/router';
-import { jobHueStyle } from '../../theme/hue';
 import type { FloorBench, FloorFigure } from './types';
 import { Icon } from '../../components/Icon';
 import { STOPS } from '../../components/stops/stops';
@@ -41,7 +40,6 @@ export function FloorList({ benches, onOpenJob }: { benches: readonly FloorBench
       {[...benches].sort((a, b) => a.index - b.index).map((b) => (
         <li key={b.slug} className="floor3d-row" data-group={b.lamp}>
           <div className="floor3d-row-head">
-            <span className="hue-dot" style={jobHueStyle(b.slug)} aria-hidden="true" />
             <a
               className="floor3d-plate-title"
               href={jobHref(b.slug)}

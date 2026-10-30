@@ -17,7 +17,6 @@
 // per browser); the list is also what screen readers get, as the plates under the benches.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { jobHref, navigate } from '../../app/router';
-import { jobHueStyle } from '../../theme/hue';
 import { Icon } from '../../components/Icon';
 import { STOPS } from '../../components/stops/stops';
 import type { StopHue } from './palette';
@@ -372,7 +371,6 @@ function Plate({ bench, onOpenJob, hoverKey }: { bench: FloorBench; onOpenJob: (
   return (
     <>
       <div className="floor3d-plate-head">
-        <span className="hue-dot" style={jobHueStyle(bench.slug)} aria-hidden="true" />
         <a
           className="floor3d-plate-title"
           href={jobHref(bench.slug)}
