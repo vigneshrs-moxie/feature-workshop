@@ -175,7 +175,7 @@ test('partPage and mergeChecklist: neighbours, history and a checklist in words'
   assert.equal(partPage(v, 99), null);
   const csv = mergeChecklist(v, v.parts.find((p) => p.name === 'csv'));
   assert.equal(csv.find((c) => c.id === 'checks').ok, true);
-  assert.equal(csv.find((c) => c.id === 'order').ok, false);
+  assert.equal(csv.find((c) => c.id === 'order').ok, null, 'not its turn yet is open, not failed');
 });
 
 test('partTitle: the brief’s first words', () => {

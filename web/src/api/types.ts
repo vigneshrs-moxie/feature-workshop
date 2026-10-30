@@ -1313,6 +1313,8 @@ export interface PartPageData {
   next: StackSegment | null;
   history: { at: string; event: string; words: string; checks: { command: string; ok: boolean }[] | null; undone: boolean | null }[];
   checklist: { id: 'checks' | 'clash' | 'owned' | 'waits' | 'order'; ok: boolean | null; words: string }[];
+  /** The stack's risks that name this part (older dashboards send none). */
+  risks?: StackRisk[];
   changes: { files: { file: string; added: number; removed: number; binary: boolean }[]; added: number; removed: number; base?: string; branch?: string; error?: string };
 }
 

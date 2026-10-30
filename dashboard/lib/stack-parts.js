@@ -346,8 +346,9 @@ export function mergeChecklist(view, part) {
     { id: 'checks', ok: checks, words: checks === true ? 'Its checks passed' : checks === false ? `Its checks failed${part.failures ? ` (try ${part.failures} of 3)` : ''}` : 'Its checks haven’t run yet' },
     { id: 'clash', ok: k === 'conflict' ? false : merged || part.state === 'ready' ? true : null, words: k === 'conflict' ? `It clashes with the stack’s branch in ${(part.problem.files ?? []).map(base).slice(0, 2).join(', ') || 'some files'}` : 'No clash with the stack’s branch' },
     { id: 'owned', ok: k === 'outside' ? false : true, words: k === 'outside' ? 'It changed files that aren’t its own' : 'It changed only its own files' },
-    { id: 'waits', ok: waits.length === 0, words: waits.length ? `Waiting on ${partsWord(waits)} to merge first` : (part.dependsOn ?? []).length ? 'The parts it waits on are merged' : 'It waits on no other part' },
-    { id: 'order', ok: merged ? true : view.nextToMerge === part.name, words: merged ? 'Merged in its turn' : view.nextToMerge === part.name ? 'It is next in the merge order' : `It merges after ${partsWord(parts.filter((p) => p.n < part.n && p.state !== 'integrated').map((p) => p.n).slice(0, 3))}` },
+    // Waiting on another part, or for its turn, is not yet, never a failure.
+    { id: 'waits', ok: waits.length === 0 ? true : null, words: waits.length ? `Waiting on ${partsWord(waits)} to merge first` : (part.dependsOn ?? []).length ? 'The parts it waits on are merged' : 'It waits on no other part' },
+    { id: 'order', ok: merged || view.nextToMerge === part.name ? true : null, words: merged ? 'Merged in its turn' : view.nextToMerge === part.name ? 'It is next in the merge order' : `It merges after ${partsWord(parts.filter((p) => p.n < part.n && p.state !== 'integrated').map((p) => p.n).slice(0, 3))}` },
   ];
 }
 
@@ -371,6 +372,8 @@ export function partPage(view, n, { changes = null } = {}) {
     next: pick(view.parts[at + 1] ?? null),
     history: partHistory(view, part.name),
     checklist: mergeChecklist(view, part),
+    // The stack's risks that name this part: a clash says both parts and the file.
+    risks: (view.risks ?? stackRisks(view)).filter((r) => r.parts.includes(part.n)),
     changes,
   };
 }

@@ -4,7 +4,7 @@
 // Stacks run only on the dashboard on your own computer: elsewhere the list says so instead.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
-import { DEFAULT_SECTIONS_AT_ONCE, type StackView, type StacksList } from '../../api/types';
+import { DEFAULT_SECTIONS_AT_ONCE, type PartPageData, type StackView, type StacksList } from '../../api/types';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 
 /** How often an open page looks again, in ms. */
@@ -107,4 +107,52 @@ export function useStackView(slug: string): StackState {
     }
   }, [api, path]);
   return { view, missing, error, sending, problem, clearProblem: () => setProblem(null), refresh, act };
+}
+
+export interface PartState {
+  page: PartPageData | null;
+  missing: string | null;
+  error: string | null;
+  sending: boolean;
+  problem: string | null;
+  clearProblem(): void;
+  refresh(): void;
+  /** POST /api/stacks/:slug/<action> for this part (merge, send-back); the page looks again after. */
+  act(action: 'merge' | 'send-back', body?: Record<string, unknown>): Promise<boolean>;
+  /** One changed file's diff (GET …/part/:n/diff?file=). */
+  diff(file: string): Promise<{ file?: string; diff?: string; cut?: boolean; error?: string }>;
+}
+
+/** A part's own page (GET /api/stacks/:slug/part/:n), looked at again like the stack's. */
+export function useStackPart(slug: string, n: number): PartState {
+  const { api } = useWorkshop();
+  const [page, setPage] = useState<PartPageData | null>(null);
+  const [missing, setMissing] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const busy = useRef(false);
+  const base = `/api/stacks/${encodeURIComponent(slug)}`;
+  const path = `${base}/part/${n}`;
+  const refresh = useCallback(() => {
+    if (busy.current) return;
+    busy.current = true;
+    Promise.resolve().then(() => api.get<PartPageData>(path)).then(
+      (p) => { setPage(p); setMissing(null); setError(null); },
+      (err) => {
+        if (err instanceof ApiError && err.status === 404) setMissing(err.message);
+        else setError(message(err));
+      },
+    ).finally(() => { busy.current = false; });
+  }, [api, path]);
+  useLookAgain(refresh);
+  const act: PartState['act'] = useCallback(async (action, body = {}) => {
+    setSending(true);
+    setProblem(null);
+    try { await api.post(`${base}/${action}`, body); refresh(); return true; } catch (err) { setProblem(message(err)); return false; } finally { setSending(false); }
+  }, [api, base, refresh]);
+  const diff = useCallback(async (file: string) => {
+    try { return await api.get<{ file?: string; diff?: string; cut?: boolean; error?: string }>(`${path}/diff?file=${encodeURIComponent(file)}`); } catch (err) { return { error: message(err) }; }
+  }, [api, path]);
+  return { page, missing, error, sending, problem, clearProblem: () => setProblem(null), refresh, act, diff };
 }
