@@ -73,6 +73,7 @@ import { tokenStore } from '../lib/orbit-token.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, groundControlUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
+import { ClaudeCodeUsage, CLAUDE_CODE_NOTE, CLAUDE_CODE_WORDS, readSetting as claudeCodeSetting } from '../lib/claude-code-usage.js';
 import { EVENT_TYPES, NOTES_MAX, parseCommand } from '../lib/protocol.js';
 import { JobLocked, heldElsewhere } from '../lib/lock.js';
 import { RESTART_TEXT, RESUME_KIND, replay, withRestartNotes } from './replay.js';
@@ -1492,6 +1493,12 @@ export async function createRunner(config) {
     }).catch((err) => console.error('usage log:', err.message));
   }
   driver.on('usage', (e) => logTurn(turnMeter.onMessage(e)));
+  // Your Claude Code use outside this app (packet U, lib/claude-code-usage.js): this computer's
+  // Claude Code logs, read for usage numbers only, in the background, cached in the state folder.
+  // Never in the demo. The first read starts a little after the dashboard does (when the setting
+  // is on), so Telemetry rarely has to say it is still reading.
+  const claudeCodeUsage = DEMO ? null : new ClaudeCodeUsage({ projectsDir: PROJECTS_DIR, stateDir: state.dir, user: usageUser });
+  if (claudeCodeUsage) setTimeout(() => { claudeCodeSetting(state.dir).then((s) => { if (s.count) claudeCodeUsage.poke(); }, () => {}); }, 20_000).unref();
   // A reply stopped before its result: what it used so far is a turn too (an estimate).
   driver.on('run', (run) => { if (RUN_ENDED.has(run.status)) logTurn(turnMeter.forget(run.id, run)); });
 
@@ -2256,7 +2263,27 @@ export async function createRunner(config) {
       // A dashboard whose own job folder is a temp one (a test, a demo) keeps its jobs: nothing to drop.
       const tempRoots = tempDirs().some((t) => FEATURES_DIR === t || FEATURES_DIR.startsWith(`${t}${path.sep}`)) ? [] : undefined;
       const meters = planUsage.view();
-      return { ...telemetryOf(lines, { window, now, me: usageUser, meters, titles, jobs, audit: await state.auditAll(), readFrom, tempRoots }), meters, file: usageLog.file };
+      // Your Claude Code use outside this app, when counted and read: never this app's own job
+      // sessions (by session id: usage.jsonl's and the jobs' own; and by the jobs' worktrees).
+      const counting = claudeCodeUsage ? (await claudeCodeSetting(state.dir)).count : false;
+      let cc = null;
+      if (counting) {
+        claudeCodeUsage.poke(); // reads what is new in the background; never waits
+        const sessions = new Set([
+          ...lines.map((l) => l.session), ...list.flatMap((f) => f.sessionIds ?? []),
+          ...Object.values(await state.allSessions()).map((x) => x?.sessionId), ...driver.list().map((r) => r.sessionId),
+        ].filter(Boolean));
+        const dirs = list.flatMap((f) => [f.worktree, f.statusWorktree]).filter(Boolean);
+        cc = claudeCodeUsage.view({ exclude: { sessions, dirs }, since: readFrom, until: now.getTime() });
+      }
+      const outside = cc?.state === 'ready' ? cc.replies : null;
+      const body = telemetryOf(lines, { window, now, me: usageUser, meters, titles, jobs, audit: await state.auditAll(), readFrom, tempRoots, outside });
+      const ccState = DEMO ? 'demo' : !counting ? 'off' : cc.state;
+      const claudeCode = {
+        state: ccState, counted: outside !== null, words: CLAUDE_CODE_WORDS[ccState], note: CLAUDE_CODE_NOTE,
+        usd: body.claudeCode?.usd ?? null, replies: body.claudeCode?.replies ?? null, readAt: cc?.readAt ?? null,
+      };
+      return { ...body, claudeCode, meters, file: usageLog.file };
     },
   };
 

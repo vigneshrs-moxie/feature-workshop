@@ -23,8 +23,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { STAGE_IDS, STAGES } from './stages.js';
 import {
-  forecast as forecastOf, limitSplit, localDate, localTime, OTHER_NOTE, otherStretches, parts, pct, percentPerDollar, planWeeks, riseDriver,
-  SHORT_STRETCH, splitWords, usd, weekOf, whenWords, windowRange,
+  forecast as forecastOf, limitSplit, localDate, localTime, OTHER_LABEL, OTHER_NOTE, OTHER_NOTE_CLAUDE_CODE, otherStretches, parts, pct, percentPerDollar,
+  planWeeks, riseDriver, SHORT_STRETCH, splitWords, usd, weekOf, whenWords, windowRange,
 } from './telemetry.js';
 
 const ms = (t) => (typeof t === 'number' ? t : Date.parse(t));
@@ -191,7 +191,9 @@ export const median = (values) => quantile([...values].sort((a, b) => a - b), 0.
 // no job names: the people icon). state: 'ok', 'not-enough', 'cannot-see' (the source isn't here),
 // 'empty' (nothing recorded yet).
 // Kept apart: this app's use (per person, job, stage) and Other use are never mixed in a graph about
-// this app; graphs about the whole limit (1, 5, 9) count both, each part named.
+// this app; graphs about the whole limit (1, 5, 9) count both, each part named. Your Claude Code use
+// outside this app (ctx.outside, when it is counted: packet U) is a third part of those three only;
+// the graphs about this app's own jobs (2, 3, 6, 7, 8, 10) and Models (4) never include it.
 
 const H = 3600e3;
 const DAY = 24 * H;
@@ -241,7 +243,8 @@ export function limitGraph(rec, ctx) {
   const { now, timeZone, lines, reading, limits, window, from } = ctx;
   const split = limits.week;
   const fc0 = forecastOf(lines, { now, reading, timeZone });
-  const driver = fc0.from && fc0.to ? riseDriver(lines, { from: fc0.from.t, to: fc0.to.t, rise: fc0.to.percent - fc0.from.percent, ratio: ctx.ratio }) : null;
+  const driver = fc0.from && fc0.to ? riseDriver(lines, { from: fc0.from.t, to: fc0.to.t, rise: fc0.to.percent - fc0.from.percent, ratio: ctx.ratio, outside: ctx.ccLines ?? null }) : null;
+  const ccDriver = typeof driver?.claudeCode === 'number';
   const fc = { ...fc0, driver };
   const points = lines.filter((l) => Date.parse(l.t) >= from && Date.parse(l.t) <= now && (l.meters?.week || l.meters?.fiveHour))
     .map((l) => ({ t: l.t, week: l.meters?.week?.percent ?? null, fiveHour: l.meters?.fiveHour?.percent ?? null }));
@@ -260,9 +263,11 @@ export function limitGraph(rec, ctx) {
   } else if (fc.state === 'fills') {
     const early = fc.resetsAt ? (Date.parse(fc.resetsAt) - Date.parse(fc.fullAt)) / DAY : null;
     headline = `At this pace the week is full on ${whenWords(fc.fullAt, { now, timeZone })}${early !== null && early >= 1 ? `, ${early >= 1.5 ? `${Math.round(early)} days` : 'a day'} before it resets` : ''}${drive}.`;
-    todo = driver && driver.other > driver.app
+    todo = driver && driver.other > driver.app + (driver.claudeCode ?? 0)
       ? 'Most of the pace is use outside this app: ask who else is on the account before you start a large job, or pause one until the reset.'
-      : `Pause the largest job until the reset${resetWords ? ` (${resetWords})` : ''}, or move a stage to a smaller model for the rest of the week.`;
+      : ccDriver && driver.claudeCode > driver.app
+        ? `Most of the pace is your own Claude Code use outside this app: keep large terminal sessions for after the reset${resetWords ? ` (${resetWords})` : ''}, or pause the largest job.`
+        : `Pause the largest job until the reset${resetWords ? ` (${resetWords})` : ''}, or move a stage to a smaller model for the rest of the week.`;
   } else if (fc.state === 'resets-first') {
     headline = `At this pace the week ends at about ${pct(fc.atReset)}${drive}.`;
     todo = fc.atReset < 80 ? 'Nothing to change: there is room for more large jobs this week.' : 'Nothing to change, but check this again before you start a large job.';
@@ -282,7 +287,9 @@ export function limitGraph(rec, ctx) {
       head: ['When', 'Weekly limit used', '5-hour limit used'],
       rows: points.map((p) => [whenWords(p.t, { timeZone }), p.week === null ? 'Not read' : pct(p.week), p.fiveHour === null ? 'Not read' : pct(p.fiveHour)]),
     },
-    notes: driver ? [`In the last day the meter rose ${pct(driver.app + driver.other)}: this app about ${pct(driver.app)}, other use about ${pct(driver.other)} (estimated).`] : [],
+    notes: driver ? [ccDriver
+      ? `In the last day the meter rose ${pct(driver.app + driver.claudeCode + driver.other)}: this app about ${pct(driver.app)}, your Claude Code outside this app about ${pct(driver.claudeCode)}, other use about ${pct(driver.other)} (estimated).`
+      : `In the last day the meter rose ${pct(driver.app + driver.other)}: this app about ${pct(driver.app)}, other use about ${pct(driver.other)} (estimated).`] : [],
   });
 }
 
@@ -462,6 +469,7 @@ export function modelsGraph(rec, ctx) {
 // ---------- 5. People on the account (whole account, names only) ----------
 
 export function peopleGraph(rec, ctx) {
+  if (ctx.outside) return peopleGraphWithClaudeCode(rec, ctx);
   const { window, limits, from, now } = ctx;
   const split = window === '5h' ? limits.fiveHour : limits.week;
   const meterName = window === '5h' ? 'the five hours' : 'the week';
@@ -499,6 +507,68 @@ export function peopleGraph(rec, ctx) {
   const app = metered ? split.app : null;
   const todo = metered && others.percent > app && others.percent >= 10
     ? 'Most of the limit went outside this app: ask who else uses the account before you start a large job.'
+    : metered && free < 20 ? 'Little is left: check the forecast before anyone starts a large job.' : 'Nothing to change.';
+  return graph({ ...base, state: 'ok', headline, todo });
+}
+
+/**
+ * Graph 5 with your Claude Code use outside this app counted (packet U): each person's share in two
+ * parts, in this app and in Claude Code, and Other use is what is left (claude.ai, the Claude app,
+ * other people). The same shape as without, with app, claudeCode and claudeCodeUsd on each person.
+ */
+function peopleGraphWithClaudeCode(rec, ctx) {
+  const { window, limits, from, now } = ctx;
+  const split = window === '5h' ? limits.fiveHour : limits.week;
+  const meterName = window === '5h' ? 'the five hours' : 'the week';
+  const spend = new Map();
+  const add = (user, k, u) => { const p = spend.get(user) ?? { app: 0, cc: 0 }; p[k] += u; spend.set(user, p); };
+  for (const r of rec.rows) if (r.ms >= from && r.ms <= now) add(r.user, 'app', r.usd);
+  for (const r of ctx.outside) if (r.ms >= from && r.ms <= now) add(r.user, 'cc', r.usd);
+  const ratio = window === '5h' ? ctx.ratio5 : ctx.ratio;
+  const metered = window !== '30d' && split.state === 'split';
+  const users = new Set([...spend.keys(), ...(metered ? split.people.map((p) => p.user) : [])]);
+  const people = [...users].map((user) => {
+    const u = spend.get(user) ?? { app: 0, cc: 0 };
+    const s = metered ? split.people.find((p) => p.user === user) : null;
+    const app = s ? s.app : ratio === null ? null : r2(u.app * ratio);
+    const claudeCode = s ? s.claudeCode : ratio === null ? null : r2(u.cc * ratio);
+    return { user, usd: r2(u.app), percent: app, app, claudeCode, claudeCodeUsd: r2(u.cc) };
+  }).sort((a, b) => (b.percent === null ? b.usd + b.claudeCodeUsd : b.app + b.claudeCode) - (a.percent === null ? a.usd + a.claudeCodeUsd : a.app + a.claudeCode) || a.user.localeCompare(b.user));
+  const others = metered ? { label: OTHER_LABEL, percent: split.other, estimated: true } : null;
+  const free = metered ? split.free : null;
+  const share = (p) => (p.app === null ? 'Not known' : `${pct(p.app + p.claudeCode)} (in this app ${pct(p.app)}, in Claude Code ${pct(p.claudeCode)})`);
+  const rows = [
+    ...people.map((p) => [p.user, share(p), usd(p.usd), usd(p.claudeCodeUsd)]),
+    ...(others ? [[`${OTHER_LABEL}, estimated`, pct(others.percent), 'Not known: outside this app', 'Not known']] : []),
+    ...(metered && split.unknown >= 1 ? [['Not known', pct(split.unknown), '—', '—']] : []),
+    ...(free !== null ? [['Still free', pct(free), '—', '—']] : []),
+  ];
+  const notes = [
+    'In Claude Code: your own Claude Code use outside this app, read from this computer’s Claude Code logs (a teammate’s on their own computer is in Other use). This app’s own job sessions are left out of it, so nothing counts twice.',
+    'Other use: claude.ai, the Claude app and other people on the account. Estimated from the meter, in percent only.',
+    ...(window === '30d' ? ['Other use shows for this week and this five hours, where a meter says how much was used.'] : []),
+  ];
+  const base = {
+    id: 'people', n: 5, title: 'People on the account', audience: 'common',
+    data: { window, people, others, free, unknown: metered ? split.unknown : null, state: split.state },
+    table: { caption: `Who used ${meterName}${window === '30d' ? ' (the last 30 days)' : ''}.`, head: ['Who', `Share of ${window === '5h' ? 'the 5-hour limit' : 'the week'}`, 'Spend in this app', 'Spend in Claude Code'], rows },
+    notes,
+  };
+  if (!people.length && !(others && others.percent > 0)) return graph({ ...base, state: 'empty', headline: `Nobody used the account ${window === '5h' ? 'in this five hours' : window === 'week' ? 'this week' : 'in the last 30 days'}, as far as this computer knows.`, todo: 'Nothing to do.' });
+  const parts = (p) => [p.app >= 0.5 ? `${pct(p.app)} in this app` : null, p.claudeCode >= 0.5 ? `${pct(p.claudeCode)} in Claude Code` : null].filter(Boolean).join(', ');
+  let headline;
+  if (metered) {
+    const said = people.length
+      ? people.map((p, i) => `${p.user}${i === 0 ? ' used' : ''} ${pct(p.app + p.claudeCode)}${i === 0 ? ` of ${meterName}` : ''}${parts(p) ? ` (${parts(p)})` : ''}`).join(' and ')
+      : `Nobody here used ${meterName}`;
+    headline = `${said}; other use ${pct(others.percent)} (estimated); ${pct(free)} is still free.`;
+  } else {
+    const spent = (p) => [p.usd > 0 ? `${usd(p.usd)} in this app` : null, p.claudeCodeUsd > 0 ? `${usd(p.claudeCodeUsd)} in Claude Code` : null].filter(Boolean).join(' and ') || usd(0);
+    headline = `${people.map((p, i) => `${p.user}${i === 0 ? ' spent' : ''} ${spent(p)}`).join(', ')}${split.state === 'no-ratio' ? '; the split of the limit isn’t known yet' : ''}.`;
+  }
+  const named = metered ? split.app + split.claudeCode : null;
+  const todo = metered && others.percent > named && others.percent >= 10
+    ? 'Most of the limit went to other use: ask who else uses the account before you start a large job.'
     : metered && free < 20 ? 'Little is left: check the forecast before anyone starts a large job.' : 'Nothing to change.';
   return graph({ ...base, state: 'ok', headline, todo });
 }
@@ -624,36 +694,51 @@ export function whenGraph(rec, ctx) {
   const { timeZone, now, ratio, lines } = ctx;
   const since = now - 28 * DAY;
   const unit = ratio === null ? 'usd' : 'percent';
+  const cc = Array.isArray(ctx.outside);
   const cells = [];
-  for (let d = 0; d < 7; d++) for (let b = 0; b < 12; b++) cells.push({ day: d, block: b, app: 0, other: 0 });
+  for (let d = 0; d < 7; d++) for (let b = 0; b < 12; b++) cells.push({ day: d, block: b, app: 0, ...(cc ? { claudeCode: 0 } : {}), other: 0 });
   const cell = (t) => { const c = clock(t, timeZone); return cells[c.day * 12 + Math.floor(c.hour / 2)]; };
   for (const r of rec.rows) if (r.ms >= since && r.ms <= now) cell(r.ms).app += unit === 'percent' ? r.usd * ratio : r.usd;
+  // Your Claude Code use outside this app, when counted: its own part of each square.
+  if (cc) for (const r of ctx.outside) if (r.ms >= since && r.ms <= now) cell(r.ms).claudeCode += unit === 'percent' ? r.usd * ratio : r.usd;
   // Other use, spread evenly over the time between the two readings it was seen in.
-  for (const s of otherStretches(lines, { meter: 'week', ratio })) {
+  for (const s of otherStretches(lines, { meter: 'week', ratio, outside: ctx.ccLines ?? null })) {
     const lo = Math.max(s.from, since);
     const hi = Math.min(s.to, now);
     if (hi <= lo) continue;
     const per = s.other / (s.to - s.from);
     for (let t = lo; t < hi;) { const step = Math.min(hi, Math.floor(t / H) * H + H) - t; cell(t).other += per * step; t += step; }
   }
-  for (const c of cells) { c.app = r4(c.app); c.other = r4(c.other); c.total = r4(c.app + c.other); }
-  const first = rec.rows.find((r) => r.ms >= since)?.ms ?? null;
+  for (const c of cells) { c.app = r4(c.app); if (cc) c.claudeCode = r4(c.claudeCode); c.other = r4(c.other); c.total = r4(c.app + (c.claudeCode ?? 0) + c.other); }
+  const firsts = [rec.rows.find((r) => r.ms >= since)?.ms, cc ? ctx.outside.find((r) => r.ms >= since)?.ms : undefined].filter((x) => x !== undefined);
+  const first = firsts.length ? Math.min(...firsts) : null;
   const span = first === null ? 0 : Math.floor((now - first) / DAY);
   const total = sum(cells, (c) => c.total);
   const words = (v) => (unit === 'percent' ? pct(v) : usd(v));
-  const dayTotals = WEEKDAYS.map((name, d) => ({ name, app: sum(cells.filter((c) => c.day === d), (c) => c.app), other: sum(cells.filter((c) => c.day === d), (c) => c.other) }));
-  const table = {
-    caption: `${unit === 'percent' ? 'Percent of the weekly limit' : 'Spend in this app'} by weekday, the last four weeks${unit === 'percent' ? ', this app and other use (estimated) apart' : ''}.`,
-    head: unit === 'percent' ? ['Day', 'In this app', 'Other use (estimated)', 'Busiest two hours'] : ['Day', 'In this app', 'Busiest two hours'],
-    rows: dayTotals.map((d, i) => {
-      const best = cells.filter((c) => c.day === i).sort((a, b) => b.total - a.total)[0];
-      const busiest = best.total > 0 ? blockWords(best.block, best.block) : '—';
-      return unit === 'percent' ? [d.name, pct(d.app), pct(d.other), busiest] : [d.name, usd(d.app), busiest];
-    }),
+  // A day's parts: this app, your Claude Code outside it (when counted; folded into app below for the day's size) and other use.
+  const dayTotals = WEEKDAYS.map((name, d) => {
+    const list = cells.filter((c) => c.day === d);
+    const mine = sum(list, (c) => c.claudeCode ?? 0);
+    return { name, app: sum(list, (c) => c.app) + mine, own: sum(list, (c) => c.app), claudeCode: mine, other: sum(list, (c) => c.other) };
+  });
+  const busiestOf = (i) => {
+    const best = cells.filter((c) => c.day === i).sort((a, b) => b.total - a.total)[0];
+    return best.total > 0 ? blockWords(best.block, best.block) : '—';
   };
+  const table = cc
+    ? {
+      caption: `${unit === 'percent' ? 'Percent of the weekly limit' : 'Spend'} by weekday, the last four weeks: this app, your Claude Code outside it${unit === 'percent' ? ' and other use (estimated)' : ''} apart.`,
+      head: unit === 'percent' ? ['Day', 'In this app', 'In Claude Code', 'Other use (estimated)', 'Busiest two hours'] : ['Day', 'In this app', 'In Claude Code', 'Busiest two hours'],
+      rows: dayTotals.map((d, i) => (unit === 'percent' ? [d.name, pct(d.own), pct(d.claudeCode), pct(d.other), busiestOf(i)] : [d.name, usd(d.own), usd(d.claudeCode), busiestOf(i)])),
+    }
+    : {
+      caption: `${unit === 'percent' ? 'Percent of the weekly limit' : 'Spend in this app'} by weekday, the last four weeks${unit === 'percent' ? ', this app and other use (estimated) apart' : ''}.`,
+      head: unit === 'percent' ? ['Day', 'In this app', 'Other use (estimated)', 'Busiest two hours'] : ['Day', 'In this app', 'Busiest two hours'],
+      rows: dayTotals.map((d, i) => (unit === 'percent' ? [d.name, pct(d.app), pct(d.other), busiestOf(i)] : [d.name, usd(d.app), busiestOf(i)])),
+    };
   const notes = unit === 'percent'
-    ? ['Other use is spread evenly over the time between the two readings it was seen in, so a long quiet stretch smears it.']
-    : ['Without percent per dollar, this shows this app’s spend only; other use can’t be counted in yet.'];
+    ? ['Other use is spread evenly over the time between the two readings it was seen in, so a long quiet stretch smears it.', ...(cc ? ['In Claude Code: your own Claude Code use outside this app, from this computer’s Claude Code logs.'] : [])]
+    : [cc ? 'Without percent per dollar, this shows spend in this app and in Claude Code only; other use can’t be counted in yet.' : 'Without percent per dollar, this shows this app’s spend only; other use can’t be counted in yet.'];
   const max = Math.max(0, ...cells.map((c) => c.total));
   const base = { id: 'when', n: 9, title: 'When the limit goes', audience: 'common', data: { unit, cells, max: r4(max) }, table, notes };
   if (span < NEED_DAYS) return graph({ ...base, state: total > 0 ? 'not-enough' : 'empty', headline: notEnough('days', Math.max(0, span), NEED_DAYS), todo: 'Nothing to do yet.' });
@@ -727,22 +812,42 @@ export function insightGraphs(lines, opts) {
  * timeZone, titles, jobs, audit, tempRoots, shortStretch, readFrom (where the lines read start: null
  * when they are all there is) }. Returns { record, ratio, ratio5, limits, graphs }.
  */
-export function insightsFor(lines, { window = 'week', now = Date.now(), me = null, meters = null, timeZone, titles = {}, jobs = null, audit = null, tempRoots, shortStretch = SHORT_STRETCH, readFrom = null } = {}) {
+export function insightsFor(lines, { window = 'week', now = Date.now(), me = null, meters = null, timeZone, titles = {}, jobs = null, audit = null, tempRoots, shortStretch = SHORT_STRETCH, readFrom = null, outside = null } = {}) {
   const end = typeof now === 'number' ? now : Date.parse(now);
   const record = cleanRecord(lines, { now: end, jobs, audit, tempRoots });
   const clean = recordLines(record);
+  // Your Claude Code replies outside this app (lib/claude-code-usage.js), when counted: { t, ms, user, usd }.
+  const cc = cleanOutside(outside, { now: end, me });
+  const ccLines = cc ? cc.map((r) => ({ t: r.t, user: r.user, costUsd: r.usd })) : null;
   const month = clean.filter((l) => Date.parse(l.t) >= end - 30 * DAY);
-  const ratio = percentPerDollar(month, { shortStretch });
-  const ratio5 = percentPerDollar(month, { meter: 'fiveHour', shortStretch });
+  const ccMonth = ccLines ? ccLines.filter((l) => Date.parse(l.t) >= end - 30 * DAY) : null;
+  const ratio = percentPerDollar(month, { shortStretch, outside: ccMonth });
+  const ratio5 = percentPerDollar(month, { meter: 'fiveHour', shortStretch, outside: ccMonth });
   const reading = meters?.checkedAt ? { t: meters.checkedAt, week: meters.week ?? null, fiveHour: meters.fiveHour ?? null } : null;
-  const week = limitSplit(clean, { meter: 'week', now: end, reading, ratio, shortStretch });
-  const fiveHour = limitSplit(clean, { meter: 'fiveHour', now: end, reading, ratio: ratio5, shortStretch });
-  const limits = { week: { ...week, sentence: splitWords(week, { name: 'This week' }) }, fiveHour: { ...fiveHour, sentence: splitWords(fiveHour, { name: 'This five hours' }) }, note: OTHER_NOTE };
+  const week = limitSplit(clean, { meter: 'week', now: end, reading, ratio, shortStretch, outside: ccLines });
+  const fiveHour = limitSplit(clean, { meter: 'fiveHour', now: end, reading, ratio: ratio5, shortStretch, outside: ccLines });
+  const limits = {
+    week: { ...week, sentence: splitWords(week, { name: 'This week' }) }, fiveHour: { ...fiveHour, sentence: splitWords(fiveHour, { name: 'This five hours' }) },
+    note: cc ? OTHER_NOTE_CLAUDE_CODE : OTHER_NOTE, ...(cc ? { otherLabel: OTHER_LABEL } : {}),
+  };
   // The meters to go by for the plan weeks: the live reading, else the newest line's.
   const newest = [...clean].reverse().find((l) => l.meters.week)?.meters ?? null;
   const m = meters?.week ? meters : newest;
   const { from } = windowRange(window, { now: end, meters: m, timeZone });
   const read = readFrom === null ? null : (typeof readFrom === 'number' ? readFrom : Date.parse(readFrom));
-  const graphs = insightGraphs(lines, { window, now: end, from, me, timeZone, meters: m, reading, ratio, ratio5, limits, titles, record, cleanLines: clean, readFrom: read });
-  return { record, ratio, ratio5, limits, graphs, from };
+  const graphs = insightGraphs(lines, { window, now: end, from, me, timeZone, meters: m, reading, ratio, ratio5, limits, titles, record, cleanLines: clean, readFrom: read, outside: cc, ccLines });
+  return { record, ratio, ratio5, limits, graphs, from, outside: cc };
+}
+
+/**
+ * Your Claude Code replies outside this app, tidied for the sums: { t, ms, user, usd, family }, the
+ * oldest first, none after `now`, the person `me` when a reply doesn't say; null when not counted.
+ */
+export function cleanOutside(outside, { now = Date.now(), me = null } = {}) {
+  if (!Array.isArray(outside)) return null;
+  const end = ms(now);
+  return outside.map((r) => ({ t: r?.t, ms: ms(r?.t), user: r?.user ?? me ?? 'unknown', usd: Math.max(0, Number.isFinite(+r?.usd) ? +r.usd : 0), family: r?.family ?? null }))
+    .filter((r) => Number.isFinite(r.ms) && r.ms <= end)
+    .map((r) => ({ ...r, t: new Date(r.ms).toISOString() }))
+    .sort((a, b) => a.ms - b.ms);
 }

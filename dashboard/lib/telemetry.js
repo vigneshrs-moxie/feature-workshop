@@ -156,10 +156,22 @@ export function windowRange(window, { now, meters = null, timeZone } = {}) {
 //     0 at its reset), never below zero. A stretch whose meter went down without a reset, or before a
 //     first reading whose window isn't known, is unknown and stays out: never guessed.
 // Other use is a percent of the limit only (its dollars aren't known), and always "estimated".
+//
+// Your Claude Code use outside this app (packet U, lib/claude-code-usage.js): when it is counted,
+// `outside` is its replies ({ t, user, usd }), read from this computer's Claude Code logs. It is
+// known spend like this app's lines: it counts in the short stretches' spend (so more stretches
+// qualify, and terminal use between two readings no longer inflates percent per dollar), each
+// person's part of the meter is split into `app` and `claudeCode`, and Other use is what is left:
+// claude.ai, the Claude app and other people. `outside` null (the setting off, or not read yet):
+// every sum is exactly as without it.
 export const SHORT_STRETCH = 20 * 60e3;
 /** What Other use means, said under the "Who used this week's limit" line. */
 export const OTHER_NOTE = 'Other use is use of this Claude account outside this app: claude.ai, the Claude app, or someone’s own Claude Code. This app can’t see who, so it is one estimate: the limit’s rise that this app’s own work doesn’t explain. It includes anyone using this app on another computer: they show by name once the team site exists.';
 export const OTHERS_ROW = 'Outside this app: claude.ai, the Claude app and anyone else on the account, including this app on other computers. Estimated from the meter.';
+/** Other use's name once your Claude Code use is counted by name. */
+export const OTHER_LABEL = 'Other use (claude.ai, the Claude app, other people)';
+/** What Other use means then, said under the "Who used this week's limit" line. */
+export const OTHER_NOTE_CLAUDE_CODE = 'Other use is the limit’s rise that this app’s jobs and your Claude Code use on this computer don’t explain: claude.ai, the Claude app and other people. It is one estimate. Only this computer’s Claude Code logs are read, so a teammate’s Claude Code on their own computer is in it too, until they run this app.';
 export const SPANS = { week: 7 * DAY, fiveHour: 5 * H };
 // Enough to go by: at least this many short stretches and this many points of rise among them (the
 // meters read whole percents, so one stretch alone says little).
@@ -188,17 +200,25 @@ function spender(lines) {
   return (lo, hi) => sum[upTo(hi)] - sum[upTo(lo)];
 }
 const byTime = (lines) => [...lines].filter((l) => Number.isFinite(ms(l.t))).sort((a, b) => ms(a.t) - ms(b.t));
+/** Your Claude Code replies as spend lines ({ t, user, costUsd }), the oldest first; null when not counted. */
+export function outsideLines(outside) {
+  if (!Array.isArray(outside)) return null;
+  return byTime(outside.map((r) => ({ t: r.t, user: r.user ?? 'unknown', costUsd: typeof r.costUsd === 'number' ? r.costUsd : r.usd })));
+}
 
 /**
  * Percent of the limit per dollar of this app's spend, from short stretches only:
  * { ratio, stretches, rise, usd }, ratio null when there is too little to go by.
  */
-export function percentPerDollarInfo(lines, { meter = 'week', shortStretch = SHORT_STRETCH } = {}) {
+export function percentPerDollarInfo(lines, { meter = 'week', shortStretch = SHORT_STRETCH, outside = null } = {}) {
   const sorted = byTime(lines);
-  const spend = spender(sorted);
+  const cc = outsideLines(outside);
+  const spend = spender(cc ? byTime([...sorted, ...cc]) : sorted);
+  const ccSpend = cc ? spender(cc) : null;
   const pts = readingsOf(sorted, meter);
   let rise = 0;
   let usd = 0;
+  let ccUsd = 0;
   let stretches = 0;
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1];
@@ -208,10 +228,11 @@ export function percentPerDollarInfo(lines, { meter = 'week', shortStretch = SHO
     if (!(spent > 0)) continue;
     rise += b.percent - a.percent;
     usd += spent;
+    if (ccSpend) ccUsd += ccSpend(a.t, b.t);
     stretches++;
   }
   const ratio = stretches >= MIN_STRETCHES && rise >= MIN_RISE && usd > 0 ? rise / usd : null;
-  return { ratio, stretches, rise, usd: r2(usd) };
+  return { ratio, stretches, rise, usd: r2(usd), ...(cc ? { claudeCodeUsd: r2(ccUsd) } : {}) };
 }
 
 /** Percent of the weekly limit (or the 5-hour one) per dollar, from short stretches; null when too little to go by. */
@@ -229,11 +250,12 @@ export function percentPerDollar(lines, opts = {}) {
  * only the total), 'no-readings' (no reading in the window), 'stale' (the newest reading is from an
  * earlier window).
  */
-export function limitSplit(lines, { meter = 'week', now, reading = null, ratio = undefined, shortStretch = SHORT_STRETCH } = {}) {
+export function limitSplit(lines, { meter = 'week', now, reading = null, ratio = undefined, shortStretch = SHORT_STRETCH, outside = null } = {}) {
   const end = ms(now);
   const sorted = byTime(lines).filter((l) => ms(l.t) <= end);
+  const cc = outsideLines(outside)?.filter((l) => ms(l.t) <= end) ?? null;
   const pts = readingsOf(sorted, meter, { reading }).filter((p) => p.t <= end);
-  const rate = ratio === undefined ? percentPerDollar(sorted, { meter, shortStretch }) : ratio;
+  const rate = ratio === undefined ? percentPerDollar(sorted, { meter, shortStretch, outside: cc }) : ratio;
   const span = SPANS[meter];
   const last = pts.at(-1) ?? null;
   const base = { meter, from: null, to: null, total: null, free: null, app: null, people: [], other: null, unknown: null, stretches: [], ratio: rate === null ? null : r4(rate) };
@@ -248,33 +270,48 @@ export function limitSplit(lines, { meter = 'week', now, reading = null, ratio =
   const out = { ...base, from: from === null ? null : iso(from), to: iso(last.t), total, free };
   if (rate === null) return { ...out, state: 'no-ratio' };
   const spend = spender(sorted);
+  const ccSpend = cc ? spender(cc) : () => 0;
+  const ccPart = (x) => (cc ? { claudeCode: r2(x) } : {});
   // The window starts at 0 at its reset; without a known reset the part before the first reading is unknown.
   const chain = from === null ? inWin : [{ t: from, percent: 0 }, ...inWin.filter((p) => p.t > from)];
   const stretches = [];
-  if (from === null && chain[0]) stretches.push({ from: null, to: iso(chain[0].t), rise: chain[0].percent, app: null, other: null, known: false });
+  if (from === null && chain[0]) stretches.push({ from: null, to: iso(chain[0].t), rise: chain[0].percent, app: null, ...(cc ? { claudeCode: null } : {}), other: null, known: false });
   for (let i = 1; i < chain.length; i++) {
     const a = chain[i - 1];
     const b = chain[i];
     const rise = b.percent - a.percent;
     const app = spend(a.t, b.t) * rate;
+    const ccHere = ccSpend(a.t, b.t) * rate;
     stretches.push(rise < 0
-      ? { from: iso(a.t), to: iso(b.t), rise, app: r2(app), other: null, known: false }
-      : { from: iso(a.t), to: iso(b.t), rise, app: r2(app), other: r2(rise - app), known: true });
+      ? { from: iso(a.t), to: iso(b.t), rise, app: r2(app), ...ccPart(ccHere), other: null, known: false }
+      : { from: iso(a.t), to: iso(b.t), rise, app: r2(app), ...ccPart(ccHere), other: r2(rise - app - ccHere), known: true });
   }
-  // This app's people: their spend in the window, up to the newest reading (later lines aren't on the meter yet).
+  // The people: their spend in the window, up to the newest reading (later lines aren't on the meter
+  // yet), in this app and (when counted) in Claude Code outside it.
   const lo = from ?? (chain[0]?.t ?? last.t);
-  const mine = sorted.filter((l) => ms(l.t) > lo && ms(l.t) <= last.t);
+  const inside = (l) => ms(l.t) > lo && ms(l.t) <= last.t;
   const users = new Map();
-  for (const l of mine) users.set(l.user ?? 'unknown', (users.get(l.user ?? 'unknown') ?? 0) + cost(l));
-  let people = [...users.entries()].map(([user, u]) => ({ user, usd: r2(u), percent: u * rate })).sort((x, y) => y.percent - x.percent || x.user.localeCompare(y.user));
+  const add = (user, k, u) => { const p = users.get(user) ?? { app: 0, cc: 0 }; p[k] += u; users.set(user, p); };
+  for (const l of sorted.filter(inside)) add(l.user ?? 'unknown', 'app', cost(l));
+  for (const l of (cc ?? []).filter(inside)) add(l.user ?? 'unknown', 'cc', cost(l));
+  let people = [...users.entries()].map(([user, u]) => ({ user, usd: r2(u.app), percent: u.app * rate, cc: u.cc * rate, ccUsd: u.cc }))
+    .sort((x, y) => (y.percent + y.cc) - (x.percent + x.cc) || x.user.localeCompare(y.user));
   let app = people.reduce((s, p) => s + p.percent, 0);
+  let mineCc = people.reduce((s, p) => s + p.cc, 0);
   // The estimate can come out a little over the meter (whole percents): never more than the meter shows.
-  if (app > total && app > 0) { const k = total / app; people = people.map((p) => ({ ...p, percent: p.percent * k })); app = total; }
-  const other = Math.min(Math.max(0, stretches.filter((x) => x.known).reduce((s, x) => s + x.other, 0)), total - app);
-  const unknown = Math.max(0, total - app - other);
+  if (app + mineCc > total && app + mineCc > 0) {
+    const k = total / (app + mineCc);
+    people = people.map((p) => ({ ...p, percent: p.percent * k, cc: p.cc * k }));
+    app *= k;
+    mineCc *= k;
+  }
+  const other = Math.min(Math.max(0, stretches.filter((x) => x.known).reduce((s, x) => s + x.other, 0)), total - app - mineCc);
+  const unknown = Math.max(0, total - app - mineCc - other);
   return {
-    ...out, state: 'split', app: r2(app), other: r2(other), unknown: r2(unknown),
-    people: people.map((p) => ({ ...p, percent: r2(p.percent) })),
+    ...out, state: 'split', app: r2(app), ...ccPart(mineCc), other: r2(other), unknown: r2(unknown),
+    // percent: the person's part in this app (as before); with Claude Code counted, also app (the
+    // same) and claudeCode (their part outside this app), with its spend.
+    people: people.map(({ cc: c, ccUsd, ...p }) => ({ ...p, percent: r2(p.percent), ...(cc ? { app: r2(p.percent), claudeCode: r2(c), claudeCodeUsd: r2(ccUsd) } : {}) })),
     stretches: stretches.map((x) => (x.known ? { ...x, other: r2(Math.max(0, x.other)) } : x)),
   };
 }
@@ -285,10 +322,11 @@ export function limitSplit(lines, { meter = 'week', now, reading = null, ratio =
  * window's first reading counts from the window's start, at 0. For spreading Other use over the
  * hours it happened in ("When the limit goes"); empty without percent per dollar.
  */
-export function otherStretches(lines, { meter = 'week', ratio = null, reading = null } = {}) {
+export function otherStretches(lines, { meter = 'week', ratio = null, reading = null, outside = null } = {}) {
   if (ratio === null || ratio === undefined) return [];
   const sorted = byTime(lines);
-  const spend = spender(sorted);
+  const cc = outsideLines(outside);
+  const spend = spender(cc ? byTime([...sorted, ...cc]) : sorted);
   const pts = readingsOf(sorted, meter, { reading });
   const out = [];
   for (let i = 0; i < pts.length; i++) {
@@ -309,16 +347,35 @@ export function splitWords(split, { name = 'This week' } = {}) {
   if (split.state === 'no-readings' || split.state === 'stale') return `Can’t see use outside this app yet: no limit readings ${name === 'This week' ? 'this week' : 'in this five hours'}.`;
   const head = `${name}: ${pct(split.total)} used.`;
   if (split.state === 'no-ratio') return `${head} Can’t split it between this app and other use yet: that needs a few readings close together while the app is working.`;
+  const notKnown = split.unknown >= 1 ? `, not known ${pct(split.unknown)}` : '';
+  if (typeof split.claudeCode === 'number') {
+    // Your Claude Code use counted: each part with the people in it.
+    const names = (key) => {
+      const list = split.people.filter((p) => p[key] >= 0.5);
+      return list.length ? ` (${list.map((p) => (list.length > 1 ? `${p.user} ${pct(p[key])}` : p.user)).join(', ')})` : '';
+    };
+    return `${head} In this app ${pct(split.app)}${names('app')}, in Claude Code ${pct(split.claudeCode)}${names('claudeCode')}, other use ${pct(split.other)} (claude.ai, the Claude app, other people; estimated)${notKnown}.`;
+  }
   const who = split.people.length ? ` (${split.people.map((p) => (split.people.length > 1 ? `${p.user} ${pct(p.percent)}` : p.user)).join(', ')})` : '';
-  return `${head} In this app ${pct(split.app)}${who}, other use ${pct(split.other)} (estimated)${split.unknown >= 1 ? `, not known ${pct(split.unknown)}` : ''}.`;
+  return `${head} In this app ${pct(split.app)}${who}, other use ${pct(split.other)} (estimated)${notKnown}.`;
 }
 
-/** Which part drives a rise between two moments: { app, other, words } (percent points), or null without percent per dollar. */
-export function riseDriver(lines, { from, to, rise, ratio }) {
+/**
+ * Which part drives a rise between two moments: { app, other, words } (percent points), with
+ * claudeCode (your Claude Code use outside this app) when it is counted; null without percent per dollar.
+ */
+export function riseDriver(lines, { from, to, rise, ratio, outside = null }) {
   if (ratio === null || ratio === undefined || !(rise > 0)) return null;
   const app = Math.min(rise, spender(byTime(lines))(ms(from), ms(to)) * ratio);
-  const other = rise - app;
-  return { app: r2(app), other: r2(other), words: other > app ? 'mostly from use outside this app' : 'mostly from this app’s jobs' };
+  const cc = outsideLines(outside);
+  if (!cc) {
+    const other = rise - app;
+    return { app: r2(app), other: r2(other), words: other > app ? 'mostly from use outside this app' : 'mostly from this app’s jobs' };
+  }
+  const mine = Math.min(rise - app, spender(cc)(ms(from), ms(to)) * ratio);
+  const other = rise - app - mine;
+  const words = other > app && other > mine ? 'mostly from use outside this app' : mine > app ? 'mostly from your Claude Code use outside this app' : 'mostly from this app’s jobs';
+  return { app: r2(app), claudeCode: r2(mine), other: r2(other), words };
 }
 
 const MIN_PACE_SPAN = 6 * H;
@@ -364,14 +421,17 @@ export function forecast(lines, { now, reading = null, timeZone } = {}) {
  * so a graph never shows a week or month that wasn't read as one with nothing in it. tempRoots: the
  * temp folders whose jobs are test runs (lib/insights.js tempDirs() when omitted; [] when this
  * dashboard's own job folder is a temp one, as in a test or a demo, so its jobs count).
- * timeZone: for days, times and the plan week (the computer's own when omitted).
+ * timeZone: for days, times and the plan week (the computer's own when omitted). outside: your Claude
+ * Code replies outside this app (lib/claude-code-usage.js view(): [{ t, user, usd, … }]), or null
+ * when they aren't counted (the setting off, or not read yet): then the answer is exactly as without.
  */
-export function telemetry(allLines, { window = 'week', now = new Date(), me = null, meters = null, titles = {}, timeZone, shortStretch = SHORT_STRETCH, jobs = null, audit = null, readFrom = undefined, tempRoots = undefined } = {}) {
+export function telemetry(allLines, { window = 'week', now = new Date(), me = null, meters = null, titles = {}, timeZone, shortStretch = SHORT_STRETCH, jobs = null, audit = null, readFrom = undefined, tempRoots = undefined, outside = null } = {}) {
   if (!WINDOWS.includes(window)) throw new RangeError('The window is one of 5h, week or 30d.');
   const end = ms(now);
   // Where the lines read start: the runner reads the last 31 days unless it says otherwise.
   const from = readFrom === undefined ? end - READ_DAYS * DAY : readFrom;
-  const ins = insightsFor(allLines, { window, now: end, me, meters, timeZone, titles, jobs, audit, shortStretch, readFrom: from, tempRoots });
+  const ins = insightsFor(allLines, { window, now: end, me, meters, timeZone, titles, jobs, audit, shortStretch, readFrom: from, tempRoots, outside });
+  const cc = ins.outside ? ins.outside.filter((r) => r.ms >= ins.from && r.ms <= end) : null;
   return {
     window, windowLabel: WINDOW_LABELS[window], from: iso(ins.from), to: iso(end), me,
     percentPerDollar: ins.ratio === null ? null : r4(ins.ratio),
@@ -380,5 +440,7 @@ export function telemetry(allLines, { window = 'week', now = new Date(), me = nu
     graphs: ins.graphs,
     // Which sources the graphs had: the audit log (send-backs, answers) and the job list (route size, the finish line).
     sources: { audit: Array.isArray(audit), jobs: Array.isArray(jobs) },
+    // Your Claude Code use outside this app in the window, when it is counted: spend and replies.
+    ...(cc ? { claudeCode: { usd: r2(cc.reduce((s, r) => s + r.usd, 0)), replies: cc.length } } : {}),
   };
 }

@@ -1689,7 +1689,18 @@ export type TelemetryWindow = '5h' | 'week' | '30d';
 export type TelemetryAudience = 'private' | 'common';
 export type GraphId = 'limit' | 'ticket-cost' | 'stages' | 'models' | 'people' | 'rework' | 'waiting' | 'pr1' | 'when' | 'cache';
 
-/** One meter's window split into this app's people and Other use (estimated), adding up to the meter. */
+/**
+ * A person's part of a meter. percent: their part in this app. With your Claude Code use outside
+ * this app counted (packet U), also app (the same as percent), claudeCode (their part outside this
+ * app, from this computer's Claude Code logs) and its spend.
+ */
+export interface LimitPerson { user: string; usd: number; percent: number; app?: number; claudeCode?: number; claudeCodeUsd?: number }
+
+/**
+ * One meter's window split into this app's people and Other use (estimated), adding up to the
+ * meter. With your Claude Code use counted: app + claudeCode + other + unknown = total, and other is
+ * what is left (claude.ai, the Claude app, other people).
+ */
 export interface LimitSplit {
   meter: 'week' | 'fiveHour';
   /** split: both parts known; no-ratio: only the total; no-readings / stale: nothing to go by this window. */
@@ -1699,7 +1710,9 @@ export interface LimitSplit {
   total: number | null;
   free: number | null;
   app: number | null;
-  people: { user: string; usd: number; percent: number }[];
+  /** Your Claude Code use outside this app, when it is counted (absent when it isn't). */
+  claudeCode?: number;
+  people: LimitPerson[];
   other: number | null;
   unknown: number | null;
   ratio: number | null;
@@ -1715,7 +1728,7 @@ export interface TelemetryForecast {
   resetsAt: string | null;
   atReset: number | null;
   sentence: string;
-  driver: { app: number; other: number; words: string } | null;
+  driver: { app: number; claudeCode?: number; other: number; words: string } | null;
 }
 
 export interface WeekStat { label: string; from: string }
@@ -1727,11 +1740,20 @@ export interface ModelsData {
   bars: { label: string; usd: number; parts: { key: string; usd: number; share: number }[] }[];
   saving: { stage: string; stageLabel: string; from: string; fromLabel: string; to: string; toLabel: string; usd: number; fromModel: string; toModel: string } | null;
 }
-export interface PeopleData { window: TelemetryWindow; people: { user: string; usd: number; percent: number | null }[]; others: { label: string; percent: number; estimated: true } | null; free: number | null; unknown: number | null; state: LimitSplit['state'] }
+export interface PeopleData {
+  window: TelemetryWindow;
+  /** percent: the part in this app; app, claudeCode and claudeCodeUsd only when your Claude Code use is counted. */
+  people: { user: string; usd: number; percent: number | null; app?: number | null; claudeCode?: number | null; claudeCodeUsd?: number }[];
+  others: { label: string; percent: number; estimated: true } | null;
+  free: number | null;
+  unknown: number | null;
+  state: LimitSplit['state'];
+}
 export interface ReworkData { stages?: { stage: string | null; label: string; sendBacks: number; usd: number; share: number }[] }
 export interface WaitingData { weeks?: (WeekStat & { day: number; night: number; answers: number; median: number | null })[] }
 export interface Pr1Data { items: { label: string; size: 'small' | 'large' | 'unknown'; days: number }[]; medians: Record<'small' | 'large' | 'unknown', number | null>; cap: number | null }
-export interface WhenData { unit: 'percent' | 'usd'; max: number; cells: { day: number; block: number; app: number; other: number; total: number }[] }
+/** claudeCode: your Claude Code use outside this app in the square, only when it is counted. */
+export interface WhenData { unit: 'percent' | 'usd'; max: number; cells: { day: number; block: number; app: number; claudeCode?: number; other: number; total: number }[] }
 export interface CacheData { weeks: (WeekStat & { share: number | null; input: number })[]; least: { label: string; share: number; restarts: number; usd: number }[] }
 
 interface GraphBase<I extends GraphId, D> {
@@ -1763,9 +1785,29 @@ export interface TelemetryResponse {
   percentPerDollar: number | null;
   /** Usage lines in the window. */
   lines: number;
-  limits: { week: LimitSplit; fiveHour: LimitSplit; note: string };
+  /** otherLabel: Other use's name once your Claude Code use is counted. */
+  limits: { week: LimitSplit; fiveHour: LimitSplit; note: string; otherLabel?: string };
   graphs: TelemetryGraph[];
   sources: { audit: boolean; jobs: boolean };
   meters: PlanUsage;
   file: string;
+  /** Your Claude Code use outside this app (packet U). Absent from older runners. */
+  claudeCode?: ClaudeCodeUse;
+}
+
+/**
+ * Your Claude Code use outside this app, read from this computer's Claude Code logs (dashboard/lib/claude-code-usage.js).
+ * state: off (the setting is off), demo (the demo reads none), reading (the first read is under way:
+ * the numbers are this app's only until it is done), ready, error (couldn't read them).
+ * counted: whether the numbers on the page include it. words: the state, said plainly. note: what it can't see.
+ * usd, replies: its spend and replies in the window, when counted.
+ */
+export interface ClaudeCodeUse {
+  state: 'off' | 'demo' | 'reading' | 'ready' | 'error';
+  counted: boolean;
+  words: string;
+  note: string;
+  usd: number | null;
+  replies: number | null;
+  readAt: string | null;
 }

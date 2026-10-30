@@ -6,6 +6,9 @@
 //       limits    the two meters split into this app's people and Other use (estimated), with the
 //                 note on what Other use means
 //       sources   whether the audit log and the job list were there (graphs 6 to 8 need them)
+//       claudeCode  your Claude Code use outside this app (packet U, lib/claude-code-usage.js): its
+//                 state (off, demo, reading, ready, error) in words, whether it is counted, and its
+//                 spend in the window; when counted, limits and graphs 1, 5 and 9 carry its part too
 //       meters    the plan meters now; file: where usage.jsonl is
 //   The window defaults to this week. usage.jsonl is the runner's.
 

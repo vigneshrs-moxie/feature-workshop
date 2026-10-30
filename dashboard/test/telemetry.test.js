@@ -212,6 +212,108 @@ test('other use: a meter reset in the middle starts the week again from 0', () =
   assert.equal(limitSplit(before, { now: '2026-10-29T03:00:00Z' }).state, 'stale');
 });
 
+// ---------- Your Claude Code use outside this app (packet U) ----------
+//
+// The same made-up week. Terminal use (Claude Code outside the app, read from its logs) is known
+// spend at the same true rate: each terminal reply of $0.40 raises the meter 0.8 points, as an app
+// line does. `outside` is what lib/claude-code-usage.js view() hands in: { t, user, usd }.
+/** weekLines with terminal replies: their points go on the meter, and the replies come back as `outside`. */
+function withTerminal({ bursts, terminal = [], outside = [], ...rest }) {
+  const replies = terminal.flatMap((b) => Array.from({ length: b.n }, (_, i) => ({ t: new Date(Date.parse(b.at) + i * (b.every ?? 5 * 60e3)).toISOString(), user: 'vignesh', usd: 0.4 })));
+  const l = weekLines({ bursts, outside: [...outside, ...replies.map((r) => ({ at: r.t, points: 0.4 * RATE }))], ...rest });
+  return { l, outside: replies };
+}
+
+test('Claude Code use: a stretch with only terminal use is now yours by name, not Other use', () => {
+  // The quiet evening of the test above, but this time its 40 points are vignesh's terminal use ($20: 50 replies).
+  const { l, outside } = withTerminal({ bursts: [{ at: '2026-10-29T15:00:00Z', n: 30 }, { at: '2026-10-30T01:00:00Z', n: 15 }], terminal: [{ at: '2026-10-29T19:00:00Z', n: 50, every: 6 * 60e3 }] });
+  const now = '2026-10-30T03:00:00Z';
+  const before = limitSplit(l, { now });
+  near(before.other, 40, 1.5, 'without the logs, the evening is Other use');
+  const split = limitSplit(l, { now, outside });
+  assert.equal(split.total, 76);
+  near(split.app, 36, 1.5, 'this app, as before');
+  near(split.claudeCode, 40, 1.5, 'in Claude Code: the evening');
+  near(split.other, 0, 1.5, 'Other use is what’s left: nothing');
+  near(split.app + split.claudeCode + split.other + split.unknown, 76, 0.02, 'the parts add up to the meter');
+  const vignesh = split.people.find((p) => p.user === 'vignesh');
+  near(vignesh.claudeCode, 40, 1.5, 'vignesh’s part in Claude Code');
+  assert.equal(vignesh.app, vignesh.percent, 'percent stays the part in this app');
+  assert.equal(vignesh.claudeCodeUsd, 20);
+  assert.equal(split.people.find((p) => p.user === 'sohum').claudeCode, 0);
+  const evening = split.stretches.find((x) => x.from === '2026-10-29T17:25:00.000Z');
+  near(evening.claudeCode, 40, 1, 'the evening’s rise is vignesh’s terminal use');
+  near(evening.other, 0, 1, 'not Other use');
+  // What the page gets: the words, the note and Other use's new name.
+  const t = telemetry(l, { now, window: 'week', timeZone: 'America/Phoenix', outside });
+  assert.match(t.limits.week.sentence, /^This week: 76% used\. In this app 3[56]% \(vignesh 2[34]%, sohum 1[12]%\), in Claude Code (39|40|41)% \(vignesh\), other use [01]% \(claude\.ai, the Claude app, other people; estimated\)\.$/);
+  assert.equal(t.limits.otherLabel, 'Other use (claude.ai, the Claude app, other people)');
+  assert.match(t.limits.note, /claude\.ai, the Claude app and other people/);
+  assert.match(t.limits.note, /Only this computer’s Claude Code logs are read/);
+  assert.deepEqual(t.claudeCode, { usd: 20, replies: 50 });
+  const g = Object.fromEntries(t.graphs.map((x) => [x.id, x]));
+  // Graph 5: each person in two parts, then Other use under its new name.
+  assert.match(g.people.headline, /^vignesh used (6[34]|65)% of the week \(2[34]% in this app, (39|40|41)% in Claude Code\) and sohum 1[12]% \(1[12]% in this app\); other use [01]% \(estimated\); 2[45]% is still free\.$/);
+  assert.deepEqual(g.people.table.head, ['Who', 'Share of the week', 'Spend in this app', 'Spend in Claude Code']);
+  assert.equal(g.people.table.rows[0][0], 'vignesh');
+  assert.match(g.people.table.rows[0][1], /in this app 2[34]%, in Claude Code (39|40|41)%/);
+  assert.equal(g.people.table.rows[0][3], '$20.00');
+  assert.equal(g.people.data.others.label, 'Other use (claude.ai, the Claude app, other people)');
+  // The forecast's driver: the last day's rise is mostly vignesh's terminal use.
+  assert.equal(typeof g.limit.data.forecast.driver.claudeCode, 'number');
+});
+
+test('Claude Code use: terminal use between two readings no longer inflates percent per dollar', () => {
+  // A burst where vignesh also works in a terminal: a reply every five minutes, in between the app's lines.
+  const { l, outside } = withTerminal({ bursts: [{ at: '2026-10-29T15:00:00Z', n: 30 }], terminal: [{ at: '2026-10-29T15:02:00Z', n: 20 }] });
+  const without = percentPerDollarInfo(l);
+  // Counting only the app's spend, the terminal's 16 points look like the app's: 40 points over $12 is about 3.3.
+  near(without.ratio, 40 / 12, 0.2, 'without the logs, inflated');
+  const info = percentPerDollarInfo(l, { outside });
+  near(info.ratio, RATE, 0.1, 'with the terminal spend counted, the true rate');
+  assert.equal(info.claudeCodeUsd, 8);
+  assert.ok(info.stretches >= without.stretches);
+  // And so the split: this app's part is no longer overstated.
+  const now = '2026-10-29T18:00:00Z';
+  near(limitSplit(l, { now }).app, 40, 1.5, 'without the logs, the app takes it all');
+  const split = limitSplit(l, { now, outside });
+  near(split.app, 24, 1.5, 'this app');
+  near(split.claudeCode, 16, 1.5, 'in Claude Code');
+  near(split.other, 0, 1.5, 'nothing left');
+});
+
+test('Claude Code use: with the setting off (or not read yet), everything is exactly as without it', () => {
+  // outside null is what the runner hands in then.
+  for (const window of ['5h', 'week', '30d']) assert.deepEqual(telemetry(lines, { ...OPTS, window, outside: null }), telemetry(lines, { ...OPTS, window }), window);
+  const l = weekLines({ bursts: [{ at: '2026-10-29T15:00:00Z', n: 30 }, { at: '2026-10-30T01:00:00Z', n: 15 }], outside: [{ at: '2026-10-29T19:00:00Z', points: 25 }] });
+  const opts = { now: '2026-10-30T03:00:00Z', window: 'week', timeZone: 'America/Phoenix' };
+  const off = telemetry(l, { ...opts, outside: null });
+  assert.deepEqual(off, telemetry(l, opts));
+  assert.equal('claudeCode' in off, false);
+  assert.equal('otherLabel' in off.limits, false);
+  assert.equal('claudeCode' in off.limits.week, false);
+  assert.deepEqual(Object.keys(off.limits.week.people[0]).sort(), ['percent', 'usd', 'user']);
+  assert.deepEqual(percentPerDollarInfo(l, { outside: null }), percentPerDollarInfo(l));
+  assert.deepEqual(limitSplit(l, { now: opts.now, outside: null }), limitSplit(l, { now: opts.now }));
+});
+
+test('Claude Code use: the graphs about this app’s own jobs never include it; People and When the limit goes do', () => {
+  const { l, outside } = withTerminal({ bursts: [{ at: '2026-10-29T15:00:00Z', n: 30 }], terminal: [{ at: '2026-10-29T19:00:00Z', n: 20 }] });
+  const opts = { now: '2026-10-30T03:00:00Z', window: 'week', timeZone: 'America/Phoenix' };
+  const off = Object.fromEntries(telemetry(l, opts).graphs.map((g) => [g.id, g]));
+  const on = Object.fromEntries(telemetry(l, { ...opts, outside }).graphs.map((g) => [g.id, g]));
+  for (const id of ['ticket-cost', 'stages', 'models', 'rework', 'waiting', 'pr1', 'cache']) assert.deepEqual(on[id], off[id], id);
+  // When the limit goes: the terminal's 16 points sit in their own part of Thursday's squares.
+  const cc = on.when.data.cells.reduce((s, c) => s + c.claudeCode, 0);
+  near(cc, 16, 0.5, 'in Claude Code, in all');
+  for (const c of on.when.data.cells) near(c.total, c.app + c.claudeCode + c.other, 0.001, 'each square adds up');
+  assert.deepEqual(on.when.table.head, ['Day', 'In this app', 'In Claude Code', 'Other use (estimated)', 'Busiest two hours']);
+  assert.equal(off.when.data.cells.some((c) => 'claudeCode' in c), false);
+  // The last 30 days (no meter): dollars, each part named.
+  const month = Object.fromEntries(telemetry(l, { ...opts, window: '30d', outside }).graphs.map((g) => [g.id, g]));
+  assert.match(month.people.headline, /^vignesh spent \$\d+\.\d\d in this app and \$8\.00 in Claude Code, sohum \$\d+\.\d\d in this app\.$/);
+});
+
 test('forecast: the last 24 hours’ rise, worked out by hand', () => {
   // Newest: 87 % at 28 Oct 07:00. A day before: 27 Oct 07:00, at 2 × (1.5 + 4 × 7.5 + 1.5 + 3) = 72 %.
   // 15 points in 24 hours = 0.625 an hour; 13 to go = 20.8 hours = 20 h 48 min: Thursday 29 Oct 03:48,
@@ -371,6 +473,9 @@ test('GET /api/telemetry: the ten graphs for the window, from usage.jsonl in the
     assert.equal((await bad.json()).error, 'The window is one of 5h, week or 30d.');
     assert.equal((await fetch(`${d.base}/api/telemetry/other`)).status, 404);
     assert.equal((await d.write('POST', '/api/telemetry', {})).status, 405);
+    // The demo never reads Claude Code's logs: it says so, and nothing is counted.
+    assert.deepEqual(body.claudeCode, { state: 'demo', counted: false, words: 'The demo doesn’t read Claude Code’s logs.', note: body.claudeCode.note, usd: null, replies: null, readAt: null });
+    assert.match(body.claudeCode.note, /^Only this computer’s Claude Code logs are read\./);
   } finally {
     await d.stop();
   }
