@@ -7,7 +7,7 @@
 // 1. Starts the site on http://localhost:4507 (hosted/dev.js startLocalSite): PGlite in memory, the
 //    fake Google, the page built by hosted/scripts/build.js.
 // 2. Signs in as two made-up people at example.test, through the sign-in page and the fake Google.
-// 3. Starts two laptops: the demo's runner (WORKSHOP_DEMO=1, nothing real runs), each with its own
+// 3. Starts two laptops: the demo's runner (STARBASE_DEMO=1, nothing real runs), each with its own
 //    temporary home and folders, its local page on no port (laptop-host.mjs); the second keeps only
 //    five of the demo's jobs. Each is paired with `ground-control login --site …`: the person opens
 //    the link it prints and presses "Pair this laptop".
@@ -22,6 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startLocalSite } from '../dev.js';
+import { OLD_NAMES } from '../../dashboard/lib/env-names.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');
@@ -47,8 +48,8 @@ function laptopEnv(name) {
   const tmp = path.join(WORK, name, 'tmp');
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(tmp, { recursive: true });
-  const env = { ...process.env, HOME: home, USERPROFILE: home, TMPDIR: tmp, TEMP: tmp, TMP: tmp, PORT: String(PORT), WORKSHOP_STATE_DIR: path.join(tmp, 'feature-workshop-demo', 'state'), WORKSHOP_ORBIT_STORE: 'file', WORKSHOP_DEMO: '1' };
-  for (const k of ['GROUND_CONTROL_DIR', 'WORKSHOP_FEATURES_DIR', 'WORKSHOP_PROJECTS_DIR', 'WORKSHOP_SKILLS_DIR', 'WORKSHOP_AGENTS_DIR']) delete env[k];
+  const env = { ...process.env, HOME: home, USERPROFILE: home, TMPDIR: tmp, TEMP: tmp, TMP: tmp, PORT: String(PORT), STARBASE_STATE_DIR: path.join(tmp, 'feature-workshop-demo', 'state'), STARBASE_ORBIT_STORE: 'file', STARBASE_DEMO: '1' };
+  for (const k of ['STARBASE_DIR', 'STARBASE_FEATURES_DIR', 'STARBASE_PROJECTS_DIR', 'STARBASE_SKILLS_DIR', 'STARBASE_AGENTS_DIR']) { delete env[k]; delete env[OLD_NAMES[k]]; }
   return env;
 }
 

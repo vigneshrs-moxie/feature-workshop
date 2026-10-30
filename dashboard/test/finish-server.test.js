@@ -48,9 +48,9 @@ before(async () => {
     env: {
       // The screens server takes PORT+1 unless told: give it its own free port, so a neighbour
       // test's server on the next number can't stop this one starting.
-      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(await freePort()), HOME: dirs.home, WORKSHOP_DEMO: '1',
-      WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
-      WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
+      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(await freePort()), HOME: dirs.home, STARBASE_DEMO: '1',
+      STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -73,7 +73,7 @@ after(async () => {
 });
 
 const post = async (p, body = {}) => {
-  const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify(body) });
+  const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: JSON.stringify(body) });
   return { status: res.status, body: await res.json() };
 };
 const get = async (p) => (await fetch(base + p)).json();

@@ -83,10 +83,10 @@ test('while a copy from before the move still runs from the old folder, the file
   assert.equal(stateDirNow(home), old);
 });
 
-test('stateDirFor: WORKSHOP_STATE_DIR wins, then demo mode’s folder, then the folder in use', () => {
+test('stateDirFor: STARBASE_STATE_DIR wins, then demo mode’s folder, then the folder in use', () => {
   const { home, old } = makeHome();
-  assert.equal(stateDirFor({ WORKSHOP_STATE_DIR: '/x/state' }, home), path.resolve('/x/state'));
-  assert.equal(stateDirFor({ WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: '/x/features' }, home), path.join(path.resolve('/x'), 'state'));
+  assert.equal(stateDirFor({ STARBASE_STATE_DIR: '/x/state' }, home), path.resolve('/x/state'));
+  assert.equal(stateDirFor({ STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: '/x/features' }, home), path.join(path.resolve('/x'), 'state'));
   assert.equal(stateDirFor({}, home), old);
 });
 
@@ -95,7 +95,7 @@ function newStateIn(home, env = {}) {
   const code = `const { State } = await import(${JSON.stringify(STATE_JS)}); console.log(JSON.stringify({ dir: new State().dir }));`;
   return new Promise((resolve, reject) => {
     const childEnv = { ...process.env, HOME: home, USERPROFILE: home, ...env };
-    if (!env.WORKSHOP_STATE_DIR) delete childEnv.WORKSHOP_STATE_DIR;
+    if (!env.STARBASE_STATE_DIR) delete childEnv.STARBASE_STATE_DIR;
     execFile(process.execPath, ['--input-type=module', '-e', code], { env: childEnv }, (err, stdout, stderr) => {
       if (err) return reject(new Error(stderr || err.message));
       resolve(JSON.parse(stdout.trim().split('\n').at(-1)));
@@ -103,11 +103,11 @@ function newStateIn(home, env = {}) {
   });
 }
 
-test('new State() with WORKSHOP_STATE_DIR moves nothing; without it, it moves and uses ~/.ground-control', async () => {
+test('new State() with STARBASE_STATE_DIR moves nothing; without it, it moves and uses ~/.ground-control', async () => {
   const { home, old, now } = makeHome();
   const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'gc-state-'));
-  assert.equal((await newStateIn(home, { WORKSHOP_STATE_DIR: elsewhere })).dir, elsewhere);
-  assert.ok(fs.existsSync(path.join(old, 'settings.json')), 'WORKSHOP_STATE_DIR: the old folder is left alone');
+  assert.equal((await newStateIn(home, { STARBASE_STATE_DIR: elsewhere })).dir, elsewhere);
+  assert.ok(fs.existsSync(path.join(old, 'settings.json')), 'STARBASE_STATE_DIR: the old folder is left alone');
   assert.ok(!fs.existsSync(path.join(old, MOVED_NOTE)));
 
   assert.equal((await newStateIn(home)).dir, now);

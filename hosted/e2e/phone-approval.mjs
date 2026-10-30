@@ -23,6 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startLocalSite } from '../dev.js';
+import { OLD_NAMES } from '../../dashboard/lib/env-names.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');
@@ -44,8 +45,8 @@ function laptopEnv(name) {
   const tmp = path.join(WORK, name, 'tmp');
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(tmp, { recursive: true });
-  const env = { ...process.env, HOME: home, USERPROFILE: home, TMPDIR: tmp, TEMP: tmp, TMP: tmp, PORT: String(PORT), WORKSHOP_STATE_DIR: path.join(tmp, 'feature-workshop-demo', 'state'), WORKSHOP_ORBIT_STORE: 'file', WORKSHOP_DEMO: '1' };
-  for (const k of ['GROUND_CONTROL_DIR', 'WORKSHOP_FEATURES_DIR', 'WORKSHOP_PROJECTS_DIR', 'WORKSHOP_SKILLS_DIR', 'WORKSHOP_AGENTS_DIR']) delete env[k];
+  const env = { ...process.env, HOME: home, USERPROFILE: home, TMPDIR: tmp, TEMP: tmp, TMP: tmp, PORT: String(PORT), STARBASE_STATE_DIR: path.join(tmp, 'feature-workshop-demo', 'state'), STARBASE_ORBIT_STORE: 'file', STARBASE_DEMO: '1' };
+  for (const k of ['STARBASE_DIR', 'STARBASE_FEATURES_DIR', 'STARBASE_PROJECTS_DIR', 'STARBASE_SKILLS_DIR', 'STARBASE_AGENTS_DIR']) { delete env[k]; delete env[OLD_NAMES[k]]; }
   return env;
 }
 

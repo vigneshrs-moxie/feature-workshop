@@ -1,7 +1,7 @@
 // The Stage (packet M): one stop of a job and everyone who works or worked it (lib/stage-view.js),
 // and its two routes on a demo dashboard (site/routes-stage.js, try-it 'follow' in the runner).
 // No terminal is ever opened: the pure view is tested with platform names, and the demo dashboard
-// (WORKSHOP_DEMO=1) answers 'follow' without launching anything.
+// (STARBASE_DEMO=1) answers 'follow' without launching anything.
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -258,7 +258,7 @@ describe('the Stage routes', () => {
   const output = [];
   const get = (p) => fetch(base + p);
   const post = (p, body = {}, { withToken = true } = {}) => fetch(base + p, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', ...(withToken ? { 'X-Workshop-Token': token } : {}) }, body: JSON.stringify(body),
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...(withToken ? { 'X-Starbase-Token': token } : {}) }, body: JSON.stringify(body),
   });
   const jsonl = (rows) => `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`;
 
@@ -288,8 +288,8 @@ describe('the Stage routes', () => {
     ]));
     dashboard = await startDashboard({
       env: {
-        HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: dirs.features, WORKSHOP_PROJECTS_DIR: dirs.projects,
-        WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
+        HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: dirs.features, STARBASE_PROJECTS_DIR: dirs.projects,
+        STARBASE_AGENTS_DIR: dirs.agents, STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
       },
       output,
     });

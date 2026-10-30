@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 30
     env:
       # Demo mode in every server test; no Claude usage is read or spent.
-      WORKSHOP_PLAN_USAGE: 'off'
+      STARBASE_PLAN_USAGE: 'off'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

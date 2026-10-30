@@ -35,7 +35,7 @@ async function writeJob(slug, { status, options = null }) {
 }
 const optionsOf = async (slug) => JSON.parse(await fs.readFile(path.join(featuresDir, slug, 'options.json'), 'utf8').catch(() => 'null'));
 const write = async (p, body) => {
-  const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify(body) });
+  const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: JSON.stringify(body) });
   return { status: res.status, body: await res.json() };
 };
 const getJson = async (p) => (await fetch(base + p)).json();
@@ -71,7 +71,7 @@ before(async () => {
   git('add', '.'); git('commit', '-q', '-m', 'change');
   await writeJob('tweak', { status: { title: 'Tweak', stage: 'implement', stage_state: 'working', worktree: repo, base_sha: baseSha, repo: { path: repo, base_branch: 'main' } }, options: { level: 0, flow: 'quick', title: 'Fix the typo on the save button' } });
 
-  dashboard = await startDashboard({ env: { HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state }, output });
+  dashboard = await startDashboard({ env: { HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents, STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state }, output });
   ({ base } = dashboard);
   token = (await getJson('/api/meta')).token;
 });

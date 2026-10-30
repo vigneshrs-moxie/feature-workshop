@@ -22,12 +22,12 @@ import { runCommand } from './service.js';
 import { PRODUCT } from './state.js';
 
 export const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-/** The GitHub repository the releases come from (GROUND_CONTROL_RELEASE_REPO overrides it). */
+/** The GitHub repository the releases come from (STARBASE_RELEASE_REPO overrides it). */
 export const RELEASE_REPO = 'vigneshrs-moxie/feature-workshop';
 export const SUMS_FILE = 'SHA256SUMS';
 export const CHECKSUM_MISMATCH = 'The download didn’t match its checksum. Nothing was changed.';
 
-export const releaseRepo = (env = process.env) => env.GROUND_CONTROL_RELEASE_REPO || RELEASE_REPO;
+export const releaseRepo = (env = process.env) => env.STARBASE_RELEASE_REPO || RELEASE_REPO;
 
 /** The running version, from package.json. */
 export function currentVersion(root = PACKAGE_ROOT) {

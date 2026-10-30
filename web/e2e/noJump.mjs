@@ -7,7 +7,7 @@
 // the item itself and what is under it in its own column may move.
 //
 // Run it against a running app (the demo is best):
-//   PORT=4493 WORKSHOP_DEMO=1 node dashboard/demo/run-demo.js      # in one terminal
+//   PORT=4493 STARBASE_DEMO=1 node dashboard/demo/run-demo.js      # in one terminal
 //   node web/e2e/noJump.mjs                                         # in another
 // On a phone (under 600 px) the graphs start folded, so each is unfolded first and folded back.
 // Environment: BASE (default http://127.0.0.1:4493/next/), WIDTHS (comma list, default

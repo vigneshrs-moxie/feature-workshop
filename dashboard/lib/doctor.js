@@ -216,7 +216,7 @@ export async function runDoctor(opts = {}) {
 function defaultTokenSaved({ env, home }) {
   return async () => {
     const { tokenStore } = await import('./orbit-token.js');
-    const store = await tokenStore({ stateDir: stateDirFor(env, home), prefer: env.WORKSHOP_ORBIT_STORE === 'file' || env.WORKSHOP_DEMO ? 'file' : 'auto' });
+    const store = await tokenStore({ stateDir: stateDirFor(env, home), prefer: env.STARBASE_ORBIT_STORE === 'file' || env.STARBASE_DEMO ? 'file' : 'auto' });
     return Boolean(await store.get());
   };
 }

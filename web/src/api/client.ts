@@ -1,5 +1,5 @@
 // Talking to the dashboard. Reads are plain GETs. Writes (POST, DELETE) carry JSON and the page token
-// (header X-Workshop-Token, from /api/meta); the dashboard refuses a write without it (403). The
+// (header X-Starbase-Token, from /api/meta); the dashboard refuses a write without it (403). The
 // token changes when the dashboard restarts, so on a 403 the client fetches /api/meta once more
 // and retries the write once with the new token.
 // Hosted mode (packet 2A: /api/meta says mode 'hosted', or createApi({ hosted: true })): the site
@@ -65,7 +65,7 @@ export function createApi({ fetch: f = (...a: Parameters<Fetch>) => fetch(...a),
     return f(base + path, {
       method,
       credentials: 'same-origin',
-      headers: hosted ? { 'Content-Type': 'application/json', Accept: 'application/json' } : { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Workshop-Token': token ?? '' },
+      headers: hosted ? { 'Content-Type': 'application/json', Accept: 'application/json' } : { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Starbase-Token': token ?? '' },
       body: JSON.stringify(body ?? {}),
     });
   }

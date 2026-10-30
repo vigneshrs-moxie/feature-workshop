@@ -2,7 +2,7 @@
 // bar's usage meters. The same numbers Claude Code's /usage shows: GET api.anthropic.com/api/oauth/usage
 // with the Claude Code sign-in you already have (macOS Keychain "Claude Code-credentials", else
 // ~/.claude/.credentials.json). Read-only: nothing is sent but the request itself, and the token is
-// never logged, stored or passed on. Off in demo mode and when WORKSHOP_PLAN_USAGE=off.
+// never logged, stored or passed on. Off in demo mode and when STARBASE_PLAN_USAGE=off.
 //
 // The token, the clock and fetch are injectable, so tests never touch the network or the Keychain.
 // After each good read the warnings at 80 %, 90 % and full are worked out (lib/usage-warnings.js);

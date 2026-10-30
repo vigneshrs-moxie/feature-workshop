@@ -58,7 +58,7 @@ async function startDashboard(env) {
   const token = (await (await fetch(`${base}/api/meta`)).json()).token;
   const get = async (p) => (await fetch(base + p)).json();
   const write = async (p, body = {}) => {
-    const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify(body) });
+    const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: JSON.stringify(body) });
     return { status: res.status, body: await res.json() };
   };
   const stop = async (signal = 'SIGTERM') => {
@@ -96,8 +96,8 @@ async function makeJob() {
   // Every step asks, so the pretend Foreman's reply waits on a permission card.
   await fs.writeFile(path.join(dirs.state, 'settings.json'), JSON.stringify({ policy: 'ask-all' }));
   const env = {
-    HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects,
-    WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
+    HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects,
+    STARBASE_AGENTS_DIR: dirs.agents, STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
   };
   const audit = () => fsSync.readFileSync(path.join(dirs.state, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   return { env, audit, dirs: { ...dirs, job } };

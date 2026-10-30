@@ -32,7 +32,7 @@
 // download and can't decide about the database tests), then canUseTool for anything left to ask.
 // In auto mode it also tries to push its branch, so you see a hard line ask even there. Say
 // "push" in your message and it pushes in any mode, and also tries a force push to the org repo,
-// which the dashboard refuses. Set WORKSHOP_DEMO_NO_AUTO=1 to play an account without auto mode:
+// which the dashboard refuses. Set STARBASE_DEMO_NO_AUTO=1 to play an account without auto mode:
 // asked for 'auto', it starts in 'default', as Claude Code does.
 //
 // Steer: like the SDK, it keeps reading its input all through the reply, so a message you steer in
@@ -65,7 +65,7 @@ function judge(name, input) {
 }
 
 // pace: scales its pauses (tests pass a small one; 1 reads like a person watching).
-export function makeFakeQuery({ featuresDir, autoAvailable = !process.env.WORKSHOP_DEMO_NO_AUTO, pace = 1 }) {
+export function makeFakeQuery({ featuresDir, autoAvailable = !process.env.STARBASE_DEMO_NO_AUTO, pace = 1 }) {
   const nap = (ms) => sleep(ms * pace);
   return function fakeQuery({ prompt, options }) {
     let interrupted = false;

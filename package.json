@@ -1,7 +1,7 @@
 {
-  "name": "@moxie/ground-control",
+  "name": "@moxie/starbase",
   "version": "0.1.0",
-  "description": "Ground Control: run Claude Code feature jobs from one local dashboard.",
+  "description": "Starbase: run Claude Code feature jobs from one page on your own computer.",
   "type": "module",
   "bin": {
     "ground-control": "bin/ground-control.js"

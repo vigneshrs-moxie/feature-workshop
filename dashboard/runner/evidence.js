@@ -18,7 +18,7 @@
 //
 // Playwright is the dashboard's own, pinned in package.json (@playwright/test), run as
 // `node <its cli.js> test --config <evidence/playwright.config.mjs>` in the job's worktree: that is
-// `npx playwright test` without npx looking anything up. WORKSHOP_PLAYWRIGHT names another script
+// `npx playwright test` without npx looking anything up. STARBASE_PLAYWRIGHT names another script
 // to run the same way (the tests' fake, which copies dashboard/test/fixtures/evidence/). In demo
 // mode nothing real runs, so only that script can record there.
 
@@ -73,10 +73,10 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     return f;
   };
 
-  /** The way Playwright runs here: the fake (WORKSHOP_PLAYWRIGHT), the dashboard's own, or none. */
+  /** The way Playwright runs here: the fake (STARBASE_PLAYWRIGHT), the dashboard's own, or none. */
   function playwright() {
     const own = ownPlaywright();
-    if (env.WORKSHOP_PLAYWRIGHT) return { script: env.WORKSHOP_PLAYWRIGHT, url: own?.url ?? '@playwright/test' };
+    if (env.STARBASE_PLAYWRIGHT) return { script: env.STARBASE_PLAYWRIGHT, url: own?.url ?? '@playwright/test' };
     if (demo || !own) return null;
     return { script: own.cli, url: own.url };
   }

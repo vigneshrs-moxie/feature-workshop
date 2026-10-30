@@ -549,9 +549,9 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   const output = [];
   const child = spawn(process.execPath, [path.join(HERE, '..', 'server.js')], {
     env: {
-      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(await freePort()), HOME: dirs.home, WORKSHOP_DEMO: '1',
-      WORKSHOP_FEATURES_DIR: dirs.features, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
-      WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state, GROUND_CONTROL_ORBIT_URL: '',
+      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(await freePort()), HOME: dirs.home, STARBASE_DEMO: '1',
+      STARBASE_FEATURES_DIR: dirs.features, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state, STARBASE_ORBIT_URL: '',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -568,7 +568,7 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   const bodies = [];
   const get = async (p) => { const res = await fetch(base + p); const text = await res.text(); bodies.push(text); return { status: res.status, body: JSON.parse(text) }; };
   const write = async (method, p, body = {}, { auth = true } = {}) => {
-    const res = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Workshop-Token': pageToken } : {}) }, body: JSON.stringify(body) });
+    const res = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Starbase-Token': pageToken } : {}) }, body: JSON.stringify(body) });
     const text = await res.text();
     bodies.push(text);
     return { status: res.status, body: JSON.parse(text) };
@@ -676,7 +676,7 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   await assert.rejects(fs.stat(path.join(dirs.state, 'orbit-token')));
   assert.equal(JSON.parse(await fs.readFile(path.join(dirs.home, '.claude.json'), 'utf8')).mcpServers, undefined);
   assert.deepEqual((await get('/api/orbit/inbox')).body.items, []);
-  assert.equal((await fetch(`${base}/api/orbit/token`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': pageToken }, body: '{}' })).status, 405);
+  assert.equal((await fetch(`${base}/api/orbit/token`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': pageToken }, body: '{}' })).status, 405);
 });
 
 // ---------- Step 7: no write path to Orbit ----------

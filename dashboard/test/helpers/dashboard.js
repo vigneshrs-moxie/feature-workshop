@@ -1,9 +1,9 @@
 // One demo dashboard for a server test: its own free ports for PORT and WIREFRAMES_PORT (so two
-// tests running at once never share a screens port), WORKSHOP_DEMO=1 (a pretend Foreman: no model
+// tests running at once never share a screens port), STARBASE_DEMO=1 (a pretend Foreman: no model
 // calls), the test's own state folders, and a stop() that stops the whole process tree and always
 // returns, even when the dashboard has already exited.
 //
-//   const d = await startDashboard({ env: { HOME: home, WORKSHOP_FEATURES_DIR: … }, stateDir, output });
+//   const d = await startDashboard({ env: { HOME: home, STARBASE_FEATURES_DIR: … }, stateDir, output });
 //   d.base, d.port, d.screensPort, d.token, d.child, d.output; await d.stop();
 //
 // HOME is copied to USERPROFILE, which is where Windows looks for the home folder, so a test's
@@ -55,7 +55,7 @@ const exited = (child, ms) => new Promise((resolve) => {
 
 /**
  * Start server.js and wait for its first line. env: added to (and over) process.env, after
- * WORKSHOP_DEMO=1; stateDir: WORKSHOP_STATE_DIR; output: an array the dashboard's output is pushed
+ * STARBASE_DEMO=1; stateDir: STARBASE_STATE_DIR; output: an array the dashboard's output is pushed
  * to (the test's own, for its messages); ready: what the first line says. Rejects with the output
  * when the dashboard exits or says nothing in time (and stops it first).
  */
@@ -75,8 +75,8 @@ export async function startDashboard(opts = {}) {
 async function startOnce({ env = {}, stateDir = null, output = [], ready = 'running at', startMs = 20_000 } = {}) {
   const port = await freePort();
   const screensPort = await freePort([port]);
-  const childEnv = { ...process.env, WORKSHOP_DEMO: '1', ...env, PORT: String(port), WIREFRAMES_PORT: String(screensPort) };
-  if (stateDir) childEnv.WORKSHOP_STATE_DIR = stateDir;
+  const childEnv = { ...process.env, STARBASE_DEMO: '1', ...env, PORT: String(port), WIREFRAMES_PORT: String(screensPort) };
+  if (stateDir) childEnv.STARBASE_STATE_DIR = stateDir;
   if (env.HOME && !env.USERPROFILE) childEnv.USERPROFILE = env.HOME;
   const child = spawn(process.execPath, [SERVER], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
   running.add(child);

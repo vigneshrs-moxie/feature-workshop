@@ -1,5 +1,5 @@
 // Review rounds through the real dashboard in demo mode (packet Q). The demo's flow map puts the job
-// at PR #2 (PR #1 merged, PR #2 open into staging); a fake gh (WORKSHOP_GH) says Raj asked for
+// at PR #2 (PR #1 merged, PR #2 open into staging); a fake gh (STARBASE_GH) says Raj asked for
 // changes with two line comments. The job's worktree is a real local clone whose fork (origin) is a
 // local bare repository, so the push is real and goes nowhere else. Every step asks (ask-all).
 //
@@ -138,8 +138,8 @@ async function makeJob() {
   await fs.writeFile(gh, FAKE_GH, { mode: 0o755 });
 
   const env = {
-    HOME: dirs.home, WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects,
-    WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_GH: gh,
+    HOME: dirs.home, STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects,
+    STARBASE_AGENTS_DIR: dirs.agents, STARBASE_SKILLS_DIR: dirs.skills, STARBASE_GH: gh,
   };
   const lines = (file) => (fsSync.existsSync(file) ? fsSync.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
   const audit = () => lines(path.join(dirs.state, 'audit.jsonl'));
@@ -154,7 +154,7 @@ async function makeJob() {
 function client(d, output) {
   const get = async (p) => (await fetch(d.base + p)).json();
   const write = async (p, body = {}) => {
-    const res = await fetch(d.base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': d.token }, body: JSON.stringify(body) });
+    const res = await fetch(d.base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': d.token }, body: JSON.stringify(body) });
     return { status: res.status, body: await res.json() };
   };
   const waitFor = async (fn, what, ms = 20000) => {

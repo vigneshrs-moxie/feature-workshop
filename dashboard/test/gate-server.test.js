@@ -1,6 +1,6 @@
 // Levels, brief versions, the gate card and gate parking as the job page and the snapshot show
 // them. Starts the real dashboard in demo mode (a pretend Foreman, nothing real runs) on temp
-// folders with the parking time cut to under a second (WORKSHOP_GATE_PARK_MS), so no real job,
+// folders with the parking time cut to under a second (STARBASE_GATE_PARK_MS), so no real job,
 // ~/.claude or ~/.feature-workshop is touched and no Claude usage is spent.
 
 import { test, before, after } from 'node:test';
@@ -100,9 +100,9 @@ before(async () => {
 
   dashboard = await startDashboard({
     env: {
-      HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_GATE_PARK_MS: '600',
-      WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
-      WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
+      HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_GATE_PARK_MS: '600',
+      STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
     },
     output,
   });

@@ -1,8 +1,8 @@
 {
-  "name": "feature-workshop-web",
+  "name": "starbase-web",
   "version": "0.1.0",
   "private": true,
-  "description": "The new Feature Workshop UI, served by the dashboard at /next.",
+  "description": "Starbase's page, served by Starbase at /next (and by the hosted site at /).",
   "type": "module",
   "scripts": {
     "dev": "vite",

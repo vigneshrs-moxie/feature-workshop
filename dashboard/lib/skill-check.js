@@ -4,7 +4,7 @@
 //
 // Reads <skills dir>/feature/job-options.md, READ ONLY, and looks for its Levels table: a
 // "## Levels" heading and a table whose header starts "| Level |". The skills dir is the
-// dashboard's SKILLS_DIR (WORKSHOP_SKILLS_DIR overrides ~/.claude/skills, so tests never read the
+// dashboard's SKILLS_DIR (STARBASE_SKILLS_DIR overrides ~/.claude/skills, so tests never read the
 // real one). The answer is kept until the file's modification time or size changes, so asking on
 // every /api/meta costs one stat.
 

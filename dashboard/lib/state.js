@@ -1,7 +1,7 @@
 // The dashboard's own small state, kept outside ~/.claude:
 //   sessions.json  which Claude Code session drives each job, and who took it over
 //   audit.jsonl    everything sent or decided from the browser, with the exact words
-// Default folder: ~/.ground-control (WORKSHOP_STATE_DIR overrides it). Before packet I it was
+// Default folder: ~/.ground-control (STARBASE_STATE_DIR overrides it). Before packet I it was
 // ~/.feature-workshop: the first start with the new default moves those files across once
 // (moveOldState below).
 
@@ -65,7 +65,7 @@ export const MOVED_NOTE = 'MOVED.txt';
 // service.json belongs to the copy that wrote it: a stopped one's is stale, a running one's is its own.
 const NOT_MOVED = new Set([MOVED_NOTE, 'service.json', 'stop-request']);
 
-/** ~/.ground-control: the state folder when WORKSHOP_STATE_DIR doesn't name one. */
+/** ~/.ground-control: the state folder when STARBASE_STATE_DIR doesn't name one. */
 export const defaultStateDir = (home = os.homedir()) => path.join(home, STATE_FOLDER);
 
 const pidAliveHere = (pid) => {
@@ -153,13 +153,13 @@ export function stateDirNow(home = os.homedir()) {
 }
 
 /**
- * The state folder by the host's rule (dashboard/server.js): WORKSHOP_STATE_DIR, else in demo mode
- * the folder `state` next to WORKSHOP_FEATURES_DIR, else stateDirNow().
+ * The state folder by the host's rule (dashboard/server.js): STARBASE_STATE_DIR, else in demo mode
+ * the folder `state` next to STARBASE_FEATURES_DIR, else stateDirNow().
  */
 export function stateDirFor(env = process.env, home = os.homedir()) {
-  if (env.WORKSHOP_STATE_DIR) return path.resolve(env.WORKSHOP_STATE_DIR);
-  if (env.WORKSHOP_DEMO) {
-    const features = path.resolve(env.WORKSHOP_FEATURES_DIR || path.join(home, '.claude', 'feature-work'));
+  if (env.STARBASE_STATE_DIR) return path.resolve(env.STARBASE_STATE_DIR);
+  if (env.STARBASE_DEMO) {
+    const features = path.resolve(env.STARBASE_FEATURES_DIR || path.join(home, '.claude', 'feature-work'));
     return path.join(path.dirname(features), 'state');
   }
   return stateDirNow(home);
@@ -168,9 +168,9 @@ export function stateDirFor(env = process.env, home = os.homedir()) {
 // Emits 'audit' (the entry as written) after each audit line is saved, so live views can say
 // which job's conversation just changed.
 export class State extends EventEmitter {
-  // With no folder named (and no WORKSHOP_STATE_DIR) it is ~/.ground-control, and the old
+  // With no folder named (and no STARBASE_STATE_DIR) it is ~/.ground-control, and the old
   // ~/.feature-workshop is moved into it first, once (moveOldState).
-  constructor(dir = process.env.WORKSHOP_STATE_DIR || null) {
+  constructor(dir = process.env.STARBASE_STATE_DIR || null) {
     super();
     if (!dir) {
       const r = moveOldState();

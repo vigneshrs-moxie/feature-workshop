@@ -14,9 +14,9 @@ function dashboard(tokens: string[], onWrite: (body: unknown) => Reply = () => (
     if (path === '/api/meta') { const token = tokens[Math.min(metaCalls, tokens.length - 1)]; metaCalls++; return json(200, { token }); }
     if (path === '/api/snapshot') return json(200, { v: 2, seq: 1, epoch: 'e', meta: { token: 'from-snapshot' }, jobs: [] });
     const headers = new Headers(init?.headers);
-    writes.push({ token: headers.get('X-Workshop-Token'), contentType: headers.get('Content-Type') });
+    writes.push({ token: headers.get('X-Starbase-Token'), contentType: headers.get('Content-Type') });
     const current = tokens[Math.min(Math.max(metaCalls - 1, 0), tokens.length - 1)];
-    if (headers.get('X-Workshop-Token') !== current) return json(403, { error: 'This action must come from the Feature Workshop page.' });
+    if (headers.get('X-Starbase-Token') !== current) return json(403, { error: 'This action must come from the Starbase page.' });
     const r = onWrite(JSON.parse(String(init?.body)));
     return json(r.status, r.body);
   });
@@ -93,7 +93,7 @@ describe('api client', () => {
     const calls: Array<{ path: string; token: string | null; credentials?: RequestCredentials }> = [];
     const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       const path = String(url);
-      calls.push({ path, token: new Headers(init?.headers).get('X-Workshop-Token'), credentials: init?.credentials });
+      calls.push({ path, token: new Headers(init?.headers).get('X-Starbase-Token'), credentials: init?.credentials });
       if (path === '/api/meta') return json(200, { mode: 'hosted', person: null });
       return json(403, { error: 'This change must come from the site’s own page.' });
     }) as unknown as typeof globalThis.fetch;

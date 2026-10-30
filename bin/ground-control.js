@@ -20,6 +20,7 @@
 // (dashboard/runner/service-file.js: pid, port, write token). What the commands reach for (the
 // service manager, GitHub, the terminal) comes through `deps`, so tests inject fakes.
 
+import '../dashboard/lib/env-boot.js'; // first: the old environment names still work (lib/env-names.js)
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -29,6 +30,7 @@ import { fileURLToPath } from 'node:url';
 import { pidAlive } from '../dashboard/lib/lock.js';
 import { readServiceFile } from '../dashboard/runner/service-file.js';
 import { PRODUCT, stateDirFor } from '../dashboard/lib/state.js';
+import { withOldNames } from '../dashboard/lib/env-names.js';
 
 const BIN = fileURLToPath(import.meta.url);
 const ROOT = path.resolve(path.dirname(BIN), '..');
@@ -291,7 +293,7 @@ export async function main(argv = process.argv.slice(2), overrides = {}) {
 // ---------- What the commands use ----------
 
 function makeContext(o = {}) {
-  const env = o.env ?? process.env;
+  const env = o.env ? withOldNames({ ...o.env }) : process.env;
   const platform = o.platform ?? process.platform;
   const home = o.home ?? os.homedir();
   const out = o.out ?? ((l) => process.stdout.write(`${l}\n`));
@@ -364,7 +366,8 @@ async function api(ctx, s, method, urlPath, body) {
   try {
     res = await ctx.fetch(`http://${s.host ?? '127.0.0.1'}:${s.port}${urlPath}`, {
       method,
-      headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': s.token },
+      // The old header too, for a copy started before the rename that is still running (it reads only that one).
+      headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': s.token, 'X-Workshop-Token': s.token },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(15_000),
     });
@@ -637,7 +640,7 @@ async function cmdToken(ctx, { args, values }) {
   const orbit = await lib(ctx, 'orbit');
   let saved = {};
   try { saved = JSON.parse(fs.readFileSync(path.join(ctx.stateDir, 'settings.json'), 'utf8'))?.orbit ?? {}; } catch { saved = {}; }
-  let url = values.url || saved.url || ctx.env.GROUND_CONTROL_ORBIT_URL || '';
+  let url = values.url || saved.url || ctx.env.STARBASE_ORBIT_URL || '';
   if (!url) {
     if (!ctx.interactive) { ctx.err('Say Orbit’s address with --url <address>, like --url https://orbit.example.com.'); return 1; }
     url = String(await ctx.ask('Orbit’s address (like https://orbit.example.com): ')).trim();
@@ -647,13 +650,13 @@ async function cmdToken(ctx, { args, values }) {
   try { orbit.checkToken(token); } catch (err) { ctx.err(`${err.message} Nothing was saved.`); return 1; }
 
   const s = ctx.running();
-  const claudeSettingsFile = path.resolve(ctx.env.WORKSHOP_CLAUDE_SETTINGS || path.join(ctx.home, '.claude.json'));
+  const claudeSettingsFile = path.resolve(ctx.env.STARBASE_CLAUDE_SETTINGS || path.join(ctx.home, '.claude.json'));
   if (s) {
     // The running service saves it (with setToken, as Settings does), so its Inbox starts reading at once.
     await api(ctx, s, 'POST', '/api/orbit/token', { token, url });
   } else {
     const { tokenStore } = await lib(ctx, 'orbit-token');
-    const store = await tokenStore({ stateDir: ctx.stateDir, prefer: ctx.env.WORKSHOP_ORBIT_STORE === 'file' || ctx.env.WORKSHOP_DEMO ? 'file' : 'auto' });
+    const store = await tokenStore({ stateDir: ctx.stateDir, prefer: ctx.env.STARBASE_ORBIT_STORE === 'file' || ctx.env.STARBASE_DEMO ? 'file' : 'auto' });
     try { await orbit.setToken(token, { store, claudeSettingsFile, orbitUrl: url }); } catch (err) { ctx.err(`${err.message} Nothing was saved.`); return 1; }
     const { State } = await lib(ctx, 'state');
     const state = new State(ctx.stateDir);
@@ -668,7 +671,7 @@ async function cmdToken(ctx, { args, values }) {
 
 async function siteStore(ctx) {
   const link = ctx.deps['site-link'] ?? await import('../dashboard/runner/site-link.js');
-  const store = await link.siteTokenStore({ stateDir: ctx.stateDir, prefer: ctx.env.WORKSHOP_ORBIT_STORE === 'file' || ctx.env.WORKSHOP_DEMO ? 'file' : 'auto' });
+  const store = await link.siteTokenStore({ stateDir: ctx.stateDir, prefer: ctx.env.STARBASE_ORBIT_STORE === 'file' || ctx.env.STARBASE_DEMO ? 'file' : 'auto' });
   return { link, store };
 }
 
@@ -766,7 +769,7 @@ const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { retu
 
 /** A job's folder from its slug, its ticket key or its path; null when there is none. */
 export function findJobDir(name, { env = process.env, home = os.homedir(), cwd = process.cwd() } = {}) {
-  const features = path.resolve(env.WORKSHOP_FEATURES_DIR || path.join(home, '.claude', 'feature-work'));
+  const features = path.resolve(env.STARBASE_FEATURES_DIR || path.join(home, '.claude', 'feature-work'));
   if (/[\\/]/.test(name) || name === '.' || name === '..') {
     const dir = path.resolve(cwd, name);
     return isDir(dir) ? dir : null;

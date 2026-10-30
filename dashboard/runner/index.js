@@ -112,7 +112,7 @@ const str = (v, max = 20000) => (typeof v === 'string' ? v.slice(0, max) : '');
  *   claudeSettingsFile         where the Foreman's Orbit MCP entry is written; legacySettingsFile:
  *                              where it used to be (an entry left there moves on the next token save)
  *   gateParkMs, planUsage, orbitStore, integrateDir, integrateRoot
- *   env                        read at call time (WORKSHOP_EXTRA_REPOS, GROUND_CONTROL_ORBIT_URL)
+ *   env                        read at call time (STARBASE_EXTRA_REPOS, STARBASE_ORBIT_URL)
  *   queryFn                    the SDK's query() (null: the SDK's, or the fake one in demo mode)
  */
 export async function createRunner(config) {
@@ -284,7 +284,7 @@ export async function createRunner(config) {
   let knownRepos = { at: 0, list: [] };
   async function repoList() {
     if (Date.now() - knownRepos.at > 60000) {
-      const extra = (env.WORKSHOP_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean);
+      const extra = (env.STARBASE_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean);
       knownRepos = { at: Date.now(), list: (await recentRepos(sessionIndex, extra)).map((r) => r.path) };
     }
     return knownRepos.list;
@@ -325,7 +325,7 @@ export async function createRunner(config) {
   const closedOff = (f) => Boolean(f.closed && !(f.updatedAt && f.updatedAt > f.closed.at));
 
   // Gates left waiting too long (lib/gate.js): parked by time (still under Needs you, with a
-  // "parked" chip), and alerted once each with a 'gate-stale' event. WORKSHOP_GATE_PARK_MS shortens
+  // "parked" chip), and alerted once each with a 'gate-stale' event. STARBASE_GATE_PARK_MS shortens
   // the 4 hours for tests and the demo. The alerted gates are kept in gate-parking.json in the
   // dashboard's state folder, so a restart doesn't alert them again.
   const PARK_MS = Number(gateParkMs) > 0 ? Number(gateParkMs) : GATE_PARK_MS;
@@ -1034,8 +1034,8 @@ export async function createRunner(config) {
   // goes through the allow and deny commands; the driver resumes the job's session (feedbackSession
   // below) and reports each outcome, which is written here: the audit lines pr-feedback-found, -sent, -left, -queued and -not-sent, and the
   // item's state in the job's pr-feedback.json. Nothing is ever written to GitHub.
-  // WORKSHOP_GH names the gh executable (tests use a fake one); the demo reads no GitHub without it.
-  const feedbackGh = env.WORKSHOP_GH ? git.ghRunner(env.WORKSHOP_GH) : DEMO ? null : git.ghRunner();
+  // STARBASE_GH names the gh executable (tests use a fake one); the demo reads no GitHub without it.
+  const feedbackGh = env.STARBASE_GH ? git.ghRunner(env.STARBASE_GH) : DEMO ? null : git.ghRunner();
   let feedbackFetchedAt = null;
   let feedbackPass = Promise.resolve();
   let feedbackLogin; // the GitHub login gh is signed in as, asked once
@@ -1121,8 +1121,8 @@ export async function createRunner(config) {
   // N's look at the same PRs (prependListener), so a round's items are marked in pr-feedback.json
   // before N would card them one by one. The panel's routes: site/routes-review.js.
   // The writer (lib/gh-write.js): the same gh, every call with your yes; the demo and tests push
-  // only to local folders, and the demo writes nothing without WORKSHOP_GH's fake.
-  const ghWrites = feedbackGh ? createGhWrite({ gh: env.WORKSHOP_GH ? git.ghRunner(env.WORKSHOP_GH, { timeout: 60000 }) : git.ghRunner('gh', { timeout: 60000 }), audit: (line) => state.audit(line), lockFor: (dir) => heldElsewhere(dir), localOnly: DEMO }) : null;
+  // only to local folders, and the demo writes nothing without STARBASE_GH's fake.
+  const ghWrites = feedbackGh ? createGhWrite({ gh: env.STARBASE_GH ? git.ghRunner(env.STARBASE_GH, { timeout: 60000 }) : git.ghRunner('gh', { timeout: 60000 }), audit: (line) => state.audit(line), lockFor: (dir) => heldElsewhere(dir), localOnly: DEMO }) : null;
   let roundsFetchedAt = null;
   const reviewRounds = createReviewRounds({
     gh: feedbackGh, driver, write: ghWrites,
@@ -1406,7 +1406,7 @@ export async function createRunner(config) {
   // ---------- The integration board (packet Z): /api/integrate/* (lib/integrate.js) ----------
   // The packet worktrees of the repository this dashboard runs from, and "Merge next" into its main
   // checkout (INTEGRATE_ROOT overrides which repository). Its settings live in
-  // ~/.ground-control/integrate.json (GROUND_CONTROL_DIR overrides the folder). Never pushes.
+  // ~/.ground-control/integrate.json (STARBASE_DIR overrides the folder). Never pushes.
   //   GET  /api/integrate              the packets, the order, packets at once, the last result
   //   GET  /api/integrate/stream       the running step's output, live (server-sent events)
   //   POST /api/integrate/order        { order: ['Z', 'C', …] }  save the order
@@ -1427,7 +1427,7 @@ export async function createRunner(config) {
 
   // ---------- Orbit: the Inbox (lib/orbit.js, lib/orbit-token.js) ----------
   // Portal Feedback tickets read with your own read-only token (ORBIT-479): every call to Orbit is a
-  // GET. The token lives in the OS credential store (in demo mode, or with WORKSHOP_ORBIT_STORE=file,
+  // GET. The token lives in the OS credential store (in demo mode, or with STARBASE_ORBIT_STORE=file,
   // in a 600 file in the state folder) and never in an answer, a record or the audit. The routes are
   // the site's (site/routes-orbit.js).
   const orbitStore = await tokenStore({ stateDir: state.dir, prefer: orbitStorePrefer });
@@ -1468,7 +1468,7 @@ export async function createRunner(config) {
   async function startOrbit() {
     const o = await orbitSettings();
     orbitUrl = o.url ? (() => { try { return normalizeOrbitUrl(o.url); } catch { return null; } })() : null;
-    if (!orbitUrl && env.GROUND_CONTROL_ORBIT_URL) { try { orbitUrl = normalizeOrbitUrl(env.GROUND_CONTROL_ORBIT_URL); } catch { /* ignored: Settings says what is missing */ } }
+    if (!orbitUrl && env.STARBASE_ORBIT_URL) { try { orbitUrl = normalizeOrbitUrl(env.STARBASE_ORBIT_URL); } catch { /* ignored: Settings says what is missing */ } }
     if (orbitUrl && await orbitStore.get().catch(() => null)) orbitInbox.start(); else orbitInbox.stop();
   }
 
@@ -1476,9 +1476,9 @@ export async function createRunner(config) {
   // ---------- Telemetry (packet T): usage.jsonl and /api/telemetry (lib/usage-log.js, lib/telemetry.js) ----------
   // One line per Foreman turn in usage.jsonl: who (the Ground Control user), the Claude account, job,
   // ticket, stage, section, worker, model, tokens, cost and both plan meters. It lives in
-  // ~/.ground-control, or in the state folder when one is set (WORKSHOP_STATE_DIR, demo mode);
-  // GROUND_CONTROL_DIR overrides both. Nothing is sent anywhere.
-  const usageLog = new UsageLog({ dir: usageDir({ stateDir: env.WORKSHOP_STATE_DIR || DEMO ? state.dir : null }) });
+  // ~/.ground-control, or in the state folder when one is set (STARBASE_STATE_DIR, demo mode);
+  // STARBASE_DIR overrides both. Nothing is sent anywhere.
+  const usageLog = new UsageLog({ dir: usageDir({ stateDir: env.STARBASE_STATE_DIR || DEMO ? state.dir : null }) });
   const turnMeter = new TurnMeter();
   const usageUser = groundControlUser();
   const usageAccount = DEMO ? Promise.resolve(null) : claudeAccountId();
@@ -2152,7 +2152,7 @@ export async function createRunner(config) {
       const jobOverrides = Object.values(s.jobPolicy ?? {}).filter((p) => (p !== 'ask-all') !== active).length;
       return { rules: await rules.list(), active, jobOverrides, unreadable: rules.broken ? rules.file : null };
     },
-    repos: async () => ({ repos: await recentRepos(sessionIndex, [...(env.WORKSHOP_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean), ...(await features()).map((f) => f.repoPath)]) }),
+    repos: async () => ({ repos: await recentRepos(sessionIndex, [...(env.STARBASE_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean), ...(await features()).map((f) => f.repoPath)]) }),
     async costs() {
       const list = await features();
       return {
@@ -2366,7 +2366,7 @@ export async function createRunner(config) {
       async saveToken(body) {
         const was = await orbitSettings();
         const days = [7, 30, 90].includes(body.expiresInDays) ? body.expiresInDays : null;
-        const typedUrl = typeof body.url === 'string' && body.url.trim() ? body.url : (was.url ?? env.GROUND_CONTROL_ORBIT_URL);
+        const typedUrl = typeof body.url === 'string' && body.url.trim() ? body.url : (was.url ?? env.STARBASE_ORBIT_URL);
         let saved;
         try { saved = await setToken(body.token, { store: orbitStore, claudeSettingsFile: CLAUDE_SETTINGS_FILE, orbitUrl: typedUrl }); } catch (err) { throw orbitHttpError(err); }
         const now = new Date();

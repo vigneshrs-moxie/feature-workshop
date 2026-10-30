@@ -53,7 +53,7 @@ export function liveReader({ read = null, usageFile = null, now = () => Date.now
     return cards.value;
   }
   async function readUsage() {
-    const file = usageFile ?? path.join(usageDir({ stateDir: process.env.WORKSHOP_STATE_DIR || null }), USAGE_FILE);
+    const file = usageFile ?? path.join(usageDir({ stateDir: process.env.STARBASE_STATE_DIR || null }), USAGE_FILE);
     const st = await fs.stat(file).catch(() => null);
     if (!st) return usageByJob([]);
     const key = `${st.mtimeMs}:${st.size}`;

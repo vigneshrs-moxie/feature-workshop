@@ -62,9 +62,9 @@ before(async () => {
 
   dashboard = await startDashboard({
     env: {
-      HOME: dirs.home, WORKSHOP_DEMO: '1',
-      WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
-      WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
+      HOME: dirs.home, STARBASE_DEMO: '1',
+      STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
     },
     output,
   });
@@ -170,7 +170,7 @@ test('server: an audit line becomes a v2 thread event for that job', { timeout: 
   const wait = waitForEvent(`since=${snap.seq}&epoch=${snap.epoch}`, (e) => e.type === 'thread' && e.job === 'widget-export', {
     onOpen: () => {
       fetch(`${base}/api/job/widget-export/reopen`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': snap.meta.token }, body: '{}',
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': snap.meta.token }, body: '{}',
       }).then((r) => assert.equal(r.status, 200));
     },
   });
@@ -187,7 +187,7 @@ test('server: a stream from an earlier dashboard run is told to resync', { timeo
   assert.equal(event.data.reason, 'restarted');
 });
 
-test('server: meta says whether the installed skill knows levels, from WORKSHOP_SKILLS_DIR, and notices an update', { timeout: 60_000 }, async () => {
+test('server: meta says whether the installed skill knows levels, from STARBASE_SKILLS_DIR, and notices an update', { timeout: 60_000 }, async () => {
   const file = path.join(root, 'skills', 'feature', 'job-options.md');
   const { body: meta } = await getJson('/api/meta');
   assert.deepEqual(meta.skill, { installed: true, levels: false, path: file });
@@ -209,7 +209,7 @@ test('server: meta lists the levels; an L3 job starts an Opus Foreman and writes
   const repo = path.join(root, 'level-repo');
   await fs.mkdir(repo);
   execFileSync('git', ['-C', repo, 'init', '-q'], { stdio: 'pipe' });
-  const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': snap.meta.token }, body: JSON.stringify(body) });
+  const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': snap.meta.token }, body: JSON.stringify(body) });
 
   const bad = await post('/api/jobs', { description: 'Add audit columns to visits', repoPath: repo, options: { level: 9 } });
   assert.equal(bad.status, 400, 'a level outside 0–3 is refused');

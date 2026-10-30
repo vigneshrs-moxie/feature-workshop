@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { PRODUCT } from './state.js';
+import { PRODUCT, stateDirFor } from './state.js';
 
 const firstLine = (text, max = 160) => {
   const line = String(text ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
@@ -237,7 +237,7 @@ async function briefNames(dir) {
   return out;
 }
 
-const defaultAuditFile = () => path.join(process.env.WORKSHOP_STATE_DIR || path.join(os.homedir(), '.feature-workshop'), 'audit.jsonl');
+const defaultAuditFile = () => path.join(stateDirFor(), 'audit.jsonl');
 async function auditOf(jobDir, file) {
   let text = '';
   try { text = await fs.readFile(file, 'utf8'); } catch { return []; }

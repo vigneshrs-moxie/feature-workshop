@@ -242,7 +242,7 @@ async function cli(argv, o = {}) {
 test('ground-control decisions <job> --worktree <path> writes the two files and prints their paths', async () => {
   const wt = repo();
   const { features, slug } = job();
-  const env = { WORKSHOP_FEATURES_DIR: features };
+  const env = { STARBASE_FEATURES_DIR: features };
   const r = await cli(['decisions', slug, '--worktree', wt], { env });
   assert.equal(r.code, 0, r.text);
   assert.ok(r.out.some((l) => l.includes(path.join(wt, 'docs', 'decisions', 'ORBIT-0479-feedback-api.md'))));
@@ -252,7 +252,7 @@ test('ground-control decisions <job> --worktree <path> writes the two files and 
 
   // By the ticket key, with the worktree from status.json; by the job's folder.
   const k = job({ status: { ticket: { key: 'ORBIT-88', title: 'Key lookup' }, worktree: wt }, slug: 'orbit-88-key-lookup' });
-  assert.equal((await cli(['decisions', 'ORBIT-88'], { env: { WORKSHOP_FEATURES_DIR: k.features } })).code, 0);
+  assert.equal((await cli(['decisions', 'ORBIT-88'], { env: { STARBASE_FEATURES_DIR: k.features } })).code, 0);
   assert.ok(fs.existsSync(path.join(wt, 'docs', 'decisions', 'ORBIT-0088-key-lookup.md')));
   assert.equal((await cli(['decisions', k.dir, '--worktree', wt])).code, 0);
 

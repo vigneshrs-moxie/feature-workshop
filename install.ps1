@@ -15,10 +15,12 @@
 # Runs in Windows PowerShell 5.1 and PowerShell 7. It never exits the window it runs in.
 #
 # Settings, for trying the script:
-#   GROUND_CONTROL_RELEASE_REPO   the GitHub repository the release comes from
-#   GROUND_CONTROL_FROM           a folder that already holds a package file and its SHA256SUMS
-#                                 (used instead of downloading; still checked)
-#   GROUND_CONTROL_NO_SERVICE=1   install the program only: no service, nothing opened
+#   STARBASE_RELEASE_REPO   the GitHub repository the release comes from
+#   STARBASE_FROM           a folder that already holds a package file and its SHA256SUMS
+#                           (used instead of downloading; still checked)
+#   STARBASE_NO_SERVICE=1   install the program only: no service, nothing opened
+# Their old names (GROUND_CONTROL_RELEASE_REPO, GROUND_CONTROL_FROM, GROUND_CONTROL_NO_SERVICE)
+# still work while the new one is unset.
 
 $Product = 'Ground Control'
 $Package = '@moxie/ground-control'
@@ -28,10 +30,13 @@ $NodeMajor = 22
 
 function Install-GroundControl {
   $ErrorActionPreference = 'Continue'
-  $repo = $env:GROUND_CONTROL_RELEASE_REPO
+  $repo = $env:STARBASE_RELEASE_REPO
+  if (-not $repo) { $repo = $env:GROUND_CONTROL_RELEASE_REPO }
   if (-not $repo) { $repo = 'vigneshrs-moxie/feature-workshop' }
-  $from = $env:GROUND_CONTROL_FROM
-  $noService = [bool]$env:GROUND_CONTROL_NO_SERVICE
+  $from = $env:STARBASE_FROM
+  if (-not $from) { $from = $env:GROUND_CONTROL_FROM }
+  $noService = [bool]$env:STARBASE_NO_SERVICE
+  if (-not $noService) { $noService = [bool]$env:GROUND_CONTROL_NO_SERVICE }
 
   function Say([string]$text) { Write-Host $text }
   function Stop-Install([string]$text) { throw [System.OperationCanceledException]::new($text) }

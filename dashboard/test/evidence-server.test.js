@@ -1,5 +1,5 @@
 // Evidence at the test stage, end to end on a demo dashboard (packet L): no browser and no network.
-// Playwright is replaced by the fake in dashboard/test/fixtures/evidence/ (WORKSHOP_PLAYWRIGHT),
+// Playwright is replaced by the fake in dashboard/test/fixtures/evidence/ (STARBASE_PLAYWRIGHT),
 // which copies that folder's pictures, videos and JSON report where the real one would write them.
 // An L2 job gets evidence.json with pictures and a video per acceptance line, once per commit; an
 // L0 job gets none; a report written while the dashboard runs is recorded by itself; the file
@@ -69,9 +69,9 @@ before(async () => {
   await writeJob('later-report', { level: 3, report: null });
   dashboard = await startDashboard({
     env: {
-      HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_PLAYWRIGHT: path.join(FIXTURE, 'fake-playwright.mjs'),
-      WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
-      WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
+      HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_PLAYWRIGHT: path.join(FIXTURE, 'fake-playwright.mjs'),
+      STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
     },
     output,
   });
@@ -86,7 +86,7 @@ after(async () => {
 const get = (p, headers = {}) => fetch(base + p, { headers });
 const getJson = async (p) => (await get(p)).json();
 const post = (p, body = {}, { withToken = true } = {}) => fetch(base + p, {
-  method: 'POST', headers: { 'Content-Type': 'application/json', ...(withToken ? { 'X-Workshop-Token': token } : {}) }, body: JSON.stringify(body),
+  method: 'POST', headers: { 'Content-Type': 'application/json', ...(withToken ? { 'X-Starbase-Token': token } : {}) }, body: JSON.stringify(body),
 });
 const pause = (ms) => new Promise((r) => { setTimeout(r, ms); });
 // Every v2 event of this dashboard run, read for `ms` milliseconds.

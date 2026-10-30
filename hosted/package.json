@@ -1,5 +1,5 @@
 {
-  "name": "@moxie/ground-control-site",
+  "name": "starbase-site",
   "version": "0.1.0",
   "private": true,
   "description": "The hosted site (v2): sign-in, laptops, the runner link and the job mirror. The Vercel project's Root Directory.",

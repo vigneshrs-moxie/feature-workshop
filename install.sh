@@ -15,20 +15,22 @@
 # pipe; with no terminal to ask in, every question is answered no.
 #
 # Settings, for trying the script:
-#   GROUND_CONTROL_RELEASE_REPO   the GitHub repository the release comes from
-#   GROUND_CONTROL_FROM           a folder that already holds a package file and its SHA256SUMS
-#                                 (used instead of downloading; still checked)
-#   GROUND_CONTROL_NO_SERVICE=1   install the program only: no service, nothing opened
+#   STARBASE_RELEASE_REPO   the GitHub repository the release comes from
+#   STARBASE_FROM           a folder that already holds a package file and its SHA256SUMS
+#                           (used instead of downloading; still checked)
+#   STARBASE_NO_SERVICE=1   install the program only: no service, nothing opened
+# Their old names (GROUND_CONTROL_RELEASE_REPO, GROUND_CONTROL_FROM, GROUND_CONTROL_NO_SERVICE)
+# still work while the new one is unset.
 
 set -eu
 
 PRODUCT="Ground Control"
 PACKAGE="@moxie/ground-control"
 COMMAND="ground-control"
-REPO="${GROUND_CONTROL_RELEASE_REPO:-vigneshrs-moxie/feature-workshop}"
+REPO="${STARBASE_RELEASE_REPO:-${GROUND_CONTROL_RELEASE_REPO:-vigneshrs-moxie/feature-workshop}}"
 DASHBOARD_URL="http://127.0.0.1:4477/next/"
-FROM="${GROUND_CONTROL_FROM:-}"
-NO_SERVICE="${GROUND_CONTROL_NO_SERVICE:-}"
+FROM="${STARBASE_FROM:-${GROUND_CONTROL_FROM:-}}"
+NO_SERVICE="${STARBASE_NO_SERVICE:-${GROUND_CONTROL_NO_SERVICE:-}}"
 NODE_MAJOR=22
 
 say() { printf '%s\n' "$*"; }

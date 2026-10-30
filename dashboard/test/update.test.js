@@ -150,8 +150,8 @@ test('no gh at all, or a git checkout: no update, said plainly', async () => {
   assert.match(dev.message, /git pull/);
 });
 
-test('GROUND_CONTROL_RELEASE_REPO names another repository', async () => {
+test('STARBASE_RELEASE_REPO names another repository', async () => {
   const tools = fakeTools(fakeRelease({ version: '1.5.0' }));
-  await checkForUpdate({ run: tools.run, env: { GROUND_CONTROL_RELEASE_REPO: 'moxie/ground-control' }, current: '1.5.0' });
+  await checkForUpdate({ run: tools.run, env: { STARBASE_RELEASE_REPO: 'moxie/ground-control' }, current: '1.5.0' });
   assert.equal(tools.calls[0][4], 'moxie/ground-control');
 });

@@ -103,9 +103,9 @@ before(async () => {
 
   dashboard = await startDashboard({
     env: {
-      HOME: dirs.home, WORKSHOP_DEMO: '1',
-      WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
-      WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
+      HOME: dirs.home, STARBASE_DEMO: '1',
+      STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
     },
     output,
   });
@@ -121,7 +121,7 @@ after(async () => {
 const getJson = async (p) => { const res = await fetch(base + p); return { status: res.status, body: await res.json().catch(() => null), raw: res }; };
 const docUrl = (slug, file) => `/api/job/${slug}/doc?file=${encodeURIComponent(file)}`;
 const post = async (p, body, { auth = true } = {}) => {
-  const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Workshop-Token': token } : {}) }, body: JSON.stringify(body) });
+  const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Starbase-Token': token } : {}) }, body: JSON.stringify(body) });
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 

@@ -4,7 +4,7 @@
 // decision file has a heading per section. The same stack with "Merge on its own" merges by itself
 // and still waits for the push.
 //
-// The pretend Foreman (WORKSHOP_DEMO=1) makes no model calls; with "ask for everything" each of its
+// The pretend Foreman (STARBASE_DEMO=1) makes no model calls; with "ask for everything" each of its
 // replies waits on a permission card, so the test plays each section's Foreman itself: it commits
 // the section's work in its worktree and writes its status.json "review done". The repository's
 // remote is a local bare repo: the test checks nothing ever reaches it.
@@ -102,8 +102,8 @@ before(async () => {
 
   dashboard = await startDashboard({
     env: {
-      HOME: dirs.home, WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
-      WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STACK_TICK_MS: '250', GROUND_CONTROL_DIR: path.join(root, 'gc'),
+      HOME: dirs.home, STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STACK_TICK_MS: '250', STARBASE_DIR: path.join(root, 'gc'),
     },
     stateDir,
     output,
@@ -117,7 +117,7 @@ after(async () => {
 });
 
 const post = async (p, body = {}) => {
-  const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify(body) });
+  const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: JSON.stringify(body) });
   return { status: res.status, body: await res.json() };
 };
 const get = async (p) => (await fetch(base + p)).json();

@@ -93,13 +93,13 @@ test('--version prints the version from package.json', async () => {
 });
 
 test('login needs the site’s address the first time; logout on a laptop never paired says so (the pairing itself: hosted/test/pairing.test.js)', async () => {
-  const r = await cli(['login'], { env: { WORKSHOP_ORBIT_STORE: 'file' } });
+  const r = await cli(['login'], { env: { STARBASE_ORBIT_STORE: 'file' } });
   assert.equal(r.code, 1);
   assert.match(r.text, /Say which site with --site <address>/);
-  const bad = await cli(['login', '--site', 'http://feature-workshop.example.test'], { env: { WORKSHOP_ORBIT_STORE: 'file' } });
+  const bad = await cli(['login', '--site', 'http://feature-workshop.example.test'], { env: { STARBASE_ORBIT_STORE: 'file' } });
   assert.equal(bad.code, 1);
   assert.match(bad.text, /must start with https:\/\//);
-  const out = await cli(['logout'], { env: { WORKSHOP_ORBIT_STORE: 'file' } });
+  const out = await cli(['logout'], { env: { STARBASE_ORBIT_STORE: 'file' } });
   assert.equal(out.code, 0);
   assert.deepEqual(out.out, ['This laptop isn’t paired with a site, so there was nothing to forget.']);
 });
@@ -132,7 +132,7 @@ test('status with the service running: port, jobs by group, locks and both meter
   const asked = [];
   const r = await cli(['status'], {
     running: () => ({ pid: 77, host: '127.0.0.1', port: 4481, token: 't' }),
-    fetch: async (url, init) => { asked.push([url, init.headers['X-Workshop-Token']]); return { ok: true, status: 200, json: async () => snapshot }; },
+    fetch: async (url, init) => { asked.push([url, init.headers['X-Starbase-Token']]); return { ok: true, status: 200, json: async () => snapshot }; },
   });
   assert.equal(r.code, 0);
   assert.deepEqual(asked, [['http://127.0.0.1:4481/api/snapshot', 't']]);

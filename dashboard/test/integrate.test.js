@@ -282,8 +282,8 @@ test('the /api/integrate routes: the list, saving the order and slots (with the 
   try {
     dashboard = await startDashboard({
       env: {
-        HOME: home, WORKSHOP_DEMO: '1', WORKSHOP_PLAN_USAGE: 'off',
-        WORKSHOP_FEATURES_DIR: dirs[0], WORKSHOP_PROJECTS_DIR: dirs[1], WORKSHOP_AGENTS_DIR: dirs[2], WORKSHOP_SKILLS_DIR: dirs[3], WORKSHOP_STATE_DIR: dirs[4],
+        HOME: home, STARBASE_DEMO: '1', STARBASE_PLAN_USAGE: 'off',
+        STARBASE_FEATURES_DIR: dirs[0], STARBASE_PROJECTS_DIR: dirs[1], STARBASE_AGENTS_DIR: dirs[2], STARBASE_SKILLS_DIR: dirs[3], STARBASE_STATE_DIR: dirs[4],
         INTEGRATE_ROOT: fx.main,
       },
       output,
@@ -291,7 +291,7 @@ test('the /api/integrate routes: the list, saving the order and slots (with the 
     const { base } = dashboard;
     const token = (await (await fetch(`${base}/api/meta`)).json()).token;
     const post = async (p, body, auth = true) => {
-      const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Workshop-Token': token } : {}) }, body: JSON.stringify(body) });
+      const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Starbase-Token': token } : {}) }, body: JSON.stringify(body) });
       return { status: res.status, body: await res.json() };
     };
     let view = await (await fetch(`${base}/api/integrate`)).json();

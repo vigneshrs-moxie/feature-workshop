@@ -25,7 +25,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
-      WORKSHOP_PLAN_USAGE: 'off'
+      STARBASE_PLAN_USAGE: 'off'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

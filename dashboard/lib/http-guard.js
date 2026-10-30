@@ -12,8 +12,13 @@ export class HttpError extends Error {
   }
 }
 
+/** The token's header. The old name still counts, so a page left open across the update keeps working. */
+export const TOKEN_HEADER = 'x-starbase-token';
+export const OLD_TOKEN_HEADER = 'x-workshop-token';
+
 export function checkWrite(headers, { port, token }) {
-  if (!token || headers['x-workshop-token'] !== token) {
+  const sent = headers[TOKEN_HEADER] ?? headers[OLD_TOKEN_HEADER];
+  if (!token || sent !== token) {
     throw new HttpError(403, `This action must come from the ${PRODUCT} page. Reload the page and try again.`);
   }
   const origin = headers.origin;
