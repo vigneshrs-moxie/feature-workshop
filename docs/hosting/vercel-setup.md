@@ -14,26 +14,78 @@ Do the steps in this order. Steps 1–3 can be done now; step 4 waits until the 
 - **How laptops connect:** each laptop's runner calls the site over HTTPS. It is paired once with a one-time code, from `ground-control login`.
 
 ## 1. Google sign-in (Google Cloud Console)
-You need to be a Moxie Google Workspace admin, or ask one. Pick the Google Cloud project Moxie uses for internal apps, or create one inside the Moxie organization. It must belong to the organization for step 1.2 to work.
+Use a **new Google Cloud project, just for this app.**
+- It keeps this app's sign-in apart from Orbit's and anything else Moxie runs, so changing or deleting it can't affect them.
+- It costs nothing: sign-in needs no billing account and no APIs switched on.
 
-1. **Google Auth Platform → Overview → Get started.**
-2. **Branding:**
-   - **App name:** `feature-workshop`.
-   - **User support email** and **developer contact:** your email.
-3. **Audience:** choose **Internal**. Only accounts in Moxie's Workspace can sign in, and Google skips app review.
-4. **Data access:** add only `openid`, `.../auth/userinfo.email` and `.../auth/userinfo.profile`. Add nothing else; these need no verification.
-5. **Clients → Create client:**
-   - **Application type:** Web application.
-   - **Name:** `feature-workshop`.
-   - **Authorized JavaScript origins:**
-     - `https://feature-workshop.<your domain>`
-     - `http://localhost:4505`, for trying the site on your Mac.
-   - **Authorized redirect URIs:**
-     - `https://feature-workshop.<your domain>/api/auth/callback`
-     - `http://localhost:4505/api/auth/callback`
-6. **Copy the Client ID and Client secret.** Paste them straight into Vercel (step 2.4), never into chat, a file or a commit.
+**1.0 Before you start.** Sign in at console.cloud.google.com with your **Moxie** Google account, not a personal one.
+- **Can you create projects?** Open the project picker at the top and choose New Project.
+  - If **Location** shows the Moxie organization (or a folder inside it), you're set.
+  - If you get "You don't have permission" or see only "No organization", ask Moxie IT (the Workspace admin):
+    - to give you the **Project Creator** role on the organization or a folder, or
+    - to create the project for you and give you **Owner** on it.
+- **Why the organization matters:** the project must sit inside the Moxie organization. Only then can sign-in be set to **Internal**, which limits it to Moxie accounts.
 
-**When the subdomain changes later,** add the new origin and redirect URI to this client before you switch the domain, then remove the old ones.
+**1.1 Create the project.** New Project:
+- **Project name:** `feature-workshop`.
+- **Project ID:** Google suggests one. It can never be changed, but nobody sees it, so any ID is fine (for example `feature-workshop-<4 digits>`).
+- **Location:** the Moxie organization, or the folder IT uses for internal tools.
+
+Press Create, then make sure the picker at the top shows the new project.
+
+**1.2 Open Google Auth Platform.** Menu → APIs & Services → OAuth consent screen. It opens **Google Auth Platform**. Press **Get started**.
+- **App information:**
+  - **App name:** `feature-workshop`. This is what people see on Google's "Sign in to …" screen. It can be renamed any time.
+  - **User support email:** your email, or a Moxie group you manage.
+- **Audience:** **Internal**. If Internal is greyed out, the project isn't in the organization; go back to 1.0.
+- **Contact information:** your email. Google writes here about the project.
+- Agree to the policy, then press **Create**.
+
+**1.3 Branding** (left menu). Most of it is optional for an Internal app.
+- **App logo:** leave it empty for now.
+- **App domain** (home page, privacy policy, terms): optional for Internal. Leave it empty.
+- **Authorized domains:** add your root domain, the part after `feature-workshop.`, for example `moxie.example`.
+  - Google only accepts redirect addresses on domains listed here.
+  - A `*.vercel.app` address can't be added, so sign-in works only on your own subdomain, not the Vercel preview address.
+- Save.
+
+**1.4 Data access** (left menu): press **Add or remove scopes** and tick only these three:
+- `openid`
+- `.../auth/userinfo.email`
+- `.../auth/userinfo.profile`
+
+These are the basic, non-sensitive ones: Google's review isn't needed, and the app never sees email, Drive or calendar. Update, then Save.
+
+**1.5 Create the client.** Clients (left menu) → **Create client**.
+- **Application type:** Web application.
+- **Name:** `feature-workshop`. Only you see it.
+- **Authorized JavaScript origins:**
+  - `https://feature-workshop.<your domain>`
+  - `http://localhost:4505`, for trying the site on your Mac. Google allows plain `http` only for localhost.
+- **Authorized redirect URIs:** exactly these, with no trailing slash:
+  - `https://feature-workshop.<your domain>/api/auth/callback`
+  - `http://localhost:4505/api/auth/callback`
+- Press **Create**.
+
+**1.6 Copy the client ID and secret right away.** Google shows the full **client secret only once**, on the screen that appears after Create. Afterwards the console shows only its last four characters.
+- Paste both straight into Vercel's environment variables (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`; step 2.4). If Vercel isn't set up yet, keep them in your password manager.
+- Never put them in chat, a file in the repo or a commit.
+- If the secret is lost, open the client, choose **Add secret**, put the new one in Vercel, then disable the old one.
+
+**1.7 Check the Workspace side** (only if sign-in is blocked later). Some Workspace domains block apps their admin hasn't approved.
+- If signing in later says "Access blocked" or "This app is blocked", the Workspace admin opens Admin console → Security → Access and data control → API controls → Manage app access.
+- There they mark `feature-workshop`, found by its client ID, as **Trusted**, or turn on "Trust internal, domain-owned apps".
+
+**What's fixed and what can change later:**
+
+| Setting | Can it change? |
+|---|---|
+| Project ID | Never. It doesn't matter, nobody sees it. |
+| Project name, app name, client name | Any time. |
+| Audience (Internal) | Keep it Internal. |
+| Subdomain | When it changes, first add the new origin and redirect URI to the client (1.5) and the new root domain to Authorized domains (1.3) if it differs. Switch the Vercel domain, then remove the old entries. |
+
+The app checks the domain itself too: `ALLOWED_DOMAIN` on Vercel, so a non-Moxie account is refused even if a setting above were wrong.
 
 ## 2. The Vercel project (under Moxie's team)
 1. **Check the plan:** Team → Settings → Billing should say Pro.
