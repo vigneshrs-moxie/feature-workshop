@@ -1,0 +1,33 @@
+/* Telemetry on the hosted site (packet 2E): the shared account's part, then your own jobs. The
+   laptop's Telemetry.css draws the cards, dials and bars; this lays out the two parts and draws the
+   by-day columns. Theme tokens only. */
+.tele-team-lead { margin: 0; max-width: 72ch; }
+.tele-team-part { display: flex; flex-direction: column; gap: var(--space-2); }
+.tele-team-part-title { margin: 0; font-size: var(--text-lg); color: var(--text-1); }
+.tele-team-part-say { margin: 0; font-size: var(--text-sm); }
+.tele-team-graphs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); align-items: start; transition: opacity var(--dur-fast) var(--ease-out); }
+.tele-team-graphs.is-loading { opacity: .7; }
+.tele-team-wide { grid-column: 1 / -1; min-width: 0; }
+
+/* Usage by day, by job: one column a day, its jobs stacked from the bottom. */
+.tele-team-days { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: var(--space-1); align-items: end; margin: 0; padding: 0; list-style: none; }
+.tele-team-day { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); min-width: 0; }
+.tele-team-day-col { display: flex; flex-direction: column-reverse; gap: 1px; height: 140px; border-bottom: 1px solid var(--border-2); }
+.tele-team-day-part { display: block; min-height: 2px; border-radius: 2px 2px 0 0; }
+.tele-team-day-label { overflow: hidden; color: var(--text-3); font-size: var(--text-xs); text-align: center; white-space: nowrap; text-overflow: clip; }
+.tele-team-scale { margin: var(--space-1) 0 0; font-size: var(--text-xs); }
+
+/* Cost per ticket and per stage: two lists, one above the other, so names and numbers have room. */
+.tele-team-two { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+.tele-team-sub { margin: 0 0 var(--space-2); color: var(--text-2); font-size: var(--text-sm); font-weight: 600; }
+
+@media (max-width: 760px) {
+  .tele-team-graphs { grid-template-columns: minmax(0, 1fr); }
+  .tele-team-days { gap: 2px; }
+  .tele-team-day-col { height: 110px; }
+  .tele-team-day-label { font-size: calc(10px * var(--ui-scale, 1)); }
+}
+@media (forced-colors: active) {
+  .tele-team-day-part { forced-color-adjust: none; border: 1px solid CanvasText; }
+}
+.tele-team-sub .muted { font-weight: 400; }

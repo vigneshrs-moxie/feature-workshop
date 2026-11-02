@@ -49,6 +49,8 @@
 //           to that key (lib/sealed.js), so only the page that asked can read it. It is kept in
 //           memory only, never in site-done.json.
 //
+// Team Telemetry (packet 2E): the usage upload, numbers only ("Team Telemetry: the usage upload" below).
+//
 // Nothing secret is ever printed, logged or written outside the credential store: site.json holds
 // the address, this laptop's own random device id and who it was paired for.
 
@@ -63,7 +65,9 @@ import { makeEvent, parseCommand, PROTOCOL_VERSION } from '../lib/protocol.js';
 import { stillMadeOn } from '../lib/made-on.js';
 import { seal } from '../lib/sealed.js';
 import { enrichView, partPage, stackCard, usageByJob } from '../lib/stack-parts.js';
-import { USAGE_FILE, parseLine, usageDir } from '../lib/usage-log.js';
+import { USAGE_FILE, UsageLog, parseLine, usageDir } from '../lib/usage-log.js';
+import { cleanRecord } from '../lib/insights.js';
+import { STAGE_IDS } from '../lib/stages.js';
 import { boardRecord, decisionsRecord, docRecord, docsRecord, evidenceRecord, fit, jobRecord, partRecord, stackRecord, stacksRecord } from './mirror.js';
 import { uploadEvidence } from './evidence.js';
 
@@ -192,6 +196,194 @@ export async function unpairFromSite({ stateDir, store, fetch: fetchFn = globalT
 }
 
 
+// ---------- Team Telemetry: the usage upload (packet 2E) ----------
+// While the link is up, this laptop's usage numbers go to the site, so everyone on the shared Claude
+// account sees one picture of its limit (hosted/lib/team-usage.js has the wire and the site's check):
+//   app         the usage log's lines (lib/usage-log.js), cleaned as Telemetry cleans them first
+//               (lib/insights.js cleanRecord: demo and test-folder lines gone, a resumed session's
+//               cost taken by difference): time, job slug, stage, model, tokens, cost, both meters.
+//               Never the person (the site takes the laptop's), the ticket, section, session, turn,
+//               worker, account or any folder.
+//   claudeCode  your Claude Code replies outside the app (packet U), when the runner offers them
+//               (runner.read.claudeCodeReplies) and they are counted here: time, model family,
+//               tokens, cost. Without that, the site is told 'not-sent' and says so.
+//   readings    the plan meters as the runner last read them, every few minutes, so the shared gauge
+//               moves even while nobody's job is working.
+// Each line has an id, a hash of the line made here, so a line sent twice is kept once on the site.
+// What has been sent is kept in <state folder>/site-usage.json (how far each kind got): a restart
+// or a stretch offline sends what is new since, nothing twice. The first upload sends the last
+// USAGE_SEND_DAYS days. Nothing is queued on disk: the usage log itself is the queue.
+export const USAGE_STATE_FILE = 'site-usage.json';
+export const USAGE_SEND_DAYS = 60;
+export const USAGE_EVERY_MS = 60_000;
+export const READING_EVERY_MS = 5 * 60_000;
+// Read this far back before what was sent, so a resumed session's cost is still taken by difference.
+const USAGE_OVERLAP_MS = 7 * 24 * 3600e3;
+const USAGE_CHUNK = 400;
+const SLUG_OK = /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/;
+const MODEL_OK = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,79}$/;
+const STAGE_OK = new Set(STAGE_IDS);
+const FAMILY_OK = new Set(['opus', 'sonnet', 'haiku', 'fable', 'other']);
+const lineId = (...bits) => crypto.createHash('sha256').update(bits.map((b) => String(b ?? '')).join('|')).digest('hex').slice(0, 24);
+const whole = (n) => (Number.isFinite(+n) && +n > 0 ? Math.round(+n) : 0);
+const wireTokens = (t) => ({ input: whole(t?.input), output: whole(t?.output), cacheRead: whole(t?.cacheRead), cacheWrite5m: whole(t?.cacheWrite5m), cacheWrite1h: whole(t?.cacheWrite1h) });
+const wireMeter = (m) => (m && typeof m.percent === 'number' && Number.isFinite(m.percent)
+  ? { percent: m.percent, resetsAt: m.resetsAt && Number.isFinite(Date.parse(m.resetsAt)) ? new Date(Date.parse(m.resetsAt)).toISOString() : null } : null);
+const wireUsd = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v * 1e6) / 1e6 : 0);
+
+/** The cleaned record's rows (lib/insights.js cleanRecord) as the site takes them: numbers and short names only. */
+export function usageWire(rows) {
+  return rows.map((r) => ({
+    id: lineId('app', r.turn, r.worker, r.model, r.stage, r.t, r.session, r.job),
+    t: new Date(r.ms ?? Date.parse(r.t)).toISOString(),
+    job: typeof r.job === 'string' && SLUG_OK.test(r.job) ? r.job : null,
+    stage: STAGE_OK.has(r.stage) ? r.stage : null,
+    model: typeof r.model === 'string' && MODEL_OK.test(r.model) ? r.model : null,
+    tokens: wireTokens(r.tokens), usd: wireUsd(r.usd),
+    meters: { week: wireMeter(r.week), fiveHour: wireMeter(r.fiveHour) },
+  }));
+}
+
+/** Your Claude Code replies outside the app (lib/claude-code-usage.js view()) as the site takes them. */
+export function claudeCodeWire(replies) {
+  return (replies ?? []).filter((r) => Number.isFinite(Date.parse(r?.t))).map((r) => {
+    const t = new Date(Date.parse(r.t)).toISOString();
+    const tokens = wireTokens(r.tokens);
+    const family = FAMILY_OK.has(r.family) ? r.family : 'other';
+    return { id: lineId('cc', t, family, tokens.input, tokens.output, tokens.cacheRead, tokens.cacheWrite5m, tokens.cacheWrite1h, r.sidechain ? 1 : 0), t, family, tokens, usd: wireUsd(r.usd) };
+  });
+}
+
+/** The plan meters' last reading (lib/plan-usage.js view()) as one reading for the site, or null. */
+export function readingWire(planUsage) {
+  const at = Date.parse(planUsage?.checkedAt);
+  const week = wireMeter(planUsage?.week);
+  const fiveHour = wireMeter(planUsage?.fiveHour);
+  if (!Number.isFinite(at) || (!week && !fiveHour)) return null;
+  const t = new Date(at).toISOString();
+  return { id: lineId('reading', t), t, meters: { week, fiveHour } };
+}
+
+const COUNTING_OF = { ready: 'counted', off: 'off', reading: 'reading' };
+
+/**
+ * The upload's state: how far each kind got (`t`, and the ids sent at exactly that time), for one
+ * site address. A new address starts again.
+ */
+function usageState(stateDir, url) {
+  const file = path.join(stateDir, USAGE_STATE_FILE);
+  const fresh = () => ({ url, app: { t: -Infinity, ids: [] }, claudeCode: { t: -Infinity, ids: [] }, reading: { t: -Infinity, ids: [] }, counting: null });
+  let s;
+  try { s = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { s = null; }
+  const okKind = (k) => k && (typeof k.t === 'number' || k.t === null) && Array.isArray(k.ids);
+  if (!s || s.url !== url || !okKind(s.app) || !okKind(s.claudeCode) || !okKind(s.reading)) s = fresh();
+  for (const k of ['app', 'claudeCode', 'reading']) if (s[k].t === null) s[k].t = -Infinity;
+  return {
+    s,
+    save() {
+      const out = JSON.stringify({ ...s, app: { ...s.app, t: Number.isFinite(s.app.t) ? s.app.t : null }, claudeCode: { ...s.claudeCode, t: Number.isFinite(s.claudeCode.t) ? s.claudeCode.t : null }, reading: { ...s.reading, t: Number.isFinite(s.reading.t) ? s.reading.t : null } });
+      fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+      const tmp = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, `${out}\n`, { mode: 0o600 });
+      fs.renameSync(tmp, file);
+    },
+  };
+}
+const isNew = (k, l) => { const t = Date.parse(l.t); return t > k.t || (t === k.t && !k.ids.includes(l.id)); };
+function advance(k, list) {
+  if (!list.length) return;
+  const top = Math.max(...list.map((l) => Date.parse(l.t)));
+  const at = list.filter((l) => Date.parse(l.t) === top).map((l) => l.id);
+  k.ids = top === k.t ? [...new Set([...k.ids, ...at])] : at;
+  k.t = top;
+}
+
+/** Batches of at most maxBytes, the oldest lines first, each kind in its own order. */
+export function usageBatches({ app, claudeCode, readings, counting }, maxBytes = BATCH_BYTES) {
+  const out = [];
+  const lists = { app: [...app], claudeCode: [...claudeCode], readings: [...readings] };
+  const size = (b) => Buffer.byteLength(JSON.stringify(b));
+  do {
+    const b = { app: [], claudeCode: [], readings: [], counting };
+    for (const k of ['readings', 'app', 'claudeCode']) {
+      while (lists[k].length && b[k].length < USAGE_CHUNK) {
+        b[k].push(lists[k][0]);
+        if (size(b) > maxBytes) { b[k].pop(); break; }
+        lists[k].shift();
+      }
+    }
+    if (!b.app.length && !b.claudeCode.length && !b.readings.length && out.length) break;
+    out.push(b);
+    if (!b.app.length && !b.claudeCode.length && !b.readings.length) break;
+  } while (lists.app.length || lists.claudeCode.length || lists.readings.length);
+  return out;
+}
+
+/** A signature of the usage log's files (names, sizes, times), so an unchanged log isn't read again. */
+async function usageSignature(dir) {
+  const names = (await fs.promises.readdir(dir).catch(() => [])).filter((n) => n === USAGE_FILE || /^usage-.+\.jsonl$/.test(n)).sort();
+  const bits = [];
+  for (const n of names) { const st = await fs.promises.stat(path.join(dir, n)).catch(() => null); if (st) bits.push(`${n}:${st.size}:${st.mtimeMs}`); }
+  return bits.join('\n');
+}
+
+/**
+ * One round of the upload: what is new of each kind goes to the site. call(method, path, body) is
+ * the link's; read: the runner's reads. Resolves { sent: { app, claudeCode, readings }, unpaired }.
+ * Throws when the site couldn't take it (the caller waits and tries again).
+ */
+export function usageUploader({ stateDir, url, dir, read, call, now = () => Date.now(), log = () => {}, readingEveryMs = READING_EVERY_MS }) {
+  const st = usageState(stateDir, url);
+  let lastSig = null;
+  let lastReadingLook = -Infinity;
+  return async function round() {
+    const s = st.s;
+    const t = now();
+    const floor = t - USAGE_SEND_DAYS * 24 * 3600e3;
+    const sig = await usageSignature(dir);
+    let app = [];
+    if (sig !== lastSig) {
+      const since = Math.max(floor, Number.isFinite(s.app.t) ? s.app.t - USAGE_OVERLAP_MS : floor);
+      const lines = await new UsageLog({ dir }).read({ since });
+      app = usageWire(cleanRecord(lines, { now: t }).rows).filter((l) => Date.parse(l.t) >= floor && isNew(s.app, l));
+    }
+    let claudeCode = [];
+    let counting = 'not-sent';
+    if (typeof read.claudeCodeReplies === 'function') {
+      const cc = await read.claudeCodeReplies({ since: Math.max(floor, Number.isFinite(s.claudeCode.t) ? s.claudeCode.t : floor) }).catch(() => null);
+      counting = COUNTING_OF[cc?.state] ?? 'not-sent';
+      if (counting === 'counted') claudeCode = claudeCodeWire(cc.replies).filter((l) => Date.parse(l.t) >= floor && isNew(s.claudeCode, l));
+    }
+    let readings = [];
+    if (t - lastReadingLook >= readingEveryMs && typeof read.snapshot === 'function') {
+      lastReadingLook = t;
+      const snap = await read.snapshot({ token: null, wireframesOrigin: null }).catch(() => null);
+      const r = readingWire(snap?.planUsage);
+      if (r && isNew(s.reading, r)) readings = [r];
+    }
+    const sent = { app: 0, claudeCode: 0, readings: 0 };
+    // Nothing new, and nothing new to say (a laptop with no use yet says nothing at all).
+    const sameSay = counting === s.counting || (s.counting === null && counting === 'not-sent');
+    if (!app.length && !claudeCode.length && !readings.length && sameSay) { lastSig = sig; return { sent, unpaired: false }; }
+    for (const b of usageBatches({ app, claudeCode, readings, counting })) {
+      const r = await call('POST', '/api/runner/usage', b);
+      if (r?.status === 401) return { sent, unpaired: true };
+      if (r?.status !== 200) throw new Error(`the site didn’t take the usage numbers (${r?.status ?? 'no answer'}); they go again in a moment.`);
+      for (const x of r.body?.refused ?? []) log(`site link: the site refused a usage line: ${x.error}`);
+      advance(s.app, b.app);
+      advance(s.claudeCode, b.claudeCode);
+      advance(s.reading, b.readings);
+      s.counting = counting;
+      st.save();
+      sent.app += b.app.length;
+      sent.claudeCode += b.claudeCode.length;
+      sent.readings += b.readings.length;
+    }
+    lastSig = sig;
+    return { sent, unpaired: false };
+  };
+}
+
 // ---------- The link ----------
 
 const REAL_TIMERS = { now: () => Date.now(), sleep: (ms) => new Promise((r) => { setTimeout(r, ms).unref?.(); }) };
@@ -278,7 +470,7 @@ const hashOf = (v) => crypto.createHash('sha256').update(JSON.stringify(v ?? nul
  * every line it writes. fetch, timers ({ now, sleep }) and waitSeconds are for tests. Resolves
  * nothing; start() and stop() are sync.
  */
-export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globalThis.fetch, log = (l) => console.error(l), version = '', waitSeconds = 25, timers = REAL_TIMERS, debounceMs = 1000, watchEveryMs = 2000, audit = null, onAudit = null, putFile = null }) {
+export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globalThis.fetch, log = (l) => console.error(l), version = '', waitSeconds = 25, timers = REAL_TIMERS, debounceMs = 1000, watchEveryMs = 2000, audit = null, onAudit = null, putFile = null, usageEveryMs = USAGE_EVERY_MS, usageDir: usageFolder = null }) {
   const queue = eventQueue(path.join(stateDir, QUEUE_FILE), { log });
   const doneFile = path.join(stateDir, DONE_FILE);
   const out = new EventEmitter();
@@ -664,6 +856,25 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
     }
   }
 
+  // ---- team Telemetry: the usage upload (usageUploader above), beside the link while it is up ----
+  async function usageLoop(gen) {
+    const round = usageUploader({ stateDir, url: site.url, dir: usageFolder ?? usageDir({ stateDir }), read: runner.read, call, now: timers.now, log });
+    let failures = 0;
+    while (site && gen === generation) {
+      try {
+        const r = await round();
+        if (gen !== generation) return;
+        if (r.unpaired) { unpaired(); return; }
+        failures = 0;
+        if (r.sent.app + r.sent.claudeCode + r.sent.readings) out.emit('usage', r.sent);
+      } catch (err) {
+        if (gen !== generation) return;
+        if (failures++ === 0) log(`site link: ${err.message}`);
+      }
+      await sleep(failures ? Math.max(usageEveryMs, backoff(failures)) : usageEveryMs);
+    }
+  }
+
   // ---- connecting ----
   async function connect() {
     const file = readSiteFile(stateDir);
@@ -688,6 +899,7 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
       await send('record', { kind: 'synced', key: '', value: { at: new Date(timers.now()).toISOString() } });
     }
     commandLoop(gen).catch((err) => log(`site link: ${err.message}`));
+    usageLoop(gen).catch((err) => log(`site link: ${err.message}`));
   }
 
   function disconnect(why) {
