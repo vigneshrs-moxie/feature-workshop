@@ -129,7 +129,7 @@ async function plainFile(dir, name) {
 // published page's claude.ai link beside it as .url. Run in the job's worktree (else its repo), so
 // both come from the job. Served like the screens page: from the screens server, never a symlink,
 // nothing too big, with links opening in a new tab.
-export const WALKTHROUGH_ROOT = process.env.WORKSHOP_WALKTHROUGHS_DIR || path.join(os.homedir(), '.claude', 'review-walkthroughs');
+export const WALKTHROUGH_ROOT = process.env.STARBASE_WALKTHROUGHS_DIR || path.join(os.homedir(), '.claude', 'review-walkthroughs');
 export const WALKTHROUGH_MAX_BYTES = 8 * 1024 * 1024;
 const ARTIFACT_URL = /^https:\/\/claude\.ai\/[\w/.-]+$/;
 

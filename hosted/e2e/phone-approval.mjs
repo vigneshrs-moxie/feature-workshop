@@ -7,7 +7,7 @@
 // 1. The site on http://localhost:4509 (hosted/dev.js startLocalSite: PGlite in memory, the fake
 //    Google, the fake Blob store, the page from hosted/scripts/build.js); a made-up person signs in.
 // 2. A laptop: the demo's runner (nothing real runs; e2e/laptop-host.mjs), paired with
-//    `ground-control login --site …`. Its record reaches the site, with a Foreman waiting at a gate.
+//    `starbase login --site …`. Its record reaches the site, with a Foreman waiting at a gate.
 // 3. The laptop closes: its process is suspended (SIGSTOP), as a sleeping laptop's is, and the site
 //    says it is offline once it hasn't been seen for a minute.
 // 4. On a phone-width page (390 px), the Desk shows that gate; Go is pressed.
@@ -23,6 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startLocalSite } from '../dev.js';
+import { OLD_NAMES } from '../../dashboard/lib/env-names.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');
@@ -44,8 +45,8 @@ function laptopEnv(name) {
   const tmp = path.join(WORK, name, 'tmp');
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(tmp, { recursive: true });
-  const env = { ...process.env, HOME: home, USERPROFILE: home, TMPDIR: tmp, TEMP: tmp, TMP: tmp, PORT: String(PORT), WORKSHOP_STATE_DIR: path.join(tmp, 'feature-workshop-demo', 'state'), WORKSHOP_ORBIT_STORE: 'file', WORKSHOP_DEMO: '1' };
-  for (const k of ['GROUND_CONTROL_DIR', 'WORKSHOP_FEATURES_DIR', 'WORKSHOP_PROJECTS_DIR', 'WORKSHOP_SKILLS_DIR', 'WORKSHOP_AGENTS_DIR']) delete env[k];
+  const env = { ...process.env, HOME: home, USERPROFILE: home, TMPDIR: tmp, TEMP: tmp, TMP: tmp, PORT: String(PORT), STARBASE_STATE_DIR: path.join(tmp, 'starbase-demo', 'state'), STARBASE_ORBIT_STORE: 'file', STARBASE_DEMO: '1' };
+  for (const k of ['STARBASE_DIR', 'STARBASE_FEATURES_DIR', 'STARBASE_PROJECTS_DIR', 'STARBASE_SKILLS_DIR', 'STARBASE_AGENTS_DIR']) { delete env[k]; delete env[OLD_NAMES[k]]; }
   return env;
 }
 
@@ -64,7 +65,7 @@ function startLaptop(env) {
 
 function login(env, onCode) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [path.join(ROOT, 'bin', 'ground-control.js'), 'login', '--site', SITE, '--name', PERSON.laptop], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [path.join(ROOT, 'bin', 'starbase.js'), 'login', '--site', SITE, '--name', PERSON.laptop], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
     children.add(child);
     let text = '';
     let told = false;

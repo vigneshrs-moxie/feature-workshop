@@ -3,7 +3,7 @@
 // one route, GET /job/:slug/wireframes, the only way an HTML file from a job folder is ever served,
 // with its own content security policy; nothing else and no token there. The server runs in demo mode
 // (a pretend Foreman, nothing real runs) on temp folders, so no real job, ~/.claude or
-// ~/.feature-workshop is touched and no Claude usage is spent.
+// the real state folder is touched and no Claude usage is spent.
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -69,15 +69,15 @@ before(async () => {
   screens = `http://127.0.0.1:${screensPort}`;
   child = spawn(process.execPath, [SERVER], {
     env: {
-      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(screensPort), HOME: dirs.home, WORKSHOP_DEMO: '1',
-      WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
-      WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
+      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(screensPort), HOME: dirs.home, STARBASE_DEMO: '1',
+      STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
-    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Feature Workshop running') && output.join('').includes('screens:')) { clearTimeout(timer); resolve(); } });
+    child.stdout.on('data', (d) => { output.push(String(d)); if (output.join('').includes('Starbase running') && output.join('').includes('screens:')) { clearTimeout(timer); resolve(); } });
     child.stderr.on('data', (d) => output.push(String(d)));
     child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The dashboard exited (${code}):\n${output.join('')}`)); });
   });
@@ -207,16 +207,16 @@ test('with the screens port taken, the dashboard runs without the screens server
   const lines = [];
   const second = spawn(process.execPath, [SERVER], {
     env: {
-      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(taken), HOME: path.join(root, 'home'), WORKSHOP_DEMO: '1',
-      WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: path.join(root, 'projects'), WORKSHOP_AGENTS_DIR: path.join(root, 'agents'),
-      WORKSHOP_SKILLS_DIR: path.join(root, 'skills'), WORKSHOP_STATE_DIR: stateDir,
+      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(taken), HOME: path.join(root, 'home'), STARBASE_DEMO: '1',
+      STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: path.join(root, 'projects'), STARBASE_AGENTS_DIR: path.join(root, 'agents'),
+      STARBASE_SKILLS_DIR: path.join(root, 'skills'), STARBASE_STATE_DIR: stateDir,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   try {
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`The second dashboard didn't start:\n${lines.join('')}`)), 15000);
-      const check = () => { const all = lines.join(''); if (all.includes('Feature Workshop running') && all.includes('WIREFRAMES_PORT')) { clearTimeout(timer); resolve(); } };
+      const check = () => { const all = lines.join(''); if (all.includes('Starbase running') && all.includes('WIREFRAMES_PORT')) { clearTimeout(timer); resolve(); } };
       second.stdout.on('data', (d) => { lines.push(String(d)); check(); });
       second.stderr.on('data', (d) => { lines.push(String(d)); check(); });
       second.on('exit', (code) => { clearTimeout(timer); reject(new Error(`The second dashboard exited (${code}):\n${lines.join('')}`)); });

@@ -1,4 +1,4 @@
-// Settings → Repos: the repositories Ground Control knows and the profile each one follows
+// Settings → Repos: the repositories Starbase knows and the profile each one follows
 // (lib/repos.js, lib/profile.js). The registry is the runner's (it reads git), so these routes reach it
 // through runner.local.repos, a small door with list, add, remove and check.
 //   GET    /api/repos/registry                     every registered repository, its profile and its errors

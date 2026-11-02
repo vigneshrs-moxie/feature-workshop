@@ -1,7 +1,7 @@
 // The Play layer through the real dashboard: the play settings (POST /api/settings, meta),
 // GET /api/play, POST /api/play/secret and /api/play/event (token, fixed lists), the 'play' live
 // event when an achievement unlocks, and play.json rebuilt from the audit when it is lost.
-// Demo mode on temp folders: no real job, ~/.claude or ~/.feature-workshop is touched and no
+// Demo mode on temp folders: no real job, ~/.claude or the real state folder is touched and no
 // Claude usage is spent.
 
 import { test, before, after } from 'node:test';
@@ -34,9 +34,9 @@ async function start() {
   output.length = 0;
   dashboard = await startDashboard({
     env: {
-      HOME: dirs.home, WORKSHOP_DEMO: '1',
-      WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
-      WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: stateDir,
+      HOME: dirs.home, STARBASE_DEMO: '1',
+      STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: stateDir,
     },
     output,
   });
@@ -98,7 +98,7 @@ after(async () => {
 });
 
 const write = async (p, body = {}, { auth = true } = {}) => {
-  const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Workshop-Token': token } : {}) }, body: JSON.stringify(body) });
+  const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Starbase-Token': token } : {}) }, body: JSON.stringify(body) });
   return { status: res.status, body: await res.json() };
 };
 const getJson = async (p) => (await fetch(base + p)).json();

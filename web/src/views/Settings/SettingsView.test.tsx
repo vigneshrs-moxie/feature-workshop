@@ -278,7 +278,7 @@ describe('Settings: look', () => {
     document.documentElement.setAttribute('data-theme', 'default');
     localStorage.setItem('workshop.theme', 'default');
     setup([{ rules: [], active: true, unreadable: null }], undefined, 'look');
-    const picker = screen.getByRole('group', { name: 'How the Workshop looks' });
+    const picker = screen.getByRole('group', { name: 'How Starbase looks' });
     const radios = within(picker).getAllByRole('radio');
     expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(['light', 'default', 'neon-arcade', 'blueprint', 'pixel-crew', 'candy-pop', 'glass', 'sunset-paper', 'light-glass']);
     expect(within(picker).getByRole('radio', { name: /^Default/ })).toBeChecked();
@@ -330,7 +330,7 @@ describe('Settings, simple first (packet R)', () => {
     setDefaultDetail('simple');
     try {
       setup([{ rules: [], active: true, unreadable: null }], undefined, 'look');
-      const picker = screen.getByRole('group', { name: 'How the Workshop looks' });
+      const picker = screen.getByRole('group', { name: 'How Starbase looks' });
       expect(within(picker).getAllByRole('radio').map((r) => (r as HTMLInputElement).value)).toEqual(['light', 'default']);
       expect(within(picker).getByRole('checkbox', { name: /Follow the system/ })).toBeInTheDocument();
       const all = moreButton(/^All themes \(7\)/);

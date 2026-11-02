@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 30
     env:
       # Demo mode in every server test; no Claude usage is read or spent.
-      WORKSHOP_PLAN_USAGE: 'off'
+      STARBASE_PLAN_USAGE: 'off'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,7 +29,7 @@ jobs:
           git config --global user.email "ci@example.com"
           git config --global init.defaultBranch main
       - run: npm ci
-      - name: Dashboard tests
+      - name: Server tests (dashboard/)
         run: npm test
       - name: Web tests
         working-directory: web

@@ -12,6 +12,7 @@ import { InlineText } from '../InlineText';
 import { Button } from '../Button';
 import { AlwaysAllowSheet } from './AlwaysAllowSheet';
 import { useAnswer } from './useAnswer';
+import { BRAND } from '../../app/brand';
 
 /**
  * A Markdown file it wants to write: shown as a page (the dashboard rendered it), or as its source.
@@ -131,7 +132,7 @@ export function PermissionCard({ permission: p, now, showJob = false }: { permis
               kind="quiet"
               disabled={busy}
               onClick={() => setSheet(true)}
-              title="Save a rule so steps like this run without asking, in every job the dashboard runs. You choose how narrow it is and confirm it first; remove it any time in Settings."
+              title={`Save a rule so steps like this run without asking, in every job ${BRAND.name} runs. You choose how narrow it is and confirm it first; remove it any time in Settings.`}
             >
               Always allow…
             </Button>

@@ -383,11 +383,11 @@ test('POST /api/jobs with a ticket: the job, its folder and branch carry the key
   const output = [];
   let dashboard = null;
   try {
-    dashboard = await startDashboard({ env: { HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state }, output });
+    dashboard = await startDashboard({ env: { HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents, STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state }, output });
     const { base } = dashboard;
     const token = (await (await fetch(`${base}/api/meta`)).json()).token;
     const post = async (body) => {
-      const res = await fetch(`${base}/api/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify(body) });
+      const res = await fetch(`${base}/api/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: JSON.stringify(body) });
       return { status: res.status, body: await res.json() };
     };
     const bad = await post({ description: 'ORBIT-0: nothing', repoPath: repo, ticket: { key: 'ORBIT-0' } });

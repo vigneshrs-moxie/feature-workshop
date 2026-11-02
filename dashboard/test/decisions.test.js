@@ -229,7 +229,7 @@ test('copy for the ticket: plain text with the pipes, no notes to agents, at mos
 });
 
 // Through the real dashboard in demo mode (a pretend Foreman, nothing real runs) on temp folders:
-// no real job, ~/.claude or ~/.feature-workshop is touched and no Claude usage is spent.
+// no real job, ~/.claude or the real state folder is touched and no Claude usage is spent.
 test('the dashboard writes decisions.md after a gate and serves it at GET /api/jobs/:slug/decisions.md', { timeout: 60_000 }, async () => {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fw-decisions-')));
   const dirs = Object.fromEntries(['feature-work', 'state', 'repo', 'projects', 'agents', 'skills', 'home'].map((d) => [d, path.join(root, d)]));
@@ -251,10 +251,10 @@ test('the dashboard writes decisions.md after a gate and serves it at GET /api/j
   const output = [];
   let dashboard = null;
   try {
-    dashboard = await startDashboard({ env: { HOME: dirs.home, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: dirs['feature-work'], WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents, WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state }, output });
+    dashboard = await startDashboard({ env: { HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: dirs['feature-work'], STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents, STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state }, output });
     const { base } = dashboard;
     const token = (await (await fetch(`${base}/api/meta`)).json()).token;
-    const gate = await fetch(`${base}/api/job/${slug}/gate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token }, body: JSON.stringify({ kind: 'approve', briefNumber: 2, answers: { 1: { choice: 'a' } }, note: 'Small enough to ship this week.' }) });
+    const gate = await fetch(`${base}/api/job/${slug}/gate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: JSON.stringify({ kind: 'approve', briefNumber: 2, answers: { 1: { choice: 'a' } }, note: 'Small enough to ship this week.' }) });
     assert.equal(gate.status, 200, JSON.stringify(await gate.clone().json()));
 
     // Written after the gate, without anyone asking for it.

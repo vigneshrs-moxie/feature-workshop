@@ -155,7 +155,7 @@ describe('Always allow…', () => {
     expect(within(sheet).queryByRole('alert')).toBeNull();
 
     fireEvent.click(within(sheet).getByRole('button', { name: 'Next' }));
-    expect(sheet).toHaveTextContent('every job the dashboard runs');
+    expect(sheet).toHaveTextContent('every job Starbase runs');
     expect(sheet).toHaveTextContent('run any command starting with “npm run”');
     expect(post).not.toHaveBeenCalled();
     fireEvent.click(within(sheet).getByRole('button', { name: 'Save rule and allow' }));

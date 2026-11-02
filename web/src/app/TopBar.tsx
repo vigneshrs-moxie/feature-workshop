@@ -21,9 +21,9 @@ import { hrefFor, pageName, settingsHref, stacksHref, telemetryHref, type Route 
 import { useUi } from './ui';
 
 const CONNECTION: Record<Connection, { label: string; hint: string }> = {
-  connecting: { label: 'Connecting…', hint: 'Opening the live connection to the dashboard.' },
+  connecting: { label: 'Connecting…', hint: `Opening the live connection to ${BRAND.name}.` },
   live: { label: 'Live', hint: 'Connected: changes show up here as they happen.' },
-  reconnecting: { label: 'Reconnecting…', hint: 'The connection to the dashboard dropped. This page catches up by itself when it’s back.' },
+  reconnecting: { label: 'Reconnecting…', hint: `The connection to ${BRAND.name} dropped. This page catches up by itself when it’s back.` },
 };
 
 /** Which of the five pages the route belongs to (a job and its screens are under Jobs). */
@@ -119,7 +119,7 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
         <span className="conn-label">{state.error && ready && state.connection === 'live' ? 'Couldn’t update' : conn.label}</span>
       </span>
       {state.error && ready && (
-        <Button kind="quiet" size="sm" icon="refresh" onClick={onRetry} title="Fetch everything from the dashboard again now.">Try again</Button>
+        <Button kind="quiet" size="sm" icon="refresh" onClick={onRetry} title={`Fetch everything from ${BRAND.name} again now.`}>Try again</Button>
       )}
       {ready && (
         <Button icon="plus" keyId="new-job" className="gc-new-job" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job: describe it, pick the repository, kind and Foreman model (key: c).">

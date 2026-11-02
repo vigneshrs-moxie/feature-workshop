@@ -1,12 +1,12 @@
-// `ground-control doctor`: what this computer is missing for Ground Control, and how to get it
+// `starbase doctor`: what this computer is missing for Starbase, and how to get it
 // (packet I step 2, plan §4.1, §4.3). Each check returns
 //
 //   { id, name, ok, found, fix, needed, runnable }
 //
 //   found     what is there now, in plain words
 //   fix       the exact line for this system (null when ok): winget on Windows, brew on macOS,
-//             the package manager's own line on Linux, or a ground-control command
-//   needed    true when Ground Control can't do its work without it; false for a warning
+//             the package manager's own line on Linux, or a starbase command
+//   needed    true when Starbase can't do its work without it; false for a warning
 //   runnable  true when `fix` is a command the installer may offer to run (after asking)
 //
 // Doctor never installs or changes anything itself. Every look at the computer goes through an
@@ -19,8 +19,9 @@ import path from 'node:path';
 import { envGet, findOnPath } from './platform.js';
 import { pgTool } from './local.js';
 import { readServiceFile } from '../runner/service-file.js';
-import { OLD_STATE_FOLDER, PRODUCT, stateDirFor } from './state.js';
-import { checkService, runCommand, SERVICE_PORT } from './service.js';
+import fs from 'node:fs';
+import { GC_STATE_FOLDER, MOVED_TO_STARBASE, OLD_STATE_FOLDER, PRODUCT, STATE_FOLDER, stateDirFor } from './state.js';
+import { checkService, findOldService, runCommand, SERVICE_PORT } from './service.js';
 
 export const PORTS = [SERVICE_PORT, SERVICE_PORT + 1];
 export const NODE_MAJOR = 22;
@@ -89,9 +90,9 @@ async function claudeSignedIn({ home, env, platform, readFile }) {
 
 const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (err) { return err.code === 'EPERM'; } };
 
-/** The running Ground Control, from service.json in the state folder (or the old folder, for a copy from before the move). */
+/** The running Starbase, from service.json in the state folder (or an old folder, for a copy from before a move). */
 export function runningService({ env = process.env, home = os.homedir(), alive = pidAlive } = {}) {
-  for (const dir of [stateDirFor(env, home), path.join(home, OLD_STATE_FOLDER)]) {
+  for (const dir of [...new Set([stateDirFor(env, home), path.join(home, GC_STATE_FOLDER), path.join(home, OLD_STATE_FOLDER)])]) {
     const s = readServiceFile(dir);
     if (s && alive(s.pid)) return { ...s, stateDir: dir };
   }
@@ -109,7 +110,9 @@ const check = (id, name, { ok, found, fix = null, needed = true, runnable = fals
  *   exists(path)             a file check, for PATH lookups and Postgres' folders
  *   readdir(dir), readFile(file)
  *   portInUse(port)          whether something listens there
- *   service                  the running Ground Control ({ port, pid }) or null
+ *   service                  the running Starbase ({ port, pid }) or null
+ *   oldService()             { found, names, files }: the service from before the rename (lib/service.js findOldService)
+ *   oldFolderLeft()          whether the old ~/.ground-control is still a folder of its own beside ~/.starbase
  *   serviceCheck()           { installed, running } (lib/service.js checkService)
  *   tokenSaved()             whether the Orbit token is saved
  *   isAdmin()                Windows: whether this account has administrator rights
@@ -122,6 +125,8 @@ export async function runDoctor(opts = {}) {
     portInUse: inUse = portInUse,
     service = runningService({ env, home }),
     serviceCheck = () => checkService({ platform, home, run }),
+    oldService = () => findOldService({ platform, home, run }),
+    oldFolderLeft = () => oldFolderBeside(home),
     tokenSaved = defaultTokenSaved({ env, home }),
     isAdmin = async () => (await run('net', ['session'])).code === 0,
   } = opts;
@@ -169,16 +174,16 @@ export async function runDoctor(opts = {}) {
 
   // The Orbit token
   const saved = await Promise.resolve().then(tokenSaved).catch(() => false);
-  checks.push(check('orbit-token', 'Orbit token saved', { ok: saved, found: saved ? 'saved' : 'not saved (the Inbox needs it)', fix: 'ground-control token set', needed: false }));
+  checks.push(check('orbit-token', 'Orbit token saved', { ok: saved, found: saved ? 'saved' : 'not saved (the Inbox needs it)', fix: 'starbase token set', needed: false }));
 
-  // Ports 4477 and 4478, free or Ground Control's own
+  // Ports 4477 and 4478, free or Starbase's own
   for (const port of PORTS) {
     const busy = await inUse(port);
     const ours = busy && service && (service.port === port || service.port + 1 === port);
     checks.push(check(`port-${port}`, `Port ${port} free${port === SERVICE_PORT ? '' : ' (its screens page)'}`, {
       ok: !busy || ours,
       found: !busy ? 'free' : ours ? `used by ${PRODUCT} (pid ${service.pid})` : 'in use by another program',
-      fix: `${portLookLine(port, platform)}   (shows what is using it; stop that, then run ground-control doctor again)`,
+      fix: `${portLookLine(port, platform)}   (shows what is using it; stop that, then run starbase doctor again)`,
     }));
   }
 
@@ -191,20 +196,41 @@ export async function runDoctor(opts = {}) {
   let svcFix;
   if (svc.installed) {
     svcFound = running ? 'installed and running' : 'installed, not running';
-    svcFix = 'ground-control start';
+    svcFix = 'starbase start';
   } else if (platform === 'win32' && admin === false) {
     svcFound = `not installed: this account has no administrator rights, which Task Scheduler needs to start ${PRODUCT} at sign-in`;
-    svcFix = 'ground-control start --here   (works fully without the service; keep that window open)';
+    svcFix = 'starbase start --here   (works fully without the service; keep that window open)';
   } else {
     svcFound = 'not installed';
-    svcFix = 'ground-control install   (or ground-control start --here to run it in a terminal instead)';
+    svcFix = 'starbase install   (or starbase start --here to run it in a terminal instead)';
   }
   checks.push(check('service', `${PRODUCT} service`, { ok: svc.installed && running, found: svcFound, fix: svcFix, needed: false }));
+
+  // The service and the state folder from before the rename (G36): shown only while one is there.
+  let old = { found: false, names: [], files: [] };
+  try { old = await oldService(); } catch { /* not counted */ }
+  if (old.found) {
+    const what = old.names.length ? old.names.map((n) => `“${n}”`).join(' and ') : `its file (${old.files.join(', ')})`;
+    checks.push(check('old-service', 'No service from before the rename', {
+      ok: false,
+      found: `the old service is still there: ${what}. It would start a second copy at sign-in, on the same port`,
+      fix: `starbase install   (stops and removes the old service, then sets up ${PRODUCT}’s own)`,
+      needed: false,
+    }));
+  }
+  if (await Promise.resolve().then(oldFolderLeft).catch(() => false)) {
+    checks.push(check('old-folder', `~/${GC_STATE_FOLDER} moved to ~/${STATE_FOLDER}`, {
+      ok: false,
+      found: `both are there, so nothing was merged: ${PRODUCT} uses ~/${STATE_FOLDER}, and ~/${GC_STATE_FOLDER} is left as it was`,
+      fix: `look through ~/${GC_STATE_FOLDER} for anything you still need, then delete it`,
+      needed: false,
+    }));
+  }
   if (platform === 'win32') {
     checks.push(check('admin', 'Administrator rights (only to install the service)', {
       ok: admin === true || svc.installed,
       found: admin ? 'yes' : svc.installed ? 'not needed: the service is installed' : 'no',
-      fix: 'Open PowerShell with “Run as administrator” and run ground-control install, or use ground-control start --here (it needs no rights).',
+      fix: 'Open PowerShell with “Run as administrator” and run starbase install, or use starbase start --here (it needs no rights).',
       needed: false,
     }));
   }
@@ -212,11 +238,21 @@ export async function runDoctor(opts = {}) {
   return { ok: checks.every((c) => c.ok || !c.needed), system: systemName(platform), platform, checks };
 }
 
-/** Whether an Orbit token is saved, read the way the dashboard reads it (lib/orbit-token.js). */
+/** Whether the old ~/.ground-control is a folder of its own (not the link the move leaves, nor the note) beside a ~/.starbase. */
+function oldFolderBeside(home) {
+  const gc = path.join(home, GC_STATE_FOLDER);
+  try {
+    if (fs.lstatSync(gc).isSymbolicLink() || !fs.statSync(gc).isDirectory()) return false;
+    if (fs.existsSync(path.join(gc, MOVED_TO_STARBASE))) return false;
+    return fs.statSync(path.join(home, STATE_FOLDER)).isDirectory();
+  } catch { return false; }
+}
+
+/** Whether an Orbit token is saved, read the way Starbase reads it (lib/orbit-token.js). */
 function defaultTokenSaved({ env, home }) {
   return async () => {
     const { tokenStore } = await import('./orbit-token.js');
-    const store = await tokenStore({ stateDir: stateDirFor(env, home), prefer: env.WORKSHOP_ORBIT_STORE === 'file' || env.WORKSHOP_DEMO ? 'file' : 'auto' });
+    const store = await tokenStore({ stateDir: stateDirFor(env, home), prefer: env.STARBASE_ORBIT_STORE === 'file' || env.STARBASE_DEMO ? 'file' : 'auto' });
     return Boolean(await store.get());
   };
 }
@@ -238,7 +274,7 @@ export function formatDoctor(report) {
     const parts = [];
     if (missing) parts.push(`${missing} ${missing === 1 ? 'thing is' : 'things are'} missing`);
     if (warnings) parts.push(`${warnings} ${warnings === 1 ? 'warning' : 'warnings'}`);
-    lines.push(`${parts.join(' and ')}. Doctor never installs anything itself: run the Fix lines above, then run ground-control doctor again.`);
+    lines.push(`${parts.join(' and ')}. Doctor never installs anything itself: run the Fix lines above, then run starbase doctor again.`);
   }
   return lines;
 }

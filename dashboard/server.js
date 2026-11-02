@@ -1,4 +1,4 @@
-// Feature Workshop: local-only dashboard server.
+// Starbase: the local server (the code folder is still called dashboard/).
 // Listens on 127.0.0.1 only. Reads workflow files, session logs and git (read-only).
 // What it changes goes through a job's Foreman session, and only when you click. The one exception
 // is "Try it on your computer" (lib/local.js): on your click it runs the job's app, your commands
@@ -13,6 +13,7 @@
 // (A new job from a ticket, POST /api/jobs with `ticket`, starts its status.json at schema
 // version 2 in the runner's start: lib/options.js startFromTicket(featureDir, …).)
 
+import './lib/env-boot.js'; // first: the old environment names still work (lib/env-names.js)
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -20,6 +21,11 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createRunner } from './runner/index.js';
 import { createSite } from './site/index.js';
+import { PRODUCT } from './lib/brand.js';
+import { withOldNames } from './lib/env-names.js';
+import { defaultStateDir, prepareStateFolder } from './lib/state.js';
+
+withOldNames(process.env); // again: the demo sets its STARBASE_* names after env-boot ran
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4477;
@@ -30,26 +36,32 @@ const WIREFRAMES_PORT = Number(process.env.WIREFRAMES_PORT) || PORT + 1;
 const WIREFRAMES_ORIGIN = `http://${HOST}:${WIREFRAMES_PORT}`;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLAUDE_DIR = path.join(os.homedir(), '.claude');
-const FEATURES_DIR = path.resolve(process.env.WORKSHOP_FEATURES_DIR || path.join(CLAUDE_DIR, 'feature-work'));
-const PROJECTS_DIR = path.resolve(process.env.WORKSHOP_PROJECTS_DIR || path.join(CLAUDE_DIR, 'projects'));
-const DEMO = Boolean(process.env.WORKSHOP_DEMO);
+const FEATURES_DIR = path.resolve(process.env.STARBASE_FEATURES_DIR || path.join(CLAUDE_DIR, 'feature-work'));
+const PROJECTS_DIR = path.resolve(process.env.STARBASE_PROJECTS_DIR || path.join(CLAUDE_DIR, 'projects'));
+const DEMO = Boolean(process.env.STARBASE_DEMO);
 const TOKEN = crypto.randomBytes(24).toString('hex');
+// The default state folder first, before anything writes to it: the folder from before the rename
+// becomes ~/.starbase (with a link by the old name), and the oldest folder's files move in
+// (lib/state-folder.js).
+const STATE_DIR = process.env.STARBASE_STATE_DIR || (DEMO ? path.join(path.dirname(FEATURES_DIR), 'state') : null);
+const ready = STATE_DIR ? null : prepareStateFolder();
+for (const line of ready?.lines ?? []) console.log(`state: ${line}`);
 
 const runner = await createRunner({
   host: HOST, port: PORT, token: TOKEN, dashboardDir: HERE, claudeDir: CLAUDE_DIR,
   featuresDir: FEATURES_DIR, projectsDir: PROJECTS_DIR,
-  agentsDir: path.resolve(process.env.WORKSHOP_AGENTS_DIR || path.join(CLAUDE_DIR, 'agents')),
-  skillsDir: path.resolve(process.env.WORKSHOP_SKILLS_DIR || path.join(CLAUDE_DIR, 'skills')),
-  stateDir: process.env.WORKSHOP_STATE_DIR || (DEMO ? path.join(path.dirname(FEATURES_DIR), 'state') : undefined),
-  demo: DEMO, claudePath: process.env.WORKSHOP_CLAUDE_PATH || null,
+  agentsDir: path.resolve(process.env.STARBASE_AGENTS_DIR || path.join(CLAUDE_DIR, 'agents')),
+  skillsDir: path.resolve(process.env.STARBASE_SKILLS_DIR || path.join(CLAUDE_DIR, 'skills')),
+  stateDir: STATE_DIR ?? ready.dir,
+  demo: DEMO, claudePath: process.env.STARBASE_CLAUDE_PATH || null,
   // Claude Code reads user MCP servers from ~/.claude.json, not ~/.claude/settings.json (checked in packet G);
   // an entry v1 left in settings.json is moved on the next token save.
-  claudeSettingsFile: path.resolve(process.env.WORKSHOP_CLAUDE_SETTINGS || path.join(os.homedir(), '.claude.json')),
-  legacySettingsFile: process.env.WORKSHOP_CLAUDE_SETTINGS ? null : path.join(CLAUDE_DIR, 'settings.json'),
-  gateParkMs: process.env.WORKSHOP_GATE_PARK_MS,
-  planUsage: !DEMO && process.env.WORKSHOP_PLAN_USAGE !== 'off',
-  orbitStore: DEMO || process.env.WORKSHOP_ORBIT_STORE === 'file' ? 'file' : 'auto',
-  integrateDir: path.resolve(process.env.GROUND_CONTROL_DIR || path.join(os.homedir(), '.ground-control')),
+  claudeSettingsFile: path.resolve(process.env.STARBASE_CLAUDE_SETTINGS || path.join(os.homedir(), '.claude.json')),
+  legacySettingsFile: process.env.STARBASE_CLAUDE_SETTINGS ? null : path.join(CLAUDE_DIR, 'settings.json'),
+  gateParkMs: process.env.STARBASE_GATE_PARK_MS,
+  planUsage: !DEMO && process.env.STARBASE_PLAN_USAGE !== 'off',
+  orbitStore: DEMO || process.env.STARBASE_ORBIT_STORE === 'file' ? 'file' : 'auto',
+  integrateDir: path.resolve(process.env.STARBASE_DIR || ready?.dir || defaultStateDir()),
   integrateRoot: path.resolve(process.env.INTEGRATE_ROOT || path.join(HERE, '..')),
 });
 // The site: the page, its routes and its streams, on PORT (site/index.js); the screens server's
@@ -70,14 +82,14 @@ screensServer.on('error', (err) => {
 await runner.start({
   listen: () => new Promise((resolve) => {
     server.listen(PORT, HOST, () => {
-      console.log(`Feature Workshop running at http://${HOST}:${PORT}  (Ctrl+C to stop)`);
+      console.log(`${PRODUCT} running at http://${HOST}:${PORT}  (Ctrl+C to stop)`);
       console.log(`  jobs:     ${FEATURES_DIR}`);
       console.log(`  sessions: ${PROJECTS_DIR}`);
       if (DEMO) console.log('  demo mode: a pretend Foreman answers; nothing real runs.');
       resolve();
     });
     screensServer.listen(WIREFRAMES_PORT, HOST, () => {
-      console.log(`  screens:  ${WIREFRAMES_ORIGIN} (a job’s wireframes page, framed by the dashboard)`);
+      console.log(`  screens:  ${WIREFRAMES_ORIGIN} (a job’s wireframes page, framed by ${PRODUCT})`);
     });
   }),
 });

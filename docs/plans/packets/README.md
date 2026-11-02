@@ -1,4 +1,6 @@
-# Packets for the Ground Control build
+# Packets for the Starbase build
+
+Ground Control is now called Starbase (G36); the names below are as each packet was written.
 
 One file per packet. Start a terminal tab, paste the path of one file, and that tab owns that packet until hand-back. Integration happens on the Integration board (packet Z), never by passing text between windows. The plan is `../2026-10-27-feature-workshop-next-phase-plan.md`, section 11.
 
@@ -51,12 +53,12 @@ v2 packets are 2A–2E (plan §11's v2 table, renamed because P–U were taken, 
 
 ## Rules that apply to every packet (read once, obey always)
 
-- **Base:** `main` of the Ground Control repo (today `~/Projects/feature-workshop`, to be renamed `ground-control`) after Vignesh has fast-forwarded `redesign/orbit-ready` into it. If `git log main..redesign/orbit-ready` is not empty, stop and tell Vignesh; do not base on `main` then.
-- **Worktree and branch:** `git worktree add ../ground-control-<id> -b packet/<id>-<name> main` from the main checkout. Work only there.
-- **Port:** run the dashboard with `PORT=<port> npm start` in the worktree. **Never use 4477 (Vignesh's live dashboard) or 4479 (his demo).** The screens server takes `<port>+1`.
+- **Base:** `main` of the Starbase repo (today `~/Projects/feature-workshop`; renaming it `starbase` is Vignesh's optional step, `docs/hosting/vercel-setup.md` §6a) after Vignesh has fast-forwarded `redesign/orbit-ready` into it. If `git log main..redesign/orbit-ready` is not empty, stop and tell Vignesh; do not base on `main` then.
+- **Worktree and branch:** `git worktree add ../starbase-<id> -b packet/<id>-<name> main` from the main checkout. Work only there.
+- **Port:** run Starbase with `PORT=<port> npm start` in the worktree. **Never use 4477 (Vignesh's live Starbase) or 4479 (his demo).** The screens server takes `<port>+1`.
 - **Slots:** how many packets run at once is the board's setting, not a rule in this file.
 - **Owned files only.** Touch nothing outside the "Owns" list. If you need a change elsewhere, write it under "Needs from others" in your hand-back and stop at that point.
-- **Tests:** `npm test` (node:test, `dashboard/test/*.test.js`) and `cd web && npx vitest run`. Both green before hand-back. **No model calls in tests:** the server under test runs with a fake query (`WORKSHOP_DEMO=1`); never import the Agent SDK in a test.
+- **Tests:** `npm test` (node:test, `dashboard/test/*.test.js`) and `cd web && npx vitest run`. Both green before hand-back. **No model calls in tests:** the server under test runs with a fake query (`STARBASE_DEMO=1`); never import the Agent SDK in a test.
 - **Never push, never open a PR, never merge.** Commit locally, one commit per step, plain messages. Hand back the branch name and the last SHA.
 - **Status is never shown by colour alone; themes change looks only; keys never fire while typing or with a dialog open.** Use the theme tokens, not literal colours.
 - **Plain words** in every string a person reads. No jargon.

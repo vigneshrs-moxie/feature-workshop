@@ -1,6 +1,6 @@
-# Feature Workshop
+# Starbase
 
-A local dashboard for the Claude Code **feature workflow** (spec → investigate → plan → build → test → review → PRs). It shows every job in progress, which crew member (worker agent) is busy right now, what's waiting for you, and what it all costs. From the browser you can answer the Foreman's questions, approve the next stage, click Allow or Deny when a worker wants to do something, start new jobs and pause running ones.
+Starbase is one page, on your own computer, for the Claude Code **feature workflow** (spec → investigate → plan → build → test → review → PRs). It shows every job in progress, which crew member (worker agent) is busy right now, what's waiting for you, and what it all costs. From the browser you can answer the Foreman's questions, approve the next stage, click Allow or Deny when a worker wants to do something, start new jobs and pause running ones.
 
 It runs only on your computer (`127.0.0.1`) and uses your own Claude Code login.
 
@@ -17,11 +17,11 @@ npm install
 npm run web:build
 ```
 
-`npm run web:build` builds the new view (the React app in `web/`); run it again after pulling changes. The dashboard serves the new view at **/next/** and the classic view at **/**. Both show the same jobs live and wear the theme you pick in the new view's Settings; each has a button to the other (**Classic view** / **New view**, on the same page).
+`npm run web:build` builds the new view (the React app in `web/`); run it again after pulling changes. Starbase serves the new view at **/next/** and the classic view at **/**. Both show the same jobs live and wear the theme you pick in the new view's Settings; each has a button to the other (**Classic view** / **New view**, on the same page).
 
-**Try it safely first:** `npm run demo` opens the dashboard on invented jobs with a *pretend* Foreman. Every button works and nothing real runs or costs anything. (If the real dashboard is already running, use `PORT=4479 npm run demo`: it takes its port and the next one, for the screens server.)
+**Try it safely first:** `npm run demo` opens Starbase on invented jobs with a *pretend* Foreman. Every button works and nothing real runs or costs anything. (If your real Starbase is already running, use `PORT=4479 npm run demo`: it takes its port and the next one, for the screens server.)
 
-**Use it for real:** `npm start`, then open **http://127.0.0.1:4477/next/**. Stop it with **Ctrl+C**. Stopping the dashboard pauses any reply in progress; nothing is lost.
+**Use it for real:** `npm start`, then open **http://127.0.0.1:4477/next/**. Stop it with **Ctrl+C**. Stopping Starbase pauses any reply in progress; nothing is lost.
 
 ## How it works, in one minute
 
@@ -58,15 +58,15 @@ You talk to the **Foreman** and nobody else. It gives you a plain-language overv
 **Finish line** (Settings → Workflow): one setting says what counts as a job being done: PR #1 open, PR #1 merged (the default: your part is over, the rest waits on other people), in staging, in main, or only when you mark it done. Marking a job done always counts. Crossing the line is the celebration (the Play quest, the Done notification); a job past it moves to **Shipping** in the Jobs list, where its row says where the work is ("On the Moxie branch", "In staging") and nothing asks you anything. Reaching staging or main after the line is a quiet "Landed" notification, never with a sound. **Done** is in main, or marked done.
 
 **Notifications outside the browser** (Settings → Notifications):
-- **What sends them:** the dashboard itself, through macOS, so they reach you with the tab closed. That covers what needs you, problems (an error, the usage limit), and jobs crossing the finish line (then landing in staging or main, quietly).
-- **What you can set:** each kind with a sound, silent or off; quiet hours; nothing while you're looking at the dashboard.
+- **What sends them:** Starbase itself, through macOS, so they reach you with the tab closed. That covers what needs you, problems (an error, the usage limit), and jobs crossing the finish line (then landing in staging or main, quietly).
+- **What you can set:** each kind with a sound, silent or off; quiet hours; nothing while you're looking at Starbase.
 - **Clicking one:** it opens that job.
 
 They need `brew install terminal-notifier`. macOS asks once: allow it in **System Settings → Notifications → terminal-notifier**. Until then the built-in notifier shows them, but a click can't open the job.
 
 **The job page, top to bottom:**
 - **The Foreman's overview:** where the job stands, what it needs from you, what to watch out for, and what's next. It comes from the Foreman's own latest brief (or, for older jobs, from the job's record), so you don't have to open plan or test files. **Ask the Foreman for a fresh overview** asks it directly.
-- **Heads-ups** the dashboard spots itself: the repository isn't known yet, the job's branch is checked out in your main folder (the Foreman builds in its own worktree, which needs that branch free), or Claude Code is open in this repository in a terminal.
+- **Heads-ups** Starbase spots itself: the repository isn't known yet, the job's branch is checked out in your main folder (the Foreman builds in its own worktree, which needs that branch free), or Claude Code is open in this repository in a terminal.
 - **Your conversation with the Foreman:** its briefs and replies, your messages, the permissions you decided, problems, and a folded list of routine steps handled for you.
 - **Your move:** answer, **Approve and continue**, **Ask for changes**, **Stop this job**, or ask a quick question (*Where are we? What do you need from me? Explain the plan simply. Any risks?*).
 - **Details** (folded): files, code, approvals, costs and crew, for when you want to dig in.
@@ -75,7 +75,7 @@ They need `brew install terminal-notifier`. macOS asks once: allow it in **Syste
 
 **Clarify.** On an L2 or L3 job (L1 when you ask; never L0), the Foreman may open with a **Clarify** card before anything is written: up to five questions about the request, each with two or three answers, the recommended one picked, and under every answer one muted line saying what changes if you pick it ("Phoenix only: one office rule, ships this week · All offices: needs the scoping lens, L3"). Answer with the keys `1`–`3` or in your own words, or approve to use the recommendations; the answers go to the spec writer word for word, and the spec's confirmed items start from them. The Foreman asks only when the request leaves a product decision open, so a clear request goes straight to the spec. **Settings → Workflow** sets the default for new jobs (Auto, Always, Off); a job's **Notes and options** change it for that job, or tick **Clarify** under *Stages to skip*. It shows on the Desk like any question.
 
-**Screens.** After the spec is agreed (and the product interview, at L3), an L2 or L3 job whose spec names a page, dialog or email runs the **Screens** stage: the Painter draws the feature's screens from the spec (the `feature-wireframe` skill, in the app's own design when it has one) into the job's folder, and the Foreman briefs you with the screens in a line each, every design choice with its recommendation, and the questions. Review them in the Preview pane's **Screens** tab, which shows the page itself: one panel per screen in flow order, states as tabs, A/B options side by side, and on the page your verdict (**Good**, **Question**, **Needs change**), your pick and your notes, kept in this browser. **Open full screen** shows the page on its own (`#/job/<slug>/screens`, Back brings you to the job); **Enter** steps the keyboard into the page (its own keys: `J K` to move, `1 2 3` verdicts, `A B` picks), **Esc** steps back out. The gate card for this stage has a row of chips, one per screen and design choice, each opening the Screens tab at that section and saying what you marked there; its questions are the Foreman's picks, so a quick review can be done from the card alone. **Copy feedback** (on the tab's bar, or on the page) turns your verdicts, picks and notes into the lines the skill understands (`Pick A for c-entry`, `s-list: needs change: …`), copies them and, while the card waits for you, adds them to your message, so your reply carries the review; the Foreman hands it to the Painter for a revision (the page's version goes up, a new version starts with clean notes) and carries the agreed screens into the spec. The dashboard only shows the file from disk, with its own strict content security policy; it never publishes anything. Skip the stage with the **Skip next** chip, **Screens** under *Stages to skip*, or **Screens: Off** in Settings → Workflow; the Foreman proposes skipping it itself when the spec names no screen. The Docs tab lists the page under **Screens** ("Wireframes v2").
+**Screens.** After the spec is agreed (and the product interview, at L3), an L2 or L3 job whose spec names a page, dialog or email runs the **Screens** stage: the Painter draws the feature's screens from the spec (the `feature-wireframe` skill, in the app's own design when it has one) into the job's folder, and the Foreman briefs you with the screens in a line each, every design choice with its recommendation, and the questions. Review them in the Preview pane's **Screens** tab, which shows the page itself: one panel per screen in flow order, states as tabs, A/B options side by side, and on the page your verdict (**Good**, **Question**, **Needs change**), your pick and your notes, kept in this browser. **Open full screen** shows the page on its own (`#/job/<slug>/screens`, Back brings you to the job); **Enter** steps the keyboard into the page (its own keys: `J K` to move, `1 2 3` verdicts, `A B` picks), **Esc** steps back out. The gate card for this stage has a row of chips, one per screen and design choice, each opening the Screens tab at that section and saying what you marked there; its questions are the Foreman's picks, so a quick review can be done from the card alone. **Copy feedback** (on the tab's bar, or on the page) turns your verdicts, picks and notes into the lines the skill understands (`Pick A for c-entry`, `s-list: needs change: …`), copies them and, while the card waits for you, adds them to your message, so your reply carries the review; the Foreman hands it to the Painter for a revision (the page's version goes up, a new version starts with clean notes) and carries the agreed screens into the spec. Starbase only shows the file from disk, with its own strict content security policy; it never publishes anything. Skip the stage with the **Skip next** chip, **Screens** under *Stages to skip*, or **Screens: Off** in Settings → Workflow; the Foreman proposes skipping it itself when the spec names no screen. The Docs tab lists the page under **Screens** ("Wireframes v2").
 
 **Answer and approve.** Open a red card. The job page shows the Foreman's latest brief and a **Your move** panel:
 - your answers to its questions, with the recommended ones already picked,
@@ -102,15 +102,15 @@ Nothing is ever saved to your Claude Code settings. Your existing settings still
 **Pause and stop.** While the Foreman works, **Pause** stops the current reply right away; send a message later and it carries on. **Stop this job** asks the Foreman to record where things stand and stop.
 
 **Jobs started in a terminal.** Every job shows up on the board, wherever it was started, because the board reads the jobs' folders. Only one place drives a Foreman at a time, so:
-- The dashboard sees which Claude Code sessions are **open in a terminal right now** (from your computer's process list) and in which folder. If any are open in a job's repository, it tells you and won't start a second Foreman for that job until you confirm none of them is its Foreman. Keep talking to it in the terminal, or close it there (`/exit`) and continue here.
+- Starbase sees which Claude Code sessions are **open in a terminal right now** (from your computer's process list) and in which folder. If any are open in a job's repository, it tells you and won't start a second Foreman for that job until you confirm none of them is its Foreman. Keep talking to it in the terminal, or close it there (`/exit`) and continue here.
 - If a job's session keeps a log and was last used in a terminal, the page offers **Take over here**, which resumes that exact session with its memory. Go back later with `claude --resume <session id>` (shown on the page).
-- Some terminal sessions keep no log, for example sessions started from inside another Claude Code session (they inherit `CLAUDE_CODE_CHILD_SESSION`). The dashboard can't read those conversations. Turn on the **live link** (below) to see what they're doing as it happens, or start `claude` from a fresh terminal window.
+- Some terminal sessions keep no log, for example sessions started from inside another Claude Code session (they inherit `CLAUDE_CODE_CHILD_SESSION`). Starbase can't read those conversations. Turn on the **live link** (below) to see what they're doing as it happens, or start `claude` from a fresh terminal window.
 
-**Which repository and branch?** The dashboard works it out from the job's `status.json`, its `workflow-status.md` (including free text), the spec's location, the Foreman's session folder, and git branches and worktrees named after the job. If it still can't tell, the job page asks you once (**Choose it** / **Change**) and remembers.
+**Which repository and branch?** Starbase works it out from the job's `status.json`, its `workflow-status.md` (including free text), the spec's location, the Foreman's session folder, and git branches and worktrees named after the job. If it still can't tell, the job page asks you once (**Choose it** / **Change**) and remembers.
 
 ### The live link (optional)
 
-To see terminal sessions live (what they're doing, and when they're waiting for a permission click), add a small hook to your Claude Code settings. It records events for this dashboard only, drops file contents, and never changes what Claude Code does. In `~/.claude/settings.json`, under `"hooks"`, add this entry to each of `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionRequest`, `Stop`, `StopFailure`, `SubagentStop` and `SessionEnd` (next to any hooks you already have):
+To see terminal sessions live (what they're doing, and when they're waiting for a permission click), add a small hook to your Claude Code settings. It records events for Starbase only, drops file contents, and never changes what Claude Code does. In `~/.claude/settings.json`, under `"hooks"`, add this entry to each of `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `PermissionRequest`, `Stop`, `StopFailure`, `SubagentStop` and `SessionEnd` (next to any hooks you already have):
 
 ```json
 { "matcher": "*", "hooks": [ { "type": "command", "command": "node \"/path/to/feature-workshop/dashboard/hooks/record.mjs\"" } ] }
@@ -118,7 +118,7 @@ To see terminal sessions live (what they're doing, and when they're waiting for 
 
 The command starts with `node` so it works on macOS, Linux and Windows. On Windows, write the path with forward slashes (`node \"C:/Users/you/feature-workshop/dashboard/hooks/record.mjs\"`), or double each backslash, since the settings file is JSON.
 
-Events land in `~/.feature-workshop/hook-events/events.jsonl`. Remove the entries to turn it off.
+Events land in `~/.starbase/hook-events/events.jsonl`. Remove the entries to turn it off.
 
 **Details on demand** (tabs on the job page): **Briefs** (every saved brief), **Files** (spec, findings, plans, reports, each review; requirement IDs like `FR-001` are clickable and show where they're defined and mentioned), **Code** (one commit per plan step, with diffs and *Open in VS Code* links), **Approvals** (the job's approval record, superseded ones marked, plus everything sent from here), **Costs** (by stage, crew member and model) and **Crew** (who worked on the job and what they did last).
 
@@ -151,10 +151,10 @@ The options live in the job's private folder as `options.json`; the Foreman read
 
 **History** in the top bar lists every conversation you've had with Claude Code on this computer (read from `~/.claude/projects`), newest first, with its title, first message, repository, branch, files changed and PRs. Open one to see what was asked and how it ended, then **Make it a job**: New job opens filled in from it, and you pick the flow and options as usual. Two ways for the Foreman to pick it up:
 
-- **Fresh Foreman with a summary** (recommended): the dashboard writes a short extract (`history.md`) into the job's private folder and a fresh Foreman reads it. Cheap and a clean start.
+- **Fresh Foreman with a summary** (recommended): Starbase writes a short extract (`history.md`) into the job's private folder and a fresh Foreman reads it. Cheap and a clean start.
 - **Continue that conversation**: a copy of it (Claude Code's own fork; the original is untouched) becomes the Foreman, so it remembers everything. Costs more on every reply.
 
-Either way the earlier conversation is background, never approval: every plan still needs your yes in the job. Conversations a job already uses, the dashboard's own runs and test runs are hidden unless you tick them. Some terminal setups don't save conversation logs; those are listed as "no saved log" and can't be used.
+Either way the earlier conversation is background, never approval: every plan still needs your yes in the job. Conversations a job already uses, Starbase's own runs and test runs are hidden unless you tick them. Some terminal setups don't save conversation logs; those are listed as "no saved log" and can't be used.
 
 ### Try it on your computer
 
@@ -165,7 +165,7 @@ Each job with a worktree has a **Try it on your computer** panel on its page, fo
 - **Database** (apps with an `applied_migrations` ledger and an `npm run db:migrate` script, on a local Postgres): the first switch saves your database as **the original** (`<name>__original`). **Match this job** rebuilds the local database from the original and adds the branch's migrations; **Put the original back** restores it. Switching needs nothing connected to the database: apps started here stop first, and you stop your main app's dev server yourself. Anything changed in the local database since the last switch is lost (the page says so before it starts).
 - **Quick commands** (checks, tests, types, lint, build, migration status, git status), a **command box** that runs anything in the job's folder with live output (↑/↓ for history), and **Open terminal here** (iTerm or Terminal), VS Code and Finder.
 
-Commands run without a terminal, so ones that ask questions won't work there; open a terminal for those. Apps and commands started here stop when the dashboard stops.
+Commands run without a terminal, so ones that ask questions won't work there; open a terminal for those. Apps and commands started here stop when Starbase stops.
 
 ### Usage limits
 
@@ -179,12 +179,12 @@ When a reply run from here hits Claude's 5-hour or weekly limit, every reply sti
 - `~/.claude/agents/*.md` — each worker's model and effort, for the Crew-dex
 - your repositories, read-only with git (`git log`, `git show`) for the Code tab, and the spec file each job names
 
-**Writes:** each job's `options.json` and, when it starts from a past conversation, `history.md` (and creates the job's folder when you start a job here); a forked copy of a conversation when you choose to continue one; and its own small state folder, `~/.feature-workshop/`:
+**Writes:** each job's `options.json` and, when it starts from a past conversation, `history.md` (and creates the job's folder when you start a job here); a forked copy of a conversation when you choose to continue one; and its own small state folder, `~/.starbase/`:
 - `sessions.json` — which Claude Code session drives each job, and when you took one over
 - `audit.jsonl` — every message sent, permission decided, routine step handled, pause and take-over, with the exact words
 - `settings.json` — how routine steps are handled, a usage-limit pause in progress, each job's local port, the terminal app, and which job the local database matches
 
-**Everything else happens through the job's Foreman session in Claude Code**, except what you start from **Try it on your computer**: on your click, that runs the job's app, your commands and database switches in the job's worktree, writes the worktree's `.env.local`, and copies or restores your local database. You start every reply; within it, routine steps run under the rules above and everything else asks you. The dashboard itself never pushes, opens PRs, changes Claude Code settings or talks to anything except your local Claude Code (and your local database, when you switch it). It also reads the list of running processes (`ps`, `lsof`) to spot open Claude Code terminals, and `~/.feature-workshop/hook-events/` if you turn on the live link.
+**Everything else happens through the job's Foreman session in Claude Code**, except what you start from **Try it on your computer**: on your click, that runs the job's app, your commands and database switches in the job's worktree, writes the worktree's `.env.local`, and copies or restores your local database. You start every reply; within it, routine steps run under the rules above and everything else asks you. Starbase itself never pushes, opens PRs, changes Claude Code settings or talks to anything except your local Claude Code (and your local database, when you switch it). It also reads the list of running processes (`ps`, `lsof`) to spot open Claude Code terminals, and `~/.starbase/hook-events/` if you turn on the live link.
 
 ## Can and can't
 
@@ -203,7 +203,7 @@ When a reply run from here hits Claude's 5-hour or weekly limit, every reply sti
 - Listens on `127.0.0.1` only and rejects requests addressed to any other host name.
 - Anything that changes something needs a secret token that only this page can read, from this page's own address, as JSON. Other websites open in your browser can't press its buttons.
 - Strict content security policy: the page loads only its own files, no outside scripts or styles.
-- A job's screens page (`wireframes.html`, drawn by the wireframe skill) is an HTML file a model wrote, so it is never served from the dashboard's own address: a second, screens-only server on the next port (`WIREFRAMES_PORT`, `PORT` + 1 by default, `127.0.0.1` only) answers `GET /job/<slug>/wireframes` and nothing else, with no token anywhere. The Screens tab frames that address, so the page's script runs in another origin and can't read the dashboard's page, its storage or its token; the two talk only through checked `postMessage` messages. The page keeps its own policy: it may run its own inline script and styles and load only the fonts and the two pinned libraries its template names; no fetches, no other frames or forms, and only this dashboard may frame it. Nothing else from a job folder is ever served as HTML.
+- A job's screens page (`wireframes.html`, drawn by the wireframe skill) is an HTML file a model wrote, so it is never served from Starbase's own address: a second, screens-only server on the next port (`WIREFRAMES_PORT`, `PORT` + 1 by default, `127.0.0.1` only) answers `GET /job/<slug>/wireframes` and nothing else, with no token anywhere. The Screens tab frames that address, so the page's script runs in another origin and can't read Starbase's page, its storage or its token; the two talk only through checked `postMessage` messages. The page keeps its own policy: it may run its own inline script and styles and load only the fonts and the two pinned libraries its template names; no fetches, no other frames or forms, and only Starbase may frame it. Nothing else from a job folder is ever served as HTML.
 - Markdown is rendered with raw HTML switched off and unsafe links removed.
 - Git is read with fixed commands and checked arguments; files are only read from inside each job's folder or the spec path the job records.
 - The command box runs what you type, as you, in the job's worktree: treat the page like a terminal. Database switches run fixed programs (`createdb`, `dropdb`, `npm run db:migrate -- <name>`) with no shell, only for a Postgres on this computer, and refuse while anything is connected.
@@ -213,13 +213,15 @@ When a reply run from here hits Claude's 5-hour or weekly limit, every reply sti
 | Variable | Default | What it's for |
 |---|---|---|
 | `PORT` | `4477` | The port to listen on |
-| `WIREFRAMES_PORT` | `PORT` + 1 | The screens server's port: a job's `wireframes.html`, served from its own origin so it can't reach the dashboard |
-| `WORKSHOP_FEATURES_DIR` | `~/.claude/feature-work` | Where jobs live |
-| `WORKSHOP_PROJECTS_DIR` | `~/.claude/projects` | Claude Code session logs |
-| `WORKSHOP_AGENTS_DIR` / `WORKSHOP_SKILLS_DIR` | `~/.claude/agents` / `~/.claude/skills` | The workflow's agents and skills |
-| `WORKSHOP_STATE_DIR` | `~/.feature-workshop` | The dashboard's own state |
-| `WORKSHOP_CLAUDE_PATH` | (bundled with the SDK) | Use a specific `claude` executable |
-| `WORKSHOP_EXTRA_REPOS` | (none) | Extra repositories to offer in New job, separated by `:` |
+| `WIREFRAMES_PORT` | `PORT` + 1 | The screens server's port: a job's `wireframes.html`, served from its own origin so it can't reach Starbase |
+| `STARBASE_FEATURES_DIR` | `~/.claude/feature-work` | Where jobs live |
+| `STARBASE_PROJECTS_DIR` | `~/.claude/projects` | Claude Code session logs |
+| `STARBASE_AGENTS_DIR` / `STARBASE_SKILLS_DIR` | `~/.claude/agents` / `~/.claude/skills` | The workflow's agents and skills |
+| `STARBASE_STATE_DIR` | `~/.starbase` | Starbase's own state |
+| `STARBASE_CLAUDE_PATH` | (bundled with the SDK) | Use a specific `claude` executable |
+| `STARBASE_EXTRA_REPOS` | (none) | Extra repositories to offer in New job, separated by `:` |
+
+Starbase had other names before. The old command, variable names and state folder still work for now: [CHANGELOG.md](CHANGELOG.md) says how they move over.
 
 ## Sharing with teammates
 
@@ -237,7 +239,7 @@ Teammates also need the feature workflow itself (the `/feature` skills and `feat
 ## Known limits
 
 - **Terminal sessions without logs** (see above) show as open terminals only, unless the live link is on.
-- **No time limits.** A worker counts as working until its log shows it finished. If a terminal session is closed mid-task, its job keeps showing as working, with a “quiet for …” note. Jobs paused or finished from the dashboard are always shown correctly.
+- **No time limits.** A worker counts as working until its log shows it finished. If a terminal session is closed mid-task, its job keeps showing as working, with a “quiet for …” note. Jobs paused or finished from Starbase are always shown correctly.
 - **Quiet ≠ stuck.** A long command and a permission prompt waiting in a terminal look the same in the logs, so the card says “maybe” and points you to the terminal.
 - **Older jobs** that don't write `status.json` and `briefs/` yet show less detail (their stage and approvals come from `workflow-status.md`).
 - The session log format belongs to Claude Code and may change; unknown lines are skipped.

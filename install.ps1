@@ -1,4 +1,4 @@
-# Installs Ground Control on Windows in one line (packet I step 6, plan section 4.3), in PowerShell
+# Installs Starbase on Windows in one line (packet I step 6, plan section 4.3), in PowerShell
 # (Windows PowerShell 5.1 needs TLS 1.2 switched on first, hence the first half):
 #
 #   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object Net.WebClient).DownloadString('https://github.com/vigneshrs-moxie/feature-workshop/releases/latest/download/install.ps1'))
@@ -6,32 +6,39 @@
 # 1. Node 22 or later: when it is missing it prints the winget line that gets it and asks first.
 # 2. Downloads the newest release's package file and SHA256SUMS and checks the one against the other.
 #    Nothing is installed or run from a download that doesn't match.
-# 3. Runs that package's `ground-control doctor --json`, and for each thing missing prints the fix
+# 3. Runs that package's `starbase doctor --json`, and for each thing missing prints the fix
 #    and asks (yes or no) before running it.
-# 4. npm i -g <the package file>, then `ground-control install` (a Task Scheduler task from sign-in,
-#    as you, never as administrator), then opens http://127.0.0.1:4477/next/. Without the rights
-#    for the task, it says so: `ground-control start --here` then runs it fully in a window.
+# 4. npm i -g <the package file> (removing @moxie/ground-control, its name before the rename, first),
+#    then `starbase install` (a Task Scheduler task from sign-in, as you, never as administrator;
+#    it removes the old task, named ground-control before the rename, too), then opens http://127.0.0.1:4477/next/. Without the rights
+#    for the task, it says so: `starbase start --here` then runs it fully in a window.
 #
 # Runs in Windows PowerShell 5.1 and PowerShell 7. It never exits the window it runs in.
 #
 # Settings, for trying the script:
-#   GROUND_CONTROL_RELEASE_REPO   the GitHub repository the release comes from
-#   GROUND_CONTROL_FROM           a folder that already holds a package file and its SHA256SUMS
-#                                 (used instead of downloading; still checked)
-#   GROUND_CONTROL_NO_SERVICE=1   install the program only: no service, nothing opened
+#   STARBASE_RELEASE_REPO   the GitHub repository the release comes from
+#   STARBASE_FROM           a folder that already holds a package file and its SHA256SUMS
+#                           (used instead of downloading; still checked)
+#   STARBASE_NO_SERVICE=1   install the program only: no service, nothing opened
+# Their old names (GROUND_CONTROL_RELEASE_REPO, GROUND_CONTROL_FROM, GROUND_CONTROL_NO_SERVICE)
+# still work while the new one is unset.
 
-$Product = 'Ground Control'
-$Package = '@moxie/ground-control'
-$Command = 'ground-control'
+$Product = 'Starbase'
+$Package = '@moxie/starbase'
+$OldPackage = '@moxie/ground-control'
+$Command = 'starbase'
 $DashboardUrl = 'http://127.0.0.1:4477/next/'
 $NodeMajor = 22
 
-function Install-GroundControl {
+function Install-Starbase {
   $ErrorActionPreference = 'Continue'
-  $repo = $env:GROUND_CONTROL_RELEASE_REPO
+  $repo = $env:STARBASE_RELEASE_REPO
+  if (-not $repo) { $repo = $env:GROUND_CONTROL_RELEASE_REPO } # the old name
   if (-not $repo) { $repo = 'vigneshrs-moxie/feature-workshop' }
-  $from = $env:GROUND_CONTROL_FROM
-  $noService = [bool]$env:GROUND_CONTROL_NO_SERVICE
+  $from = $env:STARBASE_FROM
+  if (-not $from) { $from = $env:GROUND_CONTROL_FROM } # the old name
+  $noService = [bool]$env:STARBASE_NO_SERVICE
+  if (-not $noService) { $noService = [bool]$env:GROUND_CONTROL_NO_SERVICE } # the old name
 
   function Say([string]$text) { Write-Host $text }
   function Stop-Install([string]$text) { throw [System.OperationCanceledException]::new($text) }
@@ -85,7 +92,7 @@ function Install-GroundControl {
 
   # ---------- 2. The package file, checked against SHA256SUMS ----------
 
-  $work = Join-Path ([System.IO.Path]::GetTempPath()) ("ground-control-install-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+  $work = Join-Path ([System.IO.Path]::GetTempPath()) ("starbase-install-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
   New-Item -ItemType Directory -Path $work | Out-Null
   try {
     $sums = Join-Path $work 'SHA256SUMS'
@@ -99,10 +106,10 @@ function Install-GroundControl {
       Say "Using the release files in $from."
       if (-not (Test-Path -LiteralPath (Join-Path $from 'SHA256SUMS'))) { Stop-Install "$from has no SHA256SUMS. Nothing was changed." }
       Copy-Item -LiteralPath (Join-Path $from 'SHA256SUMS') -Destination $work
-      Get-ChildItem -LiteralPath $from -Filter 'moxie-ground-control-*.tgz' | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $work }
+      Get-ChildItem -LiteralPath $from -Filter 'moxie-starbase-*.tgz' | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $work }
     } elseif ($useGh) {
       Say "Downloading the newest release of $Product from $repo (with GitHub CLI)."
-      $code = Invoke-Visible 'gh' "release download --repo $repo --pattern moxie-ground-control-*.tgz --pattern SHA256SUMS --dir `"$work`""
+      $code = Invoke-Visible 'gh' "release download --repo $repo --pattern moxie-starbase-*.tgz --pattern SHA256SUMS --dir `"$work`""
       if ($code -ne 0) { Stop-Install "The download from $repo didn't finish. Check the network and run this again. Nothing was changed." }
     } else {
       Say "Downloading the newest release of $Product from $repo."
@@ -115,7 +122,7 @@ function Install-GroundControl {
     $name = $null
     $want = $null
     foreach ($l in (Get-Content -LiteralPath $sums)) {
-      if ($l -match '^([0-9a-fA-F]{64})\s+\*?(moxie-ground-control-[^\s/\\]+\.tgz)\s*$') { $want = $Matches[1].ToLower(); $name = $Matches[2]; break }
+      if ($l -match '^([0-9a-fA-F]{64})\s+\*?(moxie-starbase-[^\s/\\]+\.tgz)\s*$') { $want = $Matches[1].ToLower(); $name = $Matches[2]; break }
     }
     if (-not $name) { Stop-Install "SHA256SUMS doesn't name a package file, so nothing can be checked. Nothing was changed." }
     $tgz = Join-Path $work $name
@@ -131,13 +138,13 @@ function Install-GroundControl {
 
     # ---------- 3. What else is missing (doctor --json), each fix only after a yes ----------
 
-    Say "Checking what else $Product needs (ground-control doctor)."
+    Say "Checking what else $Product needs ($Command doctor)."
     $report = $null
     if (Test-Command 'tar.exe') {
       $unpacked = Join-Path $work 'package-files'
       New-Item -ItemType Directory -Path $unpacked | Out-Null
       & tar.exe -xzf $tgz -C $unpacked *> $null
-      $cli = Join-Path $unpacked 'package\bin\ground-control.js'
+      $cli = Join-Path $unpacked 'package\bin\starbase.js'
       if (Test-Path -LiteralPath $cli) {
         # Node writes UTF-8; read it as UTF-8 so its curly quotes come through as they are.
         $before = [Console]::OutputEncoding
@@ -168,6 +175,13 @@ function Install-GroundControl {
 
     # ---------- 4. Install, set up the service, open it ----------
 
+    # The package from before the rename has the ground-control command, which this one keeps as an
+    # alias for a release: npm won't put two packages' commands in one place, so the old one goes first.
+    & npm.cmd ls -g $OldPackage --depth=0 *> $null
+    if ($LASTEXITCODE -eq 0) {
+      Say "Removing $OldPackage, $Product's name before the rename (your files are kept)."
+      if ((Invoke-Visible 'npm.cmd' "rm -g $OldPackage") -ne 0) { Say "npm couldn't remove $OldPackage; the install below may say so too." }
+    }
     Say "Installing $Product ($Package) with npm."
     if ((Invoke-Visible 'npm.cmd' "i -g `"$tgz`"") -ne 0) { Stop-Install "npm couldn't install $Product (its message is above). Nothing else was changed." }
     Update-PathFromSystem
@@ -200,7 +214,7 @@ function Install-GroundControl {
 
 $installCode = 1
 try {
-  $installCode = Install-GroundControl
+  $installCode = Install-Starbase
 } catch [System.OperationCanceledException] {
   Write-Host $_.Exception.Message
   $installCode = 1

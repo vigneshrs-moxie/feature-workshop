@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { Button } from '../../components/Button';
+import { BRAND } from '../../app/brand';
 
 export interface DecisionsFile {
   file: string;
@@ -29,7 +30,7 @@ export function CopyForTicket({ slug, active }: { slug: string; active: boolean 
     api.get<DecisionsFile>(`/api/jobs/${encodeURIComponent(slug)}/decisions.md`)
       .then((r) => {
         if (!live) return;
-        if (typeof r?.text !== 'string' || typeof r.copy?.text !== 'string') { setError('the dashboard’s answer had no file in it'); return; }
+        if (typeof r?.text !== 'string' || typeof r.copy?.text !== 'string') { setError(`${BRAND.name}’s answer had no file in it`); return; }
         setGot({ slug, file: r });
         setError(null);
       })

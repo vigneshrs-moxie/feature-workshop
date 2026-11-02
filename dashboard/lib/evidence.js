@@ -29,6 +29,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { evidenceOn, evidenceWhy, isLevel } from './options.js';
 import { testedCommit } from './proof.js';
+import { PRODUCT } from './brand.js';
 
 export const EVIDENCE_DIR = 'evidence';
 export const EVIDENCE_FILE = 'evidence.json';
@@ -37,7 +38,7 @@ export const CONFIG_FILE = 'playwright.config.mjs';
 export const EVIDENCE_VERSION = 1;
 /** How long one spec may take (ms). */
 export const SPEC_LIMIT_MS = 60_000;
-/** The fix line when Playwright's Chromium isn't installed (the same words as `ground-control doctor`). */
+/** The fix line when Playwright's Chromium isn't installed (the same words as `starbase doctor`). */
 export const BROWSER_FIX = 'Run npx playwright install chromium';
 export const DB_DOWN = 'The local database copy isn’t running. Start it from Try it, then press Record again.';
 const SPEC_FILE = /^AC-([1-9]\d{0,3})\.spec\.mjs$/;
@@ -117,7 +118,7 @@ export function evidenceLines(reportText) {
 /** The Playwright config for one recording: video and screenshots on, one worker, Chromium only. */
 export function playwrightConfig({ testDir, outputDir, reportFile, baseURL, specs = 1 }) {
   const j = (v) => JSON.stringify(v);
-  return `// Written by the dashboard for one evidence recording (lib/evidence.js). It is written again
+  return `// Written by ${PRODUCT} for one evidence recording (lib/evidence.js). It is written again
 // for every recording, so a change here doesn't last.
 export default {
   testDir: ${j(testDir)},
@@ -142,7 +143,7 @@ export default {
  */
 export function guardModule(playwrightUrl) {
   const u = JSON.stringify(playwrightUrl);
-  return `// Written by the dashboard (lib/evidence.js): the specs' @playwright/test, with every page kept on this computer.
+  return `// Written by ${PRODUCT} (lib/evidence.js): the specs' @playwright/test, with every page kept on this computer.
 import { test as base, expect } from ${u};
 export * from ${u};
 const HERE = new Set(['127.0.0.1', 'localhost', '[::1]']);

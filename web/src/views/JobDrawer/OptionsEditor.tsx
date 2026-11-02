@@ -16,6 +16,7 @@ import { useWorkshop, useWorkshopState } from '../../state/store';
 import { Choice } from '../../components/Choice';
 import { Select } from '../../components/Select';
 import { Button } from '../../components/Button';
+import { BRAND } from '../../app/brand';
 
 export const OPTIONS_HINT = 'Options choose how much process this job gets, never what it may do without asking (that is the permission setting). A change applies from the next stage; a worker already running finishes first.';
 
@@ -117,7 +118,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
       return (
         <div>
           <p className="thread-error" role="alert">Couldn’t load the options: {load.message}</p>
-          <Button onClick={() => setTries((n) => n + 1)} title="Ask the dashboard for this job’s options again.">Try again</Button>
+          <Button onClick={() => setTries((n) => n + 1)} title={`Ask ${BRAND.name} for this job’s options again.`}>Try again</Button>
         </div>
       );
     }

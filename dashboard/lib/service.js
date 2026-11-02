@@ -1,21 +1,26 @@
-// Ground Control as the person's own background service, from sign-in (packet I step 3, plan §4.3):
+// Starbase as the person's own background service, from sign-in (packet I step 3, plan §4.3):
 //
-//   Windows  a Task Scheduler task "Ground Control", at logon, made with schtasks /Create /XML
-//   macOS    a launchd agent com.moxie.ground-control in ~/Library/LaunchAgents, loaded with
+//   Windows  a Task Scheduler task "Starbase", at logon, made with schtasks /Create /XML
+//   macOS    a launchd agent com.moxie.starbase in ~/Library/LaunchAgents, loaded with
 //            launchctl bootstrap gui/<uid>
-//   Linux    a systemd user unit ground-control.service, systemctl --user enable --now
+//   Linux    a systemd user unit starbase.service, systemctl --user enable --now
 //
 // Always as the person, never as an administrator account. Each runs dashboard/server.js from where
-// Ground Control is installed, on port 4477, logs to ~/.ground-control/logs/ and starts again when it
+// Starbase is installed, on port 4477, logs to ~/.starbase/logs/ and starts again when it
 // fails. The files come from the templates in service/ with the {{…}} parts filled in.
 //
-// On Windows the task runs `ground-control service-run` (superviseServer below) in a hidden window,
+// The service from before Starbase (G36: com.moxie.ground-control, ground-control.service, the
+// task "Ground Control", or "Dashboard" while that was the placeholder name) is OLD_SERVICE:
+// installService stops and removes it before it sets up Starbase's own (removeOldService), and
+// doctor reports one still there (findOldService).
+//
+// On Windows the task runs `starbase service-run` (superviseServer below) in a hidden window,
 // since Task Scheduler neither keeps a log nor stops a program gently: the supervisor writes the
-// log, starts the dashboard again when it fails, and on `ground-control stop` asks it to stop the
+// log, starts the dashboard again when it fails, and on `starbase stop` asks it to stop the
 // way Ctrl+C does (replies in progress pause and carry on at the next start, packet G).
 //
 // Where the task can't be made (no rights, or no systemd user services), installService says so
-// plainly and points to `ground-control start --here`, which is fully supported.
+// plainly and points to `starbase start --here`, which is fully supported.
 //
 // Every function takes `platform`, `home`, `env` and a command runner `run(file, args)` that
 // resolves { code, stdout, stderr } (code null when the program isn't there), so tests can ask for
@@ -27,20 +32,22 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findOnPath } from './platform.js';
-import { PRODUCT, STATE_FOLDER } from './state.js';
+import { GC_STATE_FOLDER, PRODUCT, STATE_FOLDER } from './state.js';
 
 export const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const SERVICE_PORT = 4477;
-export const LABEL = 'com.moxie.ground-control';
+export const LABEL = 'com.moxie.starbase';
 export const TASK_NAME = PRODUCT;
-export const UNIT = 'ground-control.service';
-export const LOG_NAME = 'ground-control.log';
-/** The file `ground-control stop` leaves in the state folder for a supervised dashboard (superviseServer). */
+export const UNIT = 'starbase.service';
+export const LOG_NAME = 'starbase.log';
+/** The service's names before Starbase (G36). Windows' task had the product's name, "Dashboard" while that was the placeholder. */
+export const OLD_SERVICE = Object.freeze({ label: 'com.moxie.ground-control', unit: 'ground-control.service', tasks: Object.freeze(['Ground Control', 'Dashboard']), taskFile: 'ground-control.xml' });
+/** The file `starbase stop` leaves in the state folder for a supervised dashboard (superviseServer). */
 export const STOP_REQUEST = 'stop-request';
 
-const TEMPLATES = { darwin: 'com.moxie.ground-control.plist', linux: 'ground-control.service', win32: 'ground-control.xml' };
+const TEMPLATES = { darwin: 'com.moxie.starbase.plist', linux: 'starbase.service', win32: 'starbase.xml' };
 // The paths written *into* a service file follow the system it is for (path.win32 for Windows).
-// The files Ground Control itself writes, removes or looks for always use this computer's own
+// The files Starbase itself writes, removes or looks for always use this computer's own
 // `path`: on the system the service is for the two are the same, and a test asking for another
 // system's file then writes only inside its own temp folder.
 const pathOf = (platform) => (platform === 'win32' ? path.win32 : path.posix);
@@ -57,14 +64,14 @@ export function runCommand(file, args, { timeout = 30_000, env } = {}) {
 
 // ---------- Where things go ----------
 
-/** The logs folder: ~/.ground-control/logs (pathApi: path.win32 or path.posix to shape it for that system). */
+/** The logs folder: ~/.starbase/logs (pathApi: path.win32 or path.posix to shape it for that system). */
 export const logDir = (home = os.homedir(), platform = process.platform, pathApi = pathOf(platform)) => pathApi.join(home, STATE_FOLDER, 'logs');
 
 /** Where the service file goes on that system (pathApi as for logDir). */
 export function serviceFilePath({ platform = process.platform, home = os.homedir(), pathApi = pathOf(platform) } = {}) {
   const p = pathApi;
   if (platform === 'darwin') return p.join(home, 'Library', 'LaunchAgents', `${LABEL}.plist`);
-  if (platform === 'win32') return p.join(home, STATE_FOLDER, 'service', 'ground-control.xml');
+  if (platform === 'win32') return p.join(home, STATE_FOLDER, 'service', 'starbase.xml');
   return p.join(home, '.config', 'systemd', 'user', UNIT);
 }
 
@@ -90,13 +97,13 @@ export function taskArguments({ node, bin }) {
 /**
  * The service file for this system: { file, content, encoding }. content is a string; on Windows
  * it is written as UTF-16 with a byte-order mark (encoding 'utf16le'), which schtasks reads.
- * packageRoot: where Ground Control is installed (its dashboard/server.js and bin/ground-control.js).
+ * packageRoot: where Starbase is installed (its dashboard/server.js and bin/starbase.js).
  */
 export function renderService({ platform = process.platform, home = os.homedir(), env = process.env, node, packageRoot = PACKAGE_ROOT, templatesDir = path.join(PACKAGE_ROOT, 'service'), port = SERVICE_PORT, user } = {}) {
   const name = TEMPLATES[platform] ?? TEMPLATES.linux;
   const p = pathOf(platform);
   const server = p.join(packageRoot, 'dashboard', 'server.js');
-  const bin = p.join(packageRoot, 'bin', 'ground-control.js');
+  const bin = p.join(packageRoot, 'bin', 'starbase.js');
   const log = p.join(logDir(home, platform), LOG_NAME);
   const nodePath = node ?? nodeFor({ platform, env });
   const PATH = String(env.PATH ?? env.Path ?? '');
@@ -129,16 +136,71 @@ const said = (r) => `${r.stderr || ''}\n${r.stdout || ''}`.trim();
 const firstLine = (r) => said(r).split(/\r?\n/).find((l) => l.trim())?.trim() ?? '';
 
 export const NO_RIGHTS_WINDOWS = 'Windows didn’t let this account make the Task Scheduler task: making a task that starts at sign-in needs administrator rights on this computer. '
-  + `${PRODUCT} still works fully when you start it yourself: run ground-control start --here and keep that window open. `
-  + 'If your own account can run programs as administrator, open PowerShell with “Run as administrator” and run ground-control install again to have it start at sign-in.';
+  + `${PRODUCT} still works fully when you start it yourself: run starbase start --here and keep that window open. `
+  + 'If your own account can run programs as administrator, open PowerShell with “Run as administrator” and run starbase install again to have it start at sign-in.';
 export const NO_SYSTEMD = `This computer has no systemd user services (systemctl --user doesn’t work here), so ${PRODUCT} can’t run as a service. `
-  + 'It still works fully when you start it yourself: run ground-control start --here and keep that terminal open.';
-export const NO_RIGHTS_OTHER = `This account isn’t allowed to set up the service. ${PRODUCT} still works fully when you start it yourself: run ground-control start --here and keep that terminal open.`;
+  + 'It still works fully when you start it yourself: run starbase start --here and keep that terminal open.';
+export const NO_RIGHTS_OTHER = `This account isn’t allowed to set up the service. ${PRODUCT} still works fully when you start it yourself: run starbase start --here and keep that terminal open.`;
 
 const deniedWindows = (r) => /access is denied|zugriff verweigert|accès refusé|acceso denegado/i.test(said(r));
 const noUserBus = (r) => r.missing || /failed to connect to bus|no medium found|not been booted with systemd|\$DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR/i.test(said(r));
 
 const uidOf = (uid) => (uid ?? process.getuid?.() ?? 0);
+
+// ---------- The service from before Starbase ----------
+
+/** Where the old service's files are on this computer: the launchd file, the systemd unit, or the task's saved XML. */
+function oldServiceFiles(platform, home) {
+  if (platform === 'darwin') return [path.join(home, 'Library', 'LaunchAgents', `${OLD_SERVICE.label}.plist`)];
+  if (platform === 'win32') return [path.join(home, STATE_FOLDER, 'service', OLD_SERVICE.taskFile), path.join(home, GC_STATE_FOLDER, 'service', OLD_SERVICE.taskFile)];
+  return [path.join(home, '.config', 'systemd', 'user', OLD_SERVICE.unit)];
+}
+
+/**
+ * The service from before Starbase, if it is still on this computer: { found, names, files }.
+ * names: what the service manager still knows by an old name (on Windows only a task that runs
+ * `service-run`, so a task of someone else's called "Dashboard" is never counted); files: the old
+ * service files still on disk.
+ */
+export async function findOldService({ platform = process.platform, home = os.homedir(), run = runCommand, uid } = {}) {
+  const names = [];
+  if (platform === 'darwin') {
+    const r = await run('launchctl', ['print', `gui/${uidOf(uid)}/${OLD_SERVICE.label}`]);
+    if (r.code === 0 && r.stdout.includes(OLD_SERVICE.label)) names.push(OLD_SERVICE.label);
+  } else if (platform === 'win32') {
+    for (const task of OLD_SERVICE.tasks) {
+      const r = await run('schtasks', ['/Query', '/TN', task, '/XML']);
+      if (r.code === 0 && /service-run/.test(r.stdout)) names.push(task);
+    }
+  } else {
+    const enabled = await run('systemctl', ['--user', 'is-enabled', OLD_SERVICE.unit]);
+    if (/^(enabled|disabled|static|linked)/.test(enabled.stdout.trim())) names.push(OLD_SERVICE.unit);
+  }
+  const files = [...new Set(oldServiceFiles(platform, home))].filter((f) => fs.existsSync(f));
+  return { found: names.length > 0 || files.length > 0, names, files };
+}
+
+/**
+ * Stops the service from before Starbase and removes it (and its files). Returns { removed: [names
+ * and files], message? }; message when the service manager said no (Windows without the rights).
+ */
+export async function removeOldService({ platform = process.platform, home = os.homedir(), run = runCommand, uid } = {}) {
+  const old = await findOldService({ platform, home, run, uid });
+  if (!old.found) return { removed: [] };
+  const removed = [];
+  let message = null;
+  for (const name of old.names) {
+    let r;
+    if (platform === 'darwin') r = await run('launchctl', ['bootout', `gui/${uidOf(uid)}/${name}`]);
+    else if (platform === 'win32') { await run('schtasks', ['/End', '/TN', name]); r = await run('schtasks', ['/Delete', '/TN', name, '/F']); }
+    else r = await run('systemctl', ['--user', 'disable', '--now', name]);
+    if (r.code === 0) removed.push(name);
+    else if (platform === 'win32' && deniedWindows(r)) message = `Windows didn’t let this account delete the old Task Scheduler task “${name}”. Delete it in Task Scheduler, or run starbase install again in PowerShell opened with “Run as administrator”.`;
+  }
+  for (const f of old.files) { try { fs.rmSync(f, { force: true }); removed.push(f); } catch { /* left; doctor says so */ } }
+  if (platform === 'linux' && old.files.length) await run('systemctl', ['--user', 'daemon-reload']);
+  return { removed, ...(message ? { message } : {}) };
+}
 
 // ---------- Install, remove, check, start, stop ----------
 
@@ -147,10 +209,13 @@ const uidOf = (uid) => (uid ?? process.getuid?.() ?? 0);
  * Returns { ok: true, file, log } or { ok: false, reason: 'no-rights' | 'failed', message, file }.
  */
 export async function installService({ platform = process.platform, home = os.homedir(), env = process.env, run = runCommand, uid, node, packageRoot, templatesDir, user } = {}) {
+  // The service from before Starbase first: it would start a second copy at sign-in, on the same port.
+  const old = await removeOldService({ platform, home, run, uid });
+  if (old.message) return { ok: false, reason: 'old-service', message: old.message, file: diskFile(platform, home) };
   const rendered = { ...renderService({ platform, home, env, node, packageRoot, templatesDir, user }), file: diskFile(platform, home) };
   fs.mkdirSync(logDir(home, platform, path), { recursive: true, mode: 0o700 });
   writeServiceFile(rendered);
-  const out = { file: rendered.file, log: rendered.log };
+  const out = { file: rendered.file, log: rendered.log, removedOld: old.removed };
   if (platform === 'darwin') {
     const domain = `gui/${uidOf(uid)}`;
     await run('launchctl', ['bootout', `${domain}/${LABEL}`]); // an older copy, if one is loaded; fine when there is none
@@ -190,7 +255,7 @@ export async function removeService({ platform = process.platform, home = os.hom
   } else if (platform === 'win32') {
     const r = await run('schtasks', ['/Delete', '/TN', TASK_NAME, '/F']);
     removed = r.code === 0;
-    if (r.code !== 0 && deniedWindows(r)) message = `Windows didn’t let this account delete the Task Scheduler task “${PRODUCT}”. Open PowerShell with “Run as administrator” and run ground-control uninstall again, or delete the task in Task Scheduler.`;
+    if (r.code !== 0 && deniedWindows(r)) message = `Windows didn’t let this account delete the Task Scheduler task “${PRODUCT}”. Open PowerShell with “Run as administrator” and run starbase uninstall again, or delete the task in Task Scheduler.`;
   } else {
     const r = await run('systemctl', ['--user', 'disable', '--now', UNIT]);
     removed = r.code === 0;
@@ -242,7 +307,7 @@ export async function startService({ platform = process.platform, home = os.home
 
 /**
  * Asks the service manager to stop the service (macOS and Linux; the dashboard pauses replies in
- * progress as it does on Ctrl+C). On Windows `ground-control stop` leaves a stop request for the
+ * progress as it does on Ctrl+C). On Windows `starbase stop` leaves a stop request for the
  * supervisor instead (requestStop); this ends the task outright and is only the last resort.
  */
 export async function stopService({ platform = process.platform, run = runCommand, uid } = {}) {
@@ -258,7 +323,7 @@ export async function stopService({ platform = process.platform, run = runComman
 // Loaded into the dashboard's process before server.js: a stop message over the supervisor's
 // channel becomes the same SIGTERM the dashboard handles on macOS and Linux (Windows has no
 // signals to send to another process), so a stop there pauses replies cleanly too.
-export const STOP_HOOK = `data:text/javascript,${encodeURIComponent("process.on('message', (m) => { if (m && m.type === 'ground-control-stop') process.emit('SIGTERM', 'SIGTERM'); }); process.channel?.unref?.();")}`;
+export const STOP_HOOK = `data:text/javascript,${encodeURIComponent("process.on('message', (m) => { if (m && m.type === 'starbase-stop') process.emit('SIGTERM', 'SIGTERM'); }); process.channel?.unref?.();")}`;
 
 /** Leaves a stop request for a supervised dashboard (superviseServer polls for it). */
 export function requestStop(stateDir) {
@@ -266,7 +331,7 @@ export function requestStop(stateDir) {
   fs.writeFileSync(path.join(stateDir, STOP_REQUEST), `${new Date().toISOString()}\n`, { mode: 0o600 });
 }
 
-/** Opens the log for appending, moving a log over 10 MB to ground-control.log.1 first. */
+/** Opens the log for appending, moving a log over 10 MB to starbase.log.1 first. */
 function openLog(file) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   try { if (fs.statSync(file).size > 10 * 1024 * 1024) fs.renameSync(file, `${file}.1`); } catch { /* new log */ }
@@ -276,7 +341,7 @@ function openLog(file) {
 /**
  * Runs dashboard/server.js as a child and looks after it until it stops. Resolves its exit code.
  *   port      PORT for the dashboard
- *   stateDir  where `ground-control stop` leaves its stop request
+ *   stateDir  where `starbase stop` leaves its stop request
  *   log       a file for its output (the Windows service); else it shares this terminal
  *   restart   start it again when it fails (the service); a run in a terminal just ends
  * A stop request, Ctrl+C or SIGTERM sends the stop message (STOP_HOOK); after `graceMs` without
@@ -311,7 +376,7 @@ export function superviseServer({ serverPath = path.join(PACKAGE_ROOT, 'dashboar
       if (stopping) return;
       stopping = true;
       if (!child || child.exitCode !== null) return finish(0);
-      try { child.send({ type: 'ground-control-stop' }); } catch { /* channel closed: it is ending */ }
+      try { child.send({ type: 'starbase-stop' }); } catch { /* channel closed: it is ending */ }
       graceTimer = setTimeout(() => { try { child.kill(); } catch { /* gone */ } }, graceMs);
       graceTimer.unref?.();
     }
@@ -331,7 +396,7 @@ export function superviseServer({ serverPath = path.join(PACKAGE_ROOT, 'dashboar
         failures.push(now);
         while (failures.length && now - failures[0] > 10 * 60_000) failures.shift();
         if (failures.length > 5) {
-          if (fd !== null) fs.writeSync(fd, `--- ${new Date().toISOString()} it failed ${failures.length} times in 10 minutes; not starting it again. Run ground-control start to try again.\n`);
+          if (fd !== null) fs.writeSync(fd, `--- ${new Date().toISOString()} it failed ${failures.length} times in 10 minutes; not starting it again. Run starbase start to try again.\n`);
           return finish(1);
         }
         const wait = Math.min(60_000, 2000 * 2 ** (failures.length - 1));

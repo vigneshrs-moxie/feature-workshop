@@ -15,7 +15,7 @@ import { BRAND } from '../../app/brand';
 
 export const SECTION_WORDS: Record<SettingsSection, { label: string; hint: string }> = {
   permissions: { label: 'Permissions', hint: 'How much the Foreman and its crew may do without asking you.' },
-  notifications: { label: 'Notifications', hint: 'What the dashboard tells macOS, and this browser’s own alerts.' },
+  notifications: { label: 'Notifications', hint: `What ${BRAND.name} tells macOS, and this browser’s own alerts.` },
   look: { label: 'Look', hint: 'Theme, text size, following the system’s light or dark, the Desk and Jobs layouts, and Play.' },
   keys: { label: 'Keys', hint: 'Keyboard shortcuts on or off, and the key hints on buttons.' },
   workflow: { label: 'Workflow', hint: 'The finish line, how often GitHub is checked, what a new job starts with, and whether Telemetry counts your Claude Code use.' },
@@ -105,7 +105,7 @@ export const SETTING_INDEX: SettingEntry[] = [
   { id: 'notify-enabled', label: 'Send notifications to macOS', section: 'notifications', keywords: 'mac os terminal-notifier outside the browser' },
   { id: 'notify-levels', label: 'Needs you, Problems, Done: with a sound, silent or off', section: 'notifications', keywords: 'sound silent kinds levels' },
   { id: 'notify-quiet', label: 'Quiet hours', section: 'notifications', keywords: 'night do not disturb' },
-  { id: 'notify-watching', label: 'Not while I’m looking at the dashboard', section: 'notifications', keywords: 'watching focus tab' },
+  { id: 'notify-watching', label: `Not while I’m looking at ${BRAND.name}`, section: 'notifications', keywords: 'watching focus tab' },
   { id: 'alerts-browser', label: 'In this browser: notifications and chime', section: 'notifications', keywords: 'alerts browser chime sound tab' },
   { id: 'notify-test', label: 'Send a test notification', section: 'notifications', keywords: 'try' },
   { id: 'notify-history', label: 'Notification history', section: 'notifications', keywords: 'sent log' },
@@ -127,7 +127,7 @@ export const SETTING_INDEX: SettingEntry[] = [
   { id: 'auto-level', label: 'Choose the level for me', section: 'workflow', keywords: 'automatic level l0 l1 l2 l3 suggest' },
   { id: 'count-claude-code', label: 'Count my Claude Code use outside the app', section: 'workflow', keywords: 'telemetry usage limit terminal logs other use' },
   { id: 'orbit-token', label: 'Orbit token', section: 'workflow', keywords: 'inbox read-only token portal feedback tickets orbfb' },
-  { id: 'repos-list', label: 'Your repositories and their profiles', section: 'repos', keywords: 'repos repository profile ground-control.md registry remove check' },
+  { id: 'repos-list', label: 'Your repositories and their profiles', section: 'repos', keywords: 'repos repository profile starbase.md registry remove check' },
   { id: 'repos-add', label: 'Add a repository', section: 'repos', keywords: 'repos repository profile file register new' },
   { id: 'play-mode', label: 'Play mode: Full, Subtle, Off', section: 'play', keywords: 'crew achievements game' },
   { id: 'play-sounds', label: 'Sounds (chiptune blips)', section: 'play', keywords: 'audio' },

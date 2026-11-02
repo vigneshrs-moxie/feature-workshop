@@ -1,6 +1,6 @@
 // ---------- Orbit: the Inbox (lib/orbit.js, lib/orbit-token.js) ----------
 // Portal Feedback tickets read with your own read-only token (ORBIT-479): every call to Orbit is a
-// GET. The token lives in the OS credential store (in demo mode, or with WORKSHOP_ORBIT_STORE=file,
+// GET. The token lives in the OS credential store (in demo mode, or with STARBASE_ORBIT_STORE=file,
 // in a 600 file in the state folder) and never in an answer, a record or the audit. The token and
 // the poller are the runner's (local mode only); these are the routes:
 //   GET    /api/orbit/status                   token saved?, where, expiry, last poll, last error

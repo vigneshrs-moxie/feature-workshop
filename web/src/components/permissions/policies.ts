@@ -1,6 +1,7 @@
 // The three permission settings, in plain words, for Settings and the job menu. The dashboard's
 // side: dashboard/lib/policy.js (POLICIES), lib/driver.js (auto mode) and lib/hard-lines.js.
 import type { AutoModeStatus, PolicyId, Settings } from '../../api/types';
+import { BRAND } from '../../app/brand';
 
 export interface PolicyInfo {
   id: PolicyId;
@@ -24,7 +25,7 @@ export const POLICIES: PolicyInfo[] = [
     id: 'hands-off',
     label: 'Routine steps automatic',
     note: 'Reading, the job’s own records and (once you approve a plan) building and checks in its worktree run by themselves. Everything else asks.',
-    hint: 'The dashboard’s own list decides what counts as routine; anything not on it comes to you. This is the default.',
+    hint: `${BRAND.name}’s own list decides what counts as routine; anything not on it comes to you. This is the default.`,
   },
   {
     id: 'auto',

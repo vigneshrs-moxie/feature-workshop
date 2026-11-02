@@ -51,6 +51,7 @@ import { Button } from '../components/Button';
 import { useDelayedFlag } from '../lib/useDelayedFlag';
 import { HostedApp } from '../views/Hosted/HostedApp';
 import { hostedPage } from '../views/Hosted/mode';
+import { BRAND } from './brand';
 
 // A page reachable only by its address, for checking the 3D floor by eye (packet S). Never linked
 // or named anywhere in the app; in its own chunk, and it loads no 3D unless Play is full.
@@ -194,8 +195,8 @@ function Shell({ onRetry }: { onRetry: () => void }) {
           ) : (
             <>
               <p>{state.error}</p>
-              <p className="muted">Is the dashboard running? This page keeps trying by itself.</p>
-              <Button onClick={onRetry} title="Try reaching the dashboard again now.">Try again</Button>
+              <p className="muted">Is {BRAND.name} running? This page keeps trying by itself.</p>
+              <Button onClick={onRetry} title={`Try reaching ${BRAND.name} again now.`}>Try again</Button>
             </>
           )}
         </div>

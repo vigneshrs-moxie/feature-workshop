@@ -76,7 +76,7 @@ export async function getJson(url) {
 export async function postJson(url, body) {
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Workshop-Token': token ?? '' },
+    headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token ?? '' },
     body: JSON.stringify(body ?? {}),
   });
   const data = await res.json().catch(() => ({}));

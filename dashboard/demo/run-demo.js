@@ -6,7 +6,7 @@
 // decisions, an L3 plan card with Fable's second look, a card gone stale (raised at plan v2; the
 // plan moves to v3 a moment after start), a gate parked 5 hours, and a job with no level yet (the
 // LevelCard). Settings warns that the skill is out of date: the demo reads its own pre-levels copy
-// of job-options.md (set WORKSHOP_SKILLS_DIR to a folder with a current one to see it go away).
+// of job-options.md (set STARBASE_SKILLS_DIR to a folder with a current one to see it go away).
 //
 // Docs tab (phase 2.1): Customer merge has a full set of documents (spec, findings, a plan with a
 // table, code and a task list, test plan, Fable's second look, notes) and Widget Export a review.
@@ -34,6 +34,7 @@
 // footer was marked done; and Tag colours' Foreman asks your permission to run the database tests a
 // few seconds after start (a real card on the Desk and in its thread).
 
+import '../lib/env-boot.js'; // first: the old environment names still work (lib/env-names.js)
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,7 +42,7 @@ import { execFileSync } from 'node:child_process';
 import { defaultsFor, defaultsForLevel, writeOptions } from '../lib/options.js';
 import { suggestLevel } from '../lib/level-rules.js';
 
-const ROOT = path.join(os.tmpdir(), 'feature-workshop-demo');
+const ROOT = path.join(os.tmpdir(), 'starbase-demo');
 const FEATURES = path.join(ROOT, 'feature-work');
 const PROJECTS = path.join(ROOT, 'projects', '-demo-acme-portal');
 const ACME = path.join(ROOT, 'acme-portal');
@@ -160,7 +161,7 @@ async function makeRepo() {
   await fs.mkdir(path.join(ACME, 'app'), { recursive: true });
   git('init', '-q', '-b', 'main');
   git('config', 'user.name', 'Demo'); git('config', 'user.email', 'demo@example.invalid');
-  await fs.writeFile(path.join(ACME, 'README.md'), '# Acme portal (demo)\nA pretend app for Feature Workshop\'s demo.\n');
+  await fs.writeFile(path.join(ACME, 'README.md'), '# Acme portal (demo)\nA pretend app for Starbase\'s demo.\n');
   await fs.writeFile(path.join(ACME, 'docs', 'plans', '2026-10-01-widget-export-product-spec.md'), [
     '# Widget Export: product spec (demo)', '', '**Version:** 0.3 · **Status:** DRAFT', '', '## Requirements', '',
     '| ID | Requirement |', '|---|---|',
@@ -463,7 +464,7 @@ async function permissionAfterStart(port) {
   }
   if (!token) throw new Error('the server did not answer');
   const res = await fetch(`http://127.0.0.1:${port}/api/job/${TAG_COLOURS}/send`, {
-    method: 'POST', headers: { 'content-type': 'application/json', 'x-workshop-token': token },
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-starbase-token': token },
     body: JSON.stringify({ text: 'Please run the database tests for the colour migration, then brief me.', via: 'box' }),
   });
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
@@ -979,12 +980,12 @@ async function widgetThread() {
 // used this week's limit" and the graphs show something in the demo. Two people on one account,
 // several jobs, Opus for the Foreman and Sonnet for the crew, a meter reading with most turns, and
 // a stretch of use outside the app (the meter climbs faster than the app's own spend explains).
-// Always into the demo's own folder: GROUND_CONTROL_DIR is pointed there unless it already names a
-// folder inside the demo's temporary one, so ~/.ground-control is never touched.
+// Always into the demo's own folder: STARBASE_DIR is pointed there unless it already names a
+// folder inside the demo's temporary one, so ~/.starbase is never touched.
 async function demoUsage() {
-  const inside = process.env.GROUND_CONTROL_DIR && !path.relative(os.tmpdir(), path.resolve(process.env.GROUND_CONTROL_DIR)).startsWith('..');
-  if (!inside) process.env.GROUND_CONTROL_DIR = path.join(ROOT, 'state');
-  const dir = path.resolve(process.env.GROUND_CONTROL_DIR);
+  const inside = process.env.STARBASE_DIR && !path.relative(os.tmpdir(), path.resolve(process.env.STARBASE_DIR)).startsWith('..');
+  if (!inside) process.env.STARBASE_DIR = path.join(ROOT, 'state');
+  const dir = path.resolve(process.env.STARBASE_DIR);
   await fs.mkdir(dir, { recursive: true });
   let seed = 17;
   const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
@@ -999,7 +1000,7 @@ async function demoUsage() {
   const weekStart = (t) => { const d = new Date(t); d.setUTCHours(23, 0, 0, 0); while (d.getUTCDay() !== 3 || d.getTime() > t) d.setTime(d.getTime() - 24 * HOUR_MS); return d.getTime(); };
   // The first person is whoever runs the demo, so the graphs that show only your own jobs have some.
   let me = 'vignesh';
-  try { me = process.env.GROUND_CONTROL_USER || os.userInfo().username || me; } catch { /* keep the made-up name */ }
+  try { me = process.env.STARBASE_USER || os.userInfo().username || me; } catch { /* keep the made-up name */ }
   const now = Date.now();
   const lines = [];
   let week = { start: 0, pct: 0 };
@@ -1110,12 +1111,12 @@ await widgetThread();
 await playSecrets();
 await demoUsage();
 await (await import('./demo-stacks.js')).demoStacks({ features: FEATURES, root: ROOT }); // packet V: three demo stacks
-process.env.WORKSHOP_FEATURES_DIR = FEATURES;
-process.env.WORKSHOP_PROJECTS_DIR = path.dirname(PROJECTS);
-process.env.WORKSHOP_DEMO = '1';
-process.env.WORKSHOP_EXTRA_REPOS = ACME;
-process.env.WORKSHOP_SKILLS_DIR ||= path.join(ROOT, 'skills');
-process.env.WORKSHOP_AGENTS_DIR ||= path.join(ROOT, 'agents');
+process.env.STARBASE_FEATURES_DIR = FEATURES;
+process.env.STARBASE_PROJECTS_DIR = path.dirname(PROJECTS);
+process.env.STARBASE_DEMO = '1';
+process.env.STARBASE_EXTRA_REPOS = ACME;
+process.env.STARBASE_SKILLS_DIR ||= path.join(ROOT, 'skills');
+process.env.STARBASE_AGENTS_DIR ||= path.join(ROOT, 'agents');
 console.log(`Demo data in ${ROOT} (invented; safe to delete).`);
 await tick(logFiles);
 await import('../server.js');

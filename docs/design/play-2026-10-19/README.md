@@ -18,7 +18,7 @@ The Play layer in the demo: a pretend Foreman, invented jobs and no Claude usage
 | 12 | `12-egg-hammertime.png` | ⌘K `hammertime`: the Builder's scene with the toasts, and the secret found. |
 | 13 | `13-egg-git-blame.png` | ⌘K `git blame`: four of the crew turning to point at each other. |
 | 14 | `14-egg-foreman-knocks.png` | Seven quick clicks on the Foreman by a job's title: one of the Foreman's lines. |
-| 15 | `15-egg-404.png` | `#/where-did-it-go` with Play on: the Sleuth searched and found only footprints, with "Back to the Workshop". |
+| 15 | `15-egg-404.png` | `#/where-did-it-go` with Play on: the Sleuth searched and found only footprints, with "Back to Starbase". |
 | 16 | `16-egg-konami-crt.png` | The Konami code: CRT Terminal unlocked and put on. |
 | 20–27 | `20-theme-default.png` … `27-theme-gold.png` | Image 03 in all eight themes: Default, Neon arcade, Blueprint, Pixel crew, Sunset paper, Candy pop, CRT Terminal and Gold. Gold opens after ten quests and the demo has fewer, so for its picture alone it was put on by hand (the page's `data-theme`). |
 | 30–31 | `30-crew-dex-pixel-crew.png`, `31-crew-dex-crt.png` | The Crew-dex in Pixel crew and CRT Terminal. |

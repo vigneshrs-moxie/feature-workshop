@@ -40,7 +40,7 @@ describe('App shell', () => {
     expect(screen.queryByRole('complementary', { name: 'Preview' })).toBeNull();
     // The top bar: the product's name, the five pages (the Desk with what waits for you), and the gear.
     const bar = document.querySelector<HTMLElement>('.topbar')!;
-    expect(within(bar).getByRole('link', { name: 'Dashboard, back to Jobs' })).toHaveAttribute('href', '#/');
+    expect(within(bar).getByRole('link', { name: 'Starbase, back to Jobs' })).toHaveAttribute('href', '#/');
     const pages = within(bar).getByRole('navigation', { name: 'Pages' });
     expect(within(pages).getAllByRole('link').map((a) => a.textContent)).toEqual(['Jobs', 'Desk', 'Inbox', 'Stacks', 'Telemetry']);
     expect(within(pages).getByRole('link', { name: 'Jobs' })).toHaveAttribute('aria-current', 'page');
@@ -57,7 +57,7 @@ describe('App shell', () => {
     expect(within(bar).queryByRole('menu')).toBeNull();
     expect(within(bar).getByRole('button', { name: 'Settings and more' })).toHaveFocus();
     // The browser tab: the page and the product.
-    expect(document.title).toBe('(1) Job beta · Dashboard');
+    expect(document.title).toBe('(1) Job beta · Starbase');
   });
 
   it('opens Settings on a section from the hash; j and k move between sections, / finds a setting', async () => {

@@ -1,7 +1,8 @@
 // Telemetry's record (plan §7a.1): one line per Foreman turn in usage.jsonl, kept forever.
 //
-// Where: ~/.ground-control/usage.jsonl, or the dashboard's own state folder when one is given
-// (WORKSHOP_STATE_DIR, demo mode); GROUND_CONTROL_DIR overrides both. Nothing is sent anywhere.
+// Where: usage.jsonl in Starbase's state folder (~/.starbase, or the folder still in use before its
+// move: lib/state-folder.js stateDirNow), or in the state folder given (STARBASE_STATE_DIR, demo mode);
+// STARBASE_DIR overrides both. Nothing is sent anywhere.
 //
 // A turn is everything a job's Foreman session did between one answer and the next: the driver
 // passes every assistant and result message on ('usage' event), TurnMeter adds up the token
@@ -24,19 +25,20 @@ import os from 'node:os';
 import path from 'node:path';
 import { estimateCost, tokensFromUsage, ZERO_TOKENS, addTokens } from './cost.js';
 import { AGENTS } from './stages.js';
+import { stateDirNow } from './state-folder.js';
 
 export const USAGE_FILE = 'usage.jsonl';
 export const MAX_BYTES = 50 * 1024 * 1024;
 
 /** The folder usage.jsonl lives in. */
 export function usageDir({ env = process.env, home = os.homedir(), stateDir = null } = {}) {
-  if (env.GROUND_CONTROL_DIR) return path.resolve(env.GROUND_CONTROL_DIR);
-  return stateDir ? path.resolve(stateDir) : path.join(home, '.ground-control');
+  if (env.STARBASE_DIR) return path.resolve(env.STARBASE_DIR);
+  return stateDir ? path.resolve(stateDir) : stateDirNow(home);
 }
 
-/** The Ground Control user: the person (two people share one Claude account). Local mode: the OS user name. */
-export function groundControlUser({ env = process.env } = {}) {
-  if (env.GROUND_CONTROL_USER) return String(env.GROUND_CONTROL_USER);
+/** The Starbase user: the person (two people share one Claude account). Local mode: the OS user name. */
+export function starbaseUser({ env = process.env } = {}) {
+  if (env.STARBASE_USER) return String(env.STARBASE_USER);
   try { return os.userInfo().username || 'unknown'; } catch { return 'unknown'; }
 }
 

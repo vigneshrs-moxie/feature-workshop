@@ -384,7 +384,7 @@ async function singleSignOn({ features, repo, g }) {
 // What each stack's parts have cost: lines in the demo's own usage.jsonl (Telemetry's record), only
 // when that file is in the temp folder.
 async function demoCost(slugs) {
-  const dir = process.env.GROUND_CONTROL_DIR;
+  const dir = process.env.STARBASE_DIR;
   if (!dir || path.relative(path.resolve(os.tmpdir()), path.resolve(dir)).startsWith('..')) return;
   const lines = [];
   let seed = 7;

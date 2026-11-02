@@ -218,7 +218,7 @@ describe('not found', () => {
     expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
     expect(screen.getByRole('main', { name: 'Page not found' })).toHaveTextContent('#/nowhere');
     expect(screen.getByRole('img', { name: 'Sleuth, searching' })).not.toHaveClass('is-animated');
-    expect(screen.getByRole('link', { name: 'Back to the Workshop' })).toHaveAttribute('href', '#/');
+    expect(screen.getByRole('link', { name: 'Back to Starbase' })).toHaveAttribute('href', '#/');
     await flush();
     expect(secrets()).toEqual(['sleuth-404']);
   });

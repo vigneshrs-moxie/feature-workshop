@@ -1,5 +1,5 @@
 // Your "Always allow" rules: the dashboard's own list, kept in rules.json in its state folder
-// (~/.feature-workshop by default). Never written to ~/.claude/settings.json, so they only apply
+// (the state folder, ~/.starbase by default). Never written to ~/.claude/settings.json, so they only apply
 // to jobs the dashboard runs. policy.js checks them (matchRule) before a request comes to you.
 //
 // A rule is { id, tool, kind, value, label, createdAt, from? }. What each kind covers is described
@@ -13,6 +13,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { matchRule, simpleCommandWords, RULE_EDIT_TOOLS } from './policy.js';
+import { PRODUCT } from './brand.js';
 
 // Commands that run whatever comes after them: a prefix rule may not start with one, because
 // "sudo …" or "bash …" would cover any command at all.
@@ -51,7 +52,7 @@ export function validateRule(raw) {
   const tool = typeof raw?.tool === 'string' ? raw.tool.trim() : '';
   if (!/^[A-Za-z][\w-]{0,200}$/.test(tool)) throw new RuleError('That rule names no tool.');
   const kinds = kindsFor(tool);
-  if (!kinds.length) throw new RuleError(`The dashboard can’t save “Always allow” rules for ${tool}.`);
+  if (!kinds.length) throw new RuleError(`${PRODUCT} can’t save “Always allow” rules for ${tool}.`);
   const kind = typeof raw.kind === 'string' ? raw.kind : '';
   if (!kinds.includes(kind)) throw new RuleError('That kind of rule doesn’t fit this tool.');
   let value = typeof raw.value === 'string' ? raw.value.trim() : '';

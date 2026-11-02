@@ -9,6 +9,7 @@ import { clockTime } from '../lib/time';
 import { isLevel, levelLabel } from '../lib/levels';
 import { stageLabel } from '../panes/Jobs/stages';
 import { STAGE_CHARACTER } from './crew';
+import { BRAND } from '../app/brand';
 
 // ---------- Quest track ----------
 
@@ -176,7 +177,7 @@ export function staminaOf(usage: Usage | null | undefined, now: Date = new Date(
       ? 'Automatic carry-on is off, so they wait for Carry on now (see the banner).'
       : usage.resetKnown
         ? 'They carry on by themselves when it resets (see the banner).'
-        : `Claude didn’t say when it resets, so the dashboard tries again${at ? ` at about ${at}` : ''}.`;
+        : `Claude didn’t say when it resets, so ${BRAND.name} tries again${at ? ` at about ${at}` : ''}.`;
     return {
       state: 'resting', label: at && usage.autoResume && usage.resetKnown && !usage.passed ? `Resting until ${at}` : 'Resting', fill: 0,
       hint: `Claude’s usage limit is reached: jobs are paused and the crew are asleep. ${when}`,
@@ -205,7 +206,7 @@ export function backAt(usage: Usage | null | undefined, now: Date = new Date()):
   if (!usage.resetsAt) return '';
   const at = clockTime(usage.resetsAt, now);
   if (!at) return '';
-  if (!usage.resetKnown) return `the dashboard tries again at about ${at}`;
+  if (!usage.resetKnown) return `${BRAND.name} tries again at about ${at}`;
   const mins = Math.round((Date.parse(usage.resetsAt) - now.getTime()) / 60000);
   if (mins <= 0) return `back at ${at}`;
   const left = mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ''}`;

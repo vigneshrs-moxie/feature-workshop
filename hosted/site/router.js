@@ -37,6 +37,7 @@ import orbitRoutes from './routes-orbit.js';
 import fileRoutes from './routes-files.js';
 import mirrorRoutes from './routes-mirror.js';
 import telemetryRoutes from './routes-telemetry.js';
+import loungeRoutes from './routes-lounge.js';
 
 const WRITES = new Set(['POST', 'PUT', 'DELETE']);
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.map': 'application/json; charset=utf-8', '.png': 'image/png', '.woff2': 'font/woff2', '.ico': 'image/x-icon' };
@@ -45,6 +46,7 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=
 export const ROUTE_LISTS = [authRoutes, metaRoutes, cronRoutes, peopleRoutes, laptopRoutes, pairRoutes, runnerRoutes, jobRoutes, orbitRoutes,
   fileRoutes, mirrorRoutes, // packet 2B: evidence files, then the full mirror, queued decisions and live updates
   telemetryRoutes, // packet 2E: team Telemetry (every laptop's usage numbers, the shared limit's picture)
+  loungeRoutes, // packet 2D: the Lounge, the team's one shared page
 ];
 
 const REAL_TIMERS = { now: () => Date.now(), sleep: (ms) => new Promise((r) => { setTimeout(r, ms).unref?.(); }) };
@@ -59,7 +61,7 @@ export function createSite({ db, config, fetch: fetchFn = globalThis.fetch, now 
   // What each kind of caller must show (filled in by the sign-in and pairing parts).
   ctx.auth = {
     session: async () => { throw new HttpError(401, 'Sign in first.', { signIn: true }); },
-    runner: async () => { throw new HttpError(401, 'This laptop isn’t paired with the site. Run ground-control login --site <the site’s address>.'); },
+    runner: async () => { throw new HttpError(401, 'This laptop isn’t paired with the site. Run starbase login --site <the site’s address>.'); },
   };
   const routes = [...ROUTE_LISTS, ...extraRoutes].flatMap((list) => list(ctx));
   const extraHandlers = ctx.extraHandlers ?? [];

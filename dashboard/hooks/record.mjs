@@ -1,8 +1,11 @@
 #!/usr/bin/env node
-// Feature Workshop "live link": records Claude Code hook events for the local dashboard.
-// Claude Code passes each event as JSON on stdin. This keeps only what the dashboard shows
+// Starbase's "live link": records Claude Code hook events for Starbase on this computer.
+// Claude Code passes each event as JSON on stdin. This keeps only what Starbase shows
 // (session, folder, event, tool name, file path, a shortened command or prompt), drops file
-// contents and edits, appends one line to ~/.feature-workshop/hook-events/events.jsonl, and exits.
+// contents and edits, appends one line to hook-events/events.jsonl in Starbase's state folder,
+// and exits. The state folder: STARBASE_STATE_DIR (or the old WORKSHOP_STATE_DIR), else the first
+// of ~/.starbase and the folders it had before that exists (lib/state.js stateDirNow; this file
+// never creates ~/.starbase before Starbase has moved its files there).
 // It never blocks, never changes what Claude Code does, and always exits successfully.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -21,7 +24,12 @@ try {
       subagent_type: ti.subagent_type, pattern: cut(ti.pattern, 120), url: cut(ti.url, 200),
     } : undefined,
   };
-  const dir = path.join(process.env.WORKSHOP_STATE_DIR || path.join(os.homedir(), '.feature-workshop'), 'hook-events');
+  const home = os.homedir();
+  const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+  const folders = [path.join(home, '.starbase'), path.join(home, '.ground-control'), path.join(home, '.feature-workshop')];
+  const state = process.env.STARBASE_STATE_DIR || process.env.WORKSHOP_STATE_DIR
+    || folders.find((d) => isDir(d) && !fs.existsSync(path.join(d, 'MOVED.txt'))) || folders[0];
+  const dir = path.join(state, 'hook-events');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.appendFileSync(path.join(dir, 'events.jsonl'), `${new Date().toISOString()}\t${JSON.stringify(keep)}\n`, { mode: 0o600 });
 } catch { /* never disturb the session */ }

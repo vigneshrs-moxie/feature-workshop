@@ -33,7 +33,7 @@
 // with "Every theme passes" or the list.
 //
 // Run it against the demo (it changes the demo's Play mode while it runs, and puts it back):
-//   PORT=4503 WORKSHOP_DEMO=1 node dashboard/demo/run-demo.js       # in one terminal
+//   PORT=4503 STARBASE_DEMO=1 node dashboard/demo/run-demo.js       # in one terminal
 //   npm run web:build                                               # first, so /next is current
 //   node web/e2e/themeSweep.mjs                                     # in another
 // Environment:
@@ -151,7 +151,7 @@ const VISITS = [...SCREEN_VISITS, ...OVERLAY_VISITS.map((v) => ({ ...v, overlay:
 // ---------- The demo's Play mode ----------
 async function api(method, p, body) {
   const meta = await (await fetch(`${ORIGIN}/api/meta`)).json();
-  const res = await fetch(ORIGIN + p, { method, headers: { 'content-type': 'application/json', 'x-workshop-token': meta.token }, body: body ? JSON.stringify(body) : undefined });
+  const res = await fetch(ORIGIN + p, { method, headers: { 'content-type': 'application/json', 'x-starbase-token': meta.token }, body: body ? JSON.stringify(body) : undefined });
   if (!res.ok) throw new Error(`${method} ${p}: ${res.status}`);
   return res.json();
 }

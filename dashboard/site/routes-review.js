@@ -27,6 +27,7 @@
 // Check now is POST /api/flow/refresh, as before.
 
 import { HttpError } from '../lib/http-guard.js';
+import { PRODUCT } from '../lib/brand.js';
 
 const ONE = /^\/api\/review\/([a-z0-9][a-z0-9._-]{0,199})(?:\/([a-z-]+))?$/;
 
@@ -35,7 +36,7 @@ export default function reviewRoutes({ local, sendJson, readBody, checkWrite }) 
 
   async function routeReview(req, res, urlPath) {
     try {
-      if (!review) throw new HttpError(404, 'Review rounds run only on the dashboard on your own computer.');
+      if (!review) throw new HttpError(404, `Review rounds run only in ${PRODUCT} on your own computer.`);
       if (req.method === 'GET') {
         if (urlPath === '/api/review') return sendJson(res, 200, { ...(await review.list()), github: review.github() });
         const m = ONE.exec(urlPath);

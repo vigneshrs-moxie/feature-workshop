@@ -2,7 +2,7 @@
 // feature-wireframe skill and served by the dashboard's screens server from ITS OWN ORIGIN,
 // meta.wireframesOrigin, so its script can't reach this document, storage or token) runs in an
 // iframe and talks to the dashboard with postMessage, the contract in the skill's SKILL.md
-// ("Inside the Feature Workshop"):
+// ("Inside the Starbase"):
 //   - it posts { type: 'wireframes', version, current, screens: [{ key, name, kind, status, choice }] }
 //     on load, when the section in view changes, and after a verdict or pick;
 //   - it answers { type: 'wireframes-goto', key } by scrolling to that section;

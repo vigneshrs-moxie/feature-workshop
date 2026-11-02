@@ -1,4 +1,4 @@
-// "Pair this laptop?" (#/pair/<code>): the link `ground-control login --site` printed. It shows the
+// "Pair this laptop?" (#/pair/<code>): the link `starbase login --site` printed. It shows the
 // laptop's name, OS and the same code, so you can check it is yours, and one button. The laptop
 // finishes by itself a few seconds after you press it (it is polling the site).
 import { useCallback, useEffect, useState } from 'react';
@@ -62,7 +62,7 @@ export function PairPage({ code, api, onSignedOut, person }: HostedProps & { cod
         )}
         {p.state === 'approved' && <p className="hosted-done" role="status"><Icon name="circle-check" size={16} />Paired. The laptop finishes by itself in a few seconds; its jobs then show under <a href="#/">Jobs</a>.</p>}
         {p.state === 'paired' && <p className="hosted-done" role="status"><Icon name="circle-check" size={16} />This laptop is paired. Its jobs show under <a href="#/">Jobs</a>.</p>}
-        {p.state === 'expired' && <div className="hosted-problem" role="alert"><Icon name="clock" size={16} /><div><p className="hosted-problem-title">This code has run out</p><p className="muted">Codes last ten minutes. Run ground-control login on the laptop again for a new one.</p></div></div>}
+        {p.state === 'expired' && <div className="hosted-problem" role="alert"><Icon name="clock" size={16} /><div><p className="hosted-problem-title">This code has run out</p><p className="muted">Codes last ten minutes. Run starbase login on the laptop again for a new one.</p></div></div>}
         {problem && <p className="field-problem" role="alert">{problem}</p>}
       </section>
     );

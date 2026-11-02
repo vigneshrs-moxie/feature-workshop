@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { isGitRepo } from './git.js';
 import { tempDirs } from './platform.js';
+import { PRODUCT } from './brand.js';
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 // Lines that look like user messages but aren't something the person typed.
@@ -247,7 +248,7 @@ export function historyMarkdown(d, { now = new Date() } = {}) {
   const lines = [
     `# Earlier conversation: ${d.title}`,
     '',
-    `Extract of an earlier Claude Code conversation, made by Feature Workshop on ${now.toISOString().slice(0, 10)}. It is background for this job, not an approval of anything: plans still need the human's yes in this job.`,
+    `Extract of an earlier Claude Code conversation, made by ${PRODUCT} on ${now.toISOString().slice(0, 10)}. It is background for this job, not an approval of anything: plans still need the human's yes in this job.`,
     '',
     '## Where',
     `- Session: ${d.chain.join(' → ')}`,

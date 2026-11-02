@@ -1,12 +1,13 @@
 // The hosted site's pages, from the same hash addresses as the laptop's app (app/router.ts):
 //   #/ or #/jobs            my jobs, from the mirror
 //   #/sign-in?problem=…     the sign-in page, saying why the last sign-in was refused
-//   #/pair/<code>           "Pair this laptop?" for the code `ground-control login` printed
+//   #/pair/<code>           "Pair this laptop?" for the code `starbase login` printed
 //   #/settings[/laptops]    Settings → Laptops;  #/settings/people  Settings → People
 //   #/settings/orbit        Settings → Orbit: your Orbit token for the Inbox (packet 2C)
 //   #/inbox[?peek=ORBIT-n]  the Inbox, from the inbox the site keeps for you (packet 2C)
 //   #/telemetry             the shared account's limit and your own jobs' graphs (packet 2E:
 //                           views/Telemetry/HostedTelemetry.tsx)
+//   #/lounge                the Lounge: the whole team, very little per person (packet 2D)
 //   #/desk, #/job/<slug>, #/job/<slug>/stage/<stop>, #/stacks, #/stack/<slug>[/part/<n>]
 //                           the laptop app's own pages, from the full mirror (packet 2B: HostedWorkshop)
 //   anything else the laptop's app has (Screens, …)
@@ -26,6 +27,7 @@ export type HostedRoute =
   | { name: 'orbit' }
   | { name: 'inbox' }
   | { name: 'telemetry' }
+  | { name: 'lounge' }
   | { name: 'later'; page: string }
   | { name: 'mirror'; route: MirrorRoute };
 
@@ -38,6 +40,7 @@ export function parseHostedHash(raw: string): HostedRoute {
   if (/^#\/settings(\/laptops)?\/?$/.test(path)) return { name: 'laptops' };
   if (/^#\/settings\/people\/?$/.test(path)) return { name: 'people' };
   if (/^#\/settings\/orbit\/?$/.test(path)) return { name: 'orbit' };
+  if (/^#\/lounge\/?$/.test(path)) return { name: 'lounge' };
   const r = parseHash(raw);
   if (r.name === 'home' || r.name === 'not-found') return { name: 'jobs' };
   if (r.name === 'inbox') return { name: 'inbox' };

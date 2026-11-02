@@ -52,9 +52,9 @@ test('the fake Google is refused in a production build, and only there', () => {
 });
 
 test('the settings: the redirect path, a preview’s address, and the names of what is missing', () => {
-  const c = readConfig({ ...TEST_ENV, SITE_URL: 'https://feature-workshop.example.test/' });
-  assert.equal(c.redirectUri, 'https://feature-workshop.example.test/api/auth/callback');
-  assert.equal(readConfig({ VERCEL: '1', VERCEL_URL: 'feature-workshop-abc.vercel.app' }).siteUrl, 'https://feature-workshop-abc.vercel.app');
+  const c = readConfig({ ...TEST_ENV, SITE_URL: 'https://starbase.example.test/' });
+  assert.equal(c.redirectUri, 'https://starbase.example.test/api/auth/callback');
+  assert.equal(readConfig({ VERCEL: '1', VERCEL_URL: 'starbase-abc.vercel.app' }).siteUrl, 'https://starbase-abc.vercel.app');
   const bare = readConfig({ VERCEL: '1' });
   assert.deepEqual(bare.missing, ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'ALLOWED_DOMAIN', 'SESSION_SECRET', 'OWNER_EMAIL', 'DATABASE_URL']);
   assert.deepEqual(readConfig(TEST_ENV).missing, []);
@@ -149,7 +149,7 @@ test('a site missing settings says which, and answers 503 elsewhere', async () =
 });
 
 test('a deployment with no database (a preview: the database is for Production only) says so calmly', async () => {
-  const s = await makeSite({ env: { AUTH_FAKE: '', VERCEL: '1', VERCEL_ENV: 'preview', VERCEL_URL: 'feature-workshop-abc.vercel.app', DATABASE_URL: '', GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '' } });
+  const s = await makeSite({ env: { AUTH_FAKE: '', VERCEL: '1', VERCEL_ENV: 'preview', VERCEL_URL: 'starbase-abc.vercel.app', DATABASE_URL: '', GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '' } });
   try {
     const fetchAt = (p) => s.fetch(`http://localhost:4507${p}`);
     const meta = await (await fetchAt('/api/meta')).json();

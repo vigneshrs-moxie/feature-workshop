@@ -10,6 +10,7 @@ import { useWorkshop } from '../../state/store';
 import { coverProblem, describeRule, editable, kindLabel, sentence } from './rules';
 import { Choice } from '../Choice';
 import { Button } from '../Button';
+import { BRAND } from '../../app/brand';
 
 interface Saved { rule: Rule; added: boolean; allowed: boolean; alsoAllowed: number; active: boolean }
 
@@ -96,7 +97,7 @@ export function AlwaysAllowSheet({ permission: p, draft, onClose }: { permission
           </>
         ) : (
           <>
-            <p>From now on, in <strong>every job the dashboard runs</strong>, the Foreman and its crew may <strong>{summary}</strong> without asking you.</p>
+            <p>From now on, in <strong>every job {BRAND.name} runs</strong>, the Foreman and its crew may <strong>{summary}</strong> without asking you.</p>
             <ul className="sheet-facts muted">
               <li>It also allows the request that’s waiting now.</li>
               <li>It never covers anything else: other commands, files or sites still ask.</li>

@@ -2,7 +2,7 @@
 // `nudges`; POST /api/job/:slug/nudge/:id/dismiss remembers a dismissal for that job; …/yes sends
 // the nudge's sentence to the job's Foreman as a message from the box would, audited. Starts the
 // dashboard in demo mode (a pretend Foreman, nothing real runs) on temp folders: no real job,
-// ~/.claude or ~/.feature-workshop is touched and no Claude usage is spent.
+// ~/.claude or the real state folder is touched and no Claude usage is spent.
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -62,9 +62,9 @@ before(async () => {
 
   dashboard = await startDashboard({
     env: {
-      HOME: dirs.home, WORKSHOP_DEMO: '1',
-      WORKSHOP_FEATURES_DIR: featuresDir, WORKSHOP_PROJECTS_DIR: dirs.projects, WORKSHOP_AGENTS_DIR: dirs.agents,
-      WORKSHOP_SKILLS_DIR: dirs.skills, WORKSHOP_STATE_DIR: dirs.state,
+      HOME: dirs.home, STARBASE_DEMO: '1',
+      STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
     },
     output,
   });
@@ -78,7 +78,7 @@ after(async () => {
 });
 
 const post = async (p, body = {}, { auth = true } = {}) => {
-  const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Workshop-Token': token } : {}) }, body: JSON.stringify(body) });
+  const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Starbase-Token': token } : {}) }, body: JSON.stringify(body) });
   return { status: res.status, body: await res.json() };
 };
 const get = async (p) => (await fetch(base + p)).json();

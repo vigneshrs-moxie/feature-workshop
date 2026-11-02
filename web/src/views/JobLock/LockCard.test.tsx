@@ -19,7 +19,7 @@ describe('LockCard', () => {
   it('names another dashboard when the runner holds it, and leaves the branch out when unknown', () => {
     render(<LockCard lock={{ owner: 'runner', pid: 77, branch: null, acquiredAt: null }} now={now} />);
     const card = screen.getByRole('status');
-    expect(card).toHaveTextContent('This job is being run by another copy of the dashboard (pid 77, since a while ago)');
+    expect(card).toHaveTextContent('This job is being run by another copy of Starbase (pid 77, since a while ago)');
     expect(card).not.toHaveTextContent('Branch there');
   });
 

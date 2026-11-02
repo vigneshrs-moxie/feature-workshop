@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { GENERAL, fillPattern } from './profile.js';
+import { PRODUCT } from './brand.js';
 
 export const OPUS = 'claude-opus-5-5';
 export const FABLE = 'claude-fable-5-1';
@@ -344,7 +345,7 @@ export function describeOptions(o) {
   if (o.wireframes && o.wireframes !== 'auto') lines.push(`Screens (wireframes): ${o.wireframes === 'always' ? 'always, before the plan' : 'off'}.`);
   if (o.clarify && o.clarify !== 'auto') lines.push(`Clarify questions before the spec: ${o.clarify === 'always' ? 'always' : 'off'}.`);
   // Evidence (evidence.md): Auto says nothing, as for screens and clarify (job-options.md: on at L2 and L3).
-  if (o.evidence === 'always') lines.push(`Evidence: always${o.level === 0 ? ' (but never at L0)' : ''}. The tester writes a Playwright spec for each acceptance line a person can see, and the dashboard records screenshots and a short video of each.`);
+  if (o.evidence === 'always') lines.push(`Evidence: always${o.level === 0 ? ' (but never at L0)' : ''}. The tester writes a Playwright spec for each acceptance line a person can see, and ${PRODUCT} records screenshots and a short video of each.`);
   else if (o.evidence === 'off') lines.push('Evidence: off. No screenshots or video at the test stage.');
   if (o.stack) lines.push('Run as a stack: the human asked for one. You are its coordinator (stack.md): at plan, write stack.md (the sections, the files each owns, what each waits for, the merge order) and stop for approval on the Stack page.');
   if (o.notes) lines.push(`Notes: ${o.notes}`);

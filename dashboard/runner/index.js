@@ -1,4 +1,4 @@
-// The runner: Ground Control's machine half (plan §2, §2.1). It owns the Foreman driver, the job
+// The runner: Starbase's machine half (plan §2, §2.1). It owns the Foreman driver, the job
 // folders and their locks, git and worktrees, Try it on this computer, usage reading, the
 // notifications, the flow map, the integration board and the Orbit read token. It knows nothing
 // about HTTP: the site (dashboard/site/) asks it things through three doors only:
@@ -31,7 +31,7 @@ import crypto from 'node:crypto';
 import { loadFeatures, loadGateStates, SessionIndex } from '../lib/features.js';
 import { STAGES, AGENTS } from '../lib/stages.js';
 import { PRICES, PRICES_AS_OF, whatIfConductor, costCsv, costMarkdown } from '../lib/cost.js';
-import { State, WORKFLOW_CHOICES } from '../lib/state.js';
+import { OLD_STATE_FOLDER, State, WORKFLOW_CHOICES } from '../lib/state.js';
 import { Driver, Busy } from '../lib/driver.js';
 import { renderMarkdown, indexIds } from '../lib/markdown.js';
 import * as git from '../lib/git.js';
@@ -70,7 +70,7 @@ import { noticeBody, Notifier, validateNotifyPatch } from '../lib/notify.js';
 import { Integrator, IntegrateError } from '../lib/integrate.js';
 import { MCP_NAME, OrbitError, OrbitInbox, canonicalKey, clearToken, jobsByTicket, removeMcpEntry, sessionEnv, normalizeOrbitUrl, orbitClient, setToken } from '../lib/orbit.js';
 import { tokenStore } from '../lib/orbit-token.js';
-import { UsageLog, TurnMeter, turnLines, usageDir, groundControlUser, claudeAccountId } from '../lib/usage-log.js';
+import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
 import { ClaudeCodeUsage, CLAUDE_CODE_NOTE, CLAUDE_CODE_WORDS, readSetting as claudeCodeSetting, writeSetting as setClaudeCodeSetting } from '../lib/claude-code-usage.js';
@@ -83,12 +83,13 @@ import { itemSummary, lookAt, noteFeedback, readFeedback } from '../lib/pr-feedb
 import { ReviewRefused, createReviewRounds, gitRead } from '../lib/review-round.js';
 import { createGhWrite } from '../lib/gh-write.js';
 import { createSiteLink, siteTokenStore } from './site-link.js';
+import { PRODUCT } from '../lib/brand.js';
 
 /** The Foreman models the page offers (meta.models); a reply's model must be one of them. */
 export const MODELS = [
   { id: 'claude-opus-5-5', label: 'Opus 5.5', note: 'The everyday Foreman: strong and much cheaper than Fable. Asks Fable for a second look where your job options say.' },
   { id: 'claude-fable-5-1', label: 'Fable 5.1', note: 'Best judgment, highest cost and quickest to use up your limits. Only if you want it: the Foreman is Opus at every level, and Fable already takes second looks at L3.' },
-  { id: 'claude-haiku-5-5', label: 'Haiku 5.5', note: 'Cheapest. For trying the dashboard out, not real jobs.' },
+  { id: 'claude-haiku-5-5', label: 'Haiku 5.5', note: `Cheapest. For trying ${PRODUCT} out, not real jobs.` },
 ];
 
 /** A reply still going (the driver's states before it ends). */
@@ -111,7 +112,7 @@ const str = (v, max = 20000) => (typeof v === 'string' ? v.slice(0, max) : '');
  *   claudeSettingsFile         where the Foreman's Orbit MCP entry is written; legacySettingsFile:
  *                              where it used to be (an entry left there moves on the next token save)
  *   gateParkMs, planUsage, orbitStore, integrateDir, integrateRoot
- *   env                        read at call time (WORKSHOP_EXTRA_REPOS, GROUND_CONTROL_ORBIT_URL)
+ *   env                        read at call time (STARBASE_EXTRA_REPOS, STARBASE_ORBIT_URL)
  *   queryFn                    the SDK's query() (null: the SDK's, or the fake one in demo mode)
  */
 export async function createRunner(config) {
@@ -283,7 +284,7 @@ export async function createRunner(config) {
   let knownRepos = { at: 0, list: [] };
   async function repoList() {
     if (Date.now() - knownRepos.at > 60000) {
-      const extra = (env.WORKSHOP_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean);
+      const extra = (env.STARBASE_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean);
       knownRepos = { at: Date.now(), list: (await recentRepos(sessionIndex, extra)).map((r) => r.path) };
     }
     return knownRepos.list;
@@ -324,7 +325,7 @@ export async function createRunner(config) {
   const closedOff = (f) => Boolean(f.closed && !(f.updatedAt && f.updatedAt > f.closed.at));
 
   // Gates left waiting too long (lib/gate.js): parked by time (still under Needs you, with a
-  // "parked" chip), and alerted once each with a 'gate-stale' event. WORKSHOP_GATE_PARK_MS shortens
+  // "parked" chip), and alerted once each with a 'gate-stale' event. STARBASE_GATE_PARK_MS shortens
   // the 4 hours for tests and the demo. The alerted gates are kept in gate-parking.json in the
   // dashboard's state folder, so a restart doesn't alert them again.
   const PARK_MS = Number(gateParkMs) > 0 ? Number(gateParkMs) : GATE_PARK_MS;
@@ -614,7 +615,7 @@ export async function createRunner(config) {
       // floor gives benches out in this order).
       createdAt: f.firstSessionAt ?? f.folderCreatedAt ?? null,
       // Another process working on this job (lib/lock.js heldElsewhere: a terminal, another copy of
-      // Ground Control), or null.
+      // Starbase), or null.
       lock: lockView(f.dir),
       // Paused by a restart (runner/replay.js): 'clean' carries on by itself, 'crash' waits for Resume.
       ...(restart ? { restartPaused: { how: restart.how, at: restart.at } } : {}),
@@ -703,7 +704,7 @@ export async function createRunner(config) {
       const versions = b.file === f.statusBriefFile ? raisedVersions.get(f.dir, b.file) ?? f.versions : null;
       briefs.push({ number: b.number, stage: b.stage, file: b.file, at: st?.mtime.toISOString() ?? null, headline: parsed.headline, point: parsed.happened[0] ?? parsed.next ?? null, versions });
     }
-    // Ground Control's own stops and starts name no job folder: read beside the job's lines (lib/thread.js).
+    // Starbase's own stops and starts name no job folder: read beside the job's lines (lib/thread.js).
     const service = (await state.auditAll()).filter((e) => e.action === 'service-stop' || e.action === 'service-start');
     const page = pageThread(withRestartNotes(buildThread({ briefs, audit, autoResume: limits.autoResume, service, featureDir: f.dir }), audit), { before });
     if (!page) return null;
@@ -921,7 +922,7 @@ export async function createRunner(config) {
 
   /** Replace notes.md, atomically (a new temp file renamed over it), only inside the job's own folder. */
   async function writeNotes(f, text) {
-    if (!isInside(f.dir, FEATURES_DIR) || path.resolve(f.dir) === FEATURES_DIR) throw new HttpError(400, 'This job’s folder isn’t where the workshop keeps jobs.');
+    if (!isInside(f.dir, FEATURES_DIR) || path.resolve(f.dir) === FEATURES_DIR) throw new HttpError(400, `This job’s folder isn’t where ${PRODUCT} keeps jobs.`);
     const tmp = path.join(f.dir, `.notes.md.${crypto.randomBytes(6).toString('hex')}.tmp`);
     await fsp.writeFile(tmp, text, { flag: 'wx', mode: 0o600 });
     try { await fsp.rename(tmp, notesFile(f)); } catch (err) { await fsp.rm(tmp, { force: true }); throw err; }
@@ -1033,8 +1034,8 @@ export async function createRunner(config) {
   // goes through the allow and deny commands; the driver resumes the job's session (feedbackSession
   // below) and reports each outcome, which is written here: the audit lines pr-feedback-found, -sent, -left, -queued and -not-sent, and the
   // item's state in the job's pr-feedback.json. Nothing is ever written to GitHub.
-  // WORKSHOP_GH names the gh executable (tests use a fake one); the demo reads no GitHub without it.
-  const feedbackGh = env.WORKSHOP_GH ? git.ghRunner(env.WORKSHOP_GH) : DEMO ? null : git.ghRunner();
+  // STARBASE_GH names the gh executable (tests use a fake one); the demo reads no GitHub without it.
+  const feedbackGh = env.STARBASE_GH ? git.ghRunner(env.STARBASE_GH) : DEMO ? null : git.ghRunner();
   let feedbackFetchedAt = null;
   let feedbackPass = Promise.resolve();
   let feedbackLogin; // the GitHub login gh is signed in as, asked once
@@ -1120,8 +1121,8 @@ export async function createRunner(config) {
   // N's look at the same PRs (prependListener), so a round's items are marked in pr-feedback.json
   // before N would card them one by one. The panel's routes: site/routes-review.js.
   // The writer (lib/gh-write.js): the same gh, every call with your yes; the demo and tests push
-  // only to local folders, and the demo writes nothing without WORKSHOP_GH's fake.
-  const ghWrites = feedbackGh ? createGhWrite({ gh: env.WORKSHOP_GH ? git.ghRunner(env.WORKSHOP_GH, { timeout: 60000 }) : git.ghRunner('gh', { timeout: 60000 }), audit: (line) => state.audit(line), lockFor: (dir) => heldElsewhere(dir), localOnly: DEMO }) : null;
+  // only to local folders, and the demo writes nothing without STARBASE_GH's fake.
+  const ghWrites = feedbackGh ? createGhWrite({ gh: env.STARBASE_GH ? git.ghRunner(env.STARBASE_GH, { timeout: 60000 }) : git.ghRunner('gh', { timeout: 60000 }), audit: (line) => state.audit(line), lockFor: (dir) => heldElsewhere(dir), localOnly: DEMO }) : null;
   let roundsFetchedAt = null;
   const reviewRounds = createReviewRounds({
     gh: feedbackGh, driver, write: ghWrites,
@@ -1405,7 +1406,7 @@ export async function createRunner(config) {
   // ---------- The integration board (packet Z): /api/integrate/* (lib/integrate.js) ----------
   // The packet worktrees of the repository this dashboard runs from, and "Merge next" into its main
   // checkout (INTEGRATE_ROOT overrides which repository). Its settings live in
-  // ~/.ground-control/integrate.json (GROUND_CONTROL_DIR overrides the folder). Never pushes.
+  // ~/.starbase/integrate.json (STARBASE_DIR overrides the folder). Never pushes.
   //   GET  /api/integrate              the packets, the order, packets at once, the last result
   //   GET  /api/integrate/stream       the running step's output, live (server-sent events)
   //   POST /api/integrate/order        { order: ['Z', 'C', …] }  save the order
@@ -1415,7 +1416,7 @@ export async function createRunner(config) {
   const integrator = new Integrator({
     root: integrateRoot,
     configDir: INTEGRATE_DIR,
-    stateDirs: [...new Set([INTEGRATE_DIR, path.join(os.homedir(), '.feature-workshop'), state.dir])],
+    stateDirs: [...new Set([INTEGRATE_DIR, path.join(os.homedir(), OLD_STATE_FOLDER), state.dir])],
     // This dashboard's own runs count too: a job it is driving on that checkout.
     extraRunning: async (root) => {
       const r = driver.list().find((x) => ACTIVE_RUN.has(x.status) && x.cwd && !path.relative(root, x.cwd).startsWith('..') && !path.isAbsolute(path.relative(root, x.cwd)));
@@ -1426,7 +1427,7 @@ export async function createRunner(config) {
 
   // ---------- Orbit: the Inbox (lib/orbit.js, lib/orbit-token.js) ----------
   // Portal Feedback tickets read with your own read-only token (ORBIT-479): every call to Orbit is a
-  // GET. The token lives in the OS credential store (in demo mode, or with WORKSHOP_ORBIT_STORE=file,
+  // GET. The token lives in the OS credential store (in demo mode, or with STARBASE_ORBIT_STORE=file,
   // in a 600 file in the state folder) and never in an answer, a record or the audit. The routes are
   // the site's (site/routes-orbit.js).
   const orbitStore = await tokenStore({ stateDir: state.dir, prefer: orbitStorePrefer });
@@ -1467,19 +1468,19 @@ export async function createRunner(config) {
   async function startOrbit() {
     const o = await orbitSettings();
     orbitUrl = o.url ? (() => { try { return normalizeOrbitUrl(o.url); } catch { return null; } })() : null;
-    if (!orbitUrl && env.GROUND_CONTROL_ORBIT_URL) { try { orbitUrl = normalizeOrbitUrl(env.GROUND_CONTROL_ORBIT_URL); } catch { /* ignored: Settings says what is missing */ } }
+    if (!orbitUrl && env.STARBASE_ORBIT_URL) { try { orbitUrl = normalizeOrbitUrl(env.STARBASE_ORBIT_URL); } catch { /* ignored: Settings says what is missing */ } }
     if (orbitUrl && await orbitStore.get().catch(() => null)) orbitInbox.start(); else orbitInbox.stop();
   }
 
 
   // ---------- Telemetry (packet T): usage.jsonl and /api/telemetry (lib/usage-log.js, lib/telemetry.js) ----------
-  // One line per Foreman turn in usage.jsonl: who (the Ground Control user), the Claude account, job,
+  // One line per Foreman turn in usage.jsonl: who (the Starbase user), the Claude account, job,
   // ticket, stage, section, worker, model, tokens, cost and both plan meters. It lives in
-  // ~/.ground-control, or in the state folder when one is set (WORKSHOP_STATE_DIR, demo mode);
-  // GROUND_CONTROL_DIR overrides both. Nothing is sent anywhere.
-  const usageLog = new UsageLog({ dir: usageDir({ stateDir: env.WORKSHOP_STATE_DIR || DEMO ? state.dir : null }) });
+  // ~/.starbase, or in the state folder when one is set (STARBASE_STATE_DIR, demo mode);
+  // STARBASE_DIR overrides both. Nothing is sent anywhere.
+  const usageLog = new UsageLog({ dir: usageDir({ stateDir: env.STARBASE_STATE_DIR || DEMO ? state.dir : null }) });
   const turnMeter = new TurnMeter();
-  const usageUser = groundControlUser();
+  const usageUser = starbaseUser();
   const usageAccount = DEMO ? Promise.resolve(null) : claudeAccountId();
   const RUN_ENDED = new Set(['done', 'stopped', 'error', 'limited']);
   // One turn at a time, in order, so each one's cost is worked out after the one before is written.
@@ -1612,7 +1613,7 @@ export async function createRunner(config) {
           // The continued conversation runs where it ran before, so that must be inside the job's repository.
           if (!isInside(d.cwd, repo.path)) throw new HttpError(400, `That conversation ran in ${d.cwd}, which isn’t inside ${repo.path}. Pick that repository, or use “Fresh Foreman with a summary”.`);
           const { forkSession } = await import('@anthropic-ai/claude-agent-sdk');
-          sessionId = (await forkSession(d.id, { dir: d.cwd, title: `${d.title} (Feature Workshop)` })).sessionId;
+          sessionId = (await forkSession(d.id, { dir: d.cwd, title: `${d.title} (${PRODUCT})` })).sessionId;
           cwd = d.cwd;
           from.forkedTo = sessionId;
         }
@@ -1632,7 +1633,7 @@ export async function createRunner(config) {
       if (fromDetail) await fsp.writeFile(path.join(featureDir, 'history.md'), historyMarkdown(fromDetail), { mode: 0o600 });
       // The /feature command must come first in the message, or it doesn't run.
       const tail = from?.mode === 'continue'
-        ? '\n\nThis conversation is now a Feature Workshop job: carry it on through the feature workflow from here. Everything said earlier in it is background, not approval.'
+        ? `\n\nThis conversation is now a ${PRODUCT} job: carry it on through the feature workflow from here. Everything said earlier in it is background, not approval.`
         : '';
       const text = `/feature ${description}${kind === 'bug' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${describeOptions(optionsOut).map((l) => `- ${l}`).join('\n')}${fromTicket ? `\n\n${fromTicket.brief}` : ''}${tail}`;
       const run = await driver.start({ featureDir, slug, title: description, cwd, sessionId, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
@@ -1692,7 +1693,7 @@ export async function createRunner(config) {
     // Merge next on a stack, queued from the hosted site (packet 2B): the stack page's own "merge".
     async 'stack-merge'(body) {
       const stacks = local_.stacks;
-      if (!stacks) throw new HttpError(404, 'Stacks run only on the dashboard on your own computer.');
+      if (!stacks) throw new HttpError(404, `Stacks run only in ${PRODUCT} on your own computer.`);
       try { return await stacks.merge(body.slug, { section: body.section ?? undefined }); } catch (err) { throw stacks.httpError(err); }
     },
 
@@ -1843,7 +1844,7 @@ export async function createRunner(config) {
           if (DEMO) return { ok: true, demo: true, kind: plan.kind };
           const chosen = (await state.getSettings()).local?.terminalApp;
           const app = terminalApps().includes(chosen) ? chosen : terminalApps()[0];
-          const dir = path.join(os.tmpdir(), 'ground-control-terminal');
+          const dir = path.join(os.tmpdir(), 'starbase-terminal');
           await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
           // Scripts from earlier days are of no more use.
           for (const name of await fsp.readdir(dir).catch(() => [])) {
@@ -2053,7 +2054,7 @@ export async function createRunner(config) {
       return { ok: true, repoPath: repo.path };
     },
 
-    // POST /api/job/:slug/resume, and `ground-control resume <job>` (via 'cli'): carry on a reply a
+    // POST /api/job/:slug/resume, and `starbase resume <job>` (via 'cli'): carry on a reply a
     // restart paused (a crash's waits for this), or one you paused with Stop. The same session,
     // audited as a 'send' of kind 'resume-after-restart' plus a 'resumed' line saying who asked.
     async resume(body) {
@@ -2151,7 +2152,7 @@ export async function createRunner(config) {
       const jobOverrides = Object.values(s.jobPolicy ?? {}).filter((p) => (p !== 'ask-all') !== active).length;
       return { rules: await rules.list(), active, jobOverrides, unreadable: rules.broken ? rules.file : null };
     },
-    repos: async () => ({ repos: await recentRepos(sessionIndex, [...(env.WORKSHOP_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean), ...(await features()).map((f) => f.repoPath)]) }),
+    repos: async () => ({ repos: await recentRepos(sessionIndex, [...(env.STARBASE_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean), ...(await features()).map((f) => f.repoPath)]) }),
     async costs() {
       const list = await features();
       return {
@@ -2323,7 +2324,7 @@ export async function createRunner(config) {
       else if (visible === false) notifier.unseen();
     },
     async testNotification() {
-      const entry = await notifier.notify({ level: 'needs', title: 'A test from Feature Workshop', body: 'Notifications reach you here. Clicking one opens the dashboard.', test: true });
+      const entry = await notifier.notify({ level: 'needs', title: `A test from ${PRODUCT}`, body: `Notifications reach you here. Clicking one opens ${PRODUCT}.`, test: true });
       events.emit('notification', null, entry);
       return entry;
     },
@@ -2365,7 +2366,7 @@ export async function createRunner(config) {
       async saveToken(body) {
         const was = await orbitSettings();
         const days = [7, 30, 90].includes(body.expiresInDays) ? body.expiresInDays : null;
-        const typedUrl = typeof body.url === 'string' && body.url.trim() ? body.url : (was.url ?? env.GROUND_CONTROL_ORBIT_URL);
+        const typedUrl = typeof body.url === 'string' && body.url.trim() ? body.url : (was.url ?? env.STARBASE_ORBIT_URL);
         let saved;
         try { saved = await setToken(body.token, { store: orbitStore, claudeSettingsFile: CLAUDE_SETTINGS_FILE, orbitUrl: typedUrl }); } catch (err) { throw orbitHttpError(err); }
         const now = new Date();
@@ -2417,7 +2418,7 @@ export async function createRunner(config) {
 
   // Replies a clean stop paused carry on by themselves: tried now and every few seconds while one
   // waits, once the job's lock is free (another process may hold it: a terminal, another copy of
-  // Ground Control) and no usage limit holds.
+  // Starbase) and no usage limit holds.
   let resumeTimer = null;
   let resuming = false;
   const RESUME_EVERY_MS = 3000;
@@ -2496,7 +2497,7 @@ export async function createRunner(config) {
     watch(FEATURES_DIR, featureFileChanged);
     watch(PROJECTS_DIR);
     await listen();
-    // How `ground-control resume` finds this service (runner/service-file.js): pid, port, token.
+    // How `starbase resume` finds this service (runner/service-file.js): pid, port, token.
     if (TOKEN && PORT) { try { writeServiceFile(state.dir, { pid: process.pid, host: HOST, port: PORT, token: TOKEN }); } catch (err) { console.error('service.json:', err.message); } }
     // The play ledger: read play.json, or rebuild it from the audit log when it is missing. Not while Play is Off.
     if (playOn()) playbook.refresh().catch((err) => console.error('play ledger:', err));
@@ -2511,7 +2512,7 @@ export async function createRunner(config) {
     checkWaiting().catch(() => {});
     // Replies the last clean stop paused carry on.
     startCarryingOn();
-    // The hosted site (packet 2A): idle until `ground-control login` pairs this laptop.
+    // The hosted site (packet 2A): idle until `starbase login` pairs this laptop.
     if (siteLinkOn) startSiteLink().catch((err) => console.error('site link:', err.message));
   }
 

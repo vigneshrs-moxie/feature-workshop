@@ -22,7 +22,7 @@
 //   not composited; a row marked "img" sits on one, so read it by eye.
 //
 // Run it against a running app (the demo is best):
-//   PORT=4493 WORKSHOP_DEMO=1 node dashboard/demo/run-demo.js      # in one terminal
+//   PORT=4493 STARBASE_DEMO=1 node dashboard/demo/run-demo.js      # in one terminal
 //   node web/e2e/contrast.mjs                                       # in another
 // Environment: BASE (default http://127.0.0.1:4493/next/), THEMES (comma list, default
 // light,default; THEMES=all runs every theme in theme.ts, the hidden two included: the page is told

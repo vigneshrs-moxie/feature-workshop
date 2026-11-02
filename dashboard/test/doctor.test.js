@@ -1,4 +1,4 @@
-// `ground-control doctor` (packet I step 2, lib/doctor.js): each check found and missing, and the
+// `starbase doctor` (packet I step 2, lib/doctor.js): each check found and missing, and the
 // right fix line for each system. Everything doctor looks at is a fake here: no program is run, no
 // port is touched and nothing is installed.
 
@@ -92,9 +92,9 @@ test('Windows with nothing: winget lines, and the service check says why there i
   assert.equal(r.claude.fix, 'npm install -g @anthropic-ai/claude-code');
   assert.equal(r.playwright.fix, 'npx playwright install chromium');
   assert.equal(r.playwright.needed, false, 'only a warning until packet L');
-  assert.equal(r['orbit-token'].fix, 'ground-control token set');
+  assert.equal(r['orbit-token'].fix, 'starbase token set');
   assert.match(r.service.found, /no administrator rights/);
-  assert.match(r.service.fix, /^ground-control start --here/);
+  assert.match(r.service.fix, /^starbase start --here/);
   assert.equal(r.admin.ok, false);
   assert.equal(r.admin.found, 'no');
   assert.match(r.admin.fix, /Run as administrator/);
@@ -110,7 +110,7 @@ test('macOS with nothing: brew lines', async () => {
   assert.equal(r.gh.fix, 'brew install gh');
   assert.equal(r.postgres.fix, 'brew install postgresql@17');
   assert.equal(r.node.ok, true);
-  assert.match(r.service.fix, /^ground-control install/);
+  assert.match(r.service.fix, /^starbase install/);
   assert.equal(r.service.found, 'not installed');
 });
 
@@ -141,12 +141,12 @@ test('GitHub CLI there but signed out, and Claude Code there but signed out', as
   assert.equal(keyed['claude-login'].ok, true, 'a key in the environment counts as signed in');
 });
 
-test('ports: free, Ground Control’s own, or another program’s (with the line that shows which)', async () => {
+test('ports: free, Starbase’s own, or another program’s (with the line that shows which)', async () => {
   const c = everything('darwin');
   const busy = async () => true;
   let r = byId(await runDoctor(options(c, { portInUse: busy, service: { port: 4477, pid: 321 } })));
   assert.equal(r['port-4477'].ok, true);
-  assert.equal(r['port-4477'].found, 'used by Dashboard (pid 321)');
+  assert.equal(r['port-4477'].found, 'used by Starbase (pid 321)');
   assert.equal(r['port-4478'].ok, true, 'its screens page is the next port');
   r = byId(await runDoctor(options(c, { portInUse: async (p) => p === 4477, service: null })));
   assert.equal(r['port-4477'].ok, false);
@@ -161,7 +161,7 @@ test('the service: installed and running, installed and stopped, not installed',
   const c = everything('linux');
   let r = byId(await runDoctor(options(c, { serviceCheck: async () => ({ installed: true, running: false }) })));
   assert.equal(r.service.found, 'installed, not running');
-  assert.equal(r.service.fix, 'ground-control start');
+  assert.equal(r.service.fix, 'starbase start');
   r = byId(await runDoctor(options(c, { serviceCheck: async () => ({ installed: true, running: null }), service: { port: 4477, pid: 9 } })));
   assert.equal(r.service.ok, true, 'running: service.json says so where the manager can’t');
   r = byId(await runDoctor(options(everything('win32'), { serviceCheck: async () => ({ installed: true, running: null }), service: { port: 4477, pid: 9 }, isAdmin: async () => false })));
@@ -178,11 +178,31 @@ test('postgres in the usual folders counts, not only on PATH', async () => {
 test('the report in words: OK, MISSING or WARNING on every line, never colour alone', async () => {
   const c = computer({ platform: 'darwin', programs: ['git'] , answers: { 'git --version': { code: 0, stdout: 'git version 2.40.0', stderr: '' } } });
   const lines = formatDoctor(await runDoctor(options(c, { tokenSaved: async () => false })));
-  assert.equal(lines[0], 'Dashboard doctor (macOS)');
+  assert.equal(lines[0], 'Starbase doctor (macOS)');
   assert.ok(lines.some((l) => /^ {2}OK {7}Git/.test(l)));
   assert.ok(lines.some((l) => /^ {2}MISSING {2}GitHub CLI /.test(l)));
   assert.ok(lines.some((l) => /^ {2}WARNING {2}Orbit token saved/.test(l)));
   assert.ok(lines.some((l) => /Fix: brew install gh$/.test(l)));
   assert.match(lines.at(-1), /missing and \d+ warnings\. Doctor never installs anything itself/);
   assert.ok(!lines.join('\n').includes('\u001b['), 'no colour codes');
+});
+
+test('the service and the folder from before the rename: reported only while they are there, with the fix', async () => {
+  const c = everything('darwin');
+  const clean = byId(await runDoctor(options(c, { oldService: async () => ({ found: false, names: [], files: [] }), oldFolderLeft: () => false })));
+  assert.equal(clean['old-service'], undefined, 'nothing to say on a computer without them');
+  assert.equal(clean['old-folder'], undefined);
+
+  const r = byId(await runDoctor(options(c, {
+    oldService: async () => ({ found: true, names: ['com.moxie.ground-control'], files: ['/home/sam/Library/LaunchAgents/com.moxie.ground-control.plist'] }),
+    oldFolderLeft: () => true,
+  })));
+  assert.equal(r['old-service'].ok, false);
+  assert.equal(r['old-service'].needed, false, 'a warning: Starbase still works');
+  assert.match(r['old-service'].found, /“com\.moxie\.ground-control”/);
+  assert.match(r['old-service'].fix, /^starbase install/);
+  assert.equal(r['old-folder'].ok, false);
+  assert.match(r['old-folder'].found, /uses ~\/\.starbase/);
+  const lines = formatDoctor(await runDoctor(options(c, { oldService: async () => ({ found: true, names: ['com.moxie.ground-control'], files: [] }), oldFolderLeft: () => false })));
+  assert.ok(lines.some((l) => /WARNING\s+No service from before the rename/.test(l)), 'the word says it, not colour');
 });

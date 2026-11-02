@@ -40,6 +40,7 @@ import { STEP_INFO } from './stackModel';
 import { useStacksList } from './useStacks';
 import './stack.css';
 import './stacks-home.css';
+import { BRAND } from '../../app/brand';
 
 /** The four dots: done, now or not yet, each with its step's name and state in words (Jobs uses them). */
 export function StepDots({ steps, label }: { steps: StackStep[]; label: string }) {
@@ -191,7 +192,7 @@ export function StacksPage() {
 
   let body: ReactNode;
   if (unavailable) {
-    body = <StacksEmpty title="Stacks run on your own computer" say={`${unavailable} Open the dashboard on the computer where the jobs run.`} onHow={() => setGuideOpen(true)} />;
+    body = <StacksEmpty title="Stacks run on your own computer" say={`${unavailable} Open ${BRAND.name} on the computer where the jobs run.`} onHow={() => setGuideOpen(true)} />;
   } else if (error && !list) {
     body = (
       <section className="stacks-home-error" role="alert">

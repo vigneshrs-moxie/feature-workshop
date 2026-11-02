@@ -10,6 +10,7 @@
 import { execFile } from 'node:child_process';
 
 import { ORG_REMOTES, ORG_URL } from './hard-lines.js';
+import { PRODUCT } from './brand.js';
 
 /** The repo's remotes as [{ name, url }] (push addresses), [] when git can't say. */
 export function remotesOf(repo) {
@@ -37,14 +38,14 @@ const list = (xs) => xs.map((x) => `\`${x}\``).join(', ');
 export function autoModeEnvironment({ title, slug, repoPath, worktrees = [], featureDir }, remotes = []) {
   if (!repoPath) return [];
   const lines = [
-    `**Feature Workshop job**: this session is the Feature Workshop's Foreman for the job "${title || slug}" (${slug}). The user decides each stage on the dashboard, and those decisions arrive as the user's messages in this conversation.`,
+    `**${PRODUCT} job**: this session is ${PRODUCT}'s Foreman for the job "${title || slug}" (${slug}). The user decides each stage in ${PRODUCT}, and those decisions arrive as the user's messages in this conversation.`,
   ];
   const folders = [repoPath, ...worktrees.filter((w) => w && w !== repoPath)];
   const own = remotes.filter((r) => !isOrg(r));
   const org = remotes.filter(isOrg);
   let repo = `**Trusted repo (this job)**: ${list(folders)} (the job's repository and its worktrees).`;
   if (own.length) repo += ` Its own remote${own.length > 1 ? 's' : ''}: ${own.map((r) => `\`${r.name}\` = ${r.url}`).join(', ')}, the user's fork, where the job's branches are pushed for review.`;
-  if (org.length) repo += ` The organization's repository: ${org.map((r) => `\`${r.name}\` = ${r.url}`).join(', ')}. Pull requests from the fork into it are how this work is reviewed; the dashboard refuses any direct push to it and any force push. One write there is allowed: creating the job's matching feature branch (never main, staging or a release branch) from a commit of the org's main, with \`gh api -X POST repos/<org>/<repo>/git/refs -f ref=refs/heads/<branch> -f sha=<sha>\`; GitHub refuses it when the branch already exists.`;
+  if (org.length) repo += ` The organization's repository: ${org.map((r) => `\`${r.name}\` = ${r.url}`).join(', ')}. Pull requests from the fork into it are how this work is reviewed; ${PRODUCT} refuses any direct push to it and any force push. One write there is allowed: creating the job's matching feature branch (never main, staging or a release branch) from a commit of the org's main, with \`gh api -X POST repos/<org>/<repo>/git/refs -f ref=refs/heads/<branch> -f sha=<sha>\`; GitHub refuses it when the branch already exists.`;
   lines.push(repo);
   if (featureDir) lines.push(`**Job records**: ${list([featureDir])} holds this job's own records (status, briefs, plans, check logs); reading and writing there is routine bookkeeping.`);
   return lines;

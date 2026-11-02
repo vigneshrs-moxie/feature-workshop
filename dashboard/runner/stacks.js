@@ -74,9 +74,9 @@ function canListen(port) {
  * job folders. registry: lib/repos.js Registry (profileFor). integrator: the integration board
  * (its integrate.json gives the global cap's first value). readDirs(): the folders the Foreman may
  * read. models: the model ids a stack may pick. onChange(): something on a stack changed (the page
- * fetches again). onSettings(): the settings changed (the global cap: every open page hears). tickMs: how often it looks (WORKSHOP_STACK_TICK_MS; 0: only when asked).
+ * fetches again). onSettings(): the settings changed (the global cap: every open page hears). tickMs: how often it looks (STARBASE_STACK_TICK_MS; 0: only when asked).
  */
-export function createStacks({ driver, state, featuresDir, registry = null, integrator = null, readDirs = async () => [], models = null, onChange = null, onSettings = null, tickMs = Number(process.env.WORKSHOP_STACK_TICK_MS) || 3000 }) {
+export function createStacks({ driver, state, featuresDir, registry = null, integrator = null, readDirs = async () => [], models = null, onChange = null, onSettings = null, tickMs = Number(process.env.STARBASE_STACK_TICK_MS) || 3000 }) {
   const out = new EventEmitter();
   out.setMaxListeners(0);
   if (onChange) out.on('change', onChange);

@@ -150,7 +150,7 @@ export function BuildStackPage({ openStream }: { openStream?: (url: string) => E
   if (!view) {
     return (
       <Page label="Stack" title={title} className="page-stack">
-        {unavailable ? <p className="muted">There are no packets to build here: the build stack lists this app’s own packet worktrees, on the computer that runs the dashboard.</p>
+        {unavailable ? <p className="muted">There are no packets to build here: the build stack lists this app’s own packet worktrees, on the computer that runs {BRAND.name}.</p>
           : error ? (
             <section className="stack-empty" role="alert">
               <p>Couldn’t load the packets: {error}</p>

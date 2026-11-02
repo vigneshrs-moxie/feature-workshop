@@ -1,13 +1,13 @@
-// Packet 2A step 3: pairing a laptop with a one-time code, from `ground-control login` to the
+// Packet 2A step 3: pairing a laptop with a one-time code, from `starbase login` to the
 // runner token in the laptop's store; expiry and reuse; rotation; Settings → Laptops and Remove;
-// `ground-control logout`. The CLI runs in this process against the in-process site.
+// `starbase logout`. The CLI runs in this process against the in-process site.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { main } from '../../bin/ground-control.js';
+import { main } from '../../bin/starbase.js';
 import { readSiteFile, SITE_TOKEN_NAMES } from '../../dashboard/runner/site-link.js';
 import { CODE_LETTERS } from '../site/routes-pair.js';
 import { browser, makeSite, signIn, SITE } from './helpers.js';
@@ -28,7 +28,7 @@ test('login → the link and the code → Pair this laptop → the token in the 
     const out = [];
     const stateDir2 = tmp('gc-2a-state-');
     const exit = await main(['login', '--site', SITE, '--name', 'Olive’s laptop'], {
-      env: { WORKSHOP_ORBIT_STORE: 'file' }, home: tmp('gc-2a-home-'), stateDir: stateDir2, running: () => null, interactive: false,
+      env: { STARBASE_ORBIT_STORE: 'file' }, home: tmp('gc-2a-home-'), stateDir: stateDir2, running: () => null, interactive: false,
       out: (l) => out.push(l), err: (l) => out.push(l), fetch: s.fetch,
       sleep: async (ms) => {
         s.clock.t += ms;
@@ -70,7 +70,7 @@ async function pair(s, person, { name = 'Test Laptop', stateDir = tmp('gc-2a-sta
   const out = [];
   let code = null;
   const exit = await main(['login', '--site', SITE, '--name', name], {
-    env: { WORKSHOP_ORBIT_STORE: 'file' }, home: tmp('gc-2a-home-'), stateDir, running: () => null, interactive: false,
+    env: { STARBASE_ORBIT_STORE: 'file' }, home: tmp('gc-2a-home-'), stateDir, running: () => null, interactive: false,
     out: (l) => out.push(l), err: (l) => out.push(l), fetch: s.fetch,
     sleep: async (ms) => {
       s.clock.t += ms;
@@ -98,7 +98,7 @@ test('a code works for ten minutes: after that the site refuses it and login say
       },
     });
     assert.equal(late.exit, 1);
-    assert.match(late.text, /the code has run out\. Run ground-control login again/);
+    assert.match(late.text, /the code has run out\. Run starbase login again/);
     assert.equal((await s.db.query('SELECT count(*)::int AS n FROM runners')).rows[0].n, 0);
   } finally { await s.close(); }
 });
@@ -192,7 +192,7 @@ test('logout: the site forgets the token, then the laptop does; a second logout 
     const a = await pair(s, olive, { name: 'Olive A' });
     const token = tokenIn(a.stateDir);
     const out = [];
-    const opts = { env: { WORKSHOP_ORBIT_STORE: 'file' }, home: tmp('gc-2a-home-'), stateDir: a.stateDir, running: () => null, out: (l) => out.push(l), err: (l) => out.push(l), fetch: s.fetch };
+    const opts = { env: { STARBASE_ORBIT_STORE: 'file' }, home: tmp('gc-2a-home-'), stateDir: a.stateDir, running: () => null, out: (l) => out.push(l), err: (l) => out.push(l), fetch: s.fetch };
     assert.equal(await main(['logout'], opts), 0);
     assert.match(out.join('\n'), /Unpaired: http:\/\/localhost:4507 has forgotten this laptop/);
     assert.equal((await asRunner(s, token)).status, 401);
@@ -233,7 +233,7 @@ test('the site’s address changed: login --site <new address> replaces the stor
     const out = [];
     let code = null;
     const exit = await main(['login', '--site', NEW, '--name', 'Olive A'], {
-      env: { WORKSHOP_ORBIT_STORE: 'file' }, home: tmp('gc-2a-home-'), stateDir: a.stateDir, running: () => null, interactive: false,
+      env: { STARBASE_ORBIT_STORE: 'file' }, home: tmp('gc-2a-home-'), stateDir: a.stateDir, running: () => null, interactive: false,
       out: (l) => out.push(l), err: (l) => out.push(l), fetch: both,
       sleep: async (ms) => { s.clock.t += ms; if (code) return; code = codeFrom(out.join('\n')); assert.equal((await olive.send('POST', `/api/pair/${code}/approve`, {})).status, 200); },
     });
@@ -270,7 +270,7 @@ test('moved to a different site: the old one is told to forget this laptop', asy
     const out = [];
     let code = null;
     const exit = await main(['login', '--site', OTHER], {
-      env: { WORKSHOP_ORBIT_STORE: 'file' }, home: tmp('gc-2a-home-'), stateDir: a.stateDir, running: () => null, interactive: false,
+      env: { STARBASE_ORBIT_STORE: 'file' }, home: tmp('gc-2a-home-'), stateDir: a.stateDir, running: () => null, interactive: false,
       out: (l) => out.push(l), err: (l) => out.push(l), fetch: route,
       sleep: async () => { if (code) return; code = codeFrom(out.join('\n')); assert.equal((await oliveTwo.send('POST', `/api/pair/${code}/approve`, {})).status, 200); },
     });

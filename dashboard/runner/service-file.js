@@ -1,14 +1,14 @@
-// service.json: how a command on this computer finds the running Ground Control (packet G step 6).
+// service.json: how a command on this computer finds the running Starbase (packet G step 6).
 // The runner writes it in the state folder when it starts (mode 600: pid, port, its write token)
-// and removes it when it stops. `ground-control resume <job>` (bin/ground-control.js) reads it.
+// and removes it when it stops. `starbase resume <job>` (bin/starbase.js) reads it.
 
 import fs from 'node:fs';
 import path from 'node:path';
 
 export const SERVICE_FILE = 'service.json';
 
-// The state folder, by the host's own rule: lib/state.js says it (~/.ground-control since
-// packet I, with the one-time move from ~/.feature-workshop). Kept here for older importers.
+// The state folder, by the host's own rule: lib/state-folder.js says it (~/.starbase, with the
+// moves from the folders it had before). Kept here for older importers.
 export { stateDirFor } from '../lib/state.js';
 
 export const serviceFilePath = (stateDir) => path.join(stateDir, SERVICE_FILE);

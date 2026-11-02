@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ground-control.local/status-schema.json",
+  "$id": "https://starbase.local/status-schema.json",
   "title": "status.json",
   "description": "The record the Foreman writes after every brief (skills/feature/status-json.md in the skill repository). Version 1, and version 2 = version 1 plus the ticket block, required in version 2. A section of a stack (plan §6) also names its `stack` and its `section`, both or neither, in either version. lib/status-json.js validate() checks a file against this schema: a wrong type or a value outside a list is an error; a key the schema doesn't know is a warning. Keep the stage list in step with lib/stages.js (a test checks it).",
   "type": "object",

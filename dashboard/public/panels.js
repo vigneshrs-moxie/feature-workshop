@@ -208,7 +208,7 @@ export function openAlerts(anchor, meta = {}) {
         <label class="opt"><input type="radio" name="policy" value="ask-all"${meta.settings?.policy === 'ask-all' ? ' checked' : ''}><span><b>Ask me about every step</b><small>Every action that needs permission comes to you as an Allow / Deny card.</small></span></label>
       </fieldset>
       <h3 class="settings-h">Live link to terminal sessions</h3>
-      <p class="fineprint">${meta.liveLink?.enabled ? '<b>On.</b> Claude Code sessions in your terminals report what they’re doing, so their jobs show up here live.' : '<b>Off.</b> The dashboard sees open terminals but not what they’re doing. Turning it on adds a small hook to your Claude Code settings that records session events for this dashboard only. Ask Claude Code to add it for you; the README has the details.'}</p>
+      <p class="fineprint">${meta.liveLink?.enabled ? '<b>On.</b> Claude Code sessions in your terminals report what they’re doing, so their jobs show up here live.' : '<b>Off.</b> Starbase sees open terminals but not what they’re doing. Turning it on adds a small hook to your Claude Code settings that records session events for this dashboard only. Ask Claude Code to add it for you; the README has the details.'}</p>
       <div class="modal-actions"><button type="button" class="btn ghost" data-test>Try it</button><button type="button" class="btn primary" data-close>Done</button></div>
     </div>`, { label: 'Alerts' });
   $('[name=notify]', m.box).addEventListener('change', async (e) => {
@@ -224,6 +224,6 @@ export function openAlerts(anchor, meta = {}) {
     try { await postJson('/api/settings', { policy: e.target.value }); toast(e.target.value === 'ask-all' ? 'You’ll be asked about every step.' : 'Routine steps now run on their own.', { tone: 'good' }); }
     catch (err) { toast(esc(err.message), { tone: 'bad' }); }
   }));
-  $('[data-test]', m.box).addEventListener('click', () => notify('Feature Workshop', 'This is what an alert looks like.', '#/'));
+  $('[data-test]', m.box).addEventListener('click', () => notify('Starbase', 'This is what an alert looks like.', '#/'));
   $('[data-close]', m.box).addEventListener('click', () => m.close());
 }

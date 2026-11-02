@@ -1,9 +1,9 @@
 # The release files (packet I step 5, plan G18). Runs only when Vignesh pushes a tag like v1.5.0:
 # both test suites on Windows and macOS, then npm pack, SHA256SUMS, and both attached to the
-# GitHub release for that tag, with the two install scripts. `ground-control update` and the
+# GitHub release for that tag, with the two install scripts. `starbase update` and the
 # install scripts check the package file against SHA256SUMS before installing it.
 #
-# Publishing to npm (@moxie/ground-control) is a separate, later yes from Vignesh; nothing here
+# Publishing to npm (@moxie/starbase) is a separate, later yes from Vignesh; nothing here
 # publishes.
 
 name: Release
@@ -25,7 +25,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
-      WORKSHOP_PLAN_USAGE: 'off'
+      STARBASE_PLAN_USAGE: 'off'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -38,7 +38,7 @@ jobs:
           git config --global user.email "ci@example.com"
           git config --global init.defaultBranch main
       - run: npm ci
-      - name: Dashboard tests
+      - name: Server tests (dashboard/)
         run: npm test
       - name: Web tests
         working-directory: web
@@ -69,7 +69,7 @@ jobs:
       - name: SHA256SUMS
         shell: bash
         run: |
-          sha256sum moxie-ground-control-*.tgz install.sh install.ps1 > SHA256SUMS
+          sha256sum moxie-starbase-*.tgz install.sh install.ps1 > SHA256SUMS
           cat SHA256SUMS
       - name: Attach to the release
         shell: bash
@@ -82,4 +82,4 @@ jobs:
             case "$tag" in *-*) pre="--prerelease" ;; esac
             gh release create "$tag" --title "$tag" --generate-notes $pre
           fi
-          gh release upload "$tag" moxie-ground-control-*.tgz SHA256SUMS install.sh install.ps1 --clobber
+          gh release upload "$tag" moxie-starbase-*.tgz SHA256SUMS install.sh install.ps1 --clobber

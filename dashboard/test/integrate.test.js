@@ -77,7 +77,7 @@ test('parseWorktrees reads git worktree list --porcelain', () => {
 });
 
 test('the Owns paragraph is read leniently, and owned paths match folders, globs, tests beside a file and the route and nav entries', () => {
-  const text = '# Packet T · Telemetry\n\n## Owns\n`dashboard/lib/usage-log.js` (new: writes `~/.ground-control/usage.jsonl`), the `/api/telemetry/*` routes in `dashboard/server.js`, `telemetry.test.js`, `web/src/…/Usage*`, `web/src/views/Telemetry.tsx` plus its test, branch `packet/T-telemetry`, `set -o noclobber`, one route and the nav entry.\n\n## Steps\n`not/this.js`\n';
+  const text = '# Packet T · Telemetry\n\n## Owns\n`dashboard/lib/usage-log.js` (new: writes `~/.starbase/usage.jsonl`), the `/api/telemetry/*` routes in `dashboard/server.js`, `telemetry.test.js`, `web/src/…/Usage*`, `web/src/views/Telemetry.tsx` plus its test, branch `packet/T-telemetry`, `set -o noclobber`, one route and the nav entry.\n\n## Steps\n`not/this.js`\n';
   const owned = parseOwns(text);
   assert.deepEqual(owned, ['dashboard/lib/usage-log.js', 'dashboard/server.js', 'telemetry.test.js', 'web/src/…/Usage*', 'web/src/views/Telemetry.tsx', 'web/src/app/router.ts', 'web/src/app/App.tsx']);
   assert.equal(briefTitle(text), 'Telemetry');
@@ -282,8 +282,8 @@ test('the /api/integrate routes: the list, saving the order and slots (with the 
   try {
     dashboard = await startDashboard({
       env: {
-        HOME: home, WORKSHOP_DEMO: '1', WORKSHOP_PLAN_USAGE: 'off',
-        WORKSHOP_FEATURES_DIR: dirs[0], WORKSHOP_PROJECTS_DIR: dirs[1], WORKSHOP_AGENTS_DIR: dirs[2], WORKSHOP_SKILLS_DIR: dirs[3], WORKSHOP_STATE_DIR: dirs[4],
+        HOME: home, STARBASE_DEMO: '1', STARBASE_PLAN_USAGE: 'off',
+        STARBASE_FEATURES_DIR: dirs[0], STARBASE_PROJECTS_DIR: dirs[1], STARBASE_AGENTS_DIR: dirs[2], STARBASE_SKILLS_DIR: dirs[3], STARBASE_STATE_DIR: dirs[4],
         INTEGRATE_ROOT: fx.main,
       },
       output,
@@ -291,7 +291,7 @@ test('the /api/integrate routes: the list, saving the order and slots (with the 
     const { base } = dashboard;
     const token = (await (await fetch(`${base}/api/meta`)).json()).token;
     const post = async (p, body, auth = true) => {
-      const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Workshop-Token': token } : {}) }, body: JSON.stringify(body) });
+      const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { 'X-Starbase-Token': token } : {}) }, body: JSON.stringify(body) });
       return { status: res.status, body: await res.json() };
     };
     let view = await (await fetch(`${base}/api/integrate`)).json();
@@ -305,7 +305,7 @@ test('the /api/integrate routes: the list, saving the order and slots (with the 
     assert.equal((await post('/api/integrate/order', { order: ['C', 'no good'] })).status, 400);
     assert.deepEqual((await post('/api/integrate/order', { order: ['C', 'D'] })).body.order, ['C', 'D']);
     assert.equal((await post('/api/integrate/slots', { slots: 2 })).body.slots, 2);
-    const saved = JSON.parse(await fs.readFile(path.join(home, '.ground-control', 'integrate.json'), 'utf8'));
+    const saved = JSON.parse(await fs.readFile(path.join(home, '.starbase', 'integrate.json'), 'utf8'));
     assert.deepEqual([saved.order, saved.slots], [['C', 'D'], 2]);
     assert.equal((await post('/api/integrate/run-tests', { id: 'Q' })).status, 404);
 

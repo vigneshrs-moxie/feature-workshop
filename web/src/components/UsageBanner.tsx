@@ -8,6 +8,7 @@ import { clockTime, useNow } from '../lib/time';
 import { useWorkshop, useWorkshopState } from '../state/store';
 import { Choice } from './Choice';
 import { Button } from './Button';
+import { BRAND } from '../app/brand';
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -46,7 +47,7 @@ export function UsageBanner() {
     ? (usage.passed ? 'The limit has reset. Automatic carry-on is off, so use Carry on now when you’re ready.' : 'Automatic carry-on is off, so use Carry on now when you’re ready.')
     : usage.resetKnown
       ? `${jobs.length ? 'They carry on' : 'Jobs can start again'} by themselves at about ${at}${left ? ` (in ${left})` : ''}.`
-      : `Claude didn’t say when it resets, so the dashboard tries again at about ${at}.`;
+      : `Claude didn’t say when it resets, so ${BRAND.name} tries again at about ${at}.`;
 
   async function resume() {
     setBusy(true);

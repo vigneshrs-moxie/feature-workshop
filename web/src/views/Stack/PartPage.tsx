@@ -42,6 +42,7 @@ import '../../job/job.css';
 import './stacks-home.css';
 import './stack-page.css';
 import './part-page.css';
+import { BRAND } from '../../app/brand';
 
 export function PartPage({ slug, n }: { slug: string; n: number }) {
   const part = useStackPart(slug, n);
@@ -110,7 +111,7 @@ function PartBody({ state, page }: { state: PartState; page: PartPageData }) {
           <PartProblemBar page={page} state={state} onMerge={() => setConfirm(true)} canMerge={canMerge} />
           {/* The part's own job's go / no go while it is being built; past that, the stack's bar above says what is next. */}
           {job && p.state === 'running' && job.needsYou ? <JobNext job={job} now={now} /> : job ? null : (
-            <p className="part-no-job muted">{p.slug ? 'Its job shows here once the dashboard has read it.' : lane === 'waiting' ? `It starts once ${p.waitsOn?.map((x) => `part ${x}`).join(' and ') || 'the parts it waits on'} ${p.waitsOn?.length === 1 ? 'has' : 'have'} merged. Its job, conversation and changes show here then.` : 'It hasn’t started yet. Its job, conversation and changes show here once it does.'}</p>
+            <p className="part-no-job muted">{p.slug ? `Its job shows here once ${BRAND.name} has read it.` : lane === 'waiting' ? `It starts once ${p.waitsOn?.map((x) => `part ${x}`).join(' and ') || 'the parts it waits on'} ${p.waitsOn?.length === 1 ? 'has' : 'have'} merged. Its job, conversation and changes show here then.` : 'It hasn’t started yet. Its job, conversation and changes show here once it does.'}</p>
           )}
           {p.now && (
             <p className={`now-line is-${p.now.tone} part-now`} aria-label="Now">
