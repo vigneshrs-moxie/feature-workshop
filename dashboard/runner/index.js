@@ -1509,6 +1509,15 @@ export async function createRunner(config) {
   // is on), so Telemetry rarely has to say it is still reading.
   const claudeCodeUsage = DEMO ? null : new ClaudeCodeUsage({ projectsDir: PROJECTS_DIR, stateDir: state.dir, user: usageUser });
   if (claudeCodeUsage) setTimeout(() => { claudeCodeSetting(state.dir).then((s) => { if (s.count) claudeCodeUsage.poke(); }, () => {}); }, 20_000).unref();
+  // This app's own Claude sessions and job worktrees, left out of "your Claude Code use outside the app".
+  async function ownJobs(lines, list) {
+    const sessions = new Set([
+      ...lines.map((l) => l.session), ...list.flatMap((f) => f.sessionIds ?? []),
+      ...Object.values(await state.allSessions()).map((x) => x?.sessionId), ...driver.list().map((r) => r.sessionId),
+    ].filter(Boolean));
+    const dirs = list.flatMap((f) => [f.worktree, f.statusWorktree]).filter(Boolean);
+    return { sessions, dirs };
+  }
   // A reply stopped before its result: what it used so far is a turn too (an estimate).
   driver.on('run', (run) => { if (RUN_ENDED.has(run.status)) logTurn(turnMeter.forget(run.id, run)); });
 
@@ -2275,6 +2284,17 @@ export async function createRunner(config) {
      * (route size, the finish line) and the audit lines (send-backs, answers) go in; readFrom says where
      * the lines read start, so a week that wasn't read is never shown as an empty one.
      */
+    /**
+     * Your Claude Code replies outside this app since `since` (ms), for the site link's usage upload
+     * (site-link.js): { state: 'demo' | 'off' | 'reading' | 'ready' | 'error', replies }. The same
+     * leave-out rule as Telemetry: never this app's own job sessions or worktrees.
+     */
+    async claudeCodeReplies({ since }) {
+      if (!claudeCodeUsage || !(await claudeCodeSetting(state.dir)).count) return { state: DEMO ? 'demo' : 'off', replies: null };
+      claudeCodeUsage.poke();
+      const lines = await usageLog.read({ since });
+      return claudeCodeUsage.view({ exclude: await ownJobs(lines, await features()), since, until: Date.now() });
+    },
     async telemetry({ window }) {
       const now = new Date();
       const readFrom = now.getTime() - 100 * 24 * 3600e3;
@@ -2297,12 +2317,7 @@ export async function createRunner(config) {
       let cc = null;
       if (counting) {
         claudeCodeUsage.poke(); // reads what is new in the background; never waits
-        const sessions = new Set([
-          ...lines.map((l) => l.session), ...list.flatMap((f) => f.sessionIds ?? []),
-          ...Object.values(await state.allSessions()).map((x) => x?.sessionId), ...driver.list().map((r) => r.sessionId),
-        ].filter(Boolean));
-        const dirs = list.flatMap((f) => [f.worktree, f.statusWorktree]).filter(Boolean);
-        cc = claudeCodeUsage.view({ exclude: { sessions, dirs }, since: readFrom, until: now.getTime() });
+        cc = claudeCodeUsage.view({ exclude: await ownJobs(lines, list), since: readFrom, until: now.getTime() });
       }
       const outside = cc?.state === 'ready' ? cc.replies : null;
       const body = telemetryOf(lines, { window, now, me: usageUser, meters, titles, jobs, audit: await state.auditAll(), readFrom, tempRoots, outside });
