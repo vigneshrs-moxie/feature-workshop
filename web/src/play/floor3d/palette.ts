@@ -37,6 +37,8 @@ export interface FloorPalette {
   clay: Rgb; badge: Rgb; helmet: Rgb; visor: Rgb; visorShine: Rgb; glove: Rgb;
   /** A holo screen's own glow (a slate, a tablet, a scanner's dish) is the stop's hue; its lines are this. */
   holoLine: Rgb;
+  /** The ink on a bay's sign (its kind's icon on the pale tile): whichever of the page's darkest and lightest reads best on it. */
+  signInk: Rgb;
   /** Props and things on the bench. */
   paper: Rgb; ink: Rgb; metal: Rgb; handle: Rgb; glass: Rgb; liquid: Rgb;
   /** Shadows: the colour and how strong they fall. */
@@ -250,6 +252,7 @@ export function derivePalette(raw: Partial<Record<FloorToken, Rgb>>, schemeHint?
     visorShine: mix(visor, WHITE, light ? 0.55 : 0.4),
     glove: mix(clay, text1, light ? 0.3 : 0.18),
     holoLine: mix(WHITE, accent, 0.08),
+    signInk: contrast(paper, darkest) >= contrast(paper, lightest) ? darkest : lightest,
     paper,
     ink: text2,
     metal: mix(text3, paper, 0.35),

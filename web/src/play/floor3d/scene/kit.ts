@@ -600,7 +600,7 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
     setColor(mats.beaconStop.color, p.stop);
     setColor(mats.haloStop.color, p.stop);
     setColor(mats.ghost.color, p.frame);
-    for (const k of ['build', 'repair'] as const) setColor(kindMats[k].color, p.ink);
+    for (const k of ['build', 'repair'] as const) setColor(kindMats[k].color, p.signInk);
     scheme = p.scheme;
     for (const o of nightOnly) o.visible = scheme === 'dark';
     for (const o of dayOnly) o.visible = scheme === 'light';
