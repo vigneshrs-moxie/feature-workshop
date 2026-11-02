@@ -3,10 +3,10 @@
 // and Done fold under the board. The next-step bar names the job that has waited longest for you;
 // Open (o) opens it. A card that changes lane or place waits until the pointer leaves the board, so
 // nothing moves under it, then slides there. The other layouts (Settings → Look → Jobs layout, or
-// the switch in the heading in Play full) are One list and, in Play full only, Floor: the 3D
-// workshop floor (play/floor3d, packet S), a bench per job with its builders at work, where a
-// click (or Enter) takes the same quick look. In Play subtle or off, Floor shows Four lanes and no
-// 3D is loaded.
+// the switch in the heading in Play full) are One list and, in Play full only, Station: the 3D
+// station (play/floor3d, packets S and SB), a bay per job with its crew at work, where a click (or
+// Enter) takes the same quick look. In Play subtle or off, Station shows Four lanes and no 3D is
+// loaded. (Its stored value stays 'floor'.)
 //
 // Play: full gives console cards (a soft blinking light while the crew works, and a readout line);
 // subtle keeps the card with a steady light and no readout; off has plain cards with the same dots
@@ -53,10 +53,10 @@ export function useJobsLayout(): [JobsLayout, (layout: JobsLayout) => void] {
 export const LAYOUT_CHOICES: readonly { value: JobsLayout; label: string; title: string }[] = [
   { value: 'lanes', label: 'Four lanes', title: 'Working, Needs you, In review and Ready to merge, side by side.' },
   { value: 'list', label: 'One list', title: 'Every job in one list, its lane in words.' },
-  { value: 'floor', label: 'Floor', title: 'The workshop floor in 3D: a bench per job, with its builders doing what each agent is really doing.' },
+  { value: 'floor', label: 'Station', title: 'The station in 3D: a bay per job (a construction bay for a feature, a repair dock for a bug fix), with its crew doing what each agent is really doing.' },
 ];
 
-/** Jobs as the 3D floor: a click, or Enter on a picked bench, takes the quick look (j and k then move along the benches). */
+/** Jobs as the 3D station: a click, or Enter on a picked bay, takes the quick look (j and k then move along the bays). */
 function JobsFloor({ peek, setPeek }: { peek: string | null; setPeek(slug: string | null): void }) {
   const { jobs } = useWorkshopState();
   const benches = useFloorBenches();
@@ -64,7 +64,7 @@ function JobsFloor({ peek, setPeek }: { peek: string | null; setPeek(slug: strin
   const peekJob = peek ? jobs.find((j) => j.slug === peek) ?? null : null;
   return (
     <>
-      <Floor3D benches={benches} onOpenJob={setPeek} keys current={peek} hint="Each bench is a job, its builders doing what each agent is doing now. Pick one for a quick look." />
+      <Floor3D benches={benches} onOpenJob={setPeek} keys current={peek} hint="Each bay is a job: a construction bay builds a feature, a repair dock fixes a bug. Pick one for a quick look." />
       {peekJob && <JobPeek job={peekJob} order={order} onPick={setPeek} onClose={() => setPeek(null)} />}
     </>
   );
@@ -207,7 +207,7 @@ export function JobsPage() {
   const play: 'full' | 'subtle' | 'off' = playState?.full ? 'full' : playState?.on ? 'subtle' : 'off';
   const narrow = useNarrow();
   const [chosen, setLayout] = useJobsLayout();
-  // Floor is Play full's: elsewhere it shows Four lanes, and no 3D loads.
+  // Station is Play full's: elsewhere it shows Four lanes, and no 3D loads.
   const layout: JobsLayout = chosen === 'floor' && play !== 'full' ? 'lanes' : chosen;
   // Closed ones go to Done; a stack's parts are inside its card, not cards of their own.
   const stacks = useStackIndex();

@@ -62,7 +62,7 @@ export interface Floor3DProps {
 
 const openJob = (slug: string) => navigate({ name: 'job', slug });
 
-export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, onStats, label = 'The workshop floor', hint, keys = false, current = null, layoutFor = floorLayout, bar = true }: Floor3DProps) {
+export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, onStats, label = 'The station', hint, keys = false, current = null, layoutFor = floorLayout, bar = true }: Floor3DProps) {
   const [view, setViewState] = useState<View>(readView);
   const [webgl] = useState(hasWebGL);
   const [failed, setFailed] = useState(false);
@@ -71,7 +71,7 @@ export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, 
   if (!webgl || failed) {
     return (
       <section className="floor3d is-flat" aria-label={label}>
-        <p className="floor3d-note muted">This browser can’t draw the 3D floor, so the jobs show {fallback ? 'as cards' : 'as a list'}, with the same words.</p>
+        <p className="floor3d-note muted">This browser can’t draw the 3D station, so the jobs show {fallback ? 'as cards' : 'as a list'}, with the same words.</p>
         {fallback ?? <FloorList benches={benches} onOpenJob={onOpenJob} />}
       </section>
     );
@@ -91,15 +91,15 @@ export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, 
 }
 
 function FloorBar({ view, onView, onFit, hint }: { view: View; onView: (v: View) => void; onFit?: () => void; hint?: string | null }) {
-  const words = hint === undefined ? (view === 'floor' ? 'Each bench is a job. Pick a bench or a builder to open the job.' : 'The floor as a list: one row per bench.') : hint;
+  const words = hint === undefined ? (view === 'floor' ? 'Each bay is a job. Pick a bay or a crew member to open the job.' : 'The station as a list: one row per bay.') : hint;
   return (
     <div className="floor3d-bar">
       {words && <p className="floor3d-hint muted">{words}</p>}
       <div className="floor3d-actions">
         {/* Fit all keeps its place while hidden, so the bar never moves. */}
-        <Button kind="quiet" size="sm" className={`floor3d-btn${onFit ? '' : ' is-idle'}`} aria-hidden={onFit ? undefined : true} tabIndex={onFit ? undefined : -1} onClick={onFit} title="Show the whole floor again (after zooming with a pinch, or ⌘ and scroll).">Fit all</Button>
-        <Button kind="quiet" size="sm" className="floor3d-btn" aria-pressed={view === 'list'} onClick={() => onView(view === 'floor' ? 'list' : 'floor')} title={view === 'floor' ? 'Show the benches as a plain list of words instead of the 3D floor.' : 'Show the 3D floor again.'}>
-          {view === 'floor' ? 'Show as a list' : 'Show the floor'}
+        <Button kind="quiet" size="sm" className={`floor3d-btn${onFit ? '' : ' is-idle'}`} aria-hidden={onFit ? undefined : true} tabIndex={onFit ? undefined : -1} onClick={onFit} title="Show the whole station again (after zooming with a pinch, or ⌘ and scroll).">Fit all</Button>
+        <Button kind="quiet" size="sm" className="floor3d-btn" aria-pressed={view === 'list'} onClick={() => onView(view === 'floor' ? 'list' : 'floor')} title={view === 'floor' ? 'Show the bays as a plain list of words instead of the 3D station.' : 'Show the 3D station again.'}>
+          {view === 'floor' ? 'Show as a list' : 'Show the station'}
         </Button>
       </div>
     </div>
@@ -309,7 +309,7 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, k
         {...(keys ? {
           tabIndex: 0,
           role: 'group',
-          'aria-label': 'The floor. The arrows, or j and k, pick a bench; Enter takes a quick look; o opens its job.',
+          'aria-label': 'The station. The arrows, or j and k, pick a bay; Enter takes a quick look; o opens its job.',
           onKeyDown,
         } : {})}
       >

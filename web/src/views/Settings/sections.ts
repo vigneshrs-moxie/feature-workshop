@@ -80,7 +80,7 @@ export function valueLines(f: SectionFacts): Record<SettingsSection, string> {
     permissions: policyLine(f.settings?.policy),
     notifications: notifyLine(f.settings),
     // "Default · M · One at a time · Four lanes · Play full": everything Look sets, in its order.
-    look: [theme, TEXT_SIZE_LABELS[f.textSize], f.deskLayout === 'columns' ? 'Three columns' : 'One at a time', f.jobsLayout === 'list' ? 'One list' : f.jobsLayout === 'floor' ? 'Floor' : 'Four lanes', `Play ${play.toLowerCase()}`].join(' · '),
+    look: [theme, TEXT_SIZE_LABELS[f.textSize], f.deskLayout === 'columns' ? 'Three columns' : 'One at a time', f.jobsLayout === 'list' ? 'One list' : f.jobsLayout === 'floor' ? (play === 'Off' ? '3D view' : 'Station') : 'Four lanes', `Play ${play.toLowerCase()}`].join(' · '),
     keys: f.keysOn ? 'On' : 'Off',
     workflow: `Finish line: ${finishLineLabel(f.settings?.workflow?.finishLine, f.finishLines)} · ${githubEveryLine(f.settings)}`,
     repos: 'Profiles for each repository',
@@ -114,7 +114,7 @@ export const SETTING_INDEX: SettingEntry[] = [
   { id: 'text-size', label: 'Text size', section: 'look', keywords: 'font small medium large zoom' },
   { id: 'follow-system', label: 'Follow the system', section: 'look', keywords: 'dark mode light mode prefers color scheme' },
   { id: 'desk-layout', label: 'Desk layout: One at a time or Three columns', section: 'look', keywords: 'queue columns desk' },
-  { id: 'jobs-layout', label: 'Jobs layout: Four lanes, One list or Floor', section: 'look', keywords: 'board lanes list kanban floor 3d builders' },
+  { id: 'jobs-layout', label: 'Jobs layout: Four lanes, One list or Station', section: 'look', keywords: 'board lanes list kanban floor station starbase bays 3d builders crew' },
   { id: 'look-play', label: 'Play in Look: Full, Subtle, Off', section: 'look', keywords: 'console crew game' },
   { id: 'keys-enabled', label: 'Keyboard shortcuts on or off', section: 'keys', keywords: 'keys hotkeys bindings' },
   { id: 'keys-hints', label: 'Show key hints on buttons', section: 'keys', keywords: 'kbd' },

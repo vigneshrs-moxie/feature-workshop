@@ -1,7 +1,9 @@
-// An achievement's badge: a medal on two ribbon tails with a small glyph for what it is for (a flag
-// for a quest, a check for Clean Sweep, a key for a secret). Drawn inline as SVG, coloured only
-// through tokens (achievements.css): gold for unlocked, grey for locked. Decoration only: the name
-// and "Locked" / the unlock date always sit next to it as text.
+// An achievement's badge: a station mission patch (packet SB): a hexagonal patch with a stitched
+// rim over a two-part banner, and a small glyph for what it is for (a flag for a quest, a check for
+// Clean Sweep, a key for a secret). Drawn inline as SVG, coloured only through tokens
+// (achievements.css): gold for unlocked, grey for locked. Decoration only: the name and "Locked" /
+// the unlock date always sit next to it as text. The hooks keep their names (.ach-rim, .ach-face,
+// .ach-ribbon-l and -r: the banner's two halves).
 import type { ReactNode } from 'react';
 
 const S = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' } as const;
@@ -47,6 +49,15 @@ const GLYPHS: Record<string, ReactNode> = {
   ),
 };
 
+/** A hexagon round (cx, cy), flat sides left and right, as a path. */
+function hexPath(cx: number, cy: number, r: number): string {
+  const pts = Array.from({ length: 6 }, (_, i) => {
+    const a = (Math.PI / 3) * i - Math.PI / 2;
+    return `${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`;
+  });
+  return `M${pts.join('L')}Z`;
+}
+
 /** The glyph a badge shows: by achievement id, every secret a key, 'quest' a flag. */
 export function badgeGlyph(id: string): string {
   if (id.startsWith('secret-')) return 'secret';
@@ -65,10 +76,11 @@ export function AchievementBadge({ id, unlocked = true, size = 40 }: { id: strin
       aria-hidden="true"
       focusable="false"
     >
-      <path className="ach-ribbon ach-ribbon-l" d="M11 28 6 46l6.5-3.5L16 47l4-15z" />
-      <path className="ach-ribbon ach-ribbon-r" d="M29 28l5 18-6.5-3.5L24 47l-4-15z" />
-      <circle className="ach-rim" cx={20} cy={19} r={16} />
-      <circle className="ach-face" cx={20} cy={19} r={12.4} />
+      <path className="ach-ribbon ach-ribbon-l" d="M3 33.5 20 36.5V45L3 42 6 37.8z" />
+      <path className="ach-ribbon ach-ribbon-r" d="M37 33.5 20 36.5V45L37 42 34 37.8z" />
+      <path className="ach-rim" d={hexPath(20, 19, 17.5)} />
+      <path className="ach-face" d={hexPath(20, 19, 13.6)} />
+      <path className="ach-stitch" d={hexPath(20, 19, 15.6)} />
       <g className="ach-glyph" transform="translate(12 11)">{GLYPHS[glyph]}</g>
     </svg>
   );

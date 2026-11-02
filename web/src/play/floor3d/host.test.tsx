@@ -62,7 +62,7 @@ describe('the 3D floor in the workshop floor', () => {
     floor('subtle');
     expect(loadScene).not.toHaveBeenCalled();
     expect(document.querySelector('.floor3d')).toBeNull();
-    expect(screen.getByRole('region', { name: 'On the floor' })).toHaveTextContent('Bulk archive');
+    expect(screen.getByRole('region', { name: 'At the station' })).toHaveTextContent('Bulk archive');
   });
 
   it('loads no 3D with Play off', () => {
@@ -75,7 +75,7 @@ describe('the 3D floor in the workshop floor', () => {
     floor('full');
     expect(loadScene).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(create).toHaveBeenCalled());
-    const region = screen.getByRole('region', { name: 'The workshop floor' });
+    const region = screen.getByRole('region', { name: 'The station' });
     expect(within(region).getByRole('link', { name: 'Feature: Building · Bulk archive' })).toBeInTheDocument();
     expect(region).toHaveTextContent('Builder · reading archive.ts');
     // Its permission is the Foreman's own: it holds up its card.
@@ -99,9 +99,11 @@ describe('the 3D floor in the workshop floor', () => {
     setWebGLForTests(false);
     floor('full');
     expect(loadScene).not.toHaveBeenCalled();
-    const region = screen.getByRole('region', { name: 'The workshop floor' });
-    expect(region).toHaveTextContent('This browser can’t draw the 3D floor, so the jobs show as cards');
+    const region = screen.getByRole('region', { name: 'The station' });
+    expect(region).toHaveTextContent('This browser can’t draw the 3D station, so the jobs show as cards');
     expect(region.querySelector('.floor-grid')).toHaveTextContent('Bulk archive');
+    // The 2D cards are restyled as bays: each says its kind and how far the work has got.
+    expect(region.querySelector('.floor-card[data-kind="build"] .floor-card-bay')).toHaveTextContent(/Feature: Building · /);
   });
 
   it('falls back to the cards when the 3D fails to load', async () => {
@@ -160,7 +162,7 @@ describe('<Floor3D>', () => {
     expect(localStorage.getItem(FLOOR_VIEW_KEY)).toBe('list');
     r.unmount();
     render(<Floor3D benches={BENCHES} onOpenJob={vi.fn()} />);
-    expect(screen.getByRole('button', { name: 'Show the floor' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show the station' })).toBeInTheDocument();
   });
 
   it('holds every figure still with reduced motion', async () => {
@@ -206,7 +208,7 @@ describe('<Floor3D>', () => {
     key('Escape');
     expect(document.querySelector('.floor3d-plate.is-picked')).toBeNull();
     // The arrows work with the focus on the floor itself.
-    const stage = screen.getByRole('group', { name: /The floor/ });
+    const stage = screen.getByRole('group', { name: /The station/ });
     fireEvent.keyDown(stage, { key: 'ArrowRight' });
     expect(document.querySelector('.floor3d-plate.is-picked')).toHaveTextContent('Customer merge');
     unmount();
@@ -214,7 +216,7 @@ describe('<Floor3D>', () => {
     render(<Floor3D benches={two} onOpenJob={open} />);
     key('j');
     expect(document.querySelector('.floor3d-cell.is-picked')).toBeNull();
-    expect(screen.queryByRole('group', { name: /The floor/ })).toBeNull();
+    expect(screen.queryByRole('group', { name: /The station/ })).toBeNull();
   });
 
   it('shows the quick look’s job as picked', async () => {

@@ -55,21 +55,26 @@ describe('the Stage strip', () => {
     expect(b).toMatchObject({ hue: 'review', stop: 'Review' });
   });
 
+  it('draws the job’s bay in the same style, as it stands at this stop: a construction bay sealed at Review, a repair dock under repair at Build', () => {
+    expect(stageBench(J, 'review', AGENTS, { now: new Date() })).toMatchObject({ kind: 'build', phase: 'sealed', phaseWords: 'sealed and polished' });
+    expect(stageBench({ ...J, kind: 'bug' }, 'build', [], { now: new Date() })).toMatchObject({ kind: 'repair', phase: 'plates', phaseWords: 'repair under way' });
+  });
+
   it('draws the bench with its words, and folds to one line that loads no 3D', async () => {
     strip();
-    const band = screen.getByRole('region', { name: 'The bench at this stop' });
+    const band = screen.getByRole('region', { name: 'The bay at this stop' });
     expect(band).toHaveTextContent('Reviewer · reading plan.ts');
     await waitFor(() => expect(loadScene).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('button', { name: 'Fold' }));
     expect(localStorage.getItem(STRIP_FOLD_KEY)).toBe('folded');
     expect(document.querySelector('.stage-strip.is-folded')).toHaveTextContent('Foreman · sending work to the Reviewer');
     expect(document.querySelector('.floor3d')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Show the bench' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show the bay' }));
     expect(document.querySelector('.floor3d')).not.toBeNull();
   });
 
   it('shows the job card’s own lines until the Stage answers', () => {
     strip(null);
-    expect(screen.getByRole('region', { name: 'The bench at this stop' })).toHaveTextContent('Foreman · sending work to the Reviewer');
+    expect(screen.getByRole('region', { name: 'The bay at this stop' })).toHaveTextContent('Foreman · sending work to the Reviewer');
   });
 });

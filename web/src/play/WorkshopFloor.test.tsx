@@ -49,7 +49,7 @@ describe('the workshop floor', () => {
   it('puts the cards waiting for your answer before the floor', () => {
     const { container } = floor('subtle');
     const inbox = screen.getByRole('region', { name: 'Waiting for your answer' });
-    const onFloor = screen.getByRole('region', { name: 'On the floor' });
+    const onFloor = screen.getByRole('region', { name: 'At the station' });
     expect(inbox.compareDocumentPosition(onFloor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(inbox).getByRole('region', { name: 'Waiting in Widget export' })).toBeInTheDocument();
     expect(container.querySelector('.floor-grid .perm-card')).toBeNull();
@@ -57,7 +57,7 @@ describe('the workshop floor', () => {
 
   it('a card per open job (done ones left out and counted), each with its trail and a link to open it', () => {
     floor('full');
-    const onFloor = screen.getByRole('region', { name: 'On the floor' });
+    const onFloor = screen.getByRole('region', { name: 'At the station' });
     expect(onFloor).toHaveTextContent('1 finished job is in the list on the left.');
     const titles = within(onFloor).getAllByRole('heading', { level: 4 }).map((h) => h.textContent);
     expect(titles).toEqual(['Customer notes', 'Widget export', 'Bulk archive', 'Dark mode']);
@@ -79,7 +79,7 @@ describe('the workshop floor', () => {
     floor('subtle', []);
     expect(screen.getByRole('region', { name: 'The Foreman' })).toHaveTextContent('The workshop is quiet. Start a new job when you’re ready.');
     expect(screen.getByRole('button', { name: 'New job' })).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'On the floor' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'At the station' })).toBeNull();
   });
 
   it('Off: the pane exactly as before', () => {

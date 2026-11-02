@@ -133,12 +133,12 @@ describe('the Stage', () => {
   it('the bench strip (packet S) shows only in Play full, above the crew rows', async () => {
     setup({ play: 'full' });
     await screen.findByRole('region', { name: 'Who’s on it' });
-    const band = screen.getByRole('region', { name: 'The bench at this stop' });
+    const band = screen.getByRole('region', { name: 'The bay at this stop' });
     expect(band.compareDocumentPosition(screen.getByRole('region', { name: 'Who’s on it' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     cleanup();
     setup({ play: 'subtle' });
     await screen.findByRole('region', { name: 'Who’s on it' });
-    expect(screen.queryByRole('region', { name: 'The bench at this stop' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'The bay at this stop' })).toBeNull();
   });
 
   it('a stop not reached yet says so', async () => {

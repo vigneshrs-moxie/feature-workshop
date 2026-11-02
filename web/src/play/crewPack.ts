@@ -33,18 +33,18 @@ export interface PackMember {
 
 /** The crew in Crew-dex order, the Foreman first. */
 export const CREW_PACK: readonly PackMember[] = [
-  { type: 'conductor', name: 'Foreman', roleWord: 'Foreman', role: 'Conductor: runs the workshop and talks to you', hat: 'hardhat', tool: 'slate', model: 'opus',
-    bio: 'Keeps fifteen schedules in its head and still remembers to ask how you’re doing.' },
+  { type: 'conductor', name: 'Foreman', roleWord: 'Foreman', role: 'Conductor: runs the station and talks to you', hat: 'hardhat', tool: 'slate', model: 'opus',
+    bio: 'Keeps fifteen bays in its head and still remembers to ask how you’re doing.' },
   { type: 'feature-spec-writer', name: 'Scribe', roleWord: 'Writer', role: 'Writes and updates the product spec', hat: 'beret', tool: 'quill', model: 'opus',
     bio: 'Writes specs in ink. Keeps an eraser anyway, for luck.' },
   { type: 'feature-investigator', name: 'Sleuth', roleWord: 'Investigator', role: 'Investigates the code (read-only)', hat: 'deerstalker', tool: 'magnifier', model: 'opus',
     bio: 'Reads a codebase like a mystery novel and names the culprit by chapter two.' },
   { type: 'feature-planner', name: 'Draftsman', roleWord: 'Planner', role: 'Draws up the implementation and test plans', hat: 'cap', tool: 'tablet', model: 'opus',
-    bio: 'Can plan a feature in twelve tidy steps and a tea break in three.' },
+    bio: 'Can plan a module in twelve tidy steps and a tea break in three.' },
   { type: 'feature-implementer', name: 'Builder', roleWord: 'Builder', role: 'Builds the plan, one commit per step', hat: 'bandana', tool: 'welder', model: 'opus',
-    bio: 'Measure twice, commit once. Hums while the tests run.' },
+    bio: 'Measure twice, weld once. Hums while the tests run.' },
   { type: 'feature-tester', name: 'Tester', roleWord: 'Tester', role: 'Runs the approved checks', hat: 'goggles', tool: 'scanner', model: 'sonnet',
-    bio: 'Believes every bug is just a test nobody has written yet.' },
+    bio: 'Believes every bug is just a scan nobody has run yet.' },
   { type: 'feature-reviewer', name: 'Head inspector', roleWord: 'Reviewer', role: 'Review: spec conformance and correctness', hat: 'visor', tool: 'lens', model: 'opus',
     bio: 'Reads the spec, then the diff, then the spec again, just to be sure.' },
   { type: 'feature-review-permissions', name: 'Locksmith', roleWord: 'Access reviewer', role: 'Review: who can see and do what', hat: 'visor', tool: 'key', model: 'opus',

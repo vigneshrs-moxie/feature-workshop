@@ -1,7 +1,8 @@
-/* The 3D workshop floor (play/floor3d, packet S), Play full only. Theme tokens only. The words
-   under each bench are plain text on the floor (no box: the bench is the frame), placed by
-   Floor3D.tsx where the scene says. The only motion is the 3D fading in once (200 ms), none under
-   reduced motion. Status is never colour alone: each bench says it in words with its glyph. */
+/* The 3D station (play/floor3d, packets S and SB), Play full only. Theme tokens only. The words
+   under each bay are plain text on the deck (no box: the bay is the frame), placed by Floor3D.tsx
+   where the scene says: its sign (the kind's icon, "Building · Invoice export"), its stop and
+   phase, and each crew member's line. The only motion is the 3D fading in once (200 ms), none
+   under reduced motion. Status is never colour alone: each bay says it in words with its glyph. */
 
 .floor3d { display: grid; gap: var(--space-2); min-width: 0; }
 
@@ -116,7 +117,7 @@
 .stage-strip-who { overflow: hidden; text-overflow: ellipsis; }
 .stage-strip-who:first-child { flex: none; max-width: 60%; }
 
-/* Settings → Look → Jobs layout: Floor's little picture, two rows of benches. */
+/* Settings → Look → Jobs layout: the Station's little picture, two rows of bays. */
 .layout-pic.pic-floor { grid-template-columns: repeat(2, 1fr); align-content: center; gap: 6px 5px; }
 .layout-pic.pic-floor i { height: 6px; border-bottom: 2px solid var(--accent); }
 

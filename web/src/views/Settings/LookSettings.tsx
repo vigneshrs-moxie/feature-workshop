@@ -129,6 +129,9 @@ function DetailPicker() {
 export function LookSettings() {
   const [desk, setDesk] = useDeskLayout();
   const [jobs, setJobs] = useJobsLayout();
+  // Play words only with Play on: with it off, the 3D layout is named plainly.
+  const { meta } = useWorkshopState();
+  const playOn = playOf(meta?.settings).mode !== 'off';
   return (
     <section className="look-settings" aria-label="Look">
       <h3 className="settings-heading">Look</h3>
@@ -149,7 +152,9 @@ export function LookSettings() {
           options={[
             { id: 'lanes', label: 'Four lanes', say: 'Working, Needs you, In review and Ready to merge, side by side.', pic: 'lanes' },
             { id: 'list', label: 'One list', say: 'Every job in one list, its lane in words.', pic: 'list' },
-            { id: 'floor', label: 'Floor', say: 'Play full only: the workshop floor in 3D, a bench per job with its builders at work. In Play subtle or off, Jobs shows the lanes.', pic: 'floor' },
+            playOn
+              ? { id: 'floor', label: 'Station', say: 'Play full only: the station in 3D, a bay per job (a construction bay for a feature, a repair dock for a bug fix) with its crew at work. In Play subtle or off, Jobs shows the lanes.', pic: 'floor' }
+              : { id: 'floor', label: '3D view', say: 'Play full only: each job in 3D, with who is working on it. With Play off, Jobs shows the lanes.', pic: 'floor' },
           ]}
           see={{ label: 'See it in Jobs', href: hrefFor({ name: 'home' }) }}
         />

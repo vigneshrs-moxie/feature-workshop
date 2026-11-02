@@ -1,5 +1,6 @@
-// <StageStrip job stop agents />: the Stage's bench in 3D (packet S), Play full only. A fixed band
-// 220 px tall at the top of a stop's page: this job's bench with the Foreman and the crew the Stage
+// <StageStrip job stop agents />: the Stage's bay in 3D (packets S and SB), Play full only. A fixed
+// band 220 px tall at the top of a stop's page: this job's bay (a construction bay or a repair
+// dock, at the stage its work has reached) with the Foreman and the crew the Stage
 // lists at this stop, each in the pose of what it is really doing, and their words beside it. It
 // folds to a slim line (remembered per browser), which keeps the words and loads no 3D; the crew
 // rows below are unchanged. Without WebGL the band shows the same words.
@@ -15,7 +16,7 @@ import { stageBench } from './model';
 
 export const STRIP_FOLD_KEY = 'gc.stage.strip';
 
-/** The band's layout for any width (one bench, always 220 px tall). */
+/** The band's layout for any width (one bay, always 220 px tall). */
 const stripFor = (width: number) => stripLayout(width);
 
 export function StageStrip({ job, stop, agents }: { job: Job; stop: StopId; agents: readonly StageAgent[] | null }) {
@@ -34,14 +35,14 @@ export function StageStrip({ job, stop, agents }: { job: Job; stop: StopId; agen
       icon={folded ? 'chevron-down' : undefined}
       aria-expanded={!folded}
       onClick={() => setStored(folded ? null : 'folded')}
-      title={folded ? 'Show the bench in 3D again.' : 'Fold the bench to one line of words.'}
+      title={folded ? 'Show the bay in 3D again.' : 'Fold the bay to one line of words.'}
     >
-      {folded ? 'Show the bench' : 'Fold'}
+      {folded ? 'Show the bay' : 'Fold'}
     </Button>
   );
   if (folded) {
     return (
-      <section className="stage-strip is-folded" aria-label="The bench at this stop">
+      <section className="stage-strip is-folded" aria-label="The bay at this stop">
         <p className="stage-strip-line">
           {bench.figures.map((f) => <span key={f.key} className="stage-strip-who">{f.label}</span>)}
         </p>
@@ -50,8 +51,8 @@ export function StageStrip({ job, stop, agents }: { job: Job; stop: StopId; agen
     );
   }
   return (
-    <section className="stage-strip" aria-label="The bench at this stop">
-      <Floor3D benches={benches} layoutFor={stripFor} bar={false} label="The bench at this stop, in 3D" />
+    <section className="stage-strip" aria-label="The bay at this stop">
+      <Floor3D benches={benches} layoutFor={stripFor} bar={false} label="The bay at this stop, in 3D" />
       {fold}
     </section>
   );
