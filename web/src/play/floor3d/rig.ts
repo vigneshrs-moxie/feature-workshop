@@ -24,7 +24,7 @@ export const POSE_WORDS: Record<Pose, string> = {
   stuck: 'Stopped: sits on a crate by a sign',
   paused: 'Paused for the limit: sits by a clock',
   done: 'Done: tidies the bench, then rests',
-  watching: 'Watching the crew, clipboard in hand',
+  watching: 'Watching the crew, holo-slate in hand',
   idle: 'Idle: stands at ease',
 };
 

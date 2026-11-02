@@ -1,3 +1,4 @@
+import { propFor } from './props';
 import { describe, expect, it } from 'vitest';
 import type { Job, Permission } from '../../api/types';
 import { askWords, benchFor, hueFor, kindOf, labelFor, poseFor, QUIET_MS, stuckReason } from './model';
@@ -117,6 +118,19 @@ describe('poseFor and labelFor: every row of the pose table', () => {
   });
 });
 
+describe('the station crew’s tools', () => {
+  it('gives each role its Starbase tool: holo-slate, welder, scanner, inspection lens, holo-tablet', () => {
+    expect(propFor('conductor')).toBe('slate');
+    expect(propFor('feature-implementer')).toBe('welder');
+    expect(propFor('feature-tester')).toBe('scanner');
+    expect(propFor('feature-reviewer')).toBe('lens');
+    expect(propFor('feature-review-db')).toBe('lens');
+    expect(propFor('feature-planner')).toBe('tablet');
+    expect(propFor('feature-wireframer')).toBe('tablet');
+    expect(propFor('general-purpose')).toBe('slate');
+  });
+});
+
 describe('helpers', () => {
   it('sorts steps into kinds', () => {
     expect(kindOf('Looking for files (*.ts)')).toBe('reading');
@@ -143,8 +157,8 @@ describe('benchFor', () => {
     const b = benchFor(j, 3, { now: NOW });
     expect(b.index).toBe(3);
     expect(b.figures.map((f) => f.seat)).toEqual(['head', 0, 1, 2]);
-    expect(b.figures[0]).toMatchObject({ who: 'conductor', prop: 'clipboard', role: 'Foreman' });
-    expect(b.figures[1]).toMatchObject({ who: 'feature-reviewer', prop: 'magnifier' });
+    expect(b.figures[0]).toMatchObject({ who: 'conductor', prop: 'slate', role: 'Foreman' });
+    expect(b.figures[1]).toMatchObject({ who: 'feature-reviewer', prop: 'lens' });
     expect(b.more).toBe(1);
     expect(b.status).toBe('Working');
     expect(new Set(b.figures.map((f) => f.key)).size).toBe(4);
@@ -152,7 +166,7 @@ describe('benchFor', () => {
 
   it('gives a running figure its progress for the lamps', () => {
     const b = benchFor(job({ nowDoing: [{ who: 'feature-tester', doing: 'Running npm test · 100 of 400' }] }), 0, { now: NOW });
-    expect(b.figures[1]).toMatchObject({ pose: 'running', prop: 'flask', progress: 0.25 });
+    expect(b.figures[1]).toMatchObject({ pose: 'running', prop: 'scanner', progress: 0.25 });
   });
 
   it('sits a stuck stop’s crew member at the bench even when nobody is at work', () => {
@@ -163,7 +177,7 @@ describe('benchFor', () => {
   it('brings a helper who asks for permission to the bench', () => {
     const j = job({ group: 'needs-you', waitingFor: 'permission', permissions: 1 });
     const b = benchFor(j, 0, { now: NOW, permissions: [{ id: 'p', slug: j.slug, kind: 'permission', toolName: 'Write', agentType: 'feature-planner' }] });
-    expect(b.figures[1]).toMatchObject({ who: 'feature-planner', pose: 'asking', label: 'Planner · asks to write a file', prop: 'ruler' });
+    expect(b.figures[1]).toMatchObject({ who: 'feature-planner', pose: 'asking', label: 'Planner · asks to write a file', prop: 'tablet' });
   });
 
   it('clears the helpers from a finished job', () => {

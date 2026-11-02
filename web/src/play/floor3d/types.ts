@@ -4,9 +4,12 @@ import type { FloorLayout, Rect, Seat } from './layout';
 import type { FloorPalette, LampGroup, StopHue } from './palette';
 import type { Pose } from './rig';
 
-/** The five role props: the Foreman's clipboard, the Builder's hammer, the Tester's flask, a Reviewer's magnifier, the Planner's ruler. */
-export type PropId = 'clipboard' | 'hammer' | 'flask' | 'magnifier' | 'ruler';
-export const PROPS: readonly PropId[] = ['clipboard', 'hammer', 'flask', 'magnifier', 'ruler'];
+/**
+ * The five role props, Starbase tools: the Foreman's holo-slate, the Builder's welder, the Tester's
+ * scanner, a Reviewer's inspection lens, the Planner's holo-tablet showing a blueprint.
+ */
+export type PropId = 'slate' | 'welder' | 'scanner' | 'lens' | 'tablet';
+export const PROPS: readonly PropId[] = ['slate', 'welder', 'scanner', 'lens', 'tablet'];
 
 /** One figure as the scene draws it. */
 export interface SceneFigure {

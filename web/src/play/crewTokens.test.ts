@@ -15,7 +15,7 @@ const used = (text: string) => new Set([
   ...[...text.matchAll(/\b[vC]\('([a-z0-9-]+)'\)/g)].map((m) => `crew-${m[1]}`),
 ]);
 // Set per member or mixed in play.css itself, not tokens.
-const LOCAL = new Set(['crew-paint', 'crew-hat', 'crew-paint-shade', 'crew-paint-arm', 'crew-hat-shade']);
+const LOCAL = new Set(['crew-paint', 'crew-hat', 'crew-paint-shade', 'crew-paint-arm', 'crew-hat-shade', 'crew-patch']);
 
 describe('crew tokens', () => {
   it('every --crew-* colour the rig and play.css use has a default in tokens.css', () => {

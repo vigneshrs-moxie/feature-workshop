@@ -67,7 +67,7 @@ describe('the crew roster', () => {
   });
 
   it('an unknown helper gets a plain look and its type as its name', () => {
-    expect(crewInfo('general-purpose')).toMatchObject({ name: 'general-purpose', number: 0, hat: 'cap', tool: 'clipboard' });
+    expect(crewInfo('general-purpose')).toMatchObject({ name: 'general-purpose', number: 0, hat: 'cap', tool: 'slate' });
   });
 });
 

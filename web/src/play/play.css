@@ -1,6 +1,8 @@
-/* The Play layer's crew (play/CrewMember.tsx), ported from dashboard/public/styles.css.
+/* The Play layer's station crew (play/CrewMember.tsx): a suit, a helmet with a visor (no face),
+   its fittings, a shoulder patch, gloves and boots.
    Colours: --crew-* tokens (theme/tokens.ts CREW_TOKENS; a theme restyles them). Each member wears
-   two of the --crew-c-* paints: its body (--crew-paint) and its hat (--crew-hat).
+   two of the --crew-c-* paints: its suit (--crew-paint) and its helmet's fittings (--crew-hat), and
+   a shoulder patch (--crew-patch) in the hue of the stop it works in (the Foreman: the accent).
    Motion: only on .crew.is-animated (Play mode Full). Otherwise (.is-still: Subtle, or reduced
    motion asked for) every character holds a still pose that still shows its mood. Under
    prefers-reduced-motion nothing here animates, whatever the class says. */
@@ -11,9 +13,8 @@
 .crew .head { transform-origin: 60px 60px; }
 .crew .arm-l { transform-origin: 45px 64px; }
 .crew .arm-r { transform-origin: 75px 64px; }
-.crew .eyes { transform-origin: 60px 42px; }
 .crew .shadow { transform-origin: 60px 110px; }
-.crew .spark, .crew .sweat, .crew .bub, .crew .zzz text, .crew .confetti rect { transform-box: fill-box; transform-origin: center; }
+.crew .spark, .crew .bub, .crew .zzz text, .crew .confetti rect { transform-box: fill-box; transform-origin: center; }
 .crew .needle { transform-box: fill-box; transform-origin: 0% 100%; }
 
 .crew {
@@ -22,7 +23,16 @@
   --crew-paint-shade: color-mix(in srgb, var(--crew-paint) 70%, var(--crew-shade-base));
   --crew-paint-arm: color-mix(in srgb, var(--crew-paint) 86%, var(--crew-shade-base));
   --crew-hat-shade: color-mix(in srgb, var(--crew-hat) 72%, var(--crew-shade-base));
+  --crew-patch: var(--accent);
 }
+/* The patch: each role's own stop (crewPack.ts STOP_CREW); every reviewer works in Review. */
+.crew-feature-spec-writer, .crew-feature-review-ui { --crew-patch: var(--stop-spec); }
+.crew-feature-investigator { --crew-patch: var(--stop-investigate); }
+.crew-feature-planner { --crew-patch: var(--stop-plan); }
+.crew-feature-implementer { --crew-patch: var(--stop-build); }
+.crew-feature-tester { --crew-patch: var(--stop-test); }
+.crew-feature-reviewer, .crew-feature-review-permissions, .crew-feature-review-tests, .crew-feature-review-conventions,
+.crew-feature-review-errors, .crew-feature-review-db, .crew-feature-review-performance { --crew-patch: var(--stop-review); }
 .crew .zzz { font-family: var(--crew-font); font-weight: 900; }
 .crew-conductor { --crew-paint: var(--crew-c-clay); --crew-hat: var(--crew-c-amber); }
 .crew-feature-spec-writer { --crew-paint: var(--crew-c-plum); --crew-hat: var(--crew-c-plum-deep); }
@@ -42,7 +52,6 @@
 
 /* ---------- Poses every character holds when still (and starts from when moving) ---------- */
 
-.crew .sweat { opacity: 0; }
 .crew.is-asleep .head { transform: rotate(8deg) translateY(1px); }
 .crew.is-celebrating .arm-l { transform: rotate(150deg); }
 /* The tool arm goes up beside the head, not over it, and the tool is held upright (leaning out)
@@ -63,13 +72,11 @@
 
 /* ---------- Motion (Full mode) ---------- */
 
-/* idle: breathing, blinking, a gentle sway */
+/* idle: breathing, a gentle sway */
 .crew.is-animated.is-idle .rig { animation: crew-breathe 3.4s ease-in-out infinite; }
 .crew.is-animated.is-idle .head { animation: crew-sway 7s ease-in-out infinite; }
-.crew.is-animated.is-idle .eyes, .crew.is-animated.is-waiting .eyes, .crew.is-animated.is-working .eyes { animation: crew-blink 4.6s ease-in-out infinite; }
 @keyframes crew-breathe { 50% { transform: scale(1.012, 1.022); } }
 @keyframes crew-sway { 25% { transform: rotate(-2.5deg); } 75% { transform: rotate(2.5deg); } }
-@keyframes crew-blink { 0%, 93%, 100% { transform: scaleY(1); } 95.5% { transform: scaleY(.08); } }
 
 /* working: strike (hammer, brick, key, clipboards) */
 .crew.is-animated.is-working.m-strike .arm-r { animation: crew-strike .95s infinite; }
@@ -116,8 +123,6 @@
 .crew.is-animated.is-working .bub.b2 { animation-delay: .4s; }
 .crew.is-animated.is-working .bub.b3 { animation-delay: .8s; }
 @keyframes crew-bubble { 0% { transform: translateY(0) scale(.6); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(-14px) scale(1.2); opacity: 0; } }
-.crew.is-animated.is-working .sweat { animation: crew-sweat 3.2s ease-in 1s infinite; }
-@keyframes crew-sweat { 0%, 60% { opacity: 0; transform: translate(0, -3px) scale(.6); } 70% { opacity: 1; transform: translate(0, 0) scale(1); } 100% { opacity: 0; transform: translate(2px, 10px) scale(.8); } }
 
 /* waiting: waving and hopping */
 .crew.is-animated.is-waiting .arm-l { animation: crew-wave 1s ease-in-out infinite; }
@@ -154,7 +159,7 @@
 @keyframes crew-step { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
 @keyframes crew-swing { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
 
-/* thinking: eyes up and a thought bubble (the Foreman deciding what's next) */
+/* thinking: the helmet tipped up and a thought bubble (the Foreman deciding what's next) */
 .crew .think circle { transform-box: fill-box; transform-origin: center; }
 .crew.is-thinking .head { transform: rotate(-5deg); }
 .crew.is-animated.is-thinking .rig { animation: crew-breathe 3s ease-in-out infinite; }
@@ -205,7 +210,7 @@
 
 /* The Foreman as the mascot by the brand (Play on), and the classic page's tagline beside it. */
 
-/* Not met yet (the Crew-dex): every painted part in --crew-silhouette, no face, no effects, never moving. */
+/* Not met yet (the Crew-dex): every painted part in --crew-silhouette, no effects, never moving. */
 .crew.is-silhouette .rig [fill]:not([fill="none"]) { fill: var(--crew-silhouette); }
 .crew.is-silhouette .rig [stroke]:not([stroke="none"]) { stroke: var(--crew-silhouette); }
 .crew.is-silhouette .rig { filter: drop-shadow(0 0 1px var(--crew-silhouette-line)); }

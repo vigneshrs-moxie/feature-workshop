@@ -3,10 +3,12 @@
 // materials is shared by every figure and bench, so a theme change recolours the whole floor by
 // updating a few materials in place, and leaving disposes everything in one go.
 //
-// The figure, about 1 unit tall: a rounded body 0.66 tall and 0.47 wide, a round head 0.32 across
-// floating just above it (a head-to-height of about 1:3, friendly, never a face), and two mitten
-// hands that float at its sides. A small accent badge on the chest marks its front. Its role is the
-// prop in its right hand.
+// The figure, station crew about 1 unit tall: a suited body 0.66 tall and 0.47 wide with a small
+// life-support pack on its back, a round helmet 0.35 across whose dark visor stands in for a face
+// (they stay nameless and faceless; the visor marks the front), and two gloved hands that float at
+// its sides. A patch on its left shoulder wears the hue of the stop it works in. Its role is the
+// Starbase tool in its right hand: a holo-slate, a welder, a scanner, an inspection lens or a
+// holo-tablet showing a blueprint.
 import {
   BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, CircleGeometry, Color, CylinderGeometry, DataTexture, DoubleSide, ExtrudeGeometry, Group,
   HemisphereLight, DirectionalLight, LatheGeometry, LinearFilter, Material, Mesh, MeshBasicMaterial, MeshLambertMaterial,
@@ -25,7 +27,7 @@ const LAMP_GROUPS: readonly LampGroup[] = ['needs-you', 'running', 'paused', 'id
 export const FIGURE = {
   bodyHeight: 0.66,
   bodyRadius: 0.236,
-  headRadius: 0.16,
+  headRadius: 0.172,
   /** The gap between body and head. */
   neck: 0.022,
   handRadius: 0.058,
@@ -167,14 +169,6 @@ function bodyProfile(): Vector2[] {
   return pts.map((p) => new Vector2(Math.max(0, p.x), p.y));
 }
 
-function flaskProfile(): Vector2[] {
-  return [[0, -0.11], [0.066, -0.11], [0.074, -0.1], [0.072, -0.075], [0.04, -0.012], [0.023, 0.012], [0.022, 0.07], [0.029, 0.074], [0.029, 0.084], [0.019, 0.084]]
-    .map(([r, y]) => new Vector2(r, y));
-}
-function liquidProfile(): Vector2[] {
-  return [[0, -0.103], [0.062, -0.103], [0.067, -0.094], [0.064, -0.074], [0.052, -0.052], [0, -0.052]].map(([r, y]) => new Vector2(r, y));
-}
-
 /** A figure's parts, as the scene moves them. */
 export interface FigureParts {
   /** At the figure's spot; never turns. */
@@ -200,7 +194,7 @@ export interface FigureParts {
   lamps: Mesh[];
   workpiece: Group;
   stack: Group;
-  /** The meshes that wear the figure's stop hue (badge, belt, prop accents). */
+  /** The meshes that wear the figure's stop hue (the shoulder patch, the pack's light, the tool's glow). */
   hued: Mesh[];
   /** The free (left) hand's meshes: needs-you amber while it is raised to wait for you. */
   freeHand: Mesh[];
@@ -247,7 +241,7 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
   const edgeUniform = { value: 0 };
   const rimmed = () => withRim(new MeshLambertMaterial(), rimUniform, edgeUniform);
   const mats = {
-    clay: rimmed(), badge: lambert(), benchFront: lambert(), benchTop: new MeshLambertMaterial({ vertexColors: true }), paper: lambert(), ink: lambert(), metal: lambert(), handle: lambert(),
+    clay: rimmed(), helmet: rimmed(), visor: lambert(), glove: rimmed(), badge: lambert(), benchFront: lambert(), benchTop: new MeshLambertMaterial({ vertexColors: true }), paper: lambert(), ink: lambert(), metal: lambert(), handle: lambert(),
     liquid: lambert(), bench: lambert(), benchLeg: lambert(), crate: lambert(), wall: lambert(), doorFrame: lambert(),
     stop: lambert(), ask: lambert(), lampOff: lambert(),
     glass: new MeshLambertMaterial({ transparent: true, opacity: 0.42, depthWrite: false }),
@@ -255,6 +249,8 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
     floorEdge: new MeshBasicMaterial(),
     doorway: new MeshBasicMaterial(),
     catcher: new ShadowMaterial({ transparent: true }),
+    visorShine: new MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false }),
+    holoLine: new MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false }),
     blob: new MeshBasicMaterial({ transparent: true, depthWrite: false }),
   };
   mats.paper.side = DoubleSide;
@@ -277,6 +273,11 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
 
   function setPalette(p: FloorPalette) {
     setColor(mats.clay.color, p.clay);
+    setColor(mats.helmet.color, p.helmet);
+    setColor(mats.visor.color, p.visor);
+    setColor(mats.visorShine.color, p.visorShine);
+    setColor(mats.glove.color, p.glove);
+    setColor(mats.holoLine.color, p.holoLine);
     setColor(mats.badge.color, p.badge);
     setColor(mats.paper.color, p.paper);
     setColor(mats.ink.color, p.ink);
@@ -327,32 +328,40 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
   const shape = {
     torso: g(new LatheGeometry(bodyProfile(), 32)),
     head: g(new SphereGeometry(FIGURE.headRadius, 32, 22)),
-    // A mitten: a soft, slightly flat ball with a thumb.
+    // The visor: the front of a slightly bigger sphere, wide and a little low, so it reads as glass.
+    visor: g(new SphereGeometry(FIGURE.headRadius + 0.006, 32, 16, Math.PI * 0.14, Math.PI * 0.72, Math.PI * 0.3, Math.PI * 0.36)),
+    visorShine: g(new SphereGeometry(FIGURE.headRadius + 0.009, 16, 6, Math.PI * 0.62, Math.PI * 0.2, Math.PI * 0.33, Math.PI * 0.05)),
+    // The helmet's neck ring.
+    collar: g(new TorusGeometry(FIGURE.headRadius * 0.62, 0.022, 10, 28).rotateX(Math.PI / 2)),
+    // A glove: a soft, slightly flat ball with a thumb.
     hand: g(new SphereGeometry(FIGURE.handRadius, 20, 14).scale(1, 0.92, 0.8)),
     thumb: g(new SphereGeometry(FIGURE.handRadius * 0.46, 12, 10)),
-    badge: g(new CylinderGeometry(0.04, 0.04, 0.014, 24).rotateX(Math.PI / 2)),
-    // A belt round the middle, in the figure's stop hue.
-    belt: g(new CylinderGeometry(FIGURE.bodyRadius + 0.006, FIGURE.bodyRadius + 0.01, 0.062, 36, 1, true)),
-    buckle: rb(0.07, 0.056, 0.02, 0.01, 1),
-    hammerGrip: g(new CylinderGeometry(0.021, 0.022, 0.1, 12)),
-    hammerClaw: rb(0.05, 0.03, 0.05, 0.01, 1),
+    // The shoulder patch, in the figure's stop hue, and the life-support pack on the back.
+    patch: g(new CylinderGeometry(0.05, 0.05, 0.014, 6).rotateZ(Math.PI / 2)),
+    pack: rb(0.3, 0.3, 0.13, 0.045, 2),
+    packLight: g(new SphereGeometry(0.018, 10, 8)),
+    // A seam round the middle, where the suit's top meets its legs.
+    belt: g(new CylinderGeometry(FIGURE.bodyRadius + 0.006, FIGURE.bodyRadius + 0.01, 0.05, 36, 1, true)),
+    chest: rb(0.11, 0.075, 0.03, 0.012, 1),
     blob: g(new CircleGeometry(0.36, 28).rotateX(-Math.PI / 2)),
     benchBlob: g(new PlaneGeometry(2.5, 1.3).rotateX(-Math.PI / 2)),
     // Props.
-    hammerHandle: g(new CylinderGeometry(0.015, 0.018, 0.27, 12)),
-    hammerHead: rb(0.15, 0.058, 0.058, 0.014),
-    hammerBand: g(new CylinderGeometry(0.02, 0.02, 0.02, 12)),
-    board: rb(0.17, 0.23, 0.014, 0.008),
-    boardPaper: g(new PlaneGeometry(0.142, 0.178)),
-    clip: rb(0.066, 0.03, 0.022, 0.007),
+    slateFrame: rb(0.17, 0.23, 0.016, 0.018, 2),
+    screen: g(new PlaneGeometry(1, 1)),
     line: g(new BoxGeometry(1, 1, 1)),
-    flask: g(new LatheGeometry(flaskProfile(), 28)),
-    liquid: g(new LatheGeometry(liquidProfile(), 28)),
-    magHandle: g(new CylinderGeometry(0.016, 0.019, 0.14, 12)),
-    magCollar: g(new CylinderGeometry(0.023, 0.023, 0.03, 14)),
-    magRing: g(new TorusGeometry(0.062, 0.012, 12, 36)),
-    lens: g(new CylinderGeometry(0.058, 0.058, 0.005, 32).rotateX(Math.PI / 2)),
-    ruler: rb(0.044, 0.32, 0.01, 0.004, 1),
+    welderGrip: g(new CylinderGeometry(0.02, 0.022, 0.13, 12)),
+    welderBody: rb(0.07, 0.07, 0.15, 0.022, 2),
+    nozzle: g(new CylinderGeometry(0.009, 0.02, 0.07, 12).rotateX(Math.PI / 2)),
+    tip: g(new SphereGeometry(0.017, 12, 10)),
+    scannerGrip: g(new CylinderGeometry(0.02, 0.022, 0.11, 12)),
+    scannerBody: rb(0.12, 0.08, 0.08, 0.025, 2),
+    dish: g(new CylinderGeometry(0.05, 0.034, 0.024, 24).rotateX(Math.PI / 2)),
+    lensGrip: g(new CylinderGeometry(0.016, 0.019, 0.14, 12)),
+    lensCollar: g(new CylinderGeometry(0.023, 0.023, 0.03, 14)),
+    // A hex frame: a torus with six sides.
+    lensRing: g(new TorusGeometry(0.066, 0.013, 8, 6).rotateZ(Math.PI / 6)),
+    lens: g(new CylinderGeometry(0.06, 0.06, 0.005, 6).rotateX(Math.PI / 2).rotateZ(Math.PI / 6)),
+    tabletFrame: rb(0.27, 0.19, 0.016, 0.018, 2),
     // Held things.
     sheet: g(new PlaneGeometry(0.17, 0.22)),
     card: rb(0.22, 0.15, 0.012, 0.01),
@@ -408,48 +417,65 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
 
   // The meshes the figure being built wears its stop hue on (collected while makeFigure runs).
   let huedNow: Mesh[] = [];
-  const hued = (m: Mesh) => { huedNow.push(m); return m; };
+  const hued = (m: Mesh) => { m.userData.glow = m.material instanceof MeshBasicMaterial; huedNow.push(m); return m; };
 
   // ---------- Props: built upright from the grip (the hand is at the origin) ----------
+  // A holo screen glows in the figure's stop hue (glowMats, hued) with pale lines on it.
+  const screenAt = (w: number, h: number, at: [number, number, number]) => {
+    const m = hued(mesh(shape.screen, glowMats.none, at, false));
+    m.scale.set(w, h, 1);
+    return m;
+  };
+  const holo = (w: number, h: number, d: number, at: [number, number, number]) => line(w, h, d, at, mats.holoLine);
   function makeProp(id: PropId): Group {
     switch (id) {
-      case 'hammer':
+      case 'slate':
+        // The Foreman's holo-slate: a thin frame, its screen lit, the job's lines on it.
         return group(
-          mesh(shape.hammerHandle, mats.handle, [0, 0.07, 0]),
-          hued(mesh(shape.hammerGrip, hueMats.none, [0, 0.0, 0])),
-          mesh(shape.hammerBand, mats.metal, [0, 0.175, 0]),
-          mesh(shape.hammerHead, mats.metal, [0.03, 0.205, 0]),
-          mesh(shape.hammerClaw, mats.metal, [-0.06, 0.212, 0]),
+          mesh(shape.slateFrame, mats.ink, [0, 0.06, 0.008]),
+          screenAt(0.142, 0.196, [0, 0.06, 0.0172]),
+          holo(0.1, 0.008, 0.001, [-0.01, 0.12, 0.0182]),
+          holo(0.08, 0.008, 0.001, [-0.02, 0.092, 0.0182]),
+          holo(0.1, 0.008, 0.001, [-0.01, 0.064, 0.0182]),
+          holo(0.05, 0.008, 0.001, [-0.035, 0.036, 0.0182]),
         );
-      case 'clipboard':
+      case 'welder':
+        // The Builder's welder: a grip, a body, a nozzle forward, a hot tip.
         return group(
-          hued(mesh(shape.board, hueMats.none, [0, 0.05, 0.012])),
-          mesh(shape.boardPaper, mats.paper, [0, 0.04, 0.0201], false),
-          mesh(shape.clip, mats.metal, [0, 0.162, 0.026]),
-          line(0.1, 0.006, 0.001, [-0.01, 0.1, 0.0207]),
-          line(0.08, 0.006, 0.001, [-0.02, 0.072, 0.0207]),
-          line(0.1, 0.006, 0.001, [-0.01, 0.044, 0.0207]),
-          line(0.06, 0.006, 0.001, [-0.03, 0.016, 0.0207]),
+          mesh(shape.welderGrip, mats.ink, [0, 0.03, 0]),
+          mesh(shape.welderBody, mats.metal, [0, 0.12, 0.03]),
+          mesh(shape.nozzle, mats.metal, [0, 0.12, 0.135]),
+          hued(mesh(shape.tip, glowMats.none, [0, 0.12, 0.172], false)),
         );
-      case 'flask': {
-        const glass = mesh(shape.flask, mats.glass, [0, -0.02, 0], false);
+      case 'scanner':
+        // The Tester's scanner: a grip, a body with a small screen on top, a dish that reads.
+        return group(
+          mesh(shape.scannerGrip, mats.ink, [0, 0.03, 0]),
+          mesh(shape.scannerBody, mats.metal, [0, 0.12, 0.01]),
+          screenAt(0.07, 0.05, [0, 0.161, 0.01]).rotateX(-Math.PI / 2),
+          hued(mesh(shape.dish, glowMats.none, [0, 0.12, 0.062], false)),
+        );
+      case 'lens': {
+        // A Reviewer's inspection lens: a hex frame on a short grip, its ring lit.
+        const glass = mesh(shape.lens, mats.glass, [0, 0.2, 0], false);
         glass.renderOrder = 2;
-        return group(hued(mesh(shape.liquid, hueMats.none, [0, -0.02, 0])), glass);
-      }
-      case 'magnifier': {
-        const lens = mesh(shape.lens, mats.glass, [0, 0.2, 0], false);
-        lens.renderOrder = 2;
         return group(
-          hued(mesh(shape.magHandle, hueMats.none, [0, 0.035, 0])),
-          mesh(shape.magCollar, mats.metal, [0, 0.115, 0]),
-          mesh(shape.magRing, mats.metal, [0, 0.2, 0]),
-          lens,
+          mesh(shape.lensGrip, mats.ink, [0, 0.035, 0]),
+          mesh(shape.lensCollar, mats.metal, [0, 0.115, 0]),
+          hued(mesh(shape.lensRing, glowMats.none, [0, 0.2, 0], false)),
+          glass,
         );
       }
-      case 'ruler': {
-        const r = group(hued(mesh(shape.ruler, hueMats.none, [0, 0.11, 0])));
-        for (let i = 0; i < 9; i++) r.add(line(i % 2 ? 0.012 : 0.022, 0.004, 0.002, [-0.022 + (i % 2 ? 0.006 : 0.011), -0.02 + i * 0.033, 0.0058], mats.paper));
-        return r;
+      case 'tablet': {
+        // The Planner's holo-tablet, showing a blueprint: a grid and a floor plan in pale lines.
+        const t = group(
+          mesh(shape.tabletFrame, mats.ink, [0, 0.07, 0.008]),
+          screenAt(0.24, 0.16, [0, 0.07, 0.0172]),
+        );
+        for (let i = 0; i < 3; i++) t.add(holo(0.005, 0.15, 0.001, [-0.08 + i * 0.08, 0.07, 0.0178]));
+        for (let i = 0; i < 2; i++) t.add(holo(0.23, 0.004, 0.001, [0, 0.035 + i * 0.07, 0.0178]));
+        t.add(holo(0.11, 0.01, 0.001, [-0.02, 0.115, 0.0184]), holo(0.01, 0.07, 0.001, [0.035, 0.085, 0.0184]), holo(0.06, 0.01, 0.001, [0.06, 0.05, 0.0184]));
+        return t;
       }
     }
   }
@@ -463,18 +489,27 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
     blob.renderOrder = 1;
     root.add(blob);
 
-    const torso = (mesh(shape.torso, mats.clay));
-    const badge = hued(mesh(shape.badge, hueMats.none, [0, 0.5, FIGURE.bodyRadius - 0.012], false));
-    badge.rotation.x = -0.32;
-    const belt = hued(mesh(shape.belt, hueMats.none, [0, 0.2, 0], false));
-    const buckle = mesh(shape.buckle, mats.metal, [0, 0.2, FIGURE.bodyRadius + 0.01], false);
-    const head = (mesh(shape.head, mats.clay, [0, FIGURE.headRadius, 0]));
-    const headPivot = group(head);
+    const torso = mesh(shape.torso, mats.clay);
+    // The patch on its left shoulder (+x), facing out and a little forward.
+    const patch = hued(mesh(shape.patch, hueMats.none, [FIGURE.bodyRadius * 0.82, 0.5, 0.06], false));
+    patch.rotation.set(0, -0.5, -0.38);
+    const belt = mesh(shape.belt, mats.glove, [0, 0.22, 0], false);
+    const chest = mesh(shape.chest, mats.metal, [0, 0.46, FIGURE.bodyRadius - 0.025], false);
+    chest.rotation.x = -0.28;
+    const pack = mesh(shape.pack, mats.metal, [0, 0.42, -FIGURE.bodyRadius + 0.01]);
+    const packLight = hued(mesh(shape.packLight, glowMats.none, [0.07, 0.52, -FIGURE.bodyRadius - 0.055], false));
+    // The helmet: a pale shell, a dark visor at the front with a glint, and a ring at the neck.
+    const head = mesh(shape.head, mats.helmet, [0, FIGURE.headRadius, 0]);
+    const visor = mesh(shape.visor, mats.visor, [0, FIGURE.headRadius, 0], false);
+    const shine = mesh(shape.visorShine, mats.visorShine, [0, FIGURE.headRadius, 0], false);
+    shine.renderOrder = 2;
+    const collar = mesh(shape.collar, mats.metal, [0, 0.012, 0], false);
+    const headPivot = group(head, visor, shine, collar);
     headPivot.position.y = HEAD_Y;
-    // Mittens, thumbs forward and in.
-    const freeHand = [(mesh(shape.hand, mats.clay)), (mesh(shape.thumb, mats.clay, [-0.03, 0.018, 0.036]))];
+    // Gloves, thumbs forward and in.
+    const freeHand = [mesh(shape.hand, mats.glove), mesh(shape.thumb, mats.glove, [-0.03, 0.018, 0.036])];
     const handL = group(...freeHand);
-    const handR = group((mesh(shape.hand, mats.clay)), (mesh(shape.thumb, mats.clay, [0.03, 0.018, 0.036])));
+    const handR = group(mesh(shape.hand, mats.glove), mesh(shape.thumb, mats.glove, [0.03, 0.018, 0.036]));
     const propGroup = makeProp(prop);
     propGroup.scale.setScalar(1.3);
     handR.add(propGroup);
@@ -493,7 +528,7 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
     );
     handL.add(sheet, card);
 
-    const body = group(torso, belt, buckle, badge, headPivot, handL, handR);
+    const body = group(torso, belt, chest, patch, pack, packLight, headPivot, handL, handR);
     root.add(body);
 
     // Sitting: a crate under it. Stopped: a "!" sign at its side. Paused: a small clock.
@@ -554,11 +589,11 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
   }
 
   function hueFigure(parts: FigureParts, hue: StopHue) {
-    for (const m of parts.hued) m.material = hueMats[hue];
+    for (const m of parts.hued) m.material = m.userData.glow ? glowMats[hue] : hueMats[hue];
   }
 
   function raiseHand(parts: FigureParts, waiting: boolean) {
-    for (const m of parts.freeHand) m.material = waiting ? mats.ask : mats.clay;
+    for (const m of parts.freeHand) m.material = waiting ? mats.ask : mats.glove;
     // Raised, the hand opens a little bigger, so it reads as a hand up rather than a dot.
     for (const m of parts.freeHand) m.scale.setScalar(waiting ? 1.3 : 1);
   }
