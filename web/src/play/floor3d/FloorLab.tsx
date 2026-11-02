@@ -1,24 +1,26 @@
 // The station lab, #/station-lab (the old #/floor-lab still opens it): a page reachable only by its
-// address (never linked or named in the app), for checking the 3D station by eye. Four tabs:
+// address (never linked or named in the app), for checking the 3D station by eye. Five tabs:
 //   Bays            every bay kind (construction bay, repair dock) at every phase (labFixtures.ts)
+//   States          every state on both kinds (needs you, asks permission, stopped, paused, done) and a stack
 //   Poses           every pose for every role
 //   Live station    the station from the dashboard's own jobs, with made-up jobs for the states
 //                   the demo lacks (labFixtures.ts labJobs)
 //   Twelve bays     twelve bays and thirty figures all at work, with the frame time shown
 // and a switch between Starbase, Starbase day, Light and Default. Like the station itself it needs
 // Play full; ?play=full in the address turns it on for this page without saving anything.
-//   #/station-lab?play=full&lab=bays|poses|live|twelve&theme=starbase|starbase-day|light|default
+//   #/station-lab?play=full&lab=bays|states|poses|live|twelve&theme=starbase|starbase-day|light|default
 import { useEffect, useMemo, useState } from 'react';
 import { usePlay } from '../usePlay';
 import { applyTheme, currentTheme, THEMES } from '../../theme/theme';
 import { Floor3D } from './Floor3D';
-import { bayBenches, busyBenches, labJobs, poseBenches } from './labFixtures';
+import { bayBenches, busyBenches, labJobs, poseBenches, stateBenches } from './labFixtures';
 import { useFloorBenches } from './useFloorBenches';
 import type { FrameStats } from './types';
 
-type Tab = 'bays' | 'poses' | 'live' | 'twelve';
+type Tab = 'bays' | 'states' | 'poses' | 'live' | 'twelve';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'bays', label: 'Bays' },
+  { id: 'states', label: 'States' },
   { id: 'poses', label: 'Poses' },
   { id: 'live', label: 'Live station' },
   { id: 'twelve', label: 'Twelve bays' },
@@ -29,7 +31,7 @@ const LAB_THEMES = ['starbase', 'starbase-day', 'light', 'default'].map((id) => 
 function tabFromHash(): Tab {
   const q = new URLSearchParams(/\?(.*)$/.exec(window.location.hash)?.[1] ?? '');
   const t = q.get('lab');
-  return t === 'poses' || t === 'live' || t === 'twelve' ? t : 'bays';
+  return t === 'states' || t === 'poses' || t === 'live' || t === 'twelve' ? t : 'bays';
 }
 
 function hrefFor(tab: Tab): string {
@@ -61,7 +63,7 @@ export function FloorLab() {
   // The live floor: the dashboard's own jobs, plus made-up ones for the states they lack.
   const extra = useMemo(() => labJobs(), []);
   const live = useFloorBenches(extra);
-  const made = useMemo(() => (tab === 'bays' ? bayBenches() : tab === 'poses' ? poseBenches() : busyBenches()), [tab]);
+  const made = useMemo(() => (tab === 'bays' ? bayBenches() : tab === 'states' ? stateBenches() : tab === 'poses' ? poseBenches() : busyBenches()), [tab]);
   const benches = tab === 'live' ? live : made;
   const onStats = (s: FrameStats) => { window.__floorStats = s; setStats(s); };
 

@@ -83,3 +83,68 @@ export const BAY_ICON: Record<BayKind, string> = {
   build: '<path d="M12 2.8 20 7.4v9.2L12 21.2 4 16.6V7.4Z"/><path d="M12 8.2v7.6M8.2 12h7.6"/>',
   repair: '<path d="M14.6 3.6a5 5 0 0 0-5.5 6.7L3.6 15.8a2 2 0 0 0 2.8 2.8l5.5-5.5a5 5 0 0 0 6.7-5.5l-3 3-2.6-.6-.6-2.6Z"/>',
 };
+
+// ---------- What a bay shows about its state (packet SB step 4) ----------
+
+/**
+ * What the bay itself signals, besides its crew's poses (always with words as well):
+ *   needs-you   a slow amber beacon above the bay; the Foreman turns to you, hand up
+ *   asking      a crew member holds up a card (and the beacon, since it waits on you)
+ *   stuck       a red hazard light, the "!" sign, the crew sitting
+ *   paused      the bay's lights dim, with a small clock (the usage limit)
+ *   done        the launch or undock moment plays once; then the bay rests with "Done"
+ */
+export type BayAlert = 'needs-you' | 'asking' | 'stuck' | 'paused' | 'done';
+export const BAY_ALERTS: readonly BayAlert[] = ['needs-you', 'asking', 'stuck', 'paused', 'done'];
+
+export const ALERT_WORDS: Record<BayAlert, string> = {
+  'needs-you': 'Needs you',
+  asking: 'Asks permission',
+  stuck: 'Stopped',
+  paused: 'Paused for the usage limit',
+  done: 'Done',
+};
+
+/** The bay's state from its status and its crew's poses: done, then paused, stuck, asking, needs you; null while it simply works. */
+export function alertFor(lamp: string, poses: readonly string[]): BayAlert | null {
+  if (lamp === 'done') return 'done';
+  if (lamp === 'paused' || poses.includes('paused')) return 'paused';
+  if (poses.includes('stuck')) return 'stuck';
+  if (poses.includes('asking')) return 'asking';
+  if (lamp === 'needs-you') return 'needs-you';
+  return null;
+}
+
+// ---------- A stack: a larger module, one section per part ----------
+
+/** A section of a stack's module, by its part's state: joined (merged), built (ready to join), at work, stuck, or waiting (a dim frame). */
+export type SectionState = 'joined' | 'built' | 'working' | 'stuck' | 'waiting';
+
+export const SECTION_WORDS: Record<SectionState, string> = {
+  joined: 'joined',
+  built: 'built, waiting to join',
+  working: 'at work',
+  stuck: 'stuck',
+  waiting: 'waiting',
+};
+
+/** A stack part's state (stack.json) as its section on the module. */
+export function sectionState(state: string): SectionState {
+  switch (state) {
+    case 'integrated': return 'joined';
+    case 'ready': return 'built';
+    case 'running': return 'working';
+    case 'blocked': case 'failed': return 'stuck';
+    default: return 'waiting';
+  }
+}
+
+/** The stack's progress in words: "3 of 12 joined · 4 at work · 2 stuck". */
+export function stackWords(states: readonly SectionState[]): string {
+  const n = (s: SectionState) => states.filter((x) => x === s).length;
+  const parts = [`${n('joined')} of ${states.length} joined`];
+  if (n('working')) parts.push(`${n('working')} at work`);
+  if (n('built')) parts.push(`${n('built')} built`);
+  if (n('stuck')) parts.push(`${n('stuck')} stuck`);
+  return parts.join(' · ');
+}

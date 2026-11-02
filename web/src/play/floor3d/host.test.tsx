@@ -119,7 +119,7 @@ describe('the 3D floor in the workshop floor', () => {
 });
 
 const BENCHES: FloorBench[] = [{
-  slug: 'merge', index: 0, title: 'Customer merge', kind: 'build', phase: 'plates', sign: 'Building · Customer merge', phaseWords: 'hull plates going on', lamp: 'running', glyph: '◐', status: 'Working', stop: 'Build', hue: 'build', more: 2,
+  slug: 'merge', index: 0, title: 'Customer merge', kind: 'build', phase: 'plates', sign: 'Building · Customer merge', phaseWords: 'hull plates going on', alert: null, sections: null, lamp: 'running', glyph: '◐', status: 'Working', stop: 'Build', hue: 'build', more: 2,
   figures: [
     { key: 'merge:conductor:0', who: 'conductor', role: 'Foreman', prop: 'slate', hue: 'build', pose: 'watching', seat: 'head', progress: null, label: 'Foreman · watching the Builder' },
     { key: 'merge:feature-implementer:0', who: 'feature-implementer', role: 'Builder', prop: 'welder', hue: 'build', pose: 'editing', seat: 0, progress: null, label: 'Builder · editing merge.ts' },

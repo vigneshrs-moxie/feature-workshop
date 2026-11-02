@@ -142,6 +142,7 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, k
   const plates = useRef(new Map<string, HTMLElement>());
   const hits = useRef(new Map<string, HTMLElement>());
   const cells = useRef(new Map<string, HTMLElement>());
+  const secHits = useRef(new Map<string, HTMLElement>());
   const [ready, setReady] = useState(false);
   const [hover, setHover] = useState<{ slug: string; key: string | null } | null>(null);
   const reduced = usePrefersReducedMotion();
@@ -156,6 +157,14 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, k
       if (el) el.style.transform = `translate(${b.plate.left}px, ${b.plate.top}px)`;
       const cell = cells.current.get(b.slug);
       if (cell) { cell.style.transform = `translate(${b.cell.left}px, ${b.cell.top}px)`; cell.style.width = `${b.cell.width}px`; cell.style.height = `${b.cell.height}px`; }
+    }
+    for (const sec of a.sections) {
+      const el = secHits.current.get(`${sec.slug}`);
+      if (!el) continue;
+      el.style.transform = `translate(${sec.rect.left}px, ${sec.rect.top}px)`;
+      el.style.width = `${sec.rect.width}px`;
+      el.style.height = `${sec.rect.height}px`;
+      el.hidden = false;
     }
     for (const f of a.figures) {
       const el = hits.current.get(f.key);
@@ -324,6 +333,18 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, k
               />
             );
           })}
+          {/* A stack's sections: each opens its part's quick look, its words in the tooltip. */}
+          {ready && benches.flatMap((b) => (b.sections ?? []).filter((x) => x.slug).map((x) => (
+            <div
+              key={`${b.slug}:${x.n}`}
+              ref={refFor(secHits, x.slug as string)}
+              className="floor3d-hit floor3d-section"
+              hidden
+              data-tip={x.words}
+              onPointerEnter={() => setHover({ slug: b.slug, key: null })}
+              onClick={() => { setPicked(b.slug); onOpenJob(x.slug as string); }}
+            />
+          )))}
           {/* Each figure's now line in the app's tooltip (R's TooltipLayer draws every data-tip). */}
           {ready && benches.flatMap((b) => b.figures.map((f) => (
             <div

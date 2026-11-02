@@ -11,11 +11,11 @@ import { Group, Mesh, OrthographicCamera, PCFShadowMap, SRGBColorSpace, Scene, V
 import type { FloorLayout, Seat } from '../layout';
 import { aroundPath, frustum, seatSpot } from '../layout';
 import type { Pose, Rig } from '../rig';
-import { changeRig, isSeated, nextBurstIn, burstAt, phaseOf, pointAt, poseRig, rigAt, transitionMs, walkMs, walkPath, walkRig, LOOPS, pathLength } from '../rig';
+import { changeRig, easeInOutSine, isSeated, nextBurstIn, burstAt, phaseOf, pointAt, poseRig, rigAt, transitionMs, walkMs, walkPath, walkRig, LOOPS, pathLength } from '../rig';
 import type { FloorAnchors, FloorScene, FloorSceneOptions, FrameStats, PropId, RendererLike, SceneBench, SceneFigure } from '../types';
 import type { StopHue } from '../palette';
 import { FIGURE, HEAD_Y, createKit, type BayParts, type FigureParts } from './kit';
-import type { BayKind, BuildPhase } from '../bays';
+import type { BayAlert, BayKind, BuildPhase } from '../bays';
 
 const FRAME_MS = 1000 / 30;
 /** The sparks of a repair under way: a burst of SPARK_MS every SPARK_PERIOD ms, each bay at its own moment. */
@@ -24,6 +24,16 @@ const SPARK_MS = 640;
 const sparkAt = (t: number, phase: number) => ((t + phase * SPARK_PERIOD) % SPARK_PERIOD + SPARK_PERIOD) % SPARK_PERIOD;
 const sparkBurst = (t: number, phase: number) => { const at = sparkAt(t, phase); return at < SPARK_MS ? at / SPARK_MS : -1; };
 const sparkNext = (t: number, phase: number) => { const at = sparkAt(t, phase); return at < SPARK_MS ? 0 : SPARK_PERIOD - at; };
+/** The needs-you beacon: one slow breath of BEACON_MS every BEACON_PERIOD ms. */
+const BEACON_PERIOD = 3200;
+const BEACON_MS = 1400;
+const beaconAt = (t: number, phase: number) => ((t + phase * BEACON_PERIOD) % BEACON_PERIOD + BEACON_PERIOD) % BEACON_PERIOD;
+const beaconBurst = (t: number, phase: number) => { const at = beaconAt(t, phase); return at < BEACON_MS ? at / BEACON_MS : -1; };
+const beaconNext = (t: number, phase: number) => { const at = beaconAt(t, phase); return at < BEACON_MS ? 0 : BEACON_PERIOD - at; };
+/** The launch or undock moment, once, gently. */
+const MOMENT_MS = 1800;
+/** A stack's part crews stand a little smaller than the bay's own. */
+const SMALL = 0.78;
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 2.5;
 const PARALLAX_YAW = 0.022;
@@ -49,9 +59,21 @@ interface FigureView {
   changeMs: number;
   walk: Walk | null;
   hover: number;
+  /** A stack's part crew: where along the module it stands, and drawn smaller. */
+  at: number | null;
+  small: boolean;
 }
 
-interface BenchView { slug: string; index: number; kind: BayKind; phase: BuildPhase | null; hue: StopHue | null; parts: BayParts; figures: Map<string, FigureView> }
+interface BenchView {
+  slug: string; index: number; kind: BayKind; phase: BuildPhase | null; hue: StopHue | null; alert: BayAlert | null | undefined;
+  /** The stack's sections as last drawn (a key, so they are rebuilt only when they change). */
+  sectionsKey: string;
+  parts: BayParts; figures: Map<string, FigureView>;
+  /** A stack's sections' part jobs, by section number. */
+  sectionSlugs: Map<number, string>;
+  /** The launch (or undock) moment, while it plays. */
+  moment: { start: number; ms: number } | null;
+}
 
 function makeRenderer(canvas: HTMLCanvasElement): RendererLike {
   const r = new WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'default' });
@@ -172,7 +194,7 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
   function seatWorld(b: BenchView, f: FigureView) {
     const spot = benchSpot(b.index);
     const s = seatSpot(f.seat, f.helpers);
-    return { x: (spot?.x ?? 0) + s.x, z: (spot?.z ?? 0) + s.z, yawBench: s.yawBench };
+    return { x: (spot?.x ?? 0) + (f.at ?? s.x), z: (spot?.z ?? 0) + s.z, yawBench: s.yawBench };
   }
 
   function placeFigure(b: BenchView, f: FigureView) {
@@ -190,7 +212,9 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
     const f: FigureView = {
       key: fig.key, slug: b.slug, prop: fig.prop, pose: fig.pose, seat: fig.seat, hue: fig.hue, helpers, progress: fig.progress,
       phase: phaseOf(fig.key), parts, rig, from: rig, fromPose: fig.pose, changeStart: -Infinity, changeMs: 0, walk: null, hover: 0,
+      at: fig.at ?? null, small: Boolean(fig.small),
     };
+    parts.anchor.scale.setScalar(f.small ? SMALL : 1);
     placeFigure(b, f);
     scene.add(parts.anchor);
     applyRig(f, rig);
@@ -222,7 +246,7 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
       const fresh = !b;
       if (!b) {
         const parts = kit.makeBay(sb.kind);
-        b = { slug: sb.slug, index: sb.index, kind: sb.kind, phase: null, hue: null, parts, figures: new Map() };
+        b = { slug: sb.slug, index: sb.index, kind: sb.kind, phase: null, hue: null, alert: undefined, sectionsKey: '', parts, figures: new Map(), moment: null, sectionSlugs: new Map() };
         benches.set(sb.slug, b);
         scene.add(parts.group);
       } else if (b.kind !== sb.kind) {
@@ -232,11 +256,29 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
         b.kind = sb.kind;
         b.phase = null;
         b.hue = null;
+        b.alert = undefined;
+        b.sectionsKey = '';
+        b.moment = null;
         scene.add(b.parts.group);
       }
       b.index = sb.index;
       if (b.hue !== sb.hue) { b.hue = sb.hue; kit.hueBay(b.parts, sb.hue); }
-      if (b.phase !== sb.phase) { b.phase = sb.phase; kit.phaseBay(b.parts, sb.phase); }
+      const key = sb.sections ? sb.sections.map((x) => `${x.n}:${x.state}`).join(',') : '';
+      if (b.sectionsKey !== key) { b.sectionsKey = key; kit.sectionBay(b.parts, sb.sections); }
+      b.sectionSlugs = new Map((sb.sections ?? []).filter((x) => x.slug).map((x) => [x.n, x.slug as string]));
+      if (b.phase !== sb.phase) {
+        // Finished while you watch: the launch (or undock) moment plays once, gently; then the bay rests.
+        const moment = sb.phase === 'launched' && b.phase !== null && !first && !fresh && animated();
+        b.phase = sb.phase;
+        if (moment) {
+          kit.phaseBay(b.parts, 'sealed');
+          b.moment = { start: t, ms: MOMENT_MS };
+        } else {
+          b.moment = null;
+          kit.phaseBay(b.parts, sb.phase);
+        }
+      }
+      if (b.alert !== sb.alert) { b.alert = sb.alert; kit.alertBay(b.parts, sb.alert); }
       placeBench(b);
       const helpers = sb.figures.filter((x) => x.seat !== 'head').length;
       const keep = new Set<string>();
@@ -251,7 +293,9 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
           continue;
         }
         if (f.hue !== fig.hue) { f.hue = fig.hue; kit.hueFigure(f.parts, fig.hue); }
-        const reseat = f.seat !== fig.seat || f.helpers !== helpers;
+        const reseat = f.seat !== fig.seat || f.helpers !== helpers || f.at !== (fig.at ?? null);
+        f.at = fig.at ?? null;
+        if (f.small !== Boolean(fig.small)) { f.small = Boolean(fig.small); f.parts.anchor.scale.setScalar(f.small ? SMALL : 1); }
         f.seat = fig.seat;
         f.helpers = helpers;
         f.progress = fig.progress;
@@ -356,8 +400,39 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
     return moving;
   }
 
-  /** A bay's own motion: the sparks of a repair under way fly in short bursts (still with reduced motion). */
+  /**
+   * A bay's own motion: the launch or undock moment once; the needs-you beacon's slow pulse; the
+   * sparks of a repair under way in short bursts. All held still with reduced motion.
+   */
   function stepBay(b: BenchView, t: number): boolean {
+    let moving = false;
+    if (b.moment) {
+      const u = (t - b.moment.start) / b.moment.ms;
+      const w = b.parts.work;
+      if (u >= 1) {
+        b.moment = null;
+        w.position.set(0, 0, 0);
+        w.scale.setScalar(1);
+        kit.phaseBay(b.parts, 'launched');
+      } else {
+        // A construction bay's module rises and lifts away; a repaired craft slides out of its dock.
+        const k = easeInOutSine(u);
+        if (b.kind === 'build') { w.position.set(0, 2.6 * k * k, -0.4 * k); w.scale.setScalar(1 - 0.35 * k); }
+        else { w.position.set(3.2 * k * k, 0.25 * k, 0); w.scale.setScalar(1 - 0.2 * k); }
+        moving = true;
+      }
+    }
+    if (b.alert === 'needs-you' || b.alert === 'asking') {
+      if (animated() || busy) {
+        const u = beaconBurst(t, phaseOf(b.slug));
+        kit.pulseBay(b.parts, u < 0 ? 0 : u);
+        moving = u >= 0 || moving;
+      } else kit.pulseBay(b.parts, 0);
+    }
+    return stepSparks(b, t) || moving;
+  }
+
+  function stepSparks(b: BenchView, t: number): boolean {
     if (b.phase !== 'plates' || b.kind !== 'repair') return false;
     if (!animated() && !busy) { kit.sparkBay(b.parts, null); return false; }
     const u = sparkBurst(t, phaseOf(b.slug));
@@ -437,6 +512,7 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
         if (n !== null) next = Math.min(next, n);
       }
       if (b.phase === 'plates' && b.kind === 'repair') next = Math.min(next, sparkNext(t, phaseOf(b.slug)));
+      if (b.alert === 'needs-you' || b.alert === 'asking') next = Math.min(next, beaconNext(t, phaseOf(b.slug)));
     }
     if (Number.isFinite(next)) wakeId = setTimeout(() => { wakeId = null; wake(); }, Math.max(16, next));
   }
@@ -476,7 +552,7 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
 
   function emitAnchors() {
     if (!listener || !layout) return;
-    const out: FloorAnchors = { benches: [], figures: [] };
+    const out: FloorAnchors = { benches: [], figures: [], sections: [] };
     for (const b of benches.values()) {
       const spot = benchSpot(b.index);
       if (!spot) continue;
@@ -492,6 +568,16 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
         plate: { ...spot.plate, left: Math.round(p.x - spot.plate.width / 2), top: Math.round(p.y) },
         cell: { left: Math.round(a.x), top: Math.round(a.y), width: Math.round(c.x - a.x), height: Math.round(c.y - a.y) },
       });
+      // A stack's sections: each a target of its own, opening its part's quick look.
+      for (const m of b.parts.sections) {
+        const n = m.userData.section as number;
+        const sec = b.sectionSlugs.get(n);
+        if (!sec) continue;
+        const len = Math.max(0.05, m.scale.x);
+        const l = toPx(spot.x + m.position.x - len / 2, 0.5, spot.z + 0.26);
+        const r = toPx(spot.x + m.position.x + len / 2, 0, spot.z + 0.26);
+        out.sections.push({ slug: sec, n, rect: { left: Math.round(l.x), top: Math.round(l.y), width: Math.max(6, Math.round(r.x - l.x)), height: Math.max(8, Math.round(r.y - l.y)) } });
+      }
       for (const f of b.figures.values()) {
         const a = f.parts.anchor.position;
         const px = a.x + f.rig.dx;
@@ -532,7 +618,10 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
       reduced = r;
       if (r) {
         for (const f of leaving) removeFigure(f);
-        for (const b of benches.values()) for (const f of b.figures.values()) { f.walk = null; f.changeMs = 0; }
+        for (const b of benches.values()) {
+          for (const f of b.figures.values()) { f.walk = null; f.changeMs = 0; }
+          if (b.moment) { b.moment = null; b.parts.work.position.set(0, 0, 0); b.parts.work.scale.setScalar(1); kit.phaseBay(b.parts, 'launched'); }
+        }
         tilt.tx = 0; tilt.ty = 0;
       }
       wake();

@@ -4,7 +4,8 @@ import type { Job, Permission } from '../../api/types';
 import { roleOf } from '../crewPack';
 import type { LampGroup, StopHue } from './palette';
 import { hueFor } from './model';
-import { PHASE_WORDS, PHASES, signFor, type BayKind, type BuildPhase } from './bays';
+import { ALERT_WORDS, alertFor, BAY_ALERTS, PHASE_WORDS, PHASES, sectionState, SECTION_WORDS, signFor, stackWords, type BayAlert, type BayKind, type BuildPhase } from './bays';
+import { sectionX } from './model';
 import { POSES, POSE_WORDS, type Pose } from './rig';
 import { propFor } from './props';
 import type { FloorBench, FloorFigure } from './types';
@@ -45,8 +46,11 @@ function figure(slug: string, who: string, pose: Pose, seat: FloorFigure['seat']
 
 /** The words a made-up bay carries for its kind and phase. */
 function bayWords(kind: BayKind, phase: BuildPhase, title: string) {
-  return { kind, phase, sign: signFor(kind, phase, title), phaseWords: PHASE_WORDS[kind][phase] };
+  return { kind, phase, sign: signFor(kind, phase, title), phaseWords: PHASE_WORDS[kind][phase], alert: null, sections: null };
 }
+
+/** A made-up bay's state, from its status and its crew's poses, as the model works it out. */
+const withAlert = (b: FloorBench): FloorBench => ({ ...b, alert: alertFor(b.lamp, b.figures.map((f) => f.pose)) });
 
 /** The phase that goes with a stop, for the made-up bays. */
 const PHASE_OF: Record<StopHue, BuildPhase> = { spec: 'frame', investigate: 'frame', plan: 'frame', none: 'frame', build: 'plates', test: 'lights', review: 'sealed', ship: 'sealed' };
@@ -72,7 +76,55 @@ export function bayBenches(): FloorBench[] {
       });
     }
   }
-  return out;
+  return out.map(withAlert);
+}
+
+/**
+ * Every state on both kinds of bay (needs you, asks permission, stopped, paused, done), and a stack
+ * as one larger module: three parts joined, two at work with their own small crews, one built, one
+ * stuck, three waiting as dim frames.
+ */
+export function stateBenches(): FloorBench[] {
+  const out: FloorBench[] = [];
+  const STATE: Record<BayAlert, { lamp: LampGroup; head: Pose; helper: Pose | null; phase: BuildPhase }> = {
+    'needs-you': { lamp: 'needs-you', head: 'waiting', helper: null, phase: 'frame' },
+    asking: { lamp: 'needs-you', head: 'watching', helper: 'asking', phase: 'plates' },
+    stuck: { lamp: 'idle', head: 'watching', helper: 'stuck', phase: 'lights' },
+    paused: { lamp: 'paused', head: 'paused', helper: 'paused', phase: 'plates' },
+    done: { lamp: 'done', head: 'done', helper: null, phase: 'launched' },
+  };
+  for (const alert of BAY_ALERTS) {
+    for (const kind of ['build', 'repair'] as BayKind[]) {
+      const st = STATE[alert];
+      const slug = `lab-${alert}-${kind}`;
+      const stop = STOP_OF[st.phase];
+      const title = kind === 'build' ? 'Invoice export' : 'Footer typo';
+      const helperWho = alert === 'stuck' ? 'feature-tester' : 'feature-implementer';
+      out.push({
+        slug, index: out.length, title: `${kind === 'build' ? 'Construction bay' : 'Repair dock'}: ${ALERT_WORDS[alert].toLowerCase()}`, ...bayWords(kind, st.phase, title),
+        lamp: st.lamp, glyph: GLYPH[st.lamp], status: STATUS[st.lamp], stop: STOP_WORD[stop], hue: stop, more: 0,
+        figures: [figure(slug, 'conductor', st.head, 'head', stop), ...(st.helper ? [figure(slug, helperWho, st.helper, 0, stop)] : [])],
+      });
+    }
+  }
+  // The stack.
+  const parts = ['integrated', 'integrated', 'integrated', 'blocked', 'ready', 'running', 'running', 'pending', 'pending', 'pending'];
+  const sections = parts.map((state, i) => {
+    const sec = sectionState(state);
+    return { n: i + 1, slug: `lab-stack--part-${i + 1}`, state: sec, name: `part ${i + 1}`, words: `Part ${i + 1} · part ${i + 1} · ${SECTION_WORDS[sec]}` };
+  });
+  const slug = 'lab-stack';
+  const crew = sections.filter((x) => x.state === 'working').map((x, i) => ({
+    ...figure(`${slug}:${x.n}`, i ? 'feature-tester' : 'feature-implementer', i ? 'running' : 'editing', i as 0 | 1, i ? 'test' : 'build'),
+    at: sectionX(x.n, sections.length), small: true,
+  }));
+  out.push({
+    slug, index: out.length, title: 'A stack: one module, a section per part', kind: 'build', phase: 'plates', sign: signFor('build', 'plates', 'Billing'),
+    phaseWords: `Stack · ${stackWords(sections.map((x) => x.state))}`, alert: null, sections,
+    lamp: 'running', glyph: GLYPH.running, status: STATUS.running, stop: STOP_WORD.build, hue: 'build', more: 0,
+    figures: [figure(slug, 'conductor', 'watching', 'head', 'build'), ...crew],
+  });
+  return out.map(withAlert);
 }
 
 /** Two benches per pose: the Foreman, Builder, Tester and Reviewer at the first; the Foreman and the Planner at the second. */
@@ -96,7 +148,7 @@ export function poseBenches(): FloorBench[] {
       more: 0,
     });
   });
-  return out;
+  return out.map(withAlert);
 }
 
 /** Twelve bays with thirty figures (twelve Foremen, eighteen helpers), all at work: the frame-time check. */
@@ -104,7 +156,7 @@ export function busyBenches(): FloorBench[] {
   const two = ['feature-implementer', 'feature-tester'];
   const one = ['feature-reviewer'];
   const poses: Pose[] = ['editing', 'running', 'reading', 'waiting', 'watching', 'asking'];
-  return Array.from({ length: 12 }, (_, i) => {
+  return Array.from({ length: 12 }, (_, i): FloorBench => {
     const slug = `busy-${i + 1}`;
     const crew = i % 2 ? one : two;
     const stop = RING[i % RING.length];

@@ -92,6 +92,17 @@ export function FloorList({ benches, onOpenJob }: { benches: readonly FloorBench
             </span>
           </div>
           <BayStop bench={b} />
+          {b.sections && (
+            <ol className="floor3d-parts" aria-label={`${b.title}: its parts`}>
+              {b.sections.map((x) => (
+                <li key={x.n} className="floor3d-part" data-state={x.state}>
+                  {x.slug ? (
+                    <a href={jobHref(x.slug)} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); onOpenJob(x.slug as string); }}>{x.words}</a>
+                  ) : x.words}
+                </li>
+              ))}
+            </ol>
+          )}
           <ul className="floor3d-lines">
             {b.figures.map((f) => <FigureLine key={f.key} figure={f} />)}
             {b.more > 0 && <li className="floor3d-line floor3d-more">and {b.more} more {b.more === 1 ? 'helper' : 'helpers'} at work</li>}

@@ -16,7 +16,8 @@ import {
 } from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { BAY_ICON, PLATES_ON, type BayKind, type BuildPhase } from '../bays';
+import { BAY_ICON, PLATES_ON, type BayAlert, type BayKind, type BuildPhase, type SectionState } from '../bays';
+import type { SceneSection } from '../types';
 import type { FloorLayout } from '../layout';
 import { AIRLOCK, BENCH, WALL_HEIGHT } from '../layout';
 import type { FloorPalette, LampGroup, Rgb, StopHue } from '../palette';
@@ -185,6 +186,8 @@ function bodyProfile(): Vector2[] {
 
 /** The module's centre height in a construction bay (its flat top at about the work height), and the craft's in a repair dock. */
 const MODULE_Y = 0.232;
+/** The module's length (model.ts MODULE_LENGTH, where a stack's sections and their crews stand). */
+const MODULE_LEN = 1.62;
 const CRAFT_Y = 0.27;
 /** Where the repair arm's head is, and the damaged panel it points at. */
 const ARM_TIP = { x: 0.34, y: 0.5, z: 0.5 };
@@ -346,6 +349,9 @@ function stationShapes(g: <T extends BufferGeometry>(geo: T) => T, rb: (w: numbe
     armHead: rb(0.08, 0.07, 0.08, 0.02, 1),
     beam: g(new CylinderGeometry(0.008, 0.008, 1, 8)),
     spark: g(new OctahedronGeometry(0.016)),
+    halo: g(new SphereGeometry(0.11, 18, 12)),
+    sectionUnit: g(hex(0.258, 1)),
+    sectionRing: g(ring(0.262, 0.012)),
   };
 }
 
@@ -407,6 +413,15 @@ export interface BayParts {
   beam: Mesh | null;
   sparks: Group | null;
   navLights: Mesh | null;
+  /** The beacon's glow round its lamp (needs you, stopped), which pulses slowly while it waits for you. */
+  halo: Mesh;
+  /** A stack's module: one section per part, and a frame ring round each. */
+  sections: Mesh[];
+  sectionRings: Mesh[];
+  /** What the bay signals now, and its stop's hue (the beacon wears the hue while it simply works). */
+  alert: BayAlert | null;
+  hue: StopHue;
+  phase: BuildPhase | null;
 }
 
 export interface Kit {
@@ -426,6 +441,12 @@ export interface Kit {
   openAirlock(k: number): void;
   /** A repair's sparks at time t (ms): t < 0 hides them between bursts; null holds them still (reduced motion). */
   sparkBay(parts: BayParts, t: number | null): void;
+  /** What the bay signals: the beacon's colour and glow, the work lights dimmed for a pause. */
+  alertBay(parts: BayParts, alert: BayAlert | null): void;
+  /** The beacon's slow pulse, 0..1 through one breath (0: at rest). */
+  pulseBay(parts: BayParts, u: number): void;
+  /** A stack's module: a section per part, each in its state (null: a single job's module). */
+  sectionBay(parts: BayParts, sections: readonly SceneSection[] | null): void;
   lights(): { hemi: HemisphereLight; sun: DirectionalLight; rim: DirectionalLight };
   lampMaterial(group: LampGroup): Material;
   deviceLamp(on: boolean): Material;
@@ -474,6 +495,11 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
     windowFrame: lambert(),
     shaft: new MeshBasicMaterial({ transparent: true, depthWrite: false, opacity: 0.16 }),
     star: new PointsMaterial({ size: 2, sizeAttenuation: false, depthWrite: false }),
+    beaconWarn: new MeshBasicMaterial(),
+    beaconStop: new MeshBasicMaterial(),
+    haloWarn: new MeshBasicMaterial({ transparent: true, opacity: 0.28, depthWrite: false }),
+    haloStop: new MeshBasicMaterial({ transparent: true, opacity: 0.3, depthWrite: false }),
+    ghost: new MeshBasicMaterial({ transparent: true, opacity: 0.35, depthWrite: false }),
   };
   const deckTex = deckTexture();
   mats.deckLine.alphaMap = deckTex;
@@ -569,6 +595,11 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
     setColor(mats.windowFrame.color, p.windowFrame);
     setColor(mats.shaft.color, p.paper);
     setColor(mats.star.color, p.star);
+    setColor(mats.haloWarn.color, p.needsYou);
+    setColor(mats.beaconWarn.color, p.needsYou);
+    setColor(mats.beaconStop.color, p.stop);
+    setColor(mats.haloStop.color, p.stop);
+    setColor(mats.ghost.color, p.frame);
     for (const k of ['build', 'repair'] as const) setColor(kindMats[k].color, p.ink);
     scheme = p.scheme;
     for (const o of nightOnly) o.visible = scheme === 'dark';
@@ -880,20 +911,23 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
     icon.renderOrder = 2;
     const sign = group(mesh(shape.signPost, mats.scaffold, [0.66, 0.06, 0.72]), board, kindIcon, tag, icon);
     const bulb = mesh(shape.bulb, glowMats.none, [1.3, 0.68, -0.64], false);
-    const beacon = group(
+    const halo = mesh(shape.halo, mats.haloWarn, [1.3, 0.68, -0.64], false);
+    halo.renderOrder = 3;
+    halo.visible = false;
+    const beacon = group(halo,
       mesh(shape.lampPost, mats.metal, [1.3, 0.31, -0.64]),
       mesh(shape.lampSocket, mats.metal, [1.3, 0.63, -0.64]),
       mesh(shape.shade, mats.metal, [1.3, 0.74, -0.64], false),
       bulb,
     );
-    return { sign, tag, icon, bulb, beacon };
+    return { sign, tag, icon, bulb, halo, beacon };
   }
 
   function makeBay(kind: BayKind): BayParts {
     const pad = mesh(shape.pad, mats.pad, [0, 0.016, 0], false);
     pad.receiveShadow = true;
     const edge = mesh(shape.padRim, glowMats.none, [-0.55, 0.024, 0.75], false);
-    const { sign, tag, icon, bulb, beacon } = signAndBeacon(kind);
+    const { sign, tag, icon, bulb, halo, beacon } = signAndBeacon(kind);
     const blob = mesh(shape.bayBlob, mats.blob, [0, 0.034, 0.02], false);
     blob.renderOrder = 1;
     const work = new Group();
@@ -901,6 +935,7 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
       kind, group: group(edge, pad, blob, sign, beacon, work), bulb, edge, tag, icon, work,
       sleeves: [], skeleton: null, windows: null, caps: null, crane: null, heldPlate: null, lights: [],
       damage: null, patch: null, beam: null, sparks: null, navLights: null,
+      halo, sections: [], sectionRings: [], alert: null, hue: 'none', phase: null,
     };
     if (kind === 'build') {
       // The module: a dark core inside a hex frame; hull sections slide on as the build goes; lit
@@ -968,7 +1003,8 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
   }
 
   function hueBay(parts: BayParts, hue: StopHue) {
-    parts.bulb.material = glowMats[hue];
+    parts.hue = hue;
+    alertBay(parts, parts.alert);
     parts.edge.material = glowMats[hue];
     parts.tag.material = glowMats[hue];
     parts.icon.material = iconMats[hue];
@@ -976,17 +1012,74 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
     parts.icon.visible = hue !== 'none';
   }
 
+  /** The beacon: amber for needs you and a permission, red for stopped, grey for a pause, green when done; else the stop's hue. */
+  function alertBay(parts: BayParts, alert: BayAlert | null) {
+    parts.alert = alert;
+    parts.bulb.material = alert === 'needs-you' || alert === 'asking' ? mats.beaconWarn
+      : alert === 'stuck' ? mats.beaconStop
+        : alert === 'paused' ? lampMats.paused
+          : alert === 'done' ? lampMats.done
+            : glowMats[parts.hue];
+    parts.halo.visible = alert === 'needs-you' || alert === 'asking' || alert === 'stuck';
+    parts.halo.material = alert === 'stuck' ? mats.haloStop : mats.haloWarn;
+    parts.halo.scale.setScalar(1);
+    // Paused for the usage limit: the work lights and the module's own lights go dark.
+    const dim = alert === 'paused';
+    if (dim) for (const l of parts.lights) l.visible = false;
+    applyLights(parts);
+  }
+
+  function applyLights(parts: BayParts) {
+    const dim = parts.alert === 'paused';
+    for (const l of parts.lights) l.visible = !dim && parts.work.visible;
+    if (parts.windows && dim) parts.windows.visible = false;
+    if (parts.navLights && dim) parts.navLights.visible = false;
+  }
+
+  function pulseBay(parts: BayParts, u: number) {
+    const b = Math.sin(Math.PI * Math.min(1, Math.max(0, u)));
+    parts.halo.scale.setScalar(1 + 0.6 * b);
+    parts.bulb.scale.setScalar(1 + 0.18 * b);
+  }
+
+  // A stack's sections: joined parts in the hull's own plate, built ones polished, parts at work
+  // half on with their frame showing, stuck ones in the damaged panel's colour, waiting ones a dim frame.
+  const SECTION_MAT: Record<SectionState, Material> = { joined: mats.plate, built: mats.plateBright, working: mats.plate, stuck: mats.damage, waiting: mats.ghost };
+  function sectionBay(parts: BayParts, sections: readonly SceneSection[] | null) {
+    for (const m of [...parts.sections, ...parts.sectionRings]) parts.work.remove(m);
+    parts.sections = [];
+    parts.sectionRings = [];
+    if (!sections?.length || parts.kind !== 'build') { phaseBay(parts, parts.phase ?? 'frame'); return; }
+    const n = sections.length;
+    const len = MODULE_LEN / n;
+    sections.forEach((sec, i) => {
+      const x = -MODULE_LEN / 2 + (i + 0.5) * len;
+      const m = mesh(shape.sectionUnit, SECTION_MAT[sec.state], [x, MODULE_Y, 0], sec.state !== 'waiting');
+      m.scale.set(len * (sec.state === 'working' ? 0.5 : 0.92), 1, 1);
+      if (sec.state === 'working') m.position.x = x - len * 0.2;
+      if (sec.state === 'waiting') m.scale.set(len * 0.92, 0.96, 0.96);
+      m.userData.section = sec.n;
+      const r = mesh(shape.sectionRing, mats.frame, [x + len / 2 - 0.006, MODULE_Y, 0], false);
+      parts.sections.push(m);
+      parts.sectionRings.push(r);
+      parts.work.add(m, r);
+    });
+    phaseBay(parts, parts.phase ?? 'frame');
+  }
+
   function phaseBay(parts: BayParts, phase: BuildPhase) {
+    parts.phase = phase;
     const done = phase === 'launched';
     parts.work.visible = !done;
     if (parts.kind === 'build') {
-      const on = PLATES_ON[phase];
+      const stack = parts.sections.length > 0;
+      const on = stack ? 0 : PLATES_ON[phase];
       parts.sleeves.forEach((m, i) => {
         m.visible = i < on;
         m.material = phase === 'sealed' ? mats.plateBright : mats.plate;
       });
-      if (parts.skeleton) parts.skeleton.visible = phase === 'frame' || phase === 'plates';
-      if (parts.windows) parts.windows.visible = phase === 'lights' || phase === 'sealed';
+      if (parts.skeleton) parts.skeleton.visible = !stack && (phase === 'frame' || phase === 'plates');
+      if (parts.windows) parts.windows.visible = !stack && (phase === 'lights' || phase === 'sealed');
       if (parts.caps) parts.caps.visible = phase === 'lights' || phase === 'sealed';
       if (parts.heldPlate) parts.heldPlate.visible = phase === 'plates';
       for (const l of parts.lights) l.visible = !done;
@@ -1001,6 +1094,7 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
       if (parts.sparks) parts.sparks.visible = phase === 'plates';
       if (parts.navLights) parts.navLights.visible = phase !== 'frame';
     }
+    applyLights(parts);
   }
 
   // ---------- The room: the deck, the back wall with its windows, and the airlock ----------
@@ -1134,6 +1228,9 @@ export function createKit(palette: FloorPalette, icons: Partial<Record<StopHue, 
     raiseHand,
     makeRoom,
     openAirlock,
+    alertBay,
+    pulseBay,
+    sectionBay,
     sparkBay(parts, t) {
       if (!parts.sparks) return;
       parts.sparks.visible = t === null || t >= 0;

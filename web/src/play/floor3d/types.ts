@@ -1,6 +1,6 @@
 // The shapes the 3D floor passes between its parts: the React side (no three.js) and the scene
 // (scene/, the lazy chunk with three.js in it). Types, and one plain helper (sceneBenches).
-import type { BayKind, BuildPhase } from './bays';
+import type { BayAlert, BayKind, BuildPhase, SectionState } from './bays';
 import type { FloorLayout, Rect, Seat } from './layout';
 import type { FloorPalette, LampGroup, StopHue } from './palette';
 import type { Pose } from './rig';
@@ -23,6 +23,17 @@ export interface SceneFigure {
   progress: number | null;
   /** The stop it works in: its badge, belt and prop accents wear that stop's hue. */
   hue: StopHue;
+  /** A stack's section crew: where along the module it stands (x from the bay's centre), and drawn a little smaller. */
+  at?: number | null;
+  small?: boolean;
+}
+
+/** One section of a stack's module, in merge order. */
+export interface SceneSection {
+  n: number;
+  /** The part's own job, once started (a click on the section opens its quick look). */
+  slug: string | null;
+  state: SectionState;
 }
 
 /** One bay as the scene draws it. */
@@ -34,6 +45,10 @@ export interface SceneBench {
   kind: BayKind;
   /** How far the module or the repair has got. */
   phase: BuildPhase;
+  /** What the bay itself signals: a beacon, a hazard light, dimmed lights, the done moment (null while it simply works). */
+  alert: BayAlert | null;
+  /** A stack: its module's sections, one per part, in merge order (null for a single job). */
+  sections: SceneSection[] | null;
   /** The status (the words next to the bench say it). */
   lamp: LampGroup;
   /** The job's current stop: the bench's thin edge, its lamp and the icon on its front. */
@@ -45,6 +60,8 @@ export interface SceneBench {
 export interface FloorAnchors {
   benches: { slug: string; plate: Rect; cell: Rect }[];
   figures: { key: string; slug: string; rect: Rect }[];
+  /** A stack's sections on screen, for the pointer: each opens its part's quick look. */
+  sections: { slug: string; n: number; rect: Rect }[];
 }
 
 export interface FrameStats {
@@ -132,6 +149,9 @@ export interface FloorBench {
   sign: string;
   /** What the bay shows now, in words: "hull plates going on", "repair under way". */
   phaseWords: string;
+  alert: BayAlert | null;
+  /** A stack's sections, with each part's name and state in words. */
+  sections: (SceneSection & { name: string; words: string })[] | null;
   lamp: LampGroup;
   /** The job's status in words, with its glyph ("◆", "Go-ahead"). */
   glyph: string;
@@ -152,8 +172,10 @@ export function sceneBenches(benches: readonly FloorBench[]): SceneBench[] {
     index: b.index,
     kind: b.kind,
     phase: b.phase,
+    alert: b.alert,
+    sections: b.sections ? b.sections.map(({ n, slug, state }) => ({ n, slug, state })) : null,
     lamp: b.lamp,
     hue: b.hue,
-    figures: b.figures.map(({ key, prop, pose, seat, progress, hue }) => ({ key, prop, pose, seat, progress, hue })),
+    figures: b.figures.map(({ key, prop, pose, seat, progress, hue, at, small }) => ({ key, prop, pose, seat, progress, hue, at, small })),
   }));
 }

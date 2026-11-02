@@ -669,7 +669,7 @@ async function levelJobs() {
     const file = 'app/src/invoices/InvoiceFooter.tsx';
     await feature('invoice-footer-typo', {
       status: {
-        title: 'Invoice footer typo', kind: 'feature', route: 'quick', stage: 'implement', stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: iso(6 * MIN),
+        title: 'Invoice footer typo', kind: 'bug', route: 'quick', stage: 'implement', stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: iso(6 * MIN),
         brief: { number: 1, path: 'briefs/001-implement.md', headline: 'Invoice footer typo · built; here’s the diff' },
         questions: [], decided_on_your_behalf: [], next_proposed: 'PR #1: push the branch to your fork and open it (each needs your yes)',
         branch: 'feature/invoice-footer-typo', repo, ...suggestion(description, 0), updated_at: iso(6 * MIN),
