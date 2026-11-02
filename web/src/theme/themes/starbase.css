@@ -1,0 +1,209 @@
+/* Theme: starbase — the product's own look, at night (packet SB). Deep space navy for the page,
+   brushed hull greys for the cards and edges, one cool cyan for what you can act on, and signal
+   amber kept for the one thing that needs you (the needs-you colour stays the loudest on screen
+   and nothing else wears it). Calm by R's colour rule: big areas are quiet navies and greys;
+   colour sits on small marks (dots, chip icons, the stop ring, the main button, focus rings).
+   Follow the system pairs it with the day twin (theme.ts THEME_PAIRS).
+
+   Every rule is scoped under html[data-theme="starbase"]. Looks only: nothing moves, hides or
+   changes meaning. Every surface is solid, so menus, the Peek and the tooltip hide what is under
+   them. The semantic tokens keep the Default's wiring, so this file is the palette and the crew;
+   the page itself gets a faint glow from above, like light falling into a hangar. */
+
+html[data-theme="starbase"] {
+  color-scheme: dark;
+
+  /* ----- Deep space navy, each surface a clear step up (R: about +0.03 a level) ----- */
+  --bg-0: oklch(.155 .028 258);
+  --bg-1: oklch(.188 .027 258);
+  --bg-2: oklch(.218 .026 258);
+  --bg-3: oklch(.248 .025 258);
+  --bg-4: oklch(.278 .024 258);
+  /* Brushed hull greys: edges that show (about 0.32–0.36 once laid on the page). */
+  --border-1: oklch(.86 .03 240 / .11);
+  --border-2: oklch(.86 .03 240 / .18);
+  --border-3: oklch(.86 .03 240 / .3);
+  --row-alt: oklch(.86 .03 240 / .04);
+  --text-1: oklch(.955 .008 240);
+  --text-2: oklch(.79 .018 240);
+  --text-3: oklch(.67 .02 240);
+
+  /* ----- One cool cyan: links, the focus ring, the main button (dark ink on it, 9:1) ----- */
+  --accent: oklch(.8 .12 212);
+  --accent-strong: oklch(.87 .1 212);
+  --accent-soft: oklch(.8 .12 212 / .15);
+  --on-accent: oklch(.17 .03 245);
+  --focus-ring: oklch(.84 .11 212);
+  --btn-primary-bg: oklch(.78 .125 214);
+  --btn-primary-fg: oklch(.17 .03 245);
+
+  /* ----- Status: vivid marks lifted for the dark (R: 0.72–0.80), soft tints behind chips. Signal
+     amber is needs you, and only needs you ----- */
+  --status-ok: oklch(.8 .15 158);
+  --status-ok-bg: oklch(.8 .15 158 / .15);
+  --status-warn: oklch(.83 .15 76);
+  --status-warn-bg: oklch(.83 .15 76 / .15);
+  --status-error: oklch(.75 .17 24);
+  --status-error-bg: oklch(.75 .17 24 / .16);
+  --status-info: oklch(.78 .13 248);
+  --status-info-bg: oklch(.78 .13 248 / .15);
+  --status-review: oklch(.78 .14 300);
+  --status-review-bg: oklch(.78 .14 300 / .15);
+  /* The stop ring: one even lightness, round the wheel, clear of the needs-you amber. */
+  --stop-spec: oklch(.76 .15 345);
+  --stop-investigate: oklch(.76 .14 300);
+  --stop-plan: oklch(.76 .13 262);
+  --stop-build: oklch(.78 .12 212);
+  --stop-test: oklch(.78 .14 170);
+  --stop-review: oklch(.8 .15 135);
+  --stop-ship: oklch(.8 .13 105);
+  --status-paused: oklch(.72 .02 245);
+  --status-paused-bg: oklch(.72 .02 245 / .13);
+  --needs-solid: oklch(.82 .16 74);
+  --on-needs: oklch(.22 .05 70);
+  --job-hue-l: .76;
+  --job-hue-c: .12;
+
+  --shadow-1: 0 1px 2px oklch(.05 .03 260 / .4), 0 2px 8px oklch(.05 .03 260 / .26);
+  --shadow-2: 0 2px 4px oklch(.05 .03 260 / .4), 0 12px 32px oklch(.05 .03 260 / .45);
+  --shadow-pop: 0 6px 24px oklch(.05 .03 260 / .3);
+  --shadow-xs: 0 1px 2px oklch(.05 .03 260 / .3);
+  --shadow-sm: 0 1px 2px oklch(.05 .03 260 / .4), 0 2px 6px oklch(.05 .03 260 / .3);
+  --shadow-md: 0 1px 3px oklch(.05 .03 260 / .4), 0 6px 18px oklch(.05 .03 260 / .45);
+  --shadow-lg: 0 2px 6px oklch(.05 .03 260 / .4), 0 16px 40px oklch(.05 .03 260 / .55);
+  --shade-hover: oklch(0 0 0 / .1);
+  --shade-press: oklch(0 0 0 / .18);
+  --shine: oklch(1 0 0 / .2);
+  --surface-0: var(--bg-0);
+  --surface-1: var(--bg-1);
+  --surface-float: var(--bg-2);
+  --surface-2: var(--bg-2);
+  --elev-xs: var(--shadow-xs);
+  --elev-sm: var(--shadow-sm);
+  --elev-md: var(--shadow-md);
+  --elev-lg: var(--shadow-lg);
+  --scrim: oklch(.08 .03 260 / .6);
+  --scrim-soft: oklch(.08 .03 260 / .45);
+
+  /* ----- Semantic tokens: the Default's wiring ----- */
+  --group-needs-you-fg: var(--status-warn);
+  --group-needs-you-bg: var(--status-warn-bg);
+  --group-needs-you-line: var(--needs-solid);
+  --group-running-fg: var(--status-info);
+  --group-running-bg: var(--status-info-bg);
+  --group-running-line: var(--status-info);
+  --group-paused-fg: var(--status-paused);
+  --group-paused-bg: var(--status-paused-bg);
+  --group-paused-line: var(--status-paused);
+  --group-idle-fg: var(--text-2);
+  --group-idle-bg: var(--bg-3);
+  --group-idle-line: var(--border-2);
+  --group-shipping-fg: var(--status-info);
+  --group-shipping-bg: var(--status-info-bg);
+  --group-shipping-line: var(--status-info);
+  --group-done-fg: var(--status-ok);
+  --group-done-bg: var(--status-ok-bg);
+  --group-done-line: var(--status-ok);
+  --ask-permission-fg: var(--text-2);
+  --ask-permission-bg: var(--bg-1);
+  --ask-permission-line: var(--border-2);
+  --ask-question-fg: var(--text-2);
+  --ask-question-bg: var(--bg-1);
+  --ask-question-line: var(--border-2);
+  --ask-hardline-fg: var(--text-2);
+  --ask-hardline-bg: var(--bg-1);
+  --ask-hardline-line: var(--status-error);
+  --ask-blocked-fg: var(--text-3);
+  --ask-blocked-bg: transparent;
+  --ask-blocked-line: var(--border-2);
+  --stage-spec-fg: var(--text-2);
+  --stage-spec-bg: transparent;
+  --stage-investigate-fg: var(--text-2);
+  --stage-investigate-bg: transparent;
+  --stage-plan-fg: var(--text-2);
+  --stage-plan-bg: transparent;
+  --stage-build-fg: var(--text-2);
+  --stage-build-bg: transparent;
+  --stage-test-fg: var(--text-2);
+  --stage-test-bg: transparent;
+  --stage-review-fg: var(--text-2);
+  --stage-review-bg: transparent;
+  --chip-radius: var(--radius-sm);
+  --card-radius: var(--radius-lg);
+  --pane-pattern: none;
+  --font-heading: var(--font-display);
+
+  /* ----- The crew (play/play.css): station crew in hull greys and soft suit colours; the ambers,
+     golds and sparks sit on brass (hue ~100), off the needs-you amber ----- */
+  --crew-skin: oklch(.86 .02 240);
+  --crew-skin-shade: oklch(.62 .03 245);
+  --crew-ink: oklch(.18 .03 250);
+  --crew-feet: oklch(.34 .025 250);
+  --crew-shadow: oklch(.05 .03 260 / .45);
+  --crew-paper: oklch(.95 .01 240);
+  --crew-line: oklch(.55 .03 245);
+  --crew-metal: oklch(.7 .02 240);
+  --crew-glass: oklch(.78 .1 212 / .55);
+  --crew-glass-line: oklch(.86 .08 212);
+  --crew-zzz: oklch(.8 .1 262);
+  --crew-c-amber: oklch(.8 .12 100);
+  --crew-c-amber-deep: oklch(.64 .11 98);
+  --crew-gold: oklch(.79 .13 102);
+  --crew-gold-dark: oklch(.58 .1 98);
+  --crew-spark: oklch(.9 .14 105);
+  --crew-c-clay: oklch(.68 .14 35);
+  --crew-c-plum: oklch(.62 .13 310);
+  --crew-c-plum-deep: oklch(.48 .11 310);
+  --crew-c-tweed: oklch(.66 .05 250);
+  --crew-c-tweed-deep: oklch(.52 .05 250);
+  --crew-c-blueprint: oklch(.64 .12 245);
+  --crew-c-blueprint-deep: oklch(.5 .11 250);
+  --crew-c-moss: oklch(.68 .12 150);
+  --crew-c-teal: oklch(.68 .1 205);
+  --crew-c-steel: oklch(.66 .03 245);
+  --crew-c-forest: oklch(.6 .1 170);
+  --crew-c-forest-deep: oklch(.48 .09 170);
+}
+
+/* The lanes of Jobs, hover, the go / no go console grid, the stop-dot tooltip, the eight chart
+   series (each also has a pattern, --chart-pattern-<n>, in tokens.css). */
+html[data-theme="starbase"] {
+  --lane-working-fg: var(--status-info);
+  --lane-working-bg: transparent;
+  --lane-working-line: var(--border-2);
+  --lane-needs-you-fg: var(--status-warn);
+  --lane-needs-you-bg: oklch(.83 .15 76 / .08);
+  --lane-needs-you-line: var(--needs-solid);
+  --lane-in-review-fg: var(--status-review);
+  --lane-in-review-bg: transparent;
+  --lane-in-review-line: var(--border-2);
+  --lane-ready-fg: var(--status-ok);
+  --lane-ready-bg: transparent;
+  --lane-ready-line: var(--border-2);
+  --lane-resting-fg: var(--text-3);
+  --lane-resting-bg: transparent;
+  --lane-resting-line: var(--border-1);
+  --lane-done-fg: var(--status-ok);
+  --lane-done-bg: transparent;
+  --lane-done-line: var(--border-1);
+  --hover-bg: var(--bg-3);
+  --grid-line: oklch(.8 .1 212 / .07);
+  --tooltip-bg: var(--text-1);
+  --tooltip-fg: var(--bg-0);
+  --chart-1: oklch(.77 .13 212);
+  --chart-2: oklch(.77 .14 50);
+  --chart-3: oklch(.77 .13 170);
+  --chart-4: oklch(.8 .13 105);
+  --chart-5: oklch(.77 .13 300);
+  --chart-6: oklch(.77 .14 145);
+  --chart-7: oklch(.75 .15 24);
+  --chart-8: oklch(.77 .13 345);
+}
+
+/* The page: deep navy with a faint glow from above, as light falls into a hangar. Solid colour
+   under it, so nothing that measures the page sees a hole. */
+html[data-theme="starbase"] body {
+  background-color: var(--bg-0);
+  background-image: radial-gradient(120% 60% at 50% -10%, oklch(.21 .035 245) 0%, oklch(.155 .028 258 / 0) 70%);
+  background-attachment: fixed;
+}

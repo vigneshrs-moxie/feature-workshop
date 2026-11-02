@@ -144,10 +144,10 @@ describe('Jobs', () => {
     try {
       setup(JOBS, 'full');
       expect(document.querySelector('.jobs-board')).toBeNull();
-      const floor = screen.getByRole('region', { name: 'The workshop floor' });
+      const floor = screen.getByRole('region', { name: 'The station' });
       // The heading's switch, with Floor picked.
-      expect(screen.getByRole('radio', { name: 'Floor' })).toHaveAttribute('aria-checked', 'true');
-      fireEvent.click(within(floor).getByRole('link', { name: 'Customer notes' }));
+      expect(screen.getByRole('radio', { name: 'Station' })).toHaveAttribute('aria-checked', 'true');
+      fireEvent.click(within(floor).getByRole('link', { name: /^Feature: Building · Customer notes/ }));
       expect(screen.getByRole('dialog', { name: 'Customer notes: a quick look' })).toBeInTheDocument();
       expect(window.location.hash).toContain('peek=alpha');
       // The switch goes back to the lanes, and remembers it.

@@ -14,14 +14,16 @@ export const CELL_X = 3.3;
 /** The walkway down the left, from the door to every row. */
 export const AISLE = 0.55;
 /** A bench's scene, top to bottom on screen (in world units seen on screen): the lamp's top to the crew's feet. */
-export const SCENE_ABOVE = 1.2;
-export const SCENE_BELOW = 0.68;
-/** The words under each bench: its title and up to four figures' lines. */
-export const PLATE_PX = 108;
+export const SCENE_ABOVE = 1.62;
+export const SCENE_BELOW = 0.74;
+/** The words under each bay: its sign, its stop and phase, and up to three figures' lines. */
+export const PLATE_PX = 118;
 export const ROW_GAP_PX = 18;
-/** The door at the back: its top sits this far below the floor's top edge, and how tall it stands. */
-export const WALL_TOP_PX = 10;
-export const WALL_HEIGHT = 0.78;
+/** The back wall with its windows and the airlock: its top sits this far below the station's top edge, and how tall it stands. */
+export const WALL_TOP_PX = 6;
+export const WALL_HEIGHT = 1.2;
+/** The airlock's opening. */
+export const AIRLOCK = { width: 0.62, height: 0.86 } as const;
 /** Figures are never drawn bigger than this many px per world unit, however wide the floor. */
 export const MAX_PPU = 132;
 export const MIN_PPU = 64;
@@ -54,8 +56,10 @@ export interface FloorLayout {
   elevation: number;
   /** World x of the floor's left and right edges, and z of its back (the wall's foot) and front. */
   left: number; right: number; back: number; front: number;
-  /** The door at the back, and the walkway x it opens onto. */
+  /** The door at the back (the airlock), and the walkway x it opens onto. */
   door: { x: number; z: number; aisleX: number };
+  /** Whether the back wall with its windows on space stands behind the bays (the station; not the Stage strip's band). */
+  wall: boolean;
   rowPx: number;
   benches: BenchSpot[];
 }
@@ -77,7 +81,7 @@ export function floorLayout(width: number, count: number, cols = columnsFor(widt
   const ppu = Math.max(MIN_PPU, Math.min(MAX_PPU, usable));
   const s = Math.sin(ELEVATION);
   const k = Math.cos(ELEVATION);
-  // The door's top sits WALL_TOP_PX below the floor's top edge; its foot a little lower.
+  // The back wall's top sits WALL_TOP_PX below the station's top edge; the deck starts at its foot.
   const wallFootSy = WALL_TOP_PX / ppu + WALL_HEIGHT * k;
   const wallPx = Math.round((wallFootSy + 0.18) * ppu);
   const rowPx = Math.round((SCENE_ABOVE + SCENE_BELOW) * ppu + PLATE_PX + ROW_GAP_PX);
@@ -105,14 +109,15 @@ export function floorLayout(width: number, count: number, cols = columnsFor(widt
   }
   const left = (x0 - AISLE * ppu - w / 2) / ppu + 0.08;
   const right = (x0 + c * cellW - w / 2) / ppu - 0.08;
-  // The floor reaches a little behind the door, so the door stands on it.
-  const back = wallFootSy / s - 0.34;
+  // The deck starts at the wall's foot; the airlock stands a little in front of it.
+  const back = wallFootSy / s;
   const front = (height - 6) / ppu / s + 0.2;
   return {
     mode: c === 1 ? 'column' : 'grid',
     width: w, height, cols: c, rows, ppu, elevation: ELEVATION,
     left, right, back, front,
-    door: { x: left + AISLE / 2 + 0.32, z: back + 0.3, aisleX: left + AISLE / 2 },
+    door: { x: left + AISLE / 2 + 0.32, z: back + 0.14, aisleX: left + AISLE / 2 },
+    wall: true,
     rowPx, benches,
   };
 }
@@ -164,6 +169,7 @@ export function stripLayout(width: number, height = STRIP_PX): FloorLayout {
     mode: 'column', width: w, height, cols: 1, rows: 1, ppu, elevation: ELEVATION,
     left, right, back, front,
     door: { x: left + AISLE / 2 + 0.32, z: doorZ, aisleX: left + AISLE / 2 },
+    wall: false,
     rowPx: height, benches: [bench],
   };
 }

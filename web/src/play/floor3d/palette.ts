@@ -1,5 +1,5 @@
-// The 3D floor's colours: every one is read from the theme's tokens at run time (readPalette), so
-// the floor fits all eleven themes and changes when the theme does. Nothing here picks a colour of
+// The 3D station's colours: every one is read from the theme's tokens at run time (readPalette), so
+// the station fits every theme and changes when the theme does. Nothing here picks a colour of
 // its own: derivePalette() only chooses which token each part wears and mixes two tokens where a
 // part sits between them (a bench edge, a figure's clay). Pure apart from readPalette().
 
@@ -13,6 +13,8 @@ export const FLOOR_TOKENS = [
   '--group-needs-you-fg', '--group-running-fg', '--group-paused-fg', '--group-idle-fg', '--group-shipping-fg', '--group-done-fg',
   '--status-error', '--status-warn', '--ask-permission-line',
   '--stop-spec', '--stop-investigate', '--stop-plan', '--stop-build', '--stop-test', '--stop-review', '--stop-ship',
+  // The repair docks' hazard stripes: the crew's brass, which every theme keeps off the needs-you hue.
+  '--crew-c-amber',
 ] as const;
 export type FloorToken = (typeof FLOOR_TOKENS)[number];
 
@@ -31,8 +33,12 @@ export interface FloorPalette {
   floor: Rgb; floorEdge: Rgb; wall: Rgb; doorway: Rgb; doorFrame: Rgb;
   /** The bench top, its legs and shelf, a crate. */
   bench: Rgb; benchLeg: Rgb; crate: Rgb;
-  /** The figures: one clay for body, head and hands, and the small badge on the chest (the front). */
-  clay: Rgb; badge: Rgb;
+  /** The station crew: the suit (clay), its helmet, the visor that stands in for a face, the gloves, and the accent (the visor's rim). */
+  clay: Rgb; badge: Rgb; helmet: Rgb; visor: Rgb; visorShine: Rgb; glove: Rgb;
+  /** A holo screen's own glow (a slate, a tablet, a scanner's dish) is the stop's hue; its lines are this. */
+  holoLine: Rgb;
+  /** The ink on a bay's sign (its kind's icon on the pale tile): whichever of the page's darkest and lightest reads best on it. */
+  signInk: Rgb;
   /** Props and things on the bench. */
   paper: Rgb; ink: Rgb; metal: Rgb; handle: Rgb; glass: Rgb; liquid: Rgb;
   /** Shadows: the colour and how strong they fall. */
@@ -51,6 +57,14 @@ export interface FloorPalette {
   benchFront: Rgb;
   /** The light: a warm key from the upper left, a cool soft rim from behind, both near white. */
   key: Rgb; rim: Rgb; rimStrength: number;
+  /** The deck: its panel seams; a bay's pad and the ring round it. */
+  deckLine: Rgb; pad: Rgb; padEdge: Rgb;
+  /** A construction bay: its scaffold and crane, the new module's frame, its hull plates, and the cool work lights. */
+  scaffold: Rgb; frame: Rgb; plate: Rgb; plateDark: Rgb; workLight: Rgb;
+  /** A repair dock: the hazard stripes (brass, never the needs-you amber), the craft's hull, its damaged panel, the patch, the sparks. */
+  hazard: Rgb; hazardDark: Rgb; hull: Rgb; damage: Rgb; patch: Rgb; spark: Rgb;
+  /** The windows on space (stars, a far planet's edge), or on daylight in a light theme. */
+  space: Rgb; star: Rgb; planet: Rgb; planetRim: Rgb; windowFrame: Rgb;
 }
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
@@ -211,10 +225,16 @@ export function derivePalette(raw: Partial<Record<FloorToken, Rgb>>, schemeHint?
   const lightest = luminance(bg0) > luminance(text1) ? bg0 : text1;
   const darkest = luminance(bg0) > luminance(text1) ? text1 : bg0;
   const onHue = Object.fromEntries(STOP_HUES.map((k) => [k, contrast(hue[k], lightest) >= contrast(hue[k], darkest) ? lightest : darkest])) as Record<StopHue, Rgb>;
-  // The clay: a soft neutral, a touch warm; in light themes a step above the floor (pale figures on a grey floor, outlined by the edge shade), in dark ones well above it.
-  const clay = light ? mix(mix(bg0, text3, 0.1), hue.ship, 0.05) : mix(mix(floor, text2, 0.58), hue.ship, 0.04);
+  // The suit (clay): a soft hull grey, a touch warm, clear of the floor in both schemes and a step under the helmet, so the pale helmet and its dark visor read first.
+  const clay = light ? mix(mix(bg0, text3, 0.12), hue.ship, 0.05) : mix(mix(floor, text2, 0.46), hue.ship, 0.04);
   const paper = luminance(bg0) > luminance(text1) ? bg0 : text1;
   const lamp = (name: FloorToken, ...more: FloorToken[]) => ground(pick(name, ...more, '--text-2'));
+  // The station: hull greys from the page's own neutrals, cool work lights from the build stop's
+  // hue, and hazard stripes in the crew's brass.
+  const hazard = ground(pick('--crew-c-amber', '--stop-ship', '--text-2'));
+  const helmet = light ? bg0 : mix(text1, text3, 0.18);
+  const visor = light ? mix(text1, accent, 0.18) : mix(bg0, accent, 0.12);
+  const space = light ? mix(bg0, accent, 0.07) : mix(bg0, { r: 0, g: 0, b: 0, a: 1 }, 0.35);
   return {
     scheme,
     floor,
@@ -227,6 +247,12 @@ export function derivePalette(raw: Partial<Record<FloorToken, Rgb>>, schemeHint?
     crate: mix(bench, text3, light ? 0.3 : 0.22),
     clay,
     badge: accent,
+    helmet,
+    visor,
+    visorShine: mix(visor, WHITE, light ? 0.55 : 0.4),
+    glove: mix(clay, text1, light ? 0.3 : 0.18),
+    holoLine: mix(WHITE, accent, 0.08),
+    signInk: contrast(paper, darkest) >= contrast(paper, lightest) ? darkest : lightest,
     paper,
     ink: text2,
     metal: mix(text3, paper, 0.35),
@@ -252,6 +278,25 @@ export function derivePalette(raw: Partial<Record<FloorToken, Rgb>>, schemeHint?
     key: mix(WHITE, hue.ship, light ? 0.1 : 0.06),
     rim: mix(WHITE, accent, 0.18),
     rimStrength: light ? 0.32 : 0.42,
+    deckLine: light ? mix(bg4, text3, 0.16) : mix(bg2, text3, 0.1),
+    pad: light ? mix(bg4, bg0, 0.45) : mix(bg2, bg4, 0.6),
+    padEdge: light ? mix(bg4, text3, 0.28) : mix(bg4, text3, 0.22),
+    scaffold: mix(bench, text3, light ? 0.42 : 0.3),
+    frame: mix(text3, accent, 0.25),
+    plate: light ? mix(bg0, text3, 0.12) : mix(text2, bg4, 0.35),
+    plateDark: light ? mix(bg4, text3, 0.35) : mix(bg4, bg0, 0.3),
+    workLight: mix(hue.build, WHITE, light ? 0.1 : 0.25),
+    hazard,
+    hazardDark: light ? mix(text1, bg4, 0.1) : mix(bg0, bg2, 0.5),
+    hull: light ? mix(bg0, text3, 0.16) : mix(text2, bg4, 0.42),
+    damage: light ? mix(text1, ground(pick('--status-error', '--text-1')), 0.18) : mix(bg0, ground(pick('--status-error', '--text-1')), 0.22),
+    patch: light ? mix(bg0, hue.build, 0.18) : mix(text1, hue.build, 0.25),
+    spark: mix(WHITE, hazard, 0.45),
+    space,
+    star: light ? mix(space, WHITE, 0.9) : mix(text1, WHITE, 0.5),
+    planet: light ? mix(space, accent, 0.18) : mix(bg2, accent, 0.28),
+    planetRim: light ? mix(WHITE, accent, 0.2) : mix(accent, WHITE, 0.35),
+    windowFrame: light ? mix(bg4, text3, 0.22) : mix(bg3, text3, 0.18),
   };
 }
 

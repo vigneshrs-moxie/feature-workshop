@@ -12,14 +12,15 @@
 // localStorage is skipped like an unknown one, so editing either never opens one. What you picked
 // stays remembered: once the ledger arrives and says it is unlocked, it is put on.
 //
-// Follow the system (Settings → Look, localStorage 'workshop.themeFollow' = 'on'): two themes come
-// in a dark/light pair, Default ↔ Light and Glass ↔ Light glass. With it on, prefers-color-scheme
-// picks the member of the chosen theme's pair; a theme with no pair (Sunset paper, Blueprint, …)
+// Follow the system (Settings → Look, localStorage 'workshop.themeFollow' = 'on'): some themes come
+// in a dark/light pair, Default ↔ Light, Glass ↔ Light glass and Starbase ↔ Starbase day. With it
+// on, prefers-color-scheme picks the member of the chosen theme's pair; a theme with no pair (Sunset paper, Blueprint, …)
 // stays as chosen. A theme named in the address is a request and is never swapped. Off by default.
 // Picking a theme is a request too: picking the member of a pair the system wouldn't show now
 // (Light on a dark system) puts that theme on and turns Follow the system off, rather than leaving
 // the screen on its twin as if the pick had not taken.
 import { useCallback, useSyncExternalStore } from 'react';
+import { BRAND } from '../app/brand';
 import { readStored, useStored, writeStored } from '../lib/stored';
 
 /** The play ledger's unlocks (GET /api/play `unlocks`). */
@@ -49,6 +50,9 @@ export const THEMES: readonly ThemeInfo[] = [
   { id: 'glass', label: 'Glass', description: 'Frosted glass panes over a soft aurora: thin bright edges, soft glows and big rounded corners.', scheme: 'dark' },
   { id: 'light', label: 'Light', description: 'The Default look in daylight: the same quiet greys mirrored and the same indigo accent.', scheme: 'light' },
   { id: 'light-glass', label: 'Light glass', description: 'Frosted white panes over a pale aurora: the Glass look in daylight.', scheme: 'light' },
+  // The product's own look, named after it (packet SB).
+  { id: 'starbase', label: BRAND.name, description: 'The station at night: deep space navy, hull greys, a cool cyan, and signal amber for what needs you.', scheme: 'dark' },
+  { id: 'starbase-day', label: `${BRAND.name} day`, description: 'The station by day: a bright hangar white with the same signal colours, darker for contrast.', scheme: 'light' },
   { id: 'crt', label: 'CRT Terminal', description: 'Phosphor green on a near-black tube, monospace type and faint scanlines.', scheme: 'dark', unlock: 'crt' },
   { id: 'gold', label: 'Gold', description: 'Warm dark walnut with polished gold accents, for ten quests done.', scheme: 'dark', unlock: 'gold' },
 ];
@@ -60,6 +64,7 @@ export const THEMES: readonly ThemeInfo[] = [
 export const THEME_PAIRS: readonly (readonly [dark: string, light: string])[] = [
   ['default', 'light'],
   ['glass', 'light-glass'],
+  ['starbase', 'starbase-day'],
 ];
 export const THEME_FOLLOW_KEY = 'workshop.themeFollow';
 export type ThemeFollow = 'on' | 'off';

@@ -3,7 +3,8 @@
 // For each theme, at each width (1512 and 390 px) and in each Play mode (Full and Off), it visits
 // every screen (Jobs in its three layouts, Map, Table, the Desk, the Inbox, a Job, the Stage,
 // Screens, the Crew-dex, Achievements, Stacks, the build stack, a stack's Board, Map and Timeline, a
-// Part page, Telemetry, every Settings section, the floor lab, Not found, the classic page and
+// Part page, Telemetry, every Settings section, the station lab (its bays and its states), Not
+// found, the classic page and
 // #/gallery, which has every control in every state: hover, pressed, focus, disabled, busy, empty,
 // error), and opens every kind of overlay (a Peek, a dialog, a Select menu, a menu, a tooltip, the
 // command search, the keys sheet, a toast, the level sheet, Merge's confirm, a permission card and
@@ -95,7 +96,7 @@ const tab = (name) => async (page) => { await page.getByRole('tab', { name, exac
 const SCREEN_VISITS = [
   { name: 'Jobs, lanes', hash: '#/', focus: true },
   { name: 'Jobs, list', hash: '#/', store: { 'gc.jobs.layout': 'list' } },
-  { name: 'Jobs, floor', hash: '#/', store: { 'gc.jobs.layout': 'floor' }, play: 'full', wait: 2500, scrolls: 1 },
+  { name: 'Jobs, station', hash: '#/', store: { 'gc.jobs.layout': 'floor' }, play: 'full', wait: 2500, scrolls: 1 },
   { name: 'Map', hash: '#/map' },
   { name: 'Table', hash: '#/table' },
   { name: 'Desk', hash: '#/desk', focus: true },
@@ -115,7 +116,8 @@ const SCREEN_VISITS = [
   { name: 'Part page', hash: '#/stack/invoice-export/part/7' },
   { name: 'Telemetry', hash: '#/telemetry', focus: true, scrolls: 5 },
   ...['permissions', 'notifications', 'look', 'keys', 'workflow', 'repos', 'play', 'rules'].map((s) => ({ name: `Settings, ${s}`, hash: `#/settings/${s}`, focus: s === 'look' })),
-  { name: 'Floor lab', hash: '#/floor-lab', play: 'full', wait: 2500, scrolls: 1 },
+  { name: 'Station lab', hash: '#/station-lab', play: 'full', wait: 2500, scrolls: 1 },
+  { name: 'Station lab, states', hash: '#/station-lab?lab=states', play: 'full', wait: 2500, scrolls: 1 },
   { name: 'Not found', hash: '#/no-such-page', play: 'full' },
   { name: 'Classic page', url: '/', wait: 1500 },
   // The gallery has no Play layer: it is swept with Play full only.

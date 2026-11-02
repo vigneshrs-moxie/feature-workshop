@@ -3,7 +3,7 @@
 // has words as well as a picture, and a hover hint. None of them ever sits in a gate card, a
 // permission card or the composer.
 //   <BossFight review />   under an L3 job's review brief: its findings as a health bar
-//   <StaminaBar />         in the top bar: Claude's usage limit as Fresh, Warning or Resting
+//   <StaminaBar />         in the top bar: the station's power, Claude's usage limit, as Fresh, Warning or Resting
 //   <SleepingCrew />       the live row during a usage pause: the crew asleep, back at 3:42pm
 import type { Job, ReviewBoss, Usage } from '../api/types';
 import { useNow } from '../lib/time';
@@ -45,11 +45,11 @@ export function StaminaBar() {
   if (!full) return null;
   const s = staminaOf(usage, now);
   return (
-    <span className={`stamina is-${s.state}`} title={`Stamina (Play mode Full). ${s.hint}`}>
+    <span className={`stamina is-${s.state}`} title={`Station power: Claude’s usage limit (Play mode Full). ${s.hint}`}>
       <span className="stamina-bar" aria-hidden="true">
         <span className="stamina-fill" style={{ width: `${Math.round(s.fill * 100)}%` }} />
       </span>
-      <span className="stamina-label"><span className="sr-only">Stamina: </span>{s.label}</span>
+      <span className="stamina-label"><span className="sr-only">Station power, Claude’s usage: </span>{s.label}</span>
     </span>
   );
 }

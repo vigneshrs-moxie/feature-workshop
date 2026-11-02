@@ -3,13 +3,13 @@
 // localStorage: 'workshop.theme' (the theme; a ?theme=<id> in the address wins, as in the new view),
 // 'workshop.textSize' (s, m, l or xl, set as html[data-text]) and 'workshop.themeFollow' ('on' swaps
 // the chosen theme for its dark/light twin by prefers-color-scheme: Default ↔ Light, Glass ↔ Light
-// glass; a theme from the address is never swapped).
+// glass, Starbase ↔ Starbase day; a theme from the address is never swapped).
 // The two hidden themes (CRT Terminal, Gold) wait for the play ledger: app.js puts them on once
 // /api/play says they are unlocked. Keep THEMES, PAIRS and TEXT_SIZES in step with
 // web/src/theme/theme.ts and textSize.ts (ui.js has the same lists; a test checks all agree).
 (function () {
-  var THEMES = ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass', 'light', 'light-glass'];
-  var PAIRS = [['default', 'light'], ['glass', 'light-glass']];
+  var THEMES = ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass', 'light', 'light-glass', 'starbase', 'starbase-day'];
+  var PAIRS = [['default', 'light'], ['glass', 'light-glass'], ['starbase', 'starbase-day']];
   var TEXT_SIZES = ['s', 'm', 'l', 'xl'];
   var read = function (key) { try { return localStorage.getItem(key); } catch (e) { return null; } };
   var fromUrl = null;

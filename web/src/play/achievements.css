@@ -5,7 +5,7 @@
    1.2 s; a few pieces in Subtle, more in Full). Under reduced motion the toast only fades and the
    burst is not drawn. */
 
-/* ---------- The medal ---------- */
+/* ---------- The badge: a mission patch (packet SB) ---------- */
 
 .ach-medal {
   flex: none;
@@ -20,6 +20,8 @@
 .ach-medal .ach-glyph { color: var(--medal-glyph); }
 .ach-medal .ach-ribbon-l { fill: var(--ribbon-l); }
 .ach-medal .ach-ribbon-r { fill: var(--ribbon-r); }
+/* The patch's stitching, a dashed line just inside its rim. */
+.ach-medal .ach-stitch { fill: none; stroke: var(--medal); stroke-width: 1; stroke-dasharray: 1.6 1.4; opacity: .8; }
 .ach-medal.is-secret { --ribbon-l: var(--crew-c-plum); --ribbon-r: var(--crew-c-plum-deep); }
 .ach-medal.is-quest { --ribbon-l: var(--crew-c-forest); --ribbon-r: var(--crew-c-forest-deep); }
 /* Locked: grey and flat. The word "Locked" next to it says so; the grey only backs it up. */

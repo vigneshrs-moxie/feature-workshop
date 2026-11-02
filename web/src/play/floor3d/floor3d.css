@@ -1,7 +1,8 @@
-/* The 3D workshop floor (play/floor3d, packet S), Play full only. Theme tokens only. The words
-   under each bench are plain text on the floor (no box: the bench is the frame), placed by
-   Floor3D.tsx where the scene says. The only motion is the 3D fading in once (200 ms), none under
-   reduced motion. Status is never colour alone: each bench says it in words with its glyph. */
+/* The 3D station (play/floor3d, packets S and SB), Play full only. Theme tokens only. The words
+   under each bay are plain text on the deck (no box: the bay is the frame), placed by Floor3D.tsx
+   where the scene says: its sign (the kind's icon, "Building · Invoice export"), its stop and
+   phase, and each crew member's line. The only motion is the 3D fading in once (200 ms), none
+   under reduced motion. Status is never colour alone: each bay says it in words with its glyph. */
 
 .floor3d { display: grid; gap: var(--space-2); min-width: 0; }
 
@@ -41,6 +42,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.floor3d-plate-title { display: inline-flex; flex: 1 1 auto; align-items: center; gap: 6px; }
+.floor3d-plate-title .floor3d-name { overflow: hidden; text-overflow: ellipsis; }
+.floor3d-verb { flex: none; color: var(--text-2); font-weight: var(--weight-medium); }
+.floor3d-kind-icon { flex: none; color: var(--text-2); }
+.floor3d-phase { display: flex; align-items: center; gap: 0; min-width: 0; margin: 0; overflow: hidden; color: var(--text-2); font-size: var(--text-xs); white-space: nowrap; }
+.floor3d-phase-words { overflow: hidden; text-overflow: ellipsis; }
+.floor3d-phase .floor3d-sep { padding: 0 4px; }
 .floor3d-plate-title:hover { color: var(--text-1); text-decoration: underline; text-decoration-color: var(--border-3); text-underline-offset: 3px; }
 .floor3d-plate-title:focus-visible { border-radius: var(--radius-sm); outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .floor3d-plate.is-hover .floor3d-plate-title { text-decoration: underline; text-decoration-color: var(--border-3); text-underline-offset: 3px; }
@@ -66,7 +74,7 @@
 .floor3d-role { color: var(--text-1); font-weight: var(--weight-medium); }
 .floor3d-sep { color: var(--text-2); }
 .floor3d-line.is-hover .floor3d-now { color: var(--text-1); }
-.floor3d-more { color: var(--text-3); }
+.floor3d-more { color: var(--text-2); }
 
 /* ---------- The plain list ---------- */
 
@@ -86,6 +94,11 @@
 .floor3d-row .floor3d-status { margin-left: auto; }
 .floor3d-row .floor3d-lines { padding-left: calc(var(--space-2) + 8px); }
 .floor3d-empty { margin: 0; }
+/* A stack's parts in the list: one line each, the part's state in words. */
+.floor3d-parts { display: flex; flex-wrap: wrap; gap: 2px var(--space-3); margin: 0; padding: 0 0 0 calc(var(--space-2) + 8px); list-style: none; color: var(--text-2); font-size: var(--text-xs); }
+.floor3d-part a { color: var(--text-2); }
+.floor3d-part a:hover { color: var(--text-1); }
+.floor3d-section { border-radius: var(--radius-sm); }
 
 @media (prefers-reduced-motion: reduce) {
   .floor3d-canvas { transition: none; }
@@ -104,7 +117,7 @@
 .stage-strip-who { overflow: hidden; text-overflow: ellipsis; }
 .stage-strip-who:first-child { flex: none; max-width: 60%; }
 
-/* Settings → Look → Jobs layout: Floor's little picture, two rows of benches. */
+/* Settings → Look → Jobs layout: the Station's little picture, two rows of bays. */
 .layout-pic.pic-floor { grid-template-columns: repeat(2, 1fr); align-content: center; gap: 6px 5px; }
 .layout-pic.pic-floor i { height: 6px; border-bottom: 2px solid var(--accent); }
 

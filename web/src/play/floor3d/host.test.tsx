@@ -62,7 +62,7 @@ describe('the 3D floor in the workshop floor', () => {
     floor('subtle');
     expect(loadScene).not.toHaveBeenCalled();
     expect(document.querySelector('.floor3d')).toBeNull();
-    expect(screen.getByRole('region', { name: 'On the floor' })).toHaveTextContent('Bulk archive');
+    expect(screen.getByRole('region', { name: 'At the station' })).toHaveTextContent('Bulk archive');
   });
 
   it('loads no 3D with Play off', () => {
@@ -75,8 +75,8 @@ describe('the 3D floor in the workshop floor', () => {
     floor('full');
     expect(loadScene).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(create).toHaveBeenCalled());
-    const region = screen.getByRole('region', { name: 'The workshop floor' });
-    expect(within(region).getByRole('link', { name: 'Bulk archive' })).toBeInTheDocument();
+    const region = screen.getByRole('region', { name: 'The station' });
+    expect(within(region).getByRole('link', { name: 'Feature: Building · Bulk archive' })).toBeInTheDocument();
     expect(region).toHaveTextContent('Builder · reading archive.ts');
     // Its permission is the Foreman's own: it holds up its card.
     expect(region).toHaveTextContent('Foreman · asks to run a command');
@@ -99,9 +99,11 @@ describe('the 3D floor in the workshop floor', () => {
     setWebGLForTests(false);
     floor('full');
     expect(loadScene).not.toHaveBeenCalled();
-    const region = screen.getByRole('region', { name: 'The workshop floor' });
-    expect(region).toHaveTextContent('This browser can’t draw the 3D floor, so the jobs show as cards');
+    const region = screen.getByRole('region', { name: 'The station' });
+    expect(region).toHaveTextContent('This browser can’t draw the 3D station, so the jobs show as cards');
     expect(region.querySelector('.floor-grid')).toHaveTextContent('Bulk archive');
+    // The 2D cards are restyled as bays: each says its kind and how far the work has got.
+    expect(region.querySelector('.floor-card[data-kind="build"] .floor-card-bay')).toHaveTextContent(/Feature: Building · /);
   });
 
   it('falls back to the cards when the 3D fails to load', async () => {
@@ -119,10 +121,10 @@ describe('the 3D floor in the workshop floor', () => {
 });
 
 const BENCHES: FloorBench[] = [{
-  slug: 'merge', index: 0, title: 'Customer merge', lamp: 'running', glyph: '◐', status: 'Working', stop: 'Build', hue: 'build', more: 2,
+  slug: 'merge', index: 0, title: 'Customer merge', kind: 'build', phase: 'plates', sign: 'Building · Customer merge', phaseWords: 'hull plates going on', alert: null, sections: null, lamp: 'running', glyph: '◐', status: 'Working', stop: 'Build', hue: 'build', more: 2,
   figures: [
-    { key: 'merge:conductor:0', who: 'conductor', role: 'Foreman', prop: 'clipboard', hue: 'build', pose: 'watching', seat: 'head', progress: null, label: 'Foreman · watching the Builder' },
-    { key: 'merge:feature-implementer:0', who: 'feature-implementer', role: 'Builder', prop: 'hammer', hue: 'build', pose: 'editing', seat: 0, progress: null, label: 'Builder · editing merge.ts' },
+    { key: 'merge:conductor:0', who: 'conductor', role: 'Foreman', prop: 'slate', hue: 'build', pose: 'watching', seat: 'head', progress: null, label: 'Foreman · watching the Builder' },
+    { key: 'merge:feature-implementer:0', who: 'feature-implementer', role: 'Builder', prop: 'welder', hue: 'build', pose: 'editing', seat: 0, progress: null, label: 'Builder · editing merge.ts' },
   ],
 }];
 
@@ -130,7 +132,7 @@ describe('<Floor3D>', () => {
   it('opens the job when its bench is picked', async () => {
     const open = vi.fn();
     render(<Floor3D benches={BENCHES} onOpenJob={open} />);
-    fireEvent.click(screen.getByRole('link', { name: 'Customer merge' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Feature: Building · Customer merge' }));
     expect(open).toHaveBeenCalledWith('merge');
     await waitFor(() => expect(create).toHaveBeenCalled());
     fireEvent.click(document.querySelector('.floor3d-cell') as Element);
@@ -151,7 +153,7 @@ describe('<Floor3D>', () => {
     const r = render(<Floor3D benches={BENCHES} onOpenJob={vi.fn()} />);
     await waitFor(() => expect(create).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('button', { name: 'Show as a list' }));
-    const list = screen.getByRole('list', { name: 'The floor, bench by bench' });
+    const list = screen.getByRole('list', { name: 'The station, bay by bay' });
     expect(list).toHaveTextContent('Customer merge');
     expect(list).toHaveTextContent('Build');
     expect(list).toHaveTextContent('Builder · editing merge.ts');
@@ -160,7 +162,7 @@ describe('<Floor3D>', () => {
     expect(localStorage.getItem(FLOOR_VIEW_KEY)).toBe('list');
     r.unmount();
     render(<Floor3D benches={BENCHES} onOpenJob={vi.fn()} />);
-    expect(screen.getByRole('button', { name: 'Show the floor' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show the station' })).toBeInTheDocument();
   });
 
   it('holds every figure still with reduced motion', async () => {
@@ -190,7 +192,7 @@ describe('<Floor3D>', () => {
   });
 
   it('answers the floor’s keys only when asked: j and k pick a bench, Enter opens it, Esc puts it down', async () => {
-    const two: FloorBench[] = [BENCHES[0], { ...BENCHES[0], slug: 'notes', index: 1, title: 'Customer notes', figures: [] }];
+    const two: FloorBench[] = [BENCHES[0], { ...BENCHES[0], slug: 'notes', index: 1, title: 'Customer notes', sign: 'Building · Customer notes', figures: [] }];
     const open = vi.fn();
     const { unmount } = render(<Floor3D benches={two} onOpenJob={open} keys />);
     await waitFor(() => expect(create).toHaveBeenCalled());
@@ -206,7 +208,7 @@ describe('<Floor3D>', () => {
     key('Escape');
     expect(document.querySelector('.floor3d-plate.is-picked')).toBeNull();
     // The arrows work with the focus on the floor itself.
-    const stage = screen.getByRole('group', { name: /The floor/ });
+    const stage = screen.getByRole('group', { name: /The station/ });
     fireEvent.keyDown(stage, { key: 'ArrowRight' });
     expect(document.querySelector('.floor3d-plate.is-picked')).toHaveTextContent('Customer merge');
     unmount();
@@ -214,7 +216,7 @@ describe('<Floor3D>', () => {
     render(<Floor3D benches={two} onOpenJob={open} />);
     key('j');
     expect(document.querySelector('.floor3d-cell.is-picked')).toBeNull();
-    expect(screen.queryByRole('group', { name: /The floor/ })).toBeNull();
+    expect(screen.queryByRole('group', { name: /The station/ })).toBeNull();
   });
 
   it('shows the quick look’s job as picked', async () => {

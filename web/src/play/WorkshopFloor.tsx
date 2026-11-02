@@ -27,12 +27,26 @@ import { Floor3D } from './floor3d/Floor3D';
 import { useFloorBenches } from './floor3d/useFloorBenches';
 import { usePlayIfAny } from './usePlay';
 import { Button } from '../components/Button';
+import { bayKind, KIND_WORDS, PHASE_WORDS, phaseFor, SIGN_VERB } from './floor3d/bays';
+import { BayIcon } from './floor3d/FloorList';
 
+/**
+ * One job as a 2D bay card (the station's fallback, and the floor in Play subtle): the bay's kind
+ * by its icon and word (a construction bay for a feature, a repair dock for a bug fix) and how far
+ * the work has got, the same as the 3D station says it.
+ */
 function FloorCard({ job, now }: { job: Job; now: Date }) {
   const status = jobStatus(job, now);
   const title = job.title || job.slug;
+  const kind = bayKind(job);
+  const phase = phaseFor(job);
   return (
-    <li className="floor-card" data-group={status.group}>
+    <li className="floor-card" data-group={status.group} data-kind={kind}>
+      <p className="floor-card-bay">
+        <BayIcon kind={kind} size={13} />
+        <span className="sr-only">{KIND_WORDS[kind]}: </span>
+        {phase === 'launched' ? SIGN_VERB[kind].finished : SIGN_VERB[kind].working} · {PHASE_WORDS[kind][phase]}
+      </p>
       <div className="floor-card-head">
         <span className="hue-dot" style={jobHueStyle(job.slug)} aria-hidden="true" />
         {/* The whole card opens the job (the link's box covers it); its name is the job's title. */}
@@ -47,7 +61,7 @@ function FloorCard({ job, now }: { job: Job; now: Date }) {
   );
 }
 
-/** Play full: the 3D floor, with the cards as its fallback. */
+/** Play full: the 3D station, with the cards as its fallback. */
 function FullFloor({ cards }: { cards: ReactNode }) {
   const benches = useFloorBenches();
   return <Floor3D benches={benches} fallback={cards} hint={null} />;
@@ -102,8 +116,8 @@ export function WorkshopFloor({ compact = false }: { compact?: boolean } = {}) {
       </section>
 
       {!compact && open.length > 0 && (
-        <section className="floor-jobs" aria-label="On the floor">
-          <h3 className="settings-heading" title="Every open job, with its trail: the stages it runs and who is on the current one.">On the floor</h3>
+        <section className="floor-jobs" aria-label="At the station">
+          <h3 className="settings-heading" title="Every open job, with its trail: the stages it runs and who is on the current one. A feature is a construction bay, a bug fix a repair dock.">At the station</h3>
           <p className="muted floor-hint">Pick a job to open its conversation.{closed ? ` ${closed} in the list on the left.` : ''}</p>
           {play.full ? <FullFloor cards={cards} /> : cards}
         </section>

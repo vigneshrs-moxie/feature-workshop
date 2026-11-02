@@ -1,5 +1,5 @@
-// The workshop crew, as the crew pack (crewPack.ts) has them: who they are, how they are drawn (a
-// hat and a tool on the shared rig, see CrewMember.tsx), a fixed bio line for the Crew-dex card
+// The station crew, as the crew pack (crewPack.ts) has them: who they are, how they are drawn (a
+// helmet's fittings and a tool on the shared suited rig, see CrewMember.tsx), a fixed bio line for the Crew-dex card
 // back, and how rare their model is. Nothing here is read from the network
 // except the models (meta.crewModels), and none of it is ever user input.
 
@@ -14,10 +14,10 @@ import type { HatId, ToolId, Family } from './crewPack';
 import { CREW_PACK, PACK_ALIASES } from './crewPack';
 
 export const MOTION: Record<ToolId, Motion> = {
-  hammer: 'strike', brick: 'strike', check: 'strike', key: 'strike', clipboard: 'strike',
-  quill: 'write', brush: 'write', ruler: 'write', blueprint: 'write',
-  magnifier: 'scan', gauge: 'scan', stopwatch: 'scan',
-  flask: 'shake', fuse: 'shake',
+  welder: 'strike', brick: 'strike', key: 'strike', slate: 'strike',
+  quill: 'write', brush: 'write', ruler: 'write', tablet: 'write',
+  magnifier: 'scan', gauge: 'scan', stopwatch: 'scan', lens: 'scan',
+  scanner: 'shake', fuse: 'shake',
 };
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'legendary';
@@ -67,7 +67,7 @@ const ALIASES: Readonly<Record<string, string>> = PACK_ALIASES;
 export function crewInfo(type: string | null | undefined): CrewInfo {
   const known = type ? BY_TYPE.get(ALIASES[type] ?? type) : undefined;
   if (known) return known;
-  return { type: type || 'unknown', number: 0, name: type || 'Helper', role: 'Other agent', roleWord: 'Helper', hat: 'cap', tool: 'clipboard', bio: '', model: 'sonnet' };
+  return { type: type || 'unknown', number: 0, name: type || 'Helper', role: 'Other agent', roleWord: 'Helper', hat: 'cap', tool: 'slate', bio: '', model: 'sonnet' };
 }
 
 export const isCrewType = (type: unknown): type is string => typeof type === 'string' && BY_TYPE.has(type);

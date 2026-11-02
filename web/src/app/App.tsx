@@ -218,7 +218,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
               : route.name === 'settings' ? <SettingsView section={route.section} />
                 : crew ? <div className="page-wide"><CrewDexView /></div>
                   : achievements ? <div className="page-wide"><AchievementsView /></div>
-                    : lost === '#/floor-lab' ? <Suspense fallback={null}><FloorLab /></Suspense>
+                    : lost === '#/station-lab' || lost === '#/floor-lab' ? <Suspense fallback={null}><FloorLab /></Suspense>
                     : lost !== null ? <div className="page-wide"><NotFoundView hash={lost} /></div>
                       : home === 'map' || home === 'table' ? <HomeView view={home} />
                         : <JobsPage />;

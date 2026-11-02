@@ -24,6 +24,7 @@ import { usagePaused } from '../crewLines';
 import { waited } from '../floorModel';
 import { MAX_HELPERS, type Seat } from './layout';
 import type { LampGroup, StopHue } from './palette';
+import { alertFor, bayKind, type BuildPhase, PHASE_WORDS, phaseFor, sectionState, SECTION_WORDS, signFor, stackWords } from './bays';
 import { propFor } from './props';
 import type { Pose } from './rig';
 import type { FloorBench, FloorFigure } from './types';
@@ -243,6 +244,9 @@ const rank = (who: string) => { const i = ROLE_ORDER.indexOf(who); return i < 0 
 
 interface NowLine { who?: string; doing?: string | null; since?: string | null; quietMs?: number | null; status?: AgentFacts['status'] }
 
+/** How far a bay's work has got by the time it reaches each stop. */
+const STOP_PHASE: Record<StopId, BuildPhase> = { spec: 'frame', investigate: 'frame', plan: 'frame', build: 'plates', test: 'lights', review: 'sealed', ship: 'sealed' };
+
 /**
  * The Stage strip's bench: the job at one stop, with the crew the Stage lists there (its rows, from
  * dashboard/lib/stage-view.js) instead of the job card's now lines, in that stop's hue.
@@ -253,7 +257,14 @@ export function stageBench(job: Job, stop: StopId, agents: readonly Pick<StageAg
     .map((a) => ({ who: a.who, doing: a.doing, since: a.since, status: a.status === 'working' || a.status === 'waiting' || a.status === 'stopped' ? a.status : null }));
   const bench = benchFor({ ...job, nowDoing }, 0, facts);
   const label = STOPS.find((x) => x.id === stop)?.label ?? bench.stop;
-  return { ...bench, hue: stop, stop: label, figures: bench.figures.map((f) => (f.who === 'conductor' ? { ...f, hue: stop } : f)) };
+  // The bay as it stands at this stop (the module's frame at Plan, its plates at Build…), so the
+  // picture, the words and the crew the Stage lists here agree; on the job's current stop that is
+  // where the work really is.
+  const phase = bench.phase === 'launched' ? 'launched' : STOP_PHASE[stop];
+  return {
+    ...bench, hue: stop, stop: label, phase, phaseWords: PHASE_WORDS[bench.kind][phase], sign: signFor(bench.kind, phase, bench.title),
+    figures: bench.figures.map((f) => (f.who === 'conductor' ? { ...f, hue: stop } : f)),
+  };
 }
 
 /** One job's bench: its status in words and its figures, the Foreman first, then up to three helpers. */
@@ -297,16 +308,74 @@ export function benchFor(job: Job, index: number, facts: Omit<JobFacts, 'job'>):
       label: labelFor(a, f, isConductor(a.who) ? crewTypes : []),
     };
   };
+  const kind = bayKind(job);
+  const phase = phaseFor(job);
+  const title = job.title || job.slug;
+  const figures = [figure(foreman, 'head'), ...shown.map((h, i) => figure(h, i as Seat))];
+  const lamp = LAMP[status.group] ?? 'idle';
   return {
     slug: job.slug,
     index,
-    title: job.title || job.slug,
-    lamp: LAMP[status.group] ?? 'idle',
+    title,
+    kind,
+    phase,
+    sign: signFor(kind, phase, title),
+    phaseWords: PHASE_WORDS[kind][phase],
+    alert: alertFor(lamp, figures.map((f) => f.pose)),
+    sections: null,
+    lamp,
     glyph: status.glyph,
     status: status.label,
     stop: job.stage ? stageLabel(job.stage) : '',
     hue: jobStop,
-    figures: [figure(foreman, 'head'), ...shown.map((h, i) => figure(h, i as Seat))],
+    figures,
     more: Math.max(0, helpers.length - shown.length),
+  };
+}
+
+// ---------- A stack: one larger module, a section per part ----------
+
+/** A stack's part as the station needs it (StackSummary.sections). */
+export interface StackPartFacts { n: number; name: string; slug: string | null; state: string; stateWords?: string }
+
+/** The module's length a construction bay builds along x, and where section n (1-based) of `of` sits on it. */
+export const MODULE_LENGTH = 1.62;
+export const sectionX = (n: number, of: number) => -MODULE_LENGTH / 2 + ((n - 0.5) * MODULE_LENGTH) / Math.max(1, of);
+
+/**
+ * A stack's bay: the stack's own job (its coordinator, the Foreman at the head) building one larger
+ * module, a section per part in merge order. Merged parts are joined, parts at work each bring a
+ * small crew of their own (the part's first helper, standing at its section), and waiting parts
+ * are dim frames. Clicking a section opens that part's quick look.
+ */
+export function stackBench(job: Job, index: number, parts: readonly StackPartFacts[], partJobs: ReadonlyMap<string, Job>, facts: Omit<JobFacts, 'job'>): FloorBench {
+  const base = benchFor({ ...job, kind: 'feature' }, index, facts);
+  const ordered = [...parts].sort((a, b) => a.n - b.n);
+  const sections = ordered.map((p) => {
+    const state = sectionState(p.state);
+    return { n: p.n, slug: p.slug, state, name: p.name, words: `Part ${p.n} · ${p.name} · ${SECTION_WORDS[state]}` };
+  });
+  // The part crews: each part at work brings its first helper (else its Foreman), at its section.
+  const crews: FloorFigure[] = [];
+  for (const sec of sections) {
+    if (sec.state !== 'working' || !sec.slug || crews.length >= MAX_HELPERS) continue;
+    const pj = partJobs.get(sec.slug);
+    if (!pj) continue;
+    const pb = benchFor(pj, 0, facts);
+    const lead = pb.figures.find((f) => f.who !== 'conductor') ?? pb.figures[0];
+    if (!lead) continue;
+    crews.push({ ...lead, seat: crews.length as Seat, at: sectionX(sec.n, sections.length), small: true, label: `${lead.label} · part ${sec.n}` });
+  }
+  const foreman = base.figures[0];
+  const figures = [foreman, ...crews];
+  return {
+    ...base,
+    kind: 'build',
+    sign: signFor('build', base.phase, base.title),
+    phaseWords: `Stack · ${stackWords(sections.map((x) => x.state))}`,
+    alert: alertFor(base.lamp, figures.map((f) => f.pose)),
+    sections,
+    figures,
+    more: Math.max(0, sections.filter((x) => x.state === 'working').length - crews.length),
   };
 }

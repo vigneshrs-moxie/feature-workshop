@@ -162,16 +162,16 @@ describe('stamina (Full, top bar)', () => {
   it('Fresh, Warning or Resting until the reset, in words, with a simple bar', () => {
     const fresh = bar('full');
     expect(fresh.container.querySelector('.stamina')).toHaveClass('is-fresh');
-    expect(fresh.container).toHaveTextContent('Stamina: Fresh');
+    expect(fresh.container).toHaveTextContent('Station power, Claude’s usage: Fresh');
     expect(fresh.container.querySelector('.stamina-fill')).toHaveStyle({ width: '100%' });
     fresh.unmount();
     const warn = bar('full', { warning: { label: '5-hour limit', percent: 92, resetsAt: at(15, 42) } });
-    expect(warn.container).toHaveTextContent('Stamina: Warning');
+    expect(warn.container).toHaveTextContent('Station power, Claude’s usage: Warning');
     expect(warn.container).not.toHaveTextContent('92');
     warn.unmount();
     const rest = bar('full', { limited: true, blocking: true, autoResume: true, resetKnown: true, resetsAt: at(15, 42) });
     expect(rest.container.querySelector('.stamina')).toHaveClass('is-resting');
-    expect(rest.container).toHaveTextContent('Stamina: Resting until 3:42pm');
+    expect(rest.container).toHaveTextContent('Station power, Claude’s usage: Resting until 3:42pm');
     expect(rest.container.querySelector('.stamina')).toHaveAttribute('title', expect.stringContaining('crew are asleep'));
   });
 

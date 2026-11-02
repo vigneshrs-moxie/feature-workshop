@@ -153,6 +153,89 @@ describe('the floor scene', () => {
     scene.dispose();
   });
 
+  it('builds a construction bay or a repair dock by kind, and shows its work as far as it has got', () => {
+    const { renderer, scene } = make();
+    scene.setLayout(floorLayout(1200, 2), 1);
+    const [a, b] = benches(2);
+    const shown = (o: Object3D) => { for (let x: Object3D | null = o; x; x = x.parent) if (!x.visible) return false; return true; };
+    const sleeves = () => {
+      // The construction bay's hull sections: the module's own meshes with the sleeve's shape.
+      let n = 0;
+      renderer.scenes.at(-1)?.traverse((o) => { if (o instanceof Mesh && o.geometry.type === 'CylinderGeometry' && shown(o) && (o.geometry as { parameters?: { radialSegments?: number; height?: number } }).parameters?.radialSegments === 6 && Math.abs(((o.geometry as { parameters: { height: number } }).parameters.height) - 0.385) < 0.01) n++; });
+      return n;
+    };
+    const stripes = () => {
+      let n = 0;
+      renderer.scenes.at(-1)?.traverse((o) => { if (o instanceof Mesh && shown(o) && (o.material as { alphaMap?: unknown }).alphaMap && o.geometry.type === 'PlaneGeometry' && Math.abs(((o.geometry as { parameters: { width: number } }).parameters.width) - 2.7) < 0.01 && Math.abs(((o.geometry as { parameters: { height: number } }).parameters.height) - 0.16) < 0.01) n++; });
+      return n;
+    };
+    // A feature is a construction bay (a module with hull sections), a bug fix a repair dock (hazard stripes on its floor).
+    scene.setBenches([{ ...a, kind: 'build', phase: 'lights' }]);
+    tick();
+    expect(sleeves()).toBe(4);
+    expect(stripes()).toBe(0);
+    scene.setBenches([{ ...a, kind: 'repair', phase: 'lights' }]);
+    tick(400);
+    expect(sleeves()).toBe(0);
+    expect(stripes()).toBe(2);
+    // The hull goes on section by section as the build goes on; a launched module is gone from its bay.
+    const counts = (['frame', 'plates', 'lights', 'sealed', 'launched'] as const).map((phase) => {
+      scene.setBenches([{ ...b, kind: 'build', phase }]);
+      // (Launched plays its moment first: the module lifts away, then it is gone.)
+      tick(2000);
+      tick(40);
+      return sleeves();
+    });
+    expect(counts).toEqual([0, 2, 4, 4, 0]);
+    scene.dispose();
+  });
+
+  it('plays the launch moment once when a bay finishes while you watch, then rests; never with reduced motion', () => {
+    for (const reduced of [false, true]) {
+      const { renderer, scene } = make(reduced);
+      scene.setLayout(floorLayout(1200, 1), 1);
+      const [a] = benches(1);
+      scene.setBenches([{ ...a, kind: 'build', phase: 'sealed', alert: null }]);
+      tick();
+      const work = () => {
+        let y: number | null = null;
+        renderer.scenes.at(-1)?.traverse((o) => { if (o.type === 'Group' && o.children.some((c) => c instanceof Mesh && (c.geometry as { parameters?: { height?: number } }).parameters?.height === 1.62)) y = o.visible ? o.position.y : -1; });
+        return y;
+      };
+      expect(work()).toBe(0);
+      scene.setBenches([{ ...a, kind: 'build', phase: 'launched', alert: 'done' }]);
+      tick(900);
+      if (reduced) expect(work()).toBe(-1);
+      else expect(work()).toBeGreaterThan(0.1);
+      tick(1200);
+      tick(40);
+      expect(work()).toBe(-1);
+      scene.dispose();
+    }
+  });
+
+  it('lights the beacon in needs-you amber while a bay waits for you, and red when it is stopped', () => {
+    const { renderer, scene } = make();
+    const c = (r: number, g: number, b: number) => ({ r, g, b, a: 1 });
+    const p = derivePalette({ '--bg-0': c(0.1, 0.1, 0.1), '--text-1': c(0.9, 0.9, 0.9), '--status-warn': c(1, 0.7, 0), '--status-error': c(0.9, 0.2, 0.2) }, 'dark');
+    scene.setPalette(p);
+    scene.setLayout(floorLayout(1200, 1), 1);
+    const [a] = benches(1);
+    const hex = (x: { r: number; g: number; b: number }) => new Color().setRGB(x.r, x.g, x.b, SRGBColorSpace).getHexString();
+    const bulbs = () => {
+      const out: string[] = [];
+      renderer.scenes.at(-1)?.traverse((o) => { if (o instanceof Mesh && o.visible && (o.geometry as { parameters?: { radius?: number } }).parameters?.radius === 0.05) out.push((o.material as unknown as { color: Color }).color.getHexString()); });
+      return out;
+    };
+    scene.setBenches([{ ...a, alert: 'needs-you' }]);
+    tick();
+    expect(bulbs()).toContain(hex(p.needsYou));
+    scene.setBenches([{ ...a, alert: 'stuck' }]);
+    tick(400);
+    expect(bulbs()).toContain(hex(p.stop));
+    scene.dispose();
+  });
+
   it('frees every geometry, material and texture, and the renderer, when it goes', () => {
     const disposed = new Set<unknown>();
     for (const proto of [BufferGeometry.prototype, Material.prototype, Texture.prototype]) {

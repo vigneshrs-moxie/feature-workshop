@@ -68,7 +68,7 @@ test('classic: its theme lists match the new view’s', async () => {
   // The dark/light pairs and the text sizes too (web/src/theme/theme.ts THEME_PAIRS, textSize.ts TEXT_SIZES).
   const pairsOf = (src, name) => [...new RegExp(`${name} = \\[((?:\\s*\\[[^\\]]*\\],?)*)\\s*\\]`).exec(src)[1].matchAll(/\[([^\]]*)\]/g)].map((m) => m[1].split(',').map((x) => x.trim().replace(/'/g, '')));
   const tsPairs = pairsOf(themeTs, 'export const THEME_PAIRS: readonly \\(readonly \\[dark: string, light: string\\]\\)\\[\\]');
-  assert.deepEqual(tsPairs, [['default', 'light'], ['glass', 'light-glass']]);
+  assert.deepEqual(tsPairs, [['default', 'light'], ['glass', 'light-glass'], ['starbase', 'starbase-day']]);
   assert.deepEqual(THEME_PAIRS, tsPairs);
   assert.deepEqual(pairsOf(boot, 'var PAIRS'), tsPairs);
   const sizes = /var TEXT_SIZES = \[([^\]]*)\]/.exec(boot)[1].split(',').map((x) => x.trim().replace(/'/g, ''));

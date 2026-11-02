@@ -11,6 +11,9 @@
 /* The light twins of Default and Glass (Follow the system pairs them, theme.ts THEME_PAIRS). */
 @import './light.css';
 @import './light-glass.css';
+/* Starbase and its daylight twin (packet SB; Follow the system pairs them). */
+@import './starbase.css';
+@import './starbase-day.css';
 /* Light glass's calm layer: IBM Plex, small-caps labels, flat panels (daylight.css). */
 @import './daylight.css';
 /* The hidden themes (Play layer): applied only once the play ledger unlocks them (theme.ts). */

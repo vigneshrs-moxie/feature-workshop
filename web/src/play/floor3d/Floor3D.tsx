@@ -16,14 +16,14 @@
 // nothing moves when the 3D arrives. "Show as a list" swaps the 3D for the plain list (remembered
 // per browser); the list is also what screen readers get, as the plates under the benches.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { jobHref, navigate } from '../../app/router';
+import { navigate } from '../../app/router';
 import { Icon } from '../../components/Icon';
 import { STOPS } from '../../components/stops/stops';
 import type { StopHue } from './palette';
 import { usePrefersReducedMotion } from '../usePlay';
 import { useKeyScope } from '../../app/keyRegistry';
 import { Button } from '../../components/Button';
-import { FloorList, FigureLine, StopWord } from './FloorList';
+import { BaySign, BayStop, FloorList, FigureLine } from './FloorList';
 import { floorLayout, type FloorLayout } from './layout';
 import { loadScene } from './loadScene';
 import { readPalette, watchTheme } from './palette';
@@ -62,7 +62,7 @@ export interface Floor3DProps {
 
 const openJob = (slug: string) => navigate({ name: 'job', slug });
 
-export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, onStats, label = 'The workshop floor', hint, keys = false, current = null, layoutFor = floorLayout, bar = true }: Floor3DProps) {
+export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, onStats, label = 'The station', hint, keys = false, current = null, layoutFor = floorLayout, bar = true }: Floor3DProps) {
   const [view, setViewState] = useState<View>(readView);
   const [webgl] = useState(hasWebGL);
   const [failed, setFailed] = useState(false);
@@ -71,7 +71,7 @@ export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, 
   if (!webgl || failed) {
     return (
       <section className="floor3d is-flat" aria-label={label}>
-        <p className="floor3d-note muted">This browser can’t draw the 3D floor, so the jobs show {fallback ? 'as cards' : 'as a list'}, with the same words.</p>
+        <p className="floor3d-note muted">This browser can’t draw the 3D station, so the jobs show {fallback ? 'as cards' : 'as a list'}, with the same words.</p>
         {fallback ?? <FloorList benches={benches} onOpenJob={onOpenJob} />}
       </section>
     );
@@ -91,15 +91,15 @@ export function Floor3D({ benches, onOpenJob = openJob, fallback, busy = false, 
 }
 
 function FloorBar({ view, onView, onFit, hint }: { view: View; onView: (v: View) => void; onFit?: () => void; hint?: string | null }) {
-  const words = hint === undefined ? (view === 'floor' ? 'Each bench is a job. Pick a bench or a builder to open the job.' : 'The floor as a list: one row per bench.') : hint;
+  const words = hint === undefined ? (view === 'floor' ? 'Each bay is a job. Pick a bay or a crew member to open the job.' : 'The station as a list: one row per bay.') : hint;
   return (
     <div className="floor3d-bar">
       {words && <p className="floor3d-hint muted">{words}</p>}
       <div className="floor3d-actions">
         {/* Fit all keeps its place while hidden, so the bar never moves. */}
-        <Button kind="quiet" size="sm" className={`floor3d-btn${onFit ? '' : ' is-idle'}`} aria-hidden={onFit ? undefined : true} tabIndex={onFit ? undefined : -1} onClick={onFit} title="Show the whole floor again (after zooming with a pinch, or ⌘ and scroll).">Fit all</Button>
-        <Button kind="quiet" size="sm" className="floor3d-btn" aria-pressed={view === 'list'} onClick={() => onView(view === 'floor' ? 'list' : 'floor')} title={view === 'floor' ? 'Show the benches as a plain list of words instead of the 3D floor.' : 'Show the 3D floor again.'}>
-          {view === 'floor' ? 'Show as a list' : 'Show the floor'}
+        <Button kind="quiet" size="sm" className={`floor3d-btn${onFit ? '' : ' is-idle'}`} aria-hidden={onFit ? undefined : true} tabIndex={onFit ? undefined : -1} onClick={onFit} title="Show the whole station again (after zooming with a pinch, or ⌘ and scroll).">Fit all</Button>
+        <Button kind="quiet" size="sm" className="floor3d-btn" aria-pressed={view === 'list'} onClick={() => onView(view === 'floor' ? 'list' : 'floor')} title={view === 'floor' ? 'Show the bays as a plain list of words instead of the 3D station.' : 'Show the 3D station again.'}>
+          {view === 'floor' ? 'Show as a list' : 'Show the station'}
         </Button>
       </div>
     </div>
@@ -142,6 +142,7 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, k
   const plates = useRef(new Map<string, HTMLElement>());
   const hits = useRef(new Map<string, HTMLElement>());
   const cells = useRef(new Map<string, HTMLElement>());
+  const secHits = useRef(new Map<string, HTMLElement>());
   const [ready, setReady] = useState(false);
   const [hover, setHover] = useState<{ slug: string; key: string | null } | null>(null);
   const reduced = usePrefersReducedMotion();
@@ -156,6 +157,14 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, k
       if (el) el.style.transform = `translate(${b.plate.left}px, ${b.plate.top}px)`;
       const cell = cells.current.get(b.slug);
       if (cell) { cell.style.transform = `translate(${b.cell.left}px, ${b.cell.top}px)`; cell.style.width = `${b.cell.width}px`; cell.style.height = `${b.cell.height}px`; }
+    }
+    for (const sec of a.sections) {
+      const el = secHits.current.get(`${sec.slug}`);
+      if (!el) continue;
+      el.style.transform = `translate(${sec.rect.left}px, ${sec.rect.top}px)`;
+      el.style.width = `${sec.rect.width}px`;
+      el.style.height = `${sec.rect.height}px`;
+      el.hidden = false;
     }
     for (const f of a.figures) {
       const el = hits.current.get(f.key);
@@ -300,7 +309,7 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, k
         {...(keys ? {
           tabIndex: 0,
           role: 'group',
-          'aria-label': 'The floor. The arrows, or j and k, pick a bench; Enter takes a quick look; o opens its job.',
+          'aria-label': 'The station. The arrows, or j and k, pick a bay; Enter takes a quick look; o opens its job.',
           onKeyDown,
         } : {})}
       >
@@ -324,6 +333,18 @@ function FloorStage({ benches, onOpenJob, busy, onStats, onFail, onView, hint, k
               />
             );
           })}
+          {/* A stack's sections: each opens its part's quick look, its words in the tooltip. */}
+          {ready && benches.flatMap((b) => (b.sections ?? []).filter((x) => x.slug).map((x) => (
+            <div
+              key={`${b.slug}:${x.n}`}
+              ref={refFor(secHits, x.slug as string)}
+              className="floor3d-hit floor3d-section"
+              hidden
+              data-tip={x.words}
+              onPointerEnter={() => setHover({ slug: b.slug, key: null })}
+              onClick={() => { setPicked(b.slug); onOpenJob(x.slug as string); }}
+            />
+          )))}
           {/* Each figure's now line in the app's tooltip (R's TooltipLayer draws every data-tip). */}
           {ready && benches.flatMap((b) => b.figures.map((f) => (
             <div
@@ -371,27 +392,21 @@ function stopIcons(box: HTMLElement | null): Partial<Record<StopHue, string>> {
 }
 
 function Plate({ bench, onOpenJob, hoverKey }: { bench: FloorBench; onOpenJob: (slug: string) => void; hoverKey: string | null }) {
-  const lines = bench.figures.slice(0, 4);
+  const lines = bench.figures.slice(0, 3);
+  const more = bench.more + Math.max(0, bench.figures.length - lines.length);
   return (
     <>
       <div className="floor3d-plate-head">
-        <a
-          className="floor3d-plate-title"
-          href={jobHref(bench.slug)}
-          title={`Open ${bench.title}.`}
-          onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); onOpenJob(bench.slug); }}
-        >
-          {bench.title}
-        </a>
-        {bench.stop && <StopWord bench={bench} />}
+        <BaySign bench={bench} onOpenJob={onOpenJob} title={`Open ${bench.title}.`} />
         <span className="floor3d-status" data-group={bench.lamp}>
           <span className="floor3d-glyph" aria-hidden="true">{bench.glyph}</span>
           {bench.status}
         </span>
       </div>
+      <BayStop bench={bench} />
       <ul className="floor3d-lines">
         {lines.map((f) => <FigureLine key={f.key} figure={f} hover={hoverKey === f.key} />)}
-        {bench.more > 0 && <li className="floor3d-line floor3d-more">and {bench.more} more {bench.more === 1 ? 'helper' : 'helpers'} at work</li>}
+        {more > 0 && <li className="floor3d-line floor3d-more">and {more} more at work</li>}
       </ul>
     </>
   );

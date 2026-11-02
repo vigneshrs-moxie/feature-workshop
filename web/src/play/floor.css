@@ -65,6 +65,14 @@
 .floor-card:hover { border-color: var(--border-3); box-shadow: var(--shadow-1); transform: translateY(-2px); }
 .floor-card[data-group="needs-you"] { border-color: var(--group-needs-you-line); }
 .floor-card:has(.floor-card-title a:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* The bay's kind on a 2D card, as the 3D station draws it: a thin cyan work-light edge along the top
+   of a construction bay, hazard stripes along a repair dock's (the crew's brass, never the needs-you
+   amber). The icon and the words say the same. */
+.floor-card { position: relative; }
+.floor-card::before { content: ""; position: absolute; top: 0; right: var(--space-4); left: var(--space-4); height: 3px; border-radius: 0 0 3px 3px; background: var(--stop-build); pointer-events: none; }
+.floor-card[data-kind="repair"]::before { background: repeating-linear-gradient(-45deg, var(--crew-c-amber) 0 5px, var(--text-1) 5px 10px); }
+.floor-card-bay { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--text-2); font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.floor-card-bay .floor3d-kind-icon { color: var(--text-2); }
 .floor-card-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .floor-card-title { flex: 1; min-width: 0; margin: 0; overflow: hidden; font-size: var(--text-md); text-overflow: ellipsis; white-space: nowrap; }
 .floor-card-title a { color: var(--text-1); }
