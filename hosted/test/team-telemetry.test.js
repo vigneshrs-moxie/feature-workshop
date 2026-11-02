@@ -191,7 +191,7 @@ test('the team page is the same for everyone on the site and names no job; a per
     const same = (b) => JSON.stringify({ ...b, me: null, people: b.people.map((p) => ({ ...p, you: null })) });
     assert.equal(same(seen.raj), same(seen.sam));
     assert.equal(same(seen.raj), same(seen.owner));
-    assert.deepEqual(seen.raj.graphs.map((g) => [g.id, g.audience]), [['limit', 'common'], ['models', 'common'], ['people', 'common']]);
+    assert.deepEqual(seen.raj.graphs.map((g) => [g.id, g.audience]), [['limit', 'common'], ['people', 'common'], ['models', 'common']]);
     const text = JSON.stringify(seen.raj);
     for (const name of ['tidy-button', 'Tidy button', 'route-sharing', 'ORBIT-479']) assert.ok(!text.includes(name), `the team page named ${name}`);
     // What each laptop said about Claude Code use outside the app, in words.

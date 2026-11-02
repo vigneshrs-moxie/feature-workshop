@@ -113,7 +113,7 @@ describe('the hosted site', () => {
   });
 
   it('a page the site doesn’t serve yet is a calm placeholder, never an error', async () => {
-    for (const [hash, title] of [['#/job/add-export/screens', 'A job’s screens'], ['#/stacks/build', 'Stacks'], ['#/telemetry', 'Telemetry']] as const) {
+    for (const [hash, title] of [['#/job/add-export/screens', 'A job’s screens'], ['#/stacks/build', 'Stacks'], ['#/settings/workflow', 'This part of Settings']] as const) {
       go(hash);
       const { api } = site();
       render(<HostedApp api={api} />);

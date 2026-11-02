@@ -275,7 +275,7 @@ function modelsGraph(ctx) {
     rows: bars.map((b) => [b.label, ...series.map((s) => { const p = b.parts.find((x) => x.key === s.key); return p ? `${pct(p.share * 100)} (${usd(p.usd)})` : '—'; }), usd(b.usd)]),
   };
   const notes = ['Known use only: everyone’s jobs in the app and their Claude Code use outside it. Other use (claude.ai, the Claude app) has no model to show.', WEEK_NOTE];
-  const base = { id: 'models', n: 2, title: 'Share by model', audience: 'common', data: { series, bars, saving: null }, table, notes };
+  const base = { id: 'models', n: 3, title: 'Share by model', audience: 'common', data: { series, bars, saving: null }, table, notes };
   if (!bars.length) return graph({ ...base, state: 'empty', headline: 'No use recorded on this site yet.', todo: 'Nothing to do yet.' });
   const latest = bars.at(-1);
   const sorted = [...latest.parts].sort((a, b) => b.usd - a.usd);
@@ -307,7 +307,7 @@ function peopleGraph(ctx) {
     ...counting,
   ];
   const base = {
-    id: 'people', n: 3, title: 'Who used this week’s limit', audience: 'common',
+    id: 'people', n: 2, title: 'Who used this week’s limit', audience: 'common',
     data: { window: 'week', people, others, free: metered ? split.free : null, unknown: metered ? split.unknown : null, state: split.state },
     table: { caption: 'Who used this week’s limit: each person in the app and in Claude Code outside it, then other use, once for the account.', head: ['Who', 'Share of the week', 'In the app', 'In Claude Code', 'Spend in the app', 'Spend in Claude Code'], rows },
     notes,
@@ -378,7 +378,7 @@ export function teamTelemetry({ rows, people, sources = [], now = Date.now(), ti
   };
   const counting = countingNotes(sources, names);
   const ctx = { lines, outside, now: end, timeZone, week, weeks, split: limits.week, fiveHour: limits.fiveHour, ratio, names, counting };
-  const graphs = [limitGraph(ctx), modelsGraph(ctx), peopleGraph(ctx)];
+  const graphs = [limitGraph(ctx), peopleGraph(ctx), modelsGraph(ctx)];
   const meter = (l, m, span) => (l ? { percent: l.meters[m].percent, resetsAt: l.meters[m].resetsAt, at: l.t, current: l.meters[m].resetsAt ? Date.parse(l.meters[m].resetsAt) > end && Date.parse(l.meters[m].resetsAt) - span <= end : end - l.ms < span } : null);
   return {
     from: iso(week.from), to: iso(end), timeZone, weekLabel: week.label, me,
