@@ -85,7 +85,9 @@ async function pair(context, name) {
 function madeUpWeek(now) {
   const from = planWeekStart(now, { timeZone: TZ });
   const resets = new Date(from + 7 * 24 * H).toISOString();
-  const ratio = 0.45; // percent of the week per dollar
+  // Rates scaled to how far into the week it is, so the shots show a week part used whatever the day.
+  const scale = 2 / Math.max(2, (now - from) / (24 * H));
+  const ratio = 0.45 * scale; // percent of the week per dollar
   const lines = { raj: [], sam: [] };
   const replies = [];
   const jobs = { raj: ['orbit-512-route-sharing', 'add-export', 'price-rounding'], sam: ['nightly-report', 'orbit-530-login-banner'] };
@@ -97,7 +99,7 @@ function madeUpWeek(now) {
   const fiveSpend = [];
   for (let t = from + 30 * MIN; t < now - 5 * MIN; t += 10 * MIN, step++) {
     const h = Number(parts(t, TZ, { hour: '2-digit', hourCycle: 'h23' }).hour);
-    if (h >= 19 && h < 23) { other += 0.3; fiveSpend.push({ t, pct: 0.3 }); continue; } // claude.ai and the Claude app, in the evening
+    if (h >= 19 && h < 23) { other += 0.3 * scale; fiveSpend.push({ t, pct: 0.3 * scale }); continue; } // claude.ai and the Claude app, in the evening
     if (h < 8 || h >= 19) continue;
     if (h >= 13 && h < 16 && step % 2 === 0) {
       const usd = 0.35 + (step % 5) * 0.05;
