@@ -14,9 +14,16 @@ import type { Pose, Rig } from '../rig';
 import { changeRig, isSeated, nextBurstIn, burstAt, phaseOf, pointAt, poseRig, rigAt, transitionMs, walkMs, walkPath, walkRig, LOOPS, pathLength } from '../rig';
 import type { FloorAnchors, FloorScene, FloorSceneOptions, FrameStats, PropId, RendererLike, SceneBench, SceneFigure } from '../types';
 import type { StopHue } from '../palette';
-import { FIGURE, HEAD_Y, createKit, type BenchParts, type FigureParts } from './kit';
+import { FIGURE, HEAD_Y, createKit, type BayParts, type FigureParts } from './kit';
+import type { BayKind, BuildPhase } from '../bays';
 
 const FRAME_MS = 1000 / 30;
+/** The sparks of a repair under way: a burst of SPARK_MS every SPARK_PERIOD ms, each bay at its own moment. */
+const SPARK_PERIOD = 2600;
+const SPARK_MS = 640;
+const sparkAt = (t: number, phase: number) => ((t + phase * SPARK_PERIOD) % SPARK_PERIOD + SPARK_PERIOD) % SPARK_PERIOD;
+const sparkBurst = (t: number, phase: number) => { const at = sparkAt(t, phase); return at < SPARK_MS ? at / SPARK_MS : -1; };
+const sparkNext = (t: number, phase: number) => { const at = sparkAt(t, phase); return at < SPARK_MS ? 0 : SPARK_PERIOD - at; };
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 2.5;
 const PARALLAX_YAW = 0.022;
@@ -44,7 +51,7 @@ interface FigureView {
   hover: number;
 }
 
-interface BenchView { slug: string; index: number; hue: StopHue | null; parts: BenchParts; figures: Map<string, FigureView> }
+interface BenchView { slug: string; index: number; kind: BayKind; phase: BuildPhase | null; hue: StopHue | null; parts: BayParts; figures: Map<string, FigureView> }
 
 function makeRenderer(canvas: HTMLCanvasElement): RendererLike {
   const r = new WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'default' });
@@ -89,6 +96,8 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
   let listener: ((a: FloorAnchors) => void) | null = null;
   // The view: zoom about a point (px, at rest), and the parallax (eased toward the pointer).
   const view = { zoom: 1, ox: 0, oy: 0 };
+  // How far the airlock's leaves are open (0..1).
+  let airlock = 0;
   let zoomAnim: { from: typeof view; to: typeof view; start: number; ms: number } | null = null;
   const tilt = { x: 0, y: 0, tx: 0, ty: 0 };
   // Frame timings, for stats().
@@ -212,13 +221,22 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
       let b = benches.get(sb.slug);
       const fresh = !b;
       if (!b) {
-        const parts = kit.makeBench();
-        b = { slug: sb.slug, index: sb.index, hue: null, parts, figures: new Map() };
+        const parts = kit.makeBay(sb.kind);
+        b = { slug: sb.slug, index: sb.index, kind: sb.kind, phase: null, hue: null, parts, figures: new Map() };
         benches.set(sb.slug, b);
         scene.add(parts.group);
+      } else if (b.kind !== sb.kind) {
+        // The job's kind changed (rare: a guess put right): the bay is rebuilt as the other kind.
+        scene.remove(b.parts.group);
+        b.parts = kit.makeBay(sb.kind);
+        b.kind = sb.kind;
+        b.phase = null;
+        b.hue = null;
+        scene.add(b.parts.group);
       }
       b.index = sb.index;
-      if (b.hue !== sb.hue) { b.hue = sb.hue; kit.hueBench(b.parts, sb.hue); }
+      if (b.hue !== sb.hue) { b.hue = sb.hue; kit.hueBay(b.parts, sb.hue); }
+      if (b.phase !== sb.phase) { b.phase = sb.phase; kit.phaseBay(b.parts, sb.phase); }
       placeBench(b);
       const helpers = sb.figures.filter((x) => x.seat !== 'head').length;
       const keep = new Set<string>();
@@ -254,6 +272,8 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
           }
         }
       }
+      // Nothing is left on a launched module's (or an undocked craft's) empty cradle.
+      for (const f of b.figures.values()) f.parts.items.visible = b.phase !== 'launched';
       // A helper that finished walks out (and is gone at once with reduced motion).
       for (const [key, f] of b.figures) {
         if (keep.has(key)) continue;
@@ -320,11 +340,29 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
   /** Moves every figure to time t. Whether anything is still moving. */
   function step(t: number): boolean {
     let moving = false;
+    let walking = false;
     for (const b of benches.values()) {
-      for (const f of b.figures.values()) moving = stepFigure(f, t) || moving;
+      for (const f of b.figures.values()) { moving = stepFigure(f, t) || moving; walking = walking || Boolean(f.walk); }
+      moving = stepBay(b, t) || moving;
     }
-    for (const f of leaving) moving = stepFigure(f, t) || moving;
+    for (const f of leaving) { moving = stepFigure(f, t) || moving; walking = walking || Boolean(f.walk); }
+    // The airlock parts while a helper walks in or out, and shuts behind them.
+    const to = walking ? 1 : 0;
+    if (airlock !== to) {
+      airlock = Math.abs(to - airlock) < 0.03 ? to : airlock + (to - airlock) * 0.22;
+      kit.openAirlock(airlock);
+      moving = true;
+    }
     return moving;
+  }
+
+  /** A bay's own motion: the sparks of a repair under way fly in short bursts (still with reduced motion). */
+  function stepBay(b: BenchView, t: number): boolean {
+    if (b.phase !== 'plates' || b.kind !== 'repair') return false;
+    if (!animated() && !busy) { kit.sparkBay(b.parts, null); return false; }
+    const u = sparkBurst(t, phaseOf(b.slug));
+    kit.sparkBay(b.parts, u >= 0 ? t : -1);
+    return u >= 0;
   }
 
   function stepFigure(f: FigureView, t: number): boolean {
@@ -393,9 +431,12 @@ export function createFloorScene(canvas: HTMLCanvasElement, opts: FloorSceneOpti
     // Asleep until the next burst is due.
     if (reduced) return;
     let next = Infinity;
-    for (const b of benches.values()) for (const f of b.figures.values()) {
-      const n = nextBurstIn(f.pose, t, f.phase);
-      if (n !== null) next = Math.min(next, n);
+    for (const b of benches.values()) {
+      for (const f of b.figures.values()) {
+        const n = nextBurstIn(f.pose, t, f.phase);
+        if (n !== null) next = Math.min(next, n);
+      }
+      if (b.phase === 'plates' && b.kind === 'repair') next = Math.min(next, sparkNext(t, phaseOf(b.slug)));
     }
     if (Number.isFinite(next)) wakeId = setTimeout(() => { wakeId = null; wake(); }, Math.max(16, next));
   }

@@ -284,7 +284,7 @@ export function derivePalette(raw: Partial<Record<FloorToken, Rgb>>, schemeHint?
     plateDark: light ? mix(bg4, text3, 0.35) : mix(bg4, bg0, 0.3),
     workLight: mix(hue.build, WHITE, light ? 0.1 : 0.25),
     hazard,
-    hazardDark: light ? mix(text1, bg4, 0.25) : mix(bg0, bg2, 0.5),
+    hazardDark: light ? mix(text1, bg4, 0.1) : mix(bg0, bg2, 0.5),
     hull: light ? mix(bg0, text3, 0.16) : mix(text2, bg4, 0.42),
     damage: light ? mix(text1, ground(pick('--status-error', '--text-1')), 0.18) : mix(bg0, ground(pick('--status-error', '--text-1')), 0.22),
     patch: light ? mix(bg0, hue.build, 0.18) : mix(text1, hue.build, 0.25),

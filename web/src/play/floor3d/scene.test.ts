@@ -153,6 +153,41 @@ describe('the floor scene', () => {
     scene.dispose();
   });
 
+  it('builds a construction bay or a repair dock by kind, and shows its work as far as it has got', () => {
+    const { renderer, scene } = make();
+    scene.setLayout(floorLayout(1200, 2), 1);
+    const [a, b] = benches(2);
+    const shown = (o: Object3D) => { for (let x: Object3D | null = o; x; x = x.parent) if (!x.visible) return false; return true; };
+    const sleeves = () => {
+      // The construction bay's hull sections: the module's own meshes with the sleeve's shape.
+      let n = 0;
+      renderer.scenes.at(-1)?.traverse((o) => { if (o instanceof Mesh && o.geometry.type === 'CylinderGeometry' && shown(o) && (o.geometry as { parameters?: { radialSegments?: number; height?: number } }).parameters?.radialSegments === 6 && Math.abs(((o.geometry as { parameters: { height: number } }).parameters.height) - 0.385) < 0.01) n++; });
+      return n;
+    };
+    const stripes = () => {
+      let n = 0;
+      renderer.scenes.at(-1)?.traverse((o) => { if (o instanceof Mesh && shown(o) && (o.material as { alphaMap?: unknown }).alphaMap && o.geometry.type === 'PlaneGeometry' && Math.abs(((o.geometry as { parameters: { width: number } }).parameters.width) - 2.7) < 0.01 && Math.abs(((o.geometry as { parameters: { height: number } }).parameters.height) - 0.16) < 0.01) n++; });
+      return n;
+    };
+    // A feature is a construction bay (a module with hull sections), a bug fix a repair dock (hazard stripes on its floor).
+    scene.setBenches([{ ...a, kind: 'build', phase: 'lights' }]);
+    tick();
+    expect(sleeves()).toBe(4);
+    expect(stripes()).toBe(0);
+    scene.setBenches([{ ...a, kind: 'repair', phase: 'lights' }]);
+    tick(400);
+    expect(sleeves()).toBe(0);
+    expect(stripes()).toBe(2);
+    // The hull goes on section by section as the build goes on; a launched module is gone from its bay.
+    const counts = (['frame', 'plates', 'lights', 'sealed', 'launched'] as const).map((phase) => {
+      scene.setBenches([{ ...b, kind: 'build', phase }]);
+      tick(400);
+      return sleeves();
+    });
+    expect(counts).toEqual([0, 2, 4, 4, 0]);
+    scene.dispose();
+  });
+
   it('frees every geometry, material and texture, and the renderer, when it goes', () => {
     const disposed = new Set<unknown>();
     for (const proto of [BufferGeometry.prototype, Material.prototype, Texture.prototype]) {

@@ -41,6 +41,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.floor3d-plate-title { display: inline-flex; flex: 1 1 auto; align-items: center; gap: 6px; }
+.floor3d-plate-title .floor3d-name { overflow: hidden; text-overflow: ellipsis; }
+.floor3d-verb { flex: none; color: var(--text-2); font-weight: var(--weight-medium); }
+.floor3d-kind-icon { flex: none; color: var(--text-2); }
+.floor3d-phase { display: flex; align-items: center; gap: 0; min-width: 0; margin: 0; overflow: hidden; color: var(--text-2); font-size: var(--text-xs); white-space: nowrap; }
+.floor3d-phase-words { overflow: hidden; text-overflow: ellipsis; }
+.floor3d-phase .floor3d-sep { padding: 0 4px; }
 .floor3d-plate-title:hover { color: var(--text-1); text-decoration: underline; text-decoration-color: var(--border-3); text-underline-offset: 3px; }
 .floor3d-plate-title:focus-visible { border-radius: var(--radius-sm); outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .floor3d-plate.is-hover .floor3d-plate-title { text-decoration: underline; text-decoration-color: var(--border-3); text-underline-offset: 3px; }

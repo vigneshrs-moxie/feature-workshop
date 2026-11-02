@@ -24,6 +24,7 @@ import { usagePaused } from '../crewLines';
 import { waited } from '../floorModel';
 import { MAX_HELPERS, type Seat } from './layout';
 import type { LampGroup, StopHue } from './palette';
+import { bayKind, PHASE_WORDS, phaseFor, signFor } from './bays';
 import { propFor } from './props';
 import type { Pose } from './rig';
 import type { FloorBench, FloorFigure } from './types';
@@ -297,10 +298,17 @@ export function benchFor(job: Job, index: number, facts: Omit<JobFacts, 'job'>):
       label: labelFor(a, f, isConductor(a.who) ? crewTypes : []),
     };
   };
+  const kind = bayKind(job);
+  const phase = phaseFor(job);
+  const title = job.title || job.slug;
   return {
     slug: job.slug,
     index,
-    title: job.title || job.slug,
+    title,
+    kind,
+    phase,
+    sign: signFor(kind, phase, title),
+    phaseWords: PHASE_WORDS[kind][phase],
     lamp: LAMP[status.group] ?? 'idle',
     glyph: status.glyph,
     status: status.label,

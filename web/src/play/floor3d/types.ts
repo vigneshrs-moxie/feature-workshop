@@ -1,5 +1,6 @@
 // The shapes the 3D floor passes between its parts: the React side (no three.js) and the scene
 // (scene/, the lazy chunk with three.js in it). Types, and one plain helper (sceneBenches).
+import type { BayKind, BuildPhase } from './bays';
 import type { FloorLayout, Rect, Seat } from './layout';
 import type { FloorPalette, LampGroup, StopHue } from './palette';
 import type { Pose } from './rig';
@@ -24,11 +25,15 @@ export interface SceneFigure {
   hue: StopHue;
 }
 
-/** One bench as the scene draws it. */
+/** One bay as the scene draws it. */
 export interface SceneBench {
   slug: string;
-  /** Its place in the grid (bench assignment: never reshuffled). */
+  /** Its place in the grid (bay assignment: never reshuffled). */
   index: number;
+  /** A construction bay (a feature) or a repair dock (a bug fix). */
+  kind: BayKind;
+  /** How far the module or the repair has got. */
+  phase: BuildPhase;
   /** The status (the words next to the bench say it). */
   lamp: LampGroup;
   /** The job's current stop: the bench's thin edge, its lamp and the icon on its front. */
@@ -116,11 +121,17 @@ export interface FloorFigure extends SceneFigure {
   label: string;
 }
 
-/** One bench: a job, its status in words, and the figures at it. */
+/** One bay: a job, its status in words, and the figures at it. */
 export interface FloorBench {
   slug: string;
   index: number;
   title: string;
+  kind: BayKind;
+  phase: BuildPhase;
+  /** The bay's sign: "Building · Invoice export", "Repairing · Footer typo". */
+  sign: string;
+  /** What the bay shows now, in words: "hull plates going on", "repair under way". */
+  phaseWords: string;
   lamp: LampGroup;
   /** The job's status in words, with its glyph ("◆", "Go-ahead"). */
   glyph: string;
@@ -139,6 +150,8 @@ export function sceneBenches(benches: readonly FloorBench[]): SceneBench[] {
   return benches.map((b) => ({
     slug: b.slug,
     index: b.index,
+    kind: b.kind,
+    phase: b.phase,
     lamp: b.lamp,
     hue: b.hue,
     figures: b.figures.map(({ key, prop, pose, seat, progress, hue }) => ({ key, prop, pose, seat, progress, hue })),

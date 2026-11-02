@@ -16,14 +16,14 @@
 // nothing moves when the 3D arrives. "Show as a list" swaps the 3D for the plain list (remembered
 // per browser); the list is also what screen readers get, as the plates under the benches.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { jobHref, navigate } from '../../app/router';
+import { navigate } from '../../app/router';
 import { Icon } from '../../components/Icon';
 import { STOPS } from '../../components/stops/stops';
 import type { StopHue } from './palette';
 import { usePrefersReducedMotion } from '../usePlay';
 import { useKeyScope } from '../../app/keyRegistry';
 import { Button } from '../../components/Button';
-import { FloorList, FigureLine, StopWord } from './FloorList';
+import { BaySign, BayStop, FloorList, FigureLine } from './FloorList';
 import { floorLayout, type FloorLayout } from './layout';
 import { loadScene } from './loadScene';
 import { readPalette, watchTheme } from './palette';
@@ -371,27 +371,21 @@ function stopIcons(box: HTMLElement | null): Partial<Record<StopHue, string>> {
 }
 
 function Plate({ bench, onOpenJob, hoverKey }: { bench: FloorBench; onOpenJob: (slug: string) => void; hoverKey: string | null }) {
-  const lines = bench.figures.slice(0, 4);
+  const lines = bench.figures.slice(0, 3);
+  const more = bench.more + Math.max(0, bench.figures.length - lines.length);
   return (
     <>
       <div className="floor3d-plate-head">
-        <a
-          className="floor3d-plate-title"
-          href={jobHref(bench.slug)}
-          title={`Open ${bench.title}.`}
-          onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); onOpenJob(bench.slug); }}
-        >
-          {bench.title}
-        </a>
-        {bench.stop && <StopWord bench={bench} />}
+        <BaySign bench={bench} onOpenJob={onOpenJob} title={`Open ${bench.title}.`} />
         <span className="floor3d-status" data-group={bench.lamp}>
           <span className="floor3d-glyph" aria-hidden="true">{bench.glyph}</span>
           {bench.status}
         </span>
       </div>
+      <BayStop bench={bench} />
       <ul className="floor3d-lines">
         {lines.map((f) => <FigureLine key={f.key} figure={f} hover={hoverKey === f.key} />)}
-        {bench.more > 0 && <li className="floor3d-line floor3d-more">and {bench.more} more {bench.more === 1 ? 'helper' : 'helpers'} at work</li>}
+        {more > 0 && <li className="floor3d-line floor3d-more">and {more} more at work</li>}
       </ul>
     </>
   );
