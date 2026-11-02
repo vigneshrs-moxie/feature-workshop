@@ -5,10 +5,12 @@
 //   #/settings[/laptops]    Settings → Laptops;  #/settings/people  Settings → People
 //   #/settings/orbit        Settings → Orbit: your Orbit token for the Inbox (packet 2C)
 //   #/inbox[?peek=ORBIT-n]  the Inbox, from the inbox the site keeps for you (packet 2C)
+//   #/telemetry             the shared account's limit and your own jobs' graphs (packet 2E:
+//                           views/Telemetry/HostedTelemetry.tsx)
 //   #/lounge                the Lounge: the whole team, very little per person (packet 2D)
 //   #/desk, #/job/<slug>, #/job/<slug>/stage/<stop>, #/stacks, #/stack/<slug>[/part/<n>]
 //                           the laptop app's own pages, from the full mirror (packet 2B: HostedWorkshop)
-//   anything else the laptop's app has (Screens, Telemetry, …)
+//   anything else the laptop's app has (Screens, …)
 //                           a calm "open this on your laptop for now" page, never an error
 import { useEffect, useState } from 'react';
 import { pageName, parseHash, type Route } from '../../app/router';
@@ -24,6 +26,7 @@ export type HostedRoute =
   | { name: 'people' }
   | { name: 'orbit' }
   | { name: 'inbox' }
+  | { name: 'telemetry' }
   | { name: 'lounge' }
   | { name: 'later'; page: string }
   | { name: 'mirror'; route: MirrorRoute };
@@ -41,6 +44,7 @@ export function parseHostedHash(raw: string): HostedRoute {
   const r = parseHash(raw);
   if (r.name === 'home' || r.name === 'not-found') return { name: 'jobs' };
   if (r.name === 'inbox') return { name: 'inbox' };
+  if (r.name === 'telemetry') return { name: 'telemetry' };
   if (r.name === 'desk' || r.name === 'job' || r.name === 'stage' || r.name === 'stacks' || r.name === 'stack' || r.name === 'stack-part') return { name: 'mirror', route: r };
   if (r.name === 'screens') return { name: 'later', page: 'A job’s screens' };
   if (r.name === 'stack-build') return { name: 'later', page: 'Stacks' };
