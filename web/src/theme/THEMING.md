@@ -16,8 +16,8 @@ Until then, and always with Play mode Off, a hidden id in the address or localSt
 like an unknown one; Starbase also refuses to record one as tried (409). They are full
 themes like the others and keep every rule below.
 
-**Light twins and Follow the system.** Two themes come as a dark/light pair, Default ↔ Light and
-Glass ↔ Light glass (`THEME_PAIRS` in `theme.ts`; the classic page's copies in `dashboard/public/ui.js`
+**Light twins and Follow the system.** Three themes come as a dark/light pair, Default ↔ Light,
+Glass ↔ Light glass and Starbase ↔ Starbase day (packet SB) (`THEME_PAIRS` in `theme.ts`; the classic page's copies in `dashboard/public/ui.js`
 and `theme-boot.js` must match, a test checks). With Settings → Look → Follow the system on
 (localStorage `workshop.themeFollow` = `on`, off by default), `prefers-color-scheme` picks the member
 of the chosen theme's pair, now and whenever the system changes; a theme with no twin is left as

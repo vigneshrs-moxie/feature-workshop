@@ -23,15 +23,15 @@ function systemPrefers(scheme: 'dark' | 'light') {
 
 // Light and Default come first, beside Follow the system; All themes holds the rest in two groups.
 const FIRST = ['light', 'default'];
-const DARK = ['neon-arcade', 'blueprint', 'pixel-crew', 'candy-pop', 'glass'];
-const LIGHT = ['sunset-paper', 'light-glass'];
+const DARK = ['neon-arcade', 'blueprint', 'pixel-crew', 'candy-pop', 'glass', 'starbase'];
+const LIGHT = ['sunset-paper', 'light-glass', 'starbase-day'];
 
 describe('theme picker and the hidden themes', () => {
   it('lists Light and Default first, then All themes: the rest in two groups, Dark then Light; CRT Terminal and Gold only once unlocked, each with an “Unlocked” tag', () => {
     setup();
     const radios = () => screen.getAllByRole('radio').map((r) => (r as HTMLInputElement).value);
     expect(radios()).toEqual([...FIRST, ...DARK, ...LIGHT]);
-    expect(screen.getByRole('button', { name: /^All themes \(7\)/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /^All themes \(9\)/ })).toHaveAttribute('aria-expanded', 'true');
     // Light is what a new browser opens in: it carries the Default tag.
     expect(within(screen.getByRole('radio', { name: /^Light( Chosen)? Default$/ }).closest('label')!).getByText('Default')).toBeInTheDocument();
     const inGroup = (name: string) => within(screen.getByRole('group', { name })).getAllByRole('radio').map((r) => (r as HTMLInputElement).value);
@@ -48,7 +48,7 @@ describe('theme picker and the hidden themes', () => {
 
     act(() => setThemeUnlocks({ crt: true, gold: true }));
     expect(radios()).toEqual([...FIRST, ...DARK, 'crt', 'gold', ...LIGHT]);
-    expect(screen.getByRole('button', { name: /^All themes \(9\)/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^All themes \(11\)/ })).toBeInTheDocument();
     expect(inGroup('Dark')).toEqual([...DARK, 'crt', 'gold']);
     expect(screen.getAllByText('Unlocked')).toHaveLength(2);
   });

@@ -280,7 +280,7 @@ describe('Settings: look', () => {
     setup([{ rules: [], active: true, unreadable: null }], undefined, 'look');
     const picker = screen.getByRole('group', { name: 'How Starbase looks' });
     const radios = within(picker).getAllByRole('radio');
-    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(['light', 'default', 'neon-arcade', 'blueprint', 'pixel-crew', 'candy-pop', 'glass', 'sunset-paper', 'light-glass']);
+    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(['light', 'default', 'neon-arcade', 'blueprint', 'pixel-crew', 'candy-pop', 'glass', 'starbase', 'sunset-paper', 'light-glass', 'starbase-day']);
     expect(within(picker).getByRole('radio', { name: /^Default/ })).toBeChecked();
     expect(within(picker).getByRole('radio', { name: /Neon arcade/ }).closest('label')).toHaveAttribute('title', expect.stringMatching(/Ink-navy night/));
     fireEvent.click(within(picker).getByRole('radio', { name: /Candy pop/ }));
@@ -333,7 +333,7 @@ describe('Settings, simple first (packet R)', () => {
       const picker = screen.getByRole('group', { name: 'How Starbase looks' });
       expect(within(picker).getAllByRole('radio').map((r) => (r as HTMLInputElement).value)).toEqual(['light', 'default']);
       expect(within(picker).getByRole('checkbox', { name: /Follow the system/ })).toBeInTheDocument();
-      const all = moreButton(/^All themes \(7\)/);
+      const all = moreButton(/^All themes \(9\)/);
       expect(all).toHaveAttribute('aria-expanded', 'false');
       expect(screen.getByTestId('theme-chosen-line')).toHaveTextContent(/^Chosen: Light — /);
       fireEvent.click(all);
@@ -341,9 +341,9 @@ describe('Settings, simple first (packet R)', () => {
       cleanup();
       localStorage.setItem('workshop.theme', 'glass');
       setup([{ rules: [], active: true, unreadable: null }], undefined, 'look');
-      // A theme from the nine is chosen: All themes is open, names it, and it reads as chosen.
-      expect(moreButton(/^All themes \(7\)/)).toHaveAttribute('aria-expanded', 'true');
-      expect(moreButton(/^All themes \(7\)/)).toHaveTextContent('Glass is chosen');
+      // A theme from the eleven is chosen: All themes is open, names it, and it reads as chosen.
+      expect(moreButton(/^All themes \(9\)/)).toHaveAttribute('aria-expanded', 'true');
+      expect(moreButton(/^All themes \(9\)/)).toHaveTextContent('Glass is chosen');
       expect(screen.getByRole('radio', { name: /^Glass Chosen/ })).toBeChecked();
       await waitFor(() => expect(railValue('Rules')).toBe('No rules'));
       document.documentElement.removeAttribute('data-theme');

@@ -13,9 +13,9 @@ export const prefs = {
 // The new view's themes (web/src/theme/theme.ts): the ones everyone has, and the two the play
 // ledger unlocks; the dark/light pairs Follow the system switches between; the four text sizes
 // (web/src/theme/textSize.ts). theme-boot.js keeps its own copy of each; a test checks all agree.
-export const THEMES = ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass', 'light', 'light-glass'];
+export const THEMES = ['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass', 'light', 'light-glass', 'starbase', 'starbase-day'];
 export const HIDDEN_THEMES = ['crt', 'gold'];
-export const THEME_PAIRS = [['default', 'light'], ['glass', 'light-glass']];
+export const THEME_PAIRS = [['default', 'light'], ['glass', 'light-glass'], ['starbase', 'starbase-day']];
 export const TEXT_SIZES = ['s', 'm', 'l', 'xl'];
 
 /** `id` as Follow the system shows it: its pair's member for the system's colour scheme while 'workshop.themeFollow' is on. */

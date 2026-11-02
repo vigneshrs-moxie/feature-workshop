@@ -13,14 +13,14 @@ afterEach(() => {
 });
 
 describe('theme resolution', () => {
-  it('registers the default, the five themes from the brief, Glass, the two light twins and the two hidden ones, each with a one-line description', () => {
-    expect(THEME_IDS).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass', 'light', 'light-glass', 'crt', 'gold']);
-    expect(ORIGINAL_THEME_IDS).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass', 'light', 'light-glass']);
+  it('registers the default, the five themes from the brief, Glass, the two light twins, the Starbase pair and the two hidden ones, each with a one-line description', () => {
+    expect(THEME_IDS).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass', 'light', 'light-glass', 'starbase', 'starbase-day', 'crt', 'gold']);
+    expect(ORIGINAL_THEME_IDS).toEqual(['default', 'neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop', 'glass', 'light', 'light-glass', 'starbase', 'starbase-day']);
     expect(HIDDEN_THEME_IDS).toEqual(['crt', 'gold']);
     expect(THEMES.find((t) => t.id === 'crt')?.label).toBe('CRT Terminal');
     expect(THEMES.find((t) => t.id === 'light')?.label).toBe('Light');
     expect(THEMES.find((t) => t.id === 'light-glass')?.label).toBe('Light glass');
-    expect(THEMES.filter((t) => t.scheme === 'light').map((t) => t.id)).toEqual(['sunset-paper', 'light', 'light-glass']);
+    expect(THEMES.filter((t) => t.scheme === 'light').map((t) => t.id)).toEqual(['sunset-paper', 'light', 'light-glass', 'starbase-day']);
     for (const t of THEMES) {
       expect(t.label).toBeTruthy();
       expect(t.description).toMatch(/\S/);
@@ -54,10 +54,12 @@ describe('theme resolution', () => {
   });
 
   it('Follow the system: with it on and the scheme known, the remembered theme gives way to its pair’s member; the address never does', () => {
-    expect(THEME_PAIRS).toEqual([['default', 'light'], ['glass', 'light-glass']]);
+    expect(THEME_PAIRS).toEqual([['default', 'light'], ['glass', 'light-glass'], ['starbase', 'starbase-day']]);
     expect(THEME_FOLLOW_KEY).toBe('workshop.themeFollow');
     expect(themePair('light')).toEqual({ dark: 'default', light: 'light' });
     expect(themePair('glass')).toEqual({ dark: 'glass', light: 'light-glass' });
+    expect(themePair('starbase-day')).toEqual({ dark: 'starbase', light: 'starbase-day' });
+    expect(themeForScheme('starbase', 'light')).toBe('starbase-day');
     expect(themePair('blueprint')).toBeNull();
     expect(themeForScheme('default', 'light')).toBe('light');
     expect(themeForScheme('light', 'dark')).toBe('default');
