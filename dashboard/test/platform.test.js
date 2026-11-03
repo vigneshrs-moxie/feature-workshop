@@ -9,7 +9,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  envGet, findOnPath, folderLabel, killTree, killTreeCommand, nodeCommand, openCommand, openIn,
+  envGet, findOnPath, folderLabel, killTree, killTreeAndWait, killTreeCommand, nodeCommand, openCommand, openIn,
   parsePsRows, parseTasklistRows, processList, processListCommand, shellFor, tempDirs, terminalApps,
 } from '../lib/platform.js';
 import { LocalRunner, pgTool } from '../lib/local.js';
@@ -45,6 +45,22 @@ test('killTree: the process group on macOS and Linux (then the process alone), t
   assert.equal(killTree(42, { platform: 'win32', kill: () => assert.fail('no signals on Windows'), run: (f, a) => ran.push([f, a]) }), 'taskkill');
   assert.deepEqual(ran, [['taskkill', ['/pid', '42', '/T', '/F']]]);
   assert.equal(killTree(0, { platform: 'win32', run: () => assert.fail() }), null);
+});
+
+test('killTreeAndWait: on Windows it returns once taskkill has finished; elsewhere once the signal is sent', async () => {
+  let finish;
+  const ran = [];
+  let settled = false;
+  const waiting = killTreeAndWait(42, { platform: 'win32', run: (f, a) => { ran.push([f, a]); return new Promise((r) => { finish = r; }); } }).then((how) => { settled = true; return how; });
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(ran, [['taskkill', ['/pid', '42', '/T', '/F']]]);
+  assert.equal(settled, false, 'still waiting for taskkill');
+  finish();
+  assert.equal(await waiting, 'taskkill');
+  const calls = [];
+  assert.equal(await killTreeAndWait(42, { platform: 'linux', signal: 'SIGKILL', kill: (pid, sig) => calls.push([pid, sig]), run: () => assert.fail('no command') }), 'group');
+  assert.deepEqual(calls, [[-42, 'SIGKILL']]);
+  assert.equal(await killTreeAndWait(0, { platform: 'win32', run: () => assert.fail() }), null);
 });
 
 test('findOnPath: PATH with : on macOS and Linux; ; and PATHEXT on Windows, in any case', () => {

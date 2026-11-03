@@ -59,6 +59,19 @@ export function killTree(pid, { platform = process.platform, signal = 'SIGTERM',
   try { kill(pid, signal); return 'process'; } catch { return null; }
 }
 
+/**
+ * killTree, then a promise for when the tree is gone as far as the system can say. Windows:
+ * taskkill /T returns once it has ended every process in the tree; the process alone exiting is
+ * not enough, since what it started (a git in a folder) can still hold that folder. macOS and
+ * Linux: at once, the signal is already sent. Resolves with killTree's answer.
+ */
+export async function killTreeAndWait(pid, { platform = process.platform, signal, kill, run = (file, args) => new Promise((resolve) => execFile(file, args, { windowsHide: true, timeout: 10_000 }, () => resolve())) } = {}) {
+  let done = null;
+  const how = killTree(pid, { platform, signal, kill, run: (file, args) => { done = run(file, args); } });
+  await done;
+  return how;
+}
+
 // ---------- Finding programs ----------
 
 /** The full path of a program on PATH (with PATHEXT on Windows), or null. */

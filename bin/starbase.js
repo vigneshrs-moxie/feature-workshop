@@ -482,8 +482,8 @@ async function stopRunning(ctx, s) {
     if (await waitForExit(ctx, s.pid)) return { ok: true, message: STOPPED };
     const svc = await service.checkService({ platform: ctx.platform, home: ctx.home }).catch(() => ({ installed: false }));
     if (svc.installed) await service.stopService({ platform: ctx.platform });
-    const { killTree } = ctx.deps.platform ?? await import('../dashboard/lib/platform.js');
-    killTree(s.pid, { platform: ctx.platform });
+    const { killTreeAndWait } = ctx.deps.platform ?? await import('../dashboard/lib/platform.js');
+    await killTreeAndWait(s.pid, { platform: ctx.platform }); // what it started is ended too, before it says stopped
     if (await waitForExit(ctx, s.pid, 10_000)) return { ok: true, message: `${PRODUCT} didn’t stop by itself within 25 seconds, so it was ended. A reply that was in progress carries on with starbase resume <job>.` };
     return { ok: false, message: `${PRODUCT} (pid ${s.pid}) didn’t stop. Close the window it runs in, or end it in Task Manager.` };
   }

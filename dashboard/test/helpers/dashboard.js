@@ -13,7 +13,7 @@ import { spawn } from 'node:child_process';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { killTree } from '../../lib/platform.js';
+import { killTree, killTreeAndWait } from '../../lib/platform.js';
 
 export const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'server.js');
 
@@ -89,9 +89,12 @@ async function startOnce({ env = {}, stateDir = null, output = [], ready = 'runn
 
   async function stop() {
     if (await exited(child, 0)) return;
-    killTree(child.pid, { signal: 'SIGTERM' }); // exactly the dashboard this test started, and what it started
+    // Exactly the dashboard this test started, and what it started. On Windows this waits for
+    // taskkill to end the whole tree: the dashboard alone exiting left a git it started holding
+    // the test's folder, and the test's clean-up couldn't delete it (EBUSY).
+    await killTreeAndWait(child.pid, { signal: 'SIGTERM' });
     if (await exited(child, 10_000)) return;
-    killTree(child.pid, { signal: 'SIGKILL' });
+    await killTreeAndWait(child.pid, { signal: 'SIGKILL' });
     await exited(child, 5_000);
   }
 
