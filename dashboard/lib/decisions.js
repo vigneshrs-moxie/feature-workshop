@@ -10,6 +10,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { PRODUCT, stateDirFor } from './state.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 const firstLine = (text, max = 160) => {
   const line = String(text ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
@@ -308,9 +309,7 @@ async function writeNow(jobDir, { audit = null, auditFile = defaultAuditFile(), 
   const existing = fileStat ? await fs.readFile(file, 'utf8') : '';
   const text = render({ prefix, title: title ?? status?.title ?? null, rows, existing, sections });
   if (text === existing) return { file, text, changed: false };
-  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-  await fs.writeFile(tmp, text, { mode: 0o600 });
-  await fs.rename(tmp, file);
+  await writeFileAtomic(file, text, { mode: 0o600 });
   return { file, text, changed: true };
 }
 
@@ -483,9 +482,7 @@ async function writePlain(file, text) {
   if (st && !st.isFile()) throw Object.assign(new Error(`${file} isn’t a plain file, so it was left alone.`), { plain: true });
   const now = st ? await fs.readFile(file, 'utf8') : null;
   if (now === text) return { file, text, changed: false };
-  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-  await fs.writeFile(tmp, text, { mode: 0o644 });
-  await fs.rename(tmp, file);
+  await writeFileAtomic(file, text, { mode: 0o644 });
   return { file, text, changed: true };
 }
 

@@ -4,7 +4,6 @@
 // Default folder: ~/.starbase (STARBASE_STATE_DIR overrides it). Where it is, and its moves from
 // the folders it had before, are lib/state-folder.js.
 
-import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -58,6 +57,7 @@ export {
   GC_STATE_FOLDER, LEFT_ALONE_NOTE, MOVED_NOTE, MOVED_TO_STARBASE, OLD_STATE_FOLDER, STATE_FOLDER,
   defaultStateDir, moveOldState, moveToStarbase, prepareStateFolder, stateDirFor, stateDirNow,
 } from './state-folder.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 // Emits 'audit' (the entry as written) after each audit line is saved, so live views can say
 // which job's conversation just changed.
@@ -92,9 +92,7 @@ export class State extends EventEmitter {
     const after = this.#writing.get(file) ?? Promise.resolve();
     const mine = after.catch(() => {}).then(async () => {
       await this.#ensure();
-      const tmp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
-      await fs.writeFile(tmp, text, { mode: 0o600 });
-      await fs.rename(tmp, file);
+      await writeFileAtomic(file, text, { mode: 0o600 });
     });
     this.#writing.set(file, mine);
     try { await mine; } finally { if (this.#writing.get(file) === mine) this.#writing.delete(file); }

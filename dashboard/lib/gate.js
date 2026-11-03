@@ -13,6 +13,7 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { STAGES } from './stages.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 /** A gate untouched this long is "parked": an alert, and a chip on the job's row (decision D3). */
 export const GATE_PARK_MS = 4 * 60 * 60 * 1000;
@@ -299,8 +300,6 @@ export class GateParking {
   async save() {
     if (!this.file) return;
     await fsp.mkdir(path.dirname(this.file), { recursive: true, mode: 0o700 });
-    const tmp = `${this.file}.${process.pid}.tmp`;
-    await fsp.writeFile(tmp, `${JSON.stringify({ alerted: [...this.alerted].sort() }, null, 2)}\n`, { mode: 0o600 });
-    await fsp.rename(tmp, this.file);
+    await writeFileAtomic(this.file, `${JSON.stringify({ alerted: [...this.alerted].sort() }, null, 2)}\n`, { mode: 0o600 });
   }
 }

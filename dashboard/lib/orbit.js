@@ -15,11 +15,11 @@
 // Paths, the store, fetch and the clock are injectable, so tests never touch ~/.claude, the
 // Keychain or a real Orbit.
 
-import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { PRODUCT } from './brand.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 // ---------- Tokens ----------
 
@@ -80,9 +80,7 @@ async function readJsonFile(file) {
 
 async function writeJsonFile(file, data, mode) {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
-  await fs.writeFile(tmp, `${JSON.stringify(data, null, 2)}\n`, { mode });
-  await fs.rename(tmp, file);
+  await writeFileAtomic(file, `${JSON.stringify(data, null, 2)}\n`, { mode });
 }
 
 /** Adds (or replaces) mcpServers['orbit-feedback'] in Claude Code's settings file, keeping everything else. */

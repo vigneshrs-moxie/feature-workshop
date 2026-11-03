@@ -31,6 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { isGitRepo } from './git.js';
 import { setProfileOrgs } from './hard-lines.js';
 import { GENERAL, PROFILE_FILE, fillPattern, ownProfileFile, githubOfUrl, githubOrg, loadProfile, portsLabel } from './profile.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 export const REPOS_FILE = 'repos.json';
 /** The profiles Starbase carries for repositories that don't carry their own yet. */
@@ -153,9 +154,7 @@ export class Registry {
 
   async #write(list) {
     await fsp.mkdir(this.dir, { recursive: true, mode: 0o700 });
-    const tmp = `${this.file}.${process.pid}.tmp`;
-    await fsp.writeFile(tmp, `${JSON.stringify(list, null, 2)}\n`, { mode: 0o600 });
-    await fsp.rename(tmp, this.file);
+    await writeFileAtomic(this.file, `${JSON.stringify(list, null, 2)}\n`, { mode: 0o600 });
     this.saved = null;
     await this.#read();
   }

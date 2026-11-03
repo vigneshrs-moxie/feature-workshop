@@ -30,6 +30,7 @@ import path from 'node:path';
 import { evidenceOn, evidenceWhy, isLevel } from './options.js';
 import { testedCommit } from './proof.js';
 import { PRODUCT } from './brand.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 export const EVIDENCE_DIR = 'evidence';
 export const EVIDENCE_FILE = 'evidence.json';
@@ -288,9 +289,7 @@ export function buildEvidence({ report, specs, lines, commit, level, at, outputD
 
 /** Write an evidence.json safely (a temporary file, then a rename). */
 async function writeJson(file, value) {
-  const tmp = `${file}.${process.pid}.tmp`;
-  await fsp.writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`);
-  await fsp.rename(tmp, file);
+  await writeFileAtomic(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 /**

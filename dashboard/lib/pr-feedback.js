@@ -26,6 +26,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { scrub, scrubDeep } from './orbit.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 export const FEEDBACK_FILE = 'pr-feedback.json';
 /** The most quoted text one message carries (characters). */
@@ -160,9 +161,7 @@ function updateFeedback(featureDir, change) {
   const next = (writing.get(file) ?? Promise.resolve()).then(async () => {
     const data = await readFeedback(featureDir);
     const result = change(data);
-    const tmp = `${file}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, `${JSON.stringify({ version: 1, items: data.items, prs: data.prs }, null, 2)}\n`, { mode: 0o600 });
-    await fs.rename(tmp, file);
+    await writeFileAtomic(file, `${JSON.stringify({ version: 1, items: data.items, prs: data.prs }, null, 2)}\n`, { mode: 0o600 });
     return result;
   });
   const kept = next.catch(() => {});

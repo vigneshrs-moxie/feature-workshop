@@ -20,11 +20,12 @@
 // The coordinator never decides who runs next: the runner (runner/stacks.js) does, from here.
 
 import { spawn } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { conflictedFiles, git, outsideOwned, ownedMatcher } from './integrate.js';
 import { diffStat, fileDiff } from './stack-parts.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 export const STACK_PLAN_FILE = 'stack.md';
 export const STACK_FILE = 'stack.json';
@@ -309,9 +310,7 @@ export async function readStack(dir) {
 /** Write <dir>/stack.json through a temp file (only the runner writes it). */
 export async function writeStack(dir, stack) {
   const file = path.join(dir, STACK_FILE);
-  const tmp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
-  await fs.writeFile(tmp, `${JSON.stringify(stack, null, 2)}\n`, { mode: 0o600 });
-  await fs.rename(tmp, file);
+  await writeFileAtomic(file, `${JSON.stringify(stack, null, 2)}\n`, { mode: 0o600 });
   return stack;
 }
 

@@ -29,6 +29,7 @@ import path from 'node:path';
 import { AGENTS, AGENT_ALIASES } from './stages.js';
 import { REVIEWERS } from './options.js';
 import { DEFAULT_FINISH_LINE, finishLineOf, finishLineReached } from './finish.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 export const PLAY_SCHEMA = 1;
 
@@ -984,9 +985,7 @@ export class PlayBook {
 
   async save(ledger) {
     await fs.mkdir(this.dir, { recursive: true, mode: 0o700 });
-    const tmp = `${this.file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(ledger, null, 2), { mode: 0o600 });
-    try { await fs.rename(tmp, this.file); } catch (err) { await fs.rm(tmp, { force: true }); throw err; }
+    await writeFileAtomic(this.file, JSON.stringify(ledger, null, 2), { mode: 0o600 });
   }
 
   /**

@@ -12,6 +12,7 @@ import { execFile, spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { writeFileAtomic } from './atomic-write.js';
 
 export const BRANCH_RE = /^packet\/([A-Za-z0-9]{1,12})-([\w.-]{1,120})$/;
 export const ID_RE = /^[A-Za-z0-9]{1,12}$/;
@@ -486,9 +487,7 @@ export class Integrator extends EventEmitter {
     const now = await this.config();
     const next = { ...now, ...patch };
     await fs.mkdir(this.configDir, { recursive: true, mode: 0o700 });
-    const tmp = `${this.file}.${process.pid}.${Date.now()}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(next, null, 2), { mode: 0o600 });
-    await fs.rename(tmp, this.file);
+    await writeFileAtomic(this.file, JSON.stringify(next, null, 2), { mode: 0o600 });
     return next;
   }
 

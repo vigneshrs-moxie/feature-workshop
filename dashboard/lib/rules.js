@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { matchRule, simpleCommandWords, RULE_EDIT_TOOLS } from './policy.js';
 import { PRODUCT } from './brand.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 // Commands that run whatever comes after them: a prefix rule may not start with one, because
 // "sudo …" or "bash …" would cover any command at all.
@@ -172,9 +173,7 @@ export class RuleStore extends EventEmitter {
 
   async #save() {
     await fs.mkdir(this.dir, { recursive: true, mode: 0o700 });
-    const tmp = `${this.file}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify({ version: 1, rules: this.rules.map(({ label, ...r }) => r) }, null, 2), { mode: 0o600 });
-    await fs.rename(tmp, this.file);
+    await writeFileAtomic(this.file, JSON.stringify({ version: 1, rules: this.rules.map(({ label, ...r }) => r) }, null, 2), { mode: 0o600 });
     this.emit('change', this.rules);
   }
 

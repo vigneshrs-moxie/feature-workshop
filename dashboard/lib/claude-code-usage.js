@@ -34,6 +34,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { estimateCost, modelFamily, tokensFromUsage } from './cost.js';
 import { isTempPath, tempDirs } from './insights.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 export const READ_DAYS = 100;
 export const CACHE_FILE = 'claude-code-usage-cache.json';
@@ -77,9 +78,7 @@ export async function writeSetting(stateDir, { count }) {
   if (typeof count !== 'boolean') throw new TypeError('count is true or false.');
   await fsp.mkdir(stateDir, { recursive: true, mode: 0o700 });
   const file = path.join(stateDir, SETTING_FILE);
-  const tmp = `${file}.${process.pid}.tmp`;
-  await fsp.writeFile(tmp, `${JSON.stringify({ count, changedAt: new Date().toISOString() })}\n`, { mode: 0o600 });
-  await fsp.rename(tmp, file);
+  await writeFileAtomic(file, `${JSON.stringify({ count, changedAt: new Date().toISOString() })}\n`, { mode: 0o600 });
   return { count };
 }
 
@@ -265,9 +264,7 @@ export class ClaudeCodeUsage {
       dirs: e.dirs, temp: e.temp, bad: e.bad, replies: e.temp ? [] : [...e.replies.entries()],
     }));
     await fsp.mkdir(path.dirname(this.cacheFile), { recursive: true, mode: 0o700 });
-    const tmp = `${this.cacheFile}.${process.pid}.tmp`;
-    await fsp.writeFile(tmp, JSON.stringify({ version: CACHE_VERSION, files }), { mode: 0o600 });
-    await fsp.rename(tmp, this.cacheFile);
+    await writeFileAtomic(this.cacheFile, JSON.stringify({ version: CACHE_VERSION, files }), { mode: 0o600 });
   }
 
   /**

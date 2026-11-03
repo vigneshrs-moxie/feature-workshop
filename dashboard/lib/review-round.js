@@ -32,6 +32,7 @@ import { scrub, scrubDeep } from './orbit.js';
 import { runSteps, yes as yesFor } from './gh-write.js';
 import { QUOTE_MAX, checkKey, commentKey, isSummaryBot, lookedAt as lookedAtPr, noteFeedback, readFeedback as readFeedbackRecord } from './pr-feedback.js';
 import { PRODUCT } from './brand.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 // N's record: the items a round takes are marked 'round', so N never cards them too.
 const noteRound = (dir, key) => noteFeedback(dir, key, { state: 'round' });
@@ -443,9 +444,7 @@ async function writeRound(featureDir, round, { route = [] } = {}) {
   const clean = scrubDeep(round);
   for (const [name, text] of [[`round-${round.round}.json`, `${JSON.stringify(clean, null, 2)}\n`], [`round-${round.round}.md`, roundMarkdown(clean, { route })]]) {
     const file = path.join(dirOf(featureDir), name);
-    const tmp = `${file}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, text, { mode: 0o600 });
-    await fs.rename(tmp, file);
+    await writeFileAtomic(file, text, { mode: 0o600 });
   }
 }
 
@@ -1041,8 +1040,7 @@ export function createReviewRounds(deps) {
   async function savePrMemory(f, mem) {
     await fs.mkdir(path.join(f.dir, 'review'), { recursive: true });
     const file = path.join(f.dir, 'review', 'prs.json');
-    await fs.writeFile(`${file}.${process.pid}.tmp`, `${JSON.stringify(mem, null, 2)}\n`, { mode: 0o600 });
-    await fs.rename(`${file}.${process.pid}.tmp`, file);
+    await writeFileAtomic(file, `${JSON.stringify(mem, null, 2)}\n`, { mode: 0o600 });
   }
 
   // The round the job's view is about: the newest one not done, on the PR it is on.

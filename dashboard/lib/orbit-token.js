@@ -18,6 +18,7 @@
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { replaceFile, tmpNameFor } from './atomic-write.js';
 
 export const SERVICE = 'Starbase Orbit token';
 /** The name before Starbase (G36): still read, cleared on the next save. */
@@ -61,10 +62,10 @@ export function fileStore(dir, names = ORBIT_NAMES) {
     },
     async set(token) {
       await fs.mkdir(dir, { recursive: true, mode: 0o700 });
-      const tmp = `${file}.${process.pid}.tmp`;
+      const tmp = tmpNameFor(file);
       await fs.writeFile(tmp, token, { mode: 0o600 });
       await fs.chmod(tmp, 0o600); // a umask can't widen it
-      await fs.rename(tmp, file);
+      await replaceFile(tmp, file);
     },
     async clear() {
       await fs.rm(file, { force: true });

@@ -13,6 +13,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { GENERAL, fillPattern } from './profile.js';
 import { PRODUCT } from './brand.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 export const OPUS = 'claude-opus-5-5';
 export const FABLE = 'claude-fable-5-1';
@@ -318,11 +319,9 @@ export async function readOptions(dir) {
 export async function writeOptions(dir, options, about = {}) {
   await fsp.mkdir(dir, { recursive: true });
   const file = path.join(dir, 'options.json');
-  const tmp = `${file}.${process.pid}.tmp`;
   const keep = Object.fromEntries(Object.entries(about).filter(([k, v]) => (['title', 'repo', 'kind', 'branch'].includes(k) && typeof v === 'string' && v) || (['from_session', 'ticket'].includes(k) && v && typeof v === 'object')));
   const updatedAt = new Date().toISOString();
-  await fsp.writeFile(tmp, `${JSON.stringify({ ...options, schema_version: SCHEMA_VERSION, ...keep, updated_at: updatedAt }, null, 2)}\n`);
-  await fsp.rename(tmp, file);
+  await writeFileAtomic(file, `${JSON.stringify({ ...options, schema_version: SCHEMA_VERSION, ...keep, updated_at: updatedAt }, null, 2)}\n`);
   return updatedAt;
 }
 
