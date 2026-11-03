@@ -88,7 +88,7 @@ const COMMANDS = {
     summary: 'Register a repository',
     help: [
       `Adds the repository at <path> to ${PRODUCT}’s list. Its starbase.md (in the repository’s`,
-      'root; an older starbase.md still counts) says how work is done there. When it has none,',
+      'root) says how work is done there. When it has none,',
       'five questions make one: the GitHub name,',
       'where job worktrees go, the command that starts the app, the ports to use and the files to copy.',
       `The answers are saved as a profile in ${PRODUCT}’s own folder; the repository isn’t changed.`,
