@@ -90,7 +90,9 @@ const isInside = (p, dir) => {
 async function mainCheckout(dir) {
   const common = await git(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
   if (!common) return null;
-  return path.basename(common) === '.git' ? path.dirname(common) : git(dir, ['rev-parse', '--show-toplevel']);
+  // git prints C:/Users/... on Windows; path.resolve gives the C:\Users\... used everywhere else.
+  const top = path.basename(common) === '.git' ? path.dirname(common) : await git(dir, ['rev-parse', '--show-toplevel']);
+  return top ? path.resolve(top) : null;
 }
 
 /** The "org/repo" of every GitHub remote of a folder. */

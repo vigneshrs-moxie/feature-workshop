@@ -135,6 +135,8 @@ test('locateJob: finds the repo, branch and worktree from text and git', async (
 
 test('pathsIn and branchesIn read free-form records', () => {
   assert.deepEqual(pathsIn('Repo `/Users/a/p`, see /Users/a/q/file.md. And (/tmp/x).'), ['/Users/a/p', '/Users/a/q/file.md', '/tmp/x']);
+  // Windows paths, as the Foreman writes them there.
+  assert.deepEqual(pathsIn('Repo `C:\\Users\\a\\p`, see C:\\Users\\a\\q\\file.md. And `D:/work/x`.'), ['C:\\Users\\a\\p', 'C:\\Users\\a\\q\\file.md', 'D:/work/x']);
   assert.deepEqual(branchesIn('on branch `feature/a-b` at e6d7422; also `fix/c` and branch main'), ['feature/a-b', 'fix/c']);
 });
 

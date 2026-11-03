@@ -12,7 +12,8 @@ import { COMMAND_NAMES, main, parseArgs, profileFromAnswers } from '../../bin/st
 import { PRODUCT } from '../lib/state.js';
 import { parseProfile } from '../lib/profile.js';
 
-const tmp = (prefix) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+// .native: on Windows it also turns a short name (C:\Users\RUNNER~1) into the long one git prints.
+const tmp = (prefix) => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 
 /** Runs one command line with fakes; resolves { code, out, err, text }. */
 async function cli(argv, o = {}) {
@@ -314,7 +315,7 @@ test('repo add: not a repository is a plain error; with no starbase.md it asks f
   assert.equal(saved.ok, true, saved.errors.join(' | '));
   assert.equal(saved.profile.github, 'acme/widgets');
   assert.deepEqual(fs.readdirSync(repo).filter((n) => n !== '.git'), [], 'the repository itself is not changed');
-  assert.ok(fs.readFileSync(path.join(stateDir, 'repos.json'), 'utf8').includes(repo));
+  assert.ok(JSON.parse(fs.readFileSync(path.join(stateDir, 'repos.json'), 'utf8')).some((e) => e.path === repo));
 
   const quote = await cli(['repo', 'add', repo], { stateDir: tmp('gc-cli-state-'), interactive: true, ask: async () => 'a"b' });
   assert.equal(quote.code, 1);

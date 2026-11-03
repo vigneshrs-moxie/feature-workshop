@@ -2,6 +2,8 @@
 // real. Each job's place follows its stage, and its counts come from its name, so the map looks
 // the same every time. jobs: the jobs FlowWatch maps, with their stage and title.
 
+import path from 'node:path';
+
 const hash = (s) => [...String(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 const sha = (s) => hash(s).toString(16).padStart(8, '0').repeat(5);
 const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
@@ -9,7 +11,7 @@ const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
 const BUILT = new Set(['implement', 'test', 'review']);
 
 export async function fakeFlow({ repo, jobs }) {
-  const name = repo.split('/').pop();
+  const name = path.basename(repo); // C:\work\x on Windows, /work/x elsewhere
   const org = { remote: 'moxie', url: `https://github.com/acme/${name}.git`, slug: `acme/${name}` };
   const prs = [];
   let n = 140 + (hash(name) % 40);
