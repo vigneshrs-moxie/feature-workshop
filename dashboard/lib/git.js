@@ -90,8 +90,10 @@ const RUN_ID = /^\d{1,20}$/;
 
 /** A gh runner for this executable (default: gh on PATH): gh(args) -> { ok, out, err }. Never rejects. */
 export function ghRunner(bin = 'gh', { timeout = 30000 } = {}) {
+  // A .js stand-in (STARBASE_GH in tests) runs through node: Windows can't start a script directly.
+  const viaNode = /\.[cm]?js$/i.test(bin);
   return (args) => new Promise((resolve) => {
-    execFile(bin, args, { timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env: { ...process.env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' } },
+    execFile(viaNode ? process.execPath : bin, viaNode ? [bin, ...args] : args, { timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env: { ...process.env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' } },
       (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout ?? ''), err: err ? String(stderr || err.message).split('\n')[0] : null }));
   });
 }
