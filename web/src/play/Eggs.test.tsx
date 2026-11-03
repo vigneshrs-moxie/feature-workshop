@@ -64,7 +64,7 @@ function inStore(mode: PlayMode, ui: React.ReactNode) {
 }
 
 const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
-const press = (keys: readonly string[], target: EventTarget = document.body) => { for (const key of keys) fireEvent.keyDown(target, { key }); };
+const press = (keys: readonly string[], target: Element | Document | Window = document.body) => { for (const key of keys) fireEvent.keyDown(target, { key }); };
 
 beforeEach(() => { forgetSecrets(); clearScenes(); });
 afterEach(() => {
