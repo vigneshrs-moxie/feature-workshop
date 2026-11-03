@@ -69,7 +69,7 @@ before(async () => {
   screens = `http://127.0.0.1:${screensPort}`;
   child = spawn(process.execPath, [SERVER], {
     env: {
-      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(screensPort), HOME: dirs.home, STARBASE_DEMO: '1',
+      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(screensPort), HOME: dirs.home, USERPROFILE: dirs.home, STARBASE_DEMO: '1',
       STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
       STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
     },
@@ -207,7 +207,7 @@ test('with the screens port taken, the dashboard runs without the screens server
   const lines = [];
   const second = spawn(process.execPath, [SERVER], {
     env: {
-      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(taken), HOME: path.join(root, 'home'), STARBASE_DEMO: '1',
+      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(taken), HOME: path.join(root, 'home'), USERPROFILE: path.join(root, 'home'), STARBASE_DEMO: '1',
       STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: path.join(root, 'projects'), STARBASE_AGENTS_DIR: path.join(root, 'agents'),
       STARBASE_SKILLS_DIR: path.join(root, 'skills'), STARBASE_STATE_DIR: stateDir,
     },

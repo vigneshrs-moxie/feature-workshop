@@ -142,7 +142,7 @@ test('check, start, stop and remove ask each system’s manager', async () => {
   fs.mkdirSync(path.join(home, 'Library', 'LaunchAgents'), { recursive: true });
   fs.writeFileSync(serviceFilePath({ platform: 'darwin', home }), 'x');
   let { run, calls } = fakeRun({ 'launchctl print': { code: 0, stdout: `gui/501/${LABEL} = {\n\tstate = running\n\tpid = 4242\n}` } });
-  assert.deepEqual(await checkService({ platform: 'darwin', home, run, uid: 501 }), { installed: true, fileOnly: false, running: true, file: serviceFilePath({ platform: 'darwin', home }), manager: 'launchd' });
+  assert.deepEqual(await checkService({ platform: 'darwin', home, run, uid: 501 }), { installed: true, fileOnly: false, running: true, file: serviceFilePath({ platform: 'darwin', home, pathApi: path }), manager: 'launchd' }); // the file on this disk, in this system's own separators
   assert.deepEqual((await startService({ platform: 'darwin', home, run, uid: 501 })), { ok: true });
   assert.deepEqual(calls.at(-1), ['launchctl', 'kickstart', `gui/501/${LABEL}`]);
   await stopService({ platform: 'darwin', run, uid: 501 });

@@ -90,6 +90,10 @@ function words(simple) {
   return out;
 }
 
+// A command's name without its folder, Windows' .exe or capitals (Windows and a Mac's disk run
+// GIT as git): /usr/bin/git, git.exe and C:\Program Files\Git\cmd\git.exe are all git.
+const commandName = (x) => x.replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').toLowerCase();
+
 // The command word and its arguments, past assignments and wrappers.
 function strip(w) {
   let i = 0;
@@ -97,7 +101,7 @@ function strip(w) {
     if (i >= w.length) return [];
     const x = w[i];
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(x)) { i++; continue; }
-    const takesValue = WRAPPERS.get(x.replace(/^.*\//, ''));
+    const takesValue = WRAPPERS.get(commandName(x));
     if (takesValue) {
       i++;
       while (w[i]?.startsWith('-') && w[i] !== '-') {
@@ -112,7 +116,7 @@ function strip(w) {
   }
   if (i >= w.length) return [];
   const [cmd, ...rest] = w.slice(i);
-  return [cmd.replace(/^.*\//, ''), ...rest]; // /usr/bin/git is git
+  return [commandName(cmd), ...rest];
 }
 
 // git [global options] <sub> <args>: the subcommand and its arguments.
@@ -190,7 +194,7 @@ function judgeSimple(simple) {
   // Behind a wrapper (sudo, env, timeout, …) an option we don't know could hide the command, so
   // the raw text is searched too and the stricter answer kept.
   const first = all.find((x) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(x));
-  if (first && WRAPPERS.has(first.replace(/^.*\//, ''))) return strictest([verdict, judgeRaw(simple)]);
+  if (first && WRAPPERS.has(commandName(first))) return strictest([verdict, judgeRaw(simple)]);
   return verdict;
 }
 

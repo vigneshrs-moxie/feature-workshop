@@ -1,0 +1,5 @@
+# Every text file is checked out with LF on every system (Git for Windows would otherwise turn
+# them into CRLF), so tests that compare file contents read the same bytes on Windows as on a Mac.
+* text=auto eol=lf
+# Kept byte for byte as the font came.
+web/public/fonts/OFL-PixelifySans.txt -text

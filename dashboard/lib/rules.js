@@ -72,8 +72,11 @@ export function validateRule(raw) {
     value = path.resolve(value);
     if (kind === 'prefix') {
       const tooWide = [path.parse(value).root, os.homedir(), path.dirname(os.homedir())].map((p) => path.resolve(p));
-      if (tooWide.includes(value)) throw new RuleError(`${value} is too wide a folder to allow every change in. Pick the project or a folder inside it.`);
-      if (value.split(path.sep).filter(Boolean).length < 2) throw new RuleError(`${value} is too wide a folder to allow every change in.`);
+      // Windows paths are the same in any case (c:\users\sam is C:\Users\sam), as policy.js matches them.
+      const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+      if (tooWide.some((p) => same(p, value))) throw new RuleError(`${value} is too wide a folder to allow every change in. Pick the project or a folder inside it.`);
+      // Two folders below the root at least: /Users or D:\Users alone is too wide.
+      if (value.slice(path.parse(value).root.length).split(path.sep).filter(Boolean).length < 2) throw new RuleError(`${value} is too wide a folder to allow every change in.`);
     }
   } else if (tool === 'WebFetch') {
     value = value.toLowerCase();

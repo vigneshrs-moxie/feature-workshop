@@ -12,7 +12,8 @@ import { IGNORED_REASON, indexEntry, indexText, render, renderIndex, repoFileNam
 import { main } from '../../bin/starbase.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const tmp = (prefix) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+// .native: on Windows it also turns a short name (C:\Users\RUNNER~1) into the long one git prints.
+const tmp = (prefix) => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' });
 
 /** A temp repository with one commit; its .gitignore as given. */

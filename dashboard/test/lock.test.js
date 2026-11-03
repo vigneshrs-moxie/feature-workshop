@@ -44,7 +44,7 @@ test('acquire writes lock.json with owner, pid, branch and time; a second acquir
   assert.equal(onDisk.owner, 'runner');
   assert.equal(onDisk.branch, 'feat/x');
   assert.ok(Number.isFinite(Date.parse(onDisk.acquiredAt)));
-  assert.equal((fs.statSync(lockFile(dir)).mode & 0o777), 0o600, 'only you can read it');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(lockFile(dir)).mode & 0o777), 0o600, 'only you can read it'); // Windows has no POSIX file modes
 
   // Another process (here: a pretend pid that is alive) can't have it.
   const other = acquire(dir, { owner: 'terminal', pid: 424242, alive: () => true });

@@ -41,7 +41,7 @@ test('draftRule: never offers something wider than is safe, or that doesn’t co
   const d = draftRule('Bash', { command: 'npm test' }, [{ type: 'addRules', behavior: 'allow', rules: [{ toolName: 'Bash', ruleContent: 'rm:*' }, { toolName: 'Bash', ruleContent: 'npm:*' }] }]);
   assert.deepEqual(d.options.map((o) => [o.kind, o.value]), [['exact', 'npm test'], ['prefix', 'npm test']]);
   // Files: the file, then its folder. Pages: the host. Connections: the one tool. Questions: nothing.
-  assert.deepEqual(draftRule('Edit', { file_path: '/r/app/src/a.ts' }).options.map((o) => [o.kind, o.value]), [['exact', '/r/app/src/a.ts'], ['prefix', '/r/app/src']]);
+  assert.deepEqual(draftRule('Edit', { file_path: '/r/app/src/a.ts' }).options.map((o) => [o.kind, o.value]), [['exact', path.resolve('/r/app/src/a.ts')], ['prefix', path.resolve('/r/app/src')]]);
   assert.deepEqual(draftRule('WebFetch', { url: 'https://docs.example.com/a?b' }).options.map((o) => [o.kind, o.value]), [['domain', 'docs.example.com']]);
   assert.deepEqual(draftRule('mcp__github__get_issue', {}).options.map((o) => o.kind), ['tool']);
   assert.equal(draftRule('AskUserQuestion', { questions: [] }), null);
@@ -74,7 +74,9 @@ test('validateRule: refuses rules broader than their kind allows', () => {
     null,
   ];
   for (const r of bad) assert.throws(() => validateRule(r), RuleError, JSON.stringify(r));
-  assert.deepEqual(validateRule({ tool: 'Edit', kind: 'prefix', value: '/r/app/src/../src/' }), { tool: 'Edit', kind: 'prefix', value: '/r/app/src' });
+  // Windows matches paths in any case, so your home folder spelled in small letters is still too wide there.
+  if (process.platform === 'win32') assert.throws(() => validateRule({ tool: 'Edit', kind: 'prefix', value: os.homedir().toLowerCase() }), RuleError);
+  assert.deepEqual(validateRule({ tool: 'Edit', kind: 'prefix', value: '/r/app/src/../src/' }), { tool: 'Edit', kind: 'prefix', value: path.resolve('/r/app/src') });
   assert.deepEqual(validateRule({ tool: 'WebFetch', kind: 'domain', value: 'Docs.Example.com' }), { tool: 'WebFetch', kind: 'domain', value: 'docs.example.com' });
   assert.deepEqual(validateRule({ tool: 'mcp__github__get_issue', kind: 'tool', value: 'ignored' }), { tool: 'mcp__github__get_issue', kind: 'tool', value: '' });
 });
@@ -171,7 +173,7 @@ test('RuleStore: saves to rules.json in the state folder, dedupes, removes, igno
     assert.equal(file.version, 1);
     assert.equal(file.rules.length, 1);
     assert.equal(file.rules[0].label, undefined, 'labels are worked out, not stored');
-    assert.equal((await fs.stat(path.join(dir, 'rules.json'))).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal((await fs.stat(path.join(dir, 'rules.json'))).mode & 0o777, 0o600); // Windows has no POSIX file modes
 
     // A fresh store reads it back; a hand-edited entry that's too broad, or has no id, allows nothing.
     file.rules.push({ id: 'wide', tool: 'Bash', kind: 'prefix', value: 'rm' }, { tool: 'Bash', kind: 'exact', value: 'ls' });

@@ -302,7 +302,8 @@ test('mergeSection: merged with the checks passing; a clash and a file outside t
   assert.match(r.words, /Part api is merged into feature\/big, and the checks passed \(node check\.js\)/);
   assert.equal(sh(parentWorktree, 'rev-parse', 'HEAD'), r.sha);
   assert.notEqual(r.sha, before);
-  assert.equal(await fs.readFile(path.join(parentWorktree, 'app/api/a.txt'), 'utf8'), 'api\n');
+  // Git for Windows checks text out with CRLF (core.autocrlf), so the line ending isn't compared.
+  assert.equal((await fs.readFile(path.join(parentWorktree, 'app/api/a.txt'), 'utf8')).replace(/\r\n/g, '\n'), 'api\n');
 
   // Nothing new to merge.
   r = await mergeSection({ parentWorktree, parentBranch: 'feature/big', section: api });

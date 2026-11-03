@@ -55,7 +55,8 @@ function runGit(dir, args, { timeout = 120000 } = {}) {
 
 // What a failure says, and GitHub's status code when it gave one ("HTTP 502").
 const codeOf = (err) => /\bHTTP (\d{3})\b/.exec(String(err ?? ''))?.[1] ?? /\b(\d{3})\b/.exec(String(err ?? ''))?.[1] ?? null;
-const isLocalPath = (url) => /^(\/|\.{1,2}\/|file:\/\/)/.test(String(url ?? '')) && !/github\.com/i.test(String(url));
+// A folder on this computer: /x, ./x, ../x, file://, and on Windows C:\x, C:/x, .\x and ..\x.
+const isLocalPath = (url) => /^(\/|\.{1,2}[\\/]|file:\/\/|[A-Za-z]:[\\/])/.test(String(url ?? '')) && !/github\.com/i.test(String(url));
 
 /**
  * The writer. gh(args) → { ok, out, err }: the gh runner (a test passes a fake that

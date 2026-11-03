@@ -15,6 +15,9 @@ import { parsePs } from '../lib/live.js';
 
 const ctx = { stage: 'implement', featureDir: '/h/.claude/feature-work/x', worktrees: ['/r/orbit-x'], repoPath: '/r/app', specDirs: ['/r/app/docs/plans'], cwd: '/r/app' };
 const auto = (tool, input, c = ctx) => classify(tool, input, c).auto;
+// A temp folder as a command spells it: /tmp on macOS and Linux; on Windows /tmp isn't one to node
+// (lib/platform.js tempDirs), so the Windows temp folder, written with / the way Git Bash takes it.
+const TMP = process.platform === 'win32' ? os.tmpdir().replaceAll('\\', '/') : '/tmp';
 
 test('routine steps run on their own', () => {
   assert.equal(auto('Read', { file_path: '/anywhere' }), true);
@@ -47,7 +50,7 @@ test('quoted patterns, substitutions and loops are read properly', () => {
     'grep -rn "createRoleTemplate\\|templateName" src | head -5',
     "sed -n '/^## 6\\./,/^## 8\\./p;/^## 12\\./,/^## 14\\./p' docs/plans/x.md",
     'ls /r/app 2>/dev/null; echo ---; git -C /r/app log --oneline -3',
-    'cd /r/orbit-x/app && npm run check > /tmp/orbit-check-s1.log 2>&1; tail -5 /tmp/orbit-check-s1.log',
+    `cd /r/orbit-x/app && npm run check > ${TMP}/orbit-check-s1.log 2>&1; tail -5 ${TMP}/orbit-check-s1.log`,
     'echo "moxie/main is $(git rev-parse --short moxie/main)"',
     'for c in 81d217c cd64f28; do printf "%s: " $c; cat "app/$c.txt" | head -3; done',
     'if [ -n "${DATABASE_URL:-}" ]; then echo set; else echo unset; fi',
@@ -135,6 +138,8 @@ test('locateJob: finds the repo, branch and worktree from text and git', async (
 
 test('pathsIn and branchesIn read free-form records', () => {
   assert.deepEqual(pathsIn('Repo `/Users/a/p`, see /Users/a/q/file.md. And (/tmp/x).'), ['/Users/a/p', '/Users/a/q/file.md', '/tmp/x']);
+  // Windows paths, as the Foreman writes them there.
+  assert.deepEqual(pathsIn('Repo `C:\\Users\\a\\p`, see C:\\Users\\a\\q\\file.md. And `D:/work/x`.'), ['C:\\Users\\a\\p', 'C:\\Users\\a\\q\\file.md', 'D:/work/x']);
   assert.deepEqual(branchesIn('on branch `feature/a-b` at e6d7422; also `fix/c` and branch main'), ['feature/a-b', 'fix/c']);
 });
 

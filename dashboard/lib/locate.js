@@ -34,19 +34,21 @@ export async function repoRootOf(p) {
       dir = path.dirname(dir);
       try { await fs.stat(dir); } catch { return null; }
     }
-    const top = await git(dir, ['rev-parse', '--show-toplevel']);
+    // git prints C:/Users/... on Windows; path.resolve gives the C:\Users\... used everywhere else.
+    const top = (await git(dir, ['rev-parse', '--show-toplevel']))?.trim();
     if (!top) return null;
     // A worktree reports its own folder; resolve it to the main checkout's folder.
-    const common = (await git(top.trim(), ['rev-parse', '--path-format=absolute', '--git-common-dir']))?.trim();
-    if (common && path.basename(common) === '.git') return path.dirname(common);
-    return top.trim();
+    const common = (await git(top, ['rev-parse', '--path-format=absolute', '--git-common-dir']))?.trim();
+    if (common && path.basename(common) === '.git') return path.resolve(path.dirname(common));
+    return path.resolve(top);
   });
 }
 
-// Absolute paths mentioned in free text (in backticks or plain), in order of appearance.
+// Absolute paths mentioned in free text (in backticks or plain), in order of appearance. On Windows
+// the Foreman writes C:\Users\... paths, so a drive letter starts one too.
 export function pathsIn(text) {
   const out = [];
-  const re = /`(\/[^`\s]+)`|(?:^|[\s(])(\/(?:Users|home|private|tmp|Volumes|opt|srv|var)\/[^\s`)'",;]+)/g;
+  const re = /`(\/[^`\s]+|[A-Za-z]:[\\/][^`\s]+)`|(?:^|[\s(])(\/(?:Users|home|private|tmp|Volumes|opt|srv|var)\/[^\s`)'",;]+|[A-Za-z]:\\Users\\[^\s`)'",;]+)/g;
   let m;
   while ((m = re.exec(String(text ?? '')))) out.push((m[1] ?? m[2]).replace(/[.:]+$/, ''));
   return [...new Set(out)];
@@ -78,7 +80,7 @@ export async function worktrees(repo) {
     const list = [];
     let cur = null;
     for (const line of out.split('\n')) {
-      if (line.startsWith('worktree ')) { cur = { path: line.slice(9), branch: null }; list.push(cur); }
+      if (line.startsWith('worktree ')) { cur = { path: path.resolve(line.slice(9).trim()), branch: null }; list.push(cur); }
       else if (line.startsWith('branch ') && cur) cur.branch = line.slice(7).replace(/^refs\/heads\//, '');
     }
     return list;
@@ -109,7 +111,7 @@ export async function locateJob(clues) {
     null;
   if (!repo) {
     for (const p of pathsIn(clues.wsText)) {
-      if (p.includes('/.claude/') || p.includes('/.codex/')) continue;
+      if (/[\\/]\.(claude|codex)[\\/]/.test(p)) continue;
       repo = await pick(p, 'workflow-status.md (text)');
       if (repo) break;
     }

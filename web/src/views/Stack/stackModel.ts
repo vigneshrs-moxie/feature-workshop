@@ -118,10 +118,14 @@ export function ownsFile(owned: string, file: string): boolean {
 
 const fileWords = (files: string[]) => (files.length ? list(files.slice(0, 3).map(base)) + (files.length > 3 ? ` and ${files.length - 3} more` : '') : 'the same files');
 
-/** The editor link for a file in a part's worktree (the dashboard opens vscode:// links). */
+/**
+ * The editor link for a file in a part's worktree (the dashboard opens vscode:// links). A Windows
+ * folder (C:\x\y) becomes vscode://file/C:/x/y, the form VS Code opens there.
+ */
 export const editorHref = (dir: string, file: string) => {
-  const full = file.startsWith('/') ? file : `${dir.replace(/\/$/, '')}/${file}`;
-  return `vscode://file${full.startsWith('/') ? '' : '/'}${full.split('/').map(encodeURIComponent).join('/')}`;
+  const full = (/^([\\/]|[A-Za-z]:)/.test(file) ? file : `${dir.replace(/[\\/]$/, '')}/${file}`).replace(/\\/g, '/');
+  const parts = full.split('/').map((s, i) => (i === 0 && /^[A-Za-z]:$/.test(s) ? s : encodeURIComponent(s)));
+  return `vscode://file${full.startsWith('/') ? '' : '/'}${parts.join('/')}`;
 };
 
 export function nextStep(view: StackView): StackNextStep {

@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { clockTime, relativeTime } from './time';
+import { clockTime, fullTime, relativeTime } from './time';
+
+// vite.config.ts runs the tests in one zone, so a snapshot with a time in it reads the same on
+// every machine. When a system doesn't take TZ, this says so, instead of a snapshot hours out.
+describe('the tests’ time zone', () => {
+  it('is America/Phoenix (TZ in vite.config.ts)', () => {
+    expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe('America/Phoenix');
+    expect(fullTime('2026-10-15T12:20:00.000Z')).toBe('Oct 15, 2026, 5:20 AM');
+  });
+});
 
 // Local times, so the tests read the same in any time zone.
 const now = new Date(2026, 9, 15, 15, 0); // Thu Oct 15 2026, 3:00pm

@@ -3,6 +3,7 @@
 // Commands run through execFile (no shell) with validated arguments and a time limit.
 
 import { execFile } from 'node:child_process';
+import path from 'node:path';
 
 const REF = /^(?!-)[\w./@{}^~-]{1,200}$/;
 const SHA = /^[0-9a-f]{4,40}$/i;
@@ -15,8 +16,12 @@ function git(dir, args, { maxBuffer = 8 * 1024 * 1024 } = {}) {
   });
 }
 
+// git prints C:/Users/... on Windows; path.resolve gives the C:\Users\... every other path here uses.
 export async function isGitRepo(dir) {
-  try { return (await git(dir, ['rev-parse', '--show-toplevel'])).trim(); } catch { return null; }
+  try {
+    const top = (await git(dir, ['rev-parse', '--show-toplevel'])).trim();
+    return top ? path.resolve(top) : null;
+  } catch { return null; }
 }
 
 // The commit a branch or ref points at (full sha), or null when it can't be read.
@@ -85,8 +90,10 @@ const RUN_ID = /^\d{1,20}$/;
 
 /** A gh runner for this executable (default: gh on PATH): gh(args) -> { ok, out, err }. Never rejects. */
 export function ghRunner(bin = 'gh', { timeout = 30000 } = {}) {
+  // A .js stand-in (STARBASE_GH in tests) runs through node: Windows can't start a script directly.
+  const viaNode = /\.[cm]?js$/i.test(bin);
   return (args) => new Promise((resolve) => {
-    execFile(bin, args, { timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env: { ...process.env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' } },
+    execFile(viaNode ? process.execPath : bin, viaNode ? [bin, ...args] : args, { timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env: { ...process.env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' } },
       (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout ?? ''), err: err ? String(stderr || err.message).split('\n')[0] : null }));
   });
 }

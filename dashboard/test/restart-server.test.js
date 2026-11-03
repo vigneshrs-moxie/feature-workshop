@@ -14,6 +14,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { STOP_HOOK } from '../lib/service.js';
 
 const DASHBOARD = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SERVER = path.join(DASHBOARD, 'server.js');
@@ -46,7 +47,9 @@ async function startDashboard(env) {
   let wport = await freePort();
   while (wport === port) wport = await freePort();
   const output = [];
-  const child = spawn(process.execPath, [SERVER], { env: { ...process.env, ...env, PORT: String(port), WIREFRAMES_PORT: String(wport) }, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Started the way the service's supervisor starts it (lib/service.js superviseServer): with
+  // STOP_HOOK and a channel, so a clean stop works on Windows too, which has no SIGTERM to send.
+  const child = spawn(process.execPath, ['--import', STOP_HOOK, SERVER], { env: { ...process.env, ...env, PORT: String(port), WIREFRAMES_PORT: String(wport) }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
   children.add(child);
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
@@ -63,7 +66,8 @@ async function startDashboard(env) {
   };
   const stop = async (signal = 'SIGTERM') => {
     const gone = new Promise((r) => child.once('exit', r));
-    child.kill(signal);
+    if (signal === 'SIGTERM' && process.platform === 'win32') child.send({ type: 'starbase-stop' }); // the supervisor's stop
+    else child.kill(signal);
     await gone;
     children.delete(child);
   };
@@ -96,7 +100,7 @@ async function makeJob() {
   // Every step asks, so the pretend Foreman's reply waits on a permission card.
   await fs.writeFile(path.join(dirs.state, 'settings.json'), JSON.stringify({ policy: 'ask-all' }));
   const env = {
-    HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects,
+    HOME: dirs.home, USERPROFILE: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects,
     STARBASE_AGENTS_DIR: dirs.agents, STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
   };
   const audit = () => fsSync.readFileSync(path.join(dirs.state, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
@@ -131,7 +135,7 @@ test('a reply paused by a clean stop carries on after the restart, in the same s
   // The first dashboard: a reply that waits.
   const a = await startDashboard(env);
   assert.ok(fsSync.existsSync(path.join(dirs.state, 'service.json')), 'service.json while it runs');
-  assert.equal(fsSync.statSync(path.join(dirs.state, 'service.json')).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fsSync.statSync(path.join(dirs.state, 'service.json')).mode & 0o777, 0o600); // Windows has no POSIX file modes
   const { id: runId, sessionId } = await replyThatWaits(a);
   await a.stop();
   assert.ok(!fsSync.existsSync(path.join(dirs.state, 'service.json')), 'service.json removed at stop');

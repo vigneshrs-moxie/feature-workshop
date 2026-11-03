@@ -40,6 +40,8 @@ test('hard lines: org pushes and force pushes are refused', () => {
     'git push moxie main', 'git push moxie feature/x:main', 'git push https://github.com/moxie/orbit.git main', 'git push git@github.com:moxie-pest/orbit.git main',
     'git push --force origin x', 'git push -f origin x', 'git push -uf origin x', 'git push --force-with-lease origin x', 'git push origin +x', 'git push --mirror origin',
     'cd /r && git push --force', 'sh -c "git push moxie main"', 'git push origin x && git push -f moxie main',
+    // As Git Bash on Windows also runs them.
+    'git.exe push --force origin x', '"C:\\Program Files\\Git\\cmd\\git.exe" push moxie main', 'GIT.EXE push -f origin x',
   ]) {
     assert.equal(hardLine('Bash', { command })?.decision, 'deny', command);
   }

@@ -17,6 +17,9 @@ const WT = '/r/orbit-x';
 const JOB = '/home/me/.claude/feature-work/x';
 const ctx = (over = {}) => ({ mode: 'auto', stage: 'pr1', worktrees: [WT], featureDir: JOB, cwd: '/r/moxie-portal', ...over });
 const covers = (command, over) => goAheadCovers('Bash', { command }, ctx(over));
+// A temp folder as a command spells it: /tmp on macOS and Linux; on Windows /tmp isn't one to node
+// (lib/platform.js tempDirs), so the Windows temp folder, written with / the way Git Bash takes it.
+const TMP = process.platform === 'win32' ? os.tmpdir().replaceAll('\\', '/') : '/tmp';
 
 // ---------- pushes and pull requests ----------
 
@@ -57,7 +60,7 @@ test('go-ahead: rm -rf inside the job’s own folders is covered, at any stage',
     ['cd /r/orbit-x/app && rm -rf .next node_modules', null],
     ['rm -rf dist', '/r/orbit-x/app'],
     [`rm -rf ${JOB}/checks/old`, null],
-    ['rm -rf /tmp/orbit-check-s2', null],
+    [`rm -rf ${TMP}/orbit-check-s2`, null],
     ['rm -rf -- build', '/r/orbit-x'],
   ]) {
     assert.ok(covers(command, { cwd, stage: 'implement' }), command);
@@ -78,7 +81,7 @@ test('go-ahead: rm -rf anywhere else, of a whole job folder, or of anything it c
 
 test('commandParts follows cd the way the routine list does', () => {
   const parts = commandParts('cd /r/orbit-x/app && npm test; ls', '/start');
-  assert.deepEqual(parts.map((p) => p.cwd), ['/start', '/r/orbit-x/app', null]);
+  assert.deepEqual(parts.map((p) => p.cwd), ['/start', path.resolve('/r/orbit-x/app'), null]);
   assert.equal(commandParts('echo `x`'), null);
 });
 

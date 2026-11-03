@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { parseProfile, parseBlock, loadProfile, fillPattern, tryItRules, devCommand, GENERAL, OLD_PROFILE_FILE, PROFILE_FILE, githubOfUrl, ownProfileFile, portsLabel } from '../lib/profile.js';
 
@@ -155,7 +156,7 @@ test('profile: with no profile, Try it is today’s general case', () => {
 });
 
 test('Orbit’s profile (dashboard/profiles/orbit.md) loads with no errors or warnings, and says what the code does today', async () => {
-  const r = await loadProfile(new URL('../profiles/orbit.md', import.meta.url).pathname);
+  const r = await loadProfile(fileURLToPath(new URL('../profiles/orbit.md', import.meta.url)));
   assert.deepEqual(r.errors, []);
   assert.deepEqual(r.warnings, []);
   const p = r.profile;

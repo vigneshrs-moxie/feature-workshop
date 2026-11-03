@@ -53,7 +53,8 @@ export function parseWorktrees(out) {
 
 export async function worktrees(dir) {
   const out = await gitOut(dir, ['worktree', 'list', '--porcelain']);
-  return out === null ? [] : parseWorktrees(out);
+  // git prints C:/Users/... on Windows; path.resolve gives the C:\Users\... used everywhere else.
+  return out === null ? [] : parseWorktrees(out).map((w) => ({ ...w, path: path.resolve(w.path) }));
 }
 
 /** The main checkout of the repository `dir` belongs to (the first worktree), or null when `dir` isn't in one. */
