@@ -84,5 +84,8 @@ export default defineConfig({
     css: false,
     // See test-setup.ts: a busy machine gets more time, not a failure.
     testTimeout: 20000,
+    // Times are shown in the computer's own zone: one fixed zone (the team's, with no summer time)
+    // makes a snapshot with a time in it the same on every machine, CI included.
+    env: { TZ: 'America/Phoenix' },
   },
 });

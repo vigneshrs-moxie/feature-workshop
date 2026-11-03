@@ -16,7 +16,7 @@ import { job, snapshot } from '../../state/test-fixtures';
 import { LookSettings } from '../Settings/LookSettings';
 import { stackView, summary } from './fixtures';
 import { indexStacks, PartOfStack, RUN_AS_STACK_TEXT, StackSuggestion } from './StackRows';
-import { nextStep, ownsFile, splitWhy, startLine, summaryChip } from './stackModel';
+import { editorHref, nextStep, ownsFile, splitWhy, startLine, summaryChip } from './stackModel';
 
 const building = stackView({ next: { action: 'wait', label: null, key: null, words: 'Building.' } }, ['running', 'ready', 'pending']);
 const LIST = { stacks: [summary(building)], globalCap: 3, globalRunning: 1 };
@@ -170,6 +170,13 @@ describe('the words (stackModel)', () => {
     expect(ownsFile('docs/x.md', 'docs/x.md')).toBe(true);
     const v = stackView({}, ['integrated', 'blocked', 'pending'], { 'csv-writer': { problem: { kind: 'conflict', words: '', files: ['app/lib/elsewhere.ts'] } } });
     expect(nextStep(v).say).toBe('Part 2 clashes with what is merged');
+  });
+
+  it('the editor link: a file in the part’s folder, on a Mac and on Windows', () => {
+    expect(editorHref('/r/orbit-x/', 'app/a b.ts')).toBe('vscode://file/r/orbit-x/app/a%20b.ts');
+    expect(editorHref('/r/orbit-x', '')).toBe('vscode://file/r/orbit-x/');
+    expect(editorHref('C:\\Users\\sam\\orbit-x', 'app/a.ts')).toBe('vscode://file/C:/Users/sam/orbit-x/app/a.ts');
+    expect(editorHref('C:\\x', 'D:\\y\\b.ts')).toBe('vscode://file/D:/y/b.ts');
   });
 
   it('a stack’s word on the list', () => {
