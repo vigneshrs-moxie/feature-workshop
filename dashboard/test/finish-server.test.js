@@ -121,6 +121,10 @@ function eventsSince(epoch, ms = 400) {
 const doneNotices = async () => (await eventsSince((await get('/api/snapshot')).epoch))
   .filter((e) => e.type === 'notification' && e.data?.level === 'done' && e.job === 'moving-job')
   .map((e) => e.data.body);
+// The Done notices once there are `count`: the notice follows the map's look at the jobs, which
+// takes its own time on a busy machine (seen on Windows CI), so it is waited for, not timed. The
+// test still checks it was told exactly once.
+const doneNoticesOnce = (count) => waitFor(async () => { const list = await doneNotices(); return list.length >= count ? list : null; }, `${count} Done notice(s)`);
 
 test('server: Done is told once per line; a line moved further on is told again when the job gets there', async () => {
   // The first look seeds: on the fork with no PR, nothing is past the line.
@@ -130,7 +134,7 @@ test('server: Done is told once per line; a line moved further on is told again 
   // PR #1 opens: the line (PR #1 open) is crossed. Told once.
   await moveTo('pr1', 'fork');
   assert.ok((await laneOf()).pr1?.state === 'open', 'the demo map shows PR #1 open at the pr1 stage');
-  assert.deepEqual(await doneNotices(), ['PR #1 is open: the finish line you set.']);
+  assert.deepEqual(await doneNoticesOnce(1), ['PR #1 is open: the finish line you set.']);
   await post('/api/flow/refresh');
   await new Promise((r) => setTimeout(r, 300));
   assert.equal((await doneNotices()).length, 1, 'another look says nothing new');
@@ -143,5 +147,5 @@ test('server: Done is told once per line; a line moved further on is told again 
 
   // PR #2 merged: the job reaches staging, the new line. Told again, for this line.
   await moveTo('staging-qa', 'staging');
-  assert.deepEqual(await doneNotices(), ['PR #1 is open: the finish line you set.', 'In staging (sample-repo): the finish line you set.']);
+  assert.deepEqual(await doneNoticesOnce(2), ['PR #1 is open: the finish line you set.', 'In staging (sample-repo): the finish line you set.']);
 });
