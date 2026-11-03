@@ -74,6 +74,8 @@ test('validateRule: refuses rules broader than their kind allows', () => {
     null,
   ];
   for (const r of bad) assert.throws(() => validateRule(r), RuleError, JSON.stringify(r));
+  // Windows matches paths in any case, so your home folder spelled in small letters is still too wide there.
+  if (process.platform === 'win32') assert.throws(() => validateRule({ tool: 'Edit', kind: 'prefix', value: os.homedir().toLowerCase() }), RuleError);
   assert.deepEqual(validateRule({ tool: 'Edit', kind: 'prefix', value: '/r/app/src/../src/' }), { tool: 'Edit', kind: 'prefix', value: path.resolve('/r/app/src') });
   assert.deepEqual(validateRule({ tool: 'WebFetch', kind: 'domain', value: 'Docs.Example.com' }), { tool: 'WebFetch', kind: 'domain', value: 'docs.example.com' });
   assert.deepEqual(validateRule({ tool: 'mcp__github__get_issue', kind: 'tool', value: 'ignored' }), { tool: 'mcp__github__get_issue', kind: 'tool', value: '' });
