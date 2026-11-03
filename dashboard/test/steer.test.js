@@ -32,10 +32,12 @@ const until = (driver, runId, statuses) => new Promise((resolve) => {
   driver.on('run', on);
 });
 // Resolves once the steered message has reached `state` (or already had: delivery can happen
-// before driver.steer() returns).
+// before driver.steer() returns). A message that was delivered and then went on to an ending
+// (unanswered, cancelled) was delivered: on a busy machine the reply can take it and end while
+// driver.steer() is still writing the audit line, and the test then saw only the ending.
 const ORDER = ['queued', 'delivered', 'acted-on'];
 const steerReaches = (driver, id, state) => new Promise((resolve) => {
-  const reached = (s) => s.state === state || (ORDER.includes(state) && ORDER.indexOf(s.state) > ORDER.indexOf(state));
+  const reached = (s) => s.state === state || (ORDER.includes(state) && ORDER.indexOf(s.state) > ORDER.indexOf(state)) || (state === 'delivered' && Boolean(s.deliveredAt));
   for (const run of driver.runs.values()) {
     const s = run.steers.find((x) => x.id === id);
     if (s && reached(s)) return resolve(s);

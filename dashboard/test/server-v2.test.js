@@ -73,7 +73,10 @@ before(async () => {
 
 after(async () => {
   await dashboard?.stop(); // exactly the dashboard this test started, and what it started
-  if (root) await fs.rm(root, { recursive: true, force: true });
+  // Windows can hold a just-made folder for a moment after everything that used it has ended (the
+  // virus scanner reading the new .git), and the delete is refused (EBUSY, seen on CI after the
+  // dashboard's whole tree had ended). fs.rm waits that out itself when asked.
+  if (root) await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
 async function getJson(p) {
