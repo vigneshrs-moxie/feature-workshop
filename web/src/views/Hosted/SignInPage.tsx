@@ -1,6 +1,7 @@
 // Signed out: one button, Sign in with Google. A refused sign-in comes back here as
 // #/sign-in?problem=<code> (hosted/site/routes-auth.js), and the page says why in words.
 import { BRAND } from '../../app/brand';
+import { BrandMark } from '../../app/BrandMark';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { returnTo, type HostedRoute } from './route';
@@ -43,7 +44,7 @@ export function SignInPage({ meta, route }: { meta: HostedMeta; route: HostedRou
     <main className="page hosted-signin-page" aria-label="Sign in">
       <div className="page-inner">
         <section className="hosted-signin" aria-labelledby="hosted-signin-title">
-          <span className="hosted-signin-mark" aria-hidden="true"><Icon name="radar" size={28} /></span>
+          <BrandMark size="lg" />
           <h2 id="hosted-signin-title" className="page-title">{BRAND.name}</h2>
           {problem && (
             <div className="hosted-problem" role="alert">

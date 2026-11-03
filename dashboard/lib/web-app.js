@@ -29,7 +29,7 @@ export const IMMUTABLE = 'public, max-age=31536000, immutable';
 // Vite names build files like index-DHFFf3mL.js (8 url-safe base64 characters).
 const HASHED = /-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+(\.map)?$/;
 
-const NOT_BUILT = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${PRODUCT}: new view not built</title></head>
+const NOT_BUILT = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${PRODUCT}: new view not built</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
 <body><h1>The new view isn't built yet</h1>
 <p>In ${PRODUCT}’s folder, run <code>npm run web:build</code>, then reload this page.</p>
 <p>The classic view still works at <a href="/">/</a>.</p></body></html>`;

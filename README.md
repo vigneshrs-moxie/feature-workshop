@@ -1,4 +1,4 @@
-# Starbase
+# <img src="web/public/favicon.svg" width="36" height="36" align="top" alt=""> Starbase
 
 Starbase runs Claude Code's **feature workflow** for you (spec → investigate → plan → build → test → review → ship) and shows every job in one place. You see what each job is doing, which crew member (worker agent) is busy, what's waiting for you and what it costs. You answer the Foreman's questions, approve the next stage, and allow or deny what a worker wants to do, from your browser or your phone.
 

@@ -23,6 +23,17 @@ describe('the product name', () => {
     expect(read('../../../dashboard/public/index.html')).toContain(`<title>${BRAND.name} · `);
   });
 
+  it('puts the mark on the browser tab, on the laptop and on the site', () => {
+    expect(read('../../index.html')).toContain('<link rel="icon" href="/favicon.svg" type="image/svg+xml" />');
+    expect(read('../../index.html')).toContain('<link rel="apple-touch-icon" href="/apple-touch-icon.png" />');
+    expect(read('../../../dashboard/public/index.html')).toContain('<link rel="icon" href="favicon.svg"');
+    // The tab's picture is the top bar's mark: the radar, on the Light theme's accent.
+    const mark = read('../../public/favicon.svg');
+    expect(mark).toContain('fill="#594ddc"');
+    expect(mark).toContain('<path d="m13.41 10.59 5.66-5.66"/>');
+    expect(read('../../../dashboard/public/favicon.svg')).toBe(mark);
+  });
+
   it('names a page for the browser tab', () => {
     expect(pageTitle('Jobs')).toBe(`Jobs · ${BRAND.name}`);
     expect(pageTitle()).toBe(BRAND.name);

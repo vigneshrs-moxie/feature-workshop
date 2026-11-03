@@ -15,6 +15,7 @@ import { Button } from '../components/Button';
 import { deskQueue } from '../home/homeModel';
 import { deskEntries, isShipping } from '../home/nudges';
 import { BRAND } from './brand';
+import { BrandMark } from './BrandMark';
 import { paletteKeyLabel } from './keyRegistry';
 import { MenuButton, type MenuEntry } from './Menu';
 import { hrefFor, pageName, settingsHref, stacksHref, telemetryHref, type Route } from './router';
@@ -86,7 +87,7 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
   return (
     <header className="topbar">
       <a className="brand gc-brand" href={hrefFor({ name: 'home' })} aria-label={BRAND.markLabel} title={`${BRAND.name}: every job, in four lanes.`}>
-        <span className="gc-mark"><Icon name="radar" size={16} /></span>
+        <BrandMark />
         <span className="gc-brand-name">{BRAND.name}</span>
       </a>
       {state.meta?.demo ? <span className="gc-demo" title="Demo mode: a pretend Foreman answers and nothing real runs.">Demo</span> : null}

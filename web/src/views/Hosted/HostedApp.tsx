@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createApi, type ApiClient } from '../../api/client';
 import { BRAND, pageTitle } from '../../app/brand';
+import { BrandMark } from '../../app/BrandMark';
 import { MenuButton, type MenuEntry } from '../../app/Menu';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
@@ -72,7 +73,7 @@ function TopBar({ route, person, onSignOut, busy }: { route: HostedRoute; person
   return (
     <header className="topbar hosted-topbar">
       <a className="brand gc-brand" href="#/" aria-label={BRAND.markLabel} title={`${BRAND.name}: your jobs.`}>
-        <span className="gc-mark"><Icon name="radar" size={16} /></span>
+        <BrandMark />
         <span className="gc-brand-name">{BRAND.name}</span>
       </a>
       <span className="gc-page-name" aria-hidden="true">{nameOf(route)}</span>
