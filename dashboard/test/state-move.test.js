@@ -157,9 +157,16 @@ test('~/.ground-control is renamed to ~/.starbase, a link is left by the old nam
 test('a copy still running from ~/.ground-control keeps writing to its open files, and they are in ~/.starbase', () => {
   const { home, gc, sb } = gcHome();
   const fd = fs.openSync(path.join(gc, 'usage.jsonl'), 'a'); // the running copy's open log
-  moveToStarbase({ home });
+  const r = moveToStarbase({ home });
   fs.writeSync(fd, '{"turn":2}\n');
   fs.closeSync(fd);
+  if (process.platform === 'win32') {
+    // Windows can't rename a folder while a file in it is open: the state stays in ~/.ground-control
+    // and the move happens at the next start, once the old copy has let go.
+    assert.equal(r.skipped, 'rename-failed', JSON.stringify(r));
+    assert.equal(stateDirNow(home), gc);
+    assert.equal(moveToStarbase({ home }).moved, true);
+  }
   fs.appendFileSync(path.join(gc, 'audit.jsonl'), '{"action":"late"}\n'); // a file it opens again, by the old name
   assert.equal(read(path.join(sb, 'usage.jsonl')), '{"turn":1}\n{"turn":2}\n');
   assert.equal(auditOf(sb).at(-1).action, 'late');

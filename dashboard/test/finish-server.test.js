@@ -48,7 +48,7 @@ before(async () => {
     env: {
       // The screens server takes PORT+1 unless told: give it its own free port, so a neighbour
       // test's server on the next number can't stop this one starting.
-      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(await freePort()), HOME: dirs.home, STARBASE_DEMO: '1',
+      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(await freePort()), HOME: dirs.home, USERPROFILE: dirs.home, STARBASE_DEMO: '1',
       STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
       STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
     },

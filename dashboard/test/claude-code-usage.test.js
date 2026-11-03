@@ -84,19 +84,19 @@ test('reading: each reply once (the last line of a streamed message wins), sub-a
     // Nor in the cache on disk: folders are kept as hashes only.
     const cache = await fs.readFile(path.join(p.state, CACHE_FILE), 'utf8');
     for (const s of SECRETS) assert.ok(!cache.includes(s), `${s} must not be in the cache`);
-    assert.ok(!cache.includes(p.dir), 'not even the projects folder');
-    assert.equal((await fs.stat(path.join(p.state, CACHE_FILE))).mode & 0o777, 0o600);
+    assert.ok(!cache.includes(p.dir) && !cache.includes(JSON.stringify(p.dir).slice(1, -1)), 'not even the projects folder, nor as JSON writes it');
+    if (process.platform !== 'win32') assert.equal((await fs.stat(path.join(p.state, CACHE_FILE))).mode & 0o777, 0o600); // Windows has no POSIX file modes
   } finally { await p.cleanup(); }
 });
 
 test('this app’s own job sessions are left out: by session id, by the job’s worktree, by its folder', async () => {
-  const worktree = '/Users/pat/worktrees/orbit-479';
+  const worktree = path.resolve('/Users/pat/worktrees/orbit-479'); // with its drive on Windows, as the app has it
   const p = await projects({
     [`${FOLDER}/s-terminal.jsonl`]: [reply({ id: 't1', t: NOW - H, session: 's-terminal' })],
     [`${FOLDER}/s-job.jsonl`]: [reply({ id: 'j1', t: NOW - H, session: 's-job' })],
     [`${FOLDER}/s-job/subagents/agent-x.jsonl`]: [reply({ id: 'j2', t: NOW - H, session: 's-job', sidechain: true })],
     [`${projectFolderName(worktree)}/s-wt.jsonl`]: [reply({ id: 'w1', t: NOW - H, session: 's-wt', cwd: worktree })],
-    [`${projectFolderName(`${worktree}/web`)}/s-wt-sub.jsonl`]: [reply({ id: 'w2', t: NOW - H, session: 's-wt-sub', cwd: `${worktree}/web` })],
+    [`${projectFolderName(path.join(worktree, 'web'))}/s-wt-sub.jsonl`]: [reply({ id: 'w2', t: NOW - H, session: 's-wt-sub', cwd: path.join(worktree, 'web') })],
     // No line says its folder: the folder Claude Code keeps it in does.
     [`${projectFolderName(worktree)}/s-nocwd.jsonl`]: [reply({ id: 'w3', t: NOW - H, session: 's-nocwd', cwd: null })],
   });

@@ -132,16 +132,18 @@ test('levels: the git helper lists changed paths; null on trouble, [] when nothi
     await fs.mkdir(path.join(repo, 'db', 'migrations'), { recursive: true });
     await fs.writeFile(path.join(repo, 'db', 'migrations', '001.sql'), 'select 1;\n');
     await fs.writeFile(path.join(repo, 'a.txt'), 'b\n');
-    await fs.writeFile(path.join(repo, 'odd\tname "q".txt'), 'x\n');
+    // Not on Windows: a tab or a " can't be in a file name there.
+    const odd = process.platform === 'win32' ? [] : ['odd\tname "q".txt'];
+    for (const name of odd) await fs.writeFile(path.join(repo, name), 'x\n');
     git('add', '.');
     git('commit', '-q', '-m', 'second');
-    assert.deepEqual((await changedPaths(repo, 'main')).sort(), ['a.txt', 'db/migrations/001.sql', 'odd\tname "q".txt'], 'odd names come through as they are');
+    assert.deepEqual((await changedPaths(repo, 'main')).sort(), ['a.txt', 'db/migrations/001.sql', ...odd], 'odd names come through as they are');
     assert.equal(await changedPaths(repo, 'no-such-branch'), null, 'an unknown base');
     // The after-build summary: files, added + deleted lines, and the new files.
     const sum = await diffSummary(repo, 'main');
-    assert.equal(sum.lines, 4);
-    assert.deepEqual(sum.added.sort(), ['db/migrations/001.sql', 'odd\tname "q".txt']);
-    assert.equal(sum.paths.length, 3);
+    assert.equal(sum.lines, 3 + odd.length);
+    assert.deepEqual(sum.added.sort(), ['db/migrations/001.sql', ...odd]);
+    assert.equal(sum.paths.length, 2 + odd.length);
     assert.equal(await diffSummary(repo, '--output=/tmp/x'), null);
   } finally {
     await fs.rm(root, { recursive: true, force: true });

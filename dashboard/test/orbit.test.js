@@ -57,8 +57,8 @@ test('the file store keeps the token in one file, mode 600, in a 700 folder', as
   assert.equal(await store.get(), null);
   await store.set(TOKEN);
   assert.equal(await store.get(), TOKEN);
-  assert.equal((await fs.stat(store.file)).mode & 0o777, 0o600);
-  assert.equal((await fs.stat(dir)).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal((await fs.stat(store.file)).mode & 0o777, 0o600); // Windows has no POSIX file modes
+  if (process.platform !== 'win32') assert.equal((await fs.stat(dir)).mode & 0o777, 0o700); // Windows has no POSIX file modes
   await store.clear();
   assert.equal(await store.get(), null);
 });
@@ -143,7 +143,7 @@ test('setToken stores the token and writes the Foreman’s MCP entry with a vari
   assert.deepEqual(written.mcpServers.other, { type: 'stdio', command: 'x' });
   assert.deepEqual(written.mcpServers['orbit-feedback'], { type: 'http', url: 'https://orbit.example.com/api/mcp/feedback', headers: { Authorization: 'Bearer ${ORBIT_FEEDBACK_TOKEN}' } });
   assert.deepEqual(written.mcpServers['orbit-feedback'], mcpEntry('https://orbit.example.com'));
-  assert.equal((await fs.stat(claudeSettingsFile)).mode & 0o777, 0o644, 'the file keeps its mode');
+  if (process.platform !== 'win32') assert.equal((await fs.stat(claudeSettingsFile)).mode & 0o777, 0o644, 'the file keeps its mode'); // Windows has no POSIX file modes
   assert.deepEqual(await sessionEnv(store), { ORBIT_FEEDBACK_TOKEN: TOKEN });
 
   await clearToken({ store, claudeSettingsFile });
@@ -565,7 +565,7 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   const output = [];
   const child = spawn(process.execPath, [path.join(HERE, '..', 'server.js')], {
     env: {
-      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(await freePort()), HOME: dirs.home, STARBASE_DEMO: '1',
+      ...process.env, PORT: String(port), WIREFRAMES_PORT: String(await freePort()), HOME: dirs.home, USERPROFILE: dirs.home, STARBASE_DEMO: '1',
       STARBASE_FEATURES_DIR: dirs.features, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
       STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state, STARBASE_ORBIT_URL: '',
     },
@@ -625,7 +625,7 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
 
   const mcp = JSON.parse(await fs.readFile(path.join(dirs.home, '.claude.json'), 'utf8'));
   assert.deepEqual(mcp.mcpServers['orbit-feedback'], { type: 'http', url: `${fake.url}/api/mcp/feedback`, headers: { Authorization: 'Bearer ${ORBIT_FEEDBACK_TOKEN}' } });
-  assert.equal((await fs.stat(path.join(dirs.state, 'orbit-token'))).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal((await fs.stat(path.join(dirs.state, 'orbit-token'))).mode & 0o777, 0o600); // Windows has no POSIX file modes
 
   // The inbox: priority, severity, age, assignee, and the jobs already on a ticket.
   r = await get('/api/orbit/inbox');

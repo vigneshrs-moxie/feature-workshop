@@ -371,19 +371,23 @@ test('parking timer: the light read runs no git (the full one does) and times ga
     }));
     await fs.mkdir(path.join(featuresDir, 'other', 'briefs'), { recursive: true });
 
-    // A git that writes down every call, then runs the real one.
+    // A git that writes down every call, then runs the real one. Not on Windows: there only git.exe
+    // on the PATH runs, never a script named git, so there is no spy to put in front of it.
+    const spy = process.platform !== 'win32';
     const bin = path.join(root, 'bin');
     await fs.mkdir(bin);
     const log = path.join(root, 'git-calls.log');
-    const realGit = execFileSync('which', ['git']).toString().trim();
-    await fs.writeFile(path.join(bin, 'git'), `#!/bin/sh\necho "$*" >> "${log}"\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
-    process.env.PATH = `${bin}${path.delimiter}${oldPath}`;
+    if (spy) {
+      const realGit = execFileSync('which', ['git']).toString().trim();
+      await fs.writeFile(path.join(bin, 'git'), `#!/bin/sh\necho "$*" >> "${log}"\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
+      process.env.PATH = `${bin}${path.delimiter}${oldPath}`;
+    }
     const calls = async () => (await fs.readFile(log, 'utf8').catch(() => '')).split('\n').filter(Boolean);
 
     const light = await loadGateStates({ featuresDir });
-    assert.deepEqual(await calls(), [], 'no git for the timer');
+    if (spy) assert.deepEqual(await calls(), [], 'no git for the timer');
     const full = await loadFeatures({ featuresDir, sessionIndex: null, knownRepos: [] });
-    assert.ok((await calls()).length > 0, 'the spy sees the full read’s git calls');
+    if (spy) assert.ok((await calls()).length > 0, 'the spy sees the full read’s git calls');
 
     const pickGate = (f) => ({ slug: f.slug, stage: f.stage, stageState: f.stageState, waitingFor: f.waitingFor, currentBrief: f.currentBrief, statusBriefFile: f.statusBriefFile, gateWaitingSince: f.gateWaitingSince, versions: f.versions, updatedAt: f.updatedAt });
     const bySlug = (list) => Object.fromEntries(list.map((f) => [f.slug, pickGate(f)]));

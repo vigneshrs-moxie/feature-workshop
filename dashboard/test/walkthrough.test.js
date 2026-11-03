@@ -11,8 +11,8 @@ import { DocError, readWalkthrough, walkthroughInfo, walkthroughPath } from '../
 const JOB = { worktree: '/r/orbit-notes', repoPath: '/r/app', branch: 'feature/notes v2' };
 
 test('walkthrough: named like build.py does, from the worktree (else the repo) and the branch', () => {
-  assert.deepEqual(walkthroughPath(JOB, '/w'), { dir: '/w/orbit-notes', file: 'feature-notes-v2.html' });
-  assert.deepEqual(walkthroughPath({ ...JOB, worktree: null }, '/w'), { dir: '/w/app', file: 'feature-notes-v2.html' });
+  assert.deepEqual(walkthroughPath(JOB, '/w'), { dir: path.join('/w', 'orbit-notes'), file: 'feature-notes-v2.html' });
+  assert.deepEqual(walkthroughPath({ ...JOB, worktree: null }, '/w'), { dir: path.join('/w', 'app'), file: 'feature-notes-v2.html' });
   assert.equal(walkthroughPath({ ...JOB, branch: null }, '/w'), null);
 });
 

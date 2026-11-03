@@ -157,7 +157,7 @@ test('server: yes sends the nudge’s sentence to the Foreman as a message, audi
 const ACTIVE = ['starting', 'running', 'waiting_permission', 'stopping'];
 const sentNudgesOf = async (slug) => {
   const sessions = JSON.parse(await fs.readFile(path.join(root, 'state', 'sessions.json'), 'utf8'));
-  return Object.entries(sessions).find(([dir]) => dir.endsWith(`/${slug}`))?.[1]?.sentNudges ?? [];
+  return Object.entries(sessions).find(([dir]) => path.basename(dir) === slug)?.[1]?.sentNudges ?? [];
 };
 
 test('server: yes marks the nudge sent only once its message has started: a Busy Foreman leaves it unsent (409, nothing audited, still on the card)', { timeout: 60_000 }, async () => {

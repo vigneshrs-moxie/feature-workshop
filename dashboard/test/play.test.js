@@ -647,7 +647,7 @@ test('PlayBook: saves play.json, tells about new unlocks, and rebuilds from the 
     assert.deepEqual(quests, []);
     const file = path.join(dir, 'play.json');
     assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).schema, PLAY_SCHEMA);
-    assert.equal(((await fs.stat(file)).mode & 0o777).toString(8), '600');
+    if (process.platform !== 'win32') assert.equal(((await fs.stat(file)).mode & 0o777).toString(8), '600'); // Windows has no POSIX file modes
 
     const teapot = { at: plus(T0, 1), action: 'play-secret', id: 'teapot' };
     input.audit.push(teapot);

@@ -171,7 +171,7 @@ test('RuleStore: saves to rules.json in the state folder, dedupes, removes, igno
     assert.equal(file.version, 1);
     assert.equal(file.rules.length, 1);
     assert.equal(file.rules[0].label, undefined, 'labels are worked out, not stored');
-    assert.equal((await fs.stat(path.join(dir, 'rules.json'))).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal((await fs.stat(path.join(dir, 'rules.json'))).mode & 0o777, 0o600); // Windows has no POSIX file modes
 
     // A fresh store reads it back; a hand-edited entry that's too broad, or has no id, allows nothing.
     file.rules.push({ id: 'wide', tool: 'Bash', kind: 'prefix', value: 'rm' }, { tool: 'Bash', kind: 'exact', value: 'ls' });
