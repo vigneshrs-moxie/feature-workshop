@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   GITHUB_EVERY_CHOICES, applyForeman, candidatesOf, countWords, createReviewRounds, foremanMessage, foremanReady, groupRounds,
-  guessKind, nameFor, parseRoute, readRounds, reviewView, roundPanel, routesView, sendPlan, whoMergesLine,
+  guessKind, nameFor, parseRoute, readRounds, reviewView, roundPanel, routesView, saveRound, sendPlan, whoMergesLine,
 } from '../lib/review-round.js';
 import { createGhWrite } from '../lib/gh-write.js';
 import { commentKey, readFeedback } from '../lib/pr-feedback.js';
@@ -607,6 +607,15 @@ test('Send back stops at the first failure and says which line; Try again from h
   assert.equal(s.gitCalls.filter((g) => g[1] === 'push').length, 1, 'pushed once');
   // The review comment's reply: a comment on the PR quoting it.
   assert.equal(github.writes().find((w) => w[3] === `repos/${REPO}/issues/152/comments`).at(-1), 'body=@raj-moxie \n> A few things before this goes in.\n\nThanks.');
+});
+
+test('two saves of one round at once both land, and the later one wins', async () => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gc-review-round-')));
+  roots.push(root);
+  const dir = path.join(root, 'sample-job');
+  const round = { round: 1, state: 'sending', items: [], timeline: [], send: { steps: [] } };
+  for (let i = 0; i < 20; i++) await Promise.all([saveRound(dir, round), saveRound(dir, { ...round, state: 'after-pr1' })]);
+  assert.equal((await readRounds(dir))[0].state, 'after-pr1');
 });
 
 test('I’ll merge PR #1 myself: Send back stops after opening it, and carries on once it is merged', async () => {

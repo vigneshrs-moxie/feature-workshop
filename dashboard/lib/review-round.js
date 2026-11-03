@@ -426,7 +426,19 @@ export async function readRounds(featureDir) {
 }
 
 /** Write one round: round-<n>.json and round-<n>.md, each whole through a temporary file. */
-export async function saveRound(featureDir, round, { route = [] } = {}) {
+// Saves of one round wait their turn: two at once shared the temporary file, and the second
+// rename failed (every time on Windows), which stopped Send back for no reason you could see.
+const saving = new Map();
+
+export function saveRound(featureDir, round, opts) {
+  const key = path.join(dirOf(featureDir), `round-${round.round}`);
+  const next = (saving.get(key) ?? Promise.resolve()).catch(() => {}).then(() => writeRound(featureDir, round, opts));
+  saving.set(key, next);
+  next.finally(() => { if (saving.get(key) === next) saving.delete(key); }).catch(() => {});
+  return next;
+}
+
+async function writeRound(featureDir, round, { route = [] } = {}) {
   await fs.mkdir(dirOf(featureDir), { recursive: true });
   const clean = scrubDeep(round);
   for (const [name, text] of [[`round-${round.round}.json`, `${JSON.stringify(clean, null, 2)}\n`], [`round-${round.round}.md`, roundMarkdown(clean, { route })]]) {
