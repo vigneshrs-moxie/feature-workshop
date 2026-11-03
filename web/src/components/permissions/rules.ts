@@ -48,9 +48,12 @@ export function coverProblem(tool: string, kind: RuleKind, value: string, input:
   }
   if (EDIT_TOOLS.has(tool) && kind === 'prefix') {
     const file = String(input?.file_path ?? input?.notebook_path ?? '');
-    const dir = v.replace(/\/+$/, '');
-    if (!dir.startsWith('/')) return 'Give the full path, starting with /.';
-    if (!file.startsWith(`${dir}/`)) return 'The file waiting now isn’t inside this folder, so the rule wouldn’t cover it.';
+    // Windows paths too: C:\x or C:/x, either slash, any case (the dashboard checks again properly).
+    const windows = /^[A-Za-z]:[\\/]/.test(v);
+    if (!v.startsWith('/') && !windows) return 'Give the full path, starting with / (or a drive letter, such as C:\\, on Windows).';
+    const norm = (p: string) => (windows ? p.replace(/\\/g, '/').toLowerCase() : p);
+    const dir = norm(v).replace(/\/+$/, '');
+    if (!norm(file).startsWith(`${dir}/`)) return 'The file waiting now isn’t inside this folder, so the rule wouldn’t cover it.';
     return null;
   }
   return null;

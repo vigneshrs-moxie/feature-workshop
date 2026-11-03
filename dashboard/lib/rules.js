@@ -73,7 +73,8 @@ export function validateRule(raw) {
     if (kind === 'prefix') {
       const tooWide = [path.parse(value).root, os.homedir(), path.dirname(os.homedir())].map((p) => path.resolve(p));
       if (tooWide.includes(value)) throw new RuleError(`${value} is too wide a folder to allow every change in. Pick the project or a folder inside it.`);
-      if (value.split(path.sep).filter(Boolean).length < 2) throw new RuleError(`${value} is too wide a folder to allow every change in.`);
+      // Two folders below the root at least: /Users or D:\Users alone is too wide.
+      if (value.slice(path.parse(value).root.length).split(path.sep).filter(Boolean).length < 2) throw new RuleError(`${value} is too wide a folder to allow every change in.`);
     }
   } else if (tool === 'WebFetch') {
     value = value.toLowerCase();

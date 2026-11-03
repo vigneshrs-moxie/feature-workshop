@@ -72,8 +72,8 @@ test('describePermission: plain words for common tools', () => {
   assert.equal(bash.preview, 'npm test');
   assert.equal(bash.risk, 'normal');
   assert.equal(describePermission('Bash', { command: 'git push origin main' }).risk, 'high');
-  const edit = describePermission('Edit', { file_path: '/r/app/x.ts', old_string: 'a', new_string: 'b' }, { cwd: '/r' });
-  assert.equal(edit.headline, 'Change a file: app/x.ts');
+  const edit = describePermission('Edit', { file_path: path.resolve('/r/app/x.ts'), old_string: 'a', new_string: 'b' }, { cwd: path.resolve('/r') });
+  assert.equal(edit.headline, `Change a file: ${path.join('app', 'x.ts')}`);
   assert.equal(edit.preview, '- a\n+ b');
   assert.equal(describePermission('mcp__github__create_pr', {}).headline, 'Use “create_pr” from the github connection');
   // The folder outside the project comes as its own field, exactly as given, never mixed into detail.

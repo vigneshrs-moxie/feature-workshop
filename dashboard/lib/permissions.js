@@ -40,7 +40,12 @@ export function markdownStartsOnSource(file, { cwd = null, featureDir = null } =
 // when they apply. detail is the tool's own description (AI-written; the page may format it).
 export function describePermission(toolName, input = {}, opts = {}) {
   const file = input.file_path || input.notebook_path || input.path;
-  const rel = (p) => (p && opts.cwd && String(p).startsWith(opts.cwd + path.sep) ? path.relative(opts.cwd, p) : p);
+  // A file inside the session's folder by its path from there; path.relative also reads C:/x as C:\x.
+  const rel = (p) => {
+    if (!p || !opts.cwd || !path.isAbsolute(String(p))) return p;
+    const r = path.relative(opts.cwd, String(p));
+    return r && !r.startsWith('..') && !path.isAbsolute(r) ? r : p;
+  };
   let headline;
   let detail = null;
   let preview = null;

@@ -41,7 +41,7 @@ test('draftRule: never offers something wider than is safe, or that doesn’t co
   const d = draftRule('Bash', { command: 'npm test' }, [{ type: 'addRules', behavior: 'allow', rules: [{ toolName: 'Bash', ruleContent: 'rm:*' }, { toolName: 'Bash', ruleContent: 'npm:*' }] }]);
   assert.deepEqual(d.options.map((o) => [o.kind, o.value]), [['exact', 'npm test'], ['prefix', 'npm test']]);
   // Files: the file, then its folder. Pages: the host. Connections: the one tool. Questions: nothing.
-  assert.deepEqual(draftRule('Edit', { file_path: '/r/app/src/a.ts' }).options.map((o) => [o.kind, o.value]), [['exact', '/r/app/src/a.ts'], ['prefix', '/r/app/src']]);
+  assert.deepEqual(draftRule('Edit', { file_path: '/r/app/src/a.ts' }).options.map((o) => [o.kind, o.value]), [['exact', path.resolve('/r/app/src/a.ts')], ['prefix', path.resolve('/r/app/src')]]);
   assert.deepEqual(draftRule('WebFetch', { url: 'https://docs.example.com/a?b' }).options.map((o) => [o.kind, o.value]), [['domain', 'docs.example.com']]);
   assert.deepEqual(draftRule('mcp__github__get_issue', {}).options.map((o) => o.kind), ['tool']);
   assert.equal(draftRule('AskUserQuestion', { questions: [] }), null);
@@ -74,7 +74,7 @@ test('validateRule: refuses rules broader than their kind allows', () => {
     null,
   ];
   for (const r of bad) assert.throws(() => validateRule(r), RuleError, JSON.stringify(r));
-  assert.deepEqual(validateRule({ tool: 'Edit', kind: 'prefix', value: '/r/app/src/../src/' }), { tool: 'Edit', kind: 'prefix', value: '/r/app/src' });
+  assert.deepEqual(validateRule({ tool: 'Edit', kind: 'prefix', value: '/r/app/src/../src/' }), { tool: 'Edit', kind: 'prefix', value: path.resolve('/r/app/src') });
   assert.deepEqual(validateRule({ tool: 'WebFetch', kind: 'domain', value: 'Docs.Example.com' }), { tool: 'WebFetch', kind: 'domain', value: 'docs.example.com' });
   assert.deepEqual(validateRule({ tool: 'mcp__github__get_issue', kind: 'tool', value: 'ignored' }), { tool: 'mcp__github__get_issue', kind: 'tool', value: '' });
 });
