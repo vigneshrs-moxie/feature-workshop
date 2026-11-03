@@ -51,6 +51,13 @@ async function setup(script, { ticket = null } = {}) {
     watchers.get(dir)?.();
     watchers.get(dir)?.();
   };
+  // The file's time moves by ms with its words unchanged (Windows can do this after a write lands).
+  const touch = async (ms) => {
+    const file = path.join(dir, 'status.json');
+    const { atime, mtime } = await fs.stat(file);
+    await fs.utimes(file, atime, new Date(mtime.getTime() + ms));
+    watchers.get(dir)?.();
+  };
   const queryFn = ({ prompt, options }) => {
     const it = prompt[Symbol.asyncIterator]();
     const session = { options, received: [] };
@@ -64,7 +71,7 @@ async function setup(script, { ticket = null } = {}) {
     const gen = (async function* () {
       const first = await next();
       yield { type: 'system', subtype: 'init', session_id: options.resume ?? 'sess-1', model: 'claude-opus-5-5', permissionMode: 'default' };
-      await script({ write, next, options, first, session, dir });
+      await script({ write, touch, next, options, first, session, dir });
       yield { type: 'result', subtype: 'success', result: 'Done.', total_cost_usd: 0 };
       // Read until the input closes; a message taken after the result gets a reply (and result) of its own.
       while ((await next()) !== null) yield { type: 'result', subtype: 'success', result: 'Noted.', total_cost_usd: 0 };
@@ -262,6 +269,20 @@ test('a write while the reply is finishing: the message still joins that reply',
   assert.ok(t.sessions.length <= 2);
   assert.equal(t.sessions[0].received[0], 'go');
   assert.equal(t.sessions.flatMap((s) => s.received).filter((m) => m === statusFixMessage(BAD_ERRORS)).length, 1);
+});
+
+test('one write whose time moves a little is one write; the same words a while later are a new try', async () => {
+  const t = await setup(async ({ write, touch, next }) => {
+    await write(BAD(1));
+    assert.equal(await next(), statusFixMessage(BAD_ERRORS));
+    await touch(400); // the same write, seen again: nothing more is sent
+    await sleep(30);
+    await touch(5000); // the same words, written again later: a second try
+    assert.equal(await next(), statusFixMessage(BAD_ERRORS));
+  });
+  const run = await t.start();
+  await t.ended(run.id);
+  assert.deepEqual((await t.audits('status_invalid')).map((a) => a.attempt), [1, 2]);
 });
 
 test('stopped: a correction not yet read is not sent afterwards', async () => {

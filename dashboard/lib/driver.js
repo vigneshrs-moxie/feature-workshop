@@ -105,6 +105,14 @@ export const STATUS_CARD_HEADLINE = 'The Foreman cannot write a valid status.jso
 // At most this many errors go into one message or card; the audit line has them all (up to validate's cut).
 const STATUS_ERRORS_SHOWN = 10;
 
+// One write, seen twice, is still one write. The same words a second later are the same write:
+// Windows can move the file's time after its words are already there, so one write looked like
+// two and the correction was sent twice. The same words written again later are a new try.
+const SAME_WRITE_MS = 1000;
+function sameWrite(a, b) {
+  return Boolean(a && b) && a.text === b.text && Math.abs(a.mtimeMs - b.mtimeMs) < SAME_WRITE_MS;
+}
+
 /** The message the Foreman gets for an invalid status.json. */
 export function statusFixMessage(errors) {
   const list = (errors ?? []).slice(0, STATUS_ERRORS_SHOWN);
@@ -412,7 +420,7 @@ export class Driver extends EventEmitter {
     try {
       const stat = await fs.stat(file);
       const text = await fs.readFile(file, 'utf8');
-      return { text, seen: `${stat.mtimeMs}:${text}` };
+      return { text, seen: { mtimeMs: stat.mtimeMs, text } };
     } catch { return null; }
   }
 
@@ -447,7 +455,7 @@ export class Driver extends EventEmitter {
   async #checkStatus(run) {
     const now = await this.#statusNow(run.featureDir);
     const rec = this.#statusRecord(run.featureDir);
-    if (!now || now.seen === rec.seen) return;
+    if (!now || sameWrite(now.seen, rec.seen)) return;
     rec.seen = now.seen;
     if (run.sessionId) rec.session = { ...rec.session, sessionId: run.sessionId, model: run.model ?? rec.session?.model ?? null };
     let ticketKey = null;
