@@ -126,7 +126,7 @@ function StageBody({ job, stop }: { job: Job; stop: StopId }) {
 
   const view = load.state === 'ready' ? load.value : null;
   const ticket = ticketOf(job);
-  const stagesHere = view?.stages?.length ? view.stages : stagesOf(stop);
+  const stagesHere = view?.stages?.length ? view.stages : stagesOf(stop, job.kind);
   const messages = thread.items.length;
   const long = forHowLong(view?.since, now);
   return (

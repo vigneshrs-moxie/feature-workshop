@@ -12,7 +12,7 @@
 
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { STAGES } from './stages.js';
+import { STAGES, stagesFor } from './stages.js';
 import { writeFileAtomic } from './atomic-write.js';
 
 /** A gate untouched this long is "parked": an alert, and a chip on the job's row (decision D3). */
@@ -39,8 +39,8 @@ export function versionsFrom(status) {
 }
 
 /** The stage after `stage` that this job runs (skipped stages left out); null at the end or when unknown. */
-export function nextStageAfter(stage, skipped = []) {
-  const ids = STAGES.map((s) => s.id).filter((id) => !skipped.includes(id));
+export function nextStageAfter(stage, skipped = [], kind = null) {
+  const ids = stagesFor(kind).filter((id) => !skipped.includes(id));
   const i = ids.indexOf(stage);
   return i >= 0 && i < ids.length - 1 ? ids[i + 1] : null;
 }
@@ -115,7 +115,7 @@ export class RaisedVersions {
  */
 export function gateView(job, { brief = null, raisedVersions = null, parked = false, runActive = false, usage = null, time } = {}) {
   if (!job || !isGateWaiting(job)) return null;
-  const nextStage = nextStageAfter(job.stage, job.skipped ?? []);
+  const nextStage = nextStageAfter(job.stage, job.skipped ?? [], job.kind ?? null);
   const heavy = HEAVY_STAGES.includes(nextStage) || HEAVY_WORDS.test(job.nextProposed ?? '');
   const nextLabel = STAGES.find((s) => s.id === nextStage)?.label ?? null;
   const versions = job.versions ?? null;

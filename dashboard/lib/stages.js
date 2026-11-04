@@ -2,12 +2,15 @@
 
 export const STAGES = [
   { id: 'clarify', label: 'Clarify', tip: 'A few questions before the spec, each with what your answer changes.' },
+  { id: 'triage', label: 'Triage', tip: 'A bug job’s first look: the ticket, the severity, the level, and only the questions reproduction needs.' },
   { id: 'spec', label: 'Spec', tip: 'Write down what the feature should do, in product terms.' },
   { id: 'refine', label: 'Refine', tip: 'A detailed product interview. Large features only.' },
   { id: 'wireframe', label: 'Screens', tip: 'Draw the feature’s screens from the spec, for you to review before anyone builds.' },
   { id: 'investigate', label: 'Investigate', tip: 'Read the code to see how the feature fits. No changes.' },
+  { id: 'reproduce', label: 'Reproduce', tip: 'A bug job: a failing test that goes red on the exact symptom, committed on the fix branch.' },
   { id: 'spec-update', label: 'Spec update', tip: 'Adjust the spec when the code showed something new. Only when needed.' },
   { id: 'plan', label: 'Plan', tip: 'The step-by-step implementation plan and test plan.' },
+  { id: 'diagnose', label: 'Diagnose', tip: 'A bug job: the root cause, the smallest fix, the regression test and the risks, for you to approve.' },
   { id: 'implement', label: 'Build', tip: 'Code the approved plan, one commit per step, in its own folder (worktree).' },
   { id: 'test', label: 'Test', tip: 'Run the approved checks and report each acceptance criterion.' },
   { id: 'review', label: 'Review', tip: 'Several reviewers look at the change from different angles.' },
@@ -18,6 +21,16 @@ export const STAGES = [
 ];
 
 export const STAGE_IDS = STAGES.map((s) => s.id);
+
+// A feature job and a bug job share build, test, review and the PR stages; the rest belong to one
+// kind. The /feature skill runs clarify … plan; the /bugfix skill runs triage, reproduce, diagnose.
+export const FEATURE_STAGES = ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update', 'plan'];
+export const BUG_STAGES = ['triage', 'reproduce', 'diagnose'];
+/** The stages a job of this kind runs, in order ('bug', else a feature). */
+export function stagesFor(kind) {
+  const out = kind === 'bug' ? FEATURE_STAGES : BUG_STAGES;
+  return STAGE_IDS.filter((id) => !out.includes(id));
+}
 
 // Who does each stage. Characters are drawn in the front end; this is the mapping.
 export const AGENTS = {
@@ -42,6 +55,10 @@ export const AGENTS = {
 // crew stays the same 15 members; lib/play.js CREW_TYPES and the Crew-dex count on that).
 export const AGENT_ALIASES = {
   'feature-wireframer': { as: 'feature-review-ui', role: 'Draws the feature’s screens (wireframes) from the spec', stage: 'wireframe' },
+  // The bug-fix workflow's three workers (the /bugfix conductor): drawn by the Tester, the Sleuth and the Head inspector.
+  'bug-reproducer': { as: 'feature-tester', role: 'Reproduces the bug with a failing test on the fix branch', stage: 'reproduce' },
+  'bug-diagnoser': { as: 'feature-investigator', role: 'Finds the root cause, the blast radius and the smallest fix', stage: 'diagnose' },
+  'bug-review-fix': { as: 'feature-reviewer', role: 'Review: the fix against the cause, the regression test, scope', stage: 'review' },
 };
 
 export function agentInfo(agentType) {
@@ -59,6 +76,9 @@ export function skippedStages(route) {
 // "Planning: complete, awaiting review" is the plan stage, not review.
 const STAGE_PATTERNS = [
   ['spec-update', /spec[\s-]update|post-investigation/i],
+  ['triage', /\btriage\b/i],
+  ['reproduce', /\breproduc/i],
+  ['diagnose', /\bdiagnos/i],
   ['clarify', /\bclarify\b/i],
   ['wireframe', /\bwireframes?\b/i],
   ['refine', /\brefine(ment)?\b/i],

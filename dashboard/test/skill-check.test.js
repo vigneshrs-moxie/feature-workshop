@@ -30,7 +30,7 @@ test('skill check: an installed skill from before levels reports levels false', 
   const dir = await skillsDir(OLD);
   try {
     const r = await skillChecker(dir).check();
-    assert.deepEqual(r, { installed: true, levels: false, path: path.join(dir, 'feature', 'job-options.md') });
+    assert.deepEqual(r, { installed: true, levels: false, bugfix: false, path: path.join(dir, 'feature', 'job-options.md') });
   } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
 
@@ -67,4 +67,19 @@ test('skill check: a link to the file (as install.sh makes) is followed and only
     await fs.rm(dir, { recursive: true, force: true });
     await fs.rm(src, { recursive: true, force: true });
   }
+});
+
+test('skill check: bugfix is true only when the /bugfix conductor is installed next to the feature skill', async () => {
+  const dir = await skillsDir(NEW);
+  try {
+    const check = skillChecker(dir);
+    assert.equal((await check.check()).bugfix, false, 'no bugfix folder yet');
+    await fs.mkdir(path.join(dir, 'bugfix'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'bugfix', 'SKILL.md'), '---\nname: bugfix\n---\n');
+    const r = await check.check();
+    assert.equal(r.bugfix, true, 'noticed without the feature file changing');
+    assert.equal(r.levels, true, 'the feature answer is unchanged');
+    const none = await skillChecker(await skillsDir(null)).check();
+    assert.equal(none.bugfix, false, 'nothing installed: no bugfix either');
+  } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });

@@ -113,7 +113,7 @@ test('an invalid write gets one corrective message in the same session and an au
   assert.equal((await t.audits('status_valid')).length, 1, 'the valid rewrite is recorded');
   assert.equal(t.driver.pendingPermissions().length, 0, 'no card');
   // The message reads as the plan words it.
-  assert.match(statusFixMessage(BAD_ERRORS), /^status\.json is invalid: stage_state: "in_progress" is not one of working, waiting_for_you, blocked, done; brief\.number: expected a whole number or null, got text "two"\. Rewrite the whole file to match ~\/\.claude\/skills\/feature\/status-json\.md and write it again\.$/);
+  assert.match(statusFixMessage(BAD_ERRORS), /^status\.json is invalid: stage_state: "in_progress" is not one of working, waiting_for_you, blocked, done; brief\.number: expected a whole number or null, got text "two"\. Rewrite the whole file to match ~\/\.claude\/skills\/workflow-common\/status-json\.md and write it again\.$/);
   assert.equal((await t.audits('steer')).length, 0, 'not shown as a message you sent');
 });
 

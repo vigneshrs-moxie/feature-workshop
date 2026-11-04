@@ -1,5 +1,5 @@
 // Reads status.json, the machine-readable summary the conductor writes after every brief
-// (schema: ~/.claude/skills/feature/status-json.md). Two ways in:
+// (schema: ~/.claude/skills/workflow-common/status-json.md). Two ways in:
 //   parseStatusJson(text)  for display: lenient, as always. Unknown values become null with a
 //                          warning, long text is cut, a fourth question is dropped.
 //   validate(json, { ticketKey })  strict (plan D11): checks a file against status-schema.json

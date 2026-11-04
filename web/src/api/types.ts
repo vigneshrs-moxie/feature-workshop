@@ -829,10 +829,12 @@ export interface JobOptionLists {
   [key: string]: unknown;
 }
 
-/** meta.skill: the installed skill's job-options.md, read only. levels: it has the Levels table. */
+/** meta.skill: the installed skill's job-options.md, read only. levels: it has the Levels table; bugfix: the /bugfix conductor is installed too. */
 export interface SkillStatus {
   installed: boolean;
   levels: boolean;
+  /** The /bugfix conductor is installed (a Bug fix job starts with it). Older dashboards omit it. */
+  bugfix?: boolean;
   path: string;
 }
 

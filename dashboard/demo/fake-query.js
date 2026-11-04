@@ -46,9 +46,10 @@ import path from 'node:path';
 import { suggestLevel } from '../lib/level-rules.js';
 import { parseReviewFindings } from '../lib/play.js';
 import { FABLE_POINTS, flowFor, isLevel, levelLabel, OPUS, REVIEWERS, skippedFor } from '../lib/options.js';
-import { STAGES as STAGE_LIST } from '../lib/stages.js';
+import { STAGES as STAGE_LIST, stagesFor } from '../lib/stages.js';
 
-const STAGES = STAGE_LIST.map((s) => s.id);
+// The pretend Foreman runs a feature job's stages (a demo bug job runs them too).
+const STAGES = stagesFor('feature');
 const LABEL = Object.fromEntries(STAGE_LIST.map((s) => [s.id, s.label]));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const RANK = { deny: 3, ask: 2, allow: 1 };

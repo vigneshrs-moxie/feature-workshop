@@ -3,12 +3,15 @@
 
 export const STAGE_INFO: Record<string, { label: string; tip: string }> = {
   clarify: { label: 'Clarify', tip: 'A few questions before the spec, each with what your answer changes.' },
+  triage: { label: 'Triage', tip: 'A bug job’s first look: the ticket, the severity, the level, and only the questions reproduction needs.' },
   spec: { label: 'Spec', tip: 'Writing down what the feature should do, in product terms.' },
   refine: { label: 'Refine', tip: 'A detailed product interview. Large features only.' },
   wireframe: { label: 'Screens', tip: 'Drawing the feature’s screens from the spec, for you to review before anyone builds.' },
   investigate: { label: 'Investigate', tip: 'Reading the code to see how the feature fits. No changes.' },
+  reproduce: { label: 'Reproduce', tip: 'A bug job: a failing test that goes red on the exact symptom, committed on the fix branch.' },
   'spec-update': { label: 'Spec update', tip: 'Adjusting the spec because the code showed something new.' },
   plan: { label: 'Plan', tip: 'The step-by-step implementation plan and test plan.' },
+  diagnose: { label: 'Diagnose', tip: 'A bug job: the root cause, the smallest fix, the regression test and the risks, for you to approve.' },
   implement: { label: 'Build', tip: 'Coding the approved plan, one commit per step, in its own folder (worktree).' },
   test: { label: 'Test', tip: 'Running the approved checks and reporting each acceptance criterion.' },
   review: { label: 'Review', tip: 'Several reviewers look at the change from different angles.' },
@@ -35,12 +38,15 @@ export type StageFamily = 'spec' | 'investigate' | 'plan' | 'build' | 'test' | '
 const FAMILY: Record<string, StageFamily> = {
   // Clarify and Screens shape the spec (the questions feed it, the agreed screens go into it).
   clarify: 'spec',
+  triage: 'spec',
   spec: 'spec',
   refine: 'spec',
   wireframe: 'spec',
   'spec-update': 'spec',
   investigate: 'investigate',
+  reproduce: 'investigate',
   plan: 'plan',
+  diagnose: 'plan',
   implement: 'build',
   test: 'test',
   review: 'review',
