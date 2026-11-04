@@ -111,7 +111,7 @@ export function questTrack(job: Job, levels?: LevelInfo[] | null, done?: boolean
     };
   });
   const who = atGoal ? 'conductor' : at >= 0 && stage ? STAGE_CHARACTER[stage] ?? 'conductor' : finished ? 'conductor' : null;
-  return { level, stars: difficultyStars(level), difficulty: `Difficulty: ${levelLabel(level, levels)}`, stops, who, finished, goal };
+  return { level, stars: difficultyStars(level), difficulty: `Difficulty: ${levelLabel(level, levels, job.kind)}`, stops, who, finished, goal };
 }
 
 // ---------- Boss fight ----------

@@ -129,7 +129,7 @@ const pick = (v, allowed) => [...new Set((Array.isArray(v) ? v : []).filter((x) 
  */
 export const LEVELS = [
   {
-    level: 0, name: 'Tweak', flow: 'quick',
+    level: 0, name: 'Tweak', bugName: 'Tweak (hotfix)', flow: 'quick',
     hint: 'One build, then the checks (npm run check/build); you look at the diff. No plan to approve.',
     skip: ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update', 'plan', 'test', 'review'], reviewers: [], manualTest: false, fable: [],
     models: { foreman: OPUS, build: SONNET, checks: SONNET },
@@ -187,8 +187,8 @@ export function levelFor(flow) {
   return { quick: 1, small: 2, large: 3 }[flow] ?? null;
 }
 
-/** "L2 Standard". */
-export const levelLabel = (level) => (isLevel(level) ? `L${level} ${LEVELS[level].name}` : null);
+/** "L2 Standard"; for a bug job (kind 'bug') a level's bugName when it has one: "L0 Tweak (hotfix)". */
+export const levelLabel = (level, kind = null) => (isLevel(level) ? `L${level} ${(kind === 'bug' && LEVELS[level].bugName) || LEVELS[level].name}` : null);
 
 /** The defaults for a flow, as a full options object (its level mapped by levelFor). */
 export function defaultsFor(flow = 'auto') {
@@ -359,7 +359,7 @@ export function skippedFor(route, options) {
 /** The options in a few plain lines, for the Foreman's first message and for the page. */
 export function describeOptions(o) {
   const name = (list, id) => list.find((x) => x.id === id)?.label ?? id;
-  const lines = [isLevel(o.level) ? `Level: ${levelLabel(o.level)} (${o.flow ?? flowFor(o.level)} flow).` : `Flow: ${FLOWS[o.flow]?.label ?? o.flow}.`];
+  const lines = [isLevel(o.level) ? `Level: ${levelLabel(o.level, o.kind)} (${o.flow ?? flowFor(o.level)} flow).` : `Flow: ${FLOWS[o.flow]?.label ?? o.flow}.`];
   if (o.skip.length) lines.push(`Skip: ${o.skip.map((s) => name(SKIPPABLE, s)).join(', ')}.`);
   for (const [k, p] of Object.entries(o.provided ?? {})) lines.push(`${name(PROVIDABLE, k)} provided: ${p}`);
   lines.push(`Reviewers: ${o.skip.includes('review') ? 'none' : o.reviewers === 'auto' ? 'the usual ones for this kind of change' : o.reviewers.map((r) => name(REVIEWERS, r)).join(', ')}${o.skip.includes('review') ? '' : `, at most ${o.review_rounds} fix round${o.review_rounds === 1 ? '' : 's'}`}.`);
@@ -385,7 +385,7 @@ export function describeOptions(o) {
  */
 export function levelsForClient() {
   return LEVELS.map((l) => ({
-    level: l.level, label: levelLabel(l.level), name: l.name, hint: l.hint, flow: l.flow, models: { ...l.models },
+    level: l.level, label: levelLabel(l.level), bugLabel: levelLabel(l.level, 'bug'), name: l.name, hint: l.hint, flow: l.flow, models: { ...l.models },
     skip: [...l.skip], reviewers: Array.isArray(l.reviewers) ? [...l.reviewers] : l.reviewers,
     manualTest: l.manualTest, fable: [...l.fable],
   }));
@@ -396,12 +396,12 @@ export function levelsForClient() {
  * "Level changed from L2 Standard to L3 Large." (or "from none yet"). Null when the level stayed
  * the same, or the earlier level isn't known (`was` undefined: an audit line from before this).
  */
-export function levelChangeLine(was, now) {
+export function levelChangeLine(was, now, kind = null) {
   if (was === undefined) return null;
   const before = isLevel(was) ? was : null;
   const after = isLevel(now) ? now : null;
   if (before === after) return null;
-  return `Level changed from ${before === null ? 'none yet' : levelLabel(before)} to ${after === null ? 'none (the Foreman suggests one)' : levelLabel(after)}.`;
+  return `Level changed from ${before === null ? 'none yet' : levelLabel(before, kind)} to ${after === null ? 'none (the Foreman suggests one)' : levelLabel(after, kind)}.`;
 }
 
 // ---------- Start from a ticket (plan D1) ----------

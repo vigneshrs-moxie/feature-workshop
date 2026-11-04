@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { normalize, defaultsForBugLevel, defaultsForLevel, optionsAtLevel, SKIPPABLE, REVIEWERS, BUG_LEVELS, LEVELS } from '../lib/options.js';
+import { normalize, defaultsForBugLevel, defaultsForLevel, optionsAtLevel, SKIPPABLE, REVIEWERS, BUG_LEVELS, LEVELS, levelLabel, levelsForClient, describeOptions, levelChangeLine } from '../lib/options.js';
 import { stopOf } from '../lib/stage-view.js';
 import { STAGE_IDS, agentInfo, detectStage } from '../lib/stages.js';
 
@@ -67,4 +67,19 @@ test('editing a bug job keeps its kind: previous options carry it, and a level c
 test('a reviewer list on a bug job may name the bug lens and still drops names the page does not know', () => {
   const o = normalize({ level: 2, reviewers: ['bug-review-fix', 'feature-review-db', 'nope'] }, { kind: 'bug' });
   assert.deepEqual(o.reviewers, ['bug-review-fix', 'feature-review-db']);
+});
+
+test('a bug job labels L0 "Tweak (hotfix)"; the other levels and every feature level keep their names', () => {
+  assert.equal(levelLabel(0, 'bug'), 'L0 Tweak (hotfix)');
+  assert.equal(levelLabel(0), 'L0 Tweak');
+  assert.equal(levelLabel(0, 'feature'), 'L0 Tweak');
+  assert.equal(levelLabel(1, 'bug'), 'L1 Small');
+  assert.equal(levelLabel(3, 'bug'), 'L3 Large');
+  const client = levelsForClient();
+  assert.equal(client[0].bugLabel, 'L0 Tweak (hotfix)');
+  assert.equal(client[0].label, 'L0 Tweak');
+  assert.deepEqual(client.slice(1).map((l) => l.bugLabel), client.slice(1).map((l) => l.label));
+  assert.match(describeOptions({ ...normalize({ level: 0 }, { kind: 'bug' }), kind: 'bug' })[0], /^Level: L0 Tweak \(hotfix\)/);
+  assert.match(describeOptions(normalize({ level: 0 }))[0], /^Level: L0 Tweak \(/);
+  assert.equal(levelChangeLine(1, 0, 'bug'), 'Level changed from L1 Small to L0 Tweak (hotfix).');
 });

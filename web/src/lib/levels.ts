@@ -12,9 +12,11 @@ const NAMES = ['Tweak', 'Small', 'Standard', 'Large'];
 
 export const isLevel = (v: unknown): v is LevelNumber => v === 0 || v === 1 || v === 2 || v === 3;
 
-/** "L2 Standard" (from meta.levels when it has it). */
-export function levelLabel(level: LevelNumber, levels?: LevelInfo[] | null): string {
-  return levels?.find((l) => l.level === level)?.label ?? `L${level} ${NAMES[level]}`;
+/** "L2 Standard" (from meta.levels when it has it); on a bug job (kind 'bug') L0 reads "L0 Tweak (hotfix)". */
+export function levelLabel(level: LevelNumber, levels?: LevelInfo[] | null, kind?: string | null): string {
+  const info = levels?.find((l) => l.level === level);
+  const bug = kind === 'bug';
+  return (bug ? info?.bugLabel : undefined) ?? info?.label ?? `L${level} ${bug && level === 0 ? 'Tweak (hotfix)' : NAMES[level]}`;
 }
 
 /** The rules' suggestion for a description, no model involved; null until it's a few characters long. */

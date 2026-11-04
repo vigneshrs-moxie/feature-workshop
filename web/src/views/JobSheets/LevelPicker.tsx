@@ -16,9 +16,11 @@ export interface LevelPickerProps {
   byHand: boolean;
   onPick: (level: LevelNumber) => void;
   disabled?: boolean;
+  /** The job's kind ('feature' or 'bug'): a bug job's L0 reads "L0 Tweak (hotfix)". */
+  kind?: string | null;
 }
 
-export function LevelPicker({ levels, value, suggestion, byHand, onPick, disabled }: LevelPickerProps) {
+export function LevelPicker({ levels, value, suggestion, byHand, onPick, disabled, kind = null }: LevelPickerProps) {
   const note = suggestion && value !== null ? floorNote(suggestion, value) : null;
   const hint = (n: LevelNumber) => levels?.find((l) => l.level === n)?.hint ?? null;
   const picked = value === null ? null : hint(value);
@@ -37,10 +39,10 @@ export function LevelPicker({ levels, value, suggestion, byHand, onPick, disable
           const words = hint(n);
           return {
             value: String(n),
-            title: `${levelLabel(n, levels)}: ${words ?? 'see the job options'}${suggested ? ' The rules suggest this one for your description.' : ''}`,
+            title: `${levelLabel(n, levels, kind)}: ${words ?? 'see the job options'}${suggested ? ' The rules suggest this one for your description.' : ''}`,
             label: (
               <>
-                {levelLabel(n, levels)}
+                {levelLabel(n, levels, kind)}
                 {suggested && <span className="level-suggested-dot" aria-hidden="true" />}
                 {words && <span className="sr-only">: {words}</span>}
                 {suggested && <span className="sr-only"> (suggested)</span>}
@@ -52,7 +54,7 @@ export function LevelPicker({ levels, value, suggestion, byHand, onPick, disable
       <p className={`field-hint level-hint${picked ? '' : ' is-empty'}`}>{picked ?? about}</p>
       {suggestion && (
         <p className="field-hint level-suggested" title="The rules read your description for risky areas and for how big the change sounds. No AI is involved, and nothing is sent until you start the job.">
-          Suggested: {levelLabel(suggestion.level, levels)} — {suggestion.reasons.join(' ')}{byHand && value !== suggestion.level ? ' You picked another level; it’s kept as you type.' : ''}
+          Suggested: {levelLabel(suggestion.level, levels, kind)} — {suggestion.reasons.join(' ')}{byHand && value !== suggestion.level ? ' You picked another level; it’s kept as you type.' : ''}
         </p>
       )}
       {note && <p className="perm-warn level-floor">{note}</p>}

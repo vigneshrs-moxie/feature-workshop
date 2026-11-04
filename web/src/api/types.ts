@@ -724,6 +724,8 @@ export interface LevelInfo {
   level: 0 | 1 | 2 | 3;
   /** "L2 Standard". */
   label: string;
+  /** The label for a bug job: "L0 Tweak (hotfix)", else the same as label. */
+  bugLabel?: string;
   name: string;
   /** One line: what runs at this level. */
   hint: string;

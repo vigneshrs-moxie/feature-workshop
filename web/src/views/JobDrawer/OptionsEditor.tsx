@@ -60,7 +60,7 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 const toggle = (list: string[], id: string, on: boolean) => (on ? [...new Set([...list, id])] : list.filter((x) => x !== id));
 
 /** stage: the job's current stage, so what a level change adds or drops leaves out finished stages. */
-export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChange }: { slug: string; level: LevelNumber | null; stage?: string | null; onDirtyChange: (dirty: boolean) => void }) {
+export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null, onDirtyChange }: { slug: string; level: LevelNumber | null; stage?: string | null; kind?: string | null; onDirtyChange: (dirty: boolean) => void }) {
   const { api } = useWorkshop();
   const state = useWorkshopState();
   const meta = state.meta;
@@ -171,10 +171,10 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, onDirtyChan
           {LEVEL_NUMBERS.map((n) => {
             const info = levels?.find((l) => l.level === n);
             return (
-              <label key={n} className={`rule-option${form.level === n ? ' is-picked' : ''}`} title={`${levelLabel(n, levels)}: ${info?.hint ?? ''}${saved.level !== n ? ` ${levelChange(saved.level, n, levels, names, stage).text}.` : ' The level saved now.'}`}>
+              <label key={n} className={`rule-option${form.level === n ? ' is-picked' : ''}`} title={`${levelLabel(n, levels, kind)}: ${info?.hint ?? ''}${saved.level !== n ? ` ${levelChange(saved.level, n, levels, names, stage).text}.` : ' The level saved now.'}`}>
                 <Choice type="radio" name={`${id}-level`} value={n} checked={form.level === n} onChange={() => pickLevel(n)} />
                 <span className="rule-option-body">
-                  <span className="rule-option-kind">{levelLabel(n, levels)}{saved.level === n && <span className="chip">Saved</span>}</span>
+                  <span className="rule-option-kind">{levelLabel(n, levels, kind)}{saved.level === n && <span className="chip">Saved</span>}</span>
                   {info?.hint && <span className="muted">{info.hint}</span>}
                 </span>
               </label>
