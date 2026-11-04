@@ -66,7 +66,8 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
   const meta = state.meta;
   const levels = meta?.levels;
   const names = lensNames(meta);
-  const lists = optionLists(meta);
+  // Only the stages and lenses this kind of job has (a job with no kind is a feature).
+  const lists = optionLists(meta, kind === 'bug' ? 'bug' : 'feature');
   const id = useId();
   const [load, setLoad] = useState<Load>({ state: 'loading' });
   const [saved, setSaved] = useState<OptionsForm | null>(null);
@@ -97,7 +98,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
       (detail) => {
         if (cancelled || (editing.current && !forceLoad.current)) return;
         forceLoad.current = false;
-        const f = formFrom(detail?.options ?? null, isLevel(detail?.level) ? detail.level : jobLevel, levels, lists);
+        const f = formFrom(detail?.options ?? null, isLevel(detail?.level) ? detail.level : jobLevel, levels, lists, kind);
         const at = detail?.options?.updated_at;
         setStamp(typeof at === 'string' ? at : null);
         setWorkflow({ wireframes: workflowChoice(detail?.options?.wireframes), clarify: workflowChoice(detail?.options?.clarify) });
@@ -129,8 +130,8 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
   // The Foreman's model isn't edited here: whatever the level, the saved one is posted back unchanged.
   const keepForeman = (f: OptionsForm): OptionsForm => ({ ...f, models: { ...f.models, foreman: saved.models.foreman } });
   // Your own testing choice and models (ones that differ from the old level's) stay, as with the level chips.
-  const pickLevel = (n: LevelNumber) => edit(keepForeman(levelDefaults(n, levels, lists, { provided: form.provided, notes: form.notes, review_rounds: form.review_rounds, from: form })));
-  const resetToLevel = () => edit(keepForeman(levelDefaults(form.level, levels, lists, { provided: form.provided, notes: form.notes, review_rounds: 1 })));
+  const pickLevel = (n: LevelNumber) => edit(keepForeman(levelDefaults(n, levels, lists, { provided: form.provided, notes: form.notes, review_rounds: form.review_rounds, from: form }, kind)));
+  const resetToLevel = () => edit(keepForeman(levelDefaults(form.level, levels, lists, { provided: form.provided, notes: form.notes, review_rounds: 1 }, kind)));
   const lockedSkips = providedSkips(form.provided, lists);
   // The stages the job's Always settings keep (not at L0, where the dashboard leaves the skip alone).
   const alwaysField = (stage: string): keyof Workflow | null => (form.level !== 0 && ALWAYS_FIELD[stage] && workflow[ALWAYS_FIELD[stage]] === 'always' ? ALWAYS_FIELD[stage] : null);
@@ -138,7 +139,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
   const lenses = form.reviewers === 'auto' ? [] : form.reviewers;
   const noLenses = form.reviewers !== 'auto' && lenses.length === 0;
   const reviewSkipped = form.skip.includes('review') || noLenses;
-  const change = form.level !== null && form.level !== saved.level ? levelChange(saved.level, form.level, levels, names, stage) : null;
+  const change = form.level !== null && form.level !== saved.level ? levelChange(saved.level, form.level, levels, names, stage, kind) : null;
   const providedList = lists.providable.filter((d) => form.provided[d.id]);
 
   async function save() {
@@ -171,7 +172,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
           {LEVEL_NUMBERS.map((n) => {
             const info = levels?.find((l) => l.level === n);
             return (
-              <label key={n} className={`rule-option${form.level === n ? ' is-picked' : ''}`} title={`${levelLabel(n, levels, kind)}: ${info?.hint ?? ''}${saved.level !== n ? ` ${levelChange(saved.level, n, levels, names, stage).text}.` : ' The level saved now.'}`}>
+              <label key={n} className={`rule-option${form.level === n ? ' is-picked' : ''}`} title={`${levelLabel(n, levels, kind)}: ${info?.hint ?? ''}${saved.level !== n ? ` ${levelChange(saved.level, n, levels, names, stage, kind).text}.` : ' The level saved now.'}`}>
                 <Choice type="radio" name={`${id}-level`} value={n} checked={form.level === n} onChange={() => pickLevel(n)} />
                 <span className="rule-option-body">
                   <span className="rule-option-kind">{levelLabel(n, levels, kind)}{saved.level === n && <span className="chip">Saved</span>}</span>

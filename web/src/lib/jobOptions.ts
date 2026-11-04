@@ -3,7 +3,7 @@
 // /api/job/:slug/options takes. The dashboard checks and tidies whatever is sent (lib/options.js
 // normalize), so these mirror its rules only as far as the page needs to show them right.
 import type { JobOptionLists, JobOptions, LevelInfo, LevelNumber, Meta, ModelInfo, OptionChoice, ReviewerInfo } from '../api/types';
-import { isLevel } from './levels';
+import { isLevel, levelForKind } from './levels';
 
 export const OPUS = 'claude-opus-5-5';
 export const FABLE = 'claude-fable-5-1';
@@ -51,15 +51,21 @@ export interface OptionLists {
 
 const listOr = <T,>(v: T[] | undefined, fallback: T[]) => (Array.isArray(v) && v.length ? v : fallback);
 
-export function optionLists(meta: Meta | null | undefined): OptionLists {
+/**
+ * kind: the job's ('bug' or 'feature'): only the stages and lenses that kind of job has (a bug job
+ * is offered triage and reproduce, not the spec or the plan; a feature job never the Examiner).
+ * Left out (no job in hand), every one.
+ */
+export function optionLists(meta: Meta | null | undefined, kind: 'bug' | 'feature' | null = null): OptionLists {
   const o: JobOptionLists = meta?.jobOptions ?? {};
   const choices = listOr(o.models?.choices, MODEL_CHOICES);
   const named = (ids: string[]) => ids.map((id) => choices.find((c) => c.id === id) ?? { id, label: id });
   const crew = named(listOr(o.models?.crew, CREW_IDS));
+  const forKind = <T extends { bug?: boolean; feature?: boolean }>(list: T[]) => (kind === 'bug' ? list.filter((x) => !x.feature) : kind === 'feature' ? list.filter((x) => !x.bug) : list);
   return {
-    skippable: listOr(o.skippable, SKIPPABLE),
+    skippable: forKind(listOr(o.skippable, SKIPPABLE)),
     providable: listOr(o.providable, PROVIDABLE),
-    reviewers: listOr(o.reviewers, []),
+    reviewers: forKind(listOr(o.reviewers, [])),
     fablePoints: listOr(o.fablePoints, FABLE_POINTS),
     models: { foreman: named(listOr(o.models?.foreman, FOREMAN_IDS)), build: crew, checks: crew },
     notesMax: typeof o.notesMax === 'number' && o.notesMax > 0 ? o.notesMax : NOTES_MAX,
@@ -96,9 +102,9 @@ export function providedSkips(provided: Record<string, string>, lists: OptionLis
 }
 
 /** The form for a job's options as saved (or the defaults for its level when it has no options.json yet). */
-export function formFrom(options: JobOptions | null | undefined, jobLevel: LevelNumber | null | undefined, levels: LevelInfo[] | null | undefined, lists: OptionLists): OptionsForm {
+export function formFrom(options: JobOptions | null | undefined, jobLevel: LevelNumber | null | undefined, levels: LevelInfo[] | null | undefined, lists: OptionLists, kind: string | null = null): OptionsForm {
   const level = isLevel(options?.level) ? options.level : options ? null : isLevel(jobLevel) ? jobLevel : null;
-  const base = levelDefaults(level, levels, lists, { provided: {}, notes: '', review_rounds: 1 });
+  const base = levelDefaults(level, levels, lists, { provided: {}, notes: '', review_rounds: 1 }, kind);
   if (!options) return base;
   const provided = Object.fromEntries(Object.entries(options.provided ?? {}).filter(([, p]) => typeof p === 'string' && p));
   return {
@@ -127,9 +133,10 @@ export type LevelKeep = Pick<OptionsForm, 'provided' | 'notes' | 'review_rounds'
  * your own choice, i.e. differ from the OLD level's default; otherwise they follow the new level.
  * The same rule as the dashboard's optionsAtLevel (the header's level chip and the gate card's L↑/L↓),
  * so all three behave the same. Without it (Reset to level defaults) everything is the level's.
+ * kind: the job's; on a bug job the level's bug skip list and reviewers (meta.levels[n].bug).
  */
-export function levelDefaults(level: LevelNumber | null, levels: LevelInfo[] | null | undefined, lists: OptionLists, keep: LevelKeep): OptionsForm {
-  const info = level === null ? null : levels?.find((l) => l.level === level) ?? null;
+export function levelDefaults(level: LevelNumber | null, levels: LevelInfo[] | null | undefined, lists: OptionLists, keep: LevelKeep, kind: string | null = null): OptionsForm {
+  const info = level === null ? null : levelForKind(levels?.find((l) => l.level === level) ?? null, kind);
   const skip = [...(info?.skip ?? []), ...providedSkips(keep.provided, lists)];
   const out: OptionsForm = {
     level,
@@ -144,7 +151,7 @@ export function levelDefaults(level: LevelNumber | null, levels: LevelInfo[] | n
     notes: keep.notes,
   };
   if (keep.from) {
-    const old = levelDefaults(keep.from.level, levels, lists, { provided: {}, notes: '', review_rounds: 1 });
+    const old = levelDefaults(keep.from.level, levels, lists, { provided: {}, notes: '', review_rounds: 1 }, kind);
     if (keep.from.manual_test !== old.manual_test) out.manual_test = keep.from.manual_test;
     for (const role of MODEL_ROLES) if (keep.from.models[role] && keep.from.models[role] !== old.models[role]) out.models[role] = keep.from.models[role];
   }

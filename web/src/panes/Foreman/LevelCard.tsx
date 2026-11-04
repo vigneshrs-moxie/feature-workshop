@@ -46,7 +46,7 @@ export function LevelCard({ job, detail }: { job: Job; detail: JobDetail | null 
   const target = view.target;
   // With no level yet and the rules saying something else than the Foreman, both are offered.
   const other = chosen === null && rules && isLevel(rules.level) && rules.level !== target ? rules.level : null;
-  const consequence = (to: LevelNumber) => levelChange(chosen, to, levels, names, stage).text;
+  const consequence = (to: LevelNumber) => levelChange(chosen, to, levels, names, stage, job.kind).text;
   const headId = `level-card-${job.slug}`;
 
   return (

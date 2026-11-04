@@ -59,12 +59,22 @@ export const STAGE_WORDS: Record<string, string> = {
 // Every level runs the checks (L0 in its build, L1 as its test stage, L2 up inside the tester), so
 // "checks" is never named as added or dropped; only "tester" is.
 const CHECKS = 'checks';
-const stageWord = (stage: string, level: LevelNumber) => (stage === 'test' && level <= 1 ? CHECKS : STAGE_WORDS[stage]);
+// A bug job's own stages (the bug-fix workflow: triage, reproduce, diagnose; diagnose is never skipped).
+const BUG_STAGE_WORDS: Record<string, string> = { triage: 'triage', reproduce: 'reproduction', test: 'tester', review: 'review' };
+const stageWord = (stage: string, level: LevelNumber, kind: string | null = null) => (stage === 'test' && level <= 1 ? CHECKS : (kind === 'bug' ? BUG_STAGE_WORDS : STAGE_WORDS)[stage]);
 /**
  * What a level with reviewers 'auto' runs at least (design doc section 3: reviewer, permissions,
  * tests, and Stickler on Haiku per the skill; +db/ui if touched).
  */
 export const USUAL_LENSES = ['feature-reviewer', 'feature-review-permissions', 'feature-review-tests', 'feature-review-conventions'];
+/** The same on a bug job: the Examiner and Stickler, plus the risk lenses the diff touches. */
+export const USUAL_BUG_LENSES = ['bug-review-fix', 'feature-review-conventions'];
+
+/** A level's defaults for this kind of job: on a bug job, its bug skip list and reviewers (meta.levels[n].bug). */
+export function levelForKind(info: LevelInfo | null | undefined, kind: string | null = null): LevelInfo | null {
+  if (!info) return null;
+  return kind === 'bug' && info.bug ? { ...info, skip: info.bug.skip, reviewers: info.bug.reviewers } : info;
+}
 const FABLE_WORDS: Record<string, string> = { spec: 'spec', plan: 'plan', review: 'review', pr: 'PR' };
 
 /** The reviewers' friendly names by agent id (meta.jobOptions.reviewers: "Locksmith"), else none. */
@@ -73,13 +83,14 @@ export function lensNames(meta: Meta | null | undefined): Record<string, string>
   return Object.fromEntries((Array.isArray(list) ? list : []).filter((r) => r && typeof r.id === 'string' && typeof r.label === 'string').map((r) => [r.id, r.label]));
 }
 
-function lensesAt(info: LevelInfo): string[] {
+function lensesAt(info: LevelInfo, kind: string | null = null): string[] {
   if (info.skip.includes('review')) return [];
-  return info.reviewers === 'auto' ? USUAL_LENSES : info.reviewers;
+  return info.reviewers === 'auto' ? (kind === 'bug' ? USUAL_BUG_LENSES : USUAL_LENSES) : info.reviewers;
 }
 
 /** Every stage in workflow order (dashboard/lib/stages.js), to leave out the ones a job has finished. */
 const WORKFLOW = ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update', 'plan', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3'];
+const BUG_WORKFLOW = ['triage', 'reproduce', 'diagnose', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3'];
 // The stage each Fable point belongs to ("pr": before PR #1 opens).
 const FABLE_STAGE: Record<string, string> = { spec: 'spec', plan: 'plan', review: 'review', pr: 'pr1' };
 
@@ -87,21 +98,22 @@ const FABLE_STAGE: Record<string, string> = { spec: 'spec', plan: 'plan', review
  * Whether a stage is still to come for a job now at `current`: the current stage and the ones after
  * it are; the ones before it are finished. No (or an unknown) current stage: every stage is.
  */
-function stillAhead(current: string | null | undefined) {
-  const at = current ? WORKFLOW.indexOf(current) : -1;
-  return (stage: string) => at < 0 || !WORKFLOW.includes(stage) || WORKFLOW.indexOf(stage) >= at;
+function stillAhead(current: string | null | undefined, kind: string | null = null) {
+  const order = kind === 'bug' ? BUG_WORKFLOW : WORKFLOW;
+  const at = current ? order.indexOf(current) : -1;
+  return (stage: string) => at < 0 || !order.includes(stage) || order.indexOf(stage) >= at;
 }
 
 /**
  * What runs at a level, as short phrases: stages (in words), you testing it, Fable points, lenses;
  * only what is still ahead (you test after the tester; the lenses at review).
  */
-function parts(info: LevelInfo, ahead: (stage: string) => boolean = () => true) {
+function parts(info: LevelInfo, ahead: (stage: string) => boolean = () => true, kind: string | null = null) {
   return {
-    stages: Object.keys(STAGE_WORDS).filter((s) => !info.skip.includes(s) && ahead(s)).map((s) => stageWord(s, info.level)),
+    stages: Object.keys(kind === 'bug' ? BUG_STAGE_WORDS : STAGE_WORDS).filter((s) => !info.skip.includes(s) && ahead(s)).map((s) => stageWord(s, info.level, kind)),
     manual: Boolean(info.manualTest) && ahead('test'),
     fable: (info.fable ?? []).filter((p) => ahead(FABLE_STAGE[p] ?? p)),
-    lenses: ahead('review') ? lensesAt(info) : [],
+    lenses: ahead('review') ? lensesAt(info, kind) : [],
   };
 }
 
@@ -131,20 +143,21 @@ export interface LevelChange {
  * from null (no level yet): what the new level runs. Lenses by their friendly names when given.
  * stage: the job's current stage, for a job under way; stages before it are finished, so what they
  * would add or drop is left out (at a plan gate, L2→L3 doesn't name the product interview). Leave
- * it out for a job not started yet (the New job sheet).
+ * it out for a job not started yet (the New job sheet). kind: the job's; a bug job's levels use
+ * its bug skip list and reviewers, and its own stages (triage, reproduction).
  */
-export function levelChange(from: LevelNumber | null, to: LevelNumber, levels: LevelInfo[] | null | undefined, names: Record<string, string> = {}, stage: string | null = null): LevelChange {
-  const toInfo = levels?.find((l) => l.level === to);
-  const fromInfo = from === null ? null : levels?.find((l) => l.level === from);
-  const ahead = stillAhead(stage);
-  if (!toInfo) return { from, to, added: [], dropped: [], text: levelLabel(to, levels) };
+export function levelChange(from: LevelNumber | null, to: LevelNumber, levels: LevelInfo[] | null | undefined, names: Record<string, string> = {}, stage: string | null = null, kind: string | null = null): LevelChange {
+  const toInfo = levelForKind(levels?.find((l) => l.level === to), kind);
+  const fromInfo = from === null ? null : levelForKind(levels?.find((l) => l.level === from), kind);
+  const ahead = stillAhead(stage, kind);
+  if (!toInfo) return { from, to, added: [], dropped: [], text: levelLabel(to, levels, kind) };
   if (from === null || !fromInfo) {
-    const added = phrases(parts(toInfo, ahead), names);
-    return { from, to, added, dropped: [], text: `${toInfo.label} runs: ${added.join(', ') || 'one build and the checks'}` };
+    const added = phrases(parts(toInfo, ahead, kind), names);
+    return { from, to, added, dropped: [], text: `${levelLabel(to, levels, kind)} runs: ${added.join(', ') || 'one build and the checks'}` };
   }
   const noChecks = (p: ReturnType<typeof parts>) => ({ ...p, stages: p.stages.filter((s) => s !== CHECKS) });
-  const a = noChecks(parts(fromInfo, ahead));
-  const b = noChecks(parts(toInfo, ahead));
+  const a = noChecks(parts(fromInfo, ahead, kind));
+  const b = noChecks(parts(toInfo, ahead, kind));
   const added = phrases({ stages: minus(b.stages, a.stages), manual: b.manual && !a.manual, fable: minus(b.fable, a.fable), lenses: minus(b.lenses, a.lenses) }, names);
   const dropped = phrases({ stages: minus(a.stages, b.stages), manual: a.manual && !b.manual, fable: minus(a.fable, b.fable), lenses: minus(a.lenses, b.lenses) }, names);
   const head = `L${from}→L${to}`;

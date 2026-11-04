@@ -83,3 +83,20 @@ test('a bug job labels L0 "Tweak (hotfix)"; the other levels and every feature l
   assert.match(describeOptions(normalize({ level: 0 }))[0], /^Level: L0 Tweak \(/);
   assert.equal(levelChangeLine(1, 0, 'bug'), 'Level changed from L1 Small to L0 Tweak (hotfix).');
 });
+
+test('the page gets each level’s bug defaults, and each skippable stage says which kind of job runs it', () => {
+  const client = levelsForClient();
+  for (const l of client) {
+    const b = defaultsForBugLevel(l.level);
+    assert.deepEqual(l.bug, { skip: b.skip, reviewers: b.reviewers }, `L${l.level}`);
+  }
+  assert.deepEqual(client[1].bug.reviewers, ['bug-review-fix'], 'L1 on a bug job: the Examiner, not the head inspector');
+  client[1].bug.skip.push('x');
+  assert.ok(!BUG_LEVELS[1].skip.includes('x'), 'a copy, not the table itself');
+  // A feature's own stages say feature, a bug's say bug, and test and review are both kinds'.
+  const kindOf = (id) => { const s = SKIPPABLE.find((x) => x.id === id); return s.bug ? 'bug' : s.feature ? 'feature' : 'both'; };
+  assert.deepEqual(['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update', 'plan'].map(kindOf), Array(7).fill('feature'));
+  assert.deepEqual(['triage', 'reproduce'].map(kindOf), ['bug', 'bug']);
+  assert.deepEqual(['test', 'review'].map(kindOf), ['both', 'both']);
+  assert.ok(REVIEWERS.find((r) => r.id === 'bug-review-fix').bug && REVIEWERS.filter((r) => r.bug).length === 1, 'the Examiner is the only bug-only lens');
+});

@@ -33,8 +33,8 @@ export function LevelChip({ job, ready = true }: { job: Job; ready?: boolean }) 
   }, [open]);
 
   const label = level === null ? 'No level yet' : levelLabel(level, levels, job.kind);
-  const up = level !== null && level < 3 ? levelChange(level, (level + 1) as LevelNumber, levels, names, stage) : null;
-  const down = level !== null && level > 0 ? levelChange(level, (level - 1) as LevelNumber, levels, names, stage) : null;
+  const up = level !== null && level < 3 ? levelChange(level, (level + 1) as LevelNumber, levels, names, stage, job.kind) : null;
+  const down = level !== null && level > 0 ? levelChange(level, (level - 1) as LevelNumber, levels, names, stage, job.kind) : null;
   const hint = level === null
     ? 'No level chosen yet: the Foreman suggests one in its first brief. Click to pick one.'
     : `${label}: ${info?.hint ?? ''}${up ? ` Up: ${up.text}.` : ''}${down ? ` Down: ${down.text}.` : ''} Click to change it.`;
@@ -70,7 +70,7 @@ export function LevelChip({ job, ready = true }: { job: Job; ready?: boolean }) 
                     disabled={choice.busy || now}
                     aria-current={now ? 'true' : undefined}
                     onClick={() => void choice.set(n)}
-                    title={now ? 'The level this job runs at now.' : `Run this job at ${levelLabel(n, levels, job.kind)} from the next stage. ${levelChange(level, n, levels, names, stage).text}.`}
+                    title={now ? 'The level this job runs at now.' : `Run this job at ${levelLabel(n, levels, job.kind)} from the next stage. ${levelChange(level, n, levels, names, stage, job.kind).text}.`}
                   >
                     {now ? `✓ ${levelLabel(n, levels, job.kind)} (now)` : `Use ${levelLabel(n, levels, job.kind)}`}
                   </button>

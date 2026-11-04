@@ -740,6 +740,8 @@ export interface LevelInfo {
   manualTest?: boolean;
   /** Fable second-look points by default ('plan', 'review', ...). */
   fable?: string[];
+  /** A bug job's skip list and reviewers at this level (lib/options.js BUG_LEVELS). */
+  bug?: { skip: string[]; reviewers: string[] | 'auto' };
 }
 
 /** One reviewer (lens) the job options can name (meta.jobOptions.reviewers, lib/options.js REVIEWERS). */
@@ -749,6 +751,8 @@ export interface ReviewerInfo {
   label: string;
   what?: string;
   model?: string;
+  /** A lens for bug jobs only (the Examiner). */
+  bug?: boolean;
 }
 
 /** A job's options.json as the dashboard reads it (lib/options.js); only what the new UI reads is typed. */
@@ -809,6 +813,9 @@ export interface OptionChoice {
   label: string;
   /** PROVIDABLE only: the stages a provided document skips. */
   skips?: string[];
+  /** SKIPPABLE only: a stage only bug jobs run (triage, reproduce), or only features do. */
+  bug?: boolean;
+  feature?: boolean;
 }
 
 /** One model the options can name, with its friendly name (lib/options.js MODEL_CHOICES). */

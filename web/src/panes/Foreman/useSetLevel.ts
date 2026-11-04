@@ -29,7 +29,7 @@ export function useSetLevel(slug: string, from: LevelNumber | null, stage: strin
     setError(null);
     try {
       await setJobLevel(api, slug, level);
-      const change = levelChange(from, level, meta?.levels, lensNames(meta), stage);
+      const change = levelChange(from, level, meta?.levels, lensNames(meta), stage, kind);
       setDone(`Level set to ${levelLabel(level, meta?.levels, kind)}, from the next stage. ${change.text}.`);
       return true;
     } catch (err) {

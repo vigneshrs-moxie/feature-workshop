@@ -14,6 +14,7 @@ import path from 'node:path';
 import { GENERAL, fillPattern } from './profile.js';
 import { PRODUCT } from './brand.js';
 import { writeFileAtomic } from './atomic-write.js';
+import { FEATURE_STAGES } from './stages.js';
 
 export const OPUS = 'claude-opus-5-5';
 export const FABLE = 'claude-fable-5-1';
@@ -91,7 +92,9 @@ export const SKIPPABLE = [
   { id: 'clarify', label: 'Clarify (questions before the spec)' }, { id: 'triage', label: 'Triage (a bug job’s first questions)', bug: true }, { id: 'spec', label: 'Spec' }, { id: 'refine', label: 'Refine (product interview)' },
   { id: 'wireframe', label: 'Screens (wireframes)' }, { id: 'investigate', label: 'Investigate' }, { id: 'reproduce', label: 'Reproduce (a bug job’s failing test)', bug: true },
   { id: 'spec-update', label: 'Spec update' }, { id: 'plan', label: 'Plan' }, { id: 'test', label: 'Test (the crew’s checks)' }, { id: 'review', label: 'Review' },
-];
+// A feature job's own stages say so (feature: true), as a bug job's say bug: true, so the options
+// editor offers each job only the stages it runs; test and review are both kinds'.
+].map((s) => (FEATURE_STAGES.includes(s.id) ? { ...s, feature: true } : s));
 // Documents you can hand over instead of having the crew write them; each one skips its stage.
 export const PROVIDABLE = [
   { id: 'spec', label: 'Spec', skips: ['spec', 'refine'] },
@@ -381,13 +384,17 @@ export function describeOptions(o) {
 /**
  * The levels as the page needs them (meta.levels): kept small. skip and reviewers are the level's
  * defaults, so the page can say what moving between levels adds ("L1→L2 adds: …"); so are
- * manualTest (you try it yourself) and fable (Fable second-look points).
+ * manualTest (you try it yourself) and fable (Fable second-look points). bug: the same level's skip
+ * list and reviewers on a bug job.
  */
 export function levelsForClient() {
   return LEVELS.map((l) => ({
     level: l.level, label: levelLabel(l.level), bugLabel: levelLabel(l.level, 'bug'), name: l.name, hint: l.hint, flow: l.flow, models: { ...l.models },
     skip: [...l.skip], reviewers: Array.isArray(l.reviewers) ? [...l.reviewers] : l.reviewers,
     manualTest: l.manualTest, fable: [...l.fable],
+    // A bug job's skip list and reviewers at this level (defaultsForBugLevel), so the options
+    // editor's level defaults and the level-change words are the bug workflow's on a bug job.
+    bug: { skip: [...BUG_LEVELS[l.level].skip], reviewers: Array.isArray(BUG_LEVELS[l.level].reviewers) ? [...BUG_LEVELS[l.level].reviewers] : BUG_LEVELS[l.level].reviewers },
   }));
 }
 

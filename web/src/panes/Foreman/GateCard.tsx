@@ -232,7 +232,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const chips = chipsFor(views, c.chips);
   const chipLines = chips.length ? composeGate({ kind: 'message', chips }).split('\n').filter(Boolean) : [];
   const levelChip = chips.find((x) => x.kind === 'level');
-  const consequence = levelChip && levelChip.kind === 'level' ? levelChange(level, levelChip.level, levels, lensNames(meta), gate.stage ?? job.stage ?? null).text : null;
+  const consequence = levelChip && levelChip.kind === 'level' ? levelChange(level, levelChip.level, levels, lensNames(meta), gate.stage ?? job.stage ?? null, job.kind).text : null;
   const decided = openDecisions(gate);
   const stale = gate.stale;
   const limited = Boolean(usage?.limited);
