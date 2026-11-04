@@ -208,6 +208,10 @@
 .page-job.is-wide .job-convo { flex: 1 1 0; min-height: 260px; }
 .page-job.is-wide .job-convo-thread { max-height: none; flex: 1 1 0; min-height: 0; }
 .page-job.is-wide .job-details { flex: none; max-height: 45vh; overflow: auto; }
+/* The level chip sits at Details' left edge: its menu opens rightward, and while it is open the
+   card doesn't clip it (it spilled past the card's edge, cut off and unclickable). */
+.job-details .level-pop { left: 0; right: auto; }
+.page-job.is-wide .job-details:has(.level-pop) { overflow: visible; }
 .job-gate-body[hidden] { display: none; }
 .stage-brief-row { margin-top: calc(-1 * var(--space-2)); }
 /* "The brief" stays on one line, even at 390 px: only the muted words after it give way. */
