@@ -16,7 +16,7 @@ export function LevelChip({ job, ready = true }: { job: Job; ready?: boolean }) 
   const info = level === null ? null : levels?.find((l) => l.level === level) ?? null;
   // The stage the job is at: what moving adds or drops leaves out the stages already finished.
   const stage = job.stage ?? null;
-  const choice = useSetLevel(job.slug, level, stage);
+  const choice = useSetLevel(job.slug, level, stage, job.kind ?? null);
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const chip = useRef<HTMLButtonElement>(null);
@@ -32,7 +32,7 @@ export function LevelChip({ job, ready = true }: { job: Job; ready?: boolean }) 
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [open]);
 
-  const label = level === null ? 'No level yet' : levelLabel(level, levels);
+  const label = level === null ? 'No level yet' : levelLabel(level, levels, job.kind);
   const up = level !== null && level < 3 ? levelChange(level, (level + 1) as LevelNumber, levels, names, stage) : null;
   const down = level !== null && level > 0 ? levelChange(level, (level - 1) as LevelNumber, levels, names, stage) : null;
   const hint = level === null
@@ -70,9 +70,9 @@ export function LevelChip({ job, ready = true }: { job: Job; ready?: boolean }) 
                     disabled={choice.busy || now}
                     aria-current={now ? 'true' : undefined}
                     onClick={() => void choice.set(n)}
-                    title={now ? 'The level this job runs at now.' : `Run this job at ${levelLabel(n, levels)} from the next stage. ${levelChange(level, n, levels, names, stage).text}.`}
+                    title={now ? 'The level this job runs at now.' : `Run this job at ${levelLabel(n, levels, job.kind)} from the next stage. ${levelChange(level, n, levels, names, stage).text}.`}
                   >
-                    {now ? `✓ ${levelLabel(n, levels)} (now)` : `Use ${levelLabel(n, levels)}`}
+                    {now ? `✓ ${levelLabel(n, levels, job.kind)} (now)` : `Use ${levelLabel(n, levels, job.kind)}`}
                   </button>
                 </li>
               );

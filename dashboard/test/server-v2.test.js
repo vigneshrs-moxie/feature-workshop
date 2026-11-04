@@ -193,7 +193,7 @@ test('server: a stream from an earlier dashboard run is told to resync', { timeo
 test('server: meta says whether the installed skill knows levels, from STARBASE_SKILLS_DIR, and notices an update', { timeout: 60_000 }, async () => {
   const file = path.join(root, 'skills', 'feature', 'job-options.md');
   const { body: meta } = await getJson('/api/meta');
-  assert.deepEqual(meta.skill, { installed: true, levels: false, path: file });
+  assert.deepEqual(meta.skill, { installed: true, levels: false, bugfix: false, path: file });
   // The options editor's lists ride along: model choices by role, with names, and the notes cap.
   assert.deepEqual(meta.jobOptions.models.foreman, ['claude-opus-5-5', 'claude-fable-5-1', 'claude-haiku-5-5']);
   assert.ok(meta.jobOptions.models.crew.includes('claude-sonnet-5-5'));

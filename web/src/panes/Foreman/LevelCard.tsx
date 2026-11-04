@@ -36,11 +36,11 @@ export function LevelCard({ job, detail }: { job: Job; detail: JobDetail | null 
   const chosen = isLevel(facts.level) ? facts.level : null;
   // The stage the job is at: what moving adds or drops leaves out the stages already finished.
   const stage = job.stage ?? detail?.gate?.stage ?? null;
-  const choice = useSetLevel(job.slug, chosen, stage);
+  const choice = useSetLevel(job.slug, chosen, stage, job.kind ?? null);
 
   if (!view.show && !choice.done) return null;
 
-  const label = (n: LevelNumber) => levelLabel(n, levels);
+  const label = (n: LevelNumber) => levelLabel(n, levels, job.kind);
   const rules = facts.rulesLevel;
   const foreman = isLevel(facts.suggestedLevel) ? facts.suggestedLevel : null;
   const target = view.target;

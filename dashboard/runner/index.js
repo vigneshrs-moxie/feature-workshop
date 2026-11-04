@@ -123,8 +123,13 @@ export async function createRunner(config) {
     gateParkMs = null, planUsage: planUsageOn = true, orbitStore: orbitStorePrefer = 'auto',
     integrateDir: INTEGRATE_DIR, integrateRoot, env = process.env, siteLink: siteLinkOn = true,
   } = config;
-  // Whether the installed /feature skill knows levels (read only; Settings warns when it doesn't).
+  // Whether the installed /feature skill knows levels (read only; Settings warns when it doesn't),
+  // and whether /bugfix is installed: a bug job's Foreman is then /bugfix (conductorFor).
   const skill = skillChecker(SKILLS_DIR);
+  let skillNow = { installed: false, levels: false, bugfix: false, path: skill.path };
+  const checkSkill = async () => (skillNow = await skill.check());
+  // The command that starts or resumes a job's Foreman: /bugfix for a bug job once that skill is installed.
+  const conductorFor = (kind) => (kind === 'bug' && skillNow.bugfix ? '/bugfix' : '/feature');
 
   // ---------- What the runner sends up ----------
   // Two page streams take these (dashboard/site/index.js): the new UI's (?v=2, every event below
@@ -835,7 +840,7 @@ export async function createRunner(config) {
     return {
       featureDir: f.dir, slug: f.slug, title: f.title, cwd, model,
       sessionId: fresh ? null : drive.sessionId,
-      text: fresh ? `/feature ${f.slug} Private folder: ${f.dir}\n\n${text}` : text,
+      text: fresh ? `${conductorFor(f.kind)} ${f.slug} Private folder: ${f.dir}\n\n${text}` : text,
     };
   }
 
@@ -957,7 +962,7 @@ export async function createRunner(config) {
       // L0–L3 with their one-line "what runs" hints, for the level picker.
       levels: levelsForClient(),
       // The installed skill's job-options.md: has it the Levels table? (lib/skill-check.js)
-      skill: await skill.check(),
+      skill: await checkSkill(),
     };
   }
 
@@ -1597,10 +1602,10 @@ export async function createRunner(config) {
       if (!repo.ok) throw new HttpError(400, repo.reason);
       let options;
       // A new job starts with Settings → Workflow's screens and clarify defaults, unless you chose here.
-      try { options = normalizeOptions(body.options ?? {}, { workflow: (await state.getSettings()).workflow }); } catch (err) { throw new HttpError(400, err.message); }
+      const kind = body.kind === 'bug' ? 'bug' : 'feature';
+      try { options = normalizeOptions(body.options ?? {}, { workflow: (await state.getSettings()).workflow, kind }); } catch (err) { throw new HttpError(400, err.message); }
       // The one you picked, else the job's models.foreman, else Opus: never Fable because the job is L3.
       const model = foremanModel(body.model, options, MODELS.map((x) => x.id));
-      const kind = body.kind === 'bug' ? 'bug' : 'feature';
       // Started from an Orbit ticket (the Inbox's Start, or a key typed in New job): the job, its folder
       // (orbit-<n>-<short-title>) and its branch share the ticket's key (lib/options.js, plan D1).
       let ticket = null;
@@ -1640,11 +1645,14 @@ export async function createRunner(config) {
       // A ticket's job starts with a status.json of schema version 2 holding the ticket block.
       const fromTicket = ticket ? await startFromTicket(featureDir, { ticket, slug, title: description, kind, level: options.level, repo: repo.path, profile }) : null;
       if (fromDetail) await fsp.writeFile(path.join(featureDir, 'history.md'), historyMarkdown(fromDetail), { mode: 0o600 });
-      // The /feature command must come first in the message, or it doesn't run.
+      // The /feature (or /bugfix) command must come first in the message, or it doesn't run. A bug job
+      // goes to /bugfix when that skill is installed; an older install still gets /feature with a note.
+      await checkSkill();
+      const conductor = conductorFor(kind);
       const tail = from?.mode === 'continue'
         ? `\n\nThis conversation is now a ${PRODUCT} job: carry it on through the feature workflow from here. Everything said earlier in it is background, not approval.`
         : '';
-      const text = `/feature ${description}${kind === 'bug' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${describeOptions(optionsOut).map((l) => `- ${l}`).join('\n')}${fromTicket ? `\n\n${fromTicket.brief}` : ''}${tail}`;
+      const text = `${conductor} ${description}${kind === 'bug' && conductor === '/feature' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${kind === 'bug' ? '- Kind: bug fix.\n' : ''}${describeOptions(optionsOut).map((l) => `- ${l}`).join('\n')}${fromTicket ? `\n\n${fromTicket.brief}` : ''}${tail}`;
       const run = await driver.start({ featureDir, slug, title: description, cwd, sessionId, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
       await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options, fromSession: from ? { id: from.id, mode: from.mode, forkedTo: from.forkedTo } : undefined, ticket: ticket?.key });
       cached = null;
@@ -2506,7 +2514,7 @@ export async function createRunner(config) {
     started = true;
     await limits.load();
     await startGateParking();
-    await skill.check(); // read once at start; /api/meta re-reads only when the file changes
+    await checkSkill(); // read once at start; /api/meta re-reads only when the file changes
     // Before the routes open: what the last stop (or crash) left (runner/replay.js).
     await replayRestart();
     watch(FEATURES_DIR, featureFileChanged);

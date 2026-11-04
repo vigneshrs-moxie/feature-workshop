@@ -297,7 +297,7 @@ export function jsonHtml(text) {
 // ---------- Key points: a short summary of each document and brief ----------
 //
 // The Foreman writes one small JSON file per document and version in the job folder's summaries/
-// (skills/feature/status-json.md §3): summaries/<file without .md/.json>[.v<version>].json, e.g.
+// (skills/workflow-common/status-json.md §3): summaries/<file without .md/.json>[.v<version>].json, e.g.
 // summaries/findings.v1.json, summaries/briefs/006-review.json, summaries/spec.v0.3.json for the
 // product spec. Four parts, each a few short lines: outcome, risks, decisions (with the
 // recommendation) and what changed. Read only; the same rules as the documents: plain files inside

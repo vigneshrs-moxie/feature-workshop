@@ -56,6 +56,10 @@ describe('levelChange (the consequence line)', () => {
     expect(lensNames({ token: 't', jobOptions: { reviewers: REVIEWERS } })['feature-review-db']).toBe('Mason');
     expect(lensNames(null)).toEqual({});
     expect(levelLabel(2)).toBe('L2 Standard');
+    expect(levelLabel(0, undefined, 'bug')).toBe('L0 Tweak (hotfix)');
+    expect(levelLabel(0, LEVELS, 'bug')).toBe('L0 Tweak (hotfix)');
+    expect(levelLabel(0, LEVELS)).toBe('L0 Tweak');
+    expect(levelLabel(1, LEVELS, 'bug')).toBe('L1 Small');
   });
 });
 

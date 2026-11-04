@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { agentInfo, detectStage } from './stages.js';
+import { agentInfo, detectStage, stagesFor } from './stages.js';
 import { modelLabel } from './cost.js';
 import { describeTool } from './session-log.js';
 
@@ -40,16 +40,16 @@ export const STOPS = [
 ];
 export const STOP_IDS = STOPS.map((s) => s.id);
 export const STAGE_STOP = {
-  clarify: 'spec', spec: 'spec', refine: 'spec', wireframe: 'spec',
-  investigate: 'investigate', 'spec-update': 'investigate',
-  plan: 'plan', implement: 'build', test: 'test', review: 'review',
+  clarify: 'spec', spec: 'spec', refine: 'spec', wireframe: 'spec', triage: 'spec',
+  investigate: 'investigate', 'spec-update': 'investigate', reproduce: 'investigate',
+  plan: 'plan', diagnose: 'plan', implement: 'build', test: 'test', review: 'review',
   pr1: 'ship', pr2: 'ship', 'staging-qa': 'ship', pr3: 'ship',
 };
 export const STOP_STATE_WORDS = { done: 'Done', now: 'Working now', waiting: 'Waiting for you', next: 'Not yet', skipped: 'Skipped' };
 
 export const isStopId = (v) => STOP_IDS.includes(v);
 export const stopOf = (stage) => (stage ? STAGE_STOP[stage] ?? null : null);
-export const stagesOf = (stop) => Object.keys(STAGE_STOP).filter((s) => STAGE_STOP[s] === stop);
+export const stagesOf = (stop, kind = null) => stagesFor(kind).filter((s) => STAGE_STOP[s] === stop);
 
 /** Each stop's state for a job, as the Job map shows it (stops.ts stopStates). */
 export function stopStates(job) {
@@ -59,7 +59,7 @@ export function stopStates(job) {
   const skipped = new Set(job.skipped ?? []);
   const out = {};
   STOPS.forEach((s, i) => {
-    const allSkipped = stagesOf(s.id).every((st) => skipped.has(st));
+    const allSkipped = stagesOf(s.id, job.kind ?? null).every((st) => skipped.has(st));
     let state;
     if (finished) state = i <= idx || idx < 0 ? 'done' : 'next';
     else if (i < idx) state = 'done';
@@ -221,7 +221,7 @@ function foremanRow(job, state, { activity, agents, pending, platform, stop }) {
   const why = foremanBlocked({ drive, lock: job.lock, platform });
   const terminal = { kind: 'continue', ready: !why, why };
   // The model it used here: the conductor's cost row at this stop, else its session's.
-  const stages = stagesOf(stop);
+  const stages = stagesOf(stop, job.kind ?? null);
   const costRow = [...(agents ?? [])].filter((r) => r.agentType === 'conductor' && stages.includes(r.stage)).sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0))[0];
   const row = (fields) => ({ who: 'conductor', role: roleWord('conductor'), ...fields, terminal, ref: 'foreman' });
   if (state === 'done' || state === 'skipped' || state === 'next') {
@@ -269,7 +269,7 @@ export function stageView(job, stop, { activity = job.activity ?? [], agents = j
   const current = stopOf(job.stage) === stop;
   const pending = job.permissionsPending ?? [];
   const skipped = new Set(job.skipped ?? []);
-  const all = stagesOf(stop);
+  const all = stagesOf(stop, job.kind ?? null);
   const stages = all.every((s) => skipped.has(s)) ? all : all.filter((s) => !skipped.has(s));
 
   // The crew who work this stop: by the stage their task belongs to; one with none of its own,

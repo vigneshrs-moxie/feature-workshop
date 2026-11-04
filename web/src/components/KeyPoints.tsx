@@ -17,7 +17,7 @@ const vLabel = (v: string) => (/^v/i.test(v) ? v : `v${v}`);
 export const SUMMARY_REQUEST_START = '--- Summaries wanted ---';
 const SUMMARY_REQUEST_END = '--- end ---';
 const SUMMARY_REQUEST_BLOCK = /^--- Summaries wanted ---\n([\s\S]*?)\n--- end ---$/m;
-const SUMMARY_REQUEST_LEAD = 'Write the missing Key points (skills/feature/status-json.md §3, from the files on disk) for:';
+const SUMMARY_REQUEST_LEAD = 'Write the missing Key points (skills/workflow-common/status-json.md §3, from the files on disk) for:';
 
 /** One line of the request: the document and its version. */
 export const summaryRequestLine = (file: string, version: string | null) => `- ${file}${version ? ` (${vLabel(version)})` : ''}`;

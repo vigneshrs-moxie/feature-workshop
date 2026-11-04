@@ -150,7 +150,7 @@ export function buildThread({ briefs = [], audit = [], autoResume = true, servic
     else if (e.action === 'reopen') note(e.how === 'message' ? 'Reopened: you sent the Foreman a message.' : 'You reopened this job.');
     else if (e.action === 'options') {
       // `was`: the level before the change (audit lines from before it was recorded have none).
-      const changed = levelChangeLine(e.was, e.options?.level);
+      const changed = levelChangeLine(e.was, e.options?.level, e.options?.kind);
       note(`You changed how this job runs (from the next stage): ${changed ? `${changed} ` : ''}${describeOptions(e.options).join(' ')}`);
     }
   }

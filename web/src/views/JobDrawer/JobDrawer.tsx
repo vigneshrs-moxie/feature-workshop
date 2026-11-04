@@ -98,7 +98,7 @@ export function JobDrawer({ slug, job, tab = 'notes', onClose }: { slug: string;
         <NotesEditor slug={slug} max={optionLists(meta).notesMax} onDirtyChange={onNotesDirty} />
       </section>
       <section id="drawer-panel-options" role="tabpanel" aria-label="Options" hidden={current !== 'options'}>
-        <OptionsEditor slug={slug} level={isLevel(job?.level) ? job.level : null} stage={job?.stage ?? null} onDirtyChange={onOptionsDirty} />
+        <OptionsEditor slug={slug} level={isLevel(job?.level) ? job.level : null} stage={job?.stage ?? null} kind={job?.kind ?? null} onDirtyChange={onOptionsDirty} />
       </section>
       <HowThisWorks id="job-drawer" defaultOpen={false}>
         <p><strong>Notes</strong> are this job’s <code>notes.md</code>. The Foreman reads them at the start of every session, so they are the place for lasting guidance: what to keep, what to avoid, who to ask. They shape how it works; they never approve anything. They are written in Markdown: <strong>Preview</strong> shows them as a clean page, as you have them now, without saving.</p>

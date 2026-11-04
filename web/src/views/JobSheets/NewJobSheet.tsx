@@ -333,7 +333,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
             ? <p className="field-hint">From the Inbox. The job, its branch and the ticket share this key, and the Foreman reads the ticket through Orbit (read only).</p>
             : ticketText.trim() && !ticketKeyOf(ticketText) ? <p className="field-problem">{TICKET_KEY_PROBLEM}</p> : null}
 
-          <LevelPicker levels={meta?.levels} value={level} suggestion={suggestion} byHand={picked !== null} onPick={setPicked} disabled={busy} />
+          <LevelPicker levels={meta?.levels} value={level} suggestion={suggestion} byHand={picked !== null} onPick={setPicked} disabled={busy} kind={kind} />
 
           {models.length > 0 && (
             <div className="field">

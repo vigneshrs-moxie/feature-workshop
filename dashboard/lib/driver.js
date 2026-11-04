@@ -117,7 +117,7 @@ function sameWrite(a, b) {
 export function statusFixMessage(errors) {
   const list = (errors ?? []).slice(0, STATUS_ERRORS_SHOWN);
   const more = (errors?.length ?? 0) - list.length;
-  return `status.json is invalid: ${list.join('; ')}${more > 0 ? `; and ${more} more` : ''}. Rewrite the whole file to match ~/.claude/skills/feature/status-json.md and write it again.`;
+  return `status.json is invalid: ${list.join('; ')}${more > 0 ? `; and ${more} more` : ''}. Rewrite the whole file to match ~/.claude/skills/workflow-common/status-json.md and write it again.`;
 }
 
 /** Calls onChange whenever the folder's status.json may have been written. Returns a function that stops watching. */

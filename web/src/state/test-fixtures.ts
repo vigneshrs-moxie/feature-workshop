@@ -12,7 +12,7 @@ export const REVIEWERS: ReviewerInfo[] = [
 ];
 export const LEVELS: LevelInfo[] = [
   {
-    level: 0, label: 'L0 Tweak', name: 'Tweak', flow: 'quick', hint: 'One build, then the checks (npm run check/build); you look at the diff. No plan to approve.',
+    level: 0, label: 'L0 Tweak', bugLabel: 'L0 Tweak (hotfix)', name: 'Tweak', flow: 'quick', hint: 'One build, then the checks (npm run check/build); you look at the diff. No plan to approve.',
     models: { foreman: OPUS, build: SONNET, checks: SONNET }, skip: ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec-update', 'plan', 'test', 'review'], reviewers: [], manualTest: false, fable: [],
   },
   {

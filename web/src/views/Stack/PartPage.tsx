@@ -225,7 +225,7 @@ function LevelFact({ job, detail, onChoose }: { job: Job; detail: JobDetail | nu
     <div className="part-level">
       <dt>Level</dt>
       <dd>
-        <span>{chosen === null ? 'Not chosen yet' : levelLabel(chosen, meta?.levels)}</span>
+        <span>{chosen === null ? 'Not chosen yet' : levelLabel(chosen, meta?.levels, job.kind)}</span>
         {offer && (
           <>
             <span className="part-level-sep" aria-hidden="true">·</span>

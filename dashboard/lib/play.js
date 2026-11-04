@@ -79,8 +79,8 @@ export const CREW_TYPES = Object.keys(AGENTS);
  * AGENT_ALIASES, feature-wireframer is the Painter at the screens stage) counts as who it is.
  */
 export const crewType = (type) => { const t = AGENT_ALIASES[type]?.as ?? type; return CREW_TYPES.includes(t) ? t : null; };
-/** The 8 review lenses (lib/options.js REVIEWERS). */
-export const LENS_TYPES = REVIEWERS.map((r) => r.id);
+/** The 8 review lenses of a feature job (lib/options.js REVIEWERS; a bug job's Examiner is drawn by the Head inspector). */
+export const LENS_TYPES = REVIEWERS.filter((r) => !r.bug).map((r) => r.id);
 /** The five themes besides Default that shipped with the Workshop: Explorer is about these only. */
 export const EXPLORER_THEMES = ['neon-arcade', 'blueprint', 'pixel-crew', 'sunset-paper', 'candy-pop'];
 /**

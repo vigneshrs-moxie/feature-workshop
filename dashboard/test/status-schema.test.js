@@ -102,7 +102,7 @@ test('validate: wrong types are refused, each with a plain line naming the field
 test('validate: values outside their lists are refused (stage, stage state, waiting for, PR state, level)', () => {
   const v = validate({ ...V2, stage: 'deploy', stage_state: 'in_progress', waiting_for: 'coffee', prs: [{ number: 1, state: 'draft' }], ticket: { ...TICKET, level: 'L4' } });
   assert.deepEqual(v.errors, [
-    'stage: "deploy" is not one of clarify, spec, refine, wireframe, investigate, spec-update, plan, implement, test, review, pr1, pr2, staging-qa, pr3 (or null)',
+    'stage: "deploy" is not one of clarify, triage, spec, refine, wireframe, investigate, reproduce, spec-update, plan, diagnose, implement, test, review, pr1, pr2, staging-qa, pr3 (or null)',
     'stage_state: "in_progress" is not one of working, waiting_for_you, blocked, done',
     'waiting_for: "coffee" is not one of approval, answers, permission (or null)',
     'prs[0].state: "draft" is not one of not_started, open, changes_requested, approved, merged, closed',
