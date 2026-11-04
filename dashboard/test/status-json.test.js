@@ -336,6 +336,8 @@ test('watchStatusFile: fs.watch on the folder calls back for status.json', async
     await sleep(50);
     await fs.writeFile(path.join(dir, 'status.json'), '{}');
     await until(() => calls > 0 || null, 3000);
+    // One write can fire twice (macOS often does): let this one's events settle before counting.
+    await sleep(150);
     const before = calls;
     await fs.writeFile(path.join(dir, 'other.md'), 'x');
     await sleep(100);
