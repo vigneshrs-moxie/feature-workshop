@@ -6,3 +6,4 @@ import type { LevelInfo, OptionChoice, ReviewerInfo } from '../../web/src/api/ty
 export function levelsForClient(): LevelInfo[];
 export const SKIPPABLE: OptionChoice[];
 export const REVIEWERS: ReviewerInfo[];
+export const FABLE_POINTS: OptionChoice[];

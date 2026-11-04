@@ -92,6 +92,8 @@ const LEVEL_GROUP: ChipId[] = ['up', 'down'];
 const NEXT_POINT: Record<string, ChipPoint> = {
   spec: 'spec', refine: 'spec',
   investigate: 'plan', 'spec-update': 'plan', plan: 'plan',
+  // A bug job's: its plan point is the diagnosis (the /bugfix conductor).
+  triage: 'plan', reproduce: 'plan', diagnose: 'plan',
   implement: 'review', test: 'review', review: 'review',
   pr1: 'pr', pr2: 'pr', 'staging-qa': 'pr', pr3: 'pr',
 };
@@ -115,12 +117,15 @@ export interface ChipView {
 }
 
 const FABLE_WORDS: Record<string, string> = { spec: 'the spec', plan: 'the plan', review: 'the review', pr: 'the PR' };
+const BUG_FABLE_WORDS: Record<string, string> = { ...FABLE_WORDS, plan: 'the diagnosis' };
 
 /**
  * Each chip for this gate's next stage: whether it applies, its hint, and what it sends.
  * level: the job's level now (null: none chosen). fableChecks: the job's Fable points now.
+ * kind: the job's; on a bug job the plan's Fable look is at the diagnosis.
  */
-export function chipViews(gate: Pick<Gate, 'nextStage'>, { level = null, fableChecks = [] }: { level?: LevelNumber | null; fableChecks?: string[] } = {}): ChipView[] {
+export function chipViews(gate: Pick<Gate, 'nextStage'>, { level = null, fableChecks = [], kind = null }: { level?: LevelNumber | null; fableChecks?: string[]; kind?: string | null } = {}): ChipView[] {
+  const words = kind === 'bug' ? BUG_FABLE_WORDS : FABLE_WORDS;
   const stage = gate.nextStage ?? null;
   const name = stage ? stageLabel(stage) : null;
   const inFlow = stage !== null && (CHIP_STAGES as string[]).includes(stage);
@@ -149,10 +154,10 @@ export function chipViews(gate: Pick<Gate, 'nextStage'>, { level = null, fableCh
   });
   const already = point !== null && fableChecks.includes(point);
   views.push({
-    id: 'fable', label: 'Ask Fable', name: point ? `Ask Fable (${FABLE_WORDS[point]})` : 'Ask Fable', enabled: point !== null && !already,
-    hint: point === null ? `Fable takes second looks at the spec, the plan, the review or the PR only${name ? `; there’s none left after ${name}` : ''}.`
-      : already ? `Fable already looks at ${FABLE_WORDS[point]} for this job.`
-        : `Fable takes a short second look at ${FABLE_WORDS[point]}${stage !== point ? `, the first point it can look at from ${name} on` : ''}: added to the job’s Fable points. It costs more than Opus.`,
+    id: 'fable', label: 'Ask Fable', name: point ? `Ask Fable (${words[point]})` : 'Ask Fable', enabled: point !== null && !already,
+    hint: point === null ? `Fable takes second looks at ${kind === 'bug' ? 'the diagnosis' : 'the spec, the plan'}, the review or the PR only${name ? `; there’s none left after ${name}` : ''}.`
+      : already ? `Fable already looks at ${words[point]} for this job.`
+        : `Fable takes a short second look at ${words[point]}${stage !== point ? `, the first point it can look at from ${name} on` : ''}: added to the job’s Fable points. It costs more than Opus.`,
     chip: point !== null && !already ? { kind: 'fable', point } : null,
   });
   views.push({

@@ -113,9 +113,10 @@ export const REVIEWERS = [
   { id: 'feature-review-ui', label: 'Painter', what: 'screens, wording, accessibility', model: 'Sonnet' },
   { id: 'bug-review-fix', label: 'Examiner', what: 'a bug fix against its cause, the regression test, scope', model: 'Opus', bug: true },
 ];
+// A bug job has no spec (the /bugfix conductor ignores that point), and its plan is the diagnosis.
 export const FABLE_POINTS = [
-  { id: 'spec', label: 'After the spec is written' },
-  { id: 'plan', label: 'Before you approve the plan' },
+  { id: 'spec', label: 'After the spec is written', feature: true },
+  { id: 'plan', label: 'Before you approve the plan', bugLabel: 'Before you approve the diagnosis' },
   { id: 'review', label: 'When the review is wrapped up' },
   { id: 'pr', label: 'Before PR #1 opens' },
 ];
@@ -362,12 +363,13 @@ export function skippedFor(route, options) {
 /** The options in a few plain lines, for the Foreman's first message and for the page. */
 export function describeOptions(o) {
   const name = (list, id) => list.find((x) => x.id === id)?.label ?? id;
+  const point = (id) => { const p = FABLE_POINTS.find((x) => x.id === id); return (o.kind === 'bug' && p?.bugLabel) || p?.label || id; };
   const lines = [isLevel(o.level) ? `Level: ${levelLabel(o.level, o.kind)} (${o.flow ?? flowFor(o.level)} flow).` : `Flow: ${FLOWS[o.flow]?.label ?? o.flow}.`];
   if (o.skip.length) lines.push(`Skip: ${o.skip.map((s) => name(SKIPPABLE, s)).join(', ')}.`);
   for (const [k, p] of Object.entries(o.provided ?? {})) lines.push(`${name(PROVIDABLE, k)} provided: ${p}`);
   lines.push(`Reviewers: ${o.skip.includes('review') ? 'none' : o.reviewers === 'auto' ? 'the usual ones for this kind of change' : o.reviewers.map((r) => name(REVIEWERS, r)).join(', ')}${o.skip.includes('review') ? '' : `, at most ${o.review_rounds} fix round${o.review_rounds === 1 ? '' : 's'}`}.`);
   if (o.manual_test) lines.push('The human tests it by hand on their computer before review.');
-  lines.push(`Fable checks: ${o.fable_checks.length ? o.fable_checks.map((x) => name(FABLE_POINTS, x)).join(', ') : 'none'}.`);
+  lines.push(`Fable checks: ${o.fable_checks.length ? o.fable_checks.filter((x) => o.kind !== 'bug' || x !== 'spec').map(point).join(', ') : 'none'}.`);
   if (o.wireframes && o.wireframes !== 'auto') lines.push(`Screens (wireframes): ${o.wireframes === 'always' ? 'always, before the plan' : 'off'}.`);
   if (o.clarify && o.clarify !== 'auto') lines.push(`Clarify questions before the spec: ${o.clarify === 'always' ? 'always' : 'off'}.`);
   // Evidence (evidence.md): Auto says nothing, as for screens and clarify (job-options.md: on at L2 and L3).

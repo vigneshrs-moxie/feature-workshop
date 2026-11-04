@@ -228,7 +228,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const levels = meta?.levels;
   const level = isLevel(gate.level) ? gate.level : isLevel(job.level) ? job.level : null;
   const fableChecks = Array.isArray(detail.options?.fable_checks) ? detail.options.fable_checks : [];
-  const views = chipViews(gate, { level, fableChecks });
+  const views = chipViews(gate, { level, fableChecks, kind: job.kind });
   const chips = chipsFor(views, c.chips);
   const chipLines = chips.length ? composeGate({ kind: 'message', chips }).split('\n').filter(Boolean) : [];
   const levelChip = chips.find((x) => x.kind === 'level');

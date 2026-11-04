@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { normalize, defaultsForBugLevel, defaultsForLevel, optionsAtLevel, SKIPPABLE, REVIEWERS, BUG_LEVELS, LEVELS, levelLabel, levelsForClient, describeOptions, levelChangeLine } from '../lib/options.js';
+import { normalize, defaultsForBugLevel, defaultsForLevel, optionsAtLevel, SKIPPABLE, REVIEWERS, FABLE_POINTS, BUG_LEVELS, LEVELS, levelLabel, levelsForClient, describeOptions, levelChangeLine } from '../lib/options.js';
 import { stopOf } from '../lib/stage-view.js';
 import { STAGE_IDS, agentInfo, detectStage } from '../lib/stages.js';
 
@@ -99,4 +99,13 @@ test('the page gets each level’s bug defaults, and each skippable stage says w
   assert.deepEqual(['triage', 'reproduce'].map(kindOf), ['bug', 'bug']);
   assert.deepEqual(['test', 'review'].map(kindOf), ['both', 'both']);
   assert.ok(REVIEWERS.find((r) => r.id === 'bug-review-fix').bug && REVIEWERS.filter((r) => r.bug).length === 1, 'the Examiner is the only bug-only lens');
+});
+
+test('a bug job’s Fable points: no spec, and the plan’s look is at the diagnosis', () => {
+  assert.ok(FABLE_POINTS.find((p) => p.id === 'spec').feature, 'the spec is a feature job’s only');
+  const lineOf = (o) => describeOptions(o).find((l) => l.startsWith('Fable checks:'));
+  const bug = { ...normalize({ level: 3 }, { kind: 'bug' }), kind: 'bug', fable_checks: ['spec', 'plan', 'review'] };
+  assert.equal(lineOf(bug), 'Fable checks: Before you approve the diagnosis, When the review is wrapped up.');
+  const feature = { ...normalize({ level: 3 }), fable_checks: ['spec', 'plan', 'review'] };
+  assert.equal(lineOf(feature), 'Fable checks: After the spec is written, Before you approve the plan, When the review is wrapped up.');
 });

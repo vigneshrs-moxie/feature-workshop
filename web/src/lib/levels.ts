@@ -76,6 +76,8 @@ export function levelForKind(info: LevelInfo | null | undefined, kind: string | 
   return kind === 'bug' && info.bug ? { ...info, skip: info.bug.skip, reviewers: info.bug.reviewers } : info;
 }
 const FABLE_WORDS: Record<string, string> = { spec: 'spec', plan: 'plan', review: 'review', pr: 'PR' };
+// On a bug job the plan's Fable look is at the diagnosis (the /bugfix conductor); there is no spec.
+const BUG_FABLE_WORDS: Record<string, string> = { ...FABLE_WORDS, plan: 'diagnosis' };
 
 /** The reviewers' friendly names by agent id (meta.jobOptions.reviewers: "Locksmith"), else none. */
 export function lensNames(meta: Meta | null | undefined): Record<string, string> {
@@ -93,6 +95,7 @@ const WORKFLOW = ['clarify', 'spec', 'refine', 'wireframe', 'investigate', 'spec
 const BUG_WORKFLOW = ['triage', 'reproduce', 'diagnose', 'implement', 'test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3'];
 // The stage each Fable point belongs to ("pr": before PR #1 opens).
 const FABLE_STAGE: Record<string, string> = { spec: 'spec', plan: 'plan', review: 'review', pr: 'pr1' };
+const BUG_FABLE_STAGE: Record<string, string> = { ...FABLE_STAGE, plan: 'diagnose' };
 
 /**
  * Whether a stage is still to come for a job now at `current`: the current stage and the ones after
@@ -112,7 +115,7 @@ function parts(info: LevelInfo, ahead: (stage: string) => boolean = () => true, 
   return {
     stages: Object.keys(kind === 'bug' ? BUG_STAGE_WORDS : STAGE_WORDS).filter((s) => !info.skip.includes(s) && ahead(s)).map((s) => stageWord(s, info.level, kind)),
     manual: Boolean(info.manualTest) && ahead('test'),
-    fable: (info.fable ?? []).filter((p) => ahead(FABLE_STAGE[p] ?? p)),
+    fable: (info.fable ?? []).filter((p) => (kind !== 'bug' || p !== 'spec') && ahead((kind === 'bug' ? BUG_FABLE_STAGE : FABLE_STAGE)[p] ?? p)).map((p) => (kind === 'bug' ? BUG_FABLE_WORDS : FABLE_WORDS)[p] ?? p),
     lenses: ahead('review') ? lensesAt(info, kind) : [],
   };
 }
@@ -120,7 +123,7 @@ function parts(info: LevelInfo, ahead: (stage: string) => boolean = () => true, 
 function phrases({ stages, manual, fable, lenses }: ReturnType<typeof parts>, names: Record<string, string>): string[] {
   const out = [...stages];
   if (manual) out.push('you test');
-  if (fable.length) out.push(`Fable at ${fable.map((p) => FABLE_WORDS[p] ?? p).join(' + ')}`);
+  if (fable.length) out.push(`Fable at ${fable.join(' + ')}`);
   if (lenses.length) out.push(`${lenses.map((l) => names[l] ?? l).join(' + ')} lens${lenses.length === 1 ? '' : 'es'}`);
   return out;
 }

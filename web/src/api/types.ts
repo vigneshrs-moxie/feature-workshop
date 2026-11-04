@@ -813,9 +813,11 @@ export interface OptionChoice {
   label: string;
   /** PROVIDABLE only: the stages a provided document skips. */
   skips?: string[];
-  /** SKIPPABLE only: a stage only bug jobs run (triage, reproduce), or only features do. */
+  /** SKIPPABLE and FABLE_POINTS: only bug jobs have it (triage, reproduce), or only features (the spec). */
   bug?: boolean;
   feature?: boolean;
+  /** FABLE_POINTS: its words on a bug job ("Before you approve the diagnosis"). */
+  bugLabel?: string;
 }
 
 /** One model the options can name, with its friendly name (lib/options.js MODEL_CHOICES). */

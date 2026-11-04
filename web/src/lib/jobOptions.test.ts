@@ -2,13 +2,13 @@
 // defaults are the bug workflow's (the Examiner at L1, reproduce skipped), from the dashboard's
 // own tables (dashboard/lib/options.js), so the page and the dashboard can't drift apart.
 import { describe, expect, it } from 'vitest';
-import { levelsForClient, REVIEWERS, SKIPPABLE } from '../../../dashboard/lib/options.js';
+import { FABLE_POINTS, levelsForClient, REVIEWERS, SKIPPABLE } from '../../../dashboard/lib/options.js';
 import type { Meta } from '../api/types';
 import { formFrom, levelDefaults, optionLists, type LevelKeep } from './jobOptions';
 import { levelChange, lensNames } from './levels';
 
 const levels = levelsForClient();
-const meta = { levels, jobOptions: { skippable: SKIPPABLE, reviewers: REVIEWERS } } as unknown as Meta;
+const meta = { levels, jobOptions: { skippable: SKIPPABLE, reviewers: REVIEWERS, fablePoints: FABLE_POINTS } } as unknown as Meta;
 const keep: LevelKeep = { provided: {}, notes: '', review_rounds: 1 };
 
 describe('the options lists for a kind of job', () => {
@@ -29,6 +29,18 @@ describe('the options lists for a kind of job', () => {
     const lists = optionLists(meta);
     expect(lists.skippable).toHaveLength(SKIPPABLE.length);
     expect(lists.reviewers).toHaveLength(REVIEWERS.length);
+  });
+});
+
+describe('the Fable points for a kind of job', () => {
+  it('a bug job has no spec look, and its plan look is at the diagnosis', () => {
+    expect(optionLists(meta, 'bug').fablePoints.map((p) => p.label)).toEqual(['Before you approve the diagnosis', 'When the review is wrapped up', 'Before PR #1 opens']);
+    expect(levelChange(2, 3, levels, lensNames(meta), null, 'bug').text).toMatch(/Fable at diagnosis \+ review/);
+  });
+
+  it('a feature job’s are unchanged', () => {
+    expect(optionLists(meta, 'feature').fablePoints.map((p) => p.label)).toEqual(['After the spec is written', 'Before you approve the plan', 'When the review is wrapped up', 'Before PR #1 opens']);
+    expect(levelChange(2, 3, levels, lensNames(meta)).text).toMatch(/Fable at plan \+ review/);
   });
 });
 

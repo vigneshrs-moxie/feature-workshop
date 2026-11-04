@@ -26,7 +26,7 @@ const PROVIDABLE: OptionChoice[] = [
   { id: 'test_plan', label: 'Test plan', skips: [] },
 ];
 const FABLE_POINTS: OptionChoice[] = [
-  { id: 'spec', label: 'After the spec is written' }, { id: 'plan', label: 'Before you approve the plan' },
+  { id: 'spec', label: 'After the spec is written', feature: true }, { id: 'plan', label: 'Before you approve the plan', bugLabel: 'Before you approve the diagnosis' },
   { id: 'review', label: 'When the review is wrapped up' }, { id: 'pr', label: 'Before PR #1 opens' },
 ];
 const MODEL_CHOICES: ModelInfo[] = [
@@ -66,7 +66,8 @@ export function optionLists(meta: Meta | null | undefined, kind: 'bug' | 'featur
     skippable: forKind(listOr(o.skippable, SKIPPABLE)),
     providable: listOr(o.providable, PROVIDABLE),
     reviewers: forKind(listOr(o.reviewers, [])),
-    fablePoints: listOr(o.fablePoints, FABLE_POINTS),
+    // A bug job's Fable points: no spec, and its plan is the diagnosis.
+    fablePoints: forKind(listOr(o.fablePoints, FABLE_POINTS)).map((p) => (kind === 'bug' && p.bugLabel ? { ...p, label: p.bugLabel } : p)),
     models: { foreman: named(listOr(o.models?.foreman, FOREMAN_IDS)), build: crew, checks: crew },
     notesMax: typeof o.notesMax === 'number' && o.notesMax > 0 ? o.notesMax : NOTES_MAX,
   };
