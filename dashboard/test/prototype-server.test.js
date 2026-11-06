@@ -117,7 +117,9 @@ test('set up: the site from the file and never the token; missing, open to other
   assert.deepEqual(ready, { prototypes: { site: 'https://prototypes.example.test' }, prototypesWhy: null });
   assert.ok(!JSON.stringify(ready).includes(MADE_UP_TOKEN));
   await fs.chmod(file, 0o644);
-  assert.deepEqual(await prototypesSetup(dir), { prototypes: null, prototypesWhy: NOT_PRIVATE });
+  // Windows has no such bits to read, so there the file is taken as it is, as publish.py does.
+  assert.deepEqual(await prototypesSetup(dir, { platform: 'win32' }), ready);
+  if (process.platform !== 'win32') assert.deepEqual(await prototypesSetup(dir), { prototypes: null, prototypesWhy: NOT_PRIVATE });
   await fs.chmod(file, 0o600);
   await fs.writeFile(file, JSON.stringify({ token: MADE_UP_TOKEN }));
   assert.equal((await prototypesSetup(dir)).prototypes.site, DEFAULT_SITE, 'site is optional in the file');
