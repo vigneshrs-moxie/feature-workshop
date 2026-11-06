@@ -23,6 +23,13 @@ export interface JobFinish {
   landed: 'staging' | 'main' | null;
 }
 
+/** A job's last publish to the prototypes site. */
+export interface JobPrototype {
+  url: string;
+  revision: number;
+  publishedAt?: string | null;
+}
+
 export interface Job {
   slug: string;
   title: string;
@@ -60,6 +67,8 @@ export interface Job {
   nudges?: Nudge[];
   /** The screens the wireframer drew (wireframes.html in the job folder), with their version; null or missing when there are none. */
   wireframes?: JobWireframes | null;
+  /** Its last publish to the prototypes site (prototype.json in the job folder); null or missing when it has none. */
+  prototype?: JobPrototype | null;
   /** The review walkthrough built for the job's branch (dashboard/lib/docs.js walkthroughInfo); url: its published page. */
   walkthrough?: { updatedAt: string; size: number; url: string | null } | null;
   /** Its lane on Jobs (dashboard/lib/snapshot.js laneFor) and the reason in words; dashboards from before send none. */
@@ -791,6 +800,9 @@ export interface Meta {
   notifyMethod?: 'terminal-notifier' | 'osascript' | null;
   /** The origin a job's screens page is served from (its own, not the dashboard's): the Screens tab frames <origin>/job/<slug>/wireframes. Null when that server couldn't listen (its port was taken): the tab then frames nothing. */
   wireframesOrigin?: string | null;
+  /** The prototypes site this laptop publishes to (never its token); null when it can't, and prototypesWhy says why in one line. */
+  prototypes?: { site: string } | null;
+  prototypesWhy?: string | null;
   /** The Foreman models you can choose, the everyday one first. */
   models?: ModelChoice[];
   settings?: Settings;

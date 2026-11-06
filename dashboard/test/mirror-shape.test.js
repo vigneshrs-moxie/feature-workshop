@@ -30,6 +30,12 @@ test('a job page goes up without the Foreman’s replies, the audit, a reply’s
   assert.deepEqual(r.permissionsPending[0].input, { file_path: 'a.js' });
 });
 
+test('a job’s published link and revision go up with its page, and pass the never-carried check', () => {
+  const r = jobRecord({ slug: 'x', prototype: { url: 'https://prototypes.example.test/f/x', revision: 4, publishedAt: null } });
+  assert.deepEqual(r.prototype, { url: 'https://prototypes.example.test/f/x', revision: 4, publishedAt: null });
+  assert.equal(makeEvent('record', { kind: 'job', key: 'x', value: r }).ok, true);
+});
+
 test('a permission card: the command for a shell step, the questions for a question, nothing of a file', () => {
   assert.equal(permissionCard({ id: 'a', toolName: 'Bash', input: { command: 'npm test' }, plain: { headline: 'Run', preview: 'npm test' } }).plain.preview, 'npm test');
   assert.deepEqual(permissionCard({ id: 'b', kind: 'question', toolName: 'AskUserQuestion', input: { questions: [{ question: 'Which?' }] } }).input, { questions: [{ question: 'Which?' }] });

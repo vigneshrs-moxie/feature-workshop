@@ -1039,6 +1039,7 @@ a:hover { text-decoration: underline; }
 .screens-current { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--text-1); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
 @container (max-width: 560px) { .screens-bar .key-hint { display: none; } }
 .screens-status { margin: 0; font-size: var(--text-sm); }
+.screens-site-link { flex: none; white-space: nowrap; }
 .screens-frame { display: block; width: 100%; height: min(70vh, 900px); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-1); }
 .screens-frame:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .screens-view { display: flex; flex-direction: column; gap: var(--space-3); min-height: 0; padding: var(--space-3) var(--space-4) var(--space-4); }

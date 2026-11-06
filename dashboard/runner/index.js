@@ -60,6 +60,7 @@ import { checkDiff, chooseLevel } from '../lib/auto-level.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs, isGateDecision } from '../lib/gate.js';
 import { composeReply, cleanChips } from '../lib/compose.js';
 import { skillChecker } from '../lib/skill-check.js';
+import { DEMO_OFF, prototypesSetup, publishScript, runPublish } from '../lib/prototype.js';
 import { DOC_MAX_BYTES, DocError, describeDoc, docVersion, jsonHtml, listJobDocs, readJobDoc, readSummary, readWalkthrough, readWireframes, servableSpec } from '../lib/docs.js';
 import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, hexCommit, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from '../lib/play.js';
 import { parseStatusJson } from '../lib/status-json.js';
@@ -610,6 +611,8 @@ export async function createRunner(config) {
       headline: f.latestBrief?.headline ?? (f.sources.statusJson ? null : f.currentText) ?? null, nextProposed: f.nextProposed,
       // The screens the wireframer drew (the Preview pane's Screens tab), with their version; null when none.
       wireframes: f.wireframes ?? null,
+      // Its last publish to the prototypes site (lib/prototype.js), with the link; null when none.
+      prototype: f.prototype ?? null,
       // The review walkthrough built for its branch (lib/docs.js walkthroughInfo): the Preview pane's Walkthrough tab.
       walkthrough: f.walkthrough ?? null,
       repo: f.repoPath ? { name: path.basename(f.repoPath), branch: f.branch } : null,
@@ -944,6 +947,12 @@ export async function createRunner(config) {
     return slug;
   }
 
+  // The demo's pretend jobs never reach the real site: it publishes only through a skills folder of
+  // its own that holds a script, which is the tests' stand-in.
+  const demoOff = () => DEMO && (SKILLS_DIR === path.join(CLAUDE_DIR, 'skills') || !fs.existsSync(publishScript(SKILLS_DIR)));
+  const prototypesFor = async () => (demoOff() ? { prototypes: null, prototypesWhy: DEMO_OFF } : prototypesSetup(CLAUDE_DIR));
+  const publishing = new Set();
+
   async function meta({ token = TOKEN, wireframesOrigin = null } = {}) {
     return {
       token, stages: STAGES, agents: AGENTS, prices: { asOf: PRICES_AS_OF, models: PRICES },
@@ -953,6 +962,8 @@ export async function createRunner(config) {
       // Where a job's screens page is served from (its own origin): the Screens tab frames <origin>/job/<slug>/wireframes.
       // null when that server couldn't listen (screensDown): the tab then shows nothing and says so.
       wireframesOrigin,
+      // Whether this laptop can publish to the prototypes site, and why not (never the token).
+      ...(await prototypesFor()),
       settings: await allSettings(), liveLink: { enabled: (await readHookSessions(state.dir)).enabled, script: HOOK_SCRIPT, command: nodeCommand(HOOK_SCRIPT) },
       // The finish line's choices (lib/finish.js), with their words, for Settings → Workflow.
       finishLines: FINISH_LINES.map((id) => ({ id, ...FINISH_LINE_INFO[id] })),
@@ -1821,6 +1832,28 @@ export async function createRunner(config) {
       await writeNotes(f, body.text);
       await state.audit({ action: 'notes', featureDir: f.dir, slug: f.slug, size: body.text.length });
       return { ok: true, ...(await readNotes(f)) };
+    },
+
+    // POST /api/jobs/:slug/prototype/publish and …/notes: the Screens tab's two buttons. One at a
+    // time per job, so a double click can't make two revisions.
+    async prototype(body) {
+      const f = await jobOf(body.slug);
+      const setup = await prototypesFor();
+      if (!setup.prototypes) throw new HttpError(409, setup.prototypesWhy);
+      if (publishing.has(f.slug)) throw new HttpError(409, 'Starbase is already talking to the prototypes site for this job.');
+      publishing.add(f.slug);
+      const audit = (extra) => state.audit({ action: 'prototype', featureDir: f.dir, slug: f.slug, what: body.action, ...extra });
+      try {
+        const out = await runPublish({ slug: f.slug, action: body.action, script: publishScript(SKILLS_DIR), featuresDir: FEATURES_DIR });
+        await audit(body.action === 'publish' ? { revision: out.revision } : { lines: out.lines.length });
+        notifyChange();
+        return out;
+      } catch (err) {
+        await audit({ failed: true });
+        throw err;
+      } finally {
+        publishing.delete(f.slug);
+      }
     },
 
     // POST /api/job/:slug/local: "Try it on your computer".

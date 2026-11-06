@@ -44,6 +44,10 @@ test('the mirror round trip: the board, a job’s page, its documents and decisi
     const job = (await olive.person.json('/api/job/add-export')).body;
     assert.equal(job.gate.briefNumber, 2);
     assert.equal(job.hosted, true);
+    assert.deepEqual(job.prototype, { url: 'https://prototypes.example.test/f/add-export', revision: 4, publishedAt: null }, 'the published link comes up with the job');
+    const publish = await olive.person.send('POST', '/api/jobs/add-export/prototype/publish');
+    assert.equal(publish.status, 409, 'publishing runs on the laptop, never from the site');
+    assert.equal(publish.body.code, 'on-laptop');
     assert.deepEqual(job.thread.map((t) => t.kind), ['brief', 'note', 'you'], 'the Foreman’s reply stays on the laptop: a line says so');
     assert.match(job.thread[1].text, /Its words show on your laptop/);
     assert.equal(job.audit, undefined);

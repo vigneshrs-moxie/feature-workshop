@@ -158,10 +158,13 @@ function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: Jo
       {doc && !source && doc.type !== 'json' && (doc.summary || SUMMARISED.has(entry?.group ?? '')) && <KeyPoints summary={doc.summary} kind={file.startsWith('briefs/') ? 'brief' : 'doc'} slug={slug} file={file} version={entry?.version ?? null} />}
       {doc && (source
         ? <pre className="doc-source" tabIndex={0} aria-label={`${name}, source`}>{text}</pre>
-        : <ServerHtml html={String(doc.html ?? '')} className="doc-page" base={folderOf(file)} />)}
+        : <ServerHtml html={file === 'decisions.md' ? tagOpsNotAsked(String(doc.html ?? '')) : String(doc.html ?? '')} className="doc-page" base={folderOf(file)} />)}
     </article>
   );
 }
+
+/** decisions.md, rendered: a row whose reason starts "Ops not asked:" gets those words as a tag (the text is the sanitised page's own). */
+export const tagOpsNotAsked = (html: string) => html.replace(/(<td[^>]*>)\s*Ops not asked:\s*/g, '$1<span class="chip ops-not-asked">Ops not asked</span> ');
 
 export function DocsTab({ slug, section = 'plan', onSection, changedAt, focusRequest = 0, requestFile = null, active = true, pick: only, replay = false }: {
   slug: string;

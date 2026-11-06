@@ -12,6 +12,7 @@ import { locateJob } from './locate.js';
 import { suggestLevel } from './levels.js';
 import { versionsFrom } from './gate.js';
 import { walkthroughInfo, wireframesInfo } from './docs.js';
+import { prototypeInfo } from './prototype.js';
 
 const ARTIFACT_FILES = [
   ['Workflow status', 'workflow-status.md'],
@@ -316,6 +317,8 @@ async function readFeatureFolder(dir) {
   const gate = await gateFields(dir, status, briefs, waitingSince);
   // The screens the wireframer drew (wireframes.html), with their version; null when there are none.
   const wireframes = await wireframesInfo(dir, status?.artifacts?.length ? status.artifacts : ws?.artifacts ?? []);
+  // Its last publish to the prototypes site (prototype.json), or null.
+  const prototype = await prototypeInfo(dir);
   // The rules' level from the description alone (no git here: this runs for every job on every refresh).
   const description = options?.title ?? status?.title ?? ws?.title ?? slug;
 
@@ -350,6 +353,7 @@ async function readFeatureFolder(dir) {
     artifacts,
     recordedArtifacts: status?.artifacts?.length ? status.artifacts : ws?.artifacts ?? [],
     wireframes,
+    prototype,
     recordText, recordAt: wsStat?.mtime.toISOString() ?? null, statusSummary: status?.summary ?? null,
     statusRepo: status?.repo?.path ?? null, statusBranch: status?.branch ?? null, statusWorktree: status?.worktree ?? null,
     wsRepository: ws?.repository ?? null,

@@ -30,12 +30,13 @@ const GOOD = {
   rules: { action: 'add', rule: { tool: 'Bash', kind: 'prefix', value: 'npm test' }, permissionId: 'req-1', id: null },
   nudge: { slug: 'sample-job', nudge: 'pr1-merge', answer: 'yes', model: null, despiteLimit: false, confirmNoTerminal: false },
   repo: { slug: 'sample-job', repoPath: '/tmp/repo', branch: 'feat/x' },
+  prototype: { slug: 'sample-job', action: 'publish' },
   'usage-resume': {},
 };
 
 test('the two lists are exactly the plan’s, closed and frozen', () => {
   assert.deepEqual(Object.keys(REMOTE_COMMANDS).sort(), ['allow', 'approve', 'deny', 'fetch-diff', 'pause', 'reply', 'send-back', 'stack-merge', 'start', 'stop', 'take-over']);
-  assert.deepEqual(Object.keys(LOCAL_COMMANDS).sort(), ['close', 'notes', 'nudge', 'options', 'policy', 'reopen', 'repo', 'resume', 'rules', 'settings', 'steer', 'try-it', 'usage-resume']);
+  assert.deepEqual(Object.keys(LOCAL_COMMANDS).sort(), ['close', 'notes', 'nudge', 'options', 'policy', 'prototype', 'reopen', 'repo', 'resume', 'rules', 'settings', 'steer', 'try-it', 'usage-resume']);
   assert.ok(Object.isFrozen(REMOTE_COMMANDS) && Object.isFrozen(LOCAL_COMMANDS));
   assert.ok(Object.values(REMOTE_COMMANDS).every(Object.isFrozen));
   assert.throws(() => { REMOTE_COMMANDS.shell = {}; });

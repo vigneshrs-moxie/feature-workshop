@@ -20,6 +20,7 @@ export function mirrorRunner({ slug = 'add-export', title = 'Add export' } = {})
     job: {
       slug, title, stage: 'plan', stageState: 'waiting', needsYou: true, lane: 'needs-you', group: 'needs-you', laneReason: 'Needs you: the plan',
       gate: gate(2), branch: `feature/${slug}`, cost: { totalUsd: 1.5, source: 'estimate' },
+      prototype: { url: `https://prototypes.example.test/f/${slug}`, revision: 4, publishedAt: null },
       thread: [
         { id: 'brief:briefs/002-plan.md', kind: 'brief', at: '2026-10-30T15:00:00.000Z', number: 2, stage: 'plan', file: 'briefs/002-plan.md', headline: 'Plan v2 ready' },
         { id: 'reply:abc', kind: 'reply', at: '2026-10-30T15:01:00.000Z', html: '<pre>const secret = readSource();</pre>' },

@@ -15,6 +15,7 @@
 // Everything the page sends is data from a file on disk, checked here before it is kept; nothing is
 // run, and nothing here reads a model.
 import { useSyncExternalStore } from 'react';
+import type { ApiClient } from '../../api/client';
 
 export type ScreenKind = 'screen' | 'choice' | 'questions' | 'overview';
 export type ScreenStatus = '' | 'good' | 'ask' | 'fix';
@@ -39,6 +40,25 @@ export interface WireframesFeedback {
   version: string | null;
   text: string;
 }
+
+/** What Publish answers with: the site's reply, from publish.py. */
+export interface PublishResult {
+  revision: number;
+  url: string;
+  warnings?: string[];
+}
+
+/** What Pull notes answers with: the new feedback lines, the time they start from (null: the first pull) and the site's latest revision. */
+export interface PulledNotes {
+  lines: string[];
+  since: string | null;
+  revision: number | null;
+  warnings?: string[];
+}
+
+const prototypePath = (slug: string, action: 'publish' | 'notes') => `/api/jobs/${encodeURIComponent(slug)}/prototype/${action}`;
+export const publishPrototype = (api: ApiClient, slug: string) => api.post<PublishResult>(prototypePath(slug, 'publish'));
+export const pullPrototypeNotes = (api: ApiClient, slug: string) => api.post<PulledNotes>(prototypePath(slug, 'notes'));
 
 const KINDS: readonly ScreenKind[] = ['screen', 'choice', 'questions', 'overview'];
 const STATUSES: readonly ScreenStatus[] = ['', 'good', 'ask', 'fix'];

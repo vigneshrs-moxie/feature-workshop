@@ -187,6 +187,8 @@ export default function jobRoutes({ runner, read, send, sendJson, needJob, wiref
         where: body.where === 'root' ? 'root' : 'app', what: word(body.what), name: word(body.name), db: str(body.db, 20),
       });
     }),
+    // The Screens tab's Publish and Pull notes: run publish.py on this laptop (lib/prototype.js).
+    post(/^\/api\/jobs\/([^/]+)\/prototype\/(publish|notes)$/, async ({ res, m }) => command(res, { type: 'prototype', slug: await needJob(m[1]), action: m[2] })),
     {
       // The job's notes (notes.md), saved whole from the job drawer. Audited by size only.
       method: 'PUT', path: /^\/api\/job\/([^/]+)\/notes$/,

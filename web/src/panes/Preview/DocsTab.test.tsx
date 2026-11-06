@@ -5,7 +5,7 @@ import type { JobDoc, JobDocEntry } from '../../api/types';
 import { UiProvider, useUi } from '../../app/ui';
 import { createStore, WorkshopContext } from '../../state/store';
 import { job, snapshot } from '../../state/test-fixtures';
-import { DocsTab } from './DocsTab';
+import { DocsTab, tagOpsNotAsked } from './DocsTab';
 import { groupDocs, sectionDocs, sizeLabel, versionLabel, type DocSection } from './docs';
 
 // Invented job and documents only.
@@ -200,5 +200,15 @@ describe('Docs tab: the screens', () => {
     // Not a document: no reader opened, no /doc request made.
     expect(screen.queryByRole('article')).toBeNull();
     expect(get).not.toHaveBeenCalledWith(expect.stringContaining('/doc?file=wireframes.html'));
+  });
+});
+
+describe('Docs tab: decisions.md', () => {
+  it('a reason that starts "Ops not asked:" gets those words as a tag; other rows and other words stay as they are', () => {
+    const html = '<table><tr><td>F1</td><td>Ops not asked: Mesa opens at 7.</td></tr><tr><td style="text-align:left">Ops not asked: late.</td></tr><tr><td>They said Ops not asked: fine</td></tr></table>';
+    const out = tagOpsNotAsked(html);
+    expect(out).toContain('<td><span class="chip ops-not-asked">Ops not asked</span> Mesa opens at 7.</td>');
+    expect(out).toContain('<td style="text-align:left"><span class="chip ops-not-asked">Ops not asked</span> late.</td>');
+    expect(out).toContain('<td>They said Ops not asked: fine</td>');
   });
 });

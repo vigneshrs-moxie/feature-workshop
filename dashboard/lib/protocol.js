@@ -109,6 +109,8 @@ export const LOCAL_COMMANDS = freeze({
   rules: { action: required(oneOf('add', 'remove')), rule: FIELD.json, permissionId: str(100), id: str(100) },
   nudge: { slug: required(FIELD.slug), nudge: required(str(100)), answer: required(oneOf('dismiss', 'yes')), model: str(100), despiteLimit: FIELD.bool, confirmNoTerminal: FIELD.bool },
   repo: { slug: required(FIELD.slug), repoPath: str(1000), branch: str(200) },
+  // The Screens tab's Publish and Pull notes: this laptop's publish.py and its token (lib/prototype.js).
+  prototype: { slug: required(FIELD.slug), action: required(oneOf('publish', 'notes')) },
   'usage-resume': {},
 });
 

@@ -15,7 +15,7 @@ import { readStored, writeStored } from '../../lib/stored';
 import { createStore, WorkshopContext } from '../../state/store';
 import { job, SCREENS_ORIGIN, snapshot } from '../../state/test-fixtures';
 import { draftKey } from '../Foreman/Composer';
-import { addFeedbackToDraft, gateWaiting, NO_ORIGIN, ScreensTab, wireframesUrl } from './ScreensTab';
+import { addFeedbackToDraft, addNotesToDraft, gateWaiting, NO_ORIGIN, noNewNotes, ON_LAPTOP_LINE, ScreensTab, wireframesUrl } from './ScreensTab';
 import { clearWireframes, frameMounted } from './wireframes';
 
 const WITH_SCREENS: Partial<Job> = { wireframes: { version: '2' } };
@@ -24,10 +24,10 @@ const REPORT = {
   screens: [{ key: 's-list', name: 'The list', kind: 'screen', status: 'fix', choice: '' }, { key: 'c-entry', name: 'Where the button goes', kind: 'choice', status: '', choice: '' }],
 };
 
-function setup({ jobExtra = WITH_SCREENS, active = true, full = false, origin = SCREENS_ORIGIN }: { jobExtra?: Partial<Job>; active?: boolean; full?: boolean; origin?: string | null } = {}) {
+function setup({ jobExtra = WITH_SCREENS, active = true, full = false, origin = SCREENS_ORIGIN, metaExtra = {}, post = vi.fn(), hosted = false }: { metaExtra?: Record<string, unknown>; post?: ReturnType<typeof vi.fn>; hosted?: boolean; jobExtra?: Partial<Job>; active?: boolean; full?: boolean; origin?: string | null } = {}) {
   const store = createStore();
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 'tok-1', ...(origin ? { wireframesOrigin: origin } : {}) }, jobs: [job('alpha', 'needs-you', jobExtra)] }) });
-  const api = { get: vi.fn() } as unknown as ApiClient;
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 'tok-1', ...(origin ? { wireframesOrigin: origin } : {}), ...metaExtra }, jobs: [job('alpha', 'needs-you', jobExtra)] }) });
+  const api = { get: vi.fn(), post, hosted: () => hosted } as unknown as ApiClient;
   const utils = render(
     <WorkshopContext.Provider value={{ store, api }}>
       <UiProvider><ScreensTab slug="alpha" job={store.getState().jobs[0]} active={active} full={full} /></UiProvider>
@@ -44,6 +44,100 @@ const fromPage = (win: Window, data: unknown, origin = SCREENS_ORIGIN) => {
 
 // Unmount first: a tab still mounted when the module is cleared would take the cleared request again.
 afterEach(() => { cleanup(); localStorage.clear(); clearWireframes(); vi.restoreAllMocks(); });
+
+describe('ScreensTab: Publish and Pull notes', () => {
+  const SET_UP = { prototypes: { site: 'https://prototypes.example.test' } };
+  const WHY = 'Publishing isn’t set up on this laptop: see the prototypes plan §9 step 10.';
+
+  it('with this laptop not set up, both buttons are off and the tab says why', () => {
+    const post = vi.fn();
+    setup({ metaExtra: { prototypes: null, prototypesWhy: WHY }, post });
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Pull notes' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Publish' })).toHaveAttribute('title', WHY);
+    expect(screen.getByText(WHY)).toBeInTheDocument();
+  });
+
+  it('Publish says which revision, with the link, and keeps the link beside the version', async () => {
+    const url = 'https://prototypes.example.test/f/alpha';
+    const post = vi.fn(async () => ({ revision: 4, url, warnings: [] }));
+    setup({ metaExtra: SET_UP, post });
+    expect(screen.queryByRole('link', { name: 'Revision 4 on the site' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    expect(screen.getByRole('button', { name: 'Publishing…' })).toBeDisabled();
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Published revision 4. Open on the site'));
+    expect(post).toHaveBeenCalledWith('/api/jobs/alpha/prototype/publish');
+    expect(screen.getByRole('link', { name: 'Open on the site' })).toHaveAttribute('href', url);
+    const beside = within(screen.getByRole('group', { name: 'Screens' })).getByRole('link', { name: 'Revision 4 on the site' });
+    expect(beside).toHaveAttribute('href', url);
+    expect(beside).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('the job’s own record shows the link from the start, and a failed publish says why', async () => {
+    const post = vi.fn(async () => { throw new Error('The site refused the token.'); });
+    setup({ metaExtra: SET_UP, post, jobExtra: { ...WITH_SCREENS, prototype: { url: 'https://prototypes.example.test/f/alpha', revision: 3 } } });
+    expect(screen.getByRole('link', { name: 'Revision 3 on the site' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Couldn’t publish: The site refused the token.'));
+  });
+
+  it('Pull notes puts the lines in your message inside the feedback block, even with no gate waiting', async () => {
+    const lines = ['Pick A for c-nav', 's-team (laptop): question: Who sees this?'];
+    const post = vi.fn(async () => ({ lines, since: null, revision: 3, warnings: ['people picked differently on c-nav'] }));
+    setup({ metaExtra: SET_UP, post, jobExtra: { ...WITH_SCREENS, needsYou: false, waitingFor: null } });
+    writeStored(draftKey('alpha'), 'Hello Foreman');
+    fireEvent.click(screen.getByRole('button', { name: 'Pull notes' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Added 2 lines to your message to the Foreman. Note: people picked differently on c-nav.'));
+    expect(post).toHaveBeenCalledWith('/api/jobs/alpha/prototype/notes');
+    expect(readStored(draftKey('alpha'))).toBe(`Hello Foreman\n\n--- Screens feedback (v3) ---\n${lines.join('\n')}\n--- end ---`);
+  });
+
+  it('nothing new says since when, and leaves your message alone', async () => {
+    const since = '2026-11-05T22:10:04.120Z';
+    const post = vi.fn(async () => ({ lines: [], since, revision: 3, warnings: [] }));
+    setup({ metaExtra: SET_UP, post });
+    fireEvent.click(screen.getByRole('button', { name: 'Pull notes' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(noNewNotes(since)));
+    expect(noNewNotes(since)).toMatch(/^No new notes since .+\.$/);
+    expect(noNewNotes(null)).toBe('No notes yet.');
+    expect(readStored(draftKey('alpha'))).toBeNull();
+  });
+
+  it('a second pull adds to a block still in the draft: the site won’t send those lines again', () => {
+    expect(addNotesToDraft('alpha', ['s-a (laptop): note: first'], '3')).toBe(true);
+    writeStored(draftKey('alpha'), `Hello\n\n${readStored(draftKey('alpha'))}\n\nMore words.`);
+    expect(addNotesToDraft('alpha', ['s-a (laptop): note: first', 's-b (laptop): note: costs $& more'], '4')).toBe(true);
+    expect(readStored(draftKey('alpha'))).toBe('Hello\n\n--- Screens feedback (v4) ---\ns-a (laptop): note: first\ns-b (laptop): note: costs $& more\n--- end ---\n\nMore words.');
+    expect(addNotesToDraft('alpha', ['s-a (laptop): note: first'], '4'), 'nothing new').toBe(false);
+  });
+
+  it('Copy feedback after a pull replaces the page’s lines and keeps the pulled ones', () => {
+    addFeedbackToDraft('alpha', 'Pick A for c-entry', '2');
+    addNotesToDraft('alpha', ['s-a (laptop): note: from the site'], '2');
+    expect(addFeedbackToDraft('alpha', 'Pick B for c-entry', '2')).toBe(true);
+    expect(readStored(draftKey('alpha'))).toBe('--- Screens feedback (v2) ---\nPick B for c-entry\ns-a (laptop): note: from the site\n--- end ---');
+    expect(addFeedbackToDraft('alpha', 'Pick B for c-entry', '2'), 'the same again changes nothing').toBe(false);
+    // Taken out of the message by hand, it stays out.
+    writeStored(draftKey('alpha'), '--- Screens feedback (v2) ---\nPick B for c-entry\n--- end ---');
+    addFeedbackToDraft('alpha', 'Pick A for c-entry', '2');
+    expect(readStored(draftKey('alpha'))).toBe('--- Screens feedback (v2) ---\nPick A for c-entry\n--- end ---');
+  });
+
+  it('on the hosted site: no page and no buttons, the laptop line and the published link', () => {
+    const url = 'https://prototypes.example.test/f/alpha';
+    const { container } = setup({ origin: null, hosted: true, jobExtra: { ...WITH_SCREENS, prototype: { url, revision: 4 } } });
+    expect(container.querySelector('iframe')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(container.querySelector('.screens-status')).toHaveTextContent(`${ON_LAPTOP_LINE} Published: revision 4 on the prototypes site`);
+    expect(screen.getByRole('link', { name: 'revision 4 on the prototypes site' })).toHaveAttribute('href', url);
+  });
+
+  it('on the hosted site with nothing published: the laptop line alone', () => {
+    const { container } = setup({ origin: null, hosted: true });
+    expect(container.querySelector('.screens-status')).toHaveTextContent(new RegExp(`^${ON_LAPTOP_LINE}$`));
+  });
+});
 
 describe('ScreensTab', () => {
   it('shows the page in a sandboxed iframe from the screens server’s own origin, with the bar and the version', () => {
