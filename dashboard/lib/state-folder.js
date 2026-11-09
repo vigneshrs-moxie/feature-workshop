@@ -110,7 +110,8 @@ export function moveToStarbase({ home = os.homedir(), now = () => new Date(), li
  * when the old folder exists, has not been moved before (no MOVED.txt in it), and the new folder has
  * no settings.json yet. Each file or folder in the old folder is moved across unless the new folder
  * already has one by that name (integrate.json and usage.jsonl live there already): that one is
- * kept, and the old one stays where it was. Then one audit line `state-moved` goes into the new
+ * kept, and the old one stays where it was. audit.jsonl is the exception: ~/.ground-control's
+ * rename has already written a line to it, so the old history goes in front of what is there. Then one audit line `state-moved` goes into the new
  * folder's audit.jsonl and MOVED.txt is left in the old folder saying where everything went.
  *
  * Not while a copy of Ground Control from before the move is still running from the old folder
@@ -120,6 +121,8 @@ export function moveToStarbase({ home = os.homedir(), now = () => new Date(), li
  * Returns { moved: [names], kept: [names], from, to } when it moved, else null with `why`
  * in { skipped }. Never throws: a move that fails partway says so in `error`.
  */
+const AUDIT = 'audit.jsonl';
+
 export function moveOldState({ home = os.homedir(), now = () => new Date(), alive = pidAliveHere } = {}) {
   const from = path.join(home, OLD_STATE_FOLDER);
   const to = defaultStateDir(home);
@@ -141,8 +144,18 @@ export function moveOldState({ home = os.homedir(), now = () => new Date(), aliv
     if (NOT_MOVED.has(name)) continue;
     const src = path.join(from, name);
     const dest = path.join(to, name);
-    if (has(dest)) { kept.push(name); continue; }
+    if (has(dest) && name !== AUDIT) { kept.push(name); continue; }
     try {
+      if (has(dest)) { // the history only grows, so the two join: the old lines first, then the new folder's own
+        const tmp = `${dest}.joining`;
+        const before = fsSync.readFileSync(src);
+        const gap = before.length && before[before.length - 1] !== 0x0a ? '\n' : '';
+        fsSync.writeFileSync(tmp, Buffer.concat([before, Buffer.from(gap), fsSync.readFileSync(dest)]), { mode: 0o600 });
+        fsSync.renameSync(tmp, dest);
+        fsSync.rmSync(src, { force: true });
+        moved.push(name);
+        continue;
+      }
       try { fsSync.renameSync(src, dest); } catch (err) {
         if (err.code !== 'EXDEV') throw err;
         fsSync.cpSync(src, dest, { recursive: true, preserveTimestamps: true });

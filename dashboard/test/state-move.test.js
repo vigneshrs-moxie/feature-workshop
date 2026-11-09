@@ -233,6 +233,28 @@ test('both old folders: ~/.ground-control is renamed first, then ~/.feature-work
   assert.ok(fs.lstatSync(gc).isSymbolicLink());
 });
 
+test('both old folders: the history in ~/.feature-workshop’s audit.jsonl comes across, before the lines about the move', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gc-home-'));
+  const gc = path.join(home, '.ground-control');
+  const fw = path.join(home, '.feature-workshop');
+  fs.mkdirSync(gc);
+  fs.mkdirSync(fw);
+  fs.writeFileSync(path.join(gc, 'integrate.json'), '{"slots":3}');
+  fs.writeFileSync(path.join(fw, 'settings.json'), '{"policy":"old"}');
+  const history = '{"at":"2026-10-13T17:09:24.000Z","action":"send"}\n{"at":"2026-10-31T07:02:26.000Z","action":"gate"}\n';
+  fs.writeFileSync(path.join(fw, 'audit.jsonl'), history);
+  const r = prepareStateFolder({ home, alive: notAlive });
+  const sb = path.join(home, '.starbase');
+  assert.equal(r.dir, sb);
+  const lines = read(path.join(sb, 'audit.jsonl')).trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(lines.slice(0, 2).map((l) => l.action), ['send', 'gate'], 'the old history first, in order');
+  assert.deepEqual(lines.slice(2).map((l) => l.action), ['state-moved', 'state-moved'], 'then both moves');
+  assert.ok(lines[3].moved.includes('audit.jsonl'));
+  assert.ok(!lines[3].kept.includes('audit.jsonl'));
+  assert.ok(!fs.existsSync(path.join(fw, 'audit.jsonl')), 'moved, not left behind');
+  assert.equal(read(path.join(sb, 'settings.json')), '{"policy":"old"}');
+});
+
 test('nothing old: nothing happens, and ~/.starbase is the folder', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gc-home-'));
   assert.deepEqual(prepareStateFolder({ home }), { dir: path.join(home, '.starbase'), lines: [] });
