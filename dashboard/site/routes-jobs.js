@@ -12,17 +12,20 @@ const str = (v, max = 20000) => (typeof v === 'string' ? v.slice(0, max) : '');
 
 // ---------- Reading what the page sent (…/send and …/gate) ----------
 
-// The gate card's body, checked: kind, the brief it answers, at most 3 answers, 20 verdicts,
+// The gate card's body, checked: kind, the brief it answers, at most 20 answers, 20 verdicts,
 // MAX_CHIPS chips and a 4,000-character note. Anything off is a 400, and nothing is sent.
 const GATE_KINDS = ['approve', 'changes', 'message', 'stop'];
 const GATE_NOTE_MAX = 4000;
+// The clarify brief allows up to five decisions, so three was too few; twenty is a ceiling, not a target.
+export const GATE_ANSWERS_MAX = 20;
+export const GATE_VERDICTS_MAX = 20;
 function byId(v, max, what, each) {
   if (v === undefined || v === null) return {};
-  if (typeof v !== 'object' || Array.isArray(v)) throw new HttpError(400, `${what}: expected them by id.`);
+  if (typeof v !== 'object' || Array.isArray(v)) throw new HttpError(400, `${what[0].toUpperCase()}${what.slice(1)}: expected them by id.`);
   const entries = Object.entries(v);
-  if (entries.length > max) throw new HttpError(400, `${what}: at most ${max}.`);
+  if (entries.length > max) throw new HttpError(400, `Too many ${what} in one go: ${entries.length}. Starbase takes at most ${max}.`);
   return Object.fromEntries(entries.map(([k, x]) => {
-    if (k.length > 100 || !x || typeof x !== 'object' || Array.isArray(x)) throw new HttpError(400, `${what}: one of them isn’t readable.`);
+    if (k.length > 100 || !x || typeof x !== 'object' || Array.isArray(x)) throw new HttpError(400, `${what[0].toUpperCase()}${what.slice(1)}: one of them isn’t readable.`);
     return [k, each(x)];
   }));
 }
@@ -40,8 +43,8 @@ function readGateBody(body) {
   const note = body.note ?? '';
   if (note.length > GATE_NOTE_MAX) throw new HttpError(400, `The note is too long (at most ${GATE_NOTE_MAX.toLocaleString('en')} characters).`);
   if (kind === 'changes' && !note.trim()) throw new HttpError(400, 'Say what to change.');
-  const answers = byId(body.answers, 3, 'Answers', (a) => ({ ...(str(a.choice, 100) ? { choice: str(a.choice, 100) } : {}), ...(str(a.other, 1000) ? { other: str(a.other, 1000) } : {}) }));
-  const verdicts = byId(body.verdicts, 20, 'Verdicts', (v) => {
+  const answers = byId(body.answers, GATE_ANSWERS_MAX, 'answers', (a) => ({ ...(str(a.choice, 100) ? { choice: str(a.choice, 100) } : {}), ...(str(a.other, 1000) ? { other: str(a.other, 1000) } : {}) }));
+  const verdicts = byId(body.verdicts, GATE_VERDICTS_MAX, 'verdicts', (v) => {
     if (!['confirm', 'change'].includes(v.verdict)) throw new HttpError(400, 'Verdicts: confirm or change.');
     return { verdict: v.verdict, ...(str(v.note, 1000) ? { note: str(v.note, 1000) } : {}) };
   });

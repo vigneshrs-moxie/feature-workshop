@@ -1003,7 +1003,7 @@ export interface GateRequest {
   kind: GateKind;
   /** The brief this card answers; an approval for an older brief than the Foreman's is refused (409 stale-brief). */
   briefNumber?: number | null;
-  /** By question id; at most 3. */
+  /** By question id; at most 20. */
   answers?: ComposeAnswers;
   /** By decision id; at most 20. */
   verdicts?: ComposeVerdicts;

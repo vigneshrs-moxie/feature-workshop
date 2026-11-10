@@ -39,10 +39,10 @@ const planStatus = (slug) => ({
 });
 
 // options: fields over the L1 options below; options: null writes a schema 1 job with no level.
-async function writeJob(slug, { provided = null, options = {} } = {}) {
+async function writeJob(slug, { provided = null, options = {}, questions = null } = {}) {
   const dir = path.join(featuresDir, slug);
   await fs.mkdir(path.join(dir, 'briefs'), { recursive: true });
-  await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify(planStatus(slug), null, 2));
+  await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({ ...planStatus(slug), ...(questions ? { questions, stage: 'clarify' } : {}) }, null, 2));
   await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify(options === null ? { schema_version: 1, flow: 'auto', title: `Job ${slug}`, repo } : {
     schema_version: 2, level: 1, flow: 'quick', skip: ['spec', 'refine', 'investigate', 'spec-update'], provided: provided ?? {}, reviewers: ['feature-reviewer'],
     review_rounds: 2, manual_test: true, fable_checks: [], models: { foreman: 'claude-opus-5-5', build: 'claude-opus-5-5', checks: 'claude-opus-5-5' }, notes: 'Keep it small.',
@@ -61,6 +61,8 @@ before(async () => {
   for (const d of [featuresDir, stateDir, repo, ...Object.values(dirs)]) await fs.mkdir(d, { recursive: true });
   // A document handed over earlier, since moved away: a level change must still go through.
   await writeJob('gate-job', { provided: { plan: path.join(root, 'moved-away.md') } });
+  // The clarify brief allows up to five decisions, so a clarify card can carry five questions.
+  await writeJob('five-job', { questions: Array.from({ length: 5 }, (_, i) => ({ id: `${i + 1}`, text: `Question ${i + 1}?`, recommendation: 'a', options: [{ id: 'a', label: 'Yes' }, { id: 'b', label: 'No' }] })) });
   await writeJob('held-job');
   await writeJob('checks-job');
   await writeJob('notes-job');
@@ -261,6 +263,14 @@ test('gate: with a reply in progress nothing is sent; the text comes back and th
   await stopReply('gate-job');
 });
 
+test('a card with five answers is accepted', { timeout: 60_000 }, async () => {
+  const answers = Object.fromEntries([1, 2, 3, 4, 5].map((n) => [`${n}`, { choice: n % 2 ? 'a' : 'b' }]));
+  const r = await write('POST', '/api/job/five-job/gate', { kind: 'approve', briefNumber: 2, answers });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  for (const [n, label] of [[1, 'a) Yes'], [2, 'b) No'], [3, 'a) Yes'], [4, 'b) No'], [5, 'a) Yes']]) assert.ok(r.body.text.includes(`${n}. Question ${n}? → ${label}`), `answer ${n} is in the reply`);
+  await stopReply('five-job');
+});
+
 test('gate: refusals send nothing and change nothing', { timeout: 60_000 }, async () => {
   const optionsBefore = await fs.readFile(path.join(featuresDir, 'checks-job', 'options.json'), 'utf8');
   const cases = [
@@ -269,8 +279,8 @@ test('gate: refusals send nothing and change nothing', { timeout: 60_000 }, asyn
     [{ kind: 'approve', briefNumber: '2' }, 400, /brief number/],
     [{ kind: 'message', note: 'x'.repeat(4001) }, 400, /too long/],
     [{ kind: 'changes', note: '  ' }, 400, /Say what to change/],
-    [{ kind: 'approve', answers: { 1: { choice: 'a' }, 2: {}, 3: {}, 4: {} } }, 400, /at most 3/],
-    [{ kind: 'approve', verdicts: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`D-${i}`, { verdict: 'confirm' }])) }, 400, /at most 20/],
+    [{ kind: 'approve', answers: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`${i + 1}`, { choice: 'a' }])) }, 400, /^Too many answers in one go: 21\. Starbase takes at most 20\.$/],
+    [{ kind: 'approve', verdicts: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`D-${i}`, { verdict: 'confirm' }])) }, 400, /^Too many verdicts in one go: 21\. Starbase takes at most 20\.$/],
     [{ kind: 'approve', verdicts: { 'D-1': { verdict: 'maybe' } } }, 400, /confirm or change/],
     [{ kind: 'approve', chips: Array.from({ length: 9 }, () => ({ kind: 'skip', stage: 'test' })) }, 400, /at most 8/],
     [{ kind: 'approve', chips: { kind: 'skip' } }, 400, /a list/],
