@@ -201,7 +201,7 @@ test('a hand-back followed by more work is not finished', () => {
 
 test('the parser records answered tool calls', () => {
   const p = parseSessionLog([toolCall('toolu_A', 'Agent', '2026-11-10T09:00:00Z'), toolResult('toolu_A', '2026-11-10T09:10:00Z')].join('\n'));
-  assert.ok(p.answeredToolUses.has('toolu_A'));
+  assert.equal(p.answeredToolUses.get('toolu_A'), '2026-11-10T09:10:00Z', 'when the result came back');
   assert.equal(p.answeredToolUses.has('toolu_B'), false);
 });
 

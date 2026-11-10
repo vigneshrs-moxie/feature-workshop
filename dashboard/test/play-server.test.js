@@ -65,6 +65,9 @@ before(async () => {
     prs: [{ number: 1, url: 'https://github.com/example/repo/pull/1', state: 'open' }], updated_at: new Date(2026, 9, 15, 13).toISOString(),
   }, null, 2));
   await fs.writeFile(path.join(done, 'review.md'), '# Review v1\n\n**Result:** 0 blockers, 0 majors, 0 minors\n');
+  // Still being worked on in a terminal: a live process (this test) holds its lock, so its old,
+  // unfinished Foreman log still counts as working (runner stillRunning).
+  await fs.writeFile(path.join(done, 'lock.json'), JSON.stringify({ owner: 'terminal', pid: process.pid, branch: null, acquiredAt: new Date().toISOString() }));
   // Its Foreman session: started at 11:00 local, the PR created at noon (so never a Night Owl,
   // whatever the time zone), and one review lens (the Fuse) that ran.
   const proj = path.join(dirs.projects, '-tmp-repo');

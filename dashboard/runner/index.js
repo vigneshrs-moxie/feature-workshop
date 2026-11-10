@@ -562,11 +562,17 @@ export async function createRunner(config) {
   // When a reply sent from the dashboard ends, the process that ran it (and any workers inside it)
   // has ended too. Agents whose logs stopped before that moment are not working, even if their log
   // stops mid-task (for example after a pause). Anything with newer activity still counts.
+  // With no run on record (a job run only in a terminal, or since a restart), a log that stops
+  // mid-task never shows its end: after this much silence it counts as stopped.
+  const STALE_WORKER_MS = 30 * 60_000;
   function stillRunning(f, a, active) {
     if (a.state !== 'running') return false;
     if (active) return true;
     const ended = runEnds[f.dir];
-    return !ended || !a.lastAt || a.lastAt > ended.at;
+    if (ended) return !a.lastAt || a.lastAt > ended.at;
+    // Recent work counts, and so does a live process holding the job's lock.
+    if (a.lastAt && Date.now() - Date.parse(a.lastAt) < STALE_WORKER_MS) return true;
+    return lockView(f.dir) !== null;
   }
   let runEnds = {};
   // Each job's flow lane (lib/flow.js laneOf) by slug, from the last map refresh: where its PRs are.

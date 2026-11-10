@@ -58,8 +58,8 @@ export function parseSessionLog(text) {
     lastToolName: null,
     // A worker's last act was to hand its report back (SubagentHandback), with nothing after it.
     handedBack: false,
-    // Every tool call id that a tool_result answered (the Foreman's log: which workers reported back).
-    answeredToolUses: new Set(),
+    // tool_use_id -> when a tool_result answered it (the Foreman's log: when each worker's call came back).
+    answeredToolUses: new Map(),
     // Where the session was last driven from: 'cli' = a terminal, 'sdk-cli'/'sdk-ts' = headless (this dashboard or a script).
     lastEntrypoint: null,
     lastEntrypointAt: null,
@@ -98,7 +98,7 @@ export function parseSessionLog(text) {
       if (!out.firstPrompt && !d.isMeta) out.firstPrompt = lastTextOf(c);
       if (Array.isArray(c) && c.some((x) => x?.type === 'tool_result')) out.pendingToolUse = false;
       for (const x of Array.isArray(c) ? c : []) {
-        if (x?.type === 'tool_result' && x.tool_use_id) out.answeredToolUses.add(x.tool_use_id);
+        if (x?.type === 'tool_result' && x.tool_use_id) out.answeredToolUses.set(x.tool_use_id, d.timestamp ?? before ?? null);
       }
     } else if (d.type === 'cost-state' && typeof d.totalCostUSD === 'number') {
       // Cumulative for the whole session (a resumed run includes earlier runs), so keep the latest.

@@ -117,9 +117,10 @@ test('attributes only the workflow session, using Claude Code’s own cost', asy
   assert.equal(widget.working, false);
 });
 
-// A job whose Foreman sent one worker; the worker's log stops on a Bash call with no result.
-// `answered`: the Foreman's log holds the worker's report (the result of its Agent call).
-async function jobWithOneWorker(answered) {
+// A job whose Foreman sent one worker; the worker's log stops on a Bash call with no result,
+// its last line at `workerLastAt`. `answeredAt`: when the Foreman's log got a result for the
+// worker's Agent call (its report, or a background launch notice), or null for none yet.
+async function jobWithOneWorker({ answeredAt = null, result = 'done', workerLastAt = '2026-11-10T09:10:00Z' } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-worker-'));
   const dir = path.join(root, 'feature-work', 'one-worker');
   await fs.mkdir(dir, { recursive: true });
@@ -129,14 +130,14 @@ async function jobWithOneWorker(answered) {
   const foreman = [
     line({ type: 'user', timestamp: '2026-11-10T09:00:00Z', message: { role: 'user', content: `/feature One worker. Private folder: ${dir}` } }),
     line({ type: 'assistant', timestamp: '2026-11-10T09:00:05Z', message: { id: 'f1', model: 'claude-opus-5-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_W', name: 'Agent', input: { subagent_type: 'feature-implementer', description: 'Build it' } }] } }),
-    ...(answered ? [
-      line({ type: 'user', timestamp: '2026-11-10T09:30:00Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_W', content: 'done' }] } }),
-      line({ type: 'assistant', timestamp: '2026-11-10T09:30:05Z', message: { id: 'f2', model: 'claude-opus-5-5', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Built.' }] } }),
+    ...(answeredAt ? [
+      line({ type: 'user', timestamp: answeredAt, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_W', content: result }] } }),
+      line({ type: 'assistant', timestamp: answeredAt, message: { id: 'f2', model: 'claude-opus-5-5', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Noted.' }] } }),
     ] : []),
   ];
   const worker = [
     line({ agentId: 'w1', isSidechain: true, type: 'user', timestamp: '2026-11-10T09:00:06Z', message: { role: 'user', content: 'Stage: Implement.' } }),
-    line({ agentId: 'w1', isSidechain: true, type: 'assistant', timestamp: '2026-11-10T09:10:00Z', message: { id: 'w1m', model: 'claude-opus-5-5', stop_reason: null, content: [{ type: 'tool_use', id: 'toolu_B', name: 'Bash', input: { command: 'npm test' } }] } }),
+    line({ agentId: 'w1', isSidechain: true, type: 'assistant', timestamp: workerLastAt, message: { id: 'w1m', model: 'claude-opus-5-5', stop_reason: null, content: [{ type: 'tool_use', id: 'toolu_B', name: 'Bash', input: { command: 'npm test' } }] } }),
   ];
   await fs.writeFile(`${session}.jsonl`, `${foreman.join('\n')}\n`);
   await fs.writeFile(path.join(session, 'subagents', 'agent-w1.jsonl'), `${worker.join('\n')}\n`);
@@ -148,16 +149,28 @@ async function jobWithOneWorker(answered) {
     await fs.rm(root, { recursive: true, force: true });
   }
 }
+const workerOf = (job) => job.activity.find((a) => a.who === 'feature-implementer');
 
 test('a worker whose result the Foreman holds is finished', async () => {
-  const job = await jobWithOneWorker(true);
-  const worker = job.activity.find((a) => a.who === 'feature-implementer');
-  assert.equal(worker.state, 'finished');
+  const job = await jobWithOneWorker({ answeredAt: '2026-11-10T09:30:00Z', workerLastAt: '2026-11-10T09:10:00Z' });
+  assert.equal(workerOf(job).state, 'finished');
   assert.equal(job.working, false);
 });
 
 test('a worker the Foreman still waits on is running', async () => {
-  const job = await jobWithOneWorker(false);
-  const worker = job.activity.find((a) => a.who === 'feature-implementer');
-  assert.equal(worker.state, 'running');
+  const job = await jobWithOneWorker();
+  assert.equal(workerOf(job).state, 'running');
+});
+
+test('a worker that writes after the Foreman got its result is running', async () => {
+  // The Foreman resumed it (SendMessage) for another round: its log moves on after the result.
+  const job = await jobWithOneWorker({ answeredAt: '2026-11-10T09:30:00Z', workerLastAt: '2026-11-10T09:40:00Z' });
+  assert.equal(workerOf(job).state, 'running');
+  assert.equal(job.working, true);
+});
+
+test('a background launch does not finish the worker', async () => {
+  // A background Agent call gets its result straight away; the worker then runs on for ten minutes.
+  const job = await jobWithOneWorker({ answeredAt: '2026-11-10T09:01:05Z', result: 'Async agent launched successfully', workerLastAt: '2026-11-10T09:11:05Z' });
+  assert.equal(workerOf(job).state, 'running');
 });

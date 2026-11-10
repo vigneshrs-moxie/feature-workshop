@@ -9,10 +9,13 @@ import path from 'node:path';
 import { LANES, laneFor } from '../lib/snapshot.js';
 import { startDashboard } from './helpers/dashboard.js';
 
-// When the fixture jobs were marked done, and a day either side of it.
-const MARK = '2026-10-20T10:00:00.000Z';
-const BEFORE_MARK = '2026-10-19T10:00:00.000Z';
-const AFTER_MARK = '2026-10-21T10:00:00.000Z';
+// Times relative to now: a worker log that stops mid-call counts as working for 30 minutes when no
+// run is on record (runner stillRunning). The fixture jobs were marked done ten minutes ago.
+const ago = (minutes) => new Date(Date.now() - minutes * 60_000).toISOString();
+const MARK = ago(10);
+const BEFORE_MARK = ago(20);
+const AFTER_MARK = ago(5);
+const LONG_AGO = ago(120);
 
 // A Foreman session for the job at `dir` that sent one worker and waits on it. The worker's log
 // stops on a Bash call with no result, its last line at `workerLastAt`.
@@ -32,8 +35,8 @@ async function workerSession(projects, dir, sessionId, workerLastAt) {
 }
 
 // A demo dashboard (no model calls) with fixture jobs: one waiting for a go-ahead, one resting,
-// and three marked done.
-let root, dashboard;
+// three marked done, and four run only in a terminal (no Starbase run on record).
+let root, dashboard, closeWorktree;
 before(async () => {
   root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fw-lanes-')));
   const featuresDir = path.join(root, 'feature-work');
@@ -44,14 +47,25 @@ before(async () => {
   for (const [slug, extra] of [
     ['waits-for-you', { stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: '2026-10-15T10:00:00Z' }], ['resting-job', { stage_state: 'idle' }],
     ['quiet-before-mark', { stage_state: 'working' }], ['worker-after-mark', { stage_state: 'working' }], ['status-after-mark', { stage_state: 'idle', updated_at: AFTER_MARK }],
+    ['silent-terminal-job', { stage_state: 'working' }], ['fresh-terminal-job', { stage_state: 'working' }], ['locked-silent-job', { stage_state: 'working' }],
+    ['close-silent-job', { stage_state: 'working', worktree: closeWorktree = path.join(root, 'close-silent-worktree') }],
   ]) {
     await fs.mkdir(path.join(featuresDir, slug, 'briefs'), { recursive: true });
     await fs.writeFile(path.join(featuresDir, slug, 'status.json'), status(slug, extra));
   }
-  // Three jobs marked done. Two have a worker whose log stops mid-call (it counts as running):
-  // one went quiet a day before the mark, one wrote a line after it.
+  // Three jobs marked done. Two have a worker whose log stops mid-call and still counts as running
+  // (it wrote within the last 30 minutes): one went quiet before the mark, one wrote a line after it.
   await workerSession(dirs.projects, path.join(featuresDir, 'quiet-before-mark'), 'sess-quiet', BEFORE_MARK);
   await workerSession(dirs.projects, path.join(featuresDir, 'worker-after-mark'), 'sess-after', AFTER_MARK);
+  // Terminal jobs, never marked: a worker silent for two hours, one that wrote five minutes ago, a
+  // silent one on a job whose lock a live process holds (this test process), and a silent one on
+  // a job with a worktree (a plain folder: the close route's worktree check refuses it, later).
+  await workerSession(dirs.projects, path.join(featuresDir, 'silent-terminal-job'), 'sess-silent', LONG_AGO);
+  await workerSession(dirs.projects, path.join(featuresDir, 'fresh-terminal-job'), 'sess-fresh', AFTER_MARK);
+  await workerSession(dirs.projects, path.join(featuresDir, 'locked-silent-job'), 'sess-locked', LONG_AGO);
+  await fs.writeFile(path.join(featuresDir, 'locked-silent-job', 'lock.json'), JSON.stringify({ owner: 'terminal', pid: process.pid, branch: null, acquiredAt: new Date().toISOString() }));
+  await workerSession(dirs.projects, path.join(featuresDir, 'close-silent-job'), 'sess-close', LONG_AGO);
+  await fs.mkdir(closeWorktree, { recursive: true });
   const closed = { as: 'done', at: MARK };
   await fs.writeFile(path.join(dirs.state, 'sessions.json'), JSON.stringify(Object.fromEntries(
     ['quiet-before-mark', 'worker-after-mark', 'status-after-mark'].map((slug) => [path.join(featuresDir, slug), { closed }]),
@@ -96,6 +110,44 @@ test('a status change after the mark brings the job back', async () => {
   const job = snap.jobs.find((j) => j.slug === 'status-after-mark');
   assert.deepEqual(job.closedEarlier, { as: 'done', at: MARK });
   assert.equal(job.closed, undefined);
+});
+
+const jobCard = async (slug) => (await (await fetch(`${dashboard.base}/api/snapshot`)).json()).jobs.find((j) => j.slug === slug);
+
+test('a terminal job whose worker went silent two hours ago is not working', async () => {
+  const job = await jobCard('silent-terminal-job');
+  assert.equal(job.working, false);
+  assert.notEqual(job.lane, 'working');
+  assert.deepEqual(job.nowDoing, []);
+});
+
+test('a terminal worker that wrote five minutes ago is working', async () => {
+  const job = await jobCard('fresh-terminal-job');
+  assert.equal(job.working, true);
+  assert.equal(job.lane, 'working');
+  assert.equal(job.nowDoing.length, 1);
+});
+
+test('a silent worker still counts while the job\'s lock is held by a live process', async () => {
+  const job = await jobCard('locked-silent-job');
+  assert.equal(job.working, true);
+  assert.equal(job.nowDoing[0]?.who, 'feature-implementer');
+});
+
+test('a silent worker reads Stopped on the job page', async () => {
+  const job = await (await fetch(`${dashboard.base}/api/job/silent-terminal-job`)).json();
+  assert.equal(job.activity.find((a) => a.who === 'feature-implementer').state, 'stopped');
+});
+
+test('marking done with the worktree removed is not refused by a worker that went silent long ago', async () => {
+  const { token } = await (await fetch(`${dashboard.base}/api/meta`)).json();
+  const res = await fetch(`${dashboard.base}/api/job/close-silent-job/close`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: JSON.stringify({ as: 'done', removeWorktree: true }),
+  });
+  const body = await res.text();
+  // Past the crew check: the worktree check (a plain folder, not a git worktree) is what refuses.
+  assert.doesNotMatch(body, /crew member is still working/);
+  assert.match(body, /worktree can’t be removed safely/);
 });
 
 const card = (extra = {}) => ({ slug: 'orbit-471', title: 'Customer notes', stage: 'plan', stageState: 'idle', needsYou: false, working: false, permissions: 0, ...extra });

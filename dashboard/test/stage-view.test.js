@@ -272,19 +272,21 @@ describe('the Stage routes', () => {
       schema_version: 1, slug: 'stage-job', title: 'Stage job', route: 'small', stage: 'plan', stage_state: 'working',
       session_id: 'sess-stage-1', repo: { path: dirs.repo, base_branch: 'main' }, updated_at: T(0),
     }, null, 2));
-    // The Foreman's session, which sent work to the planner; the planner is still at it.
+    // The Foreman's session, which sent work to the planner; the planner is still at it. Its lines
+    // are from the last few minutes: with no run on record, a log silent for 30 minutes reads as stopped.
+    const R = (m) => new Date(Date.now() - (10 - m) * 60_000).toISOString();
     const proj = path.join(dirs.projects, '-tmp-stage-repo');
     const subs = path.join(proj, 'sess-stage-1', 'subagents');
     await fs.mkdir(subs, { recursive: true });
     const line = (d) => ({ sessionId: 'sess-stage-1', cwd: dirs.repo, ...d });
     await fs.writeFile(path.join(proj, 'sess-stage-1.jsonl'), jsonl([
-      line({ type: 'user', timestamp: T(1), message: { role: 'user', content: `/feature Stage job. Private folder: ${jobDir}` } }),
-      line({ type: 'assistant', timestamp: T(2), message: { id: 'm1', model: 'claude-fable-5-1', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'tu1', name: 'Agent', input: { subagent_type: 'feature-planner', description: 'Plan the job', prompt: `Private folder: ${jobDir}` } }], usage: { input_tokens: 10, output_tokens: 100 } } }),
+      line({ type: 'user', timestamp: R(1), message: { role: 'user', content: `/feature Stage job. Private folder: ${jobDir}` } }),
+      line({ type: 'assistant', timestamp: R(2), message: { id: 'm1', model: 'claude-fable-5-1', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'tu1', name: 'Agent', input: { subagent_type: 'feature-planner', description: 'Plan the job', prompt: `Private folder: ${jobDir}` } }], usage: { input_tokens: 10, output_tokens: 100 } } }),
     ]));
     await fs.writeFile(path.join(subs, 'agent-p1.meta.json'), JSON.stringify({ agentType: 'feature-planner', description: 'Plan the job' }));
     await fs.writeFile(path.join(subs, 'agent-p1.jsonl'), jsonl([
-      line({ agentId: 'p1', isSidechain: true, type: 'user', timestamp: T(3), message: { role: 'user', content: 'Plan the job' } }),
-      line({ agentId: 'p1', isSidechain: true, type: 'assistant', timestamp: T(4), message: { id: 's1', model: 'claude-opus-5-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'tu2', name: 'Read', input: { file_path: `${dirs.repo}/app.js` } }], usage: { input_tokens: 5, output_tokens: 50 } } }),
+      line({ agentId: 'p1', isSidechain: true, type: 'user', timestamp: R(3), message: { role: 'user', content: 'Plan the job' } }),
+      line({ agentId: 'p1', isSidechain: true, type: 'assistant', timestamp: R(4), message: { id: 's1', model: 'claude-opus-5-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'tu2', name: 'Read', input: { file_path: `${dirs.repo}/app.js` } }], usage: { input_tokens: 5, output_tokens: 50 } } }),
     ]));
     dashboard = await startDashboard({
       env: {

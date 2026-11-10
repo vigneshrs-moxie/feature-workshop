@@ -144,6 +144,16 @@ export class SessionIndex {
 
 // ---------- Cost and activity per feature ----------
 
+// A worker whose call the Foreman got a result for, and that has written nothing since, has
+// finished, whatever its own log ends with. A worker that writes on after its result (resumed for
+// another round, or launched in the background) is judged by its own log.
+function workerState(sub, foreman) {
+  const answeredAt = Date.parse(foreman.answeredToolUses.get(sub.meta.toolUseId) ?? '');
+  const lastAt = Date.parse(sub.parsed.lastAt ?? '');
+  if (answeredAt && lastAt && lastAt <= answeredAt) return 'finished';
+  return activityState(sub.parsed);
+}
+
 export function summariseSessions(sessions, now = Date.now()) {
   const agents = []; // { agentType, name, model, stage, usd, tokens, state, lastAction, startedAt, lastAt }
   const perModel = {};
@@ -204,8 +214,7 @@ export function summariseSessions(sessions, now = Date.now()) {
         // The Stage (lib/stage-view.js): which transcript this is (agent-<agentId>.jsonl) and the model it ran on most.
         agentId: sub.parsed.agentId ?? (/agent-([\w-]+)\.jsonl$/.exec(sub.file)?.[1] ?? null),
         model: Object.entries(usageByModel(sub.parsed)).sort((a, b) => b[1].tokens.output - a[1].tokens.output)[0]?.[0] ?? null,
-        // The Foreman holds the worker's report: it has finished, whatever its own log says.
-        sessionId: s.parsed.sessionId, state: s.parsed.answeredToolUses.has(sub.meta.toolUseId) ? 'finished' : activityState(sub.parsed), quiet: quietHint(sub.parsed, now),
+        sessionId: s.parsed.sessionId, state: workerState(sub, s.parsed), quiet: quietHint(sub.parsed, now),
         doing: sub.parsed.lastAction?.text ?? null, startedAt: sub.parsed.firstAt, lastAt: sub.parsed.lastAt,
       });
     }
