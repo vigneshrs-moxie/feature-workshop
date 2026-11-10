@@ -407,7 +407,8 @@ a:hover { text-decoration: underline; }
 .thread-error { color: var(--status-error); }
 
 .thread-item { margin: 0; }
-.thread-meta { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-1); font-size: var(--text-sm); }
+/* Wraps in a narrow column (the job page's conversation) instead of running out of the card. */
+.thread-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; margin-bottom: var(--space-1); font-size: var(--text-sm); }
 .who { font-weight: var(--weight-medium); color: var(--text-2); }
 .thread-time { margin-left: auto; color: var(--text-3); font-size: var(--text-xs); }
 .thread-line .thread-time { margin-left: var(--space-1); }
@@ -793,7 +794,8 @@ a:hover { text-decoration: underline; }
 /* The LevelCard is a question card (.perm-card[data-ask='question']): its colours come from there. */
 .level-card-head { margin: 0 0 var(--space-2); }
 .level-sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-2); margin: 0 0 var(--space-2); }
-.level-source { padding: var(--space-2); border: 1px solid var(--border-2); border-radius: var(--radius-md); font-size: var(--text-sm); }
+/* A long file path in a reason breaks inside the box instead of running out of the card. */
+.level-source { min-width: 0; padding: var(--space-2); border: 1px solid var(--border-2); border-radius: var(--radius-md); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .level-source dt { margin-bottom: var(--space-1); font-size: var(--text-xs); }
 .level-source dd { margin: 0; }
 .level-chosen { margin: 0; font-size: var(--text-sm); }

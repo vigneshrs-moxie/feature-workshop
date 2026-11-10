@@ -179,14 +179,16 @@ button.tele-limit-part:focus-visible { outline: 2px solid var(--focus-ring); out
 .tele-pair-row, .tele-hbar, .tele-strip-row { display: grid; grid-template-columns: minmax(72px, 26%) 1fr; align-items: center; gap: var(--space-2); }
 .tele-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); font-size: var(--text-sm); }
 .tele-pair-bars { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.tele-bar-track { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.tele-bar-track { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; }
 .tele-bar { display: block; flex: none; height: 12px; min-width: 2px; max-width: calc(100% - 7em); border-radius: 0 3px 3px 0; }
 .tele-hbar .tele-bar { height: 16px; }
 /* A person's dollars in two parts: in this app, then in Claude Code. */
 .tele-bar-stack { display: flex; flex: none; gap: 2px; min-width: 2px; max-width: calc(100% - 7em); }
 .tele-bar-stack .tele-bar { flex: 1 1 0; min-width: 2px; max-width: none; border-radius: 0; }
 .tele-bar-stack .tele-bar:last-child { border-radius: 0 3px 3px 0; }
-.tele-bar-value { flex: none; color: var(--text-2); font-size: var(--text-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* A value too long to sit beside its bar (a person's dollars in two places) goes under it, and
+   wraps there if it must, instead of running out of the card. */
+.tele-bar-value { flex: 0 1 auto; min-width: 0; color: var(--text-2); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 
 /* ---------- Share bars: models by month ---------- */
 .tele-share { display: grid; grid-template-columns: minmax(72px, 22%) 1fr auto; align-items: center; gap: var(--space-2); }

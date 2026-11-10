@@ -205,9 +205,11 @@
 .job-details-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .job-details .job-map { padding: var(--space-3) 0; border: 0; background: none; box-shadow: none; }
 .page-job.is-wide .job-side { height: calc(100vh - var(--topbar-h) - 120px); min-height: 560px; max-height: none; }
-.page-job.is-wide .job-convo { flex: 1 1 0; min-height: 260px; }
-.page-job.is-wide .job-convo-thread { max-height: none; flex: 1 1 0; min-height: 0; }
-.page-job.is-wide .job-details { flex: none; max-height: 45vh; position: relative; overflow: auto; }
+/* The message list keeps at least 160 px, so the conversation is never squeezed: when Details is
+   open in a short window, Details gives way and scrolls inside itself. */
+.page-job.is-wide .job-convo { flex: 1 1 0; min-height: min-content; }
+.page-job.is-wide .job-convo-thread { max-height: none; flex: 1 1 0; min-height: 160px; }
+.page-job.is-wide .job-details { flex: 0 1 auto; max-height: 45vh; position: relative; overflow: auto; }
 /* The level chip sits at Details' left edge: its menu opens rightward, and while it is open the
    card doesn't clip it (it spilled past the card's edge, cut off and unclickable). */
 .job-details .level-pop { left: 0; right: auto; }
