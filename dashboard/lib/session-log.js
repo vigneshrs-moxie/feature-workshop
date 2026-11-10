@@ -56,6 +56,10 @@ export function parseSessionLog(text) {
     lastAssistantText: null,
     pendingToolUse: false,
     lastToolName: null,
+    // A worker's last act was to hand its report back (SubagentHandback), with nothing after it.
+    handedBack: false,
+    // Every tool call id that a tool_result answered (the Foreman's log: which workers reported back).
+    answeredToolUses: new Set(),
     // Where the session was last driven from: 'cli' = a terminal, 'sdk-cli'/'sdk-ts' = headless (this dashboard or a script).
     lastEntrypoint: null,
     lastEntrypointAt: null,
@@ -93,6 +97,9 @@ export function parseSessionLog(text) {
       const c = d.message.content;
       if (!out.firstPrompt && !d.isMeta) out.firstPrompt = lastTextOf(c);
       if (Array.isArray(c) && c.some((x) => x?.type === 'tool_result')) out.pendingToolUse = false;
+      for (const x of Array.isArray(c) ? c : []) {
+        if (x?.type === 'tool_result' && x.tool_use_id) out.answeredToolUses.add(x.tool_use_id);
+      }
     } else if (d.type === 'cost-state' && typeof d.totalCostUSD === 'number') {
       // Cumulative for the whole session (a resumed run includes earlier runs), so keep the latest.
       const byModel = {};
@@ -113,6 +120,7 @@ export function parseSessionLog(text) {
           out.lastAction = { text: describeTool(c.name, c.input), at: d.timestamp ?? null };
           out.lastToolName = c.name;
           out.pendingToolUse = true;
+          out.handedBack = c.name === 'SubagentHandback';
           if (c.name === 'Agent' || c.name === 'Task') {
             out.dispatches.push({
               toolUseId: c.id,
@@ -123,6 +131,7 @@ export function parseSessionLog(text) {
           }
         } else if (c?.type === 'text' && c.text?.trim()) {
           out.lastAssistantText = c.text;
+          out.handedBack = false;
         }
       }
       // A new message resets the stop reason; repeated lines of the same message may omit it.
@@ -148,10 +157,12 @@ export function usageByModel(parsed) {
 
 // Is the agent behind this log working right now? There is no time limit: long runs are
 // normal, so an agent counts as working until its log shows it finished.
-// "finished": its last message ended its turn.
+// "finished": it handed its report back, or its last message ended its turn.
 // "delegating": the conductor is waiting for a worker it sent work to.
 // "running": anything else.
 export function activityState(parsed) {
+  // A worker's log ends on its hand-back, never on an end_turn message.
+  if (parsed.handedBack) return 'finished';
   if (parsed.lastStopReason === 'end_turn' && !parsed.pendingToolUse) return 'finished';
   if (parsed.pendingToolUse && (parsed.lastToolName === 'Agent' || parsed.lastToolName === 'Task')) return 'delegating';
   return 'running';

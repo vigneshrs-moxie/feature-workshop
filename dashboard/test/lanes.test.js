@@ -9,7 +9,30 @@ import path from 'node:path';
 import { LANES, laneFor } from '../lib/snapshot.js';
 import { startDashboard } from './helpers/dashboard.js';
 
-// A demo dashboard (no model calls) with two fixture jobs: one waiting for a go-ahead, one resting.
+// When the fixture jobs were marked done, and a day either side of it.
+const MARK = '2026-10-20T10:00:00.000Z';
+const BEFORE_MARK = '2026-10-19T10:00:00.000Z';
+const AFTER_MARK = '2026-10-21T10:00:00.000Z';
+
+// A Foreman session for the job at `dir` that sent one worker and waits on it. The worker's log
+// stops on a Bash call with no result, its last line at `workerLastAt`.
+async function workerSession(projects, dir, sessionId, workerLastAt) {
+  const session = path.join(projects, '-tmp-repo', sessionId);
+  await fs.mkdir(path.join(session, 'subagents'), { recursive: true });
+  const line = (o) => JSON.stringify({ sessionId, cwd: '/tmp/repo', ...o });
+  await fs.writeFile(`${session}.jsonl`, `${[
+    line({ type: 'user', timestamp: '2026-10-15T09:00:00.000Z', message: { role: 'user', content: `/feature Job. Private folder: ${dir}` } }),
+    line({ type: 'assistant', timestamp: '2026-10-15T09:00:05.000Z', message: { id: `${sessionId}-f1`, model: 'claude-opus-5-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: `${sessionId}-W`, name: 'Agent', input: { subagent_type: 'feature-implementer', description: 'Build it' } }] } }),
+  ].join('\n')}\n`);
+  await fs.writeFile(path.join(session, 'subagents', 'agent-w1.jsonl'), `${[
+    line({ agentId: 'w1', isSidechain: true, type: 'user', timestamp: '2026-10-15T09:00:06.000Z', message: { role: 'user', content: 'Stage: Implement.' } }),
+    line({ agentId: 'w1', isSidechain: true, type: 'assistant', timestamp: workerLastAt, message: { id: `${sessionId}-w1m`, model: 'claude-opus-5-5', stop_reason: null, content: [{ type: 'tool_use', id: `${sessionId}-B`, name: 'Bash', input: { command: 'npm test' } }] } }),
+  ].join('\n')}\n`);
+  await fs.writeFile(path.join(session, 'subagents', 'agent-w1.meta.json'), JSON.stringify({ agentType: 'feature-implementer', description: 'Build it', toolUseId: `${sessionId}-W` }));
+}
+
+// A demo dashboard (no model calls) with fixture jobs: one waiting for a go-ahead, one resting,
+// and three marked done.
 let root, dashboard;
 before(async () => {
   root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fw-lanes-')));
@@ -18,10 +41,21 @@ before(async () => {
   const dirs = { projects: path.join(root, 'projects'), agents: path.join(root, 'agents'), skills: path.join(root, 'skills'), home: path.join(root, 'home'), state: path.join(root, 'state') };
   for (const d of [featuresDir, repo, ...Object.values(dirs)]) await fs.mkdir(d, { recursive: true });
   const status = (slug, extra) => JSON.stringify({ schema_version: 1, slug, title: slug, route: 'small', stage: 'plan', repo: { path: repo }, updated_at: '2026-10-15T10:00:00Z', ...extra });
-  for (const [slug, extra] of [['waits-for-you', { stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: '2026-10-15T10:00:00Z' }], ['resting-job', { stage_state: 'idle' }]]) {
+  for (const [slug, extra] of [
+    ['waits-for-you', { stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: '2026-10-15T10:00:00Z' }], ['resting-job', { stage_state: 'idle' }],
+    ['quiet-before-mark', { stage_state: 'working' }], ['worker-after-mark', { stage_state: 'working' }], ['status-after-mark', { stage_state: 'idle', updated_at: AFTER_MARK }],
+  ]) {
     await fs.mkdir(path.join(featuresDir, slug, 'briefs'), { recursive: true });
     await fs.writeFile(path.join(featuresDir, slug, 'status.json'), status(slug, extra));
   }
+  // Three jobs marked done. Two have a worker whose log stops mid-call (it counts as running):
+  // one went quiet a day before the mark, one wrote a line after it.
+  await workerSession(dirs.projects, path.join(featuresDir, 'quiet-before-mark'), 'sess-quiet', BEFORE_MARK);
+  await workerSession(dirs.projects, path.join(featuresDir, 'worker-after-mark'), 'sess-after', AFTER_MARK);
+  const closed = { as: 'done', at: MARK };
+  await fs.writeFile(path.join(dirs.state, 'sessions.json'), JSON.stringify(Object.fromEntries(
+    ['quiet-before-mark', 'worker-after-mark', 'status-after-mark'].map((slug) => [path.join(featuresDir, slug), { closed }]),
+  )));
   dashboard = await startDashboard({
     env: {
       HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects,
@@ -38,6 +72,30 @@ test('lanes: every job card in the snapshot carries its lane and the reason in w
   assert.equal(by['waits-for-you'].laneReason, 'Waiting for your go-ahead on the plan');
   assert.equal(by['resting-job'].lane, 'resting');
   for (const j of snap.jobs) assert.ok(LANES.includes(j.lane) && typeof j.laneReason === 'string' && j.laneReason, j.slug);
+});
+
+test('a job marked done stays off the board when its only running worker went quiet before the mark', async () => {
+  const snap = await (await fetch(`${dashboard.base}/api/snapshot`)).json();
+  const job = snap.jobs.find((j) => j.slug === 'quiet-before-mark');
+  assert.deepEqual(job.closed, { as: 'done', at: MARK });
+  assert.equal(job.closedEarlier, undefined);
+  assert.equal(job.lane, 'done');
+  assert.equal(job.working, false);
+  assert.deepEqual(job.nowDoing, []);
+});
+
+test('a worker line written after the mark brings the job back', async () => {
+  const snap = await (await fetch(`${dashboard.base}/api/snapshot`)).json();
+  const job = snap.jobs.find((j) => j.slug === 'worker-after-mark');
+  assert.deepEqual(job.closedEarlier, { as: 'done', at: MARK });
+  assert.equal(job.closed, undefined);
+});
+
+test('a status change after the mark brings the job back', async () => {
+  const snap = await (await fetch(`${dashboard.base}/api/snapshot`)).json();
+  const job = snap.jobs.find((j) => j.slug === 'status-after-mark');
+  assert.deepEqual(job.closedEarlier, { as: 'done', at: MARK });
+  assert.equal(job.closed, undefined);
 });
 
 const card = (extra = {}) => ({ slug: 'orbit-471', title: 'Customer notes', stage: 'plan', stageState: 'idle', needsYou: false, working: false, permissions: 0, ...extra });

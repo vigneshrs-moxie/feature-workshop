@@ -599,8 +599,10 @@ export async function createRunner(config) {
     if (active && !nowDoing.length) {
       nowDoing.push({ who: 'conductor', name: 'Foreman', doing: active.lastAction ?? 'Reading your message', since: active.startedAt });
     }
-    // Marked done or dropped, and nothing has happened since: off the board.
-    const off = Boolean(f.closed) && !active && !running.length && !(f.updatedAt && f.updatedAt > f.closed.at);
+    // Marked done or dropped, and nothing has happened since: off the board. A crew member still
+    // counted as running brings it back only if its log moved after the mark.
+    const workedSinceMark = f.closed && running.some((a) => a.lastAt && a.lastAt > f.closed.at);
+    const off = Boolean(f.closed) && !active && !workedSinceMark && !(f.updatedAt && f.updatedAt > f.closed.at);
     // The finish line (lib/finish.js): crossed or not, by what, and where the work has landed.
     const lane = flowLanes.get(f.slug) ?? null;
     const finish = finishLineReached({ prs: f.prs, closed: off ? f.closed : null }, lane, finishLineNow);
@@ -641,7 +643,7 @@ export async function createRunner(config) {
       nudges: nudgesFor({ stage: f.stage, prs: f.prs, closed: off ? f.closed : null, finish }, lane, { dismissed: f.dismissedNudges, sent: f.sentNudges, inRound: roundStateOf(f.slug) !== null }),
       // Marked done or dropped: off the board, unless something is going on or the job changed since.
       ...(off
-        ? { closed: f.closed, needsYou: false, working: false, quiet: false, waitingFor: null, parked: false, stageState: f.closed.as === 'done' ? 'done' : 'idle' }
+        ? { closed: f.closed, needsYou: false, working: false, quiet: false, nowDoing: [], waitingFor: null, parked: false, stageState: f.closed.as === 'done' ? 'done' : 'idle' }
         : f.closed ? { closedEarlier: f.closed } : {}),
     };
   }

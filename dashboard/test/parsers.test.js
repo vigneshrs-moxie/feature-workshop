@@ -173,6 +173,38 @@ test('session log: subagent usage by model and running state', async () => {
   assert.equal(partial.lastAction.text, 'Writing spec.md');
 });
 
+// Log lines as Claude Code writes them: an assistant tool call, and the user line holding its result.
+const toolCall = (id, name, at, msgId = `m-${id}`) => JSON.stringify({
+  type: 'assistant', timestamp: at, message: { id: msgId, model: 'claude-opus-5-5', stop_reason: null, content: [{ type: 'tool_use', id, name, input: {} }] },
+});
+const toolResult = (id, at) => JSON.stringify({ type: 'user', timestamp: at, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } });
+const workerStart = JSON.stringify({ type: 'user', timestamp: '2026-11-10T09:00:00Z', message: { role: 'user', content: 'Stage: Implement.' } });
+const handedBackLog = [workerStart, toolCall('t1', 'Bash', '2026-11-10T09:01:00Z'), toolResult('t1', '2026-11-10T09:01:05Z'), toolCall('t2', 'SubagentHandback', '2026-11-10T09:02:00Z'), toolResult('t2', '2026-11-10T09:02:01Z')];
+
+test('a worker log ending in a hand-back is finished', () => {
+  const p = parseSessionLog(handedBackLog.join('\n'));
+  assert.equal(p.handedBack, true);
+  assert.equal(activityState(p), 'finished');
+});
+
+test('an unanswered hand-back is finished too', () => {
+  const p = parseSessionLog(handedBackLog.slice(0, -1).join('\n'));
+  assert.equal(p.handedBack, true);
+  assert.equal(activityState(p), 'finished');
+});
+
+test('a hand-back followed by more work is not finished', () => {
+  const p = parseSessionLog([...handedBackLog, toolCall('t3', 'Bash', '2026-11-10T09:03:00Z')].join('\n'));
+  assert.equal(p.handedBack, false);
+  assert.equal(activityState(p), 'running');
+});
+
+test('the parser records answered tool calls', () => {
+  const p = parseSessionLog([toolCall('toolu_A', 'Agent', '2026-11-10T09:00:00Z'), toolResult('toolu_A', '2026-11-10T09:10:00Z')].join('\n'));
+  assert.ok(p.answeredToolUses.has('toolu_A'));
+  assert.equal(p.answeredToolUses.has('toolu_B'), false);
+});
+
 test('spendSince counts only messages from that time on', async () => {
   const p = parseSessionLog(await read('projects/-tmp-widget-repo/sess-widget-1.jsonl'));
   const all = spendSince(p, 0);

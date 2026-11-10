@@ -116,3 +116,48 @@ test('attributes only the workflow session, using Claude Code’s own cost', asy
   assert.ok(widget.activity.every((a) => a.state === 'finished'));
   assert.equal(widget.working, false);
 });
+
+// A job whose Foreman sent one worker; the worker's log stops on a Bash call with no result.
+// `answered`: the Foreman's log holds the worker's report (the result of its Agent call).
+async function jobWithOneWorker(answered) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-worker-'));
+  const dir = path.join(root, 'feature-work', 'one-worker');
+  await fs.mkdir(dir, { recursive: true });
+  const session = path.join(root, 'projects', '-tmp-repo', 'sess-one');
+  await fs.mkdir(path.join(session, 'subagents'), { recursive: true });
+  const line = (o) => JSON.stringify({ sessionId: 'sess-one', cwd: '/tmp/repo', ...o });
+  const foreman = [
+    line({ type: 'user', timestamp: '2026-11-10T09:00:00Z', message: { role: 'user', content: `/feature One worker. Private folder: ${dir}` } }),
+    line({ type: 'assistant', timestamp: '2026-11-10T09:00:05Z', message: { id: 'f1', model: 'claude-opus-5-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_W', name: 'Agent', input: { subagent_type: 'feature-implementer', description: 'Build it' } }] } }),
+    ...(answered ? [
+      line({ type: 'user', timestamp: '2026-11-10T09:30:00Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_W', content: 'done' }] } }),
+      line({ type: 'assistant', timestamp: '2026-11-10T09:30:05Z', message: { id: 'f2', model: 'claude-opus-5-5', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Built.' }] } }),
+    ] : []),
+  ];
+  const worker = [
+    line({ agentId: 'w1', isSidechain: true, type: 'user', timestamp: '2026-11-10T09:00:06Z', message: { role: 'user', content: 'Stage: Implement.' } }),
+    line({ agentId: 'w1', isSidechain: true, type: 'assistant', timestamp: '2026-11-10T09:10:00Z', message: { id: 'w1m', model: 'claude-opus-5-5', stop_reason: null, content: [{ type: 'tool_use', id: 'toolu_B', name: 'Bash', input: { command: 'npm test' } }] } }),
+  ];
+  await fs.writeFile(`${session}.jsonl`, `${foreman.join('\n')}\n`);
+  await fs.writeFile(path.join(session, 'subagents', 'agent-w1.jsonl'), `${worker.join('\n')}\n`);
+  await fs.writeFile(path.join(session, 'subagents', 'agent-w1.meta.json'), JSON.stringify({ agentType: 'feature-implementer', description: 'Build it', toolUseId: 'toolu_W' }));
+  try {
+    const [job] = await loadFeatures({ featuresDir: path.join(root, 'feature-work'), sessionIndex: new SessionIndex(path.join(root, 'projects')) });
+    return job;
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+}
+
+test('a worker whose result the Foreman holds is finished', async () => {
+  const job = await jobWithOneWorker(true);
+  const worker = job.activity.find((a) => a.who === 'feature-implementer');
+  assert.equal(worker.state, 'finished');
+  assert.equal(job.working, false);
+});
+
+test('a worker the Foreman still waits on is running', async () => {
+  const job = await jobWithOneWorker(false);
+  const worker = job.activity.find((a) => a.who === 'feature-implementer');
+  assert.equal(worker.state, 'running');
+});

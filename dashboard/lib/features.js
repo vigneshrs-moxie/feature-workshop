@@ -204,7 +204,8 @@ export function summariseSessions(sessions, now = Date.now()) {
         // The Stage (lib/stage-view.js): which transcript this is (agent-<agentId>.jsonl) and the model it ran on most.
         agentId: sub.parsed.agentId ?? (/agent-([\w-]+)\.jsonl$/.exec(sub.file)?.[1] ?? null),
         model: Object.entries(usageByModel(sub.parsed)).sort((a, b) => b[1].tokens.output - a[1].tokens.output)[0]?.[0] ?? null,
-        sessionId: s.parsed.sessionId, state: activityState(sub.parsed), quiet: quietHint(sub.parsed, now),
+        // The Foreman holds the worker's report: it has finished, whatever its own log says.
+        sessionId: s.parsed.sessionId, state: s.parsed.answeredToolUses.has(sub.meta.toolUseId) ? 'finished' : activityState(sub.parsed), quiet: quietHint(sub.parsed, now),
         doing: sub.parsed.lastAction?.text ?? null, startedAt: sub.parsed.firstAt, lastAt: sub.parsed.lastAt,
       });
     }
