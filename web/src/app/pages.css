@@ -5,7 +5,7 @@
 /* The whole window (packet R): even side gutters (--page-gutter: 24 px, 32 px from 1280 px, 16 px on a
    phone) that the top bar lines up with; wide windows get more columns, not wider ones. Only running
    text keeps a readable line (--prose-max). */
-.page { flex: 1; min-width: 0; overflow: auto; background: var(--surface-0); }
+.page { flex: 1; min-width: 0; position: relative; overflow: auto; background: var(--surface-0); }
 .page-inner { width: 100%; max-width: var(--page-max); margin: 0 auto; padding: var(--space-6) var(--page-gutter) var(--space-10); display: flex; flex-direction: column; gap: var(--space-5); }
 .page-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-height: var(--control-h); }
 .page-title { margin: 0 var(--space-1) 0 0; font-family: var(--font-heading); font-size: var(--text-xl); font-weight: var(--weight-bold); line-height: 1.25; letter-spacing: -.012em; }
@@ -92,7 +92,7 @@ details[open] > summary .fold-chevron, .fold-chevron.is-up { transform: rotate(1
 .hero-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); margin: 0; }
 
 /* ---------- The three-card guide ---------- */
-.guide { width: min(860px, 100%); max-height: 100%; overflow: auto; padding: var(--space-5); border: 1px solid var(--border-2); border-radius: var(--radius-xl); background: var(--bg-2); box-shadow: var(--shadow-2); display: flex; flex-direction: column; gap: var(--space-4); }
+.guide { width: min(860px, 100%); max-height: 100%; position: relative; overflow: auto; padding: var(--space-5); border: 1px solid var(--border-2); border-radius: var(--radius-xl); background: var(--bg-2); box-shadow: var(--shadow-2); display: flex; flex-direction: column; gap: var(--space-4); }
 .guide-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .guide-head h3 { margin: 0; font-size: var(--text-lg); }
 .guide-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
@@ -259,7 +259,7 @@ a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset
 .desk-queue-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); padding: 0 var(--space-2) var(--space-2); border-bottom: 1px solid var(--border-1); }
 .desk-queue-head h3 { margin: 0; font-size: var(--text-base); }
 .desk-queue-count { color: var(--text-2); font-family: var(--font-sans); font-size: var(--text-sm); }
-.desk-queue-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0 2px 0 0; overflow: auto; list-style: none; }
+.desk-queue-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0 2px 0 0; position: relative; overflow: auto; list-style: none; }
 .desk-qbar { display: flex; align-items: center; gap: var(--space-2); }
 .desk-dots { display: inline-flex; gap: 5px; }
 /* The queue's dots: needs-you with a touch of ink (packet X: half-faded, they were 1.8–2.2:1 on Light and Light glass). */
@@ -292,7 +292,7 @@ html[data-theme] .desk-console .gate-card.perm-card { padding: 0; border: 0; bor
 
 /* The queue drawer, from the right. */
 .drawer-backdrop { justify-content: flex-end; align-items: stretch; padding: 0; }
-.drawer { width: min(420px, 100%); height: 100%; overflow: auto; background: var(--bg-2); border-left: 1px solid var(--border-2); box-shadow: var(--shadow-2); display: flex; flex-direction: column; }
+.drawer { width: min(420px, 100%); height: 100%; position: relative; overflow: auto; background: var(--bg-2); border-left: 1px solid var(--border-2); box-shadow: var(--shadow-2); display: flex; flex-direction: column; }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-1); }
 .drawer-head h3 { margin: 0; font-size: var(--text-md); }
 .drawer-list { margin: 0; padding: var(--space-2); list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
@@ -412,7 +412,7 @@ html[data-theme] .desk-console .gate-card.perm-card { padding: 0; border: 0; bor
 .layout-pic.pic-list { grid-template-columns: 1fr; }
 
 /* Settings, the Crew-dex, Achievements and a lost address: full width, at most --page-max. */
-.page-wide { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: auto; }
+.page-wide { flex: 1; min-width: 0; min-height: 0; display: flex; position: relative; overflow: auto; }
 .page-wide > * { flex: 1; width: 100%; max-width: var(--page-max); margin: 0 auto; }
 /* Running text keeps a readable line length on the wide pages. */
 .prose > :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6, dl), .hero-say, .muted-lead { max-width: var(--prose-max); }
@@ -453,7 +453,7 @@ html[data-theme] .desk-console .gate-card.perm-card { padding: 0; border: 0; bor
 @keyframes peek-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
 .peek-head { display: flex; align-items: center; gap: var(--space-2); min-height: 56px; padding: 0 var(--space-3) 0 var(--space-5); border-bottom: 1px solid var(--border-1); }
 .peek-title { min-width: 0; margin: 0; overflow: hidden; font-size: var(--text-md); font-weight: var(--weight-bold); text-overflow: ellipsis; white-space: nowrap; }
-.peek-body { display: flex; flex: 1; flex-direction: column; gap: var(--space-3); min-height: 0; padding: var(--space-4) var(--space-5); overflow: auto; }
+.peek-body { display: flex; flex: 1; flex-direction: column; gap: var(--space-3); min-height: 0; padding: var(--space-4) var(--space-5); position: relative; overflow: auto; }
 .peek-reason { margin: 0; color: var(--text-2); font-size: var(--text-sm); }
 .peek-body .next-bar { flex-wrap: wrap; }
 .peek-body .next-actions { width: 100%; justify-content: flex-end; }
@@ -483,7 +483,7 @@ html[data-theme] .desk-console .gate-card.perm-card { padding: 0; border: 0; bor
 .desk-gate-body .gate-meta .thread-time { display: none; }
 /* The calls stay in one place for every item: the card has a steady height, its middle scrolls. */
 @media (min-width: 1280px) {
-  .desk-one.is-wide .desk-console { height: calc(100vh - var(--topbar-h) - 150px); min-height: 520px; overflow: auto; }
+  .desk-one.is-wide .desk-console { height: calc(100vh - var(--topbar-h) - 150px); min-height: 520px; position: relative; overflow: auto; }
   .desk-one.is-wide .desk-calls { position: sticky; bottom: calc(-1 * var(--space-6)); z-index: 2; margin: auto calc(-1 * var(--space-6)) calc(-1 * var(--space-6)); padding: var(--space-4) var(--space-6); background: var(--surface-1); border-radius: 0 0 var(--radius-xl) var(--radius-xl); }
 }
 .desk-item-top { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }

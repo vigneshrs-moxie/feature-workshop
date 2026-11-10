@@ -22,7 +22,7 @@
 .job-convo { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 280px; overflow: hidden; border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs); }
 .job-side-head { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-4); border-bottom: 1px solid var(--border-1); color: var(--text-2); }
 .job-side-head h3 { margin: 0; color: var(--text-1); font-size: var(--text-base); }
-.job-convo-thread { flex: 1 1 auto; min-height: 200px; max-height: max(200px, calc(100vh - 540px)); overflow: auto; padding: var(--space-3) var(--space-4); }
+.job-convo-thread { flex: 1 1 auto; min-height: 200px; max-height: max(200px, calc(100vh - 540px)); position: relative; overflow: auto; padding: var(--space-3) var(--space-4); }
 /* Not sticky here, but still the box its own decoration is drawn in (a theme's frost or edge on ::before). */
 .job-convo .composer { position: relative; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-1); background: var(--surface-2); }
 .job-convo .composer-input { min-height: 72px; }
@@ -74,7 +74,7 @@
 .code-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .code-change { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) 0 var(--space-2) var(--space-4); }
 .code-file summary { min-height: var(--control-h); display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); cursor: pointer; overflow-wrap: anywhere; }
-.code-lines { margin: 0; max-height: 420px; overflow: auto; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--bg-2); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.5; }
+.code-lines { margin: 0; max-height: 420px; position: relative; overflow: auto; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--bg-2); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.5; }
 .code-lines span { display: block; white-space: pre; }
 /* Added and removed lines keep their + and −, so the colour is never the only sign. */
 .code-lines .is-add { background: var(--status-ok-bg); }
@@ -207,7 +207,7 @@
 .page-job.is-wide .job-side { height: calc(100vh - var(--topbar-h) - 120px); min-height: 560px; max-height: none; }
 .page-job.is-wide .job-convo { flex: 1 1 0; min-height: 260px; }
 .page-job.is-wide .job-convo-thread { max-height: none; flex: 1 1 0; min-height: 0; }
-.page-job.is-wide .job-details { flex: none; max-height: 45vh; overflow: auto; }
+.page-job.is-wide .job-details { flex: none; max-height: 45vh; position: relative; overflow: auto; }
 /* The level chip sits at Details' left edge: its menu opens rightward, and while it is open the
    card doesn't clip it (it spilled past the card's edge, cut off and unclickable). */
 .job-details .level-pop { left: 0; right: auto; }

@@ -52,6 +52,7 @@
   height: min(400px, 52vh);
   margin: 0;
   padding: var(--space-1) var(--space-2) var(--space-2);
+  position: relative;
   overflow: auto;
   overscroll-behavior: contain;
   list-style: none;

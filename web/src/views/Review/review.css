@@ -88,7 +88,7 @@
 .review-meta .num { font-family: var(--font-mono); }
 .review-plan { margin: 0; font-size: var(--text-sm); color: var(--text-2); }
 .review-plan .next-label { margin-right: var(--space-1); }
-.review-log { margin: 0; padding: var(--space-2) var(--space-3); max-height: 160px; overflow: auto; border-radius: var(--radius-sm); background: var(--bg-0); font-family: var(--font-mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.review-log { margin: 0; padding: var(--space-2) var(--space-3); max-height: 160px; position: relative; overflow: auto; border-radius: var(--radius-sm); background: var(--bg-0); font-family: var(--font-mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Kinds and states: a word and an icon in a chip; the colour only helps. */
 .review-kind, .review-state, .review-new, .review-outdated { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }

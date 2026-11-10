@@ -42,7 +42,7 @@ a:hover { text-decoration: underline; }
 .app { display: grid; grid-template-rows: var(--topbar-h) auto minmax(0, 1fr); height: 100%; }
 
 
-.pane { min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4); background-image: var(--pane-pattern); }
+.pane { min-height: 0; position: relative; overflow: auto; padding: var(--space-3) var(--space-4); background-image: var(--pane-pattern); }
 .pane-jobs { background: var(--bg-1); border-right: 1px solid var(--border-1); }
 .pane-foreman { background: var(--bg-0); padding-bottom: 0; } /* the sticky composer sits flush: nothing peeks out under it */
 .pane-preview { background: var(--bg-1); border-left: 1px solid var(--border-1); }
@@ -355,6 +355,7 @@ a:hover { text-decoration: underline; }
 .doc-source {
   margin: 0;
   padding: var(--space-3);
+  position: relative;
   overflow: auto;
   border: 1px solid var(--border-1);
   border-radius: var(--radius-md);
@@ -503,6 +504,7 @@ a:hover { text-decoration: underline; }
 .prose pre {
   margin: 0 0 var(--space-3);
   padding: var(--space-3);
+  position: relative;
   overflow: auto;
   border: 1px solid var(--border-1);
   border-radius: var(--radius-md);
@@ -575,11 +577,12 @@ a:hover { text-decoration: underline; }
 .perm-path { overflow-wrap: anywhere; }
 .perm-cut { margin: calc(var(--space-1) * -1) 0 var(--space-2); font-size: var(--text-xs); }
 .perm-md-bar { display: flex; justify-content: flex-end; margin-bottom: 2px; font-size: var(--text-sm); }
-.perm-preview-page { max-height: 240px; margin: 0 0 var(--space-2); padding: var(--space-2) var(--space-3); overflow: auto; border-radius: var(--radius-md); background: var(--bg-0); font-size: var(--text-sm); }
+.perm-preview-page { max-height: 240px; margin: 0 0 var(--space-2); padding: var(--space-2) var(--space-3); position: relative; overflow: auto; border-radius: var(--radius-md); background: var(--bg-0); font-size: var(--text-sm); }
 .perm-preview {
   max-height: 240px;
   margin: 0 0 var(--space-2);
   padding: var(--space-2);
+  position: relative;
   overflow: auto;
   border-radius: var(--radius-md);
   background: var(--bg-0);
@@ -656,12 +659,12 @@ a:hover { text-decoration: underline; }
 .drawer-confirm p { margin: 0; }
 .drawer-confirm-actions { display: flex; gap: var(--space-2); }
 /* Extra room at the bottom so the sticky Save row never sits over the last rows. */
-.drawer-body { flex: 1; min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4) var(--space-10); }
+.drawer-body { flex: 1; min-height: 0; position: relative; overflow: auto; padding: var(--space-3) var(--space-4) var(--space-10); }
 .drawer-body > .how { margin-top: var(--space-4); }
 .drawer-hint { margin: 0 0 var(--space-3); font-size: var(--text-sm); }
 .drawer-notes-input { min-height: 240px; font-family: var(--font-mono); font-size: var(--text-sm); }
 .notes-mode { margin-bottom: var(--space-2); }
-.drawer-notes-preview { min-height: 240px; padding: var(--space-3); overflow: auto; border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--bg-1); }
+.drawer-notes-preview { min-height: 240px; padding: var(--space-3); position: relative; overflow: auto; border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--bg-1); }
 .drawer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
 .drawer-count { color: var(--text-3); font-size: var(--text-xs); }
 .drawer-count.is-over { color: var(--status-error); font-weight: var(--weight-medium); }
@@ -1168,7 +1171,7 @@ a:hover { text-decoration: underline; }
 .try-fine { margin: 0; font-size: var(--text-xs); }
 .try-out-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: var(--space-1); }
 .try-out-head b { overflow-wrap: anywhere; }
-.try-pre { max-height: 320px; overflow: auto; margin: 0; padding: var(--space-2); border: 1px solid var(--border-1); border-radius: var(--radius-sm); background: var(--bg-3); color: var(--text-1); font-family: var(--font-mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.try-pre { max-height: 320px; position: relative; overflow: auto; margin: 0; padding: var(--space-2); border: 1px solid var(--border-1); border-radius: var(--radius-sm); background: var(--bg-3); color: var(--text-1); font-family: var(--font-mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
 .try-log summary { cursor: pointer; color: var(--text-2); font-size: var(--text-sm); }
 .gate-try { margin: var(--space-1) 0 0; }
 

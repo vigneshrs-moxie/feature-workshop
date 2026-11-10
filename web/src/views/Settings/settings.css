@@ -53,7 +53,7 @@
 /* ---------- Notifications ---------- */
 .notify-history { display: flex; flex-direction: column; gap: var(--space-1); }
 .notify-history > .settings-subheading { margin: 0; }
-.notify-history-list { max-height: 240px; margin: 0; padding-left: var(--space-4); overflow: auto; font-size: var(--text-sm); }
+.notify-history-list { max-height: 240px; margin: 0; padding-left: var(--space-4); position: relative; overflow: auto; font-size: var(--text-sm); }
 .notify-levels .setting-row { flex-wrap: nowrap; }
 
 /* ---------- Phone: the three theme tiles share the width ---------- */

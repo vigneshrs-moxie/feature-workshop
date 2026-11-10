@@ -83,7 +83,7 @@
 
 /* One file's diff. */
 .part-diff-sheet { width: min(960px, calc(100vw - var(--space-8))); }
-.part-diff { max-height: 62vh; margin: 0; padding: var(--space-3) 0; overflow: auto; border-radius: var(--radius-md); background: var(--bg-1); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.55; }
+.part-diff { max-height: 62vh; margin: 0; padding: var(--space-3) 0; position: relative; overflow: auto; border-radius: var(--radius-md); background: var(--bg-1); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.55; }
 .part-diff span { display: block; padding: 0 var(--space-4); white-space: pre; }
 .part-diff .is-add { background: var(--status-ok-bg); }
 .part-diff .is-del { background: var(--status-error-bg); }
