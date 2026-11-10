@@ -33,7 +33,8 @@ The prototype for Part 3 is drawn while Parts 1 and 2 are built, so its review d
 
 **Change.**
 - A log whose last tool call is the hand-back counts as finished.
-- A worker whose result the Foreman's log already holds counts as finished too, whatever its own log ends with.
+- A worker that has reported back to the Foreman and written nothing since counts as finished too, whatever its own log ends with. A worker the Foreman has resumed for another round is working again.
+- A log that stops mid-task with no hand-back, on a job no live process is working on, counts as stopped after 30 minutes of silence. Until now it counted as working for good.
 - The lane, the card, the job page's "now" line, the step's "Who's on it" and the Station all follow, because they read the same state.
 
 **Done when.** Announcements V1 leaves the Working lane. ORBIT-471 shows one worker working and the other four under Finished, each marked Done. A test covers a log that ends with a hand-back.
@@ -132,7 +133,7 @@ The prototype for Part 3 is drawn while Parts 1 and 2 are built, so its review d
 
 **Change.**
 - Section 1.1 clears the hand-back case.
-- Mark done is your word. After it, only something newer than the mark brings the job back: a reply Starbase is running, a worker whose log has a line written after the mark, or a status change after the mark. Old unfinished logs don't.
+- Mark done is your word. After it, only something newer than the mark brings the job back: a reply Starbase is running, a worker that is working with a log line written after the mark, or a status change after the mark. Old unfinished logs don't, and neither does opening the job's session in a terminal.
 - The job menu's Mark done stays available for every open job, including ones only ever run in a terminal.
 
 **Done when.** Announcements V1 moves to Done without marking it again. A job whose worker log stops mid-task, marked done later, goes to Done and stays there; a new log line after the mark brings it back as "changed since".
