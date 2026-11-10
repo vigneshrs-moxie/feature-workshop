@@ -284,8 +284,9 @@ export function limitGraph(rec, ctx) {
     data: { window, from: new Date(from).toISOString(), to: new Date(now).toISOString(), points, resets, forecast: fc, split, fiveHour: limits.fiveHour },
     table: {
       caption: `${headline}${resets.length ? ` The week reset at ${resets.map((r) => whenWords(r, { now, timeZone })).join(', ')}.` : ''}`,
-      head: ['When', 'Weekly limit used', '5-hour limit used'],
-      rows: points.map((p) => [whenWords(p.t, { timeZone }), p.week === null ? 'Not read' : pct(p.week), p.fiveHour === null ? 'Not read' : pct(p.fiveHour)]),
+      // The 5-hour column only when some reading has one: a limit Claude does not report is not named.
+      head: ['When', 'Weekly limit used', ...(points.some((p) => p.fiveHour !== null) ? ['5-hour limit used'] : [])],
+      rows: points.map((p) => [whenWords(p.t, { timeZone }), p.week === null ? 'Not read' : pct(p.week), ...(points.some((q) => q.fiveHour !== null) ? [p.fiveHour === null ? 'Not read' : pct(p.fiveHour)] : [])]),
     },
     notes: driver ? [ccDriver
       ? `In the last day the meter rose ${pct(driver.app + driver.claudeCode + driver.other)}: this app about ${pct(driver.app)}, your Claude Code outside this app about ${pct(driver.claudeCode)}, other use about ${pct(driver.other)} (estimated).`
@@ -754,7 +755,7 @@ export function whenGraph(rec, ctx) {
   const otherShare = sum(cells, (c) => c.other) / total;
   const headline = `Most ${unit === 'percent' ? 'use' : 'spend'} lands ${topDays.map((d) => d.name).join(' and ')}, ${blockWords(lo, hi)}${unit === 'percent' && otherShare >= 0.5 ? ', mostly use outside this app' : ''}.`;
   const weekend = (dayTotals[5].app + dayTotals[5].other + dayTotals[6].app + dayTotals[6].other) / total;
-  const todo = `Start large runs outside ${blockWords(lo, hi)}${weekend < 0.15 ? ', or at the weekend' : ''}, when the 5-hour window is quiet.`;
+  const todo = `Start large runs outside ${blockWords(lo, hi)}${weekend < 0.15 ? ', or at the weekend' : ''}, when the account is quiet.`;
   return graph({ ...base, state: 'ok', headline, todo, sub: `The darkest square is ${words(max)} of the ${unit === 'percent' ? 'weekly limit' : 'spend'}: those two hours, added up over four weeks.` });
 }
 

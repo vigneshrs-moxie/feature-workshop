@@ -92,6 +92,8 @@ export function LimitChart({ data }: { data: LimitData }) {
   const all = dayTicks(x0, x1, five);
   const gap = all.length > 1 ? sx(all[1]) - sx(all[0]) : Infinity;
   const ticks = all.filter((_, i) => i % Math.max(1, Math.ceil(56 / gap)) === 0);
+  // The 5-hour line, its legend entry and its hover words only when some reading has it.
+  const hasFive = pts.some((p) => p.fiveHour !== null);
   const hovered = at === null ? null : pts[at];
   const last = pts[pts.length - 1];
   const fcY = fc.state === 'fills' ? 100 : fc.atReset ?? 100;
@@ -114,7 +116,7 @@ export function LimitChart({ data }: { data: LimitData }) {
     <div className="tele-plot" ref={ref}>
       <Legend items={[
         { key: 'w', mark: <span className="tele-key-line" aria-hidden="true" />, label: 'This week' },
-        { key: 'f', mark: <span className="tele-key-line is-thin" aria-hidden="true" />, label: '5-hour limit' },
+        ...(hasFive ? [{ key: 'f', mark: <span className="tele-key-line is-thin" aria-hidden="true" />, label: '5-hour limit' }] : []),
         ...(showFc ? [{ key: 'p', mark: <span className="tele-key-line is-dotted" aria-hidden="true" />, label: 'At the last day’s pace' }] : []),
       ]} />
       <svg
@@ -135,7 +137,7 @@ export function LimitChart({ data }: { data: LimitData }) {
             <text className="reset-label" x={sx(Date.parse(r)) + 4} y={G_M.t - 6}>Reset</text>
           </g>
         ))}
-        <path className="five" d={line('fiveHour')} />
+        {hasFive && <path className="five" d={line('fiveHour')} />}
         <path className="week" d={line('week')} />
         {last.week !== null && (
           <g>
@@ -155,19 +157,19 @@ export function LimitChart({ data }: { data: LimitData }) {
         {hovered && (
           <g>
             <line className="cross" x1={sx(hovered.ms)} x2={sx(hovered.ms)} y1={G_M.t} y2={sy(0)} />
-            {hovered.fiveHour !== null && <circle className="dot five-dot" cx={sx(hovered.ms)} cy={sy(hovered.fiveHour)} r={4} />}
+            {hasFive && hovered.fiveHour !== null && <circle className="dot five-dot" cx={sx(hovered.ms)} cy={sy(hovered.fiveHour)} r={4} />}
             {hovered.week !== null && <circle className="dot week-dot" cx={sx(hovered.ms)} cy={sy(hovered.week)} r={4.5} />}
           </g>
         )}
         <rect className="hit" x={G_M.l} y={G_M.t} width={Math.max(0, w - G_M.l - G_M.r)} height={G_H - G_M.t - G_M.b} />
       </svg>
       {hovered && (
-        <div className="tele-tip" aria-hidden="true" style={{ left: sx(hovered.ms), top: Math.min(sy(hovered.week ?? 0), sy(hovered.fiveHour ?? 0)) + 24 }}>
+        <div className="tele-tip" aria-hidden="true" style={{ left: sx(hovered.ms), top: (hasFive ? Math.min(sy(hovered.week ?? 0), sy(hovered.fiveHour ?? 0)) : sy(hovered.week ?? 0)) + 24 }}>
           <div className="tele-tip-head">{timeWords(hovered.t)}</div>
-          <div className="tele-tip-row"><strong>{hovered.week === null ? 'Not read' : pct(hovered.week)}</strong><span>week</span>{' · '}<strong>{hovered.fiveHour === null ? 'Not read' : pct(hovered.fiveHour)}</strong><span>5 hours</span></div>
+          <div className="tele-tip-row"><strong>{hovered.week === null ? 'Not read' : pct(hovered.week)}</strong><span>week</span>{hasFive && <>{' · '}<strong>{hovered.fiveHour === null ? 'Not read' : pct(hovered.fiveHour)}</strong><span>5 hours</span></>}</div>
         </div>
       )}
-      <p className="sr-only" aria-live="polite">{hovered ? `${timeWords(hovered.t)}: week ${hovered.week === null ? 'not read' : pct(hovered.week)}, 5 hours ${hovered.fiveHour === null ? 'not read' : pct(hovered.fiveHour)}.` : ''}</p>
+      <p className="sr-only" aria-live="polite">{hovered ? `${timeWords(hovered.t)}: week ${hovered.week === null ? 'not read' : pct(hovered.week)}${hasFive ? `, 5 hours ${hovered.fiveHour === null ? 'not read' : pct(hovered.fiveHour)}` : ''}.` : ''}</p>
     </div>
   );
 }

@@ -217,6 +217,15 @@ test('1. weekly limit and forecast: the whole meter’s pace, and which part dri
   assert.equal(g.data.points.length, 9);
 });
 
+test('1. weekly limit: the table names the 5-hour limit only when a reading has it', () => {
+  const none = byId(insights(MONTH.map((l) => ({ ...l, meters: { ...l.meters, fiveHour: null } })))).limit;
+  assert.deepEqual(none.table.head, ['When', 'Weekly limit used']);
+  assert.ok(none.table.rows.every((r) => r.length === 2));
+  assert.ok(!/5-hour/i.test(JSON.stringify(none)), 'nothing in the graph says 5-hour');
+  const some = byId(insights(MONTH.map((l, i) => ({ ...l, meters: { ...l.meters, fiveHour: i === MONTH.length - 1 ? { percent: 12, resetsAt: '2026-10-29T15:00:00.000Z' } : null } })))).limit;
+  assert.deepEqual(some.table.head, ['When', 'Weekly limit used', '5-hour limit used']);
+});
+
 test('2. cost per finished ticket: the median by plan week, down from the first week', () => {
   const g = byId(insights())['ticket-cost'];
   assert.deepEqual(g.data.weeks.filter((w) => w.median !== null).map((w) => [w.label, w.median]), [

@@ -87,6 +87,17 @@ describe('Telemetry on the hosted site', () => {
     expect(screen.getByRole('link', { name: 'Open Settings → Laptops' }).getAttribute('href')).toBe('#/settings/laptops');
   });
 
+  it('a limit the account does not report is left out of the dials', async () => {
+    const graphs = fixture.team.graphs.map((g) => (g.id === 'limit' ? { ...g, data: { ...g.data, points: (g.data as { points: object[] }).points.map((p) => ({ ...p, fiveHour: null })) }, table: undefined } : g));
+    const week = { ...fixture.team, graphs, meters: { ...fixture.team.meters, fiveHour: null } };
+    const { api } = site({ team: week });
+    render(<HostedApp api={api} />);
+    await screen.findByRole('heading', { name: 'The shared account' });
+    expect(document.querySelector('[data-dial="Weekly limit"]')).not.toBeNull();
+    expect(document.querySelector('[data-dial="5-hour limit"]')).toBeNull();
+    expect(document.body.textContent?.match(/.{0,40}5-hour.{0,40}/i)?.[0]).toBeUndefined();
+  });
+
   it('a failed read says so, with Try again; a session that ended brings the sign-in back', async () => {
     const failing = site({ fail: true });
     render(<HostedApp api={failing.api} />);

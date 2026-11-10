@@ -42,8 +42,7 @@ function Meter({ name, long, meter, when }: { name: string; long: string; meter:
   );
 }
 
-function LimitDetail({ long, meter, now }: { long: string; meter: UsageMeter | null; now: Date }) {
-  if (!meter) return <div className="usage-detail-row"><span className="usage-detail-name">{long}</span><span className="muted">Not read yet</span></div>;
+function LimitDetail({ long, meter, now }: { long: string; meter: UsageMeter; now: Date }) {
   const level = meter.percent >= 100 ? 'full' : meter.percent >= WARN_AT ? 'warn' : 'ok';
   return (
     <div className={`usage-detail-row is-${level}`}>
@@ -105,8 +104,10 @@ export function UsageMeters() {
       {open && (
         <div className="usage-panel" role="dialog" aria-label="Claude plan usage">
           <h3 className="usage-panel-title">Claude plan usage</h3>
-          <LimitDetail long="5-hour limit" meter={u.fiveHour} now={now} />
-          <LimitDetail long="Weekly limit" meter={u.week} now={now} />
+          {/* A limit Claude does not report is not drawn or named. */}
+          {u.fiveHour && <LimitDetail long="5-hour limit" meter={u.fiveHour} now={now} />}
+          {u.week && <LimitDetail long="Weekly limit" meter={u.week} now={now} />}
+          {!hasData && <div className="usage-detail-row"><span className="muted">Not read yet</span></div>}
           {u.error && <p className="perm-warn" role="alert">⚠ The last read failed: {u.error}</p>}
           <div className="usage-panel-foot">
             <span className="muted">{u.checkedAt ? `Read ${clockTime(u.checkedAt, now)} · every minute` : 'Read every minute'}</span>

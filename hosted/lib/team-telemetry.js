@@ -246,8 +246,9 @@ function limitGraph(ctx) {
     data: { window: 'week', from: iso(week.from), to: iso(now), points, resets, forecast: fc, split, fiveHour },
     table: {
       caption: `${headline} ${week.label}.`,
-      head: ['When', 'Weekly limit used', '5-hour limit used'],
-      rows: points.map((p) => [whenWords(p.t, { timeZone }), p.week === null ? 'Not read' : pct(p.week), p.fiveHour === null ? 'Not read' : pct(p.fiveHour)]),
+      // The 5-hour column only when some reading has one: a limit Claude does not report is not named.
+      head: ['When', 'Weekly limit used', ...(points.some((p) => p.fiveHour !== null) ? ['5-hour limit used'] : [])],
+      rows: points.map((p) => [whenWords(p.t, { timeZone }), p.week === null ? 'Not read' : pct(p.week), ...(points.some((q) => q.fiveHour !== null) ? [p.fiveHour === null ? 'Not read' : pct(p.fiveHour)] : [])]),
     },
     notes,
   });

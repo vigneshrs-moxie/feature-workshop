@@ -191,7 +191,7 @@ export function TelemetryView() {
       {data && !nothing && (
         <>
           <section className="tele-dials" aria-label="The Claude limits now">
-            <Dial name="5-hour limit" claudeCode={data.claudeCode} unread="No reading in this five hours yet" meter={fiveMeter} split={data.limits.fiveHour} when={dialWhen(fiveMeter, u?.fiveHour ?? null, data.limits.fiveHour, (r) => `Resets ${resetsIn(r, now)}`, now)} />
+            {fiveMeter && <Dial name="5-hour limit" claudeCode={data.claudeCode} unread="No reading in this five hours yet" meter={fiveMeter} split={data.limits.fiveHour} when={dialWhen(fiveMeter, u?.fiveHour ?? null, data.limits.fiveHour, (r) => `Resets ${resetsIn(r, now)}`, now)} />}
             <Dial name="Weekly limit" claudeCode={data.claudeCode} meter={weekMeter} split={data.limits.week} when={dialWhen(weekMeter, u?.week ?? null, data.limits.week, (r) => `Resets ${clockTime(r, now)}`, now)} />
           </section>
           <WhoLine split={data.limits.week} note={data.limits.note} otherLabel={data.limits.otherLabel} me={data.me} claudeCode={data.claudeCode} onPick={openPeople} />

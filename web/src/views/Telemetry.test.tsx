@@ -264,6 +264,21 @@ describe('Telemetry', () => {
     expect(screen.getByRole('button', { name: /^Read now/ })).toBeEnabled();
   });
 
+  it('a limit Claude does not report is left out: no dial, no legend entry, no hover words', async () => {
+    const noFive = FIXTURE.map((l) => ({ ...l, meters: { ...l.meters, fiveHour: undefined } }));
+    const meters = { ...METERS_ON, fiveHour: null };
+    setup({ planUsage: meters, get: async (path) => answer(new URLSearchParams(path.split('?')[1]).get('window') as TelemetryWindow, meters, noFive) });
+    await screen.findByRole('region', { name: 'The Claude limits now' });
+    expect(document.querySelectorAll('.tele-dial')).toHaveLength(1);
+    expect(document.querySelector('[data-dial="Weekly limit"]')).not.toBeNull();
+    expect(document.body.textContent?.match(/.{0,40}5-hour.{0,40}/i)?.[0]).toBeUndefined();
+    const svg = document.querySelector('.tele-svg') as SVGSVGElement;
+    fireEvent.keyDown(svg, { key: 'End' });
+    expect(document.querySelector('.tele-tip')).not.toBeNull();
+    expect(document.querySelector('.tele-tip')?.textContent).not.toMatch(/5 hours/);
+    expect(svg.parentElement?.querySelector('[aria-live]')?.textContent).not.toMatch(/5 hours/);
+  });
+
   it('without the limits read here (demo mode): says so, and Read now waits', async () => {
     setup({ planUsage: null });
     await screen.findByRole('region', { name: 'Next step' });

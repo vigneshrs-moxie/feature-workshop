@@ -119,7 +119,7 @@ export function HostedTelemetryPage({ api, person, onSignedOut }: { api: ApiClie
       {team && !nothing && (
         <>
           <section className="tele-dials" aria-label="The Claude limits now">
-            <Dial name="5-hour limit" unread="No reading in this five hours yet" meter={live(team.meters.fiveHour)} split={team.limits.fiveHour} when={readWords(team.meters.fiveHour, now)} />
+            {team.meters.fiveHour && <Dial name="5-hour limit" unread="No reading in this five hours yet" meter={live(team.meters.fiveHour)} split={team.limits.fiveHour} when={readWords(team.meters.fiveHour, now)} />}
             <Dial name="Weekly limit" unread="No reading this week yet" meter={live(team.meters.week)} split={team.limits.week} when={readWords(team.meters.week, now)} />
           </section>
 

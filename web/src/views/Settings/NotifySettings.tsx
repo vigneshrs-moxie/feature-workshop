@@ -53,7 +53,7 @@ const METHOD: Record<string, string> = {
 
 export function NotifySettings() {
   const { api, store } = useWorkshop();
-  const { meta, notificationsVersion } = useWorkshopState();
+  const { meta, notificationsVersion, planUsage } = useWorkshopState();
   const now = useNow();
   const n: NotifyAll = { ...NOTIFY_DEFAULTS, ...(meta?.settings?.notify as NotifyAll | undefined) };
   const [view, setView] = useState<NotificationsView | null>(null);
@@ -128,7 +128,7 @@ export function NotifySettings() {
       </table>
       <SettingsMore id="notify-more" label="More: quiet hours, usage warnings, this browser, a test and the history" holds={['notify-usage', 'notify-quiet', 'notify-watching', 'alerts-browser', 'notify-test', 'notify-history']}>
         <div className="setting-row" data-setting="notify-usage">
-          <label className="drawer-check" title="A notification when Claude’s 5-hour or weekly usage reaches 80 %, 90 % and full, once each until it resets. It only tells you: nothing is stopped.">
+          <label className="drawer-check" title={`A notification when Claude’s ${planUsage?.fiveHour ? '5-hour or weekly' : 'weekly'} usage reaches 80 %, 90 % and full, once each until it resets. It only tells you: nothing is stopped.`}>
             <Choice type="checkbox" checked={n.usageWarnings !== false} disabled={!n.enabled} onChange={(e) => void save({ usageWarnings: e.target.checked }, 'usage')} />
             <span>Usage warnings at 80 %, 90 % and full</span>
           </label>

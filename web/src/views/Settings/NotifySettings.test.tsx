@@ -2,15 +2,16 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
-import type { Settings } from '../../api/types';
+import type { PlanUsage, Settings } from '../../api/types';
 import { createStore, WorkshopContext } from '../../state/store';
 import { snapshot } from '../../state/test-fixtures';
 import { NotifySettings } from './NotifySettings';
 
 afterEach(cleanup);
 
-function setup(notify: Record<string, unknown>) {
+function setup(notify: Record<string, unknown>, planUsage?: PlanUsage) {
   const store = createStore();
+  if (planUsage) store.dispatch({ type: 'plan-usage', planUsage });
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', settings: { policy: 'hands-off', notify } as unknown as Settings } as never }) });
   const get = vi.fn(async () => ({ method: 'osascript', history: [] }));
   const post = vi.fn(async (_path: string, body: { notify?: object }) => ({ policy: 'hands-off', notify: { ...notify, ...body.notify } }));
@@ -35,5 +36,20 @@ describe('Settings → Notifications → Usage warnings', () => {
     const box = screen.getByRole('checkbox', { name: 'Usage warnings at 80 %, 90 % and full' });
     expect(box).not.toBeChecked();
     expect(box).toBeDisabled();
+  });
+});
+
+describe('Settings → Notifications → Usage warnings, hover words', () => {
+  const week = { percent: 31, resetsAt: '2026-11-12T10:00:00.000Z' };
+  it('name only the limits Claude reports', () => {
+    setup(BASE, { enabled: true, fiveHour: null, week, checkedAt: null, error: null });
+    const label = screen.getByRole('checkbox', { name: 'Usage warnings at 80 %, 90 % and full' }).closest('label')!;
+    expect(label.getAttribute('title')).toMatch(/weekly usage/);
+    expect(label.getAttribute('title')).not.toMatch(/5-hour/i);
+  });
+  it('name the 5-hour limit when Claude reports it', () => {
+    setup(BASE, { enabled: true, fiveHour: week, week, checkedAt: null, error: null });
+    const label = screen.getByRole('checkbox', { name: 'Usage warnings at 80 %, 90 % and full' }).closest('label')!;
+    expect(label.getAttribute('title')).toMatch(/5-hour or weekly usage/);
   });
 });

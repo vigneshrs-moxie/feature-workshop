@@ -107,6 +107,9 @@ test('the forecast uses everyone’s use: the combined pace, and whose use drive
   assert.match(fc.driver.words, /^mostly from Sam Example’s use in the app$/);
   assert.match(limit.headline, /^At this pace the week is full on Sunday 20:00, 3 days before it resets, mostly from Sam Example’s use in the app\.$/);
   assert.match(limit.todo, /Sam Example’s/);
+  // Readings without a 5-hour limit: the table has one limit column and nothing names the 5-hour limit.
+  assert.deepEqual(limit.table.head, ['When', 'Weekly limit used']);
+  assert.ok(!/5-hour/i.test(JSON.stringify(limit)));
   // The same rise with nobody's spend in it: other use drives it.
   const quiet = teamTelemetry({ rows: rows.filter((r) => r.kind === 'reading'), people: PEOPLE, now, timeZone: tz });
   assert.equal(quiet.graphs[0].data.forecast.state, 'fills');

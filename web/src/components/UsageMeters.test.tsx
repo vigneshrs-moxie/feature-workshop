@@ -41,6 +41,32 @@ describe('UsageMeters', () => {
     expect(button).toHaveTextContent('5-hour limit: 4% used');
   });
 
+  it('the panel shows only the limits Claude reports', () => {
+    setup({ ...USAGE, fiveHour: null });
+    fireEvent.click(screen.getByRole('button'));
+    const panel = screen.getByRole('dialog', { name: 'Claude plan usage' });
+    expect(panel).toHaveTextContent('Weekly limit57% used');
+    expect(screen.queryByText(/5-hour/i)).toBeNull();
+    expect(panel.textContent).not.toMatch(/Not read yet/);
+    expect(document.body.innerHTML).not.toMatch(/5-hour/i);
+  });
+
+  it('with neither limit read, the panel says so once', () => {
+    setup({ ...USAGE, fiveHour: null, week: null });
+    fireEvent.click(screen.getByRole('button'));
+    const panel = screen.getByRole('dialog', { name: 'Claude plan usage' });
+    expect(panel.textContent?.match(/Not read yet/g)).toHaveLength(1);
+    expect(panel.textContent).not.toMatch(/5-hour/i);
+  });
+
+  it('a reported 5-hour limit still shows', () => {
+    setup(USAGE);
+    fireEvent.click(screen.getByRole('button'));
+    const panel = screen.getByRole('dialog', { name: 'Claude plan usage' });
+    expect(panel).toHaveTextContent('5-hour limit4% used');
+    expect(panel).toHaveTextContent('Weekly limit57% used');
+  });
+
   it('80% or more warns with a sign, not only a colour', () => {
     setup({ ...USAGE, week: { percent: 86, resetsAt: soon(60) } });
     const week = document.querySelector('[data-meter="Week"]')!;
