@@ -254,6 +254,25 @@ The exact Orbit field names for each part of the layout are in the "Orbit ticket
 - [ ] **Step 6: Failing UI tests:** `no model menu under the message box`; `the model shows as locked words`; `Change model… explains the restart and needs the job's name`; `an open pull request shows only the reason`; `the options editor's model fields are locked for a started job and open for a job not yet started`. **Step 7: Implement.**
 - [ ] **Step 8: Run** all suites and the build. **Step 9: Commit** `The Foreman model is fixed; changing it starts the job again`.
 
+### Task 11: A card with more than three questions can be answered (spec 1.12)
+
+Runs right after Task 1: it blocks real work today.
+
+**Files:**
+- Modify: `dashboard/site/routes-jobs.js` (`byId`, about line 23; `readGateBody`, line 43). The website imports this file (`hosted/site/routes-mirror.js:33`), so nothing changes in `hosted/`.
+- Test: `dashboard/test/gate-server.test.js`
+
+**Cause, confirmed.** `readGateBody` calls `byId(body.answers, 3, 'Answers', …)`. The clarify brief allows "up to five decisions" (`common/skills/workflow-common/brief.md:75` in the skills repo). A card with five questions is refused with `Answers: at most 3.`
+
+**Interfaces:**
+- Produces: `GATE_ANSWERS_MAX = 20` and `GATE_VERDICTS_MAX = 20` exported from `dashboard/site/routes-jobs.js` and used in `readGateBody`.
+- Produces: `byId`'s refusal, exact: `Too many <what, lower case> in one go: <n>. Starbase takes at most <max>.` (for example `Too many answers in one go: 24. Starbase takes at most 20.`). Status stays 400.
+
+- [ ] **Step 1: Failing tests** in `dashboard/test/gate-server.test.js`: `a card with five answers is accepted` (POST the gate with five answers by id → 200, and the composed reply holds all five); `more than twenty answers are refused in plain words` (21 → 400 with `Too many answers in one go: 21. Starbase takes at most 20.`).
+- [ ] **Step 2: Run** `node --test dashboard/test/gate-server.test.js`; both fail. **Step 3: Implement.**
+- [ ] **Step 4:** `grep -rn "at most 3\|, 3, 'Answers'" dashboard hosted web/src` finds nothing left; check the permission cards' `allow`/`deny` answers (`dashboard/lib/protocol.js:82-83` and their route) for the same kind of cap and raise it the same way if there is one, with a test.
+- [ ] **Step 5: Run** `npm test` and `npm test -w hosted`. **Step 6: Commit** `A card with more than three questions can be answered`.
+
 ---
 
 ## Orbit ticket fields (for Task 8)

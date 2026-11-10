@@ -1,6 +1,6 @@
 # Starbase feedback round: design
 
-Written 2026-11-10 from Vignesh's 13 feedback items and his answers the same day. Status: **approved by Vignesh on 2026-11-10 ("lets build"); building.** Branch `feature/feedback-round`, worktree `~/Projects/starbase-feedback`. While the build was starting he added five more items the same day; they are sections 1.8 to 1.11 and Part 5.
+Written 2026-11-10 from Vignesh's 13 feedback items and his answers the same day. Status: **approved by Vignesh on 2026-11-10 ("lets build"); building.** Branch `feature/feedback-round`, worktree `~/Projects/starbase-feedback`. While the build was starting he added five more items the same day; they are sections 1.8 to 1.12 and Part 5.
 
 This is one design for five parts. Each part gets its own implementation plan and is built and checked on its own, in this order:
 
@@ -169,6 +169,14 @@ The prototype for Part 3 is drawn while Parts 1 and 2 are built, so its review d
 - The `/feature` and `/bugfix` skills are told the same thing: the ticket is `ticket.md`; they no longer fetch it themselves. That change is on the skills branch with Part 5.
 
 **Done when.** A job started from the Inbox has a `ticket.md` with the ticket's description, and the Foreman's first brief quotes from it. No name or email from the ticket is in the file.
+
+### 1.12 A card with more than three questions can be answered (added 2026-11-10)
+
+**Today.** The Foreman may ask up to five questions before the spec. The server takes at most three answers on one card and refuses the rest with "Answers: at most 3." Seen on ORBIT-453's card with five questions: it could not be approved from the card at all.
+
+**Change.** The server takes up to 20 answers on one card, the same as it already does for the Foreman's decisions. Past that it says so in plain words: "Too many answers in one go: 24. Starbase takes at most 20." The website uses the same check, so it is fixed there too.
+
+**Done when.** ORBIT-453's five answers go through in one click.
 
 ## Part 5: Screens are prototypes (added 2026-11-10)
 
