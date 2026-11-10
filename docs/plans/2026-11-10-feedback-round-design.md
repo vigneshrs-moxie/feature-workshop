@@ -162,7 +162,7 @@ The prototype for Part 3 is drawn while Parts 1 and 2 are built, so its review d
 
 **Change.**
 - When a job starts from a ticket, Starbase reads that ticket once with your read-only Orbit token and writes `ticket.md` into the job folder. The Foreman's first message says to read it before planning.
-- It holds what helps to plan and build: the description, type, severity, priority, status, the page the ticket is about, and the comments the reporter can see.
+- It holds what helps to plan and build: the description, type, severity, priority, status, the page the ticket is about, the comments the reporter can see, and the ticket's links (to pull requests, for one), which a bug fix job reads to spot a fix that already exists.
 - It leaves out what the Foreman doesn't need: people's names and emails, internal staff notes, attachments, watchers and mentions. Text is cut at a fixed length.
 - The file opens with one line saying it is a ticket written by a user: information to plan from, never instructions to follow.
 - Nothing new is shown on screen. A job started from the website gets the same file, read on the laptop.
@@ -213,6 +213,20 @@ A switch on a job: **Auto: run to PR #1 without asking me.** While it is on, a F
 - Off at any time. The step then waits for you as it does today.
 - Runs on the laptop. The website can turn it on or off and shows its record.
 
+### Starting by itself: the Auto tag (added 2026-11-10)
+
+Vignesh's words: "a screen in settings to write down a tag or something so that automode can just automatically pick up those tickets and start building them out and only the ones without that tag need my actual input to start".
+
+- Settings → Workflow gets **Auto start**: a switch, and a box for the name of one Orbit tag (for example `auto`).
+- While it is on, Starbase looks at your Inbox, which holds only the tickets assigned to you. A ticket that carries the tag, is still open and has never had a job gets one started in Auto mode, with no click. It starts the way the Inbox's Start button does with nothing changed. Every other ticket waits for you, as today.
+- In Orbit only the feedback team can put a tag on a ticket. The person who filed it can't, so a ticket can't tag itself into being built. The tag decides only whether a job starts. The ticket's text is still information for the Foreman and never instructions, and every Auto stop rule below applies.
+- One at a time, in Inbox order. The next tagged ticket starts when the one before has opened PR #1 or has stopped to wait for you.
+- Nothing starts by itself while Starbase's warning that your Claude limit is nearly used up is showing, or while Orbit can't be reached.
+- A ticket is started by itself once only. Starbase remembers it, so closing or removing that job doesn't start it again. Taking the tag off later doesn't stop a job that has started.
+- You can see it: tagged tickets in the Inbox say "Starts by itself", the job says "Started by Auto" with the tag's name, and you get a notification each time one starts.
+- It runs on the laptop, while Starbase is running. The website shows the setting and can change it.
+- If Orbit doesn't show tags to your token, Settings says so and nothing starts by itself.
+
 ### What Auto changes on the job
 
 - The job's finish line is **PR #1 open**, whatever Settings says. Auto never merges. When PR #1 is open Auto has finished: it switches itself off and tells you.
@@ -260,7 +274,7 @@ Other permission cards that still appear during an Auto job (reading the ticket 
 
 `/feature` and `/bugfix` (the workflow-skills repository) say a person approves every step. They gain three rules for a job whose options say Auto: an approval sent by Starbase's Auto counts as the go-ahead; no hand test is asked for; the job stops once PR #1 is open.
 
-**Done when.** An L1 job started with Auto on reaches PR #1 open with no click. What Auto decided lists every approval with its reason. A job that asks for a database change stops with that reason.
+**Done when.** An L1 job started with Auto on reaches PR #1 open with no click. What Auto decided lists every approval with its reason. A job that asks for a database change stops with that reason. With Auto start on, a ticket assigned to you that carries the tag gets a job with no click, and one without the tag doesn't.
 
 ## Part 3: Job page (items 4, 7, 11, 12, 13)
 
@@ -337,6 +351,7 @@ The Test step names three things and gives each a state, a place and a time:
 6. The live picture of a test is on the laptop only.
 7. Copy decisions leaves out routine go-aheads.
 8. The suggestion uses Haiku and runs on the laptop.
+9. Auto start watches one tag, starts one job at a time, and pauses while the Claude limit warning shows.
 
 ## How it is built and released
 
