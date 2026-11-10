@@ -195,7 +195,7 @@ test('server: meta says whether the installed skill knows levels, from STARBASE_
   const { body: meta } = await getJson('/api/meta');
   assert.deepEqual(meta.skill, { installed: true, levels: false, bugfix: false, path: file });
   // The options editor's lists ride along: model choices by role, with names, and the notes cap.
-  assert.deepEqual(meta.jobOptions.models.foreman, ['claude-opus-5-5', 'claude-fable-5-1', 'claude-haiku-5-5']);
+  assert.deepEqual(meta.jobOptions.models.foreman, ['claude-opus-5-5', 'claude-fable-5-2', 'claude-haiku-5-5']);
   assert.ok(meta.jobOptions.models.crew.includes('claude-sonnet-5-5'));
   assert.ok(meta.jobOptions.models.choices.every((c) => c.id && c.label && c.note));
   assert.equal(meta.jobOptions.notesMax, 20000);
@@ -237,4 +237,24 @@ test('server: meta lists the levels; an L3 job starts an Opus Foreman and writes
   assert.equal(back.options.flow, 'small');
   assert.equal(back.options.review_rounds, 3);
   assert.equal(back.summary[0], 'Level: L2 Standard (small flow).');
+});
+
+test('server: a job on Fable 5.2 throughout starts its Foreman on Fable, saves it, and its next message defaults to Fable', { timeout: 60_000 }, async () => {
+  const { body: snap } = await getJson('/api/snapshot');
+  const repo = path.join(root, 'fable-repo');
+  await fs.mkdir(repo);
+  execFileSync('git', ['-C', repo, 'init', '-q'], { stdio: 'pipe' });
+  const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': snap.meta.token }, body: JSON.stringify(body) });
+  // Opus picked, but the whole job runs on Fable: the Foreman does too.
+  const res = await post('/api/jobs', { description: 'Tidy the visit notes', repoPath: repo, model: 'claude-opus-5-5', options: { level: 1, all_fable: true } });
+  assert.equal(res.status, 200);
+  const { slug } = await res.json();
+  const options = JSON.parse(await fs.readFile(path.join(featuresDir, slug, 'options.json'), 'utf8'));
+  assert.equal(options.all_fable, true);
+  assert.deepEqual(options.models, { foreman: 'claude-fable-5-2', build: 'claude-fable-5-2', checks: 'claude-fable-5-2' });
+  const audit = (await fs.readFile(path.join(root, 'state', 'audit.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(audit.find((a) => a.action === 'new-job' && a.slug === slug).model, 'claude-fable-5-2');
+  const job = await getJson(`/api/job/${slug}`);
+  assert.equal(job.body.drive.model, 'claude-fable-5-2', 'the composer’s Foreman model starts on Fable');
+  assert.ok(job.body.optionsSummary.some((l) => l.startsWith('Whole job on Fable 5.2:')));
 });

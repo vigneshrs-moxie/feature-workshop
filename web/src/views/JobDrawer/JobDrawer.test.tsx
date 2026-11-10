@@ -13,7 +13,7 @@ import { pickOption, optionWords } from '../../components/Select.testing';
 
 // Invented job, notes and paths only.
 const OPUS = 'claude-opus-5-5';
-const FABLE = 'claude-fable-5-1';
+const FABLE = 'claude-fable-5-2';
 const SONNET = 'claude-sonnet-5-5';
 const HAIKU = 'claude-haiku-5-5';
 const L1: JobOptions = {
@@ -25,8 +25,8 @@ const LOADED = L1.updated_at;
 const LISTS = {
   reviewers: REVIEWERS.map((r) => ({ ...r, what: r.id === 'feature-review-permissions' ? 'who can see and do what' : 'its area' })),
   models: {
-    foreman: [OPUS, 'claude-fable-5-1', HAIKU], crew: [OPUS, 'claude-fable-5-1', SONNET, HAIKU],
-    choices: [{ id: OPUS, label: 'Opus 5.5', note: 'Everyday.' }, { id: 'claude-fable-5-1', label: 'Fable 5.1' }, { id: SONNET, label: 'Sonnet 5.5' }, { id: HAIKU, label: 'Haiku 5.5' }],
+    foreman: [OPUS, 'claude-fable-5-2', HAIKU], crew: [OPUS, 'claude-fable-5-2', SONNET, HAIKU],
+    choices: [{ id: OPUS, label: 'Opus 5.5', note: 'Everyday.' }, { id: 'claude-fable-5-2', label: 'Fable 5.2' }, { id: SONNET, label: 'Sonnet 5.5' }, { id: HAIKU, label: 'Haiku 5.5' }],
   },
   notesMax: 60,
 };
@@ -266,7 +266,7 @@ describe('Job drawer · options', () => {
     expect(foreman).toHaveTextContent('Opus 5.5');
     expect(foreman).toHaveTextContent(FOREMAN_MODEL_NOTE);
     expect(FOREMAN_MODEL_NOTE).toBe('Set when the job started; change it with the Foreman model menu under the message box.');
-    expect(optionWords(screen.getByRole('combobox', { name: /Checks/ }))).toEqual(['Opus 5.5', 'Fable 5.1', 'Sonnet 5.5', 'Haiku 5.5']);
+    expect(optionWords(screen.getByRole('combobox', { name: /Checks/ }))).toEqual(['Opus 5.5', 'Fable 5.2', 'Sonnet 5.5', 'Haiku 5.5']);
     expect(screen.getByRole('textbox', { name: 'Process notes' })).toHaveValue('Keep it small.');
     const save = screen.getByRole('button', { name: 'Save options' });
     expect(save).toBeDisabled();
@@ -285,7 +285,7 @@ describe('Job drawer · options', () => {
       options: {
         level: 1, skip: ['spec', 'refine', 'investigate', 'spec-update', 'plan'], provided: {},
         reviewers: ['feature-reviewer', 'feature-review-permissions'], review_rounds: 3, manual_test: true,
-        fable_checks: ['pr'], models: { foreman: OPUS, build: OPUS, checks: HAIKU }, notes: 'Keep it small.',
+        fable_checks: ['pr'], models: { foreman: OPUS, build: OPUS, checks: HAIKU }, notes: 'Keep it small.', all_fable: false,
       },
       updated_at: LOADED, // the options' updated_at as loaded, so a change made elsewhere isn't overwritten
     });
@@ -314,7 +314,7 @@ describe('Job drawer · options', () => {
     expect(post).toHaveBeenCalledWith('/api/job/alpha/options', {
       options: {
         level: 2, skip: ['refine'], provided: {}, reviewers: 'auto', review_rounds: 1, manual_test: true,
-        fable_checks: [], models: { foreman: OPUS, build: OPUS, checks: SONNET }, notes: 'Keep it small.',
+        fable_checks: [], models: { foreman: OPUS, build: OPUS, checks: SONNET }, notes: 'Keep it small.', all_fable: false,
       },
       updated_at: LOADED,
     });
@@ -338,6 +338,39 @@ describe('Job drawer · options', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
     expect(post.mock.calls[1][1].options.models).toEqual({ foreman: FABLE, build: OPUS, checks: SONNET });
+  });
+
+  it('the whole job on Fable 5.2: one switch puts the build and checks on Fable and locks them, and is saved', async () => {
+    const { post } = await openOptions();
+    const panel = screen.getByRole('tabpanel', { name: 'Options' });
+    const all = screen.getByRole('checkbox', { name: 'Run the whole job on Fable 5.2' });
+    expect(all).not.toBeChecked();
+    fireEvent.click(all);
+    expect(all).toBeChecked();
+    expect(screen.getByRole('combobox', { name: /Build/ })).toHaveAttribute('data-value', FABLE);
+    expect(screen.getByRole('combobox', { name: /Checks/ })).toHaveAttribute('data-value', FABLE);
+    expect(screen.getByRole('combobox', { name: /Build/ })).toBeDisabled();
+    expect(panel).toHaveTextContent('Everyone runs on Fable 5.2. The Foreman moves to it with your next message.');
+    expect(panel.querySelector('.drawer-model-value')).toHaveTextContent('Fable 5.2');
+    fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1].options).toMatchObject({ all_fable: true, models: { foreman: FABLE, build: FABLE, checks: FABLE } });
+  });
+
+  it('turning the whole job on Fable off puts the build and checks back to the level’s', async () => {
+    await openOptions({ options: { ...L1, all_fable: true, models: { foreman: FABLE, build: FABLE, checks: FABLE } } });
+    const all = screen.getByRole('checkbox', { name: 'Run the whole job on Fable 5.2' });
+    expect(all).toBeChecked();
+    fireEvent.click(all);
+    expect(screen.getByRole('combobox', { name: /Build/ })).toHaveAttribute('data-value', OPUS); // L1's
+    expect(screen.getByRole('combobox', { name: /Checks/ })).toHaveAttribute('data-value', OPUS);
+    expect(screen.getByRole('combobox', { name: /Build/ })).toBeEnabled();
+  });
+
+  it('a job saved on Fable 5.1 opens on Fable 5.2', async () => {
+    await openOptions({ options: { ...L1, models: { foreman: 'claude-fable-5-1', build: 'claude-fable-5-1', checks: OPUS } } });
+    expect(screen.getByRole('combobox', { name: /Build/ })).toHaveAttribute('data-value', FABLE);
+    expect(screen.getByRole('tabpanel', { name: 'Options' }).querySelector('.drawer-model-value')).toHaveTextContent('Fable 5.2');
   });
 
   it('what a level change adds leaves out the stages the job has finished', async () => {

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { parseWorkflowStatus } from '../lib/workflow-status.js';
 import { parseStatusJson } from '../lib/status-json.js';
 import { parseSessionLog, usageByModel, activityState, quietHint, describeTool, spendSince } from '../lib/session-log.js';
-import { estimateCost, tokensFromUsage, calibrationFactors, toCsv, modelFamily } from '../lib/cost.js';
+import { estimateCost, tokensFromUsage, calibrationFactors, toCsv, modelFamily, modelLabel } from '../lib/cost.js';
 import { agentInfo, detectStage, detectState } from '../lib/stages.js';
 import { parseTable } from '../lib/markdown-tables.js';
 
@@ -193,8 +193,14 @@ test('describeTool gives plain one-liners', () => {
 
 test('cost: prices, cache-write rates and unknown models', () => {
   const t = tokensFromUsage({ input_tokens: 1e6, output_tokens: 1e6, cache_read_input_tokens: 1e6, cache_creation: { ephemeral_5m_input_tokens: 1e6, ephemeral_1h_input_tokens: 1e6 } });
-  // Fable: 10 + 50 + 0.25 + 12.5 + 20
+  // Fable 5.2: 8 + 40 + 0.2 + 10 + 16
+  close(estimateCost('claude-fable-5-2', t), 74.2);
+  // Fable 5.1 in older logs keeps its own price (10 + 50 + 0.25 + 12.5 + 20) and name, with or without a 1M suffix.
   close(estimateCost('claude-fable-5-1', t), 92.75);
+  close(estimateCost('claude-fable-5-1[1m]', t), 92.75);
+  assert.equal(modelLabel('claude-fable-5-1'), 'Fable 5.1');
+  assert.equal(modelLabel('claude-fable-5-2'), 'Fable 5.2');
+  assert.equal(modelFamily('claude-fable-5-1'), 'fable', 'both still count as Fable in the totals');
   // Without the breakdown, cache writes are treated as 5-minute writes.
   close(estimateCost('claude-sonnet-5-5', tokensFromUsage({ cache_creation_input_tokens: 1e6 })), 2.5);
   assert.equal(estimateCost('some-other-model', t), null);

@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { normalize, defaultsFor, skippedFor, describeOptions, readOptions, writeOptions, FLOWS, LEVELS, flowFor, levelFor, foremanModel, levelsForClient, levelChangeLine, optionsAtLevel, OPUS, FABLE, SONNET, HAIKU } from '../lib/options.js';
+import { normalize, defaultsFor, skippedFor, describeOptions, readOptions, writeOptions, FLOWS, LEVELS, flowFor, levelFor, foremanModel, levelsForClient, levelChangeLine, optionsAtLevel, currentModel, OPUS, FABLE, SONNET, HAIKU } from '../lib/options.js';
 import { buildThread } from '../lib/thread.js';
 import { workflowSettings } from '../lib/state.js';
 
@@ -239,6 +239,48 @@ test('levels: an options change that moves the level says so in the conversation
   assert.equal(changed.text, 'You changed how this job runs (from the next stage): Level changed from L2 Standard to L3 Large. Level: L3 Large (large flow). Reviewers: Head inspector, Locksmith, Gauge, Stickler, Fuse, Mason, Stopwatch, Painter, at most 1 fix round. The human tests it by hand on their computer before review. Fable checks: Before you approve the plan, When the review is wrapped up.');
   assert.ok(kept.text.startsWith('You changed how this job runs (from the next stage): Level: L3 Large'));
   assert.ok(old.text.startsWith('You changed how this job runs (from the next stage): Level: L3 Large'));
+});
+
+test('Fable 5.2 replaces 5.1: a job or session still naming an older Fable runs on the current one', async () => {
+  assert.equal(FABLE, 'claude-fable-5-2');
+  assert.equal(currentModel('claude-fable-5-1'), FABLE);
+  assert.equal(currentModel('claude-fable-5'), FABLE);
+  assert.equal(currentModel(OPUS), OPUS);
+  assert.equal(currentModel(null), null);
+  const allowed = ['claude-opus-5-5', FABLE, 'claude-haiku-5-5'];
+  assert.equal(foremanModel('claude-fable-5-1', normalize({ level: 2 }), allowed), FABLE, 'a page still asking for 5.1 gets 5.2');
+  assert.equal(foremanModel(undefined, { models: { foreman: 'claude-fable-5-1' } }, allowed), FABLE);
+  // Saving options sent with 5.1 (an open page from before) stores 5.2 rather than refusing them.
+  assert.equal(normalize({ level: 2, models: { build: 'claude-fable-5-1' } }).models.build, FABLE);
+  assert.equal(normalize({ level: 2 }, { previous: { level: 2, models: { foreman: 'claude-fable-5-1', build: OPUS, checks: SONNET } } }).models.foreman, FABLE);
+  assert.equal(optionsAtLevel({ ...normalize({ level: 1 }), models: { foreman: OPUS, build: 'claude-fable-5-1', checks: OPUS } }, 2).models.build, FABLE);
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fw-fable-'));
+  try {
+    await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify({ schema_version: 2, level: 3, models: { foreman: 'claude-fable-5-1', build: 'claude-fable-5-1', checks: SONNET } }));
+    assert.deepEqual((await readOptions(dir)).models, { foreman: FABLE, build: FABLE, checks: SONNET });
+  } finally { await fs.rm(dir, { recursive: true, force: true }); }
+});
+
+test('job options: the whole job on Fable puts every model on it, and stays through level changes until turned off', () => {
+  assert.equal(normalize({ level: 2 }).all_fable, false, 'off unless asked for');
+  const on = normalize({ level: 1, all_fable: true, models: { build: SONNET } });
+  assert.equal(on.all_fable, true);
+  assert.deepEqual(on.models, { foreman: FABLE, build: FABLE, checks: FABLE }, 'every role is Fable, whatever else was sent');
+  assert.equal(foremanModel(OPUS, on, [OPUS, FABLE, HAIKU]), FABLE, 'the Foreman starts on Fable even if Opus was picked');
+  assert.equal(foremanModel(OPUS, on, [OPUS, HAIKU]), OPUS, 'unless Fable isn’t offered at all');
+  const resaved = normalize({ level: 1 }, { previous: on });
+  assert.equal(resaved.all_fable, true, 'a page that doesn’t know the switch keeps it');
+  assert.deepEqual(resaved.models, on.models);
+  const moved = optionsAtLevel(on, 3);
+  assert.equal(moved.level, 3);
+  assert.equal(moved.all_fable, true, 'a level change keeps it');
+  assert.deepEqual(moved.models, { foreman: FABLE, build: FABLE, checks: FABLE });
+  const off = normalize({ level: 1, all_fable: false, models: { foreman: OPUS, build: OPUS, checks: OPUS } }, { previous: on });
+  assert.equal(off.all_fable, false);
+  assert.deepEqual(off.models, { foreman: OPUS, build: OPUS, checks: OPUS });
+  // The Foreman is told, in its first message and after every options change.
+  assert.ok(describeOptions(on).some((l) => /^Whole job on Fable 5\.2: .*every dispatch passes model: fable.*every review lens/.test(l)));
+  assert.ok(!describeOptions(normalize({ level: 1 })).some((l) => /Whole job on Fable/.test(l)));
 });
 
 test('job options: describeOptions leads with the level', () => {

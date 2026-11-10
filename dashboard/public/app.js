@@ -365,7 +365,7 @@ function renderCrew() {
     <ol class="crew-grid">${order.map((type, i) => {
       const a = meta.agents[type];
       const m = meta.crewModels[type];
-      const model = type === 'conductor' ? 'Your Claude Code session (designed for Fable 5.1)' : `${modelLabel(m?.model)}${m?.effort ? ` · effort ${m.effort}` : ''}`;
+      const model = type === 'conductor' ? 'Your Claude Code session (designed for Fable 5.2)' : `${modelLabel(m?.model)}${m?.effort ? ` · effort ${m.effort}` : ''}`;
       return `<li class="crew-card gbox${busy.has(type) ? ' busy' : ''}">
         <span class="dex-no">${pixelText(`#${String(i + 1).padStart(3, '0')}`, { px: 2 })}</span>
         <span class="dex-sprite"><span class="still">${sprite(type, { state: busy.has(type) ? 'working' : 'idle', size: 120, label: a.name })}</span><span class="moving">${sprite(type, { state: 'working', size: 120, label: '' })}</span></span>

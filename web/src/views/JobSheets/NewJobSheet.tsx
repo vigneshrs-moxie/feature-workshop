@@ -17,6 +17,7 @@ import { navigate } from '../../app/router';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { Sheet } from '../../components/Sheet';
 import { plainInline } from '../../lib/inlineMarkdown';
+import { ALL_FABLE_HINT, FABLE } from '../../lib/jobOptions';
 import { suggestFromDescription } from '../../lib/levels';
 import { readStored, writeStored } from '../../lib/stored';
 import { relativeTime, useNow } from '../../lib/time';
@@ -170,6 +171,8 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
   const [kind, setKind] = useState<'feature' | 'bug'>('feature');
   // Run as a stack (views/Stack): ticked by the Inbox's Start as stack.
   const [asStack, setAsStack] = useState(startAsStack);
+  // The whole job on Fable: the Foreman too, so its model picker is fixed on Fable while this is on.
+  const [allFable, setAllFable] = useState(false);
   const [repos, setRepos] = useState<Repos>({ state: 'loading' });
   const [repo, setRepo] = useState<string>('');
   const [otherPath, setOtherPath] = useState('');
@@ -231,8 +234,8 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
     setError(null);
     try {
       const fromSession = from ? { id: from.id, mode: fromMode } : undefined;
-      const options = { ...(level !== null ? { level } : {}), ...(asStack ? { stack: true } : {}) };
-      const r = await api.post<{ slug: string }>('/api/jobs', { description: text, kind, repoPath, model: model || undefined, options, fromSession, ticket });
+      const options = { ...(level !== null ? { level } : {}), ...(asStack ? { stack: true } : {}), ...(allFable ? { all_fable: true } : {}) };
+      const r = await api.post<{ slug: string }>('/api/jobs', { description: text, kind, repoPath, model: (allFable ? FABLE : model) || undefined, options, fromSession, ticket });
       writeStored(LAST_REPO_KEY, repoPath);
       onClose();
       if (r?.slug) navigate({ name: 'job', slug: r.slug });
@@ -341,18 +344,25 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
               <Segmented
                 label="Foreman model"
                 className="model-segments"
-                value={model}
+                value={allFable ? FABLE : model}
                 onChange={setModel}
-                disabled={busy}
+                disabled={busy || allFable}
                 options={models.map((m) => ({
                   value: m.id,
                   title: `Run this job’s Foreman on ${m.label}. You can change it for any later message.`,
                   label: <>{m.label}{m.note && <span className="sr-only">: {m.note}</span>}</>,
                 }))}
               />
-              <p className="field-hint">{models.find((m) => m.id === model)?.note ?? '\u00a0'}</p>
+              <p className="field-hint">{allFable ? 'The whole job runs on Fable 5.2, so the Foreman does too.' : models.find((m) => m.id === model)?.note ?? '\u00a0'}</p>
             </div>
           )}
+
+          <OptionRow type="checkbox" className="sheet-option" checked={allFable} onChange={(e) => setAllFable(e.target.checked)} disabled={busy} title={ALL_FABLE_HINT}>
+            <span className="option-body" data-setting="all-fable">
+              <span className="option-title">Run the whole job on Fable 5.2</span>
+              <span className="option-desc">{ALL_FABLE_HINT}</span>
+            </span>
+          </OptionRow>
 
           <OptionRow type="checkbox" className="sheet-option" checked={asStack} onChange={(e) => setAsStack(e.target.checked)} disabled={busy} title="For a big ticket: the work is split into parts that are built side by side, then joined in order.">
             <span className="option-body" data-setting="run-as-stack">
@@ -364,7 +374,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
           <PastConversation picked={from} onPick={pick} mode={fromMode} onMode={setFromMode} canContinue={canContinue} />
         </fieldset>
 
-        <p className="sheet-fine">Runs with your own Claude Code login. Workers use the models set in their agent files.{meta?.demo ? ' Demo mode: a pretend Foreman answers; nothing real runs.' : ''}</p>
+        <p className="sheet-fine">Runs with your own Claude Code login. {allFable ? 'Every worker and reviewer runs on Fable 5.2.' : 'Workers use the models set in their agent files.'}{meta?.demo ? ' Demo mode: a pretend Foreman answers; nothing real runs.' : ''}</p>
         {error && <p className="field-problem" role="alert">{error}</p>}
         <div className="sheet-actions">
           <Button onClick={onClose} disabled={busy} title="Close without starting anything.">Cancel</Button>

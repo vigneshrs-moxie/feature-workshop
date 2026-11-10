@@ -99,7 +99,10 @@ test('classic: status words and levels match the new view', async () => {
   assert.doesNotMatch(app, /Resting|green light|Green: working/);
   const panels = await read('dashboard/public/panels.js');
   assert.match(panels, /levelFields\(meta\.levels\)/);
-  assert.match(panels, /options: fd\.get\('level'\) \? \{ level: Number\(fd\.get\('level'\)\) \} : \{\}/);
+  assert.match(panels, /\.\.\.\(fd\.get\('level'\) \? \{ level: Number\(fd\.get\('level'\)\) \} : \{\}\)/);
+  // The whole job on Fable, as the new view's New job sheet offers it: the option and a Fable Foreman.
+  assert.match(panels, /allFable\?\.checked \? \{ all_fable: true \} : \{\}/);
+  assert.match(panels, /model: allFable\?\.checked \? fable\.id : fd\.get\('model'\)/);
   assert.doesNotMatch(panels, /optionsFields|name="flow"/, 'no schema 1 flows left');
   const job = await read('dashboard/public/job.js');
   assert.match(job, /\/next\/#\/job\/\$\{encodeURIComponent\(d\.slug\)\}\?open=options/);

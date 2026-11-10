@@ -1,19 +1,27 @@
 // Cost from token counts, and helpers to combine it with Claude Code's own figures.
 //
-// Prices are per million tokens (reference dated 2026-10-06). Cache writes are priced
+// Prices are per million tokens (reference dated 2026-11-09). Cache writes are priced
 // at 1.25x input for the 5-minute cache and 2x input for the 1-hour cache. Checked
 // against the CLI's own totals on the sample run: within 0.3%.
 // Anything computed here is an ESTIMATE; Claude Code's cost-state figure is preferred.
 
-export const PRICES_AS_OF = '2026-10-06';
+export const PRICES_AS_OF = '2026-11-09';
 
 export const PRICES = {
-  fable: { label: 'Fable 5.1', input: 10, output: 50, cacheRead: 0.25 },
+  fable: { label: 'Fable 5.2', input: 8, output: 40, cacheRead: 0.2 },
   opus: { label: 'Opus 5.5', input: 4, output: 20, cacheRead: 0.2 },
   sonnet: { label: 'Sonnet 5.5', input: 2, output: 10, cacheRead: 0.2 },
   // Haiku's cache-read rate was not in the reference; 10% of input is assumed.
   haiku: { label: 'Haiku 5.5', input: 0.1, output: 0.5, cacheRead: 0.01 },
 };
+
+// Older models still in past session logs, priced and named as they were (exact ids; a "[1m]"
+// suffix is ignored). Their family stays the same (modelFamily), so totals still group by family.
+export const RETIRED_PRICES = {
+  'claude-fable-5-1': { label: 'Fable 5.1', input: 10, output: 50, cacheRead: 0.25 },
+  'claude-fable-5': { label: 'Fable 5', input: 10, output: 50, cacheRead: 0.25 },
+};
+const retired = (model) => RETIRED_PRICES[String(model || '').toLowerCase().replace(/\[[^\]]*\]$/, '')] ?? null;
 
 export function modelFamily(model) {
   const m = String(model || '').toLowerCase();
@@ -21,6 +29,8 @@ export function modelFamily(model) {
 }
 
 export function modelLabel(model) {
+  const r = retired(model);
+  if (r) return r.label;
   const f = modelFamily(model);
   return f ? PRICES[f].label : String(model || 'unknown');
 }
@@ -53,7 +63,7 @@ export const ZERO_TOKENS = Object.freeze({ input: 0, output: 0, cacheRead: 0, ca
 
 // Returns USD, or null when the model has no known price.
 export function estimateCost(model, tokens) {
-  const p = PRICES[modelFamily(model)];
+  const p = retired(model) ?? PRICES[modelFamily(model)];
   if (!p) return null;
   return (
     tokens.input * p.input +
@@ -93,7 +103,7 @@ export function toCsv(header, rows) {
 
 // ---------- Reports ----------
 
-const MODEL_IDS = { fable: 'claude-fable-5-1', opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' };
+const MODEL_IDS = { fable: 'claude-fable-5-2', opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' };
 
 // What the Foreman's (conductor's) share of a job would cost on other models, from its token counts.
 export function whatIfConductor(agents) {
@@ -177,7 +187,7 @@ export function costMarkdown(features, { generatedAt = new Date() } = {}) {
   ];
   const whatIfs = features.map((f) => ({ f, w: whatIfConductor(f.cost.agents) })).filter((x) => x.w);
   if (whatIfs.length) {
-    lines.push('', '## What if the Foreman ran on another model', '', '| Job | Actual Foreman cost | On Fable 5.1 | On Opus 5.5 | On Sonnet 5.5 |', '|---|---:|---:|---:|---:|');
+    lines.push('', '## What if the Foreman ran on another model', '', '| Job | Actual Foreman cost | On Fable 5.2 | On Opus 5.5 | On Sonnet 5.5 |', '|---|---:|---:|---:|---:|');
     for (const { f, w } of whatIfs) lines.push(`| ${md(f.title)} | ${usd(w.actual)} (${md(w.actualModels.join(', '))}) | ≈${usd(w.alternatives.fable)} | ≈${usd(w.alternatives.opus)} | ≈${usd(w.alternatives.sonnet)} |`);
     lines.push('', 'The “what if” columns re-price the same tokens; a different model would also use a different number of tokens.');
   }

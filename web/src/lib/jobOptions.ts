@@ -6,7 +6,10 @@ import type { JobOptionLists, JobOptions, LevelInfo, LevelNumber, Meta, ModelInf
 import { isLevel, levelForKind } from './levels';
 
 export const OPUS = 'claude-opus-5-5';
-export const FABLE = 'claude-fable-5-1';
+export const FABLE = 'claude-fable-5-2';
+/** Fable ids no longer offered: a job saved with one shows (and saves) the current Fable. KEEP IN STEP with RETIRED_FABLE_IDS in options.js. */
+const RETIRED_FABLE = ['claude-fable-5-1', 'claude-fable-5'];
+export const currentModel = (id: string): string => (RETIRED_FABLE.includes(id) ? FABLE : id);
 export const SONNET = 'claude-sonnet-5-5';
 export const HAIKU = 'claude-haiku-5-5';
 
@@ -30,7 +33,7 @@ const FABLE_POINTS: OptionChoice[] = [
   { id: 'review', label: 'When the review is wrapped up' }, { id: 'pr', label: 'Before PR #1 opens' },
 ];
 const MODEL_CHOICES: ModelInfo[] = [
-  { id: OPUS, label: 'Opus 5.5' }, { id: FABLE, label: 'Fable 5.1' }, { id: SONNET, label: 'Sonnet 5.5' }, { id: HAIKU, label: 'Haiku 5.5' },
+  { id: OPUS, label: 'Opus 5.5' }, { id: FABLE, label: 'Fable 5.2' }, { id: SONNET, label: 'Sonnet 5.5' }, { id: HAIKU, label: 'Haiku 5.5' },
 ];
 const FOREMAN_IDS = [OPUS, FABLE, HAIKU];
 const CREW_IDS = [OPUS, FABLE, SONNET, HAIKU];
@@ -86,7 +89,16 @@ export interface OptionsForm {
   fable_checks: string[];
   models: Record<ModelRole, string>;
   notes: string;
+  /** The whole job on Fable: the Foreman, the build, the checks and every other worker and lens. */
+  all_fable: boolean;
 }
+
+/** The whole job on Fable: what the switch does, in its hint and under it while it's on. */
+export const ALL_FABLE_HINT = 'The Foreman, the builder, the tester and every other worker and reviewer run on Fable 5.2. Best judgment, but it costs the most and uses up your limits fastest.';
+export const ALL_FABLE_NOTE = 'Everyone runs on Fable 5.2. The Foreman moves to it with your next message.';
+
+/** The models when the whole job runs on Fable. */
+const ALL_FABLE: Record<ModelRole, string> = { foreman: FABLE, build: FABLE, checks: FABLE };
 
 const rounds = (v: unknown): 1 | 2 | 3 => (v === 2 || v === 3 ? v : 1);
 const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -117,13 +129,14 @@ export function formFrom(options: JobOptions | null | undefined, jobLevel: Level
     review_rounds: rounds(options.review_rounds),
     manual_test: typeof options.manual_test === 'boolean' ? options.manual_test : base.manual_test,
     fable_checks: Array.isArray(options.fable_checks) ? strings(options.fable_checks) : base.fable_checks,
-    models: Object.fromEntries(MODEL_ROLES.map((r) => [r, typeof options.models?.[r] === 'string' && options.models[r] ? options.models[r] : base.models[r]])) as Record<ModelRole, string>,
+    models: options.all_fable === true ? { ...ALL_FABLE } : Object.fromEntries(MODEL_ROLES.map((r) => [r, typeof options.models?.[r] === 'string' && options.models[r] ? currentModel(options.models[r]) : base.models[r]])) as Record<ModelRole, string>,
     notes: typeof options.notes === 'string' ? options.notes : '',
+    all_fable: options.all_fable === true,
   };
 }
 
-/** What carries over when the level changes: always these, and your own testing and models from `from`. */
-export type LevelKeep = Pick<OptionsForm, 'provided' | 'notes' | 'review_rounds'> & { from?: Pick<OptionsForm, 'level' | 'manual_test' | 'models'> };
+/** What carries over when the level changes: always these, and your own testing, models and whole-job Fable from `from`. */
+export type LevelKeep = Pick<OptionsForm, 'provided' | 'notes' | 'review_rounds'> & { from?: Pick<OptionsForm, 'level' | 'manual_test' | 'models'> & Partial<Pick<OptionsForm, 'all_fable'>> };
 
 /**
  * A level's own defaults (meta.levels: stages skipped, reviewers, you testing it, Fable points,
@@ -132,6 +145,7 @@ export type LevelKeep = Pick<OptionsForm, 'provided' | 'notes' | 'review_rounds'
  * the Foreman will size (nothing skipped, the usual reviewers).
  * keep.from (moving from another level): you testing it and each model are kept only when they are
  * your own choice, i.e. differ from the OLD level's default; otherwise they follow the new level.
+ * The whole job on Fable is never a level's: it carries over from `from` (and puts every model on Fable).
  * The same rule as the dashboard's optionsAtLevel (the header's level chip and the gate card's L↑/L↓),
  * so all three behave the same. Without it (Reset to level defaults) everything is the level's.
  * kind: the job's; on a bug job the level's bug skip list and reviewers (meta.levels[n].bug).
@@ -150,12 +164,14 @@ export function levelDefaults(level: LevelNumber | null, levels: LevelInfo[] | n
     fable_checks: [...(info?.fable ?? [])],
     models: { ...DEFAULT_MODELS, ...(info?.models ?? {}) },
     notes: keep.notes,
+    all_fable: keep.from?.all_fable === true,
   };
   if (keep.from) {
     const old = levelDefaults(keep.from.level, levels, lists, { provided: {}, notes: '', review_rounds: 1 }, kind);
     if (keep.from.manual_test !== old.manual_test) out.manual_test = keep.from.manual_test;
     for (const role of MODEL_ROLES) if (keep.from.models[role] && keep.from.models[role] !== old.models[role]) out.models[role] = keep.from.models[role];
   }
+  if (out.all_fable) out.models = { ...ALL_FABLE };
   return out;
 }
 
@@ -172,6 +188,7 @@ export function bodyFrom(form: OptionsForm): JobOptions {
     fable_checks: [...form.fable_checks],
     models: { ...form.models },
     notes: form.notes.trim(),
+    all_fable: form.all_fable,
   };
 }
 

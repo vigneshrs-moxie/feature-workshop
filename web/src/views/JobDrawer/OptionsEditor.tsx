@@ -10,7 +10,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
 import { WORKFLOW_CHOICES, type JobDetail, type LevelNumber, type WorkflowChoice } from '../../api/types';
 import { saveJobOptions } from '../../app/jobActions';
-import { bodyFrom, formFrom, levelDefaults, MODEL_ROLES, modelName, optionLists, PROCESS_NOTES_MAX, providedSkips, sameOptions, inOrder, type ModelRole, type OptionsForm } from '../../lib/jobOptions';
+import { ALL_FABLE_HINT, ALL_FABLE_NOTE, bodyFrom, FABLE, formFrom, levelDefaults, MODEL_ROLES, modelName, optionLists, PROCESS_NOTES_MAX, providedSkips, sameOptions, inOrder, type ModelRole, type OptionsForm } from '../../lib/jobOptions';
 import { isLevel, LEVEL_NUMBERS, levelChange, levelLabel, lensNames } from '../../lib/levels';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { Choice } from '../../components/Choice';
@@ -127,8 +127,13 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
   }
 
   const edit = (patch: Partial<OptionsForm>) => { setForm({ ...form, ...patch }); setError(null); setSummary(null); };
-  // The Foreman's model isn't edited here: whatever the level, the saved one is posted back unchanged.
-  const keepForeman = (f: OptionsForm): OptionsForm => ({ ...f, models: { ...f.models, foreman: saved.models.foreman } });
+  // The Foreman's model isn't edited here: whatever the level, the saved one is posted back unchanged
+  // (Fable when the whole job runs on it).
+  const keepForeman = (f: OptionsForm): OptionsForm => ({ ...f, models: { ...f.models, foreman: f.all_fable ? FABLE : saved.models.foreman } });
+  // The whole job on Fable: every model is Fable; off again, the build and checks go back to the level's.
+  const setAllFable = (on: boolean) => edit(keepForeman(on
+    ? { ...form, all_fable: true, models: { foreman: FABLE, build: FABLE, checks: FABLE } }
+    : { ...form, all_fable: false, models: levelDefaults(form.level, levels, lists, { provided: {}, notes: '', review_rounds: 1 }, kind).models }));
   // Your own testing choice and models (ones that differ from the old level's) stay, as with the level chips.
   const pickLevel = (n: LevelNumber) => edit(keepForeman(levelDefaults(n, levels, lists, { provided: form.provided, notes: form.notes, review_rounds: form.review_rounds, from: form }, kind)));
   const resetToLevel = () => edit(keepForeman(levelDefaults(form.level, levels, lists, { provided: form.provided, notes: form.notes, review_rounds: 1 }, kind)));
@@ -259,6 +264,11 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
 
       <fieldset className="drawer-section" disabled={busy}>
         <legend className="drawer-legend" title="Which Claude model each part of the job runs on.">Models</legend>
+        <label className="check drawer-check" title={ALL_FABLE_HINT}>
+          <Choice type="checkbox" checked={form.all_fable} onChange={(e) => setAllFable(e.target.checked)} />
+          <span>Run the whole job on Fable 5.2</span>
+        </label>
+        {form.all_fable && <p className="muted drawer-fine">{ALL_FABLE_NOTE}</p>}
         <div className="drawer-models">
           {MODEL_ROLES.map((role) => {
             if (role === 'foreman') {
@@ -267,7 +277,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
                 <div key={role} className="drawer-model" title={`${ROLE_LABELS.foreman.hint} ${FOREMAN_MODEL_NOTE}`}>
                   <span className="drawer-model-label">{ROLE_LABELS.foreman.label}</span>
                   <span className="drawer-model-value">{modelName(form.models.foreman, lists)}</span>
-                  <span className="muted drawer-model-note">{FOREMAN_MODEL_NOTE}</span>
+                  {!form.all_fable && <span className="muted drawer-model-note">{FOREMAN_MODEL_NOTE}</span>}
                 </div>
               );
             }
@@ -276,9 +286,9 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
             const shown = choices.some((c) => c.id === value) ? choices : [...choices, { id: value, label: value }];
             const note = shown.find((c) => c.id === value)?.note;
             return (
-              <label key={role} className="drawer-model" title={`${ROLE_LABELS[role].hint}${note ? ` ${note}` : ''}`}>
+              <label key={role} className="drawer-model" title={form.all_fable ? `${ROLE_LABELS[role].hint} ${ALL_FABLE_NOTE} Turn off “Run the whole job on Fable 5.2” to choose.` : `${ROLE_LABELS[role].hint}${note ? ` ${note}` : ''}`}>
                 <span className="drawer-model-label">{ROLE_LABELS[role].label}</span>
-                <Select value={value} onChange={(v) => edit({ models: { ...form.models, [role]: v } })} options={shown.map((c) => ({ value: c.id, label: c.label }))} />
+                <Select value={value} disabled={form.all_fable} onChange={(v) => edit({ models: { ...form.models, [role]: v } })} options={shown.map((c) => ({ value: c.id, label: c.label }))} />
               </label>
             );
           })}

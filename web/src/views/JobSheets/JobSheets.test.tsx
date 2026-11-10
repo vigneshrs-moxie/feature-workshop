@@ -12,7 +12,7 @@ import { pickOption } from '../../components/Select.testing';
 // Invented repositories, jobs and conversations only.
 const MODELS = [
   { id: 'claude-opus-5-5', label: 'Opus 5.5', note: 'Everyday.' },
-  { id: 'claude-fable-5-1', label: 'Fable 5.1', note: 'Best judgment.' },
+  { id: 'claude-fable-5-2', label: 'Fable 5.2', note: 'Best judgment.' },
 ];
 const REPOS = [
   { path: '/tmp/fw-test/sample-one', name: 'sample-one', lastUsed: null },
@@ -56,15 +56,29 @@ describe('NewJobSheet', () => {
     expect(within(dialog).getByRole('textbox', { name: /What should the crew build/ })).toHaveFocus();
     fireEvent.change(within(dialog).getByRole('textbox', { name: /What should the crew build/ }), { target: { value: '  Add a sample export button  ' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Bug fix' }));
-    fireEvent.click(within(dialog).getByRole('radio', { name: /Fable 5.1/ }));
+    fireEvent.click(within(dialog).getByRole('radio', { name: /Fable 5.2/ }));
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Start job' })); });
     expect(post).toHaveBeenCalledWith('/api/jobs', {
       // "export" sounds like more than one small change: the rules suggest L2, and it was never changed.
-      description: 'Add a sample export button', kind: 'bug', repoPath: '/tmp/fw-test/sample-two', model: 'claude-fable-5-1', options: { level: 2 }, fromSession: undefined,
+      description: 'Add a sample export button', kind: 'bug', repoPath: '/tmp/fw-test/sample-two', model: 'claude-fable-5-2', options: { level: 2 }, fromSession: undefined,
     });
     expect(onClose).toHaveBeenCalled();
     expect(window.location.hash).toBe('#/job/sketch-the-export-button');
     expect(localStorage.getItem(LAST_REPO_KEY)).toBe('/tmp/fw-test/sample-two');
+  });
+
+  it('can run the whole job on Fable 5.2: the Foreman picker is fixed on Fable and the option is sent', async () => {
+    const { post, onClose, wrap } = setup();
+    wrap(<NewJobSheet onClose={onClose} />);
+    const dialog = screen.getByRole('dialog', { name: 'Start a new job' });
+    await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Repository' })).toHaveAttribute('data-value', '/tmp/fw-test/sample-one'));
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /What should the crew build/ }), { target: { value: 'Fix the typo on the login page' } });
+    fireEvent.click(within(dialog).getByRole('radio', { name: /Opus 5.5/ }));
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Run the whole job on Fable 5.2/ }));
+    expect(within(dialog).getByRole('radio', { name: /Fable 5.2/ })).toBeChecked();
+    expect(dialog).toHaveTextContent('Every worker and reviewer runs on Fable 5.2.');
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Start job' })); });
+    expect(post).toHaveBeenCalledWith('/api/jobs', expect.objectContaining({ model: 'claude-fable-5-2', options: expect.objectContaining({ all_fable: true }) }));
   });
 
   it('takes any folder path, and shows the dashboard’s answer when it refuses', async () => {

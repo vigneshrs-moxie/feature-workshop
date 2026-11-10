@@ -11,11 +11,11 @@ import { pickOption } from '../../components/Select.testing';
 // Invented jobs only.
 const MODELS = [
   { id: 'claude-opus-5-5', label: 'Opus 5.5', note: 'Everyday.' },
-  { id: 'claude-fable-5-1', label: 'Fable 5.1', note: 'Best judgment.' },
+  { id: 'claude-fable-5-2', label: 'Fable 5.2', note: 'Best judgment.' },
 ];
 const DETAIL: JobDetail = {
   slug: 'alpha', title: 'Job alpha', thread: [], threadMore: false, run: null,
-  drive: { mode: 'workshop', model: 'claude-fable-5-1' },
+  drive: { mode: 'workshop', model: 'claude-fable-5-2' },
   statusForCompose: { questions: null, decidedOnYourBehalf: [], nextProposed: null, brief: { number: 2 } },
 };
 const RUNNING: Run = { id: 'run-1', slug: 'alpha', status: 'running' };
@@ -42,7 +42,7 @@ describe('Composer', () => {
     fireEvent.change(box(), { target: { value: '  Please also check the export.  ' } });
     // The model defaults to the one the Foreman last used; change it.
     const select = screen.getByRole('combobox');
-    expect(select).toHaveAttribute('data-value', 'claude-fable-5-1');
+    expect(select).toHaveAttribute('data-value', 'claude-fable-5-2');
     pickOption(select, 'claude-opus-5-5');
     fireEvent.click(screen.getByRole('button', { name: 'Send…' }));
     const dialog = screen.getByRole('dialog', { name: 'Message the Foreman' });

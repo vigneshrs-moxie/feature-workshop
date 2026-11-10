@@ -937,7 +937,7 @@ const DEMO_AGENTS = {
   'feature-review-permissions': ['claude-opus-5-5', null], 'feature-review-tests': ['claude-sonnet-5-5', null],
   'feature-review-conventions': ['claude-haiku-5-5', null], 'feature-review-errors': ['claude-sonnet-5-5', null],
   'feature-review-db': ['claude-sonnet-5-5', null], 'feature-review-performance': ['claude-sonnet-5-5', null],
-  'feature-review-ui': ['claude-sonnet-5-5', null], 'feature-fable-check': ['claude-fable-5-1', 'high'],
+  'feature-review-ui': ['claude-sonnet-5-5', null], 'feature-fable-check': ['claude-fable-5-2', 'high'],
 };
 async function demoAgents() {
   const dir = path.join(ROOT, 'agents');

@@ -105,6 +105,8 @@ export async function openNewJob(meta, { onStarted, from = null, canContinue = f
         <label class="opt"><input type="radio" name="fromMode" value="continue"${canContinue && from.repo ? '' : ' disabled'}><span><b>Continue that conversation</b><small>${canContinue && from.repo ? `A copy of the conversation becomes the Foreman, so it remembers everything said. Your original stays as it was. Costs more: ${tokens ? `about ${esc(tokens)} tokens` : 'the whole conversation'} re-read on every reply.` : from.repo ? 'Not available here (demo or a custom history folder).' : 'Only for conversations that ran inside a repository.'}</small></span></label>
       </fieldset>` : '';
   const lastModel = meta.models[0].id;
+  // The whole job on Fable (the Foreman's Fable choice, when it's offered): the Foreman goes on it too.
+  const fable = meta.models.find((x) => x.id.includes('fable')) ?? null;
   const m = modal(`
     <form class="newjob">
       <h2>Start a new job</h2>
@@ -122,8 +124,9 @@ export async function openNewJob(meta, { onStarted, from = null, canContinue = f
       ${levelFields(meta.levels)}
       <fieldset class="field models"><legend>Foreman model</legend>
         ${meta.models.map((x) => `<label class="opt"><input type="radio" name="model" value="${esc(x.id)}"${x.id === lastModel ? ' checked' : ''}><span><b>${esc(x.label)}</b><small>${esc(x.note)}</small></span></label>`).join('')}
+        ${fable ? `<label class="opt"><input type="checkbox" name="allFable"><span><b>Run the whole job on ${esc(fable.label)}</b><small>The Foreman, the builder, the tester and every other worker and reviewer run on ${esc(fable.label)}. Best judgment, but it costs the most and uses up your limits fastest.</small></span></label>` : ''}
       </fieldset>
-      <p class="fineprint">Runs with your own Claude Code login. Workers use the models set in their agent files.${meta.demo ? ' <b>Demo mode:</b> a pretend Foreman answers; nothing real runs.' : ''}</p>
+      <p class="fineprint">Runs with your own Claude Code login. <span data-workers>Workers use the models set in their agent files.</span>${meta.demo ? ' <b>Demo mode:</b> a pretend Foreman answers; nothing real runs.' : ''}</p>
       <p class="form-error" role="alert" hidden></p>
       <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary big">Start job</button></div>
     </form>`, { label: 'Start a new job' });
@@ -131,6 +134,14 @@ export async function openNewJob(meta, { onStarted, from = null, canContinue = f
   const sel = $('select[name=repo]', form);
   sel.addEventListener('change', () => { $('.other-repo', form).hidden = sel.value !== '__other'; });
   $('[data-close]', form).addEventListener('click', () => m.close());
+  const allFable = $('input[name=allFable]', form);
+  allFable?.addEventListener('change', () => {
+    for (const r of form.querySelectorAll('input[name=model]')) {
+      if (allFable.checked && r.value === fable.id) r.checked = true;
+      r.disabled = allFable.checked;
+    }
+    $('[data-workers]', form).textContent = allFable.checked ? `Every worker and reviewer runs on ${fable.label}.` : 'Workers use the models set in their agent files.';
+  });
   $('[data-close-to-history]', form)?.addEventListener('click', () => m.close());
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -141,7 +152,7 @@ export async function openNewJob(meta, { onStarted, from = null, canContinue = f
     btn.textContent = 'Starting…';
     try {
       const fromSession = from ? { id: from.id, mode: fd.get('fromMode') === 'continue' ? 'continue' : 'summary' } : undefined;
-      const res = await postJson('/api/jobs', { description: fd.get('description'), kind: fd.get('kind'), repoPath, model: fd.get('model'), options: fd.get('level') ? { level: Number(fd.get('level')) } : {}, fromSession });
+      const res = await postJson('/api/jobs', { description: fd.get('description'), kind: fd.get('kind'), repoPath, model: allFable?.checked ? fable.id : fd.get('model'), options: { ...(fd.get('level') ? { level: Number(fd.get('level')) } : {}), ...(allFable?.checked ? { all_fable: true } : {}) }, fromSession });
       prefs.set('lastRepo', repoPath);
       m.close();
       toast(`${icon('bolt', 18)} Job started. The Foreman is reading your request.`, { tone: 'good' });

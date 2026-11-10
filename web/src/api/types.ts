@@ -777,6 +777,8 @@ export interface JobOptions {
   fable_checks?: string[];
   models?: { foreman?: string; build?: string; checks?: string };
   notes?: string;
+  /** The whole job on Fable: the Foreman, the build, the checks and every other worker and lens. */
+  all_fable?: boolean;
   /** Screenshots and a video of each acceptance line at the test stage (never at L0). */
   evidence?: EvidenceChoice;
   /** When options.json was last written (the options editor's "changed elsewhere" check). */

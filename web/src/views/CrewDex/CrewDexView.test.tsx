@@ -35,12 +35,12 @@ function ledger(extra: Partial<PlayView> = {}): PlayView {
 
 const META = {
   token: 't',
-  models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }, { id: 'claude-fable-5-1', label: 'Fable 5.1' }],
+  models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }, { id: 'claude-fable-5-2', label: 'Fable 5.2' }],
   crewModels: {
     'feature-implementer': { model: 'claude-opus-5-5', effort: 'high' },
     'feature-review-conventions': { model: 'claude-haiku-5-5', effort: null },
     'feature-review-tests': { model: 'claude-sonnet-5-5', effort: null },
-    'feature-fable-check': { model: 'claude-fable-5-1', effort: 'high' },
+    'feature-fable-check': { model: 'claude-fable-5-2', effort: 'high' },
   },
 };
 

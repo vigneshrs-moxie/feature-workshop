@@ -2,14 +2,37 @@
 // defaults are the bug workflow's (the Examiner at L1, reproduce skipped), from the dashboard's
 // own tables (dashboard/lib/options.js), so the page and the dashboard can't drift apart.
 import { describe, expect, it } from 'vitest';
-import { FABLE_POINTS, levelsForClient, REVIEWERS, SKIPPABLE } from '../../../dashboard/lib/options.js';
+import { FABLE as DASHBOARD_FABLE, FABLE_POINTS, levelsForClient, RETIRED_FABLE_IDS, REVIEWERS, SKIPPABLE } from '../../../dashboard/lib/options.js';
 import type { Meta } from '../api/types';
-import { formFrom, levelDefaults, optionLists, type LevelKeep } from './jobOptions';
+import { bodyFrom, currentModel, FABLE, formFrom, levelDefaults, optionLists, type LevelKeep } from './jobOptions';
 import { levelChange, lensNames } from './levels';
 
 const levels = levelsForClient();
 const meta = { levels, jobOptions: { skippable: SKIPPABLE, reviewers: REVIEWERS, fablePoints: FABLE_POINTS } } as unknown as Meta;
 const keep: LevelKeep = { provided: {}, notes: '', review_rounds: 1 };
+
+describe('Fable 5.2 and the whole job on Fable', () => {
+  it('the page’s Fable is the dashboard’s, and every Fable it retired opens as the current one', () => {
+    expect(FABLE).toBe(DASHBOARD_FABLE);
+    for (const id of RETIRED_FABLE_IDS) expect(currentModel(id)).toBe(FABLE);
+    const form = formFrom({ level: 2, models: { foreman: 'claude-fable-5-1', build: 'claude-fable-5-1', checks: 'claude-sonnet-5-5' } }, 2, levels, optionLists(meta));
+    expect(form.models).toEqual({ foreman: FABLE, build: FABLE, checks: 'claude-sonnet-5-5' });
+  });
+
+  it('a job on Fable throughout shows Fable everywhere, keeps it through a level change, and saves it', () => {
+    const lists = optionLists(meta);
+    const form = formFrom({ level: 1, all_fable: true, models: { foreman: 'claude-opus-5-5', build: 'claude-opus-5-5', checks: 'claude-opus-5-5' } }, 1, levels, lists);
+    expect(form.all_fable).toBe(true);
+    expect(form.models).toEqual({ foreman: FABLE, build: FABLE, checks: FABLE });
+    const l3 = levelDefaults(3, levels, lists, { ...keep, from: form });
+    expect(l3.all_fable).toBe(true);
+    expect(l3.models).toEqual({ foreman: FABLE, build: FABLE, checks: FABLE });
+    expect(bodyFrom(l3)).toMatchObject({ all_fable: true });
+    // Reset to the level's defaults (no `from`) turns it off with everything else.
+    expect(levelDefaults(3, levels, lists, keep).all_fable).toBe(false);
+    expect(formFrom({ level: 1 }, 1, levels, lists).all_fable).toBe(false);
+  });
+});
 
 describe('the options lists for a kind of job', () => {
   it('a bug job is offered triage, reproduce, test and review, and every lens with the Examiner', () => {

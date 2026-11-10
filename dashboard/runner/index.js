@@ -47,7 +47,7 @@ import { PlanUsage } from '../lib/plan-usage.js';
 import { LocalRunner } from '../lib/local.js';
 import { History, historyMarkdown } from '../lib/history.js';
 import { removeWorktree, checkWorktree } from '../lib/close.js';
-import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, FOREMAN_MODEL_IDS, MODEL_IDS, MODEL_CHOICES, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions, foremanModel, levelsForClient, optionsAtLevel, isLevel, normalizeTicket, ticketSlug, ticketBranch, startFromTicket } from '../lib/options.js';
+import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, FABLE, currentModel, FOREMAN_MODEL_IDS, MODEL_IDS, MODEL_CHOICES, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions, foremanModel, levelsForClient, optionsAtLevel, isLevel, normalizeTicket, ticketSlug, ticketBranch, startFromTicket } from '../lib/options.js';
 import { groupCards, laneFor } from '../lib/snapshot.js';
 import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from '../lib/finish.js';
 import { NUDGE_IDS, nudgesFor } from '../lib/nudges.js';
@@ -89,7 +89,7 @@ import { PRODUCT } from '../lib/brand.js';
 /** The Foreman models the page offers (meta.models); a reply's model must be one of them. */
 export const MODELS = [
   { id: 'claude-opus-5-5', label: 'Opus 5.5', note: 'The everyday Foreman: strong and much cheaper than Fable. Asks Fable for a second look where your job options say.' },
-  { id: 'claude-fable-5-1', label: 'Fable 5.1', note: 'Best judgment, highest cost and quickest to use up your limits. Only if you want it: the Foreman is Opus at every level, and Fable already takes second looks at L3.' },
+  { id: 'claude-fable-5-2', label: 'Fable 5.2', note: 'Best judgment, highest cost and quickest to use up your limits. Only if you want it: the Foreman is Opus at every level, and Fable already takes second looks at L3.' },
   { id: 'claude-haiku-5-5', label: 'Haiku 5.5', note: `Cheapest. For trying ${PRODUCT} out, not real jobs.` },
 ];
 
@@ -539,7 +539,10 @@ export async function createRunner(config) {
     const terminals = await terminalsFor(f);
     const hook = await hookSessionsFor(f);
     const liveHook = hook.sessions.filter((s) => !s.ended).sort((a, b) => String(b.lastAt).localeCompare(String(a.lastAt)))[0] ?? null;
-    const base = { sessionId, cwd: cs?.cwd ?? saved?.cwd ?? f.repoPath ?? null, model: cs?.model ?? saved?.model ?? null, terminals, liveLink: hook.enabled, terminalSession: liveHook };
+    // The model the next message goes on: Fable when the whole job runs on it, else the last one
+    // used (a retired Fable id moves to the current one).
+    const model = f.options?.all_fable === true ? FABLE : currentModel(cs?.model ?? saved?.model ?? null);
+    const base = { sessionId, cwd: cs?.cwd ?? saved?.cwd ?? f.repoPath ?? null, model, terminals, liveLink: hook.enabled, terminalSession: liveHook };
     if (run) return { ...base, mode: 'running', runId: run.id };
     if (liveHook && (!saved?.takenOverAt || String(liveHook.lastAt) > saved.takenOverAt)) return { ...base, mode: 'terminal', lastTerminalAt: liveHook.lastAt, sessionId: liveHook.sessionId };
     if (!sessionId) return { ...base, mode: terminals.length ? 'terminal-open' : 'none' };
@@ -836,7 +839,7 @@ export async function createRunner(config) {
     if (!holding && limits.isLimited() && body.despiteLimit !== true) throw new HttpError(409, limitMessage(), { code: 'limited' });
     if (drive.mode === 'terminal') throw new HttpError(409, 'This job’s Foreman was last used in your terminal.', { code: 'terminal', lastTerminalAt: drive.lastTerminalAt });
     if (drive.mode === 'terminal-open' && body.confirmNoTerminal !== true) throw new HttpError(409, 'Claude Code is open in this repository in a terminal. Make sure none of those windows is this job’s Foreman, then confirm.', { code: 'terminal-open', terminals: drive.terminals.length });
-    const model = MODELS.some((x) => x.id === body.model) ? body.model : drive.model ?? OPUS;
+    const model = MODELS.some((x) => x.id === currentModel(body.model)) ? currentModel(body.model) : currentModel(drive.model) ?? OPUS;
     const cwd = drive.cwd ?? f.repoPath;
     if (!cwd) throw new HttpError(400, 'I don’t know which repository this job belongs to.');
     const fresh = drive.mode === 'none' || drive.mode === 'terminal-open';
@@ -880,7 +883,7 @@ export async function createRunner(config) {
   // The status fields composeReply reads, without the ones the job's records leave empty (null).
   const present = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined));
 
-  const OPTION_KEYS = ['schema_version', 'level', 'flow', 'skip', 'provided', 'reviewers', 'review_rounds', 'manual_test', 'fable_checks', 'models', 'notes'];
+  const OPTION_KEYS = ['schema_version', 'level', 'flow', 'skip', 'provided', 'reviewers', 'review_rounds', 'manual_test', 'fable_checks', 'models', 'notes', 'all_fable'];
   /**
    * The job's options after the gate card's chips (the workflow's job-options.md, "Option lines from
    * the gate card"): skip adds the stage to `skip`, ask Fable adds the point to `fable_checks`, a

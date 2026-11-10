@@ -7,3 +7,5 @@ export function levelsForClient(): LevelInfo[];
 export const SKIPPABLE: OptionChoice[];
 export const REVIEWERS: ReviewerInfo[];
 export const FABLE_POINTS: OptionChoice[];
+export const FABLE: string;
+export const RETIRED_FABLE_IDS: string[];

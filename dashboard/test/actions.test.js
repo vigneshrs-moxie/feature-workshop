@@ -182,7 +182,9 @@ test('cost export: CSV rows, Markdown report and what-if', () => {
   const w = whatIfConductor(features[0].cost.agents);
   assert.equal(w.actual, 5);
   assert.equal(Math.round(w.alternatives.opus * 100) / 100, 2);
-  assert.equal(Math.round(w.alternatives.fable * 100) / 100, 5);
+  // What-ifs price the current Fable (5.2: $40 per million output tokens); the Foreman's own row
+  // above keeps Fable 5.1's name, since that's what the log says it ran on.
+  assert.equal(Math.round(w.alternatives.fable * 100) / 100, 4);
 });
 
 // ---------- the driver, with a pretend Claude ----------
@@ -237,6 +239,22 @@ test('driver: a permission waits for a click, then the reply finishes', async ()
   const audit = await state.auditFor('/f/a');
   assert.deepEqual(audit.map((e) => e.action), ['send', 'permission', 'run-ended']);
   assert.equal(audit[0].text, 'go');
+});
+
+test('driver: a session saved on Fable 5.1 carries on on Fable 5.2', async () => {
+  const state = await tmpState();
+  let asked = null;
+  const queryFn = fakeSession(async function* ({ options }) {
+    asked = options.model;
+    yield { type: 'system', subtype: 'init', session_id: 's-2', model: options.model, apiKeySource: 'none' };
+    yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0, permission_denials: [] };
+  });
+  const driver = new Driver({ queryFn, state, projectsDir: '/nonexistent' });
+  driver.idleGraceMs = 30;
+  const run = await driver.start({ featureDir: '/f/b', slug: 'b', title: 'B', cwd: '/repo', sessionId: 's-2', model: 'claude-fable-5-1', text: 'go on' });
+  assert.equal((await until(driver, run.id, ['done', 'error'])).status, 'done');
+  assert.equal(asked, 'claude-fable-5-2');
+  assert.equal((await state.sessionFor('/f/b')).model, 'claude-fable-5-2', 'the next message goes on 5.2 too');
 });
 
 test('driver: deny passes the note on; the reply waits for background workers', async () => {

@@ -89,7 +89,7 @@ import { describeTool } from './session-log.js';
 import { hardLine, hardLineHook, orgPushCheck } from './hard-lines.js';
 import * as jobLock from './lock.js';
 import { validate as validateStatus } from './status-json.js';
-import { readOptions } from './options.js';
+import { currentModel, readOptions } from './options.js';
 import { HttpError } from './http-guard.js';
 import { scrubDeep } from './orbit.js';
 import { FEEDBACK_LEAVE, FEEDBACK_SEND, cardWords, feedbackMessage } from './pr-feedback.js';
@@ -271,7 +271,8 @@ export class Driver extends EventEmitter {
       lock = got?.lock ?? null;
     }
     const run = {
-      id: randomUUID(), featureDir, slug, title, cwd, sessionId, model, effort, text, kind, newJob, owned,
+      // A session saved on a retired Fable carries on on the current one (currentModel).
+      id: randomUUID(), featureDir, slug, title, cwd, sessionId, model: currentModel(model), effort, text, kind, newJob, owned,
       status: 'starting', startedAt: new Date().toISOString(), endedAt: null,
       lastText: null, lastAction: null, resultText: null, costUsd: null, apiKeySource: null, error: null,
       denials: [], stderr: [], pending: new Map(), abort: new AbortController(), query: null, stopRequested: false,

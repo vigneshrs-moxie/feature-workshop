@@ -17,7 +17,11 @@ import { writeFileAtomic } from './atomic-write.js';
 import { FEATURE_STAGES } from './stages.js';
 
 export const OPUS = 'claude-opus-5-5';
-export const FABLE = 'claude-fable-5-1';
+export const FABLE = 'claude-fable-5-2';
+/** Fable ids the crew no longer offers: a job or session still naming one moves to FABLE (currentModel). */
+export const RETIRED_FABLE_IDS = ['claude-fable-5-1', 'claude-fable-5'];
+/** A model id as the crew runs it now: a retired Fable becomes the current one; anything else as it is. */
+export const currentModel = (id) => (RETIRED_FABLE_IDS.includes(id) ? FABLE : id);
 export const SONNET = 'claude-sonnet-5-5';
 export const HAIKU = 'claude-haiku-5-5';
 /** The model ids options.json may name in `models`. */
@@ -27,7 +31,7 @@ export const FOREMAN_MODEL_IDS = [OPUS, FABLE, HAIKU];
 /** Friendly names and a few words on each, for the options editor's model choices (meta.jobOptions.models). */
 export const MODEL_CHOICES = [
   { id: OPUS, label: 'Opus 5.5', note: 'Strong and much cheaper than Fable: the everyday choice.' },
-  { id: FABLE, label: 'Fable 5.1', note: 'Best judgment, highest cost and quickest to use up your limits.' },
+  { id: FABLE, label: 'Fable 5.2', note: 'Best judgment, highest cost and quickest to use up your limits.' },
   { id: SONNET, label: 'Sonnet 5.5', note: 'Cheaper; fine for small builds and running checks.' },
   { id: HAIKU, label: 'Haiku 5.5', note: 'Cheapest; for simple checks and trying things out.' },
 ];
@@ -201,7 +205,7 @@ export function defaultsFor(flow = 'auto') {
   return {
     schema_version: SCHEMA_VERSION, level, flow: FLOWS[flow] ? flow : 'auto', skip: [...f.skip], provided: {}, reviewers: Array.isArray(f.reviewers) ? [...f.reviewers] : f.reviewers,
     review_rounds: 1, manual_test: f.manualTest, fable_checks: [...f.fable], models: { ...(level === null ? DEFAULT_MODELS : LEVELS[level].models) }, notes: '',
-    wireframes: 'auto', clarify: 'auto', evidence: 'auto',
+    wireframes: 'auto', clarify: 'auto', evidence: 'auto', all_fable: false,
   };
 }
 
@@ -212,7 +216,7 @@ export function defaultsForLevel(level) {
   return {
     schema_version: SCHEMA_VERSION, level, flow: l.flow, skip: [...l.skip], provided: {}, reviewers: Array.isArray(l.reviewers) ? [...l.reviewers] : l.reviewers,
     review_rounds: 1, manual_test: l.manualTest, fable_checks: [...l.fable], models: { ...l.models }, notes: '',
-    wireframes: 'auto', clarify: 'auto', evidence: 'auto',
+    wireframes: 'auto', clarify: 'auto', evidence: 'auto', all_fable: false,
   };
 }
 
@@ -265,7 +269,7 @@ export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previo
   if (Array.isArray(input.fable_checks)) out.fable_checks = pick(input.fable_checks, ids(FABLE_POINTS));
   if (input.models && typeof input.models === 'object') {
     for (const role of ['foreman', 'build', 'checks']) {
-      const id = input.models[role];
+      const id = currentModel(input.models[role]);
       if (id === undefined || id === null || id === '') continue;
       if (!modelAllowed(role, id)) throw new Error(`Models: “${String(id).slice(0, 60)}” isn’t a model the crew can use for ${role === 'checks' ? 'the checks' : role === 'build' ? 'the build' : 'the Foreman'}.`);
       out.models[role] = id;
@@ -273,8 +277,12 @@ export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previo
   } else if (previous && out.level === (isLevel(previous.level) ? previous.level : null) && previous.models && typeof previous.models === 'object') {
     // A page that doesn't edit models (the classic one) sent none and the level is unchanged:
     // keep the job's own models rather than resetting them to the level's defaults.
-    for (const role of ['foreman', 'build', 'checks']) if (modelAllowed(role, previous.models[role])) out.models[role] = previous.models[role];
+    for (const role of ['foreman', 'build', 'checks']) if (modelAllowed(role, currentModel(previous.models[role]))) out.models[role] = currentModel(previous.models[role]);
   }
+  // The whole job on Fable (New job, the options editor): the Foreman, the build, the checks and
+  // every other worker and lens. The job's own choice, else what it had.
+  out.all_fable = typeof input.all_fable === 'boolean' ? input.all_fable : previous?.all_fable === true;
+  if (out.all_fable) out.models = { foreman: FABLE, build: FABLE, checks: FABLE };
   out.notes = typeof input.notes === 'string' ? input.notes.trim().slice(0, 1000) : '';
   // Screens (wireframes) and Clarify questions: the job's own choice, else what it had, else the
   // default for new jobs (Settings → Workflow), else Auto.
@@ -306,7 +314,7 @@ export function optionsAtLevel(current, level, { exists = (p) => fs.existsSync(p
   const before = current ?? defaultsFor('auto');
   const old = isLevel(before.level) ? defaultsForLevel(before.level) : defaultsFor(before.flow);
   const models = Object.fromEntries(['foreman', 'build', 'checks']
-    .map((r) => [r, before.models?.[r]])
+    .map((r) => [r, currentModel(before.models?.[r])])
     .filter(([r, id]) => modelAllowed(r, id) && id !== old.models[r]));
   const ownTest = typeof before.manual_test === 'boolean' && before.manual_test !== old.manual_test;
   return normalize({
@@ -318,11 +326,13 @@ export function optionsAtLevel(current, level, { exists = (p) => fs.existsSync(p
 /**
  * Which model the Foreman starts on: the one asked for (if it's one of `allowed`, the models
  * offered for the Foreman), else the job's models.foreman if that is one of them too, else Opus.
- * Never Fable just because the job is large or L3.
+ * Never Fable just because the job is large or L3; always Fable when the whole job runs on it
+ * (options.all_fable). A retired Fable id asks for the current one (currentModel).
  */
 export function foremanModel(requested, options, allowed = FOREMAN_MODEL_IDS) {
-  if (allowed.includes(requested)) return requested;
-  const fromOptions = options?.models?.foreman;
+  if (options?.all_fable === true && allowed.includes(FABLE)) return FABLE;
+  if (allowed.includes(currentModel(requested))) return currentModel(requested);
+  const fromOptions = currentModel(options?.models?.foreman);
   return allowed.includes(fromOptions) ? fromOptions : OPUS;
 }
 
@@ -333,7 +343,10 @@ export async function readOptions(dir) {
     if (!raw || typeof raw !== 'object') return null;
     const level = isLevel(raw.level) ? raw.level : levelFor(raw.flow);
     const base = isLevel(raw.level) ? defaultsForLevel(raw.level) : defaultsFor(raw.flow);
-    return { ...base, ...raw, level, models: { ...base.models, ...(raw.models && typeof raw.models === 'object' ? raw.models : {}) } };
+    const models = { ...base.models, ...(raw.models && typeof raw.models === 'object' ? raw.models : {}) };
+    // A job saved while Fable 5.1 was current runs on today's Fable (currentModel).
+    for (const role of Object.keys(models)) models[role] = currentModel(models[role]);
+    return { ...base, ...raw, level, models, all_fable: raw.all_fable === true };
   } catch { return null; }
 }
 
@@ -369,6 +382,7 @@ export function describeOptions(o) {
   for (const [k, p] of Object.entries(o.provided ?? {})) lines.push(`${name(PROVIDABLE, k)} provided: ${p}`);
   lines.push(`Reviewers: ${o.skip.includes('review') ? 'none' : o.reviewers === 'auto' ? 'the usual ones for this kind of change' : o.reviewers.map((r) => name(REVIEWERS, r)).join(', ')}${o.skip.includes('review') ? '' : `, at most ${o.review_rounds} fix round${o.review_rounds === 1 ? '' : 's'}`}.`);
   if (o.manual_test) lines.push('The human tests it by hand on their computer before review.');
+  if (o.all_fable) lines.push('Whole job on Fable 5.2: you run on Fable, and every dispatch passes model: fable (every worker, the builder, the tester and every review lens). Fable second looks need no separate Fable check: everyone is already on Fable.');
   lines.push(`Fable checks: ${o.fable_checks.length ? o.fable_checks.filter((x) => o.kind !== 'bug' || x !== 'spec').map(point).join(', ') : 'none'}.`);
   if (o.wireframes && o.wireframes !== 'auto') lines.push(`Screens (wireframes): ${o.wireframes === 'always' ? 'always, before the plan' : 'off'}.`);
   if (o.clarify && o.clarify !== 'auto') lines.push(`Clarify questions before the spec: ${o.clarify === 'always' ? 'always' : 'off'}.`);
