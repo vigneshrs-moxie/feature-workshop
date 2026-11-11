@@ -750,7 +750,9 @@ test('M6: a slow Approver for one job never delays another job\'s stop', { timeo
       const rec = JSON.parse(await fs.readFile(path.join(w.dirs.state, 'sessions.json'), 'utf8'))[w.otherDir]?.auto;
       return rec?.on === false && rec.stopped?.rule === 'level';
     }, 'the other job to leave Auto');
-    assert.equal(w.asks.length, 1, 'the first job\'s Approver is still thinking');
+    // The first job's Approver is asked (and hangs) once the stops are written: the other job did not wait for it.
+    await w.until(() => w.asks.length === 1, 'the first job\'s ask');
+    assert.equal(w.asks[0].task.job.slug, 'visit-audit');
     release();
     await p;
   } finally { release(); await w.stop(); }
@@ -2144,6 +2146,26 @@ test('L2: an update callback never makes a record on a job that had none', { tim
   }
   assert.ok(made.length >= 5, `the callbacks ran (${made.length})`);
   assert.deepEqual(made.filter((m) => m !== null), [], 'none made a record');
+});
+
+// ---------- I2: whether a brief was answered is read from all of the job's lines ----------
+
+test('I2: the person sent brief 1 back, then 401 lines; the reply ended with the gate still on brief 1: the Approver is not asked', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: { ...autoRecord(null, { on: true, now: OLD }) } });
+  try {
+    const T = (i) => new Date(Date.parse('2026-10-02T10:00:00Z') + i * 1000).toISOString();
+    const sessionId = crypto.randomUUID();
+    const rows = [
+      { at: T(0), action: 'send', sessionId, runId: 'r-you', kind: 'changes', gateBrief: 1, text: 'Send back: keep the audit trail.' },
+      ...Array.from({ length: 401 }, (_, i) => ({ at: T(1 + i), action: 'auto-allowed', sessionId, runId: 'r-you', tool: 'Read', headline: `Read file ${i}`, reason: 'routine' })),
+      { at: T(403), action: 'run-ended', runId: 'r-you', status: 'error' },
+    ];
+    await fs.appendFile(path.join(w.dirs.state, 'audit.jsonl'), rows.map((r) => `${JSON.stringify({ featureDir: w.dir, slug: w.slug, ...r })}\n`).join(''));
+    await w.pass();
+    await w.idle();
+    assert.equal(w.asks.length, 0, 'the Approver is not asked');
+    assert.equal((await w.sends()).filter((s) => s.by === 'auto').length, 0);
+  } finally { await w.stop(); }
 });
 
 // ---------- I1: Auto's answer is checked at the moment it is sent ----------

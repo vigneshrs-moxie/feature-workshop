@@ -1534,7 +1534,8 @@ export async function createRunner(config) {
         statusCard: driver.pendingPermissions().some((p) => p.featureDir === f.dir && p.statusCard === true),
         prOpen: finishLineReached({ prs: f.prs, closed: null }, null, 'pr1-open').reached,
         gate: g ? { ...g, briefNumber: cb?.number ?? null, headline: cb?.headline ?? null } : null,
-        answered: answeredBriefs(await state.auditFor(f.dir, 400), cb),
+        // All of the job's lines: a long reply after the person's own answer must not push it out of view.
+        answered: answeredBriefs(await state.auditFor(f.dir, Infinity), cb),
         briefPath: cb?.file ? path.join(f.dir, cb.file) : null,
         // When the current brief was raised (its file's time): a message of the person's after it makes the step theirs.
         briefAt: cb?.at ?? null,
