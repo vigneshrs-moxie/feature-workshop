@@ -930,7 +930,8 @@ test('T2: ordinary work passes (a real worktree with node_modules/.bin, scripts 
     const got = must.map((c) => ({ c, got: answer(c, over) })).filter((r) => r.got !== null);
     assert.deepEqual(got, [], 'every one of the must-pass list passes');
     // and a few neighbours of them that must not
-    const not = [['npx vitest run --root /etc', 'ask'], ['npm run build -- --outDir /etc', 'ask'], ['node scripts/gen.js /etc/passwd', 'ask'], ['npx tsc --outDir /etc', 'outside'], ['rm -rf /etc/x', 'outside'], ['npm install foo', 'ask'], ['npm install --ignore-scripts foo', null],
+    // (a path outside handed to a build tool is outside for the routine list too since deep review A's C3, so it stops)
+    const not = [['npx vitest run --root /etc', 'outside'], ['npm run build -- --outDir /etc', 'outside'], ['node scripts/gen.js /etc/passwd', 'ask'], ['npx tsc --outDir /etc', 'outside'], ['rm -rf /etc/x', 'outside'], ['npm install foo', 'ask'], ['npm install --ignore-scripts foo', null],
       ['git push origin main', 'push'], ['git commit -F ~/.ssh/id_rsa', 'outside'], ['git add -f .env', 'ask'], ['sed -i s/a/b/e src/a.ts', 'outside'], ['npx prettier --write /etc/hosts', 'ask'], ['npx notthere run', 'ask']];
     assert.deepEqual(not.map(([c, want]) => ({ c, want, got: answer(c, over) })).filter((r) => r.want !== r.got), []);
   } finally {

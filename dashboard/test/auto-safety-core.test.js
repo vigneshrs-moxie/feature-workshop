@@ -4,6 +4,9 @@
 // created under a home folder, no git is run (git is a stand-in), and no model is called.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fsSync from 'node:fs';
+import os from 'node:os';
+import pathMod from 'node:path';
 
 process.env.HOME = '/Users/test'; // before the modules below read it
 const { autoVerdict } = await import('../lib/auto-rules.js');
@@ -187,4 +190,50 @@ test('C2: the routine list treats a later command after a cd that may have faile
     assert.equal(routine(`cd /Users/test/Projects/orbit-orbit-500-thing/app && true; ${t}`), false, t);
     assert.equal(routine(`cd app && true; ${t}`), false, t);
   }
+});
+
+// ---------- C3: every word that could be a path is checked ----------
+
+// A worktree on disk with the tools in node_modules/.bin (npx and the package scripts look there).
+function diskWorktree(scripts = {}) {
+  const root = fsSync.realpathSync(fsSync.mkdtempSync(pathMod.join(os.tmpdir(), 'sb-safety-')));
+  const wt = pathMod.join(root, 'orbit-orbit-500-thing');
+  fsSync.mkdirSync(pathMod.join(wt, 'node_modules', '.bin'), { recursive: true });
+  for (const b of ['vitest', 'eslint', 'tsc', 'jest', 'prettier', 'next', 'prisma', 'husky', 'tsx']) fsSync.writeFileSync(pathMod.join(wt, 'node_modules', '.bin', b), '#!/bin/sh\n');
+  fsSync.writeFileSync(pathMod.join(wt, 'package.json'), JSON.stringify({ name: 'app', scripts: { test: 'vitest run', lint: 'eslint', build: 'tsc -p tsconfig.json', ...scripts } }));
+  return { root, wt, done: () => fsSync.rmSync(root, { recursive: true, force: true }) };
+}
+const UP10 = `a/${'../'.repeat(10)}`; // climbs out after its first part
+
+test('C3: a path glued to its option, or one that climbs out after its first part, is checked (Auto\'s rules and the routine list)', async () => {
+  const { classify } = await import('../lib/policy.js');
+  const d = diskWorktree();
+  try {
+    const ctx = ctxOf({ worktrees: [d.wt], specDirs: [], branches: [BRANCH] }, { cwd: d.wt });
+    const routine = (c) => classify('Bash', { command: c }, { mode: 'auto', stage: 'implement', featureDir: JOB, worktrees: [d.wt], repoPath: REPO, specDirs: [], cwd: d.wt, defaultToNo: false, rules: [] }).auto;
+    const outside = [
+      'npm test -- --reporter=json --outputFile=/Users/nobody-probe/.zshrc',
+      'npm test -- --reporter=json --outputFile=~/.zshrc',
+      `npm test -- --reporter=json --outputFile=${UP10}Users/nobody-probe/.zshrc`,
+      'npm test -- --reporter=json --outputFile /Users/nobody-probe/.zshrc',
+      `npm test -- --config ${UP10}Users/nobody-probe/other-repo/vitest.config.ts`,
+      `npm run build -- --outDir ${UP10}Users/nobody-probe/out`,
+      `npm run lint -- --output-file ${UP10}Users/nobody-probe/.zshrc`,
+      `npx vitest run --config ${UP10}Users/nobody-probe/other-repo/vitest.config.ts`,
+      `npx eslint -c ${UP10}Users/nobody-probe/eslint.config.js .`,
+      `npx tsc -p ${UP10}Users/nobody-probe/other-repo/tsconfig.json`,
+      `npx eslint . --output-file ${UP10}Users/nobody-probe/.zshrc`,
+      `npx jest --json --outputFile=${UP10}Users/nobody-probe/.zshrc`,
+      `npx vitest run --root=${UP10}Users/nobody-probe/other-repo`,
+    ];
+    for (const c of outside) {
+      assert.notEqual(bash(c, ctx), null, c);
+      assert.equal(routine(c), false, `routine list: ${c}`);
+    }
+    for (const c of ['go test ./...', 'go vet ./app/...']) assert.equal(bash(c, ctx), null, c);
+    for (const c of [`npx prettier --write ${UP10}Users/nobody-probe/other-repo/README.md`, `pytest --basetemp=${UP10}Users/nobody-probe/Documents`, `cargo clean --target-dir ${UP10}Users/nobody-probe/Projects`, `go test -coverprofile ${UP10}Users/nobody-probe/c.out`, `go test -coverprofile=${UP10}Users/nobody-probe/c.out`]) assert.notEqual(bash(c, ctx), null, c);
+    // The usual lines still pass.
+    for (const c of ['npm test -- --reporter=json', 'npx vitest run src/a.test.ts', 'npx eslint src/', 'npm run lint -- --fix', 'npm test -- --coverage', 'npx tsc -p tsconfig.json --noEmit', 'npm test -- --outputFile=reports/x.json', 'npx vitest run -t "handles a/b paths"', 'git commit -m "fix: /api/tickets and a/../../b"', 'git log --grep=/api --oneline']) assert.equal(bash(c, ctx), null, c);
+    for (const c of ['npm test -- --reporter=json', 'npx vitest run src/a.test.ts', 'npx eslint src/', 'npx tsc -p tsconfig.json --noEmit']) assert.equal(routine(c), true, `routine list: ${c}`);
+  } finally { d.done(); }
 });

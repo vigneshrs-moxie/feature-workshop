@@ -128,7 +128,7 @@ function lex(src) {
 
 /** flags: 'n b s' (short, bundle-able), 'n:' (short with a value), '--long', '--long:' (long with a value), '#' (-20). */
 function spec(flags = '', opts = {}) {
-  const s = { shortBool: new Set(), shortVal: new Set(), shortWords: new Set(), longBool: new Set(), longVal: new Set(), digits: false, pos: 'read', ...opts };
+  const s = { shortBool: new Set(), shortVal: new Set(), shortWords: new Set(), longBool: new Set(), longVal: new Set(), digits: false, pos: 'read', ...opts, text: new Set(opts.text ?? []) };
   for (const raw of flags.split(/\s+/).filter(Boolean)) {
     if (raw === '#') { s.digits = true; continue; }
     if (raw.startsWith('--')) { (raw.endsWith(':') ? s.longVal.add(raw.slice(0, -1)) : s.longBool.add(raw)); continue; }
@@ -190,11 +190,23 @@ function parse(sp, args, prog) {
 // ---------- paths ----------
 
 const pathlike = (t) => /^[/~]|^\.\.(\/|$)|=[/~]|=\.\.(\/|$)/.test(t);
+// Every word that could be a path (C3): the part after its first = when there is one, whenever that holds
+// a /, starts with ~ or is .. (a/../../x climbs out after its first part; --out=/abs is an absolute path).
+const pathPart = (word) => {
+  const t = String(word?.t ?? '');
+  const v = t.includes('=') ? t.slice(t.indexOf('=') + 1) : t;
+  return v.includes('/') || v.startsWith('~') || v === '..' ? { ...word, t: v } : null;
+};
 
 // The folders a command may be running in (after a cd joined by something other than && it may be either).
 const insideAll = (word, ctx, strict = false) => ctx.cands.every((c) => inRoots(physicalPath(word.t, c), ctx.roots, strict));
 function mustBeInside(word, ctx, strict = false, why = 'a path outside the job or one that cannot be placed') {
   if (!insideAll(word, ctx, strict)) ask(why);
+}
+/** A word that could be a path (pathPart) must be inside the job. */
+function pathInside(word, ctx) {
+  const p = pathPart(word);
+  if (p) mustBeInside(p, ctx);
 }
 function readablePath(word, ctx) {
   if (/^~[^/]/.test(word.t)) ask("a path in another user's home");
@@ -212,8 +224,9 @@ function check(sp, args, ctx, prog) {
   if (kind === 'none' && pos.length) ask(`arguments to ${prog}`);
   if (kind === 'read') for (const x of [...pos, ...vals.map((v) => v[1])]) readablePath(x, ctx);
   if (kind === 'inside') for (const x of pos) mustBeInside(x, ctx, Boolean(sp.strict));
-  if (kind === 'inside' || kind === 'build') for (const [, x] of vals) if (pathlike(x.t) || kind === 'inside') mustBeInside(x, ctx);
-  if (kind === 'build') for (const x of pos) if (pathlike(x.t)) mustBeInside(x, ctx);
+  if (kind === 'inside') for (const [, x] of vals) mustBeInside(x, ctx);
+  if (kind === 'build') for (const [f, x] of vals) if (!sp.text.has(f)) pathInside(x, ctx); // a message or a title is text, not a path
+  if (kind === 'build') for (const x of pos) pathInside(x, ctx);
   if (kind === 'digits' && pos.some((x) => !/^\d+(\.\d+)?$/.test(x.t))) ask(`arguments to ${prog}`);
   return { pos, vals, flags };
 }
@@ -279,9 +292,9 @@ const PROGRAMS = {
   tsc: BUILD('--noEmit --pretty --build -b --incremental --skipLibCheck --strict --noEmitOnError --declaration --sourceMap --version -v --watch -w --listFiles --showConfig --project: -p: --target: --module: --lib: --jsx: --outDir: --declarationDir: --rootDir: --moduleResolution:'),
   eslint: BUILD('--fix --quiet --cache --no-cache --no-error-on-unmatched-pattern --fix-dry-run --version -v --debug --no-eslintrc --ext: --format: -f: --max-warnings: --config: -c: --ignore-path: --cache-location: --rule: --ignore-pattern: --output-file:'),
   prettier: BUILD('--write -w --check -c --list-different -l --version -v --cache --no-semi --single-quote --no-config --use-tabs --no-bracket-spacing --ignore-unknown -u --config: --ignore-path: --parser: --tab-width: --print-width: --trailing-comma: --end-of-line: --log-level: --arrow-parens: --quote-props:'),
-  vitest: BUILD('--run --coverage --passWithNoTests --silent --no-color --watch --no-watch --globals -u --update --reporter: --bail: -t: --testNamePattern: --root: --config: -c: --dir: --project: --environment: --pool: --testTimeout:'),
-  jest: BUILD('--ci --coverage -u --bail --silent --watchAll --runInBand -i --forceExit --detectOpenHandles --passWithNoTests --verbose --colors --no-cache --onlyChanged -o --listTests --json -t: --testPathPattern: --config: --rootDir: --maxWorkers: -w: --testNamePattern: --findRelatedTests: --outputFile:'),
-  pytest: BUILD('q v x s l --co --collect-only --lf --ff --no-header -k: -m: -n: --maxfail: --tb: --basetemp: -c: --cov: --cov-report: --durations: -W: -r:'),
+  vitest: BUILD('--run --coverage --passWithNoTests --silent --no-color --watch --no-watch --globals -u --update --reporter: --bail: -t: --testNamePattern: --root: --config: -c: --dir: --project: --environment: --pool: --testTimeout:', { text: ['-t', '--testNamePattern'] }),
+  jest: BUILD('--ci --coverage -u --bail --silent --watchAll --runInBand -i --forceExit --detectOpenHandles --passWithNoTests --verbose --colors --no-cache --onlyChanged -o --listTests --json -t: --testPathPattern: --config: --rootDir: --maxWorkers: -w: --testNamePattern: --findRelatedTests: --outputFile:', { text: ['-t', '--testNamePattern', '--testPathPattern'] }),
+  pytest: BUILD('q v x s l --co --collect-only --lf --ff --no-header -k: -m: -n: --maxfail: --tb: --basetemp: -c: --cov: --cov-report: --durations: -W: -r:', { text: ['-k', '-m'] }),
 };
 
 // ---------- find, sed, awk, chmod, tar, set, cd ----------
@@ -421,6 +434,7 @@ function wgetCheck(args, ctx) {
 
 const DIFF_FLAGS = '--stat --name-only --name-status --cached --staged --shortstat --numstat --no-color --color --check --summary --minimal --word-diff --patch -p w b U: --unified: --diff-filter: --find-renames M --no-ext-diff --no-textconv --ignore-space-change --ignore-all-space --exit-code --quiet --raw --compact-summary --stat: --abbrev --full-index --binary --text a';
 const LOG_FLAGS = '--oneline --graph --decorate --stat --name-only --name-status --all --no-color --abbrev-commit --pretty: --format: n: --max-count: --since: --until: --author: --grep: --reverse -p --patch --follow --first-parent --merges --no-merges --date: --shortstat --numstat S: G: --left-right --cherry-pick --boundary --no-decorate --topo-order --date-order --skip: --all-match --branches --tags --remotes --summary --abbrev: --stat: #';
+const LOG_TEXT = ['--pretty', '--format', '--since', '--until', '--author', '--grep', '--date', '-S', '-G'];
 // git fetch and pull: a remote's name (never a path or an address), then branch names
 function remoteName(pos, what) {
   pos.forEach((x, k) => { if (!(k === 0 ? /^[A-Za-z0-9_][\w-]*$/ : /^[A-Za-z0-9_][\w./-]*$/).test(x.t)) ask(`a ${what} from a path or an address`); });
@@ -428,10 +442,10 @@ function remoteName(pos, what) {
 const GIT = {
   status: BUILD('s b v u: --short --branch --porcelain --porcelain: --untracked-files: --ignored --long --no-color'),
   diff: BUILD(DIFF_FLAGS),
-  log: BUILD(LOG_FLAGS),
-  show: BUILD(`${DIFF_FLAGS} ${LOG_FLAGS} s`),
+  log: BUILD(LOG_FLAGS, { text: LOG_TEXT }),
+  show: BUILD(`${DIFF_FLAGS} ${LOG_FLAGS} s`, { text: LOG_TEXT }),
   add: INSIDE('A u n v N --all --update --dry-run --verbose --intent-to-add'),
-  commit: BUILD('a q v s --all --amend --no-edit --quiet --verbose --allow-empty --no-verify --signoff m: --message: F: --file: --author: --date:'),
+  commit: BUILD('a q v s --all --amend --no-edit --quiet --verbose --allow-empty --no-verify --signoff m: --message: F: --file: --author: --date:', { text: ['-m', '--message', '--author', '--date'] }),
   fetch: spec('q v p t --all --prune --quiet --verbose --tags --no-tags --depth: --unshallow', { pos: (pos) => remoteName(pos, 'fetch') }),
   pull: spec('q v r --quiet --verbose --rebase --ff-only --no-rebase --no-edit --autostash --no-autostash --ff --no-ff --depth:', { pos: (pos) => remoteName(pos, 'pull') }),
   push: spec('u q v n --set-upstream --quiet --verbose --no-verify --dry-run --progress', { pos: (pos) => { if (pos.length > 2) ask('a push with several branches'); for (const x of pos) if (!/^[\w./@:^~-]+$/.test(x.t)) ask('an unusual push target'); } }),
@@ -518,10 +532,11 @@ function gitCheck(args, ctx) {
 // ---------- gh ----------
 
 const GH_LIST = '--json: --jq: -q: --state: -s: --limit: -L: --author: --label: -l: --base: -B: --head: -H: --search: -S: --comments -c --watch --required --name-only --patch --draft --web';
+const GH_TEXT = ['--json', '--jq', '-q', '--state', '-s', '--author', '--label', '-l', '--base', '-B', '--head', '-H', '--search', '-S'];
 const GH = {
   pr: {
-    create: BUILD('--fill --fill-first --fill-verbose --title: -t: --body: -b: --base: -B: --head: -H: --draft -d --label: -l: --reviewer: -r: --assignee: -a: --milestone: -m: --no-maintainer-edit --body-file: -F:'),
-    view: BUILD('--json: --jq: -q: --comments -c'), list: BUILD(GH_LIST.replace('--web', '')), status: BUILD(''), checks: BUILD('--watch --required --json: --jq: -q: --interval: -i:'), diff: BUILD('--name-only --patch --color:'), checkout: BUILD('--detach'),
+    create: BUILD('--fill --fill-first --fill-verbose --title: -t: --body: -b: --base: -B: --head: -H: --draft -d --label: -l: --reviewer: -r: --assignee: -a: --milestone: -m: --no-maintainer-edit --body-file: -F:', { text: ['--title', '-t', '--body', '-b', '--base', '-B', '--head', '-H', '--label', '-l', '--reviewer', '-r', '--assignee', '-a', '--milestone', '-m'] }),
+    view: BUILD('--json: --jq: -q: --comments -c', { text: GH_TEXT }), list: BUILD(GH_LIST.replace('--web', ''), { text: GH_TEXT }), status: BUILD(''), checks: BUILD('--watch --required --json: --jq: -q: --interval: -i:'), diff: BUILD('--name-only --patch --color:'), checkout: BUILD('--detach'),
   },
   issue: { view: BUILD('--json: --jq: -q: --comments -c'), list: BUILD(GH_LIST.replace('--web', '')), status: BUILD('') },
   repo: { view: BUILD('--json: --jq: -q') },
@@ -605,9 +620,9 @@ function pkgCheck(prog, args, ctx) {
   const dd = args.findIndex((x) => x.t === '--');
   const before = dd < 0 ? args : args.slice(0, dd);
   const after = dd < 0 ? [] : args.slice(dd + 1);
-  for (const x of after) { if (pathlike(x.t)) mustBeInside(x, ctx); }
+  for (const x of after) pathInside(x, ctx);
   const { pos, vals } = parse(PKG_FLAGS, before, prog);
-  for (const [, x] of vals) if (pathlike(x.t)) mustBeInside(x, ctx);
+  for (const [, x] of vals) pathInside(x, ctx);
   const sub = pos[0]?.t;
   // workspace flags send a script to other packages, whose package.json is not the one read (C3)
   const wsFlag = before.some((x) => /^(-w|--workspace|--workspaces|-ws|--filter|-F|-r|--recursive)$/.test(x.t) || /^--(workspace|filter)=/.test(x.t) || /^-[wF]./.test(x.t));
@@ -616,7 +631,7 @@ function pkgCheck(prog, args, ctx) {
   const more = pos.slice(1);
   const hasIgnore = before.some((x) => x.t === '--ignore-scripts');
   const names = (list) => { for (const x of list) if (!PKG_NAME.test(x.t) || pathlike(x.t) || /^(https?|git|file|github):/.test(x.t)) ask('a package that is not a plain registry name'); };
-  const extraArgs = (list) => { for (const x of list) if (pathlike(x.t)) mustBeInside(x, ctx); };
+  const extraArgs = (list) => { for (const x of list) pathInside(x, ctx); };
   if (!sub) { if (prog === 'npm' || prog === 'pnpm' || prog === 'yarn' || prog === 'bun') { if (args.some((x) => x.t === '--version' || x.t === '-v')) return; if (prog === 'yarn' || prog === 'bun') ask(`${prog} with no command`); } ask(`${prog} with no command`); }
   if (['test', 't', 'tst', 'start', 'stop', 'restart'].includes(sub)) { noWorkspaces(); extraArgs(more); return; }
   if (['run', 'run-script', 'rum', 'urun'].includes(sub)) { noWorkspaces(); if (!more[0] || !SCRIPT_NAME.test(more[0].t) || (prog === 'bun' && (!BARE_SCRIPT.test(more[0].t) || FILE_LIKE.test(more[0].t)))) ask('a script name Starbase does not read'); extraArgs(more.slice(1)); return; }
@@ -643,7 +658,7 @@ function scriptRun(prog, flagSpec, args, ctx) {
     if (!pos.length) ask(`${prog} with no script file`);
     mustBeInside(pos[0], ctx);
   }
-  for (const x of pos.slice(1)) if (pathlike(x.t)) mustBeInside(x, ctx);
+  for (const x of pos.slice(1)) pathInside(x, ctx);
 }
 function nodeCheck(args, ctx) {
   const test = args.some((x) => x.t === '--test');
@@ -676,14 +691,14 @@ function goCheck(args, ctx) {
   if (!['test', 'build', 'vet', 'fmt', 'env'].includes(sub)) ask(`the go command ${sub}`);
   for (let k = 1; k < args.length; k++) {
     const t = args[k].t;
-    if (!t.startsWith('-')) { if (pathlike(t)) mustBeInside(args[k], ctx); continue; }
+    if (!t.startsWith('-')) { pathInside({ ...args[k], t: t.replace(/\/\.\.\.$/, '') || '.' }, ctx); continue; } // x/... is go's "every package under x"
     const name = t.split('=')[0];
     if (sub === 'env') ask('a go env option');
     if (GO_BOOL.has(name) && !t.includes('=')) continue;
     if (GO_VAL.has(name)) {
       const v = t.includes('=') ? { t: t.slice(t.indexOf('=') + 1), glob: false } : args[++k];
       if (!v) ask(`the value of ${name}`);
-      if (name === '-o' || pathlike(v.t)) mustBeInside(v, ctx);
+      if (name === '-o') mustBeInside(v, ctx); else pathInside(v, ctx);
       continue;
     }
     ask(`the option ${name} of go`);
@@ -698,7 +713,7 @@ function subTable(prog, table, args, ctx) {
   const after = args.slice(i + 1);
   const dd = after.findIndex((x) => x.t === '--');
   const own = dd < 0 ? after : after.slice(0, dd);
-  for (const x of dd < 0 ? [] : after.slice(dd + 1)) if (pathlike(x.t)) mustBeInside(x, ctx);
+  for (const x of dd < 0 ? [] : after.slice(dd + 1)) pathInside(x, ctx);
   check(table[args[i].t], own, ctx, `${prog} ${args[i].t}`);
 }
 
@@ -806,7 +821,7 @@ export function plainWhy(command, env = {}) {
         const at = physicalPath(name, cands[0]);
         const bin = at && /\/node_modules\/\.bin\/([^/]+)$/.exec(at);
         if (!inRoots(at, roots) || !cands.every((c) => inRoots(physicalPath(name, c), roots))) ask('a program given by a path outside the job');
-        if (bin) name = bin[1]; else { for (const x of args) if (pathlike(x.t)) mustBeInside(x, ctx); continue; } // a script of the job's own: its text is read by the caller
+        if (bin) name = bin[1]; else { for (const x of args) pathInside(x, ctx); continue; } // a script of the job's own: its text is read by the caller
       }
       if (!READ_ONLY.has(name) && !(name === 'git' && GIT_READS.has(args.find((x) => !x.t.startsWith('-'))?.t)) && !cands.every((c) => inRoots(physicalPath('.', c), roots))) ask('a command that changes things, run from a folder outside the job');
       words.forEach((x, k) => {

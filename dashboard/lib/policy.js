@@ -462,14 +462,26 @@ function judgeWords(w, ctx, simple) {
   }
   if ((cmd === 'npm' || cmd === 'pnpm' || cmd === 'yarn') && BUILD_STAGES.has(ctx.stage)) {
     const script = rest[0] === 'run' ? rest[1] : rest[0];
-    if (rest[0] === 'test' || (rest[0] === 'run' && CHECK_SCRIPTS.test(script ?? ''))) return /db|e2e|integration|migrat/i.test(simple) ? 'touches a database or runs end-to-end tests' : 'ok';
+    if (rest[0] === 'test' || (rest[0] === 'run' && CHECK_SCRIPTS.test(script ?? ''))) return /db|e2e|integration|migrat/i.test(simple) ? 'touches a database or runs end-to-end tests' : pathWordsInside(rest, ctx);
     // Scripts named db:* that never touch a database: they read or rename migration files in the worktree.
-    if (rest[0] === 'run' && NOT_DB_SCRIPT.test(script ?? '')) return 'ok';
+    if (rest[0] === 'run' && NOT_DB_SCRIPT.test(script ?? '')) return pathWordsInside(rest, ctx);
     return `${cmd} ${rest[0] ?? ''} needs your OK`.trim();
   }
-  if (cmd === 'npx' && BUILD_STAGES.has(ctx.stage) && /^(tsc|vitest|eslint|prettier|jest)$/.test(rest[0] ?? '') && !rest.includes('--write') && !rest.includes('--fix')) return 'ok';
-  if (cmd === 'node' && rest[0] === '--test' && BUILD_STAGES.has(ctx.stage)) return 'ok';
+  if (cmd === 'npx' && BUILD_STAGES.has(ctx.stage) && /^(tsc|vitest|eslint|prettier|jest)$/.test(rest[0] ?? '') && !rest.includes('--write') && !rest.includes('--fix')) return pathWordsInside(rest, ctx);
+  if (cmd === 'node' && rest[0] === '--test' && BUILD_STAGES.has(ctx.stage)) return pathWordsInside(rest, ctx);
   return `${cmd} needs your OK`;
+}
+
+// A build or test command's words that could be paths (the part after the first = when there is one, when
+// it holds a /, starts with ~ or is ..) must land in the job's folders or a temp folder (C3).
+function pathWordsInside(words, ctx) {
+  for (const w of words) {
+    const v = w.includes('=') ? w.slice(w.indexOf('=') + 1) : w;
+    if (!(v.includes('/') || v.startsWith('~') || v === '..')) continue;
+    const abs = resolvePath(v, ctx.cwd);
+    if (!abs || ![...ctx.writableDirs, ...TEMP_DIRS].some((d) => inside(abs, d))) { markOutside(ctx, abs); return 'names a path outside the job’s folders'; }
+  }
+  return 'ok';
 }
 
 // Where a cd goes (absolute), null when unknown; undefined when the command isn't a cd.
