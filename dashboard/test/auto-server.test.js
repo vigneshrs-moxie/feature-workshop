@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -116,7 +117,7 @@ async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null,
   /** Wait for the Foreman's last reply to end. */
   const idle = () => until(async () => (await runner.read.runs()).runs.every((r) => !['starting', 'running', 'waiting_permission', 'stopping'].includes(r.status)), 'the reply to end');
   return {
-    get runner() { return runner; }, get driver() { return hooks.driver; }, root, dirs, dir, otherDir, slug, texts, asks, notes, lines, record, optionsFile, ownOptions, told, until, idle, writeStatus,
+    get runner() { return runner; }, get driver() { return hooks.driver; }, get local() { return hooks.local; }, get hooks() { return hooks; }, root, dirs, dir, otherDir, slug, texts, asks, notes, lines, record, optionsFile, ownOptions, told, until, idle, writeStatus,
     pass: () => runner.auto.pass(),
     /** A new runner on the same folders, as after Starbase is started again. */
     async restart() { runner.stop(); runner = await boot(); listen(); },
@@ -1793,6 +1794,70 @@ test('K2: a restart of an Auto job writes its unsaid money on an off line, leave
     const archived = JSON.parse(await fs.readFile(path.join(res.archive, 'session-record.json'), 'utf8'));
     assert.equal(archived.auto.on, false);
     assert.equal(archived.auto.spent, 0);
+  } finally { await w.stop(); }
+});
+
+test('C-M2: a restart refuses while a command from the job page runs, and stops the job page\'s app before anything moves', { timeout: 60_000 }, async () => {
+  const w = await restartedWorld({ auto: null });
+  try {
+    const stops = [];
+    w.local.stopServerAndWait = async (slug) => { stops.push({ slug, folderThere: fsSync.existsSync(path.join(w.dir, 'options.json')) }); return true; };
+    const busy = w.local.busy;
+    w.local.busy = (slug) => slug === w.slug;
+    await assert.rejects(w.runner.handle({ type: 'restart', slug: w.slug, model: FABLE }, { from: 'local' }), (err) => {
+      assert.equal(err.status, 409);
+      assert.equal(err.message, 'A command from the job page is still running in its worktree. Stop it first, then try again. Nothing was changed.');
+      return true;
+    });
+    assert.deepEqual(stops, [], 'a refused restart leaves your app running');
+    assert.ok(fsSync.existsSync(path.join(w.dir, 'options.json')), 'nothing moved');
+    w.local.busy = busy;
+    await restartIt(w);
+    assert.deepEqual(stops, [{ slug: w.slug, folderThere: true }], 'the app was stopped once, before the folder moved');
+  } finally { await w.stop(); }
+});
+
+test('C-M6: the restart hold is a test hook only: the environment of a real Starbase cannot hold a restart', { timeout: 60_000 }, async () => {
+  const w = await restartedWorld({ auto: null });
+  const hold = path.join(w.root, 'hold-restart');
+  await fs.writeFile(hold, '');
+  const release = setTimeout(() => { fs.rm(hold, { force: true }).catch(() => {}); }, 3000); // never hang the file on the old code
+  process.env.STARBASE_TEST_HOLD_RESTART = hold;
+  try {
+    await restartIt(w);
+    assert.equal(fsSync.existsSync(`${hold}.held`), false, 'the environment did not hold it');
+    // A runner made by a test holds it through its hooks.
+    await w.idle();
+    let held = null;
+    w.hooks.holdRestart = async (slug) => { held = slug; };
+    await restartIt(w);
+    assert.equal(held, w.slug);
+  } finally {
+    clearTimeout(release);
+    delete process.env.STARBASE_TEST_HOLD_RESTART;
+    await w.stop();
+  }
+});
+
+test('C-M3: mark done is refused while the job is being restarted', { timeout: 60_000 }, async () => {
+  const w = await restartedWorld({ auto: null });
+  try {
+    let release;
+    const held = new Promise((r) => { release = r; });
+    let entered;
+    const inside = new Promise((r) => { entered = r; });
+    const stop = w.local.stopServerAndWait;
+    w.local.stopServerAndWait = async (slug) => { entered(); await held; return stop.call(w.local, slug); };
+    const restart = w.runner.handle({ type: 'restart', slug: w.slug, model: FABLE }, { from: 'local' });
+    await inside;
+    await assert.rejects(w.runner.handle({ type: 'close', slug: w.slug, as: 'done' }, { from: 'local' }), (err) => {
+      assert.equal(err.status, 409);
+      assert.match(err.message, /being started again on another model/);
+      return true;
+    });
+    release();
+    await restart;
+    assert.equal((await w.lines()).filter((l) => l.action === 'close').length, 0, 'not marked');
   } finally { await w.stop(); }
 });
 

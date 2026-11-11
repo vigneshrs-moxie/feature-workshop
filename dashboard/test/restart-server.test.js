@@ -15,6 +15,7 @@ import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { STOP_HOOK } from '../lib/service.js';
+import { HOLD_HOOK } from './helpers/hold-restart.js';
 
 const DASHBOARD = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SERVER = path.join(DASHBOARD, 'server.js');
@@ -49,7 +50,8 @@ async function startDashboard(env) {
   const output = [];
   // Started the way the service's supervisor starts it (lib/service.js superviseServer): with
   // STOP_HOOK and a channel, so a clean stop works on Windows too, which has no SIGTERM to send.
-  const child = spawn(process.execPath, ['--import', STOP_HOOK, SERVER], { env: { ...process.env, ...env, PORT: String(port), WIREFRAMES_PORT: String(wport) }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+  // The restart hold (a test hook only) is preloaded when the test names its file.
+  const child = spawn(process.execPath, ['--import', STOP_HOOK, ...(env.STARBASE_TEST_HOLD_RESTART ? ['--import', HOLD_HOOK] : []), SERVER], { env: { ...process.env, ...env, PORT: String(port), WIREFRAMES_PORT: String(wport) }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
   children.add(child);
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);

@@ -217,6 +217,7 @@ export async function createRunner(config) {
   const planUsage = new PlanUsage({ enabled: planUsageOn });
   // Trying a job's work on this computer (its own port, dev server, commands, terminal, database).
   const local = new LocalRunner({ state, demo: DEMO });
+  if (testHooks && typeof testHooks === 'object') testHooks.local = local; // tests only, as the driver above
   // The Orbit token's store, once it is open (below); the driver reads it for each session's env.
   let orbitStoreReady = null;
   // Jobs being marked done right now (sends and automatic carry-ons wait).
@@ -2213,6 +2214,7 @@ export async function createRunner(config) {
     // POST /api/job/:slug/close
     async close(body) {
       const f = await jobOf(body.slug);
+      if (restarting.has(f.dir)) throw new HttpError(409, BEING_RESTARTED);
       if (driver.activeRunFor({ featureDir: f.dir })) throw new HttpError(409, 'The Foreman is working on a reply. Pause it first, then mark the job.');
       if (closing.has(f.dir)) throw new HttpError(409, 'This job is already being marked. Wait a moment.');
       const as = body.as === 'dropped' ? 'dropped' : 'done';
@@ -2302,17 +2304,14 @@ export async function createRunner(config) {
       if (restarting.has(f.dir)) throw new HttpError(409, 'This job is already being started again. Wait for that to finish. Nothing was changed.');
       restarting.add(f.dir);
       try {
-        // Test hook: while the file named here exists the restart waits (it writes <file>.held first), so a test can
-        // act while a restart is under way without depending on timing. Unset in real use.
-        const hold = process.env.STARBASE_TEST_HOLD_RESTART;
-        if (hold && fs.existsSync(hold)) {
-          await fsp.writeFile(`${hold}.held`, f.slug);
-          const until = Date.now() + 30_000; // a test that forgets to release it cannot hang the server
-          while (fs.existsSync(hold) && Date.now() < until) await new Promise((r) => { setTimeout(r, 20); });
-        }
+        // Tests only: a runner made by a test can hold a restart here (testHooks.holdRestart), so the test can act
+        // while a restart is under way without depending on timing. A real Starbase has no such hook.
+        if (typeof testHooks?.holdRestart === 'function') await testHooks.holdRestart(f.slug);
         if (!MODELS.some((x) => x.id === body.model)) throw new HttpError(400, 'That isn’t a model the Foreman can run on.');
         const drive = await driveState(f);
         if (drive.mode === 'running' || closing.has(f.dir)) throw new HttpError(409, 'Stop the reply first.');
+        // Nothing from the job page may still be working in the worktree that is about to move (as close checks).
+        if (local.busy(f.slug)) throw new HttpError(409, 'A command from the job page is still running in its worktree. Stop it first, then try again. Nothing was changed.');
         // What would stop the new job from starting is checked before anything is moved.
         if (limits.isLimited()) throw new HttpError(409, limitMessage(), { code: 'limited' });
         const repoPath = f.repoPath ?? f.options?.repo ?? '';
@@ -2339,7 +2338,8 @@ export async function createRunner(config) {
             // The old job's own permission setting, pause and run end are cleared before the new job starts, so its
             // first tool call never runs under them; put back when the restart is undone.
             // Auto goes off only once no refusal can come any more (restartJob calls this just before it moves anything).
-            beforeMoves: async () => { autoWasOn = await autoOff(f, 'restart'); },
+            // The job page's app is stopped here too, once no refusal can come, so a refusal leaves it running.
+            beforeMoves: async () => { await local.stopServerAndWait(f.slug); autoWasOn = await autoOff(f, 'restart'); },
             clearOldState: async () => {
               // The boundary: the old folder is archived, nothing of the new job is written yet. Every reader of this
               // folder's lines starts here (state.auditFor). If it can't be written the restart is put back.

@@ -14,6 +14,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDashboard } from './helpers/dashboard.js';
+import { HOLD_HOOK } from './helpers/hold-restart.js';
 import { OPUS, HAIKU, FABLE } from '../lib/options.js';
 import { parseCommand } from '../lib/protocol.js';
 import { State } from '../lib/state.js';
@@ -190,6 +191,7 @@ before(async () => {
       STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state, STARBASE_TEST_HOLD_RESTART: path.join(root, 'hold-restart'),
     },
     output,
+    nodeArgs: ['--import', HOLD_HOOK], // the restart hold, a test hook only
   });
   ({ base } = dashboard);
 });

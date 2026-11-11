@@ -193,6 +193,16 @@ test('an unanswered hand-back is finished too', () => {
   assert.equal(activityState(p), 'finished');
 });
 
+test('C-M1: a worker resumed with a new prompt after its hand-back is running before it writes again', () => {
+  const resumed = JSON.stringify({ type: 'user', timestamp: '2026-11-10T09:30:01Z', message: { role: 'user', content: 'Fix round: two things' } });
+  const p = parseSessionLog([...handedBackLog, resumed].join('\n'));
+  assert.equal(p.handedBack, false);
+  assert.equal(activityState(p), 'running');
+  const blocks = JSON.stringify({ type: 'user', timestamp: '2026-11-10T09:30:01Z', message: { role: 'user', content: [{ type: 'text', text: 'Fix round' }] } });
+  assert.equal(activityState(parseSessionLog([...handedBackLog, blocks].join('\n'))), 'running', 'a prompt in blocks too');
+  assert.equal(parseSessionLog(handedBackLog.join('\n')).handedBack, true, 'the hand-back\'s own tool result is no new prompt');
+});
+
 test('a hand-back followed by more work is not finished', () => {
   const p = parseSessionLog([...handedBackLog, toolCall('t3', 'Bash', '2026-11-10T09:03:00Z')].join('\n'));
   assert.equal(p.handedBack, false);

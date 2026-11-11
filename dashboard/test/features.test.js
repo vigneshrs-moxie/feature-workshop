@@ -221,3 +221,30 @@ test('I2: session logs that ended at or before the folder\'s last restart are no
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('C-M1: a worker resumed at 09:30:01 after handing back at 09:20 is running, not done', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-resumed-'));
+  const dir = path.join(root, 'feature-work', 'resumed');
+  await fs.mkdir(dir, { recursive: true });
+  const session = path.join(root, 'projects', '-tmp-repo', 's2');
+  await fs.mkdir(path.join(session, 'subagents'), { recursive: true });
+  const line = (o) => JSON.stringify({ sessionId: 's2', cwd: '/tmp/repo', ...o });
+  await fs.writeFile(`${session}.jsonl`, `${[
+    line({ type: 'user', timestamp: '2026-11-10T09:00:00Z', message: { role: 'user', content: `/feature Resumed. Private folder: ${dir}` } }),
+    line({ type: 'assistant', timestamp: '2026-11-10T09:00:05Z', message: { id: 'f1', model: 'claude-opus-5-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_W', name: 'Agent', input: { subagent_type: 'feature-implementer', description: 'Build it' } }] } }),
+    line({ type: 'user', timestamp: '2026-11-10T09:20:01Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_W', content: 'report' }] } }),
+    line({ type: 'assistant', timestamp: '2026-11-10T09:30:00Z', message: { id: 'f2', model: 'claude-opus-5-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_S', name: 'SendMessage', input: { to: 'w1', message: 'Fix round: two things' } }] } }),
+  ].join('\n')}\n`);
+  await fs.writeFile(path.join(session, 'subagents', 'agent-w1.jsonl'), `${[
+    line({ agentId: 'w1', isSidechain: true, type: 'user', timestamp: '2026-11-10T09:00:06Z', message: { role: 'user', content: 'Stage: Implement.' } }),
+    line({ agentId: 'w1', isSidechain: true, type: 'assistant', timestamp: '2026-11-10T09:20:00Z', message: { id: 'w1m', model: 'claude-opus-5-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_H', name: 'SubagentHandback', input: { message: 'done' } }] } }),
+    line({ agentId: 'w1', isSidechain: true, type: 'user', timestamp: '2026-11-10T09:30:01Z', message: { role: 'user', content: 'Fix round: two things' } }),
+  ].join('\n')}\n`);
+  await fs.writeFile(path.join(session, 'subagents', 'agent-w1.meta.json'), JSON.stringify({ agentType: 'feature-implementer', description: 'Build it', toolUseId: 'toolu_W' }));
+  try {
+    const [job] = await loadFeatures({ featuresDir: path.join(root, 'feature-work'), sessionIndex: new SessionIndex(path.join(root, 'projects')), now: Date.parse('2026-11-10T09:31:00Z') });
+    assert.equal(job.activity.find((a) => a.who === 'feature-implementer').state, 'running');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

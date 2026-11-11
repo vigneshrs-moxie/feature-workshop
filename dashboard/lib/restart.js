@@ -213,6 +213,17 @@ export async function restartJob(job, { model, git = realGit, fs = fsp, start, s
 
   if (beforeMoves) await beforeMoves();
 
+  // What is read for the moves below is read now (after beforeMoves, which can change the record), so a
+  // failed read moves nothing.
+  let record = null;
+  if (session) {
+    try { record = await session.read(job.dir); } catch (err) { throw refuse(`Starbase could not read this job's session record (${why(err)}), so it can't keep a copy of it.`); }
+  }
+  let waiting = [];
+  if (parked) {
+    try { waiting = await parked.read(job.dir); } catch (err) { throw refuse(`Starbase could not read the replies waiting to be sent for this job (${why(err)}).`); }
+  }
+
   const moved = []; // each: { what, from, to, undo }
   // Put back what moved, newest first. Stops at the first step that cannot be put back.
   const putBack = async (reason, options = {}) => {
@@ -237,7 +248,6 @@ export async function restartJob(job, { model, git = realGit, fs = fsp, start, s
     await fs.rename(job.dir, plan.archiveDir);
   }, () => fs.rename(plan.archiveDir, job.dir));
   if (session) {
-    const record = await session.read(job.dir);
     if (record) {
       const copy = path.join(plan.archiveDir, 'session-record.json');
       let cleared = false;
@@ -256,7 +266,6 @@ export async function restartJob(job, { model, git = realGit, fs = fsp, start, s
   }
   // A reply or go-ahead waiting to be sent for this job is copied into the archive; it is forgotten
   // (never sent) only once the new job has started.
-  const waiting = parked ? await parked.read(job.dir) : [];
   if (waiting.length) {
     const copy = path.join(plan.archiveDir, 'parked-reply.json');
     await step('the reply waiting to be sent', 'the paused jobs list', copy, () => fs.writeFile(copy, `${JSON.stringify(waiting, null, 2)}\n`, { mode: 0o600 }), () => fs.rm(copy, { force: true }));

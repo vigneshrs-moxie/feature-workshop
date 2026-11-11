@@ -63,6 +63,8 @@ const runner = await createRunner({
   orbitStore: DEMO || process.env.STARBASE_ORBIT_STORE === 'file' ? 'file' : 'auto',
   integrateDir: path.resolve(process.env.STARBASE_DIR || ready?.dir || defaultStateDir()),
   integrateRoot: path.resolve(process.env.INTEGRATE_ROOT || path.join(HERE, '..')),
+  // Set only by a test's preload (test/helpers/hold-restart.js); a real Starbase never has it.
+  testHooks: globalThis.starbaseTestHooks ?? null,
 });
 // The site: the page, its routes and its streams, on PORT (site/index.js); the screens server's
 // pages on WIREFRAMES_PORT. Both ask the runner for everything.

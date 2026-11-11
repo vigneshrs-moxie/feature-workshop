@@ -40,3 +40,20 @@ test('I2: restartTimes gives each folder the time of its last restart that still
   ];
   assert.deepEqual(restartTimes(lines), { '/f/a': 't2', '/f/b': 't3' }, 'a restart put back does not count; a refusal cancels nothing');
 });
+
+test('C-M5: clearSession forgets the record in memory only once the write worked', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sb-clear-session-'));
+  const state = new State(dir);
+  await state.setSession('/f/job', { sessionId: 's1', model: 'm' });
+  await fs.chmod(dir, 0o500); // the write cannot land
+  try {
+    await assert.rejects(state.clearSession('/f/job'));
+    assert.equal((await state.sessionFor('/f/job'))?.sessionId, 's1', 'memory still matches the file');
+    assert.equal(JSON.parse(await fs.readFile(path.join(dir, 'sessions.json'), 'utf8'))['/f/job'].sessionId, 's1');
+  } finally {
+    await fs.chmod(dir, 0o700);
+  }
+  await state.clearSession('/f/job');
+  assert.equal(await state.sessionFor('/f/job'), null);
+  assert.equal(JSON.parse(await fs.readFile(path.join(dir, 'sessions.json'), 'utf8'))['/f/job'], undefined);
+});

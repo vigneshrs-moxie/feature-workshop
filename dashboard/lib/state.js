@@ -156,11 +156,17 @@ export class State extends EventEmitter {
   }
 
   /** Forget a job's session record (its Foreman); the caller has kept a copy. */
+  // The file is written first; the record is forgotten in memory only once that write worked, so a
+  // failed write leaves memory matching the file.
   async clearSession(featureDir) {
     const all = await this.allSessions();
     if (!(featureDir in all)) return;
-    delete all[featureDir];
-    await this.#writeJson(this.sessionsFile, all);
+    const record = all[featureDir];
+    const { [featureDir]: _left, ...rest } = all;
+    await this.#writeJson(this.sessionsFile, rest);
+    if (all[featureDir] === record) delete all[featureDir]; // unless it was set again meanwhile
+    // A write queued while this one ran took its picture with the record in it: write once more without it.
+    if (this.#writing.has(this.sessionsFile)) await this.#writeJson(this.sessionsFile, all);
   }
 
   // Starbase's settings.
