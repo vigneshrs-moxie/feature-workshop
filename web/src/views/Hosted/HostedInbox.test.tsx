@@ -27,7 +27,7 @@ const ticket = (n: number, extra: Partial<InboxItem> = {}): InboxItem => ({
 const REPOS = [{ name: 'orbit', default: true }, { name: 'starbase', default: false }];
 const lap = (id: number, name: string, online: boolean): Laptop => ({ id, name, os: 'macOS', version: '0.1.0', pairedAt: ago(86_400_000 * 5), lastSeenAt: ago(online ? 5_000 : 3_600_000), online });
 
-interface Site { suggest?: InboxSuggestion | null; status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** What the laptop's settings (mirrored) say about Auto start. */ autoStart?: { on: boolean; tag: string }; /** Start answers only once this settles. */ hold?: Promise<void> }
+interface Site { suggest?: InboxSuggestion | null; status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** What the laptop's settings (mirrored) say about Auto start. */ autoStart?: { on: boolean; tag: string }; /** What the laptop mirrors after an Auto start change: what was sent (default), nothing yet (false), or something else. */ autoTakes?: false | { on: boolean; tag: string }; /** Start answers only once this settles. */ hold?: Promise<void> }
 
 function site(over: Partial<Site> = {}) {
   const s: Site = { status: STATUS, items: [ticket(12), ticket(13, { severity: 'low' })], laptops: [lap(7, 'Olive’s Mac', true)], calls: [], ...over };
@@ -41,7 +41,12 @@ function site(over: Partial<Site> = {}) {
     if (path === '/api/meta') return json(200, { mode: 'hosted', person: OLIVE, signIn: '/api/auth/start', missing: [] });
     if (path === '/api/orbit/inbox' || path === '/api/orbit/inbox?refresh=1') return json(200, answer());
     if (path === '/api/snapshot') return json(200, { meta: { settings: { workflow: { finishLine: 'pr1-merged', ...(s.autoStart ? { autoStart: s.autoStart } : {}) } } } });
-    if (path === '/api/orbit/auto-start' && method === 'POST') { s.autoStart = { on: body?.on as boolean, tag: String(body?.tag).trim() }; return json(200, { ok: true }); }
+    if (path === '/api/orbit/auto-start' && method === 'POST') {
+      // As hosted/site/routes-orbit.js answers: queued for the laptop, with whether it is there.
+      if (s.autoTakes !== false) s.autoStart = s.autoTakes ?? { on: body?.on as boolean, tag: String(body?.tag).trim() };
+      const l = s.laptops[0];
+      return json(200, { ok: true, queued: true, sent: false, commandId: 5, laptop: { id: l.id, name: l.name, online: l.online } });
+    }
     if (path === '/api/orbit/status') return json(200, s.status);
     if (path === '/api/laptops') return json(200, { laptops: s.laptops });
     if (path === '/api/orbit/token' && method === 'POST') {
@@ -371,6 +376,46 @@ describe('Auto start on the website', () => {
     await waitFor(() => expect(s.calls.find((c) => c.path === '/api/orbit/auto-start')?.body).toEqual({ on: true, tag: 'auto' }));
     await waitFor(() => expect(box).toBeChecked());
     expect(within(group).queryByText(/doesn’t show tags/)).toBeNull();
+  });
+
+  // Deep review D, I4: the website does not say "Saved" for something only the laptop can do.
+  it('Settings → Orbit: Auto start goes to the laptop; the switch keeps the laptop’s value and one line says it was sent', async () => {
+    go('#/settings/orbit');
+    const { s, api } = site({ autoStart: { on: false, tag: 'auto' }, autoTakes: false });
+    render(<HostedApp api={api} />);
+    const group = await screen.findByRole('group', { name: 'Auto start' });
+    const box = within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' });
+    await waitFor(() => expect(within(group).getByLabelText('Orbit tag')).toHaveValue('auto'));
+    fireEvent.click(box);
+    expect(await within(group).findByText('Sent to your laptop. It takes effect there.')).toBeInTheDocument();
+    expect(box).not.toBeChecked();
+    expect(group).not.toHaveTextContent('Saved');
+    // The laptop takes it and the site mirrors it: the switch shows it, and the line goes.
+    s.autoStart = { on: true, tag: 'auto' };
+    await waitFor(() => expect(box).toBeChecked(), { timeout: 5000 });
+    await waitFor(() => expect(within(group).queryByText('Sent to your laptop. It takes effect there.')).toBeNull());
+  });
+
+  it('Settings → Orbit: with the laptop not connected the line says it waits for the laptop', async () => {
+    go('#/settings/orbit');
+    const { api } = site({ autoStart: { on: false, tag: 'auto' }, autoTakes: false, laptops: [lap(7, 'Olive’s Mac', false)] });
+    render(<HostedApp api={api} />);
+    const group = await screen.findByRole('group', { name: 'Auto start' });
+    await waitFor(() => expect(within(group).getByLabelText('Orbit tag')).toHaveValue('auto'));
+    fireEvent.click(within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' }));
+    expect(await within(group).findByText('Waiting for your laptop.')).toBeInTheDocument();
+    expect(group).not.toHaveTextContent('Saved');
+  });
+
+  it('Settings → Orbit: when the laptop’s value arrives and differs from what was sent, it says the laptop did not take it', async () => {
+    go('#/settings/orbit');
+    const { api } = site({ autoStart: { on: false, tag: 'auto' }, autoTakes: { on: false, tag: 'other' } });
+    render(<HostedApp api={api} />);
+    const group = await screen.findByRole('group', { name: 'Auto start' });
+    await waitFor(() => expect(within(group).getByLabelText('Orbit tag')).toHaveValue('auto'));
+    fireEvent.click(within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' }));
+    expect(await within(group).findByText('Your laptop did not take this change.', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' })).not.toBeChecked();
   });
 
   it('Settings → Orbit says when Orbit shows no tags to the token', async () => {

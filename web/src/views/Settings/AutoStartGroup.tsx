@@ -19,7 +19,7 @@ export const AUTO_START_WORDS = {
   noTags: 'Orbit doesn’t show tags to your token, so nothing starts by itself.',
 } as const;
 
-export function AutoStartGroup({ setting, tagsShown, busy = false, onSave, className = 'workflow-choice' }: {
+export function AutoStartGroup({ setting, tagsShown, busy = false, onSave, className = 'workflow-choice', laptopNote }: {
   setting: AutoStartSetting | undefined;
   /** false: Orbit shows no tags to this token; undefined: not known (nothing is said). */
   tagsShown?: boolean;
@@ -27,6 +27,11 @@ export function AutoStartGroup({ setting, tagsShown, busy = false, onSave, class
   /** Saves the whole setting; rejects with the reason in words. */
   onSave: (next: AutoStartSetting) => Promise<void>;
   className?: string;
+  /**
+   * The website (I4): it only queues the change for the laptop, so there is no "Saved"; this one line
+   * under the group says where the change is instead (null: nothing to say now).
+   */
+  laptopNote?: string | null;
 }) {
   const id = useId();
   const saved = useSaved();
@@ -38,7 +43,7 @@ export function AutoStartGroup({ setting, tagsShown, busy = false, onSave, class
 
   async function save(next: AutoStartSetting) {
     setProblem(null);
-    try { await onSave(next); saved.mark('auto-start'); } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); }
+    try { await onSave(next); if (laptopNote === undefined) saved.mark('auto-start'); } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); }
   }
   const trimmed = draft.trim();
   const needsTag = on === false && !trimmed;
@@ -74,6 +79,7 @@ export function AutoStartGroup({ setting, tagsShown, busy = false, onSave, class
       {needsTag && problem === AUTO_START_WORDS.needTag && <p className="field-problem" role="alert">{AUTO_START_WORDS.needTag}</p>}
       {on && tagsShown === false && <p className="field-problem" role="status">{AUTO_START_WORDS.noTags}</p>}
       {problem && problem !== AUTO_START_WORDS.needTag && <p className="field-problem" role="alert">{problem}</p>}
+      {laptopNote !== undefined && <p className="muted settings-note-under" role="status">{laptopNote ?? ''}</p>}
     </SettingGroup>
   );
 }

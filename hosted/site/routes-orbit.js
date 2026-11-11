@@ -200,6 +200,7 @@ export default function orbitRoutes(ctx) {
     {
       // Settings → Orbit → Auto start: only the setting. It is queued for one laptop as the auto-start command
       // (lib/protocol.js checks it); the site never starts a job, only that laptop's own starter does.
+      // This is the one road for it: the mirror's command handler takes no auto-start.
       method: 'POST', path: '/api/orbit/auto-start', auth: 'session',
       async run({ req, res, person }) {
         const b = await ctx.readJson(req, { max: 1024 });
@@ -212,7 +213,9 @@ export default function orbitRoutes(ctx) {
         } else if (laptops.length === 1) laptop = laptops[0];
         else throw new HttpError(409, 'Choose which laptop to set.', { code: 'choose-laptop', laptops });
         const commandId = await ctx.queueCommand(laptop.id, { type: 'auto-start', on: b.on, tag: b.tag }, { by: person.id });
-        sendJson(res, 200, { ok: true, commandId, laptop: { id: laptop.id, name: laptop.name } });
+        // As the site's other laptop commands answer: queued for that laptop, not done, and whether it is
+        // there to take it now. The page goes on showing the laptop's own value until it mirrors the change.
+        sendJson(res, 200, { ok: true, queued: true, sent: false, commandId, laptop: { id: laptop.id, name: laptop.name, online: laptop.online === true } });
       },
     },
     {
