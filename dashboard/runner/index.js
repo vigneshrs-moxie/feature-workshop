@@ -1541,6 +1541,8 @@ export async function createRunner(config) {
         briefAt: cb?.at ?? null,
         artifacts: (f.recordedArtifacts ?? []).map((a) => a?.path).filter((x) => typeof x === 'string' && x),
         running: Boolean(driver.activeRunFor({ featureDir: f.dir })), locked: Boolean(locked), restarting: restarting.has(f.dir), paused: limits.isLimited(),
+        // A reply cut off by a crash or a restart that could not carry it on: it waits for Resume, which only the person presses.
+        cutOff: restartPaused.get(f.dir)?.how === 'crash',
         worktrees, specDirs,
       });
     }
@@ -3224,6 +3226,8 @@ export async function createRunner(config) {
     }
     return jobs;
   }
+  // Tests only: the replay start() makes, without the watchers and timers start() opens.
+  if (testHooks && typeof testHooks === 'object') testHooks.replay = replayRestart;
 
   // ---------- Start and stop ----------
 

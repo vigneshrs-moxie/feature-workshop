@@ -2148,6 +2148,62 @@ test('L2: an update callback never makes a record on a job that had none', { tim
   assert.deepEqual(made.filter((m) => m !== null), [], 'none made a record');
 });
 
+// ---------- I3: an Auto job that nothing is moving stops and says so ----------
+
+const IDLE = 'nothing is running on this job and no step waits, so it needs you.';
+const CUT_OFF = 'Starbase stopped while this job was working, so it needs you: press Resume.';
+
+test('I3 (E1): an Auto job with no reply running, no step waiting and not "needs you" stops after ten minutes of passes, once', { timeout: 30_000 }, async () => {
+  let t = Date.parse('2026-10-02T10:00:00Z');
+  const u = unit({ job: () => ({ gate: null, needsYou: false, stage: 'implement', stageState: 'working' }), now: () => new Date(t) });
+  const at = async (minutes) => { t = Date.parse('2026-10-02T10:00:00Z') + minutes * 60_000; await u.auto.pass(); };
+  await at(0);
+  await at(1);
+  await at(9);
+  assert.equal(u.record().stopped, null, 'nothing at 9 minutes');
+  assert.equal(u.notes.length, 0);
+  await at(11);
+  assert.deepEqual({ rule: u.record().stopped?.rule, reason: u.record().stopped?.reason }, { rule: 'blocked', reason: IDLE });
+  assert.equal(u.notes.length, 1);
+  assert.equal(u.notes[0].body, `Auto stopped: ${IDLE} Open the job to answer.`);
+  assert.equal(u.lines.filter((l) => l.what === 'stop').length, 1);
+  await at(60);
+  assert.equal(u.notes.length, 1, 'none again');
+  assert.equal(u.asks.length, 0);
+});
+
+test('I3: a reply that was cut off and waits for Resume stops Auto at once', { timeout: 30_000 }, async () => {
+  const u = unit({ job: () => ({ gate: null, cutOff: true, stage: 'implement', stageState: 'working' }) });
+  await u.auto.pass();
+  assert.deepEqual({ rule: u.record().stopped?.rule, reason: u.record().stopped?.reason }, { rule: 'blocked', reason: CUT_OFF });
+  assert.equal(u.notes.length, 1);
+  assert.equal(u.lines.filter((l) => l.what === 'stop').length, 1);
+});
+
+test('I3 (E2): Starbase crashed in the middle of an Auto job\'s reply; at start-up Auto stops, tells the person once, and the job is in Needs you', { timeout: 30_000 }, async () => {
+  const w = await world({
+    auto: { ...autoRecord(null, { on: true, now: OLD }), lastBrief: 1, step: { stage: 'plan', count: 1 } },
+    jobStatus: status(1, { stage: 'implement', stage_state: 'working', waiting_for: null, waiting_since: null, questions: [] }),
+  });
+  try {
+    const sessionId = crypto.randomUUID();
+    await auditLine(w, { at: AT(0), action: 'service-start', pid: 1, featureDir: undefined, slug: undefined });
+    await auditLine(w, { at: AT(1), action: 'send', sessionId, runId: 'r-auto', kind: 'approve', gateBrief: 1, by: 'auto', text: 'I approve.' });
+    // No run-ended and no service-stop: the process died. Start-up reads that (the replay), then the pass runs.
+    await w.hooks.replay();
+    await w.pass();
+    const rec = await w.record();
+    assert.deepEqual({ on: rec.on, rule: rec.stopped?.rule, reason: rec.stopped?.reason }, { on: true, rule: 'blocked', reason: CUT_OFF });
+    await w.told(1);
+    assert.equal(w.notes.length, 1);
+    assert.equal(w.asks.length, 0);
+    await new Promise((r) => setTimeout(r, 1700));
+    const card = (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
+    assert.equal(card.lane, 'needs-you');
+    assert.equal(card.laneReason, `Auto stopped: ${CUT_OFF}`);
+  } finally { await w.stop(); }
+});
+
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------
 
 test('I2: the person sent brief 1 back, then 401 lines; the reply ended with the gate still on brief 1: the Approver is not asked', { timeout: 30_000 }, async () => {

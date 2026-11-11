@@ -52,6 +52,9 @@ const DECIDES = new Set(DECIDING_KINDS);
 const OWN_SENDS = new Set(['nudge', 'resume-after-restart', 'status-fix', 'pr-feedback', 'review-round', 'stack-section']);
 /** Auto's stop when the person wrote to a job while its step waited (I5). */
 const YOURS_NOW = 'you wrote to this job while this step waited, so it is yours to decide.';
+/** Auto's stop for a job nothing moves (I3): after ten minutes, or at once for a reply cut off by a crash or restart. */
+const IDLE = 'nothing is running on this job and no step waits, so it needs you.';
+const CUT_OFF = 'Starbase stopped while this job was working, so it needs you: press Resume.';
 /** "Not now" this many times running on one gate stops Auto, like the Approver failing twice. */
 const NOT_NOW_LIMIT = 3;
 /** A gate Auto can't act on (stale, or no brief number) stops Auto after this long. */
@@ -169,6 +172,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     }
     if (job.auto.stopped) { await carryOnIfYouDecided(job); return null; }
     if (job.running || job.locked || job.paused) return null;
+    // A reply cut off by a Starbase crash or restart waits for Resume, which only the person presses: no ten minutes for that.
+    if (job.cutOff) { await stop(job, { rule: 'blocked', reason: CUT_OFF }); return null; }
     // A suggested L1 or L2 above the job's level is applied before the gate is answered (never lowered).
     const suggested = job.suggestedLevel;
     if ((suggested === 1 || suggested === 2) && !(job.level >= suggested)) {
@@ -177,17 +182,19 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     const gate = job.gate && !job.gate.stale && job.gate.briefNumber !== null && !job.answered.includes(job.gate.briefNumber) && job.gate.briefNumber !== job.auto.lastBrief ? job.gate : null;
     const hit = stopFor(job, job.auto, gate);
     if (hit) { await stop(job, hit); return null; }
-    // The job waits for the person by its own record (a gate card, or needsYou) and this pass found no step Auto can act on
-    // (stale, no brief number, or the brief is already answered): nobody is told by the pass, so after a while Auto says so.
-    if ((job.gate || job.needsYou === true) && !gate) {
+    // This pass found no step Auto can act on, and nothing is running, locked or paused: the job waits for the person by its
+    // own record (a gate card that is stale, has no brief number or was answered; or needsYou), or nothing moves it at all
+    // (a reply that ended with the job still working). Nobody is told by the pass, so after a while Auto says so.
+    if (!gate) {
       const first = stuckFirst ?? now().getTime();
       if (now().getTime() - first >= STUCK_MS) {
-        await stop(job, { rule: 'blocked', reason: "the step that waits can't be approved as it stands, so it needs you." });
+        const waits = Boolean(job.gate) || job.needsYou === true;
+        await stop(job, { rule: 'blocked', reason: waits ? "the step that waits can't be approved as it stands, so it needs you." : IDLE });
         return null;
       }
       stuckSince.set(job.dir, first);
+      return null;
     }
-    if (!gate) return null;
     const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage });
     if (route) { await stop(job, route); return null; }
     return gate;

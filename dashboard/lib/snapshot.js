@@ -103,6 +103,8 @@ export function laneFor(card, { lane = null, pending = [] } = {}) {
   }
   // A stack part that failed its checks three times stops and needs you (lib/stack.js).
   if (card.stuck) return needs(`${card.stuck} is stuck and needs you`);
+  // An Auto job that stopped waits for you, whatever else holds it (paused by a restart, nothing running), until a reply runs.
+  if (card.auto?.on === true && card.auto.stopped && !card.working && !card.starting) return needs(`Auto stopped: ${card.auto.stopped.reason ?? 'it waits for you'}`);
 
   if (card.working || card.starting) {
     const doing = (Array.isArray(card.nowDoing) ? card.nowDoing : []).find((d) => d?.doing)?.doing;
