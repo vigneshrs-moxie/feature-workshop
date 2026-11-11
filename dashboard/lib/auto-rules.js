@@ -684,7 +684,9 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   // A word with a space in it is a path too (N2): always for the read and copy programs, and for any program when it starts with / ~ or .
   const secretWord = (t, every = false) => {
     if (typeof t !== 'string' || !t || (/\s/.test(t) && !every && !/^[/~.]/.test(t))) return false;
-    for (const x of t.startsWith('-') && t.includes('=') ? [t.slice(t.indexOf('=') + 1)] : t.startsWith('-') ? [] : [t, t.includes('=') ? t.slice(t.indexOf('=') + 1) : t]) {
+    // an option's value after =, or glued to a short option (-f/abs, -C/abs) as pathCandidates reads it (R7)
+    const glued = /^-[A-Za-z]([^=].*)$/.exec(t)?.[1];
+    for (const x of t.startsWith('-') && t.includes('=') ? [t.slice(t.indexOf('=') + 1), ...(glued && glued.includes('/') ? [glued] : [])] : t.startsWith('-') ? (glued ? [glued] : []) : [t, t.includes('=') ? t.slice(t.indexOf('=') + 1) : t]) {
       if (secretPlace(physicalPath(x, cwd ?? st.hint ?? null), st.roots, ctx)) return true;
       // a word relative to a folder an earlier cd went to, however the commands are joined (C1)
       if (!/^[/~]/.test(x) && st.cdTargets.some((d) => secretPlace(physicalPath(x, d), st.roots, ctx))) return true;
@@ -722,7 +724,8 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   const args = rest.slice(1);
   const a = args.map((x) => x.t);
   const xargs = wrappers.includes('xargs') || viaXargs === true;
-  const pos = (list = args) => { const o = []; let opts = true; for (const x of list) { if (opts && x.t === '--') { opts = false; continue; } if (opts && x.t.startsWith('-') && x.t !== '-') continue; o.push(x); } return o; };
+  // The words that are not options; a path glued to a short option (-C/abs, -e/abs, -o/abs) is one too, as its spaced form (R7).
+  const pos = (list = args) => { const o = []; let opts = true; for (const x of list) { if (opts && x.t === '--') { opts = false; continue; } if (opts && /^-[A-Za-z][/~.]/.test(x.t) && list === args) { o.push({ t: x.t.slice(2), dyn: x.dyn }); continue; } if (opts && x.t.startsWith('-') && x.t !== '-') continue; o.push(x); } return o; };
   const valueOf = (re) => { const k = a.findIndex((x) => re.test(x)); return k < 0 ? null : (/=/.test(a[k]) && a[k].startsWith('--') ? { t: a[k].slice(a[k].indexOf('=') + 1), dyn: args[k].dyn } : args[k + 1] ?? { t: '', dyn: true }); };
   // A write program's targets can't be known when xargs feeds them in.
   const writes = (targets, content = true) => { if (xargs) hit('outside'); for (const t of targets) { if (out(t)) hit('outside'); noteWrite(t); if (content) recordWrite(t); } };
@@ -745,7 +748,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   if (/^(curl|wget|nc|ncat|netcat|telnet|ssh|socat|sftp|scp)$/.test(cmd) && a.some((x) => namesThisComputer(x))) hit('outside'); // a call to this computer, on any port
   if ((cmd === 'curl' || cmd === 'wget') && a.some((x) => URL_CREDENTIALS.test(x))) hit('outside'); // a name and password in an address (C5)
   // A read program's path words in the home folder (or on another disk) outside the job's folders ask (C5).
-  if (READ_PATHS.has(cmd) && a.some((x) => (x.includes('/') || x.startsWith('~') || x === '..') && readElsewhere(physicalPath(x.includes('=') && x.startsWith('-') ? x.slice(x.indexOf('=') + 1) : x, cwd ?? st.hint ?? null), st.readRoots))) st.asks.push('a read outside the job\'s folders');
+  if (READ_PATHS.has(cmd) && a.some((x) => (x.includes('/') || x.startsWith('~') || x === '..') && readElsewhere(physicalPath(x.includes('=') && x.startsWith('-') ? x.slice(x.indexOf('=') + 1) : /^-[A-Za-z][/~.]/.test(x) ? x.slice(2) : x, cwd ?? st.hint ?? null), st.readRoots))) st.asks.push('a read outside the job\'s folders');
   if (dbCommand(cmd, args)) hit('database');
   else if (!TEXTY.has(cmd) && args.some((x) => DB_CLIENTS.has(name(x.t)))) hit('database'); // a client named under a wrapper we don't know
   if (EXEC_LIKE.has(cmd)) for (const x of args) if (/\s/.test(x.t)) analyze(x.t, cwd, st, depth + 1, null);
@@ -949,7 +952,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
         const x = a[k];
         if (/^(-e|--expression|--program)$/.test(x)) { own = true; scripts.push(args[++k]?.t ?? ''); continue; }
         if (!sed && /^--(expression|program)=/.test(x)) { own = true; scripts.push(x.slice(x.indexOf('=') + 1)); continue; }
-        if (/^(-f|--file)$/.test(x) || /^--file=/.test(x)) { hit('outside'); own = true; if (!x.includes('=')) k++; continue; } // a script file we don't read
+        if (/^(-f|--file)$/.test(x) || /^--file=/.test(x) || /^-f./.test(x)) { hit('outside'); st.nonRead = true; own = true; if (/^(-f|--file)$/.test(x)) k++; continue; } // a script file we don't read (glued too, R7)
         if (x.startsWith('-') && x !== '-') { if (!sed && /^(-v|-F)$/.test(x)) k++; continue; }
         files.push(args[k]);
       }

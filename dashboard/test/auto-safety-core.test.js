@@ -1021,3 +1021,18 @@ test('R13: other spellings of the same steps, from the session\'s folder (the ma
   const wrong = rows.filter((r) => r.got !== r.want);
   assert.deepEqual(wrong, []);
 });
+
+test('R7: a path glued to a short option is tested as a secret, and each answers as its spaced form', () => {
+  const ctx = C5CTX();
+  const rows = [];
+  const pairs = [['grep -f', ' -r .', `${HOME}/.ssh/id_rsa`], ['grep -f', ' -r .', `${HOME}/.aws/credentials`], ['sort -o', ' x.txt', `${HOME}/.zshrc`], ['sort -o', ' x.txt', `${HOME}/.ssh/config`], ['tar -cf x.tar -C', ' .ssh', HOME],
+    ['sed -f', ' a.txt', `${HOME}/x.sed`], ['sed -f', ' a.txt', `${HOME}/.ssh/x`], ['awk -f', ' a.txt', `${HOME}/x.awk`], ['rsync -e', ' a b', `${HOME}/x.sh`], ['git -C', ' status', HOME], ['git -C', ' log', `${HOME}/.ssh`], ['cat -n', '', `${HOME}/.ssh/id_rsa`]];
+  for (const [head, tail, p] of pairs) {
+    const spaced = bash(`${head} ${p}${tail}`, ctx);
+    rows.push({ c: `${head}${p}${tail}`, want: spaced, got: bash(`${head}${p}${tail}`, ctx) });
+  }
+  assert.deepEqual(rows.filter((r) => r.got !== r.want), []);
+  for (const r of rows.filter((x) => /\.ssh|\.aws/.test(x.c))) assert.equal(r.got, 'outside', r.c);
+  // Ordinary glued options still pass.
+  for (const c of ['grep -C2 x a.txt', 'git log -n5 --oneline', 'sort -k2 a.txt', 'tail -n20 a.txt', 'head -c100 a.txt']) assert.equal(bash(c, ctx), null, c);
+});
