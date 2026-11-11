@@ -752,6 +752,60 @@ describe('after a click on the go / no go bar', () => {
     expect(live()).toHaveTextContent('Held until Claude’s usage limit resets.');
   });
 
+  // Round 2, N2: the stalled line is never said to a job that waits on something else, or has moved.
+  const answeredAndEnded = (store: Store) => {
+    server.answered.push(2);
+    act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_old', slug: 'alpha', status: 'error', endedAt: new Date(Date.now() - 300_000).toISOString() }) }); });
+    act(() => { store.dispatch({ type: 'event', event: ev(21, 'thread', 'alpha', {}) }); });
+  };
+  it('a job paused for the usage limit says so, in the page’s own words, never "Nothing has moved yet."', async () => {
+    const { store } = setup({ jobs: waiting({ limitPaused: new Date(Date.now() + 3_600_000).toISOString(), group: 'paused', lane: 'working', laneReason: 'Paused for the usage limit; carries on at 15:00' }), gate: GATE });
+    answeredAndEnded(store);
+    await waitFor(() => expect(bar()).toHaveTextContent('Paused for the usage limit; carries on at 15:00'));
+    await act(async () => {});
+    expect(bar()).not.toHaveTextContent('Nothing has moved yet.');
+    expect(within(bar()).queryByRole('button', { name: 'Try again' })).toBeNull();
+    expect(calls()).toHaveLength(0);
+  });
+
+  it('a job cut off by a restart says it waits for Resume, never "Nothing has moved yet."', async () => {
+    const { store } = setup({ jobs: waiting({ restartPaused: { how: 'crash' }, group: 'paused', lane: 'working', laneReason: 'Paused by a restart; waits for Resume' }), gate: GATE });
+    answeredAndEnded(store);
+    await waitFor(() => expect(bar()).toHaveTextContent('Paused by a restart; waits for Resume'));
+    await act(async () => {});
+    expect(bar()).not.toHaveTextContent('Nothing has moved yet.');
+    expect(within(bar()).queryByRole('button', { name: 'Try again' })).toBeNull();
+  });
+
+  it('a stale page: when the run ends the job is fetched again, and the bar asks about the new brief, never "Nothing has moved yet."', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const post = sentPost();
+    const { store } = setup({ jobs: waiting(), gate: GATE, post });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(bar()).toHaveTextContent(SENT_LINE));
+    // The run ends; what the page reads then still shows brief 2 answered (the server's list lags).
+    act(() => { store.dispatch({ type: 'event', event: ev(200, 'run', 'alpha', { id: 'r_sent_1', slug: 'alpha', status: 'done', endedAt: new Date().toISOString() }) }); });
+    await act(async () => {});
+    expect(bar()).toHaveTextContent(SENT_LINE);
+    // Meanwhile the Foreman raised brief 3; no thread event reaches this page.
+    server.gate = { ...GATE, briefNumber: 3, headline: 'Tests ready', nextProposed: 'Open PR #1' };
+    act(() => { vi.advanceTimersByTime(31_000); });
+    await waitFor(() => expect(bar()).toHaveTextContent('Say go and the Foreman goes ahead: Open PR #1'));
+    expect(bar()).not.toHaveTextContent('Nothing has moved yet.');
+    expect(gatePosts(post)).toHaveLength(1);
+  });
+
+  it('before it says "Nothing has moved yet." the page fetches the job once more', async () => {
+    const { store, get } = setup({ jobs: waiting(), gate: GATE });
+    server.answered.push(2);
+    act(() => { store.dispatch({ type: 'event', event: ev(21, 'thread', 'alpha', {}) }); });
+    await waitFor(() => expect(bar()).toHaveTextContent(SENT_LINE));
+    const before = get.mock.calls.filter(([p]) => p === '/api/job/alpha').length;
+    act(() => { store.dispatch({ type: 'event', event: ev(22, 'run', 'alpha', { id: 'r_old', slug: 'alpha', status: 'done', endedAt: new Date(Date.now() - 31_000).toISOString() }) }); });
+    await waitFor(() => expect(bar()).toHaveTextContent('Nothing has moved yet.'));
+    expect(get.mock.calls.filter(([p]) => p === '/api/job/alpha').length).toBeGreaterThan(before);
+  });
+
   // Round 2, N1: a go / no go with no brief number (the reviewer's team-invites and audit-log).
   const UNNUMBERED: Gate = { ...GATE, briefNumber: null, briefFile: null } as unknown as Gate;
   it('no brief number: after Go the sent line shows and stays while the Foreman works; the old ask and its calls never come back', async () => {

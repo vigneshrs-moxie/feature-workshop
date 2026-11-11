@@ -9,7 +9,7 @@
 //   stalled   answered, no run at work, and 30 s gone since the later of the server taking it and the
 //             last run ending: "Nothing has moved yet.", with Try again when there is a decision to
 //             send again, else a line saying to write to the Foreman
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Job, JobDetail, Run } from '../api/types';
 import { STUCK_AFTER_MS } from '../lib/sentState';
 import { DECIDING_KINDS, gateKey, openGate } from '../lib/gateCard';
@@ -61,12 +61,26 @@ export const WRITE_TO_MOVE = 'Write to the Foreman below to move it on.';
 /** The lines, and whether Try again may send the same decision once more. */
 export interface SentShown extends SentLines { canRetry: boolean }
 
+/** The page's own words for a job paused by the usage limit or by a restart (the snapshot's lane reason). */
+export const PAUSED_WORDS = 'Paused';
+export const LIMIT_PAUSED = 'Paused until Claude’s usage limit resets. It carries on by itself.';
+export const RESTART_PAUSED = 'Paused by a restart. Press Resume to carry on.';
+
+/** Why the job waits on something other than him (the limit, a restart), in the page's words; null when it does not. */
+export function pausedLines(job: Pick<Job, 'limitPaused' | 'laneReason' | 'group'> & { restartPaused?: unknown; paused?: unknown }): SentLines | null {
+  const reason = typeof job.laneReason === 'string' && job.laneReason.startsWith('Paused') ? job.laneReason : null;
+  if (job.limitPaused) return { words: PAUSED_WORDS, more: reason ?? LIMIT_PAUSED };
+  if (job.restartPaused) return { words: PAUSED_WORDS, more: reason ?? RESTART_PAUSED };
+  if (job.paused === true || job.group === 'paused') return reason ? { words: PAUSED_WORDS, more: reason } : null;
+  return null;
+}
+
 /**
  * sentView, and once the answered brief has stalled (no run at work, 30 s after the later of the
  * server taking the decision and the last run ending; at once when neither time is known):
  * "Nothing has moved yet.". One timer of its own, to the moment it stalls.
  */
-export function useSentView(job: Pick<Job, 'closed'>, detail: JobDetail | null | undefined, run: Run | null, decision: Pick<GateSent, 'accepted'>): SentShown | null {
+export function useSentView(job: Job, detail: JobDetail | null | undefined, run: Run | null, decision: Pick<GateSent, 'accepted'>, reload?: () => void): SentShown | null {
   const view = sentView(job, detail, run, decision);
   const a = decision.accepted;
   const gate = detail?.gate ?? null;
@@ -84,14 +98,33 @@ export function useSentView(job: Pick<Job, 'closed'>, detail: JobDetail | null |
     const t = setTimeout(() => tick((n) => n + 1), left);
     return () => clearTimeout(t);
   }, [due]);
+  // N2: the job is fetched again when the run ends, and once more before the stalled line shows; the
+  // line shows only once that fetch is in and still says the same (a brief raised meanwhile wins).
+  const wasWorking = useRef(working);
+  const answeredNow = view !== null;
+  useEffect(() => {
+    if (wasWorking.current && !working && answeredNow) reload?.();
+    wasWorking.current = working;
+  }, [working, answeredNow, reload]);
+  const passed = due !== null && Date.now() >= due;
+  const [check, setCheck] = useState<{ due: number; detail: unknown } | null>(null);
+  useEffect(() => {
+    if (!passed || due === null || !reload || check?.due === due) return;
+    setCheck({ due, detail });
+    reload();
+  }, [passed, due, reload, check, detail]);
+  const checked = !reload || (check !== null && check.due === due && check.detail !== detail);
   if (!view) return null;
-  if (due !== null && Date.now() >= due) return { words: STUCK_WORDS, more: mine ? null : WRITE_TO_MOVE, canRetry: mine };
+  // Paused by the usage limit or a restart: that is why nothing moves, said as the page says it.
+  const paused = resting ? pausedLines(job) : null;
+  if (paused) return { ...paused, canRetry: false };
+  if (passed && checked) return { words: STUCK_WORDS, more: mine ? null : WRITE_TO_MOVE, canRetry: mine };
   return { ...view, canRetry: false };
 }
 
 /** What a place shows after a send: its own state first, then what the job says. */
-export function useWaitingLines(job: Pick<Job, 'closed'>, detail: JobDetail | null | undefined, run: Run | null, decision: GateSent): SentShown | null {
-  const shown = useSentView(job, detail, run, decision);
+export function useWaitingLines(job: Job, detail: JobDetail | null | undefined, run: Run | null, decision: GateSent, reload?: () => void): SentShown | null {
+  const shown = useSentView(job, detail, run, decision, reload);
   const own = stateLines(decision);
   return own ? { ...own, canRetry: false } : shown;
 }

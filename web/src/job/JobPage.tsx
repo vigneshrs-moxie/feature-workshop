@@ -298,7 +298,7 @@ export function NextStep({ job, conversation, now, onShip, foldCard = false }: {
   // One live region, always here (empty when nothing is out), so each of sending, sent and stuck is
   // announced once; the bar shows the same words, but not as a live region.
   // The brief is answered (or his reply's run is at work): the bar keeps saying it was sent.
-  const sentShown = useSentView(job, thread.detail, run, after.decision);
+  const sentShown = useSentView(job, thread.detail, run, after.decision, thread.reload);
   const sent = perms.length === 0 ? sentShown : null;
   const live = <p className="sr-only" role="status" data-next-live>{after.live || (sent ? linesText(sent) : '')}</p>;
   const problem = after.problem && <p ref={after.problemRef} className="field-problem" role="alert" tabIndex={-1}>{after.problem}</p>;
