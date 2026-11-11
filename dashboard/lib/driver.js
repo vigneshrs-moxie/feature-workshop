@@ -303,7 +303,9 @@ export class Driver extends EventEmitter {
     try {
       await this.state.audit({ action: 'send', featureDir, slug, sessionId, kind, text, runId: run.id, model, ...(Number.isInteger(gateBrief) && gateBrief > 0 ? { gateBrief } : {}), ...(by === 'auto' ? { by: 'auto' } : {}) });
     } catch (err) {
+      // The reply never starts: it gives the lock back and is not left listed as starting (F9).
       this.#releaseLock(run);
+      this.runs.delete(run.id);
       throw err;
     }
     this.#launch(run).catch(() => {});

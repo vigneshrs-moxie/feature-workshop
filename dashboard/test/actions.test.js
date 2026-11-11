@@ -329,3 +329,22 @@ test('driver: two answers to one card in the same tick: only the first is taken 
   assert.equal(lines.length, 1);
   assert.equal(lines[0].decision, 'allow');
 });
+
+test('F9: a reply whose send line cannot be written is not left listed as starting; the next message starts', async () => {
+  const state = await tmpState();
+  const queryFn = fakeSession(async function* () {
+    yield { type: 'system', subtype: 'init', session_id: 's-f9', model: 'claude-fable-5-1', apiKeySource: 'none' };
+    yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0, permission_denials: [] };
+  });
+  const driver = new Driver({ queryFn, state, projectsDir: '/nonexistent' });
+  driver.idleGraceMs = 30;
+  const audit = state.audit.bind(state);
+  let fail = true;
+  state.audit = async (line) => { if (fail && line.action === 'send') throw new Error('the disk said no'); return audit(line); };
+  await assert.rejects(driver.start({ featureDir: '/f/f9', slug: 'f9', title: 'F9', cwd: '/repo', text: 'go' }), /the disk said no/);
+  assert.deepEqual(driver.list().filter((r) => r.featureDir === '/f/f9'), [], 'nothing listed');
+  assert.equal(driver.activeRunFor({ featureDir: '/f/f9' }), null);
+  fail = false;
+  const run = await driver.start({ featureDir: '/f/f9', slug: 'f9', title: 'F9', cwd: '/repo', text: 'go again' });
+  await until(driver, run.id, ['done', 'error']);
+});
