@@ -54,6 +54,8 @@ export const ALWAYS_NOTES: Record<keyof Workflow, string> = {
 /** The Foreman's model of a started job is locked: another one starts the job again (Change model… in the job menu). */
 export const FOREMAN_MODEL_NOTE = 'Fixed for this job. Change model… in the job menu starts the job again.';
 /** A save refused because the options changed elsewhere since the drawer loaded them. */
+/** Shown in place of the hand-test option while Auto is on for the job (the stored value is kept). */
+export const AUTO_SKIPS_HAND_TEST = 'Auto skips your hand test on this job. The recorded evidence still runs.';
 export const OPTIONS_CHANGED = 'These options changed elsewhere since you opened them. Reload to see them (your edits will be lost) or keep editing.';
 
 type Load = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
@@ -67,6 +69,8 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
   const meta = state.meta;
   const levels = meta?.levels;
   const names = lensNames(meta);
+  // Auto is on for the job (and its level is one Auto works at): the hand test is not asked.
+  const autoOn = state.jobs.some((j) => j.slug === slug && j.auto?.on === true && !(typeof j.level === 'number' && j.level > 2));
   // Only the stages and lenses this kind of job has (a job with no kind is a feature).
   const lists = optionLists(meta, kind === 'bug' ? 'bug' : 'feature');
   const id = useId();
@@ -248,10 +252,12 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
 
       <fieldset className="drawer-section" disabled={busy}>
         <legend className="drawer-legend" title="Whether you try the change on your computer before review.">You test it</legend>
-        <label className="check drawer-check" title="The Foreman waits for you to try the change on your computer (Try it, on your computer) before the review.">
-          <Choice type="checkbox" checked={form.manual_test} onChange={(e) => edit({ manual_test: e.target.checked })} />
-          <span>I test it by hand before review</span>
-        </label>
+        {autoOn ? <p className="drawer-fine">{AUTO_SKIPS_HAND_TEST}</p> : (
+          <label className="check drawer-check" title="The Foreman waits for you to try the change on your computer (Try it, on your computer) before the review.">
+            <Choice type="checkbox" checked={form.manual_test} onChange={(e) => edit({ manual_test: e.target.checked })} />
+            <span>I test it by hand before review</span>
+          </label>
+        )}
       </fieldset>
 
       <fieldset className="drawer-section" disabled={busy}>

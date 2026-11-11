@@ -29,7 +29,7 @@ function Panel({ slug, onClose }: { slug: string; onClose(): void }) {
       <div className="auto-decided">
         {data === undefined ? <p className="muted" role="status">Loading…</p> : entries.length === 0 ? <p>{AUTO_EMPTY}</p> : (
           <>
-            <ul className="auto-summary">{data!.summary.filter(Boolean).map((l) => <li key={l}>{l}</li>)}</ul>
+            <ul className="auto-summary">{data!.summary.map((l, i) => <li key={i}>{l}</li>)}</ul>
             <ul className="auto-entries">
               {entries.map((e, i) => (
                 <li key={`${e.at}-${i}`} className="auto-entry">
@@ -56,9 +56,10 @@ export function WhatAutoDecided({ slug, auto, size = 'sm' }: { slug: string; aut
   const [open, setOpen] = useState(false);
   if (!auto?.ran) return null;
   return (
-    <>
+    // Clicks and keys inside the button and its panel stay here: a card or row holding them has its own.
+    <span className="auto-decided-wrap" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
       <Button kind="quiet" size={size} onClick={() => setOpen(true)} title="Every step Auto approved or answered for you on this job, and why.">What Auto decided</Button>
       {open && <Panel slug={slug} onClose={() => setOpen(false)} />}
-    </>
+    </span>
   );
 }

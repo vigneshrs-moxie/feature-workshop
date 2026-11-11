@@ -2,6 +2,8 @@
 // header, off and explained at L3, one POST with a spinner in the header, and the header line.
 // Invented jobs only.
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../api/client';
 import type { Job } from '../api/types';
@@ -25,7 +27,6 @@ describe('AutoSwitch', () => {
     show(job('alpha', 'needs-you', { level: 1 }));
     expect(AUTO_LABEL).toBe('Auto: run to PR #1 without asking me.');
     expect(screen.getByRole('checkbox', { name: new RegExp(AUTO_LABEL.replace(/[#.]/g, '\\$&')) })).not.toBeChecked();
-    expect(screen.getByText(AUTO_HINT)).toBeInTheDocument();
     expect(AUTO_HINT).toBe('A Fable agent approves each step for you and takes the recommended answers. It stops and asks you when something is risky. It never merges.');
   });
 
@@ -82,12 +83,59 @@ describe('AutoSwitch', () => {
     expect(screen.queryByText('Auto is on')).toBeNull();
   });
 
-  it('keeps its line in place so the page does not move when the line appears', () => {
-    const { container, rerender } = show(job('alpha', 'running', { level: 1 }));
+  it('keeps its line in place: the same element is still there once it has text', () => {
+    const j = job('alpha', 'running', { level: 1 });
+    const { container, rerender } = show(j);
     const line = container.querySelector('.auto-line')!;
-    expect(line).toBeInTheDocument();
     expect(line.textContent?.trim()).toBe('');
-    expect(rerender).toBeTruthy();
+    const store: Store = createStore();
+    const api = { get: vi.fn(), post: vi.fn() } as unknown as ApiClient;
+    const next = { ...j, auto: { on: true, stopped: 'The plan touches the database.' } } as Job;
+    rerender(<WorkshopContext.Provider value={{ store, api }}><AutoSwitch job={next} /></WorkshopContext.Provider>);
+    expect(container.querySelector('.auto-line')).toBe(line);
+    expect(line).toHaveTextContent('Auto stopped: The plan touches the database.');
+  });
+
+  it('shows a stop reason as the characters it holds, not as markup', () => {
+    const { container } = show(job('alpha', 'needs-you', { level: 1, auto: { on: true, stopped: 'It wrote <b>x</b> to disk.' } }));
+    expect(screen.getByText('Auto stopped: It wrote <b>x</b> to disk.')).toBeInTheDocument();
+    expect(container.querySelector('.auto-line b')).toBeNull();
+  });
+
+  it('on the header the hint is not text: it describes the checkbox and is its title', () => {
+    const { container } = show(job('alpha', 'needs-you', { level: 1 }));
+    const box = screen.getByRole('checkbox', { name: AUTO_LABEL });
+    expect(box).toHaveAccessibleDescription(AUTO_HINT);
+    expect(box.closest('label')).toHaveAttribute('title', AUTO_HINT);
+    expect(container.querySelector('.auto-switch-hint')).toBeNull();
+    const hidden = container.querySelector(`#${CSS.escape(box.getAttribute('aria-describedby')!)}`)!;
+    expect(hidden.className).toContain('sr-only');
+  });
+
+  it('on the form the hint stays as text', () => {
+    render(<AutoSwitch level={2} checked={false} onChange={vi.fn()} />);
+    expect(screen.getByText(AUTO_HINT)).toBeInTheDocument();
+  });
+
+  it('the header checkbox is disabled while its post is under way', async () => {
+    let finish: (v: unknown) => void = () => {};
+    show(job('alpha', 'needs-you', { level: 1 }), vi.fn(() => new Promise((r) => { finish = r; })));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ }));
+    expect(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })).toBeDisabled();
+    await act(async () => { finish({ ok: true }); });
+    expect(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })).not.toBeDisabled();
+  });
+
+  it('the app copy of the L3 sentence is in the server\'s dashboard/lib/auto.js', () => {
+    // vitest runs from web/; the server file is read as text, never imported.
+    const server = readFileSync(path.join(process.cwd(), '..', 'dashboard/lib/auto.js'), 'utf8');
+    expect(server).toContain(AUTO_L3);
+  });
+
+  it('long words in the line wrap instead of widening the header, and the row wraps', () => {
+    const css = readFileSync(path.join(process.cwd(), 'src/job/auto.css'), 'utf8');
+    expect(/\.auto-line span \{([^}]*)\}/.exec(css)?.[1]).toMatch(/overflow-wrap:\s*anywhere[^}]*min-width:\s*0|min-width:\s*0[^}]*overflow-wrap:\s*anywhere/);
+    expect(/\.job-auto \{([^}]*)\}/.exec(css)?.[1]).toMatch(/flex-wrap:\s*wrap/);
   });
 
   it('on the form it is controlled and sends nothing itself', () => {

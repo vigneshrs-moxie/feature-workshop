@@ -38,4 +38,17 @@ describe('NewJobSheet: Auto', () => {
     await start(dialog);
     expect((post.mock.calls[0] as unknown[])[1]).not.toEqual(expect.objectContaining({ options: expect.objectContaining({ auto: true }) }));
   });
+
+  it('does not send auto at L3 although the box was ticked at a lower level', async () => {
+    const { post, dialog } = setup();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /What should the crew build/ }), { target: { value: 'Add a Copy ID button' } });
+    fireEvent.click(within(dialog).getByRole('radio', { name: /^L1/ }));
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Auto: run to PR #1/ }));
+    fireEvent.click(within(dialog).getByRole('radio', { name: /^L3/ }));
+    expect(within(dialog).getByRole('checkbox', { name: /Auto: run to PR #1/ })).not.toBeChecked();
+    await start(dialog);
+    const options = ((post.mock.calls[0] as unknown[])[1] as { options: Record<string, unknown> }).options;
+    expect(options.level).toBe(3);
+    expect(options).not.toHaveProperty('auto');
+  });
 });

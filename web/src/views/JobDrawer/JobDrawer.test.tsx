@@ -39,15 +39,17 @@ interface Setup {
   tab?: 'notes' | 'options';
   /** The job's current stage. */
   stage?: string;
+  /** The job has Auto on. */
+  auto?: boolean;
   /** The job has a Foreman session (it has started): its Foreman model is locked. */
   started?: boolean;
   /** The dashboard's option lists (meta.jobOptions), LISTS unless a test needs more. */
   lists?: typeof LISTS & { skippable?: { id: string; label: string }[] };
 }
 
-function setup({ options = L1, notes = { text: 'Ask before renaming the API.', updatedAt: null }, post, put, tab, stage, started = false, lists = LISTS }: Setup = {}) {
+function setup({ options = L1, notes = { text: 'Ask before renaming the API.', updatedAt: null }, post, put, tab, stage, started = false, auto = false, lists = LISTS }: Setup = {}) {
   const store: Store = createStore();
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS, jobOptions: lists }, jobs: [job('alpha', 'idle', { level: 1, ...(stage ? { stage } : {}) })] }) });
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS, jobOptions: lists }, jobs: [job('alpha', 'idle', { level: 1, ...(stage ? { stage } : {}), ...(auto ? { auto: { on: true } } : {}) })] }) });
   const detail: JobDetail = { slug: 'alpha', thread: [], threadMore: false, level: 1, options, ...(started ? { drive: { mode: 'workshop', model: OPUS, sessionId: 'session-1' } } : {}) };
   const get = vi.fn(async (path: string) => {
     if (path === '/api/job/alpha/notes') { if (notes instanceof Error) throw notes; return notes; }
@@ -320,6 +322,22 @@ describe('Job drawer · options', () => {
       },
       updated_at: LOADED,
     });
+  });
+
+  it('on an Auto job the hand-test option is replaced by a line, and saving leaves its stored value alone', async () => {
+    const { post } = await openOptions({ auto: true });
+    expect(screen.queryByRole('checkbox', { name: 'I test it by hand before review' })).toBeNull();
+    expect(screen.getByText('Auto skips your hand test on this job. The recorded evidence still runs.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'After the spec is written' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1].options.manual_test).toBe(true);
+  });
+
+  it('with Auto off the hand-test checkbox is there and the Auto line is not', async () => {
+    await openOptions({ auto: false });
+    expect(screen.getByRole('checkbox', { name: 'I test it by hand before review' })).toBeInTheDocument();
+    expect(screen.queryByText(/Auto skips your hand test/)).toBeNull();
   });
 
   it('a new level keeps your own testing choice and models (ones not the old level’s default), like the level chips; the Foreman’s model is posted unchanged', async () => {

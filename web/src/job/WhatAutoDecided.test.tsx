@@ -66,4 +66,34 @@ describe('WhatAutoDecided', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+
+  it('closing the panel gives focus back to its button', async () => {
+    show(vi.fn(async () => DECIDED));
+    const button = screen.getByRole('button', { name: 'What Auto decided' });
+    act(() => button.focus());
+    await act(async () => { fireEvent.click(button); });
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Close' })); });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(button).toHaveFocus();
+  });
+
+  it('keeps all three summary lines, even two that are the same', async () => {
+    const same = 'Nothing stopped it.';
+    show(vi.fn(async () => ({ ...DECIDED, summary: [same, same, ''] })));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+    const lines = screen.getByRole('dialog').querySelectorAll('.auto-summary li');
+    expect([...lines].map((l) => l.textContent)).toEqual([same, same, '']);
+  });
+
+  it('a click or key inside the button and panel does not reach what holds them', async () => {
+    const outer = vi.fn();
+    const api = { get: vi.fn(async () => DECIDED), post: vi.fn() } as unknown as ApiClient;
+    render(<WorkshopContext.Provider value={{ store: createStore(), api }}><div onClick={outer} onKeyDown={outer}><WhatAutoDecided slug="alpha" auto={{ ran: true }} /></div></WorkshopContext.Provider>);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+    fireEvent.click(screen.getByText('2 steps approved for you.'));
+    fireEvent.keyDown(screen.getByText('2 steps approved for you.'), { key: ' ' });
+    fireEvent.click(document.querySelector('.sheet-backdrop')!);
+    expect(outer).not.toHaveBeenCalled();
+  });
 });

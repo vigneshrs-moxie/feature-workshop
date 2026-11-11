@@ -4,7 +4,7 @@
 // At L3 it is off and disabled with the server's own sentence. In the header it also keeps one line
 // (Auto is on / Auto stopped: why / Started by Auto) in a place reserved for it, so nothing moves
 // when the line appears. Self-contained: props in, no reach into the page.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { Job, LevelNumber } from '../api/types';
 import { OptionRow } from '../components/Choice';
 import { useWorkshop } from '../state/store';
@@ -24,19 +24,27 @@ interface ViewProps {
   blocked: boolean;
   disabled?: boolean;
   busy?: boolean;
+  /** The header's: the hint is not shown, it describes the checkbox (and is its title). Unless blocked: that sentence is shown. */
+  quiet?: boolean;
   onToggle(next: boolean): void;
 }
 
-function SwitchView({ checked, blocked, disabled, busy, onToggle }: ViewProps) {
+function SwitchView({ checked, blocked, disabled, busy, quiet, onToggle }: ViewProps) {
   const off = blocked || disabled;
+  const hintId = useId();
+  const hidden = quiet && !blocked;
   return (
-    <OptionRow type="checkbox" className={`auto-switch-row${off ? ' is-off' : ''}`} checked={checked && !blocked} disabled={off} aria-busy={busy || undefined} onChange={(e) => onToggle(e.target.checked)}>
+    <>
+    <OptionRow type="checkbox" className={`auto-switch-row${off ? ' is-off' : ''}`} checked={checked && !blocked} disabled={off} aria-busy={busy || undefined} aria-describedby={hidden ? hintId : undefined} title={hidden ? AUTO_HINT : undefined} onChange={(e) => onToggle(e.target.checked)}>
       {busy && <span className="auto-spin" role="status" aria-label={checked ? 'Turning Auto off…' : 'Turning Auto on…'}><span className="spin-ring" aria-hidden="true" /></span>}
       <span className="option-body">
         <span className="auto-switch-label">{AUTO_LABEL}</span>
-        <span className="auto-switch-hint">{blocked ? AUTO_L3 : AUTO_HINT}</span>
+        {!quiet && <span className="auto-switch-hint">{blocked ? AUTO_L3 : AUTO_HINT}</span>}
       </span>
     </OptionRow>
+    {/* Outside the label, so it describes the checkbox without becoming part of its name. */}
+    {hidden && <span id={hintId} className="sr-only">{AUTO_HINT}</span>}
+    </>
   );
 }
 
@@ -71,11 +79,12 @@ function HeaderSwitch({ job, onChange }: { job: Pick<Job, 'slug' | 'level' | 'su
   const stopped = on && job.auto?.stopped ? job.auto.stopped : null;
   const tag = on && job.auto?.by === 'tag' && job.auto.tag ? job.auto.tag : null;
   return (
-    <div className="auto-switch">
-      <SwitchView checked={on} blocked={blocked} busy={sent.state === 'sending'} onToggle={(next) => { void toggle(next); }} />
+    <div className="auto-switch is-inline">
+      <SwitchView quiet checked={on} blocked={blocked} disabled={sent.state === 'sending'} busy={sent.state === 'sending'} onToggle={(next) => { void toggle(next); }} />
       <p className="auto-line">
         {error ? <span className="is-refused" role="alert">{error}</span> : (
           <>
+            {blocked && <span>{AUTO_L3}</span>}
             {stopped ? <span className="is-stopped">Auto stopped: {stopped}</span> : on && <span>Auto is on</span>}
             {tag && <span>Started by Auto (tag: {tag})</span>}
             {!stopped && !on && !tag && ' '}

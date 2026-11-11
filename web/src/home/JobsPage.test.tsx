@@ -47,6 +47,21 @@ let off = () => {};
 beforeEach(() => { off = installKeyListener(); window.location.hash = '#/'; });
 afterEach(() => { off(); cleanup(); localStorage.clear(); window.location.hash = ''; });
 
+describe('Jobs: What Auto decided on a card', () => {
+  it('opening it, reading it and closing it by the backdrop never opens the quick look', async () => {
+    setup([job('alpha', 'running', { title: 'Customer notes', stage: 'plan', lane: 'working', auto: { on: true, ran: true } })]);
+    const card = screen.getByRole('link', { name: 'Customer notes' }).closest('li')!;
+    await act(async () => { fireEvent.click(within(card).getByRole('button', { name: 'What Auto decided' })); });
+    fireEvent.click(screen.getByText('Loading…'));
+    fireEvent.keyDown(screen.getByText('Loading…'), { key: ' ' });
+    const backdrop = document.querySelector('.sheet-backdrop')!;
+    fireEvent.mouseDown(backdrop);
+    fireEvent.click(backdrop);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(window.location.hash).not.toContain('peek=');
+  });
+});
+
 describe('Jobs', () => {
   it('has four lanes, each with a word and a count; Resting and Done are folded under the board', () => {
     setup();

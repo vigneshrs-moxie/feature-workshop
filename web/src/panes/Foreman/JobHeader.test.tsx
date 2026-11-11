@@ -80,6 +80,7 @@ describe('the job header stays still', () => {
   it('compact: one slim row (title, thin trail, level, menu) and the "Your move" line; the facts wait', () => {
     expect(css).toMatch(/\.pane-foreman \.job-header\.is-compact \{[^}]*display: grid/);
     expect(css).toMatch(/\.job-header\.is-compact :is\([^)]*\.job-facts[^)]*\) \{ display: none; \}/);
+    expect(css).toMatch(/\.job-header\.is-compact :is\([^)]*\.job-auto[^)]*\) \{ display: none; \}/);
     expect(css).toMatch(/\.job-header\.is-compact \.trail-now \{ grid-area: 2 \/ 1 \/ 3 \/ -1;/);
   });
 
@@ -94,6 +95,16 @@ describe('the job header stays still', () => {
     expect(classes.at(-2)).toBe('job-facts muted');
     expect(classes.slice(1, -2), 'Play on by default: the trail between them').toEqual(['job-trail is-header']);
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Job alpha');
+  });
+});
+
+describe('the Auto row', () => {
+  it('shows What Auto decided on the header when Auto ran, and not when it has not', () => {
+    const { unmount } = show(job('alpha', 'running', { level: 1, auto: { on: true, ran: true } }));
+    expect(screen.getByRole('button', { name: 'What Auto decided' })).toBeInTheDocument();
+    unmount();
+    show(job('alpha', 'running', { level: 1, auto: { on: true, ran: false } }));
+    expect(screen.queryByRole('button', { name: 'What Auto decided' })).toBeNull();
   });
 });
 
