@@ -2204,6 +2204,88 @@ test('I3 (E2): Starbase crashed in the middle of an Auto job\'s reply; at start-
   } finally { await w.stop(); }
 });
 
+// ---------- I4: what Auto has left to the person shows as theirs; a failure while handling a step is told ----------
+
+const WORKING = status(1, { stage: 'plan', stage_state: 'working', waiting_for: null });
+
+test('I4 (H1): a card the Approver failed on once is left to the person: Needs you with the ordinary card sentence', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => failure(), jobStatus: WORKING });
+  try {
+    await raise(w);
+    await w.told(1);
+    await new Promise((r) => setTimeout(r, 1700));
+    const card = (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
+    assert.equal((await waiting(w)).length, 1, 'the card waits');
+    assert.equal((await w.record()).stopped, null);
+    assert.deepEqual({ lane: card.lane, laneReason: card.laneReason }, { lane: 'needs-you', laneReason: 'A permission waits for your yes' });
+    assert.equal(w.notes.length, 1);
+    assert.match(w.notes[0].body, /Permission: /);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('I4 (H2): a throw while Auto handles a card leaves the card to the person and tells them once', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => { throw new Error('the disk said no'); }, jobStatus: WORKING });
+  try {
+    await raise(w);
+    await w.told(1);
+    await new Promise((r) => setTimeout(r, 1700));
+    await w.pass();
+    const card = (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
+    assert.equal((await waiting(w)).length, 1, 'the card waits');
+    assert.equal(w.notes.length, 1);
+    assert.match(w.notes[0].body, /Permission: /);
+    assert.deepEqual({ lane: card.lane, laneReason: card.laneReason }, { lane: 'needs-you', laneReason: 'A permission waits for your yes' });
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('I4: a card Auto is still deciding shows as "Auto is deciding" in Working',{ timeout: 30_000 }, async () => {
+  const outcomes = [];
+  let release;
+  const hung = new Promise((r) => { release = r; });
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: async () => { await hung; return allow(); }, jobStatus: WORKING });
+  try {
+    await raise(w);
+    await w.until(() => w.asks.length === 1, 'the ask');
+    await new Promise((r) => setTimeout(r, 1700));
+    const card = (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
+    assert.equal(card.lane, 'working');
+    assert.match(card.laneReason, /^Auto is deciding/);
+  } finally { release(); await w.idle().catch(() => {}); await w.stop(); }
+});
+
+test('I4: a stop whose audit line cannot be written still tells the person', { timeout: 30_000 }, async () => {
+  const notes = [];
+  let rec = { ...autoRecord(null, { on: true, now: OLD }) };
+  const auto = createAuto({
+    read: async () => [{ dir: unitDir, slug: 'visit-audit', title: 'Visit audit', auto: { ...rec }, level: 3, suggestedLevel: null, stage: 'plan', answered: [], worktrees: [], specDirs: [], artifacts: [], gate: null }],
+    update: async (dir, fn) => { const n = fn({ ...rec }); if (n) rec = n; return { ...rec }; },
+    decide: { gate: async () => {}, permission: async () => {} },
+    askApprover: async () => ({ ok: false, problem: 'x' }),
+    state: { audit: async () => { throw new Error('the disk said no'); }, auditFor: async () => [] },
+    notify: (n) => notes.push(n),
+  });
+  await auto.pass();
+  assert.equal(rec.on, false);
+  assert.equal(notes.length, 1, 'told once although the line failed');
+  assert.match(notes[0].body, /^Auto stopped: /);
+});
+
+test('I4: a throw while Auto handles a gate counts as a failure; two stop Auto with one notification', { timeout: 30_000 }, async () => {
+  const u = unit({ decide: () => {}, ask: () => { throw new Error('the disk said no'); } });
+  await u.auto.pass();
+  assert.equal(u.record().failures, 1);
+  assert.equal(u.record().stopped, null);
+  await u.auto.pass();
+  assert.equal(u.record().stopped?.rule, 'approver');
+  assert.match(u.record().stopped.reason, /the disk said no/);
+  assert.equal(u.notes.length, 1);
+  assert.equal(u.lines.filter((l) => l.what === 'stop').length, 1);
+  await u.auto.pass();
+  assert.equal(u.asks.length, 2, 'not asked again once stopped');
+});
+
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------
 
 test('I2: the person sent brief 1 back, then 401 lines; the reply ended with the gate still on brief 1: the Approver is not asked', { timeout: 30_000 }, async () => {

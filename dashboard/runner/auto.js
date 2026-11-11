@@ -94,18 +94,37 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       try { const gate = await triage(job); if (gate) waiting.push([job, gate]); } catch (err) { console.error(`auto (${job.slug}):`, err.message); }
     }
     for (const [job, gate] of waiting) {
-      try { await attend(job, gate); } catch (err) { console.error(`auto (${job.slug}):`, err.message); }
+      try { await attend(job, gate); } catch (err) {
+        console.error(`auto (${job.slug}):`, err.message);
+        // A throw while handling a gate counts as a failure, like the Approver failing: two running stop Auto.
+        try { await failedOnGate(job, err); } catch (again) { console.error(`auto (${job.slug}):`, again.message); }
+      }
     }
+  }
+
+  async function failedOnGate(job, err) {
+    let count = 0;
+    const problem = oneLine(err?.message).replace(/\.$/, '') || 'something went wrong while handling the step';
+    await update(job.dir, (prev) => {
+      if (prev?.on !== true || prev.stopped) return null;
+      count = (prev.failures ?? 0) + 1;
+      return { ...prev, failures: count, problem };
+    });
+    const hit = count ? fixedStop({ kind: 'job', failures: count, problem }) : null;
+    if (hit) await stop(job, hit);
   }
 
   const audit = (job, what, fields) => state.audit({ action: 'auto', what, featureDir: job.dir, slug: job.slug, stage: job.stage ?? null, asked: '', chose: '', why: '', ...fields });
 
-  /** Auto stops and waits for you: the record says why, one audit line, one notification (none if it already had). Resolves true when it wrote the stop. */
-  async function stop(job, { rule, reason }, { leave = false } = {}) {
+  /**
+   * Auto stops and waits for you: the record says why, one audit line, one notification (none if it already had). Resolves true when it wrote the stop.
+   * why: the Approver's own words when the reason is Starbase's (they go on the line; the reason is what the person is told).
+   */
+  async function stop(job, { rule, reason }, { leave = false, why = null } = {}) {
     stopping(job.slug, true);
-    try { return await writeStop(job, { rule, reason }, { leave }); } finally { stopping(job.slug, false); }
+    try { return await writeStop(job, { rule, reason }, { leave, why }); } finally { stopping(job.slug, false); }
   }
-  async function writeStop(job, { rule, reason }, { leave }) {
+  async function writeStop(job, { rule, reason }, { leave, why }) {
     const at = now().toISOString();
     let spent = 0;
     let wrote = false;
@@ -117,11 +136,15 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       return { ...prev, ...(leave ? { on: false } : {}), stopped: { reason, rule, at }, spent: 0 };
     });
     if (!wrote) return false;
-    await audit(job, 'stop', { rule, reason, why: reason, ...(spent > 0 ? { costUsd: spent } : {}) });
-    // What the person should do, for every stop: the reason ends with its own full stop.
-    const said = /[.!?]$/.test(reason) ? reason : `${reason}.`;
-    notify({ level: 'needs', title: job.title, body: `Auto stopped: ${said} Open the job to answer.`, slug: job.slug, key: `auto-stop:${job.slug}:${at}` });
-    if (leave) changed();
+    try {
+      await audit(job, 'stop', { rule, reason, why: why || reason, ...(spent > 0 ? { costUsd: spent } : {}) });
+    } finally {
+      // Once the record says stopped, the person is told, even when the line could not be written.
+      // What the person should do, for every stop: the reason ends with its own full stop.
+      const said = /[.!?]$/.test(reason) ? reason : `${reason}.`;
+      notify({ level: 'needs', title: job.title, body: `Auto stopped: ${said} Open the job to answer.`, slug: job.slug, key: `auto-stop:${job.slug}:${at}` });
+      if (leave) changed();
+    }
     return true;
   }
 
@@ -415,9 +438,19 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     if (!card?.id || cards.has(card.id)) return Promise.resolve();
     cards.set(card.id, true);
     const dir = card.featureDir;
+    let told = false;
+    const tell = () => { if (!told) { told = true; leftWaiting(card); } };
     const mine = (queues.get(dir) ?? Promise.resolve())
-      .then(() => attendCard(card, leftWaiting))
-      .catch((err) => { console.error(`auto card (${card.slug}):`, err.message); })
+      .then(() => attendCard(card, tell))
+      .catch((err) => {
+        console.error(`auto card (${card.slug}):`, err.message);
+        // Something failed while Auto had the card: it is the person's now, and they are told (once).
+        if (pendingCard(card.id)) tell();
+      })
+      .then(() => {
+        // Done with, and it still waits: Auto has left it to the person (a stop, a failure, a card it never answers).
+        if (cards.has(card.id) && pendingCard(card.id)) cards.set(card.id, 'left');
+      })
       .finally(() => { if (queues.get(dir) === mine) queues.delete(dir); });
     queues.set(dir, mine);
     return mine;
@@ -425,6 +458,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
 
   /** A card that has gone away (answered, the reply ended) is forgotten. */
   function cardGone(id) { cards.delete(id); }
+  /** Whether Auto has left this card to the person: it took it up, is done with it, and did not answer it. */
+  function leftCard(id) { return cards.get(id) === 'left'; }
 
   /** A stop on the card: its own notification tells the person; when none was written, the card's notification does. */
   async function stopOnCard(job, hit, leave) {
@@ -565,5 +600,5 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     });
   }
 
-  return { pass, onPermission, cardGone };
+  return { pass, onPermission, cardGone, leftCard };
 }
