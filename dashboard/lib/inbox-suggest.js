@@ -1,7 +1,8 @@
 // The Inbox's suggested order for tickets Orbit has not ranked (spec 4.2). A short Haiku call picks
 // up to three to start next. What goes to Haiku is picked field by field from a ticket (title, type,
 // severity, age, size, the start of the description) and from the open jobs (title, ticket, repository
-// folder, changed paths); never a name, email, internal note or comment. The answer is untrusted:
+// folder, changed paths); never an internal note or comment. Mentions, email addresses and the names Orbit attaches
+// are left out; a name someone typed into a ticket's title or text is still there. The answer is untrusted:
 // parseSuggestion reads it strictly. Nothing here logs ticket text.
 
 import fs from 'node:fs/promises';
