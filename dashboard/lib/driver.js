@@ -1208,7 +1208,7 @@ export class Driver extends EventEmitter {
       // The first caller owns the card: it leaves `pending` before anything is awaited, so the person's click and Auto's answer can't both get through.
       run.pending.delete(requestId);
       try {
-        await this.state.audit({ action: 'permission', featureDir: req.featureDir, slug: req.slug, sessionId: run.sessionId, runId: run.id, tool: req.toolName, agentType: req.agentType, headline: req.plain.headline, decision, note: note || undefined, answers: answers ?? undefined, rule: rule ?? undefined, ...(auto ? { by: 'auto' } : {}) });
+        await this.state.audit({ action: 'permission', featureDir: req.featureDir, slug: req.slug, sessionId: run.sessionId, runId: run.id, requestId: req.id, tool: req.toolName, agentType: req.agentType, headline: req.plain.headline, decision, note: note || undefined, answers: answers ?? undefined, rule: rule ?? undefined, ...(auto ? { by: 'auto' } : {}) });
       } catch (err) {
         run.pending.set(requestId, req); // nothing was recorded or sent: the card waits again
         throw err;
