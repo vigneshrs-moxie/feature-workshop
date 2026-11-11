@@ -1044,6 +1044,7 @@ export async function createRunner(config) {
     const written = await writeJobOptions(f, options, { title: f.options?.title ?? f.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
     await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options: written.options, via: 'gate', was: f.options?.level ?? null });
     cached = null;
+    auto.pass(); // a level chip may have taken the job to L3: an Auto job leaves Auto now
   }
 
 
@@ -1368,6 +1369,7 @@ export async function createRunner(config) {
     await writeJobOptions(f, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
     await state.audit({ action: 'auto-level', featureDir: f.dir, slug: f.slug, level, was: f.level ?? null, ...record });
     cached = null;
+    auto.pass(); // a raise to L3 takes an Auto job out of Auto now
   }
   async function checkLevelsNow() {
     if (!(await state.getSettings()).workflow.autoLevel) return;
@@ -2165,6 +2167,7 @@ export async function createRunner(config) {
       const overrode = lastLevel?.action === 'auto-level' && options.level !== lastLevel.level ? 'auto' : undefined;
       await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options, was: f.options?.level ?? null, overrode });
       cached = null;
+      auto.pass(); // L3 here takes an Auto job out of Auto now
       return { ok: true, options, summary: describeOptions(options), updated_at: updatedAt };
     },
 
@@ -3127,7 +3130,7 @@ export async function createRunner(config) {
 
   // `auto` is for code inside this computer (the tests, a later task): the pass, a decision sent as Auto, the set of
   // jobs being started again, the look at what waits for you. The site and the pages reach the runner only through handle and read.
-  return { handle, read, local: local_, on, start, stop, auto: { pass: auto.pass, decideGate: gateDecision, restarting, checkWaiting } };
+  return { handle, read, local: local_, on, start, stop, auto: { pass: auto.pass, decideGate: gateDecision, restarting, checkWaiting, checkLevels } };
 
 
 }

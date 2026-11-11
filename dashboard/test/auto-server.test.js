@@ -10,7 +10,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRunner } from '../runner/index.js';
-import { AUTO_MARK, autoRecord } from '../lib/auto.js';
+import { AUTO_L3, AUTO_MARK, autoRecord } from '../lib/auto.js';
 import { APPROVER_BUDGET_USD } from '../lib/approver.js';
 import { OPUS } from '../lib/options.js';
 
@@ -100,6 +100,7 @@ async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null,
   return {
     runner, root, dirs, dir, slug, texts, asks, notes, lines, record, optionsFile, ownOptions, told, until, idle, writeStatus,
     pass: () => runner.auto.pass(),
+    git,
     sends: async () => (await lines()).filter((l) => l.action === 'send'),
     autoLines: async (what) => (await lines()).filter((l) => l.action === 'auto' && (!what || l.what === what)),
     async stop() {
@@ -450,5 +451,121 @@ test('no "waiting for your go-ahead" notification for an Auto job', { timeout: 3
     await w.told(2);
     assert.deepEqual(w.notes.map((n) => n.body.split(':')[0]).sort(), [w.notes[0].body.split(':')[0], 'Auto stopped'].sort());
     assert.equal(w.notes.filter((n) => n.title === 'Visit audit columns').length, 1);
+  } finally { await w.stop(); }
+});
+
+// ---------- Task 5: a level that reaches L3 leaves Auto ----------
+
+const L3_REASON = 'the job is now L3, and L3 jobs need you to approve each step.';
+
+/** The permission setting in force for the job, as the job page shows it (after the job's own is set to ask-all). */
+const policyNow = async (w) => (await w.runner.handle({ type: 'policy', slug: w.slug, policy: 'ask-all' }, { from: 'local' })).policy;
+
+test('an Auto job at L1 whose Foreman suggests L2 is raised to L2 before its gate is answered, and stays in Auto', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { suggested_level: 2 }) });
+  try {
+    await w.pass();
+    assert.equal((await w.ownOptions()).level, 2);
+    const order = (await w.lines()).filter((l) => l.action === 'auto-level' || l.action === 'send').map((l) => l.action);
+    assert.deepEqual(order, ['auto-level', 'send'], 'the level is applied before the gate is answered');
+    assert.equal((await w.lines()).find((l) => l.action === 'auto-level').level, 2);
+    assert.equal(w.asks[0].task.job.level, 2);
+    const rec = await w.record();
+    assert.equal(rec.on, true);
+    assert.equal(rec.stopped, null);
+    assert.equal((await w.optionsFile()).auto, true, 'options.json still says Auto');
+  } finally { await w.stop(); }
+});
+
+test('a suggestion at or below the job\'s level changes nothing', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { suggested_level: 1 }), options: { level: 2, flow: 'small', title: 'T' } });
+  try {
+    await w.pass();
+    assert.equal((await w.ownOptions()).level, 2);
+    assert.equal((await w.lines()).filter((l) => l.action === 'auto-level').length, 0);
+    assert.equal((await w.sends()).length, 1);
+  } finally { await w.stop(); }
+});
+
+test('a job raised to L3 by the options editor leaves Auto and waits for you', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { suggested_level: 1 }) });
+  try {
+    assert.equal(await policyNow(w), 'auto', 'in Auto the job runs under Auto\'s setting');
+    await w.runner.handle({ type: 'options', slug: w.slug, level: 3 }, { from: 'local' });
+    await w.pass();
+    assert.equal(w.asks.length, 0, 'the Approver is not asked');
+    assert.deepEqual(await w.sends(), []);
+    const rec = await w.record();
+    assert.equal(rec.on, false);
+    assert.equal(rec.ran, true);
+    assert.deepEqual({ rule: rec.stopped.rule, reason: rec.stopped.reason }, { rule: 'level', reason: L3_REASON });
+    const file = await w.optionsFile();
+    assert.equal(file.level, 3);
+    assert.equal('auto' in file || 'auto_since' in file, false, 'options.json loses auto');
+    assert.equal(await policyNow(w), 'ask-all', 'the job\'s own permission setting applies again');
+    const [stop] = await w.autoLines('stop');
+    assert.equal(stop.rule, 'level');
+    assert.deepEqual((await w.told(1)).map((n) => [n.level, n.body]), [['needs', `Auto stopped: ${L3_REASON}`]]);
+  } finally { await w.stop(); }
+});
+
+test('turning Auto on again at L3 is refused', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    await w.runner.handle({ type: 'options', slug: w.slug, level: 3 }, { from: 'local' });
+    await w.pass();
+    await assert.rejects(w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' }), (err) => err.status === 409 && err.message === AUTO_L3);
+    assert.equal((await w.record()).on, false);
+  } finally { await w.stop(); }
+});
+
+test('the same after a build\'s diff raises it', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    const base = w.git('rev-parse', 'HEAD').toString().trim();
+    await fs.mkdir(path.join(w.dirs.repo, 'db', 'migrations'), { recursive: true });
+    await fs.writeFile(path.join(w.dirs.repo, 'db', 'migrations', '001_visits.sql'), 'alter table visits add column x int;\n');
+    w.git('add', '.'); w.git('commit', '-q', '-m', 'build');
+    await w.writeStatus(status(1, { stage_state: 'working', waiting_for: null, worktree: w.dirs.repo, base_sha: base }));
+    await w.runner.handle({ type: 'settings', workflow: { autoLevel: true } }, { from: 'local' });
+    await w.runner.auto.checkLevels();
+    assert.equal((await w.ownOptions()).level, 3, 'the build\'s diff raised the level');
+    await w.pass();
+    const rec = await w.record();
+    assert.equal(rec.on, false);
+    assert.equal(rec.stopped.rule, 'level');
+    assert.equal('auto' in await w.optionsFile(), false);
+  } finally { await w.stop(); }
+});
+
+test('a job with no level whose Foreman suggests L3 leaves Auto', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { suggested_level: 3 }), options: { flow: 'small', title: 'T' } });
+  try {
+    await w.pass();
+    assert.equal(w.asks.length, 0);
+    const rec = await w.record();
+    assert.equal(rec.on, false);
+    assert.equal(rec.stopped.rule, 'level');
+    assert.equal('auto' in await w.optionsFile(), false);
+  } finally { await w.stop(); }
+});
+
+test('an L2 job whose Foreman proposes raising it to L3 leaves Auto before the Approver is asked', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { suggested_level: 3 }), options: { level: 2, flow: 'small', title: 'T' } });
+  try {
+    await w.pass();
+    assert.equal(w.asks.length, 0);
+    assert.deepEqual(await w.sends(), []);
+    assert.equal((await w.record()).on, false);
+    assert.equal((await w.ownOptions()).level, 2, 'the level is left for you to decide');
+  } finally { await w.stop(); }
+});
+
+test('leaving Auto for L3 keeps the tag that started the job on its record', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: autoRecord(null, { on: true, now: OLD, by: 'tag', tag: 'auto' }), jobStatus: status(1, { suggested_level: 3 }) });
+  try {
+    await w.pass();
+    const rec = await w.record();
+    assert.deepEqual({ on: rec.on, by: rec.by, tag: rec.tag, ran: rec.ran }, { on: false, by: 'tag', tag: 'auto', ran: true });
   } finally { await w.stop(); }
 });
