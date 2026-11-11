@@ -105,8 +105,17 @@ export async function verifiedJobContext({ featureDir, slug = null, f = null, re
   const specDirs = [path.join(repo, 'docs', 'plans')];
   const spec = f?.spec?.path;
   if (usable(spec)) {
+    // Only docs/ or below it, in the repository or a worktree, or inside the job folder; never a folder whose path
+    // there passes through a place that runs code later (N1).
     const dir = path.dirname(path.resolve(spec));
-    const ok = (inside(dir, repo) && !same(dir, repo)) || worktrees.some((w) => inside(dir, w)) || (usable(featureDir) && inside(dir, featureDir));
+    const under = (root) => {
+      if (!inside(dir, root)) return null;
+      return path.relative(fold(real(root)), fold(real(dir))).split(/[\\/]/).filter(Boolean);
+    };
+    const codePart = (parts) => parts.some((x) => /^\.(git|github|husky|claude|githooks)$/i.test(x));
+    const inDocs = (parts) => parts !== null && parts[0] === 'docs' && !codePart(parts);
+    const inJob = usable(featureDir) ? under(featureDir) : null;
+    const ok = inDocs(under(repo)) || worktrees.some((w) => inDocs(under(w))) || (inJob !== null && !codePart(inJob));
     if (ok && !specDirs.some((d) => same(d, dir))) specDirs.push(dir);
   }
   return { repo, mainCheckout: main ? main.path : repo, worktrees, specDirs, branches };

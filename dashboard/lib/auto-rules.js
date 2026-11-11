@@ -166,7 +166,7 @@ function judgeCardOf(inp, ctx) {
   if (EDIT_TOOLS.has(toolName)) {
     const file = input.file_path ?? input.notebook_path;
     const where = typeof file === 'string' ? physicalPath(file, ctx.cwd ?? null) : null;
-    if (!(where && inRoots(where, jobRoots(ctx))) || codeLater(where, jobRoots(ctx)) || autoRecordFile(where, ctx)) return { stop: stop('outside') };
+    if (!(where && inRoots(where, jobRoots(ctx))) || codeLater(where, codeRoots(ctx)) || autoRecordFile(where, ctx)) return { stop: stop('outside') };
     return ASK_FILES.has(path.basename(where)) ? { ask: 'a file that changes how tools run' } : null;
   }
   if (toolName === 'Bash') return bashVerdict(String(input.command ?? ''), hard, ctx);
@@ -262,6 +262,8 @@ export function tooWideRoot(r, ctx = {}) {
   const state = typeof ctx.stateDir === 'string' && ctx.stateDir ? [ctx.stateDir, physicalPath(ctx.stateDir, null)].filter(Boolean) : [];
   return state.some((s) => isInside(fold(s), q));
 }
+// The roots codeLater measures from: the worktrees, the job folder and the temp folders, never a spec folder (N1).
+const codeRoots = (ctx) => jobRoots({ ...ctx, specDirs: [] });
 const inRoots = (p, roots, strict = false) => roots.some((r) => isInside(p, r) && !(strict && p === r));
 
 // The session's read folders (skills, agents), as written and as they really are.
@@ -291,7 +293,7 @@ function readElsewhere(p, roots) {
 
 // A Bash call: a fixed stop if a rule matches; else an ask if it is not plain; else null (pass).
 function bashVerdict(command, hard, ctx) {
-  const st = { ctx, asks: [], cdTargets: [], hits: new Set(), unknown: false, ranRunner: false, ranMake: false, pkgEdit: false, runs: [], written: [], touched: [], cloneDirs: [], branchChange: false, pushed: false, funcs: functionNames(command), roots: jobRoots(ctx), readRoots: readRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
+  const st = { ctx, asks: [], cdTargets: [], hits: new Set(), unknown: false, ranRunner: false, ranMake: false, pkgEdit: false, runs: [], written: [], touched: [], cloneDirs: [], branchChange: false, pushed: false, funcs: functionNames(command), roots: jobRoots(ctx), codeRoots: codeRoots(ctx), readRoots: readRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
   if (hard?.line === 'gh-pr-merge') st.hits.add('merge');
   if (hard?.line === 'database') st.hits.add('database');
   if (DB_ADDRESS.test(command)) st.hits.add('database'); // a database address anywhere in the call
@@ -562,7 +564,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   // A file that runs code later (T3h), or that changes how tools run (asks).
   const noteWrite = (word) => {
     const p = physicalPath(word.t, cwd ?? st.hint ?? null);
-    if (codeLater(p, st.roots) || autoRecordFile(p, ctx)) st.hits.add('outside');
+    if (codeLater(p, st.codeRoots) || autoRecordFile(p, ctx)) st.hits.add('outside');
     if (p && ASK_FILES.has(path.basename(p))) st.asks.push('a file that changes how tools run');
   };
   const secretWord = (t) => {
@@ -1239,7 +1241,7 @@ function gitStep(args, assigns, cwd, st, xargs) {
       if (!a[k].startsWith('-')) list.push(sargs[k]);
     }
     const paths = dashes >= 0 || sub === 'restore' ? list : list.slice(1); // git checkout <ref> <path>…: the first word is the ref
-    if (paths.some((x) => x.dyn || codeLater(physicalPath(x.t, eff), st.roots))) hit('outside');
+    if (paths.some((x) => x.dyn || codeLater(physicalPath(x.t, eff), st.codeRoots))) hit('outside');
   }
   // Any other git command run in another folder (git -C <elsewhere>) acts there.
   if (!GIT_READ.has(sub) && eff !== cwd && !(eff && inRoots(eff, st.roots))) hit('outside');
@@ -1354,11 +1356,11 @@ const CODE_LATER_NAMES = /^(workflows|actions|hooks|\.git|\.github|\.husky|\.cla
 function movesCodeLater(sources, dest, cwd, st) {
   const d = dest && !dest.dyn ? physicalPath(dest.t, cwd) : null;
   if (!d) return true;
-  if (codeLater(d, st.roots)) return true;
+  if (codeLater(d, st.codeRoots)) return true;
   for (const s of sources) {
     const p = s && !s.dyn ? physicalPath(s.t, cwd) : null;
     if (!p) return true;
-    if (codeLater(path.join(d, path.basename(p)), st.roots)) return true;
+    if (codeLater(path.join(d, path.basename(p)), st.codeRoots)) return true;
     let list = [];
     try { if (fs.statSync(p).isDirectory()) list = fs.readdirSync(p); } catch { /* not there: judged by its name */ }
     if (list.some((n) => CODE_LATER_NAMES.test(n))) return true;

@@ -673,3 +673,41 @@ test('m12: Auto\'s rules read the folder the hook reports, and the fallback chec
     assert.equal(out.fallback?.behavior, 'deny', 'the fallback hard line knows Starbase\'s port');
   } finally { d.done(); }
 });
+
+// ---------- Round 2 (the reviewer's re-check of Part 1) ----------
+
+test('N1: a spec folder from status.json is a root only under docs/ or in the job folder, never in .git, .github, .husky, .claude or .githooks', async () => {
+  const honestV = await verifiedJobContext({ featureDir: JOB, f: { repoPath: REPO, worktree: WT }, recordedRepo: REPO, profileWorktree: WT, git: gitOf() });
+  const honest = ctxOf(honestV);
+  const pairs = [
+    [`${REPO}/.git/x.md`, 'Write', { file_path: `${REPO}/.git/hooks/pre-commit`, content: '#!/bin/sh\nid\n' }],
+    [`${REPO}/.git/x.md`, 'Write', { file_path: `${REPO}/.git/config`, content: '[core]\n' }],
+    [`${REPO}/.git/x.md`, 'Bash', { command: `printf '#!/bin/sh\\nid\\n' > ${REPO}/.git/hooks/pre-push` }],
+    [`${REPO}/.git/x.md`, 'Bash', { command: `chmod +x ${REPO}/.git/hooks/pre-commit` }],
+    [`${REPO}/.git/x.md`, 'Write', { file_path: `${REPO}/.git/worktrees/orbit-orbit-500-thing/gitdir`, content: '/Users/test/Documents/.git\n' }],
+    [`${REPO}/.GIT/x.md`, 'Write', { file_path: `${REPO}/.git/hooks/pre-commit`, content: 'x' }],
+    [`${REPO}/app/x.md`, 'Write', { file_path: `${REPO}/app/src/lib/auth.ts`, content: 'x' }],
+    [`${REPO}/app/x.md`, 'Read', { file_path: `${REPO}/app/.env.local` }],
+    [`${REPO}/app/x.md`, 'Bash', { command: `cat ${REPO}/app/.env.local` }],
+    [`${REPO}/app/x.md`, 'Bash', { command: `rm -r ${REPO}/app/src` }],
+    [`${REPO}/.github/workflows/x.md`, 'Write', { file_path: `${REPO}/.github/workflows/ci.yml`, content: 'x' }],
+    [`${WT}/.github/workflows/x.md`, 'Write', { file_path: `${WT}/.github/workflows/ci.yml`, content: 'x' }],
+    [`${WT}/.claude/x.md`, 'Write', { file_path: `${WT}/.claude/settings.json`, content: '{}' }],
+    [`${WT}/app/.husky/x.md`, 'Write', { file_path: `${WT}/app/.husky/pre-commit`, content: 'x' }],
+    [`${REPO}/docs/.githooks/x.md`, 'Write', { file_path: `${REPO}/docs/.githooks/pre-commit`, content: 'x' }],
+  ];
+  for (const [spec, tool, input] of pairs) {
+    const v = await verifiedJobContext({ featureDir: JOB, f: { repoPath: REPO, worktree: WT, spec: { path: spec } }, recordedRepo: REPO, profileWorktree: WT, git: gitOf() });
+    const got = card(tool, input, ctxOf(v));
+    assert.equal(got, card(tool, input, honest), `${spec}: ${tool} ${JSON.stringify(input)}`);
+    assert.notEqual(got, null, `${spec}: ${tool}`);
+    assert.equal(approverRoots({ featureDir: JOB, worktrees: v.worktrees, specDirs: v.specDirs }).filter((r) => r !== JOB).some((r) => r.startsWith(`${REPO}/app`) || /\/\.(git|github|husky|claude|githooks)(\/|$)/i.test(r)), false, spec);
+  }
+  // docs/ and below, in the repository or the worktree, and the job folder, still count.
+  for (const [spec, dir] of [[`${REPO}/docs/plans/x.md`, `${REPO}/docs/plans`], [`${REPO}/docs/specs/x/y.md`, `${REPO}/docs/specs/x`], [`${WT}/docs/plans/x.md`, `${WT}/docs/plans`], [`${WT}/docs/specs/x/y.md`, `${WT}/docs/specs/x`], [`${JOB}/spec.md`, JOB]]) {
+    const v = await verifiedJobContext({ featureDir: JOB, f: { repoPath: REPO, worktree: WT, spec: { path: spec } }, recordedRepo: REPO, profileWorktree: WT, git: gitOf() });
+    assert.ok(v.specDirs.includes(dir), `${spec}: ${JSON.stringify(v.specDirs)}`);
+  }
+  // codeLater is measured from the worktree, never from a spec folder handed in as a root.
+  assert.equal(card('Write', { file_path: `${WT}/.github/workflows/ci.yml`, content: 'x' }, ctxOf({ worktrees: [WT], specDirs: [`${WT}/.github/workflows`], branches: [BRANCH] })), 'outside');
+});
