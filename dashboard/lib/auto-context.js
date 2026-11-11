@@ -7,7 +7,7 @@
 //     repository the registry knows;
 //   - a worktree named by status.json counts only when git lists it as a worktree of that repository
 //     (real paths compared) and it is this job's: the profile's folder for this job or one of its stack
-//     parts, or its folder name or checked-out branch holds the job's slug; and never the profile's folder
+//     parts, or its folder name is the job's slug or ends with -<slug>; and never the profile's folder
 //     for another job Starbase knows. The profile's own worktree counts before it exists (the Foreman makes it
 //     there) and, once it exists, under the same test. The main checkout is never one of the job's
 //     worktrees, nor is a worktree with a branch that is never the job's own checked out;
@@ -86,7 +86,9 @@ export async function verifiedJobContext({ featureDir, slug = null, f = null, re
   const ours = (x) => {
     if ((otherWorktrees ?? []).some((o) => usable(o) && same(o, x.path))) return false;
     if ((profile && same(profile, x.path)) || (stackWorktrees ?? []).some((s) => usable(s) && same(s, x.path))) return true;
-    return Boolean(key) && (path.basename(x.path).toLowerCase().includes(key) || String(x.branch ?? '').toLowerCase().includes(key));
+    // Its folder's name is the slug, or ends with -<slug> (the profile's shape); a name or branch that merely holds the slug is not (R12).
+    const base = path.basename(x.path).toLowerCase();
+    return Boolean(key) && (base === key || base.endsWith(`-${key}`));
   };
   for (const w of named) {
     const hit = others.find((x) => same(x.path, w));

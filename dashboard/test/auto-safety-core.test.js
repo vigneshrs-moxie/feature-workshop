@@ -418,10 +418,10 @@ test('C1 follow-up: status.json naming another job\'s worktree of the same repos
   const own = await verifiedJobContext({ ...base, f: { worktree: WT, statusWorktree: WT } });
   assert.deepEqual(own.worktrees, [WT]);
   assert.deepEqual(own.branches, [BRANCH]);
-  // Kept also when only the branch git names holds the slug, or when it is a stack part's folder by the profile.
+  // Not kept when only the branch git names holds the slug (R12: the folder's name decides); kept when it is a stack part's folder by the profile.
   const ODD = `${HOME}/Projects/scratch-wt`;
   const odd = await verifiedJobContext({ ...base, git: gitOf({ list: [{ path: REPO, branch: 'main' }, { path: ODD, branch: BRANCH }] }), f: { worktree: ODD } });
-  assert.deepEqual(odd.worktrees, [ODD]);
+  assert.deepEqual(odd.worktrees, []);
   const PART = `${HOME}/Projects/part-api`;
   const part = await verifiedJobContext({ ...base, git: gitOf({ list: [{ path: REPO, branch: 'main' }, { path: PART, branch: 'feature/x--api' }] }), f: { worktree: PART }, stackWorktrees: [PART] });
   assert.deepEqual(part.worktrees, [PART]);
@@ -1058,4 +1058,13 @@ test('R10: a test name handed on after -- is text, as the routine list reads it'
     // A path after -- that is not a test name's value is still a path.
     for (const c of ['npm test -- /Users/nobody-probe/x.test.ts', 'npm test -- --outputFile=/Users/nobody-probe/.zshrc', 'npm test -- -t x /Users/nobody-probe/x.test.ts']) assert.notEqual(bash(c, ctx), null, c);
   } finally { d.done(); }
+});
+
+test('R12: a worktree named by status.json is the job\'s only when its folder name is the slug or ends with -<slug>', async () => {
+  const P = `${HOME}/Projects`;
+  const listed = [{ path: REPO, branch: 'main' }, { path: `${P}/orbit-orbit-500-thing-else-mine`, branch: 'feature/mine' }, { path: `${P}/scratch`, branch: 'wip/before-orbit-500-thing' },
+    { path: `${P}/orbit-orbit-500-thing-v2`, branch: 'feature/orbit-500-thing-v2' }, { path: `${P}/orbit-500-thing`, branch: 'feature/a' }, { path: `${P}/wt-orbit-500-thing`, branch: 'feature/b' }];
+  const named = async (wt) => (await verifiedJobContext({ featureDir: JOB, slug: 'orbit-500-thing', f: { worktree: wt }, recordedRepo: REPO, git: gitOf({ list: listed }) })).worktrees;
+  for (const wt of [`${P}/orbit-orbit-500-thing-else-mine`, `${P}/scratch`, `${P}/orbit-orbit-500-thing-v2`]) assert.deepEqual(await named(wt), [], wt);
+  for (const wt of [`${P}/orbit-500-thing`, `${P}/wt-orbit-500-thing`]) assert.deepEqual(await named(wt), [wt], wt);
 });
