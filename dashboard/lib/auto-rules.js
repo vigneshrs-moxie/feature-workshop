@@ -60,12 +60,42 @@ export function branchesOf(branch, stack) {
   return [...new Set([branch, ...(stack?.sections ?? []).map((x) => x?.branch)].filter((b) => typeof b === 'string' && b))];
 }
 
-/** The fixed stop rules. Returns { rule, reason } or null. Throws on a malformed input (the hook then asks). */
+export const ASK_REASON = "Auto can't tell what this command does, so it needs an answer.";
+
+/**
+ * The three answers for a tool call on an Auto job:
+ *   { verdict: 'stop', rule, reason, … }  a fixed rule matches: Auto stops and the person answers
+ *   { verdict: 'ask', why }               Starbase can't tell what the call does (it is not plain): a card
+ *                                         that nothing answers by itself
+ *   null                                  plain: Starbase understands every word of it
+ * Gates and jobs have only stops (see fixedStop). Throws on a malformed input (the hook then asks).
+ */
+export function autoVerdict(input, ctx = {}) {
+  if (input?.kind !== 'card') {
+    const s = fixedStop(input, ctx);
+    return s ? { verdict: 'stop', ...s } : null;
+  }
+  const r = judgeCard(input, ctx);
+  if (!r) return null;
+  return r.stop ? { verdict: 'stop', ...r.stop } : { verdict: 'ask', why: r.ask };
+}
+
+/** autoVerdict as the hook and the driver use it: the stop object, or { rule: null, ask: true, why, reason } for an ask, or null. */
+export function autoAnswer(input, ctx = {}) {
+  const v = autoVerdict(input, ctx);
+  if (!v) return null;
+  if (v.verdict === 'ask') return { rule: null, ask: true, why: v.why, reason: ASK_REASON };
+  const { verdict, ...stopObject } = v; // eslint-disable-line no-unused-vars
+  return stopObject;
+}
+
+/** The fixed stop rules. Returns { rule, reason } or null. For a tool call it answers only for a stop: a call that is not plain
+ *  (an ask) comes back null here; autoVerdict tells the two apart. Throws on a malformed input (the hook then asks). */
 export function fixedStop(input, ctx = {}) {
   switch (input?.kind) {
     case 'gate': return gateStop(input);
     case 'job': return jobStop(input);
-    case 'card': return cardStop(input, ctx);
+    case 'card': return judgeCard(input, ctx)?.stop ?? null;
     default: throw new TypeError('fixedStop: unknown kind');
   }
 }
@@ -96,23 +126,24 @@ function jobStop(j) {
 
 const PRIORITY = ['merge', 'database', 'push', 'outside'];
 
-function cardStop(inp, ctx) {
+// { stop } | { ask: why } | null
+function judgeCard(inp, ctx) {
   const toolName = inp.toolName;
   const input = inp.input ?? {};
   // A command too long to read, or made of too many commands, stops without being read (I9).
-  if (toolName === 'Bash' && tooBig(String(input.command ?? ''))) return stop('outside');
+  if (toolName === 'Bash' && tooBig(String(input.command ?? ''))) return { stop: stop('outside') };
   const own = hardLine(toolName, input, { cwd: ctx.cwd ?? null, stateDir: ctx.stateDir });
   const hard = inp.hardLine ?? own;
   if (own?.decision === 'deny' || hard?.decision === 'deny') return null; // refused outright, never asked
-  if (typeof inp.blockedPath === 'string' && inp.blockedPath) return stop('outside');
+  if (typeof inp.blockedPath === 'string' && inp.blockedPath) return { stop: stop('outside') };
   if (EDIT_TOOLS.has(toolName)) {
     const file = input.file_path ?? input.notebook_path;
     const where = typeof file === 'string' ? physicalPath(file, ctx.cwd ?? null) : null;
-    return where && inRoots(where, jobRoots(ctx)) ? null : stop('outside');
+    return where && inRoots(where, jobRoots(ctx)) ? null : { stop: stop('outside') };
   }
-  if (toolName === 'Bash') return bashStop(String(input.command ?? ''), hard, ctx);
+  if (toolName === 'Bash') return bashVerdict(String(input.command ?? ''), hard, ctx);
   if (READ_ONLY_TOOLS.has(toolName)) return null;
-  return stop('tool', { unknownTool: true });
+  return { stop: stop('tool', { unknownTool: true }) };
 }
 
 const MAX_COMMAND = 20_000;
@@ -129,8 +160,9 @@ function jobRoots(ctx) {
 }
 const inRoots = (p, roots, strict = false) => roots.some((r) => isInside(p, r) && !(strict && p === r));
 
-function bashStop(command, hard, ctx) {
-  const st = { ctx, hits: new Set(), unknown: false, runs: [], written: [], touched: [], cloneDirs: [], branchChange: false, pushed: false, funcs: functionNames(command), roots: jobRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
+// A Bash call: a fixed stop if a rule matches; else an ask if it is not plain; else null (pass).
+function bashVerdict(command, hard, ctx) {
+  const st = { ctx, asks: [], hits: new Set(), unknown: false, runs: [], written: [], touched: [], cloneDirs: [], branchChange: false, pushed: false, funcs: functionNames(command), roots: jobRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
   if (hard?.line === 'gh-pr-merge') st.hits.add('merge');
   if (hard?.line === 'database') st.hits.add('database');
   if (DB_ADDRESS.test(command)) st.hits.add('database'); // a database address anywhere in the call
@@ -142,7 +174,14 @@ function bashStop(command, hard, ctx) {
   const verdict = classify('Bash', { command }, { mode: 'hands-off', stage: 'implement', worktrees: ctx.worktrees ?? [], specDirs: ctx.specDirs ?? [], featureDir: ctx.featureDir ?? null, cwd: ctx.cwd ?? null, rules: [] });
   if (verdict.outside) st.hits.add('outside');
   const rule = PRIORITY.find((r) => st.hits.has(r));
-  return rule ? stop(rule, rule === 'outside' && st.unknown ? { unknownProgram: true } : {}) : null;
+  if (rule) return { stop: stop(rule, rule === 'outside' && st.unknown ? { unknownProgram: true } : {}) };
+  const why = st.asks[0] ?? plainWhy(command);
+  return why ? { ask: why } : null;
+}
+
+// Plain: Starbase understands every word of the command (T2).
+function plainWhy(command) {
+  return /[$`]/.test(command) ? 'a variable or substitution in the command' : null;
 }
 
 // Names a command defines as shell functions (their bodies are read as commands; a use of one is not an unknown program).

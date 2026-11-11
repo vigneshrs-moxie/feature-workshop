@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { fixedStop, AUTO_STOP_REASONS, branchesOf } from '../lib/auto-rules.js';
+import { fixedStop, autoVerdict, autoAnswer, ASK_REASON, AUTO_STOP_REASONS, branchesOf } from '../lib/auto-rules.js';
 import { autoGitFacts } from '../lib/auto-git.js';
 import { hardLine, hardLineHook, rmInsideJob, setStateDir, namesThisComputer } from '../lib/hard-lines.js';
 import { classify, commandParts } from '../lib/policy.js';
@@ -653,4 +653,81 @@ test('I8: a script run by file is read; where it is, what it holds, and whether 
     await fs.rm(wt, { recursive: true, force: true });
     await fs.rm(outsideDir, { recursive: true, force: true });
   }
+});
+
+// ---------- fix round 2, T1: three answers (stop, ask, pass) ----------
+
+const cardOf = (command) => ({ kind: 'card', toolName: 'Bash', input: { command }, hardLine: hardLine('Bash', { command }, { cwd: W }), blockedPath: null });
+
+test('T1: autoVerdict says stop, ask or pass; fixedStop keeps answering only for stops', () => {
+  const stop = autoVerdict(cardOf('psql -c x'), ctx());
+  assert.equal(stop.verdict, 'stop');
+  assert.equal(stop.rule, 'database');
+  assert.equal(stop.reason, AUTO_STOP_REASONS.database);
+  const ask = autoVerdict(cardOf('curl https://example.com/$TOKEN'), ctx());
+  assert.equal(ask.verdict, 'ask');
+  assert.match(ask.why, /variable/);
+  assert.equal(Object.keys(ask).sort().join(), 'verdict,why');
+  // fixedStop: the stop object, or null for an ask (and for a pass); gates and jobs are as before
+  assert.deepEqual(fixedStop(cardOf('psql -c x'), ctx()), { rule: 'database', reason: AUTO_STOP_REASONS.database });
+  assert.equal(fixedStop(cardOf('curl https://example.com/$TOKEN'), ctx()), null);
+  assert.equal(autoVerdict({ kind: 'gate', stage: 'plan', nextStage: 'implement' }, ctx()), null);
+  assert.equal(autoVerdict({ kind: 'gate', stage: 'pr1', nextStage: 'pr2' }, ctx()).verdict, 'stop');
+  // a refusal is neither (it never reaches here), and an unknown tool is a stop
+  assert.equal(autoVerdict(cardOf('git push --force origin feature/x'), ctx()), null);
+  assert.equal(autoVerdict({ kind: 'card', toolName: 'FancyNewTool', input: {}, hardLine: null, blockedPath: null }, ctx()).rule, 'tool');
+});
+
+test('T1: autoAnswer is the object the hook and the driver use', () => {
+  assert.deepEqual(autoAnswer(cardOf('psql -c x'), ctx()), { rule: 'database', reason: AUTO_STOP_REASONS.database });
+  const a = autoAnswer(cardOf('curl https://example.com/$TOKEN'), ctx());
+  assert.deepEqual(a, { rule: null, ask: true, why: a.why, reason: "Auto can't tell what this command does, so it needs an answer." });
+  assert.equal(ASK_REASON, a.reason);
+});
+
+test('T1: the hook asks for an ask-tier call, with the exact sentence', async () => {
+  const hook = hardLineHook(() => {}, { check: async (v) => v, cwd: W, autoStop: (t, i, v) => autoAnswer({ kind: 'card', toolName: t, input: i, hardLine: v, blockedPath: null }, ctx()) });
+  const r = await call(hook, 'Bash', { command: 'curl https://example.com/$TOKEN' });
+  assert.equal(decision(r), 'ask');
+  assert.equal(reason(r), "Auto can't tell what this command does, so it needs an answer.");
+});
+
+test('T1: on an Auto job an ask-tier call raises a card although the setting would allow it; with Auto off it is untouched', async () => {
+  const state = new State(await fs.mkdtemp(path.join(os.tmpdir(), 'auto-ask-state-')));
+  const results = {};
+  const make = () => new Driver({
+    queryFn: ({ prompt, options }) => {
+      const gen = (async function* () {
+        await prompt[Symbol.asyncIterator]().next();
+        yield { type: 'system', subtype: 'init', session_id: 's-ask', permissionMode: 'default' };
+        const ask = (id, tool, input) => options.canUseTool(tool, input, { signal: new AbortController().signal, toolUseID: id, requestId: id });
+        const quick = (p) => Promise.race([p, new Promise((r) => setTimeout(() => r('card'), 250))]);
+        results.unreadable = await quick(ask('t1', 'Bash', { command: 'curl https://example.com/$TOKEN' }));
+        results.stop = await quick(ask('t2', 'Bash', { command: 'gh pr merge 12' }));
+        yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0 };
+      })();
+      gen.interrupt = async () => {};
+      return gen;
+    },
+    state, projectsDir: '/nonexistent', autoCtx: async () => ctx(), apiPort: 5123,
+    policy: async () => ({ auto: true, reason: 'Your saved rule: anything.' }), modeFor: async () => 'hands-off',
+    cover: async () => ({ reason: 'covered' }),
+  });
+  const go = async (dir, auto) => {
+    if (auto) await state.setSession(dir, { auto: { on: true, since: 'now', by: 'you', tag: null, ran: true, stopped: null, step: null, failures: 0, lastBrief: null } });
+    const driver = make();
+    driver.idleGraceMs = 30;
+    const cards = [];
+    driver.on('permission', (p) => { cards.push(p); setTimeout(() => driver.decide(p.id, { decision: 'deny' }), 400); });
+    const run = await driver.start({ featureDir: dir, slug: 'j', title: 'J', cwd: W, text: 'go' });
+    await new Promise((resolve) => { const on = (r) => { if (r.id === run.id && ['done', 'error', 'stopped'].includes(r.status)) { driver.off('run', on); resolve(); } }; driver.on('run', on); });
+    return { got: { ...results }, cards };
+  };
+  const on = await go('/f/ask-on', true);
+  assert.equal(on.got.unreadable, 'card', 'the setting says allow; the card still comes');
+  assert.equal(on.got.stop, 'card');
+  assert.equal(on.cards[0].decisionReason, "Auto can't tell what this command does, so it needs an answer.");
+  const off = await go('/f/ask-off', false);
+  assert.equal(off.got.unreadable.behavior, 'allow', 'with Auto off nothing changes');
+  assert.equal(off.cards.length, 0);
 });

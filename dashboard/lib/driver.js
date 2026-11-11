@@ -86,7 +86,7 @@ import path from 'node:path';
 import { describePermission } from './permissions.js';
 import { draftRule } from './rules.js';
 import { describeTool } from './session-log.js';
-import { fixedStop } from './auto-rules.js';
+import { autoAnswer } from './auto-rules.js';
 
 // Every tool but Bash (a matcher is a regular expression over the tool's name).
 const NOT_BASH_MATCHER = '^(?!Bash$).+$';
@@ -959,7 +959,9 @@ export class Driver extends EventEmitter {
     const record = await this.state.sessionFor?.(run.featureDir);
     if (record?.auto?.on !== true) return null;
     if (typeof this.autoCtx !== 'function') throw new Error('Auto is on but there is no way to find the job’s folders.');
-    return fixedStop({ kind: 'card', toolName, input, hardLine: hard, blockedPath: null }, await this.autoCtx(run));
+    // The stop object, or for a call Starbase can't tell the meaning of { rule: null, ask: true, why, reason }: both ask, and
+    // neither the job's setting, a saved rule nor a go-ahead answers them.
+    return autoAnswer({ kind: 'card', toolName, input, hardLine: hard, blockedPath: null }, await this.autoCtx(run));
   }
 
   async #onHardLine(run, verdict, input) {
@@ -1082,8 +1084,8 @@ export class Driver extends EventEmitter {
     // Auto mode: a hard line your own go-ahead already covers (lib/hard-lines.js goAheadCovers).
     // Never a saved rule or the routine list: those don't apply to hard lines.
     // An Auto job's fixed stop (the hook asked for this card): nothing steps in front of it.
-    let autoStopped = false;
-    try { autoStopped = Boolean(await this.#autoStop(run, toolName, input, hard)); } catch { autoStopped = true; }
+    let autoStopped = null;
+    try { autoStopped = (await this.#autoStop(run, toolName, input, hard)) ?? null; } catch { autoStopped = { rule: null, reason: 'Auto could not check this step, so it needs you.' }; }
     if (hard && this.cover && !autoStopped) {
       let covered = null;
       try { covered = await this.cover(run, toolName, input); } catch { covered = null; }
@@ -1098,7 +1100,7 @@ export class Driver extends EventEmitter {
       id: randomUUID(), runId: run.id, slug: run.slug, featureDir: run.featureDir, title: run.title,
       toolName, input: trimInput(input), kind: toolName === 'AskUserQuestion' ? 'question' : 'permission',
       prompt: opts.title ?? null, displayName: opts.displayName ?? null, description: opts.description ?? null,
-      decisionReason: opts.decisionReason ?? hard?.reason ?? null, blockedPath: opts.blockedPath ?? null,
+      decisionReason: opts.decisionReason ?? hard?.reason ?? autoStopped?.reason ?? null, blockedPath: opts.blockedPath ?? null,
       agentID: opts.agentID ?? null, agentType: await this.#agentType(run, opts.agentID),
       defaultToNo: Boolean(opts.defaultToNo),
       // A hard line (lib/hard-lines.js): it asks every time, so nothing is offered that would stop it asking.
