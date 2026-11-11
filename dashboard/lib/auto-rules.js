@@ -656,10 +656,13 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     }
     else if (!pos().filter((x) => x.t !== '-').length && !a.some((x) => NO_STDIN.test(x))) hit('outside'); // code from stdin
     if (cmd === 'perl' || cmd === 'ruby') { if (a.some((x) => /^-[A-Za-z]*i/.test(x))) writes(pos()); }
-    if (!(mod >= 0) && !a.some((x) => inline?.test(x))) { const file = interpreterFile(cmd, args); if (file) scriptFile(file, cwd, st, 'other', depth); }
+    if (!(mod >= 0) && !a.some((x) => inline?.test(x))) { const file = interpreterFile(cmd, args); if (file) runtimeFile(file, cwd, st, depth); }
     return;
   }
 
+  // TypeScript runners and bun given a file: the same reading as node's (I4).
+  if (cmd === 'tsx' || cmd === 'ts-node' || cmd === 'ts-node-esm') { const file = interpreterFile('node', args); if (file) runtimeFile(file, cwd, st, depth); return; }
+  if (cmd === 'bun') { const list = a[0] === 'run' ? args.slice(1) : args; const first = list.find((x) => !x.t.startsWith('-')); if (first && (first.t.includes('/') || BUN_FILE.test(first.t))) { runtimeFile(first, cwd, st, depth); return; } }
   if (cmd === 'git') { gitStep(args, assigns, cwd, st, xargs); return; }
   if (cmd === 'gh' || cmd === 'hub') { ghStep(cmd, args, a, st); return; }
 
@@ -911,6 +914,14 @@ function scriptFile(word, cwd, st, kind = 'shell', depth = 0) {
   const shebang = /^#!\s*\S*\/(?:env\s+)?(\w+)/.exec(text)?.[1] ?? '';
   const shell = kind === 'shell' && (!shebang || SHELLS.has(shebang));
   if (shell) scanShell(text, st.hint ?? cwd ?? path.dirname(at), st, depth); else scanOther(text, st);
+}
+
+// A file a runtime runs: a migration or data script by its path or name is the database rule; its text is searched (I4).
+const DATA_FILE = /migrat|seed|backfill|(^|\/)db[/:._-]|prisma\//i;
+const BUN_FILE = /\.(m?[jt]sx?|cjs|cts)$/;
+function runtimeFile(word, cwd, st, depth) {
+  if (!word.dyn && DATA_FILE.test(word.t)) st.hits.add('database');
+  scriptFile(word, cwd, st, 'other', depth);
 }
 
 // The file a language runtime is given to run: its first argument that is not an option (or an option's value).

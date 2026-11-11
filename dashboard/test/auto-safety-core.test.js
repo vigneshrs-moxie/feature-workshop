@@ -442,3 +442,24 @@ test('I3: a deploy or publish behind a runner stops, as the bare program does, a
     for (const c of ['npx vitest run', 'npx tsc --noEmit', 'yarn test', 'pnpm test', 'npx wrangler --version']) assert.notEqual(bash(c, ctx), 'outside', c);
   } finally { d.done(); }
 });
+
+test('I4: a migration or data script run by file is a database stop, however it is started', () => {
+  const o = orbitWorld();
+  try {
+    const app = pathMod.join(o.wt, 'app');
+    fsSync.mkdirSync(pathMod.join(app, 'scripts', 'db'), { recursive: true });
+    fsSync.writeFileSync(pathMod.join(app, 'prisma', 'apply-migration.ts'), "import { PrismaClient } from '@prisma/client';\nawait new PrismaClient().$executeRawUnsafe('x');\n");
+    fsSync.writeFileSync(pathMod.join(app, 'scripts', 'migrate.js'), "import { db } from '../lib/db.js';\nawait db.migrate.latest();\n");
+    fsSync.writeFileSync(pathMod.join(app, 'scripts', 'backfill.ts'), "import { prisma } from '../src/lib/db';\nawait prisma.ticket.updateMany({ data: { status: 'open' } });\n");
+    fsSync.writeFileSync(pathMod.join(app, 'scripts', 'seed.ts'), 'console.log(1);\n');
+    fsSync.writeFileSync(pathMod.join(app, 'scripts', 'db', 'reset.js'), 'console.log(1);\n');
+    fsSync.writeFileSync(pathMod.join(app, 'scripts', 'sync.ts'), "import { execSync } from 'node:child_process';\nexecSync('psql -c \"select 1\"');\n");
+    fsSync.writeFileSync(pathMod.join(app, 'scripts', 'build-icons.js'), 'console.log(1);\n');
+    const ctx = orbitCtx(o);
+    for (const c of ['cd app && node scripts/migrate.js', 'cd app && npx tsx scripts/backfill.ts', 'cd app && ./node_modules/.bin/tsx prisma/apply-migration.ts 0160_add_col',
+      'cd app && node --import tsx prisma/apply-migration.ts 0160_add_col', 'cd app && npx tsx prisma/apply-migration.ts 0160_add_col', 'cd app && tsx prisma/apply-migration.ts 0160',
+      'cd app && node scripts/db/reset.js', 'cd app && bun scripts/seed.ts', 'cd app && bun run scripts/seed.ts', 'cd app && npx ts-node scripts/seed.ts',
+      'cd app && npx tsx scripts/sync.ts', 'cd app && node --import tsx scripts/sync.ts', 'cd app && ./node_modules/.bin/tsx scripts/sync.ts']) assert.equal(bash(c, ctx), 'database', c);
+    for (const c of ['cd app && node scripts/build-icons.js', 'cd app && npx tsx scripts/build-icons.js']) assert.notEqual(bash(c, ctx), 'database', c);
+  } finally { o.done(); }
+});
