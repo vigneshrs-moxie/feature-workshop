@@ -21,3 +21,25 @@
 .sb-ov-mark.is-err { color: var(--status-error); }
 .sb-ov-mark.is-warn { color: var(--status-warn); }
 .sb-check { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* The conversation panel (job/page/ConversationPanel.tsx): full height, the whole conversation in
+   its own scroll area, newest at the bottom, the message box at its foot. Widened (is-wide) the
+   messages keep a readable width; the whole-screen form (is-full) has a larger head. */
+.sb-convo { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs); }
+.sb-convo-head { display: flex; align-items: center; gap: var(--space-2); flex: none; min-height: 44px; padding: var(--space-1) var(--space-4); border-bottom: 1px solid var(--border-1); color: var(--text-2); }
+.sb-convo-head h3 { margin: 0; font-size: var(--text-sm); color: var(--text-1); }
+.sb-convo-head .muted { font-size: var(--text-sm); }
+.sb-convo-spacer { flex: 1; }
+.sb-convo.is-full .sb-convo-head { flex-direction: column; align-items: flex-start; gap: var(--space-1); padding: var(--space-3) var(--space-4); }
+.sb-convo-title { margin: 0; font-size: var(--text-lg); font-weight: 700; line-height: 1.2; color: var(--text-1); }
+.sb-convo-count { margin: 0; font-size: var(--text-sm); color: var(--text-2); }
+.sb-convo-list { flex: 1 1 auto; min-height: 0; position: relative; overflow-y: auto; overflow-anchor: none; }
+.sb-convo-body { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
+.sb-convo.is-wide .sb-convo-body { max-width: 760px; width: 100%; margin: 0 auto; }
+.sb-convo-line { margin: 0; padding-bottom: var(--space-1); text-align: center; font-size: var(--text-xs); color: var(--text-3); }
+.sb-convo-new { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--text-xs); font-weight: 600; color: var(--accent-strong); }
+.sb-convo-new::before, .sb-convo-new::after { content: ""; flex: 1; height: 1px; background: var(--accent); }
+.sb-convo-foot { flex: none; }
+.sb-convo-foot .composer { position: relative; padding: var(--space-3); border-top: 1px solid var(--border-1); background: var(--surface-2); }
+.sb-convo-foot .composer-input { min-height: 0; resize: none; }
+.sb-convo-foot .composer-model { font-size: var(--text-xs); color: var(--text-2); white-space: nowrap; }

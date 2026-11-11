@@ -2,8 +2,8 @@
 // "Load older" at the top, then the permission and question cards waiting for you, and the live
 // row at the foot while it replies. With no job open it lists every card waiting for you (Needs
 // you); with Play on, that is part of the workshop floor (play/WorkshopFloor.tsx). The composer sits under the conversation: Send, Steer and Stop (Composer.tsx).
-import { useEffect, useMemo, useRef, type Ref } from 'react';
-import type { Job } from '../../api/types';
+import { Fragment, useEffect, useMemo, useRef, type Ref } from 'react';
+import type { Job, ThreadItem } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { JobCards, NeedsYouCards } from '../../components/permissions/PendingCards';
 import { useUi } from '../../app/ui';
@@ -20,7 +20,7 @@ import { JobGithub } from './JobGithub';
 import { JobHeader } from './JobHeader';
 import { LevelCard } from './LevelCard';
 import { LiveRow } from './LiveRow';
-import { shownItems, steerStateOf, type ShownItem } from './thread';
+import { isDetailFile, shownItems, steerStateOf, type ShownItem } from './thread';
 import { ThreadItemView, YouMessage } from './ThreadItems';
 import { Composer } from './Composer';
 import { useJobThread } from './useJobThread';
@@ -67,17 +67,33 @@ export function useCurrentJob(job: Job, { thread, run }: Conversation) {
   useEffect(() => () => setCurrent(null), [setCurrent]);
 }
 
+/** What you did yourself: your messages, your answers to permissions, your saves of the job's notes. */
+const isYours = (it: ThreadItem) => it.kind === 'you' || it.kind === 'decision' || (it.kind === 'note' && Boolean(it.notes));
+
+/**
+ * Whether a message is new to you: newer than your last look (`seenAt`, a time) and not yours.
+ * Never looked (null), or a message with no time: not new. A brief's detail file is part of its brief.
+ */
+export function isNewSince(it: ThreadItem, seenAt: string | null | undefined): boolean {
+  if (!seenAt || !it.at || isYours(it) || (it.kind === 'brief' && isDetailFile(it.file))) return false;
+  const t = Date.parse(it.at);
+  const seen = Date.parse(seenAt);
+  return Number.isFinite(t) && Number.isFinite(seen) && t > seen;
+}
+
 /**
  * The conversation itself, oldest first: "Load older", the briefs and replies, what you steered
  * just now, the level card, the cards waiting for you (unless the page shows them elsewhere) and
  * the live row. `stages`: only the part of the conversation at these stages (the Stage page).
  */
-export function ThreadList({ job, conversation, now, cards = true, level = true, sectionRef, stages, newest }: {
+export function ThreadList({ job, conversation, now, cards = true, level = true, sectionRef, stages, newest, newFrom }: {
   job: Job; conversation: Conversation; now: Date; cards?: boolean; sectionRef?: Ref<HTMLElement>; stages?: readonly string[];
   /** Simple (packet R, the Job page): only the newest few, with "Earlier (n)" above them. */
   newest?: number;
   /** false: leave out the level card (a part's page shows the level in its strip and its card in a sheet). */
   level?: boolean;
+  /** Your last look (a time): "2 new" above the first message since then that is not yours. */
+  newFrom?: string | null;
 }) {
   const state = useWorkshopState();
   const { thread, run } = conversation;
@@ -113,6 +129,10 @@ export function ThreadList({ job, conversation, now, cards = true, level = true,
   const [earlier, setEarlier] = useShown('job', 'earlier');
   const cut = newest !== undefined && !earlier && shown.length > newest ? shown.length - newest : 0;
   const visible = cut ? shown.slice(cut) : shown;
+  const fresh = newFrom ? shown.filter((s) => isNewSince(s.kind === 'brief-card' ? s.brief.item : s.item, newFrom)) : [];
+  const newLine = fresh.length > 0 && (
+    <p className="sb-convo-new" role="separator" aria-label={`${fresh.length} new since you last looked`}><span>{fresh.length} new</span></p>
+  );
   return (
     <section ref={sectionRef} className="thread" aria-label="Conversation" aria-busy={thread.loading || thread.loadingOlder}>
       {cut > 0 && (
@@ -139,12 +159,15 @@ export function ThreadList({ job, conversation, now, cards = true, level = true,
       {thread.error && <p className="thread-error" role="alert">{thread.error}</p>}
       <Pending loading={thread.loading} say="Loading the conversation…" />
       {loaded && shown.length === 0 && !run && <p className="muted">{stages ? 'Nothing was said at this stop yet.' : 'Nothing here yet. The Foreman’s briefs and replies appear here as it works.'}</p>}
-      {visible.map((s) =>
-        s.kind === 'brief-card'
-          // It folds back to its headline itself the moment you answer it (no remount, no refetch).
-          ? <BriefCard key={s.id} slug={job.slug} brief={s.brief} now={now} lenses={lenses.get(s.id)} boss={s.id === bossBrief ? boss : null} />
-          : <ThreadItemView key={s.id} item={s.item} now={now} playOn={play.on} steer={s.item.kind === 'you' ? steerStateOf(s.item.steerId, state.steers, run) : null} />,
-      )}
+      {visible.map((s) => (
+        <Fragment key={s.id}>
+          {s === fresh[0] && newLine}
+          {s.kind === 'brief-card'
+            // It folds back to its headline itself the moment you answer it (no remount, no refetch).
+            ? <BriefCard slug={job.slug} brief={s.brief} now={now} lenses={lenses.get(s.id)} boss={s.id === bossBrief ? boss : null} />
+            : <ThreadItemView item={s.item} now={now} playOn={play.on} steer={s.item.kind === 'you' ? steerStateOf(s.item.steerId, state.steers, run) : null} />}
+        </Fragment>
+      ))}
       {/* Steered just now: shown at once, until the conversation (refetched a moment later) has it. */}
       {justSteered.map((s) => <YouMessage key={s.id} text={s.text} at={s.queuedAt ?? null} now={now} steer={s.state} steered />)}
       {/* The level: when the Foreman's suggestion differs from the chosen one, or none is chosen yet. */}

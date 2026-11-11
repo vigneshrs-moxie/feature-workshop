@@ -10,7 +10,9 @@
 // A gate card's reply made while the Foreman was still working waits here too: the draft then
 // remembers the brief it answers (lib/gateCard.ts gateDraftKey), and Send carries it as gateBrief,
 // so the brief counts as answered once it goes.
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+// The box grows with its text from 3 to 8 lines, then scrolls; modelLine shows the Foreman's model
+// under it with a lock (the job page's conversation passes it).
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import { ApiError } from '../../api/client';
 import type { JobDetail, JobLockInfo, ModelChoice, Run, Steer } from '../../api/types';
 import { composeMessage } from '../../lib/compose';
@@ -21,6 +23,7 @@ import { isActiveRun } from './thread';
 import { LockCard, lockFromError } from '../../views/JobLock/LockCard';
 import { Choice } from '../../components/Choice';
 import { Button } from '../../components/Button';
+import { Icon } from '../../components/Icon';
 
 export const draftKey = (slug: string) => `fw.draft.${slug}`;
 
@@ -133,7 +136,50 @@ export function SendPreview({
 
 const FINISHED_FIRST = 'The reply finished before your message got there. It’s still in the box: press Send to send it as a new message.';
 
-export function Composer({ slug, detail, run }: { slug: string; detail: JobDetail | null; run: Run | null }) {
+const px = (v: string) => parseFloat(v) || 0;
+
+/**
+ * The message box grows with its text from 3 to 8 lines, then scrolls. Measured again whenever its
+ * text changes and whenever its width does (the text wraps differently then).
+ */
+function fitBox(el: HTMLTextAreaElement) {
+  const css = getComputedStyle(el);
+  const line = px(css.lineHeight) || px(css.fontSize) * 1.5 || 20;
+  const padding = px(css.paddingTop) + px(css.paddingBottom);
+  const border = px(css.borderTopWidth) + px(css.borderBottomWidth);
+  // What the style's height holds: the text alone in content-box, its padding and border too otherwise.
+  const extra = css.boxSizing === 'content-box' ? 0 : padding + border;
+  el.style.height = 'auto';
+  const needs = el.scrollHeight - padding + extra; // scrollHeight is the text and its padding
+  const most = 8 * line + extra;
+  // Three lines or fewer: the box as it always was (rows={3}), with no size of its own.
+  if (needs <= 3 * line + extra) {
+    el.style.height = '';
+    el.style.overflowY = '';
+    if (!el.getAttribute('style')) el.removeAttribute('style');
+    return;
+  }
+  el.style.height = `${Math.min(needs, most)}px`;
+  el.style.overflowY = needs > most ? 'auto' : 'hidden';
+}
+
+function useGrowingBox(box: RefObject<HTMLTextAreaElement | null>, text: string) {
+  useLayoutEffect(() => { if (box.current) fitBox(box.current); }, [box, text]);
+  useEffect(() => {
+    const el = box.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let width = el.clientWidth;
+    const watch = new ResizeObserver(() => { if (el.clientWidth !== width) { width = el.clientWidth; fitBox(el); } });
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [box]);
+}
+
+export function Composer({ slug, detail, run, modelLine = null }: {
+  slug: string; detail: JobDetail | null; run: Run | null;
+  /** The Foreman's model in words: shown under the box with a lock (it is fixed for the job). */
+  modelLine?: string | null;
+}) {
   const { api, store } = useWorkshop();
   const { meta, jobs } = useWorkshopState();
   const models = meta?.models ?? [];
@@ -153,6 +199,8 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const inputId = useId();
+  const boxRef = useRef<HTMLTextAreaElement>(null);
+  useGrowingBox(boxRef, draft);
 
   const running = isActiveRun(run);
   const stopping = running && run.status === 'stopping';
@@ -274,6 +322,7 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
       )}
       <label htmlFor={inputId} className="sr-only">{running ? 'Steer the reply in progress' : 'Your message to the Foreman'}</label>
       <textarea
+        ref={boxRef}
         id={inputId}
         data-composer-input
         className="text-area composer-input"
@@ -290,6 +339,11 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
           : 'Your message to this job’s Foreman. It is kept for this job until you send it. ⌘/Ctrl+Enter to preview and send.'}
       />
       <div className="composer-bar">
+        {modelLine && (
+          <span className="composer-model muted" title="Fixed once the job starts. Change model… in the gear menu starts it again.">
+            <Icon name="lock" size={13} /> Foreman model: {modelLine}
+          </span>
+        )}
         <span className="composer-spacer" />
         {running ? (
           <>
@@ -320,7 +374,7 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
             kind="primary"
             onClick={openPreview}
             disabled={empty || lock !== null}
-            title={lock ? 'Off while the job is open somewhere else.' : 'See exactly what the Foreman will receive, then send it.'}
+            title={lock ? 'Off while the job is open somewhere else.' : empty ? 'Write something first.' : 'See exactly what the Foreman will receive, then send it.'}
           >
             Send…
           </Button>
