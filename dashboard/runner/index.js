@@ -80,7 +80,7 @@ import { TICKET_FILE, readTicketFile } from '../lib/ticket-file.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
-import { AUTO_START_FILE, AutoStarter, isBusy, normalizeAutoStart, pausedFor } from '../lib/auto-start.js';
+import { AUTO_START_FILE, AutoStarter, isBusy, lastJob, normalizeAutoStart, pausedFor } from '../lib/auto-start.js';
 import { activeWarnings } from '../lib/usage-warnings.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
 import { ClaudeCodeUsage, CLAUDE_CODE_NOTE, CLAUDE_CODE_WORDS, readSetting as claudeCodeSetting, writeSetting as setClaudeCodeSetting } from '../lib/claude-code-usage.js';
@@ -1656,12 +1656,13 @@ export async function createRunner(config) {
     jobs: async (memory) => {
       const list = await features();
       const ticketsWithJobs = new Set();
+      const keyed = [];
       for (const f of list) {
         const key = (f.dir ? await statusTicketKey(f.dir) : null) ?? slugTicketKey(f.slug);
         if (key) ticketsWithJobs.add(key);
+        keyed.push({ slug: f.slug, key, closed: f.closed, f });
       }
-      const last = memory.started.at(-1);
-      const f = last?.slug ? list.find((x) => x.slug === last.slug) : null;
+      const f = lastJob(memory.started.at(-1), keyed)?.f ?? null;
       // A reply is running when the driver has a run on the job: the same signal sendPlan refuses a second send on.
       const busy = Boolean(f) && isBusy({
         jobOpen: !f.closed, pr1Open: finishLineReached({ prs: f.prs, closed: f.closed }, null, 'pr1-open').reached,

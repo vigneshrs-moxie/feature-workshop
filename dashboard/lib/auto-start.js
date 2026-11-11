@@ -55,6 +55,18 @@ export function pausedFor({ orbitError = null, limited = false, warnings = 0, re
   return null;
 }
 
+/**
+ * The job the tag started last, or null. Pure. By its slug; when a crash between the start and the
+ * save left no slug, by its ticket (an open job before a closed one), so that job still holds the queue.
+ *   jobs  [{ slug, key, closed }]
+ */
+export function lastJob(last, jobs = []) {
+  if (!last) return null;
+  if (last.slug) return jobs.find((j) => j.slug === last.slug) ?? null;
+  const same = jobs.filter((j) => j.key && j.key === last.key);
+  return same.find((j) => !j.closed) ?? same[0] ?? null;
+}
+
 const tried = (memory, key) => memory.started.some((e) => e.key === key) || memory.failed.some((e) => e.key === key);
 
 /**
@@ -171,7 +183,7 @@ export class AutoStarter {
       entry.slug = slug ?? null;
     } catch (err) {
       memory.started = memory.started.filter((e) => e !== entry);
-      if (err?.code === 'limited' || err?.extra?.code === 'limited' || err?.status === 409) {
+      if (err?.code === 'limited' || err?.extra?.code === 'limited') {
         await this.#save(); // refused for the limit: not a failed start, the ticket stays untried
         return { wait: 'paused-limit' };
       }

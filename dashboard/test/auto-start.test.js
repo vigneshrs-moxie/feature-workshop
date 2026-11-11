@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { AutoStarter, isBusy, normalizeAutoStart, pausedFor, pickNext, tagMatches } from '../lib/auto-start.js';
+import { AutoStarter, isBusy, lastJob, normalizeAutoStart, pausedFor, pickNext, tagMatches } from '../lib/auto-start.js';
 
 const dirs = [];
 async function tmp() { const d = await fs.mkdtemp(path.join(os.tmpdir(), 'sb-autostart-')); dirs.push(d); return d; }
@@ -240,4 +240,20 @@ test('A6: an unreadable memory file is reported', async () => {
   await fs.writeFile(r.file, '{not json');
   await r.starter.run();
   assert.equal(r.starter.memoryUnreadable(), true);
+});
+
+test('a refusal that is not the limit is a failed start, whatever its status', async () => {
+  const r = await rig({ items: [item(1)] });
+  r.starter.start = async () => { throw Object.assign(new Error('A job is already starting.'), { status: 409 }); };
+  await r.starter.run();
+  assert.equal(r.starter.failedReason('ORBIT-1'), 'A job is already starting.');
+});
+
+test('the last job is found by its slug, and by its ticket when a crash left no slug', () => {
+  const jobs = [{ slug: 'a', key: 'ORBIT-1', closed: true }, { slug: 'b', key: 'ORBIT-1', closed: false }, { slug: 'c', key: 'ORBIT-2', closed: false }];
+  assert.equal(lastJob({ key: 'ORBIT-2', slug: 'c' }, jobs).slug, 'c');
+  assert.equal(lastJob({ key: 'ORBIT-1', slug: null }, jobs).slug, 'b', 'the open job for that ticket');
+  assert.equal(lastJob({ key: 'ORBIT-1', slug: 'gone' }, jobs), null);
+  assert.equal(lastJob({ key: 'ORBIT-9', slug: null }, jobs), null);
+  assert.equal(lastJob(null, jobs), null);
 });
