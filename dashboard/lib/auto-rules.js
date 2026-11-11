@@ -851,6 +851,8 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
       const inPlace = a.some((x) => /^-[A-Za-z]*i|^--in-place/.test(x) && (sed || x === '-i' || x === '--in-place'));
       const real = files.filter((x) => x.t !== '');
       if (inPlace) writes(real);
+      // Without -i they read their files: the read test runs on each (N4).
+      else if (real.some((x) => x.dyn || readElsewhere(physicalPath(x.t, cwd ?? st.hint ?? null), st.readRoots))) st.asks.push('a read outside the job\'s folders');
       for (const sc of scripts) scriptWrites(sed, sc, cwd, st, writes);
       return;
     }

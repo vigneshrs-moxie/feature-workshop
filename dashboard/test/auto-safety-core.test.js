@@ -799,3 +799,11 @@ test('N7: the workflow\'s set-up lines run from the main checkout in their exact
     'git worktree add -b main ../orbit-orbit-500-thing moxie/main', 'git worktree add -b feature/orbit-499-other ../orbit-orbit-500-thing moxie/main', `git worktree add ../orbit-orbit-500-thing ${BRANCH}`,
     'git fetch moxie --prune && touch x', 'git fetch moxie && git worktree add -b x ../orbit-orbit-500-thing moxie/main', 'git status && git add -A']) assert.notEqual(bash(c, ctx), null, c);
 });
+
+test('N4: sed and awk reads are reads', () => {
+  const ctx = C5CTX();
+  for (const c of [`sed -n 1,20p ${HOME}/.zshrc`, `sed -e '' ${HOME}/.config/vercel/auth.json`, `awk 1 ${HOME}/.pgpass`, `awk '{print $0}' ${HOME}/.my.cnf`, `sed -n 1,20p ${HOME}/.zshrc > copy.txt`]) assert.equal(bash(c, ctx), 'ask', c);
+  assert.equal(bash('sed -n 1,20p src/x.ts', ctx), null);
+  assert.equal(bash(`sed -i '' s/a/b/ ${HOME}/.zshrc`, ctx), 'outside');
+  assert.equal(bash("sed -i '' s/a/b/ src/x.ts", ctx), null);
+});
