@@ -309,3 +309,12 @@ export class GateParking {
     await writeFileAtomic(this.file, `${JSON.stringify({ alerted: [...this.alerted].sort() }, null, 2)}\n`, { mode: 0o600 });
   }
 }
+
+/**
+ * Fold one folder's audit lines (oldest first) into the parking marks, as the runner does after a restart that was
+ * put back. The lines still hold the cancelled `restart` line; only the first line may be a real boundary (a later
+ * one was cancelled, or the lines would start there), so a later one is not fed: it would forget what came before it.
+ */
+export function feedParking(parking, slugOf, lines) {
+  lines.forEach((l, i) => { if (l?.action === 'restart' && i > 0) return; parking.noteAudit(slugOf(l), l); });
+}

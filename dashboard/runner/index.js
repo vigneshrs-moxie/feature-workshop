@@ -62,7 +62,7 @@ import { AUTO_MARK, autoAllowed, autoCardView, autoOption, autoRecord } from '..
 import { createAuto } from './auto.js';
 import { askApprover as askApproverLib, approverOptions } from '../lib/approver.js';
 import { autoCost, autoLog, autoLogRecord, writeAutoLog } from '../lib/auto-log.js';
-import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs, isGateDecision } from '../lib/gate.js';
+import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs, isGateDecision, feedParking } from '../lib/gate.js';
 import { composeReply, cleanChips } from '../lib/compose.js';
 import { skillChecker } from '../lib/skill-check.js';
 import { DEMO_OFF, prototypesSetup, publishScript, runPublish } from '../lib/prototype.js';
@@ -468,7 +468,7 @@ export async function createRunner(config) {
     parking.noteAudit(e.slug ?? path.basename(e.featureDir), e);
     // A restart that failed and put everything back: the old job's answers count again.
     if (e.action === 'restart-failed' && e.afterBoundary === true) {
-      state.auditFor(e.featureDir, Infinity).then((lines) => { for (const l of lines) parking.noteAudit(l.slug ?? path.basename(l.featureDir), l); }).catch(() => {});
+      state.auditFor(e.featureDir, Infinity).then((lines) => feedParking(parking, (l) => l.slug ?? path.basename(l.featureDir), lines)).catch(() => {});
     }
   };
   state.on('audit', noteAnswered);

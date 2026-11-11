@@ -89,3 +89,21 @@ test('L5: the card carries who started Auto, so "Started by Auto" can show', () 
   assert.equal(autoCardView(autoRecord(null, { on: true }), { level: 1 }).by, 'you');
   assert.equal(autoCardView(autoRecord(null, { on: false }), { level: 1 }).by, null);
 });
+
+test('R3: a brief answered, or held for the usage limit, still counts after a restart that was put back', async () => {
+  const { GateParking, feedParking } = await import('../lib/gate.js');
+  const lines = [
+    { action: 'send', kind: 'approve', gateBrief: 1, at: '2026-10-01T10:00:00Z' },
+    { action: 'send-held', kind: 'approve', gateBrief: 2, at: '2026-10-01T11:00:00Z' },
+    { action: 'restart', at: '2026-10-01T12:00:00Z' }, // cancelled by the restart-failed line that follows
+    { action: 'restart-failed', afterBoundary: true, at: '2026-10-01T12:01:00Z' },
+  ];
+  const p = new GateParking({ now: () => 0 });
+  feedParking(p, () => 'job', lines);
+  assert.equal(p.isAnswered('job', 1), true, 'answered');
+  assert.equal(p.held.has('job#2'), true, 'held');
+  // A real boundary as the first line still forgets what came before it (nothing does) and keeps what follows.
+  const q = new GateParking({ now: () => 0 });
+  feedParking(q, () => 'job', [{ action: 'restart', at: '2026-10-01T09:00:00Z' }, { action: 'send', kind: 'approve', gateBrief: 1, at: '2026-10-01T10:00:00Z' }]);
+  assert.equal(q.isAnswered('job', 1), true);
+});
