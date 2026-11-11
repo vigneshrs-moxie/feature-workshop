@@ -4,6 +4,7 @@
 // does. With a pull request in play it says only why the model can't change.
 import { useEffect, useState } from 'react';
 import type { JobDetail, ModelChoice } from '../api/types';
+import { BRAND } from '../app/brand';
 import { navigate } from '../app/router';
 import { Button } from '../components/Button';
 import { Field, TextInput } from '../components/Field';
@@ -25,6 +26,8 @@ export const CONSEQUENCES = [
   'The Foreman\'s conversation so far is not carried over; a copy of its session record goes in the archive folder.',
   'The job\'s options are kept (level, screens, reviewers, models and the rest), except Auto, which starts off again. The job\'s own permission setting is not kept either.',
   'A reply waiting to be sent, or a carry-on waiting for the usage limit, is not sent. A copy goes in the archive folder.',
+  'A link to a past conversation the job was started from is not carried over.',
+  `${BRAND.name} first checks GitHub, and won't restart a job whose branch is already there.`,
   'Nothing is deleted and nothing is pushed.',
   'If something goes wrong before the new job starts, everything is put back and you are told. If that can\'t be done, you are told where everything is.',
 ];
