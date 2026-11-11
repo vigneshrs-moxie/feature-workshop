@@ -2381,6 +2381,20 @@ test('high risk: an allow with risk high on a card stops Auto (judgment) and the
   }
 });
 
+// ---------- Part 2 ----------
+
+test('m2: a job that reaches L3 between the pass\'s first read and its turn leaves Auto with one stop line and one notice', { timeout: 30_000 }, async () => {
+  const u = unit({ job: (n) => (n === 1 ? {} : { level: 3 }) });
+  await u.auto.pass();
+  await u.auto.pass();
+  await u.auto.pass();
+  assert.equal(u.record().on, false, 'left Auto');
+  assert.equal(u.record().stopped?.rule, 'level');
+  assert.equal(u.lines.filter((l) => l.what === 'stop').length, 1);
+  assert.equal(u.notes.length, 1);
+  assert.equal(u.asks.length, 0);
+});
+
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------
 
 test('I2: the person sent brief 1 back, then 401 lines; the reply ended with the gate still on brief 1: the Approver is not asked', { timeout: 30_000 }, async () => {

@@ -300,7 +300,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       const gate = job.gate;
       const rec = job.auto;
       const hit = stopFor(job, rec, gate);
-      if (hit) return stop(job, hit);
+      // At L3 the job leaves Auto here, as triage would: one stop line and one notice, not a stop now and a leave next pass.
+      if (hit) return stop(job, hit, { leave: !autoAllowed({ level: job.level, suggestedLevel: job.suggestedLevel }).ok });
       const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage });
       if (route) return stop(job, route);
       if (notNow(job)) return;
