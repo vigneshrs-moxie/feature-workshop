@@ -312,6 +312,7 @@ export function NextStep({ job, conversation, now, onShip, foldCard = false }: {
 }
 
 const SENDING_WORDS = 'Sending…';
+const SENDING_OFF = 'Off while your decision is being sent.';
 
 interface AfterSend {
   decision: GateSent;
@@ -437,6 +438,8 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, 
   // The call pressed spins while its decision is out (the card's own button was pressed for it).
   const out = after.decision.state === 'sending' && !after.retrying;
   const spins = (kind: string) => out && after.decision.kind === kind;
+  // Why a greyed call is off: a decision on its way (m2), else the card under the bar says.
+  const offWhy = out ? SENDING_OFF : 'Off for now: the card under this says why.';
   // His decision went (I1): the sent line, the second line for what was sent, and no calls; Try
   // again only once nothing has moved and no run is at work.
   const waits = Boolean(after.say) || sent !== null;
@@ -454,11 +457,11 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, 
         {waits && !isActiveRun(run) && (after.stuck || sent?.canRetry) && <TryAgain after={after} />}
         {/* On the hosted site a Go made there waits for the laptop (the card under this says so): no calls meanwhile. */}
         {!waits && !isOpen(queuedOf(detail.queued)) && <>
-        <Button size="lg" keyId="gate-revise" busy={spins('changes')} busyLabel={SENDING_WORDS} disabled={go.backOff} onClick={() => { if (folded) setCardShown(true); press('revise'); }} title={go.backOff ? 'Off for now: the card under this says why.' : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
+        <Button size="lg" keyId="gate-revise" busy={spins('changes')} busyLabel={SENDING_WORDS} disabled={go.backOff} onClick={() => { if (folded) setCardShown(true); press('revise'); }} title={go.backOff ? offWhy : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
           {call ? 'No go: send back' : 'Send back'}
         </Button>
         {/* Reply opens the card's message box: on whenever the card waits, even with a question open. It never approves. */}
-        <Button size="lg" busy={spins('message')} busyLabel={SENDING_WORDS} disabled={go.replyOff} onClick={reply} title={go.replyOff ? 'Off for now: the card under this says why.' : 'Answer a question or leave a note for the Foreman. Nothing is approved. Your answers so far go with it.'}>
+        <Button size="lg" busy={spins('message')} busyLabel={SENDING_WORDS} disabled={go.replyOff} onClick={reply} title={go.replyOff ? offWhy : 'Answer a question or leave a note for the Foreman. Nothing is approved. Your answers so far go with it.'}>
           Reply
         </Button>
         {/* Go is on whenever the card's own Approve is: with questions it sends your answers too (the
@@ -472,7 +475,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, 
           busyLabel={SENDING_WORDS}
           disabled={go.off}
           onClick={() => press('approve')}
-          title={go.off ? go.why || 'Go is off for now: the card under this says why.' : go.asks ? `${goWords}, with your answers to the questions under this. The a key never answers a question.` : `${goWords} (key: a).`}
+          title={go.off ? go.why || (out ? SENDING_OFF : 'Go is off for now: the card under this says why.') : go.asks ? `${goWords}, with your answers to the questions under this. The a key never answers a question.` : `${goWords} (key: a).`}
         >
           {call ? `Go: ${lowerFirst(goWords)}` : goWords}
         </Button>

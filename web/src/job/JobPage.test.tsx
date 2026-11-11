@@ -315,6 +315,21 @@ describe('after a click on the go / no go bar', () => {
     await answer();
   });
 
+  // m2: the greyed calls say why while a decision is out, not "the card under this says why".
+  it('while a Go is being sent the other calls say they are off for that', async () => {
+    const { post, answer } = held();
+    setup({ jobs: waiting(), gate: GATE, post });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(live()).toHaveTextContent('Sending…'));
+    const back = screen.getByRole('button', { name: /^No go: send back/ });
+    const reply = screen.getByRole('button', { name: 'Reply' });
+    await waitFor(() => expect(back).toBeDisabled());
+    expect(back).toHaveAttribute('title', 'Off while your decision is being sent.');
+    expect(reply).toBeDisabled();
+    expect(reply).toHaveAttribute('title', 'Off while your decision is being sent.');
+    await answer();
+  });
+
   it('Reply spins on the click, cannot be pressed twice, and the focus ends on the sent line', async () => {
     const { post, answer } = held();
     setup({ jobs: waiting(), gate: GATE, post });
