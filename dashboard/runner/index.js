@@ -2264,10 +2264,12 @@ export async function createRunner(config) {
         // Already so: nothing changes. On again never moves `since` or clears a stop (telling Auto to
         // carry on is its own action); off on a job never in Auto makes no record.
         if ((prev?.on === true) === body.on) return { record: prev, changed: false };
-        const next = autoRecord(prev, { on: body.on, by: 'you' });
+        // Switching off carries the Approver's money not yet on a line (spent) onto the off line, and starts again from 0.
+        const owed = !body.on && prev?.spent > 0 ? prev.spent : 0;
+        const next = owed ? { ...autoRecord(prev, { on: false, by: 'you' }), spent: 0 } : autoRecord(prev, { on: body.on, by: 'you' });
         await state.setSession(f.dir, { auto: next });
         // Audited as soon as the record changed: a failed file write below can't leave it unsaid.
-        await state.audit({ action: 'auto', what: body.on ? 'on' : 'off', by: 'you', featureDir: f.dir, slug: f.slug, stage: f.stage ?? null, asked: '', chose: '', why: '' });
+        await state.audit({ action: 'auto', what: body.on ? 'on' : 'off', by: 'you', featureDir: f.dir, slug: f.slug, stage: f.stage ?? null, asked: '', chose: '', why: '', ...(owed ? { costUsd: owed } : {}) });
         try {
           const want = autoOption(next, f.level);
           const file = path.join(f.dir, 'options.json');

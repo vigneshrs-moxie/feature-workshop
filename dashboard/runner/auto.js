@@ -21,8 +21,11 @@ import { autoAllowed, AUTO_MARK } from '../lib/auto.js';
 import { fixedStop } from '../lib/auto-rules.js';
 import { APPROVER_BUDGET_USD, approverPaths, approverRoots, checkAnswer } from '../lib/approver.js';
 
-/** Anything the Approver wrote, on one line: nothing it writes can start a line of its own. */
-const oneLine = (s) => String(s ?? '').replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+/** Anything the Approver wrote, on one line: nothing it writes can start a line of its own, and no copy of the mark gets through. */
+const oneLine = (s) => {
+  const flat = (t) => t.replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+  return flat(flat(String(s ?? '')).split(AUTO_MARK).join(' '));
+};
 /** A refusal that is only "not now": the answer waits and the next pass sends it, with no failure counted. */
 const NOT_NOW = new Set(['busy', 'limited', 'job-locked']);
 /** A refusal that says the answer is for something that has moved on: it is dropped. */
@@ -55,36 +58,50 @@ export function createAuto({ read, update, decide, askApprover, raiseLevel = asy
     return running;
   }
 
+  // The checks that need no Approver (level, fixed stops, finished) run for every job first; only then
+  // is the Approver asked, job by job, so a slow answer for one job never delays another job's stop.
   async function run() {
+    const waiting = [];
     for (const job of await read()) {
-      try { await handle(job); } catch (err) { console.error(`auto (${job.slug}):`, err.message); }
+      try { const gate = await triage(job); if (gate) waiting.push([job, gate]); } catch (err) { console.error(`auto (${job.slug}):`, err.message); }
+    }
+    for (const [job, gate] of waiting) {
+      try { await attend(job, gate); } catch (err) { console.error(`auto (${job.slug}):`, err.message); }
     }
   }
 
   const audit = (job, what, fields) => state.audit({ action: 'auto', what, featureDir: job.dir, slug: job.slug, stage: job.stage ?? null, asked: '', chose: '', why: '', ...fields });
 
-  /** Auto stops and waits for you: the record says why, one audit line, one notification. */
+  /** Auto stops and waits for you: the record says why, one audit line, one notification (none if it already had). */
   async function stop(job, { rule, reason }, { leave = false } = {}) {
     const at = now().toISOString();
     let spent = 0;
+    let wrote = false;
     await update(job.dir, (prev) => {
-      spent = prev?.spent ?? 0;
+      // Auto was switched off, or already stopped: nothing to stop (leaving for L3 replaces a stop).
+      if (prev?.on !== true || (!leave && prev.stopped)) return null;
+      wrote = true;
+      spent = prev.spent ?? 0;
       return { ...prev, ...(leave ? { on: false } : {}), stopped: { reason, rule, at }, spent: 0 };
     });
+    if (!wrote) return;
     await audit(job, 'stop', { rule, reason, why: reason, ...(spent > 0 ? { costUsd: spent } : {}) });
     notify({ level: 'needs', title: job.title, body: `Auto stopped: ${reason}`, slug: job.slug, key: `auto-stop:${job.slug}:${at}` });
     if (leave) changed();
   }
 
-  /** PR #1 is open: Auto is off, `ran` stays, and the person is told once. */
+  /** PR #1 is open: Auto is off, `ran` stays, and the person is told once (not at all if Auto was already off). */
   async function finish(job) {
     const at = now().toISOString();
     let spent = 0;
+    let wrote = false;
     await update(job.dir, (prev) => {
       if (prev?.on !== true) return null;
+      wrote = true;
       spent = prev.spent ?? 0;
       return { ...prev, on: false, stopped: null, spent: 0, finished: at };
     });
+    if (!wrote) return;
     await audit(job, 'finished', { why: 'PR #1 is open.', ...(spent > 0 ? { costUsd: spent } : {}) });
     notify({ level: 'done', title: 'Auto finished: PR #1 is open.', body: `${job.title}. Review it and merge it yourself when you're ready.`, slug: job.slug, key: `auto-finish:${job.slug}` });
     changed();
@@ -103,22 +120,29 @@ export function createAuto({ read, update, decide, askApprover, raiseLevel = asy
     return true;
   }
 
-  async function handle(job) {
-    if (job.restarting) return;
-    if (job.prOpen) return finish(job);
-    if (job.auto.stopped) { await carryOnIfYouDecided(job); return; }
-    // A job at L3 (or one the Foreman suggests is L3) leaves Auto, even in the middle of a reply.
+  /** Everything about one job that needs no Approver. Returns the gate to ask about, or null. */
+  async function triage(job) {
+    if (job.restarting) return null;
+    if (job.prOpen) { await finish(job); return null; }
+    // A job at L3 (or one the Foreman suggests is L3) leaves Auto, stopped or not, even in the middle of a reply.
     if (!autoAllowed({ level: job.level, suggestedLevel: job.suggestedLevel }).ok) {
-      return stop(job, fixedStop({ kind: 'job', level: job.level, suggestedLevel: job.suggestedLevel }), { leave: true });
+      await stop(job, fixedStop({ kind: 'job', level: job.level, suggestedLevel: job.suggestedLevel }), { leave: true });
+      return null;
     }
-    if (job.running || job.locked || job.paused) return;
+    if (job.auto.stopped) { await carryOnIfYouDecided(job); return null; }
+    if (job.running || job.locked || job.paused) return null;
     // A suggested L1 or L2 above the job's level is applied before the gate is answered (never lowered).
     const suggested = job.suggestedLevel;
     if ((suggested === 1 || suggested === 2) && !(job.level >= suggested)) {
-      try { await raiseLevel(job, suggested); job.level = suggested; } catch (err) { console.error(`auto level (${job.slug}):`, err.message); return; }
+      try { await raiseLevel(job, suggested); job.level = suggested; } catch (err) { console.error(`auto level (${job.slug}):`, err.message); return null; }
     }
     const gate = job.gate && !job.gate.stale && job.gate.briefNumber !== null && !job.answered.includes(job.gate.briefNumber) && job.gate.briefNumber !== job.auto.lastBrief ? job.gate : null;
-    await attend(job, gate);
+    const hit = stopFor(job, job.auto, gate);
+    if (hit) { await stop(job, hit); return null; }
+    if (!gate) return null;
+    const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage });
+    if (route) { await stop(job, route); return null; }
+    return gate;
   }
 
   const stopFor = (job, rec, gate) => {
@@ -168,8 +192,8 @@ export function createAuto({ read, update, decide, askApprover, raiseLevel = asy
         task = taskFor(job, gate);
         const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
         const res = await askApprover(task, { roots, job });
-        // A run that timed out reports 0: record the ceiling it was given, so the cost never under-counts.
-        const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') && !(res.costUsd > 0) ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
+        // A run that timed out is charged the ceiling it was given, whatever partial cost it reported.
+        const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
         const checked = res?.ok ? checkAnswer(task, res.answer) : null;
         // Immediately before anything is written or sent: is the answer still for something that waits?
         if (!(await look(job, n))) { await addSpent(job, cost); return; }

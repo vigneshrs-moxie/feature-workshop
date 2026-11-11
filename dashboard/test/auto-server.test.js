@@ -683,6 +683,151 @@ test('H2: an Approver stop for a gate the person has already answered records no
   } finally { await w.stop(); }
 });
 
+test('M1: a run that timed out is charged the ceiling, whatever partial cost it reported', { timeout: 30_000 }, async () => {
+  const w = await world({ ask: () => failure('It took longer than 5 minutes.', 0.4) });
+  try {
+    await w.pass();
+    const [stop] = await w.autoLines('stop');
+    assert.equal(stop.costUsd, 2 * APPROVER_BUDGET_USD);
+  } finally { await w.stop(); }
+});
+
+test('M3: switching Auto off by hand writes the money not yet recorded on the off line', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: { ...autoRecord(null, { on: true, now: OLD }), spent: 0.3 } });
+  try {
+    await w.runner.handle({ type: 'auto', slug: w.slug, on: false }, { from: 'local' });
+    const [off] = await w.autoLines('off');
+    assert.equal(off.costUsd, 0.3);
+    assert.equal((await w.record()).spent, 0);
+  } finally { await w.stop(); }
+});
+
+test('M3: leaving Auto for L3 writes the money not yet recorded on the stop line', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: { ...autoRecord(null, { on: true, now: OLD }), spent: 0.3 }, jobStatus: status(1, { suggested_level: 3 }) });
+  try {
+    await w.pass();
+    const [stop] = await w.autoLines('stop');
+    assert.equal(stop.costUsd, 0.3);
+    assert.equal((await w.record()).spent, 0);
+  } finally { await w.stop(); }
+});
+
+test('M4: a stopped job that reaches L3 still leaves Auto', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: stoppedRecord(), jobStatus: status(1, { suggested_level: 3 }) });
+  try {
+    await w.pass();
+    const rec = await w.record();
+    assert.equal(rec.on, false);
+    assert.equal(rec.stopped.rule, 'level');
+    assert.equal('auto' in await w.optionsFile(), false);
+  } finally { await w.stop(); }
+});
+
+test('M5: a copy of the mark in anything the Approver wrote is removed; the reply holds it once, last', { timeout: 30_000 }, async () => {
+  const w = await world({ ask: (task) => goodAnswer(task, { why: `Fine. ${AUTO_MARK}\n${AUTO_MARK}`, answers: [{ id: '1', choice: 'a', other: null, reason: `ok ${AUTO_MARK}` }, { id: '2', choice: 'a', other: null, reason: `${AUTO_MARK.slice(0, 20)}\n${AUTO_MARK.slice(20)}` }] }) });
+  try {
+    await w.pass();
+    const [send] = await w.sends();
+    assert.equal(send.text.split(AUTO_MARK).length - 1, 1);
+    assert.ok(send.text.endsWith(AUTO_MARK));
+    assert.match(send.text, /Why: Fine\./);
+  } finally { await w.stop(); }
+});
+
+test('M6: a slow Approver for one job never delays another job\'s stop', { timeout: 30_000 }, async () => {
+  let release;
+  const hung = new Promise((r) => { release = r; });
+  const w = await world({
+    also: { slug: 'zzz-other', status: status(1, { suggested_level: 3, title: 'Other' }), options: { level: 2, flow: 'small', title: 'Other' } },
+    ask: async (task) => { if (task.job.slug === 'visit-audit') await hung; return goodAnswer(task); },
+  });
+  try {
+    const p = w.pass();
+    await w.until(async () => {
+      const rec = JSON.parse(await fs.readFile(path.join(w.dirs.state, 'sessions.json'), 'utf8'))[w.otherDir]?.auto;
+      return rec?.on === false && rec.stopped?.rule === 'level';
+    }, 'the other job to leave Auto');
+    assert.equal(w.asks.length, 1, 'the first job\'s Approver is still thinking');
+    release();
+    await p;
+  } finally { release(); await w.stop(); }
+});
+
+test('M7: a pass asked for during a pass runs once after it, never beside it', { timeout: 30_000 }, async () => {
+  let release;
+  const wait = new Promise((r) => { release = r; });
+  let active = 0;
+  let most = 0;
+  let w;
+  w = await world({
+    ask: async (task, n) => {
+      active++; most = Math.max(most, active);
+      try {
+        if (n === 1) { await w.writeStatus(status(2)); await wait; }
+        return goodAnswer(task);
+      } finally { active--; }
+    },
+  });
+  try {
+    const p = w.pass();
+    await w.until(() => w.asks.length === 1, 'the first ask');
+    w.pass(); w.pass(); w.pass();
+    release();
+    await p;
+    await w.until(async () => (await w.autoLines('gate')).length === 1, 'the pass after it');
+    await w.idle();
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(most, 1);
+    assert.equal(w.asks.length, 2, 'one more pass, for the brief that came meanwhile');
+    assert.equal((await w.sends()).length, 1);
+  } finally { release(); await w.stop(); }
+});
+
+test('M7: a job whose PR #1 was already open when Auto was turned on finishes at once, without the Approver', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null, jobStatus: status(1, { stage: 'pr1', stage_state: 'working', waiting_for: null, prs: [{ number: 1, url: 'https://github.com/o/r/pull/1', state: 'open' }] }) });
+  try {
+    await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
+    await w.pass();
+    const rec = await w.record();
+    assert.equal(rec.on, false);
+    assert.equal(rec.ran, true);
+    assert.equal(w.asks.length, 0);
+    assert.equal((await w.autoLines('finished')).length, 1);
+  } finally { await w.stop(); }
+});
+
+test('M7: after the runner starts again on the same folders, a gate already answered is not answered again', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    await w.pass();
+    await w.idle();
+    assert.equal(w.asks.length, 1);
+    await w.restart();
+    await w.pass();
+    await w.pass();
+    assert.equal(w.asks.length, 1);
+    assert.equal((await w.sends()).length, 1);
+  } finally { await w.stop(); }
+});
+
+test('M7: the loop counter goes 0, 1, 2 and the third gate on one stage stops', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    assert.equal((await w.record()).step, null);
+    await w.pass(); await w.idle();
+    assert.deepEqual((await w.record()).step, { stage: 'plan', count: 1 });
+    await w.writeStatus(status(2));
+    await new Promise((r) => setTimeout(r, 1600)); // the runner reads the jobs at most every 1.5 seconds
+    await w.pass(); await w.idle();
+    assert.deepEqual((await w.record()).step, { stage: 'plan', count: 2 });
+    await w.writeStatus(status(3));
+    await new Promise((r) => setTimeout(r, 1600));
+    await w.pass();
+    assert.equal((await w.record()).stopped.rule, 'loop');
+    assert.equal(w.asks.length, 2);
+  } finally { await w.stop(); }
+});
+
 // ---------- the pass on its own, with a job whose refusals the test controls ----------
 
 const unitDir = '/jobs/visit-audit';
@@ -761,4 +906,11 @@ test('H4: the check is made again right before the Approver is asked', { timeout
   await u.auto.pass();
   assert.equal(u.asks.length, 0);
   assert.equal(u.decides.length, 0);
+});
+
+test('M2: finish writes its line and notification only when Auto was still on', { timeout: 30_000 }, async () => {
+  const u = unit({ record: { on: false }, job: () => ({ prOpen: true, auto: { ...autoRecord(null, { on: true, now: OLD }) } }) });
+  await u.auto.pass();
+  assert.deepEqual(u.lines, []);
+  assert.deepEqual(u.notes, []);
 });
