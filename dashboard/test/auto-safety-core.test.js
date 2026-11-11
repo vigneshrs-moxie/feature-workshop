@@ -755,3 +755,32 @@ test('N8: a relative path behind cd app && does not stop; one that climbs out st
     assert.equal(bash('cd app && npm test -- ../../../x', ctx), 'outside');
   } finally { d.done(); }
 });
+
+test('N9: a skill installed as a link is read without a question; a link into a secret place gives nothing', () => {
+  const root = fsSync.realpathSync(fsSync.mkdtempSync(pathMod.join(os.tmpdir(), 'sb-links-')));
+  const home = pathMod.join(root, 'home');
+  const was = process.env.HOME;
+  try {
+    const skills = pathMod.join(home, '.claude', 'skills');
+    const kit = pathMod.join(home, 'Projects', 'kit', 'skills', 'linked-skill');
+    for (const dir of [skills, kit, pathMod.join(home, '.ssh'), pathMod.join(home, '.claude', 'projects'), pathMod.join(home, 'Projects', 'orbit-wt')]) fsSync.mkdirSync(dir, { recursive: true });
+    fsSync.writeFileSync(pathMod.join(kit, 'SKILL.md'), '# skill\n');
+    fsSync.writeFileSync(pathMod.join(home, '.ssh', 'config'), 'x\n');
+    fsSync.symlinkSync(kit, pathMod.join(skills, 'linked-skill'));
+    fsSync.symlinkSync(pathMod.join(home, '.ssh'), pathMod.join(skills, 'to-ssh'));
+    fsSync.symlinkSync(pathMod.join(home, '.claude', 'projects'), pathMod.join(skills, 'to-projects'));
+    fsSync.symlinkSync(home, pathMod.join(skills, 'to-home'));
+    process.env.HOME = home;
+    const job = pathMod.join(home, '.claude', 'feature-work', 'orbit-500-thing');
+    const wt = pathMod.join(home, 'Projects', 'orbit-wt');
+    const ctx = ctxOf({ worktrees: [wt], specDirs: [], branches: [BRANCH] }, { cwd: wt, featureDir: job, readRoots: [skills], stateDir: pathMod.join(home, '.starbase'), tempDirs: [] });
+    const linked = pathMod.join(skills, 'linked-skill');
+    assert.equal(card('Read', { file_path: pathMod.join(linked, 'SKILL.md') }, ctx), null);
+    assert.equal(bash(`cat ${pathMod.join(linked, 'SKILL.md')}`, ctx), null);
+    assert.equal(card('Grep', { pattern: 'x', path: linked }, ctx), null);
+    assert.equal(card('Read', { file_path: pathMod.join(skills, 'to-ssh', 'config') }, ctx), 'outside');
+    assert.equal(bash(`cat ${pathMod.join(skills, 'to-ssh', 'config')}`, ctx), 'outside');
+    assert.equal(card('Read', { file_path: pathMod.join(skills, 'to-projects', 'x.jsonl') }, ctx), 'outside');
+    assert.equal(card('Read', { file_path: pathMod.join(skills, 'to-home', 'Documents', 'x.md') }, ctx), 'ask');
+  } finally { process.env.HOME = was; fsSync.rmSync(root, { recursive: true, force: true }); }
+});

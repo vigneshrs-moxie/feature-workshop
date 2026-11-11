@@ -268,19 +268,46 @@ const inRoots = (p, roots, strict = false) => roots.some((r) => isInside(p, r) &
 
 // The session's read folders (skills, agents), as written and as they really are.
 function readFolders(ctx) {
-  return (ctx.readRoots ?? []).filter((r) => typeof r === 'string' && path.isAbsolute(r)).flatMap((r) => [path.resolve(r), physicalPath(r, null)].filter(Boolean)).filter((x) => !tooWideRoot(x, ctx));
+  const own = (ctx.readRoots ?? []).filter((r) => typeof r === 'string' && path.isAbsolute(r)).flatMap((r) => [path.resolve(r), physicalPath(r, null)].filter(Boolean)).filter((x) => !tooWideRoot(x, ctx));
+  return [...new Set([...own, ...own.flatMap((r) => linkLandings(r, own, ctx))])];
+}
+
+// Where each entry of a read folder that is a link really lands (skills and agents are often installed as links into a
+// checkout): read once a minute per folder. A landing in a secret place, in ~/.claude outside the read folders, or at /
+// or the home folder (or above it) is left out (N9).
+const landingsCache = new Map(); // folder -> { at, list }
+function linkLandings(dir, own, ctx) {
+  const hit = landingsCache.get(dir);
+  let list = hit && Date.now() - hit.at < 60_000 ? hit.list : null;
+  if (!list) {
+    list = [];
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { entries = []; }
+    for (const e of entries.slice(0, 500)) {
+      if (!e.isSymbolicLink()) continue;
+      try { list.push(fs.realpathSync(path.join(dir, e.name))); } catch { /* a link that goes nowhere */ }
+    }
+    landingsCache.set(dir, { at: Date.now(), list });
+  }
+  return list.filter((p) => {
+    if (tooWideRoot(p, ctx) || secretPlace(p, [], ctx)) return false;
+    const q = fold(p);
+    const inClaude = homes().some((h) => isInside(q, fold(path.join(h, '.claude'))));
+    return !inClaude || own.some((r) => isInside(q, fold(r)));
+  });
 }
 
 // The places a job may read without a question: its own roots, the repository's main checkout and the
 // session's read folders (skills, agents). Secret places are judged apart and stop wherever they are.
 function readRoots(ctx) {
   const out = new Set(jobRoots(ctx));
-  for (const r of [ctx.mainCheckout, ...(ctx.readRoots ?? [])]) {
+  for (const r of [ctx.mainCheckout]) {
     if (typeof r !== 'string' || !path.isAbsolute(r)) continue;
     const forms = [path.resolve(r), physicalPath(r, null)].filter(Boolean);
     if (forms.some((x) => tooWideRoot(x, ctx))) continue;
     for (const x of forms) out.add(x);
   }
+  for (const x of readFolders(ctx)) out.add(x); // the read folders, and where their linked entries land (N9)
   return [...out];
 }
 /** Is this resolved path a read that asks: under the home folder or /Volumes and outside the read roots? (null: not known, it asks.) */
