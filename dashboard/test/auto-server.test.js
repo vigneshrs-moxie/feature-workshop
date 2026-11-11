@@ -2598,6 +2598,83 @@ test('features() is single flight: callers that arrive while it loads share the 
   } finally { await w.stop(); }
 });
 
+/** A Foreman that ends each reply at once, after onReply(n) (n from 1) has done what that reply does. */
+function replying(onReply) {
+  let n = 0;
+  return (texts) => ({ prompt, options }) => {
+    const sid = options.resume ?? crypto.randomUUID();
+    const gen = (async function* () {
+      yield { type: 'system', subtype: 'init', session_id: sid, model: options.model ?? OPUS, apiKeySource: 'none', cwd: options.cwd, permissionMode: 'default' };
+      const it = prompt[Symbol.asyncIterator]();
+      const first = await it.next();
+      texts.push(first.value?.message?.content ?? '');
+      await onReply(++n);
+      yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0, session_id: sid, permission_denials: [] };
+      yield { type: 'system', subtype: 'session_state_changed', state: 'idle', session_id: sid };
+      while (!(await it.next()).done) { /* until the dashboard closes its input */ }
+    })();
+    gen.interrupt = async () => {};
+    gen.setPermissionMode = async () => {};
+    return gen;
+  };
+}
+const crashedWorld = async (over = {}) => {
+  const w = await world({
+    auto: { ...autoRecord(null, { on: true, now: OLD }), lastBrief: 1, step: { stage: 'plan', count: 1 } },
+    jobStatus: status(1, { stage: 'implement', stage_state: 'working', waiting_for: null, waiting_since: null, questions: [] }),
+    ...over,
+  });
+  const sessionId = crypto.randomUUID();
+  await auditLine(w, { at: AT(0), action: 'service-start', pid: 1, featureDir: undefined, slug: undefined });
+  await auditLine(w, { at: AT(1), action: 'send', sessionId, runId: 'r-auto', kind: 'approve', gateBrief: 1, by: 'auto', text: 'I approve.' });
+  await w.hooks.replay();
+  await w.pass();
+  assert.equal((await w.record()).stopped?.reason, CUT_OFF);
+  return w;
+};
+
+test('N5 (I3-a): after the cut-off stop the person presses Resume; the resumed reply raises brief 2: Auto asks about it', { timeout: 60_000 }, async () => {
+  let w;
+  w = await crashedWorld({
+    query: replying(async (n) => {
+      if (n === 1) { await fs.writeFile(path.join(w.dir, 'briefs', '002-plan.md'), '**Visit audit · tests ready**\n'); await w.writeStatus(status(2, { stage: 'test' })); }
+    }),
+  });
+  try {
+    const out = await w.runner.handle({ type: 'resume', slug: w.slug }, { from: 'local' });
+    assert.ok(out);
+    await w.idle();
+    await new Promise((r) => setTimeout(r, 1700)); await w.pass();
+    await new Promise((r) => setTimeout(r, 1700)); await w.pass();
+    await w.idle();
+    assert.equal((await w.record()).stopped, null, 'the Resume cleared the stop');
+    assert.deepEqual(w.asks.map((a) => a.task.brief?.number), [2]);
+    // The first of Auto's sends is the one the crash cut off (brief 1); after the Resume it approves brief 2.
+    assert.deepEqual((await w.sends()).filter((x) => x.by === 'auto').map((x) => x.gateBrief), [1, 2]);
+  } finally { await w.stop(); }
+});
+
+test('N5 (I3-a2): Resume, and nothing waits after the resumed reply: the job is not left behind "press Resume"', { timeout: 60_000 }, async () => {
+  const w = await crashedWorld();
+  try {
+    await w.runner.handle({ type: 'resume', slug: w.slug }, { from: 'local' });
+    await w.idle();
+    await new Promise((r) => setTimeout(r, 1700)); await w.pass();
+    assert.equal((await w.record()).stopped, null);
+    const card = (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
+    assert.notEqual(card.laneReason, `Auto stopped: ${CUT_OFF}`);
+  } finally { await w.stop(); }
+});
+
+test('N5: Starbase\'s own carry-on (via auto) does not clear the cut-off stop', { timeout: 30_000 }, async () => {
+  const w = await crashedWorld();
+  try {
+    await auditLine(w, { at: new Date().toISOString(), action: 'resumed', runId: 'r2', via: 'auto' });
+    await new Promise((r) => setTimeout(r, 1700)); await w.pass();
+    assert.equal((await w.record()).stopped?.reason, CUT_OFF);
+  } finally { await w.stop(); }
+});
+
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------
 
 test('I2: the person sent brief 1 back, then 401 lines; the reply ended with the gate still on brief 1: the Approver is not asked', { timeout: 30_000 }, async () => {

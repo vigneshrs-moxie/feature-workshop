@@ -184,8 +184,11 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     // an answer on the status card clears a stop made by a status card, and no other.
     const statusStop = job.auto.stopped?.rule === 'status';
     const cardStop = job.auto.stopped?.card === true;
+    // The cut-off stop asks for Resume: the person's Resume (a `resumed` line not via Starbase's own carry-on) clears it (N5).
+    const cutOffStop = job.auto.stopped?.reason === CUT_OFF;
     const yours = lines.some((l) => l.by !== 'auto' && Date.parse(l.at) > stoppedAt
-      && ((l.action === 'send' && DECIDES.has(l.kind) && l.gateBrief) || (cardStop && l.action === 'permission') || (statusStop && l.action === 'status_invalid_answer')));
+      && ((l.action === 'send' && DECIDES.has(l.kind) && l.gateBrief) || (cardStop && l.action === 'permission') || (statusStop && l.action === 'status_invalid_answer')
+        || (cutOffStop && l.action === 'resumed' && l.via !== 'auto')));
     if (!yours) return false;
     const at = now().toISOString();
     await update(job.dir, (prev) => (prev?.stopped ? { ...prev, stopped: null, failures: 0, problem: null, step: null, cards: 0, since: at } : null));
