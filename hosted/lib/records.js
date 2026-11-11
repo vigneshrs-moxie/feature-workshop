@@ -38,6 +38,7 @@ export function cleanSuggestion(v, now = Date.now()) {
     if (!p || typeof p !== 'object' || typeof p.key !== 'string' || typeof p.reason !== 'string') return null;
     const key = canonicalKey(p.key);
     if (!key || key !== p.key) return null;
+    if (picks.some((x) => x.key === key)) continue; // a ticket named twice is one pick
     picks.push({ key, reason: p.reason.slice(0, SUGGEST_REASON) });
   }
   return { at: new Date(v.at).toISOString(), picks, forList: v.forList.slice(0, SUGGEST_LIST).map((x) => x.slice(0, SUGGEST_ITEM)) };

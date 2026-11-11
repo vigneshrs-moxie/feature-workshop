@@ -821,3 +821,13 @@ test('an inbox with no suggestion answers suggest: null', async () => {
     assert.equal((await answer(olive)).suggest, null);
   } finally { lap.link.stop(); await s.close(); }
 });
+
+test('a suggestion that names a ticket twice keeps it once', async () => {
+  const { cleanSuggestion } = await import('../lib/records.js');
+  const at = '2026-11-10T09:00:00.000Z';
+  const clean = cleanSuggestion({
+    at, forList: [],
+    picks: [{ key: 'ORBIT-12', reason: 'First.' }, { key: 'ORBIT-12', reason: 'Again.' }, { key: 'ORBIT-13', reason: 'Other.' }],
+  }, Date.parse(at));
+  assert.deepEqual(clean.picks, [{ key: 'ORBIT-12', reason: 'First.' }, { key: 'ORBIT-13', reason: 'Other.' }]);
+});
