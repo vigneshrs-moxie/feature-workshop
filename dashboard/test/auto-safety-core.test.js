@@ -1036,3 +1036,11 @@ test('R7: a path glued to a short option is tested as a secret, and each answers
   // Ordinary glued options still pass.
   for (const c of ['grep -C2 x a.txt', 'git log -n5 --oneline', 'sort -k2 a.txt', 'tail -n20 a.txt', 'head -c100 a.txt']) assert.equal(bash(c, ctx), null, c);
 });
+
+test('R8: a git fetch whose refspec lands under refs/remotes/ stops, as git update-ref of the same ref does', () => {
+  const ctx = C5CTX({ orgRemote: 'moxie' });
+  assert.equal(bash('git update-ref refs/remotes/moxie/main HEAD', ctx), 'outside', 'control');
+  for (const c of [`git fetch . ${BRANCH}:refs/remotes/moxie/main`, 'git fetch . HEAD:refs/remotes/moxie/main', 'git fetch origin +refs/heads/x:refs/remotes/moxie/main', 'git fetch moxie main:refs/remotes/moxie/main',
+    'git fetch origin "refs/heads/*:refs/remotes/moxie/*"', 'git fetch --prune . HEAD:refs/remotes/origin/main']) assert.equal(bash(c, ctx), 'outside', c);
+  for (const c of ['git fetch moxie', 'git fetch moxie main', 'git fetch origin', `git fetch origin ${BRANCH}`, 'git fetch --prune moxie']) assert.equal(bash(c, ctx), null, c);
+});

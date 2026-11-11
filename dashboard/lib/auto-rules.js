@@ -1486,6 +1486,8 @@ function gitStep(args, assigns, cwd, st, xargs) {
     else if (sub === 'clone') { const at = physicalPath(dest.t, eff); if (at) st.cloneDirs.push(at); } // what it brings in is not known
     return;
   }
+  // A fetch that writes a remote-tracking ref by its own refspec: where the org's main is said to be (R8).
+  if (sub === 'fetch' && sargs.some((x) => /:\+?refs\/remotes\//.test(x.t) || /^\+?refs\/remotes\//.test(x.t.split(':')[1] ?? ''))) hit('outside');
   // Bringing in work: only the org remote's main or the job's own branches, on the fork or the org remote (m3).
   if (sub === 'merge' || sub === 'pull' || sub === 'rebase') { if (foreignSource(sub, sargs, ctx)) hit('merge'); }
   if (sub === 'cherry-pick' && !a.some((x) => /^--(abort|continue|skip|quit)$/.test(x))) st.asks.push('a cherry-pick brings in someone else\'s commit');
