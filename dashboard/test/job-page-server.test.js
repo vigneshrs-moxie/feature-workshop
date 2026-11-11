@@ -211,3 +211,24 @@ test('a job’s page has each step’s times and documents (Task 2)', { timeout:
   assert.ok(startLine?.at, 'the new-job line is in the job’s audit');
   assert.deepEqual(ticketJob.page.times.spec, { startedAt: startLine.at, endedAt: null });
 });
+
+test('a closed job’s last step ends at the closed time; an open one’s has no end (Task 2, fix round 1)', { timeout: 60_000 }, async () => {
+  const slug = 'closed-at-ship';
+  await writeJob(slug, {
+    files: {
+      'status.json': { schema_version: 1, slug, title: `Job ${slug}`, route: 'small', stage: 'pr1', stage_state: 'working', repo: { path: repo, base_branch: 'main' }, updated_at: OLD },
+      'briefs/001-pr1.md': '**PR #1** (demo)\n',
+    },
+  });
+  // The new folder is found once the dashboard reads the features folder again.
+  const end = Date.now() + 20_000;
+  while (Date.now() < end && (await fetch(`${base}/api/job/${slug}`)).status !== 200) await sleep(200);
+  let job = await getJob(slug);
+  assert.equal(job.stage, 'pr1');
+  assert.equal(job.page.times.ship.endedAt, null, 'open: the step it is at has no end');
+  const res = await fetch(`${base}/api/job/${slug}/close`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: JSON.stringify({ as: 'dropped' }) });
+  const body = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(body));
+  job = await getJob(slug);
+  assert.equal(job.page.times.ship.endedAt, body.closed.at);
+});
