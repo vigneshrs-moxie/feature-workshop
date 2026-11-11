@@ -604,7 +604,7 @@ test('F6: the real changes are read from the verified worktree against the org r
       w.git('fetch', '-q', 'moxie');
       w.git('remote', 'set-head', 'moxie', 'main');
       await fs.mkdir(path.join(w.root, 'elsewhere'), { recursive: true });
-      const wt = path.join(w.root, 'visit-audit-wt');
+      const wt = path.join(w.root, 'wt-visit-audit'); // the job's by its folder name: it ends with -<slug> (R12)
       w.git('worktree', 'add', '-q', '-b', 'feature/visit-audit', wt, 'moxie/main');
       const g = (...a) => execFileSync('git', ['-C', wt, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...a], { stdio: 'pipe' });
       await fs.mkdir(path.join(wt, 'db', 'migrations'), { recursive: true });
@@ -3135,7 +3135,8 @@ test('F1 (N1-other-card): three cards; Auto stops on A; the person allows B and 
     assert.equal(stopped.card, true);
     assert.equal(typeof stopped.cardId, 'string');
     const cards = await w.until(async () => { const p = await waiting(w); return p.length === 3 ? p : null; }, 'the three cards');
-    const b = cards.find((p) => p.id !== stopped.cardId && /example\.com\/b/.test(JSON.stringify(p)));
+    // Any card but the one Auto stopped on: with three raised at once, which one Auto takes up first is not fixed.
+    const b = cards.find((p) => p.id !== stopped.cardId);
     await w.runner.handle({ type: 'allow', requestId: b.id }, { from: 'local' });
     await w.until(() => outcomes.length === 1, 'B answered');
     await new Promise((r) => setTimeout(r, 300));
