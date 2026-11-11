@@ -37,6 +37,15 @@ interface Look {
 export type ButtonProps = Look & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'children'> & { href?: undefined };
 export type LinkButtonProps = Look & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'className' | 'children'> & { href: string };
 
+/**
+ * Whether a button can be pressed now: not disabled, not aria-disabled, not busy. Code that presses
+ * another component's button (the job page's and the Desk's calls press the gate card's) asks this,
+ * since a busy button is aria-disabled, not disabled.
+ */
+export function isPressable(b: Element | null | undefined): b is HTMLButtonElement {
+  return b instanceof HTMLButtonElement && !b.disabled && b.getAttribute('aria-disabled') !== 'true' && b.getAttribute('aria-busy') !== 'true';
+}
+
 /** The class list for a look, for the rare control that can't be a <Button> (a <summary>). */
 export function buttonClass({ kind = 'secondary', size = 'md', iconOnly = false, busy = false, className = '' }: Pick<Look, 'kind' | 'size' | 'iconOnly' | 'busy' | 'className'> = {}): string {
   return [
@@ -49,7 +58,9 @@ export function buttonClass({ kind = 'secondary', size = 'md', iconOnly = false,
   ].filter(Boolean).join(' ');
 }
 
-function Inside({ icon, size, keyId, keyShown, busy, busyLabel = 'Working…', children }: Look) {
+const BUSY_WORDS = 'Working…';
+
+function Inside({ icon, size, keyId, keyShown, busy, busyLabel = BUSY_WORDS, children }: Look) {
   const iconSize = size === 'sm' ? 14 : 16;
   return (
     <>
@@ -80,6 +91,8 @@ function ButtonImpl(props: ButtonProps | LinkButtonProps, ref: Ref<HTMLButtonEle
       className={cls}
       disabled={busy ? false : b.disabled}
       aria-disabled={busy ? true : b['aria-disabled']}
+      // A label of the caller's own would win over the busy words: while busy, the words are the label.
+      aria-label={busy && b['aria-label'] !== undefined ? busyLabel ?? BUSY_WORDS : b['aria-label']}
       aria-busy={busy || undefined}
       onClick={busy ? (e) => e.preventDefault() : b.onClick}
     >

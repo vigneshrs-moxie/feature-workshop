@@ -14,7 +14,7 @@ import { useUi } from '../app/ui';
 import { useDetail, useShown } from '../app/detail';
 import { More } from '../components/More';
 import { NowLine } from '../components/NowLine';
-import { Button } from '../components/Button';
+import { Button, isPressable } from '../components/Button';
 import { Chip } from '../components/Chip';
 import { Icon, type IconName } from '../components/Icon';
 import { Fold, FoldShow, NextBar, Page, useMinWidth, useNarrow, type GuideSpec, type NextTone } from '../components/page/Page';
@@ -280,7 +280,7 @@ export function NextStep({ job, conversation, now, onShip, foldCard = false }: {
   // One live region, always here (empty when nothing is out), so each of sending, sent and stuck is
   // announced once; the bar shows the same words, but not as a live region.
   const live = <p className="sr-only" role="status" data-next-live>{after.live}</p>;
-  const problem = after.problem && <p className="field-problem" role="alert">{after.problem}</p>;
+  const problem = after.problem && <p ref={after.problemRef} className="field-problem" role="alert" tabIndex={-1}>{after.problem}</p>;
   let bar: ReactNode;
   if (perms.length > 0) bar = <PermissionAlert permissions={perms} now={now} />;
   else if (thread.detail?.gate) bar = <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} after={after} />;
@@ -310,6 +310,7 @@ interface AfterSend {
   tryAgain(): void;
   /** Why Try again sent nothing: the server's own sentence. */
   problem: string | null;
+  problemRef: RefObject<HTMLParagraphElement | null>;
 }
 
 /**
@@ -321,6 +322,7 @@ function useAfterSend(job: Job, run: Run | null, reload: () => void, queuedId: s
   const decision = useGateSent(job, run, queuedId);
   const sayRef = useRef<HTMLSpanElement>(null);
   const tryRef = useRef<HTMLButtonElement>(null);
+  const problemRef = useRef<HTMLParagraphElement>(null);
   const [retrying, setRetrying] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const out = decision.state;
@@ -342,25 +344,30 @@ function useAfterSend(job: Job, run: Run | null, reload: () => void, queuedId: s
   const waits = out === 'sent' || out === 'stuck' || (retrying && out === 'sending');
   const words = out === 'sent' ? SENT_WORDS : STUCK_WORDS;
   const shown = !waits ? null : out === 'sent' ? 'sent' : 'stuck';
+  const tryShown = out === 'stuck' || retrying;
   // Focus stays on the pressed button while it spins (a busy button keeps it). When the sent or stuck
-  // line shows and the focus would be lost (on nothing, or on a call now off), it moves to the line,
-  // or to Try again once stuck. Focus somewhere else (the card's note) is left where it is.
+  // line shows, or Try again goes, and the focus would be lost (on nothing, or on a call now off), it
+  // moves to the line, to Try again once stuck, or to the server's sentence when Try again was
+  // refused. Focus somewhere else (the card's note) is left where it is, and so is focus when the
+  // line is being cleared in this same pass (the job has already moved on).
   useEffect(() => {
-    if (!shown) return;
     const at = document.activeElement as HTMLElement | null;
-    const lost = !at || at === document.body || (at as HTMLButtonElement).disabled === true;
-    if (lost) (shown === 'stuck' ? tryRef.current ?? sayRef.current : sayRef.current)?.focus();
-  }, [shown]);
+    const lost = !at || at === document.body || !at.isConnected || (at as HTMLButtonElement).disabled === true;
+    if (!lost) return;
+    if (shown && !decision.moved) (shown === 'stuck' ? tryRef.current ?? sayRef.current : sayRef.current)?.focus();
+    else if (!shown && problem) problemRef.current?.focus();
+  }, [shown, tryShown, problem, decision.moved]);
   return {
     decision,
     live: out === 'sending' ? SENDING_WORDS : out === 'sent' ? SENT_WORDS : out === 'stuck' ? STUCK_WORDS : '',
     sayRef,
     tryRef,
     say: waits ? <span ref={sayRef} tabIndex={-1}>{words}</span> : null,
-    stuck: out === 'stuck' || retrying,
+    stuck: tryShown,
     retrying: retrying && out === 'sending',
     tryAgain: () => { void tryAgain(); },
     problem,
+    problemRef,
   };
 }
 
@@ -388,7 +395,8 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { jo
     const read = () => {
       const b = el.querySelector<HTMLButtonElement>('[data-gate="approve"]');
       const back = el.querySelector<HTMLButtonElement>('[data-gate="revise"]');
-      const next = { words: wordsOf(b), off: !b || b.disabled, asks: Boolean(el.querySelector('.gate-question')), backOff: !back || back.disabled };
+      // Off whenever the card's button can't be pressed: disabled, aria-disabled, or busy.
+      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back) };
       setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff ? was : next));
     };
     read();
@@ -396,7 +404,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { jo
     watch.observe(el, { subtree: true, childList: true, attributes: true, characterData: true });
     return () => watch.disconnect();
   }, [detail]);
-  const press = (what: 'approve' | 'revise') => body.current?.querySelector<HTMLButtonElement>(`[data-gate="${what}"]:not(:disabled)`)?.click();
+  const press = (what: 'approve' | 'revise') => { const b = body.current?.querySelector(`[data-gate="${what}"]`); if (isPressable(b)) b.click(); };
   const gate = detail.gate;
   const goWords = go.words || 'Approve';
   // The call pressed spins while its decision is out (the card's own button was pressed for it).

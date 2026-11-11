@@ -257,6 +257,72 @@ describe('after a click on the go / no go bar', () => {
     expect(within(bar()).queryByRole('button', { name: 'Try again' })).toBeNull();
   });
 
+  // Fix round 2: focus after Try again, and the bar's calls while it is out.
+  /** Sent at once the first time; later gate posts answer only when told to (or are refused). */
+  function sentThenHeld() {
+    let n = 0;
+    let answer: (v: unknown) => void = () => {};
+    let fail: (e: unknown) => void = () => {};
+    const post = vi.fn((path: string, _body?: unknown): Promise<unknown> => {
+      if (!path.endsWith('/gate')) return Promise.resolve({ ok: true });
+      if (n++ === 0) return Promise.resolve({ ok: true, sent: true, text: 'sent' });
+      return new Promise((res, rej) => { answer = res; fail = rej; });
+    });
+    return {
+      post,
+      answer: () => act(async () => { answer({ ok: true, sent: true, text: 'sent' }); }),
+      refuse: () => act(async () => { fail(new ApiError(409, 'The Foreman has moved on to brief 3 since this card was shown. Nothing was sent; decide on the new brief.', { code: 'stale-brief' })); }),
+    };
+  }
+  async function stuckThenTryAgain(post: (path: string, body?: unknown) => Promise<unknown>) {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setup({ jobs: waiting(), gate: GATE, post: vi.fn(post) });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await within(bar()).findByText(SENT_LINE);
+    act(() => { vi.advanceTimersByTime(30_000); });
+    const again = within(bar()).getByRole('button', { name: 'Try again' });
+    again.focus();
+    fireEvent.click(again);
+    await waitFor(() => expect(again).toHaveAttribute('aria-busy', 'true'));
+    expect(again).toHaveFocus();
+    return again;
+  }
+
+  it('after Try again succeeds the focus is on the sent line, not the page', async () => {
+    const { post, answer } = sentThenHeld();
+    await stuckThenTryAgain(post);
+    await answer();
+    const line = await within(bar()).findByText(SENT_LINE);
+    await waitFor(() => expect(within(bar()).queryByRole('button', { name: /Try again|Sending/ })).toBeNull());
+    expect(line).toHaveFocus();
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('after Try again is refused again the focus is on the server’s sentence, not the page', async () => {
+    const { post, refuse } = sentThenHeld();
+    await stuckThenTryAgain(post);
+    await refuse();
+    const said = await screen.findByText(/moved on to brief 3/);
+    // Try again is gone (the bar is back to how it was), so the focus goes to why it sent nothing.
+    expect(within(bar()).queryByRole('button', { name: /Try again|Sending/ })).toBeNull();
+    expect(said).toHaveFocus();
+  });
+
+  it('while Try again is out, Go and Send back are off', async () => {
+    const { post, answer } = sentThenHeld();
+    await stuckThenTryAgain(post);
+    const go = screen.getByRole('button', { name: /^Go: approve/ });
+    const back = screen.getByRole('button', { name: /^No go: send back/ });
+    await waitFor(() => expect(go).toBeDisabled());
+    expect(back).toBeDisabled();
+    fireEvent.click(go);
+    fireEvent.click(back);
+    fireEvent.keyDown(document.body, { key: 'a' });
+    expect(gatePosts(post)).toHaveLength(2);
+    expect(screen.queryByText(/What should change\?/)).toBeNull();
+    await answer();
+  });
+
   it('when the job moves on, the bar clears', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { store } = setup({ jobs: waiting(), gate: GATE, post: sentPost() });
