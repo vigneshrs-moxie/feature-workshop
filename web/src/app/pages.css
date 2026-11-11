@@ -358,6 +358,11 @@ html[data-theme] .desk-console .gate-card.perm-card { padding: 0; border: 0; bor
 .job-card-end { position: relative; display: flex; align-items: center; justify-content: flex-end; min-width: 0; min-height: var(--chip-h); }
 /* Simple: the stop dots peek out over the time on hover and focus; the card keeps its size. */
 .job-card-peek { position: absolute; right: -2px; top: 50%; z-index: 2; display: flex; padding-left: var(--space-2); background: var(--surface-1); opacity: 0; visibility: hidden; transform: translateY(-50%); transition: opacity var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur-fast); }
+.job-card-foot:has(.auto-decided-wrap) { flex-wrap: wrap; }
+.job-card-foot:has(.auto-decided-wrap) .job-card-end { margin-left: auto; display: grid; justify-items: end; min-width: max-content; }
+/* With "What Auto decided" beside it, the time and the stop dots share one cell, so the end area is as wide as the dots and they never sit over the button. */
+.job-card-foot:has(.auto-decided-wrap) .job-card-end > * { grid-area: 1 / 1; }
+.job-card-foot:has(.auto-decided-wrap) .job-card-peek { position: relative; right: auto; top: auto; padding-left: 0; transform: none; }
 .job-card:is(:hover, :focus-within) .job-card-peek { opacity: 1; visibility: visible; transition: opacity var(--dur-fast) var(--ease-out), visibility 0s; }
 .job-card:is(:hover, :focus-within) .job-card-time { opacity: 0; }
 .job-card-time { transition: opacity var(--dur-fast) var(--ease-out); }

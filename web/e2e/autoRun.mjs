@@ -69,8 +69,7 @@ try {
   if ((await card.count()) !== 1) fail(`expected one "Auto demo" card on Jobs, found ${await card.count()}`);
   else {
     const button = card.getByRole('button', { name: 'What Auto decided' });
-    // A DOM click after centring: the card sits far down the list, and a scroll that leaves it at an edge lets the sticky bar catch the click.
-    await button.evaluate((b) => { b.scrollIntoView({ block: 'center' }); b.click(); });
+    await button.click();
     await page.locator('.auto-entry').first().waitFor({ timeout: 10_000 }).catch(() => {});
     const entries = await page.locator('.auto-entry').allInnerTexts();
     const summary = (await page.locator('.auto-summary').innerText().catch(() => '')).replace(/\s+/g, ' ');
