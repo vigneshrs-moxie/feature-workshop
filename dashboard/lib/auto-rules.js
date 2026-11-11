@@ -646,7 +646,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
       const script = args[c + 1];
       if (!script || script.dyn) hit('outside'); else analyze(script.t, cwd, st, depth + 1, null);
     } else if (!pos().filter((x) => x.t !== '-').length || a.includes('-s')) hit('outside'); // reads its commands from a pipe or here-document
-    else scriptFile(pos().filter((x) => x.t !== '-')[0], cwd, st, 'shell', depth); // the file it runs
+    else scriptFile(pos().filter((x) => x.t !== '-')[0], cwd, st, 'shell!', depth); // the file it runs, read as shell whatever its first line (m5)
     return;
   }
   if (cmd === 'eval') { hit('outside'); analyze(a.join(' '), cwd, st, depth + 1, null); return; }
@@ -919,8 +919,9 @@ function scriptFile(word, cwd, st, kind = 'shell', depth = 0) {
     text = fs.readFileSync(at, 'utf8');
   } catch { st.hits.add('outside'); return; }
   st.runs.push(at);
-  const shebang = /^#!\s*\S*\/(?:env\s+)?(\w+)/.exec(text)?.[1] ?? '';
-  const shell = kind === 'shell' && (!shebang || SHELLS.has(shebang));
+  // #!/usr/bin/env -S bash (and env's other options) is that shell (m5); a shell given the file reads it as shell.
+  const shebang = /^#!\s*\S*\/(?:env(?:\s+-[-\w]+)*\s+)?(\w+)/.exec(text)?.[1] ?? '';
+  const shell = kind === 'shell!' || (kind === 'shell' && (!shebang || SHELLS.has(shebang)));
   if (shell) scanShell(text, st.hint ?? cwd ?? path.dirname(at), st, depth); else scanOther(text, st);
 }
 

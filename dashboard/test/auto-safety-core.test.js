@@ -572,3 +572,15 @@ test('m4: gh pr checkout asks, and brings in files: nothing else runs after it i
   for (const c of ['gh pr checkout 12', 'gh pr checkout 12 && npm test', 'gh pr checkout 12 && ls']) assert.equal(bash(c, ctx), 'ask', c);
 });
 
+test('m5: env -S <shell> in the first line is that shell, and a shell running a file reads it as shell whatever its first line', () => {
+  const d = diskWorktree();
+  try {
+    fsSync.mkdirSync(pathMod.join(d.wt, 'scripts'), { recursive: true });
+    const body = 'cd ..\necho x > outside.txt\n';
+    for (const [name, first] of [['envs.sh', '#!/usr/bin/env -S bash'], ['envsx.sh', '#!/usr/bin/env -S bash -eu'], ['py.sh', '#!/usr/bin/env python3']]) {
+      fsSync.writeFileSync(pathMod.join(d.wt, 'scripts', name), `${first}\n${body}`, { mode: 0o755 });
+    }
+    const ctx = ctxOf({ worktrees: [d.wt], specDirs: [], branches: [BRANCH] }, { cwd: d.wt, tempDirs: [] });
+    for (const c of ['./scripts/envs.sh', './scripts/envsx.sh', 'bash scripts/envs.sh', 'bash scripts/py.sh', 'sh scripts/py.sh']) assert.equal(bash(c, ctx), 'outside', c);
+  } finally { d.done(); }
+});
