@@ -33,6 +33,7 @@ import path from 'node:path';
 import { autoAllowed } from './auto.js';
 import { classify, commandParts, isInside, TEMP_DIRS } from './policy.js';
 import { hardLine, namesStarbaseAddress, namesThisComputer, ORG_URL, physicalPath, rmInsideJob, withPathMemo, WRAPPERS } from './hard-lines.js';
+import { plainWhy } from './auto-plain.js';
 import { STAGES, STAGE_IDS } from './stages.js';
 
 export const AUTO_STOP_REASONS = Object.freeze({
@@ -223,15 +224,12 @@ function bashVerdict(command, hard, ctx) {
   if ((st.ranRunner && wroteBase(['package.json'])) || (st.ranMake && wroteBase(['Makefile', 'makefile', 'GNUmakefile']))) st.hits.add('outside');
   const rule = PRIORITY.find((r) => st.hits.has(r));
   if (rule) return { stop: stop(rule, rule === 'outside' && st.unknown ? { unknownProgram: true } : {}) };
-  const why = st.asks[0] ?? plainWhy(command);
+  const why = st.asks[0] ?? plainWhy(command, plainEnv(st, ctx.cwd ?? null));
   return why ? { ask: why } : null;
 }
 
-// Plain: Starbase understands every word of the command (T2).
-function plainEnv(st, cwd) { return { cwd: cwd ?? st.hint ?? null, roots: st.roots, ctx: st.ctx }; }
-function plainWhy(command) {
-  return /[$`]/.test(command) ? 'a variable or substitution in the command' : null;
-}
+// Plain: Starbase understands every word of the command (lib/auto-plain.js).
+const plainEnv = (st, cwd) => ({ cwd: cwd ?? st.hint ?? st.ctx.cwd ?? null, roots: st.roots, ctx: st.ctx });
 
 // Names a command defines as shell functions (their bodies are read as commands; a use of one is not an unknown program).
 function functionNames(command) {
