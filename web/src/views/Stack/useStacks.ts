@@ -96,7 +96,11 @@ export function useStackView(slug: string): StackState {
     ).finally(() => { busy.current = false; });
   }, [api, path, setView]);
   useLookAgain(refresh);
+  // One request at a time: a busy button keeps its focus, so Enter in a form could ask again.
+  const out = useRef(false);
   const act: StackState['act'] = useCallback(async (action, body = {}) => {
+    if (out.current) return false;
+    out.current = true;
     setSending(true);
     setProblem(null);
     try {
@@ -108,6 +112,7 @@ export function useStackView(slug: string): StackState {
       setProblem(message(err));
       return false;
     } finally {
+      out.current = false;
       setSending(false);
     }
   }, [api, path, setView]);
@@ -152,10 +157,13 @@ export function useStackPart(slug: string, n: number): PartState {
     ).finally(() => { busy.current = false; });
   }, [api, path]);
   useLookAgain(refresh);
+  const out = useRef(false);
   const act: PartState['act'] = useCallback(async (action, body = {}) => {
+    if (out.current) return false;
+    out.current = true;
     setSending(true);
     setProblem(null);
-    try { await api.post(`${base}/${action}`, body); refresh(); return true; } catch (err) { setProblem(message(err)); return false; } finally { setSending(false); }
+    try { await api.post(`${base}/${action}`, body); refresh(); return true; } catch (err) { setProblem(message(err)); return false; } finally { out.current = false; setSending(false); }
   }, [api, base, refresh]);
   const diff = useCallback(async (file: string) => {
     try { return await api.get<{ file?: string; diff?: string; cut?: boolean; error?: string }>(`${path}/diff?file=${encodeURIComponent(file)}`); } catch (err) { return { error: message(err) }; }

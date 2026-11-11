@@ -42,6 +42,8 @@ import './stack.css';
 import './stacks-home.css';
 import './stack-page.css';
 
+/** The bar's actions whose own click sends something (the rest open a sheet or a page). */
+const SENDS: ReadonlySet<string> = new Set(['approve', 'merge', 'fix', 'fix-plan']);
 
 export function StackPage({ slug }: { slug: string }) {
   const stack = useStackView(slug);
@@ -88,11 +90,12 @@ function StackBody({ stack, view: raw, guide, onHow }: { stack: StackState; view
   const peekPart = peekAt ? view.parts.find((p) => String(p.n) === peekAt) ?? null : null;
   const peek = peekPart !== null;
 
-  // The bar's button whose request is out spins (the others are off meanwhile).
+  // The bar's button whose own click sends spins (the others are off meanwhile); one that only
+  // opens a sheet doesn't (the sheet's button spins).
   const [pressed, setPressed] = useState<StackAction['kind'] | null>(null);
   function run(a: StackAction) {
     if (stack.sending) return;
-    setPressed(a.kind);
+    if (SENDS.has(a.kind)) setPressed(a.kind);
     switch (a.kind) {
       case 'approve': void stack.act('approve-plan', { cap: draft.cap, autoIntegrate: draft.autoIntegrate }); break;
       case 'change': setSheet({ note: 'plan' }); break;

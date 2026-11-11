@@ -379,7 +379,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
         {error && <p className="field-problem" role="alert">{error}</p>}
         <div className="sheet-actions">
           <Button onClick={onClose} disabled={busy} title="Close without starting anything.">Cancel</Button>
-          <Button type="submit" kind="primary" busy={busy} title="Start the job now. Its Foreman reads your request and replies in the conversation.">
+          <Button type="submit" kind="primary" busy={busy} busyLabel="Starting…" title="Start the job now. Its Foreman reads your request and replies in the conversation.">
             Start job
           </Button>
         </div>

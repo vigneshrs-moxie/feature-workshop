@@ -7,9 +7,9 @@
 //   changed                                    "This changed on your laptop. Look again." above the new
 //                                               card, with Got it
 //   failed, expired                            what happened, with Got it
-// While one is on its way (waiting or sent), the line also says "Sent to your laptop.", and after
-// 30 seconds with nothing moved (lib/sentState.ts) "Nothing has moved yet.", with Try again where
-// the card can send the same decision once more (`retry`; the site may answer that it waits already).
+// While one is on its way (waiting or sent) its words are the website's sent line; 30 seconds after
+// this page first showed it with nothing moved (lib/sentState.ts) the line adds "Nothing has moved
+// yet." once, beside Cancel. No Try again here: the site refuses a second copy of a waiting decision.
 // Words and an icon carry each state, never colour alone. Only the hosted site sends `queued`, so
 // on the laptop nothing here ever shows.
 import { useEffect, useState } from 'react';
@@ -43,12 +43,11 @@ export const needsLook = (q: QueuedView | null): q is QueuedView => Boolean(q &&
 
 const ICON = { waiting: 'clock', sent: 'send', changed: 'refresh', failed: 'alert', expired: 'clock', cancelled: 'x', done: 'circle-check' } as const;
 
-const SENT_WORDS = 'Sent to your laptop.';
 const STUCK_WORDS = 'Nothing has moved yet.';
 
-export function QueuedDecision({ queued, onChange, retry }: { queued: QueuedView; onChange?: () => void; /** Try again: send the same decision once more. */ retry?: () => Promise<unknown> }) {
+export function QueuedDecision({ queued, onChange }: { queued: QueuedView; onChange?: () => void }) {
   const { api } = useWorkshop();
-  const [busy, setBusy] = useState<'cancel' | 'dismiss' | 'retry' | null>(null);
+  const [busy, setBusy] = useState<'cancel' | 'dismiss' | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const open = isOpen(queued);
   // Sent from the moment this page sees it on its way; stuck 30 seconds later; over once it settles.
@@ -58,31 +57,22 @@ export function QueuedDecision({ queued, onChange, retry }: { queued: QueuedView
     else if (!open && sent !== 'idle') clear();
   }, [open, sent, accepted, clear]);
   async function act(what: 'cancel' | 'dismiss') {
+    if (busy) return;
     setBusy(what);
     setProblem(null);
     try { await api.post(`/api/decisions/${encodeURIComponent(queued.id)}/${what}`, {}); onChange?.(); } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); } finally { setBusy(null); }
   }
-  async function tryAgain() {
-    if (!retry || busy) return;
-    setBusy('retry');
-    setProblem(null);
-    // Whatever the site answers, the wait starts again from here.
-    try { await retry(); onChange?.(); } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); } finally { setBusy(null); clear(); }
-  }
-  const line = !open ? null : sent === 'stuck' ? STUCK_WORDS : sent === 'sent' ? SENT_WORDS : null;
+  const stuck = open && sent === 'stuck';
   const tone = open ? 'is-waiting' : needsLook(queued) ? 'is-look' : 'is-settled';
   return (
     <section className={`queued-decision ${tone}`} data-state={queued.state} aria-label="Your decision from the site">
       <p className="queued-decision-words" role="status">
         <Icon name={ICON[queued.state] ?? 'clock'} size={18} />
-        <span>{queued.words}{line && <> <span className="queued-decision-sent">{line}</span></>}</span>
+        <span>{queued.words}{stuck && <> <span className="queued-decision-stuck">{STUCK_WORDS}</span></>}</span>
       </p>
       <div className="queued-decision-actions">
-        {open && sent === 'stuck' && retry && (
-          <Button kind="secondary" size="lg" busy={busy === 'retry'} disabled={busy !== null} onClick={() => void tryAgain()} title="Send the same decision to your laptop once more.">Try again</Button>
-        )}
         {open && queued.canCancel && (
-          <Button kind="secondary" size="lg" busy={busy === 'cancel'} disabled={busy !== null} onClick={() => void act('cancel')} title="Take this decision back. Nothing is sent to your laptop.">Cancel</Button>
+          <Button kind="secondary" size="lg" busy={busy === 'cancel'} onClick={() => void act('cancel')} title="Take this decision back. Nothing is sent to your laptop.">Cancel</Button>
         )}
         {!open && (
           <Button kind="quiet" busy={busy === 'dismiss'} onClick={() => void act('dismiss')} title="Put this note away.">Got it</Button>

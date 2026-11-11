@@ -384,7 +384,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
                   Start as stack
                 </Button>
               )}
-              <Button kind="primary" size="lg" keyId="inbox-start" keyShown busy={hosted?.sending === pick.key} onClick={() => start(pick)} title={isHosted ? `Start a job on ${pick.key} on your laptop (key: s).` : `Start a job on ${pick.key}: opens New job with the key and title filled in (key: s).`}>
+              <Button kind="primary" size="lg" keyId="inbox-start" keyShown busy={hosted?.sending === pick.key} busyLabel="Starting…" onClick={() => start(pick)} title={isHosted ? `Start a job on ${pick.key} on your laptop (key: s).` : `Start a job on ${pick.key}: opens New job with the key and title filled in (key: s).`}>
                 Start {pick.key}
               </Button>
             </NextBar>
@@ -627,6 +627,7 @@ function TicketTable({ items, caption, jobs, pick, now, peeked, onOpen, onStart,
                         size="sm"
                         keyId={isPick ? 'inbox-start' : undefined}
                         busy={hosted?.sending === i.key}
+                        busyLabel="Starting…"
                         onClick={() => onStart(i)}
                         aria-label={`Start a job on ${i.key}`}
                         title={hosted ? `Start a job on ${i.key} on your laptop (key: s, with the focus on this row).` : `Start a job on ${i.key}: opens New job with the key and title filled in (key: s, with the focus on this row).`}
@@ -678,7 +679,7 @@ function HostedTicketPeek({ item, order, onPick, onClose, onStart, onCancel, sen
         ) : (
           <>
             {item.start?.state === 'failed' && <StartProblem start={item.start} />}
-            <Button kind="primary" keyId="inbox-start" keyShown busy={sending} onClick={() => onStart(item)} title="Start a job on this ticket on your laptop (key: s).">
+            <Button kind="primary" keyId="inbox-start" keyShown busy={sending} busyLabel="Starting…" onClick={() => onStart(item)} title="Start a job on this ticket on your laptop (key: s).">
               {item.start?.state === 'failed' ? 'Start again' : 'Start'}
             </Button>
           </>

@@ -55,6 +55,7 @@ export function OrbitPage({ api, onSignedOut }: HostedProps) {
 
   async function save(e: FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     setProblem(null);
     setSaid(null);

@@ -109,7 +109,8 @@ html[data-theme] .btn-quiet:is(:disabled, [aria-disabled='true']):is(:hover, :ac
 
 /* Busy: a small spinner in place of the words, at the same width. */
 .btn.is-busy { cursor: progress; }
-.btn.is-busy > :not(.spin-ring) { visibility: hidden; }
+/* The words a screen reader hears meanwhile (.btn-busy-words, visually hidden) stay in the tree. */
+.btn.is-busy > :not(.spin-ring, .btn-busy-words) { visibility: hidden; }
 .spin-ring {
   position: absolute;
   inset: 0;

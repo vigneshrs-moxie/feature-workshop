@@ -122,7 +122,7 @@ export function SendPreview({
         {blocked && <p className="perm-warn" role="alert">{blocked}</p>}
         {error && <p className="field-problem" role="alert">{error}</p>}
         <div className="sheet-actions">
-          <Button kind="primary" onClick={() => void send()} busy={busy} disabled={Boolean(blocked)} title={blocked ?? sendHint}>
+          <Button kind="primary" onClick={() => void send()} busy={busy} busyLabel="Sending…" disabled={Boolean(blocked)} title={blocked ?? sendHint}>
             {sendLabel}
           </Button>
           <Button kind="quiet" onClick={onClose} disabled={busy} title="Go back without sending. Nothing is lost.">Back</Button>
@@ -302,6 +302,7 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
               kind="danger"
               onClick={() => void stop()}
               busy={busy === 'stop'}
+              busyLabel="Stopping…"
               disabled={stopping || busy !== null}
               title="End the Foreman’s reply now. Anything waiting for your answer is declined, your draft is kept, and the job waits for your next message."
             >
@@ -311,6 +312,7 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
               kind="primary"
               onClick={() => void steer()}
               busy={busy === 'steer'}
+              busyLabel="Steering…"
               disabled={empty || stopping || busy !== null || gateWaits}
               title={gateWaits ? `This is your reply to brief ${gate?.brief}; it goes as its own message once the Foreman finishes. Make it a plain message to steer it.`
                 : stopping ? 'The reply is stopping. Send your message once it has stopped.' : 'Add your message to the reply in progress. The Foreman reads it at its next step; its state shows on your message.'}

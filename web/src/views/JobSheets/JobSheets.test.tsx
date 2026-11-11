@@ -79,6 +79,7 @@ describe('NewJobSheet', () => {
     fireEvent.click(start);
     fireEvent.click(start);
     expect(start).toHaveAttribute('aria-busy', 'true');
+    expect(start).toHaveAccessibleName('Starting…');
     expect(start.querySelector('.spin-ring')).not.toBeNull();
     expect(post).toHaveBeenCalledTimes(1);
     await act(async () => { answer(); });

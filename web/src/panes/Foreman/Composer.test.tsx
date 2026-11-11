@@ -156,9 +156,13 @@ describe('Composer', () => {
     fireEvent.change(box(), { target: { value: 'Please check the export.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send…' }));
     const send = screen.getByRole('button', { name: 'Send to the Foreman' });
+    send.focus();
     fireEvent.click(send);
     fireEvent.click(send);
     expect(send).toHaveAttribute('aria-busy', 'true');
+    // A screen reader hears it sending; it keeps the focus.
+    expect(send).toHaveAccessibleName('Sending…');
+    expect(send).toHaveFocus();
     expect(send.querySelector('.spin-ring')).not.toBeNull();
     expect(post).toHaveBeenCalledTimes(1);
     await answer();
@@ -173,6 +177,7 @@ describe('Composer', () => {
     fireEvent.click(steer);
     fireEvent.click(steer);
     expect(steer).toHaveAttribute('aria-busy', 'true');
+    expect(steer).toHaveAccessibleName('Steering…');
     expect(steer.querySelector('.spin-ring')).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled();
     expect(post).toHaveBeenCalledTimes(1);
@@ -187,6 +192,7 @@ describe('Composer', () => {
     fireEvent.click(stop);
     fireEvent.click(stop);
     expect(stop).toHaveAttribute('aria-busy', 'true');
+    expect(stop).toHaveAccessibleName('Stopping…');
     expect(stop.querySelector('.spin-ring')).not.toBeNull();
     expect(post).toHaveBeenCalledTimes(1);
     await answer();

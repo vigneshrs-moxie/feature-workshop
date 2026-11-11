@@ -191,7 +191,7 @@ export function EvidenceStrip({ slug, tested = null, refresh = null }: { slug: s
           <button type="button" className="link-button" onClick={copyLink} title="Copy the evidence folder’s address, to paste on the ticket.">Copy link</button>
         )}
         {canRecord && (
-          <Button kind="quiet" size="sm" busy={busy} onClick={() => void record()} title="Record the evidence for the commit the test report names now: starts this job’s app, plays each acceptance line in a browser and keeps the pictures and video.">
+          <Button kind="quiet" size="sm" busy={busy} busyLabel="Recording…" onClick={() => void record()} title="Record the evidence for the commit the test report names now: starts this job’s app, plays each acceptance line in a browser and keeps the pictures and video.">
             {ev || view.problem ? 'Record again' : 'Record'}
           </Button>
         )}

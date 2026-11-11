@@ -294,6 +294,8 @@ describe('GateCard', () => {
     expect(card()!.querySelector('.gate-lines-text')!.textContent).toBe('Option change for the next step: ask Fable at review');
     await act(async () => { fireEvent.click(button(/^Approve quick plan/)); });
     expect(post.mock.calls[0][1].chips).toEqual([{ kind: 'fable', point: 'review' }]);
+    // Sent: the card's calls rest until the job moves on, as it does here (a new brief, a new run).
+    act(() => clearAllSent());
     show(oneQ({ nextStage: 'investigate' }));
     expect(button('Ask Fable (the plan)')).not.toHaveAttribute('aria-disabled');
     show(oneQ({ nextStage: 'refine' }));
@@ -863,12 +865,13 @@ describe('GateCard: a decision on its way', () => {
     expect(button(/^Approve/)).not.toHaveAttribute('aria-busy');
   });
 
-  it('sent once it went to the Foreman; a reply held for the limit, given back, or queued by the website is not', async () => {
+  it('sent once it went to the Foreman; a reply held for the limit or given back is not; one queued by the website stays out', async () => {
     const outcomes: [unknown, string][] = [
       [SENT, 'sent'],
       [{ ok: true, sent: false, held: true, text: '', message: 'Held until Claude’s usage limit resets.' }, 'idle'],
       [{ ok: true, sent: false, queued: false, text: 'Approved.', message: 'still working' }, 'idle'],
-      [{ ok: true, sent: false, held: true, queued: { id: 'd_1', state: 'waiting' }, text: '', message: 'Go: waiting for your laptop.' }, 'idle'],
+      // Queued by the website: still out until the page shows the queued decision (its own test is in Hosted/Mirror).
+      [{ ok: true, sent: false, held: true, queued: { id: 'd_1', state: 'waiting' }, text: '', message: 'Go: waiting for your laptop.' }, 'sending'],
     ];
     for (const [answer, state] of outcomes) {
       const post = vi.fn(async () => answer);

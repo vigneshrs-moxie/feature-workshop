@@ -54,11 +54,11 @@ const DESK_KEYS: readonly KeyId[] = ['desk-next', 'desk-prev', 'desk-approve', '
 export type DeskLayout = 'one' | 'columns';
 export const DESK_LAYOUT_KEY = 'gc.desk.layout';
 
-/** A button's words without its key hint. */
+/** A button's words without its key hint (or the words a busy one says to a screen reader). */
 function wordsOf(b: Element | null): string {
   if (!b) return '';
   const copy = b.cloneNode(true) as HTMLElement;
-  copy.querySelectorAll('kbd').forEach((k) => k.remove());
+  copy.querySelectorAll('kbd, .btn-busy-words').forEach((k) => k.remove());
   return (copy.textContent ?? '').trim();
 }
 const PHONE = '(max-width: 600px)';
@@ -89,7 +89,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
   const [go, setGo] = useState({ words: '', off: true, asks: false });
   const [extras, setExtras] = useState<HTMLDivElement | null>(null);
   // The call pressed spins while its decision is out (the card's own button was pressed for it).
-  const decision = useGateSent(job, state.runs[job.slug] ?? thread.detail?.run ?? null);
+  const decision = useGateSent(job, state.runs[job.slug] ?? thread.detail?.run ?? null, queuedOf(thread.detail?.queued)?.id ?? null);
   const spins = (kind: string) => decision.state === 'sending' && decision.kind === kind;
   // The gate card's own key for Adjust the next step opens the Details it lives in; Esc closes them.
   useEffect(() => {
@@ -162,10 +162,10 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
       </div>
       {gate ? (
         <div className={`desk-calls${call ? ' is-call' : ''}`}>
-          <Button kind="quiet" keyId="desk-reply" className="desk-call-reply" busy={spins('message')} disabled={decision.state === 'sending'} onClick={() => press('guidance')} title="Ask or tell the Foreman something without deciding: nothing is approved (key: c).">
+          <Button kind="quiet" keyId="desk-reply" className="desk-call-reply" busy={spins('message')} busyLabel="Sending…" disabled={decision.state === 'sending' || decision.state === 'sent'} onClick={() => press('guidance')} title="Ask or tell the Foreman something without deciding: nothing is approved (key: c).">
             Reply
           </Button>
-          <Button size={phone ? 'lg' : undefined} keyId="desk-send-back" className="desk-call-no" busy={spins('changes')} disabled={decision.state === 'sending'} onClick={() => press('revise')} title="No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).">
+          <Button size={phone ? 'lg' : undefined} keyId="desk-send-back" className="desk-call-no" busy={spins('changes')} busyLabel="Sending…" disabled={decision.state === 'sending' || decision.state === 'sent'} onClick={() => press('revise')} title="No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).">
             {call ? <>No go<span className="call-long">: send back</span></> : 'Send back'}
           </Button>
           {/* Go is on whenever the card's own Approve is: with questions it sends your answers too, but
@@ -177,6 +177,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
             keyShown
             className="desk-call-go"
             busy={spins('approve')}
+            busyLabel="Sending…"
             disabled={go.off}
             onClick={() => press('approve')}
             title={go.off ? 'Go is off for now: the card says why.' : go.asks ? `${goWords}, with your answers to the questions on the card. The a key never answers a question.` : `${goWords} (key: a).`}
@@ -324,7 +325,7 @@ function buttonWords(target: EventTarget | null): string | null {
   const b = target.closest<HTMLElement>('.perm-actions button, .gate-actions button');
   if (!b || b.classList.contains('btn-quiet')) return null;
   const copy = b.cloneNode(true) as HTMLElement;
-  copy.querySelectorAll('kbd').forEach((k) => k.remove());
+  copy.querySelectorAll('kbd, .btn-busy-words').forEach((k) => k.remove());
   const words = (copy.textContent ?? '').trim();
   return words || null;
 }

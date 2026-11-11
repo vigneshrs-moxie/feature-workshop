@@ -6,6 +6,8 @@
 //   keyId  its key from app/keyRegistry.ts, shown by <Kbd>: quiet (on hover, focus, or while ? is
 //          held) unless `keyShown`, the main action of a next-step bar
 //   busy   a small spinner in place of the words, at the same width; the button is off meanwhile
+//          but keeps its focus (aria-disabled and its clicks ignored, not the disabled attribute),
+//          and a screen reader hears busyLabel as its name ("Sending…"; "Working…" by default)
 //   href   draws an <a> that looks the same (a link that does something becomes a button)
 // The class names stay the theme hooks: .btn, .btn-primary, .btn-quiet, .btn-danger, .btn-sm, .btn-lg.
 import { forwardRef, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode, type Ref } from 'react';
@@ -26,6 +28,8 @@ interface Look {
   /** Show the key inside the button at all times (the next-step bar's main action). */
   keyShown?: boolean;
   busy?: boolean;
+  /** What a screen reader hears while busy, in place of the words (default "Working…"). */
+  busyLabel?: string;
   className?: string;
   children?: ReactNode;
 }
@@ -45,35 +49,39 @@ export function buttonClass({ kind = 'secondary', size = 'md', iconOnly = false,
   ].filter(Boolean).join(' ');
 }
 
-function Inside({ icon, size, keyId, keyShown, busy, children }: Look) {
+function Inside({ icon, size, keyId, keyShown, busy, busyLabel = 'Working…', children }: Look) {
   const iconSize = size === 'sm' ? 14 : 16;
   return (
     <>
       {icon && <Icon name={icon} size={iconSize} />}
-      {children !== undefined && children !== null && children !== false && <span className="btn-label">{children}</span>}
+      {children !== undefined && children !== null && children !== false && <span className="btn-label" aria-hidden={busy || undefined}>{children}</span>}
       {keyId && <Kbd id={keyId} shown={keyShown} />}
       {busy && <span className="spin-ring" aria-hidden="true" />}
+      {busy && <span className="sr-only btn-busy-words">{busyLabel}</span>}
     </>
   );
 }
 
 function ButtonImpl(props: ButtonProps | LinkButtonProps, ref: Ref<HTMLButtonElement | HTMLAnchorElement>) {
-  const { kind, size, icon, iconOnly, keyId, keyShown, busy, className, children, ...rest } = props;
+  const { kind, size, icon, iconOnly, keyId, keyShown, busy, busyLabel, className, children, ...rest } = props;
   const cls = buttonClass({ kind, size, iconOnly, busy, className });
-  const inside = <Inside icon={icon} size={size} keyId={keyId} keyShown={keyShown} busy={busy}>{children}</Inside>;
+  const inside = <Inside icon={icon} size={size} keyId={keyId} keyShown={keyShown} busy={busy} busyLabel={busyLabel}>{children}</Inside>;
   if (typeof (rest as LinkButtonProps).href === 'string') {
     const a = rest as Omit<LinkButtonProps, keyof Look>;
     return <a ref={ref as Ref<HTMLAnchorElement>} className={cls} aria-busy={busy || undefined} {...a}>{inside}</a>;
   }
   const b = rest as Omit<ButtonProps, keyof Look>;
+  // Busy, it stays focusable (a disabled button would drop the focus) but does nothing when pressed.
   return (
     <button
       ref={ref as Ref<HTMLButtonElement>}
       type="button"
       {...b}
       className={cls}
-      disabled={b.disabled || busy}
+      disabled={busy ? false : b.disabled}
+      aria-disabled={busy ? true : b['aria-disabled']}
       aria-busy={busy || undefined}
+      onClick={busy ? (e) => e.preventDefault() : b.onClick}
     >
       {inside}
     </button>

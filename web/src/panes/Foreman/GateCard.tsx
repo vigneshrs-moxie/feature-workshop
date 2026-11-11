@@ -39,7 +39,7 @@ import { useWorkshop, useWorkshopState } from '../../state/store';
 import { stageLabel } from '../Jobs/stages';
 import { draftKey, SendPreview } from './Composer';
 import { EVIDENCE_STAGES, EvidenceStrip } from './EvidenceStrip';
-import { canRetry, useGateSent } from './gateSent';
+import { useGateSent } from './gateSent';
 import { isActiveRun } from './thread';
 import { LockCard, lockFromError, lockHeadline } from '../../views/JobLock/LockCard';
 import { Button } from '../../components/Button';
@@ -128,7 +128,6 @@ function ScreensRow({ slug, hasPage }: { slug: string; hasPage: boolean }) {
 
 /** `callsOutside`: the page draws its own big calls (the Desk's Go / No go / Reply) and presses the card's buttons, so the card's row is hidden. */
 export function GateSlot({ job, detail, now, reload, callsOutside = false, extrasTo = null }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean; /** The Desk's Details sheet (packet R): Adjust the next step and How this works are drawn there instead. */ extrasTo?: HTMLElement | null }) {
-  const { api } = useWorkshop();
   const { runs } = useWorkshopState();
   const [notice, setNotice] = useState<GateNotice | null>(null);
   const [memoRaw, setMemo] = useStored(gateDraftKey(job.slug));
@@ -137,7 +136,6 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
   const gate = openGate(detail, Boolean(job.closed));
   // The live run first (it ends before the job is fetched again), else the detail's.
   const running = isActiveRun(runs[job.slug] ?? detail.run ?? null);
-  const decision = useGateSent(job, runs[job.slug] ?? detail.run ?? null);
   const noticeEl = useRef<HTMLDivElement>(null);
   const headId = useId();
 
@@ -151,8 +149,7 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
   const waiting = gate !== null && memo !== null && gate.briefNumber !== null && memo.brief === gate.briefNumber;
   // The hosted site (packet 2B): a decision made there waits for the laptop; the card says so.
   const queued = queuedOf(detail.queued);
-  // Try again sends the decision this page made once more (none after a reload of the page).
-  if (gate && isOpen(queued)) return <QueuedDecision queued={queued} onChange={reload} retry={canRetry(job.slug) ? () => decision.retry(api) : undefined} />;
+  if (gate && isOpen(queued)) return <QueuedDecision queued={queued} onChange={reload} />;
 
   return (
     <>
@@ -213,11 +210,13 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const [menuOpen, setMenuOpen] = useState(false);
   const tryUi = useUi();
   // A decision is out: this card's (the button pressed spins) or Try again on the job page's bar.
-  const decision = useGateSent(job, runs[slug] ?? detail.run ?? null);
+  // Once the Foreman has it (sent), every call stays off until the job moves on: no second press.
+  const decision = useGateSent(job, runs[slug] ?? detail.run ?? null, queuedOf(detail.queued)?.id ?? null);
   const [working, setBusy] = useState(false);
   const [pressed, setPressed] = useState<'approve' | 'after-reset' | 'changes' | 'message' | 'stop' | null>(null);
-  const busy = working || decision.state === 'sending';
-  const spins = (button: NonNullable<typeof pressed>) => busy && pressed === button;
+  const sending = working || decision.state === 'sending';
+  const busy = sending || decision.state === 'sent';
+  const spins = (button: NonNullable<typeof pressed>) => sending && pressed === button;
   const [error, setError] = useState<string | null>(null);
   const [askTerminal, setAskTerminal] = useState(false);
   const [noTerminal, setNoTerminal] = useState(false);
@@ -558,12 +557,13 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
         </div>
       )}
       <div className="perm-actions gate-actions" hidden={callsOutside}>
-        <Button kind="primary" keyId={oneKeyGateApprove(gate, job.waitingFor) ? 'gate-approve' : undefined} data-gate="approve" busy={spins('approve')} disabled={busy || approveOff} onClick={() => void act('approve')} title={approveOff ? `Off: ${offReasons[0]}` : approveHint}>
+        <Button kind="primary" keyId={oneKeyGateApprove(gate, job.waitingFor) ? 'gate-approve' : undefined} data-gate="approve" busy={spins('approve')} busyLabel="Sending…" disabled={busy || approveOff} onClick={() => void act('approve')} title={approveOff ? `Off: ${offReasons[0]}` : approveHint}>
           {approve}
         </Button>
         {limited && (
           <Button
             busy={spins('after-reset')}
+            busyLabel="Sending…"
             disabled={busy || approveOff}
             onClick={() => void act('approve', { startAfterReset: true }, 'after-reset')}
             title={approveOff ? `Off: ${offReasons[0]}` : `Approve now; the reply is held and goes to the Foreman when Claude’s usage limit resets${resetAt ? ` (around ${resetAt})` : ''}.`}
@@ -627,6 +627,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
             <Button
               kind="primary"
               busy={spins(mode)}
+              busyLabel="Sending…"
               disabled={busy || !note.trim()}
               onClick={() => void act(mode, { note })}
               title={note.trim() ? (mode === 'changes' ? 'Send your answers and the changes you want. The Foreman revises before moving on.' : 'Send your answers and this guidance. The Foreman replies; the gate stays open.') : 'Write something first.'}
@@ -672,6 +673,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
             <Button
               kind="danger"
               busy={spins('stop')}
+              busyLabel="Stopping…"
               disabled={busy || stopName.trim() !== slug}
               onClick={() => void stopJob()}
               title={stopName.trim() !== slug ? 'Type the job’s name above first.'

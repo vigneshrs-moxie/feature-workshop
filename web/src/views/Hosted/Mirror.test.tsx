@@ -4,7 +4,7 @@
 // when the site ends one, and polls every 5 seconds when it can't have one.
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, type ApiClient } from '../../api/client';
+import type { ApiClient } from '../../api/client';
 import type { Gate, JobDetail, Permission } from '../../api/types';
 import { DeskView } from '../../home/DeskView';
 import { deskQueue } from '../../home/homeModel';
@@ -78,58 +78,79 @@ describe('a decision from the site, on its card', () => {
   });
 });
 
-// Spec 1.2 on the website: a decision taken by the site says it went to your laptop; after 30 seconds
-// with nothing moved it says so, and Try again sends the same decision once (the site's answer shows).
+// Spec 1.2 on the website: the queued decision's own words are its sent line; 30 seconds on with
+// nothing moved it adds "Nothing has moved yet." once, beside its Cancel. No Try again: the site
+// refuses a second copy of a decision that waits. Go spins until the page shows the queued decision.
 describe('a decision from the site, after the click', () => {
-  it('a queued decision says “Sent to your laptop.”, and at 30 seconds “Nothing has moved yet.”', async () => {
+  const stuckWords = () => screen.queryAllByText('Nothing has moved yet.');
+
+  it('a queued decision keeps its own words; at 30 seconds it adds “Nothing has moved yet.” once, beside Cancel, with no Try again', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     desk(queued('sent', 'Go: sent to your laptop. It runs there in a moment.', { canCancel: true }));
-    const line = await screen.findByText('Sent to your laptop.');
-    expect(line.closest('[role="status"]')).not.toBeNull();
+    const words = await screen.findByText('Go: sent to your laptop. It runs there in a moment.', { exact: false });
+    const line = words.closest('[role="status"]')!;
+    expect(line).toHaveTextContent(/^Go: sent to your laptop\. It runs there in a moment\.$/);
     act(() => { vi.advanceTimersByTime(29_000); });
-    expect(screen.queryByText('Nothing has moved yet.')).toBeNull();
+    expect(stuckWords()).toHaveLength(0);
     act(() => { vi.advanceTimersByTime(1_000); });
-    expect(screen.getByText('Nothing has moved yet.').closest('[role="status"]')).not.toBeNull();
-    expect(screen.queryByText('Sent to your laptop.')).toBeNull();
+    expect(line).toHaveTextContent('Go: sent to your laptop. It runs there in a moment. Nothing has moved yet.');
+    expect(stuckWords()).toHaveLength(1);
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(stuckWords()).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
   });
 
-  it('a settled decision says neither', async () => {
+  it('with the laptop off, the words say so and nothing contradicts them', async () => {
+    desk(queued('waiting', 'Go: waiting for your laptop. It runs when the laptop is back.'));
+    const words = await screen.findByText(/Go: waiting for your laptop/);
+    expect(words.closest('[role="status"]')).toHaveTextContent(/^Go: waiting for your laptop\. It runs when the laptop is back\.$/);
+    expect(screen.queryByText(/Sent to your laptop/)).toBeNull();
+  });
+
+  it('a settled decision never says it is stuck', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     desk(queued('changed', 'This changed on your laptop. Look again. The Foreman moved on to brief 2.', { canCancel: false }));
     expect(await screen.findByText(/This changed on your laptop/)).toBeInTheDocument();
-    expect(screen.queryByText('Sent to your laptop.')).toBeNull();
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(stuckWords()).toHaveLength(0);
   });
 
-  it('Go spins on the click; once queued, Try again at 30 seconds sends the same decision once and shows the site’s answer', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+  it('Go spins on the click until the page shows the queued decision; a press meanwhile sends nothing', async () => {
     const store = createStore();
     store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [ALPHA], meta: { token: null, settings: { play: { mode: 'off' } } } as never }) });
     let q: QueuedView | null = null;
-    const get = vi.fn(async (): Promise<JobDetail> => ({ slug: 'alpha', thread: [], threadMore: false, gate: GATE, answeredBriefs: [], heldReply: null, options: { level: 1 }, latestBrief: { html: '<p>The plan.</p>', number: 2 }, queued: q }));
-    let answer: (v: unknown) => void = () => {};
-    const post = vi.fn((path: string, _body?: unknown): Promise<unknown> => {
-      if (!path.endsWith('/gate')) return Promise.resolve({ ok: true });
-      if (q) return Promise.reject(new ApiError(409, 'You decided this already. It waits for your laptop; cancel it first to decide again.', { code: 'already-queued' }));
-      return new Promise((res) => { answer = res; });
+    let release: () => void = () => {};
+    let held = false;
+    const get = vi.fn(async (): Promise<JobDetail> => {
+      // The page's fetch after the answer lands only when the test says so.
+      if (held) await new Promise<void>((res) => { release = res; });
+      return { slug: 'alpha', thread: [], threadMore: false, gate: GATE, answeredBriefs: [], heldReply: null, options: { level: 1 }, latestBrief: { html: '<p>The plan.</p>', number: 2 }, queued: q };
+    });
+    const post = vi.fn(async (path: string): Promise<unknown> => {
+      if (!path.endsWith('/gate')) return { ok: true };
+      q = queued('sent', 'Go: sent to your laptop. It runs there in a moment.', { canCancel: true });
+      held = true;
+      return { ok: true, sent: false, held: true, queued: q, text: '', message: q.words };
     });
     const api = { get, post, hosted: () => true } as unknown as ApiClient;
     render(<WorkshopContext.Provider value={{ store, api }}><DeskView items={deskQueue([ALPHA], [])} now={NOW} layout="one" /></WorkshopContext.Provider>);
     const go = await screen.findByRole('button', { name: /^Approve/ });
-    fireEvent.click(go);
-    fireEvent.click(go);
+    go.focus();
+    await act(async () => { fireEvent.click(go); });
+    // The site has answered; the page hasn't shown the queued decision yet: Go still spins.
     expect(go).toHaveAttribute('aria-busy', 'true');
-    q = queued('sent', 'Go: sent to your laptop. It runs there in a moment.', { canCancel: true });
-    await act(async () => { answer({ ok: true, sent: false, held: true, queued: q, text: '', message: q!.words }); });
-    expect(await screen.findByText('Sent to your laptop.')).toBeInTheDocument();
-    act(() => { vi.advanceTimersByTime(30_000); });
-    const again = screen.getByRole('button', { name: 'Try again' });
-    fireEvent.click(again);
-    fireEvent.click(again);
-    expect(await screen.findByText('You decided this already. It waits for your laptop; cancel it first to decide again.')).toHaveAttribute('role', 'alert');
-    const gatePosts = post.mock.calls.filter(([p]) => p === '/api/job/alpha/gate');
-    expect(gatePosts).toHaveLength(2);
-    expect(gatePosts[1][1]).toEqual(gatePosts[0][1]);
-    expect(screen.getByText('Sent to your laptop.')).toBeInTheDocument();
+    expect(go).toHaveAccessibleName('Sending…');
+    // The focus moved to the card's note saying where the decision went (as before), not dropped.
+    expect(document.activeElement).toHaveTextContent('Go: sent to your laptop. It runs there in a moment.');
+    expect(screen.getByRole('button', { name: /^Send back/ })).toBeDisabled();
+    fireEvent.click(go);
+    fireEvent.click(screen.getByRole('button', { name: /^Send back/ }));
+    expect(post.mock.calls.filter(([p]) => p === '/api/job/alpha/gate')).toHaveLength(1);
+    await act(async () => { release(); });
+    expect(await screen.findByText('Go: sent to your laptop. It runs there in a moment.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^(Approve|Sending)/ })).toBeNull();
+    expect(post.mock.calls.filter(([p]) => p === '/api/job/alpha/gate')).toHaveLength(1);
   });
 });
 

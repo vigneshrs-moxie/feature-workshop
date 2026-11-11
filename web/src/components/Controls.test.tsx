@@ -22,16 +22,30 @@ describe('Button', () => {
     expect(screen.getByRole('button', { name: 'Plain' }).className).toBe('btn');
   });
 
-  it('busy: a spinner in place, the button off and marked busy; disabled stays a real disabled button', () => {
+  it('busy: a spinner in place, the button off and marked busy, keeping its focus; disabled stays a real disabled button', () => {
     const click = vi.fn();
     render(<><Button busy onClick={click}>Save</Button><Button disabled onClick={click}>Off</Button></>);
-    const save = screen.getByRole('button', { name: 'Save' });
-    expect(save).toBeDisabled();
+    // A screen reader hears that it is working (the words, not the label, while busy).
+    const save = screen.getByRole('button', { name: 'Working…' });
+    expect(save).toHaveAttribute('aria-disabled', 'true');
+    expect(save).not.toBeDisabled(); // a disabled button would drop the focus
     expect(save).toHaveAttribute('aria-busy', 'true');
     expect(save).toHaveClass('is-busy');
     expect(save.querySelector('.spin-ring')).toHaveAttribute('aria-hidden', 'true');
+    save.focus();
+    fireEvent.click(save);
+    expect(save).toHaveFocus();
     fireEvent.click(screen.getByRole('button', { name: 'Off' }));
+    expect(screen.getByRole('button', { name: 'Off' })).toBeDisabled();
     expect(click).not.toHaveBeenCalled();
+  });
+
+  it('busy with its own words: a screen reader hears them; busy in a form never submits it', () => {
+    const submit = vi.fn((e: React.FormEvent) => e.preventDefault());
+    render(<form onSubmit={submit}><Button type="submit" busy busyLabel="Sending…">Send</Button></form>);
+    const send = screen.getByRole('button', { name: 'Sending…' });
+    fireEvent.click(send);
+    expect(submit).not.toHaveBeenCalled();
   });
 });
 

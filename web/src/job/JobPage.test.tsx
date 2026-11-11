@@ -139,6 +139,8 @@ describe('after a click on the go / no go bar', () => {
   const sentPost = () => vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true, sent: true, text: 'sent' }));
   const gatePosts = (post: ReturnType<typeof vi.fn>) => post.mock.calls.filter(([p]) => p === '/api/job/alpha/gate');
   const bar = () => screen.getByRole('region', { name: 'Next step' });
+  /** The page's one live region for a decision on its way (always there, empty when idle). */
+  const live = () => document.querySelector('[data-next-live]')!;
   /** No go: send back, a note, then the card's Send the changes. */
   async function sendBack(note = 'Use the small table.') {
     fireEvent.click(await screen.findByRole('button', { name: /^No go: send back/ }));
@@ -152,21 +154,59 @@ describe('after a click on the go / no go bar', () => {
     const { post, answer } = held();
     setup({ jobs: waiting(), gate: GATE, post });
     const go = await screen.findByRole('button', { name: /^Go: approve/ });
+    const back = screen.getByRole('button', { name: /^No go: send back/ });
+    go.focus();
     fireEvent.click(go);
     fireEvent.click(go);
     await waitFor(() => expect(go).toHaveAttribute('aria-busy', 'true'));
-    expect(go).toBeDisabled();
+    // It can't be pressed, but it keeps the focus, and a screen reader hears that it is sending.
+    expect(go).toHaveAttribute('aria-disabled', 'true');
+    expect(go).toHaveFocus();
+    expect(go).toHaveAccessibleName('Sending…');
     expect(go.querySelector('.spin-ring')).not.toBeNull();
-    expect(screen.getByRole('button', { name: /^No go: send back/ })).toBeDisabled();
+    expect(back).toBeDisabled();
     expect(gatePosts(post)).toHaveLength(1);
     expect(gatePosts(post)[0][1]).toEqual(expect.objectContaining({ kind: 'approve' }));
     await answer();
   });
 
+  it('the page has one live region: empty before the click, then sending, then sent; the focus goes to what was sent', async () => {
+    const { post, answer } = held();
+    setup({ jobs: waiting(), gate: GATE, post });
+    const go = await screen.findByRole('button', { name: /^Go: approve/ });
+    expect(live()).toHaveAttribute('role', 'status');
+    expect(live()).toBeEmptyDOMElement();
+    go.focus();
+    fireEvent.click(go);
+    await waitFor(() => expect(live()).toHaveTextContent('Sending…'));
+    expect(go).toHaveFocus();
+    await answer();
+    await waitFor(() => expect(live()).toHaveTextContent(SENT_LINE));
+    expect(document.querySelectorAll('[data-next-live]')).toHaveLength(1);
+    // The card's note says what went (as before), and has the focus: it is not dropped.
+    expect(document.activeElement).toHaveTextContent('Your approval went to the Foreman.');
+  });
+
+  it('a press while sent sends nothing', async () => {
+    const post = sentPost();
+    setup({ jobs: waiting(), gate: GATE, post });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await within(bar()).findByText(SENT_LINE);
+    const go = screen.getByRole('button', { name: /^Go: approve/ });
+    await waitFor(() => expect(go).toBeDisabled());
+    expect(go).toHaveAccessibleName(/^Go: approve/);
+    expect(screen.getByRole('button', { name: /^No go: send back/ })).toBeDisabled();
+    fireEvent.click(go);
+    fireEvent.keyDown(document.body, { key: 'a' });
+    await act(async () => {});
+    expect(gatePosts(post)).toHaveLength(1);
+  });
+
   it('after the server accepts, the bar says "Sent. Waiting for the Foreman to start."', async () => {
     setup({ jobs: waiting(), gate: GATE, post: sentPost() });
     fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
-    expect(await within(bar()).findByText(SENT_LINE)).toHaveAttribute('role', 'status');
+    expect(await within(bar()).findByText(SENT_LINE)).toBeInTheDocument();
+    expect(live()).toHaveTextContent(SENT_LINE);
     expect(screen.getByRole('button', { name: /^Go: approve/ })).not.toHaveAttribute('aria-busy');
   });
 
@@ -178,7 +218,8 @@ describe('after a click on the go / no go bar', () => {
     act(() => { vi.advanceTimersByTime(29_000); });
     expect(within(bar()).queryByText('Nothing has moved yet.')).toBeNull();
     act(() => { vi.advanceTimersByTime(1_000); });
-    expect(within(bar()).getByText('Nothing has moved yet.')).toHaveAttribute('role', 'status');
+    expect(within(bar()).getByText('Nothing has moved yet.')).toBeInTheDocument();
+    expect(live()).toHaveTextContent('Nothing has moved yet.');
     expect(within(bar()).queryByText(SENT_LINE)).toBeNull();
     expect(within(bar()).getByRole('button', { name: 'Try again' })).toBeEnabled();
   });
@@ -230,13 +271,16 @@ describe('after a click on the go / no go bar', () => {
   it('Send back spins on the click and cannot be pressed twice', async () => {
     const { post, answer } = held();
     setup({ jobs: waiting(), gate: GATE, post });
+    const back = await screen.findByRole('button', { name: /^No go: send back/ });
+    const go = screen.getByRole('button', { name: /^Go: approve/ });
     const send = await sendBack();
     fireEvent.click(send);
     fireEvent.click(send);
     await waitFor(() => expect(send).toHaveAttribute('aria-busy', 'true'));
+    expect(send).toHaveAccessibleName('Sending…');
     expect(send.querySelector('.spin-ring')).not.toBeNull();
-    expect(screen.getByRole('button', { name: /^No go: send back/ })).toHaveAttribute('aria-busy', 'true');
-    expect(screen.getByRole('button', { name: /^Go: approve/ })).toBeDisabled();
+    expect(back).toHaveAttribute('aria-busy', 'true');
+    expect(go).toBeDisabled();
     expect(gatePosts(post)).toHaveLength(1);
     expect(gatePosts(post)[0][1]).toEqual(expect.objectContaining({ kind: 'changes', note: 'Use the small table.' }));
     await answer();
@@ -245,7 +289,8 @@ describe('after a click on the go / no go bar', () => {
   it('after the server accepts a send back, the bar says "Sent. Waiting for the Foreman to start."', async () => {
     setup({ jobs: waiting(), gate: GATE, post: sentPost() });
     fireEvent.click(await sendBack());
-    expect(await within(bar()).findByText(SENT_LINE)).toHaveAttribute('role', 'status');
+    expect(await within(bar()).findByText(SENT_LINE)).toBeInTheDocument();
+    expect(live()).toHaveTextContent(SENT_LINE);
   });
 
   it('after 30 seconds with no change to a send back it says "Nothing has moved yet."; Try again sends the same send back once', async () => {
