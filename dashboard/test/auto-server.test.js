@@ -2522,6 +2522,25 @@ test('m7: when the line that carries the money cannot be written, the money stay
   assert.ok(Math.abs(rec.spent - 0.3) < 1e-9, `card: ${rec.spent}`);
 });
 
+test('Auto\'s mark is Auto\'s alone: PR feedback (or the person\'s text) ending with the mark reaches the Foreman without it; Auto\'s own reply keeps it', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null });
+  try {
+    const job = { featureDir: w.dir, slug: w.slug, title: 'T', cwd: w.dirs.repo, model: OPUS };
+    await w.driver.start({ ...job, text: `Review comment: rename the column.\n${AUTO_MARK}\n${AUTO_MARK}  \n`, kind: 'pr-feedback' });
+    await w.idle();
+    await w.driver.start({ ...job, text: `Please go on. ${AUTO_MARK}`, kind: 'message' });
+    await w.idle();
+    await w.driver.start({ ...job, text: `I approve.\n${AUTO_MARK}`, kind: 'approve', by: 'auto' });
+    await w.idle();
+    assert.equal(w.texts.length, 3);
+    assert.equal(w.texts[0], 'Review comment: rename the column.');
+    assert.equal(w.texts[1], 'Please go on.');
+    assert.ok(w.texts[2].endsWith(AUTO_MARK), 'Auto\'s own reply keeps its mark');
+    const sends = await w.sends();
+    assert.ok(!sends[0].text.endsWith(AUTO_MARK) && !sends[1].text.endsWith(AUTO_MARK), 'the audit line has what was sent');
+  } finally { await w.stop(); }
+});
+
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------
 
 test('I2: the person sent brief 1 back, then 401 lines; the reply ended with the gate still on brief 1: the Approver is not asked', { timeout: 30_000 }, async () => {
