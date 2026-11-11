@@ -715,7 +715,7 @@ export function hardLineHook(onVerdict = () => {}, { check = orgPushCheck(), cwd
     // cover says. A check that fails to run asks too; it never lets the call through.
     if (autoStop) {
       let stop = null;
-      try { stop = await autoStop(input.tool_name, input.tool_input, verdict); } catch { stop = { rule: null, reason: AUTO_CHECK_FAILED }; }
+      try { stop = await autoStop(input.tool_name, input.tool_input, verdict, input.cwd || null); } catch { stop = { rule: null, reason: AUTO_CHECK_FAILED }; }
       if (stop) {
         if (verdict) { try { await onVerdict(verdict, input); } catch { /* recording must not change the answer */ } }
         return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: stop.reason } };

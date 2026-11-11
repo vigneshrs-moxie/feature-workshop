@@ -342,7 +342,7 @@ export class Driver extends EventEmitter {
       }
     }
     run.requestedMode = sdkModeFor(run.mode);
-    const hook = hardLineHook((verdict, input) => this.#onHardLine(run, verdict, input), { check: run.orgPushCheck, cwd: run.cwd, cover: this.cover ? (tool, input) => this.cover(run, tool, input) : null, autoStop: (tool, input, verdict) => this.#autoStop(run, tool, input, verdict), port: this.apiPort });
+    const hook = hardLineHook((verdict, input) => this.#onHardLine(run, verdict, input), { check: run.orgPushCheck, cwd: run.cwd, cover: this.cover ? (tool, input) => this.cover(run, tool, input) : null, autoStop: (tool, input, verdict, cwd) => this.#autoStop(run, tool, input, verdict, cwd), port: this.apiPort });
     const options = {
       cwd: run.cwd,
       // 'default' (every risky action reaches canUseTool) or, when you chose it, 'auto' (Claude
@@ -957,13 +957,15 @@ export class Driver extends EventEmitter {
   // Auto's fixed stop list for one call: null unless the job's record says Auto is on (the record is in
   // Starbase's own sessions.json, which the Foreman can't write). When it is on, autoCtx(run) gives the
   // job's folders and remotes; without it an Auto job's call asks (the hook turns the throw into an ask).
-  async #autoStop(run, toolName, input, hard = null) {
+  // cwd: the folder the hook reports for the call (Auto's rules read relative paths from there, as the hard lines do; m12).
+  async #autoStop(run, toolName, input, hard = null, cwd = null) {
     const record = await this.state.sessionFor?.(run.featureDir);
     if (record?.auto?.on !== true) return null;
     if (typeof this.autoCtx !== 'function') throw new Error('Auto is on but there is no way to find the job’s folders.');
     // The stop object, or for a call Starbase can't tell the meaning of { rule: null, ask: true, why, reason }: both ask, and
     // neither the job's setting, a saved rule nor a go-ahead answers them.
-    return autoAnswer({ kind: 'card', toolName, input, hardLine: hard, blockedPath: null }, await this.autoCtx(run, { toolName, input }));
+    const ctx = await this.autoCtx(run, { toolName, input });
+    return autoAnswer({ kind: 'card', toolName, input, hardLine: hard, blockedPath: null }, typeof cwd === 'string' && cwd ? { ...ctx, cwd } : ctx);
   }
 
   async #onHardLine(run, verdict, input) {
@@ -1077,7 +1079,7 @@ export class Driver extends EventEmitter {
   async #askInner(run, toolName, input, opts) {
     // Hard lines first (the hook already did this; checked again in case it didn't run): a refusal
     // never asks, and an "ask" one is never settled by the routine list or a saved rule.
-    let hard = toolName === 'AskUserQuestion' ? null : hardLine(toolName, input);
+    let hard = toolName === 'AskUserQuestion' ? null : hardLine(toolName, input, { cwd: run.cwd, port: this.apiPort });
     if (hard) { try { hard = await run.orgPushCheck(hard, run.cwd); } catch { /* a failed lookup still asks */ } }
     if (hard?.decision === 'deny') {
       await this.#recordRefusal(run, toolName, input, hard, opts.toolUseID, opts.agentID);

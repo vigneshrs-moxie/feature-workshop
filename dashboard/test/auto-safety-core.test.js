@@ -639,3 +639,37 @@ test('m11: git -C <a worktree of the job> is judged as that git command run ther
   assert.equal(hardLine("Bash", { command: `git -C ${WT} push moxie main` }, { cwd: REPO })?.decision, "deny", "an org push stays a refusal");
   assert.equal(bash(`git -C ${WT} add ${HOME}/.zshrc`, ctx), 'ask');
 });
+
+test('m12: Auto\'s rules read the folder the hook reports, and the fallback check knows the folder and the port', async () => {
+  const { Driver } = await import('../lib/driver.js');
+  const { State } = await import('../lib/state.js');
+  const d = diskWorktree();
+  try {
+    const state = new State(pathMod.join(d.root, 'state'));
+    const out = {};
+    const driver = new Driver({
+      queryFn: ({ prompt, options }) => {
+        const gen = (async function* () {
+          await prompt[Symbol.asyncIterator]().next();
+          yield { type: 'system', subtype: 'init', session_id: 's-m12', permissionMode: 'default' };
+          const hook = options.hooks.PreToolUse[0].hooks[0];
+          out.hookHere = (await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'touch notes.txt' }, cwd: d.wt })).hookSpecificOutput?.permissionDecision ?? null;
+          const quick = (p) => Promise.race([p, new Promise((r) => setTimeout(() => r('card'), 300))]);
+          out.fallback = await quick(options.canUseTool('Bash', { command: 'curl -s -X POST http://127.0.0.1:5123/api/job/x/auto' }, { signal: new AbortController().signal, toolUseID: 'm12', requestId: 'm12' }));
+          yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0 };
+        })();
+        gen.interrupt = async () => {};
+        return gen;
+      },
+      // The session's first folder is not one of the job's: only the hook's own folder makes the write the job's.
+      state, projectsDir: '/nonexistent', autoCtx: async () => ctxOf({ worktrees: [d.wt], specDirs: [], branches: [BRANCH] }, { cwd: pathMod.join(d.root, 'elsewhere'), tempDirs: [] }), apiPort: 5123,
+    });
+    driver.idleGraceMs = 30;
+    const dir = pathMod.join(d.root, 'job');
+    await state.setSession(dir, { auto: { on: true, since: 'now', by: 'you', tag: null, ran: true, stopped: null, step: null, failures: 0, lastBrief: null } });
+    const run = await driver.start({ featureDir: dir, slug: 'j', title: 'J', cwd: pathMod.join(d.root, 'elsewhere'), text: 'go' });
+    await new Promise((resolve) => { const on = (r) => { if (r.id === run.id && ['done', 'error', 'stopped'].includes(r.status)) { driver.off('run', on); resolve(); } }; driver.on('run', on); });
+    assert.equal(out.hookHere, null, 'judged in the folder the hook reports (the worktree): a plain write there passes');
+    assert.equal(out.fallback?.behavior, 'deny', 'the fallback hard line knows Starbase\'s port');
+  } finally { d.done(); }
+});
