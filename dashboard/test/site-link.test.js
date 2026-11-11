@@ -180,3 +180,61 @@ test('a job with Auto lines sends an auto-log record shaped { on, stopped, tag, 
     assert.deepEqual(logs()[0].data.value, log);
   } finally { link.stop(); }
 });
+
+test('a progress event sends the job’s evidence part again with the finished line’s video named, and the board with the card’s testing line', async () => {
+  const dir = tmp();
+  writeSiteFile(dir, { url: 'https://starbase.example.test', deviceId: 'device-test-0004', runnerId: 1, name: 'Test Laptop' });
+  const store = await siteTokenStore({ stateDir: dir, prefer: 'file' });
+  await store.set('runner-token-for-a-test-only');
+  const ee = new EventEmitter();
+  // The finished line's video on the laptop, where the recorder copied it.
+  const evidenceDir = path.join(dir, 'evidence');
+  fs.mkdirSync(path.join(evidenceDir, 'abc1234def5', 'AC-1'), { recursive: true });
+  fs.writeFileSync(path.join(evidenceDir, 'abc1234def5', 'AC-1', 'video.webm'), 'a video, not really');
+  const line = (id, state, video = null) => ({ id, title: `Line ${id}`, state, video, at: null });
+  let progress = { commit: 'abc1234def5', startedAt: '2026-11-11T09:00:00.000Z', line: 1, of: 3, lines: [line('AC-1', 'running'), line('AC-2', 'waiting'), line('AC-3', 'waiting')] };
+  const card = () => ({ slug: 'recording-job', title: 'Recording job', stage: 'test', group: 'working', testing: `Recording evidence: line ${progress.line} of ${progress.of}` });
+  const runner = {
+    read: { features: async () => ({ features: [card()] }), snapshot: async () => ({ jobs: [card()] }), job: async () => card() },
+    local: {
+      evidence: {
+        view: async () => ({ evidence: null, commit: 'abc1234def5', wanted: true, why: null, recording: true, problem: null, progress, folder: evidenceDir, folderUrl: 'file:///x/' }),
+        file: async (_slug, rel) => { const abs = path.join(evidenceDir, rel); return { abs, type: 'video/webm', size: fs.statSync(abs).size }; },
+      },
+    },
+    on(type, fn) { ee.on(type, fn); return () => ee.off(type, fn); },
+  };
+  const posted = [];
+  const asked = [];
+  const put = [];
+  const fetch = async (url, init) => {
+    const u = new URL(url);
+    let body = {};
+    if (u.pathname === '/api/runner/events') { posted.push(...JSON.parse(init.body).events); body = { refused: [] }; }
+    if (u.pathname === '/api/runner/commands') { await new Promise((r) => setTimeout(r, 300)); body = { commands: [] }; }
+    if (u.pathname === '/api/runner/evidence/upload') { const b = JSON.parse(init.body); asked.push(b); body = { upload: true, url: 'https://blob.example.test/put-once', pathname: `evidence/1/1/${b.slug}/${b.file}` }; }
+    if (u.pathname === '/api/runner/evidence/done') body = { ok: true };
+    return { status: 200, json: async () => body };
+  };
+  const putFile = async (url, init) => { put.push({ url, type: init.headers['content-type'], body: String(init.body) }); return { ok: true, status: 200 }; };
+  const link = createSiteLink({ runner, stateDir: dir, store, fetch, putFile, waitSeconds: 1, debounceMs: 10, watchEveryMs: 0, log: () => {}, version: '0.1.0' }).start();
+  const records = (kind) => posted.filter((e) => e.type === 'record' && e.data.kind === kind);
+  const until = async (check, what) => { for (let i = 0; i < 200 && !check(); i++) await new Promise((r) => setTimeout(r, 25)); assert.ok(check(), what); };
+  try {
+    await until(() => records('evidence').length === 1, 'the first evidence part');
+    assert.equal(records('evidence')[0].data.value.progress.lines[0].video, null);
+    assert.equal(records('board').at(-1).data.value.jobs[0].testing, 'Recording evidence: line 1 of 3');
+    // The first line ends: its video is copied and named, and the next line starts.
+    progress = { ...progress, line: 2, lines: [line('AC-1', 'passed', 'abc1234def5/AC-1/video.webm'), line('AC-2', 'running'), line('AC-3', 'waiting')] };
+    ee.emit('*', 'evidence', 'recording-job', { slug: 'recording-job', outcome: 'progress', progress });
+    await until(() => records('evidence').length === 2, 'the evidence part sent again');
+    const ev = records('evidence')[1].data.value;
+    assert.equal(ev.progress.lines[0].video, 'abc1234def5/AC-1/video.webm');
+    assert.equal(ev.folder, undefined, 'without the laptop’s folder');
+    await until(() => records('board').some((b) => b.data.value.jobs[0].testing === 'Recording evidence: line 2 of 3'), 'the board with the card’s testing line');
+    // The video goes up at once, before the run's end.
+    await until(() => put.length === 1, 'the finished line’s video uploaded');
+    assert.deepEqual(asked.map((a) => [a.slug, a.file, a.type, a.size]), [['recording-job', 'abc1234def5/AC-1/video.webm', 'video/webm', 19]]);
+    assert.deepEqual(put[0], { url: 'https://blob.example.test/put-once', type: 'video/webm', body: 'a video, not really' });
+  } finally { link.stop(); }
+});

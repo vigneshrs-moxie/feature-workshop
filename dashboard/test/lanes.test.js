@@ -260,3 +260,16 @@ test('lanes: every reason is a plain sentence, never empty', () => {
     assert.match(r.laneReason, /^[A-Z][^]*[a-z0-9)]$/);
   }
 });
+
+test('lanes: a job being recorded is working and its reason is the line number', () => {
+  const testing = 'Recording evidence: line 4 of 19';
+  assert.deepEqual(laneFor(card({ stage: 'test', testing })), { lane: 'working', laneReason: testing });
+  assert.deepEqual(laneFor(card({ stage: 'test', testing, working: true })), { lane: 'working', laneReason: testing }, 'over “The crew is at work”');
+  assert.deepEqual(laneFor(card({ stage: 'test', testing: null })), { lane: 'resting', laneReason: 'Nothing happening; waits for your next message' });
+});
+
+test('lanes: a waiting gate wins over the recording', () => {
+  const testing = 'Recording evidence: line 4 of 19';
+  assert.deepEqual(laneFor(card({ stage: 'test', testing, needsYou: true, waitingFor: 'approval' })), { lane: 'needs-you', laneReason: 'Waiting for your go-ahead on the tests' });
+  assert.deepEqual(laneFor(card({ stage: 'test', testing, permissions: 1 }), { pending: [{ id: 'p1', kind: 'permission' }] }), { lane: 'needs-you', laneReason: 'A permission waits for your yes' });
+});
