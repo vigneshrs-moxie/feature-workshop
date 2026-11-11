@@ -50,7 +50,7 @@ interface Restarted { slug: string; archive: string; backupBranch: string | null
 
 export function ChangeModelSheet({ slug, onClose }: { slug: string; onClose: () => void }) {
   const { api } = useWorkshop();
-  const { meta } = useWorkshopState();
+  const { meta, runs } = useWorkshopState();
   const models: ModelChoice[] = meta?.models ?? [];
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -83,7 +83,8 @@ export function ChangeModelSheet({ slug, onClose }: { slug: string; onClose: () 
   const current = detail?.drive?.model ?? null;
   const target = picked ?? models.find((m) => m.id !== current)?.id ?? null;
   const label = models.find((m) => m.id === target)?.label ?? target ?? '';
-  const running = isActiveRun(detail?.run);
+  // m7: the live run first (it starts and ends while the sheet is open), else the job's as fetched.
+  const running = isActiveRun(runs[slug] ?? detail?.run);
   const sameModel = target !== null && target === current;
   const ready = detail !== null && !running && !sameModel && target !== null && name.trim() === slug;
 

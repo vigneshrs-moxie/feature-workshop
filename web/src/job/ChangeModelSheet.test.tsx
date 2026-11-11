@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../api/client';
 import type { JobDetail } from '../api/types';
 import { createStore, WorkshopContext, type Store } from '../state/store';
-import { job, snapshot } from '../state/test-fixtures';
+import { ev, job, snapshot } from '../state/test-fixtures';
 import { pickOption } from '../components/Select.testing';
 import { ChangeModelSheet, PR_REASON } from './ChangeModelSheet';
 
@@ -20,7 +20,7 @@ function setup({ detail = DETAIL, post = vi.fn(async () => ({ ok: true, slug: 'a
   const api = { get: vi.fn(async () => detail), post } as unknown as ApiClient;
   const onClose = vi.fn();
   render(<WorkshopContext.Provider value={{ store, api }}><ChangeModelSheet slug="alpha" onClose={onClose} /></WorkshopContext.Provider>);
-  return { post, onClose };
+  return { post, onClose, store };
 }
 afterEach(() => { localStorage.clear(); });
 
@@ -136,6 +136,24 @@ describe('Change model sheet', () => {
     expect(await screen.findByText('Stop the reply first.')).toBeInTheDocument();
     fireEvent.change(screen.getByRole('textbox', { name: /Type the job's name/ }), { target: { value: 'alpha' } });
     expect(screen.getByRole('button', { name: /Start the job again/ })).toBeDisabled();
+  });
+
+  // m7: the reply's end, as the live run says it, clears "Stop the reply first.".
+  it('once the reply in progress ends, "Stop the reply first." goes and the button can be pressed', async () => {
+    const { store } = setup({ detail: { ...DETAIL, run: { id: 'r1', slug: 'alpha', status: 'running' } } });
+    expect(await screen.findByText('Stop the reply first.')).toBeInTheDocument();
+    act(() => { store.dispatch({ type: 'event', event: ev(50, 'run', 'alpha', { id: 'r1', slug: 'alpha', status: 'done' }) }); });
+    await waitFor(() => expect(screen.queryByText('Stop the reply first.')).toBeNull());
+    fireEvent.change(screen.getByRole('textbox', { name: /Type the job's name/ }), { target: { value: 'alpha' } });
+    expect(screen.getByRole('button', { name: /Start the job again/ })).toBeEnabled();
+  });
+
+  it('a reply that starts while the sheet is open says to stop it first', async () => {
+    const { store } = setup();
+    await screen.findByRole('dialog', { name: 'Change the Foreman model' });
+    expect(screen.queryByText('Stop the reply first.')).toBeNull();
+    act(() => { store.dispatch({ type: 'event', event: ev(51, 'run', 'alpha', { id: 'r2', slug: 'alpha', status: 'running' }) }); });
+    expect(await screen.findByText('Stop the reply first.')).toBeInTheDocument();
   });
 
   it('shows the dashboard’s refusal and moves nothing on', async () => {
