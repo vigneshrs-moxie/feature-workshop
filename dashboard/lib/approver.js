@@ -230,8 +230,9 @@ export const APPROVER_SYSTEM = [
   'Answer in the agreed shape and nothing else: `why` is one or two plain sentences, and `risk` is low, medium or high.',
 ].join('\n');
 
-const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u2028\u2029\u202A-\u202E\u2066-\u2069]/;
-const CONTROL_ALL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u2028\u2029\u202A-\u202E\u2066-\u2069]/g;
+// Control characters, line and direction marks, and the zero-width ones (m8: a tag split by one would not be caught).
+const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200D\u2028\u2029\u202A-\u202E\u2066-\u2069\uFEFF]/;
+const CONTROL_ALL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200D\u2028\u2029\u202A-\u202E\u2066-\u2069\uFEFF]/g;
 
 /** Words for the material block: control characters out, the block's own tags made harmless. */
 const cleaned = (v) => String(v ?? '').replace(CONTROL_ALL, '').replace(/<\s*\/?\s*material/gi, '(material');
