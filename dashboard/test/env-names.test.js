@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { KEEP_OLD_TOO, OLD_NAMES, envOf, withOldNames } from '../lib/env-names.js';
+import { KEEP_OLD_TOO, OLD_NAMES, demoOn, envOf, withOldNames } from '../lib/env-names.js';
 import { stateDirFor } from '../lib/state.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -86,4 +86,13 @@ test('a program started with only the old names reads them (the server’s first
     encoding: 'utf8', env: { PATH: process.env.PATH, WORKSHOP_DEMO: '1', WORKSHOP_FEATURES_DIR: '/jobs' },
   });
   assert.equal(out.trim(), '1 /jobs');
+});
+
+test('the demo switch: only 1 or true turn the demo on; 0, false and empty do not', () => {
+  for (const v of ['1', 'true', 'TRUE', ' true ']) assert.equal(demoOn({ STARBASE_DEMO: v }), true, v);
+  for (const v of ['0', 'false', '', 'no', undefined]) assert.equal(demoOn({ STARBASE_DEMO: v }), false, String(v));
+  const home = os.tmpdir();
+  // The state folder follows the same rule as the host.
+  assert.notEqual(stateDirFor({ STARBASE_DEMO: '0', STARBASE_FEATURES_DIR: '/x/features' }, home), path.join(path.resolve('/x'), 'state'));
+  assert.equal(stateDirFor({ STARBASE_DEMO: 'true', STARBASE_FEATURES_DIR: '/x/features' }, home), path.join(path.resolve('/x'), 'state'));
 });

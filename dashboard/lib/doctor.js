@@ -17,6 +17,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { envGet, findOnPath } from './platform.js';
+import { demoOn } from './env-names.js';
 import { pgTool } from './local.js';
 import { readServiceFile } from '../runner/service-file.js';
 import fs from 'node:fs';
@@ -252,7 +253,7 @@ function oldFolderBeside(home) {
 function defaultTokenSaved({ env, home }) {
   return async () => {
     const { tokenStore } = await import('./orbit-token.js');
-    const store = await tokenStore({ stateDir: stateDirFor(env, home), prefer: env.STARBASE_ORBIT_STORE === 'file' || env.STARBASE_DEMO ? 'file' : 'auto' });
+    const store = await tokenStore({ stateDir: stateDirFor(env, home), prefer: env.STARBASE_ORBIT_STORE === 'file' || demoOn(env) ? 'file' : 'auto' });
     return Boolean(await store.get());
   };
 }
