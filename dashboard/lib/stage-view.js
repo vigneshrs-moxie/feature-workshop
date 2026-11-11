@@ -296,6 +296,11 @@ export function stageView(job, stop, { activity = job.activity ?? [], agents = j
   const historyAt = (job.history ?? []).filter((h) => h?.date && stopOf(STAGE_STOP[h.stage] ? h.stage : detectStage(h.stage)) === stop).map((h) => h.date);
   const since = earliest(crew.map((r) => r.since)) ?? earliest(historyAt) ?? (current && state === 'waiting' ? job.waitingSince ?? null : null);
 
+  // The step's span by its briefs and its documents, as the job answer's page has them (lib/job-page.js
+  // stepTimes, stepDocs); left out when the answer has none (an older Starbase: not known).
+  const time = job.page?.times?.[stop];
+  const docs = job.page?.docs?.[stop];
+
   const apps = Array.isArray(local?.terminalApps) ? local.terminalApps : [];
   return {
     slug: job.slug,
@@ -309,6 +314,8 @@ export function stageView(job, stop, { activity = job.activity ?? [], agents = j
     finished,
     terminalApp: local?.terminalApp ?? apps[0] ?? null,
     terminalApps: apps,
+    ...(time ? { time } : {}),
+    ...(Array.isArray(docs) ? { docs } : {}),
   };
 }
 

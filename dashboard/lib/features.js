@@ -247,15 +247,16 @@ export function kindFor(kind, branch, slug) {
   return /^(fix|bug|hotfix)[/-]/i.test(branch || '') || /^(fix|bug)-/i.test(slug || '') ? 'bug' : 'feature';
 }
 
-// The job's brief files (briefs/NNN-stage.md), oldest first.
+// The job's brief files (briefs/NNN-stage.md), oldest first; at: the file's time (ISO), or null.
 async function listBriefs(dir) {
-  return (await listDir(path.join(dir, 'briefs')))
+  const briefs = (await listDir(path.join(dir, 'briefs')))
     .filter((e) => e.isFile() && /^\d+-.+\.md$/.test(e.name))
     .map((e) => {
       const [, n, stage] = /^(\d+)-(.+)\.md$/.exec(e.name);
       return { number: Number(n), stage, file: `briefs/${e.name}` };
     })
     .sort((a, b) => a.number - b.number);
+  return Promise.all(briefs.map(async (b) => ({ ...b, at: (await statOrNull(path.join(dir, b.file)))?.mtime.toISOString() ?? null })));
 }
 
 // The brief the Foreman is on: the one status.json names, else the newest brief file (detail

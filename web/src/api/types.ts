@@ -1079,6 +1079,20 @@ export interface JobPageFacts {
     worksWhen?: string[];
     mustNot?: string[];
   } | null;
+  /** When each step ran, by its briefs (dashboard/lib/job-page.js stepTimes); null: not read. */
+  times?: Partial<Record<StopId, StepTime>> | null;
+  /** The job's documents by step, none: the rest (dashboard/lib/job-page.js stepDocs); null: not read. */
+  docs?: Partial<Record<StopId | 'none', JobDocEntry[]>> | null;
+}
+
+/**
+ * A step's span by its briefs: it ended at its last brief, and started where the step before it
+ * that ran ended (the first one when the job started). endedAt null: the current step. Both null:
+ * not reached, skipped, or not known.
+ */
+export interface StepTime {
+  startedAt?: string | null;
+  endedAt?: string | null;
 }
 
 /** POST /api/job/:slug/gate: a decision from the gate card (dashboard/server.js). */
@@ -1924,6 +1938,13 @@ export interface StageView {
   /** The terminal app Open in terminal uses (Try it's choice), and the ones this computer has. */
   terminalApp: string | null;
   terminalApps: string[];
+  /**
+   * The step's span by its briefs (job.page.times for this step); missing: not known. `since` stays
+   * when the job reached the stop; the time words read `time` and fall back to `since` without a start.
+   */
+  time?: StepTime;
+  /** The step's documents (job.page.docs for this step); missing: not known. */
+  docs?: JobDocEntry[];
 }
 
 // ---------- Telemetry (packet P): GET /api/telemetry?window= (dashboard/lib/telemetry.js, lib/insights.js) ----------

@@ -84,7 +84,7 @@ import { MCP_NAME, OrbitError, OrbitInbox, canonicalKey, clearToken, jobsByTicke
 import { tokenStore } from '../lib/orbit-token.js';
 import { InboxSuggester, SUGGEST_MODEL, askHaiku, demoAsk, suggestPrompt } from '../lib/inbox-suggest.js';
 import { TICKET_FILE, readTicket, ticketDescription } from '../lib/ticket-file.js';
-import { readAcceptance } from '../lib/job-page.js';
+import { readAcceptance, stepDocs, stepTimes } from '../lib/job-page.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
@@ -1045,6 +1045,21 @@ export async function createRunner(config) {
     return { ticket, building, check };
   }
 
+  // Each step's time and documents (design 3.2, lib/job-page.js): when it ran by its briefs, from
+  // the job's start (its new-job audit line, null when Starbase did not start it), and the Docs
+  // list sorted by step. A read that fails gives that part null.
+  async function stepFacts(f, audit) {
+    const part = (read) => read().catch(() => null);
+    const times = await part(async () => stepTimes({
+      briefs: f.briefs, startedAt: audit.find((e) => e.action === 'new-job')?.at ?? null, stage: f.stage, kind: f.kind, skipped: f.skipped,
+    }));
+    const docs = await part(async () => {
+      const specPath = await shownSpec(f);
+      return stepDocs(await listJobDocs(f.dir, { spec: specPath ? { path: specPath, version: f.spec?.version ?? null } : null, recorded: f.recordedArtifacts }), f.kind);
+    });
+    return { times, docs };
+  }
+
   async function jobDetail(f) {
     const run = runFor(f);
     const latestPath = f.latestBrief?.path ?? f.briefs.at(-1)?.file ?? null;
@@ -1125,7 +1140,7 @@ export async function createRunner(config) {
       costDetail: { ...f.cost, whatIf: whatIfConductor(f.cost.agents) },
       activity: f.activity.map((a) => (a.state === 'running' && !stillRunning(f, a, run && ACTIVE_RUN.has(run.status) ? run : null) ? { ...a, state: 'stopped' } : a)),
       drive, run, runs: runsOf(f), overview, thread: threadPart.items, threadMore: threadPart.more, locate: f.locate,
-      page: await pageFacts(f),
+      page: { ...(await pageFacts(f)), ...(await stepFacts(f, audit)) },
       // policy: the setting in force for this job; policyOverride: the job's own (null: it follows yours).
       // While Auto is on, 'auto' (lib/state.js policyFor), the job's own setting kept as it was.
       policy: await state.policyFor(f.dir), policyOverride: settings.jobPolicy?.[f.dir] ?? null, globalPolicy: settings.policy, autoMode: settings.autoMode,
