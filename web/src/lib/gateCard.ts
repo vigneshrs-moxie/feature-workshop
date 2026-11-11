@@ -27,6 +27,15 @@ export function openGate(detail: Pick<JobDetail, 'gate' | 'answeredBriefs' | 'he
   return gate;
 }
 
+/**
+ * Which go / no go an answer was for: its brief number, or, for a gate with no number, its own words
+ * (the headline and what it proposes next). An answer counts for the gate with the same key (N1).
+ */
+export function gateKey(gate: Pick<Gate, 'briefNumber' | 'headline' | 'nextProposed'>): string {
+  const n = gate.briefNumber ?? null;
+  return n !== null ? `#${n}` : `words:${gate.headline ?? ''}|${gate.nextProposed ?? ''}`;
+}
+
 // ---------- What Approve is called ----------
 
 // Which artifact a stage's gate approves, by its name in status.json ("Quick plan", "Findings").

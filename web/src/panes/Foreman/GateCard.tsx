@@ -28,7 +28,7 @@ import { Kbd } from '../../components/Kbd';
 import { composeGate, type GateKind } from '../../lib/compose';
 import {
   answersFor, approveLabel, chipsFor, chipViews, decidedKey, emptyOverride, gateDraftKey, gateRequest, initialChoices,
-  DECIDING_KINDS, oneKeyGateApprove, openDecisions, openGate, OTHER, placeGateReply, readGateMemo, readReopenedMemo, reopenMemo, toggleChip, unansweredQuestion,
+  DECIDING_KINDS, gateKey, oneKeyGateApprove, openDecisions, openGate, OTHER, placeGateReply, readGateMemo, readReopenedMemo, reopenMemo, toggleChip, unansweredQuestion,
   verdictsFor, type ChipId, type GateChoices,
 } from '../../lib/gateCard';
 import { plainInline } from '../../lib/inlineMarkdown';
@@ -232,7 +232,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const sending = working || decision.state === 'sending';
   // The server took a deciding answer to this brief (its run may already have cleared the sent state):
   // nothing on the card sends again until the job is fetched and the brief shows as answered.
-  const taken = decision.accepted !== null && decision.accepted.brief !== null && decision.accepted.brief === (gate.briefNumber ?? null) && DECIDING_KINDS.includes(decision.accepted.kind);
+  const taken = decision.accepted !== null && decision.accepted.gate === gateKey(gate) && DECIDING_KINDS.includes(decision.accepted.kind);
   const busy = sending || decision.state === 'sent' || taken;
   const spins = (button: NonNullable<typeof pressed>) => sending && pressed === button;
   const [error, setError] = useState<string | null>(null);
@@ -333,7 +333,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     if (problem) throw new Error(problem);
     const body = gateRequest(kind, gate, c, views, { ...(noTerminal ? { confirmNoTerminal: true } : {}), ...extra });
     try {
-      return await decision.send(api, body);
+      return await decision.send(api, body, gateKey(gate));
     } catch (err) {
       const held = lockFromError(err);
       if (held) setRefused(held);

@@ -752,6 +752,50 @@ describe('after a click on the go / no go bar', () => {
     expect(live()).toHaveTextContent('Held until Claude’s usage limit resets.');
   });
 
+  // Round 2, N1: a go / no go with no brief number (the reviewer's team-invites and audit-log).
+  const UNNUMBERED: Gate = { ...GATE, briefNumber: null, briefFile: null } as unknown as Gate;
+  it('no brief number: after Go the sent line shows and stays while the Foreman works; the old ask and its calls never come back', async () => {
+    const { store } = setup({ jobs: waiting(), gate: UNNUMBERED, post: sentPost() });
+    const go = await screen.findByRole('button', { name: /^Go: approve/ });
+    const watch = watchBar();
+    fireEvent.click(go);
+    await waitFor(() => expect(bar()).toHaveTextContent(SENT_LINE));
+    expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
+    // The job is fetched again (a thread event): its gate still has the same words and no number.
+    act(() => { store.dispatch({ type: 'event', event: ev(300, 'thread', 'alpha', {}) }); });
+    await act(async () => {});
+    expect(bar()).toHaveTextContent(SENT_LINE);
+    expect(calls()).toHaveLength(0);
+    expect(watch.stop().comeBack).toEqual([]);
+  });
+
+  it('no brief number: a second Go, by the button or the a key, sends nothing', async () => {
+    const post = sentPost();
+    const { store } = setup({ jobs: waiting(), gate: UNNUMBERED, post });
+    const go = await screen.findByRole('button', { name: /^Go: approve/ });
+    fireEvent.click(go);
+    await waitFor(() => expect(bar()).toHaveTextContent(SENT_LINE));
+    act(() => { store.dispatch({ type: 'event', event: ev(300, 'thread', 'alpha', {}) }); });
+    await act(async () => {});
+    fireEvent.click(go);
+    for (const b of within(bar()).queryAllByRole('button')) fireEvent.click(b);
+    document.querySelector<HTMLButtonElement>('[data-gate="approve"]')?.click();
+    fireEvent.keyDown(document.body, { key: 'a' });
+    await act(async () => {});
+    expect(gatePosts(post)).toHaveLength(1);
+  });
+
+  it('no brief number: once the gate’s words change, it asks again', async () => {
+    const { store } = setup({ jobs: waiting(), gate: UNNUMBERED, post: sentPost() });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(bar()).toHaveTextContent(SENT_LINE));
+    act(() => { store.dispatch({ type: 'event', event: ev(200, 'run', 'alpha', { id: 'r_sent_1', slug: 'alpha', status: 'done', endedAt: new Date().toISOString() }) }); });
+    server.gate = { ...UNNUMBERED, headline: 'Build done', nextProposed: 'Run the tests' } as Gate;
+    act(() => { store.dispatch({ type: 'event', event: ev(301, 'thread', 'alpha', {}) }); });
+    expect(await screen.findByRole('button', { name: /^Go: approve/ })).toBeEnabled();
+    expect(bar()).toHaveTextContent('Say go and the Foreman goes ahead: Run the tests');
+  });
+
   it('once the brief is answered and the gate goes, the bar without a gate still says it was sent', async () => {
     setup({ jobs: waiting(), gate: GATE, post: sentPost({ runEvent: false }) });
     fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));

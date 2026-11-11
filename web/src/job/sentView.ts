@@ -12,7 +12,7 @@
 import { useEffect, useState } from 'react';
 import type { Job, JobDetail, Run } from '../api/types';
 import { STUCK_AFTER_MS } from '../lib/sentState';
-import { DECIDING_KINDS, openGate } from '../lib/gateCard';
+import { DECIDING_KINDS, gateKey, openGate } from '../lib/gateCard';
 import type { GateSent } from '../panes/Foreman/gateSent';
 import { isActiveRun } from '../panes/Foreman/thread';
 
@@ -47,11 +47,12 @@ export function sentView(job: Pick<Job, 'closed'>, detail: JobDetail | null | un
   const held = detail?.heldReply ?? null;
   if (held && (held.gateBrief ?? null) === brief && DECIDING_KINDS.includes(held.kind)) return { words: HELD_WORDS, more: null };
   const a = decision.accepted;
-  const thisBrief = a !== null && a.brief !== null && a.brief === brief;
-  const answered = openGate(detail, false) === null || (thisBrief && DECIDING_KINDS.includes(a.kind));
+  // The answer was for this go / no go: the same brief number, or the same words when it has none (N1).
+  const thisGate = a !== null && a.gate === gateKey(gate);
+  const answered = openGate(detail, false) === null || (thisGate && DECIDING_KINDS.includes(a.kind));
   const replying = !answered && a?.kind === 'message' && a.runId !== null && isActiveRun(run) && run.id === a.runId;
   if (!answered && !replying) return null;
-  return { words: SENT_WORDS, more: a && (thisBrief || replying) ? SENT_MORE[a.kind] ?? null : null };
+  return { words: SENT_WORDS, more: a && (thisGate || replying) ? SENT_MORE[a.kind] ?? null : null };
 }
 
 /** A stalled answered brief with no decision on this page to send again. */
@@ -68,8 +69,8 @@ export interface SentShown extends SentLines { canRetry: boolean }
 export function useSentView(job: Pick<Job, 'closed'>, detail: JobDetail | null | undefined, run: Run | null, decision: Pick<GateSent, 'accepted'>): SentShown | null {
   const view = sentView(job, detail, run, decision);
   const a = decision.accepted;
-  const brief = detail?.gate?.briefNumber ?? null;
-  const mine = a !== null && a.brief !== null && a.brief === brief;
+  const gate = detail?.gate ?? null;
+  const mine = a !== null && gate !== null && a.gate === gateKey(gate);
   const endedAt = run?.endedAt;
   const working = isActiveRun(run);
   const resting = view !== null && view.words === SENT_WORDS && !working;
