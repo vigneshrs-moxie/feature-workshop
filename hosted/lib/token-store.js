@@ -81,7 +81,7 @@ export function createTokenStore({ db, config, now = () => Date.now() }) {
   let problem = null;
   try { key = readTokenKey(config.tokenKey); } catch (err) { problem = err; }
 
-  const COLUMNS = 'person_id, key_id, saved_at, expires_at, refused_at, polled_at, full_at, tried_at, error, error_kind, wait_until';
+  const COLUMNS = 'person_id, key_id, saved_at, expires_at, refused_at, polled_at, full_at, tried_at, error, error_kind, wait_until, assignee_ignored, orbit_audience';
 
   return {
     problem: () => problem,
@@ -94,7 +94,7 @@ export function createTokenStore({ db, config, now = () => Date.now() }) {
         `INSERT INTO orbit_tokens (person_id, sealed, key_id, saved_at, expires_at) VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (person_id) DO UPDATE SET sealed = EXCLUDED.sealed, key_id = EXCLUDED.key_id, saved_at = EXCLUDED.saved_at,
            expires_at = EXCLUDED.expires_at, refused_at = NULL, polled_at = NULL, full_at = NULL, tried_at = NULL,
-           error = NULL, error_kind = NULL, wait_until = NULL`,
+           error = NULL, error_kind = NULL, wait_until = NULL, assignee_ignored = false`,
         [personId, sealed, key.id, iso(now()), expiresAt],
       );
     },
@@ -113,6 +113,7 @@ export function createTokenStore({ db, config, now = () => Date.now() }) {
         personId: Number(r.person_id), keyId: r.key_id, savedAt: isoOrNull(r.saved_at), expiresAt: isoOrNull(r.expires_at),
         refusedAt: isoOrNull(r.refused_at), polledAt: isoOrNull(r.polled_at), fullAt: isoOrNull(r.full_at), triedAt: isoOrNull(r.tried_at),
         error: r.error ?? null, errorKind: r.error_kind ?? null, waitUntil: isoOrNull(r.wait_until),
+        assigneeIgnored: r.assignee_ignored === true, audience: r.orbit_audience === 'participant' ? 'participant' : 'tech',
       };
     },
 

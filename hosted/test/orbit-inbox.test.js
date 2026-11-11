@@ -186,7 +186,7 @@ test('without TOKEN_KEY or ORBIT_BASE_URL, Settings → Orbit names what is miss
 
 // ---------- The poller ----------
 
-test('the cron job: refused without CRON_SECRET; with it, everyone’s inbox in turn, every page, assigned and watched', async () => {
+test('the cron job: refused without CRON_SECRET; with it, everyone’s inbox in turn, every page, assigned only', async () => {
   const s = await makeOrbitSite();
   const olive = browser(s.fetch);
   const sam = browser(s.fetch);
@@ -194,8 +194,8 @@ test('the cron job: refused without CRON_SECRET; with it, everyone’s inbox in 
   await signIn(sam, { email: SAM });
   const tOlive = testToken('olive');
   const tSam = testToken('sam');
-  // 120 assigned: three pages of 50. Two watched, one of them also assigned.
-  s.orbit.person(tOlive, { assigned: Array.from({ length: 120 }, (_, i) => ticket(1000 + i)), watching: [ticket(1000), ticket(77, { subject: 'Watched only' })] });
+  // 120 assigned: three pages of 50.
+  s.orbit.person(tOlive, { assigned: Array.from({ length: 120 }, (_, i) => ticket(1000 + i)) });
   s.orbit.person(tSam, { assigned: [ticket(5, { severity: 'critical' })] });
   try {
     await saveToken(olive, tOlive);
@@ -210,9 +210,10 @@ test('the cron job: refused without CRON_SECRET; with it, everyone’s inbox in 
     assert.deepEqual(pages, ['1', '2', '3']);
     assert.ok(s.orbit.by(tOlive).every((r) => !r.query.datefield), 'the first read is a full one');
     const inbox = (await olive.json('/api/orbit/inbox')).body;
-    assert.equal(inbox.items.length, 121);
-    assert.deepEqual(inbox.items.find((i) => i.key === 'ORBIT-1000').why, ['assigned', 'watching']);
-    assert.deepEqual(inbox.items.find((i) => i.key === 'ORBIT-77').why, ['watching']);
+    assert.equal(inbox.items.length, 120);
+    assert.deepEqual(inbox.items.find((i) => i.key === 'ORBIT-1000').why, ['assigned']);
+    assert.ok(s.orbit.by(tOlive).every((r) => r.query.watched === undefined), 'watched tickets are never asked for');
+    assert.deepEqual(inbox.filter, { audience: 'tech', ignored: [], applied: true });
     const one = inbox.items.find((i) => i.key === 'ORBIT-1000');
     assert.equal(one.title, 'Sample ticket 1000');
     assert.equal(one.url, `${FAKE_ORBIT}/admin/feedback/ORBIT-1000`);
@@ -224,6 +225,69 @@ test('the cron job: refused without CRON_SECRET; with it, everyone’s inbox in 
     assert.deepEqual(samInbox.items.map((i) => i.key), ['ORBIT-5']);
     assert.match(s.logs.at(-1), /^inbox: read 2, failed 0, skipped 0, left for the next run 0/);
     await noTokenAnywhere(s, [tOlive, tSam]);
+  } finally { await s.close(); }
+});
+
+test('stored watched-only rows are not shown', async () => {
+  const s = await makeOrbitSite();
+  const olive = browser(s.fetch);
+  await signIn(olive, { email: OLIVE });
+  const token = testToken('olive');
+  s.orbit.person(token, { assigned: [ticket(1)] });
+  try {
+    await saveToken(olive, token);
+    await s.cron();
+    const person = (await s.db.query('SELECT person_id FROM orbit_tokens')).rows[0].person_id;
+    // A row an older read left behind: a ticket the person only watched.
+    const old = { key: 'ORBIT-77', number: 77, title: 'Watched only', why: ['watching'], changedAt: null };
+    await s.db.query("INSERT INTO orbit_inbox (person_id, number, ticket_key, item, changed_at, stored_at) VALUES ($1, 77, 'ORBIT-77', $2, NULL, '2026-10-30T16:00:00Z')", [person, JSON.stringify(old)]);
+    const keys = (await olive.json('/api/orbit/inbox')).body.items.map((i) => i.key);
+    assert.deepEqual(keys, ['ORBIT-1']);
+  } finally { await s.close(); }
+});
+
+const flagOf = async (s) => (await s.db.query('SELECT assignee_ignored FROM orbit_tokens')).rows[0].assignee_ignored;
+
+test('a token Orbit will not filter for shows no tickets', async () => {
+  const s = await makeOrbitSite();
+  const olive = browser(s.fetch);
+  await signIn(olive, { email: OLIVE });
+  const token = testToken('olive');
+  s.orbit.person(token, { assigned: [ticket(1), ticket(2)], ignored: ['assignee'] });
+  try {
+    await saveToken(olive, token);
+    assert.equal(await flagOf(s), false, 'a new token starts clean');
+    await s.cron();
+    assert.equal(await flagOf(s), true);
+    const inbox = (await olive.json('/api/orbit/inbox')).body;
+    assert.equal(inbox.filter.applied, false);
+    assert.deepEqual(inbox.filter.ignored, ['assignee']);
+    assert.deepEqual(inbox.items, []);
+    assert.equal((await s.db.query('SELECT count(*)::int AS n FROM orbit_inbox')).rows[0].n, 0, 'everyone’s tickets are not kept');
+    await noTokenAnywhere(s, [token]);
+  } finally { await s.close(); }
+});
+
+test('the next clean read clears it', async () => {
+  const s = await makeOrbitSite();
+  const olive = browser(s.fetch);
+  await signIn(olive, { email: OLIVE });
+  const token = testToken('olive');
+  const who = s.orbit.person(token, { assigned: [ticket(1), ticket(2)], ignored: ['assignee'] });
+  try {
+    await saveToken(olive, token);
+    await s.cron();
+    assert.equal(await flagOf(s), true);
+    who.ignored = [];
+    s.clock.t += 3 * 60_000;
+    s.orbit.requests.length = 0;
+    await s.cron();
+    assert.ok(s.orbit.by(token).every((r) => !r.query.datefield), 'a full read, not only changes');
+    assert.equal(await flagOf(s), false);
+    const inbox = (await olive.json('/api/orbit/inbox')).body;
+    assert.equal(inbox.filter.applied, true);
+    assert.deepEqual(inbox.items.map((i) => i.key), ['ORBIT-1', 'ORBIT-2']);
+    await noTokenAnywhere(s, [token]);
   } finally { await s.close(); }
 });
 
@@ -243,7 +307,7 @@ test('between full reads only what changed is fetched (datefield=updated&from=<d
     s.orbit.requests.length = 0;
     await s.cron();
     const asked = s.orbit.by(token);
-    assert.ok(asked.length >= 2);
+    assert.ok(asked.length >= 1);
     for (const r of asked) {
       assert.equal(r.query.datefield, 'updated');
       assert.equal(r.query.from, '2026-10-29', 'the day before the last read');
@@ -383,7 +447,7 @@ test('the open Inbox asks for a refresh: read from Orbit at most once a minute, 
     s.orbit.requests.length = 0;
     assert.equal((await olive.json('/api/orbit/inbox?refresh=1')).body.items.length, 1);
     const once = s.orbit.requests.length;
-    assert.ok(once >= 2, 'assigned and watched');
+    assert.ok(once >= 1);
     who.assigned = [ticket(1), ticket(2, { activityAt: new Date(s.clock.t).toISOString() })];
     s.clock.t += 30_000;
     assert.equal((await olive.json('/api/orbit/inbox?refresh=1')).body.items.length, 1, 'half a minute on: the stored list');

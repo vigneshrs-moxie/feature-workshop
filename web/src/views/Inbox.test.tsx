@@ -31,7 +31,7 @@ const INBOX: InboxAnswer = {
   ...STATUS,
   items: [
     item(479, { title: 'Read-only feedback API', job: { slug: 'orbit-479-feedback-api', title: 'Feedback API' } }),
-    item(12, { priority: 'low', severity: null, assignee: { name: 'Someone else', you: false }, why: ['watching'] }),
+    item(12, { priority: 'low', severity: null, assignee: { name: 'Someone else', you: false }, why: ['assigned'] }),
     item(13, { assignee: null }),
   ],
 };
@@ -179,6 +179,26 @@ describe('Inbox', () => {
     expect(screen.queryByRole('region', { name: 'Next step' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'New job' }));
     expect(sheets.at(-1)).toEqual(expect.objectContaining({ kind: 'new-job' }));
+  });
+
+  it('says under the title that only tickets assigned to you are listed, and never offers a Watching tab or chip', async () => {
+    const { wrap } = setup();
+    wrap(<InboxView openStream={() => null} />);
+    expect(await screen.findByText("Tickets assigned to you. Tickets you only watch or are mentioned on aren't listed.")).toBeInTheDocument();
+    expect(screen.queryByText(/Watching/i)).toBeNull();
+    expect(screen.queryByText(/watched by you/i)).toBeNull();
+    await screen.findByRole('tab', { name: /Critical, mine/ }); // the saved views arrive after the list
+    expect(screen.getAllByRole('tab').map((t) => t.textContent?.replace(/\d+\+?$/, ''))).toEqual(['Mine', 'Critical, mine']);
+  });
+
+  it('when Orbit did not apply "assigned to me", says so and shows no rows', async () => {
+    const { wrap } = setup({ answer: { ...INBOX, items: [], filter: { audience: 'tech', ignored: ['assignee'], applied: false } } });
+    wrap(<InboxView openStream={() => null} />);
+    expect(await screen.findByText("Orbit didn't apply 'assigned to me' for this token, so your tickets can't be picked out. The account needs adding to Orbit's feedback-team list.")).toBeInTheDocument();
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Nothing for you right now' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Next step' })).toBeNull();
+    expect(screen.queryByText(/Watching/i)).toBeNull();
   });
 
   it('shows its three-card guide on the first visit only; How it works opens it again', async () => {

@@ -15,7 +15,7 @@ import { spawn } from 'node:child_process';
 import {
   checkToken, normalizeOrbitUrl, mcpEntry, writeMcpEntry, removeMcpEntry, setToken, clearToken, sessionEnv,
   parseTicketKey, canonicalKey, OrbitError, orbitClient, retryAfterMs, fromDay,
-  OrbitInbox, inboxItem, sortItems, OPEN_EVERY_MS, IDLE_EVERY_MS, FULL_EVERY_MS, scrub, scrubDeep, rememberSecret,
+  OrbitInbox, INBOX_QUERIES, assigneeApplied, inboxItem, sortItems, OPEN_EVERY_MS, IDLE_EVERY_MS, FULL_EVERY_MS, scrub, scrubDeep, rememberSecret,
 } from '../lib/orbit.js';
 import { State } from '../lib/state.js';
 import { fileStore, keychainStore, layeredStore, tokenStore } from '../lib/orbit-token.js';
@@ -204,7 +204,6 @@ async function fakeOrbit() {
     const p = url.pathname;
     if (p === '/api/feedback/v1/tickets') {
       const page = Number(url.searchParams.get('page') ?? 1);
-      if (url.searchParams.get('watched') === 'me') return reply(200, await fixture('tickets-watched.json'));
       if (url.searchParams.get('severity') === 'critical') {
         const all = await fixture('tickets-assigned-page-1.json');
         const rows = all.tickets.filter((t) => t.severity === 'critical');
@@ -361,8 +360,8 @@ test('the inbox polls at once, then every 15 minutes, and every 3 while a browse
   await clock.advance(0, settle);
   const first = inbox.view();
   assert.equal(first.error, null);
-  assert.equal(first.items.length, 54, '53 assigned plus one watched that isn’t (ORBIT-479 is both)');
-  assert.deepEqual(first.items.find((i) => i.key === 'ORBIT-479').why, ['assigned', 'watching']);
+  assert.equal(first.items.length, 53);
+  assert.deepEqual(first.items.find((i) => i.key === 'ORBIT-479').why, ['assigned']);
   assert.equal(first.checkedAt, '2026-10-28T09:00:00.000Z');
   assert.deepEqual(clock.pending(), [IDLE_EVERY_MS]);
   const afterFirst = fake.requests.length;
@@ -389,6 +388,72 @@ test('the inbox polls at once, then every 15 minutes, and every 3 while a browse
   assert.deepEqual(clock.pending(), []);
 });
 
+test('the inbox asks only for assigned tickets', async () => {
+  const clock = fakeTime();
+  const { inbox } = inboxWith(clock);
+  fake.requests.length = 0;
+  await inbox.refresh();
+  const asked = fake.requests.filter((q) => q.path.endsWith('/tickets'));
+  assert.ok(asked.length > 0);
+  for (const q of asked) {
+    assert.equal(q.query.get('watched'), null);
+    assert.equal(q.query.get('assignee'), 'me');
+  }
+  assert.deepEqual(INBOX_QUERIES.map((q) => q.id), ['assigned']);
+  assert.deepEqual(inbox.view().filter, { audience: 'tech', ignored: [], applied: true });
+});
+
+test('a ticket that only mentions you is not listed', async () => {
+  const clock = fakeTime();
+  const { inbox } = inboxWith(clock);
+  // Orbit answers an assignee=me read with a ticket that is not assigned to you, as it would for a mention.
+  fake.override((req, url) => (url.pathname.endsWith('/tickets') ? { status: 200, body: { audience: 'tech', total: 1, tickets: [{ number: 9001, subject: 'Mentions you', status: 'open', activityAt: '2026-10-28T08:00:00Z' }] } } : null));
+  await inbox.refresh();
+  fake.override(null);
+  const mention = inbox.view().items.find((i) => i.key === 'ORBIT-9001');
+  assert.deepEqual(mention?.why, ['assigned'], 'only the assigned list is read, so nothing says watching or mentioned');
+  assert.ok(!inbox.view().items.some((i) => i.why.some((w) => w !== 'assigned')));
+});
+
+test('when Orbit ignores assignee the inbox lists nothing and says so', async () => {
+  const clock = fakeTime();
+  const { inbox } = inboxWith(clock);
+  fake.override((req, url) => (url.pathname.endsWith('/tickets') ? { status: 200, body: { audience: 'tech', total: 1, ignored: ['assignee'], tickets: [{ number: 9002, subject: 'Anyone’s', status: 'open', activityAt: '2026-10-28T08:00:00Z' }] } } : null));
+  await inbox.refresh();
+  let v = inbox.view();
+  assert.equal(v.filter.applied, false);
+  assert.deepEqual(v.filter.ignored, ['assignee']);
+  assert.equal(v.items.length, 0);
+  fake.override(null);
+  await inbox.refresh();
+  v = inbox.view();
+  assert.equal(v.filter.applied, true, 'the next clean read lifts it');
+  assert.equal(v.items.length, 53, 'and it is a full read, not only changes');
+});
+
+test('an ignore on a later page counts', async () => {
+  const clock = fakeTime();
+  const c = orbitClient({ baseUrl: fake.url, getToken: async () => TOKEN, now: clock.now });
+  fake.override((req, url) => {
+    if (!url.pathname.endsWith('/tickets')) return null;
+    const page = Number(url.searchParams.get('page'));
+    const rows = (start, n) => Array.from({ length: n }, (_, i) => ({ number: start + i, subject: 't', status: 'open', activityAt: '2026-10-28T08:00:00Z' }));
+    return { status: 200, body: page === 1 ? { audience: 'tech', total: 60, tickets: rows(1, 50) } : { audience: 'tech', total: 60, ignored: ['assignee'], tickets: rows(51, 10) } };
+  });
+  const r = await c.listTickets('assignee=me');
+  fake.override(null);
+  assert.deepEqual(r.ignored, ['assignee']);
+  assert.equal(assigneeApplied(r), false);
+});
+
+test('an answer with no ignored field counts as applied', () => {
+  assert.equal(assigneeApplied({}), true);
+  assert.equal(assigneeApplied({ ignored: [] }), true);
+  assert.equal(assigneeApplied({ ignored: ['status'] }), true);
+  assert.equal(assigneeApplied(undefined), true);
+  assert.equal(assigneeApplied({ ignored: ['status', 'assignee'] }), false);
+});
+
 test('between full reads only changes are fetched (from=<day>), merged into the list; a full read every hour', async () => {
   const clock = fakeTime();
   const { inbox, settle } = inboxWith(clock);
@@ -396,9 +461,9 @@ test('between full reads only changes are fetched (from=<day>), merged into the 
   await clock.advance(0, settle);
   fake.requests.length = 0;
   await clock.advance(IDLE_EVERY_MS, settle);
-  assert.ok(fake.requests.length >= 2);
+  assert.ok(fake.requests.length >= 1);
   for (const q of fake.requests) assert.equal(q.query.get('from'), '2026-10-27', 'since the last poll, from the day before');
-  assert.equal(inbox.view().items.length, 54, 'the list is kept, changes merged in');
+  assert.equal(inbox.view().items.length, 53, 'the list is kept, changes merged in');
   fake.requests.length = 0;
   await clock.advance(FULL_EVERY_MS - IDLE_EVERY_MS, settle);
   assert.ok(fake.requests.some((q) => q.query.get('from') === null), 'a full read after an hour');
@@ -413,7 +478,7 @@ test('one request in flight at a time; the last list stays, with its time, when 
   const b = inbox.refresh();
   assert.equal(a, b, 'the second caller shares the first poll');
   await a;
-  assert.equal(fake.requests.length, 3, 'two pages assigned, one watched: once');
+  assert.equal(fake.requests.length, 2, 'two pages of assigned tickets: once');
   const good = inbox.view();
   fake.override(() => ({ status: 401, body: { error: 'Unauthorized' } }));
   const changes = [];
@@ -461,7 +526,7 @@ test('saved views: read once a day; a view’s tickets fetched when its tab open
 });
 
 test('an inbox row: key, title, priority, severity, age, assignee; a participant row hides priority and severity', () => {
-  const tech = inboxItem({ number: 12, subject: 'Hi', priority: 'high', severity: 'critical', createdAt: '2026-10-01T00:00:00Z', activityAt: '2026-10-02T00:00:00Z', assignedToId: 'x', status: 'open' }, { why: ['watching'], orbitUrl: 'https://o.example.com' });
+  const tech = inboxItem({ number: 12, subject: 'Hi', priority: 'high', severity: 'critical', createdAt: '2026-10-01T00:00:00Z', activityAt: '2026-10-02T00:00:00Z', assignedToId: 'x', status: 'open' }, { orbitUrl: 'https://o.example.com' });
   assert.equal(tech.key, 'ORBIT-12');
   assert.equal(tech.priority, 'high');
   assert.equal(tech.severity, 'critical');
@@ -621,7 +686,7 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   assert.equal(r.body.lastError, null);
   assert.ok(r.body.lastPoll);
   assert.ok(Math.abs(Date.parse(r.body.expiresAt) - (Date.now() + 30 * 86_400_000)) < 60_000);
-  assert.ok(fake.requests.length >= 3 && fake.requests.every((q) => q.method === 'GET'));
+  assert.ok(fake.requests.length >= 2 && fake.requests.every((q) => q.method === 'GET'));
 
   const mcp = JSON.parse(await fs.readFile(path.join(dirs.home, '.claude.json'), 'utf8'));
   assert.deepEqual(mcp.mcpServers['orbit-feedback'], { type: 'http', url: `${fake.url}/api/mcp/feedback`, headers: { Authorization: 'Bearer ${ORBIT_FEEDBACK_TOKEN}' } });
@@ -630,18 +695,18 @@ test('the /api/orbit routes: save a token, the inbox with jobs already on a tick
   // The inbox: priority, severity, age, assignee, and the jobs already on a ticket.
   r = await get('/api/orbit/inbox');
   assert.equal(r.status, 200);
-  assert.equal(r.body.items.length, 54);
+  assert.equal(r.body.items.length, 53);
+  assert.deepEqual(r.body.filter, { audience: 'tech', ignored: [], applied: true });
   const item = (key) => r.body.items.find((i) => i.key === key);
   assert.equal(item('ORBIT-479').title, 'Read-only feedback API and MCP for Starbase');
   assert.deepEqual(item('ORBIT-479').job, { slug: 'orbit-479-feedback-api', title: 'orbit-479-feedback-api' });
   assert.equal(item('ORBIT-501').job.slug, 'tidy-tracker', 'status.json ticket.key counts');
   assert.equal(item('ORBIT-502').job, null);
-  assert.equal(item('ORBIT-700').assignee.name, 'Someone else');
   assert.equal(item('ORBIT-501').assignee.name, 'You');
   for (const i of r.body.items) { assert.ok(i.createdAt); assert.ok('priority' in i && 'severity' in i); }
 
   // Refresh, a saved view's tab, the views.
-  assert.equal((await get('/api/orbit/inbox?refresh=1')).body.items.length, 54);
+  assert.equal((await get('/api/orbit/inbox?refresh=1')).body.items.length, 53);
   const views = (await get('/api/orbit/views')).body.views;
   assert.deepEqual(views.map((v) => v.name), ['Critical, mine', 'Team triage']);
   const crit = (await get(`/api/orbit/inbox?view=${views[0].id}`)).body;

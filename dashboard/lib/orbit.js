@@ -9,7 +9,7 @@
 //   the client    orbitClient: the four v1 GETs, paging, 401 and 429
 //   scrub         scrub / scrubDeep: hides tokens and keys (orbfb_, ghp_, sk-ant-, .env secrets)
 //                 in every record that leaves: the /api/orbit answers and each audit line
-//   the inbox     OrbitInbox: polls what's assigned to you and what you watch, every 3 minutes
+//   the inbox     OrbitInbox: polls what's assigned to you, every 3 minutes
 //                 while a browser has the Inbox open, every 15 otherwise; keeps the last list
 //
 // Paths, the store, fetch and the clock are injectable, so tests never touch ~/.claude, the
@@ -287,12 +287,14 @@ export function orbitClient({ baseUrl, getToken, fetchFn = globalThis.fetch, now
     params.delete('page');
     if (since) { params.set('datefield', 'updated'); params.set('from', fromDay(since)); }
     const tickets = [];
+    const ignored = new Set(); // every filter Orbit set aside, on any page
     let first = null;
     let truncated = false;
     for (let page = 1; ; page++) {
       params.set('page', String(page));
       const body = await get('/tickets', params);
       first ??= body;
+      if (Array.isArray(body?.ignored)) for (const f of body.ignored) ignored.add(f);
       const rows = Array.isArray(body?.tickets) ? body.tickets : [];
       tickets.push(...rows);
       const total = Number(body?.total) || 0;
@@ -301,7 +303,7 @@ export function orbitClient({ baseUrl, getToken, fetchFn = globalThis.fetch, now
     }
     const cutoff = since ? Math.floor(new Date(since).getTime() / 60_000) * 60_000 : null;
     const kept = cutoff === null ? tickets : tickets.filter((t) => Date.parse(changedAt(t)) >= cutoff);
-    return { audience: first?.audience ?? 'tech', total: Number(first?.total) || kept.length, ignored: first?.ignored ?? [], statusCounts: first?.statusCounts ?? {}, tickets: kept, truncated };
+    return { audience: first?.audience ?? 'tech', total: Number(first?.total) || kept.length, ignored: [...ignored], statusCounts: first?.statusCounts ?? {}, tickets: kept, truncated };
   }
 
   return {
@@ -318,11 +320,18 @@ export function orbitClient({ baseUrl, getToken, fetchFn = globalThis.fetch, now
 
 /** Every status but resolved and closed (Orbit's UNFINISHED_STATUSES). */
 export const OPEN_STATUSES = ['open', 'backlog', 'planning', 'ready_for_development', 'in_progress', 'code_review', 'testing', 'uat', 'ready_for_release'];
-/** What the inbox reads: tickets assigned to you, and tickets you watch, open ones only. */
+/** What the inbox reads: tickets assigned to you, open ones only. */
 export const INBOX_QUERIES = [
   { id: 'assigned', query: `assignee=me&status=${OPEN_STATUSES.join(',')}` },
-  { id: 'watching', query: `watched=me&status=${OPEN_STATUSES.join(',')}` },
 ];
+/**
+ * Did Orbit apply "assigned to me"? False when its answer says it set the assignee filter aside
+ * (`ignored` lists filter names and may be missing, which counts as applied). Then the list it sent
+ * is everyone's tickets, not yours, so the inbox shows none.
+ */
+export function assigneeApplied(result) {
+  return !(Array.isArray(result?.ignored) && result.ignored.includes('assignee'));
+}
 export const OPEN_EVERY_MS = 3 * 60_000; // a browser has the Inbox open
 export const IDLE_EVERY_MS = 15 * 60_000; // nobody is looking
 // Between full reads only what changed is fetched; a full read catches tickets that left the list.
@@ -335,7 +344,7 @@ const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
 
 /**
  * One inbox row from an Orbit row (the team's TrackerRow or a participant's ParticipantRow).
- * `why`: ['assigned', 'watching'] (which inbox list it came from; empty for a saved view's list).
+ * `why`: ['assigned'] (which inbox list it came from; empty for a saved view's list).
  * Priority and severity are null where Orbit doesn't show them (a participant's rows).
  */
 export function inboxItem(row, { why = [], audience = 'tech', orbitUrl = null } = {}) {
@@ -383,6 +392,8 @@ export class OrbitInbox extends EventEmitter {
 
   #clear() {
     this.rows = new Map(); // number → { row, audience, why: Set }
+    this.audience = 'tech';
+    this.ignored = []; // filters Orbit set aside on the last read
     this.checkedAt = null; // when the last good poll started (ISO)
     this.fullAt = 0;
     this.lastTryAt = null; // when the last poll, good or not, started (ms)
@@ -396,9 +407,10 @@ export class OrbitInbox extends EventEmitter {
 
   view() {
     const url = this.orbitUrl();
-    const items = [...this.rows.values()].map((r) => inboxItem(r.row, { why: [...r.why].sort(), audience: r.audience, orbitUrl: url }));
+    const applied = !this.ignored.includes('assignee');
+    const items = !applied ? [] : [...this.rows.values()].map((r) => inboxItem(r.row, { why: [...r.why].sort(), audience: r.audience, orbitUrl: url }));
     return {
-      items: sortItems(items), checkedAt: this.checkedAt, error: this.error, errorKind: this.errorKind,
+      items: sortItems(items), filter: { audience: this.audience, ignored: [...this.ignored], applied }, checkedAt: this.checkedAt, error: this.error, errorKind: this.errorKind,
       lastTryAt: this.lastTryAt ? new Date(this.lastTryAt).toISOString() : null,
       everyMs: this.everyMs(), watchers: this.watchers, waitingMs: this.client.waiting?.() ?? 0, polling: this.running,
     };
@@ -456,18 +468,30 @@ export class OrbitInbox extends EventEmitter {
     const full = forceFull || !this.checkedAt || started - this.fullAt >= FULL_EVERY_MS;
     const since = full ? null : this.checkedAt;
     try {
+      const ignored = new Set();
+      let audience = this.audience;
       const next = full ? new Map() : new Map([...this.rows].map(([n, r]) => [n, { ...r, why: new Set(r.why) }]));
       for (const q of this.queries) {
         const list = await this.client.listTickets(q.query, { since });
+        audience = list.audience;
+        for (const f of list.ignored) ignored.add(f);
         for (const row of list.tickets) {
           if (!Number.isInteger(row?.number)) continue;
           const had = next.get(row.number);
           next.set(row.number, { row, audience: list.audience, why: new Set([...(had?.why ?? []), q.id]) });
         }
       }
-      this.rows = next;
+      this.audience = audience;
+      this.ignored = [...ignored];
+      if (assigneeApplied({ ignored: this.ignored })) {
+        this.rows = next;
+        if (full) this.fullAt = started;
+      } else {
+        // That read held everyone's tickets, not yours: keep none, and make the next clean read a full one.
+        this.rows = new Map();
+        this.fullAt = 0;
+      }
       this.checkedAt = new Date(started).toISOString();
-      if (full) this.fullAt = started;
       this.error = null;
       this.errorKind = null;
     } catch (err) {

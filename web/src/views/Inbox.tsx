@@ -1,5 +1,5 @@
 // The Inbox (#/inbox): your Portal Feedback tickets, read from Orbit with your own read-only token
-// (dashboard/lib/orbit.js). Tabs: Mine (assigned to you, or watched by you, open ones only), then
+// (dashboard/lib/orbit.js). Tabs: Mine (assigned to you, open ones only), then
 // your saved views from Orbit. Most severe first, then oldest; severity only (no priority here).
 // Each row: severity (icon and word), key and title, age, who is on it, and Start, or the way to
 // the job already on that ticket. A row opens the ticket: its facts, description, links (branches,
@@ -145,12 +145,15 @@ function WhoIsOn({ who }: { who: InboxItem['assignee'] }) {
   return <span className="who-on"><span className={`avatar${who.you ? ' is-you' : ''}`} aria-hidden="true">{initials(who.name)}</span>{who.you ? 'You' : who.name}</span>;
 }
 
+const SCOPE_LINE = "Tickets assigned to you. Tickets you only watch or are mentioned on aren't listed.";
+const NOT_APPLIED = "Orbit didn't apply 'assigned to me' for this token, so your tickets can't be picked out. The account needs adding to Orbit's feedback-team list.";
+
 const INBOX_GUIDE: GuideSpec = {
   id: 'inbox',
   title: 'How the Inbox works',
   done: 'Show me my tickets',
   cards: [
-    { icons: ['inbox'], title: 'Your Orbit tickets', say: 'The Portal Feedback tickets assigned to you or that you watch, most severe first, then oldest.' },
+    { icons: ['inbox'], title: 'Your Orbit tickets', say: 'The Portal Feedback tickets assigned to you, most severe first, then oldest.' },
     { icons: ['inbox', 'clipboard'], title: 'Start makes a job', say: 'Start opens a new job on the ticket. The Foreman reads the ticket first and writes a brief.' },
     { icons: ['hand', 'check'], title: 'You say go at each step', say: 'Nothing moves on without you: each step waits on the Desk for your go or no go.' },
   ],
@@ -190,7 +193,7 @@ const HOSTED_GUIDE: GuideSpec = {
   title: 'How the Inbox works here',
   done: 'Show me my tickets',
   cards: [
-    { icons: ['inbox'], title: 'Your Orbit tickets, laptop or not', say: 'The site reads the tickets assigned to you or that you watch every few minutes, with your own token, even while your laptop is closed.' },
+    { icons: ['inbox'], title: 'Your Orbit tickets, laptop or not', say: 'The site reads the tickets assigned to you every few minutes, with your own token, even while your laptop is closed.' },
     { icons: ['send'], title: 'Start sends it to your laptop', say: 'The job runs on your laptop. If the laptop is off, it starts when the laptop is back.' },
     { icons: ['hand', 'check'], title: 'You say go at each step', say: 'The Foreman reads the ticket first, on the laptop, and nothing moves on without you.' },
   ],
@@ -280,6 +283,8 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
   const items = useMemo(() => (shown.state === 'ready' ? sortInbox(shown.data.items) : []), [shown]);
   const pick = useMemo(() => nextTicket(items.filter((i) => !onItsWay(i))), [items]);
   // The ticket in the quick look (#/inbox?peek=ORBIT-12): from this list, else the last one seen.
+  // Orbit set "assigned to me" aside for this token: the list is empty on purpose, and we say why.
+  const notApplied = tab === 'mine' && ready?.filter?.applied === false;
   const lastOpen = useRef<InboxItem | null>(null);
   const open = peek ? items.find((i) => i.key === peek) ?? (lastOpen.current?.key === peek ? lastOpen.current : null) : null;
   lastOpen.current = open;
@@ -319,7 +324,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
               className="tab seg-tab"
               aria-selected={tab === v.id}
               onClick={() => setTab(v.id)}
-              title={v.id === 'mine' ? 'Open tickets assigned to you or that you watch.' : `Your saved view on Orbit: ${v.name}.`}
+              title={v.id === 'mine' ? 'Open tickets assigned to you.' : `Your saved view on Orbit: ${v.name}.`}
             >
               <span className="seg-name">{v.name}</span>
               {count !== undefined && <span className="seg-count" aria-hidden="true">{count > 99 ? '99+' : count}</span>}
@@ -363,7 +368,9 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
         <>
           {hosted ? <HostedStatusLine status={ready} now={now} settingsHref={hosted.settingsHref} /> : <StatusLine status={ready} now={now} />}
           {hosted?.notice && <p className="field-problem" role="alert">{hosted.notice}</p>}
-          {shown.state === 'ready' && (pick ? (
+          {tab === 'mine' && <p className="muted">{SCOPE_LINE}</p>}
+          {notApplied && <p className="field-problem" role="alert">{NOT_APPLIED}</p>}
+          {shown.state === 'ready' && !notApplied && (pick ? (
             <NextBar
               tone="stop"
               icon={SEVERITY_ICON[pick.severity ?? ''] ?? 'inbox'}
@@ -384,7 +391,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
           ) : null)}
           {shown.state === 'loading' && showListLoading && <p className="muted" role="status">Reading the list…</p>}
           {shown.state === 'error' && <p className="field-problem" role="alert">{shown.message}</p>}
-          {shown.state === 'ready' && (items.length ? (
+          {shown.state === 'ready' && !notApplied && (items.length ? (
             <>
               <section className="inbox-group" aria-labelledby="inbox-decide">
                 <h3 className="inbox-group-head" id="inbox-decide">
@@ -407,7 +414,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
               title="Nothing for you right now"
               actions={isHosted ? undefined : <Button size="lg" keyId="new-job" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job of your own (key: c).">New job</Button>}
             >
-              {tab === 'mine' ? 'Nothing open is assigned to you or watched by you.' : 'No tickets in this view.'}
+              {tab === 'mine' ? 'Nothing open is assigned to you.' : 'No tickets in this view.'}
             </Hero>
           ))}
           {open && (hosted

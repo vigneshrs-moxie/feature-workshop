@@ -1,5 +1,5 @@
 // The Orbit inbox poller on the site (packet 2C, decision G11, plan §3.1): the tickets assigned to
-// each person and the ones they watch, read with their own token, so the Inbox is full even while
+// each person, read with their own token, so the Inbox is full even while
 // their laptop is closed. It reuses dashboard/lib/orbit.js: the client (four GETs, paging, 401 and
 // 429), the inbox queries, inboxItem and the scrubber. Nothing here writes to Orbit.
 //
@@ -17,7 +17,7 @@
 // tried again until a new one is pasted; a 429 waits for Retry-After. Log lines name a person by
 // their id only and are scrubbed (lib/orbit.js scrub), so no token or email reaches the logs.
 
-import { API_BASE, INBOX_QUERIES, OrbitError, inboxItem, normalizeOrbitUrl, orbitClient, scrub, scrubDeep } from '../../dashboard/lib/orbit.js';
+import { API_BASE, INBOX_QUERIES, OrbitError, assigneeApplied, inboxItem, normalizeOrbitUrl, orbitClient, scrub, scrubDeep } from '../../dashboard/lib/orbit.js';
 import { TokenKeyError } from './token-store.js';
 
 export const PER_RUN = 25;
@@ -119,17 +119,25 @@ export function createPoller({ db, tokens, config, fetch: fetchFn, now = () => D
       const since = full ? null : new Date(turn.polled_at).toISOString();
       const client = orbitClient({ baseUrl: orbitUrl, getToken: async () => token, fetchFn: boxed(fetchFn, deadline, clock), now });
       const got = new Map(); // number → { row, audience, why }
+      const ignored = new Set();
+      let audience = 'tech';
       for (const q of INBOX_QUERIES) {
         const list = await client.listTickets(q.query, { since });
+        audience = list.audience;
+        for (const f of list.ignored) ignored.add(f);
         for (const row of list.tickets) {
           if (!Number.isInteger(row?.number)) continue;
           const had = got.get(row.number);
           got.set(row.number, { row, audience: list.audience, why: new Set([...(had?.why ?? []), q.id]) });
         }
       }
+      // Orbit set "assigned to me" aside: what it sent is everyone's tickets, so none are kept, and
+      // the next clean read is a full one (the changes-only read would not bring the list back).
+      const applied = assigneeApplied({ ignored: [...ignored] });
+      if (!applied) got.clear();
       await db.tx(async (q) => {
         const kept = new Map();
-        if (full) await q.query('DELETE FROM orbit_inbox WHERE person_id = $1', [personId]);
+        if (full || !applied) await q.query('DELETE FROM orbit_inbox WHERE person_id = $1', [personId]);
         else {
           const { rows } = await q.query('SELECT number, item FROM orbit_inbox WHERE person_id = $1 AND number = ANY($2::int[])', [personId, [...got.keys()]]);
           for (const r of rows) kept.set(Number(r.number), (typeof r.item === 'string' ? JSON.parse(r.item) : r.item)?.why ?? []);
@@ -144,8 +152,9 @@ export function createPoller({ db, tokens, config, fetch: fetchFn, now = () => D
           );
         }
         await q.query(
-          'UPDATE orbit_tokens SET polled_at = $2, full_at = CASE WHEN $3 THEN $2 ELSE full_at END, error = NULL, error_kind = NULL, wait_until = NULL WHERE person_id = $1',
-          [personId, iso(started), full],
+          `UPDATE orbit_tokens SET polled_at = $2, full_at = CASE WHEN NOT $4 THEN NULL WHEN $3 THEN $2 ELSE full_at END,
+                  assignee_ignored = NOT $4, orbit_audience = $5, error = NULL, error_kind = NULL, wait_until = NULL WHERE person_id = $1`,
+          [personId, iso(started), full, applied, audience],
         );
       });
       return { ok: true, full, count: got.size };
@@ -191,7 +200,7 @@ export function createPoller({ db, tokens, config, fetch: fetchFn, now = () => D
   }
 
   /**
-   * One GET with a pasted token (page 1 of what is assigned to you), before it is kept. Throws
+   * One GET with a pasted token (page 1 of what is assigned to you; the answer isn't looked at: the next read finds out whether Orbit applies the filter), before it is kept. Throws
    * OrbitError in plain words; resolves when Orbit took it.
    */
   async function checkToken(token) {

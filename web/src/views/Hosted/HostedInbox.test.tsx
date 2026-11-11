@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApi } from '../../api/client';
-import type { InboxAnswer, InboxItem, InboxStart, OrbitStatus } from '../../api/types';
+import type { InboxAnswer, InboxFilter, InboxItem, InboxStart, OrbitStatus } from '../../api/types';
 import { HostedApp } from './HostedApp';
 import { dayWords, savedWords } from './OrbitPage';
 import { parseHostedHash } from './route';
@@ -26,11 +26,11 @@ const ticket = (n: number, extra: Partial<InboxItem> = {}): InboxItem => ({
 });
 const lap = (id: number, name: string, online: boolean): Laptop => ({ id, name, os: 'macOS', version: '0.1.0', pairedAt: ago(86_400_000 * 5), lastSeenAt: ago(online ? 5_000 : 3_600_000), online });
 
-interface Site { status: OrbitStatus; items: InboxItem[]; laptops: Laptop[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string }
+interface Site { status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string }
 
 function site(over: Partial<Site> = {}) {
   const s: Site = { status: STATUS, items: [ticket(12), ticket(13, { severity: 'low' })], laptops: [lap(7, 'Olive’s Mac', true)], calls: [], ...over };
-  const answer = (): InboxAnswer => ({ ...s.status, items: s.items });
+  const answer = (): InboxAnswer => ({ ...s.status, ...(s.filter ? { filter: s.filter } : {}), items: s.items });
   const fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url);
     const method = init?.method ?? 'GET';
@@ -80,6 +80,21 @@ describe('the hosted Inbox', () => {
     expect(screen.queryByText('Start as stack')).toBeNull();
     expect(screen.getByText(/checked every 3 minutes, and every minute while this page is open/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Inbox' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('says under the title that only tickets assigned to you are listed, with no Watching tab or chip', async () => {
+    const { api } = site();
+    render(<HostedApp api={api} />);
+    expect(await screen.findByText("Tickets assigned to you. Tickets you only watch or are mentioned on aren't listed.")).toBeInTheDocument();
+    expect(screen.queryByText(/Watching/i)).toBeNull();
+  });
+
+  it('when Orbit did not apply "assigned to me", says so and shows no rows', async () => {
+    const { api } = site({ items: [], filter: { audience: 'tech', ignored: ['assignee'], applied: false } });
+    render(<HostedApp api={api} />);
+    expect(await screen.findByText("Orbit didn't apply 'assigned to me' for this token, so your tickets can't be picked out. The account needs adding to Orbit's feedback-team list.")).toBeInTheDocument();
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.queryByText(/Watching/i)).toBeNull();
   });
 
   it('Start with one laptop sends it at once; the row says it is on its way, and Cancel takes it back', async () => {

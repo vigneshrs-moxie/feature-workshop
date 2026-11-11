@@ -1770,7 +1770,13 @@ export interface InboxStart {
   error?: string;
 }
 
-export type InboxAnswer = OrbitStatus & { items: InboxItem[]; view?: string; checkedAt?: string; truncated?: boolean };
+/**
+ * Which tickets the Inbox asked Orbit for. `applied` is false when Orbit set "assigned to me" aside
+ * for this token (`ignored` names the filters it did): the list is then empty on purpose.
+ */
+export interface InboxFilter { audience: 'tech' | 'participant'; ignored: string[]; applied: boolean }
+
+export type InboxAnswer = OrbitStatus & { items: InboxItem[]; filter?: InboxFilter; view?: string; checkedAt?: string; truncated?: boolean };
 
 // ---------- The Stage: one stop of a job (dashboard/lib/stage-view.js, GET /api/job/:slug/stage/:stop) ----------
 

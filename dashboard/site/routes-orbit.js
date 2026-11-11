@@ -26,7 +26,7 @@ export default function orbitRoutes({ local, str, send, sendJson, readBody, chec
   }
   orbitInbox.on('change', () => {
     if (!orbitStreams.size) return;
-    (async () => sendOrbitEvent('inbox', { ...(await orbitStatus()), items: await withJobs(orbitInbox.view().items) }))().catch(() => {});
+    (async () => sendOrbitEvent('inbox', { ...(await orbitStatus()), filter: orbitInbox.view().filter, items: await withJobs(orbitInbox.view().items) }))().catch(() => {});
   });
 
   function openOrbitStream(req, res) {
@@ -55,7 +55,7 @@ export default function orbitRoutes({ local, str, send, sendJson, readBody, chec
         }
         // The first open (nothing read yet) or Refresh: read now; else the last list as it is.
         if (url.searchParams.get('refresh') === '1' || !orbitInbox.view().checkedAt) await orbitInbox.refresh({ full: url.searchParams.get('refresh') === '1' });
-        return sendJson(res, 200, scrubDeep({ ...(await orbitStatus()), items: await withJobs(orbitInbox.view().items) }));
+        return sendJson(res, 200, scrubDeep({ ...(await orbitStatus()), filter: orbitInbox.view().filter, items: await withJobs(orbitInbox.view().items) }));
       }
       if (urlPath === '/api/orbit/views') {
         try { return sendJson(res, 200, scrubDeep({ views: (await orbitInbox.views()).map(({ id, name, isDefault }) => ({ id, name, isDefault })) })); } catch (err) { throw orbitHttpError(err); }

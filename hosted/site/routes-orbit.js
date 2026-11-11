@@ -105,21 +105,29 @@ export default function orbitRoutes(ctx) {
     return out;
   }
 
+  /**
+   * The tickets assigned to this person. Nothing while Orbit isn't applying "assigned to me" for
+   * their token, and never a stored row that doesn't say it was assigned (older reads also kept
+   * watched tickets).
+   */
   async function items(personId) {
-    const [{ rows }, jobs, starts] = await Promise.all([
+    const [{ rows }, jobs, starts, token] = await Promise.all([
       db.query('SELECT item FROM orbit_inbox WHERE person_id = $1 ORDER BY number', [personId]),
       jobsByTicket(personId),
       startsByTicket(personId),
+      tokens.row(personId),
     ]);
-    return rows.map((r) => {
-      const item = parse(r.item);
+    if (token?.assigneeIgnored) return [];
+    return rows.map((r) => parse(r.item)).filter((item) => Array.isArray(item.why) && item.why.includes('assigned')).map((item) => {
       const job = jobs.get(item.key) ?? null;
       return { ...item, job, start: job ? null : starts.get(item.key) ?? null };
     });
   }
 
   async function inboxAnswer(personId) {
-    return scrubDeep({ ...(await status(personId)), items: await items(personId) });
+    const row = await tokens.row(personId);
+    const filter = { audience: row?.audience ?? 'tech', ignored: row?.assigneeIgnored ? ['assignee'] : [], applied: !row?.assigneeIgnored };
+    return scrubDeep({ ...(await status(personId)), filter, items: await items(personId) });
   }
 
   return [
