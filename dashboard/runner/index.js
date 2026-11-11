@@ -52,7 +52,7 @@ import { groupCards, laneFor } from '../lib/snapshot.js';
 import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from '../lib/finish.js';
 import { NUDGE_IDS, nudgesFor } from '../lib/nudges.js';
 import { buildThread, pageThread } from '../lib/thread.js';
-import { DECISIONS_FILE, decisionLog, ticketCopy, writeDecisionsFile } from '../lib/decisions.js';
+import { DECISIONS_FILE, decisionLog, orbitCopy, writeDecisionsFile } from '../lib/decisions.js';
 import { typicalRuns } from '../lib/run-typical.js';
 import { proofStamp } from '../lib/proof.js';
 import { suggestLevel, changedPaths, diffSummary } from '../lib/levels.js';
@@ -2251,7 +2251,8 @@ export async function createRunner(config) {
       const f = await jobOf(slug);
       const d = await writeDecisions(f);
       if (!d) throw new HttpError(404, 'This job’s folder isn’t there any more, so it has no decision file.');
-      return { file: DECISIONS_FILE, path: d.file, text: d.text, copy: ticketCopy(d.text) };
+      const ticket = /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(d.prefix) ? d.prefix : null;
+      return { file: DECISIONS_FILE, path: d.file, text: d.text, orbit: orbitCopy(d.rows, { ticket, title: f.title, today: new Date().toISOString().slice(0, 10), notDoing: d.notDoing }) };
     },
     hasJob: async (slug) => Boolean(await featureBySlug(slug)),
     /** The job a name means: its slug, or a ticket key (ORBIT-479) an open job is for. Null: none. */

@@ -7,7 +7,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decisionId, decisionLog, decisionOf, decisionPrefix, decisionRows, gateAnswers, gateNote, keptParts, render, ticketCopy, writeDecisionsFile } from '../lib/decisions.js';
+import { decisionId, decisionLog, decisionOf, decisionPrefix, decisionRows, gateAnswers, gateNote, keptParts, orbitCopy, render, writeDecisionsFile } from '../lib/decisions.js';
 import { startDashboard } from './helpers/dashboard.js';
 
 test('approvals, send-backs with their note, stops, permissions, levels, closing', () => {
@@ -207,27 +207,6 @@ test('writeDecisionsFile: written in the job folder from the audit, status.json 
   }
 });
 
-test('copy for the ticket: plain text with the pipes, no notes to agents, at most 40 lines (the last ones, said so)', () => {
-  const text = render({ prefix: 'ORBIT-479', title: 'Feedback API and MCP', rows: rowsOf(AUDIT), existing: FOREMAN_FILE });
-  const c = ticketCopy(text);
-  assert.equal(c.cut, false);
-  assert.equal(c.text.split('\n')[0], '# ORBIT-479 · Feedback API and MCP');
-  assert.equal(/<!--/.test(c.text), false);
-  assert.ok(c.text.includes('| ORBIT-479.F1 | Store feedback per office? | yes · no | yes | Foreman | 2026-10-27 | the spec says offices differ |\n'));
-  assert.ok(c.text.includes('| id | question | options | choice | who | when | why |'));
-  assert.ok(c.text.endsWith('- A second **export** format | maybe later'));
-  assert.equal(c.lines, c.text.split('\n').length);
-  assert.ok(c.lines <= 40);
-
-  const many = Array.from({ length: 60 }, (_, i) => ({ at: `2026-10-27T10:${String(i).padStart(2, '0')}:00Z`, action: 'send', kind: 'approve', gateBrief: i + 1, text: 'I approve.' }));
-  const long = ticketCopy(render({ prefix: 'ORBIT-479', rows: rowsOf(many) }));
-  assert.equal(long.cut, true);
-  assert.equal(long.lines, 40);
-  assert.ok(long.total > 40);
-  assert.ok(long.text.endsWith('## Not doing'));
-  assert.ok(long.text.split('\n').includes('| ORBIT-479.D60 | Brief 60: go ahead? | approve · send back · stop | approve | Vignesh | 2026-10-27 |  |'));
-});
-
 // Through the real dashboard in demo mode (a pretend Foreman, nothing real runs) on temp folders:
 // no real job, ~/.claude or the real state folder is touched and no Claude usage is spent.
 test('the dashboard writes decisions.md after a gate and serves it at GET /api/jobs/:slug/decisions.md', { timeout: 60_000 }, async () => {
@@ -279,9 +258,12 @@ test('the dashboard writes decisions.md after a gate and serves it at GET /api/j
     assert.ok(json.text.includes('| ORBIT-479.F1 | Per office? |'));
     assert.ok(json.text.includes('| ORBIT-479.D2 | Brief 2 (plan): go ahead? |'));
     assert.ok(json.text.endsWith('## Not doing\n- CSV import\n'));
-    assert.equal(json.copy.cut, false);
-    assert.equal(/<!--/.test(json.copy.text), false);
-    assert.ok(json.copy.text.includes('| ORBIT-479.F1 | Per office? | yes · no | yes | Foreman | 2026-10-28 | offices differ |'));
+    assert.equal(json.copy, undefined);
+    assert.equal(json.orbit.count, 1);
+    assert.ok(json.orbit.text.startsWith('ORBIT-479 decisions, '));
+    assert.ok(json.orbit.text.includes('1. Keep the old column? Yes'));
+    assert.equal(/Vignesh|\|/.test(json.orbit.text), false);
+    assert.ok(json.orbit.text.endsWith('Not doing: CSV import'));
 
     const raw = await fetch(`${base}/api/jobs/${slug}/decisions.md`);
     assert.equal(raw.status, 200);
@@ -294,4 +276,61 @@ test('the dashboard writes decisions.md after a gate and serves it at GET /api/j
     await dashboard?.stop(); // exactly the dashboard this test started, and what it started
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+// ---------- orbitCopy: the list to paste into Orbit ----------
+const row = (r) => ({ id: 'X', who: 'Someone', when: '2026-11-10', options: '', why: '', ...r });
+
+test('the copy keeps answers, changes, send-backs and Not doing', () => {
+  const rows = [
+    row({ kind: 'answer', question: 'Who can add team members?', choice: 'Managers only; leads removed.', why: '' }),
+    row({ kind: 'send-back', question: 'Brief 2 (spec): go ahead?', choice: 'send back', why: 'sent back at PR #1.' }),
+    row({ kind: 'answer', question: 'A manager with no department:', choice: 'the page shows "No department" and adding still works.' }),
+  ];
+  const { text, count } = orbitCopy(rows, { ticket: 'ORBIT-472', title: 'Roster', today: '2026-11-10', notDoing: ['- tightening roster import (follow-up ticket)'] });
+  assert.equal(count, 3);
+  assert.equal(text, [
+    'ORBIT-472 decisions, 10 Nov',
+    '1. Who can add team members? Managers only; leads removed.',
+    '2. Brief 2 (spec): go ahead? Sent back.',
+    '   Why: sent back at PR #1.',
+    '3. A manager with no department: the page shows "No department" and adding still works.',
+    'Not doing: tightening roster import (follow-up ticket)',
+  ].join('\n'));
+  assert.equal(/Someone|@/.test(text), false);
+});
+
+test('routine go-aheads, pushes, pull requests and installs are left out', () => {
+  const rows = [
+    row({ kind: 'gate', question: 'Brief 3: go ahead?', choice: 'approve' }),
+    row({ kind: 'gate', question: 'Brief 4: go ahead?', choice: 'stop' }),
+    row({ kind: 'level', question: 'Level for this job', choice: 'L3' }),
+    row({ kind: 'permission', question: 'Allow “git push”?', choice: 'allow', why: 'ok' }),
+    row({ kind: 'permission', question: 'Allow “npm install”?', choice: 'allow', why: 'ok' }),
+    row({ kind: 'permission', question: 'Allow “gh pr create”?', choice: 'allow', why: 'ok' }),
+  ];
+  assert.deepEqual(orbitCopy(rows, { ticket: 'ORBIT-1', today: '2026-11-10' }), { text: 'ORBIT-1 decisions, 10 Nov\nNo product decisions recorded yet.', count: 0 });
+});
+
+test('a long log is not cut', () => {
+  const rows = Array.from({ length: 60 }, (_, i) => row({ kind: 'answer', question: `Q${i + 1}?`, choice: 'Yes' }));
+  const { text, count } = orbitCopy(rows, { ticket: 'ORBIT-1', today: '2026-11-10' });
+  assert.equal(count, 60);
+  assert.equal(text.split('\n').filter((l) => /^\d+\. /.test(l)).length, 60);
+  assert.ok(text.includes('\n60. Q60? Yes'));
+});
+
+test('an Auto decision is marked', () => {
+  const { text } = orbitCopy([row({ kind: 'answer', question: 'Keep the column?', choice: 'Yes', by: 'auto' })], { ticket: 'ORBIT-1', today: '2026-11-03' });
+  assert.ok(text.includes('1. Keep the column? Yes (Auto)'));
+  assert.ok(text.startsWith('ORBIT-1 decisions, 3 Nov'));
+});
+
+test('no decisions gives the empty line', () => {
+  assert.equal(orbitCopy([], { title: 'Roster', today: '2026-11-10' }).text, 'Roster decisions, 10 Nov\nNo product decisions recorded yet.');
+});
+
+test('decision rows say what kind they are, so the copy can keep the product ones', () => {
+  const kinds = decisionRows(AUDIT, { prefix: 'ORBIT-479' }).map((r) => r.kind);
+  assert.deepEqual(kinds, ['answer', 'answer', 'gate', 'permission', 'answer', 'level', 'send-back', 'gate']);
 });

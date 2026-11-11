@@ -70,6 +70,10 @@ describe('the Job page', () => {
     expect(within(page).getByRole('button', { name: 'Job menu' })).toBeInTheDocument();
   });
 
+  it('has Copy decisions in the job’s details, beside the ticket number', () => {
+    setup();
+    expect(within(screen.getByRole('main', { name: 'Job' })).getByRole('button', { name: 'Copy decisions' })).toBeInTheDocument();
+  });
   it('Play full puts the crew member’s face on each stop', () => {
     setup({ play: 'full' });
     expect(document.querySelectorAll('.job-map .stop-face')).toHaveLength(7);

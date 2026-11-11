@@ -32,6 +32,7 @@ import { useGateSent, type GateSent } from '../panes/Foreman/gateSent';
 import { JobGithub } from '../panes/Foreman/JobGithub';
 import { JobMenu } from '../panes/Foreman/JobHeader';
 import { LevelChip } from '../panes/Foreman/LevelChip';
+import { CopyDecisions } from './CopyDecisions';
 import { DecisionsTab } from '../panes/Preview/DecisionsTab';
 import { DocsTab } from '../panes/Preview/DocsTab';
 import { TryTab } from '../panes/Preview/TryTab';
@@ -209,6 +210,7 @@ function JobView({ job }: { job: Job }) {
           <More screen="job" id="details" label="Details" note="level, stops, who is working, facts" icon="list" className="is-card job-details">
             <div className="job-details-head">
               {ticket && <Chip className="num">{ticket}</Chip>}
+              <CopyDecisions slug={job.slug} />
               <LevelChip job={job} ready={Boolean(thread.detail)} />
               <PartOfStack slug={job.slug} index={stacks} />
             </div>
