@@ -1516,6 +1516,8 @@ export async function createRunner(config) {
         gate: g ? { ...g, briefNumber: cb?.number ?? null, headline: cb?.headline ?? null } : null,
         answered: answeredBriefs(await state.auditFor(f.dir, 400), cb),
         briefPath: cb?.file ? path.join(f.dir, cb.file) : null,
+        // When the current brief was raised (its file's time): a message of the person's after it makes the step theirs.
+        briefAt: cb?.at ?? null,
         artifacts: (f.recordedArtifacts ?? []).map((a) => a?.path).filter((x) => typeof x === 'string' && x),
         running: Boolean(driver.activeRunFor({ featureDir: f.dir })), locked: Boolean(locked), restarting: restarting.has(f.dir), paused: limits.isLimited(),
         worktrees, specDirs,

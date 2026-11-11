@@ -1911,7 +1911,9 @@ test('K2: an Approver answer arriving after the restart switched Auto off adds n
 const personSays = (u) => u.auditLines.push({ action: 'send', kind: 'message', at: new Date().toISOString(), gateBrief: null, text: 'Please use the other table.' });
 const later = () => new Promise((r) => setTimeout(r, 5));
 
-test('K4: a message the person sends while the Approver answers a gate drops that answer; the next pass asks again', { timeout: 30_000 }, async () => {
+const YOURS = 'you wrote to this job while this step waited, so it is yours to decide.';
+
+test('K4/I5: a message the person sends while the Approver answers a gate drops that answer; the next pass stops, for the step is theirs', { timeout: 30_000 }, async () => {
   let u;
   u = unit({ decide: () => {}, ask: (task, n) => { if (n === 1) personSays(u); return { ok: true, costUsd: 0.1, answer: { decision: 'go', answers: [], why: 'Fine.', risk: 'low' } }; } });
   await u.auto.pass();
@@ -1920,12 +1922,16 @@ test('K4: a message the person sends while the Approver answers a gate drops tha
   assert.equal(u.record().spent, 0.1, 'the dropped answer is paid for, on the next line');
   await later();
   await u.auto.pass();
-  assert.equal(u.asks.length, 2, 'asked afresh');
-  assert.equal(u.decides.length, 1);
-  assert.equal(u.lines.find((l) => l.what === 'gate').costUsd, 0.2);
+  assert.equal(u.asks.length, 1, 'not asked again');
+  assert.equal(u.decides.length, 0);
+  assert.deepEqual({ rule: u.record().stopped?.rule, reason: u.record().stopped?.reason }, { rule: 'blocked', reason: YOURS });
+  assert.equal(u.notes.length, 1);
+  const stops = u.lines.filter((l) => l.what === 'stop');
+  assert.equal(stops.length, 1);
+  assert.equal(stops[0].costUsd, 0.1, 'the dropped answer\'s cost is on the stop line');
 });
 
-test('K4: a held answer is not sent once the person has written since it was asked; without a message it still goes with no second ask', { timeout: 30_000 }, async () => {
+test('K4/I5: a held answer is not sent once the person has written since the brief was raised: Auto stops; without a message it still goes with no second ask', { timeout: 30_000 }, async () => {
   const plain = unit({ decide: (n) => { if (n === 1) throw refusal('busy'); } });
   await plain.auto.pass(); await later(); await plain.auto.pass();
   assert.equal(plain.asks.length, 1);
@@ -1938,10 +1944,76 @@ test('K4: a held answer is not sent once the person has written since it was ask
   await later();
   await u.auto.pass();
   assert.equal(u.decides.length, 1, 'the held approval was not sent');
-  assert.equal(u.record().spent, 0.1, 'its cost was counted once, when it was asked');
+  assert.equal(u.record().stopped?.reason, YOURS);
+  assert.equal(u.lines.find((l) => l.what === 'stop').costUsd, 0.1, 'its cost was counted once, when it was asked, and is on the stop line');
   await u.auto.pass();
-  assert.equal(u.asks.length, 2, 'asked afresh');
-  assert.equal(u.decides.length, 2);
+  assert.equal(u.asks.length, 1, 'not asked afresh');
+  assert.equal(u.decides.length, 1);
+});
+
+test('I5: a message written before the brief was raised, or before Auto was switched on, leaves the step to Auto', { timeout: 30_000 }, async () => {
+  const before = new Date(Date.now() - 60_000).toISOString();
+  for (const job of [() => ({ briefAt: new Date().toISOString() }), () => ({ auto: { ...autoRecord(null, { on: true, now: new Date().toISOString() }) } })]) {
+    const u = unit({ decide: () => {}, job, auditLines: [{ action: 'send', kind: 'message', at: before, text: 'Earlier words.' }] });
+    await u.auto.pass();
+    assert.equal(u.record().stopped, null);
+    assert.equal(u.decides.length, 1);
+  }
+});
+
+test('I5 (runner): the person writes while the Approver thinks and the Foreman leaves brief 1 as it was: one stop with its sentence, no second ask, no approval', { timeout: 30_000 }, async () => {
+  let w;
+  w = await world({
+    ask: async (task, n) => {
+      if (n === 1) await w.runner.handle({ type: 'reply', slug: w.slug, text: 'Wait, don\'t build this yet, I\'m checking the ticket.' }, { from: 'local' });
+      return goodAnswer(task);
+    },
+  });
+  try {
+    await w.pass();
+    await w.idle();
+    await new Promise((r) => setTimeout(r, 1700));
+    await w.pass();
+    await w.idle();
+    assert.equal(w.asks.length, 1, 'no second Approver run');
+    assert.equal((await w.sends()).filter((s) => s.by === 'auto').length, 0, 'no approval');
+    const rec = await w.record();
+    assert.deepEqual({ rule: rec.stopped?.rule, reason: rec.stopped?.reason }, { rule: 'blocked', reason: YOURS });
+    const stops = await w.autoLines('stop');
+    assert.equal(stops.length, 1);
+    assert.equal(stops[0].costUsd, 0.12, 'the dropped answer\'s cost is on the stop line');
+    await w.told(1);
+    assert.equal(w.notes.length, 1);
+    assert.equal(w.notes[0].body, `Auto stopped: ${YOURS} Open the job to answer.`);
+  } finally { await w.stop(); }
+});
+
+test('I5 (runner): the same, but the Foreman\'s reply raises brief 2: Auto asks about brief 2', { timeout: 30_000 }, async () => {
+  let w;
+  w = await world({
+    ask: async (task, n) => {
+      if (n === 1) {
+        await w.runner.handle({ type: 'reply', slug: w.slug, text: 'Use the other table.' }, { from: 'local' });
+        await new Promise((r) => setTimeout(r, 20));
+        // The Foreman raises brief 2 in its reply to that message.
+        await fs.writeFile(path.join(w.dir, 'briefs', '002-plan.md'), '**Visit audit · plan v2 ready**\n');
+        await w.writeStatus(status(2));
+      }
+      return goodAnswer(task);
+    },
+  });
+  try {
+    await w.pass();
+    await w.idle();
+    await new Promise((r) => setTimeout(r, 1700));
+    await w.pass();
+    await w.idle();
+    assert.equal((await w.record()).stopped, null);
+    assert.equal(w.asks.length, 2);
+    assert.equal(w.asks[1].task.brief.number, 2);
+    const auto = (await w.sends()).filter((s) => s.by === 'auto');
+    assert.deepEqual(auto.map((s) => s.gateBrief), [2]);
+  } finally { await w.stop(); }
 });
 
 test('K4: a message the person steers in while the Approver answers a card leaves the card to them, and tells them', { timeout: 30_000 }, async () => {

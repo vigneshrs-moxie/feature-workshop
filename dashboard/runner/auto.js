@@ -44,6 +44,10 @@ const TIMED_OUT = /^It took longer/;
  * from the gate card's own box, approves nothing; nor do Starbase's own sends (resume, nudge, a stack's message).
  */
 const DECIDES = new Set(DECIDING_KINDS);
+/** Sends that are Starbase's own, not the person's words (a nudge, a resume, a status fix, PR feedback, a review round, a stack's message). */
+const OWN_SENDS = new Set(['nudge', 'resume-after-restart', 'status-fix', 'pr-feedback', 'review-round', 'stack-section']);
+/** Auto's stop when the person wrote to a job while its step waited (I5). */
+const YOURS_NOW = 'you wrote to this job while this step waited, so it is yours to decide.';
 /** "Not now" this many times running on one gate stops Auto, like the Approver failing twice. */
 const NOT_NOW_LIMIT = 3;
 /** A gate Auto can't act on (stale, or no brief number) stops Auto after this long. */
@@ -215,6 +219,17 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     return lines.some((l) => l.by !== 'auto' && (l.action === 'send' || (steer && l.action === 'steer')) && Date.parse(l.at) >= askedAt);
   }
   /**
+   * Did the person send a message of their own (not Auto's, not one of Starbase's own sends) to this job after its
+   * current brief was raised (the brief file's time) and after Auto was last switched on or carried on (`since`)?
+   * All of the job's lines are read: the Foreman's reply to that message can write many.
+   */
+  async function youWroteWhileWaiting(job) {
+    const times = [Date.parse(job.briefAt ?? ''), Date.parse(job.auto?.since ?? '')].filter(Number.isFinite);
+    const from = times.length ? Math.max(...times) : -Infinity;
+    const lines = await state.auditFor(job.dir, Infinity);
+    return lines.some((l) => l.action === 'send' && l.by !== 'auto' && !OWN_SENDS.has(l.kind) && Date.parse(l.at) > from);
+  }
+  /**
    * An answer that was dropped cost money. While Auto is still on (stopped, or the card or gate has gone)
    * it goes to spent, for the next line. With Auto off nothing will ever write spent, so the money gets
    * its own line at once.
@@ -240,12 +255,19 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage });
       if (route) return stop(job, route);
       if (notNow(job)) return;
+      // The person wrote to this job while this step waited: the step is theirs. Auto neither asks nor sends a kept answer
+      // (whose cost, already in spent, goes on the stop line). A brief the Foreman raised after their message is Auto's.
+      if (await youWroteWhileWaiting(job)) {
+        held.delete(job.dir); refused.delete(job.dir);
+        return stop(job, { rule: 'blocked', reason: YOURS_NOW });
+      }
 
       let task;
       let answer;
       let askedAt;
       const kept = held.get(job.dir);
-      // A kept answer is sent only if the person has said nothing since the Approver was asked; its cost is already counted.
+      // A kept answer is sent only if the person has said nothing since the Approver was asked (for one, before switching
+      // Auto off and on again); otherwise it is dropped and the next pass asks afresh. Its cost is already counted.
       if (kept?.brief === n && (await youSpokeSince(job, kept.askedAt))) { held.delete(job.dir); refused.delete(job.dir); return; }
       if (kept?.brief === n) {
         ({ task, answer, askedAt } = kept);
@@ -260,7 +282,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         const checked = res?.ok ? checkAnswer(task, res.answer) : null;
         // Immediately before anything is written or sent: is the answer still for something that waits?
         if (!(await look(job, n))) { await settleDropped(job, cost); return; }
-        // The person wrote to the job while the Approver was thinking: it never saw that. Dropped; the next pass asks again.
+        // The person wrote to the job while the Approver was thinking: it never saw that. Dropped (its cost in spent); once the
+        // Foreman's reply to them ends, the next pass leaves the step to them unless that reply raised a new brief.
         if (await youSpokeSince(job, askedAt)) { await settleDropped(job, cost); return; }
         if (!checked?.ok) {
           await update(job.dir, (prev) => (prev ? { ...prev, failures: (prev.failures ?? 0) + 1, problem: res?.ok ? checked.problem : res?.problem ?? 'It ended with an error.', spent: (prev.spent ?? 0) + cost } : null));
