@@ -99,6 +99,8 @@ export const LOCAL_COMMANDS = freeze({
   reopen: { slug: required(FIELD.slug) },
   options: { slug: required(FIELD.slug), options: FIELD.json, level: FIELD.json, updated_at: FIELD.json },
   policy: { slug: required(FIELD.slug), policy: FIELD.json },
+  // Start the job again on another Foreman model (lib/restart.js).
+  restart: { slug: required(FIELD.slug), model: required(str(100)) },
   notes: { slug: required(FIELD.slug), text: required({ ok: isText(NOTES_MAX), says: `text of at most ${NOTES_MAX.toLocaleString('en')} characters` }) },
   // The job page's "Try it on your computer" actions.
   'try-it': {

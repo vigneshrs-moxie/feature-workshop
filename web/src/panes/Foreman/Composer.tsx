@@ -1,5 +1,5 @@
 // The composer at the foot of the Foreman pane.
-// - While the Foreman is idle: write a message, pick the Foreman model, then "Send…" shows exactly
+// - While the Foreman is idle: write a message, then "Send…" shows exactly
 //   what the Foreman will receive (built by the dashboard's own composeReply, editable) before
 //   POST /api/job/:slug/send.
 // - While it replies: "Steer" adds your message to the reply in progress (POST /api/runs/:id/steer;
@@ -20,7 +20,6 @@ import { useWorkshop, useWorkshopState } from '../../state/store';
 import { isActiveRun } from './thread';
 import { LockCard, lockFromError } from '../../views/JobLock/LockCard';
 import { Choice } from '../../components/Choice';
-import { Select } from '../../components/Select';
 import { Button } from '../../components/Button';
 
 export const draftKey = (slug: string) => `fw.draft.${slug}`;
@@ -149,7 +148,6 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
   const draft = stored ?? '';
   // The draft is a gate card's reply: the brief it answers and what kind of reply it is.
   const gate = draft.trim() ? readGateMemo(gateRaw) : null;
-  const [chosenModel, setChosenModel] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState<'steer' | 'stop' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -159,8 +157,9 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
   const running = isActiveRun(run);
   const stopping = running && run.status === 'stopping';
   const lastModel = detail?.drive?.model ?? null;
-  const model = chosenModel ?? lastModel ?? models[0]?.id ?? null;
-  const modelOptions = lastModel && !models.some((m) => m.id === lastModel) ? [...models, { id: lastModel, label: lastModel }] : models;
+  // The Foreman's model is fixed for a job (Change model… in the job menu starts it again), so it is
+  // shown in the send preview and never chosen or sent from here.
+  const model = lastModel ?? models[0]?.id ?? null;
   const empty = draft.trim() === '';
 
   // "Stopping…" is over once the reply ends; an old problem is moot once a new reply starts.
@@ -218,7 +217,7 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
     // A gate reply goes as the kind of reply it is, with the brief it answers.
     try {
       await api.post(`/api/job/${encodeURIComponent(slug)}/send`, {
-        kind: gate?.kind ?? 'message', text, model, confirmNoTerminal, ...(gate ? { gateBrief: gate.brief } : {}),
+        kind: gate?.kind ?? 'message', text, confirmNoTerminal, ...(gate ? { gateBrief: gate.brief } : {}),
       });
     } catch (err) {
       const held = lockFromError(err);
@@ -291,10 +290,6 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
           : 'Your message to this job’s Foreman. It is kept for this job until you send it. ⌘/Ctrl+Enter to preview and send.'}
       />
       <div className="composer-bar">
-        <label className="composer-model" title={running ? 'The model for your next message. The reply in progress keeps the one it started with.' : 'Which Claude model runs this job’s Foreman for your next message. Opus is the everyday choice; Fable costs more.'}>
-          <span className="muted">Foreman model</span>
-          <Select value={model ?? ''} onChange={setChosenModel} disabled={models.length === 0} options={modelOptions.map((m) => ({ value: m.id, label: m.label }))} />
-        </label>
         <span className="composer-spacer" />
         {running ? (
           <>

@@ -145,6 +145,16 @@ function LaptopJobMenu({ job, dir, policyOverride, run, worktree, gear = false }
               Try it on your computer
             </button>
           </li>
+          <li>
+            <button
+              type="button"
+              disabled={running}
+              onClick={() => { setOpen(false); ui.openSheet({ kind: 'change-model', slug }); }}
+              title={running ? 'The Foreman is replying. Stop the reply first.' : 'The Foreman’s model is fixed for a job. Another one starts the job again from step one; you see what that moves before you agree.'}
+            >
+              Change model…
+            </button>
+          </li>
           <li role="presentation"><p className="job-menu-heading" id={`perm-${slug}`}>Permissions for this job</p></li>
           <li>
             <ul role="group" aria-labelledby={`perm-${slug}`}>
@@ -188,6 +198,8 @@ export interface JobHeaderProps {
   worktree?: string | null;
   /** Whether the job's detail has loaded: the level chip waits for it before it changes the level. */
   detailLoaded?: boolean;
+  /** The Foreman's model for this job (fixed once it has started); shown as a locked line. */
+  model?: string | null;
 }
 
 /**
@@ -251,7 +263,7 @@ function useStuckHeader() {
   return { ref, compact };
 }
 
-export function JobHeader({ job, branch, dir, policyOverride, run, worktree, detailLoaded = false }: JobHeaderProps) {
+export function JobHeader({ job, branch, dir, policyOverride, run, worktree, detailLoaded = false, model = null }: JobHeaderProps) {
   const now = useNow();
   const kind = job.kind ? KIND_LABELS[job.kind] ?? job.kind : null;
   const repo = job.repo?.name ?? null;
@@ -262,7 +274,8 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree, det
   const costHint = job.cost?.source === 'estimate' ? 'What this job has cost so far (an estimate from its sessions’ token counts).' : 'What this job has cost so far.';
   const policy = useJobPolicy(dir, policyOverride);
   const policyShown = policy.override !== null || policy.global !== 'hands-off';
-  const { usage } = useWorkshopState();
+  const { usage, meta } = useWorkshopState();
+  const modelLabel = model ? meta?.models?.find((m) => m.id === model)?.label ?? model : null;
   const closed = job.closed ?? null;
   const { ref: headerRef, compact } = useStuckHeader();
   const ago = closed ? relativeTime(closed.at, now) : '';
@@ -284,6 +297,11 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree, det
         {repo && <span title="The repository this job works in.">{repo}</span>}
         {br && <span className="num" title="The git branch this job builds on.">{br}</span>}
         {cost && <span className="num" title={costHint}>{cost}</span>}
+        {modelLabel && (
+          <span className="job-model" title="Fixed for this job. Change model… in the job menu starts the job again.">
+            <Icon name="lock" size={12} /> Foreman model: {modelLabel}
+          </span>
+        )}
         {policyShown && (
           <span className="job-policy" title={`How much the Foreman may do without asking you${policy.override ? ' (this job’s own setting)' : ' (your global setting)'}. Change it in the job menu.`}>
             {policyLabel(policy.effective)}{policy.override ? ' · this job' : ''}

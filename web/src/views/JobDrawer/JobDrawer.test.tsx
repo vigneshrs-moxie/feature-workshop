@@ -39,14 +39,16 @@ interface Setup {
   tab?: 'notes' | 'options';
   /** The job's current stage. */
   stage?: string;
+  /** The job has a Foreman session (it has started): its Foreman model is locked. */
+  started?: boolean;
   /** The dashboard's option lists (meta.jobOptions), LISTS unless a test needs more. */
   lists?: typeof LISTS & { skippable?: { id: string; label: string }[] };
 }
 
-function setup({ options = L1, notes = { text: 'Ask before renaming the API.', updatedAt: null }, post, put, tab, stage, lists = LISTS }: Setup = {}) {
+function setup({ options = L1, notes = { text: 'Ask before renaming the API.', updatedAt: null }, post, put, tab, stage, started = false, lists = LISTS }: Setup = {}) {
   const store: Store = createStore();
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS, jobOptions: lists }, jobs: [job('alpha', 'idle', { level: 1, ...(stage ? { stage } : {}) })] }) });
-  const detail: JobDetail = { slug: 'alpha', thread: [], threadMore: false, level: 1, options };
+  const detail: JobDetail = { slug: 'alpha', thread: [], threadMore: false, level: 1, options, ...(started ? { drive: { mode: 'workshop', model: OPUS, sessionId: 'session-1' } } : {}) };
   const get = vi.fn(async (path: string) => {
     if (path === '/api/job/alpha/notes') { if (notes instanceof Error) throw notes; return notes; }
     if (path === '/api/job/alpha') return detail;
@@ -248,7 +250,7 @@ describe('Job drawer · options', () => {
   }
 
   it('shows the job’s options, says they choose process not permission, and posts exactly what you set', async () => {
-    const { post } = await openOptions();
+    const { post } = await openOptions({ started: true });
     const panel = screen.getByRole('tabpanel', { name: 'Options' });
     expect(panel).toHaveTextContent('never what it may do without asking');
     expect(panel).toHaveTextContent('applies from the next stage; a worker already running finishes first');
@@ -259,13 +261,13 @@ describe('Job drawer · options', () => {
     expect(screen.getByRole('checkbox', { name: /^Head inspector/ })).toBeChecked();
     expect(screen.getByRole('radio', { name: '2' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'I test it by hand before review' })).toBeChecked();
-    // The Foreman's model is shown, not edited: it is used only when the job starts.
+    // The Foreman's model of a started job is shown, locked, not edited.
     expect(screen.queryByRole('combobox', { name: /Foreman/ })).toBeNull();
     const foreman = panel.querySelector('.drawer-model')!;
     expect(foreman).toHaveTextContent('Foreman');
     expect(foreman).toHaveTextContent('Opus 5.5');
     expect(foreman).toHaveTextContent(FOREMAN_MODEL_NOTE);
-    expect(FOREMAN_MODEL_NOTE).toBe('Set when the job started; change it with the Foreman model menu under the message box.');
+    expect(FOREMAN_MODEL_NOTE).toBe('Fixed for this job. Change model… in the job menu starts the job again.');
     expect(optionWords(screen.getByRole('combobox', { name: /Checks/ }))).toEqual(['Opus 5.5', 'Fable 5.2', 'Sonnet 5.5', 'Haiku 5.5']);
     expect(screen.getByRole('textbox', { name: 'Process notes' })).toHaveValue('Keep it small.');
     const save = screen.getByRole('button', { name: 'Save options' });
@@ -351,10 +353,35 @@ describe('Job drawer · options', () => {
     expect(screen.getByRole('combobox', { name: /Checks/ })).toHaveAttribute('data-value', FABLE);
     expect(screen.getByRole('combobox', { name: /Build/ })).toBeDisabled();
     expect(panel).toHaveTextContent('Everyone runs on Fable 5.2. The Foreman moves to it with your next message.');
-    expect(panel.querySelector('.drawer-model-value')).toHaveTextContent('Fable 5.2');
+    expect(screen.getByRole('combobox', { name: /Foreman/ })).toHaveAttribute('data-value', FABLE);
     fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     expect(post.mock.calls[0][1].options).toMatchObject({ all_fable: true, models: { foreman: FABLE, build: FABLE, checks: FABLE } });
+  });
+
+  it('the options editor’s model fields are locked for a started job and open for a job not yet started', async () => {
+    const started = await openOptions({ started: true });
+    const panelOf = () => screen.getByRole('tabpanel', { name: 'Options' });
+    expect(panelOf().querySelector('.drawer-model-label')).toHaveTextContent('Foreman model:');
+    expect(panelOf().querySelector('.drawer-model')).toHaveAttribute('title', expect.stringContaining(FOREMAN_MODEL_NOTE));
+    expect(screen.queryByRole('combobox', { name: /Foreman/ })).toBeNull();
+    expect(screen.getByRole('checkbox', { name: 'Run the whole job on Fable 5.2' })).toBeDisabled();
+    // The crew's models are not the Foreman's: they stay open.
+    expect(screen.getByRole('combobox', { name: /Build/ })).toBeEnabled();
+    started.unmount();
+
+    await openOptions({ started: false });
+    expect(screen.getByRole('combobox', { name: /Foreman/ })).toBeEnabled();
+    expect(screen.getByRole('checkbox', { name: 'Run the whole job on Fable 5.2' })).toBeEnabled();
+    expect(screen.queryByText(FOREMAN_MODEL_NOTE)).toBeNull();
+  });
+
+  it('a job not yet started can have its Foreman model chosen here, and it is posted', async () => {
+    const { post } = await openOptions({ started: false });
+    pickOption(screen.getByRole('combobox', { name: /Foreman/ }), HAIKU);
+    fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1].options.models).toEqual({ foreman: HAIKU, build: OPUS, checks: OPUS });
   });
 
   it('turning the whole job on Fable off puts the build and checks back to the level’s', async () => {
@@ -368,7 +395,7 @@ describe('Job drawer · options', () => {
   });
 
   it('a job saved on Fable 5.1 opens on Fable 5.2', async () => {
-    await openOptions({ options: { ...L1, models: { foreman: 'claude-fable-5-1', build: 'claude-fable-5-1', checks: OPUS } } });
+    await openOptions({ started: true, options: { ...L1, models: { foreman: 'claude-fable-5-1', build: 'claude-fable-5-1', checks: OPUS } } });
     expect(screen.getByRole('combobox', { name: /Build/ })).toHaveAttribute('data-value', FABLE);
     expect(screen.getByRole('tabpanel', { name: 'Options' }).querySelector('.drawer-model-value')).toHaveTextContent('Fable 5.2');
   });

@@ -515,7 +515,7 @@ describe('GateCard', () => {
     expect(screen.getByText(/This is your reply to brief 2 from its card/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Send…' }));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send to the Foreman' })); });
-    expect(post).toHaveBeenLastCalledWith('/api/job/alpha/send', { kind: 'message', text, model: 'claude-opus-5-5', confirmNoTerminal: false, gateBrief: 2 });
+    expect(post).toHaveBeenLastCalledWith('/api/job/alpha/send', { kind: 'message', text, confirmNoTerminal: false, gateBrief: 2 });
     expect(localStorage.getItem(gateDraftKey('alpha'))).toBeNull();
     expect(localStorage.getItem(draftKey('alpha'))).toBeNull();
   });
@@ -603,7 +603,7 @@ describe('Composer and gate replies', () => {
     fireEvent.change(box, { target: { value: 'Something else.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send…' }));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send to the Foreman' })); });
-    expect(post).toHaveBeenCalledWith('/api/job/alpha/send', { kind: 'message', text: 'Something else.', model: 'claude-opus-5-5', confirmNoTerminal: false });
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/send', { kind: 'message', text: 'Something else.', confirmNoTerminal: false });
   });
 
   it('a gate reply in the box goes with its kind and brief', async () => {
@@ -613,7 +613,7 @@ describe('Composer and gate replies', () => {
     setup({ post, det: detail(null), composer: true });
     fireEvent.click(screen.getByRole('button', { name: 'Send…' }));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send to the Foreman' })); });
-    expect(post).toHaveBeenCalledWith('/api/job/alpha/send', { kind: 'approve', text: 'I approve. Go ahead.', model: 'claude-opus-5-5', confirmNoTerminal: false, gateBrief: 2 });
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/send', { kind: 'approve', text: 'I approve. Go ahead.', confirmNoTerminal: false, gateBrief: 2 });
   });
 
   it('a gate reply for a brief the Foreman moved on from is not sent: the memo goes, the text stays, and it says so', async () => {

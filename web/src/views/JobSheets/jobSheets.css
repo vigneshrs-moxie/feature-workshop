@@ -115,3 +115,7 @@
 @media (prefers-reduced-motion: reduce) {
   .from-search > summary, .history-row { transition: none; }
 }
+
+/* Change the Foreman model: what a restart does, as a plain list. */
+.sheet-list { margin: 0 0 var(--space-3); padding-left: var(--space-5); color: var(--text-2); font-size: var(--text-sm); line-height: var(--leading); }
+.sheet-list li + li { margin-top: var(--space-1); }

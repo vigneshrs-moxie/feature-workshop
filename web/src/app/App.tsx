@@ -18,6 +18,7 @@ import { jobBySlug } from '../state/reducer';
 import { createStore, useWorkshop, useWorkshopState, WorkshopContext, type Store } from '../state/store';
 import { JobDrawer } from '../views/JobDrawer/JobDrawer';
 import { CloseJobSheet } from '../views/JobSheets/CloseJobSheet';
+import { ChangeModelSheet } from '../job/ChangeModelSheet';
 import { KeysSheet } from '../views/JobSheets/KeysSheet';
 import { NewJobSheet } from '../views/JobSheets/NewJobSheet';
 import { SettingsView } from '../views/Settings/SettingsView';
@@ -156,6 +157,7 @@ function Sheets({ route }: { route: Route }) {
       )}
       {sheet?.kind === 'new-job' && <NewJobSheet onClose={ui.closeSheet} description={sheet.description} ticket={sheet.ticket} stack={sheet.stack} />}
       {sheet?.kind === 'close-job' && <CloseJobSheet slug={sheet.slug} worktree={sheet.worktree} onClose={ui.closeSheet} />}
+      {sheet?.kind === 'change-model' && <ChangeModelSheet slug={sheet.slug} onClose={ui.closeSheet} />}
       {sheet?.kind === 'keys' && <KeysSheet onClose={ui.closeSheet} />}
       {sheet?.kind === 'job-drawer' && <JobDrawer key={sheet.slug} slug={sheet.slug} job={jobBySlug(state, sheet.slug)} tab={sheet.tab} onClose={ui.closeSheet} />}
     </>

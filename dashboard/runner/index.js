@@ -37,6 +37,7 @@ import { renderMarkdown, indexIds } from '../lib/markdown.js';
 import * as git from '../lib/git.js';
 import { recentRepos, checkRepo, reposDoor, ticketRepo } from '../lib/repos.js';
 import { HttpError } from '../lib/http-guard.js';
+import { restartJob } from '../lib/restart.js';
 import { liveTerminals } from '../lib/live.js';
 import { readHookSessions } from '../lib/hook-events.js';
 import { classify, matchRule, POLICIES } from '../lib/policy.js';
@@ -847,7 +848,10 @@ export async function createRunner(config) {
     if (!holding && limits.isLimited() && body.despiteLimit !== true) throw new HttpError(409, limitMessage(), { code: 'limited' });
     if (drive.mode === 'terminal') throw new HttpError(409, 'This job’s Foreman was last used in your terminal.', { code: 'terminal', lastTerminalAt: drive.lastTerminalAt });
     if (drive.mode === 'terminal-open' && body.confirmNoTerminal !== true) throw new HttpError(409, 'Claude Code is open in this repository in a terminal. Make sure none of those windows is this job’s Foreman, then confirm.', { code: 'terminal-open', terminals: drive.terminals.length });
-    const model = MODELS.some((x) => x.id === currentModel(body.model)) ? currentModel(body.model) : currentModel(drive.model) ?? OPUS;
+    // The Foreman's model is fixed once the job has started (spec 1.5): a model in the request is
+    // ignored. Only a job with no Foreman session yet may still be given one.
+    const asked = drive.sessionId ? null : body.model;
+    const model = MODELS.some((x) => x.id === currentModel(asked)) ? currentModel(asked) : currentModel(drive.model) ?? OPUS;
     const cwd = drive.cwd ?? f.repoPath;
     if (!cwd) throw new HttpError(400, 'I don’t know which repository this job belongs to.');
     const fresh = drive.mode === 'none' || drive.mode === 'terminal-open';
@@ -1823,6 +1827,33 @@ export async function createRunner(config) {
       await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options, was: f.options?.level ?? null, overrode });
       cached = null;
       return { ok: true, options, summary: describeOptions(options), updated_at: updatedAt };
+    },
+
+    // POST /api/job/:slug/restart: the Foreman's model is fixed for a started job; another one starts
+    // the job again from step one (lib/restart.js). Nothing is deleted or pushed.
+    async restart(body) {
+      const f = await jobOf(body.slug);
+      if (!MODELS.some((x) => x.id === body.model)) throw new HttpError(400, 'That isn’t a model the Foreman can run on.');
+      const drive = await driveState(f);
+      if (drive.mode === 'running' || closing.has(f.dir)) throw new HttpError(409, 'Stop the reply first.');
+      // What would stop the new job from starting is checked before anything is moved.
+      if (limits.isLimited()) throw new HttpError(409, limitMessage(), { code: 'limited' });
+      const repoPath = f.repoPath ?? f.options?.repo ?? '';
+      const repo = await checkRepo(repoPath);
+      if (!repo.ok) throw new HttpError(400, repo.reason);
+      const job = {
+        slug: f.slug, dir: f.dir, title: f.options?.title ?? f.title, kind: f.kind === 'bug' ? 'bug' : 'feature', ticket: f.options?.ticket ?? null,
+        repoPath: repo.path, branch: f.branch ?? null, worktree: f.worktree ?? null, prs: f.prs, running: false,
+        options: f.options, archiveRoot: path.join(FEATURES_DIR, '.restarted'),
+      };
+      const out = await restartJob(job, {
+        model: body.model,
+        session: { read: (dir) => state.sessionFor(dir), clear: (dir) => state.clearSession(dir) },
+        start: async (startBody) => { cached = null; await limits.forget(f.dir); return HANDLERS.start(startBody); },
+      });
+      await state.audit({ action: 'restart', featureDir: f.dir, slug: f.slug, newSlug: out.slug, model: body.model, was: drive.model ?? null, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside });
+      cached = null;
+      return { ok: true, slug: out.slug, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside };
     },
 
     // POST /api/job/:slug/policy: one job's own permission setting; null clears it (the job follows your global setting again).

@@ -179,6 +179,8 @@ export default function jobRoutes({ runner, read, send, sendJson, needJob, wiref
       return command(res, { type: 'repo', slug, repoPath: str(body.repoPath, 1000), branch: str(body.branch, 200).trim() || null });
     }),
     // One job's own permission setting; null clears it (the job follows your global setting again).
+    // The Foreman's model is fixed for a started job; another one starts it again (lib/restart.js).
+    post(/^\/api\/job\/([^/]+)\/restart$/, async ({ res, m, body }) => command(res, { type: 'restart', slug: await needJob(m[1]), model: str(body.model, 100) })),
     post(/^\/api\/job\/([^/]+)\/policy$/, async ({ res, m, body }) => command(res, { type: 'policy', slug: await needJob(m[1]), policy: body.policy })),
     post(/^\/api\/job\/([^/]+)\/(close|reopen)$/, async ({ res, m, body }) => {
       const slug = await needJob(m[1]);

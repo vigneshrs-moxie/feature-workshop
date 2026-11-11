@@ -977,6 +977,8 @@ export interface JobDetail {
   dir?: string;
   /** Its own git worktree, when it has one (Mark done can remove it). */
   worktree?: string | null;
+  /** Pull request #1 to #3 as status.json has them. */
+  prs?: { number?: number; state?: string | null; url?: string | null }[] | null;
   /** The permission setting in force for this job, and its own one (null: it follows yours). */
   policy?: PolicyId;
   policyOverride?: PolicyId | null;

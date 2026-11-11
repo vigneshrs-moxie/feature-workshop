@@ -16,6 +16,7 @@ import { useWorkshop, useWorkshopState } from '../../state/store';
 import { Choice } from '../../components/Choice';
 import { Select } from '../../components/Select';
 import { Button } from '../../components/Button';
+import { Icon } from '../../components/Icon';
 import { BRAND } from '../../app/brand';
 
 export const OPTIONS_HINT = 'Options choose how much process this job gets, never what it may do without asking (that is the permission setting). A change applies from the next stage; a worker already running finishes first.';
@@ -50,8 +51,8 @@ export const ALWAYS_NOTES: Record<keyof Workflow, string> = {
   clarify: 'Clarify questions are set to Always on this job, so the Clarify stage runs: it can’t be skipped here.',
 };
 
-/** Under the Foreman's model, shown read only: options.models.foreman is used only when the job starts. */
-export const FOREMAN_MODEL_NOTE = 'Set when the job started; change it with the Foreman model menu under the message box.';
+/** The Foreman's model of a started job is locked: another one starts the job again (Change model… in the job menu). */
+export const FOREMAN_MODEL_NOTE = 'Fixed for this job. Change model… in the job menu starts the job again.';
 /** A save refused because the options changed elsewhere since the drawer loaded them. */
 export const OPTIONS_CHANGED = 'These options changed elsewhere since you opened them. Reload to see them (your edits will be lost) or keep editing.';
 
@@ -81,6 +82,8 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
   const [stamp, setStamp] = useState<string | null>(null);
   const [changedElsewhere, setChangedElsewhere] = useState(false);
   const [workflow, setWorkflow] = useState<Workflow>(NO_WORKFLOW);
+  // A job with a Foreman session has started: its Foreman model (and the whole-job-on-Fable switch, which sets it) is locked.
+  const [started, setStarted] = useState(false);
   const forceLoad = useRef(false);
 
   const dirty = !!form && !!saved && !sameOptions(form, saved);
@@ -103,6 +106,7 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
         setStamp(typeof at === 'string' ? at : null);
         setWorkflow({ wireframes: workflowChoice(detail?.options?.wireframes), clarify: workflowChoice(detail?.options?.clarify) });
         setChangedElsewhere(false);
+        setStarted(typeof detail?.drive?.sessionId === 'string' && detail.drive.sessionId !== '');
         setSaved(f);
         setForm(f);
         setError(null);
@@ -127,9 +131,9 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
   }
 
   const edit = (patch: Partial<OptionsForm>) => { setForm({ ...form, ...patch }); setError(null); setSummary(null); };
-  // The Foreman's model isn't edited here: whatever the level, the saved one is posted back unchanged
-  // (Fable when the whole job runs on it).
-  const keepForeman = (f: OptionsForm): OptionsForm => ({ ...f, models: { ...f.models, foreman: f.all_fable ? FABLE : saved.models.foreman } });
+  // A started job's Foreman model isn't edited here: whatever the level, the saved one is posted back
+  // unchanged (Fable when the whole job runs on it). A job not yet started keeps the one in the form.
+  const keepForeman = (f: OptionsForm): OptionsForm => ({ ...f, models: { ...f.models, foreman: f.all_fable ? FABLE : started ? saved.models.foreman : form.models.foreman } });
   // The whole job on Fable: every model is Fable; off again, the build and checks go back to the level's.
   const setAllFable = (on: boolean) => edit(keepForeman(on
     ? { ...form, all_fable: true, models: { foreman: FABLE, build: FABLE, checks: FABLE } }
@@ -264,18 +268,18 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
 
       <fieldset className="drawer-section" disabled={busy}>
         <legend className="drawer-legend" title="Which Claude model each part of the job runs on.">Models</legend>
-        <label className="check drawer-check" title={ALL_FABLE_HINT}>
-          <Choice type="checkbox" checked={form.all_fable} onChange={(e) => setAllFable(e.target.checked)} />
+        <label className="check drawer-check" title={started ? `${ALL_FABLE_HINT} ${FOREMAN_MODEL_NOTE}` : ALL_FABLE_HINT}>
+          <Choice type="checkbox" checked={form.all_fable} disabled={started} onChange={(e) => setAllFable(e.target.checked)} />
           <span>Run the whole job on Fable 5.2</span>
         </label>
         {form.all_fable && <p className="muted drawer-fine">{ALL_FABLE_NOTE}</p>}
         <div className="drawer-models">
           {MODEL_ROLES.map((role) => {
-            if (role === 'foreman') {
-              // Read only: used when the job started; the composer's model menu sets it for later sessions.
+            if (role === 'foreman' && started) {
+              // Locked: the job has started on this model; Change model… in the job menu starts it again.
               return (
                 <div key={role} className="drawer-model" title={`${ROLE_LABELS.foreman.hint} ${FOREMAN_MODEL_NOTE}`}>
-                  <span className="drawer-model-label">{ROLE_LABELS.foreman.label}</span>
+                  <span className="drawer-model-label"><Icon name="lock" size={12} /> Foreman model:</span>
                   <span className="drawer-model-value">{modelName(form.models.foreman, lists)}</span>
                   {!form.all_fable && <span className="muted drawer-model-note">{FOREMAN_MODEL_NOTE}</span>}
                 </div>
