@@ -39,8 +39,8 @@ export interface JobAuto {
   tag?: string | null;
   /** It has run on this job at some point (what makes What Auto decided show). */
   ran?: boolean;
-  /** Why it stopped and waits for you, or null. */
-  stopped?: string | null;
+  /** Why it stopped and waits for you ({ reason, rule, at } as the record keeps it), or null. */
+  stopped?: { reason?: string; rule?: string | null; at?: string } | string | null;
   step?: string | null;
   failures?: number;
   lastBrief?: string | null;

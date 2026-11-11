@@ -1755,7 +1755,7 @@ export async function createRunner(config) {
       // A reply is running when the driver has a run on the job: the same signal sendPlan refuses a second send on.
       const busy = Boolean(f) && isBusy({
         jobOpen: !f.closed, pr1Open: finishLineReached({ prs: f.prs, closed: f.closed }, null, 'pr1-open').reached,
-        replyRunning: Boolean(driver.activeRunFor({ featureDir: f.dir })), autoOn: f.auto?.on === true, autoStopped: f.auto?.stopped === true,
+        replyRunning: Boolean(driver.activeRunFor({ featureDir: f.dir })), autoOn: f.auto?.on === true, autoStopped: Boolean(f.auto?.stopped), // stopped is { reason, rule, at } or null
       });
       return { ticketsWithJobs, busy };
     },

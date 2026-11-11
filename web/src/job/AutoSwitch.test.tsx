@@ -78,8 +78,9 @@ describe('AutoSwitch', () => {
   });
 
   it('a stopped job shows the reason', () => {
-    show(job('alpha', 'needs-you', { level: 1, auto: { on: true, stopped: 'The plan touches the database.' } }));
-    expect(screen.getByText('Auto stopped: The plan touches the database.')).toBeInTheDocument();
+    // The record's own shape, as the laptop and the website send it: { reason, rule, at }.
+    show(job('alpha', 'needs-you', { level: 1, auto: { on: true, stopped: { reason: 'a database change needs you.', rule: 'database', at: '2026-11-11T08:00:00.000Z' } } }));
+    expect(screen.getByText('Auto stopped: a database change needs you.')).toBeInTheDocument();
     expect(screen.queryByText('Auto is on')).toBeNull();
   });
 

@@ -86,7 +86,9 @@ function HeaderSwitch({ job, onChange }: { job: Pick<Job, 'slug' | 'level' | 'su
     }
   }
 
-  const stopped = on && job.auto?.stopped ? job.auto.stopped : null;
+  // The record keeps { reason, rule, at }; older pages may have sent the sentence alone.
+  const stop = on ? job.auto?.stopped ?? null : null;
+  const stopped = !stop ? null : typeof stop === 'string' ? stop : typeof stop.reason === 'string' && stop.reason ? stop.reason : 'it needs you';
   const tag = on && job.auto?.by === 'tag' && job.auto.tag ? job.auto.tag : null;
   return (
     <div className="auto-switch is-inline">
