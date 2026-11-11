@@ -39,7 +39,8 @@ describe('Change model sheet', () => {
     expect(screen.getByText(/Nothing is deleted and nothing is pushed/)).toBeInTheDocument();
     // Files git ignores, what is not carried over, and what happens to a waiting reply, said as the code does them.
     expect(screen.getByText('Files git ignores, such as .env and node_modules, stay in that old folder too. They are not in the job\'s new worktree.')).toBeInTheDocument();
-    expect(screen.getByText(/except Auto, which starts off again\. The job's own permission setting is not kept either\./)).toBeInTheDocument();
+    expect(screen.getByText('The job\'s options are kept (level, screens, reviewers, models and the rest). The job\'s own permission setting is not kept.')).toBeInTheDocument();
+    expect(screen.getByText('A restart switches Auto off. Turn it on again on the new job if you want it.')).toBeInTheDocument();
     expect(screen.getByText('A reply waiting to be sent, or a carry-on waiting for the usage limit, is not sent. A copy goes in the archive folder.')).toBeInTheDocument();
     expect(screen.getByText(/If something goes wrong before the new job starts, everything is put back/)).toBeInTheDocument();
     // Before anything moves, Starbase asks GitHub; and a link to a past conversation is not carried over.
@@ -59,6 +60,34 @@ describe('Change model sheet', () => {
     expect(await screen.findByText('/f/.restarted/alpha-2026-11-10')).toBeInTheDocument();
     expect(screen.getByText('backup/feat/alpha-2026-11-10')).toBeInTheDocument();
     expect(screen.getByText('/w/alpha.2026-11-10')).toBeInTheDocument();
+  });
+
+  // m6: the design's lines first, the rest under one fold; Auto in the ruling's words.
+  it('shows the design’s four lines first and folds everything else under one fold', async () => {
+    setup();
+    await screen.findByRole('dialog', { name: 'Change the Foreman model' });
+    const first = [...document.querySelectorAll('.change-model-first li')].map((li) => li.textContent);
+    expect(first).toEqual([
+      'The job starts again from step one on the new model.',
+      'Its spec, plan, briefs and decisions so far leave the job. They are kept in an archive folder.',
+      'Its code so far leaves the job. The commits are kept on a backup branch, and the job gets a fresh branch.',
+      'The time and usage already spent are not recovered.',
+    ]);
+    const folds = document.querySelectorAll('.change-model-more');
+    expect(folds).toHaveLength(1);
+    expect(folds[0].tagName).toBe('DETAILS');
+    expect(folds[0]).not.toHaveAttribute('open');
+    expect(folds[0]).toHaveTextContent('Nothing is deleted and nothing is pushed.');
+    expect(folds[0]).toHaveTextContent('A restart switches Auto off. Turn it on again on the new job if you want it.');
+    expect(screen.queryByText(/starts off again/)).toBeNull();
+  });
+
+  it('on a job with Auto on, the Auto sentence is with the first lines, not folded', async () => {
+    setup({ detail: { ...DETAIL, auto: { on: true } } as JobDetail });
+    await screen.findByRole('dialog', { name: 'Change the Foreman model' });
+    const line = screen.getByText('A restart switches Auto off. Turn it on again on the new job if you want it.');
+    expect(line.closest('.change-model-more')).toBeNull();
+    expect(screen.getAllByText('A restart switches Auto off. Turn it on again on the new job if you want it.')).toHaveLength(1);
   });
 
   // m5: the focus is inside the sheet once it has loaded, not left on the page behind.

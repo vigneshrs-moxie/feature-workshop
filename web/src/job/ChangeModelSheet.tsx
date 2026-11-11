@@ -10,21 +10,27 @@ import { Button } from '../components/Button';
 import { Field, TextInput } from '../components/Field';
 import { Select } from '../components/Select';
 import { Sheet } from '../components/Sheet';
+import { FoldShow } from '../components/page/Page';
 import { isActiveRun } from '../panes/Foreman/thread';
 import { useWorkshop, useWorkshopState } from '../state/store';
 import '../views/JobSheets/jobSheets.css';
 
 export const PR_REASON = 'This job has an open pull request, so its model can\'t change: reviewed work would be thrown away. Close the pull request, or start a new job.';
+/** The design's lines (feedback-round design, Change model), shown first. */
 export const CONSEQUENCES = [
   'The job starts again from step one on the new model.',
   'Its spec, plan, briefs and decisions so far leave the job. They are kept in an archive folder.',
   'Its code so far leaves the job. The commits are kept on a backup branch, and the job gets a fresh branch.',
   'The time and usage already spent are not recovered.',
-  // What else a restart moves, so nothing is lost without being said.
+];
+/** The ruling's sentence for Auto: with the first lines when the job has Auto on, else in the fold. */
+export const AUTO_RESTART = 'A restart switches Auto off. Turn it on again on the new job if you want it.';
+/** What else a restart moves, so nothing is lost without being said: under one fold. */
+export const MORE_CONSEQUENCES = [
   'Changes not yet committed stay in the old worktree folder, which is moved aside.',
   'Files git ignores, such as .env and node_modules, stay in that old folder too. They are not in the job\'s new worktree.',
   'The Foreman\'s conversation so far is not carried over; a copy of its session record goes in the archive folder.',
-  'The job\'s options are kept (level, screens, reviewers, models and the rest), except Auto, which starts off again. The job\'s own permission setting is not kept either.',
+  'The job\'s options are kept (level, screens, reviewers, models and the rest). The job\'s own permission setting is not kept.',
   'A reply waiting to be sent, or a carry-on waiting for the usage limit, is not sent. A copy goes in the archive folder.',
   'A link to a past conversation the job was started from is not carried over.',
   `${BRAND.name} first checks GitHub, and won't restart a job whose branch is already there.`,
@@ -68,6 +74,7 @@ export function ChangeModelSheet({ slug, onClose }: { slug: string; onClose: () 
   }, [api, slug]);
 
   const loaded = detail !== null;
+  const autoOn = detail?.auto?.on === true;
   useEffect(() => {
     if (!loaded) return;
     (nameBox.current ?? closeBox.current?.querySelector<HTMLButtonElement>('button'))?.focus();
@@ -121,7 +128,14 @@ export function ChangeModelSheet({ slug, onClose }: { slug: string; onClose: () 
       )}
       {detail && !hasPullRequest(detail.prs) && (
         <form onSubmit={(e) => { e.preventDefault(); void restart(); }}>
-          <ul className="sheet-list">{CONSEQUENCES.map((c) => <li key={c}>{c}</li>)}</ul>
+          <ul className="sheet-list change-model-first">{CONSEQUENCES.map((c) => <li key={c}>{c}</li>)}</ul>
+          {autoOn && <p className="sheet-lede">{AUTO_RESTART}</p>}
+          <details className="fold change-model-more">
+            <summary className="fold-head" title="Everything else a restart moves or keeps, and what it checks first.">
+              <span className="fold-name">What else moves, and what is kept</span><FoldShow />
+            </summary>
+            <ul className="sheet-list fold-body">{[...(autoOn ? [] : [AUTO_RESTART]), ...MORE_CONSEQUENCES].map((c) => <li key={c}>{c}</li>)}</ul>
+          </details>
           <Field label="Foreman model">
             <Select value={target ?? ''} onChange={setPicked} disabled={busy || models.length === 0} options={models.map((m) => ({ value: m.id, label: m.id === current ? `${m.label} (now)` : m.label }))} />
           </Field>
