@@ -77,10 +77,12 @@ describe('the Job page', () => {
     expect(within(page).getByRole('button', { name: 'Job menu' })).toBeInTheDocument();
   });
 
-  it('has Copy decisions in the job’s details, beside the ticket number', () => {
+  // m4: one Copy decisions in the head (and the Decisions tab's); none repeated in Details.
+  it('has no Copy decisions in the job’s details: the head has the one', () => {
     setup();
-    const inDetails = screen.getAllByRole('button', { name: 'Copy decisions' }).filter((b) => b.closest('.job-details'));
-    expect(inDetails).toHaveLength(1);
+    const all = screen.getAllByRole('button', { name: 'Copy decisions' });
+    expect(all.filter((b) => b.closest('.job-details'))).toHaveLength(0);
+    expect(all).toHaveLength(1);
   });
   it('says a job Auto start began was started by Auto, with the tag; a job you started says nothing', async () => {
     setup({ auto: { on: true, tag: 'nightly' } });
