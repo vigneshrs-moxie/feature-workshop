@@ -86,6 +86,10 @@ import path from 'node:path';
 import { describePermission } from './permissions.js';
 import { draftRule } from './rules.js';
 import { describeTool } from './session-log.js';
+import { fixedStop } from './auto-rules.js';
+
+// Every tool but Bash (a matcher is a regular expression over the tool's name).
+const NOT_BASH_MATCHER = '^(?!Bash$).+$';
 import { hardLine, hardLineHook, orgPushCheck } from './hard-lines.js';
 import * as jobLock from './lock.js';
 import { validate as validateStatus } from './status-json.js';
@@ -153,7 +157,7 @@ export class Driver extends EventEmitter {
    * queryFn: the SDK's query() (injectable for tests).
    * state: State instance. projectsDir: where Claude Code keeps session logs.
    */
-  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, settingsFor = null, envFor = null, locks = jobLock, statusWatch = watchStatusFile, statusRetries = STATUS_RETRIES, ticketKeyFor = ticketKeyOf, feedbackSession = null, ownedFor = sectionOwnership }) {
+  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, autoCtx = null, settingsFor = null, envFor = null, locks = jobLock, statusWatch = watchStatusFile, statusRetries = STATUS_RETRIES, ticketKeyFor = ticketKeyOf, feedbackSession = null, ownedFor = sectionOwnership }) {
     super();
     // Stacks: ownedFor(featureDir) -> { section, owns, worktree, jobDir } for a section's job, else null.
     this.ownedFor = ownedFor;
@@ -184,6 +188,7 @@ export class Driver extends EventEmitter {
     this.modeFor = modeFor;
     // cover(run, toolName, input) -> { reason } | null: an 'ask' hard line your go-ahead covers (auto mode).
     this.cover = cover;
+    this.autoCtx = autoCtx;
     // settingsFor(run) -> Claude Code settings for the session (the SDK's `settings`), or null.
     this.settingsFor = settingsFor;
     // The session's environment: envFor(run) -> the whole env for query() (null: Claude Code's default).
@@ -334,6 +339,7 @@ export class Driver extends EventEmitter {
       }
     }
     run.requestedMode = sdkModeFor(run.mode);
+    const hook = hardLineHook((verdict, input) => this.#onHardLine(run, verdict, input), { check: run.orgPushCheck, cwd: run.cwd, cover: this.cover ? (tool, input) => this.cover(run, tool, input) : null, autoStop: (tool, input, verdict) => this.#autoStop(run, tool, input, verdict) });
     const options = {
       cwd: run.cwd,
       // 'default' (every risky action reaches canUseTool) or, when you chose it, 'auto' (Claude
@@ -341,7 +347,11 @@ export class Driver extends EventEmitter {
       permissionMode: run.requestedMode,
       canUseTool: (toolName, input, opts) => this.#ask(run, toolName, input, opts),
       // The hard lines, in every mode, before Claude Code's own permission check (lib/hard-lines.js).
-      hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [hardLineHook((verdict, input) => this.#onHardLine(run, verdict, input), { check: run.orgPushCheck, cwd: run.cwd, cover: this.cover ? (tool, input) => this.cover(run, tool, input) : null })] }] },
+      // Two entries, one hook. Bash is as it always was. The second sees every other tool (the edit tools,
+      // MCP tools, new built-ins): a job whose Auto is off gets {} from it except the starbase-state
+      // refusal on the edit tools; a job whose Auto is on has every call checked against the fixed stop
+      // list (lib/auto-rules.js, through autoStop).
+      hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [hook] }, { matcher: NOT_BASH_MATCHER, hooks: [hook] }] },
       abortController: run.abort,
       stderr: (data) => { run.stderr.push(String(data)); if (run.stderr.length > 60) run.stderr.shift(); },
       additionalDirectories: run.additionalDirectories,
@@ -941,6 +951,16 @@ export class Driver extends EventEmitter {
 
   // The hard-line hook met one (lib/hard-lines.js). Refusals are recorded here, since Claude Code
   // never asks about them; 'ask' ones become an ordinary card through canUseTool.
+  // Auto's fixed stop list for one call: null unless the job's record says Auto is on (the record is in
+  // Starbase's own sessions.json, which the Foreman can't write). When it is on, autoCtx(run) gives the
+  // job's folders and remotes; without it an Auto job's call asks (the hook turns the throw into an ask).
+  async #autoStop(run, toolName, input, hard = null) {
+    const record = await this.state.sessionFor?.(run.featureDir);
+    if (record?.auto?.on !== true) return null;
+    if (typeof this.autoCtx !== 'function') throw new Error('Auto is on but there is no way to find the job’s folders.');
+    return fixedStop({ kind: 'card', toolName, input, hardLine: hard, blockedPath: null }, await this.autoCtx(run));
+  }
+
   async #onHardLine(run, verdict, input) {
     if (verdict.decision !== 'deny') return;
     await this.#recordRefusal(run, input?.tool_name ?? 'Bash', input?.tool_input ?? {}, verdict, input?.tool_use_id, input?.agent_id);
@@ -1060,12 +1080,15 @@ export class Driver extends EventEmitter {
     }
     // Auto mode: a hard line your own go-ahead already covers (lib/hard-lines.js goAheadCovers).
     // Never a saved rule or the routine list: those don't apply to hard lines.
-    if (hard && this.cover) {
+    // An Auto job's fixed stop (the hook asked for this card): nothing steps in front of it.
+    let autoStopped = false;
+    try { autoStopped = Boolean(await this.#autoStop(run, toolName, input, hard)); } catch { autoStopped = true; }
+    if (hard && this.cover && !autoStopped) {
       let covered = null;
       try { covered = await this.cover(run, toolName, input); } catch { covered = null; }
       if (covered) return this.#autoAllow(run, toolName, input, opts, { reason: covered.reason });
     }
-    if (this.policy && toolName !== 'AskUserQuestion' && !hard) {
+    if (this.policy && toolName !== 'AskUserQuestion' && !hard && !autoStopped) {
       let verdict = null;
       try { verdict = await this.policy(run, toolName, input, opts); } catch { verdict = null; }
       if (verdict?.auto) return this.#autoAllow(run, toolName, input, opts, verdict);

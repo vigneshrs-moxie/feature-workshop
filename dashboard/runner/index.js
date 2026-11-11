@@ -66,7 +66,9 @@ import { DOC_MAX_BYTES, DocError, describeDoc, docVersion, jsonHtml, listJobDocs
 import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, hexCommit, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from '../lib/play.js';
 import { parseStatusJson } from '../lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from '../lib/auto-env.js';
-import { goAheadCovers } from '../lib/hard-lines.js';
+import { execFileSync } from 'node:child_process';
+import { goAheadCovers, setStateDir } from '../lib/hard-lines.js';
+import { stackRules } from '../lib/profile.js';
 import { FlowWatch, gatherRepo } from '../lib/flow.js';
 import { noticeBody, Notifier, validateNotifyPatch } from '../lib/notify.js';
 import { Integrator, IntegrateError } from '../lib/integrate.js';
@@ -152,6 +154,7 @@ export async function createRunner(config) {
 
   const sessionIndex = new SessionIndex(PROJECTS_DIR);
   const state = new State(stateDir);
+  setStateDir(state.dir); // jobs may not write here (the starbase-state hard line)
   // Your "Always allow" rules (rules.json next to the dashboard's other state; see lib/rules.js).
   const rules = new RuleStore(state.dir);
   const HOOK_SCRIPT = path.join(HERE, 'hooks', 'record.mjs');
@@ -165,7 +168,7 @@ export async function createRunner(config) {
     : (await import('@anthropic-ai/claude-agent-sdk')).query);
   const driver = new Driver({
     queryFn, state, projectsDir: PROJECTS_DIR, cliPath: claudePath,
-    policy: policyFor, modeFor: (run) => state.policyFor(run.featureDir), cover: goAheadFor, settingsFor: sessionSettings,
+    policy: policyFor, modeFor: (run) => state.policyFor(run.featureDir), cover: goAheadFor, autoCtx: autoCtxFor, settingsFor: sessionSettings,
     // The Orbit token as ORBIT_FEEDBACK_TOKEN, so the Foreman's MCP entry has it (never an argument).
     envFor: async () => ({ ...process.env, ...(orbitStoreReady ? await sessionEnv(orbitStoreReady) : {}) }),
   });
@@ -239,6 +242,25 @@ export async function createRunner(config) {
   async function goAheadFor(run, toolName, input) {
     const { f, worktrees } = await jobContext(run);
     return goAheadCovers(toolName, input, { mode: await state.policyFor(run.featureDir), stage: f?.stage ?? null, worktrees, featureDir: run.featureDir, cwd: run.cwd });
+  }
+
+  // What Auto's fixed stop list (lib/auto-rules.js) needs to know about a job: its folders, its fork
+  // remote and where a remote pushes (asked of git in the job's folder, as orgPushCheck does).
+  async function autoCtxFor(run) {
+    const { f, repo, worktrees, specDirs } = await jobContext(run);
+    const hit = repo && local.registry ? await local.registry.profileFor(repo).catch(() => null) : null;
+    const remoteUrl = (name, dir) => {
+      const cwd = dir || run.cwd;
+      try {
+        let remote = name;
+        if (!remote) {
+          const push = execFileSync('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{push}'], { cwd, timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+          remote = push.split('/')[0] || 'origin';
+        }
+        return execFileSync('git', ['remote', 'get-url', '--push', remote], { cwd, timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || null;
+      } catch { return null; }
+    };
+    return { worktrees, featureDir: run.featureDir, specDirs, cwd: run.cwd, forkRemote: stackRules(hit?.ok ? hit.profile : null).fork, remoteUrl, branches: [f?.branch].filter(Boolean), stateDir: state.dir };
   }
 
   // Each repo's remotes, asked of git at most once a minute (they rarely change; every reply needs them).
