@@ -3546,3 +3546,108 @@ test('N5: "the commit is on the org\'s main" asks git about the org remote\'s ow
     assert.equal(ctx.orgShas[job], false);
   } finally { await w.stop(); }
 });
+
+// ---------- A branch Starbase only guessed (lib/locate.js branchGuessed): nothing that decides for Auto rests on it ----------
+
+// The job's workflow-status.md only mentions another branch (a parent a stacked job names): no Repository field, so a guess.
+const mentionBranch = (w, branch) => fs.writeFile(path.join(w.dir, 'workflow-status.md'), `# Visit audit\n\nStacked on the parent branch \`${branch}\` for now.\n`);
+const prOpenOnMap = (w) => w.until(async () => ((await w.runner.local.refreshFlow()).repos ?? []).some((r) => r.lanes.some((l) => l.slug === w.slug && l.pr1?.state === 'open')), 'the map to show PR #1');
+
+test('a guessed branch whose PR #1 is open on the flow map does not finish Auto', { timeout: 40_000 }, async () => {
+  const w = await finishWorld();
+  try {
+    await mentionBranch(w, 'feature/other-thing');
+    // The demo's map opens PR #1 for a job at the pr1 stage, on the branch the job is given; status.json names no PR.
+    await w.writeStatus(status(1, { stage: 'pr1', stage_state: 'working', waiting_for: null, repo: undefined }));
+    await new Promise((r) => setTimeout(r, 1600));
+    const job = await w.runner.read.job(w.slug);
+    assert.deepEqual({ branch: job.branch, guessed: job.locate.branchGuessed }, { branch: 'feature/other-thing', guessed: true });
+    await prOpenOnMap(w);
+    await w.pass();
+    const rec = await w.record();
+    assert.equal(rec.on, true, 'Auto stays on');
+    assert.equal(rec.finished ?? null, null);
+    assert.equal((await w.autoLines('finished')).length, 0);
+  } finally { await w.stop(); }
+});
+
+test('the same job with the branch in its status.json and PR #1 open on the flow map finishes Auto, as before', { timeout: 40_000 }, async () => {
+  const w = await finishWorld();
+  try {
+    await mentionBranch(w, 'feature/other-thing');
+    await w.writeStatus(status(1, { stage: 'pr1', stage_state: 'working', waiting_for: null, repo: undefined, branch: 'feature/other-thing' }));
+    await new Promise((r) => setTimeout(r, 1600));
+    assert.equal((await w.runner.read.job(w.slug)).locate.branchGuessed, false);
+    await prOpenOnMap(w);
+    await w.pass();
+    const rec = await w.record();
+    assert.equal(rec.on, false);
+    assert.equal(typeof rec.finished, 'string');
+    assert.equal((await w.autoLines('finished')).length, 1);
+  } finally { await w.stop(); }
+});
+
+test('the level rules never read a guessed branch\'s changed files: the job page keeps the description\'s level and Auto does not stop for them', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    // Another job's branch, in its own worktree, adds a migration; this job's workflow-status.md only mentions it.
+    const base = w.git('rev-parse', 'HEAD').toString().trim();
+    const wt = path.join(w.root, 'other-thing');
+    w.git('worktree', 'add', '-q', '-b', 'feature/other-thing', wt);
+    const g = (...a) => execFileSync('git', ['-C', wt, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...a], { stdio: 'pipe' });
+    await fs.mkdir(path.join(wt, 'db', 'migrations'), { recursive: true });
+    await fs.writeFile(path.join(wt, 'db', 'migrations', '001_visits.sql'), 'alter table visits add column x int;\n');
+    g('add', '.'); g('commit', '-q', '-m', 'other job');
+    await mentionBranch(w, 'feature/other-thing');
+    await w.writeStatus(status(1, { base_sha: base }));
+    await new Promise((r) => setTimeout(r, 1600));
+    const job = await w.runner.read.job(w.slug);
+    assert.deepEqual({ worktree: job.worktree, guessed: job.locate.branchGuessed }, { worktree: wt, guessed: true }, 'the guess is still shown');
+    assert.equal(job.rulesLevel.fromDiff, false, 'not from the guessed branch\'s files');
+    assert.equal(job.rulesLevel.changedFiles, null);
+    // "Choose the level for me" does not raise the level from the guessed branch's diff either.
+    await w.runner.handle({ type: 'settings', workflow: { autoLevel: true } }, { from: 'local' });
+    await w.runner.auto.checkLevels();
+    assert.equal((await w.ownOptions()).level, 1, 'the level holds');
+    await w.pass();
+    assert.notEqual((await w.record()).stopped?.rule, 'database', 'the other job\'s migration does not stop this one');
+    assert.equal((await w.record()).on, true);
+  } finally { await w.stop(); }
+});
+
+// Another job's branch, checked out clean in its own worktree (pushed, when asked); this job's workflow-status.md only mentions it.
+async function guessedOther(w, { push = false } = {}) {
+  const wt = path.join(w.root, 'other-thing');
+  w.git('worktree', 'add', '-q', '-b', 'feature/other-thing', wt);
+  if (push) {
+    const bare = path.join(w.root, 'fork.git');
+    execFileSync('git', ['init', '-q', '--bare', bare], { stdio: 'pipe' });
+    w.git('remote', 'add', 'origin', bare);
+    w.git('push', '-q', 'origin', 'feature/other-thing');
+  }
+  await mentionBranch(w, 'feature/other-thing');
+  await new Promise((r) => setTimeout(r, 1600));
+  const job = await w.runner.read.job(w.slug);
+  assert.deepEqual({ worktree: job.worktree, guessed: job.locate.branchGuessed }, { worktree: wt, guessed: true });
+  return wt;
+}
+
+test('marking a job done with its worktree removed never removes the worktree of a branch Starbase only guessed', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null, jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    const wt = await guessedOther(w, { push: true }); // pushed and clean: the worktree check alone would let it go
+    await assert.rejects(w.runner.handle({ type: 'close', slug: w.slug, as: 'done', removeWorktree: true }, { from: 'local' }), (err) => err.status === 400 && /no worktree of its own/.test(err.message));
+    assert.ok(fsSync.existsSync(wt), 'the other job\'s worktree is still there');
+  } finally { await w.stop(); }
+});
+
+test('starting a job again never moves aside the worktree or renames the branch Starbase only guessed', { timeout: 60_000 }, async () => {
+  const w = await restartedWorld({ auto: null, jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    const wt = await guessedOther(w);
+    const res = await restartIt(w);
+    assert.deepEqual({ aside: res.worktreeAside, backup: res.backupBranch }, { aside: null, backup: null });
+    assert.ok(fsSync.existsSync(wt), 'the other job\'s worktree is where it was');
+    assert.match(w.git('branch', '--list', 'feature/other-thing').toString(), /feature\/other-thing/, 'its branch keeps its name');
+  } finally { await w.stop(); }
+});
