@@ -18,6 +18,7 @@ const GOOD = {
   'take-over': { slug: 'sample-job' },
   'fetch-diff': { slug: 'sample-job', commit: 'abc1234' },
   'stack-merge': { slug: 'sample-stack', section: 'part-1' },
+  auto: { slug: 'sample-job', on: true },
   steer: { runId: 'run-1', text: 'Leave the README alone.' },
   resume: { slug: 'sample-job', via: 'cli' },
   close: { slug: 'sample-job', as: 'dropped', note: 'Not needed now.', removeWorktree: true },
@@ -36,7 +37,7 @@ const GOOD = {
 };
 
 test('the two lists are exactly the plan’s, closed and frozen', () => {
-  assert.deepEqual(Object.keys(REMOTE_COMMANDS).sort(), ['allow', 'approve', 'deny', 'fetch-diff', 'pause', 'reply', 'send-back', 'stack-merge', 'start', 'stop', 'take-over']);
+  assert.deepEqual(Object.keys(REMOTE_COMMANDS).sort(), ['allow', 'approve', 'auto', 'deny', 'fetch-diff', 'pause', 'reply', 'send-back', 'stack-merge', 'start', 'stop', 'take-over']);
   assert.deepEqual(Object.keys(LOCAL_COMMANDS).sort(), ['close', 'notes', 'nudge', 'options', 'policy', 'prototype', 'reopen', 'repo', 'restart', 'resume', 'rules', 'settings', 'steer', 'try-it', 'usage-resume']);
   assert.ok(Object.isFrozen(REMOTE_COMMANDS) && Object.isFrozen(LOCAL_COMMANDS));
   assert.ok(Object.values(REMOTE_COMMANDS).every(Object.isFrozen));
@@ -104,6 +105,15 @@ test('an unknown type, a local command from the site, an extra field and a wrong
   refused({ type: 'rules', action: 'replace' }, 'local', /“add” or “remove”/);
 });
 
+test('the Auto switch (Auto mode): a job and on or off, both needed; the protocol moved to 4', () => {
+  assert.equal(PROTOCOL_VERSION, 5);
+  assert.equal(parseCommand({ type: 'auto', slug: 'sample-job', on: false }, { from: 'site' }).ok, true);
+  assert.match(parseCommand({ type: 'auto', slug: 'sample-job' }, { from: 'site' }).error, /needs “on”/);
+  assert.match(parseCommand({ type: 'auto', on: true }, { from: 'site' }).error, /needs “slug”/);
+  assert.match(parseCommand({ type: 'auto', slug: 'sample-job', on: 'yes' }, { from: 'site' }).error, /true or false/);
+  assert.match(parseCommand({ type: 'auto', slug: 'sample-job', on: true, by: 'tag' }, { from: 'site' }).error, /doesn’t take “by”/);
+});
+
 test('makeEvent: known types only; never a diff, patch, environment, token or source; an orbfb_ token hidden', () => {
   for (const type of ['status', 'brief', 'document', 'gate', 'permission', 'evidence', 'cost', 'branch', 'pr', 'lock', 'heartbeat', 'run', 'steer']) assert.ok(EVENT_TYPES.includes(type), type);
   assert.ok(Object.isFrozen(EVENT_TYPES));
@@ -133,7 +143,7 @@ test('makeEvent: known types only; never a diff, patch, environment, token or so
 });
 
 test('the hosted site’s events (packet 2A): hello and job-list, checked like every other', () => {
-  assert.equal(PROTOCOL_VERSION, 4);
+  assert.equal(PROTOCOL_VERSION, 5);
   for (const type of ['hello', 'job-list']) assert.ok(EVENT_TYPES.includes(type), type);
   const hello = makeEvent('hello', { name: 'Test Laptop', os: 'macOS', version: '0.1.0', protocol: PROTOCOL_VERSION });
   assert.equal(hello.ok, true);

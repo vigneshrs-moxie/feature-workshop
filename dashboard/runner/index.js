@@ -48,7 +48,7 @@ import { PlanUsage } from '../lib/plan-usage.js';
 import { LocalRunner } from '../lib/local.js';
 import { History, historyMarkdown } from '../lib/history.js';
 import { removeWorktree, checkWorktree } from '../lib/close.js';
-import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, FABLE, currentModel, FOREMAN_MODEL_IDS, MODEL_IDS, MODEL_CHOICES, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, describeOptions, foremanModel, levelsForClient, optionsAtLevel, isLevel, normalizeTicket, ticketSlug, ticketBranch, startFromTicket } from '../lib/options.js';
+import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, FABLE, currentModel, FOREMAN_MODEL_IDS, MODEL_IDS, MODEL_CHOICES, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, writeAutoOption, describeOptions, foremanModel, levelsForClient, optionsAtLevel, isLevel, normalizeTicket, ticketSlug, ticketBranch, startFromTicket } from '../lib/options.js';
 import { groupCards, laneFor } from '../lib/snapshot.js';
 import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from '../lib/finish.js';
 import { NUDGE_IDS, nudgesFor } from '../lib/nudges.js';
@@ -58,6 +58,7 @@ import { typicalRuns } from '../lib/run-typical.js';
 import { proofStamp } from '../lib/proof.js';
 import { suggestLevel, changedPaths, diffSummary } from '../lib/levels.js';
 import { checkDiff, chooseLevel } from '../lib/auto-level.js';
+import { autoAllowed, autoCardView, autoOption, autoRecord } from '../lib/auto.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs, isGateDecision } from '../lib/gate.js';
 import { composeReply, cleanChips } from '../lib/compose.js';
 import { skillChecker } from '../lib/skill-check.js';
@@ -66,7 +67,9 @@ import { DOC_MAX_BYTES, DocError, describeDoc, docVersion, jsonHtml, listJobDocs
 import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, hexCommit, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from '../lib/play.js';
 import { parseStatusJson } from '../lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from '../lib/auto-env.js';
-import { goAheadCovers } from '../lib/hard-lines.js';
+import { execFileSync } from 'node:child_process';
+import { goAheadCovers, setStateDir } from '../lib/hard-lines.js';
+import { stackRules } from '../lib/profile.js';
 import { FlowWatch, gatherRepo } from '../lib/flow.js';
 import { noticeBody, Notifier, validateNotifyPatch } from '../lib/notify.js';
 import { Integrator, IntegrateError } from '../lib/integrate.js';
@@ -155,15 +158,21 @@ export async function createRunner(config) {
 
   const sessionIndex = new SessionIndex(PROJECTS_DIR);
   const state = new State(stateDir);
+  setStateDir(state.dir); // jobs may not write here (the starbase-state hard line)
   // Your "Always allow" rules (rules.json next to the dashboard's other state; see lib/rules.js).
   const rules = new RuleStore(state.dir);
   const HOOK_SCRIPT = path.join(HERE, 'hooks', 'record.mjs');
   const queryFn = config.queryFn ?? (DEMO
     ? (await import('../demo/fake-query.js')).makeFakeQuery({ featuresDir: FEATURES_DIR })
     : (await import('@anthropic-ai/claude-agent-sdk')).query);
+  // The Approver's sessions (lib/approver.js askApprover), apart from the Foreman's. The demo never
+  // calls a model: until its stand-in exists, a demo Approver ends with an error.
+  const approverQuery = config.approverQuery ?? (DEMO
+    ? () => { throw new Error('The demo has no Approver yet.'); }
+    : (await import('@anthropic-ai/claude-agent-sdk')).query);
   const driver = new Driver({
     queryFn, state, projectsDir: PROJECTS_DIR, cliPath: claudePath,
-    policy: policyFor, modeFor: (run) => state.policyFor(run.featureDir), cover: goAheadFor, settingsFor: sessionSettings,
+    policy: policyFor, modeFor: (run) => state.policyFor(run.featureDir), cover: goAheadFor, autoCtx: autoCtxFor, settingsFor: sessionSettings,
     // The Orbit token as ORBIT_FEEDBACK_TOKEN, so the Foreman's MCP entry has it (never an argument).
     envFor: async () => ({ ...process.env, ...(orbitStoreReady ? await sessionEnv(orbitStoreReady) : {}) }),
   });
@@ -242,6 +251,25 @@ export async function createRunner(config) {
     return goAheadCovers(toolName, input, { mode: await state.policyFor(run.featureDir), stage: f?.stage ?? null, worktrees, featureDir: run.featureDir, cwd: run.cwd });
   }
 
+  // What Auto's fixed stop list (lib/auto-rules.js) needs to know about a job: its folders, its fork
+  // remote and where a remote pushes (asked of git in the job's folder, as orgPushCheck does).
+  async function autoCtxFor(run) {
+    const { f, repo, worktrees, specDirs } = await jobContext(run);
+    const hit = repo && local.registry ? await local.registry.profileFor(repo).catch(() => null) : null;
+    const remoteUrl = (name, dir) => {
+      const cwd = dir || run.cwd;
+      try {
+        let remote = name;
+        if (!remote) {
+          const push = execFileSync('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{push}'], { cwd, timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+          remote = push.split('/')[0] || 'origin';
+        }
+        return execFileSync('git', ['remote', 'get-url', '--push', remote], { cwd, timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || null;
+      } catch { return null; }
+    };
+    return { worktrees, featureDir: run.featureDir, specDirs, cwd: run.cwd, forkRemote: stackRules(hit?.ok ? hit.profile : null).fork, remoteUrl, branches: [f?.branch].filter(Boolean), stateDir: state.dir };
+  }
+
   // Each repo's remotes, asked of git at most once a minute (they rarely change; every reply needs them).
   const remotesCache = new Map();
   function cachedRemotes(repo) {
@@ -303,6 +331,59 @@ export async function createRunner(config) {
     return knownRepos.list;
   }
 
+  // The sessions record as the last job list read it (the starting cards' Auto).
+  let sessionsNow = {};
+
+  // ---------- Auto mode's switch (lib/auto.js) ----------
+  // The sessions record says whether a job is in Auto; options.json's auto and auto_since only
+  // mirror it, for the skills. Every pass over the jobs (features) puts options.json back in line:
+  // with the record off, an auto or auto_since found there (the Foreman, or anyone, wrote it) is taken
+  // out and audited as a stray option, each time; with it on, the two are written as the record says.
+  // Writes to a job's Auto fields go one at a time (autoLocked), so the switch and a pass never cross.
+  const autoLocks = new Map();
+  function autoLocked(dir, fn) {
+    const mine = (autoLocks.get(dir) ?? Promise.resolve()).catch(() => {}).then(fn);
+    autoLocks.set(dir, mine);
+    return mine.finally(() => { if (autoLocks.get(dir) === mine) autoLocks.delete(dir); });
+  }
+  const autoFieldsOf = (o) => ({ on: o?.auto === true, since: o?.auto_since, any: Boolean(o) && (Object.hasOwn(o, 'auto') || Object.hasOwn(o, 'auto_since')) });
+  /** Options with Auto's two fields as the record says (autoOption), for any write of options.json. */
+  function withAutoOf(options, record) {
+    const want = autoOption(record, options?.level ?? null);
+    const rest = { ...(options ?? {}) };
+    delete rest.auto;
+    delete rest.auto_since;
+    return want.on ? { ...rest, auto: true, auto_since: want.since } : rest;
+  }
+  async function mirrorAuto(list) {
+    for (const f of list) {
+      if (!f.options) continue;
+      const want = autoOption(f.auto, f.options.level ?? null);
+      const has = autoFieldsOf(f.options);
+      if (want.on ? has.on && has.since === want.since : !has.any) continue;
+      try {
+        await autoLocked(f.dir, async () => {
+          // Read again inside the lock: the switch may have just changed the record.
+          const record = (await state.sessionFor(f.dir))?.auto ?? null;
+          const now = autoOption(record, f.options.level ?? null);
+          if (!(await writeAutoOption(f.dir, now))) return;
+          if (!now.on && record?.on !== true) await state.audit({ action: 'auto', what: 'stray-option', featureDir: f.dir, slug: f.slug });
+        });
+        f.options = withAutoOf(f.options, (await state.sessionFor(f.dir))?.auto ?? null);
+      } catch (err) { console.warn(`Auto: options.json for ${f.slug} not put back in line: ${err.message}`); }
+    }
+  }
+  /**
+   * Write a job's options.json from Starbase (the options editor, a gate chip, an automatic level),
+   * with Auto's fields as the record says. Returns { options, updatedAt } as written.
+   */
+  function writeJobOptions(f, options, about) {
+    return autoLocked(f.dir, async () => {
+      const out = withAutoOf(options, (await state.sessionFor(f.dir))?.auto ?? null);
+      return { options: out, updatedAt: await writeOptions(f.dir, out, about) };
+    });
+  }
+
   let cached = null;
   // Each job's stage at the last read, for a notification's text (lib/notify.js noticeBody).
   const knownStage = new Map();
@@ -318,6 +399,11 @@ export async function createRunner(config) {
     // Foreman (lib/nudges.js), kept in the same record.
     for (const f of list) f.dismissedNudges = Array.isArray(saved[f.dir]?.dismissedNudges) ? saved[f.dir].dismissedNudges : [];
     for (const f of list) f.sentNudges = Array.isArray(saved[f.dir]?.sentNudges) ? saved[f.dir].sentNudges : [];
+    // Auto mode's record (lib/auto.js): only this says a job is in Auto. Its options.json follows it.
+    for (const f of list) f.auto = saved[f.dir]?.auto ?? null;
+    sessionsNow = saved;
+    // Code that holds autoLocked must never call features() or jobContext: they wait on the same lock.
+    await mirrorAuto(list);
     for (const f of list) noteRaisedVersions(f);
     cached = { at: Date.now(), list };
     for (const f of list) knownStage.set(f.slug, f.stage ?? null);
@@ -618,7 +704,8 @@ export async function createRunner(config) {
     const off = Boolean(f.closed) && !active && !workedSinceMark && !(f.updatedAt && f.updatedAt > f.closed.at);
     // The finish line (lib/finish.js): crossed or not, by what, and where the work has landed.
     const lane = flowLanes.get(f.slug) ?? null;
-    const finish = finishLineReached({ prs: f.prs, closed: off ? f.closed : null }, lane, finishLineNow);
+    // An Auto job's finish line is PR #1 open, whatever Settings says (lib/auto.js: ran stays true).
+    const finish = finishLineReached({ prs: f.prs, closed: off ? f.closed : null }, lane, f.auto?.ran === true ? 'pr1-open' : finishLineNow);
     return {
       slug: f.slug, title: f.title, kind: f.kind, kindGuessed: f.kindGuessed, project: f.project, route: f.route, skipped: f.skipped,
       stage: f.stage, stageState: active ? 'working' : pausedHere ? 'paused' : notRunning ? 'idle' : f.stageState, paused: pausedHere, waitingFor: pendingList.length ? 'permission' : f.waitingFor,
@@ -652,6 +739,8 @@ export async function createRunner(config) {
       // A gate left waiting past the parking time: still Needs you, with a "parked" chip.
       parked: gateParked(f, active),
       finish,
+      // Auto mode (lib/auto.js): on, ran, stopped, deciding, and whether this job's level allows it.
+      auto: autoCardView(f.auto, { level: f.level, suggestedLevel: f.suggestedLevel }),
       // The PR hand-offs waiting on someone (lib/nudges.js): the Desk's nudge items.
       nudges: nudgesFor({ stage: f.stage, prs: f.prs, closed: off ? f.closed : null, finish }, lane, { dismissed: f.dismissedNudges, sent: f.sentNudges, inRound: roundStateOf(f.slug) !== null }),
       // Marked done or dropped: off the board, unless something is going on or the job changed since.
@@ -677,6 +766,7 @@ export async function createRunner(config) {
           cost: { totalUsd: r.costUsd ?? 0, source: 'claude-code' }, progress: { done: 0, total: 11 }, updatedAt: r.startedAt,
           sources: { workflowStatus: false, statusJson: false }, permissions: pending.length, starting: true,
           level: null, suggestedLevel: null, levelReason: null, rulesLevel: null, parked: false, lock: null,
+          auto: autoCardView(sessionsNow[r.featureDir]?.auto ?? null, { level: null, suggestedLevel: null }),
         };
       });
   }
@@ -802,9 +892,12 @@ export async function createRunner(config) {
     }
 
     const page = await threadPage(f, audit);
+    const card = boardCard(f, run);
     return {
-      ...boardCard(f, run),
+      ...card,
       rulesLevel, gate,
+      // The card's Auto, with the tag that started it (or null).
+      auto: { ...card.auto, tag: f.auto?.tag ?? null },
       // Briefs already decided: a deciding gate reply (audit 'send' lines with gateBrief), or a
       // decision from the classic page sent after the current brief was written.
       answeredBriefs: answeredBriefs(audit, f.currentBrief),
@@ -816,7 +909,8 @@ export async function createRunner(config) {
       activity: f.activity.map((a) => (a.state === 'running' && !stillRunning(f, a, run && ACTIVE_RUN.has(run.status) ? run : null) ? { ...a, state: 'stopped' } : a)),
       drive, run, runs: driver.list().filter((r) => r.featureDir === f.dir), overview, thread: page.items, threadMore: page.more, locate: f.locate,
       // policy: the setting in force for this job; policyOverride: the job's own (null: it follows yours).
-      policy: settings.jobPolicy?.[f.dir] || settings.policy, policyOverride: settings.jobPolicy?.[f.dir] ?? null, globalPolicy: settings.policy, autoMode: settings.autoMode,
+      // While Auto is on, 'auto' (lib/state.js policyFor), the job's own setting kept as it was.
+      policy: await state.policyFor(f.dir), policyOverride: settings.jobPolicy?.[f.dir] ?? null, globalPolicy: settings.policy, autoMode: settings.autoMode,
       permissionsPending: driver.pendingPermissions().filter((p) => p.featureDir === f.dir),
       lastReply, audit: audit.slice(-50), warnings: f.warnings,
       statusForCompose: statusForCompose(f),
@@ -932,8 +1026,8 @@ export async function createRunner(config) {
 
   async function saveChipOptions(f, options) {
     if (!options) return;
-    await writeOptions(f.dir, options, { title: f.options?.title ?? f.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
-    await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options, via: 'gate', was: f.options?.level ?? null });
+    const written = await writeJobOptions(f, options, { title: f.options?.title ?? f.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
+    await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options: written.options, via: 'gate', was: f.options?.level ?? null });
     cached = null;
   }
 
@@ -1256,7 +1350,7 @@ export async function createRunner(config) {
   }
   async function setLevelAutomatically(f, level, record) {
     const options = levelOptions(f.options, level);
-    await writeOptions(f.dir, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
+    await writeJobOptions(f, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
     await state.audit({ action: 'auto-level', featureDir: f.dir, slug: f.slug, level, was: f.level ?? null, ...record });
     cached = null;
   }
@@ -1729,6 +1823,15 @@ export async function createRunner(config) {
       const featureDir = path.join(FEATURES_DIR, slug);
       // The job's options go in its private folder (read before every stage) and in the first message.
       const { detail: fromDetail, ...fromRecord } = from ?? {};
+      // Started in Auto (options.auto): its record first, so the Foreman's very first reply runs in
+      // Auto's permission mode, and options.json says so with the record's time. normalize has
+      // already dropped auto at L3.
+      let autoOn = null;
+      if (options.auto === true && autoAllowed({ level: options.level }).ok) {
+        autoOn = autoRecord(null, { on: true, by: 'you' });
+        await state.setSession(featureDir, { auto: autoOn });
+      }
+      options = withAutoOf(options, autoOn);
       const optionsOut = from ? { ...options, from_session: fromRecord } : options;
       await writeOptions(featureDir, options, { title: description, repo: repo.path, kind, from_session: from ? fromRecord : undefined, ticket: ticket ?? undefined, branch: ticket ? ticketBranch(kind, slug, { profile, ticket }) : undefined });
       // The ticket's safe details go in ticket.md before the Foreman's first message (lib/ticket-file.js).
@@ -1753,6 +1856,7 @@ export async function createRunner(config) {
       const text = `${conductor} ${description}${kind === 'bug' && conductor === '/feature' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${kind === 'bug' ? '- Kind: bug fix.\n' : ''}${describeOptions(optionsOut).map((l) => `- ${l}`).join('\n')}${fromTicket ? `\n\n${fromTicket.brief}` : ''}${tail}`;
       const run = await driver.start({ featureDir, slug, title: description, cwd, sessionId, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
       await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options, fromSession: from ? { id: from.id, mode: from.mode, forkedTo: from.forkedTo } : undefined, ticket: ticket?.key });
+      if (autoOn) await state.audit({ action: 'auto', what: 'on', by: autoOn.by, featureDir, slug, via: 'start' });
       cached = null;
       return { run, slug };
     },
@@ -1890,7 +1994,8 @@ export async function createRunner(config) {
       } else {
         try { options = normalizeOptions(body.options ?? {}, { previous: f.options }); } catch (err) { throw new HttpError(400, err.message); }
       }
-      const updatedAt = await writeOptions(f.dir, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
+      let updatedAt;
+      ({ options, updatedAt } = await writeJobOptions(f, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session }));
       // was: the level before, so the conversation can say "Level changed from L2 Standard to L3 Large".
       // overrode: 'auto' when the level you set replaces one chosen automatically (lib/auto-level.js),
       // the record of overrides; the automatic raises stop for this job.
@@ -1935,6 +2040,46 @@ export async function createRunner(config) {
         restarting.delete(f.dir);
       }
     },
+    // POST /api/job/:slug/auto: Auto mode's switch (lib/auto.js). The record in sessions.json is what
+    // turns it on; options.json gets auto and auto_since for the skills, and nothing else changes.
+    // Refused at L3, and while the Foreman suggests L3: that raise is yours to decide.
+    async auto(body) {
+      const f = await jobOf(body.slug);
+      if (body.on) {
+        const allowed = autoAllowed({ level: f.level, suggestedLevel: f.suggestedLevel });
+        if (!allowed.ok) throw new HttpError(409, allowed.why, { code: 'auto-level' });
+      }
+      // Inside the lock nothing may call features() or jobContext: they wait on this same lock.
+      const { record, changed } = await autoLocked(f.dir, async () => {
+        const prev = (await state.sessionFor(f.dir))?.auto ?? null;
+        // Already so: nothing changes. On again never moves `since` or clears a stop (telling Auto to
+        // carry on is its own action); off on a job never in Auto makes no record.
+        if ((prev?.on === true) === body.on) return { record: prev, changed: false };
+        const next = autoRecord(prev, { on: body.on, by: 'you' });
+        await state.setSession(f.dir, { auto: next });
+        // Audited as soon as the record changed: a failed file write below can't leave it unsaid.
+        await state.audit({ action: 'auto', what: body.on ? 'on' : 'off', by: 'you', featureDir: f.dir, slug: f.slug });
+        try {
+          const want = autoOption(next, f.level);
+          const file = path.join(f.dir, 'options.json');
+          const missing = await fsp.stat(file).then(() => false, () => true);
+          // A job with no options.json (one run from a terminal) gets one, so the skills see Auto.
+          // Off leaves a file there as it is, without the two fields.
+          if (missing && want.on) {
+            const workflow = (await state.getSettings()).workflow;
+            await writeOptions(f.dir, withAutoOf(normalizeOptions({}, { workflow, kind: f.kind }), next), { title: f.title, repo: f.repoPath, kind: f.kind });
+          } else {
+            await writeAutoOption(f.dir, want);
+          }
+        } catch (err) { console.warn(`Auto: options.json for ${f.slug} not written now (the next pass puts it in line): ${err.message}`); }
+        return { record: next, changed: true };
+      });
+      if (!changed) return { ok: true, auto: { ...autoCardView(record, { level: f.level, suggestedLevel: f.suggestedLevel }), tag: record?.tag ?? null } };
+      await driver.applyModes(); // a reply in progress switches mode now
+      settingsChanged();
+      cached = null;
+      return { ok: true, auto: { ...autoCardView(record, { level: f.level, suggestedLevel: f.suggestedLevel }), tag: record.tag ?? null } };
+    },
 
     // POST /api/job/:slug/policy: one job's own permission setting; null clears it (the job follows your global setting again).
     async policy(body) {
@@ -1945,7 +2090,7 @@ export async function createRunner(config) {
       await driver.applyModes();
       settingsChanged();
       const s = await state.getSettings();
-      return { policy: s.jobPolicy?.[f.dir] || s.policy, policyOverride: s.jobPolicy?.[f.dir] ?? null, globalPolicy: s.policy, autoMode: s.autoMode };
+      return { policy: await state.policyFor(f.dir), policyOverride: s.jobPolicy?.[f.dir] ?? null, globalPolicy: s.policy, autoMode: s.autoMode };
     },
 
     // PUT /api/job/:slug/notes: the job's notes (notes.md), saved whole from the job drawer. Audited by size only.

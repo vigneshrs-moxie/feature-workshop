@@ -22,9 +22,10 @@ import { FOREMAN_MODEL_IDS } from './options.js';
 /**
  * Bumped whenever a command, a field or an event changes shape. 2: the events hello and job-list
  * (packet 2A). 3: the events record and audit, and the command stack-merge (packet 2B). 4: the start command's choices
- * (kind, repo, model, options), and hello carrying the laptop's repository names.
+ * (kind, repo, model, options), and hello carrying the laptop's repository names. 5: the command auto
+ * (Auto mode's switch).
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /** The most a job's notes.md may hold (characters): the notes command's text, and meta.jobOptions.notesMax. */
 export const NOTES_MAX = 20000;
@@ -95,6 +96,8 @@ export const REMOTE_COMMANDS = freeze({
   'fetch-diff': { slug: required(FIELD.slug), commit: required(FIELD.commit) },
   // Your yes to merging a stack's next section (packet 2B: "merge next", queued from the site).
   'stack-merge': { slug: required(FIELD.slug), section: str(200) },
+  // Auto mode's switch for one job (lib/auto.js): on or off. Who turned it on is the runner's to say.
+  auto: { slug: required(FIELD.slug), on: required(FIELD.bool) },
 });
 
 /** What only the page on this computer may ask. */

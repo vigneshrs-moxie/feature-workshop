@@ -33,9 +33,11 @@
 // asking about something harmless is fine; missing one is not.
 
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
-import { commandParts, isInside, NOT_DB_SCRIPT, orgRefWrite, resolvePath, splitCommand, TEMP_DIRS } from './policy.js';
+import { classify, commandParts, isInside, NOT_DB_SCRIPT, orgRefWrite, resolvePath, splitCommand, TEMP_DIRS } from './policy.js';
 import { PRODUCT } from './brand.js';
 
 /**
@@ -67,7 +69,7 @@ export function setProfileOrgs(list = []) {
 }
 
 // Wrappers, each with its options that take a value (the next word, unless written --opt=value).
-const WRAPPERS = new Map([
+export const WRAPPERS = new Map([
   ['sudo', ['-u', '-g', '-C', '-D', '-h', '-p', '-U', '-r', '-t', '-T', '-R', '--user', '--group', '--close-from', '--chdir', '--host', '--prompt', '--other-user', '--role', '--type', '--command-timeout', '--chroot']],
   ['env', ['-u', '-C', '-S', '-P', '--unset', '--chdir', '--split-string']],
   ['timeout', ['-s', '-k', '--signal', '--kill-after']],
@@ -188,6 +190,119 @@ function dbVerdict(cmd, rest) {
   return null;
 }
 
+// ---------- Starbase's own state folder ----------
+// The Auto switch lives in the state folder (~/.starbase, or the configured one), so a job must not
+// be able to write it. A hard line for every job, Auto or not, and always a refusal.
+const STATE_REASON = "Starbase's own state folder is not for jobs to change.";
+const STATE_DENY = { decision: 'deny', line: 'starbase-state', reason: STATE_REASON };
+const stateFolders = [];
+/** The state folder in use (besides ~/.starbase, which always counts). */
+export function setStateDir(dir) {
+  stateFolders.splice(0, stateFolders.length, ...(typeof dir === 'string' && path.isAbsolute(dir) ? [dir] : []));
+}
+
+const homeOf = () => os.homedir();
+const expandHome = (t) => String(t).replace(/\$\{HOME\}|\$HOME(?![A-Za-z0-9_])/g, homeOf()).replace(/^~(?=\/|$)/, homeOf());
+
+// Follows symlinks one step at a time, so a path that goes through a link (or climbs out with ..
+// from inside one) lands where it really does. Folders that don't exist yet are taken as written.
+function walkPhysical(start, segments) {
+  let p = start;
+  for (const s of segments) {
+    if (s === '' || s === '.') continue;
+    if (s === '..') { p = path.dirname(p); continue; }
+    let next = path.join(p, s);
+    try {
+      if (fs.lstatSync(next).isSymbolicLink()) {
+        try { next = fs.realpathSync(next); } catch { next = path.resolve(path.dirname(next), fs.readlinkSync(next)); }
+      }
+    } catch { /* not there yet: as written */ }
+    p = next;
+  }
+  return p;
+}
+
+/**
+ * The real, absolute place a path word points at, or null when it can't be known (a $variable, a
+ * $( … ), ~user, a relative path with no folder to start from). ~ and $HOME are the home folder;
+ * a glob stands for what its folder holds, unless a .. could hide in it. Only reads symlinks.
+ */
+export function physicalPath(raw, cwd = null) {
+  let t = expandHome(raw);
+  if (!t || /[$`\u0000]/.test(t) || (t.startsWith('~') && t !== '~' && !t.startsWith('~/'))) return null;
+  const segs = t.split('/');
+  const g = segs.findIndex((x) => /[*?[{]/.test(x));
+  if (g >= 0) {
+    if (segs.slice(g).some((x) => x.includes('..'))) return null;
+    t = segs.slice(0, g).join('/') || (t.startsWith('/') ? '/' : '.');
+  }
+  if (path.isAbsolute(t)) return walkPhysical('/', t.split('/'));
+  if (!cwd || !path.isAbsolute(cwd)) return null;
+  return walkPhysical(walkPhysical('/', cwd.split('/')), t.split('/'));
+}
+
+const stateRoots = (opts = {}) => {
+  const out = [];
+  for (const d of [path.join(homeOf(), '.starbase'), ...stateFolders, opts.stateDir].filter((x) => typeof x === 'string' && path.isAbsolute(x))) {
+    out.push(path.resolve(d), walkPhysical('/', d.split('/')));
+  }
+  return [...new Set(out)];
+};
+
+const INTERPRETERS = /^(python[\d.]*|node|nodejs|ruby|perl|php|deno|bun|osascript|sh|bash|zsh|dash|ksh|fish|awk|gawk|sed|lua|swift)$/;
+const EDIT_TOOL_NAMES = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+
+function namesStateWord(t, cwd, roots, interpreter) {
+  const subs = [t];
+  const eq = t.indexOf('=');
+  if (eq > 0) subs.push(t.slice(eq + 1));
+  for (const x of subs) {
+    if (interpreter) { if (x.includes('.starbase') || roots.some((r) => x.includes(r))) return true; }
+    if (/\s/.test(x)) continue; // prose, not a path
+    const p = physicalPath(x, cwd);
+    if (p ? roots.some((r) => isInside(p, r)) : /(^|[/=])\.starbase(\/|$)/.test(x) || roots.some((r) => x.includes(r))) return true;
+  }
+  return false;
+}
+
+// Does this request write where it must not? Edit tools: a path inside the state folder. Bash: a
+// command that names a path inside it and that classify() does not rate read-only.
+function stateVerdict(toolName, input, opts) {
+  const roots = stateRoots(opts);
+  if (EDIT_TOOL_NAMES.has(toolName)) {
+    const file = input?.file_path ?? input?.notebook_path;
+    if (typeof file !== 'string') return null;
+    const p = physicalPath(file, opts.cwd ?? null);
+    return p && roots.some((r) => isInside(p, r)) ? STATE_DENY : null;
+  }
+  if (toolName !== 'Bash') return null;
+  const command = String(input?.command ?? '');
+  if (!command.trim()) return null;
+  const parts = commandParts(command, opts.cwd ?? null);
+  let named = false;
+  let written = false; // a redirect or mkdir that names it: classify() lets those through into a temp folder
+  const isWrite = (r) => !(r.op === '<' || r.op === '<&' || (r.op === '>&' && /^(\d+|-)$/.test(r.target)));
+  if (parts) {
+    for (const part of parts) {
+      const interpreter = part.words.some((w) => INTERPRETERS.test(commandName(w.t)));
+      const hit = part.words.some((w) => namesStateWord(w.t, part.cwd, roots, interpreter));
+      const hitRedirect = (part.redirects ?? []).filter((r) => namesStateWord(r.target, part.cwd, roots, false));
+      if (hit || hitRedirect.length) named = true;
+      if (hitRedirect.some(isWrite) || (hit && part.words.some((w) => commandName(w.t) === 'mkdir'))) written = true;
+    }
+  } else {
+    const all = words(command.replace(/[;&|()`<>\n]/g, ' '));
+    const interpreter = all.some((w) => INTERPRETERS.test(commandName(w)));
+    named = all.some((w) => namesStateWord(w, null, roots, interpreter));
+    written = named && /[>]/.test(command);
+  }
+  if (!named) return null;
+  if (written) return STATE_DENY;
+  // The routine list's own test: a command that only reads is fine to run on the state folder.
+  const readOnly = classify('Bash', { command }, { mode: 'hands-off', stage: 'plan', worktrees: [], specDirs: [], featureDir: null, cwd: opts.cwd ?? null, rules: [] });
+  return readOnly.auto ? null : STATE_DENY;
+}
+
 function judgeSimple(simple) {
   const all = words(simple);
   const verdict = judgeWords(strip(all));
@@ -235,9 +350,12 @@ const strictest = (verdicts) => verdicts.filter(Boolean).sort((a, b) => RANK[b.d
 
 /**
  * Is this request on a hard line? Returns null, or { decision: 'ask' | 'deny', line, reason }.
- * Only shell commands (the Bash tool) are checked. With several, the strictest wins.
+ * Shell commands (the Bash tool) are checked, and for the starbase-state line the edit tools too.
+ * With several, the strictest wins. opts: { cwd, stateDir } for resolving paths.
  */
-export function hardLine(toolName, input = {}) {
+export function hardLine(toolName, input = {}, opts = {}) {
+  const state = stateVerdict(toolName, input, opts);
+  if (state) return state;
   if (toolName !== 'Bash') return null;
   const command = String(input?.command ?? '');
   if (!command.trim()) return null;
@@ -261,7 +379,7 @@ const RM_COVERED = 'Auto mode: it deletes only inside the job’s own folders.';
 
 // rm -rf whose every target is written out in full and sits strictly inside the job's worktrees,
 // its record folder or a temp folder (never one of those folders itself, never inside a .git).
-function rmInsideJob(words, cwd, ctx) {
+export function rmInsideJob(words, cwd, ctx) {
   const w = [...words];
   while (w.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0].t)) w.shift();
   if (w[0]?.t !== 'rm' && w[0]?.t !== '/bin/rm') return false; // behind a wrapper: not judged here
@@ -356,13 +474,30 @@ export function orgPushCheck() {
  * orgPushCheck()) looks up where pushes really go; cwd is the job's folder when the hook input
  * has none. cover(toolName, input) says whether your go-ahead covers an 'ask' one (auto mode,
  * goAheadCovers()); then the hook doesn't force a card and the setting decides as usual.
+ * autoStop(toolName, input, verdict) is Auto's fixed stop list: null, or { rule, reason }, which makes
+ * the hook ask whatever cover says. It returns null for a job whose Auto is off.
  */
-export function hardLineHook(onVerdict = () => {}, { check = orgPushCheck(), cwd = null, cover = null } = {}) {
+export function hardLineHook(onVerdict = () => {}, { check = orgPushCheck(), cwd = null, cover = null, autoStop = null } = {}) {
   return async (input) => {
     if (input?.hook_event_name !== 'PreToolUse') return {};
-    let verdict = hardLine(input.tool_name, input.tool_input);
+    let verdict = hardLine(input.tool_name, input.tool_input, { cwd: input.cwd || cwd });
+    if (verdict) { try { verdict = await check(verdict, input.cwd || cwd); } catch { /* a failed lookup still asks */ } }
+    // A refusal stays a refusal, Auto or not.
+    if (verdict?.decision === 'deny') {
+      try { await onVerdict(verdict, input); } catch { /* recording must not change the answer */ }
+      return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: verdict.reason } };
+    }
+    // Auto's fixed stop list (lib/auto-rules.js), for a job whose Auto is on: a hit asks, whatever
+    // cover says. A check that fails to run asks too; it never lets the call through.
+    if (autoStop) {
+      let stop = null;
+      try { stop = await autoStop(input.tool_name, input.tool_input, verdict); } catch { stop = { rule: null, reason: AUTO_CHECK_FAILED }; }
+      if (stop) {
+        if (verdict) { try { await onVerdict(verdict, input); } catch { /* recording must not change the answer */ } }
+        return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: stop.reason } };
+      }
+    }
     if (!verdict) return {};
-    try { verdict = await check(verdict, input.cwd || cwd); } catch { /* a failed lookup still asks */ }
     if (verdict.decision === 'ask' && cover) {
       let covered = null;
       try { covered = await cover(input.tool_name, input.tool_input); } catch { /* still asks */ }
@@ -372,3 +507,5 @@ export function hardLineHook(onVerdict = () => {}, { check = orgPushCheck(), cwd
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: verdict.decision, permissionDecisionReason: verdict.reason } };
   };
 }
+
+const AUTO_CHECK_FAILED = 'Auto could not check this step, so it needs you.';

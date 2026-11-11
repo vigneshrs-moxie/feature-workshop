@@ -181,6 +181,12 @@ export default function jobRoutes({ runner, read, send, sendJson, needJob, wiref
     // One job's own permission setting; null clears it (the job follows your global setting again).
     // The Foreman's model is fixed for a started job; another one starts it again (lib/restart.js).
     post(/^\/api\/job\/([^/]+)\/restart$/, async ({ res, m, body }) => command(res, { type: 'restart', slug: await needJob(m[1]), model: str(body.model, 100) })),
+    // Auto mode's switch (lib/auto.js): { on }. Refused at L3 (409, with why).
+    post(/^\/api\/job\/([^/]+)\/auto$/, async ({ res, m, body }) => {
+      const slug = await needJob(m[1]);
+      if (typeof body.on !== 'boolean') throw new HttpError(400, 'Auto: say on (true) or off (false).');
+      return command(res, { type: 'auto', slug, on: body.on });
+    }),
     post(/^\/api\/job\/([^/]+)\/policy$/, async ({ res, m, body }) => command(res, { type: 'policy', slug: await needJob(m[1]), policy: body.policy })),
     post(/^\/api\/job\/([^/]+)\/(close|reopen)$/, async ({ res, m, body }) => {
       const slug = await needJob(m[1]);

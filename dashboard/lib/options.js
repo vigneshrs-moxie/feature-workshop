@@ -15,6 +15,7 @@ import { GENERAL, fillPattern } from './profile.js';
 import { PRODUCT } from './brand.js';
 import { writeFileAtomic } from './atomic-write.js';
 import { FEATURE_STAGES } from './stages.js';
+import { AUTO_MAX_LEVEL } from './auto.js';
 
 export const OPUS = 'claude-opus-5-5';
 export const FABLE = 'claude-fable-5-2';
@@ -298,6 +299,12 @@ export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previo
   out.evidence = evidenceChoice(input.evidence) ?? evidenceChoice(previous?.evidence) ?? 'auto';
   // Run as a stack (New job, the Inbox's Start as stack): the Foreman is the stack's coordinator.
   if (input.stack === true || (input.stack === undefined && previous?.stack === true)) out.stack = true;
+  // Auto mode (lib/auto.js): only a literal true, only below L3, and its time only with it. What
+  // says Auto is on is the sessions record; the runner writes these two from it (writeAutoOption).
+  if (input.auto === true && !(isLevel(out.level) && out.level > AUTO_MAX_LEVEL)) {
+    out.auto = true;
+    if (typeof input.auto_since === 'string' && input.auto_since) out.auto_since = input.auto_since.slice(0, 40);
+  }
   return out;
 }
 
@@ -366,6 +373,26 @@ export async function writeOptions(dir, options, about = {}) {
   return updatedAt;
 }
 
+/**
+ * Auto's two fields in a job's options.json, written together and nothing else (not even
+ * updated_at): on → auto: true and auto_since: since; off → both taken out. Only Starbase calls
+ * this, from the sessions record (lib/auto.js autoOption). Returns true when the file changed, false
+ * when it already said so or the job has no options.json (none is made for it).
+ */
+export async function writeAutoOption(dir, { on, since = null }) {
+  const file = path.join(dir, 'options.json');
+  let raw;
+  try { raw = JSON.parse(await fsp.readFile(file, 'utf8')); } catch { return false; }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+  const already = on ? raw.auto === true && raw.auto_since === since : !Object.hasOwn(raw, 'auto') && !Object.hasOwn(raw, 'auto_since');
+  if (already) return false;
+  const rest = { ...raw };
+  delete rest.auto;
+  delete rest.auto_since;
+  await writeFileAtomic(file, `${JSON.stringify(on ? { ...rest, auto: true, auto_since: since } : rest, null, 2)}\n`);
+  return true;
+}
+
 /** Stages not run for this job: by its route and by your options. */
 export function skippedFor(route, options) {
   const out = new Set(route === 'small' ? ['refine'] : route === 'quick' ? FLOWS.quick.skip : []);
@@ -389,6 +416,7 @@ export function describeOptions(o) {
   // Evidence (evidence.md): Auto says nothing, as for screens and clarify (job-options.md: on at L2 and L3).
   if (o.evidence === 'always') lines.push(`Evidence: always${o.level === 0 ? ' (but never at L0)' : ''}. The tester writes a Playwright spec for each acceptance line a person can see, and ${PRODUCT} records screenshots and a short video of each.`);
   else if (o.evidence === 'off') lines.push('Evidence: off. No screenshots or video at the test stage.');
+  if (o.auto === true && !(isLevel(o.level) && o.level > AUTO_MAX_LEVEL)) lines.push(`Auto: ${PRODUCT}'s Auto answers each gate for the person, no hand test is asked for, and the job stops once PR #1 is open.`);
   if (o.stack) lines.push('Run as a stack: the human asked for one. You are its coordinator (stack.md): at plan, write stack.md (the sections, the files each owns, what each waits for, the merge order) and stop for approval on the Stack page.');
   if (o.notes) lines.push(`Notes: ${o.notes}`);
   if (o.from_session) lines.push(o.from_session.mode === 'continue'

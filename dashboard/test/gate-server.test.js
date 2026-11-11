@@ -15,9 +15,12 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDashboard } from './helpers/dashboard.js';
 import { OPUS, HAIKU, FABLE } from '../lib/options.js';
+import { parseCommand } from '../lib/protocol.js';
+import { State } from '../lib/state.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 const OLD = '2026-10-01T10:00:00Z';
+const STOPPED = { reason: 'the plan adds a migration', rule: 'database', at: OLD };
 
 let root, repo0, featuresDir, dashboard, base, stateDir;
 const output = [];
@@ -120,6 +123,24 @@ before(async () => {
     briefs: { '004-plan.md': '**Answered · plan v1**\n' },
   });
 
+  // Auto mode's switch: an L2 job, an L3 job and an L1 job whose Foreman writes options.json itself.
+  // None of them waits at a gate, so the parking tests above see only their own jobs.
+  for (const [slug, level] of [['auto-job', 2], ['big-job', 3], ['foreman-job', 1]]) {
+    await writeJob(slug, {
+      status: { title: slug, route: 'small', stage: 'implement', stage_state: 'working', updated_at: OLD },
+      options: { level, flow: level === 3 ? 'large' : level === 2 ? 'small' : 'quick', title: slug, updated_at: OLD },
+    });
+  }
+
+  // A job run only from a terminal: no options.json at all.
+  await writeJob('no-options-job', { status: { title: 'No options', route: 'small', stage: 'implement', stage_state: 'working', updated_at: OLD } });
+  // A job already in Auto, which Auto has stopped on (its record seeded in sessions.json).
+  const stoppedDir = await writeJob('stopped-job', {
+    status: { title: 'stopped-job', route: 'quick', stage: 'implement', stage_state: 'working', updated_at: OLD },
+    options: { level: 1, flow: 'quick', title: 'stopped-job', updated_at: OLD, auto: true, auto_since: OLD },
+  });
+  const stoppedSession = { auto: { on: true, since: OLD, by: 'you', tag: null, ran: true, stopped: STOPPED, step: { stage: 'implement', count: 2 }, failures: 1, lastBrief: 3 } };
+
   const audit = [
     { at: '2026-10-02T09:00:00Z', action: 'send', kind: 'approve', featureDir: plan, slug: 'visit-audit', text: 'I approve the spec.', gateBrief: 1 },
     { at: '2026-10-02T09:05:00Z', action: 'send', kind: 'message', featureDir: plan, slug: 'visit-audit', text: 'And one more thing' },
@@ -128,7 +149,8 @@ before(async () => {
   await fs.writeFile(path.join(dirs.state, 'audit.jsonl'), audit.map((l) => JSON.stringify(l)).join('\n') + '\n');
 
   stateDir = dirs.state;
-  await fs.writeFile(path.join(dirs.state, 'sessions.json'), JSON.stringify(sessions));
+  // One file holds both: the started jobs' Foreman sessions and the job Auto stopped on.
+  await fs.writeFile(path.join(dirs.state, 'sessions.json'), JSON.stringify({ ...sessions, [stoppedDir]: stoppedSession }));
 
   dashboard = await startDashboard({
     env: {
@@ -383,4 +405,173 @@ test('F7: a send and a gate answer during a restart answer 409', { timeout: 60_0
   assert.equal((await restart).status, 200);
   assert.equal(seen.includes(200), false, `a send or gate went through during the restart: ${seen}`);
   assert.equal(seen.includes(409), true, `nothing was refused as busy: ${seen}`);
+});
+
+// ---------- Auto mode's switch: kept in Starbase's own sessions.json, never in the job's folder ----------
+
+const L3 = 'Auto works up to L2. An L3 job needs you to approve each step.';
+const readJson = async (file) => JSON.parse(await fs.readFile(file, 'utf8'));
+const sessions = () => readJson(path.join(stateDir, 'sessions.json')).catch(() => ({}));
+const optionsOf = (slug) => readJson(path.join(featuresDir, slug, 'options.json'));
+
+test('turning Auto on writes the record, options.json and the audit line', { timeout: 60_000 }, async () => {
+  const dir = path.join(featuresDir, 'auto-job');
+  const r = await post('/api/job/auto-job/auto', { on: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const rec = (await sessions())[dir]?.auto;
+  assert.ok(rec, 'the record is in sessions.json');
+  assert.equal(rec.on, true);
+  assert.equal(rec.by, 'you');
+  assert.equal(rec.tag, null);
+  assert.equal(rec.ran, true);
+  assert.deepEqual([rec.stopped, rec.step, rec.failures, rec.lastBrief], [null, null, 0, null]);
+  assert.ok(Number.isFinite(Date.parse(rec.since)));
+  const o = await optionsOf('auto-job');
+  assert.equal(o.auto, true);
+  assert.equal(o.auto_since, rec.since);
+  assert.deepEqual([o.level, o.title, o.updated_at], [2, 'auto-job', OLD], 'nothing else in options.json changes');
+  const line = (await auditLines()).filter((e) => e.action === 'auto' && e.slug === 'auto-job').at(-1);
+  assert.deepEqual([line.what, line.by, line.featureDir], ['on', 'you', dir]);
+  const job = await getJson('/api/job/auto-job');
+  assert.deepEqual(job.auto, { on: true, ran: true, stopped: null, deciding: false, allowed: true, why: null, tag: null });
+  const card = (await getJson('/api/snapshot')).jobs.find((j) => j.slug === 'auto-job');
+  assert.equal(card.auto.on, true);
+  assert.equal(card.auto.tag, undefined, 'the tag is the job page’s');
+});
+
+test('policyFor says auto while Auto is on and the job\'s own setting after', { timeout: 60_000 }, async () => {
+  const dir = path.join(featuresDir, 'auto-job');
+  assert.equal((await post('/api/job/auto-job/policy', { policy: 'ask-all' })).status, 200);
+  // Auto is still on from the test before.
+  assert.equal(await new State(stateDir).policyFor(dir), 'auto');
+  let job = await getJson('/api/job/auto-job');
+  assert.equal(job.policy, 'auto');
+  assert.equal(job.policyOverride, 'ask-all', 'the job’s own setting is kept, untouched');
+  const r = await post('/api/job/auto-job/auto', { on: false });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(await new State(stateDir).policyFor(dir), 'ask-all');
+  job = await getJson('/api/job/auto-job');
+  assert.equal(job.policy, 'ask-all');
+  assert.deepEqual([job.auto.on, job.auto.ran], [false, true], 'ran stays true');
+  const o = await optionsOf('auto-job');
+  assert.equal('auto' in o, false);
+  assert.equal('auto_since' in o, false);
+  const lines = (await auditLines()).filter((e) => e.action === 'auto' && e.slug === 'auto-job');
+  assert.deepEqual(lines.map((e) => e.what), ['on', 'off']);
+  assert.equal(lines.some((e) => e.what === 'stray-option'), false, 'Starbase’s own writes are never stray');
+});
+
+test('a Foreman that writes auto: true into options.json does not turn Auto on', { timeout: 60_000 }, async () => {
+  const dir = path.join(featuresDir, 'foreman-job');
+  const stray = () => auditLines().then((l) => l.filter((e) => e.action === 'auto' && e.what === 'stray-option' && e.slug === 'foreman-job'));
+  for (const round of [1, 2]) {
+    await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify({ ...(await optionsOf('foreman-job')), auto: true, auto_since: new Date().toISOString() }, null, 2));
+    await pause(1600); // the job list is cached for 1.5 seconds
+    const job = await getJson('/api/job/foreman-job');
+    assert.equal(job.auto.on, false, `round ${round}: the card`);
+    assert.equal(job.policy, 'hands-off', `round ${round}: the policy is the job's own`);
+    assert.equal(await new State(stateDir).policyFor(dir), 'hands-off');
+    assert.equal((await sessions())[dir]?.auto?.on ?? false, false, `round ${round}: no record says on`);
+    const o = await optionsOf('foreman-job');
+    assert.equal('auto' in o, false, `round ${round}: taken out again`);
+    assert.equal('auto_since' in o, false, `round ${round}: its time too`);
+    assert.deepEqual([o.level, o.title], [1, 'foreman-job'], 'the rest is left as it was');
+    assert.equal((await stray()).length, round, `round ${round}: one audit line per removal`);
+  }
+  const line = (await stray())[0];
+  assert.deepEqual([line.action, line.what, line.featureDir], ['auto', 'stray-option', dir]);
+});
+
+test('the site cannot send by: \'auto\'', () => {
+  const r = parseCommand({ type: 'approve', slug: 'auto-job', by: 'auto' }, { from: 'site' });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /doesn’t take “by”/);
+  assert.equal(parseCommand({ type: 'approve', slug: 'auto-job', by: 'auto' }, { from: 'local' }).ok, false, 'not from this computer’s page either');
+});
+
+test('L3 refuses with the sentence', { timeout: 60_000 }, async () => {
+  const dir = path.join(featuresDir, 'big-job');
+  const r = await post('/api/job/big-job/auto', { on: true });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.error, L3);
+  assert.equal((await sessions())[dir]?.auto, undefined, 'no record written');
+  assert.equal('auto' in (await optionsOf('big-job')), false);
+  const job = await getJson('/api/job/big-job');
+  assert.deepEqual([job.auto.on, job.auto.allowed, job.auto.why], [false, false, L3]);
+});
+
+test('turning Auto on for a job with no options.json writes one with auto and auto_since', { timeout: 60_000 }, async () => {
+  const dir = path.join(featuresDir, 'no-options-job');
+  await assert.rejects(fs.stat(path.join(dir, 'options.json')), 'no options.json to start with');
+  const r = await post('/api/job/no-options-job/auto', { on: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const rec = (await sessions())[dir].auto;
+  let o = await optionsOf('no-options-job');
+  assert.deepEqual([o.auto, o.auto_since], [true, rec.since]);
+  assert.equal(o.schema_version, 2, 'a whole options file, as a new job gets');
+  assert.equal(o.level, null, 'no level yet');
+  assert.ok(Array.isArray(o.skip));
+  assert.equal(o.title, 'No options');
+  // Off again: the file stays, without the two fields.
+  assert.equal((await post('/api/job/no-options-job/auto', { on: false })).status, 200);
+  o = await optionsOf('no-options-job');
+  assert.deepEqual(['auto' in o, 'auto_since' in o, o.schema_version], [false, false, 2]);
+});
+
+test('turning Auto on twice keeps since, stopped and the audit count', { timeout: 60_000 }, async () => {
+  const autoLines = async (slug) => (await auditLines()).filter((e) => e.action === 'auto' && e.slug === slug).length;
+  // A job Auto stopped on: on again changes nothing, the stop included.
+  const dir = path.join(featuresDir, 'stopped-job');
+  const before = await autoLines('stopped-job');
+  const r = await post('/api/job/stopped-job/auto', { on: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.auto.stopped, STOPPED);
+  const rec = (await sessions())[dir].auto;
+  assert.deepEqual([rec.since, rec.stopped, rec.step, rec.failures, rec.lastBrief], [OLD, STOPPED, { stage: 'implement', count: 2 }, 1, 3]);
+  assert.equal((await optionsOf('stopped-job')).auto_since, OLD, 'auto_since does not move');
+  assert.equal(await autoLines('stopped-job'), before, 'no audit line');
+  // And twice in a row on a job turned on here.
+  assert.equal((await post('/api/job/auto-job/auto', { on: true })).status, 200);
+  const first = (await sessions())[path.join(featuresDir, 'auto-job')].auto.since;
+  const count = await autoLines('auto-job');
+  await pause(20);
+  assert.equal((await post('/api/job/auto-job/auto', { on: true })).status, 200);
+  assert.equal((await sessions())[path.join(featuresDir, 'auto-job')].auto.since, first);
+  assert.equal((await optionsOf('auto-job')).auto_since, first);
+  assert.equal(await autoLines('auto-job'), count);
+  assert.equal((await post('/api/job/auto-job/auto', { on: false })).status, 200);
+});
+
+test('turning Auto off on a job that never had it writes nothing', { timeout: 60_000 }, async () => {
+  const dir = path.join(featuresDir, 'button-label');
+  const optionsBefore = await fs.readFile(path.join(dir, 'options.json'), 'utf8');
+  const linesBefore = (await auditLines()).length;
+  const r = await post('/api/job/button-label/auto', { on: false });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.auto.on, false);
+  assert.equal((await sessions())[dir]?.auto, undefined, 'no record made');
+  assert.equal(await fs.readFile(path.join(dir, 'options.json'), 'utf8'), optionsBefore, 'options.json untouched');
+  assert.equal((await auditLines()).length, linesBefore, 'no audit line');
+});
+
+test('with Auto on, a Foreman that moves auto_since or removes auto gets both put back from the record', { timeout: 60_000 }, async () => {
+  const dir = path.join(featuresDir, 'stopped-job');
+  const file = path.join(dir, 'options.json');
+  const strayBefore = (await auditLines()).filter((e) => e.what === 'stray-option' && e.slug === 'stopped-job').length;
+  // Moved forward, past a "stop" said in the conversation.
+  await fs.writeFile(file, JSON.stringify({ ...(await optionsOf('stopped-job')), auto_since: new Date().toISOString() }, null, 2));
+  await pause(1600); // the job list is cached for 1.5 seconds
+  await getJson('/api/job/stopped-job');
+  assert.deepEqual([(await optionsOf('stopped-job')).auto, (await optionsOf('stopped-job')).auto_since], [true, OLD]);
+  // Taken out.
+  const o = await optionsOf('stopped-job');
+  delete o.auto;
+  delete o.auto_since;
+  await fs.writeFile(file, JSON.stringify(o, null, 2));
+  await pause(1600);
+  await getJson('/api/job/stopped-job');
+  const back = await optionsOf('stopped-job');
+  assert.deepEqual([back.auto, back.auto_since, back.level], [true, OLD, 1]);
+  assert.equal((await sessions())[dir].auto.since, OLD, 'the record is the one that stays');
+  assert.equal((await auditLines()).filter((e) => e.what === 'stray-option' && e.slug === 'stopped-job').length, strayBefore, 'putting it back writes no audit line');
 });

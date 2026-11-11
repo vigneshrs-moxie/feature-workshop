@@ -321,9 +321,22 @@ function redirectVerdict(redirects, ctx) {
     if (op === '<' || op === '<&' || (op === '>&' && /^(\d+|-)$/.test(target))) continue;
     if (!dyn && /^\/dev\/(null|stdout|stderr)$/.test(target)) continue;
     const abs = dyn ? null : resolvePath(target, ctx.cwd);
-    if (!abs || ![...ctx.writableDirs, ...TEMP_DIRS].some((d) => inside(abs, d))) return 'writes output somewhere outside the job’s folders';
+    if (!abs || ![...ctx.writableDirs, ...TEMP_DIRS].some((d) => inside(abs, d))) {
+      markOutside(ctx, abs);
+      return 'writes output somewhere outside the job’s folders';
+    }
   }
   return 'ok';
+}
+
+// classify() tells its caller (verdict.outside) when it refuses because something would be written
+// outside the job's folders, as opposed to a step the stage doesn't allow yet: a path counts as
+// outside when it is in none of the job's folders (worktrees, record folder, spec folders) or the
+// temp folders, or when where it points can't be known.
+function markOutside(ctx, abs) {
+  if (!ctx.sink) return;
+  const roots = [ctx.featureDir, ...(ctx.worktrees ?? []), ...(ctx.specDirs ?? []), ...TEMP_DIRS].filter(Boolean);
+  if (!abs || !roots.some((d) => inside(abs, d))) ctx.sink.outside = true;
 }
 
 // sed is fine when it only prints or rewrites what it streams: no in-place edits, script files,
@@ -420,7 +433,7 @@ function judgeWords(w, ctx, simple) {
   if (cmd === 'uniq') return rest.filter((a) => !a.startsWith('-')).length <= 1 ? 'ok' : 'uniq writing to a file needs your OK';
   if (cmd === 'mkdir') {
     const dirs = rest.filter((a) => !a.startsWith('-'));
-    return dirs.length && dirs.every((a) => { const abs = resolvePath(a, ctx.cwd); return abs && ctx.writableDirs.some((d) => inside(abs, d)); }) ? 'ok' : 'creates a folder outside the job’s folders';
+    return dirs.length && dirs.every((a) => { const abs = resolvePath(a, ctx.cwd); if (!(abs && ctx.writableDirs.some((d) => inside(abs, d)))) markOutside(ctx, abs); return abs && ctx.writableDirs.some((d) => inside(abs, d)); }) ? 'ok' : 'creates a folder outside the job’s folders';
   }
   if (cmd === 'sed') return sedVerdict(rest);
   if (cmd === 'awk') return awkVerdict(rest);
@@ -493,7 +506,7 @@ export function commandParts(cmd, cwd = null) {
   for (const part of parsed.parts) {
     const t = tokenize(part.text);
     if (!t) return null;
-    out.push({ text: part.text, cwd: here, words: t.words });
+    out.push({ text: part.text, cwd: here, words: t.words, redirects: t.redirects });
     const to = cdTarget(t.words, here);
     if (to !== undefined) { here = chainOk && part.sep === '&&' ? to : null; moved = true; }
     if (part.sep !== '&&') {
@@ -504,7 +517,7 @@ export function commandParts(cmd, cwd = null) {
   for (const part of parsed.subs) {
     const t = tokenize(part.text);
     if (!t) return null;
-    out.push({ text: part.text, cwd: null, words: t.words });
+    out.push({ text: part.text, cwd: null, words: t.words, redirects: t.redirects });
   }
   return out;
 }
@@ -599,14 +612,16 @@ function classifyRoutine(toolName, input, ctx) {
     if (inside(file, ctx.featureDir)) return { auto: true, reason: 'Updating the job’s own records.' };
     if (BUILD_STAGES.has(ctx.stage) && worktrees.some((d) => inside(file, d))) return { auto: true, reason: 'Building in the job’s own worktree (you approved the plan).' };
     if (SPEC_STAGES.has(ctx.stage) && specDirs.some((d) => inside(file, d))) return { auto: true, reason: 'Writing the spec.' };
-    return { auto: false, reason: 'Changes a file outside the job’s own folders.' };
+    const roots = [ctx.featureDir, ...worktrees, ...specDirs, ...TEMP_DIRS].filter(Boolean);
+    return { auto: false, reason: 'Changes a file outside the job’s own folders.', ...(roots.some((d) => inside(file, d)) ? {} : { outside: true }) };
   }
 
   if (toolName === 'Bash') {
     const parsed = parseCommand(input.command);
     if (!parsed) return { auto: false, reason: 'A complex command; please check it.' };
-    const say = (verdict) => ({ auto: false, reason: verdict[0].toUpperCase() + verdict.slice(1) + '.' });
-    const base = { ...ctx, worktrees, writableDirs };
+    const sink = { outside: false };
+    const say = (verdict) => ({ auto: false, reason: verdict[0].toUpperCase() + verdict.slice(1) + '.', ...(sink.outside ? { outside: true } : {}) });
+    const base = { ...ctx, worktrees, writableDirs, specDirs, sink };
     // A cd counts for the commands joined to it by && when it starts its list (or follows only
     // &&): then they run only if it worked. After ; || or | it may have been skipped or failed,
     // so where later commands run is unknown.

@@ -49,6 +49,9 @@ before(async () => {
     ['quiet-before-mark', { stage_state: 'working' }], ['worker-after-mark', { stage_state: 'working' }], ['status-after-mark', { stage_state: 'idle', updated_at: AFTER_MARK }],
     ['silent-terminal-job', { stage_state: 'working' }], ['fresh-terminal-job', { stage_state: 'working' }], ['locked-silent-job', { stage_state: 'working' }],
     ['close-silent-job', { stage_state: 'working', worktree: closeWorktree = path.join(root, 'close-silent-worktree') }],
+    // PR #1 open, nothing else: the default finish line (PR #1 merged) isn't crossed, an Auto job's is.
+    ['auto-pr-open', { stage: 'pr1', stage_state: 'idle', prs: [{ number: 1, state: 'open', url: 'https://github.com/me/app/pull/1' }] }],
+    ['plain-pr-open', { stage: 'pr1', stage_state: 'idle', prs: [{ number: 1, state: 'open', url: 'https://github.com/me/app/pull/2' }] }],
   ]) {
     await fs.mkdir(path.join(featuresDir, slug, 'briefs'), { recursive: true });
     await fs.writeFile(path.join(featuresDir, slug, 'status.json'), status(slug, extra));
@@ -67,9 +70,12 @@ before(async () => {
   await workerSession(dirs.projects, path.join(featuresDir, 'close-silent-job'), 'sess-close', LONG_AGO);
   await fs.mkdir(closeWorktree, { recursive: true });
   const closed = { as: 'done', at: MARK };
-  await fs.writeFile(path.join(dirs.state, 'sessions.json'), JSON.stringify(Object.fromEntries(
-    ['quiet-before-mark', 'worker-after-mark', 'status-after-mark'].map((slug) => [path.join(featuresDir, slug), { closed }]),
-  )));
+  // The Auto job was in Auto and has left it (ran stays true): its finish line is still PR #1 open.
+  const autoRan = { on: false, since: LONG_AGO, by: 'you', tag: null, ran: true, stopped: null, step: null, failures: 0, lastBrief: null };
+  await fs.writeFile(path.join(dirs.state, 'sessions.json'), JSON.stringify({
+    ...Object.fromEntries(['quiet-before-mark', 'worker-after-mark', 'status-after-mark'].map((slug) => [path.join(featuresDir, slug), { closed }])),
+    [path.join(featuresDir, 'auto-pr-open')]: { auto: autoRan },
+  }));
   dashboard = await startDashboard({
     env: {
       HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects,
@@ -150,6 +156,17 @@ test('marking done with the worktree removed is not refused by a worker that wen
   assert.match(body, /worktree can’t be removed safely/);
 });
 
+test('an Auto job\'s finish is PR #1 open', async () => {
+  const auto = await jobCard('auto-pr-open');
+  assert.equal(auto.auto.ran, true);
+  assert.equal(auto.auto.on, false);
+  assert.equal(auto.finish.reached, true);
+  assert.equal(auto.finish.by, 'pr1-open');
+  const plain = await jobCard('plain-pr-open');
+  assert.equal(plain.auto.ran, false);
+  assert.equal(plain.finish.reached, false, 'the default finish line is PR #1 merged');
+});
+
 const card = (extra = {}) => ({ slug: 'orbit-471', title: 'Customer notes', stage: 'plan', stageState: 'idle', needsYou: false, working: false, permissions: 0, ...extra });
 const pr = (extra = {}) => ({ number: 12, state: 'open', review: null, checks: 'passing', ...extra });
 
@@ -216,6 +233,23 @@ test('lanes: Resting and Done fold under the board', () => {
   assert.deepEqual(laneFor(card({ closed: { as: 'dropped' } })), { lane: 'done', laneReason: 'Dropped' });
   assert.deepEqual(laneFor(card({ finish: { reached: true, landed: 'main' } })), { lane: 'done', laneReason: 'In main' });
   assert.deepEqual(laneFor(card({ stageState: 'done' })), { lane: 'done', laneReason: 'Done' });
+});
+
+test('lanes: Auto is deciding: a gate or card waiting on an Auto job is Working, with the stage in words', () => {
+  const auto = { on: true, ran: true, stopped: null, deciding: false, allowed: true, why: null };
+  assert.deepEqual(laneFor(card({ needsYou: true, waitingFor: 'approval', stage: 'plan', auto })), { lane: 'working', laneReason: 'Auto is deciding: the plan' });
+  assert.deepEqual(laneFor(card({ permissions: 1, stage: 'implement', auto }), { pending: [{ id: 'q', kind: 'question' }] }), { lane: 'working', laneReason: 'Auto is deciding: the build' });
+  // Auto off (or never on): as before.
+  assert.equal(laneFor(card({ needsYou: true, waitingFor: 'approval', auto: { ...auto, on: false } })).lane, 'needs-you');
+  // Nothing waiting: Auto changes nothing.
+  assert.deepEqual(laneFor(card({ auto })), { lane: 'resting', laneReason: 'Nothing happening; waits for your next message' });
+});
+
+test('lanes: Auto stopped: a stopped Auto job with something waiting needs you, with the reason', () => {
+  const stopped = { reason: 'the plan adds a migration', rule: 'database', at: '2026-11-10T09:30:00.000Z' };
+  const auto = { on: true, ran: true, stopped, deciding: false, allowed: true, why: null };
+  assert.deepEqual(laneFor(card({ needsYou: true, waitingFor: 'approval', stage: 'plan', auto })), { lane: 'needs-you', laneReason: 'Auto stopped: the plan adds a migration' });
+  assert.deepEqual(laneFor(card({ permissions: 1, auto }), { pending: [{ id: 'p1', kind: 'permission' }] }), { lane: 'needs-you', laneReason: 'Auto stopped: the plan adds a migration' });
 });
 
 test('lanes: every reason is a plain sentence, never empty', () => {
