@@ -26,7 +26,7 @@
 .hosted-done > svg { color: var(--status-ok); }
 
 /* A command to type on the laptop. */
-.hosted-command { margin: 0; padding: var(--space-2) var(--space-3); overflow-x: auto; border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-2); font-family: var(--font-mono); font-size: var(--text-sm); white-space: pre; max-width: 100%; text-align: left; }
+.hosted-command { margin: 0; padding: var(--space-2) var(--space-3); position: relative; overflow-x: auto; border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-2); font-family: var(--font-mono); font-size: var(--text-sm); white-space: pre; max-width: 100%; text-align: left; }
 
 /* Pair this laptop */
 .hosted-pair { display: flex; flex-direction: column; gap: var(--space-4); max-width: 560px; }

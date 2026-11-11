@@ -2,15 +2,17 @@
 //
 // On every screen (Jobs, Table, Map, the Desk, Inbox, Stacks, Telemetry, Settings and its
 // Workflow section, each job's page and one step page) it checks the screen as it opens, then
-// opens every fold on the page one after another and checks again after each. A check fails when:
-//   1. the document itself scrolls (the app's own scroll areas do the scrolling);
+// opens every fold on the page one after another and checks again after each; on a job page it
+// also opens the level menu in Details (opening it sends nothing; no level is picked), checks, and
+// closes it. A check fails when:
+//   1. the document itself scrolls, down or sideways (the app's own scroll areas do the scrolling);
 //   2. a scroll area ends in empty space: it scrolls more than 48 px (plus its own bottom padding)
 //      past the last thing you can see in it;
 //   3. something is cut off sideways: main or a scroll area is wider inside than it shows, or a
 //      box with text in a card runs past its own edge without an ellipsis or a sideways scroll;
 //   4. on a job page the conversation's message list is under 160 px tall in a window 800 px tall
 //      or more.
-// The check only reads: it refuses any request that would change something.
+// The check only reads: it refuses every request that is not a GET.
 //
 // Run it against a running app (the demo is best):
 //   PORT=4493 STARBASE_DEMO=1 node dashboard/demo/run-demo.js      # in one terminal
@@ -74,6 +76,7 @@ function check() {
 
   // 1. The document scrolls. The lowest piece placed absolutely names the likely cause: a scroll
   // area clips everything else in it.
+  if (de.scrollWidth > innerWidth + 1) out.push(`the document scrolls sideways: ${de.scrollWidth} wide in ${innerWidth}`);
   if (de.scrollHeight > innerHeight + 1) {
     let low = null;
     let lowBottom = innerHeight;
@@ -95,6 +98,9 @@ function check() {
   // a border, clipped by every overflow box between it and the scroll area. It is measured with
   // the area scrolled to its end, where a sticky footer (the Desk's buttons, a step page's message
   // box) sits in its own place at the end and not stuck to the window's foot; then put back.
+  // Two blind spots: a bordered box counts whole, so empty space inside a tall bordered box at the
+  // end is not seen; and empty space between the content and a sticky footer that ends the area
+  // is not measured, since the footer itself is the last content.
   for (const sc of areas) {
     if (!scrollsY(getComputedStyle(sc)) || sc.scrollHeight <= sc.clientHeight + 1) continue;
     const was = sc.scrollTop;
@@ -103,6 +109,14 @@ function check() {
     const top = r0.top + sc.clientTop - sc.scrollTop;
     let last = 0;
     let lastEl = null;
+    // The area's own text (a log in a <pre>) counts too.
+    for (const t of sc.childNodes) {
+      if (t.nodeType !== 3 || !t.textContent.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(t);
+      const b = Math.max(...[...range.getClientRects()].map((r) => r.bottom), -Infinity);
+      if (b - top > last) { last = b - top; lastEl = sc; }
+    }
     for (const n of sc.querySelectorAll('*')) {
       if (!shown(n)) continue;
       const s = getComputedStyle(n);
@@ -134,10 +148,12 @@ function check() {
   }
 
   // 3. Cut off sideways. Code, diffs and tables scroll sideways on purpose (their scroll bar is
-  // the way to read them), so only main and the scroll areas that hold a page or a column count.
+  // the way to read them): code blocks and diffs, and a table's own scroll wrapper, are left out.
+  // Every other scroll area counts, main and the page itself too, even when a table is inside.
   const SIDEWAYS_OK = 'pre, code, table, .code-lines, .part-diff, .doc-source, .perm-preview, .perm-preview-page';
+  const TABLE_WRAPS = '.table-wrap, .home-table-scroll, .tele-table-wrap, .route-table-wrap';
   for (const sc of [document.querySelector('main'), ...areas].filter(Boolean)) {
-    if (sc.matches(SIDEWAYS_OK) || sc.querySelector('table') || !shown(sc)) continue;
+    if (sc.matches(SIDEWAYS_OK) || sc.matches(TABLE_WRAPS) || !shown(sc)) continue;
     if (sc.scrollWidth > sc.clientWidth + 1) out.push(`${name(sc)} is cut off sideways: ${sc.scrollWidth} wide in ${sc.clientWidth}`);
   }
   // A box with text in a card that runs past its own edge. Inline boxes have no width of their
@@ -230,6 +246,15 @@ async function runAt(WIDTH) {
       await fold.click({ timeout: 2000 }).catch(() => {});
       await page.waitForTimeout(250);
       await record(screen, `with "${label}" open`);
+    }
+    // The level menu in Details: open, check, close. Opening sends nothing.
+    const chip = page.locator('main .job-details .level-chip:enabled');
+    if (await chip.count() && await chip.first().isVisible().catch(() => false)) {
+      await chip.first().click({ timeout: 2000 }).catch(() => {});
+      await page.waitForTimeout(250);
+      await record(screen, 'with the level menu open');
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(150);
     }
   }
   await page.close();

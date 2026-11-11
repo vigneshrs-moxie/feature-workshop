@@ -241,7 +241,7 @@ a.map-pr:hover { border-color: var(--border-3); text-decoration: none; }
 .home-search { position: relative; display: inline-flex; align-items: center; width: min(300px, 100%); }
 .home-search .text-input { padding-left: 32px; }
 .home-search-icon { position: absolute; left: 10px; color: var(--text-3); pointer-events: none; }
-.home-table-scroll { overflow-x: auto; border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs); }
+.home-table-scroll { position: relative; overflow-x: auto; border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs); }
 .home-table table { width: 100%; min-width: 1100px; border-collapse: separate; border-spacing: 0; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .home-table :is(th, td) { height: 44px; padding: 0 var(--space-3); border-bottom: 1px solid var(--border-1); color: var(--text-1); text-align: left; vertical-align: middle; white-space: nowrap; }
 .home-table tbody tr:last-child > * { border-bottom: 0; }

@@ -201,7 +201,7 @@
 }
 
 /* ---------- Settings → Workflow: who reviews and merges each pull request ---------- */
-.route-table-wrap { margin-top: var(--space-2); overflow-x: auto; }
+.route-table-wrap { margin-top: var(--space-2); position: relative; overflow-x: auto; }
 .route-name { margin: 0 0 var(--space-1); }
 .route-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); border: 1px solid var(--border-2); border-radius: var(--radius-md); }
 .route-table th, .route-table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-1); text-align: left; vertical-align: top; }

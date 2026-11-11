@@ -521,7 +521,7 @@ a:hover { text-decoration: underline; }
 .prose blockquote > :last-child { margin-bottom: 0; }
 .prose hr { margin: var(--space-5) 0; border: 0; border-top: 1px solid var(--border-2); }
 .prose img { max-width: 100%; }
-.prose .table-wrap { margin: 0 0 var(--space-3); overflow-x: auto; border: 1px solid var(--border-2); border-radius: var(--radius-md); }
+.prose .table-wrap { margin: 0 0 var(--space-3); position: relative; overflow-x: auto; border: 1px solid var(--border-2); border-radius: var(--radius-md); }
 /* Tables keep words and paths whole and scroll sideways when they don't fit. */
 .prose table { min-width: 100%; border-collapse: collapse; font-size: var(--text-sm); line-height: 1.45; overflow-wrap: normal; }
 .prose :is(td, th) code { white-space: nowrap; }
@@ -820,6 +820,8 @@ a:hover { text-decoration: underline; }
   box-shadow: var(--shadow-2);
   font-size: var(--text-sm);
 }
+/* Once placed (LevelChip.tsx) it is a fixed layer: no box that scrolls cuts it off. */
+.level-pop.is-placed { position: fixed; right: auto; z-index: 80; }
 .level-pop p { margin: 0 0 var(--space-1); }
 .level-pop-list { display: flex; flex-direction: column; gap: 2px; margin: var(--space-1) 0 0; padding: var(--space-1) 0 0; list-style: none; border-top: 1px solid var(--border-1); }
 .level-pop-list button {

@@ -2,7 +2,9 @@
 // runs at that level; clicking it opens a small panel with that, what moving up or down adds or
 // drops, and the four levels to switch to (POST /api/job/:slug/options, from the next stage).
 // Until the job's detail has loaded the chip is off: the level shown may not be the job's yet.
-import { useEffect, useRef, useState } from 'react';
+// The panel opens where the stylesheet puts it, then stays there as a fixed layer, so a box that
+// scrolls (the job page's Details) neither cuts it off nor has to grow for it.
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Job, LevelNumber } from '../../api/types';
 import { isLevel, LEVEL_NUMBERS, levelChange, levelLabel, lensNames } from '../../lib/levels';
 import { useWorkshopState } from '../../state/store';
@@ -21,16 +23,35 @@ export function LevelChip({ job, ready = true }: { job: Job; ready?: boolean }) 
   const box = useRef<HTMLDivElement>(null);
   const chip = useRef<HTMLButtonElement>(null);
   const pop = useRef<HTMLDivElement>(null);
+  const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    pop.current?.querySelector<HTMLButtonElement>('button:enabled')?.focus();
+    pop.current?.querySelector<HTMLButtonElement>('button:enabled')?.focus({ preventScroll: true });
     const onDown = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(false); chip.current?.focus(); } };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [open]);
+
+  // Where the panel goes: measured once where the stylesheet put it, next to the chip, then kept
+  // at that distance from the chip as the page scrolls, and inside the window.
+  useLayoutEffect(() => {
+    if (!open || !ready || !chip.current || !pop.current) { setPlace(null); return; }
+    const c0 = chip.current.getBoundingClientRect();
+    const p0 = pop.current.getBoundingClientRect();
+    const put = () => {
+      if (!chip.current || !pop.current) return;
+      const c = chip.current.getBoundingClientRect();
+      const most = window.innerHeight - pop.current.offsetHeight - 8;
+      setPlace({ left: c.left + (p0.left - c0.left), top: Math.max(8, Math.min(c.top + (p0.top - c0.top), most)) });
+    };
+    put();
+    window.addEventListener('resize', put);
+    window.addEventListener('scroll', put, true);
+    return () => { window.removeEventListener('resize', put); window.removeEventListener('scroll', put, true); };
+  }, [open, ready]);
 
   const label = level === null ? 'No level yet' : levelLabel(level, levels, job.kind);
   const up = level !== null && level < 3 ? levelChange(level, (level + 1) as LevelNumber, levels, names, stage, job.kind) : null;
@@ -54,7 +75,7 @@ export function LevelChip({ job, ready = true }: { job: Job; ready?: boolean }) 
         {label}
       </button>
       {open && ready && (
-        <div className="level-pop" role="dialog" aria-label="This job’s level" ref={pop}>
+        <div className={`level-pop${place ? ' is-placed' : ''}`} role="dialog" aria-label="This job’s level" ref={pop} style={place ?? undefined}>
           <p className="level-pop-now">
             <strong>{label}</strong>{info ? ` — ${info.hint}` : ' — the Foreman suggests one in its first brief, or pick one below.'}
           </p>
