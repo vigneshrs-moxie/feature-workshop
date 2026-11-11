@@ -18,6 +18,7 @@ import { State } from '../lib/state.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 const OLD = '2026-10-01T10:00:00Z';
+const STOPPED = { reason: 'the plan adds a migration', rule: 'database', at: OLD };
 
 let root, featuresDir, dashboard, base, stateDir;
 const output = [];
@@ -99,6 +100,17 @@ before(async () => {
       options: { level, flow: level === 3 ? 'large' : level === 2 ? 'small' : 'quick', title: slug, updated_at: OLD },
     });
   }
+
+  // A job run only from a terminal: no options.json at all.
+  await writeJob('no-options-job', { status: { title: 'No options', route: 'small', stage: 'implement', stage_state: 'working', updated_at: OLD } });
+  // A job already in Auto, which Auto has stopped on (its record seeded in sessions.json).
+  const stoppedDir = await writeJob('stopped-job', {
+    status: { title: 'stopped-job', route: 'quick', stage: 'implement', stage_state: 'working', updated_at: OLD },
+    options: { level: 1, flow: 'quick', title: 'stopped-job', updated_at: OLD, auto: true, auto_since: OLD },
+  });
+  await fs.writeFile(path.join(dirs.state, 'sessions.json'), JSON.stringify({
+    [stoppedDir]: { auto: { on: true, since: OLD, by: 'you', tag: null, ran: true, stopped: STOPPED, step: { stage: 'implement', count: 2 }, failures: 1, lastBrief: 3 } },
+  }));
 
   const audit = [
     { at: '2026-10-02T09:00:00Z', action: 'send', kind: 'approve', featureDir: plan, slug: 'visit-audit', text: 'I approve the spec.', gateBrief: 1 },
@@ -355,4 +367,80 @@ test('L3 refuses with the sentence', { timeout: 60_000 }, async () => {
   assert.equal('auto' in (await optionsOf('big-job')), false);
   const job = await getJson('/api/job/big-job');
   assert.deepEqual([job.auto.on, job.auto.allowed, job.auto.why], [false, false, L3]);
+});
+
+test('turning Auto on for a job with no options.json writes one with auto and auto_since', { timeout: 60_000 }, async () => {
+  const dir = path.join(featuresDir, 'no-options-job');
+  await assert.rejects(fs.stat(path.join(dir, 'options.json')), 'no options.json to start with');
+  const r = await post('/api/job/no-options-job/auto', { on: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const rec = (await sessions())[dir].auto;
+  let o = await optionsOf('no-options-job');
+  assert.deepEqual([o.auto, o.auto_since], [true, rec.since]);
+  assert.equal(o.schema_version, 2, 'a whole options file, as a new job gets');
+  assert.equal(o.level, null, 'no level yet');
+  assert.ok(Array.isArray(o.skip));
+  assert.equal(o.title, 'No options');
+  // Off again: the file stays, without the two fields.
+  assert.equal((await post('/api/job/no-options-job/auto', { on: false })).status, 200);
+  o = await optionsOf('no-options-job');
+  assert.deepEqual(['auto' in o, 'auto_since' in o, o.schema_version], [false, false, 2]);
+});
+
+test('turning Auto on twice keeps since, stopped and the audit count', { timeout: 60_000 }, async () => {
+  const autoLines = async (slug) => (await auditLines()).filter((e) => e.action === 'auto' && e.slug === slug).length;
+  // A job Auto stopped on: on again changes nothing, the stop included.
+  const dir = path.join(featuresDir, 'stopped-job');
+  const before = await autoLines('stopped-job');
+  const r = await post('/api/job/stopped-job/auto', { on: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.auto.stopped, STOPPED);
+  const rec = (await sessions())[dir].auto;
+  assert.deepEqual([rec.since, rec.stopped, rec.step, rec.failures, rec.lastBrief], [OLD, STOPPED, { stage: 'implement', count: 2 }, 1, 3]);
+  assert.equal((await optionsOf('stopped-job')).auto_since, OLD, 'auto_since does not move');
+  assert.equal(await autoLines('stopped-job'), before, 'no audit line');
+  // And twice in a row on a job turned on here.
+  assert.equal((await post('/api/job/auto-job/auto', { on: true })).status, 200);
+  const first = (await sessions())[path.join(featuresDir, 'auto-job')].auto.since;
+  const count = await autoLines('auto-job');
+  await pause(20);
+  assert.equal((await post('/api/job/auto-job/auto', { on: true })).status, 200);
+  assert.equal((await sessions())[path.join(featuresDir, 'auto-job')].auto.since, first);
+  assert.equal((await optionsOf('auto-job')).auto_since, first);
+  assert.equal(await autoLines('auto-job'), count);
+  assert.equal((await post('/api/job/auto-job/auto', { on: false })).status, 200);
+});
+
+test('turning Auto off on a job that never had it writes nothing', { timeout: 60_000 }, async () => {
+  const dir = path.join(featuresDir, 'button-label');
+  const optionsBefore = await fs.readFile(path.join(dir, 'options.json'), 'utf8');
+  const linesBefore = (await auditLines()).length;
+  const r = await post('/api/job/button-label/auto', { on: false });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.auto.on, false);
+  assert.equal((await sessions())[dir]?.auto, undefined, 'no record made');
+  assert.equal(await fs.readFile(path.join(dir, 'options.json'), 'utf8'), optionsBefore, 'options.json untouched');
+  assert.equal((await auditLines()).length, linesBefore, 'no audit line');
+});
+
+test('with Auto on, a Foreman that moves auto_since or removes auto gets both put back from the record', { timeout: 60_000 }, async () => {
+  const dir = path.join(featuresDir, 'stopped-job');
+  const file = path.join(dir, 'options.json');
+  const strayBefore = (await auditLines()).filter((e) => e.what === 'stray-option' && e.slug === 'stopped-job').length;
+  // Moved forward, past a "stop" said in the conversation.
+  await fs.writeFile(file, JSON.stringify({ ...(await optionsOf('stopped-job')), auto_since: new Date().toISOString() }, null, 2));
+  await pause(1600); // the job list is cached for 1.5 seconds
+  await getJson('/api/job/stopped-job');
+  assert.deepEqual([(await optionsOf('stopped-job')).auto, (await optionsOf('stopped-job')).auto_since], [true, OLD]);
+  // Taken out.
+  const o = await optionsOf('stopped-job');
+  delete o.auto;
+  delete o.auto_since;
+  await fs.writeFile(file, JSON.stringify(o, null, 2));
+  await pause(1600);
+  await getJson('/api/job/stopped-job');
+  const back = await optionsOf('stopped-job');
+  assert.deepEqual([back.auto, back.auto_since, back.level], [true, OLD, 1]);
+  assert.equal((await sessions())[dir].auto.since, OLD, 'the record is the one that stays');
+  assert.equal((await auditLines()).filter((e) => e.what === 'stray-option' && e.slug === 'stopped-job').length, strayBefore, 'putting it back writes no audit line');
 });

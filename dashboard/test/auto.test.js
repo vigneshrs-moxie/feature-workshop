@@ -59,3 +59,13 @@ test('options.json says Auto only while the record does, and never above L2', ()
   assert.deepEqual(autoOption(null, 1), { on: false, since: null });
   assert.deepEqual(autoOption({ on: 'yes', since: 'x' }, 1), { on: false, since: null }, 'only a literal true');
 });
+
+test('a stack section never takes its parent’s Auto', async () => {
+  const { sectionOptions } = await import('../runner/stacks.js');
+  const parent = { level: 2, skip: ['refine'], provided: {}, auto: true, auto_since: '2026-11-10T09:00:00.000Z', from_session: { id: 'x' }, updated_at: 'x' };
+  const o = sectionOptions(parent, '/tmp/fw/section.md');
+  assert.deepEqual(['auto' in o, 'auto_since' in o, 'from_session' in o, 'updated_at' in o], [false, false, false, false]);
+  assert.deepEqual(o.skip, ['refine', 'clarify', 'spec']);
+  assert.deepEqual(o.provided, { spec: '/tmp/fw/section.md' });
+  assert.equal(o.level, 2);
+});

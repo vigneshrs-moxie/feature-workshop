@@ -76,6 +76,17 @@ function canListen(port) {
  * read. models: the model ids a stack may pick. onChange(): something on a stack changed (the page
  * fetches again). onSettings(): the settings changed (the global cap: every open page hears). tickMs: how often it looks (STARBASE_STACK_TICK_MS; 0: only when asked).
  */
+/**
+ * A section's options: the parent's, with clarify and spec skipped and the brief as its spec. Never
+ * the parent's Auto (auto, auto_since): a section has no Auto record of its own, and only the record
+ * may say a job is in Auto (lib/auto.js).
+ */
+export function sectionOptions(parentOptions, specFile) {
+  const { from_session: _from, updated_at: _u, auto: _auto, auto_since: _since, ...rest } = parentOptions ?? {};
+  const skip = [...new Set([...(rest.skip ?? []), 'clarify', 'spec', 'refine'])];
+  return { ...rest, skip, provided: { ...(rest.provided ?? {}), spec: specFile } };
+}
+
 export function createStacks({ driver, state, featuresDir, registry = null, integrator = null, readDirs = async () => [], models = null, onChange = null, onSettings = null, tickMs = Number(process.env.STARBASE_STACK_TICK_MS) || 3000 }) {
   const out = new EventEmitter();
   out.setMaxListeners(0);
@@ -277,10 +288,8 @@ export function createStacks({ driver, state, featuresDir, registry = null, inte
     const title = `${p.title} · ${sec.name}`;
     const brief = sectionBrief({ parent: slug, ticketKey: p.ticketKey, section: { ...fromPlan, owns: sec.owns, dependsOn: sec.dependsOn }, index, total: stack.sections.length, parentBranch: stack.parentBranch, worktree: names.worktree, branch: names.branch, port });
     await fs.writeFile(path.join(dir, SECTION_BRIEF_FILE), brief);
-    // The section's options: the parent's, with clarify and spec skipped and the brief as its spec.
-    const { from_session: _from, updated_at: _u, ...parentOptions } = p.options ?? {};
-    const skip = [...new Set([...(parentOptions.skip ?? []), 'clarify', 'spec', 'refine'])];
-    await writeOptions(dir, { ...parentOptions, skip, provided: { ...(parentOptions.provided ?? {}), spec: path.join(dir, SECTION_BRIEF_FILE) } }, { title, repo: stack.repo, kind: p.kind, branch: names.branch, ticket: parentOptions.ticket ?? undefined });
+    const parentOptions = p.options ?? {};
+    await writeOptions(dir, sectionOptions(parentOptions, path.join(dir, SECTION_BRIEF_FILE)), { title, repo: stack.repo, kind: p.kind, branch: names.branch, ticket: parentOptions.ticket ?? undefined });
     const ticket = p.status.ticket && typeof p.status.ticket === 'object' ? p.status.ticket : null;
     if (!(await exists(path.join(dir, 'status.json')))) {
       await writeJson(path.join(dir, 'status.json'), {

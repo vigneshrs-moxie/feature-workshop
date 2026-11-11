@@ -368,6 +368,7 @@ export async function createRunner(config) {
     // Auto mode's record (lib/auto.js): only this says a job is in Auto. Its options.json follows it.
     for (const f of list) f.auto = saved[f.dir]?.auto ?? null;
     sessionsNow = saved;
+    // Code that holds autoLocked must never call features() or jobContext: they wait on the same lock.
     await mirrorAuto(list);
     for (const f of list) noteRaisedVersions(f);
     cached = { at: Date.now(), list };
@@ -1911,13 +1912,32 @@ export async function createRunner(config) {
         const allowed = autoAllowed({ level: f.level, suggestedLevel: f.suggestedLevel });
         if (!allowed.ok) throw new HttpError(409, allowed.why, { code: 'auto-level' });
       }
-      const record = await autoLocked(f.dir, async () => {
-        const next = autoRecord((await state.sessionFor(f.dir))?.auto ?? null, { on: body.on, by: 'you' });
+      // Inside the lock nothing may call features() or jobContext: they wait on this same lock.
+      const { record, changed } = await autoLocked(f.dir, async () => {
+        const prev = (await state.sessionFor(f.dir))?.auto ?? null;
+        // Already so: nothing changes. On again never moves `since` or clears a stop (telling Auto to
+        // carry on is its own action); off on a job never in Auto makes no record.
+        if ((prev?.on === true) === body.on) return { record: prev, changed: false };
+        const next = autoRecord(prev, { on: body.on, by: 'you' });
         await state.setSession(f.dir, { auto: next });
-        await writeAutoOption(f.dir, autoOption(next, f.level));
-        return next;
+        // Audited as soon as the record changed: a failed file write below can't leave it unsaid.
+        await state.audit({ action: 'auto', what: body.on ? 'on' : 'off', by: 'you', featureDir: f.dir, slug: f.slug });
+        try {
+          const want = autoOption(next, f.level);
+          const file = path.join(f.dir, 'options.json');
+          const missing = await fsp.stat(file).then(() => false, () => true);
+          // A job with no options.json (one run from a terminal) gets one, so the skills see Auto.
+          // Off leaves a file there as it is, without the two fields.
+          if (missing && want.on) {
+            const workflow = (await state.getSettings()).workflow;
+            await writeOptions(f.dir, withAutoOf(normalizeOptions({}, { workflow, kind: f.kind }), next), { title: f.title, repo: f.repoPath, kind: f.kind });
+          } else {
+            await writeAutoOption(f.dir, want);
+          }
+        } catch (err) { console.warn(`Auto: options.json for ${f.slug} not written now (the next pass puts it in line): ${err.message}`); }
+        return { record: next, changed: true };
       });
-      await state.audit({ action: 'auto', what: body.on ? 'on' : 'off', by: 'you', featureDir: f.dir, slug: f.slug });
+      if (!changed) return { ok: true, auto: { ...autoCardView(record, { level: f.level, suggestedLevel: f.suggestedLevel }), tag: record?.tag ?? null } };
       await driver.applyModes(); // a reply in progress switches mode now
       settingsChanged();
       cached = null;
