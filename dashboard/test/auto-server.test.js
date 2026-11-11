@@ -261,7 +261,7 @@ test('answering a stopped gate yourself moves auto_since', { timeout: 30_000 }, 
 });
 
 test('your own permission answer after a stop clears it too, and Auto\'s own lines do not', { timeout: 30_000 }, async () => {
-  const stopped = { ...autoRecord(null, { on: true, now: OLD }), stopped: { reason: 'a request needs you', rule: 'outside', at: '2026-10-02T10:00:00Z' }, failures: 1 };
+  const stopped = { ...autoRecord(null, { on: true, now: OLD }), stopped: { reason: 'a request needs you', rule: 'outside', at: '2026-10-02T10:00:00Z', card: true }, failures: 1 };
   const w = await world({ auto: stopped });
   try {
     const audit = path.join(w.dirs.state, 'audit.jsonl');
@@ -1365,7 +1365,7 @@ test('answering a gate sets the card count back to 0', { timeout: 30_000 }, asyn
 });
 
 test('the person clearing a stop sets the card count back to 0', { timeout: 30_000 }, async () => {
-  const stopped = { ...autoRecord(null, { on: true, now: OLD }), cards: 40, stopped: { reason: 'Auto has answered 40 cards in one reply, so it needs you.', rule: 'loop', at: '2026-10-02T10:00:00Z' } };
+  const stopped = { ...autoRecord(null, { on: true, now: OLD }), cards: 40, stopped: { reason: 'Auto has answered 40 cards in one reply, so it needs you.', rule: 'loop', at: '2026-10-02T10:00:00Z', card: true } }; // the loop stop is written on a card
   const w = await world({ auto: stopped });
   try {
     await fs.appendFile(path.join(w.dirs.state, 'audit.jsonl'), `${JSON.stringify({ featureDir: w.dir, slug: w.slug, at: '2026-10-02T12:00:00Z', action: 'permission', decision: 'allow' })}\n`);
@@ -2727,16 +2727,19 @@ test('L4: a stop tells the person what to do, with one space and the reason\'s o
   assert.match(fixed.notes[0].body, /^Auto stopped: .*\. Open the job to answer\.$/, 'the same ending for every stop');
 });
 
-test('L7: an answer on a status card clears only a status stop; a gate reply or a permission answer clears any stop', { timeout: 30_000 }, async () => {
-  for (const [rule, line, clears] of [
+test('L7: an answer on a status card clears only a status stop; a gate decision clears any stop; a permission answer only a stop written on a card', { timeout: 30_000 }, async () => {
+  for (const [rule, line, clears, onCard = false] of [
     ['judgment', { action: 'status_invalid_answer', decision: 'allow' }, false],
     ['status', { action: 'status_invalid_answer', decision: 'allow' }, true],
     ['judgment', { action: 'send', kind: 'approve', gateBrief: 1, text: 'go' }, true],
     ['status', { action: 'send', kind: 'approve', gateBrief: 1, text: 'go' }, true],
-    ['tool', { action: 'permission', decision: 'allow' }, true],
+    // A permission answer clears only a stop that was written on a card (N1).
+    ['tool', { action: 'permission', decision: 'allow' }, true, true],
+    ['judgment', { action: 'permission', decision: 'allow' }, false],
+    ['blocked', { action: 'permission', decision: 'deny' }, false],
     ['judgment', { action: 'send', kind: 'message', gateBrief: 1 }, false],
   ]) {
-    const w = await world({ auto: stoppedRecord({ stopped: { reason: 'x', rule, at: STOP_AT } }) });
+    const w = await world({ auto: stoppedRecord({ stopped: { reason: 'x', rule, at: STOP_AT, ...(onCard ? { card: true } : {}) } }) });
     try {
       await auditLine(w, { at: AT(4), ...line });
       await w.pass();
@@ -2762,6 +2765,47 @@ test('C1: a message from the gate card\'s own box after a stop leaves the stop: 
     assert.deepEqual((await w.record()).stopped, stopped, 'the stop stays');
     assert.equal(w.asks.length, 1, 'the Approver is not asked again');
     assert.deepEqual((await w.sends()).map((s) => ({ by: s.by ?? 'you', kind: s.kind })), [{ by: 'you', kind: 'message' }], 'nothing sent by Auto');
+  } finally { await w.stop(); }
+});
+
+const stopFirst = (task, n) => (n === 1 ? goodAnswer(task, { decision: 'stop', why: 'The plan drops the audit trail, so it needs you' }) : goodAnswer(task));
+
+for (const [name, decision] of [['C1-d: a judgment stop on brief 1; the person asks, then allows a card raised in the reply', 'allow'], ['C1-e: the same, and the person says no to the card', 'deny']]) {
+  test(`N1 (${name}): the stop stays, the Approver is not asked again, Auto sends nothing`, { timeout: 60_000 }, async () => {
+    const outcomes = [];
+    const w = await world({ ask: stopFirst, query: cardQuery([FETCH], outcomes) });
+    try {
+      await w.pass();
+      const stopped = (await w.record()).stopped;
+      assert.equal(stopped.rule, 'judgment');
+      assert.equal(stopped.card, undefined, 'a stop on a gate is not marked as a card\'s');
+      await w.runner.handle({ type: 'reply', slug: w.slug, via: 'card', briefNumber: 1, note: 'Why did you drop the audit trail?' }, { from: 'local' });
+      const [card] = await w.until(async () => { const p = await waiting(w); return p.length ? p : null; }, 'the card');
+      await w.runner.handle({ type: decision, requestId: card.id }, { from: 'local' });
+      await w.until(() => outcomes.length === 1, 'the card answered');
+      await w.idle();
+      await new Promise((r) => setTimeout(r, 1700)); await w.pass();
+      await new Promise((r) => setTimeout(r, 1700)); await w.pass();
+      await w.idle();
+      assert.deepEqual((await w.record()).stopped, stopped, 'the stop stays');
+      assert.equal(w.asks.length, 1, 'the Approver is not asked again');
+      assert.equal((await w.sends()).filter((x) => x.by === 'auto').length, 0, 'Auto sends nothing');
+    } finally { await w.stop(); }
+  });
+}
+
+test('N1: a stop written on a card is marked so, and the person\'s answer to a card then carries Auto on', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => ({ ok: true, costUsd: 0.12, answer: { decision: 'stop', why: 'It reaches an outside site.', risk: 'low' } }), jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    await raise(w);
+    await w.until(async () => (await w.record())?.stopped, 'the stop');
+    assert.equal((await w.record()).stopped.card, true);
+    const [card] = await w.until(async () => { const p = await waiting(w); return p.length ? p : null; }, 'the card');
+    await w.runner.handle({ type: 'allow', requestId: card.id }, { from: 'local' });
+    await w.idle();
+    await w.pass();
+    assert.equal((await w.record()).stopped, null, 'carried on');
   } finally { await w.stop(); }
 });
 

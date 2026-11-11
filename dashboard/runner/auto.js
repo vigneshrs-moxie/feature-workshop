@@ -124,11 +124,12 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
    * Auto stops and waits for you: the record says why, one audit line, one notification (none if it already had). Resolves true when it wrote the stop.
    * why: the Approver's own words when the reason is Starbase's (they go on the line; the reason is what the person is told).
    */
-  async function stop(job, { rule, reason }, { leave = false, why = null } = {}) {
+  async function stop(job, { rule, reason }, { leave = false, why = null, card = false } = {}) {
     stopping(job.slug, true);
-    try { return await writeStop(job, { rule, reason }, { leave, why }); } finally { stopping(job.slug, false); }
+    try { return await writeStop(job, { rule, reason }, { leave, why, card }); } finally { stopping(job.slug, false); }
   }
-  async function writeStop(job, { rule, reason }, { leave, why }) {
+  // card: the stop was written on a card (stopOnCard); only then does the person's answer to a card clear it (N1).
+  async function writeStop(job, { rule, reason }, { leave, why, card }) {
     const at = now().toISOString();
     let spent = 0;
     let wrote = false;
@@ -137,7 +138,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       if (prev?.on !== true || (!leave && prev.stopped)) return null;
       wrote = true;
       spent = prev.spent ?? 0;
-      return { ...prev, ...(leave ? { on: false } : {}), stopped: { reason, rule, at } };
+      return { ...prev, ...(leave ? { on: false } : {}), stopped: { reason, rule, at, ...(card ? { card: true } : {}) } };
     });
     if (!wrote) return false;
     try {
@@ -178,11 +179,13 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     const stoppedAt = Date.parse(job.auto.stopped?.at ?? '');
     // All of the job's lines since the stop: a long reply after the person's decision must not push it out of view.
     const lines = await state.auditFor(job.dir, Infinity);
-    // Only the person's decision on a gate (a send that carries its brief) or on a card (the status card's answer is its own line) clears a stop.
-    // An answer on the status card clears a stop made by a status card, and no other.
+    // Only the person's decision clears a stop: a deciding gate reply (a send that carries its brief) clears any stop; their
+    // answer to a card clears only a stop that was written on a card (N1: a yes or no to a tool call decides no step);
+    // an answer on the status card clears a stop made by a status card, and no other.
     const statusStop = job.auto.stopped?.rule === 'status';
+    const cardStop = job.auto.stopped?.card === true;
     const yours = lines.some((l) => l.by !== 'auto' && Date.parse(l.at) > stoppedAt
-      && ((l.action === 'send' && DECIDES.has(l.kind) && l.gateBrief) || l.action === 'permission' || (statusStop && l.action === 'status_invalid_answer')));
+      && ((l.action === 'send' && DECIDES.has(l.kind) && l.gateBrief) || (cardStop && l.action === 'permission') || (statusStop && l.action === 'status_invalid_answer')));
     if (!yours) return false;
     const at = now().toISOString();
     await update(job.dir, (prev) => (prev?.stopped ? { ...prev, stopped: null, failures: 0, problem: null, step: null, cards: 0, since: at } : null));
@@ -487,7 +490,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
 
   /** A stop on the card: its own notification tells the person; when none was written, the card's notification does. */
   async function stopOnCard(job, hit, leave, opts = {}) {
-    if (!(await stop(job, hit, opts))) leave();
+    if (!(await stop(job, hit, { ...opts, card: true }))) leave();
   }
 
   async function attendCard(card, leftWaiting) {
