@@ -1057,7 +1057,14 @@ function packageScripts(cmd, args, cwd, st, depth = 0) {
   const sub = rest[0];
   if (!sub) return;
   if (/^(run|run-script|rum|urun)$/.test(sub)) { if (rest[1]) names.push(rest[1]); } else if (/^(test|t|tst|start|stop|restart)$/.test(sub)) names.push(sub === 't' || sub === 'tst' ? 'test' : sub);
-  else if (/^(install|i|ci|add)$/.test(sub)) { if (!args.some((x) => x.t === '--ignore-scripts')) names.push('install', 'prepare'); } // the project's own lifecycle scripts, unless they are turned off
+  else if (/^(install|i|ci|add)$/.test(sub)) {
+    // the project's own lifecycle scripts (prepublish too), unless --ignore-scripts turns them off. npm reads a true or false
+    // after it as its value, so that spelling asks and the scripts are read (N6).
+    const k = args.findIndex((x) => x.t === '--ignore-scripts');
+    const valued = k >= 0 && /^(true|false)$/i.test(args[k + 1]?.t ?? '');
+    if (valued) st.asks.push('--ignore-scripts with a value after it');
+    if (k < 0 || valued) names.push('install', 'prepare', 'prepublish');
+  }
   else if (cmd !== 'npm' && !PKG_BUILTIN.has(sub) && !(cmd === 'bun' && sub === 'test')) names.push(sub);
   const binRun = names.length === 1 && names[0] === sub && cmd !== 'npm' && !/^(run|run-script|rum|urun|test|t|tst|start|stop|restart)$/.test(sub);
   if (!names.length) return;

@@ -807,3 +807,19 @@ test('N4: sed and awk reads are reads', () => {
   assert.equal(bash(`sed -i '' s/a/b/ ${HOME}/.zshrc`, ctx), 'outside');
   assert.equal(bash("sed -i '' s/a/b/ src/x.ts", ctx), null);
 });
+
+test('N6: --ignore-scripts with true or false after it asks, and prepublish is read for npm install and npm ci', () => {
+  const o = orbitWorld();
+  try {
+    const ctx = orbitCtx(o);
+    for (const [dir, scripts] of [['pkg-db', { postinstall: 'psql -c "select 1"' }], ['pkg-pub', { prepublish: 'psql -c "select 1"' }]]) {
+      const p = pathMod.join(o.wt, dir);
+      fsSync.mkdirSync(p, { recursive: true });
+      fsSync.writeFileSync(pathMod.join(p, 'package.json'), JSON.stringify({ name: dir, scripts }));
+    }
+    for (const c of ['cd pkg-db && npm install', 'cd pkg-db && npm install --ignore-scripts=false', 'cd pkg-pub && npm ci', 'cd pkg-pub && npm install']) assert.equal(bash(c, ctx), 'database', c);
+    for (const c of ['cd pkg-db && npm install --ignore-scripts false', 'cd pkg-db && npm i --ignore-scripts false', 'cd pkg-db && pnpm install --ignore-scripts false']) assert.notEqual(bash(c, ctx), null, c);
+    assert.equal(bash('cd app && npm install --ignore-scripts true', ctx), 'ask');
+    assert.equal(bash('cd pkg-db && npm install --ignore-scripts', ctx), null);
+  } finally { o.done(); }
+});
