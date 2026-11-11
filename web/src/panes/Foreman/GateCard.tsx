@@ -60,6 +60,8 @@ export interface GateNotice {
   focus: 'notice' | 'composer';
 }
 
+/** Why Go waits while the send back box holds words (deep review D, I2). */
+export const CHANGES_TYPED = 'You wrote what should change. Send the changes or cancel them first.';
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
@@ -264,6 +266,9 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const approve = approveLabel(gate, chosen);
   // Why Approve is off, in plain words (the Kingdom Inspection pattern): the list empties as you resolve them.
   const offReasons: string[] = [];
+  // Words typed in the send back box (I2): Go would throw them away, so it waits until they are sent or cancelled.
+  const changesTyped = mode === 'changes' && note.trim() !== '';
+  if (changesTyped) offReasons.push(CHANGES_TYPED);
   if (stale) offReasons.push('The plan changed since this card was raised, so this approval would be for an old version. Ask for changes, or wait for the new brief.');
   const missingOverride = emptyOverride(gate, c);
   if (missingOverride) offReasons.push(`Say what “${missingOverride.decision}” should be instead, or undo that override.`);
@@ -370,6 +375,12 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     reload();
   }
 
+  /** Approve; a note typed in the open reply box goes with it (I2), and words for a send back stop it. */
+  function approveNow(extra: Partial<GateRequest> = {}, button: NonNullable<typeof pressed> = 'approve') {
+    if (changesTyped) return;
+    void act('approve', { ...(mode === 'message' && note.trim() ? { note } : {}), ...extra }, button);
+  }
+
   async function act(kind: GateKind, extra: Partial<GateRequest> = {}, button: NonNullable<typeof pressed> = kind === 'stop' ? 'stop' : kind) {
     if (busy) return;
     setPressed(button);
@@ -427,7 +438,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   // The card's keys (the 'gate' scope): off while a decision is being sent. `a` only where the Desk
   // would allow one key too; 1–3 answer the first question still open.
   useKeyScope('gate', {
-    'gate-approve': () => { if (!oneKeyGateApprove(gate, job.waitingFor)) return false; void act('approve'); },
+    'gate-approve': () => { if (!oneKeyGateApprove(gate, job.waitingFor) || changesTyped) return false; approveNow(); },
     'gate-edit': () => { if (stale) return false; openEdit(); },
     'gate-revise': () => { onOpenBox?.(); openMode('changes'); },
     'gate-guidance': () => { onOpenBox?.(); openMode('message'); },
@@ -575,7 +586,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
         </div>
       )}
       <div className="perm-actions gate-actions" hidden={callsOutside}>
-        <Button kind="primary" keyId={oneKeyGateApprove(gate, job.waitingFor) ? 'gate-approve' : undefined} data-gate="approve" busy={spins('approve')} busyLabel="Sending…" disabled={busy || approveOff} onClick={() => void act('approve')} title={approveOff ? `Off: ${offReasons[0]}` : approveHint}>
+        <Button kind="primary" keyId={oneKeyGateApprove(gate, job.waitingFor) ? 'gate-approve' : undefined} data-gate="approve" data-off-why={changesTyped ? CHANGES_TYPED : undefined} busy={spins('approve')} busyLabel="Sending…" disabled={busy || approveOff} onClick={() => approveNow()} title={approveOff ? `Off: ${offReasons[0]}` : approveHint}>
           {approve}
         </Button>
         {limited && (
@@ -583,7 +594,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
             busy={spins('after-reset')}
             busyLabel="Sending…"
             disabled={busy || approveOff}
-            onClick={() => void act('approve', { startAfterReset: true }, 'after-reset')}
+            onClick={() => approveNow({ startAfterReset: true }, 'after-reset')}
             title={approveOff ? `Off: ${offReasons[0]}` : `Approve now; the reply is held and goes to the Foreman when Claude’s usage limit resets${resetAt ? ` (around ${resetAt})` : ''}.`}
           >
             Approve, start after reset

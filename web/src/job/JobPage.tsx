@@ -438,7 +438,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, 
   const [cardShown, setCardShown] = useShown('stage', 'brief');
   const folded = foldCard && !cardShown;
   const body = useRef<HTMLDivElement>(null);
-  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true });
+  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true, why: '' });
   useLayoutEffect(() => {
     const el = body.current;
     if (!el) return;
@@ -447,8 +447,9 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, 
       const back = el.querySelector<HTMLButtonElement>('[data-gate="revise"]');
       // Off whenever the card's button can't be pressed: disabled, aria-disabled, or busy.
       const reply = el.querySelector<HTMLButtonElement>('[data-gate="guidance"]');
-      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back), replyOff: !isPressable(reply) };
-      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff && was.replyOff === next.replyOff ? was : next));
+      // The card's own reason when Go must wait for something on it (words typed for a send back).
+      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back), replyOff: !isPressable(reply), why: b?.dataset.offWhy ?? '' };
+      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff && was.replyOff === next.replyOff && was.why === next.why ? was : next));
     };
     read();
     const watch = new MutationObserver(read);
@@ -497,7 +498,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, 
           busyLabel={SENDING_WORDS}
           disabled={go.off}
           onClick={() => press('approve')}
-          title={go.off ? 'Go is off for now: the card under this says why.' : go.asks ? `${goWords}, with your answers to the questions under this. The a key never answers a question.` : `${goWords} (key: a).`}
+          title={go.off ? go.why || 'Go is off for now: the card under this says why.' : go.asks ? `${goWords}, with your answers to the questions under this. The a key never answers a question.` : `${goWords} (key: a).`}
         >
           {call ? `Go: ${lowerFirst(goWords)}` : goWords}
         </Button>

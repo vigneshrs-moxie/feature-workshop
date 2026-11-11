@@ -202,6 +202,33 @@ describe('the go / no go bar', () => {
     expect(box).toHaveFocus();
   });
 
+  // Deep review D, I2: a typed note is never thrown away.
+  it('Go with the Reply box open and words in it sends the words with the approval', async () => {
+    const { post } = setup({ jobs: waiting(), gate: GATE });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'Approved, but keep the icon small.' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'approve', note: 'Approved, but keep the icon small.' })));
+  });
+
+  it('Go with the Send back box open and words in it is off, and says why', async () => {
+    const { post } = setup({ jobs: waiting(), gate: GATE });
+    const go = await screen.findByRole('button', { name: /^Go: approve/ });
+    await waitFor(() => expect(go).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: /^No go: send back/ }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Use the small table.' } });
+    await waitFor(() => expect(go).toBeDisabled());
+    expect(go).toHaveAttribute('title', 'You wrote what should change. Send the changes or cancel them first.');
+    fireEvent.click(go);
+    fireEvent.keyDown(document.body, { key: 'a' });
+    await act(async () => {});
+    expect(post.mock.calls.filter(([, b]) => (b as { kind?: string })?.kind === 'approve')).toHaveLength(0);
+    // Cancel keeps nothing in the way: Go is on again.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(go).toBeEnabled());
+  });
+
   it('with Play off the calls are the gate’s own words', async () => {
     setup({ jobs: waiting(), gate: GATE, play: 'off' });
     expect(await screen.findByRole('button', { name: /^Approve/ })).toBeInTheDocument();
