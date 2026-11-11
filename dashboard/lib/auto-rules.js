@@ -160,7 +160,7 @@ function judgeCardOf(inp, ctx) {
   if (EDIT_TOOLS.has(toolName)) {
     const file = input.file_path ?? input.notebook_path;
     const where = typeof file === 'string' ? physicalPath(file, ctx.cwd ?? null) : null;
-    if (!(where && inRoots(where, jobRoots(ctx))) || codeLater(where, jobRoots(ctx))) return { stop: stop('outside') };
+    if (!(where && inRoots(where, jobRoots(ctx))) || codeLater(where, jobRoots(ctx)) || autoRecordFile(where, ctx)) return { stop: stop('outside') };
     return ASK_FILES.has(path.basename(where)) ? { ask: 'a file that changes how tools run' } : null;
   }
   if (toolName === 'Bash') return bashVerdict(String(input.command ?? ''), hard, ctx);
@@ -218,6 +218,12 @@ function codeLater(p, roots = []) {
   const segs = (root ? path.relative(root, p) : p).toLowerCase().split(/[\\/]/); // a Mac's disk does not tell .GIT from .git
   if (segs.some((x) => x === '.git' || x === '.husky' || x === '.claude' || x === '.githooks') || ['.mcp.json', 'lefthook.yml'].includes(segs[segs.length - 1])) return true;
   return segs.some((x, k) => x === '.github' && (segs[k + 1] === 'workflows' || segs[k + 1] === 'actions'));
+}
+// The job folder's options.json and auto-log.md are Starbase's (the level, Auto's own lines): a job never writes them (I8).
+function autoRecordFile(p, ctx) {
+  if (!p || typeof ctx.featureDir !== 'string' || !path.isAbsolute(ctx.featureDir)) return false;
+  const dirs = [path.resolve(ctx.featureDir), physicalPath(ctx.featureDir, null)].filter(Boolean).map(fold);
+  return ['options.json', 'auto-log.md'].some((n) => dirs.some((d) => fold(p) === path.join(d, n)));
 }
 const ASK_FILES = new Set(['.npmrc', '.envrc', '.yarnrc', '.yarnrc.yml', '.pypirc']);
 
@@ -545,7 +551,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   // A file that runs code later (T3h), or that changes how tools run (asks).
   const noteWrite = (word) => {
     const p = physicalPath(word.t, cwd ?? st.hint ?? null);
-    if (codeLater(p, st.roots)) st.hits.add('outside');
+    if (codeLater(p, st.roots) || autoRecordFile(p, ctx)) st.hits.add('outside');
     if (p && ASK_FILES.has(path.basename(p))) st.asks.push('a file that changes how tools run');
   };
   const secretWord = (t) => {
