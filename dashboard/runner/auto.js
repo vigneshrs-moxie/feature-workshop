@@ -22,7 +22,7 @@
 // nothing reaches the Foreman but through decide.gate with by: 'auto'.
 
 import { autoAllowed, AUTO_CARDS_PER_REPLY, AUTO_MARK } from '../lib/auto.js';
-import { AUTO_STOP_REASONS, fixedStop } from '../lib/auto-rules.js';
+import { AUTO_STOP_REASONS, autoVerdict, fixedStop } from '../lib/auto-rules.js';
 import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, checkAnswer } from '../lib/approver.js';
 
 /** Anything the Approver wrote, on one line: nothing it writes can start a line of its own, and no copy of the mark gets through. */
@@ -397,10 +397,14 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     if (!full) { cards.delete(card.id); return; }
     // The fixed stop list decides first; so does a hard line (the hook refused a deny one before any card existed).
     let hit;
+    let ctx = null;
+    let why = null; // why Starbase asked (autoVerdict), for the Approver's facts (I10)
     try {
-      const ctx = await cardCtx(card);
+      ctx = await cardCtx(card);
       if (!ctx) throw new Error('no folders for this card');
-      hit = fixedStop({ kind: 'card', toolName: full.toolName, input: full.input, hardLine: full.hardLine ? { decision: 'ask', ...full.hardLine } : null, blockedPath: full.blockedPath ?? null }, ctx);
+      const asked = { kind: 'card', toolName: full.toolName, input: full.input, hardLine: full.hardLine ? { decision: 'ask', ...full.hardLine } : null, blockedPath: full.blockedPath ?? null };
+      hit = fixedStop(asked, ctx);
+      if (!hit) why = autoVerdict(asked, ctx)?.why ?? null;
     } catch { hit = { rule: 'tool', reason: AUTO_STOP_REASONS.tool }; }
     // A push is the one hard line the Approver may judge: the fixed stops already refuse any push but the job's own branch to its fork.
     // Only the plain push: a command that also holds a gh call (an early pull request would end Auto with unreviewed work) is not it.
@@ -413,7 +417,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       return stopOnCard(job, { rule: 'loop', reason: `Auto has answered ${AUTO_CARDS_PER_REPLY} cards in one reply, so it needs you.` }, leave);
     }
 
-    const task = cardTask(job, full);
+    const task = { ...cardTask(job, full), facts: cardFacts(ctx, why, full, plainPush) };
     // The Approver never judges a card it cannot see whole (C4): a command or a field it would be shown cut stops instead.
     const cut = approverCut(task);
     if (cut) return stopOnCard(job, { rule: 'blocked', reason: `this ${cut} is too long for the Approver to read, so it needs you.` }, leave);
@@ -447,6 +451,25 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     await addSpent(job, cost);
     if (answer.decision === 'stop') return stopOnCard(job, { rule: 'judgment', reason: oneLine(answer.why) }, leave);
     await answerCard(job, full, task, answer, { leave, lastAnswered });
+  }
+
+  /**
+   * Starbase's own facts for the Approver (I10): the job's folders, where the call runs, the job's branch and fork remote,
+   * and why Starbase asked; for a plain push or the org-branch step, a sentence saying what it is and what was checked.
+   */
+  function cardFacts(ctx, why, full, plainPush) {
+    if (!ctx) return null;
+    const name = ctx.forkRemote || 'origin';
+    let url = null;
+    try { url = typeof ctx.remoteUrl === 'function' ? ctx.remoteUrl(name) : null; } catch { url = null; }
+    const orgStep = typeof why === 'string' && why.startsWith('the workflow\'s org branch step');
+    const note = plainPush
+      ? `This is a push of the job's own branch to its fork: Starbase checked that the remote is the fork ${name}, not the org repository, and that the branch is the job's own.`
+      : orgStep ? `This is the workflow's org branch step: it creates the job's branch on ${ctx.orgRepo}, the job's org repository; Starbase checked the repository, that the branch is the job's own, and that the commit is on ${ctx.orgRemote ?? 'the org remote'}/main.` : null;
+    return {
+      folders: [...(ctx.worktrees ?? []), ctx.featureDir, ...(ctx.specDirs ?? [])].filter(Boolean), cwd: ctx.cwd ?? null,
+      branches: ctx.branches ?? [], fork: { name, url }, why: why ?? (plainPush ? 'a push is a hard line, so it is asked about before it runs' : null), note,
+    };
   }
 
   /** What the Approver is asked about a card: the questions, or the request in words. */
