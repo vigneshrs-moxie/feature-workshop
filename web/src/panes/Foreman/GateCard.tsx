@@ -276,6 +276,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   if (openQuestion !== null) offReasons.push(`Question ${openQuestion} has no answer. Pick one, or write your own.`);
   if (lock) offReasons.push(`${lockHeadline(lock, now)}. Only one place can work on a job at a time.`);
   const approveOff = offReasons.length > 0;
+  // Auto is on and has not stopped: it, not he, decides this step.
+  const autoDecides = job.auto?.on === true && !job.auto.stopped;
   // Changes need words; a reply can be answers alone.
   const canSendNote = note.trim() !== '' || (mode === 'message' && Object.keys(answersFor(gate, c)).length > 0);
   // The two disclosures, remembered in this browser (closed until you open them).
@@ -492,10 +494,11 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       {lock && <LockCard lock={lock} now={now} />}
       {/* Screens and Try it run on the laptop: the hosted site (packet 2B) leaves them out. */}
       {gate.stage === 'wireframe' && !api.hosted?.() && <ScreensRow slug={slug} hasPage={Boolean(job.wireframes)} />}
-      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && job.auto?.on === true && (
+      {/* While Auto decides, the hand test is skipped; once Auto has stopped and asks him (I5), Try it is back. */}
+      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && autoDecides && (
         <p className="muted gate-try">Auto skips your hand test on this job. The recorded evidence still runs.</p>
       )}
-      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && job.auto?.on !== true && (
+      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && !autoDecides && (
         <p className="gate-try">
           <Button kind="quiet" size="sm" icon="terminal" onClick={() => tryUi.openTry(slug)} title="Open the Try it tab: start this job’s app on your computer and click around before you decide.">Try it on your computer</Button>
         </p>

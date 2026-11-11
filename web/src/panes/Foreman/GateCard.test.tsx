@@ -909,4 +909,11 @@ describe('the hand test under Auto', () => {
     expect(screen.getByRole('button', { name: 'Try it on your computer' })).toBeInTheDocument();
     expect(screen.queryByText(HAND_TEST_LINE)).toBeNull();
   });
+
+  // Deep review D, I5: Auto stopped and asks him to decide, so his hand test is back.
+  it('a stopped Auto job offers Try it on your computer, not the hand test line', () => {
+    setup({ det: detail({ stage: 'test' }), jobExtra: { auto: { on: true, ran: true, stopped: { reason: 'a database change needs you.', rule: 'database', at: '2026-11-11T08:00:00.000Z' } } } });
+    expect(screen.getByRole('button', { name: 'Try it on your computer' })).toBeInTheDocument();
+    expect(screen.queryByText(HAND_TEST_LINE)).toBeNull();
+  });
 });
