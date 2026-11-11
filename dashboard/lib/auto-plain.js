@@ -725,8 +725,9 @@ function runProgram(name, args, ctx, raw) {
   if (CUSTOM[name]) return CUSTOM[name](args, ctx);
   if (name === 'git') return gitCheck(args, ctx);
   if (name === 'gh') return ghCheck(args, ctx);
-  if (name === 'curl') return curlCheck(args, ctx);
-  if (name === 'wget') return wgetCheck(args, ctx);
+  // Every lookup on the network is a question for the Approver on an Auto job: what it sends (an address can carry a secret) leaves the computer (C5).
+  if (name === 'curl') { curlCheck(args, ctx); ask('a network lookup: what it sends leaves the computer'); }
+  if (name === 'wget') { wgetCheck(args, ctx); ask('a network lookup: what it sends leaves the computer'); }
   if (['npm', 'pnpm', 'yarn', 'bun', 'npx', 'bunx', 'pnpx'].includes(name)) return pkgCheck(name, args, ctx);
   if (name === 'node') return nodeCheck(args, ctx);
   if (/^python[\d.]*$/.test(name)) return pythonCheck(args, ctx);

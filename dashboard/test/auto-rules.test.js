@@ -134,7 +134,7 @@ test('outside: wrappers, redirects, copies, installs, system tools', () => {
     ['echo x > ../elsewhere', 'outside'], ['echo x > ../../../etc/hosts', 'outside'], ['echo x > ~/x', 'outside'], ['echo x > $HOME/x', 'outside'], ['echo x > "$DEST"', 'outside'],
     ['cp a.txt ~/a.txt', 'outside'], ['cp a.txt b.txt', null], ['cp -r build ../other', 'outside'], ['mv a b', null], ['mv a ~/b', 'outside'], ['mv ~/a b', 'outside'],
     ['ln -s a ~/link', 'outside'], ['install -m 755 x /usr/local/bin/x', 'outside'], ['rsync -a build/ ~/backup/', 'outside'], ['rsync -a build/ host:/srv/', 'outside'],
-    ['curl -o ~/x https://example.com', 'outside'], ['curl -sSo /etc/x https://example.com', 'outside'], ['curl https://example.com', null], ['curl -o out.html https://example.com', null],
+    ['curl -o ~/x https://example.com', 'outside'], ['curl -sSo /etc/x https://example.com', 'outside'], ['curl https://example.com', 'ask'], ['curl -o out.html https://example.com', 'ask'],
     ['git config --global user.name x', 'outside'], ['git config user.name x', 'ask'], ['git config --get remote.origin.url', null],
     ['npm install -g foo', 'outside'], ['npm install foo', 'ask'], ['pnpm add --global foo', 'outside'], ['brew install jq', 'outside'], ['brew list', 'outside'],
     ['chmod +x run.sh', null], ['chmod 755 ~/run.sh', 'outside'], ['chown me ~/x', 'outside'], ['chmod -R 700 /etc/x', 'outside'],
@@ -173,10 +173,10 @@ test('S1: a program Starbase does not know stops; the ones it does pass', () => 
     ['pbcopy < x.txt', 'outside'], ['etcdctl del x', 'outside'], ['/usr/local/bin/tool x', 'outside'], ['~/bin/tool x', 'outside'], ['/bin/ls', 'outside'], ['true && some-unknown-tool', 'outside'],
     ['echo x | pbcopy', 'outside'], ['xargs unknown-tool', 'outside'], ['env FOO=1 unknown-tool', 'outside'], ['alias p=psql; p', 'database'], ['alias p=ls', 'outside'], ['code x.js', 'outside'], ['vim x', 'outside'],
     // reads pass, wherever they read
-    ['cat ~/.zshrc', null], ['ls /', null], ['grep -r x .', null], ['head -n 3 /etc/hosts', null], ['wc -l a b', null], ['diff a b', null], ['find . -name x', null], ['stat /etc/hosts', null],
+    ['cat ~/.zshrc', 'ask'], ['ls /', null], ['grep -r x .', null], ['head -n 3 /etc/hosts', null], ['wc -l a b', null], ['diff a b', null], ['find . -name x', null], ['stat /etc/hosts', null],
     ['du -sh ~', 'ask'], ['pwd', null], ['echo hi', null], ['printf x', null], ['date', null], ['which node', null], ['env', 'ask'], ['test -f a', null], ['true', null], ['false', null],
     ['sort a | uniq | cut -d, -f1 | tr a b', null], ['jq . a.json', 'ask'], ['basename a', null], ['dirname a', null], ['realpath a', null], ['tree', null], ['less a', 'ask'], ['cat ~/.ssh/id_rsa', 'outside'],
-    ['ls ~', null], ['rg foo src', null], ['cd sub && ls', null], ['for f in a b; do echo $f; done', 'ask'], ['if test -f a; then echo y; fi', null],
+    ['ls ~', 'ask'], ['rg foo src', null], ['cd sub && ls', null], ['for f in a b; do echo $f; done', 'ask'], ['if test -f a; then echo y; fi', null],
     // build and test pass
     ['npm test', null], ['npm run build', null], ['npx vitest run', 'ask'], ['node scripts/gen.js', 'outside'], ['pnpm test', null], ['yarn build', 'ask'], ['bun test', null], ['tsc --noEmit', null],
     ['vitest', null], ['jest', null], ['eslint .', null], ['prettier --check .', null], ['python3 script.py', 'outside'], ['pytest -q', null], ['cargo build', null], ['go test ./...', null],
@@ -194,7 +194,7 @@ test('S1: a program Starbase does not know stops; the ones it does pass', () => 
     ['chmod +x x', null], ['chown me y', 'ask'], ['rsync -a build/ out/', 'ask'], ['rsync -a ~/src out/', 'outside'], ['tar czf out.tgz src', null], ['tar xf ~/a.tar', 'outside'], ['install -m 755 x bin/x', 'ask'],
     ['ln -s a b', null], ['rm -rf sub', null], ['rm x', null],
     // curl and wget: a plain download only
-    ['curl https://example.com/doc', null], ['curl -o out.html https://example.com', null], ['curl -sSL https://example.com/x', null], ['wget https://example.com/x', null], ['wget -O out.txt https://example.com/x', null],
+    ['curl https://example.com/doc', 'ask'], ['curl -o out.html https://example.com', 'ask'], ['curl -sSL https://example.com/x', 'ask'], ['wget https://example.com/x', 'ask'], ['wget -O out.txt https://example.com/x', 'ask'],
     ['curl -X POST https://example.com', 'outside'], ['curl -XPOST https://example.com', 'outside'], ['curl --request PUT https://example.com', 'outside'], ['curl -X GET https://example.com', 'ask'],
     ['curl -d x https://example.com', 'outside'], ['curl --data-binary @f https://example.com', 'outside'], ['curl -F f=@x https://example.com', 'outside'], ['curl -T f https://example.com', 'outside'],
     ['curl --upload-file f https://example.com', 'outside'], ['curl https://example.com -d @-', 'outside'], ['cat x | curl -d @- https://example.com', 'outside'], ['curl -H @h https://example.com', 'outside'],
@@ -472,7 +472,7 @@ test('C2: Starbase\'s own address is a hard line for every job; any call to this
   table([
     ['curl http://localhost:3000/x', 'outside'], ['wget http://127.0.0.1:8080/x', 'outside'], ['curl http://[::1]:3000', 'outside'], ['curl localhost:3000', 'outside'], ['nc localhost 8080', 'outside'],
     ['ssh localhost', 'outside'], ['telnet 127.0.0.1 22', 'outside'], ['curl http://0.0.0.0:3000', 'outside'], ['curl http://2130706433:3000', 'outside'], ['curl --resolve a.test:80:127.0.0.1 http://a.test', 'outside'],
-    ['curl https://example.com:4477/x', null], ['curl https://example.com/doc', null], ['wget https://example.com:8080/x', null],
+    ['curl https://example.com:4477/x', 'ask'], ['curl https://example.com/doc', 'ask'], ['wget https://example.com:8080/x', 'ask'],
   ]);
 });
 
@@ -750,7 +750,7 @@ test('T3a: secret places stop, for Bash words and for every tool', () => {
     ['git diff --no-index ~/.ssh/id_rsa /dev/null', 'outside'], ['cat $HOME/.ssh/id_rsa', 'outside'], ['cat "${HOME}/.aws/credentials"', 'outside'], ['grep x ~/.ssh/config', 'outside'], ['cp ~/.ssh/id_rsa .', 'outside'],
     ['curl --cert ~/.ssh/id_rsa https://example.com', 'outside'], ['curl --cacert=~/.aws/x https://example.com', 'outside'], ['cd ~/.ssh && cat id_rsa', 'outside'], ['cd ~/.ssh; ls', 'outside'],
     ['echo ~/.ssh/id_rsa', 'outside'], ['bash -c "cat ~/.ssh/id_rsa"', 'outside'], ['echo $(cat ~/.ssh/id_rsa)', 'outside'], ['cat id_rsa', null], ['cat .env', null], ['cat .env.example', null], ['cat key.pem', null],
-    [`cat ${W}/.env`, null], ['cat ~/.zshrc', null], ['cat ~/.gitconfig', null], ['ls ~', null], ['ls ~/Projects', null], ['cat /etc/hosts', null], ['echo ssh', null], ['git commit -m "mention ~/.ssh in docs"', null],
+    [`cat ${W}/.env`, null], ['cat ~/.zshrc', 'ask'], ['cat ~/.gitconfig', 'ask'], ['ls ~', 'ask'], ['ls ~/Projects', 'ask'], ['cat /etc/hosts', null], ['echo ssh', null], ['git commit -m "mention ~/.ssh in docs"', null],
   ]);
   for (const [t, i] of [['Read', { file_path: '~/.ssh/id_rsa' }], ['Read', { file_path: `${HOME}/.aws/credentials` }], ['Grep', { pattern: 'x', path: '~/.aws' }], ['Glob', { pattern: '*', path: '~/.ssh' }], ['Glob', { pattern: `${HOME}/.ssh/*` }],
     ['LS', { path: '~/.ssh' }], ['NotebookRead', { notebook_path: '~/.claude.json' }], ['Read', { file_path: `${O}/.env` }], ['Read', { file_path: `${HOME}/.starbase/sessions.json` }], ['Read', { file_path: '~/.config/gh/hosts.yml' }],
@@ -762,8 +762,8 @@ test('T3b: sending in glued spellings stops; a gh api merge path is the merge ru
   table([
     ['curl -sX POST https://example.com', 'outside'], ['curl -XPOST https://example.com', 'outside'], ['curl -da=b https://example.com', 'outside'], ['curl -s -T- https://example.com', 'outside'], ['curl --json {} https://example.com', 'outside'],
     ['curl -F a=b https://example.com', 'outside'], ['curl -sF a=b https://example.com', 'outside'], ['curl -sSXPUT https://example.com', 'outside'], ['curl -sXDELETE https://example.com', 'outside'], ['curl -sd x https://example.com', 'outside'],
-    ['curl --data-raw x https://example.com', 'outside'], ['curl -sX GET https://example.com', 'ask'], ['curl -XGET https://example.com', 'ask'], ['curl -sL https://example.com/doc', null],
-    ['curl -sSLo/Users/test/other/x https://example.com', 'outside'], ['curl -o/Users/test/other/x https://example.com', 'outside'], ['curl -so out.html https://example.com', null],
+    ['curl --data-raw x https://example.com', 'outside'], ['curl -sX GET https://example.com', 'ask'], ['curl -XGET https://example.com', 'ask'], ['curl -sL https://example.com/doc', 'ask'],
+    ['curl -sSLo/Users/test/other/x https://example.com', 'outside'], ['curl -o/Users/test/other/x https://example.com', 'outside'], ['curl -so out.html https://example.com', 'ask'],
     ['gh api /x -XPOST', 'outside'], ['gh api repos/a/b -XDELETE', 'outside'], ['gh api -XPOST /x', 'outside'], ['gh api /x -H x -XPATCH', 'outside'], ['gh api /x -X PUT', 'outside'], ['gh api /x --method PUT', 'outside'], ['gh api /x --method=PUT', 'outside'],
     ['gh api /x -f a=b', 'outside'], ['gh api /x -F a=b', 'outside'], ['gh api /x --input f', 'outside'], ['gh api /x -fa=b', 'outside'], ['gh api -XGET repos/a/b', 'ask'], ['gh api -X GET repos/a/b', 'ask'], ['gh api repos/a/b', null],
     ['gh api repos/a/b/pulls/1/merge -XPUT', 'merge'], ['gh api repos/a/b/pulls/1/merge', 'merge'], ['gh api /repos/a/b/merges/x/merge', 'merge'], ['gh api -X PUT repos/a/b/pulls/1/merge', 'merge'], ['gh api "repos/a/b/pulls/1/merge?x=1"', 'merge'],
@@ -924,15 +924,17 @@ test('T2: ordinary work passes (a real worktree with node_modules/.bin, scripts 
     const must = [
       'npm test', 'npm run build', 'npm ci', 'npx vitest run', 'npx vitest run src/a.test.ts', 'npx tsc --noEmit', 'npx eslint .', 'npx prettier --write src/a.ts', 'node scripts/gen.js', 'node --test test/a.test.js',
       'git status', 'git diff', 'git diff --stat', 'git log --oneline -5', 'git add -A', 'git add -A && git commit -m "x"', heredoc, 'git push origin feature/x', 'git push -u origin feature/x',
-      'gh pr create --fill', 'gh pr view', 'gh pr checks', 'cd packages/a && npm test', 'cat ~/.zshrc', 'ls /', 'ls -la', 'grep -rn "x" src', 'rg x', 'head -20 a.txt', 'sed -n 1,50p a.txt',
-      'npm test 2>&1 | tail -20', 'mkdir -p src/x && touch src/x/a.ts', 'rm -rf dist', "sed -i '' 's/a/b/' src/a.ts", 'curl -sL https://example.com/doc',
+      'gh pr create --fill', 'gh pr view', 'gh pr checks', 'cd packages/a && npm test', 'ls /', 'ls -la', 'grep -rn "x" src', 'rg x', 'head -20 a.txt', 'sed -n 1,50p a.txt',
+      'npm test 2>&1 | tail -20', 'mkdir -p src/x && touch src/x/a.ts', 'rm -rf dist', "sed -i '' 's/a/b/' src/a.ts",
     ];
     const got = must.map((c) => ({ c, got: answer(c, over) })).filter((r) => r.got !== null);
     assert.deepEqual(got, [], 'every one of the must-pass list passes');
     // and a few neighbours of them that must not
     // (a path outside handed to a build tool is outside for the routine list too since deep review A's C3, so it stops)
     const not = [['npx vitest run --root /etc', 'outside'], ['npm run build -- --outDir /etc', 'outside'], ['node scripts/gen.js /etc/passwd', 'ask'], ['npx tsc --outDir /etc', 'outside'], ['rm -rf /etc/x', 'outside'], ['npm install foo', 'ask'], ['npm install --ignore-scripts foo', null],
-      ['git push origin main', 'push'], ['git commit -F ~/.ssh/id_rsa', 'outside'], ['git add -f .env', 'ask'], ['sed -i s/a/b/e src/a.ts', 'outside'], ['npx prettier --write /etc/hosts', 'ask'], ['npx notthere run', 'ask']];
+      ['git push origin main', 'push'], ['git commit -F ~/.ssh/id_rsa', 'outside'], ['git add -f .env', 'ask'], ['sed -i s/a/b/e src/a.ts', 'outside'], ['npx prettier --write /etc/hosts', 'ask'], ['npx notthere run', 'ask'],
+      // deep review A, C5: a read in the home folder outside the job, and every network lookup, are questions
+      ['cat ~/.zshrc', 'ask'], ['curl -sL https://example.com/doc', 'ask']];
     assert.deepEqual(not.map(([c, want]) => ({ c, want, got: answer(c, over) })).filter((r) => r.want !== r.got), []);
   } finally {
     await fs.rm(wt, { recursive: true, force: true });
@@ -1080,10 +1082,12 @@ test('C1: globs and recursive readers that reach outside the job, and a cd, ask 
     'cd ~/Library; cat Keychains/login.keychain-db', 'cd ~; cat .starbase/sessions.json', 'cd ~; cat .claude.json', 'cd ~; cat .claude/.credentials.json', 'cd /tmp; cat x', 'pushd ~ && cat .ssh/id_rsa', 'cd .. && ls', 'cd sub; ls', 'cd sub || ls'];
   assert.deepEqual(nopass(cds), []);
   table([['cd ~; cat .aws/credentials', 'outside'], ['cd ~ | cat .ssh/id_rsa', 'outside'], ['cd ~\ncat .ssh/id_rsa', 'outside'], ['cd ~/.config; cat gh/hosts.yml', 'outside'], ['cd ~; cat .env', 'outside'], ['pushd ~ && cat .ssh/id_rsa', 'outside']]);
-  table([['cd sub && ls', null], ['mkdir x && cd x && touch f', null], ['cd packages/a && npm test', null], ['cat ~/.zshrc', null], ['ls /', null], ['grep -rn "x" src', null], ['rg x', null], ['ls *.js', null], ['cat src/*.js', null], ['grep -r x .', null], ['rg x src', null], ['find . -name x', null], ['du -sh .', null], ['tree', null], ['ls -R src', null]]);
+  table([['cd sub && ls', null], ['mkdir x && cd x && touch f', null], ['cd packages/a && npm test', null], ['cat ~/.zshrc', 'ask'], ['ls /', null], ['grep -rn "x" src', null], ['rg x', null], ['ls *.js', null], ['cat src/*.js', null], ['grep -r x .', null], ['rg x src', null], ['find . -name x', null], ['du -sh .', null], ['tree', null], ['ls -R src', null]]);
   for (const [t, i] of [['Grep', { pattern: 'AKIA', path: '~' }], ['Grep', { pattern: 'x', path: '/Users/moxie' }], ['Grep', { pattern: 'x', path: '/' }], ['Grep', { pattern: 'x', path: '~/.config' }], ['Grep', { pattern: 'x', path: '~/Library' }], ['Grep', { pattern: 'x', path: '~/.s*' }],
     ['Glob', { pattern: '.ssh/*', path: '~' }], ['Glob', { pattern: '~/.s*/*' }], ['Glob', { pattern: '/Users/*/.ssh/*' }]]) assert.notEqual(autoVerdict({ kind: 'card', toolName: t, input: i, hardLine: null, blockedPath: null }, ctx()), null, `${t} ${JSON.stringify(i)}`);
-  for (const [t, i] of [['Read', { file_path: '/etc/hosts' }], ['Grep', { pattern: 'x', path: `${W}/src` }], ['Grep', { pattern: 'x' }], ['Glob', { pattern: '**/*.js' }], ['Glob', { pattern: 'src/*.js', path: W }], ['Read', { file_path: `${HOME}/.zshrc` }]]) assert.equal(autoVerdict({ kind: 'card', toolName: t, input: i, hardLine: null, blockedPath: null }, ctx()), null, `${t} ${JSON.stringify(i)}`);
+  for (const [t, i] of [['Read', { file_path: '/etc/hosts' }], ['Grep', { pattern: 'x', path: `${W}/src` }], ['Grep', { pattern: 'x' }], ['Glob', { pattern: '**/*.js' }], ['Glob', { pattern: 'src/*.js', path: W }]]) assert.equal(autoVerdict({ kind: 'card', toolName: t, input: i, hardLine: null, blockedPath: null }, ctx()), null, `${t} ${JSON.stringify(i)}`);
+  // deep review A, C5: a read in the home folder outside the job's folders asks
+  assert.equal(autoVerdict({ kind: 'card', toolName: 'Read', input: { file_path: `${HOME}/.zshrc` }, hardLine: null, blockedPath: null }, ctx()).verdict, 'ask');
 });
 
 test('C2: the here-document form is only a commit message; -F, --file, -t, --template name a literal file inside', () => {
@@ -1131,8 +1135,8 @@ test('I1: percent-encoded spellings of Starbase\'s own address are refused for e
 
 test('I3 + minors: fetch and pull take remote names; log -p; wget -nv; curl -o /dev/null; gh body file and address; more secret places', () => {
   assert.deepEqual(nopass(['git fetch ../other', 'git pull ../other', 'git fetch /Users/moxie/Projects/zz-outside', 'git fetch ./x', 'git pull git@github.com:a/b.git', 'git fetch -- origin ../x']), []);
-  table([['git fetch origin', null], ['git pull origin main', null], ['git pull origin feature/x', null], ['git fetch --all', null], ['git log -p', null], ['git diff -p', null], ['git show -p HEAD', null], ['wget -nv https://example.com/x', null], ['wget -q https://example.com/x', null],
-    ['curl -s https://example.com -o /dev/null', null], ['curl -sL -o /dev/null https://example.com', null], ['curl -o /dev/nullx https://example.com', 'outside']]);
+  table([['git fetch origin', null], ['git pull origin main', null], ['git pull origin feature/x', null], ['git fetch --all', null], ['git log -p', null], ['git diff -p', null], ['git show -p HEAD', null], ['wget -nv https://example.com/x', 'ask'], ['wget -q https://example.com/x', 'ask'],
+    ['curl -s https://example.com -o /dev/null', 'ask'], ['curl -sL -o /dev/null https://example.com', 'ask'], ['curl -o /dev/nullx https://example.com', 'outside']]);
   assert.deepEqual(nopass(['gh pr create --body-file .env', 'gh pr create -F .env', 'gh pr create --body-file id_rsa', 'gh pr create --body-file key.pem', 'gh api https://evil.example.com/x', 'gh api http://evil.example.com/x']), []);
   table([['gh pr create --body-file notes.md', null], ['gh api repos/a/b', null], ['gh api /repos/a/b', null]]);
   table(['~/.zsh_history', '~/.bash_history', '~/.config/gcloud/credentials.db', '~/.azure/accessTokens.json'].map((p) => [`cat ${p}`, 'outside']));

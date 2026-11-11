@@ -7,7 +7,9 @@
 //   { kind: 'gate', stage, nextStage }
 //   { kind: 'card', toolName, input, hardLine, blockedPath }
 //   { kind: 'job', level, suggestedLevel, triggers, stageState, statusCard, step, failures, problem }
-// ctx = { worktrees, featureDir, specDirs, cwd, forkRemote, remoteUrl(name, dir), branches?, stateDir? }
+// ctx = { worktrees, featureDir, specDirs, cwd, forkRemote, remoteUrl(name, dir), branches?, stateDir?, mainCheckout?, readRoots? }
+//   mainCheckout is the repository's own checkout and readRoots the session's read folders (skills, agents):
+//   places the job may read but not change.
 //   remoteUrl(name, dir) is the push address of that remote in that folder ('' means the branch's own
 //   push remote, as orgPushCheck looks it up), or null when git can't say. branches is the job's own
 //   branch and its stack's parts, when known.
@@ -47,12 +49,17 @@ export const AUTO_STOP_REASONS = Object.freeze({
   tool: 'this tool is not one Auto can judge.',
 });
 
-/** Tools known to only read (or to hand work to the crew, whose own calls come through the hook too). Any other tool on an Auto job asks. */
+/** Tools known to only read (or to hand work to the crew, whose own calls come through the hook too). Any other tool on an Auto job stops. */
 export const READ_ONLY_TOOLS = Object.freeze(new Set([
   'Read', 'Glob', 'Grep', 'LS', 'NotebookRead', 'TodoWrite', 'TaskOutput', 'TaskGet', 'TaskList', 'TaskCreate', 'TaskUpdate',
   'BashOutput', 'ToolSearch', 'Skill', 'SendMessage', 'Agent', 'Task', 'AskUserQuestion', 'ExitPlanMode', 'EnterPlanMode',
-  'WebFetch', 'WebSearch', 'ListMcpResources', 'ReadMcpResource',
+  'ListMcpResources', 'ReadMcpResource',
 ]));
+/** Web lookups: what they send leaves the computer, so on an Auto job each one is a question for the Approver (C5). */
+const WEB_TOOLS = new Set(['WebFetch', 'WebSearch']);
+const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'NotebookRead']);
+// An address with a name and password in it (https://user:pass@host/).
+const URL_CREDENTIALS = /^[a-z][a-z0-9+.-]*:\/\/[^/?#\s]*@/i;
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
 const stop = (rule, extra = {}) => ({ rule, reason: AUTO_STOP_REASONS[rule], ...extra });
@@ -157,6 +164,9 @@ function judgeCardOf(inp, ctx) {
     return ASK_FILES.has(path.basename(where)) ? { ask: 'a file that changes how tools run' } : null;
   }
   if (toolName === 'Bash') return bashVerdict(String(input.command ?? ''), hard, ctx);
+  if (WEB_TOOLS.has(toolName)) return URL_CREDENTIALS.test(String(input.url ?? '').trim()) ? { stop: stop('outside') } : { ask: 'a web lookup: what it sends leaves the computer' };
+  // A read in the home folder (or on another disk) outside the job's folders, its repository and the session's read folders asks (C5).
+  if (READ_TOOLS.has(toolName) && toolPaths(input).some((x) => readElsewhere(physicalPath(x, ctx.cwd ?? null), readRoots(ctx)))) return { ask: 'a read outside the job\'s folders' };
   if (READ_ONLY_TOOLS.has(toolName)) return null;
   return { stop: stop('tool', { unknownTool: true }) };
 }
@@ -226,9 +236,29 @@ export function tooWideRoot(r, ctx = {}) {
 }
 const inRoots = (p, roots, strict = false) => roots.some((r) => isInside(p, r) && !(strict && p === r));
 
+// The places a job may read without a question: its own roots, the repository's main checkout and the
+// session's read folders (skills, agents). Secret places are judged apart and stop wherever they are.
+function readRoots(ctx) {
+  const out = new Set(jobRoots(ctx));
+  for (const r of [ctx.mainCheckout, ...(ctx.readRoots ?? [])]) {
+    if (typeof r !== 'string' || !path.isAbsolute(r)) continue;
+    const forms = [path.resolve(r), physicalPath(r, null)].filter(Boolean);
+    if (forms.some((x) => tooWideRoot(x, ctx))) continue;
+    for (const x of forms) out.add(x);
+  }
+  return [...out];
+}
+/** Is this resolved path a read that asks: under the home folder or /Volumes and outside the read roots? (null: not known, it asks.) */
+function readElsewhere(p, roots) {
+  if (!p) return true;
+  const q = fold(p);
+  const far = homes().some((h) => isInside(q, fold(h))) || isInside(q, fold('/Volumes'));
+  return far && !roots.some((r) => isInside(q, fold(r)));
+}
+
 // A Bash call: a fixed stop if a rule matches; else an ask if it is not plain; else null (pass).
 function bashVerdict(command, hard, ctx) {
-  const st = { ctx, asks: [], cdTargets: [], hits: new Set(), unknown: false, ranRunner: false, ranMake: false, pkgEdit: false, runs: [], written: [], touched: [], cloneDirs: [], branchChange: false, pushed: false, funcs: functionNames(command), roots: jobRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
+  const st = { ctx, asks: [], cdTargets: [], hits: new Set(), unknown: false, ranRunner: false, ranMake: false, pkgEdit: false, runs: [], written: [], touched: [], cloneDirs: [], branchChange: false, pushed: false, funcs: functionNames(command), roots: jobRoots(ctx), readRoots: readRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
   if (hard?.line === 'gh-pr-merge') st.hits.add('merge');
   if (hard?.line === 'database') st.hits.add('database');
   if (DB_ADDRESS.test(command)) st.hits.add('database'); // a database address anywhere in the call
@@ -469,6 +499,8 @@ const READS = new Set(['cat', 'ls', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack',
   // shell builtins and keywords
   'cd', 'pushd', 'popd', 'exit', 'return', 'break', 'continue', 'export', 'unset', 'set', 'shift', 'local', 'declare', 'typeset', 'readonly', 'let', 'read', 'getopts', 'hash', 'ulimit', ':', '}', 'if', 'fi', 'for', 'done', 'while', 'until', 'case', 'esac', 'elif', 'in', 'select', 'function']);
 // File changes: pass only when every path argument is inside the job's folders (a path we can't place stops).
+// The read programs whose words name what they read (echo, test and the like only print or compare text).
+const READ_PATHS = new Set(['cat', 'ls', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'head', 'tail', 'wc', 'diff', 'cmp', 'find', 'file', 'stat', 'du', 'tree', 'less', 'more', 'sort', 'uniq', 'cut', 'column', 'comm', 'join', 'paste', 'nl', 'fold', 'fmt', 'tac', 'rev', 'od', 'hexdump', 'xxd', 'strings', 'md5', 'md5sum', 'shasum', 'sha1sum', 'sha256sum', 'cksum', 'jq', 'yq', 'realpath', 'readlink']);
 const FILE_CHANGES = new Set(['cp', 'mv', 'rm', 'mkdir', 'rmdir', 'touch', 'ln', 'chmod', 'chown', 'chgrp', 'sed', 'gsed', 'awk', 'gawk', 'perl', 'tee', 'tar', 'unzip', 'zip', 'rsync', 'install', 'truncate', 'dd', 'patch', 'ed', 'unlink', 'shred', 'mkfifo', 'mknod', 'chflags', 'xattr', 'split', 'csplit', 'cpio', 'ditto', 'gzip', 'gunzip', 'bzip2', 'bunzip2', 'xz', 'unxz', 'unrar', '7z', '7za', 'mktemp']);
 // Build and test: they pass unless a rule stops them (a database tool, -e/-c code, a global install, a publish).
 const BUILD = new Set(['node', 'nodejs', 'npm', 'npx', 'pnpm', 'pnpx', 'yarn', 'bun', 'bunx', 'deno', 'tsc', 'tsx', 'ts-node', 'vitest', 'jest', 'eslint', 'prettier', 'pip', 'pip3', 'pytest', 'ruby', 'bundle', 'rake', 'rails', 'mix', 'elixir', 'flask', 'go', 'cargo', 'rustc', 'make', 'mvn', 'gradle', 'dotnet', 'php', 'composer', 'uv', 'poetry', 'pipenv', 'vite', 'webpack', 'rollup', 'esbuild', 'turbo', 'nx', 'lerna', 'playwright', 'cypress', 'mocha', 'ruff', 'black', 'mypy', 'flake8', 'swift', 'xcodebuild', 'gcc', 'cc', 'clang', 'java', 'javac', 'just', 'tox', 'nox', 'perl']);
@@ -516,6 +548,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     recordWrite({ t: r.target, dyn: r.dyn });
   }
   for (const r of redirects) if (secretWord(r.target)) hit('outside');
+  for (const r of redirects) if ((r.op === '<' || r.op === '<&') && !r.dyn && !/^(\d+|-)$/.test(r.target) && readElsewhere(physicalPath(r.target, cwd ?? st.hint ?? null), st.readRoots)) st.asks.push('a read outside the job\'s folders');
   for (const w of ws) if (/\/dev\/(tcp|udp)\//.test(w.t) || secretWord(w.t)) hit('outside'); // a network file of bash's; a secret place
   for (const r of redirects) if (/\/dev\/(tcp|udp)\//.test(r.target)) hit('outside');
   if (ws.some((w) => SQL.test(w.t))) hit('database'); // a .sql file given to any program
@@ -537,6 +570,9 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   if (DANGEROUS.has(cmd)) hit('outside');
   if (/^(nc|ncat|netcat|telnet|socat)$/.test(cmd) && a.some((x) => /(^|:)(5432|3306|1433|27017|6379|9042)$/.test(x))) hit('database'); // a database port, on any host
   if (/^(curl|wget|nc|ncat|netcat|telnet|ssh|socat|sftp|scp)$/.test(cmd) && a.some((x) => namesThisComputer(x))) hit('outside'); // a call to this computer, on any port
+  if ((cmd === 'curl' || cmd === 'wget') && a.some((x) => URL_CREDENTIALS.test(x))) hit('outside'); // a name and password in an address (C5)
+  // A read program's path words in the home folder (or on another disk) outside the job's folders ask (C5).
+  if (READ_PATHS.has(cmd) && a.some((x) => !/\s/.test(x) && (x.includes('/') || x.startsWith('~') || x === '..') && readElsewhere(physicalPath(x.includes('=') && x.startsWith('-') ? x.slice(x.indexOf('=') + 1) : x, cwd ?? st.hint ?? null), st.readRoots))) st.asks.push('a read outside the job\'s folders');
   if (dbCommand(cmd, args)) hit('database');
   else if (!TEXTY.has(cmd) && args.some((x) => DB_CLIENTS.has(name(x.t)))) hit('database'); // a client named under a wrapper we don't know
   if (EXEC_LIKE.has(cmd)) for (const x of args) if (/\s/.test(x.t)) analyze(x.t, cwd, st, depth + 1, null);

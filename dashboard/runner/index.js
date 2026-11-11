@@ -303,12 +303,14 @@ export async function createRunner(config) {
   const execGit = promisify(execFile);
   const autoGitCache = new Map();
   async function autoCtxFor(run) {
-    const { repo, worktrees, specDirs, branches } = await jobContext(run);
+    const { repo, worktrees, specDirs, branches, mainCheckout } = await jobContext(run);
     const hit = repo && local.registry ? await local.registry.profileFor(repo).catch(() => null) : null;
     const facts = await autoGitFacts({ cwd: run.cwd, dirs: worktrees, key: run.id ?? run.featureDir, cache: autoGitCache, exec: gitStdout });
     return {
       worktrees, featureDir: run.featureDir, specDirs, cwd: run.cwd, forkRemote: stackRules(hit?.ok ? hit.profile : null).fork,
       remoteUrl: facts.remoteUrl, currentBranch: facts.currentBranch, branches, stateDir: state.dir, apiPort: PORT,
+      // Read without a question, never changed: the repository's own checkout and the session's read folders (C5).
+      mainCheckout, readRoots: [SKILLS_DIR, AGENTS_DIR].filter(Boolean),
     };
   }
 
