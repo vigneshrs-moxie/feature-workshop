@@ -1499,6 +1499,7 @@ export async function createRunner(config) {
       try { locked = heldElsewhere(f.dir); } catch { locked = null; }
       jobs.push({
         dir: f.dir, slug: f.slug, title: f.title, auto: f.auto, level: Number.isInteger(f.level) ? f.level : null, suggestedLevel: Number.isInteger(f.suggestedLevel) ? f.suggestedLevel : null,
+        needsYou: f.needsYou === true,
         stage: f.stage ?? null, stageState: f.stageState ?? null, ticketKey: f.options?.ticket?.key ?? null,
         // The rules that read the description and the files the Foreman expects to touch (a migration stops Auto).
         triggers: suggestLevel({ description: f.description, paths: f.predictedPaths ?? [] }).triggers,

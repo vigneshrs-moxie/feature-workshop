@@ -144,6 +144,10 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
 
   /** Everything about one job that needs no Approver. Returns the gate to ask about, or null. */
   async function triage(job) {
+    // The ten minutes of a step Auto can't act on count only passes that found it so one after another: any pass that
+    // returns before the check below (a reply running, a lock, a pause, a stop, a restart) forgets the time.
+    const stuckFirst = stuckSince.get(job.dir);
+    stuckSince.delete(job.dir);
     if (job.restarting) return null;
     if (job.prOpen) { await finish(job); return null; }
     // A job at L3 (or one the Foreman suggests is L3) leaves Auto, stopped or not, even in the middle of a reply.
@@ -161,16 +165,16 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     const gate = job.gate && !job.gate.stale && job.gate.briefNumber !== null && !job.answered.includes(job.gate.briefNumber) && job.gate.briefNumber !== job.auto.lastBrief ? job.gate : null;
     const hit = stopFor(job, job.auto, gate);
     if (hit) { await stop(job, hit); return null; }
-    // A gate that waits but can't be answered as it stands (stale, or no brief number): nobody is told by the pass, so after a while Auto says so.
-    if (job.gate && (job.gate.stale || job.gate.briefNumber === null)) {
-      const first = stuckSince.get(job.dir) ?? now().getTime();
-      stuckSince.set(job.dir, first);
+    // The job waits for the person by its own record (a gate card, or needsYou) and this pass found no step Auto can act on
+    // (stale, no brief number, or the brief is already answered): nobody is told by the pass, so after a while Auto says so.
+    if ((job.gate || job.needsYou === true) && !gate) {
+      const first = stuckFirst ?? now().getTime();
       if (now().getTime() - first >= STUCK_MS) {
-        stuckSince.delete(job.dir);
         await stop(job, { rule: 'blocked', reason: "the step that waits can't be approved as it stands, so it needs you." });
         return null;
       }
-    } else stuckSince.delete(job.dir);
+      stuckSince.set(job.dir, first);
+    }
     if (!gate) return null;
     const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage });
     if (route) { await stop(job, route); return null; }

@@ -2137,3 +2137,43 @@ test('R1: a restart that fails after the moves began and is put back leaves Auto
     assert.match(failed.error, / Auto was switched off for the restart\. Turn it on again if you want it\.$/);
   } finally { await w.stop(); }
 });
+
+// ---------- Round 2: R2 the ten minutes are ten minutes of passes that found the job stuck ----------
+
+const STALE = { briefNumber: 1, stale: true, questions: [], decided: [], headline: 'Plan v1', nextStage: 'implement' };
+
+test('R2a: a pass that finds the job busy or paused starts the ten minutes again', { timeout: 30_000 }, async () => {
+  let t = Date.parse('2026-10-02T10:00:00Z');
+  let over = { gate: STALE };
+  const u = unit({ job: () => over, now: () => new Date(t) });
+  const at = async (minutes, o = { gate: STALE }) => { t = Date.parse('2026-10-02T10:00:00Z') + minutes * 60_000; over = o; await u.auto.pass(); };
+  await at(0);
+  await at(9, { gate: STALE, running: true }); // a reply runs: the count is lost
+  await at(11);
+  await at(15);
+  await at(20);
+  assert.equal(u.record().stopped, null, 'no stop at 11, 15 or 20');
+  await at(21);
+  assert.equal(u.record().stopped?.rule, 'blocked', 'ten minutes after the pass that started over');
+  assert.equal(u.notes.length, 1);
+});
+
+test('R2b: a job that waits on a brief Auto already answered, with no reply running, stops after ten minutes', { timeout: 30_000 }, async () => {
+  for (const over of [{ answered: [1] }, { needsYou: true, gate: null }]) {
+    let t = Date.parse('2026-10-02T10:00:00Z');
+    const u = unit({ job: () => over, now: () => new Date(t) });
+    await u.auto.pass();
+    t += 9 * 60_000;
+    await u.auto.pass();
+    assert.equal(u.record().stopped, null, 'nothing at 9 minutes');
+    assert.equal(u.asks.length, 0);
+    t += 60_000;
+    await u.auto.pass();
+    assert.equal(u.record().stopped.rule, 'blocked');
+    assert.equal(u.record().stopped.reason, 'the step that waits can\'t be approved as it stands, so it needs you.');
+    assert.equal(u.notes.length, 1);
+    t += 60 * 60_000;
+    await u.auto.pass();
+    assert.equal(u.notes.length, 1, 'none again');
+  }
+});
