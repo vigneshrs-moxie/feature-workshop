@@ -144,6 +144,12 @@ function judgeCardOf(inp, ctx) {
   if (typeof inp.blockedPath === 'string' && inp.blockedPath) return { stop: stop('outside') };
   // A secret place named by any tool (T3a).
   if (toolName !== 'Bash' && toolPaths(input).some((x) => secretPlace(physicalPath(x, ctx.cwd ?? null), jobRoots(ctx), ctx))) return { stop: stop('outside') };
+  // A search whose root is outside the job's folders can read anything under it (C1).
+  if (toolName === 'Grep' || toolName === 'Glob') {
+    const roots = jobRoots(ctx);
+    const where = [input.path, /^[/~]/.test(String(input.pattern ?? '')) && toolName === 'Glob' ? input.pattern : null].filter((x) => typeof x === 'string' && x);
+    if (where.some((x) => !inRoots(physicalPath(x, ctx.cwd ?? null), roots))) return { ask: 'a search that starts outside the job' };
+  }
   if (EDIT_TOOLS.has(toolName)) {
     const file = input.file_path ?? input.notebook_path;
     const where = typeof file === 'string' ? physicalPath(file, ctx.cwd ?? null) : null;
@@ -157,8 +163,8 @@ function judgeCardOf(inp, ctx) {
 
 // ---------- secret places (T3a) and files that run code later (T3h) ----------
 
-const SECRET_DIRS = ['.ssh', '.aws', '.gnupg', '.config/gh', '.docker', '.kube', '.starbase', '.claude', 'Library/Keychains'];
-const SECRET_FILES = ['.claude.json', '.netrc', '.npmrc', '.pypirc', '.git-credentials'];
+const SECRET_DIRS = ['.ssh', '.aws', '.gnupg', '.config/gh', '.config/gcloud', '.azure', '.docker', '.kube', '.starbase', '.claude', 'Library/Keychains'];
+const SECRET_FILES = ['.claude.json', '.netrc', '.npmrc', '.pypirc', '.git-credentials', '.zsh_history', '.bash_history'];
 const SECRET_NAME = /^(\.env(\..*)?|id_rsa.*|id_ed25519.*|.*\.(pem|key|p12))$/i;
 const MAC = process.platform === 'darwin';
 const fold = (x) => (MAC ? String(x).toLowerCase() : String(x));
@@ -186,9 +192,9 @@ function toolPaths(input) {
 // Does a path sit where a file runs code later or elsewhere: .git/, .github/workflows/, .husky/, .claude/, .mcp.json?
 function codeLater(p) {
   if (!p) return false;
-  const segs = p.split('/');
-  if (segs.includes('.git') || segs.includes('.husky') || segs.includes('.claude') || segs[segs.length - 1] === '.mcp.json') return true;
-  return segs.some((x, k) => x === '.github' && segs[k + 1] === 'workflows');
+  const segs = p.toLowerCase().split('/'); // a Mac's disk does not tell .GIT from .git
+  if (segs.some((x) => x === '.git' || x === '.husky' || x === '.claude' || x === '.githooks') || ['.mcp.json', 'lefthook.yml'].includes(segs[segs.length - 1])) return true;
+  return segs.some((x, k) => x === '.github' && (segs[k + 1] === 'workflows' || segs[k + 1] === 'actions'));
 }
 const ASK_FILES = new Set(['.npmrc', '.envrc', '.yarnrc', '.yarnrc.yml', '.pypirc']);
 
@@ -208,7 +214,7 @@ const inRoots = (p, roots, strict = false) => roots.some((r) => isInside(p, r) &
 
 // A Bash call: a fixed stop if a rule matches; else an ask if it is not plain; else null (pass).
 function bashVerdict(command, hard, ctx) {
-  const st = { ctx, asks: [], hits: new Set(), unknown: false, ranRunner: false, ranMake: false, pkgEdit: false, runs: [], written: [], touched: [], cloneDirs: [], branchChange: false, pushed: false, funcs: functionNames(command), roots: jobRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
+  const st = { ctx, asks: [], cdTargets: [], hits: new Set(), unknown: false, ranRunner: false, ranMake: false, pkgEdit: false, runs: [], written: [], touched: [], cloneDirs: [], branchChange: false, pushed: false, funcs: functionNames(command), roots: jobRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
   if (hard?.line === 'gh-pr-merge') st.hits.add('merge');
   if (hard?.line === 'database') st.hits.add('database');
   if (DB_ADDRESS.test(command)) st.hits.add('database'); // a database address anywhere in the call
@@ -325,9 +331,10 @@ function analyze(command, cwd, st, depth, viaXargs) {
     for (const part of parts) {
       const first = part.words.find((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w.t))?.t;
       st.hint = lost ? null : part.cwd ?? guess ?? (noCd ? cwd : null);
-      simple(part.words, part.redirects ?? [], lost ? null : part.cwd, st, depth, viaXargs);
+      simple(part.words, part.redirects ?? [], lost ? null : part.cwd ?? guess, st, depth, viaXargs); // guess: a plain `cd name` taken as that folder (CDPATH is not set in a plain call)
       if (first === 'pushd' || first === 'popd') lost = true; // where later commands run is no longer known
       const ws = part.words.filter((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w.t));
+      if ((ws[0]?.t === 'cd' || ws[0]?.t === 'pushd') && ws.length === 2 && !ws[1].dyn) { const at = physicalPath(ws[1].t, part.cwd ?? guess ?? cwd); if (at) st.cdTargets.push(at); }
       if (ws[0]?.t === 'cd' && ws.length === 2 && !ws[1].dyn && /^[^/~.-]/.test(ws[1].t) && (part.cwd ?? guess)) guess = path.resolve(part.cwd ?? guess, ws[1].t);
       else if (ws[0]?.t === 'cd') guess = null;
     }
@@ -456,6 +463,8 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     if (typeof t !== 'string' || !t || /\s/.test(t)) return false;
     for (const x of t.startsWith('-') && t.includes('=') ? [t.slice(t.indexOf('=') + 1)] : t.startsWith('-') ? [] : [t, t.includes('=') ? t.slice(t.indexOf('=') + 1) : t]) {
       if (secretPlace(physicalPath(x, cwd ?? st.hint ?? null), st.roots, ctx)) return true;
+      // a word relative to a folder an earlier cd went to, however the commands are joined (C1)
+      if (!/^[/~]/.test(x) && st.cdTargets.some((d) => secretPlace(physicalPath(x, d), st.roots, ctx))) return true;
     }
     return false;
   };
@@ -612,7 +621,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
           if (TAKES.includes(ch)) { if (!rest) k++; break; }
         }
       }
-      writes(targets);
+      writes(targets.filter((x) => x.dyn || x.t !== '/dev/null'));
       return;
     }
     case 'wget': {
@@ -930,6 +939,16 @@ function gitStep(args, assigns, cwd, st, xargs) {
   const inWork = eff && st.work.some((w) => isInside(eff, w));
   if (a.some((x) => /^--(git-dir|work-tree)(=|$)/.test(x))) { hit('outside'); return; } // acts on another folder
   if (changesBranch(sub, a)) st.branchChange = true;
+  if (sub === 'commit') { // a message read from a file: a literal file of the job's own, not a secret name (C2)
+    for (let k = 0; k < sargs.length; k++) {
+      const t = a[k];
+      const m = /^(?:-[Ft]|--file=|--template=)(.*)$/.exec(t);
+      const value = /^(-[Ft]|--file|--template)$/.test(t) ? sargs[k + 1] : m && m[1] !== undefined && (t.startsWith('--') || t.length > 2) ? { t: m[1], dyn: sargs[k].dyn } : null;
+      if (!value) continue;
+      const at = value.dyn ? null : physicalPath(value.t, eff);
+      if (!at || !inRoots(at, st.roots) || SECRET_NAME.test(path.basename(at)) || value.t.includes('__HEREDOC__')) hit('outside');
+    }
+  }
   if (sub === 'push' || sub === 'send-pack') {
     st.pushed = true;
     if (foreign || risky || !inWork || pushStops(sargs, eff, ctx)) hit('push');

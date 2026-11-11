@@ -23,6 +23,8 @@ const inRoots = (p, roots, strict = false) => Boolean(p) && roots.some((r) => is
 const ALLOWED_ASSIGN = new Set(['NODE_ENV', 'CI', 'FORCE_COLOR', 'NO_COLOR', 'TZ', 'LANG', 'LC_ALL']);
 const KEYWORDS = new Set(['if', 'elif', 'while', 'until', 'then', 'else', 'do', '!']);
 const HEREDOC = '__HEREDOC__';
+const SECRET_NAME = /^(\.env(\..*)?|id_rsa.*|id_ed25519.*|.*\.(pem|key|p12))$/i;
+
 
 class Ask extends Error {}
 const ask = (why) => { throw new Ask(why); };
@@ -126,10 +128,12 @@ function lex(src) {
 
 /** flags: 'n b s' (short, bundle-able), 'n:' (short with a value), '--long', '--long:' (long with a value), '#' (-20). */
 function spec(flags = '', opts = {}) {
-  const s = { shortBool: new Set(), shortVal: new Set(), longBool: new Set(), longVal: new Set(), digits: false, pos: 'read', ...opts };
-  for (const f of flags.split(/\s+/).filter(Boolean)) {
-    if (f === '#') s.digits = true;
-    else if (f.startsWith('--')) (f.endsWith(':') ? s.longVal.add(f.slice(0, -1)) : s.longBool.add(f));
+  const s = { shortBool: new Set(), shortVal: new Set(), shortWords: new Set(), longBool: new Set(), longVal: new Set(), digits: false, pos: 'read', ...opts };
+  for (const raw of flags.split(/\s+/).filter(Boolean)) {
+    if (raw === '#') { s.digits = true; continue; }
+    if (raw.startsWith('--')) { (raw.endsWith(':') ? s.longVal.add(raw.slice(0, -1)) : s.longBool.add(raw)); continue; }
+    const f = raw.startsWith('-') ? raw.slice(1) : raw; // -p and p are the same flag; -nv (more than one letter) is a word of its own
+    if (f.length > 1 && !f.endsWith(':')) s.shortWords.add(`-${f}`);
     else if (f.endsWith(':')) s.shortVal.add(f.slice(0, -1));
     else s.shortBool.add(f);
   }
@@ -160,6 +164,7 @@ function parse(sp, args, prog) {
       }
       flagWhy(name);
     }
+    if (sp.shortWords.has(t)) continue;
     if (t.length > 1 && t[0] === '-') {
       if (sp.digits && /^-\d+$/.test(t)) continue;
       let done = false;
@@ -191,23 +196,26 @@ const insideAll = (word, ctx, strict = false) => ctx.cands.every((c) => inRoots(
 function mustBeInside(word, ctx, strict = false, why = 'a path outside the job or one that cannot be placed') {
   if (!insideAll(word, ctx, strict)) ask(why);
 }
-function readablePath(word) {
+function readablePath(word, ctx) {
   if (/^~[^/]/.test(word.t)) ask("a path in another user's home");
+  if (word.glob && !insideAll(word, ctx)) ask('a pattern that reaches outside the job'); // it could match a secret place
 }
+// A recursive read from a root outside the job's folders can reach any secret place under it.
+function rootsInside(roots, ctx) { for (const x of roots) if (!insideAll(x, ctx)) ask('a recursive read that starts outside the job'); }
 
 // ---------- per-kind argument checks ----------
 
 function check(sp, args, ctx, prog) {
   const { pos, vals, flags } = parse(sp, args, prog);
   const kind = sp.pos;
-  if (typeof kind === 'function') { kind(pos, vals, ctx, flags); return { pos, vals }; }
+  if (typeof kind === 'function') { kind(pos, vals, ctx, flags); return { pos, vals, flags }; }
   if (kind === 'none' && pos.length) ask(`arguments to ${prog}`);
-  if (kind === 'read') for (const x of [...pos, ...vals.map((v) => v[1])]) readablePath(x);
+  if (kind === 'read') for (const x of [...pos, ...vals.map((v) => v[1])]) readablePath(x, ctx);
   if (kind === 'inside') for (const x of pos) mustBeInside(x, ctx, Boolean(sp.strict));
   if (kind === 'inside' || kind === 'build') for (const [, x] of vals) if (pathlike(x.t) || kind === 'inside') mustBeInside(x, ctx);
   if (kind === 'build') for (const x of pos) if (pathlike(x.t)) mustBeInside(x, ctx);
   if (kind === 'digits' && pos.some((x) => !/^\d+(\.\d+)?$/.test(x.t))) ask(`arguments to ${prog}`);
-  return { pos, vals };
+  return { pos, vals, flags };
 }
 
 const READ = (flags, opts) => spec(flags, { pos: 'read', ...opts });
@@ -241,7 +249,7 @@ const PROGRAMS = {
   dirname: spec('', { pos: 'text' }),
   realpath: READ('e m s q'),
   sort: READ('r n u f b c d g h i M R s V k: t: --reverse --numeric-sort --unique --ignore-case'),
-  uniq: READ('c d u i f: s: w:'),
+  uniq: spec('c d u i f: s: w:', { pos: (pos, vals, ctx) => { if (pos.length > 1) ask('a uniq with an output file'); for (const x of pos) readablePath(x, ctx); } }),
   cut: READ('d: f: c: b: s n --delimiter: --fields: --characters:'),
   tr: spec('d s c C', { pos: 'text' }),
   tree: READ('a d f i l n p s h u g D F C N L: I: P:'),
@@ -280,9 +288,9 @@ const PROGRAMS = {
 
 const FIND_TESTS = new Set(['-name', '-iname', '-path', '-ipath', '-type', '-maxdepth', '-mindepth', '-mtime', '-mmin', '-newer', '-size', '-perm', '-user', '-regex', '-empty', '-print', '-print0', '-not', '!', '-and', '-or', '-o', '-a', '-prune']);
 const FIND_VALUE = new Set(['-name', '-iname', '-path', '-ipath', '-type', '-maxdepth', '-mindepth', '-mtime', '-mmin', '-newer', '-size', '-perm', '-user', '-regex']);
-function findCheck(args) {
+function findCheck(args, ctx) {
   let i = 0;
-  while (i < args.length && !args[i].t.startsWith('-') && args[i].t !== '!') { readablePath(args[i]); i++; }
+  while (i < args.length && !args[i].t.startsWith('-') && args[i].t !== '!') { readablePath(args[i], ctx); rootsInside([args[i]], ctx); i++; }
   for (; i < args.length; i++) {
     const t = args[i].t;
     if (!FIND_TESTS.has(t)) ask(`the find test ${t}`);
@@ -335,11 +343,11 @@ function sedCheck(args, ctx) {
     const ok = inPlace ? sedSubstitutions(sc) : quiet ? sc.split(';').every((x) => SED_PRINT.test(x.trim())) || sedSubstitutions(sc) : sedSubstitutions(sc);
     if (!ok) ask('a sed script Starbase does not read');
   }
-  for (const f of files) { if (inPlace) mustBeInside(f, ctx, false); else readablePath(f); }
+  for (const f of files) { if (inPlace) mustBeInside(f, ctx, false); else readablePath(f, ctx); }
   if (inPlace && !files.length) ask('an in-place sed with no file');
 }
 
-function awkCheck(args) {
+function awkCheck(args, ctx) {
   const files = [];
   let program = null;
   for (let i = 0; i < args.length; i++) {
@@ -351,7 +359,7 @@ function awkCheck(args) {
   }
   if (program === null) ask('an awk with no program');
   if (/system|getline|ENVIRON|close|fflush|[|>]/.test(program)) ask('an awk program that runs, writes or reads other places');
-  for (const f of files) readablePath(f);
+  for (const f of files) readablePath(f, ctx);
 }
 
 function chmodCheck(args, ctx) {
@@ -374,9 +382,9 @@ function setCheck(args) { if (!args.length || args.some((x) => !SET_OK.test(x.t)
 
 // programs whose arguments are read by a function of their own (they get the raw word list)
 const CUSTOM = {
-  find: (args) => findCheck(args),
+  find: (args, ctx) => findCheck(args, ctx),
   sed: sedCheck,
-  awk: (args) => awkCheck(args),
+  awk: (args, ctx) => awkCheck(args, ctx),
   chmod: chmodCheck,
   tar: tarCheck,
   set: (args) => setCheck(args),
@@ -396,7 +404,7 @@ function curlCheck(args, ctx) {
   if (!pos.length) ask('a curl with no address');
   for (const x of pos) urlCheck(x);
   for (const [f, x] of vals) {
-    if (f === '-o' || f === '--output') { if (x.t !== '-') mustBeInside(x, ctx); } else if (!/^\d+$/.test(x.t)) ask(`the value of ${f}`);
+    if (f === '-o' || f === '--output') { if (x.t !== '-' && x.t !== '/dev/null') mustBeInside(x, ctx); } else if (!/^\d+$/.test(x.t)) ask(`the value of ${f}`);
   }
   if (args.some((a) => /^-[A-Za-z]*O/.test(a.t) || a.t === '-O') && !ctx.cands.every((c) => inRoots(physicalPath('.', c), ctx.roots))) ask('a download into a folder outside the job');
 }
@@ -413,6 +421,10 @@ function wgetCheck(args, ctx) {
 
 const DIFF_FLAGS = '--stat --name-only --name-status --cached --staged --shortstat --numstat --no-color --color --check --summary --minimal --word-diff --patch -p w b U: --unified: --diff-filter: --find-renames M --no-ext-diff --no-textconv --ignore-space-change --ignore-all-space --exit-code --quiet --raw --compact-summary --stat: --abbrev --full-index --binary --text a';
 const LOG_FLAGS = '--oneline --graph --decorate --stat --name-only --name-status --all --no-color --abbrev-commit --pretty: --format: n: --max-count: --since: --until: --author: --grep: --reverse -p --patch --follow --first-parent --merges --no-merges --date: --shortstat --numstat S: G: --left-right --cherry-pick --boundary --no-decorate --topo-order --date-order --skip: --all-match --branches --tags --remotes --summary --abbrev: --stat: #';
+// git fetch and pull: a remote's name (never a path or an address), then branch names
+function remoteName(pos, what) {
+  pos.forEach((x, k) => { if (!(k === 0 ? /^[A-Za-z0-9_][\w-]*$/ : /^[A-Za-z0-9_][\w./-]*$/).test(x.t)) ask(`a ${what} from a path or an address`); });
+}
 const GIT = {
   status: BUILD('s b v u: --short --branch --porcelain --porcelain: --untracked-files: --ignored --long --no-color'),
   diff: BUILD(DIFF_FLAGS),
@@ -420,8 +432,8 @@ const GIT = {
   show: BUILD(`${DIFF_FLAGS} ${LOG_FLAGS} s`),
   add: INSIDE('A u n v N --all --update --dry-run --verbose --intent-to-add'),
   commit: BUILD('a q v s --all --amend --no-edit --quiet --verbose --allow-empty --no-verify --signoff m: --message: F: --file: --author: --date:'),
-  fetch: spec('q v p t --all --prune --quiet --verbose --tags --no-tags --depth: --unshallow', { pos: (pos) => { for (const x of pos) if (!/^[\w.-]+$/.test(x.t) && !/^[\w./-]+$/.test(x.t)) ask('a fetch from an address'); } }),
-  pull: spec('q v r --quiet --verbose --rebase --ff-only --no-rebase --no-edit --autostash --no-autostash --ff --no-ff --depth:', { pos: (pos) => { for (const x of pos) if (!/^[\w./-]+$/.test(x.t)) ask('a pull from an address'); } }),
+  fetch: spec('q v p t --all --prune --quiet --verbose --tags --no-tags --depth: --unshallow', { pos: (pos) => remoteName(pos, 'fetch') }),
+  pull: spec('q v r --quiet --verbose --rebase --ff-only --no-rebase --no-edit --autostash --no-autostash --ff --no-ff --depth:', { pos: (pos) => remoteName(pos, 'pull') }),
   push: spec('u q v n --set-upstream --quiet --verbose --no-verify --dry-run --progress', { pos: (pos) => { if (pos.length > 2) ask('a push with several branches'); for (const x of pos) if (!/^[\w./@:^~-]+$/.test(x.t)) ask('an unusual push target'); } }),
   checkout: BUILD('b: B: q --detach --quiet', { pos: 'build' }),
   switch: BUILD('c: C: q --detach --quiet --create: --force-create:'),
@@ -505,14 +517,15 @@ function ghCheck(args, ctx) {
   const [group, action] = words.map((x) => x.t);
   if (group === 'api') {
     const { pos } = check(spec('--paginate --jq: -q:', { pos: 'text' }), args.slice(args.findIndex((x) => x.t === 'api') + 1), ctx, 'gh api');
-    if (pos.length !== 1 || /\/merge/.test(pos[0].t)) ask('a gh api call Starbase does not read');
+    if (pos.length !== 1 || /\/merge/.test(pos[0].t) || /:\/\//.test(pos[0].t)) ask('a gh api call Starbase does not read'); // only a path relative to the API
     return;
   }
   const sp = GH[group]?.[action];
   if (!sp) ask(`the gh command ${[group, action].filter(Boolean).join(' ')}`);
   const at = args.findIndex((x) => x.t === action);
   const rest = args.filter((_, k) => k !== args.findIndex((x) => x.t === group) && k !== at);
-  const { pos } = check(sp, rest, ctx, `gh ${group} ${action}`);
+  const { pos, vals } = check(sp, rest, ctx, `gh ${group} ${action}`);
+  for (const [f, x] of vals) if (['--body-file', '-F'].includes(f) && SECRET_NAME.test(path.basename(x.t))) ask('a body file with a secret name');
   if (pos.length > 1 || pos.some((x) => !/^[\w./#:-]+$/.test(x.t))) ask('arguments to gh Starbase does not read');
 }
 
@@ -539,6 +552,23 @@ function binExists(name, ctx) {
 }
 
 // A runner starts a program from the job's node_modules/.bin: its name must be there, and its arguments are read by that program's list.
+// Is this name a script in the nearest package.json at or above the folder (inside the job)?
+function scriptInPackage(name, ctx) {
+  return ctx.cands.every((c) => {
+    let dir = physicalPath('.', c);
+    for (let guard = 0; guard < 40 && dir && inRoots(dir, ctx.roots); guard++) {
+      const file = path.join(dir, 'package.json');
+      try {
+        if (fs.existsSync(file)) { const scripts = JSON.parse(fs.readFileSync(file, 'utf8'))?.scripts; return Boolean(scripts) && Object.prototype.hasOwnProperty.call(scripts, name) && typeof scripts[name] === 'string'; }
+      } catch { return false; }
+      const up = path.dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+    return false;
+  });
+}
+
 function runBin(args, ctx, via) {
   const i = args.findIndex((x) => !x.t.startsWith('-'));
   const flags = args.slice(0, i < 0 ? args.length : i);
@@ -547,8 +577,8 @@ function runBin(args, ctx, via) {
   const bin = args[i].t;
   if (!binExists(bin, ctx)) ask(`${via} of ${bin}, which is not in the job's node_modules/.bin`);
   const rest = args.slice(i + 1);
-  if (PROGRAMS[bin] && !CUSTOM[bin]) check(PROGRAMS[bin], rest, ctx, bin);
-  else for (const x of rest) if (pathlike(x.t)) mustBeInside(x, ctx);
+  if (!PROGRAMS[bin] || CUSTOM[bin]) ask(`${bin} is a program in node_modules/.bin that Starbase has no list of flags for`);
+  check(PROGRAMS[bin], rest, ctx, bin);
 }
 
 function pkgCheck(prog, args, ctx) {
@@ -560,13 +590,17 @@ function pkgCheck(prog, args, ctx) {
   const { pos, vals } = parse(PKG_FLAGS, before, prog);
   for (const [, x] of vals) if (pathlike(x.t)) mustBeInside(x, ctx);
   const sub = pos[0]?.t;
+  // workspace flags send a script to other packages, whose package.json is not the one read (C3)
+  const wsFlag = before.some((x) => /^(-w|--workspace|--workspaces|-ws|--filter|-F|-r|--recursive)$/.test(x.t) || /^--(workspace|filter)=/.test(x.t) || /^-[wF]./.test(x.t));
+  const noWorkspaces = () => { if (wsFlag) ask('a workspace flag with a script Starbase does not read'); };
+  if (sub === 'config' || sub === 'c') ask(`${prog} config can print a token`);
   const more = pos.slice(1);
   const hasIgnore = before.some((x) => x.t === '--ignore-scripts');
   const names = (list) => { for (const x of list) if (!PKG_NAME.test(x.t) || pathlike(x.t) || /^(https?|git|file|github):/.test(x.t)) ask('a package that is not a plain registry name'); };
   const extraArgs = (list) => { for (const x of list) if (pathlike(x.t)) mustBeInside(x, ctx); };
   if (!sub) { if (prog === 'npm' || prog === 'pnpm' || prog === 'yarn' || prog === 'bun') { if (args.some((x) => x.t === '--version' || x.t === '-v')) return; if (prog === 'yarn' || prog === 'bun') ask(`${prog} with no command`); } ask(`${prog} with no command`); }
-  if (['test', 't', 'tst', 'start', 'stop', 'restart'].includes(sub)) { if (prog === 'bun' && sub === 'test') { extraArgs(more); return; } extraArgs(more); return; }
-  if (['run', 'run-script', 'rum', 'urun'].includes(sub)) { if (!more[0] || !SCRIPT_NAME.test(more[0].t) || (prog === 'bun' && (!BARE_SCRIPT.test(more[0].t) || FILE_LIKE.test(more[0].t)))) ask('a script name Starbase does not read'); extraArgs(more.slice(1)); return; }
+  if (['test', 't', 'tst', 'start', 'stop', 'restart'].includes(sub)) { noWorkspaces(); extraArgs(more); return; }
+  if (['run', 'run-script', 'rum', 'urun'].includes(sub)) { noWorkspaces(); if (!more[0] || !SCRIPT_NAME.test(more[0].t) || (prog === 'bun' && (!BARE_SCRIPT.test(more[0].t) || FILE_LIKE.test(more[0].t)))) ask('a script name Starbase does not read'); extraArgs(more.slice(1)); return; }
   if (sub === 'ci') { if (more.length) ask('arguments to ci'); return; }
   if (['install', 'i', 'add'].includes(sub)) {
     if (sub === 'add' && !more.length) ask('add with no package');
@@ -575,10 +609,9 @@ function pkgCheck(prog, args, ctx) {
   }
   if (['ls', 'list', 'outdated', 'view', 'info', 'root', 'bin'].includes(sub)) { names(more); return; }
   if (sub === 'audit' && !more.length) return;
-  if (sub === 'config' && more[0]?.t === 'get' && more.length === 2) return;
   if (sub === 'pkg' && more[0]?.t === 'get') return;
-  if (['exec', 'x'].includes(sub)) { runBin(args.slice(args.findIndex((x) => x.t === sub) + 1), ctx, `${prog} ${sub}`); return; }
-  if ((prog === 'pnpm' || prog === 'yarn' || prog === 'bun') && BARE_SCRIPT.test(sub) && !FILE_LIKE.test(sub) && !PKG_BUILTIN.has(sub)) { extraArgs(more); return; }
+  if (['exec', 'x'].includes(sub)) { noWorkspaces(); runBin(args.slice(args.findIndex((x) => x.t === sub) + 1), ctx, `${prog} ${sub}`); return; }
+  if ((prog === 'pnpm' || prog === 'yarn' || prog === 'bun') && BARE_SCRIPT.test(sub) && !FILE_LIKE.test(sub) && !PKG_BUILTIN.has(sub) && scriptInPackage(sub, ctx)) { noWorkspaces(); extraArgs(more); return; }
   ask(`the ${prog} command ${sub}`);
 }
 const PKG_BUILTIN = new Set(['install', 'i', 'ci', 'add', 'remove', 'rm', 'uninstall', 'update', 'up', 'upgrade', 'exec', 'dlx', 'x', 'init', 'create', 'list', 'ls', 'outdated', 'audit', 'why', 'pack', 'cache', 'config', 'info', 'view', 'link', 'unlink', 'prune', 'rebuild', 'dedupe', 'version', 'help', 'store', 'env', 'fetch', 'patch', 'import', 'root', 'bin', 'prefix', 'pkg', 'doctor', 'explain', 'diff', 'set', 'get', 'workspaces', 'workspace', 'global', 'dev', 'completion', 'publish', 'login', 'logout', 'npm', 'node', 'self-update', 'setup', 'star', 'org', 'hook', 'explore', 'team', 'token', 'access', 'owner']);
@@ -670,7 +703,12 @@ function runProgram(name, args, ctx, raw) {
   const sp = PROGRAMS[name];
   if (!sp) ask(`${name} is not a program Starbase reads`);
   if (sp.free) return;
-  check(sp, args, ctx, name);
+  const { pos, vals, flags } = check(sp, args, ctx, name);
+  const hasPattern = vals.some(([f]) => ['-e', '--regexp', '-f', '--file'].includes(f)) || flags.has('--files') || flags.has('--type-list');
+  if (['grep', 'egrep', 'fgrep'].includes(name) && ['-r', '-R', '--recursive'].some((f) => flags.has(f))) rootsInside(hasPattern ? pos : pos.slice(1), ctx);
+  else if (name === 'rg') rootsInside(hasPattern ? pos : pos.slice(1), ctx);
+  else if (name === 'diff' && ['-r', '--recursive'].some((f) => flags.has(f))) rootsInside(pos, ctx);
+  else if (['tree', 'du'].includes(name) || (name === 'ls' && flags.has('-R')) ) rootsInside(pos, ctx);
   return raw;
 }
 
@@ -705,9 +743,9 @@ export function plainWhy(command, env = {}) {
     let pending = null;
     let broughtIn = false; // an archive or a checkout just put files here: a link among them could be written through
     for (const cmd of cmds) {
-      if (pending) { cands = cmd.sep === '&&' ? pending.news : [...new Set([...pending.old, ...pending.news])]; pending = null; }
+      if (pending) { if (cmd.sep !== '&&') ask('a cd that is not followed by && (what comes next may run in either folder)'); cands = pending.news; pending = null; }
       const ctx = { roots, cands, ctx: env.ctx };
-      for (const r of cmd.redirects) { if (r.op === '<') { readablePath(r.target); } else redirectCheck(r, ctx); }
+      for (const r of cmd.redirects) { if (r.op === '<') { readablePath(r.target, ctx); } else redirectCheck(r, ctx); }
       let words = cmd.words;
       let i = 0;
       while (words[i] && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i].t)) {
@@ -725,7 +763,9 @@ export function plainWhy(command, env = {}) {
         continue;
       }
       if (head.t === 'cd') {
-        pending = { old: cands, news: cdTargets(cmd, cands, roots) };
+        const news = cdTargets(cmd, cands, roots);
+        if (!news.every((p) => inRoots(p, roots))) ask('a cd to a folder outside the job');
+        pending = { old: cands, news };
         continue;
       }
       const args = words.slice(1);
@@ -737,7 +777,11 @@ export function plainWhy(command, env = {}) {
         if (bin) name = bin[1]; else { for (const x of args) if (pathlike(x.t)) mustBeInside(x, ctx); continue; } // a script of the job's own: its text is read by the caller
       }
       if (!READ_ONLY.has(name) && !(name === 'git' && GIT_READS.has(args.find((x) => !x.t.startsWith('-'))?.t)) && !cands.every((c) => inRoots(physicalPath('.', c), roots))) ask('a command that changes things, run from a folder outside the job');
-      if (words.some((x) => x.t === HEREDOC) && !(name === 'git' && args[0]?.t === 'commit')) ask('a commit message form used outside git commit');
+      words.forEach((x, k) => {
+        if (!x.t.includes(HEREDOC)) return;
+        const message = name === 'git' && args[0]?.t === 'commit' && ((x.t === HEREDOC && ['-m', '--message'].includes(words[k - 1]?.t)) || x.t === `--message=${HEREDOC}`);
+        if (!message) ask('a here-document that is not a commit message'); // -F, --file, -t and the rest read a file by that name
+      });
       const sub = args.find((x) => !x.t.startsWith('-'))?.t;
       // After an archive or a checkout, merge, pull, reset… has changed the files, only reads and git go on: a link, a
       // package.json or a Makefile that just arrived could be written through or run in the same call.

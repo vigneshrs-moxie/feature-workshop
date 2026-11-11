@@ -285,7 +285,9 @@ function apiVerdict(toolName, input, opts) {
   const port = opts.port ?? apiPort;
   const last = String(port).slice(-2);
   const bash = toolName === 'Bash';
-  const command = bash ? String(input?.command ?? '') : '';
+  // %xx spellings are read as the bytes they stand for (a sequence that is not valid is left as written)
+  const unescape = (x) => String(x).replace(/%([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  const command = bash ? unescape(input?.command ?? '') : '';
   if (bash && !command.includes(last)) return null; // quick out: the port's last digits must appear
   const onPort = (x) => new RegExp(`(^|[:=])0*${port}(?![0-9])`).test(x);
   if (bash) {
@@ -293,7 +295,7 @@ function apiVerdict(toolName, input, opts) {
     const dev = new RegExp(`/dev/(?:tcp|udp)/([^/\\s'"\`;&|()<>]+)/0*${port}(?![0-9])`, 'g');
     for (const m of command.matchAll(dev)) if (/[$`]/.test(m[1]) || namesThisComputer(m[1])) return API_DENY;
   }
-  const tokens = bash ? command.split(/[\s;&|()<>`"'\\,]+/).filter(Boolean) : addressWords(input);
+  const tokens = bash ? command.split(/[\s;&|()<>`"'\\,]+/).filter(Boolean) : addressWords(input).map(unescape);
   if (!tokens.some(onPort)) return null;
   if (tokens.some(namesThisComputer)) return API_DENY;
   // a host chosen by a variable or a substitution on that port
