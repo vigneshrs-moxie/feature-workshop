@@ -142,7 +142,7 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
             <Choice type="checkbox" checked={w.inboxSuggest !== false} onChange={(e) => void save({ inboxSuggest: e.currentTarget.checked }, 'inbox')} />
             Suggest what to start next
           </label>
-          <p className="muted settings-note-under">When none of your tickets is ranked in Orbit, Haiku on this laptop picks up to three to start next and says why. It reads each ticket’s title, type, severity, age, size and the start of its description, and which files your open jobs are changing. Never names, emails, internal notes or comments. It asks again only when your list changes, at most every 30 minutes, for less than a cent each time.</p>
+          <p className="muted settings-note-under">When none of your tickets is ranked in Orbit, Haiku on this laptop picks up to three to start next and says why. It gets each ticket’s title and the start of its description, without mentions, email addresses or the names Orbit attaches. A name typed into the text is still there. It also gets each ticket’s type, severity, age and size, and which files your open jobs are changing; never internal notes or comments. It asks again only when your list changes, at most every 30 minutes, for less than a cent each time.</p>
         </SettingGroup>
         <AutoStartGroup
           setting={w.autoStart}

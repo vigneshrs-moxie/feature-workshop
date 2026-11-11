@@ -109,7 +109,9 @@ describe('Settings → Workflow', () => {
     const box = within(group).getByRole('checkbox', { name: 'Suggest what to start next' });
     expect(box).toBeChecked();
     expect(group).toHaveTextContent('Haiku on this laptop picks up to three to start next and says why.');
-    expect(group).toHaveTextContent('Never names, emails, internal notes or comments.');
+    // m15: what the small model gets, said truly: a name typed into a ticket is still there.
+    expect(group).toHaveTextContent('It gets each ticket’s title and the start of its description, without mentions, email addresses or the names Orbit attaches. A name typed into the text is still there.');
+    expect(group).not.toHaveTextContent('Never names');
     fireEvent.click(box);
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/settings', { workflow: { inboxSuggest: false } }));
     await waitFor(() => expect(store.getState().meta?.settings?.workflow?.inboxSuggest).toBe(false));
