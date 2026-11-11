@@ -2330,3 +2330,20 @@ test('I10: a permission card\'s message holds Starbase\'s facts above the materi
   assert.equal(p.asked.length, 1);
   assert.match(approverPrompt(p.asked[0]).slice(0, approverPrompt(p.asked[0]).indexOf('<material>')), /a push of the job's own branch to its fork: Starbase checked/);
 });
+
+test('N7: Auto\'s context names where the set-up may make the job\'s worktree, and from what', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    w.git('remote', 'add', 'moxie', 'git@github.com:moxie-org/visit-app.git');
+    w.git('remote', 'add', 'origin', 'git@github.com:me/visit-app.git');
+    w.git('update-ref', 'refs/remotes/moxie/main', 'HEAD');
+    const ctx = await w.driver.autoCtx({ id: 'n7-run', featureDir: w.dir, cwd: w.dirs.repo, slug: w.slug, title: 'T' }, { toolName: 'Bash', input: { command: 'git fetch moxie --prune' } });
+    assert.ok(ctx.setup.worktrees.includes(path.join(w.root, 'orbit-visit-audit')), JSON.stringify(ctx.setup));
+    assert.ok(ctx.setup.starts.includes('moxie/main'));
+    assert.ok(ctx.setup.taken.includes('main'), 'the main checkout\'s branch is taken');
+    const { autoVerdict } = await import('../lib/auto-rules.js');
+    const v = (command) => autoVerdict({ kind: 'card', toolName: 'Bash', input: { command }, hardLine: null, blockedPath: null }, ctx);
+    assert.equal(v('git fetch moxie --prune'), null);
+    assert.equal(v(`git worktree add -b feature/visit-audit ../orbit-visit-audit moxie/main`), null);
+  } finally { await w.stop(); }
+});

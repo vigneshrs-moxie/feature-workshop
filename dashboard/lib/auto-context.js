@@ -118,5 +118,7 @@ export async function verifiedJobContext({ featureDir, slug = null, f = null, re
     const ok = inDocs(under(repo)) || worktrees.some((w) => inDocs(under(w))) || (inJob !== null && !codePart(inJob));
     if (ok && !specDirs.some((d) => same(d, dir))) specDirs.push(dir);
   }
-  return { repo, mainCheckout: main ? main.path : repo, worktrees, specDirs, branches };
+  // For the workflow's set-up (N7): every branch git shows checked out, and the org remote's default branches.
+  const listedBranches = (list ?? []).map((x) => x.branch).filter(Boolean);
+  return { repo, mainCheckout: main ? main.path : repo, worktrees, specDirs, branches, listedBranches, neverBranches: never };
 }

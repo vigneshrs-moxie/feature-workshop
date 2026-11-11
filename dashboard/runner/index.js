@@ -279,7 +279,7 @@ export async function createRunner(config) {
         defaultBranch: async (repo) => (await Promise.all([...new Set([orgRemote, ...ORG_REMOTES].filter(Boolean))].map((remote) => gitRemoteDefault({ repo, remote, exec: gitStdout, cache: autoGitCache })))).filter(Boolean),
       },
     });
-    return { f, repo: v.repo, worktrees: v.worktrees, specDirs: v.specDirs, branches: v.branches, mainCheckout: v.mainCheckout };
+    return { f, repo: v.repo, worktrees: v.worktrees, specDirs: v.specDirs, branches: v.branches, mainCheckout: v.mainCheckout, setup: { worktrees: [profileWorktree, ...stackWorktrees].filter(Boolean), taken: v.listedBranches ?? [], never: v.neverBranches ?? [] } };
   }
   // The repository Starbase recorded for a job: the one you set (sessions.json), else the one the
   // start handler wrote in its new-job audit line. null for a job Starbase did not make.
@@ -316,7 +316,7 @@ export async function createRunner(config) {
   const gitSettingCalls = new Set(); // runs whose last call may have changed a git setting
   // call: { toolName, input } when the context is for one call: a commit it names for the org branch is placed by git first (I2).
   async function autoCtxFor(run, call = null) {
-    const { repo, worktrees, specDirs, branches, mainCheckout } = await jobContext(run);
+    const { repo, worktrees, specDirs, branches, mainCheckout, setup } = await jobContext(run);
     const hit = repo && local.registry ? await local.registry.profileFor(repo).catch(() => null) : null;
     const profile = hit?.ok ? hit.profile : null;
     // After a call that may change where a push goes (git config, git remote, git branch -u), the remembered remotes are forgotten (I6).
@@ -340,6 +340,8 @@ export async function createRunner(config) {
       // Read without a question, never changed: the repository's own checkout and the session's read folders (C5).
       mainCheckout, readRoots: [SKILLS_DIR, AGENTS_DIR].filter(Boolean),
       orgRemote: orgRemote ?? null, orgRepo, orgShas, filesToCopy,
+      // The workflow's set-up from the main checkout (N7): where the worktree may be made, and from what.
+      setup: { ...setup, starts: orgRemote ? [`${orgRemote}/main`, ...(setup?.never ?? []).map((b) => `${orgRemote}/${b}`)] : [] },
     };
   }
 

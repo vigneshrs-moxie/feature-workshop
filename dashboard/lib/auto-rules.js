@@ -320,6 +320,9 @@ function readElsewhere(p, roots) {
 
 // A Bash call: a fixed stop if a rule matches; else an ask if it is not plain; else null (pass).
 function bashVerdict(command, hard, ctx) {
+  // The workflow's set-up lines, in their exact forms, from the main checkout or a folder of the job's (N7).
+  const setup = setupStep(command, ctx);
+  if (setup) return setup === true ? null : { ask: setup };
   const st = { ctx, asks: [], cdTargets: [], hits: new Set(), unknown: false, ranRunner: false, ranMake: false, pkgEdit: false, runs: [], written: [], touched: [], cloneDirs: [], branchChange: false, pushed: false, funcs: functionNames(command), roots: jobRoots(ctx), codeRoots: codeRoots(ctx), readRoots: readRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
   if (hard?.line === 'gh-pr-merge') st.hits.add('merge');
   if (hard?.line === 'database') st.hits.add('database');
@@ -342,6 +345,39 @@ function bashVerdict(command, hard, ctx) {
   }
   const why = st.asks[0] ?? plainWhy(command, plainEnv(st, ctx.cwd ?? null));
   return why ? { ask: why } : null;
+}
+
+/**
+ * The workflow's set-up, before the job's worktree exists, run from the repository's main checkout (or a folder of the
+ * job's), as one command with nothing else (N7). true (plain) for:
+ *   git fetch <fork|org remote> [--prune]
+ *   git ls-remote --heads <fork|org remote> <a branch name>
+ *   git worktree add -b <branch> <the profile's place for this job or a stack part> <org remote>/main (or its default)
+ *     where the branch is never main, master, staging, develop or the org default, and no worktree git lists has it;
+ * the Approver's reason for the exact org-branch call (an ask, as from the worktree); null for anything else.
+ */
+function setupStep(command, ctx) {
+  const at = typeof ctx.cwd === 'string' && ctx.cwd ? physicalPath(ctx.cwd, null) : null;
+  const main = typeof ctx.mainCheckout === 'string' ? physicalPath(ctx.mainCheckout, null) : null;
+  if (!at || !((main && at === main) || inRoots(at, jobRoots(ctx)))) return null;
+  const parts = commandParts(command, ctx.cwd);
+  if (!parts || parts.length !== 1 || (parts[0].redirects ?? []).length || parts[0].words.some((w) => w.dyn)) return null;
+  const w = parts[0].words.map((x) => x.t);
+  const remotes = [ctx.forkRemote || 'origin', ctx.orgRemote].filter((r) => typeof r === 'string' && r && (() => { try { return Boolean(ctx.remoteUrl?.(r)); } catch { return false; } })());
+  const branchName = (b) => /^[A-Za-z0-9][\w./-]*$/.test(b) && !b.split('/').includes('..') && !b.endsWith('/') && !b.endsWith('.lock');
+  if (w[0] === 'git' && w[1] === 'fetch' && (w.length === 3 || (w.length === 4 && w[3] === '--prune')) && remotes.includes(w[2])) return true;
+  if (w[0] === 'git' && w[1] === 'ls-remote' && w.length === 5 && w[2] === '--heads' && remotes.includes(w[3]) && branchName(w[4])) return true;
+  if (w[0] === 'git' && w[1] === 'worktree' && w[2] === 'add' && w[3] === '-b' && w.length === 7) {
+    const s = ctx.setup ?? {};
+    const [branch, place, start] = w.slice(4);
+    const where = physicalPath(place, ctx.cwd);
+    const places = (s.worktrees ?? []).map((x) => physicalPath(x, null)).filter(Boolean);
+    const never = PROTECTED.test(branch) || /^(main|master|staging|develop)$/i.test(branch) || (s.never ?? []).includes(branch);
+    if (where && places.includes(where) && (s.starts ?? []).includes(start) && branchName(branch) && !never && !(s.taken ?? []).includes(branch)) return true;
+    return null;
+  }
+  if (w[0] === 'gh' && w[1] === 'api' && main && at === main) { const why = orgBranchCall(w.slice(2), ctx); if (why) return why; }
+  return null;
 }
 
 // Plain: Starbase understands every word of the command (lib/auto-plain.js).

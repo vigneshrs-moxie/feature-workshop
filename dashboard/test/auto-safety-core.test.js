@@ -784,3 +784,18 @@ test('N9: a skill installed as a link is read without a question; a link into a 
     assert.equal(card('Read', { file_path: pathMod.join(skills, 'to-home', 'Documents', 'x.md') }, ctx), 'ask');
   } finally { process.env.HOME = was; fsSync.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('N7: the workflow\'s set-up lines run from the main checkout in their exact forms, and nothing wider', () => {
+  const setup = { worktrees: [WT], starts: ['moxie/main'], taken: ['main', 'feature/orbit-499-other'] };
+  const ctx = C5CTX({ cwd: REPO, orgRemote: 'moxie', orgRepo: 'moxie-org/orbit', orgShas: { ['a'.repeat(40)]: true }, setup });
+  for (const c of ['git fetch moxie --prune', 'git fetch moxie', 'git fetch origin', `git ls-remote --heads origin ${BRANCH}`, `git ls-remote --heads moxie ${BRANCH}`,
+    `git worktree add -b ${BRANCH} ../orbit-orbit-500-thing moxie/main`, `git worktree add -b ${BRANCH} ${WT} moxie/main`]) assert.equal(bash(c, ctx), null, c);
+  assert.equal(bash(`gh api -X POST repos/moxie-org/orbit/git/refs -f ref=refs/heads/${BRANCH} -f sha=${'a'.repeat(40)}`, ctx), 'ask', 'the org-branch call asks from the main checkout as from the worktree');
+  // The same from a folder of the job's.
+  for (const c of ['git fetch moxie --prune', `git ls-remote --heads origin ${BRANCH}`]) assert.equal(bash(c, C5CTX({ orgRemote: 'moxie', setup })), null, c);
+  // One thing wrong: as today (a stop or an ask, never a pass).
+  for (const c of ['git fetch upstream', 'git fetch git@github.com:someone/orbit.git', 'git fetch moxie --prune --tags', `git ls-remote --heads git@github.com:x/y.git ${BRANCH}`, `git ls-remote --heads upstream ${BRANCH}`,
+    `git ls-remote --heads origin ${BRANCH} other`, `git worktree add -b ${BRANCH} ../somewhere-else moxie/main`, `git worktree add -b ${BRANCH} ../orbit-orbit-500-thing origin/main`,
+    'git worktree add -b main ../orbit-orbit-500-thing moxie/main', 'git worktree add -b feature/orbit-499-other ../orbit-orbit-500-thing moxie/main', `git worktree add ../orbit-orbit-500-thing ${BRANCH}`,
+    'git fetch moxie --prune && touch x', 'git fetch moxie && git worktree add -b x ../orbit-orbit-500-thing moxie/main', 'git status && git add -A']) assert.notEqual(bash(c, ctx), null, c);
+});
