@@ -150,6 +150,19 @@ describe('the hosted Inbox', () => {
     expect(await screen.findByRole('button', { name: 'Start a job on ORBIT-12' })).toBeInTheDocument();
   });
 
+  it('a repository picked in the form stays picked when the page re-renders', async () => {
+    const { api } = site();
+    const { rerender } = render(<HostedApp api={api} />);
+    const sheet = await pressStart();
+    const box = () => within(sheet).getByRole('combobox', { name: 'Repository' });
+    await waitFor(() => expect(box()).toHaveAttribute('data-value', 'orbit'));
+    fireEvent.click(box());
+    fireEvent.click(await screen.findByRole('option', { name: 'starbase' }));
+    await waitFor(() => expect(box()).toHaveAttribute('data-value', 'starbase'));
+    rerender(<HostedApp api={api} />);
+    expect(box()).toHaveAttribute('data-value', 'starbase');
+  });
+
   it('a bug ticket preselects Bug fix', async () => {
     const { s, api } = site({ items: [ticket(12, { type: 'bug' })] });
     render(<HostedApp api={api} />);

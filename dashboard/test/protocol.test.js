@@ -201,3 +201,17 @@ test('this computer’s own start still takes a folder and any options', () => {
   assert.equal(r.ok, true, r.error);
   assert.deepEqual(r.command.options, { auto: true, wireframes: 'skip' });
 });
+
+test('a start from the site cannot go past the Claude limit warning, and its ticket has a size cap; the laptop’s own page can and is not capped', () => {
+  const fromSite = site({ despiteLimit: true });
+  assert.equal(fromSite.ok, true, fromSite.error);
+  assert.equal('despiteLimit' in fromSite.command, false);
+  const big = { key: 'ORBIT-12', title: 'x'.repeat(4000) };
+  const refused = site({ ticket: big });
+  assert.equal(refused.ok, false);
+  assert.match(refused.error, /ticket/);
+  assert.equal(site({ ticket: { key: 'ORBIT-12', title: 'x'.repeat(300), url: `https://orbit.example/${'u'.repeat(1000)}` } }).ok, true);
+  const own = (fields) => parseCommand({ type: 'start', description: 'ORBIT-12: Tidy the export button', ...fields }, { from: 'local' });
+  assert.equal(own({ despiteLimit: true }).command.despiteLimit, true);
+  assert.equal(own({ ticket: big }).ok, true);
+});
