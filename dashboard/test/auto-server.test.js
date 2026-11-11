@@ -1617,6 +1617,23 @@ test('J6: a gh pr create card on the same job stops Auto as blocked, and the App
   } finally { await clear(w); await w.stop(); }
 });
 
+test('J6: a push with a gh call in the same command is not the plain push: Auto stops as blocked, and the Approver is not asked', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({
+    jobStatus: status(1, { stage: 'review', waiting_for: 'none', stage_state: 'in_progress', branch: 'feature/visit-audit' }),
+    query: cardQuery([{ tool: 'Bash', input: { command: 'git push origin feature/visit-audit && gh pr create --fill' } }], outcomes), ask: () => allow(),
+  });
+  try {
+    // The job's own branch and its fork, so no fixed stop matches the push itself.
+    w.git('checkout', '-q', '-b', 'feature/visit-audit');
+    w.git('remote', 'add', 'origin', 'https://github.com/me/app.git');
+    await raise(w);
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    assert.equal((await w.record()).stopped.rule, 'blocked');
+    assert.equal(w.asks.length, 0, 'an early pull request would end Auto with unreviewed work');
+  } finally { await clear(w); await w.stop(); }
+});
+
 test('after the merge: a call Starbase cannot tell about reaches the Approver on an Auto job, and its allow lets it run', { timeout: 30_000 }, async () => {
   const outcomes = [];
   const w = await world({ query: cardQuery([{ tool: 'Bash', input: { command: 'make test' } }], outcomes), ask: () => allow('A test run inside the job.') });

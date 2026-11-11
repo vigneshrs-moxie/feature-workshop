@@ -359,7 +359,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       hit = fixedStop({ kind: 'card', toolName: full.toolName, input: full.input, hardLine: full.hardLine ? { decision: 'ask', ...full.hardLine } : null, blockedPath: full.blockedPath ?? null }, ctx);
     } catch { hit = { rule: 'tool', reason: AUTO_STOP_REASONS.tool }; }
     // A push is the one hard line the Approver may judge: the fixed stops already refuse any push but the job's own branch to its fork.
-    if (!hit && full.hardLine && full.hardLine.line !== 'git-push') hit = { rule: 'blocked', reason: oneLine(full.hardLine.reason) || 'this is a hard line, and hard lines need you.' };
+    // Only the plain push: a command that also holds a gh call (an early pull request would end Auto with unreviewed work) is not it.
+    const plainPush = full.hardLine?.line === 'git-push' && !/\bgh\b/.test(String(full.input?.command ?? ''));
+    if (!hit && full.hardLine && !plainPush) hit = { rule: 'blocked', reason: oneLine(full.hardLine.reason) || 'this is a hard line, and hard lines need you.' };
     if (hit) return stopOnCard(job, hit, leave);
     // The count belongs to one reply: it starts from 0 when the last answered brief is not the one it was kept with.
     const lastAnswered = Math.max(0, ...(job.answered ?? []));
