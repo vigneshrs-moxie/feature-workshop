@@ -27,7 +27,7 @@ test('a suggested L3 is not allowed, with no level and on an L2 job alike', () =
 });
 
 test('the stop rules are the fixed list', () => {
-  assert.deepEqual(AUTO_RULES, ['merge', 'database', 'outside', 'push', 'level', 'loop', 'approver', 'judgment', 'blocked', 'status']);
+  assert.deepEqual(AUTO_RULES, ['merge', 'database', 'outside', 'push', 'level', 'loop', 'approver', 'judgment', 'blocked', 'status', 'tool']);
   assert.ok(Object.isFrozen(AUTO_RULES));
 });
 

@@ -16,6 +16,8 @@
 //   step       { stage, count }: how many times Auto has answered at one stage, else null
 //   failures   the Approver's failed answers in a row
 //   lastBrief  the last brief Auto answered, else null
+// Auto's pass (runner/auto.js) also keeps, while it runs: problem (why the last Approver answer failed),
+// spent (the Approver's cost not yet written to an audit line) and finished (when PR #1 was seen open).
 
 /** The highest level Auto runs at. */
 export const AUTO_MAX_LEVEL = 2;
@@ -24,7 +26,7 @@ export const AUTO_MAX_LEVEL = 2;
 export const AUTO_L3 = 'Auto works up to L2. An L3 job needs you to approve each step.';
 
 /** The fixed stop rules: the reasons Auto stops and waits for you, decided by code. */
-export const AUTO_RULES = Object.freeze(['merge', 'database', 'outside', 'push', 'level', 'loop', 'approver', 'judgment', 'blocked', 'status']);
+export const AUTO_RULES = Object.freeze(['merge', 'database', 'outside', 'push', 'level', 'loop', 'approver', 'judgment', 'blocked', 'status', 'tool']);
 
 const isLevel = (v) => Number.isInteger(v) && v >= 0 && v <= 3;
 const aboveAuto = (v) => isLevel(v) && v > AUTO_MAX_LEVEL;

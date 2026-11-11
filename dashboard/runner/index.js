@@ -58,7 +58,9 @@ import { typicalRuns } from '../lib/run-typical.js';
 import { proofStamp } from '../lib/proof.js';
 import { suggestLevel, changedPaths, diffSummary } from '../lib/levels.js';
 import { checkDiff, chooseLevel } from '../lib/auto-level.js';
-import { autoAllowed, autoCardView, autoOption, autoRecord } from '../lib/auto.js';
+import { AUTO_MARK, autoAllowed, autoCardView, autoOption, autoRecord } from '../lib/auto.js';
+import { createAuto } from './auto.js';
+import { askApprover as askApproverLib, approverOptions } from '../lib/approver.js';
 import { autoLogRecord } from '../lib/auto-log.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs, isGateDecision } from '../lib/gate.js';
 import { composeReply, cleanChips } from '../lib/compose.js';
@@ -973,10 +975,13 @@ export async function createRunner(config) {
     };
   }
 
-  /** Start the reply sendPlan prepared. gateBrief: the brief a gate card's reply answers (audited). */
-  async function startSend(f, out, { kind, gateBrief = null }) {
-    const run = await driver.start({ ...out, kind, gateBrief, additionalDirectories: await readDirs() });
-    await limits.forget(f.dir); // you've picked it up yourself
+  /**
+   * Start the reply sendPlan prepared. gateBrief: the brief a gate card's reply answers (audited).
+   * by: 'auto' only from Auto's own code (gateDecision's third argument), never from a request.
+   */
+  async function startSend(f, out, { kind, gateBrief = null, by = 'you' }) {
+    const run = await driver.start({ ...out, kind, gateBrief, by, additionalDirectories: await readDirs() });
+    if (by !== 'auto') await limits.forget(f.dir); // you've picked it up yourself
     await reopenIfClosed(f);
     cached = null;
     return run;
@@ -1117,7 +1122,7 @@ export async function createRunner(config) {
   let changeTimer = null;
   function notifyChange() {
     clearTimeout(changeTimer);
-    changeTimer = setTimeout(() => { cached = null; broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); flowJobsChanged(); checkWaiting().catch(() => {}); checkLevels(); }, 700);
+    changeTimer = setTimeout(() => { cached = null; broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); flowJobsChanged(); checkWaiting().catch(() => {}); checkLevels(); auto.pass(); }, 700);
   }
   driver.on('run', (run) => { cached = null; broadcast('run', run); events.emit('run', run.slug, run); });
   // Nudges on their way to the Foreman (run id -> the job's folder and the nudge id; the nudge route).
@@ -1394,7 +1399,8 @@ export async function createRunner(config) {
 
   async function checkWaitingNow() {
     const cards = await boardCards(await featuresShared());
-    const now = new Map(cards.filter((c) => c.needsYou && c.waitingFor !== 'permission').map((c) => [c.slug, c]));
+    // A job Auto is handling (on, not stopped) is not waiting for you: Auto answers its gate.
+    const now = new Map(cards.filter((c) => c.needsYou && c.waitingFor !== 'permission' && !(c.auto?.on === true && !c.auto.stopped)).map((c) => [c.slug, c]));
     if (waitingBefore) {
       for (const [slug, c] of now) {
         if (waitingBefore.has(slug)) continue;
@@ -1404,6 +1410,77 @@ export async function createRunner(config) {
     }
     waitingBefore = new Set(now.keys());
   }
+  // ---------- Auto's pass (runner/auto.js) ----------
+  // Answers the gate of each job in Auto the way a click does (gateDecision with by: 'auto'), or stops
+  // and says why. Called next to checkWaiting: from the change timer and when a reply ends.
+
+  // The Approver's sessions: a fixed empty working folder, the same Claude Code executable as the Foreman's.
+  const approverEmptyDir = path.join(state.dir, 'approver-empty');
+  const askForAuto = config.askApprover ?? (async (task, { roots, job }) => {
+    await fsp.mkdir(approverEmptyDir, { recursive: true });
+    const options = { ...approverOptions({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs, emptyDir: approverEmptyDir, kind: task.kind }), ...(claudePath ? { pathToClaudeCodeExecutable: claudePath } : {}) };
+    return askApproverLib(task, { query: approverQuery, options, roots });
+  });
+
+  /** Change a job's Auto record under the Auto lock (fn(prev) returns the next record, or null for no change); options.json follows. */
+  function updateAuto(dir, fn) {
+    return autoLocked(dir, async () => {
+      const prev = (await state.sessionFor(dir))?.auto ?? null;
+      const next = fn(prev);
+      if (!next) return prev;
+      await state.setSession(dir, { auto: next });
+      try { await writeAutoOption(dir, autoOption(next, (await readOptions(dir))?.level ?? null)); } catch (err) { console.warn(`Auto: options.json for ${path.basename(dir)} not put in line now: ${err.message}`); }
+      cached = null;
+      return next;
+    });
+  }
+
+  /** What the pass needs to know about each job in Auto, read fresh from the job's records. */
+  async function autoJobs() {
+    const jobs = [];
+    for (const f of await features()) {
+      if (f.auto?.on !== true) continue;
+      const { worktrees, specDirs } = await jobContext({ featureDir: f.dir, cwd: f.repoPath });
+      const g = gateNow(f);
+      const cb = f.currentBrief;
+      let locked = null;
+      try { locked = heldElsewhere(f.dir); } catch { locked = null; }
+      jobs.push({
+        dir: f.dir, slug: f.slug, title: f.title, auto: f.auto, level: Number.isInteger(f.level) ? f.level : null, suggestedLevel: Number.isInteger(f.suggestedLevel) ? f.suggestedLevel : null,
+        stage: f.stage ?? null, stageState: f.stageState ?? null, ticketKey: f.options?.ticket?.key ?? null,
+        // The rules that read the description and the files the Foreman expects to touch (a migration stops Auto).
+        triggers: suggestLevel({ description: f.description, paths: f.predictedPaths ?? [] }).triggers,
+        statusCard: driver.pendingPermissions().some((p) => p.featureDir === f.dir && p.statusCard === true),
+        prOpen: finishLineReached({ prs: f.prs, closed: null }, null, 'pr1-open').reached,
+        gate: g ? { ...g, briefNumber: cb?.number ?? null, headline: cb?.headline ?? null } : null,
+        answered: answeredBriefs(await state.auditFor(f.dir, 400), cb),
+        briefPath: cb?.file ? path.join(f.dir, cb.file) : null,
+        artifacts: (f.recordedArtifacts ?? []).map((a) => a?.path).filter((x) => typeof x === 'string' && x),
+        running: Boolean(driver.activeRunFor({ featureDir: f.dir })), locked: Boolean(locked), restarting: restarting.has(f.dir), paused: limits.isLimited(),
+        worktrees, specDirs,
+      });
+    }
+    return jobs;
+  }
+
+  // The stop notification replaces "waiting for your go-ahead": that job is already told.
+  const autoNotify = (n) => {
+    if (n.slug && String(n.key ?? '').startsWith('auto-stop:')) waitingBefore?.add(n.slug);
+    return tell(n);
+  };
+
+  const auto = createAuto({
+    read: autoJobs, update: updateAuto, state, notify: autoNotify, askApprover: askForAuto,
+    decide: { gate: (kind, body, opts) => gateDecision(kind, body, opts), permission: async () => { throw new Error('Permission cards are not answered by Auto yet.'); } },
+    // The Foreman suggests L1 or L2 above the job's level: applied before the gate is answered (raise only).
+    raiseLevel: async (job, level) => {
+      const f = await featureBySlug(job.slug);
+      if (f) await setLevelAutomatically(f, level, { how: 'chose', note: `Level set to L${level} automatically (Foreman L${level}; the higher one wins).`, rules: null, foreman: level });
+    },
+    // A record changed that other parts show: a reply in progress changes its permission mode, the pages fetch again.
+    changed: () => { driver.applyModes().catch(() => {}); settingsChanged(); cached = null; },
+  });
+
   // The finish line (lib/finish.js) and the flow map. "Done" is told once, when a job crosses the
   // line you set, whatever crossed it (a PR merged, Mark done); reaching staging or main after that
   // is a quiet "Landed" (no sound, only while Done isn't off); never twice for one job and one place.
@@ -1421,7 +1498,7 @@ export async function createRunner(config) {
     return `Released: it’s in ${repoName ? `${repoName}’s` : ''} main, the finish line you set.`;
   }
   // One look at a job: tells what is new since the last look. first: the first look seeds, tells nothing.
-  function noteFinish({ slug, title, finish, repoName }) {
+  function noteFinish({ slug, title, finish, repoName, auto: record = null }) {
     const was = finishBefore.get(slug);
     finishBefore.set(slug, { reached: finish.reached, landed: finish.landed });
     const told = toldOf(slug);
@@ -1434,7 +1511,9 @@ export async function createRunner(config) {
       told.add('done');
       // The crossing itself was a landing too: one notification, not two.
       if (finish.landed && finish.by === finish.landed) told.add(finish.landed);
-      tell({ level: 'done', title, body: doneWords(finish, repoName), slug, key: `finish:${slug}` });
+      // Auto's own "Auto finished" tells this event: a job it has finished, or is about to (PR #1 open), is not also told Done.
+      const autoTells = finish.by === 'pr1-open' && record?.ran === true && (record.on === true || typeof record.finished === 'string');
+      if (!autoTells) tell({ level: 'done', title, body: doneWords(finish, repoName), slug, key: `finish:${slug}` });
     }
     if (!finish.reached || !finish.landed) return;
     for (const place of finish.landed === 'main' ? ['staging', 'main'] : ['staging']) {
@@ -1452,7 +1531,7 @@ export async function createRunner(config) {
       for (const l of r.lanes) {
         const f = jobs.get(l.slug);
         const finish = finishLineReached({ prs: f?.prs ?? null, closed: f?.closed ?? null }, l, finishLineNow);
-        noteFinish({ slug: l.slug, title: l.title ?? f?.title ?? l.slug, finish, repoName: r.name });
+        noteFinish({ slug: l.slug, title: l.title ?? f?.title ?? l.slug, finish, repoName: r.name, auto: f?.auto ?? null });
       }
     }
   }
@@ -1461,7 +1540,7 @@ export async function createRunner(config) {
   const endedRuns = new Set();
   driver.on('run', (run) => {
     // A reply ended: the job may now wait for your go-ahead (its card shows only once nothing runs).
-    if (!ACTIVE_RUN.has(run.status) && !endedRuns.has(run.id)) { endedRuns.add(run.id); setTimeout(() => checkWaiting(), 1000); }
+    if (!ACTIVE_RUN.has(run.status) && !endedRuns.has(run.id)) { endedRuns.add(run.id); setTimeout(() => { checkWaiting(); auto.pass(); }, 1000); }
     if (run.status !== 'error' || toldErrors.has(run.id)) return;
     toldErrors.add(run.id);
     tell({ level: 'problem', title: run.title ?? run.slug, body: noticeBody({ stage: stageOfSlug(run.slug), what: 'The reply ended with an error. Open the job to see it.' }), slug: run.slug, key: `error:${run.id}` });
@@ -1774,15 +1853,19 @@ export async function createRunner(config) {
   };
 
   /** The gate card's decision (approve, send-back, stop, or its own message): POST /api/job/:slug/gate. */
-  async function gateDecision(kind, body) {
+  async function gateDecision(kind, body, { by = 'you' } = {}) {
     // A decision from the gate card: answers, verdicts, next-step chips and a note, composed into
     // the reply here (composeReply, as the page previews it; or the text you edited, for "Edit, then
     // approve"). Chips that change an option patch
     // options.json first. With a reply in progress nothing is sent: the text comes back for the
     // composer to hold. With the usage limit reached, startAfterReset holds it until the reset.
+    // `by` comes only from code (Auto's pass), never from a request. A reply Auto sends is read fresh,
+    // carries no chips and no edited text, and is never held for the usage limit.
+    const auto = by === 'auto';
+    if (auto) cached = null;
     const f = await jobOf(body.slug);
     if (restarting.has(f.dir)) throw new HttpError(409, BEING_RESTARTED);
-    const g = { kind, briefNumber: body.briefNumber ?? null, note: body.note ?? '', answers: body.answers ?? {}, verdicts: body.verdicts ?? {}, chips: body.chips ?? [], edited: body.text ?? null, startAfterReset: body.startAfterReset === true };
+    const g = { kind, briefNumber: body.briefNumber ?? null, note: body.note ?? '', answers: body.answers ?? {}, verdicts: body.verdicts ?? {}, chips: auto ? [] : body.chips ?? [], edited: auto ? null : body.text ?? null, startAfterReset: !auto && body.startAfterReset === true };
     // Answers, verdicts and chips for an older brief mustn't land on the new brief's questions; only
     // a stop goes through whichever brief is current.
     if (g.kind !== 'stop' && g.briefNumber) staleBriefCheck(f, g.briefNumber);
@@ -1797,18 +1880,23 @@ export async function createRunner(config) {
     const chips = cleanChips(g.chips.map((c) => (c?.kind === 'level' ? { ...c, was: level } : c)));
     // A message needs something of yours in it (the reply would otherwise only list open decisions).
     if (g.kind === 'message' && !g.note.trim() && !chips.length && !Object.keys(g.answers).length && !Object.keys(g.verdicts).length) throw new HttpError(400, 'The message is empty.');
-    const options = chipOptions(f.options, chips);
-    const text = g.edited ?? composeReply({ kind: g.kind, status: present(statusForCompose(f)), answers: g.answers, verdicts: g.verdicts, note: g.note, chips });
+    const options = auto ? null : chipOptions(f.options, chips);
+    // Auto's note is labelled lines already (runner/auto.js), the mark last: each line is put on one
+    // line here again, and the mark goes after everything else, so it is the last line of the reply.
+    const autoLines = auto ? String(g.note).split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter((l) => l && l !== AUTO_MARK) : [];
+    const composed = composeReply({ kind: g.kind, status: present(statusForCompose(f)), answers: g.answers, verdicts: g.verdicts, note: auto ? '' : g.note, chips });
+    const text = g.edited ?? (auto ? [composed, ...autoLines, AUTO_MARK].join('\n') : composed);
     if (!text) throw new HttpError(400, 'The message is empty.');
     const reply = { ok: true, text, chipsDropped: g.chips.length - chips.length, ...(options ? { options, summary: describeOptions(options) } : {}) };
     const drive = await driveState(f);
     if (drive.mode === 'running') {
+      if (auto) throw new HttpError(409, 'The Foreman is still working on your last message. Wait for it, or pause it first.', { code: 'busy' });
       await saveChipOptions(f, options);
       return { ...reply, sent: false, queued: false, message: `The Foreman is still working on a reply, so nothing was sent${options ? '. The option changes are saved and apply from its next stage' : ''}. Send this text once the reply is done.` };
     }
     const hold = g.startAfterReset && body.despiteLimit !== true && limits.isLimited();
     const out = sendPlan(f, drive, body, text, { holding: hold });
-    await saveChipOptions(f, options);
+    if (!auto) await saveChipOptions(f, options);
     if (hold) {
       const held = await limits.hold({ featureDir: f.dir, slug: f.slug, title: f.title, cwd: out.cwd, sessionId: out.sessionId, model: out.model, additionalDirectories: await readDirs() }, { text: out.text, kind: g.kind, gateBrief: g.briefNumber });
       await state.audit({ action: 'send-held', featureDir: f.dir, slug: f.slug, kind: g.kind, text, autoResume: held.autoResume, resetsAt: held.resetsAt, ...(g.briefNumber ? { gateBrief: g.briefNumber } : {}) });
@@ -1817,7 +1905,7 @@ export async function createRunner(config) {
       const when = new Date(held.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       return { ...reply, sent: false, held: true, resetsAt: held.resetsAt, message: held.autoResume ? `Held: it goes to the Foreman when Claude’s usage limit resets (around ${when}).` : `Held: it goes to the Foreman when you press “Carry on now” after Claude’s usage limit resets (around ${when}).` };
     }
-    const run = await startSend(f, out, { kind: g.kind, gateBrief: g.briefNumber });
+    const run = await startSend(f, out, { kind: g.kind, gateBrief: g.briefNumber, by });
     return { ...reply, sent: true, run };
   }
 
@@ -1916,7 +2004,7 @@ export async function createRunner(config) {
       const text = `${conductor} ${description}${kind === 'bug' && conductor === '/feature' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${kind === 'bug' ? '- Kind: bug fix.\n' : ''}${describeOptions(optionsOut).map((l) => `- ${l}`).join('\n')}${fromTicket ? `\n\n${fromTicket.brief}` : ''}${tail}`;
       const run = await driver.start({ featureDir, slug, title: description, cwd, sessionId, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
       await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options, fromSession: from ? { id: from.id, mode: from.mode, forkedTo: from.forkedTo } : undefined, ticket: ticket?.key });
-      if (autoOn) await state.audit({ action: 'auto', what: 'on', by: autoOn.by, featureDir, slug, via: 'start' });
+      if (autoOn) await state.audit({ action: 'auto', what: 'on', by: autoOn.by, featureDir, slug, via: 'start', stage: null, asked: '', chose: '', why: '' });
       cached = null;
       // Start on a ticket's row works as usual and clears "couldn't start by itself".
       if (ticket && !internal.autoStart) await autoStarter.clearFailed(ticket.key).catch(() => {});
@@ -2174,7 +2262,7 @@ export async function createRunner(config) {
         const next = autoRecord(prev, { on: body.on, by: 'you' });
         await state.setSession(f.dir, { auto: next });
         // Audited as soon as the record changed: a failed file write below can't leave it unsaid.
-        await state.audit({ action: 'auto', what: body.on ? 'on' : 'off', by: 'you', featureDir: f.dir, slug: f.slug });
+        await state.audit({ action: 'auto', what: body.on ? 'on' : 'off', by: 'you', featureDir: f.dir, slug: f.slug, stage: f.stage ?? null, asked: '', chose: '', why: '' });
         try {
           const want = autoOption(next, f.level);
           const file = path.join(f.dir, 'options.json');
@@ -2980,6 +3068,8 @@ export async function createRunner(config) {
     refreshRunTypical().catch(() => {});
     // What waits for you now: later changes are told as notifications, these never are.
     checkWaiting().catch(() => {});
+    // Jobs in Auto that waited at the last stop carry on.
+    auto.pass();
     // Replies the last clean stop paused carry on.
     startCarryingOn();
     // The hosted site (packet 2A): idle until `starbase login` pairs this laptop.
@@ -3035,7 +3125,9 @@ export async function createRunner(config) {
     return () => out.off('event', listener);
   }
 
-  return { handle, read, local: local_, on, start, stop };
+  // `auto` is for code inside this computer (the tests, a later task): the pass, a decision sent as Auto, the set of
+  // jobs being started again, the look at what waits for you. The site and the pages reach the runner only through handle and read.
+  return { handle, read, local: local_, on, start, stop, auto: { pass: auto.pass, decideGate: gateDecision, restarting, checkWaiting } };
 
 
 }

@@ -262,8 +262,10 @@ export class Driver extends EventEmitter {
    * Start a run. Throws Busy if this job or session already has one going.
    * text: the exact message to send. sessionId: resume this session (null = new session).
    * gateBrief: the brief a gate card's reply answers (its number), kept on the audit 'send' line.
+   * by: 'auto' only when Starbase's Auto sends the reply for the person (only code passes it, never a
+   * request); the audit 'send' line then says so.
    */
-  async start({ featureDir, slug, title, cwd, sessionId = null, model = null, effort = null, text, kind = 'message', newJob = false, additionalDirectories = [], gateBrief = null, owned = undefined }) {
+  async start({ featureDir, slug, title, cwd, sessionId = null, model = null, effort = null, text, kind = 'message', newJob = false, additionalDirectories = [], gateBrief = null, owned = undefined, by = 'you' }) {
     // Asked before the busy check, so nothing is awaited between that check and the run being listed.
     let mode = null;
     if (this.modeFor) { try { mode = await this.modeFor({ featureDir, slug }); } catch { mode = null; } }
@@ -296,7 +298,7 @@ export class Driver extends EventEmitter {
     if (mode) run.mode = mode;
     this.runs.set(run.id, run);
     try {
-      await this.state.audit({ action: 'send', featureDir, slug, sessionId, kind, text, runId: run.id, model, ...(Number.isInteger(gateBrief) && gateBrief > 0 ? { gateBrief } : {}) });
+      await this.state.audit({ action: 'send', featureDir, slug, sessionId, kind, text, runId: run.id, model, ...(Number.isInteger(gateBrief) && gateBrief > 0 ? { gateBrief } : {}), ...(by === 'auto' ? { by: 'auto' } : {}) });
     } catch (err) {
       this.#releaseLock(run);
       throw err;
