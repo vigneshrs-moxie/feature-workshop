@@ -3175,6 +3175,8 @@ export async function createRunner(config) {
     checkWaiting().catch(() => {});
     // Jobs in Auto that waited at the last stop carry on.
     auto.pass();
+    // A gate Auto can't act on stops it after ten minutes (runner/auto.js): the pass looks about once a minute even when nothing changes.
+    setInterval(() => { auto.pass(); }, 60_000).unref?.();
     // Replies the last clean stop paused carry on.
     startCarryingOn();
     // The hosted site (packet 2A): idle until `starbase login` pairs this laptop.

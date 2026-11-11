@@ -41,6 +41,8 @@ const TIMED_OUT = /^It took longer/;
 const GATE_KINDS = new Set(['approve', 'changes', 'stop', 'message']);
 /** "Not now" this many times running on one gate stops Auto, like the Approver failing twice. */
 const NOT_NOW_LIMIT = 3;
+/** A gate Auto can't act on (stale, or no brief number) stops Auto after this long. */
+const STUCK_MS = 10 * 60_000;
 const isNotNow = (err) => {
   const code = err?.extra?.code ?? err?.code ?? null;
   return NOT_NOW.has(code) || err?.constructor?.name === 'Busy' || err?.name === 'Busy' || err?.name === 'JobLocked';
@@ -53,6 +55,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   // on a later pass without asking (and paying) again; and how many "not now" in a row one gate has had.
   const held = new Map(); // dir -> { brief, task, answer }
   const refused = new Map(); // dir -> { brief, count }
+  const stuckSince = new Map(); // dir -> when a gate Auto can't act on was first seen (ms)
   // The cards Auto has taken up (id -> true) until each is gone, and the order a job's cards are handled in.
   const cards = new Map();
   const queues = new Map(); // dir -> the promise of the last card queued
@@ -149,6 +152,16 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     const gate = job.gate && !job.gate.stale && job.gate.briefNumber !== null && !job.answered.includes(job.gate.briefNumber) && job.gate.briefNumber !== job.auto.lastBrief ? job.gate : null;
     const hit = stopFor(job, job.auto, gate);
     if (hit) { await stop(job, hit); return null; }
+    // A gate that waits but can't be answered as it stands (stale, or no brief number): nobody is told by the pass, so after a while Auto says so.
+    if (job.gate && (job.gate.stale || job.gate.briefNumber === null)) {
+      const first = stuckSince.get(job.dir) ?? now().getTime();
+      stuckSince.set(job.dir, first);
+      if (now().getTime() - first >= STUCK_MS) {
+        stuckSince.delete(job.dir);
+        await stop(job, { rule: 'blocked', reason: "the step that waits can't be approved as it stands, so it needs you." });
+        return null;
+      }
+    } else stuckSince.delete(job.dir);
     if (!gate) return null;
     const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage });
     if (route) { await stop(job, route); return null; }

@@ -834,7 +834,7 @@ test('M7: the loop counter goes 0, 1, 2 and the third gate on one stage stops', 
 
 const unitDir = '/jobs/visit-audit';
 /** createAuto on an in-memory job: job(readCount) may return overrides for that read. */
-function unit({ job = () => ({}), auditLines = [], decide, ask = () => ({ ok: true, costUsd: 0.1, answer: { decision: 'go', answers: [], why: 'Fine.', risk: 'low' } }), record = {} } = {}) {
+function unit({ job = () => ({}), auditLines = [], now = undefined, decide, ask = () => ({ ok: true, costUsd: 0.1, answer: { decision: 'go', answers: [], why: 'Fine.', risk: 'low' } }), record = {} } = {}) {
   let rec = { ...autoRecord(null, { on: true, now: OLD }), ...record };
   let reads = 0;
   const lines = [];
@@ -853,6 +853,7 @@ function unit({ job = () => ({}), auditLines = [], decide, ask = () => ({ ok: tr
     askApprover: async (task) => { asks.push(task); return ask(task, asks.length); },
     state: { audit: async (l) => { lines.push(l); }, auditFor: async () => [...auditLines] },
     notify: (n) => notes.push(n),
+    ...(now ? { now } : {}),
   });
   return { auto, record: () => rec, lines, notes, asks, decides, auditLines };
 }
@@ -1874,4 +1875,41 @@ test('K4: a message the person steers in while the Approver answers a card leave
   assert.deepEqual(sent, [], 'Auto answered nothing');
   assert.deepEqual(told, ['c1']);
   assert.equal(rec.spent, 0.1);
+});
+
+// ---------- K5: a gate Auto cannot act on ----------
+
+test('K5: a stale gate, or one with no brief number, stops Auto with the blocked rule after 10 minutes, once', { timeout: 30_000 }, async () => {
+  for (const gate of [{ briefNumber: 1, stale: true, questions: [], decided: [], headline: 'Plan v1', nextStage: 'implement' }, { briefNumber: null, stale: false, questions: [], decided: [], headline: 'Plan', nextStage: 'implement' }]) {
+    let t = Date.parse('2026-10-02T10:00:00Z');
+    const u = unit({ job: () => ({ gate }), now: () => new Date(t) });
+    await u.auto.pass();
+    t += 9 * 60_000;
+    await u.auto.pass();
+    assert.equal(u.record().stopped, null, 'nothing at 9 minutes');
+    assert.equal(u.notes.length, 0);
+    t += 60_000;
+    await u.auto.pass();
+    assert.equal(u.record().stopped.rule, 'blocked');
+    assert.equal(u.record().stopped.reason, 'the step that waits can\'t be approved as it stands, so it needs you.');
+    assert.equal(u.notes.length, 1);
+    assert.equal(u.lines.filter((l) => l.what === 'stop').length, 1);
+    t += 60 * 60_000;
+    await u.auto.pass();
+    assert.equal(u.notes.length, 1, 'none again');
+    assert.equal(u.asks.length, 0);
+  }
+});
+
+test('K5: the clock starts again when the gate can be acted on in between', { timeout: 30_000 }, async () => {
+  let t = Date.parse('2026-10-02T10:00:00Z');
+  let stale = true;
+  const u = unit({ job: () => ({ gate: { briefNumber: 2, stale, questions: [], decided: [], headline: 'Plan', nextStage: 'implement' } }), now: () => new Date(t), decide: () => {} });
+  await u.auto.pass();
+  t += 8 * 60_000; stale = false;
+  await u.auto.pass(); // acted on: asked and answered
+  stale = true;
+  t += 8 * 60_000;
+  await u.auto.pass();
+  assert.equal(u.record().stopped, null, 'only 8 minutes since it became stale again');
 });
