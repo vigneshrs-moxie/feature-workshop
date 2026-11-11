@@ -64,6 +64,15 @@ describe('WhatAutoDecided', () => {
     expect(AUTO_EMPTY).toBe('Auto hasn\'t decided anything on this job yet.');
   });
 
+  it('L6: with no entries yet, the summary lines still show: a stop on the first gate says so', async () => {
+    const summary = ['Auto made 0 decisions on this job. The Approver cost $0.00.', 'Auto stopped: the plan adds a migration.', 'No decisions yet.'];
+    show(vi.fn(async () => ({ ...DECIDED, stopped: null, summary, entries: [] })));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+    const panel = screen.getByRole('dialog', { name: 'What Auto decided' });
+    expect(within(panel).getByText('Auto stopped: the plan adds a migration.')).toBeInTheDocument();
+    expect(within(panel).queryByText(AUTO_EMPTY)).toBeNull();
+  });
+
   it('a 404 or an error shows the empty line, not a crash', async () => {
     for (const err of [new ApiError(404, 'Not found'), new Error('boom')]) {
       const { unmount } = show(vi.fn(async () => { throw err; }));

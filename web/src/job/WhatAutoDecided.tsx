@@ -29,9 +29,9 @@ function Panel({ slug, onClose }: { slug: string; onClose(): void }) {
   return (
     <Sheet title="What Auto decided" onClose={onClose}>
       <div className="auto-decided">
-        {data === undefined ? <p className="muted" role="status">Loading…</p> : entries.length === 0 ? <p>{AUTO_EMPTY}</p> : (
+        {data === undefined ? <p className="muted" role="status">Loading…</p> : !data || (entries.length === 0 && !data.summary.some((l) => l.trim())) ? <p>{AUTO_EMPTY}</p> : (
           <>
-            <ul className="auto-summary">{data!.summary.map((l, i) => <li key={i}>{l}</li>)}</ul>
+            <ul className="auto-summary">{data.summary.map((l, i) => <li key={i}>{l}</li>)}</ul>
             <ul className="auto-entries">
               {entries.map((e, i) => (
                 <li key={`${e.at}-${i}`} className="auto-entry">

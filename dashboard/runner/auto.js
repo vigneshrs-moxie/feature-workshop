@@ -15,6 +15,7 @@
 //   changed()           a record changed in a way other parts show (permission modes, the page)
 //   state               audit() and auditFor()
 //   notify(n)           one notification { level, title, body, slug, key }
+//   stopping(slug, on)  Auto is about to write (on) or has finished writing (off) a stop and its notice: the job is not told "waiting" meanwhile
 //   now()               a Date, for tests
 //
 // Everything Auto writes is an audit line { action: 'auto', what, stage, asked, chose, why, ... } and
@@ -48,7 +49,7 @@ const isNotNow = (err) => {
   return NOT_NOW.has(code) || err?.constructor?.name === 'Busy' || err?.name === 'Busy' || err?.name === 'JobLocked';
 };
 
-export function createAuto({ read, update, decide, askApprover, pendingCard = () => null, cardCtx = async () => null, raiseLevel = async () => {}, changed = () => {}, state, notify = () => {}, now = () => new Date() }) {
+export function createAuto({ read, update, decide, askApprover, pendingCard = () => null, cardCtx = async () => null, raiseLevel = async () => {}, changed = () => {}, state, notify = () => {}, stopping = () => {}, now = () => new Date() }) {
   let running = null;
   let again = false;
   // An answer the Approver gave that could not be sent "not now" is kept for that job and brief and sent
@@ -86,6 +87,10 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
 
   /** Auto stops and waits for you: the record says why, one audit line, one notification (none if it already had). Resolves true when it wrote the stop. */
   async function stop(job, { rule, reason }, { leave = false } = {}) {
+    stopping(job.slug, true);
+    try { return await writeStop(job, { rule, reason }, { leave }); } finally { stopping(job.slug, false); }
+  }
+  async function writeStop(job, { rule, reason }, { leave }) {
     const at = now().toISOString();
     let spent = 0;
     let wrote = false;
@@ -98,7 +103,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     });
     if (!wrote) return false;
     await audit(job, 'stop', { rule, reason, why: reason, ...(spent > 0 ? { costUsd: spent } : {}) });
-    notify({ level: 'needs', title: job.title, body: `Auto stopped: ${reason}`, slug: job.slug, key: `auto-stop:${job.slug}:${at}` });
+    // What the person should do, for every stop: the reason ends with its own full stop.
+    const said = /[.!?]$/.test(reason) ? reason : `${reason}.`;
+    notify({ level: 'needs', title: job.title, body: `Auto stopped: ${said} Open the job to answer.`, slug: job.slug, key: `auto-stop:${job.slug}:${at}` });
     if (leave) changed();
     return true;
   }
@@ -125,8 +132,10 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     const stoppedAt = Date.parse(job.auto.stopped?.at ?? '');
     const lines = await state.auditFor(job.dir, 400);
     // Only the person's decision on a gate (a send that carries its brief) or on a card (the status card's answer is its own line) clears a stop.
+    // An answer on the status card clears a stop made by a status card, and no other.
+    const statusStop = job.auto.stopped?.rule === 'status';
     const yours = lines.some((l) => l.by !== 'auto' && Date.parse(l.at) > stoppedAt
-      && ((l.action === 'send' && GATE_KINDS.has(l.kind) && l.gateBrief) || l.action === 'permission' || l.action === 'status_invalid_answer'));
+      && ((l.action === 'send' && GATE_KINDS.has(l.kind) && l.gateBrief) || l.action === 'permission' || (statusStop && l.action === 'status_invalid_answer')));
     if (!yours) return false;
     const at = now().toISOString();
     await update(job.dir, (prev) => (prev?.stopped ? { ...prev, stopped: null, failures: 0, problem: null, step: null, cards: 0, since: at } : null));
@@ -246,7 +255,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         // The person wrote to the job while the Approver was thinking: it never saw that. Dropped; the next pass asks again.
         if (await youSpokeSince(job, askedAt)) { await settleDropped(job, cost); return; }
         if (!checked?.ok) {
-          await update(job.dir, (prev) => ({ ...prev, failures: (prev?.failures ?? 0) + 1, problem: res?.ok ? checked.problem : res?.problem ?? 'It ended with an error.', spent: (prev?.spent ?? 0) + cost }));
+          await update(job.dir, (prev) => (prev ? { ...prev, failures: (prev.failures ?? 0) + 1, problem: res?.ok ? checked.problem : res?.problem ?? 'It ended with an error.', spent: (prev.spent ?? 0) + cost } : null));
           continue;
         }
         answer = checked.answer;
@@ -310,14 +319,15 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         return 'not-now';
       }
       held.delete(job.dir);
-      await update(job.dir, (prev) => ({ ...prev, failures: (prev?.failures ?? 0) + 1, problem: oneLine(err?.message) || 'The reply was refused.' }));
+      await update(job.dir, (prev) => (prev ? { ...prev, failures: (prev.failures ?? 0) + 1, problem: oneLine(err?.message) || 'The reply was refused.' } : null));
       return 'failed';
     }
     held.delete(job.dir); refused.delete(job.dir);
     let spent = 0;
     await update(job.dir, (prev) => {
-      spent = prev?.spent ?? 0;
-      const count = prev?.step?.stage === job.stage ? prev.step.count + 1 : 1;
+      if (!prev) return null;
+      spent = prev.spent ?? 0;
+      const count = prev.step?.stage === job.stage ? prev.step.count + 1 : 1;
       return { ...prev, lastBrief: gate.briefNumber, failures: 0, problem: null, spent: 0, cards: 0, cardsBrief: gate.briefNumber, step: { stage: job.stage, count } };
     });
     const labelOf = (q, id) => (q?.options ?? []).find((o) => String(o.id) === String(id))?.label ?? id;
@@ -421,7 +431,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     if (!checked?.ok) {
       let count = 0;
       const problem = res?.ok ? checked.problem : res?.problem ?? 'It ended with an error.';
-      await update(job.dir, (prev) => { count = (prev?.failures ?? 0) + 1; return { ...prev, failures: count, problem, spent: (prev?.spent ?? 0) + cost }; });
+      await update(job.dir, (prev) => { if (!prev) return null; count = (prev.failures ?? 0) + 1; return { ...prev, failures: count, problem, spent: (prev.spent ?? 0) + cost }; });
       // The same sentence as for a gate (stopFor): the problem without its closing full stop.
       const hitAgain = fixedStop({ kind: 'job', failures: count, problem: String(problem).replace(/\.$/, '') });
       return hitAgain ? stopOnCard(job, hitAgain, leave) : leave();
@@ -491,8 +501,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     }
     let spent = 0;
     await update(job.dir, (prev) => {
-      spent = prev?.spent ?? 0;
-      return { ...prev, failures: 0, problem: null, spent: 0, cards: ((prev?.cardsBrief ?? 0) === lastAnswered ? prev?.cards ?? 0 : 0) + 1, cardsBrief: lastAnswered };
+      if (!prev) return null;
+      spent = prev.spent ?? 0;
+      return { ...prev, failures: 0, problem: null, spent: 0, cards: ((prev.cardsBrief ?? 0) === lastAnswered ? prev.cards ?? 0 : 0) + 1, cardsBrief: lastAnswered };
     });
     await audit(job, task.kind === 'question' ? 'question' : 'permission', {
       asked: oneLine(task.kind === 'question' ? task.questions.map((q) => q.text).join(' / ') : card.plain?.headline ?? card.toolName),

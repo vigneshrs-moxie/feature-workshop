@@ -66,14 +66,14 @@ export function autoOption(record, level = null) {
 }
 
 /**
- * The board card's `auto`: { on, ran, stopped, deciding, allowed, why }. deciding is false until
+ * The board card's `auto`: { on, by, tag, ran, stopped, deciding, allowed, why } (by and tag: who turned it on, and the Orbit tag when a tag did). deciding is false until
  * Auto answers gates (a later part); allowed and why are autoAllowed's, so the switch can say why
  * it is off at L3.
  */
 export function autoCardView(sessionAuto, { level = null, suggestedLevel = null } = {}) {
   const on = sessionAuto?.on === true;
   const a = autoAllowed({ level, suggestedLevel });
-  return { on, ran: sessionAuto?.ran === true, stopped: on ? sessionAuto.stopped ?? null : null, deciding: false, allowed: a.ok, why: a.why };
+  return { on, by: on ? (sessionAuto.by === 'tag' ? 'tag' : 'you') : null, tag: on && sessionAuto.by === 'tag' ? sessionAuto.tag ?? null : null, ran: sessionAuto?.ran === true, stopped: on ? sessionAuto.stopped ?? null : null, deciding: false, allowed: a.ok, why: a.why };
 }
 
 // What Auto writes into the replies it sends for the person. A reply that carries this mark was

@@ -43,8 +43,8 @@ test('the record: on starts fresh, off keeps that Auto ran', () => {
 
 test('the card: on, ran, stopped, never deciding yet, and whether it is allowed', () => {
   const rec = autoRecord(null, { on: true, by: 'you', now: '2026-11-10T09:00:00.000Z' });
-  assert.deepEqual(autoCardView(rec, { level: 1, suggestedLevel: null }), { on: true, ran: true, stopped: null, deciding: false, allowed: true, why: null });
-  assert.deepEqual(autoCardView(null, { level: 3 }), { on: false, ran: false, stopped: null, deciding: false, allowed: false, why: L3 });
+  assert.deepEqual(autoCardView(rec, { level: 1, suggestedLevel: null }), { on: true, by: 'you', tag: null, ran: true, stopped: null, deciding: false, allowed: true, why: null });
+  assert.deepEqual(autoCardView(null, { level: 3 }), { on: false, by: null, tag: null, ran: false, stopped: null, deciding: false, allowed: false, why: L3 });
   const stopped = { reason: 'The plan adds a migration', rule: 'database', at: '2026-11-10T09:30:00.000Z' };
   assert.deepEqual(autoCardView({ ...rec, stopped }, { level: 2 }).stopped, stopped);
   assert.equal(autoCardView({ ...rec, on: false, stopped }, { level: 2 }).stopped, null, 'off: nothing is stopped');
@@ -82,4 +82,10 @@ test('K1: a folder\'s lines start at its last restart; a restart that was put ba
   assert.equal(p.isAnswered('job', 1), true);
   p.noteAudit('job', { action: 'restart' });
   assert.equal(p.isAnswered('job', 1), false);
+});
+
+test('L5: the card carries who started Auto, and the tag when a tag did, so "Started by Auto" shows', () => {
+  const tagged = autoRecord(null, { on: true, by: 'tag', tag: 'nightly' });
+  assert.deepEqual([autoCardView(tagged, { level: 1 }).by, autoCardView(tagged, { level: 1 }).tag], ['tag', 'nightly']);
+  assert.deepEqual([autoCardView(autoRecord(null, { on: true }), { level: 1 }).by, autoCardView(autoRecord(null, { on: true }), { level: 1 }).tag], ['you', null]);
 });

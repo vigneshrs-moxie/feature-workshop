@@ -1426,7 +1426,7 @@ export async function createRunner(config) {
     const now = new Map(cards.filter((c) => c.needsYou && c.waitingFor !== 'permission' && !(c.auto?.on === true && !c.auto.stopped)).map((c) => [c.slug, c]));
     if (waitingBefore) {
       for (const [slug, c] of now) {
-        if (waitingBefore.has(slug)) continue;
+        if (waitingBefore.has(slug) || autoStopping.has(slug)) continue;
         const what = c.waitingFor === 'answers' ? 'The Foreman asked you something.' : c.waitingFor === 'approval' ? 'The Foreman is waiting for your go-ahead.' : 'The Foreman is waiting for your reply.';
         tell({ level: 'needs', title: c.title, body: noticeBody({ stage: c.stage, waitingSince: c.waitingSince, headline: c.headline, title: c.title, what }), slug, key: `wait:${slug}` });
       }
@@ -1460,6 +1460,27 @@ export async function createRunner(config) {
     });
   }
 
+  /**
+   * Switch a job's Auto off for a reason of Starbase's own (a restart, closing the job): one `off` line that carries the
+   * Approver's money not yet on a line, under the job's Auto lock, and options.json without Auto. Resolves whether Auto was on.
+   * Nothing is written for a job that never had Auto on and owes nothing.
+   */
+  async function autoOff(f, via) {
+    let wasOn = false;
+    await autoLocked(f.dir, async () => {
+      const prev = (await state.sessionFor(f.dir))?.auto ?? null;
+      wasOn = prev?.on === true;
+      const owed = prev?.spent > 0 ? prev.spent : 0;
+      if (!wasOn && !owed) return;
+      const next = { ...autoRecord(prev, { on: false, by: 'you' }), spent: 0 };
+      await state.setSession(f.dir, { auto: next });
+      await auditAuto({ action: 'auto', what: 'off', by: 'you', via, featureDir: f.dir, slug: f.slug, stage: f.stage ?? null, asked: '', chose: '', why: '', ...(owed ? { costUsd: owed } : {}) });
+      try { await writeAutoOption(f.dir, autoOption(next, f.level ?? null)); } catch { /* the next pass puts options.json in line */ }
+    });
+    if (wasOn) { cached = null; await driver.applyModes(); }
+    return wasOn;
+  }
+
   /** What the pass needs to know about each job in Auto, read fresh from the job's records. */
   async function autoJobs(only = null) {
     const jobs = [];
@@ -1491,6 +1512,8 @@ export async function createRunner(config) {
   }
 
   // The stop notification replaces "waiting for your go-ahead": that job is already told.
+  // Jobs whose stop Auto is writing now: checkWaiting does not tell them "waiting" in that window (the stop notice does).
+  const autoStopping = new Set();
   const autoNotify = (n) => {
     if (n.slug && String(n.key ?? '').startsWith('auto-stop:')) waitingBefore?.add(n.slug);
     return tell(n);
@@ -1528,6 +1551,7 @@ export async function createRunner(config) {
 
   const auto = createAuto({
     read: autoJobs, update: updateAuto, state: { audit: auditAuto, auditFor: (...a) => state.auditFor(...a) }, notify: autoNotify, askApprover: askForAuto,
+    stopping: (slug, on) => { if (on) autoStopping.add(slug); else autoStopping.delete(slug); },
     decide: {
       gate: (kind, body, opts) => gateDecision(kind, body, opts),
       // A card answered for the person: only code passes by: 'auto' (a request's body never does).
@@ -2198,6 +2222,8 @@ export async function createRunner(config) {
       } finally {
         closing.delete(f.dir);
       }
+      // A closed or finished job is out of Auto, so reopening it does not start Auto again by itself.
+      try { await autoOff(f, 'close'); } catch (err) { console.warn(`Auto: ${f.slug} not switched off at close: ${err.message}`); }
       const closed = { as, note, at: new Date().toISOString(), worktreeRemoved: worktree?.ok ? f.worktree : null };
       await state.setSession(f.dir, { closed });
       await state.audit({ action: 'close', featureDir: f.dir, slug: f.slug, as, note: note ?? undefined, worktreeRemoved: closed.worktreeRemoved ?? undefined });
@@ -2283,17 +2309,7 @@ export async function createRunner(config) {
         };
         // Auto does not follow the job to its new start. Its money not yet on a line goes on an `off` line now,
         // under the job's Auto lock, before the record is archived; nothing writes the record from here (updateAuto).
-        let autoWasOn = false;
-        await autoLocked(f.dir, async () => {
-          const prev = (await state.sessionFor(f.dir))?.auto ?? null;
-          autoWasOn = prev?.on === true;
-          const owed = prev?.spent > 0 ? prev.spent : 0;
-          if (!autoWasOn && !owed) return;
-          const next = { ...autoRecord(prev, { on: false, by: 'you' }), spent: 0 };
-          await state.setSession(f.dir, { auto: next });
-          await auditAuto({ action: 'auto', what: 'off', by: 'you', via: 'restart', featureDir: f.dir, slug: f.slug, stage: f.stage ?? null, asked: '', chose: '', why: '', ...(owed ? { costUsd: owed } : {}) });
-          try { await writeAutoOption(f.dir, autoOption(next, f.level ?? null)); } catch { /* the folder is archived next; the new job's options carry no Auto */ }
-        });
+        const autoWasOn = await autoOff(f, 'restart');
         let out;
         let policyCleared = false;
         let boundary = false;

@@ -77,6 +77,11 @@ describe('AutoSwitch', () => {
     expect(screen.getByText('Started by Auto (tag: auto-ok)')).toBeInTheDocument();
   });
 
+  it('L5: a job you started says nothing about a tag, even with an old tag left on the record', () => {
+    show(job('alpha', 'running', { level: 1, auto: { on: true, by: 'you', tag: 'old' } }));
+    expect(screen.queryByText(/Started by Auto/)).toBeNull();
+  });
+
   it('a stopped job shows the reason', () => {
     // The record's own shape, as the laptop and the website send it: { reason, rule, at }.
     show(job('alpha', 'needs-you', { level: 1, auto: { on: true, stopped: { reason: 'a database change needs you.', rule: 'database', at: '2026-11-11T08:00:00.000Z' } } }));
