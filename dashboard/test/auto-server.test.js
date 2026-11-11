@@ -59,7 +59,7 @@ const failure = (problem = 'It ended with an error.', costUsd = 0.1) => ({ ok: f
  * A job in Auto (unless auto is null) with a plan gate at brief 1. ask(task, n): what the fake Approver
  * says on its nth call (n from 1). Returns the pieces a test needs; stop() cleans up.
  */
-async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null, { on: true, now: OLD }), options = { level: 1, flow: 'quick', title: 'Visit audit columns' }, jobStatus = status(1), title = 'Visit audit columns', also = null } = {}) {
+async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null, { on: true, now: OLD }), options = { level: 1, flow: 'quick', title: 'Visit audit columns' }, jobStatus = status(1), title = 'Visit audit columns', also = null, query = null } = {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sb-auto-srv-')));
   const dirs = Object.fromEntries(['claude', 'features', 'projects', 'agents', 'skills', 'state', 'repo'].map((n) => [n, path.join(root, n)]));
   for (const d of Object.values(dirs)) await fs.mkdir(d);
@@ -93,7 +93,7 @@ async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null,
     agentsDir: dirs.agents, skillsDir: dirs.skills, stateDir: dirs.state, demo: true, claudePath: null,
     claudeSettingsFile: path.join(root, 'claude.json'), legacySettingsFile: null, planUsage: false, orbitStore: 'file',
     integrateDir: dirs.state, integrateRoot: path.join(DASH, '..'), siteLink: false, env: {},
-    queryFn: stubQuery(texts),
+    queryFn: query ? query(texts) : stubQuery(texts),
     askApprover: async (task, call) => { asks.push({ task, call }); return ask(task, asks.length); },
   });
   let runner = await boot();
@@ -913,4 +913,441 @@ test('M2: finish writes its line and notification only when Auto was still on', 
   await u.auto.pass();
   assert.deepEqual(u.lines, []);
   assert.deepEqual(u.notes, []);
+});
+
+// ---------- Task 6: the questions and permission cards a worker raises in the middle of a reply ----------
+
+/** A Foreman that raises `cards` ({ tool, input }) through canUseTool in its first reply, then ends. `outcomes` gets each one's result, in the order they were decided. */
+function cardQuery(cards, outcomes, { parallel = false } = {}) {
+  const todo = [...cards];
+  return (texts) => ({ prompt, options }) => {
+    const sid = options.resume ?? crypto.randomUUID();
+    const gen = (async function* () {
+      yield { type: 'system', subtype: 'init', session_id: sid, model: options.model ?? OPUS, apiKeySource: 'none', cwd: options.cwd, permissionMode: 'default' };
+      const it = prompt[Symbol.asyncIterator]();
+      const first = await it.next();
+      texts.push(first.value?.message?.content ?? '');
+      const raise = async (c) => {
+        const result = await options.canUseTool(c.tool, c.input, { signal: new AbortController().signal, toolUseID: crypto.randomUUID() });
+        outcomes.push({ ...c, result });
+      };
+      const mine = todo.splice(0);
+      if (parallel) await Promise.all(mine.map(raise)); else for (const c of mine) await raise(c);
+      yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0, session_id: sid, permission_denials: [] };
+      yield { type: 'system', subtype: 'session_state_changed', state: 'idle', session_id: sid };
+      while (!(await it.next()).done) { /* until the dashboard closes its input */ }
+    })();
+    gen.interrupt = async () => {};
+    gen.setPermissionMode = async () => {};
+    return gen;
+  };
+}
+
+const QUESTION = { tool: 'AskUserQuestion', input: { questions: [{ question: 'Which name for the column?', header: 'Name', multiSelect: false, options: [{ label: 'visited_at (Recommended)', description: 'Matches the others.' }, { label: 'seen_at', description: 'Shorter.' }] }] } };
+const FETCH = { tool: 'WebFetch', input: { url: 'https://example.com/docs', prompt: 'Summarise the page.' } };
+const allow = (why = 'It only reads a public page.') => ({ ok: true, costUsd: 0.12, answer: { decision: 'allow', why, risk: 'low' } });
+const refuse = (why = 'It is not needed for this job.') => ({ ok: true, costUsd: 0.12, answer: { decision: 'deny', why, risk: 'medium' } });
+const cardsOnly = (w) => w.asks.filter((a) => a.task.kind !== 'gate');
+/** Start a reply that raises the cards, and wait until they have all been decided (or `n` of them). */
+const raise = async (w) => { await w.runner.handle({ type: 'reply', slug: w.slug, text: 'go on' }, { from: 'local' }); };
+const waiting = async (w) => (await w.runner.read.runs()).permissions;
+/** Say no to whatever still waits, as the person, so the reply can end. */
+const clear = async (w) => { for (const p of await waiting(w)) await w.runner.handle({ type: 'deny', requestId: p.id }, { from: 'local' }).catch(() => {}); };
+
+test('a worker\'s question mid-reply is answered with the recommended label', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([QUESTION], outcomes), ask: (task) => (task.kind === 'question' ? goodAnswer(task) : goodAnswer(task)) });
+  try {
+    await raise(w);
+    await w.until(() => outcomes.length === 1, 'the question to be answered');
+    assert.equal(outcomes[0].result.behavior, 'allow');
+    assert.deepEqual(outcomes[0].result.updatedInput.answers, { 'Which name for the column?': 'visited_at (Recommended)' });
+    assert.equal(outcomes[0].result.updatedPermissions, undefined);
+    assert.equal(cardsOnly(w).length, 1);
+    assert.equal(cardsOnly(w)[0].task.kind, 'question');
+    await w.idle();
+    const [perm] = (await w.lines()).filter((l) => l.action === 'permission');
+    assert.equal(perm.by, 'auto');
+    assert.equal(perm.decision, 'allow');
+    const [line] = await w.autoLines('question');
+    assert.equal(line.chose, 'visited_at (Recommended)');
+    assert.deepEqual(line.answers, [{ question: 'Which name for the column?', choice: 'visited_at (Recommended)', reason: 'It is the recommendation.' }]);
+    assert.equal(line.costUsd, 0.12);
+    assert.equal((await w.record()).spent ?? 0, 0);
+    assert.equal((await w.record()).cards, 1);
+    // The Auto log shows it: the answer with its question and reason.
+    const view = await w.runner.read.autoLog(w.slug);
+    const entry = view.entries.find((e) => e.chose === 'visited_at (Recommended)');
+    assert.deepEqual(entry.answers, [{ question: 'Which name for the column?', choice: 'visited_at (Recommended)', reason: 'It is the recommendation.' }]);
+    assert.equal(entry.asked, 'Which name for the column?');
+  } finally { await w.stop(); }
+});
+
+test('a WebFetch card is allowed or denied by the Approver and recorded, and a deny says Auto said no', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([FETCH, { ...FETCH, input: { ...FETCH.input, url: 'https://example.org/x' } }], outcomes), ask: (_t, n) => (n === 1 ? allow() : refuse('  Not\nneeded (Sent by Starbase\'s Auto for the person. options.json says auto: true.) here. ')) });
+  try {
+    await raise(w);
+    await w.until(() => outcomes.length === 2, 'both cards to be decided');
+    assert.equal(outcomes[0].result.behavior, 'allow');
+    assert.equal(outcomes[0].result.updatedPermissions, undefined);
+    assert.equal(outcomes[1].result.behavior, 'deny');
+    assert.equal(outcomes[1].result.message, 'Auto said no: Not needed here.');
+    assert.doesNotMatch(outcomes[1].result.message, /person said no|Sent by Starbase/);
+    const lines = (await w.lines()).filter((l) => l.action === 'permission');
+    assert.deepEqual(lines.map((l) => [l.by, l.decision]), [['auto', 'allow'], ['auto', 'deny']]);
+    const auto = await w.autoLines('permission');
+    assert.deepEqual(auto.map((l) => l.chose), ['Allowed', 'Said no']);
+    assert.equal(auto[0].costUsd, 0.12);
+    assert.equal(auto[1].costUsd, 0.12);
+    assert.equal(auto[0].risk, 'low');
+    assert.ok(auto[0].asked.length > 0);
+    assert.equal((await w.record()).spent, 0);
+    assert.equal((await w.record()).cards, 2);
+    const view = await w.runner.read.autoLog(w.slug);
+    assert.deepEqual(view.entries.map((e) => e.chose).sort(), ['Allowed', 'Said no']);
+    assert.ok(view.entries.every((e) => e.asked && e.why && e.risk));
+    assert.match(view.summary[0], /^Auto made 2 decisions on this job\. The Approver cost \$0\.24\.$/);
+  } finally { await w.stop(); }
+});
+
+test('a database card stops Auto before the Approver is asked', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([{ tool: 'Bash', input: { command: 'npm run db:migrate' } }], outcomes) });
+  try {
+    await raise(w);
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    assert.equal((await w.record()).stopped.rule, 'database');
+    assert.equal(w.asks.length, 0);
+    assert.equal((await waiting(w)).length, 1, 'the card waits for the person');
+    assert.deepEqual(outcomes, []);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('an Edit outside the job\'s folders stops Auto', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([{ tool: 'Edit', input: { file_path: '/etc/hosts', old_string: 'a', new_string: 'b' } }], outcomes) });
+  try {
+    await raise(w);
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    assert.equal((await w.record()).stopped.rule, 'outside');
+    assert.equal(w.asks.length, 0);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('a push to a third remote stops Auto although the stage is a PR stage', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ jobStatus: status(1, { stage: 'pr1', waiting_for: 'none', stage_state: 'in_progress' }), query: cardQuery([{ tool: 'Bash', input: { command: 'git push thirdparty feature/x' } }], outcomes) });
+  try {
+    await raise(w);
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    assert.equal((await w.record()).stopped.rule, 'push');
+    assert.equal(w.asks.length, 0);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('an Always allow rule for Bash(psql:*) does not let a database command through in an Auto job', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([{ tool: 'Bash', input: { command: 'psql -d orbit -c "select 1"' } }], outcomes) });
+  try {
+    await w.runner.handle({ type: 'rules', action: 'add', rule: { tool: 'Bash', kind: 'prefix', value: 'psql -d' } }, { from: 'local' });
+    await raise(w);
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    assert.equal((await w.record()).stopped.rule, 'database');
+    assert.deepEqual(outcomes, [], 'the saved rule did not answer it');
+    assert.equal(w.asks.length, 0);
+    assert.equal((await waiting(w)).length, 1);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('a force push is still refused by the hard line, and Auto records nothing', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([{ tool: 'Bash', input: { command: 'git push --force origin main' } }], outcomes) });
+  try {
+    await raise(w);
+    await w.until(() => outcomes.length === 1, 'the refusal');
+    assert.equal(outcomes[0].result.behavior, 'deny');
+    assert.match(outcomes[0].result.message, /Force pushes are never allowed/);
+    await w.idle();
+    assert.deepEqual(await w.autoLines(), []);
+    assert.equal(w.asks.length, 0);
+    assert.equal((await w.record()).stopped, null);
+  } finally { await w.stop(); }
+});
+
+test('no notification while Auto handles a card, one when it stops on it', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([FETCH, { tool: 'Bash', input: { command: 'npm run db:migrate' } }], outcomes), ask: () => allow() });
+  try {
+    await raise(w);
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    const all = await w.told(1);
+    assert.equal(all.filter((n) => /Permission|question/i.test(n.body ?? '')).length, 0, 'no permission notification for the card Auto answered');
+    assert.equal(all.length, 1, 'one notification: Auto stopped');
+    assert.match(all[0].body, /^Auto stopped: a database change needs you/);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('a card on a job that is not in Auto is told as before', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ auto: null, query: cardQuery([FETCH], outcomes) });
+  try {
+    await raise(w);
+    const all = await w.told(1);
+    assert.match(all[0].body, /Permission: /);
+    assert.equal(w.asks.length, 0);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('Auto only allows once or says no: a saved rule or allow-run from Auto is refused by the driver', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ auto: null, query: cardQuery([FETCH], outcomes) });
+  try {
+    await raise(w);
+    const [card] = await w.until(async () => { const p = await waiting(w); return p.length ? p : null; }, 'the card');
+    await assert.rejects(w.runner.driver.decide(card.id, { decision: 'allow-run', by: 'auto' }), /only allows once/);
+    await assert.rejects(w.runner.driver.decide(card.id, { decision: 'allow', rule: 'r1', by: 'auto' }), /only allows once/);
+    assert.equal((await waiting(w)).length, 1, 'nothing was decided');
+    assert.equal(await w.runner.driver.decide(card.id, { decision: 'allow', by: 'auto' }), true);
+    await w.until(() => outcomes.length === 1, 'the allow');
+    assert.equal(outcomes[0].result.updatedPermissions, undefined);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('a request body carrying by: auto records the person, never Auto', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ auto: null, query: cardQuery([FETCH], outcomes) });
+  try {
+    await raise(w);
+    const [card] = await w.until(async () => { const p = await waiting(w); return p.length ? p : null; }, 'the card');
+    for (const from of ['site', 'local']) await assert.rejects(w.runner.handle({ type: 'allow', requestId: card.id, by: 'auto' }, { from }), /by/);
+    assert.equal((await waiting(w)).length, 1);
+    await w.runner.handle({ type: 'allow', requestId: card.id }, { from: 'local' });
+    await w.until(() => outcomes.length === 1, 'the allow');
+    const [line] = (await w.lines()).filter((l) => l.action === 'permission');
+    assert.equal(line.by, undefined);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('the person answers the card while the Approver thinks: nothing is sent, no stop, no notification, the cost still counts', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: async () => { await gate; return allow(); } });
+  try {
+    await raise(w);
+    const [card] = await w.until(async () => { const p = await waiting(w); return p.length && w.asks.length ? p : null; }, 'the Approver to be asked');
+    await w.runner.handle({ type: 'deny', requestId: card.id, note: 'no' }, { from: 'local' });
+    release();
+    await w.until(async () => ((await w.record()).spent ?? 0) > 0, 'the cost to be recorded');
+    await w.idle();
+    assert.equal((await w.record()).spent, 0.12);
+    assert.equal((await w.record()).stopped, null);
+    assert.equal((await w.lines()).filter((l) => l.action === 'permission').length, 1);
+    assert.equal((await w.lines()).filter((l) => l.action === 'permission')[0].by, undefined, 'only the person\'s own answer');
+    assert.deepEqual(await w.autoLines('permission'), []);
+    assert.equal(outcomes[0].result.behavior, 'deny');
+    assert.match(outcomes[0].result.message, /The person said no/);
+    assert.equal(w.notes.filter((n) => /Permission/.test(n.body ?? '')).length, 0);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('Auto switched off while the Approver thinks about a card: the answer is dropped, the card waits, the person hears of it', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: async () => { await gate; return allow(); } });
+  try {
+    await raise(w);
+    await w.until(() => w.asks.length === 1, 'the Approver to be asked');
+    await w.runner.handle({ type: 'auto', slug: w.slug, on: false }, { from: 'local' });
+    release();
+    await w.until(async () => ((await w.record()).spent ?? 0) === 0 && (await waiting(w)).length === 1 && true, 'the answer to be dropped');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal((await waiting(w)).length, 1, 'the card still waits for the person');
+    assert.deepEqual(outcomes, []);
+    assert.deepEqual(await w.autoLines('permission'), []);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('one question per card: never two at once, in arrival order, and a card that goes away is not asked about', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const urls = ['https://a.example/1', 'https://b.example/2', 'https://c.example/3'];
+  const cards = urls.map((url) => ({ tool: 'WebFetch', input: { url, prompt: 'x' } }));
+  let active = 0;
+  let most = 0;
+  const seen = [];
+  let release;
+  const first = new Promise((r) => { release = r; });
+  const w = await world({
+    query: cardQuery(cards, outcomes, { parallel: true }),
+    ask: async (task, n) => {
+      active++; most = Math.max(most, active);
+      seen.push(task.request.preview);
+      if (n === 1) await first;
+      active--;
+      return allow();
+    },
+  });
+  try {
+    await raise(w);
+    const all = await w.until(async () => { const p = await waiting(w); return p.length === 3 ? p : null; }, 'three cards');
+    await w.until(() => w.asks.length === 1, 'the first to be asked');
+    // A second raising of the same card is not a second question.
+    w.runner.driver.emit('permission', all[0]);
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(w.asks.length, 1, 'one at a time');
+    // The second card is answered by the person: it is forgotten.
+    await w.runner.handle({ type: 'allow', requestId: all[1].id }, { from: 'local' });
+    release();
+    await w.until(() => outcomes.length === 3, 'every card decided');
+    assert.equal(most, 1);
+    assert.equal(w.asks.length, 2, 'the card the person answered was never asked about');
+    assert.equal(seen.length, 2);
+    assert.match(seen[0] + seen[1], /./);
+    const lines = (await w.lines()).filter((l) => l.action === 'permission');
+    assert.deepEqual(lines.map((l) => l.by ?? 'you'), ['you', 'auto', 'auto']);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('an Approver that fails on a card is counted; two failures stop Auto like for gates, and the card waits', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([FETCH, { ...FETCH, input: { ...FETCH.input, url: 'https://example.org/y' } }], outcomes, { parallel: true }), ask: () => failure('It ended with an error.', 0.1) });
+  try {
+    await raise(w);
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    const rec = await w.record();
+    assert.equal(rec.stopped.rule, 'approver');
+    assert.match(rec.stopped.reason, /^the Approver failed twice running \(It ended with an error\)\.$/);
+    assert.equal(w.asks.length, 2);
+    assert.equal((await waiting(w)).length, 2, 'both cards wait for the person');
+    assert.deepEqual(outcomes, []);
+    const stop = (await w.autoLines('stop'))[0];
+    assert.equal(stop.costUsd, 0.2);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('after one failure on a card the card waits and the person is told once', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => failure('It ended with an error.', 0.1) });
+  try {
+    await raise(w);
+    const all = await w.told(1);
+    assert.match(all[0].body, /Permission: /);
+    assert.equal((await w.record()).failures, 1);
+    assert.equal((await w.record()).stopped, null);
+    assert.equal((await waiting(w)).length, 1);
+    assert.equal(all.length, 1, 'told once');
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('a run on a card that timed out is charged the ceiling', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => failure('It took longer than 5 minutes.', 0.01) });
+  try {
+    await raise(w);
+    await w.until(async () => (await w.record()).failures === 1, 'the failure');
+    assert.equal((await w.record()).spent, APPROVER_BUDGET_USD);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('an Approver that answers stop on a card stops Auto with judgment, and the card waits', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => ({ ok: true, costUsd: 0.1, answer: { decision: 'stop', why: 'This page looks unrelated to the ticket.', risk: 'medium' } }) });
+  try {
+    await raise(w);
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    assert.deepEqual({ rule: (await w.record()).stopped.rule, reason: (await w.record()).stopped.reason }, { rule: 'judgment', reason: 'This page looks unrelated to the ticket.' });
+    assert.equal((await waiting(w)).length, 1);
+    assert.deepEqual(outcomes, []);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('the 41st card in one reply stops Auto with the loop rule and its sentence', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const auto = { ...autoRecord(null, { on: true, now: OLD }), cards: 39 };
+  const w = await world({ auto, query: cardQuery([FETCH, { ...FETCH, input: { ...FETCH.input, url: 'https://example.org/z' } }], outcomes), ask: () => allow() });
+  try {
+    await raise(w);
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    const rec = await w.record();
+    assert.equal(rec.stopped.rule, 'loop');
+    assert.equal(rec.stopped.reason, 'Auto has answered 40 cards in one reply, so it needs you.');
+    assert.equal(rec.cards, 40);
+    assert.equal(w.asks.length, 1);
+    assert.equal(outcomes.length, 1);
+    assert.equal((await waiting(w)).length, 1);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('answering a gate sets the card count back to 0', { timeout: 30_000 }, async () => {
+  const auto = { ...autoRecord(null, { on: true, now: OLD }), cards: 12 };
+  const w = await world({ auto });
+  try {
+    await w.pass();
+    assert.equal((await w.record()).cards, 0);
+  } finally { await w.stop(); }
+});
+
+test('the person clearing a stop sets the card count back to 0', { timeout: 30_000 }, async () => {
+  const stopped = { ...autoRecord(null, { on: true, now: OLD }), cards: 40, stopped: { reason: 'Auto has answered 40 cards in one reply, so it needs you.', rule: 'loop', at: '2026-10-02T10:00:00Z' } };
+  const w = await world({ auto: stopped });
+  try {
+    await fs.appendFile(path.join(w.dirs.state, 'audit.jsonl'), `${JSON.stringify({ featureDir: w.dir, slug: w.slug, at: '2026-10-02T12:00:00Z', action: 'permission', decision: 'allow' })}\n`);
+    await w.pass();
+    const rec = await w.record();
+    assert.equal(rec.stopped, null);
+    assert.equal(rec.cards, 0);
+  } finally { await w.stop(); }
+});
+
+test('the person\'s own answer on the status card clears a stop for it, and Auto\'s own permission line does not', { timeout: 30_000 }, async () => {
+  const stopped = { ...autoRecord(null, { on: true, now: OLD }), stopped: { reason: "the Foreman can't write a valid status.json.", rule: 'status', at: '2026-10-02T10:00:00Z' } };
+  const w = await world({ auto: stopped });
+  try {
+    const audit = path.join(w.dirs.state, 'audit.jsonl');
+    const line = (o) => `${JSON.stringify({ featureDir: w.dir, slug: w.slug, ...o })}\n`;
+    await fs.appendFile(audit, line({ at: '2026-10-02T11:00:00Z', action: 'permission', decision: 'allow', by: 'auto' }));
+    await w.pass();
+    assert.ok((await w.record()).stopped, 'Auto\'s own line clears nothing');
+    await fs.appendFile(audit, line({ at: '2026-10-02T12:00:00Z', action: 'status_invalid_answer', decision: 'allow', answer: 'Try again' }));
+    await w.pass();
+    assert.equal((await w.record()).stopped, null);
+  } finally { await w.stop(); }
+});
+
+test('a card with a hard line that no fixed stop matches is never answered: Auto stops with blocked and the hard line\'s reason', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([{ tool: 'Bash', input: { command: 'gh pr create --fill' } }], outcomes), ask: () => allow() });
+  try {
+    await raise(w);
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    const rec = await w.record();
+    assert.equal(rec.stopped.rule, 'blocked');
+    assert.ok(rec.stopped.reason.length > 0);
+    assert.equal(w.asks.length, 0);
+    assert.deepEqual(outcomes, []);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('a status card stops Auto with the status rule and is never answered; feedback and review cards are left to the person', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([], outcomes), ask: () => allow() });
+  try {
+    const driver = w.runner.driver;
+    const card = (extra) => ({ id: crypto.randomUUID(), runId: 'none', slug: w.slug, featureDir: w.dir, title: 'T', toolName: 'AskUserQuestion', kind: 'question', input: { questions: [] }, hardLine: null, plain: { headline: 'x' }, ...extra });
+    const feedback = card({ feedbackCard: true });
+    driver.feedbackCards.set(feedback.id, feedback);
+    driver.emit('permission', driver.viewPermission(feedback));
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal((await w.record()).stopped, null, 'a feedback card does not stop Auto');
+    assert.equal(w.asks.length, 0);
+    const status = card({ statusCard: true });
+    driver.statusCards.set(status.id, status);
+    driver.emit('permission', driver.viewPermission(status));
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    assert.equal((await w.record()).stopped.rule, 'status');
+    assert.equal(w.asks.length, 0);
+    await assert.rejects(driver.decide(status.id, { decision: 'allow', by: 'auto' }), /never answers/);
+  } finally { await w.stop(); }
 });

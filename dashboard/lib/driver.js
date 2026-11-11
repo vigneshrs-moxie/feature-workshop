@@ -1134,8 +1134,13 @@ export class Driver extends EventEmitter {
   /**
    * decision: 'allow' | 'allow-run' | 'deny'. answers: for questions, { [questionText]: label }.
    * rule: the id of the "Always allow" rule this allow came with (recorded in the audit log).
+   * by: 'you' (the default) or 'auto' (Auto's own code, never a request): Auto only ever allows once or
+   * denies, so any other decision, or a rule, is refused; its deny says Auto said no, not the person.
    */
-  async decide(requestId, { decision, note = '', answers = null, rule = null }) {
+  async decide(requestId, { decision, note = '', answers = null, rule = null, by = 'you' }) {
+    const auto = by === 'auto';
+    if (auto && ((decision !== 'allow' && decision !== 'deny') || rule)) throw new TypeError('Auto only allows once or says no.');
+    if (auto && (this.statusCards.has(requestId) || this.feedbackCards.has(requestId) || this.roundCards.has(requestId))) throw new TypeError('Auto never answers a status, feedback or review card.');
     const card = this.statusCards.get(requestId);
     if (card) { await this.#answerStatusCard(card, { decision, note, answers }); return true; }
     const feedback = this.feedbackCards.get(requestId);
@@ -1147,13 +1152,13 @@ export class Driver extends EventEmitter {
       if (!req) continue;
       let result;
       if (decision === 'deny') {
-        result = { behavior: 'deny', message: note.trim() ? `The person said no, with this note: ${note.trim()}` : `The person said no to this from ${PRODUCT}.` };
+        result = { behavior: 'deny', message: auto ? note.trim() || 'Auto said no.' : note.trim() ? `The person said no, with this note: ${note.trim()}` : `The person said no to this from ${PRODUCT}.` };
       } else {
         const updatedInput = req.kind === 'question' ? { ...req.originalInput, answers: answers ?? {} } : req.originalInput;
         result = { behavior: 'allow', updatedInput };
         if (decision === 'allow-run' && req.canAllowForRun) result.updatedPermissions = req.suggestions;
       }
-      await this.state.audit({ action: 'permission', featureDir: req.featureDir, slug: req.slug, sessionId: run.sessionId, runId: run.id, tool: req.toolName, agentType: req.agentType, headline: req.plain.headline, decision, note: note || undefined, answers: answers ?? undefined, rule: rule ?? undefined });
+      await this.state.audit({ action: 'permission', featureDir: req.featureDir, slug: req.slug, sessionId: run.sessionId, runId: run.id, tool: req.toolName, agentType: req.agentType, headline: req.plain.headline, decision, note: note || undefined, answers: answers ?? undefined, rule: rule ?? undefined, ...(auto ? { by: 'auto' } : {}) });
       req.resolve(result);
       this.emit('permission-gone', { id: requestId, slug: req.slug, reason: 'answered' });
       return true;

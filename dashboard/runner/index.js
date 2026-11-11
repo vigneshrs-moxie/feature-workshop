@@ -1475,7 +1475,14 @@ export async function createRunner(config) {
 
   const auto = createAuto({
     read: autoJobs, update: updateAuto, state, notify: autoNotify, askApprover: askForAuto,
-    decide: { gate: (kind, body, opts) => gateDecision(kind, body, opts), permission: async () => { throw new Error('Permission cards are not answered by Auto yet.'); } },
+    decide: {
+      gate: (kind, body, opts) => gateDecision(kind, body, opts),
+      // A card answered for the person: only code passes by: 'auto' (a request's body never does).
+      permission: async (id, body, { by = 'auto' } = {}) => { if (!(await driver.decide(id, { ...body, by }))) throw new Error('That card was already answered or has gone.'); },
+    },
+    // A card as it waits now (with its full input), and what the fixed stop list needs to know of its reply.
+    pendingCard: (id) => driver.pendingRequest(id),
+    cardCtx: async (card) => { const run = driver.runs.get(card.runId); return run ? autoCtxFor(run) : null; },
     // The Foreman suggests L1 or L2 above the job's level: applied before the gate is answered (raise only).
     raiseLevel: async (job, level) => {
       const f = await featureBySlug(job.slug);
@@ -1539,7 +1546,22 @@ export async function createRunner(config) {
       }
     }
   }
-  driver.on('permission', (p) => tell({ level: 'needs', title: p.title ?? p.slug, body: noticeBody({ stage: stageOfSlug(p.slug), what: p.kind === 'question' ? 'A question for you.' : `Permission: ${String(p.plain?.headline ?? p.toolName).slice(0, 100)}` }), slug: p.slug, key: `perm:${p.id}` }));
+  // A card raised for you: told as it arrives, once. A card Auto is handling (the job is in Auto and not
+  // stopped) is not told; Auto tells it itself if it leaves the card waiting for you (runner/auto.js onPermission).
+  const toldCards = new Set();
+  const tellPermission = (p) => {
+    if (toldCards.has(p.id)) return;
+    toldCards.add(p.id);
+    if (toldCards.size > 500) toldCards.delete(toldCards.values().next().value);
+    return tell({ level: 'needs', title: p.title ?? p.slug, body: noticeBody({ stage: stageOfSlug(p.slug), what: p.kind === 'question' ? 'A question for you.' : `Permission: ${String(p.plain?.headline ?? p.toolName).slice(0, 100)}` }), slug: p.slug, key: `perm:${p.id}` });
+  };
+  driver.on('permission', (p) => {
+    state.sessionFor(p.featureDir).then((record) => {
+      if (record?.auto?.on === true) return auto.onPermission(p, { leftWaiting: tellPermission });
+      return tellPermission(p);
+    }).catch((err) => { console.error('permission:', err.message); tellPermission(p); });
+  });
+  driver.on('permission-gone', (p) => auto.cardGone(p.id));
   const toldErrors = new Set();
   const endedRuns = new Set();
   driver.on('run', (run) => {
@@ -3134,7 +3156,7 @@ export async function createRunner(config) {
 
   // `auto` is for code inside this computer (the tests, a later task): the pass, a decision sent as Auto, the set of
   // jobs being started again, the look at what waits for you. The site and the pages reach the runner only through handle and read.
-  return { handle, read, local: local_, on, start, stop, auto: { pass: auto.pass, decideGate: gateDecision, restarting, checkWaiting, checkLevels } };
+  return { handle, read, local: local_, on, start, stop, driver, auto: { pass: auto.pass, decideGate: gateDecision, restarting, checkWaiting, checkLevels } };
 
 
 }

@@ -6,7 +6,10 @@
 //   read()              the Auto jobs now (runner `autoJobs`): one object per job, see `handle`
 //   update(dir, fn)     change the job's record under the Auto lock: fn(prev) returns the next record
 //                       (or null for no change); resolves the record as saved. Keeps options.json in line.
-//   decide.gate(kind, body, { by })   gateDecision; decide.permission is for the permission cards (a later task)
+//   decide.gate(kind, body, { by })   gateDecision
+//   decide.permission(id, { decision, note, answers }, { by })   driver.decide: a card, answered for the person
+//   pendingCard(id)     the card as it waits now, with its full input, or null once it is gone
+//   cardCtx(card)       what fixedStop needs to know about the card's reply (the runner's autoCtxFor), or null
 //   askApprover(task, { roots, job }) lib/approver.js askApprover with the runner's query and options
 //   raiseLevel(job, level)            apply the Foreman's suggested level (setLevelAutomatically)
 //   changed()           a record changed in a way other parts show (permission modes, the page)
@@ -17,8 +20,8 @@
 // Everything Auto writes is an audit line { action: 'auto', what, stage, asked, chose, why, ... } and
 // nothing reaches the Foreman but through decide.gate with by: 'auto'.
 
-import { autoAllowed, AUTO_MARK } from '../lib/auto.js';
-import { fixedStop } from '../lib/auto-rules.js';
+import { autoAllowed, AUTO_CARDS_PER_REPLY, AUTO_MARK } from '../lib/auto.js';
+import { AUTO_STOP_REASONS, fixedStop } from '../lib/auto-rules.js';
 import { APPROVER_BUDGET_USD, approverPaths, approverRoots, checkAnswer } from '../lib/approver.js';
 
 /** Anything the Approver wrote, on one line: nothing it writes can start a line of its own, and no copy of the mark gets through. */
@@ -40,13 +43,16 @@ const isNotNow = (err) => {
   return NOT_NOW.has(code) || err?.constructor?.name === 'Busy' || err?.name === 'Busy' || err?.name === 'JobLocked';
 };
 
-export function createAuto({ read, update, decide, askApprover, raiseLevel = async () => {}, changed = () => {}, state, notify = () => {}, now = () => new Date() }) {
+export function createAuto({ read, update, decide, askApprover, pendingCard = () => null, cardCtx = async () => null, raiseLevel = async () => {}, changed = () => {}, state, notify = () => {}, now = () => new Date() }) {
   let running = null;
   let again = false;
   // An answer the Approver gave that could not be sent "not now" is kept for that job and brief and sent
   // on a later pass without asking (and paying) again; and how many "not now" in a row one gate has had.
   const held = new Map(); // dir -> { brief, task, answer }
   const refused = new Map(); // dir -> { brief, count }
+  // The cards Auto has taken up (id -> true) until each is gone, and the order a job's cards are handled in.
+  const cards = new Map();
+  const queues = new Map(); // dir -> the promise of the last card queued
 
   /** One pass at a time; a request during one runs once after it. */
   function pass() {
@@ -72,7 +78,7 @@ export function createAuto({ read, update, decide, askApprover, raiseLevel = asy
 
   const audit = (job, what, fields) => state.audit({ action: 'auto', what, featureDir: job.dir, slug: job.slug, stage: job.stage ?? null, asked: '', chose: '', why: '', ...fields });
 
-  /** Auto stops and waits for you: the record says why, one audit line, one notification (none if it already had). */
+  /** Auto stops and waits for you: the record says why, one audit line, one notification (none if it already had). Resolves true when it wrote the stop. */
   async function stop(job, { rule, reason }, { leave = false } = {}) {
     const at = now().toISOString();
     let spent = 0;
@@ -84,10 +90,11 @@ export function createAuto({ read, update, decide, askApprover, raiseLevel = asy
       spent = prev.spent ?? 0;
       return { ...prev, ...(leave ? { on: false } : {}), stopped: { reason, rule, at }, spent: 0 };
     });
-    if (!wrote) return;
+    if (!wrote) return false;
     await audit(job, 'stop', { rule, reason, why: reason, ...(spent > 0 ? { costUsd: spent } : {}) });
     notify({ level: 'needs', title: job.title, body: `Auto stopped: ${reason}`, slug: job.slug, key: `auto-stop:${job.slug}:${at}` });
     if (leave) changed();
+    return true;
   }
 
   /** PR #1 is open: Auto is off, `ran` stays, and the person is told once (not at all if Auto was already off). */
@@ -111,12 +118,12 @@ export function createAuto({ read, update, decide, askApprover, raiseLevel = asy
   async function carryOnIfYouDecided(job) {
     const stoppedAt = Date.parse(job.auto.stopped?.at ?? '');
     const lines = await state.auditFor(job.dir, 400);
-    // Only the person's decision on a gate (a send that carries its brief) or on a card clears a stop.
+    // Only the person's decision on a gate (a send that carries its brief) or on a card (the status card's answer is its own line) clears a stop.
     const yours = lines.some((l) => l.by !== 'auto' && Date.parse(l.at) > stoppedAt
-      && ((l.action === 'send' && GATE_KINDS.has(l.kind) && l.gateBrief) || l.action === 'permission'));
+      && ((l.action === 'send' && GATE_KINDS.has(l.kind) && l.gateBrief) || l.action === 'permission' || l.action === 'status_invalid_answer'));
     if (!yours) return false;
     const at = now().toISOString();
-    await update(job.dir, (prev) => (prev?.stopped ? { ...prev, stopped: null, failures: 0, problem: null, step: null, since: at } : null));
+    await update(job.dir, (prev) => (prev?.stopped ? { ...prev, stopped: null, failures: 0, problem: null, step: null, cards: 0, since: at } : null));
     return true;
   }
 
@@ -267,7 +274,7 @@ export function createAuto({ read, update, decide, askApprover, raiseLevel = asy
     await update(job.dir, (prev) => {
       spent = prev?.spent ?? 0;
       const count = prev?.step?.stage === job.stage ? prev.step.count + 1 : 1;
-      return { ...prev, lastBrief: gate.briefNumber, failures: 0, problem: null, spent: 0, step: { stage: job.stage, count } };
+      return { ...prev, lastBrief: gate.briefNumber, failures: 0, problem: null, spent: 0, cards: 0, step: { stage: job.stage, count } };
     });
     const labelOf = (q, id) => (q?.options ?? []).find((o) => String(o.id) === String(id))?.label ?? id;
     await audit(job, 'gate', {
@@ -285,5 +292,152 @@ export function createAuto({ read, update, decide, askApprover, raiseLevel = asy
     return 'sent';
   }
 
-  return { pass };
+
+  // ---------- Cards: a worker's question or permission in the middle of a reply ----------
+
+  /** The Approver's words as the worker is told them when Auto says no: one line, no copy of the mark. */
+  const NO = (why) => `Auto said no: ${oneLine(why)}`;
+
+  /**
+   * A card has been raised (the driver's 'permission'). For a job with Auto on and not stopped, Auto
+   * answers it, or stops and leaves it to the person; for anything else it does nothing. leftWaiting(card)
+   * is called, at most once, whenever the card is left for the person and Auto's own stop notification
+   * has not already told them (the runner's "Permission: ..." notification). Cards of one job are handled
+   * one at a time, in the order they came; a card is taken up once. Resolves when this card is done with.
+   */
+  function onPermission(card, { leftWaiting = () => {} } = {}) {
+    if (!card?.id || cards.has(card.id)) return Promise.resolve();
+    cards.set(card.id, true);
+    const dir = card.featureDir;
+    const mine = (queues.get(dir) ?? Promise.resolve())
+      .then(() => attendCard(card, leftWaiting))
+      .catch((err) => { console.error(`auto card (${card.slug}):`, err.message); })
+      .finally(() => { if (queues.get(dir) === mine) queues.delete(dir); });
+    queues.set(dir, mine);
+    return mine;
+  }
+
+  /** A card that has gone away (answered, the reply ended) is forgotten. */
+  function cardGone(id) { cards.delete(id); }
+
+  /** A stop on the card: its own notification tells the person; when none was written, the card's notification does. */
+  async function stopOnCard(job, hit, leave) {
+    if (!(await stop(job, hit))) leave();
+  }
+
+  async function attendCard(card, leftWaiting) {
+    let left = false;
+    const leave = () => { if (!left) { left = true; leftWaiting(card); } };
+    const waits = () => pendingCard(card.id);
+    if (!waits()) return; // gone while it queued: answered, or the reply ended
+    const [job] = await read(card.featureDir);
+    if (!job || job.auto?.on !== true || job.auto.stopped || job.restarting || !autoAllowed({ level: job.level, suggestedLevel: job.suggestedLevel }).ok) return leave();
+    // Never answered: a card about Starbase's own checks, PR feedback, a review round. A status card also stops Auto.
+    if (card.feedbackCard || card.roundCard) return leave();
+    if (card.statusCard) return stopOnCard(job, fixedStop({ kind: 'job', statusCard: true }), leave);
+    const full = waits();
+    if (!full) return;
+    // The fixed stop list decides first; so does a hard line (the hook refused a deny one before any card existed).
+    let hit;
+    try {
+      const ctx = await cardCtx(card);
+      if (!ctx) throw new Error('no folders for this card');
+      hit = fixedStop({ kind: 'card', toolName: full.toolName, input: full.input, hardLine: full.hardLine ? { decision: 'ask', ...full.hardLine } : null, blockedPath: full.blockedPath ?? null }, ctx);
+    } catch { hit = { rule: 'tool', reason: AUTO_STOP_REASONS.tool }; }
+    if (!hit && full.hardLine) hit = { rule: 'blocked', reason: oneLine(full.hardLine.reason) || 'this is a hard line, and hard lines need you.' };
+    if (hit) return stopOnCard(job, hit, leave);
+    if ((job.auto.cards ?? 0) >= AUTO_CARDS_PER_REPLY) {
+      return stopOnCard(job, { rule: 'loop', reason: `Auto has answered ${AUTO_CARDS_PER_REPLY} cards in one reply, so it needs you.` }, leave);
+    }
+
+    const task = cardTask(job, full);
+    const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
+    const res = await askApprover(task, { roots, job });
+    const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
+    const checked = res?.ok ? checkAnswer(task, res.answer) : null;
+    // The Approver can take minutes: is the card still waiting, and is Auto still on and not stopped?
+    const [fresh] = await read(job.dir);
+    if (!waits() || !fresh || fresh.auto?.on !== true || fresh.auto.stopped || fresh.restarting) { await addSpent(job, cost); return; }
+    if (!checked?.ok) {
+      let count = 0;
+      const problem = res?.ok ? checked.problem : res?.problem ?? 'It ended with an error.';
+      await update(job.dir, (prev) => { count = (prev?.failures ?? 0) + 1; return { ...prev, failures: count, problem, spent: (prev?.spent ?? 0) + cost }; });
+      // The same sentence as for a gate (stopFor): the problem without its closing full stop.
+      const hitAgain = fixedStop({ kind: 'job', failures: count, problem: String(problem).replace(/\.$/, '') });
+      return hitAgain ? stopOnCard(job, hitAgain, leave) : leave();
+    }
+    const answer = checked.answer;
+    await addSpent(job, cost);
+    if (answer.decision === 'stop') return stopOnCard(job, { rule: 'judgment', reason: oneLine(answer.why) }, leave);
+    await answerCard(job, full, task, answer);
+  }
+
+  /** What the Approver is asked about a card: the questions, or the request in words. */
+  function cardTask(job, card) {
+    const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
+    const base = {
+      job: { title: job.title, slug: job.slug, level: job.level, ticketKey: job.ticketKey },
+      stage: job.stage,
+      brief: null,
+      paths: approverPaths({ featureDir: job.dir, artifacts: job.artifacts, roots }),
+    };
+    if (card.kind === 'question') {
+      const asked = Array.isArray(card.input?.questions) ? card.input.questions : [];
+      return {
+        ...base, kind: 'question', request: null, labels: asked.map((q) => (q?.options ?? []).map((o) => String(o?.label ?? ''))),
+        questions: asked.map((q, i) => {
+          const options = (q?.options ?? []).map((o, k) => ({ id: String(k), label: String(o?.label ?? '') }));
+          const rec = options.find((o) => /\(recommended\)/i.test(o.label));
+          return { id: String(i), text: String(q?.question ?? ''), recommendation: rec?.id ?? null, options };
+        }),
+      };
+    }
+    return { ...base, kind: 'permission', questions: [], request: { tool: card.toolName, headline: card.plain?.headline ?? card.toolName, preview: card.plain?.preview ?? card.plain?.detail ?? '' } };
+  }
+
+  /** Send the decision the way a click does, by 'auto': once, or no. Writes the Auto line and counts the card. */
+  async function answerCard(job, card, task, answer) {
+    let decision;
+    let note = '';
+    let answers = null;
+    let chose;
+    let lines = null;
+    if (task.kind === 'question') {
+      decision = 'allow';
+      answers = {};
+      lines = [];
+      task.questions.forEach((q, i) => {
+        const a = answer.answers.find((x) => x.id === q.id);
+        const label = a.choice !== null ? task.labels[i][Number(a.choice)] ?? a.choice : oneLine(a.other);
+        answers[q.text] = label;
+        lines.push({ question: oneLine(q.text), choice: oneLine(label), reason: oneLine(a.reason) });
+      });
+      chose = lines.map((l) => l.choice).join('; ');
+    } else if (answer.decision === 'allow') {
+      decision = 'allow';
+      chose = 'Allowed';
+    } else {
+      decision = 'deny';
+      note = NO(answer.why);
+      chose = 'Said no';
+    }
+    try {
+      await decide.permission(card.id, { decision, note, answers }, { by: 'auto' });
+    } catch (err) {
+      // Refused (the card went away between the look and the decision): nothing was sent. The cost stays in spent.
+      console.error(`auto card (${job.slug}):`, err.message);
+      return;
+    }
+    let spent = 0;
+    await update(job.dir, (prev) => {
+      spent = prev?.spent ?? 0;
+      return { ...prev, failures: 0, problem: null, spent: 0, cards: (prev?.cards ?? 0) + 1 };
+    });
+    await audit(job, task.kind === 'question' ? 'question' : 'permission', {
+      asked: oneLine(task.kind === 'question' ? task.questions.map((q) => q.text).join(' / ') : card.plain?.headline ?? card.toolName),
+      chose, why: oneLine(answer.why), risk: answer.risk, ...(lines ? { answers: lines } : {}), costUsd: spent,
+    });
+  }
+
+  return { pass, onPermission, cardGone };
 }
