@@ -2451,6 +2451,16 @@ test('m5: the person\'s Start and a tag start of the same job at once: the tag\'
   } finally { await w.stop(); }
 });
 
+test('m6: money on a record that is off goes on the on line when Auto is switched on again', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: { ...autoRecord(null, { on: true, now: OLD }), on: false, spent: 0.3 } });
+  try {
+    await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
+    const [on] = await w.autoLines('on');
+    assert.equal(on.costUsd, 0.3);
+    assert.equal((await w.record()).spent ?? 0, 0);
+  } finally { await w.stop(); }
+});
+
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------
 
 test('I2: the person sent brief 1 back, then 401 lines; the reply ended with the gate still on brief 1: the Approver is not asked', { timeout: 30_000 }, async () => {
