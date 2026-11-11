@@ -167,6 +167,7 @@ function judgeCardOf(inp, ctx) {
     const file = input.file_path ?? input.notebook_path;
     const where = typeof file === 'string' ? physicalPath(file, ctx.cwd ?? null) : null;
     if (!(where && inRoots(where, jobRoots(ctx))) || codeLater(where, codeRoots(ctx)) || autoRecordFile(where, ctx)) return { stop: stop('outside') };
+    if (/[\\/]node_modules[\\/]\.bin[\\/]/.test(where)) return { ask: 'a program in node_modules/.bin that a plain command would then run' }; // N19
     return ASK_FILES.has(path.basename(where)) ? { ask: 'a file that changes how tools run' } : null;
   }
   if (toolName === 'Bash') return bashVerdict(String(input.command ?? ''), hard, ctx);
@@ -632,6 +633,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     const p = physicalPath(word.t, cwd ?? st.hint ?? null);
     if (codeLater(p, st.codeRoots) || autoRecordFile(p, ctx)) st.hits.add('outside');
     if (p && ASK_FILES.has(path.basename(p))) st.asks.push('a file that changes how tools run');
+    if (p && /[\\/]node_modules[\\/]\.bin[\\/]/.test(p)) st.asks.push('a program in node_modules/.bin that a plain command would then run'); // N19
   };
   // A word with a space in it is a path too (N2): always for the read and copy programs, and for any program when it starts with / ~ or .
   const secretWord = (t, every = false) => {

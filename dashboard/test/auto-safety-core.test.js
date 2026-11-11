@@ -880,3 +880,10 @@ test('N18: with --body-file -, the file given by < is the body file', () => {
   for (const c of [`gh pr create --base ${BRANCH} --title T --body-file - < app/.env.local`, `gh pr create --base ${BRANCH} --title T -F - < app/.env.local`]) assert.equal(bash(c, ctx), 'ask', c);
   assert.equal(bash(`gh pr create --base ${BRANCH} --title T --body-file - < notes.md`, ctx), null);
 });
+
+test('N19: a write under node_modules/.bin asks', () => {
+  const ctx = C5CTX();
+  assert.equal(card('Write', { file_path: `${WT}/app/node_modules/.bin/next`, content: '#!/bin/sh\n' }, ctx), 'ask');
+  for (const c of ['echo x > app/node_modules/.bin/next', 'cp evil.sh app/node_modules/.bin/next', 'ln -sf ../../evil.sh app/node_modules/.bin/next']) assert.equal(bash(c, ctx), 'ask', c);
+  assert.equal(card('Write', { file_path: `${WT}/app/src/x.ts`, content: 'x' }, ctx), null);
+});
