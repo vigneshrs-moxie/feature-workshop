@@ -3333,6 +3333,26 @@ test('N7: Auto\'s context names where the set-up may make the job\'s worktree, a
   } finally { await w.stop(); }
 });
 
+test('R4: Auto\'s context carries each worktree\'s branch, so a push of HEAD in the worktree is the job\'s own branch', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { stage: 'review', waiting_for: 'none', stage_state: 'in_progress', branch: 'feature/visit-audit' }) });
+  try {
+    w.git('remote', 'add', 'origin', 'https://github.com/me/app.git');
+    const wt = path.join(w.root, 'orbit-visit-audit');
+    w.git('worktree', 'add', '-q', '-b', 'feature/visit-audit', wt);
+    const ctx = await w.driver.autoCtx({ id: 'r4-run', featureDir: w.dir, cwd: w.dirs.repo, slug: w.slug, title: 'T' }, { toolName: 'Bash', input: { command: `git -C ${wt} push -u origin HEAD` } });
+    assert.equal(ctx.setup.worktreeBranches[wt], 'feature/visit-audit', JSON.stringify(ctx.setup));
+    const { autoVerdict } = await import('../lib/auto-rules.js');
+    const v = (command) => autoVerdict({ kind: 'card', toolName: 'Bash', input: { command }, hardLine: null, blockedPath: null }, ctx);
+    for (const c of [`git -C ${wt} push -u origin HEAD`, `cd ${wt} && git push`, `git -C ${wt} push -u origin feature/visit-audit`]) assert.equal(v(c), null, c);
+    assert.equal(v('git push -u origin HEAD')?.rule, 'push', 'from the main checkout HEAD is main');
+    // After a branch switch in the worktree, the fresh read no longer names the job's branch there.
+    execFileSync('git', ['-C', wt, 'checkout', '-q', '-b', 'other-work'], { stdio: 'pipe' });
+    await new Promise((r) => setTimeout(r, 300));
+    const after = await w.driver.autoCtx({ id: 'r4-run', featureDir: w.dir, cwd: w.dirs.repo, slug: w.slug, title: 'T' }, { toolName: 'Bash', input: { command: `git -C ${wt} push -u origin HEAD` } });
+    assert.equal(autoVerdict({ kind: 'card', toolName: 'Bash', input: { command: `git -C ${wt} push -u origin HEAD` }, hardLine: null, blockedPath: null }, after)?.verdict, 'stop');
+  } finally { await w.stop(); }
+});
+
 test('N5: "the commit is on the org\'s main" asks git about the org remote\'s own ref, so a branch or tag named moxie/main fools nothing', { timeout: 30_000 }, async () => {
   const w = await world();
   try {

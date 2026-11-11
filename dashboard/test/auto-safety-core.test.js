@@ -797,7 +797,11 @@ test('N7: the workflow\'s set-up lines run from the main checkout in their exact
   for (const c of ['git fetch upstream', 'git fetch git@github.com:someone/orbit.git', 'git fetch moxie --prune --tags', `git ls-remote --heads git@github.com:x/y.git ${BRANCH}`, `git ls-remote --heads upstream ${BRANCH}`,
     `git ls-remote --heads origin ${BRANCH} other`, `git worktree add -b ${BRANCH} ../somewhere-else moxie/main`, `git worktree add -b ${BRANCH} ../orbit-orbit-500-thing origin/main`,
     'git worktree add -b main ../orbit-orbit-500-thing moxie/main', 'git worktree add -b feature/orbit-499-other ../orbit-orbit-500-thing moxie/main', `git worktree add ../orbit-orbit-500-thing ${BRANCH}`,
-    'git fetch moxie --prune && touch x', 'git fetch moxie && git worktree add -b x ../orbit-orbit-500-thing moxie/main', 'git status && git add -A']) assert.notEqual(bash(c, ctx), null, c);
+    'git fetch moxie --prune && touch x', 'git status && git add -A',
+    // Two of its own forms may be joined by && (R4); one wrong half, another joiner or a third command is as today.
+    'git fetch moxie && git worktree add -b x ../somewhere-else moxie/main', 'git fetch moxie; git worktree add -b x ../orbit-orbit-500-thing moxie/main', 'git fetch upstream && git fetch moxie',
+    'git fetch moxie && git fetch origin && git fetch moxie', `git -C ${WT} fetch moxie --prune && git fetch moxie`, `git -C ${HOME}/Projects/other fetch moxie --prune`]) assert.notEqual(bash(c, ctx), null, c);
+  assert.equal(bash('git fetch moxie && git worktree add -b x ../orbit-orbit-500-thing moxie/main', ctx), null, 'two of its own forms joined by && (R4)');
 });
 
 test('N4: sed and awk reads are reads', () => {

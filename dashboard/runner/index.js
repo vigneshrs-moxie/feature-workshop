@@ -280,7 +280,18 @@ export async function createRunner(config) {
         defaultBranch: async (repo) => (await Promise.all([...new Set([orgRemote, ...ORG_REMOTES].filter(Boolean))].map((remote) => gitRemoteDefault({ repo, remote, exec: gitStdout, cache: autoGitCache })))).filter(Boolean),
       },
     });
-    return { f, repo: v.repo, worktrees: v.worktrees, specDirs: v.specDirs, branches: v.branches, mainCheckout: v.mainCheckout, setup: { worktrees: [profileWorktree, ...stackWorktrees].filter(Boolean), taken: v.listedBranches ?? [], never: v.neverBranches ?? [] } };
+    // Each of the job's worktrees' branch, read fresh from git (at most every quarter second): a push with HEAD or no branch
+    // named sends the branch checked out where it runs (R4). Only a branch that is the job's own is kept.
+    const worktreeBranches = {};
+    if (v.repo && v.worktrees.length) {
+      const list = await gitWorktrees({ repo: v.repo, exec: gitStdout, cache: autoGitCache, fresh: true }).catch(() => null);
+      const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+      for (const wt of v.worktrees) {
+        const hit = (list ?? []).find((x) => real(x.path) === real(wt));
+        if (hit?.branch && v.branches.includes(hit.branch)) worktreeBranches[wt] = hit.branch;
+      }
+    }
+    return { f, repo: v.repo, worktrees: v.worktrees, specDirs: v.specDirs, branches: v.branches, mainCheckout: v.mainCheckout, setup: { worktrees: [profileWorktree, ...stackWorktrees].filter(Boolean), taken: v.listedBranches ?? [], never: v.neverBranches ?? [], worktreeBranches } };
   }
   // The repository Starbase recorded for a job: the one you set (sessions.json), else the one the
   // start handler wrote in its new-job audit line. null for a job Starbase did not make.

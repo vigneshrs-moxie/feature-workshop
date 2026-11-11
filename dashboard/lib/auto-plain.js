@@ -458,7 +458,7 @@ const GIT = {
   config: spec('l --list --get --get-all --get-regexp --local', { pos: (pos, vals, ctx, flags) => { if (!['-l', '--list', '--get', '--get-all', '--get-regexp'].some((f) => flags.has(f))) ask('a git config that changes settings'); } }),
   clean: spec('n d f q --dry-run --force', { pos: 'build' }),
   stash: spec('', { pos: (pos) => { if (!(pos.length === 1 && pos[0].t === 'list')) ask('a stash command that changes the stash'); } }),
-  worktree: spec('', { pos: (pos) => { if (!(pos.length === 1 && pos[0].t === 'list')) ask('a worktree command that changes worktrees'); } }),
+  worktree: spec('--porcelain', { pos: (pos) => { if (!(pos.length === 1 && pos[0].t === 'list')) ask('a worktree command that changes worktrees'); } }),
   'rev-parse': READ('q --abbrev-ref --short --show-toplevel --is-inside-work-tree --verify --symbolic-full-name --show-prefix --show-cdup --absolute-git-dir --git-dir --short: --abbrev-ref:'),
   'ls-files': READ('c o m d s u z i --cached --others --modified --deleted --stage --exclude-standard --full-name --error-unmatch'),
   describe: READ('--tags --always --abbrev: --dirty --long --match: --exact-match'),
@@ -791,6 +791,8 @@ function runProgram(name, args, ctx, raw) {
   if (CUSTOM[name]) return CUSTOM[name](args, ctx);
   if (name === 'git') return gitCheck(args, ctx);
   if (name === 'gh') return ghCheck(args, ctx);
+  if (name === 'ps') { if (!psRead(args.map((x) => x.t))) ask('a ps command Starbase does not read'); return; }
+  if (name === 'starbase') { if (!starbaseDecisions(args.map((x) => x.t), ctx.cands, ctx.ctx)) ask('a starbase command Starbase does not read'); return; }
   // Every lookup on the network is a question for the Approver on an Auto job: what it sends (an address can carry a secret) leaves the computer (C5).
   if (name === 'curl') { curlCheck(args, ctx); ask('a network lookup: what it sends leaves the computer'); }
   if (name === 'wget') { wgetCheck(args, ctx); ask('a network lookup: what it sends leaves the computer'); }
@@ -823,8 +825,69 @@ function cdTargets(cmd, cands, roots) {
   });
 }
 
+/**
+ * git forms that only read, beyond the read words (R4): remote, remote -v, remote get-url <name>; branch --show-current;
+ * branch --list …; branch with only -a, -r, -v, -vv; worktree list [--porcelain]; stash list; tag, tag --list, tag -l;
+ * config --get <one key>. sub: the subcommand; rest: the words after it (strings, or words with .t).
+ */
+export function gitReadForm(sub, rest) {
+  const w = (rest ?? []).map((x) => (typeof x === 'string' ? x : x?.t));
+  if (w.some((t) => typeof t !== 'string' || /[$`]/.test(t)) || (rest ?? []).some((x) => x?.dyn)) return false;
+  const listFlag = (t) => /^(-a|-r|-v|-vv)$/.test(t);
+  switch (sub) {
+    case 'remote': return !w.length || (w.length === 1 && /^(-v|--verbose)$/.test(w[0])) || (w.length === 2 && w[0] === 'get-url' && /^[\w.-]+$/.test(w[1]));
+    case 'branch': return (w.length === 1 && w[0] === '--show-current') || (w[0] === '--list' && w.slice(1).every((t) => !t.startsWith('-') || listFlag(t))) || w.every(listFlag);
+    case 'worktree': return w[0] === 'list' && (w.length === 1 || (w.length === 2 && w[1] === '--porcelain'));
+    case 'stash': return w.length === 1 && w[0] === 'list';
+    case 'tag': return !w.length || (w.length === 1 && /^(--list|-l)$/.test(w[0]));
+    case 'config': return w.length === 2 && w[0] === '--get' && /^[\w.-]+$/.test(w[1]);
+    default: return false;
+  }
+}
+
+/** ps that only reads (R4): its words are -o <one word> and -p <a number, $PPID or $$>, each at most once. Words: strings. */
+export function psRead(words) {
+  const w = [...(words ?? [])];
+  if (!w.length || w.length % 2) return false;
+  const seen = new Set();
+  for (let k = 0; k < w.length; k += 2) {
+    const [flag, v] = [w[k], w[k + 1]];
+    if (seen.has(flag)) return false;
+    seen.add(flag);
+    if (flag === '-o' && /^[a-z]+=?$/i.test(v)) continue;
+    if (flag === '-p' && /^(\d+|\$PPID|\$\$)$/.test(v)) continue;
+    return false;
+  }
+  return true;
+}
+
+/** starbase decisions <the job's slug> --worktree <one of the job's worktrees> (R4): the one starbase command a job runs. */
+export function starbaseDecisions(words, cands, ctx) {
+  const w = words ?? [];
+  const slug = typeof ctx?.featureDir === 'string' && ctx.featureDir ? path.basename(ctx.featureDir) : null;
+  if (w.length !== 4 || w[0] !== 'decisions' || !slug || w[1] !== slug || w[2] !== '--worktree') return false;
+  const trees = (ctx.worktrees ?? []).map((x) => physicalPath(x, null)).filter(Boolean);
+  return (cands ?? []).length > 0 && cands.every((c) => { const p = physicalPath(w[3], c); return Boolean(p) && trees.includes(p); });
+}
+
 const GIT_READS = new Set(['status', 'diff', 'log', 'show', 'rev-parse', 'ls-files', 'describe', 'blame', 'merge-base', 'for-each-ref', 'shortlog', 'cat-file', 'ls-tree', 'grep', 'check-ignore', 'rev-list', 'name-rev', 'count-objects', 'show-ref', 'symbolic-ref', 'ls-remote', 'version', 'config']);
 const READ_ONLY = new Set(['cat', 'ls', 'head', 'tail', 'wc', 'grep', 'egrep', 'fgrep', 'rg', 'find', 'echo', 'printf', 'pwd', 'whoami', 'id', 'uname', 'hostname', 'date', 'which', 'basename', 'dirname', 'realpath', 'sort', 'uniq', 'cut', 'tr', 'tree', 'diff', 'cmp', 'file', 'stat', 'du', 'df', 'shasum', 'sha1sum', 'sha256sum', 'md5sum', 'md5', 'cksum', 'test', '[', '[[', 'true', 'false', 'sleep', 'seq', 'exit']);
+
+// git's read words, and the read forms (R4), with the subcommand's words after it.
+function gitReadHere(args) {
+  const at = args.findIndex((x) => !x.t.startsWith('-'));
+  const sub = args[at]?.t;
+  return GIT_READS.has(sub) || gitReadForm(sub, args.slice(at + 1));
+}
+// Commands judged by their own rule whatever the folder they run in (R4): gh pr create (its own rule, prCreateProblem),
+// starbase decisions for the job, and ps that only reads.
+function anyFolder(name, args, here, ctx) {
+  const pos = args.filter((x) => !x.t.startsWith('-')).map((x) => x.t);
+  if (name === 'gh') return pos[0] === 'pr' && pos[1] === 'create';
+  if (name === 'starbase') return starbaseDecisions(args.map((x) => x.t), here, ctx);
+  if (name === 'ps') return psRead(args.map((x) => x.t));
+  return false;
+}
 
 function redirectCheck(r, ctx) {
   if (/^\/dev\/null$/.test(r.target.t)) return;
@@ -834,6 +897,9 @@ function redirectCheck(r, ctx) {
 
 /** null when the command is plain, else a short phrase for the Approver and the audit. */
 export function plainWhy(command, env = {}) {
+  // ps -o ppid= -p $PPID, alone (lock.md: is the lock Starbase's own): $PPID and $$ name the shell's parent and itself (R4).
+  const ps = /^ps((?:\s+-[op]\s+\S+)+)$/.exec(String(command ?? '').trim());
+  if (ps && psRead(ps[1].trim().split(/\s+/))) return null;
   try {
     const cmds = lex(liftHeredocs(String(command ?? '')));
     if (!cmds.length) ask('an empty command');
@@ -895,7 +961,8 @@ export function plainWhy(command, env = {}) {
         const rest = args.slice(2);
         const sub = rest.find((x) => !x.t.startsWith('-'))?.t;
         const inTree = dirs.every((p) => p && trees.some((w) => isInside(p, w)));
-        const mainRead = dirs.every((p) => p && main && isInside(p, main)) && GIT_READS.has(sub) && sub !== 'config';
+        const subAt = rest.findIndex((x) => !x.t.startsWith('-'));
+        const mainRead = dirs.every((p) => p && main && isInside(p, main)) && ((GIT_READS.has(sub) && sub !== 'config') || gitReadForm(sub, rest.slice(subAt + 1)));
         if (!inTree && !mainRead) ask('the git subcommand option -C');
         args = rest;
         here = dirs;
@@ -907,7 +974,7 @@ export function plainWhy(command, env = {}) {
         if (!inRoots(at, roots) || !cands.every((c) => inRoots(physicalPath(name, c), roots))) ask('a program given by a path outside the job');
         if (bin) name = bin[1]; else { for (const x of args) pathInside(x, ctx); continue; } // a script of the job's own: its text is read by the caller
       }
-      if (!READ_ONLY.has(name) && !(name === 'git' && GIT_READS.has(args.find((x) => !x.t.startsWith('-'))?.t)) && !here.every((c) => inRoots(physicalPath('.', c), roots))) ask('a command that changes things, run from a folder outside the job');
+      if (!READ_ONLY.has(name) && !(name === 'git' && gitReadHere(args)) && !anyFolder(name, args, here, env.ctx) && !here.every((c) => inRoots(physicalPath('.', c), roots))) ask('a command that changes things, run from a folder outside the job');
       words.forEach((x, k) => {
         if (!x.t.includes(HEREDOC)) return;
         const message = name === 'git' && args[0]?.t === 'commit' && ((x.t === HEREDOC && ['-m', '--message'].includes(words[k - 1]?.t)) || x.t === `--message=${HEREDOC}`);

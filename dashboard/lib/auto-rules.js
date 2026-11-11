@@ -35,7 +35,7 @@ import path from 'node:path';
 import { autoAllowed } from './auto.js';
 import { classify, commandParts, isInside, TEMP_DIRS } from './policy.js';
 import { hardLine, namesStarbaseAddress, namesThisComputer, ORG_REMOTES, ORG_URL, physicalPath, rmInsideJob, withPathMemo, WRAPPERS } from './hard-lines.js';
-import { envCopy, localPlain, plainWhy } from './auto-plain.js';
+import { envCopy, gitReadForm, localPlain, plainWhy, psRead, starbaseDecisions } from './auto-plain.js';
 import { STAGES, STAGE_IDS } from './stages.js';
 
 export const AUTO_STOP_REASONS = Object.freeze({
@@ -68,6 +68,7 @@ export const OUTSIDE_REASONS = Object.freeze({
   secret: 'this reads a place that holds secrets (keys, tokens or passwords), so it needs you.',
   unknown: 'this runs a program Auto does not know, so it needs you.',
   deploy: 'this would deploy or publish something, so it needs you.',
+  read: 'this only reads, but in a way Auto cannot judge (another folder, a setting or a place it cannot work out), so it needs you.',
 });
 
 /** The job's own branch and its stack's part branches: the ones a push of Auto's may go to. */
@@ -345,7 +346,7 @@ function bashVerdict(command, hard, ctx) {
   if ((st.ranRunner && wroteBase(['package.json'])) || (st.ranMake && wroteBase(['Makefile', 'makefile', 'GNUmakefile']))) st.hits.add('outside');
   const rule = PRIORITY.find((r) => st.hits.has(r));
   if (rule) {
-    const why = rule !== 'outside' ? null : st.deploy ? OUTSIDE_REASONS.deploy : st.secret ? OUTSIDE_REASONS.secret : st.unknown ? OUTSIDE_REASONS.unknown : null;
+    const why = rule !== 'outside' ? null : st.deploy ? OUTSIDE_REASONS.deploy : st.secret ? OUTSIDE_REASONS.secret : st.unknown ? OUTSIDE_REASONS.unknown : !st.nonRead ? OUTSIDE_REASONS.read : null;
     return { stop: stop(rule, { ...(rule === 'outside' && st.unknown ? { unknownProgram: true } : {}), ...(why ? { reason: why } : {}) }) };
   }
   const why = st.asks[0] ?? plainWhy(command, plainEnv(st, ctx.cwd ?? null));
@@ -366,8 +367,23 @@ function setupStep(command, ctx) {
   const main = typeof ctx.mainCheckout === 'string' ? physicalPath(ctx.mainCheckout, null) : null;
   if (!at || !((main && at === main) || inRoots(at, jobRoots(ctx)))) return null;
   const parts = commandParts(command, ctx.cwd);
-  if (!parts || parts.length !== 1 || (parts[0].redirects ?? []).length || parts[0].words.some((w) => w.dyn)) return null;
-  const w = parts[0].words.map((x) => x.t);
+  // One form, or two of the git forms joined by && (R4): each half is judged by its own form, and one wrong half is the whole line's.
+  if (!parts || !(parts.length === 1 || (parts.length === 2 && parts[0].sep === '&&')) || parts.some((p) => p.sub || (p.redirects ?? []).length || p.words.some((w) => w.dyn))) return null;
+  const answers = parts.map((p) => setupForm(p.words.map((x) => x.t), at, main, ctx));
+  if (parts.length === 1) return answers[0];
+  return answers.every((x) => x === true) ? true : null;
+}
+
+// One set-up form. A leading -C names the main checkout and nothing else (R4).
+function setupForm(words, at, main, ctx) {
+  let w = words;
+  let here = at;
+  if (w[0] === 'git' && w[1] === '-C') {
+    const d = w[2] ? physicalPath(w[2], at) : null;
+    if (!d || !main || d !== main) return null;
+    here = main;
+    w = ['git', ...w.slice(3)];
+  }
   const remotes = [ctx.forkRemote || 'origin', ctx.orgRemote].filter((r) => typeof r === 'string' && r && (() => { try { return Boolean(ctx.remoteUrl?.(r)); } catch { return false; } })());
   const branchName = (b) => /^[A-Za-z0-9][\w./-]*$/.test(b) && !b.split('/').includes('..') && !b.endsWith('/') && !b.endsWith('.lock');
   if (w[0] === 'git' && w[1] === 'fetch' && (w.length === 3 || (w.length === 4 && w[3] === '--prune')) && remotes.includes(w[2])) return true;
@@ -375,13 +391,13 @@ function setupStep(command, ctx) {
   if (w[0] === 'git' && w[1] === 'worktree' && w[2] === 'add' && w[3] === '-b' && w.length === 7) {
     const s = ctx.setup ?? {};
     const [branch, place, start] = w.slice(4);
-    const where = physicalPath(place, ctx.cwd);
+    const where = physicalPath(place, here);
     const places = (s.worktrees ?? []).map((x) => physicalPath(x, null)).filter(Boolean);
     const never = PROTECTED.test(branch) || /^(main|master|staging|develop)$/i.test(branch) || (s.never ?? []).includes(branch);
     if (where && places.includes(where) && (s.starts ?? []).includes(start) && branchName(branch) && !never && !(s.taken ?? []).includes(branch)) return true;
     return null;
   }
-  if (w[0] === 'gh' && w[1] === 'api' && main && at === main) { const why = orgBranchCall(w.slice(2), ctx); if (why) return why; }
+  if (words === w && w[0] === 'gh' && w[1] === 'api' && main && at === main) { const why = orgBranchCall(w.slice(2), ctx); if (why) return why; }
   return null;
 }
 
@@ -658,6 +674,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     if (r.op === '<' || r.op === '<&' || (r.op === '>&' && /^(\d+|-)$/.test(r.target))) { if (SQL.test(r.target)) hit('database'); continue; }
     if (!r.dyn && /^\/dev\/(null|stdout|stderr|tty)$/.test(r.target)) continue;
     if (SQL.test(r.target)) hit('database');
+    st.nonRead = true;
     if (out({ t: r.target, dyn: r.dyn })) hit('outside');
     noteWrite({ t: r.target, dyn: r.dyn });
     recordWrite({ t: r.target, dyn: r.dyn });
@@ -673,7 +690,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   if (assigns.some((x) => REDIRECT_VAR.test(x.split('=')[0]))) hit('outside'); // a variable that redirects a tool (T3d)
   if (!rest.length) return;
   const cmdWord = rest[0];
-  if (cmdWord.dyn) { hit('outside'); return; } // a command chosen while it runs
+  if (cmdWord.dyn) { hit('outside'); st.nonRead = true; return; } // a command chosen while it runs
   const cmd = name(cmdWord.t);
   const args = rest.slice(1);
   const a = args.map((x) => x.t);
@@ -695,6 +712,13 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
 
   // A deploy or a publish stops, by whatever road it is started (I3).
   if (deploys(cmd, a)) { hit('outside'); st.deploy = true; }
+  // starbase decisions <the job's slug> --worktree <a worktree of the job>, from any folder; nothing else of starbase (R4).
+  if (cmd === 'starbase' && !cmdWord.t.includes('/')) {
+    st.nonRead = true;
+    if (args.some((x) => x.dyn) || !starbaseDecisions(a, [cwd ?? st.hint ?? null].filter(Boolean), ctx)) { hit('outside'); st.unknown = true; }
+    return;
+  }
+  const psOk = cmd === 'ps' && !cmdWord.t.includes('/') && psRead(a); // is the lock Starbase's own (lock.md): a read (R4)
   // S1: a program is let in by name.
   const inside = cmdWord.t.includes('/') ? physicalPath(cmdWord.t, cwd) : null;
   // A program of node_modules/.bin by the path as written (made absolute, the link not followed: a real install links each
@@ -702,7 +726,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   const written = cmdWord.t.includes('/') ? writtenPath(cmdWord.t, cwd ?? st.hint ?? null) : null;
   const ownBin = Boolean(written && inside) && inRoots(written, st.roots) && inRoots(inside, st.roots) && /\/node_modules\/\.bin\/[^/]+$/.test(written);
   const byFile = inside && inRoots(inside, st.roots) && !ownBin; // a file of the job's own, run by its path
-  const known = byFile || (!cmdWord.t.includes('/') || ownBin) && (programGroup(cmd) || SHELLS.has(cmd) || cmd === 'eval' || cmd === 'source' || cmd === '.' || cmd === 'alias' || st.funcs.has(cmd.replace(/\(\)$/, '')));
+  const known = psOk || byFile || (!cmdWord.t.includes('/') || ownBin) && (programGroup(cmd) || SHELLS.has(cmd) || cmd === 'eval' || cmd === 'source' || cmd === '.' || cmd === 'alias' || st.funcs.has(cmd.replace(/\(\)$/, '')));
   // A program found in the job's node_modules/.bin (as npx finds it, or a package script's own) and not otherwise known
   // is a question, not a stop; a few of its uses are plain (I2).
   const localBin = !known && /^[\w.-]+$/.test(cmd) && (ownBin || (!cmdWord.t.includes('/') && binNear(cmd, cwd ?? st.hint ?? null, st)));
@@ -713,8 +737,12 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     else if (!localPlain(cmd, a)) st.asks.push(`${cmd}, a program of the job's node_modules/.bin that Starbase does not read in this use`);
   }
   // T3c: a command that is not a read runs from a folder inside the job's (a cd moves it; a folder we can't tell stops).
-  const readOnly = programGroup(cmd) === 'read' || (cmd === 'git' && GIT_READ.has(firstGitSub(args)));
-  if (!readOnly && !byFile) {
+  const readOnly = psOk || programGroup(cmd) === 'read' || (cmd === 'git' && gitReads(args));
+  if (!readOnly) st.nonRead = true;
+  // A script of the installed workflow run by an interpreter asks, whatever the folder (R4); gh pr create is judged by its own rule (R4).
+  const skill = skillScript(cmd, cmdWord, args, a, cwd ?? st.hint ?? null, st);
+  const prCreate = cmd === 'gh' && (() => { const p = args.filter((x, k) => !(x.t.startsWith('-') || ['-R', '--repo'].includes(a[k - 1]))).map((x) => x.t); return p[0] === 'pr' && p[1] === 'create'; })();
+  if (!readOnly && !byFile && !skill && !prCreate) {
     const eff = cmd === 'git' ? gitFolder(args, cwd ?? st.hint ?? null) : cwd ?? st.hint ?? null; // git -C runs it there (m11)
     const at = eff ? physicalPath(eff, null) : null;
     if (!at || !inRoots(at, cmd === 'git' ? st.gitRoots : st.roots)) hit('outside'); // git changes something only in a worktree (R1)
@@ -729,6 +757,11 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   if (PUBLISH.some(([head, ...tail]) => head === positional[0] && positional.slice(1).some((_, k) => tail.every((t, j) => positional[k + 1 + j] === t)))) hit('outside');
   if (cmd === 'alias') { hit('outside'); for (const x of a) { const eq = x.indexOf('='); if (eq > 0) analyze(x.slice(eq + 1), cwd, st, depth + 1, null); } return; }
   if (byFile) { scriptFile(cmdWord, cwd, st, 'shell', depth); return; }
+  if (skill) {
+    if (!skill.dyn && DATA_FILE.test(skill.t)) hit('database');
+    st.asks.push(`a script of the installed workflow (${path.basename(skill.t)} in the skills folder), run by ${cmd}`);
+    return;
+  }
 
   if (SHELLS.has(cmd)) {
     const c = args.findIndex((x) => /^-[A-Za-z]*c$/.test(x.t));
@@ -911,6 +944,25 @@ function gitFolder(args, from) {
     if (args[i].t === '-C') { const d = args[i + 1]; at = !d || d.dyn || !at ? null : physicalPath(d.t, at); }
   }
   return at;
+}
+
+// Does this git command only read: a read word, or one of the read forms (R4)?
+function gitReads(args) {
+  let i = 0;
+  while (args[i]?.t.startsWith('-')) i += ['-C', '-c'].includes(args[i].t) ? 2 : 1;
+  const sub = args[i]?.t;
+  return GIT_READ.has(sub) || gitReadForm(sub, args.slice(i + 1));
+}
+
+// The script an interpreter (python, node, bash, sh) runs, when it is a file in the installed skills (the session's read
+// folders, or where their links land as N9 allows) and no code is given on the command line: the word, else null (R4).
+function skillScript(cmd, cmdWord, args, a, here, st) {
+  if (cmdWord.t.includes('/') || !(/^python[\d.]*$/.test(cmd) || ['node', 'nodejs', 'bash', 'sh'].includes(cmd))) return null;
+  if (a.some((x) => x === '-m' || x === '-s' || x === '-' || PY_INLINE.test(x) || INLINE.node.test(x) || /^-[A-Za-z]*c$/.test(x))) return null;
+  const file = SHELLS.has(cmd) ? args.find((x) => !x.t.startsWith('-')) : interpreterFile(cmd === 'nodejs' ? 'node' : cmd, args);
+  if (!file || file.dyn) return null;
+  const at = physicalPath(file.t, here);
+  return at && inRoots(at, readFolders(st.ctx)) && !inRoots(at, st.roots) ? file : null;
 }
 
 function firstGitSub(args) {
@@ -1334,7 +1386,8 @@ function gitStep(args, assigns, cwd, st, xargs) {
       if (sargs.some((x) => x.dyn) || !v.startsWith(`${ctx.forkRemote || 'origin'}/`)) hit('push');
     }
   }
-  if (sub === 'remote' && a.length) st.gitSetting = true;
+  const readForm = gitReadForm(sub, sargs);
+  if (sub === 'remote' && a.length && !readForm) st.gitSetting = true;
   if (sub === 'config') {
     const read = a.some((x) => /^(--get|--get-all|--get-regexp|--list|-l|--get-urlmatch)$/.test(x));
     if (!read) st.gitSetting = true;
@@ -1380,7 +1433,7 @@ function gitStep(args, assigns, cwd, st, xargs) {
     if (paths.some((x) => x.dyn || codeLater(physicalPath(x.t, eff), st.codeRoots))) hit('outside');
   }
   // Any other git command run in another folder (git -C <elsewhere>) acts there.
-  if (!GIT_READ.has(sub) && eff !== cwd && !(eff && inRoots(eff, st.gitRoots))) hit('outside');
+  if (!GIT_READ.has(sub) && !readForm && eff !== cwd && !(eff && inRoots(eff, st.gitRoots))) hit('outside');
 }
 
 // Is the source of a merge, pull or rebase anything but the org remote's main or one of the job's branches (m3)?
@@ -1467,10 +1520,16 @@ function pushStops(sargs, eff, ctx) {
   }
   const own = (ctx.branches ?? []).filter(Boolean);
   if (!own.length) return true; // the job's branches are not known: no push is known to be its own
-  // The branch a push with no refspec (or HEAD, or @) sends is the one checked out in the session's folder.
+  // The branch a push with no refspec (or HEAD, or @) sends is the one checked out where it runs: in one of the job's
+  // worktrees, the branch git lists there (R4); else the one checked out in the session's folder.
   let there = null;
   try { there = ctx.cwd && eff ? physicalPath(ctx.cwd, null) : null; } catch { there = null; }
-  const hereOwn = typeof ctx.currentBranch === 'string' && own.includes(ctx.currentBranch) && Boolean(there) && isInside(eff, there);
+  const branchOf = ctx.setup?.worktreeBranches && typeof ctx.setup.worktreeBranches === 'object' ? ctx.setup.worktreeBranches : {};
+  const tree = eff ? (ctx.worktrees ?? []).map((w) => [w, physicalPath(w, null)]).filter(([, p]) => p && isInside(eff, p)).sort((x, y) => y[1].length - x[1].length)[0] : null;
+  const treeBranch = tree ? branchOf[tree[0]] : undefined;
+  const hereOwn = typeof treeBranch === 'string'
+    ? own.includes(treeBranch) && !PROTECTED.test(treeBranch)
+    : typeof ctx.currentBranch === 'string' && own.includes(ctx.currentBranch) && Boolean(there) && isInside(eff, there);
   if (!refspecs.length && !hereOwn) return true;
   const strip = (r) => r.replace(/^refs\/heads\//, '');
   for (const r of refspecs) {
