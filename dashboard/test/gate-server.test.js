@@ -98,7 +98,7 @@ before(async () => {
   git('worktree', 'add', '-q', '-b', 'feature/restart-me', wt);
   await started('restart-me', { branch: 'feature/restart-me', worktree: wt, base_sha: baseSha }, { models: { foreman: OPUS, build: OPUS, checks: OPUS } });
   // More started jobs for the restart's guards (a terminal open, two restarts at once, a send during one).
-  for (const slug of ['race-one', 'race-two']) {
+  for (const slug of ['race-one', 'race-two', 'policy-job']) {
     const w = path.join(root, 'repo-worktrees', slug);
     git('worktree', 'add', '-q', '-b', `feature/${slug}`, w);
     await started(slug, { branch: `feature/${slug}`, worktree: w, base_sha: baseSha }, { models: { foreman: OPUS, build: OPUS, checks: OPUS } });
@@ -108,6 +108,8 @@ before(async () => {
   await fs.writeFile(path.join(dirs.state, 'hook-events', 'events.jsonl'), `${new Date().toISOString()}\t${JSON.stringify({ session_id: 'term-1', hook_event_name: 'UserPromptSubmit', cwd: repo, prompt: `carry on with feature-work/term-job` })}\n`);
   // A started job and one that has not started (no Foreman session), both on Opus, for the locked model.
   await started('lock-job', {}, { models: { foreman: OPUS, build: OPUS, checks: OPUS }, all_fable: false });
+  await started('flag-job', {}, { models: { foreman: OPUS, build: OPUS, checks: OPUS }, all_fable: true });
+  await writeJob('fresh-two', { status: { title: 'Fresh two', route: 'small', stage: 'plan', stage_state: 'working', repo: { path: repo, base_branch: 'main' }, updated_at: OLD }, options: { level: 2, flow: 'small', title: 'Do the fresh-two job', repo, models: { foreman: OPUS, build: OPUS, checks: OPUS } } });
   await writeJob('fresh-job', { status: { title: 'Fresh', route: 'small', stage: 'plan', stage_state: 'working', repo: { path: repo, base_branch: 'main' }, updated_at: OLD }, options: { level: 2, flow: 'small', title: 'Do the fresh-job job', repo, models: { foreman: FABLE, build: OPUS, checks: OPUS } } });
 
   // Waiting with no waiting_since and no brief named: timed from the newest brief file.
@@ -156,7 +158,7 @@ before(async () => {
     env: {
       HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_GATE_PARK_MS: '600',
       STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
-      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state, STARBASE_TEST_HOLD_RESTART: path.join(root, 'hold-restart'),
     },
     output,
   });
@@ -394,17 +396,86 @@ test('F7: a second restart while the first is under way answers 409', { timeout:
 });
 
 test('F7: a send and a gate answer during a restart answer 409', { timeout: 60_000 }, async () => {
+  // The restart is held open on purpose (the dashboard's test hook), so nothing here depends on timing.
+  const hold = path.join(root, 'hold-restart');
+  await fs.writeFile(hold, '');
   const restart = post('/api/job/race-two/restart', { model: FABLE });
-  const seen = [];
-  let finished = false;
-  restart.then(() => { finished = true; });
-  while (!finished) {
-    seen.push((await post('/api/job/race-two/send', { text: 'Hello' })).status);
-    seen.push((await post('/api/job/race-two/gate', { kind: 'message', note: 'Hello' })).status);
-  }
-  assert.equal((await restart).status, 200);
-  assert.equal(seen.includes(200), false, `a send or gate went through during the restart: ${seen}`);
-  assert.equal(seen.includes(409), true, `nothing was refused as busy: ${seen}`);
+  while (!(await fs.access(`${hold}.held`).then(() => true, () => false))) await pause(20); // until it is under way
+  const send = await post('/api/job/race-two/send', { text: 'Hello' });
+  const gate = await post('/api/job/race-two/gate', { kind: 'message', note: 'Hello' });
+  const auto = await post('/api/job/race-two/auto', { on: true });
+  assert.equal(auto.status, 409, JSON.stringify(auto.body));
+  assert.match(auto.body.error ?? auto.body.message, /being started again on another model/);
+  await fs.rm(hold);
+  assert.equal(send.status, 409, JSON.stringify(send.body));
+  assert.equal(gate.status, 409, JSON.stringify(gate.body));
+  for (const r of [send, gate]) assert.match(r.body.error ?? r.body.message, /being started again on another model/);
+  const res = await restart;
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+});
+
+test('F2/F3: a refused restart is on the audit record; a restart clears the old job’s own permission setting', { timeout: 60_000 }, async () => {
+  const refused = await post('/api/job/has-pr/restart', { model: FABLE });
+  assert.equal(refused.status, 409);
+  const line = (await auditLines()).filter((l) => l.action === 'restart-failed' && l.slug === 'has-pr').at(-1);
+  assert.match(line.error, /open pull request/);
+  assert.equal(line.model, FABLE);
+
+  const dir = path.join(featuresDir, 'policy-job');
+  const set = await post('/api/job/policy-job/policy', { policy: 'ask-all' });
+  assert.equal(set.status, 200, JSON.stringify(set.body));
+  const settings = async () => JSON.parse(await fs.readFile(path.join(stateDir, 'settings.json'), 'utf8'));
+  assert.equal((await settings()).jobPolicy?.[dir], 'ask-all');
+  const res = await post('/api/job/policy-job/restart', { model: FABLE });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal((await settings()).jobPolicy?.[dir], undefined, 'the old job’s own setting does not follow the new job');
+  assert.equal(Array.isArray(res.body.notes), true);
+});
+
+// ---- F4: the server keeps a started job's model, whatever the page sends ----
+const optionsOf = async (slug) => JSON.parse(await fs.readFile(path.join(featuresDir, slug, 'options.json'), 'utf8'));
+const asked = (extra = {}) => ({ options: { level: 2, notes: 'changed notes', models: { foreman: FABLE, build: HAIKU, checks: OPUS }, all_fable: false, ...extra } });
+
+test('F4: options for a started job ignore models.foreman and all_fable; the rest is saved', { timeout: 60_000 }, async () => {
+  const res = await post('/api/job/lock-job/options', { slug: 'lock-job', ...asked() });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const o = await optionsOf('lock-job');
+  assert.equal(o.models.foreman, OPUS, 'the Foreman stays on the model it started with');
+  assert.equal(o.models.build, HAIKU, 'the other models are saved as before');
+  assert.equal(o.notes, 'changed notes');
+  const res2 = await post('/api/job/lock-job/options', { slug: 'lock-job', ...asked({ all_fable: true }) });
+  assert.equal(res2.status, 200, JSON.stringify(res2.body));
+  const o2 = await optionsOf('lock-job');
+  assert.equal(o2.all_fable, false, 'the whole-job-on-Fable switch is ignored too');
+  assert.equal(o2.models.foreman, OPUS);
+  assert.equal(res2.body.options.models.foreman, OPUS, 'and the answer says so');
+  const level = await post('/api/job/lock-job/options', { slug: 'lock-job', level: 3 });
+  assert.equal(level.status, 200, JSON.stringify(level.body));
+  assert.equal((await optionsOf('lock-job')).models.foreman, OPUS, 'a level change leaves it too');
+  const sent = await post('/api/job/lock-job/send', { text: 'Carry on' });
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  assert.equal((await auditLines()).filter((l) => l.action === 'send' && l.slug === 'lock-job').at(-1).model, OPUS);
+});
+
+test('F4: a started job whose options say all_fable still sends on the model its session started with', { timeout: 60_000 }, async () => {
+  const sent = await post('/api/job/flag-job/send', { text: 'Carry on' });
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  assert.equal((await auditLines()).filter((l) => l.action === 'send' && l.slug === 'flag-job').at(-1).model, OPUS);
+});
+
+test('F4: the same options request for a job with no Foreman session still changes the model', { timeout: 60_000 }, async () => {
+  const res = await post('/api/job/fresh-two/options', { slug: 'fresh-two', ...asked() });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal((await optionsOf('fresh-two')).models.foreman, FABLE);
+  const all = await post('/api/job/fresh-two/options', { slug: 'fresh-two', ...asked({ all_fable: true }) });
+  assert.equal(all.status, 200, JSON.stringify(all.body));
+  assert.equal((await optionsOf('fresh-two')).all_fable, true);
+});
+
+test('minor: a job with no session sends its first message on the model its options name', { timeout: 60_000 }, async () => {
+  const sent = await post('/api/job/fresh-job/send', { text: 'Start please' });
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  assert.equal((await auditLines()).filter((l) => l.action === 'send' && l.slug === 'fresh-job').at(-1).model, FABLE);
 });
 
 // ---------- Auto mode's switch: kept in Starbase's own sessions.json, never in the job's folder ----------
@@ -412,7 +483,6 @@ test('F7: a send and a gate answer during a restart answer 409', { timeout: 60_0
 const L3 = 'Auto works up to L2. An L3 job needs you to approve each step.';
 const readJson = async (file) => JSON.parse(await fs.readFile(file, 'utf8'));
 const sessions = () => readJson(path.join(stateDir, 'sessions.json')).catch(() => ({}));
-const optionsOf = (slug) => readJson(path.join(featuresDir, slug, 'options.json'));
 
 test('turning Auto on writes the record, options.json and the audit line', { timeout: 60_000 }, async () => {
   const dir = path.join(featuresDir, 'auto-job');

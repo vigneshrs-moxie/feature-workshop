@@ -123,7 +123,7 @@ describe('the Foreman model line', () => {
     const store: Store = createStore();
     store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [j], meta: { token: 't', settings: { policy: 'hands-off', jobPolicy: {} } as never, models: [{ id: 'claude-fable-5-2', label: 'Fable 5.2', note: '' }] } }) });
     const api = { get: async () => ({}), post: async () => ({}) } as unknown as ApiClient;
-    render(<WorkshopContext.Provider value={{ store, api }}><JobHeader job={j} dir="/f/alpha" model="claude-fable-5-2" /></WorkshopContext.Provider>);
+    render(<WorkshopContext.Provider value={{ store, api }}><JobHeader job={j} dir="/f/alpha" model="claude-fable-5-2" started /></WorkshopContext.Provider>);
     const line = screen.getByText('Foreman model: Fable 5.2', { exact: false });
     expect(line).toHaveTextContent('Foreman model: Fable 5.2');
     expect(line).toHaveAttribute('title', 'Fixed for this job. Change model… in the job menu starts the job again.');
@@ -131,6 +131,13 @@ describe('the Foreman model line', () => {
     // The job menu offers Change model….
     fireEvent.click(screen.getByRole('button', { name: /Job menu/ }));
     expect(screen.getByRole('button', { name: 'Change model…' })).toBeEnabled();
+  });
+
+  it('Change model… is not offered for a job with no Foreman session yet', () => {
+    show(job('alpha', 'idle'));
+    fireEvent.click(screen.getByRole('button', { name: /Job menu/ }));
+    expect(screen.getByRole('button', { name: 'Notes and options…' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Change model…' })).toBeNull();
   });
 
   it('shows no model line before the model is known', () => {

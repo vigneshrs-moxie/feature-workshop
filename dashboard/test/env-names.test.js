@@ -37,6 +37,7 @@ test('every old name and its new one', () => {
     STARBASE_STACK_TICK_MS: 'WORKSHOP_STACK_TICK_MS',
     STARBASE_CLAUDE_SETTINGS: 'WORKSHOP_CLAUDE_SETTINGS',
     STARBASE_CLAUDE_PATH: 'WORKSHOP_CLAUDE_PATH',
+    STARBASE_TEST_HOLD_RESTART: 'WORKSHOP_TEST_HOLD_RESTART',
     STARBASE_URL: 'WORKSHOP_URL',
   });
   assert.deepEqual(KEEP_OLD_TOO, ['STARBASE_FEATURES_DIR'], 'the /feature skill’s folder, for an older copy of the skill');

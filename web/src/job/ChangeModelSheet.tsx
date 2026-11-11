@@ -21,8 +21,12 @@ export const CONSEQUENCES = [
   'The time and usage already spent are not recovered.',
   // What else a restart moves, so nothing is lost without being said.
   'Changes not yet committed stay in the old worktree folder, which is moved aside.',
+  'Files git ignores, such as .env and node_modules, stay in that old folder too. They are not in the job\'s new worktree.',
   'The Foreman\'s conversation so far is not carried over; a copy of its session record goes in the archive folder.',
+  'The job\'s options are kept (level, screens, reviewers, models and the rest), except Auto, which starts off again. The job\'s own permission setting is not kept either.',
+  'A reply waiting to be sent, or a carry-on waiting for the usage limit, is not sent. A copy goes in the archive folder.',
   'Nothing is deleted and nothing is pushed.',
+  'If something goes wrong before the new job starts, everything is put back and you are told. If that can\'t be done, you are told where everything is.',
 ];
 
 /** A pull request in play (open, in review, approved or merged): the same rule as the dashboard's. */
@@ -33,7 +37,7 @@ export function hasPullRequest(prs: JobDetail['prs']): boolean {
   });
 }
 
-interface Restarted { slug: string; archive: string; backupBranch: string | null; worktreeAside: string | null }
+interface Restarted { slug: string; archive: string; backupBranch: string | null; worktreeAside: string | null; notes?: string[] }
 
 export function ChangeModelSheet({ slug, onClose }: { slug: string; onClose: () => void }) {
   const { api } = useWorkshop();
@@ -84,6 +88,7 @@ export function ChangeModelSheet({ slug, onClose }: { slug: string; onClose: () 
           {done.backupBranch && <li>Commits, on the backup branch: <code className="num">{done.backupBranch}</code></li>}
           {done.worktreeAside && <li>The old worktree folder, with any uncommitted changes: <code className="num">{done.worktreeAside}</code></li>}
         </ul>
+        {(done.notes ?? []).length > 0 && <ul className="sheet-list">{(done.notes ?? []).map((n) => <li key={n}>{n}</li>)}</ul>}
         <div className="sheet-actions">
           <Button kind="primary" onClick={() => { navigate({ name: 'job', slug: done.slug }); onClose(); }} title="Open the job that started again.">Open the job</Button>
         </div>

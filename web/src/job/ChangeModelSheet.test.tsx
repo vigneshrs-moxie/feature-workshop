@@ -37,6 +37,11 @@ describe('Change model sheet', () => {
     // What else moves is said too: uncommitted changes, the session record, and that nothing is deleted.
     expect(screen.getByText(/Changes not yet committed stay in the old worktree folder/)).toBeInTheDocument();
     expect(screen.getByText(/Nothing is deleted and nothing is pushed/)).toBeInTheDocument();
+    // Files git ignores, what is not carried over, and what happens to a waiting reply, said as the code does them.
+    expect(screen.getByText('Files git ignores, such as .env and node_modules, stay in that old folder too. They are not in the job\'s new worktree.')).toBeInTheDocument();
+    expect(screen.getByText(/except Auto, which starts off again\. The job's own permission setting is not kept either\./)).toBeInTheDocument();
+    expect(screen.getByText('A reply waiting to be sent, or a carry-on waiting for the usage limit, is not sent. A copy goes in the archive folder.')).toBeInTheDocument();
+    expect(screen.getByText(/If something goes wrong before the new job starts, everything is put back/)).toBeInTheDocument();
     // The picker starts on a model other than the current one; the button names it and waits for the name.
     const button = screen.getByRole('button', { name: 'Start the job again on Fable 5.2' });
     expect(button).toBeDisabled();
@@ -51,6 +56,15 @@ describe('Change model sheet', () => {
     expect(await screen.findByText('/f/.restarted/alpha-2026-11-10')).toBeInTheDocument();
     expect(screen.getByText('backup/feat/alpha-2026-11-10')).toBeInTheDocument();
     expect(screen.getByText('/w/alpha.2026-11-10')).toBeInTheDocument();
+  });
+
+  it('after the restart it passes on what Starbase says it could not check', async () => {
+    const post = vi.fn(async () => ({ ok: true, slug: 'alpha', archive: '/f/.restarted/alpha-2026-11-10', backupBranch: null, worktreeAside: null, notes: ['Whether the branch feature/alpha had already been pushed could not be checked (no remote could be reached).'] }));
+    setup({ post });
+    await screen.findByRole('dialog', { name: 'Change the Foreman model' });
+    fireEvent.change(screen.getByRole('textbox', { name: /Type the job's name/ }), { target: { value: 'alpha' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Start the job again/ })); });
+    expect(await screen.findByText(/could not be checked/)).toBeInTheDocument();
   });
 
   it('the button follows the model picked, and the current model can’t be chosen again', async () => {

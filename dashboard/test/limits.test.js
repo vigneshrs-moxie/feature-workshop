@@ -167,6 +167,21 @@ test('a limit landing while a held reply is being started never sends that reply
   }
 });
 
+test('entriesFor gives copies of what is paused or held for one job, so a restart can keep them before forgetting', async () => {
+  const c = clock(Date.parse('2026-10-16T12:00:00Z'));
+  const state = await tmpState();
+  const limits = new LimitWatch({ driver: fakeDriver([]), state, ...c });
+  await limits.load();
+  assert.deepEqual(limits.entriesFor('/f/h'), []);
+  await limits.onLimit({ run: null, info: limitInfo(c) });
+  await limits.hold(heldJob('h'), HELD);
+  const [entry] = limits.entriesFor('/f/h');
+  assert.equal(entry.send.text, HELD.text);
+  assert.deepEqual(limits.entriesFor('/f/other'), []);
+  entry.send.text = 'changed';
+  assert.equal(limits.entriesFor('/f/h')[0].send.text, HELD.text, 'a copy, not the live entry');
+});
+
 test('a message you send yourself drops the held reply: audited, and a carry-on mid-retry never sends it after yours', async () => {
   const c = clock(Date.parse('2026-10-16T12:00:00Z'));
   const driver = fakeDriver([]);
