@@ -491,7 +491,7 @@ test('C3: a push with no named branch is tied to the checked-out branch', () => 
     ['git checkout main && git push origin', 'push'], ['git checkout main; git push origin HEAD', 'push'], ['git switch other && git push', 'push'], ['git branch -f feature/x main && git push origin feature/x', 'push'],
     ['git branch -M other && git push origin feature/x', 'push'], ['git branch -m other && git push origin feature/x', 'push'], ['git reset --hard origin/other && git push origin feature/x', 'push'],
     ['git worktree add wt2 other && git push origin feature/x', 'push'], ['git push origin feature/x && git checkout main', 'push'], ['git checkout -b feature/y && git push origin feature/y', 'push'],
-    ['git checkout main', null], ['git switch other', null], ['git reset --hard', null], ['git reset --hard HEAD~1', null], ['git branch -f feature/x main', 'ask'], ['git push origin feature/x', null], ['git add -A && git commit -m x && git push origin feature/x', null],
+    ['git checkout main', 'ask'], ['git switch other', 'ask'], ['git reset --hard', null], ['git reset --hard HEAD~1', null], ['git branch -f feature/x main', 'ask'], ['git push origin feature/x', null], ['git add -A && git commit -m x && git push origin feature/x', null],
   ]);
   assert.equal(on('git checkout main && git push origin', { branches: [] }), 'push');
 });
@@ -1004,6 +1004,11 @@ test('T2: the shape of a plain command, and the files that change how tools run'
     ['git add -A && git commit -m "x" && git push origin feature/x', null], ['npm test 2>&1 | tail -20', null], ['npm ci && npm test', null], ['git checkout -b feature/y && npm test', null],
     ['git restore package.json && npm test', 'ask'], ['git checkout other && npm test', 'ask'], ['git pull && npm test', 'ask'], ['git merge main && make', 'ask'], ['git pull && git push origin feature/x', null], ['tar xf a.tar && ls', null], ['tar xf a.tar && echo x > y', 'ask'],
     ['git symbolic-ref HEAD refs/heads/main', 'ask'], ['git symbolic-ref --short HEAD', null],
+    // Local branches are shared by every worktree: only the job's own branch (or a new one) is switched to.
+    ['git checkout main', 'ask'], ['git switch main', 'ask'], ['git checkout -B main', 'ask'], ['git switch -C main', 'ask'], ['git switch --force-create main', 'ask'],
+    ['git checkout main && git merge feature/x', 'ask'], ['git checkout main --', 'ask'], ['git checkout -', 'ask'],
+    ['git checkout feature/x', null], ['git switch feature/x', null], ['git checkout -b feature/y', null], ['git switch -c feature/y', null], ['git checkout -b feature/y origin/main', null],
+    ['git checkout HEAD~1 -- package.json', null], ['git checkout --detach origin/main', null],
   ]);
   for (const f of ['.npmrc', '.envrc', 'sub/.npmrc']) {
     assert.equal(tool('Write', { file_path: `${W}/${f}` }), null, `${f} is not a stop`);

@@ -472,6 +472,23 @@ const GIT = {
   version: spec('', { pos: 'none' }),
 };
 
+/**
+ * Local branches are shared by every worktree of the repository, so a commit or a merge made on
+ * another branch moves it for the person too. A checkout or switch is plain only when it goes to
+ * one of the job's own branches, makes a new branch, detaches, or brings files back (`-- paths`).
+ */
+function switchCheck(sub, { pos, vals, flags, paths }, ctx) {
+  if (vals.some(([f]) => ['-B', '-C', '--force-create'].includes(f))) ask('a branch moved onto this commit');
+  if (paths.length || flags.has('--detach')) return;
+  if (vals.some(([f]) => ['-b', '-c', '--create'].includes(f))) return;
+  const mine = new Set(Array.isArray(ctx.ctx?.branches) ? ctx.ctx.branches : []);
+  const isFile = (t) => sub === 'checkout' && ctx.cands.length > 0 && ctx.cands.every((c) => { try { return fs.existsSync(path.resolve(c, t)); } catch { return false; } });
+  for (const x of pos) {
+    if (x.t === '--' || mine.has(x.t) || isFile(x.t)) continue;
+    ask("a switch to a branch that is not the job's own");
+  }
+}
+
 function gitCheck(args, ctx) {
   let i = 0;
   while (args[i] && (args[i].t === '--no-pager' || args[i].t === '-P')) i++;
@@ -487,10 +504,12 @@ function gitCheck(args, ctx) {
     check(sp, rest.map((x) => (x.t === HEREDOC ? { ...x, t: 'message' } : x)), ctx, 'git commit');
     return;
   }
-  if (sub === 'checkout' || sub === 'reset' || sub === 'restore') {
-    const { pos } = check(sp, rest, ctx, `git ${sub}`);
+  if (sub === 'checkout' || sub === 'reset' || sub === 'restore' || sub === 'switch') {
+    const { pos, vals, flags } = check(sp, rest, ctx, `git ${sub}`);
     const dashes = rest.findIndex((x) => x.t === '--');
-    if (dashes >= 0) for (const x of rest.slice(dashes + 1)) mustBeInside(x, ctx);
+    const paths = dashes >= 0 ? rest.slice(dashes + 1) : [];
+    for (const x of paths) mustBeInside(x, ctx);
+    if (sub === 'checkout' || sub === 'switch') switchCheck(sub, { pos, vals, flags, paths }, ctx);
     return;
   }
   check(sp, rest, ctx, `git ${sub}`);
