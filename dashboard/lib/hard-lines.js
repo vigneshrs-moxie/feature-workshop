@@ -625,6 +625,7 @@ export function goAheadCovers(toolName, input = {}, ctx = {}) {
     const verdict = judgeSimple(part.text);
     if (!verdict) continue;
     if (verdict.decision !== 'ask') return null;
+    if (verdict.line === 'git-push' && part.words.some((w) => w.t === '-c')) return null; // a push with a -c in front is never covered (I6)
     if ((verdict.line === 'git-push' || verdict.line === 'gh-pr-create') && PR_STAGES.has(ctx.stage)) reasons.add(verdict.line === 'git-push' ? PUSH_COVERED : PR_COVERED);
     else if (verdict.line === 'rm-rf' && rmInsideJob(part.words, part.cwd, ctx)) reasons.add(RM_COVERED);
     else return null;
@@ -664,7 +665,7 @@ export function orgPushCheck() {
     }
     return cache.get(key);
   };
-  return async (verdict, cwd) => {
+  const check = async (verdict, cwd) => {
     if (verdict?.decision !== 'ask' || !verdict.pushes?.length || !cwd) return verdict;
     for (const { remote, dir } of verdict.pushes) {
       if (/[:/]/.test(remote)) continue; // an address, already judged
@@ -674,7 +675,13 @@ export function orgPushCheck() {
     }
     return verdict;
   };
+  // Forget every lookup: a git setting, a remote or a branch's upstream may have changed (I6).
+  check.forget = () => cache.clear();
+  return check;
 }
+
+/** A command that may change where a push goes: git config, git remote, git branch -u / --set-upstream-to (I6). */
+export const GIT_SETTING_CHANGE = /\bgit\b[^\n;&|]*\s(?:config|remote)\b|\bgit\b[^\n;&|]*\sbranch\b[^\n;&|]*\s(?:-u|--set-upstream)/;
 
 /**
  * The PreToolUse hook callback (SDK `hooks` option). onVerdict(verdict, input) is told about every
@@ -689,6 +696,7 @@ export function orgPushCheck() {
 export function hardLineHook(onVerdict = () => {}, { check = orgPushCheck(), cwd = null, cover = null, autoStop = null, port = null } = {}) {
   return async (input) => {
     if (input?.hook_event_name !== 'PreToolUse') return {};
+    if (input.tool_name === 'Bash' && GIT_SETTING_CHANGE.test(String(input.tool_input?.command ?? ''))) { try { check.forget?.(); } catch { /* nothing remembered */ } }
     let verdict = hardLine(input.tool_name, input.tool_input, { cwd: input.cwd || cwd, port });
     if (verdict) { try { verdict = await check(verdict, input.cwd || cwd); } catch { /* a failed lookup still asks */ } }
     // A refusal stays a refusal, Auto or not.

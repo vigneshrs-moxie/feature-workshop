@@ -72,7 +72,7 @@ import { parseStatusJson } from '../lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from '../lib/auto-env.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { goAheadCovers, ORG_REMOTES, setApiPort, setStateDir } from '../lib/hard-lines.js';
+import { GIT_SETTING_CHANGE, goAheadCovers, ORG_REMOTES, setApiPort, setStateDir } from '../lib/hard-lines.js';
 import { jobRepo, verifiedJobContext } from '../lib/auto-context.js';
 import { autoGitFacts, gitIsAncestor, gitRemoteDefault, gitWorktrees } from '../lib/auto-git.js';
 import { readStack } from '../lib/stack.js';
@@ -309,12 +309,17 @@ export async function createRunner(config) {
   // that stops pushes. The job's branches are its own and its stack's parts.
   const execGit = promisify(execFile);
   const autoGitCache = new Map();
+  const gitSettingCalls = new Set(); // runs whose last call may have changed a git setting
   // call: { toolName, input } when the context is for one call: a commit it names for the org branch is placed by git first (I2).
   async function autoCtxFor(run, call = null) {
     const { repo, worktrees, specDirs, branches, mainCheckout } = await jobContext(run);
     const hit = repo && local.registry ? await local.registry.profileFor(repo).catch(() => null) : null;
     const profile = hit?.ok ? hit.profile : null;
-    const facts = await autoGitFacts({ cwd: run.cwd, dirs: worktrees, key: run.id ?? run.featureDir, cache: autoGitCache, exec: gitStdout });
+    // After a call that may change where a push goes (git config, git remote, git branch -u), the remembered remotes are forgotten (I6).
+    const key = run.id ?? run.featureDir;
+    if (gitSettingCalls.has(key)) { autoGitCache.delete(key); gitSettingCalls.delete(key); }
+    if (call?.toolName === 'Bash' && GIT_SETTING_CHANGE.test(String(call.input?.command ?? ''))) gitSettingCalls.add(key);
+    const facts = await autoGitFacts({ cwd: run.cwd, dirs: worktrees, key, cache: autoGitCache, exec: gitStdout });
     // The job's own org repository, from the org remote's address as git gives it (never a job file).
     const orgRemote = [stackRules(profile).org, ...ORG_REMOTES].filter(Boolean).find((name) => facts.remoteUrl(name));
     const orgRepo = orgRemote ? /github\.com[:/]+([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/i.exec(facts.remoteUrl(orgRemote))?.[1] ?? null : null;

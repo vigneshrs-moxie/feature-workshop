@@ -482,3 +482,38 @@ test('I5: places that run code later cannot be filled by a move, a checkout, a r
     for (const c of ['git mv ci.yml src/ci.yml', 'mv src src2', 'git checkout feature/orbit-500-thing -- src/a.ts']) assert.notEqual(bash(c, ctx), 'outside', c);
   } finally { d.done(); }
 });
+
+test('I6: a push cannot be sent elsewhere by the branch\'s own settings, a -c, a setting changed in the same call, or from a clone inside the job', async () => {
+  const d = diskWorktree();
+  try {
+    fsSync.mkdirSync(pathMod.join(d.wt, 'vendor', 'app', '.git'), { recursive: true });
+    const ctx = ctxOf({ worktrees: [d.wt], specDirs: [], branches: [BRANCH] }, { cwd: d.wt });
+    for (const c of [`git -c branch.${BRANCH}.pushRemote=moxie push`, `git config branch.${BRANCH}.pushRemote moxie`, `git config branch.${BRANCH}.merge refs/heads/main`, 'git branch -u moxie/main', 'git branch --set-upstream-to=moxie/main',
+      `git branch --set-upstream-to moxie/${BRANCH}`, `git -c core.editor=vim push origin ${BRANCH}`, `git -c user.name=x push origin ${BRANCH}`, `git config user.name x && git push origin ${BRANCH}`,
+      `git remote -v && git branch -u origin/${BRANCH} && git push`, `cd vendor/app && git push origin ${BRANCH}`, `git -C vendor/app push origin ${BRANCH}`, `cd vendor && git -C app push origin ${BRANCH}`]) assert.equal(bash(c, ctx), 'push', c);
+    assert.equal(bash(`git push origin ${BRANCH}`, ctx), null);
+    for (const c of [`git branch -u origin/${BRANCH}`, `git branch --set-upstream-to=origin/${BRANCH}`]) assert.notEqual(bash(c, ctx), 'push', c); // to the fork: no push stop (the plain reading still asks)
+    assert.equal(goAheadCovers('Bash', { command: `git -c user.name=x push origin ${BRANCH}` }, { mode: 'auto', stage: 'pr1', worktrees: [d.wt], featureDir: JOB, cwd: d.wt }), null);
+    assert.notEqual(goAheadCovers('Bash', { command: `git push origin ${BRANCH}` }, { mode: 'auto', stage: 'pr1', worktrees: [d.wt], featureDir: JOB, cwd: d.wt }), null);
+  } finally { d.done(); }
+});
+
+test('I6: the hard lines forget where a remote pushes after a git setting changes', async () => {
+  const { orgPushCheck, hardLineHook } = await import('../lib/hard-lines.js');
+  const { execFileSync } = await import('node:child_process');
+  const d = diskWorktree();
+  try {
+    const git = (...a) => execFileSync('git', ['-C', d.wt, ...a], { stdio: 'pipe' });
+    git('init', '-q');
+    git('remote', 'add', 'origin', 'git@github.com:test/orbit.git');
+    const check = orgPushCheck();
+    const push = hardLine('Bash', { command: `git push origin ${BRANCH}` }, { cwd: d.wt });
+    assert.equal((await check(push, d.wt)).decision, 'ask');
+    git('remote', 'set-url', 'origin', 'git@github.com:moxie/orbit.git');
+    assert.equal((await check(push, d.wt)).decision, 'ask', 'remembered for the reply');
+    const hook = hardLineHook(() => {}, { check, cwd: d.wt });
+    await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'git remote set-url origin git@github.com:moxie/orbit.git' }, cwd: d.wt });
+    assert.equal((await check(push, d.wt)).decision, 'deny', 'looked up again after the setting changed');
+  } finally { d.done(); }
+});
+

@@ -2275,3 +2275,16 @@ test('I2: Auto\'s context for one call gives the org repository from git, places
     assert.ok(ctx.filesToCopy.some((f) => f.from === path.join('app', '.env.local') && f.to === path.join('app', '.env.local')), JSON.stringify(ctx.filesToCopy));
   } finally { await w.stop(); }
 });
+
+test('I6: after a call that changes a git setting, Auto asks git again where each remote pushes', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    w.git('remote', 'add', 'origin', 'git@github.com:me/visit-app.git');
+    const run = { id: 'i6-run', featureDir: w.dir, cwd: w.dirs.repo, slug: w.slug, title: 'T' };
+    const push = { toolName: 'Bash', input: { command: 'git push origin feature/visit-audit' } };
+    assert.equal((await w.driver.autoCtx(run, push)).remoteUrl('origin'), 'git@github.com:me/visit-app.git');
+    await w.driver.autoCtx(run, { toolName: 'Bash', input: { command: 'git remote set-url origin git@github.com:moxie-org/visit-app.git' } });
+    w.git('remote', 'set-url', 'origin', 'git@github.com:moxie-org/visit-app.git');
+    assert.equal((await w.driver.autoCtx(run, push)).remoteUrl('origin'), 'git@github.com:moxie-org/visit-app.git', 'not the address remembered before the change');
+  } finally { await w.stop(); }
+});

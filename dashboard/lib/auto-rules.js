@@ -284,6 +284,7 @@ function bashVerdict(command, hard, ctx) {
   analyze(command, ctx.cwd ?? null, st, 0, null);
   // A branch changed and a push in one call: where the push goes can't be told from here (C3).
   if (st.branchChange && st.pushed) st.hits.add('push');
+  if (st.gitSetting && st.pushed) st.hits.add('push'); // a git setting changed and a push in one call: the remembered lookups are stale (I6)
   // A file this call writes and then runs, and what a clone just brought in, are not known (I8, C1).
   if (st.runs.some((r) => st.written.includes(r)) || st.cloneDirs.some((d) => st.touched.some((p) => p !== d && isInside(p, d)))) st.hits.add('outside');
   const verdict = classify('Bash', { command }, { mode: 'hands-off', stage: 'implement', worktrees: ctx.worktrees ?? [], specDirs: ctx.specDirs ?? [], featureDir: ctx.featureDir ?? null, cwd: ctx.cwd ?? null, rules: [] });
@@ -1113,7 +1114,7 @@ function orgBranchCall(rest, ctx) {
 // Subcommands that work on the repository and the worktree (push, remote, config, worktree, clone and init have their own rules below).
 const GIT_LOCAL = new Set(['add', 'commit', 'checkout', 'switch', 'restore', 'reset', 'stash', 'branch', 'tag', 'merge', 'rebase', 'cherry-pick', 'revert', 'fetch', 'pull', 'clean', 'mv', 'rm', 'notes', 'reflog', 'bisect', 'sparse-checkout', 'symbolic-ref', 'ls-remote', 'show-ref', 'show-branch', 'diff-tree', 'diff-index', 'diff-files', 'push', 'send-pack', 'remote', 'config', 'worktree', 'clone', 'init', 'gc']);
 const GIT_ENV = /^GIT_(DIR|WORK_TREE|COMMON_DIR|INDEX_FILE|OBJECT_DIRECTORY|NAMESPACE|CONFIG|SSH|EXEC_PATH|PROXY|ASKPASS)/;
-const GIT_CFG_RISKY = /^(remote\.|url\.|core\.(sshcommand|gitproxy|hookspath|fsmonitor|pager|editor)|push\.|include|alias\.|credential|http\.|submodule\.|filter\.|diff\.[^.]*\.(command|textconv))/i;
+const GIT_CFG_RISKY = /^(remote\.|branch\.|url\.|core\.(sshcommand|gitproxy|hookspath|fsmonitor|pager|editor)|push\.|include|alias\.|credential|http\.|submodule\.|filter\.|diff\.[^.]*\.(command|textconv))/i;
 const normUrl = (u) => String(u ?? '').trim().replace(/\/+$/, '').replace(/\.git$/, '').toLowerCase();
 
 function gitStep(args, assigns, cwd, st, xargs) {
@@ -1123,10 +1124,11 @@ function gitStep(args, assigns, cwd, st, xargs) {
   let eff = cwd;
   let foreign = assigns.some((x) => GIT_ENV.test(x));
   let risky = false;
+  let withC = false; // any -c in front: a push with one stops, whatever the setting (I6)
   while (args[i]?.t.startsWith('-')) {
     const t = args[i].t;
     if (t === '-C') { const d = args[i + 1]; eff = !d || d.dyn || !eff ? null : physicalPath(d.t, eff); i += 2; continue; }
-    if (t === '-c') { if (GIT_CFG_RISKY.test(args[i + 1]?.t ?? '') || args[i + 1]?.dyn) risky = true; i += 2; continue; }
+    if (t === '-c') { withC = true; if (GIT_CFG_RISKY.test(args[i + 1]?.t ?? '') || args[i + 1]?.dyn) risky = true; i += 2; continue; }
     if (/^--(git-dir|work-tree|exec-path|config-env|super-prefix)(=|$)/.test(t)) { foreign = true; i += t.includes('=') ? 1 : 2; continue; }
     i++;
   }
@@ -1150,13 +1152,24 @@ function gitStep(args, assigns, cwd, st, xargs) {
   }
   if (sub === 'push' || sub === 'send-pack') {
     st.pushed = true;
-    if (foreign || risky || !inWork || pushStops(sargs, eff, ctx)) hit('push');
+    if (foreign || risky || withC || !inWork || nestedRepo(eff, st) || pushStops(sargs, eff, ctx)) hit('push');
     return;
   }
   if (risky || foreign) { hit(foreign && !GIT_READ.has(sub) ? 'outside' : 'outside'); return; }
   if (sub === 'remote' && ['add', 'set-url', 'rename', 'remove', 'rm', 'set-head', 'set-branches'].includes(a[0])) { hit('push'); return; }
+  // A branch's upstream set to anything but the fork redirects a later push (I6); any change of a git setting in the call holds a push in it.
+  if (sub === 'branch') {
+    const k = a.findIndex((x) => x === '-u' || x === '--set-upstream-to' || x.startsWith('--set-upstream-to=') || /^-u./.test(x));
+    if (k >= 0) {
+      st.gitSetting = true;
+      const v = a[k].startsWith('--set-upstream-to=') ? a[k].slice(18) : /^-u./.test(a[k]) ? a[k].slice(2) : a[k + 1] ?? '';
+      if (sargs.some((x) => x.dyn) || !v.startsWith(`${ctx.forkRemote || 'origin'}/`)) hit('push');
+    }
+  }
+  if (sub === 'remote' && a.length) st.gitSetting = true;
   if (sub === 'config') {
     const read = a.some((x) => /^(--get|--get-all|--get-regexp|--list|-l|--get-urlmatch)$/.test(x));
+    if (!read) st.gitSetting = true;
     if (a.some((x) => /^--(global|system|file|worktree|includes)|^-f$/.test(x))) { hit('outside'); return; }
     const key = a.find((x) => !x.startsWith('-')) ?? '';
     if (!read && GIT_CFG_RISKY.test(key)) hit('push');
@@ -1197,6 +1210,21 @@ function gitStep(args, assigns, cwd, st, xargs) {
   }
   // Any other git command run in another folder (git -C <elsewhere>) acts there.
   if (!GIT_READ.has(sub) && eff !== cwd && !(eff && inRoots(eff, st.roots))) hit('outside');
+}
+
+// A push from a folder with another repository between it and the worktree's top (a clone inside the job): its
+// remotes are not the job's (I6). The worktree's own top is not counted; a folder git can't place counts.
+function nestedRepo(eff, st) {
+  if (!eff) return true;
+  const top = st.work.filter((w) => isInside(eff, w)).sort((x, y) => y.length - x.length)[0];
+  if (!top) return true;
+  for (let dir = eff, guard = 0; dir !== top && guard < 64; guard++) {
+    try { if (fs.existsSync(path.join(dir, '.git'))) return true; } catch { return true; }
+    const up = path.dirname(dir);
+    if (up === dir) return true;
+    dir = up;
+  }
+  return false;
 }
 
 // Does this git command change which branch the worktree has checked out (or move a branch)?
