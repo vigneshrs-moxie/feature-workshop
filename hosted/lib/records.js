@@ -21,15 +21,17 @@ const SUGGEST_PICKS = 3;
 const SUGGEST_REASON = 300;
 const SUGGEST_LIST = 100;
 const SUGGEST_ITEM = 80;
+const SUGGEST_AHEAD = 5 * 60_000;
 
 /**
  * The laptop's suggestion as the site keeps and shows it, or null when it isn't the right shape:
  * { at: a date string, picks: up to 3 { key: ORBIT-<n>, reason: text }, forList: up to 100 short strings }.
- * The reason is the model's words about a ticket: plain text, cut to 300 characters.
+ * An `at` more than 5 minutes ahead of the site's `now` is refused. The reason is the model's words about a ticket: plain text, cut to 300 characters.
  */
-export function cleanSuggestion(v) {
+export function cleanSuggestion(v, now = Date.now()) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
   if (typeof v.at !== 'string' || v.at.length > 40 || Number.isNaN(Date.parse(v.at))) return null;
+  if (Date.parse(v.at) > now + SUGGEST_AHEAD) return null; // a laptop whose clock runs ahead can't pin its suggestion
   if (!Array.isArray(v.picks) || v.picks.length > SUGGEST_PICKS || !Array.isArray(v.forList) || !v.forList.every((x) => typeof x === 'string')) return null;
   const picks = [];
   for (const p of v.picks) {

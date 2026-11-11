@@ -97,14 +97,14 @@ export default function mirrorRoutes(ctx) {
       p.synced = true;
       return;
     }
-    if (!Object.hasOwn(KINDS, kind) || typeof key !== 'string' || (value !== null && (typeof value !== 'object' || Array.isArray(value)))) return;
     // The laptop's suggested tickets are data from outside: stored in the shape the site checks, or not at all.
-    if (kind === 'inbox-suggest') {
-      const clean = value === null ? null : cleanSuggestion(value);
-      if (value !== null && !clean) return;
+    // A record that fails the check removes that laptop's earlier one, so the site shows nothing from it.
+    if (kind === 'inbox-suggest' && typeof key === 'string') {
+      const clean = value === null ? null : cleanSuggestion(value, now());
       await records.put(runner, kind, '', clean); // marks no job and no change: the page reads it with its inbox
       return;
     }
+    if (!Object.hasOwn(KINDS, kind) || typeof key !== 'string' || (value !== null && (typeof value !== 'object' || Array.isArray(value)))) return;
     if (!(await records.put(runner, kind, key, value))) return;
     if (kind === 'board' || kind.startsWith('stack')) p.change = true;
     else { p.jobs.add(kind === 'doc' ? key.split('\n')[0] : key); if (kind === 'job') p.change = true; }

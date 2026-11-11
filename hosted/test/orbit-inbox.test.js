@@ -722,7 +722,7 @@ test('the website’s inbox shows the laptop’s suggestion for tickets in its o
   const { s, olive, lap } = await suggestSetUp(value);
   try {
     await until(async () => (await answer(olive)).suggest, { what: 'the suggestion on the site' });
-    assert.deepEqual((await answer(olive)).suggest, { state: 'ready', ...value });
+    assert.deepEqual((await answer(olive)).suggest, { state: 'ready', ...value, receivedAt: new Date(s.clock.t).toISOString() });
   } finally { lap.link.stop(); await s.close(); }
 });
 
@@ -737,16 +737,39 @@ test('a pick the website’s list doesn’t have, or has started, or Orbit has r
   } finally { lap.link.stop(); await s.close(); }
 });
 
-test('with two laptops the newest suggestion wins', async () => {
-  const older = suggestion([{ key: 'ORBIT-12', reason: 'Older.' }], { at: '2026-10-30T10:00:00.000Z' });
-  const newer = suggestion([{ key: 'ORBIT-13', reason: 'Newer.' }], { at: '2026-10-30T15:00:00.000Z' });
-  const { s, olive, lap } = await suggestSetUp(newer);
+test('with two laptops the suggestion the website received last wins, whatever the laptops’ own clocks say', async () => {
+  const wrongClock = suggestion([{ key: 'ORBIT-12', reason: 'Clock ahead.' }], { at: '2026-10-30T16:04:00.000Z' });
+  const received = suggestion([{ key: 'ORBIT-13', reason: 'Received last.' }], { at: '2026-10-30T10:00:00.000Z' });
+  const { s, olive, lap } = await suggestSetUp(wrongClock);
+  await until(async () => (await s.db.query("SELECT 1 FROM records WHERE kind = 'inbox-suggest'")).rows.length === 1, { what: 'the first suggestion' });
+  s.clock.t += 60_000;
   const second = await paired(s, OLIVE, 'Olive’s Studio', { person: olive.person });
-  const lap2 = await mirrorLaptop(s, second.token, { runner: suggestRunner(older) });
+  const lap2 = await mirrorLaptop(s, second.token, { runner: suggestRunner(received) });
   try {
     await until(async () => (await s.db.query("SELECT 1 FROM records WHERE kind = 'inbox-suggest'")).rows.length === 2, { what: 'both laptops’ suggestions' });
-    assert.deepEqual((await answer(olive)).suggest.picks, newer.picks);
+    const { suggest } = await answer(olive);
+    assert.deepEqual(suggest.picks, received.picks);
+    assert.equal(suggest.receivedAt, new Date(s.clock.t).toISOString());
   } finally { lap2.link.stop(); lap.link.stop(); await s.close(); }
+});
+
+test('a record dated in the future is not stored, so a wrong laptop clock cannot pin a suggestion', async () => {
+  const { s, olive, lap } = await suggestSetUp(suggestion([{ key: 'ORBIT-12', reason: 'x' }], { at: '2099-01-01T00:00:00.000Z' }));
+  try {
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal((await s.db.query("SELECT 1 FROM records WHERE kind = 'inbox-suggest'")).rows.length, 0);
+    assert.equal((await answer(olive)).suggest, null);
+  } finally { lap.link.stop(); await s.close(); }
+});
+
+test('a bad record from a laptop removes that laptop’s earlier good one', async () => {
+  const { s, olive, runner, lap } = await suggestSetUp(suggestion([{ key: 'ORBIT-12', reason: 'Good.' }]));
+  try {
+    await until(async () => (await answer(olive)).suggest, { what: 'the good suggestion' });
+    runner.read.inboxSuggest = () => suggestion(Array(4).fill({ key: 'ORBIT-12', reason: 'x' }));
+    runner.changed();
+    await until(async () => (await answer(olive)).suggest === null, { what: 'the suggestion gone' });
+  } finally { lap.link.stop(); await s.close(); }
 });
 
 test('the website drops a laptop’s record that is not the right shape, and cuts what is too long', async () => {
@@ -758,6 +781,20 @@ test('the website drops a laptop’s record that is not the right shape, and cut
     { at: '2026-10-30T15:30:00.000Z', picks: [{ key: 'ORBIT-12', reason: 7 }], forList: [] },
     { at: '2026-10-30T15:30:00.000Z', picks: [{ key: 'ORBIT-12', reason: 'x' }], forList: [1] },
     { at: '2026-10-30T15:30:00.000Z', picks: Array(4).fill({ key: 'ORBIT-12', reason: 'x' }), forList: [] },
+    // key in lower case: refused, not rewritten
+    { at: '2026-10-30T15:30:00.000Z', picks: [{ key: 'orbit-12', reason: 'x' }], forList: [] },
+    // key with a leading zero: refused, not rewritten
+    { at: '2026-10-30T15:30:00.000Z', picks: [{ key: 'ORBIT-012', reason: 'x' }], forList: [] },
+    // a number as the key: refused
+    { at: '2026-10-30T15:30:00.000Z', picks: [{ key: 12, reason: 'x' }], forList: [] },
+    // an object as the reason: refused
+    { at: '2026-10-30T15:30:00.000Z', picks: [{ key: 'ORBIT-12', reason: { text: 'x' } }], forList: [] },
+    // a __proto__ key in the record (as JSON text): the record is still refused here because picks is wrong, and nothing leaks into Object.prototype
+    JSON.parse('{"__proto__": {"polluted": true}, "at": "2026-10-30T15:30:00.000Z", "picks": "no", "forList": []}'),
+    // a string, an array and null: not records, so the laptop's old suggestion goes and none shows
+    'ORBIT-12',
+    [suggestion([])],
+    null,
   ];
   const { s, olive, runner, lap } = await suggestSetUp(bad[0]);
   try {
@@ -767,6 +804,7 @@ test('the website drops a laptop’s record that is not the right shape, and cut
       await new Promise((r) => setTimeout(r, 150));
       assert.equal((await answer(olive)).suggest, null, JSON.stringify(b).slice(0, 80));
     }
+    assert.equal({}.polluted, undefined);
     runner.read.inboxSuggest = () => suggestion([{ key: 'ORBIT-12', reason: long }], { forList: Array(500).fill('ORBIT-12@a') });
     runner.changed();
     await until(async () => (await answer(olive)).suggest, { what: 'a long record' });

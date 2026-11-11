@@ -9,7 +9,7 @@ import { UiProvider, useUi, type SheetState } from '../app/ui';
 import { clockTime } from '../lib/time';
 import { createStore, WorkshopContext } from '../state/store';
 import { LEVELS, snapshot } from '../state/test-fixtures';
-import { InboxView, levelWord, nextTicket, shownPicks, queueOrder, sortInbox, toStart, startText, statusWord, type InboxAnswer, type InboxItem, type InboxSuggestion, type OrbitStatus, type OrbitStream } from './Inbox';
+import { InboxView, suggestNote, levelWord, nextTicket, shownPicks, queueOrder, sortInbox, toStart, startText, statusWord, type InboxAnswer, type InboxItem, type InboxSuggestion, type OrbitStatus, type OrbitStream } from './Inbox';
 import { OrbitTokenSettings } from './Settings/OrbitTokenSettings';
 import { setGuideFirstVisit } from '../components/page/Page';
 import { pickOption } from '../components/Select.testing';
@@ -518,6 +518,24 @@ describe('the Inbox follows your queue', () => {
       expect(within(row33).getByText('Suggested')).toHaveAttribute('title', "Picked by Haiku on your laptop, because none of your tickets is ranked in Orbit. Rank them in Orbit's Plan my queue to set the order yourself.");
       expect(row33).toHaveTextContent('Small and blocks Sam.');
       expect(rows.find((r) => r.getAttribute('data-ticket') === 'ORBIT-32')).not.toHaveTextContent('Suggested');
+    });
+
+    it('the status line is always in the page, empty with no note and holding the note when there is one', async () => {
+      await open({ ...INBOX, items: LIST, suggest: null });
+      const empty = document.querySelector('.inbox-note');
+      expect(empty).toBeInTheDocument();
+      expect(empty).toHaveAttribute('role', 'status');
+      expect(empty).toHaveTextContent('');
+      cleanup();
+      await open({ ...INBOX, items: LIST, suggest: suggest([], { state: 'asking' }) });
+      expect(document.querySelector('.inbox-note')).toHaveTextContent('Picking up to three tickets to suggest…');
+    });
+
+    it('on the website the age comes from when the site received the suggestion, not the laptop’s own date', () => {
+      const items = [unranked(31, { changedAt: 'x' })];
+      const wrong = suggest([{ key: 'ORBIT-31', reason: 'r' }], { at: new Date(NOW.getTime() - 60_000).toISOString(), receivedAt: new Date(NOW.getTime() - 3 * 3_600_000).toISOString() });
+      expect(suggestNote(wrong, items, 1, NOW, true)).toMatch(/^Suggested by your laptop 3 hours ago\. Your list may have changed since\./);
+      expect(suggestNote({ ...wrong, receivedAt: new Date(NOW.getTime() - 4 * 60_000).toISOString() }, items, 1, NOW, true)).toBe('Suggested by your laptop 4 minutes ago.');
     });
 
     it('a pick that got a job or a rank is not shown', () => {

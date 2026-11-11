@@ -186,12 +186,14 @@ function agoWords(iso: string | null, now: Date): string {
 }
 
 /** The line above the table about the suggestion, or null when there is nothing to say. */
-function suggestNote(suggest: InboxSuggestion | null | undefined, items: readonly InboxItem[], shown: number, now: Date, hosted: boolean): string | null {
+export function suggestNote(suggest: InboxSuggestion | null | undefined, items: readonly InboxItem[], shown: number, now: Date, hosted: boolean): string | null {
   if (!suggest) return null;
   if (hosted) {
     if (!shown) return null;
-    const old = now.getTime() - Date.parse(suggest.at ?? '') > 2 * 3_600_000;
-    return `Suggested by your laptop ${agoWords(suggest.at, now)} ago.${old ? ' Your list may have changed since. Your laptop suggests again when it is on.' : ''}`;
+    // The site's own time of receipt: a laptop with a wrong clock can't make an old suggestion look fresh.
+    const since = suggest.receivedAt ?? suggest.at;
+    const old = now.getTime() - Date.parse(since ?? '') > 2 * 3_600_000;
+    return `Suggested by your laptop ${agoWords(since, now)} ago.${old ? ' Your list may have changed since. Your laptop suggests again when it is on.' : ''}`;
   }
   if (suggest.state === 'asking') return 'Picking up to three tickets to suggest…';
   if (suggest.state === 'failed') return `No suggestion this time: ${suggest.why ?? "Haiku couldn't be reached."} It tries again when your list changes.`;
@@ -474,7 +476,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
           ) : items.length > 0 ? (
             <NextBar tone="quiet" icon="circle-check" say={isHosted ? 'Every ticket here has a job, or is on its way to your laptop' : 'Every ticket here already has a job'} sub="Open a job from its row to see where it is." />
           ) : null)}
-          {shown.state === 'ready' && !notApplied && (() => { const note = suggestNote(suggest, items, picks.length, now, isHosted); return note ? <p className="muted" role="status">{note}</p> : null; })()}
+          {shown.state === 'ready' && !notApplied && <p className="muted inbox-note" role="status">{suggestNote(suggest, items, picks.length, now, isHosted)}</p>}
           {shown.state === 'loading' && showListLoading && <p className="muted" role="status">Reading the list…</p>}
           {shown.state === 'error' && <p className="field-problem" role="alert">{shown.message}</p>}
           {shown.state === 'ready' && !notApplied && (items.length ? (

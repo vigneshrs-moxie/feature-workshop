@@ -132,15 +132,21 @@ export default function orbitRoutes(ctx) {
   }
 
   /**
-   * The newest laptop suggestion that has the right shape, with the picks this site's own rows still
+   * The laptop suggestion the site received last that has the right shape, with the picks this site's own rows still
    * allow: in the list, free (no job, no Start on its way), unranked in Orbit's queue. At most 3.
    */
   async function suggestion(personId, rows) {
     const all = await ctx.mirror.records.all(personId, 'inbox-suggest');
-    const best = all.map((r) => cleanSuggestion(r.value)).filter(Boolean).sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+    // `all` is newest-received first: the site's own clock decides, never the laptop's `at`.
+    let best = null;
+    let receivedAt = null;
+    for (const r of all) {
+      const clean = cleanSuggestion(r.value, now());
+      if (clean) { best = clean; receivedAt = r.updatedAt; break; }
+    }
     if (!best) return null;
     const free = new Set(rows.filter((i) => i.queueKnown && i.queuePosition === null && !i.job && !i.start).map((i) => i.key));
-    return { state: 'ready', at: best.at, picks: best.picks.filter((p) => free.has(p.key)).slice(0, 3), forList: best.forList };
+    return { state: 'ready', at: best.at, receivedAt, picks: best.picks.filter((p) => free.has(p.key)).slice(0, 3), forList: best.forList };
   }
 
   async function inboxAnswer(personId) {
