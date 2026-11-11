@@ -1,0 +1,23 @@
+/* The new job page (Part 3). Tokens only.
+   The overview card (job/page/OverviewCard.tsx, WhatToCheck.tsx): three columns side by side, one
+   under another when the card is narrow. */
+.sb-overview { container-type: inline-size; }
+.sb-ov-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-5); }
+@container (max-width: 640px) {
+  .sb-ov-cols { grid-template-columns: minmax(0, 1fr); }
+}
+.sb-ov-col { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.sb-ov-col .eyebrow { margin: 0; }
+.sb-ov-title { font-size: var(--text-sm); line-height: 1.35; overflow-wrap: anywhere; }
+.sb-ov-meta, .sb-ov-label { font-size: var(--text-xs); color: var(--text-2); }
+.sb-ov-label { margin-top: var(--space-1); }
+.sb-ov-desc { margin: 0; font-size: var(--text-sm); line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+.sb-ov-empty { margin: 0; font-size: var(--text-sm); color: var(--text-2); }
+.sb-ov-link { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); align-self: flex-start; }
+.sb-ov-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
+.sb-ov-list li { display: flex; gap: var(--space-2); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.sb-ov-mark { flex: none; margin-top: 2px; }
+.sb-ov-mark.is-ok { color: var(--status-ok); }
+.sb-ov-mark.is-err { color: var(--status-error); }
+.sb-ov-mark.is-warn { color: var(--status-warn); }
+.sb-check { display: flex; flex-direction: column; gap: var(--space-2); }
