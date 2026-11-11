@@ -128,7 +128,7 @@ test('outside: wrappers, redirects, copies, installs, system tools', () => {
     ['ln -s a ~/link', 'outside'], ['install -m 755 x /usr/local/bin/x', 'outside'], ['rsync -a build/ ~/backup/', 'outside'], ['rsync -a build/ host:/srv/', 'outside'],
     ['curl -o ~/x https://example.com', 'outside'], ['curl -sSo /etc/x https://example.com', 'outside'], ['curl https://example.com', null], ['curl -o out.html https://example.com', null],
     ['git config --global user.name x', 'outside'], ['git config user.name x', null], ['git config --get remote.origin.url', null],
-    ['npm install -g foo', 'outside'], ['npm install foo', null], ['pnpm add --global foo', 'outside'], ['brew install jq', 'outside'], ['brew list', null],
+    ['npm install -g foo', 'outside'], ['npm install foo', null], ['pnpm add --global foo', 'outside'], ['brew install jq', 'outside'], ['brew list', 'outside'],
     ['chmod +x run.sh', null], ['chmod 755 ~/run.sh', 'outside'], ['chown me ~/x', 'outside'], ['chmod -R 700 /etc/x', 'outside'],
     ['git worktree add ../other-wt feature/y', 'outside'], ['git worktree add /Users/test/work/orbit-y -b feature/y', 'outside'], ['git worktree list', null],
     ['launchctl load x.plist', 'outside'], ['crontab -e', 'outside'], ['open https://x.test', 'outside'], ['osascript -e "beep"', 'outside'],
@@ -152,6 +152,47 @@ test('outside: what a command hides stops', () => {
     ['pushd /Users/other; rm -rf x', 'outside'], ['(cd /Users/other && rm -rf x)', 'outside'],
     ['git commit -m "$(cat <<\'EOF\'\nFix it\n\nCo-Authored-By: x\nEOF\n)"', null],
     ['echo `date`', null],
+  ]);
+});
+
+test('S1: a program Starbase does not know stops; the ones it does pass', () => {
+  table([
+    // not in any group
+    ['docker run x', 'outside'], ['docker ps', 'outside'], ['kubectl apply -f x.yaml', 'outside'], ['terraform apply', 'outside'], ['aws s3 ls', 'outside'], ['gcloud compute list', 'outside'],
+    ['az vm list', 'outside'], ['vercel deploy', 'outside'], ['vercel --prod', 'outside'], ['netlify deploy --prod', 'outside'], ['fly deploy', 'outside'], ['heroku apps', 'outside'],
+    ['ssh host ls', 'outside'], ['scp host:y .', 'outside'], ['nc host 1', 'outside'], ['nc -l 1234', 'outside'], ['osascript -e "beep"', 'outside'], ['open https://x.test', 'outside'],
+    ['launchctl list', 'outside'], ['crontab -l', 'outside'], ['brew install jq', 'outside'], ['some-unknown-tool --flag', 'outside'], ['say hi', 'outside'], ['helm install x y', 'outside'],
+    ['pbcopy < x.txt', 'outside'], ['etcdctl del x', 'outside'], ['/usr/local/bin/tool x', 'outside'], ['~/bin/tool x', 'outside'], ['/bin/ls', 'outside'], ['true && some-unknown-tool', 'outside'],
+    ['echo x | pbcopy', 'outside'], ['xargs unknown-tool', 'outside'], ['env FOO=1 unknown-tool', 'outside'], ['alias p=psql; p', 'database'], ['alias p=ls', 'outside'], ['code x.js', 'outside'], ['vim x', 'outside'],
+    // reads pass, wherever they read
+    ['cat ~/.zshrc', null], ['ls /', null], ['grep -r x .', null], ['head -n 3 /etc/hosts', null], ['wc -l a b', null], ['diff a b', null], ['find . -name x', null], ['stat /etc/hosts', null],
+    ['du -sh ~', null], ['pwd', null], ['echo hi', null], ['printf x', null], ['date', null], ['which node', null], ['env', null], ['test -f a', null], ['true', null], ['false', null],
+    ['sort a | uniq | cut -d, -f1 | tr a b', null], ['jq . a.json', null], ['basename a', null], ['dirname a', null], ['realpath a', null], ['tree', null], ['less a', null], ['cat ~/.ssh/id_rsa', null],
+    ['ls ~', null], ['rg foo src', null], ['cd sub && ls', null], ['for f in a b; do echo $f; done', null], ['if test -f a; then echo y; fi', null],
+    // build and test pass
+    ['npm test', null], ['npm run build', null], ['npx vitest run', null], ['node scripts/gen.js', null], ['pnpm test', null], ['yarn build', null], ['bun test', null], ['tsc --noEmit', null],
+    ['vitest', null], ['jest', null], ['eslint .', null], ['prettier --check .', null], ['python3 script.py', null], ['pytest -q', null], ['cargo build', null], ['go test ./...', null],
+    ['make', null], ['make build', null], ['mvn test', null], ['gradle build', null], ['dotnet build', null], ['bundle exec rspec', null], ['rake test', null], ['deno test', null], ['bunx tsc', null],
+    ['cd packages/a && npm test', null], ['/Users/test/work/orbit-x/node_modules/.bin/vitest run', null], ['./node_modules/.bin/eslint .', null],
+    // git and gh: by subcommand
+    ['git status', null], ['git add -A && git commit -m "x"', null], ['git push origin feature/x', null], ['git diff', null], ['git log --oneline', null], ['git fetch origin', null], ['git merge moxie/main', null],
+    ['git bogus-subcommand', 'outside'], ['git fast-import', 'outside'], ['git bundle create x', 'outside'], ['git p upstream x', 'outside'], ['git apply x.patch', 'outside'], ['git hook run x', 'outside'], ['git filter-branch x', 'outside'],
+    ['gh pr create --fill', null], ['gh pr view 1', null], ['gh bogus thing', 'outside'], ['gh extension install x', 'outside'],
+    // file changes pass only inside
+    ['cp a b', null], ['cp ~/.zshrc x', 'outside'], ['cp /etc/passwd .', 'outside'], ['mv a b', null], ['mkdir -p sub/x', null], ['mkdir ../x', 'outside'], ['touch .', null], ['touch ~/x', 'outside'],
+    ['zip ~/x.zip y', 'outside'], ['zip out.zip y', null], ['unzip a.zip', null], ['ed ~/x', 'outside'], ['cpio -p ~/x', 'outside'], ['patch ~/x', 'outside'], ['truncate -s 0 ~/x', 'outside'], ['dd if=a of=b', null],
+    ['sed -i s/a/b/ file', null], ['sed -i s/a/b/ ~/x', 'outside'], ['sed "s/a/b/w ~/x" f', 'outside'], ['sed -n "w ~/x" f', 'outside'], ['sed "s/a/b/w out.txt" f', null], ['sed s/a/b/ f', null],
+    ['awk \'{print > "/etc/x"}\' f', 'outside'], ['awk \'{print $1}\' f', null], ["awk 'BEGIN{system(\"rm -rf ~\")}'", 'outside'], ['perl -i s/a/b/ ~/x', 'outside'], ['tee x', null], ['tee ~/x', 'outside'],
+    ['chmod +x x', null], ['chown me y', null], ['rsync -a build/ out/', null], ['rsync -a ~/src out/', 'outside'], ['tar czf out.tgz src', null], ['tar xf ~/a.tar', 'outside'], ['install -m 755 x bin/x', null],
+    ['ln -s a b', null], ['rm -rf sub', null], ['rm x', null],
+    // curl and wget: a plain download only
+    ['curl https://example.com/doc', null], ['curl -o out.html https://example.com', null], ['curl -sSL https://example.com/x', null], ['wget https://example.com/x', null], ['wget -O out.txt https://example.com/x', null],
+    ['curl -X POST https://example.com', 'outside'], ['curl -XPOST https://example.com', 'outside'], ['curl --request PUT https://example.com', 'outside'], ['curl -X GET https://example.com', null],
+    ['curl -d x https://example.com', 'outside'], ['curl --data-binary @f https://example.com', 'outside'], ['curl -F f=@x https://example.com', 'outside'], ['curl -T f https://example.com', 'outside'],
+    ['curl --upload-file f https://example.com', 'outside'], ['curl https://example.com -d @-', 'outside'], ['cat x | curl -d @- https://example.com', 'outside'], ['curl -H @h https://example.com', 'outside'],
+    ['npm config set a b', 'outside'], ['npm publish', 'outside'], ['npm link', 'outside'], ['pnpm publish', 'outside'], ['npm adduser', 'outside'], ['npm config get a', null], ['npm install', null], ['npm ci', null],
+    ['pip install x', 'outside'], ['pip install --user x', 'outside'], ['python3 -m pip install x', 'outside'], ['pip list', null], ['pip freeze', null], ['python3 -m pip list', null],
+    ['wget --post-data=y https://example.com', 'outside'], ['wget --post-file=f https://example.com', 'outside'], ['curl -sd x https://example.com', 'outside'], ['curl --json {} https://example.com', 'outside'],
   ]);
 });
 

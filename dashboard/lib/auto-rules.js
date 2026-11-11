@@ -117,14 +117,22 @@ function jobRoots(ctx) {
 const inRoots = (p, roots, strict = false) => roots.some((r) => isInside(p, r) && !(strict && p === r));
 
 function bashStop(command, hard, ctx) {
-  const st = { ctx, hits: new Set(), roots: jobRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
+  const st = { ctx, hits: new Set(), unknown: false, funcs: functionNames(command), roots: jobRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
   if (hard?.line === 'gh-pr-merge') st.hits.add('merge');
   if (hard?.line === 'database') st.hits.add('database');
   analyze(command, ctx.cwd ?? null, st, 0, null);
   const verdict = classify('Bash', { command }, { mode: 'hands-off', stage: 'implement', worktrees: ctx.worktrees ?? [], specDirs: ctx.specDirs ?? [], featureDir: ctx.featureDir ?? null, cwd: ctx.cwd ?? null, rules: [] });
   if (verdict.outside) st.hits.add('outside');
   const rule = PRIORITY.find((r) => st.hits.has(r));
-  return rule ? stop(rule) : null;
+  return rule ? stop(rule, rule === 'outside' && st.unknown ? { unknownProgram: true } : {}) : null;
+}
+
+// Names a command defines as shell functions (their bodies are read as commands; a use of one is not an unknown program).
+function functionNames(command) {
+  const out = new Set();
+  for (const m of command.matchAll(/(?:^|[;&|\n{(]\s*)(?:function\s+)?([A-Za-z_][\w.-]*)\s*\(\s*\)/g)) out.add(m[1]);
+  for (const m of command.matchAll(/(?:^|[;&|\n{(]\s*)function\s+([A-Za-z_][\w.-]*)/g)) out.add(m[1]);
+  return out;
 }
 
 // ---------- reading a command ----------
@@ -287,6 +295,18 @@ function dbCommand(cmd, args) {
   return false;
 }
 
+// S1: for a job on Auto a program is let in by name. Anything not in a group stops (outside, unknownProgram).
+// Reads: only read, so they pass whatever path they read.
+const READS = new Set(['cat', 'ls', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'head', 'tail', 'wc', 'diff', 'cmp', 'find', 'file', 'stat', 'du', 'df', 'pwd', 'echo', 'printf', 'date', 'which', 'whereis', 'type', 'env', 'printenv', 'test', '[', '[[', ']]', 'true', 'false', 'sort', 'uniq', 'cut', 'tr', 'jq', 'yq', 'basename', 'dirname', 'realpath', 'readlink', 'tree', 'less', 'more', 'man', 'column', 'comm', 'join', 'paste', 'nl', 'fold', 'fmt', 'tac', 'rev', 'od', 'hexdump', 'xxd', 'strings', 'md5', 'md5sum', 'shasum', 'sha1sum', 'sha256sum', 'cksum', 'seq', 'sleep', 'id', 'whoami', 'uname', 'hostname', 'getconf', 'nproc', 'expr', 'wait', 'xargs',
+  // shell builtins and keywords
+  'cd', 'pushd', 'popd', 'exit', 'return', 'break', 'continue', 'export', 'unset', 'set', 'shift', 'local', 'declare', 'typeset', 'readonly', 'let', 'read', 'getopts', 'hash', 'ulimit', ':', '}', 'if', 'fi', 'for', 'done', 'while', 'until', 'case', 'esac', 'elif', 'in', 'select', 'function']);
+// File changes: pass only when every path argument is inside the job's folders (a path we can't place stops).
+const FILE_CHANGES = new Set(['cp', 'mv', 'rm', 'mkdir', 'rmdir', 'touch', 'ln', 'chmod', 'chown', 'chgrp', 'sed', 'gsed', 'awk', 'gawk', 'perl', 'tee', 'tar', 'unzip', 'zip', 'rsync', 'install', 'truncate', 'dd', 'patch', 'ed', 'unlink', 'shred', 'mkfifo', 'mknod', 'chflags', 'xattr', 'split', 'csplit', 'cpio', 'ditto', 'gzip', 'gunzip', 'bzip2', 'bunzip2', 'xz', 'unxz', 'unrar', '7z', '7za', 'mktemp']);
+// Build and test: they pass unless a rule stops them (a database tool, -e/-c code, a global install, a publish).
+const BUILD = new Set(['node', 'nodejs', 'npm', 'npx', 'pnpm', 'pnpx', 'yarn', 'bun', 'bunx', 'deno', 'tsc', 'tsx', 'ts-node', 'vitest', 'jest', 'eslint', 'prettier', 'pip', 'pip3', 'pytest', 'ruby', 'bundle', 'rake', 'go', 'cargo', 'rustc', 'make', 'mvn', 'gradle', 'dotnet', 'php', 'composer', 'uv', 'poetry', 'pipenv', 'vite', 'webpack', 'rollup', 'esbuild', 'turbo', 'nx', 'lerna', 'playwright', 'cypress', 'mocha', 'ruff', 'black', 'mypy', 'flake8', 'swift', 'xcodebuild', 'gcc', 'cc', 'clang', 'java', 'javac', 'just', 'tox', 'nox', 'perl']);
+const programGroup = (cmd) => (READS.has(cmd) ? 'read' : FILE_CHANGES.has(cmd) ? 'file' : BUILD.has(cmd) || /^python[\d.]*$/.test(cmd) ? 'build' : cmd === 'git' || cmd === 'gh' || cmd === 'hub' ? 'git' : cmd === 'curl' || cmd === 'wget' ? 'net' : null);
+const NPM_PUBLISH = /^(publish|unpublish|deprecate|adduser|login|logout|dist-tag|access|owner|token|team|profile|set|link|ln)$/;
+
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'csh', 'tcsh']);
 const INLINE = { node: /^-[A-Za-z]*[ep]$|^--(eval|print)(=|$)/, nodejs: /^-[A-Za-z]*[ep]$|^--(eval|print)(=|$)/, ruby: /^-[A-Za-z]*e$/, perl: /^-[A-Za-z]*[eE]$/, php: /^-[A-Za-z]*r$/, lua: /^-e$/, deno: /^eval$/ };
 const PY_INLINE = /^-[A-Za-z]*c$/;
@@ -329,6 +349,15 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   else if (!TEXTY.has(cmd) && args.some((x) => DB_CLIENTS.has(name(x.t)))) hit('database'); // a client named under a wrapper we don't know
   if (EXEC_LIKE.has(cmd)) for (const x of args) if (/\s/.test(x.t)) analyze(x.t, cwd, st, depth + 1, null);
 
+  // S1: a program is let in by name.
+  const inside = cmdWord.t.includes('/') ? physicalPath(cmdWord.t, cwd) : null;
+  const ownBin = inside && inRoots(inside, st.roots) && /\/node_modules\/\.bin\/[^/]+$/.test(inside);
+  const byFile = inside && inRoots(inside, st.roots) && !ownBin; // a file of the job's own, run by its path
+  const known = byFile || (!cmdWord.t.includes('/') || ownBin) && (programGroup(cmd) || SHELLS.has(cmd) || cmd === 'eval' || cmd === 'source' || cmd === '.' || cmd === 'alias' || st.funcs.has(cmd.replace(/\(\)$/, '')));
+  if (!known) { hit('outside'); st.unknown = true; return; }
+  if (cmd === 'alias') { hit('outside'); for (const x of a) { const eq = x.indexOf('='); if (eq > 0) analyze(x.slice(eq + 1), cwd, st, depth + 1, null); } return; }
+  if (byFile) return;
+
   if (SHELLS.has(cmd)) {
     const c = args.findIndex((x) => /^-[A-Za-z]*c$/.test(x.t));
     if (c >= 0) {
@@ -341,6 +370,8 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   if (cmd === 'source' || cmd === '.') { hit('outside'); return; }
   const inline = /^python[\d.]*$/.test(cmd) ? PY_INLINE : INLINE[cmd];
   if (inline || /^(python[\d.]*|node|nodejs|ruby|perl|php|deno|lua)$/.test(cmd)) {
+    const mod = a.indexOf('-m');
+    if (mod >= 0 && a[mod + 1] === 'pip') pipStep(a.slice(mod + 2), (r) => hit(r));
     if (a.some((x) => inline?.test(x))) hit('outside'); // code we can't read
     else if (!pos().filter((x) => x.t !== '-').length && !a.some((x) => NO_STDIN.test(x))) hit('outside'); // code from stdin
     if (cmd === 'perl' || cmd === 'ruby') { if (a.some((x) => /^-[A-Za-z]*i/.test(x))) writes(pos()); }
@@ -375,17 +406,22 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
       const p = pos().filter((x) => !(t && x === t));
       const dest = t ?? (p.length >= 2 ? p[p.length - 1] : null);
       if (!dest) { writes([{ t: '.', dyn: false }]); return; }
-      if (/^[^/]*:/.test(dest.t) && !dest.t.startsWith('/')) hit('outside'); // a remote host
-      writes([dest]);
+      for (const x of [...p, dest]) if (/^[^/]*:/.test(x.t) && !x.t.startsWith('/')) hit('outside'); // a remote host
+      writes(cmd === 'ln' ? [dest] : [...p, dest]); // every path argument, sources too (a link's target is judged apart)
       return;
     }
-    case 'dd': writes(a.filter((x) => x.startsWith('of=')).map((x) => ({ t: x.slice(3), dyn: x.includes('$') }))); return;
+    case 'dd': writes(a.filter((x) => /^(of|if)=/.test(x)).map((x) => ({ t: x.slice(3), dyn: x.includes('$') }))); return;
     case 'curl': {
       const targets = [];
       for (let k = 0; k < a.length; k++) {
-        if (/^(--output|--output-dir|-o|--dump-header|-D|--cookie-jar|-c|--trace|--trace-ascii|-K|--config)$/.test(a[k]) || /^-[A-Za-z]*[oDc]$/.test(a[k])) targets.push(args[k + 1] ?? { t: '', dyn: true });
+        if (/^(--output|--output-dir|-o|--dump-header|-D|--cookie-jar|-c|--trace|--trace-ascii)$/.test(a[k]) || /^-[A-Za-z]*[oDc]$/.test(a[k])) targets.push(args[k + 1] ?? { t: '', dyn: true });
         else if (/^--(output|output-dir|dump-header|cookie-jar|trace|trace-ascii)=/.test(a[k])) targets.push({ t: a[k].slice(a[k].indexOf('=') + 1), dyn: args[k].dyn });
         else if (a[k] === '--remote-name' || a[k] === '--remote-name-all' || a[k] === '-J' || /^-[A-Za-z]*O$/.test(a[k])) targets.push({ t: '.', dyn: false });
+        // Only a plain download passes: nothing sent, no method but GET, no @file, no config file.
+        const x = a[k];
+        if (/^(-X|--request)$/.test(x)) { if ((a[k + 1] ?? '').toUpperCase() !== 'GET') hit('outside'); } else if (/^-X./.test(x) || /^--request=/.test(x)) { if (x.replace(/^(-X|--request=)/, '').toUpperCase() !== 'GET') hit('outside'); }
+        if (/^(-d|-F|-T|-K|--json|--config|--upload-file|--unix-socket|--resolve|--connect-to)$/.test(x) || /^--(data|form|json|upload-file|config|resolve|connect-to|unix-socket)/.test(x) || (/^-[A-Za-z]+$/.test(x) && /[dFTK]/.test(x))) hit('outside');
+        if (x.startsWith('@') || /^-[-A-Za-z]+[=:]@/.test(x) || /=@/.test(x)) hit('outside');
       }
       writes(targets);
       return;
@@ -396,23 +432,65 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
         if (/^(-O|-P|--output-document|--directory-prefix|-o|--output-file|-a|--append-output)$/.test(a[k])) { if (args[k + 1]?.t !== '-') targets.push(args[k + 1] ?? { t: '', dyn: true }); }
         else if (/^--(output-document|directory-prefix|output-file)=/.test(a[k])) targets.push({ t: a[k].slice(a[k].indexOf('=') + 1), dyn: args[k].dyn });
         else if (/^-O./.test(a[k]) && a[k] !== '-O-') targets.push({ t: a[k].slice(2), dyn: false });
+        if (/^--(post-data|post-file|body-data|body-file|method)(=|$)/.test(a[k]) || /^(-e|--execute)/.test(a[k])) hit('outside');
       }
       if (!a.some((x) => /^(-O|--output-document)/.test(x))) targets.push({ t: '.', dyn: false });
       writes(targets);
       return;
     }
     case 'tar': case 'unzip': case 'gunzip': case 'bunzip2': case 'unrar': case '7z': case '7za': writes([...pos(), { t: '.', dyn: false }]); return;
-    case 'sed': case 'gsed': if (a.some((x) => /^-[A-Za-z]*i|^--in-place/.test(x))) writes(pos()); return;
-    case 'awk': case 'gawk': if (a.some((x) => x === '-i' || x === '--in-place')) writes(pos()); return;
-    case 'npm': case 'pnpm': case 'yarn': case 'bun': case 'npx':
-      if (a.some((x) => x === '-g' || /^--(global|location=global)$/.test(x)) || a[0] === 'global' || (a[0] === 'link' && cmd === 'npm')) hit('outside');
+    case 'sed': case 'gsed': case 'awk': case 'gawk': {
+      const sed = cmd.endsWith('sed');
+      const scripts = [];
+      const files = [];
+      let own = false; // a script given with -e / -f / --expression / --file
+      for (let k = 0; k < args.length; k++) {
+        const x = a[k];
+        if (/^(-e|--expression|--program)$/.test(x)) { own = true; scripts.push(args[++k]?.t ?? ''); continue; }
+        if (!sed && /^--(expression|program)=/.test(x)) { own = true; scripts.push(x.slice(x.indexOf('=') + 1)); continue; }
+        if (/^(-f|--file)$/.test(x) || /^--file=/.test(x)) { hit('outside'); own = true; if (!x.includes('=')) k++; continue; } // a script file we don't read
+        if (x.startsWith('-') && x !== '-') { if (!sed && /^(-v|-F)$/.test(x)) k++; continue; }
+        files.push(args[k]);
+      }
+      if (!own && files.length) scripts.push(files.shift().t);
+      const inPlace = a.some((x) => /^-[A-Za-z]*i|^--in-place/.test(x) && (sed || x === '-i' || x === '--in-place'));
+      const real = files.filter((x) => x.t !== '');
+      if (inPlace) writes(real);
+      for (const sc of scripts) scriptWrites(sed, sc, cwd, st, writes);
       return;
+    }
+    case 'npm': case 'pnpm': case 'yarn': case 'bun': case 'npx': case 'bunx': case 'pnpx': {
+      const sub1 = a.find((x) => !x.startsWith('-')) ?? '';
+      const sub2 = a.filter((x) => !x.startsWith('-'))[1] ?? '';
+      if (a.some((x) => x === '-g' || /^--(global|location=global)$/.test(x)) || a[0] === 'global' || NPM_PUBLISH.test(sub1) || (sub1 === 'config' && /^(set|delete|edit|rm)$/.test(sub2))) hit('outside');
+      return;
+    }
+    case 'pip': case 'pip3': pipStep(a, hit); return;
     case 'brew': if (!BREW_READ.has(a[0] ?? '')) hit('outside'); return;
     case 'pipx': case 'gem': case 'cargo': case 'go': case 'uv': if (['install', 'tool', 'uninstall', 'upgrade'].includes(a[0]) || cmd === 'pipx') hit('outside'); return;
     case 'find': findStep(args, a, cwd, st); return;
     case 'pushd': case 'popd': return;
     default:
+      if (FILE_CHANGES.has(cmd)) writes(pos().filter((x) => x.t !== '-' && x.t !== '')); // we can't tell which argument is a path: every one is
   }
+}
+
+// pip: reading is fine; installing needs a virtual env of the job's own (run by its path), never --user or the system.
+function pipStep(a, hit) {
+  const sub = a.find((x) => !x.startsWith('-')) ?? '';
+  if (['list', 'show', 'freeze', 'check', 'help', 'inspect', 'search', 'config', 'debug', 'hash'].includes(sub) || (!sub && a.some((x) => /^(--version|-V|--help|-h)$/.test(x)))) return;
+  hit('outside');
+}
+
+// What a sed or awk script writes: the files it names for output, and anything it runs.
+function scriptWrites(sed, script, cwd, st, writes) {
+  if (sed) {
+    for (const m of script.matchAll(/(?:^|[;{}\n]|\/[gpiImM0-9]*)\s*[wW]\s*([^\s;}]+)/g)) writes([{ t: m[1], dyn: m[1].includes('$') }]);
+    if (/(?:^|[;{}\n])\s*e\b|\/[gpiImM0-9]*e\s*(?:$|[;}\n])/.test(script)) st.hits.add('outside'); // sed's e runs a command
+    return;
+  }
+  for (const m of script.matchAll(/>>?\s*"?([^"\s;}]+)"?/g)) writes([{ t: m[1], dyn: m[1].includes('$') }]);
+  if (/system\s*\(|getline|close\s*\(/.test(script) || /\|/.test(script.replace(/\|\|/g, ''))) st.hits.add('outside'); // awk's pipes and system() run commands
 }
 
 function findStep(args, a, cwd, st) {
@@ -435,7 +513,7 @@ function ghStep(cmd, args, a, st) {
   const p = args.filter((x, k) => !(x.t.startsWith('-') || ['-R', '--repo'].includes(a[k - 1])) ).map((x) => x.t);
   const [group, action] = p;
   if (cmd === 'hub') {
-    if (!['pull-request', 'ci-status', 'browse'].includes(group) && !(group === 'pr' && ['list', 'show', 'checkout'].includes(action))) hit('outside');
+    if (!['pull-request', 'ci-status', 'browse'].includes(group) && !(group === 'pr' && ['list', 'show', 'checkout'].includes(action))) { hit('outside'); st.unknown = true; }
     return;
   }
   if (group === 'pr' && action === 'merge') { hit('merge'); return; }
@@ -449,11 +527,13 @@ function ghStep(cmd, args, a, st) {
   if (a.some((x) => x === '--version' || x === '--help') && !group) return;
   const ok = GH_OK[group];
   if (ok === null && group) return; // gh search / gh status only read
-  if (!ok || !ok.includes(action)) hit('outside');
+  if (!ok || !ok.includes(action)) { hit('outside'); if (!ok) st.unknown = true; }
 }
 
 // ---------- git ----------
 
+// Subcommands that work on the repository and the worktree (push, remote, config, worktree, clone and init have their own rules below).
+const GIT_LOCAL = new Set(['add', 'commit', 'checkout', 'switch', 'restore', 'reset', 'stash', 'branch', 'tag', 'merge', 'rebase', 'cherry-pick', 'revert', 'fetch', 'pull', 'clean', 'mv', 'rm', 'notes', 'reflog', 'bisect', 'sparse-checkout', 'symbolic-ref', 'ls-remote', 'show-ref', 'show-branch', 'diff-tree', 'diff-index', 'diff-files', 'push', 'send-pack', 'remote', 'config', 'worktree', 'clone', 'init', 'gc']);
 const GIT_ENV = /^GIT_(DIR|WORK_TREE|COMMON_DIR|INDEX_FILE|OBJECT_DIRECTORY|NAMESPACE|CONFIG|SSH|EXEC_PATH|PROXY|ASKPASS)/;
 const GIT_CFG_RISKY = /^(remote\.|url\.|core\.(sshcommand|gitproxy|hookspath|fsmonitor|pager|editor)|push\.|include|alias\.|credential|http\.|submodule\.|filter\.|diff\.[^.]*\.(command|textconv))/i;
 const normUrl = (u) => String(u ?? '').trim().replace(/\/+$/, '').replace(/\.git$/, '').toLowerCase();
@@ -476,6 +556,7 @@ function gitStep(args, assigns, cwd, st, xargs) {
   const sargs = args.slice(i + 1);
   const a = sargs.map((x) => x.t);
   if (!sub) return;
+  if (!GIT_READ.has(sub) && !GIT_LOCAL.has(sub)) { hit('outside'); st.unknown = true; return; } // a subcommand (or alias) we don't know
   const inWork = eff && st.work.some((w) => isInside(eff, w));
   if (sub === 'push' || sub === 'send-pack') {
     if (foreign || risky || !inWork || pushStops(sargs, eff, ctx)) hit('push');
