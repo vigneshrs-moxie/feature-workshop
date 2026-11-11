@@ -2507,6 +2507,19 @@ test('m3: a stop and a finish each say a place is free (once), so Auto start can
   }
 });
 
+test('F5: a reply that ends asks Auto start to fill the place it held', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null, jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    let asked = 0;
+    w.hooks.autoStartAsked = () => { asked++; };
+    await w.runner.handle({ type: 'reply', slug: w.slug, text: 'Carry on.' }, { from: 'local' });
+    await w.idle();
+    await w.until(() => asked >= 1, 'Auto start to be asked after the reply ended');
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.equal(asked, 1, 'once for the one reply');
+  } finally { await w.stop(); }
+});
+
 test('m3: switching Auto off, by hand or by closing the job, asks Auto start to fill the place', { timeout: 30_000 }, async () => {
   for (const how of ['switch', 'close']) {
     const w = await world();

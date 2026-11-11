@@ -1803,7 +1803,8 @@ export async function createRunner(config) {
   const endedRuns = new Set();
   driver.on('run', (run) => {
     // A reply ended: the job may now wait for your go-ahead (its card shows only once nothing runs).
-    if (!ACTIVE_RUN.has(run.status) && !endedRuns.has(run.id)) { endedRuns.add(run.id); setTimeout(() => { checkWaiting(); auto.pass(); }, 1000); }
+    // A reply that held an Auto start place has let it go: a waiting tagged ticket starts now, not at the next Inbox poll (F5).
+    if (!ACTIVE_RUN.has(run.status) && !endedRuns.has(run.id)) { endedRuns.add(run.id); setTimeout(() => { checkWaiting(); auto.pass(); runAutoStart(); }, 1000); }
     if (run.status !== 'error' || toldErrors.has(run.id)) return;
     toldErrors.add(run.id);
     tell({ level: 'problem', title: run.title ?? run.slug, body: noticeBody({ stage: stageOfSlug(run.slug), what: 'The reply ended with an error. Open the job to see it.' }), slug: run.slug, key: `error:${run.id}` });
