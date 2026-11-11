@@ -1533,8 +1533,9 @@ export async function createRunner(config) {
         dir: f.dir, slug: f.slug, title: f.title, auto: f.auto, level: Number.isInteger(f.level) ? f.level : null, suggestedLevel: Number.isInteger(f.suggestedLevel) ? f.suggestedLevel : null,
         needsYou: f.needsYou === true,
         stage: f.stage ?? null, stageState: f.stageState ?? null, ticketKey: f.options?.ticket?.key ?? null,
-        // The rules that read the description and the files the Foreman expects to touch (a migration stops Auto).
-        triggers: suggestLevel({ description: f.description, paths: f.predictedPaths ?? [] }).triggers,
+        // The rules that read the description, the files the Foreman expects to touch and the files the job's branch really
+        // changes (changedPathsFor: git, cached a minute per job, as the job page and the Inbox suggestion use): a migration stops Auto.
+        triggers: suggestLevel({ description: f.description, paths: [...(f.predictedPaths ?? []), ...((await changedPathsFor(f).catch(() => null)) ?? [])] }).triggers,
         statusCard: driver.pendingPermissions().some((p) => p.featureDir === f.dir && p.statusCard === true),
         // PR #1 open by status.json or by the flow map: the same sources the ordinary Done notice reads (flowNotices).
         prOpen: finishLineReached({ prs: f.prs, closed: null }, flowLanes.get(f.slug) ?? null, 'pr1-open').reached,

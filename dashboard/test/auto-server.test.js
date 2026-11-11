@@ -569,6 +569,22 @@ test('the same after a build\'s diff raises it', { timeout: 30_000 }, async () =
   } finally { await w.stop(); }
 });
 
+test('a job whose own files say L1 but whose worktree holds a new migration stops Auto as a predicted migration does, before the Approver is asked', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    const base = w.git('rev-parse', 'HEAD').toString().trim();
+    await fs.mkdir(path.join(w.dirs.repo, 'db', 'migrations'), { recursive: true });
+    await fs.writeFile(path.join(w.dirs.repo, 'db', 'migrations', '001_visits.sql'), 'alter table visits add column x int;\n');
+    w.git('add', '.'); w.git('commit', '-q', '-m', 'build');
+    await w.writeStatus(status(1, { worktree: w.dirs.repo, base_sha: base, predicted_paths: ['src/visits.js'] }));
+    await new Promise((r) => setTimeout(r, 1600));
+    await w.pass();
+    assert.equal(w.asks.length, 0, 'the Approver is not asked');
+    assert.equal((await w.sends()).length, 0);
+    assert.equal((await w.record()).stopped?.rule, 'database');
+  } finally { await w.stop(); }
+});
+
 test('a job with no level whose Foreman suggests L3 leaves Auto', { timeout: 30_000 }, async () => {
   const w = await world({ jobStatus: status(1, { suggested_level: 3 }), options: { flow: 'small', title: 'T' } });
   try {
