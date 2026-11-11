@@ -80,7 +80,7 @@ import { TICKET_FILE, readTicketFile } from '../lib/ticket-file.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
-import { AUTO_START_FILE, AutoStarter, normalizeAutoStart } from '../lib/auto-start.js';
+import { AUTO_START_FILE, AutoStarter, isBusy, normalizeAutoStart, pausedFor } from '../lib/auto-start.js';
 import { activeWarnings } from '../lib/usage-warnings.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
 import { ClaudeCodeUsage, CLAUDE_CODE_NOTE, CLAUDE_CODE_WORDS, readSetting as claudeCodeSetting, writeSetting as setClaudeCodeSetting } from '../lib/claude-code-usage.js';
@@ -1644,7 +1644,10 @@ export async function createRunner(config) {
   // Orbit tag you wrote starts a job with Auto on, one at a time, each ticket once. It never runs
   // when the setting is off. The website can only change the setting (the auto-start command).
   let autoStartSetting = normalizeAutoStart(null);
-  const autoPaused = () => (orbitInbox.view().error ? 'orbit' : limits.isLimited() || activeWarnings(planUsage.view()).length ? 'limit' : null);
+  const autoPaused = () => {
+    const meters = planUsage.view();
+    return pausedFor({ orbitError: orbitInbox.view().error, limited: limits.isLimited(), warnings: activeWarnings(meters).length, reading: { enabled: meters.enabled, error: meters.error, checkedAt: meters.checkedAt } });
+  };
   const autoStarter = new AutoStarter({
     file: path.join(state.dir, AUTO_START_FILE),
     setting: async () => autoStartSetting,
@@ -1659,7 +1662,11 @@ export async function createRunner(config) {
       }
       const last = memory.started.at(-1);
       const f = last?.slug ? list.find((x) => x.slug === last.slug) : null;
-      const busy = Boolean(f) && !f.closed && f.auto?.on === true && !f.auto.stopped && !finishLineReached({ prs: f.prs, closed: f.closed }, null, 'pr1-open').reached;
+      // A reply is running when the driver has a run on the job: the same signal sendPlan refuses a second send on.
+      const busy = Boolean(f) && isBusy({
+        jobOpen: !f.closed, pr1Open: finishLineReached({ prs: f.prs, closed: f.closed }, null, 'pr1-open').reached,
+        replyRunning: Boolean(driver.activeRunFor({ featureDir: f.dir })), autoOn: f.auto?.on === true, autoStopped: f.auto?.stopped === true,
+      });
       return { ticketsWithJobs, busy };
     },
     start: async (item, tag) => {
@@ -1678,7 +1685,7 @@ export async function createRunner(config) {
   }
   orbitInbox.on('change', runAutoStart);
   /** What the Inbox shows of it: the setting, and why it is paused (null when it is not). */
-  const autoStartView = () => ({ ...autoStartSetting, paused: autoStartSetting.on ? autoPaused() : null });
+  const autoStartView = () => ({ ...autoStartSetting, paused: autoStartSetting.on ? autoPaused() ?? (autoStarter.memoryUnreadable() ? 'memory' : null) : null });
 
   /** Reads the saved address and starts the poller when there is a token. At start and after a save. */
   async function startOrbit() {

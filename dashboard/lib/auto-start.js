@@ -5,8 +5,8 @@
 //   - one job at a time: the next waits until the last one has stopped or has PR #1 open;
 //   - each ticket is started at most once ever: the memory file is written BEFORE the start;
 //   - a failed start is remembered and never retried by itself (Start on the row clears it);
-//   - nothing starts while the setting is off, the tag is empty, the Claude limit warning shows,
-//     Orbit can't be reached, or Orbit shows no tags to this token;
+//   - nothing starts while the setting is off, the tag is empty, the Claude limit warning shows or
+//     can't be read, Orbit can't be reached, or Orbit shows no tags to this token;
 //   - a tag is matched against the row's tag names only, never its title, description or comments.
 // The memory file is AUTO_START_FILE in Starbase's state folder: { started: [{ key, at, slug, tag }],
 // failed: [{ key, at, reason }] }. A file that can't be read starts nothing (the history is unknown).
@@ -32,6 +32,29 @@ export function tagMatches(item, tag) {
   return item.tags.some((t) => typeof t === 'string' && t.trim().toLowerCase() === want);
 }
 
+/**
+ * Whether the job the tag started last still holds the queue. Pure. It does while it is open and
+ * PR #1 is not, and either a reply is running on it (whatever its Auto state) or Auto is on and
+ * not stopped. A job waiting for the person (Auto stopped, or switched off with no reply running)
+ * frees the queue.
+ */
+export function isBusy({ jobOpen = false, pr1Open = false, replyRunning = false, autoOn = false, autoStopped = false } = {}) {
+  if (!jobOpen || pr1Open) return false;
+  return replyRunning === true || (autoOn === true && autoStopped !== true);
+}
+
+/**
+ * Why Auto start is paused, or null. Pure. Fails closed: when the Claude limit reading has an error
+ * or has not arrived, it pauses ('limit-reading'), unless the person switched that reading off.
+ *   reading  { enabled, error, checkedAt } from the plan usage
+ */
+export function pausedFor({ orbitError = null, limited = false, warnings = 0, reading = null } = {}) {
+  if (orbitError) return 'orbit';
+  if (limited || warnings > 0) return 'limit';
+  if (reading && reading.enabled !== false && (reading.error || !reading.checkedAt)) return 'limit-reading';
+  return null;
+}
+
 const tried = (memory, key) => memory.started.some((e) => e.key === key) || memory.failed.some((e) => e.key === key);
 
 /**
@@ -41,7 +64,7 @@ const tried = (memory, key) => memory.started.some((e) => e.key === key) || memo
  *   memory         { started, failed }
  *   ticketsWithJobs  Set of ticket keys that have or had a job (closed ones too)
  *   busy           the last started job is still on its way to PR #1
- *   paused         'limit' | 'orbit' | null
+ *   paused         'limit' | 'limit-reading' | 'orbit' | null
  *   tagsShown      Orbit shows tags to this token (the view's tagsShown); anything but true counts as no
  * Returns { start: item } or { wait: reason }.
  */
@@ -50,7 +73,7 @@ export function pickNext({ items = [], setting, memory, ticketsWithJobs = new Se
   if (!s.on) return { wait: 'off' };
   if (!s.tag) return { wait: 'no-tag' };
   if (paused === 'orbit') return { wait: 'paused-orbit' };
-  if (paused === 'limit') return { wait: 'paused-limit' };
+  if (paused === 'limit' || paused === 'limit-reading') return { wait: 'paused-limit' };
   if (tagsShown !== true) return { wait: 'no-tags-shown' };
   if (busy) return { wait: 'busy' };
   const hit = items.find((i) => Array.isArray(i?.why) && i.why.includes('assigned')
@@ -73,8 +96,9 @@ const listOf = (v) => (Array.isArray(v) ? v.filter((e) => e && typeof e.key === 
  *   notify(n)  tells the person once per started job
  */
 export class AutoStarter {
-  constructor({ file, setting, inbox, jobs, paused, start, notify = async () => {}, now = () => new Date().toISOString() }) {
-    Object.assign(this, { file, setting, inbox, jobs, paused, start, notify, now });
+  constructor({ file, setting, inbox, jobs, paused, start, notify = async () => {}, now = () => new Date().toISOString(), write = writeFileAtomic }) {
+    Object.assign(this, { file, setting, inbox, jobs, paused, start, notify, now, write });
+    this.dirty = false; // a started job's slug is in memory but not yet on disk
     this.memory = null; // null until read; { unreadable: true } when the file can't be trusted
     this.current = null;
     this.again = false;
@@ -92,7 +116,7 @@ export class AutoStarter {
     return this.memory;
   }
 
-  #save() { return writeFileAtomic(this.file, `${JSON.stringify({ started: this.memory.started, failed: this.memory.failed }, null, 2)}\n`, { mode: 0o600 }); }
+  #save() { return this.write(this.file, `${JSON.stringify({ started: this.memory.started, failed: this.memory.failed }, null, 2)}\n`, { mode: 0o600 }); }
 
   /** The sentence a failed start gave, for the row (null when the ticket has none). Known after the first run. */
   failedReason(key) { return this.memory?.failed?.find?.((e) => e.key === key)?.reason ?? null; }
@@ -104,6 +128,9 @@ export class AutoStarter {
     m.failed = m.failed.filter((e) => e.key !== key);
     await this.#save();
   }
+
+  /** The memory file can't be read, so nothing starts (the Inbox line says so). */
+  memoryUnreadable() { return this.memory?.unreadable === true; }
 
   /** The slug of the job started last, or null. */
   lastStarted() { return this.memory?.started?.at?.(-1) ?? null; }
@@ -121,9 +148,17 @@ export class AutoStarter {
   async #once() {
     const memory = await this.#load();
     if (memory.unreadable) return { wait: 'nothing' };
+    if (this.dirty) { try { await this.#save(); this.dirty = false; } catch { /* tried again next pass */ } }
     const setting = await this.setting();
     const view = this.inbox();
     const { ticketsWithJobs, busy } = await this.jobs(memory);
+    // A crash mid-start left an entry with no slug and no job: show it as a failed start (never started again).
+    const lost = memory.started.filter((e) => !e.slug && !ticketsWithJobs.has(e.key));
+    if (lost.length) {
+      memory.started = memory.started.filter((e) => !lost.includes(e));
+      for (const e of lost) memory.failed.push({ key: e.key, at: this.now(), reason: 'Starbase stopped while it was starting this one. Press Start to try.' });
+      await this.#save();
+    }
     const next = pickNext({ items: view.items, setting, memory, ticketsWithJobs, busy, paused: this.paused(), tagsShown: view.tagsShown });
     if (!next.start) return next;
     const it = next.start;
@@ -134,13 +169,17 @@ export class AutoStarter {
     try {
       const { slug } = await this.start(it, tag);
       entry.slug = slug ?? null;
-      await this.#save();
     } catch (err) {
       memory.started = memory.started.filter((e) => e !== entry);
+      if (err?.code === 'limited' || err?.extra?.code === 'limited' || err?.status === 409) {
+        await this.#save(); // refused for the limit: not a failed start, the ticket stays untried
+        return { wait: 'paused-limit' };
+      }
       memory.failed.push({ key: it.key, at: this.now(), reason: String(err?.message ?? err).replace(/\s+/g, ' ').trim().slice(0, 300) || 'It did not start.' });
       await this.#save();
       return { failed: it };
     }
+    try { await this.#save(); } catch { this.dirty = true; } // the job exists: kept as started, saved again next pass
     await this.notify({ level: 'needs', title: `Started by Auto: ${it.key}`, body: `${it.title}. It has the tag "${tag}". Auto runs it to PR #1 and asks you only if it must.`, slug: entry.slug, key: `auto-start:${it.key}` });
     return { started: it };
   }

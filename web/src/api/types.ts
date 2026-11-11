@@ -1809,7 +1809,7 @@ export interface InboxLaptop { id: number; name: string; online: boolean; repos:
 export interface InboxSuggestion { state: 'asking' | 'ready' | 'failed'; at: string | null; /** Hosted only: when the site received it (the age is worked out from this). */ receivedAt?: string; picks: { key: string; reason: string }[]; forList: string[]; nextAt?: string | null; why?: string }
 
 /** The laptop's Inbox answer about Auto start: the setting, and why it is paused (null when it is not). */
-export type AutoStartView = AutoStartSetting & { paused: 'limit' | 'orbit' | null };
+export type AutoStartView = AutoStartSetting & { paused: 'limit' | 'limit-reading' | 'orbit' | 'memory' | null };
 
 export type InboxAnswer = OrbitStatus & { autoStart?: AutoStartView; /** Orbit shows tags to this token. */ tagsShown?: boolean; suggest?: InboxSuggestion | null; items: InboxItem[]; laptops?: InboxLaptop[]; filter?: InboxFilter; view?: string; checkedAt?: string; truncated?: boolean };
 

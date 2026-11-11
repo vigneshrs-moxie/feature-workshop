@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { AutoStarter, normalizeAutoStart, pickNext, tagMatches } from '../lib/auto-start.js';
+import { AutoStarter, isBusy, normalizeAutoStart, pausedFor, pickNext, tagMatches } from '../lib/auto-start.js';
 
 const dirs = [];
 async function tmp() { const d = await fs.mkdtemp(path.join(os.tmpdir(), 'sb-autostart-')); dirs.push(d); return d; }
@@ -75,7 +75,7 @@ async function rig(over = {}) {
   };
   Object.assign(r, over);
   r.starter = new AutoStarter({
-    file, now: () => '2026-11-11T10:00:00.000Z',
+    file, now: () => '2026-11-11T10:00:00.000Z', ...(r.write ? { write: (...a) => r.write(...a) } : {}),
     setting: async () => r.setting,
     inbox: () => ({ items: r.items, tagsShown: r.tagsShown }),
     jobs: async () => ({ ticketsWithJobs: r.tickets, busy: r.busy }),
@@ -160,4 +160,84 @@ test('runs overlapping start only one job', async () => {
   const r = await rig();
   await Promise.all([r.starter.run(), r.starter.run(), r.starter.run()]);
   assert.equal(r.started.length, 1);
+});
+
+// ---------- Fix round 1 ----------
+
+const JOB = { jobOpen: true, pr1Open: false, replyRunning: false, autoOn: true, autoStopped: false };
+test('A1: busy while the job is open, PR #1 is not, and a reply runs or Auto is on and not stopped', () => {
+  assert.equal(isBusy({ ...JOB, autoOn: false, replyRunning: true }), true, 'Auto switched off, reply running');
+  assert.equal(isBusy({ ...JOB, autoOn: false, replyRunning: false }), false, 'Auto switched off, idle');
+  assert.equal(isBusy({ ...JOB, autoStopped: true }), false, 'Auto stopped, waiting for the person');
+  assert.equal(isBusy({ ...JOB, autoStopped: true, replyRunning: true }), true, 'a reply runs even when stopped');
+  assert.equal(isBusy({ ...JOB }), true, 'Auto on, idle at a gate');
+  assert.equal(isBusy({ ...JOB, pr1Open: true }), false);
+  assert.equal(isBusy({ ...JOB, jobOpen: false, replyRunning: true }), false);
+});
+
+test('A2: a save that fails after a good start is not a failed start, and is retried', async () => {
+  let calls = 0;
+  const r = await rig({ items: [item(1), item(2)], write: async (f, data, o) => {
+    calls += 1;
+    if (calls === 2) throw new Error('disk full'); // the save of the slug
+    return (await import('../lib/atomic-write.js')).writeFileAtomic(f, data, o);
+  } });
+  const out = await r.starter.run();
+  assert.deepEqual(r.started.map((s) => s.key), ['ORBIT-1']);
+  assert.equal(r.starter.failedReason('ORBIT-1'), null);
+  assert.equal(r.starter.lastStarted().slug, 'orbit-1-t'); // in memory
+  r.busy = true; r.tickets = new Set(['ORBIT-1']);
+  await r.starter.run();
+  const saved = JSON.parse(await fs.readFile(r.file, 'utf8'));
+  assert.deepEqual(saved.started.map((e) => [e.key, e.slug]), [['ORBIT-1', 'orbit-1-t']]);
+  assert.deepEqual(saved.failed, []);
+  assert.deepEqual(r.started.map((s) => s.key), ['ORBIT-1']);
+  void out;
+});
+
+test('A3: a started entry with no slug and no job is shown as a failed start, never restarted', async () => {
+  const r = await rig();
+  await fs.writeFile(r.file, JSON.stringify({ started: [{ key: 'ORBIT-1', at: 'x', slug: null, tag: 'auto' }], failed: [] }));
+  await r.starter.run();
+  assert.deepEqual(r.started, []);
+  assert.match(r.starter.failedReason('ORBIT-1'), /stopped while it was starting/i);
+  const saved = JSON.parse(await fs.readFile(r.file, 'utf8'));
+  assert.deepEqual(saved.started, []);
+  assert.equal(saved.failed[0].key, 'ORBIT-1');
+  // one that does have a job is left alone
+  const r2 = await rig({ tickets: new Set(['ORBIT-1']) });
+  await fs.writeFile(r2.file, JSON.stringify({ started: [{ key: 'ORBIT-1', at: 'x', slug: null, tag: 'auto' }], failed: [] }));
+  await r2.starter.run();
+  assert.equal(r2.starter.failedReason('ORBIT-1'), null);
+});
+
+test('A4: the limit pause fails closed, unless the reading is switched off', () => {
+  const ok = { orbitError: null, limited: false, warnings: 0, reading: { enabled: true, error: null, checkedAt: '2026-11-11T10:00:00Z' } };
+  assert.equal(pausedFor(ok), null);
+  assert.equal(pausedFor({ ...ok, orbitError: 'x' }), 'orbit');
+  assert.equal(pausedFor({ ...ok, limited: true }), 'limit');
+  assert.equal(pausedFor({ ...ok, warnings: 1 }), 'limit');
+  assert.equal(pausedFor({ ...ok, reading: { ...ok.reading, error: 'Claude answered 429.' } }), 'limit-reading');
+  assert.equal(pausedFor({ ...ok, reading: { ...ok.reading, checkedAt: null } }), 'limit-reading');
+  assert.equal(pausedFor({ ...ok, reading: { enabled: false, error: null, checkedAt: null } }), null);
+});
+
+test('A5: a start refused because of the limit is not a failed start; the ticket stays untried', async () => {
+  const r = await rig({ items: [item(1), item(2)] });
+  r.starter.start = async () => { throw Object.assign(new Error('Limit.'), { extra: { code: 'limited' }, status: 409 }); };
+  const out = await r.starter.run();
+  assert.equal(r.starter.failedReason('ORBIT-1'), null);
+  assert.deepEqual(JSON.parse(await fs.readFile(r.file, 'utf8')), { started: [], failed: [] });
+  r.starter.start = async (it) => { r.started.push({ key: it.key }); return { slug: 's' }; };
+  await r.starter.run();
+  assert.deepEqual(r.started.map((s) => s.key), ['ORBIT-1']);
+  void out;
+});
+
+test('A6: an unreadable memory file is reported', async () => {
+  const r = await rig();
+  assert.equal(r.starter.memoryUnreadable(), false);
+  await fs.writeFile(r.file, '{not json');
+  await r.starter.run();
+  assert.equal(r.starter.memoryUnreadable(), true);
 });

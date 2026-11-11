@@ -596,6 +596,16 @@ describe('Auto start on the Inbox', () => {
     expect(await screen.findByText("Auto start is paused: Orbit can't be reached.")).toBeInTheDocument();
   });
 
+  it("says when it can't read the Claude limit or its list of started tickets", async () => {
+    const a = setup({ answer: { ...STATUS, autoStart: { ...ON, paused: 'limit-reading' }, items: [tagged(1, ['auto'])] } });
+    a.wrap(<InboxView openStream={() => null} />);
+    expect(await screen.findByText("Auto start is paused: Starbase can't read your Claude limit right now.")).toBeInTheDocument();
+    cleanup();
+    const b = setup({ answer: { ...STATUS, autoStart: { ...ON, paused: 'memory' }, items: [tagged(1, ['auto'])] } });
+    b.wrap(<InboxView openStream={() => null} />);
+    expect(await screen.findByText("Auto start is paused: Starbase couldn't read its list of started tickets.")).toBeInTheDocument();
+  });
+
   it('a ticket that failed to start by itself says why and offers Start', async () => {
     const answer: InboxAnswer = { ...STATUS, autoStart: ON, items: [tagged(1, ['auto'], { autoStartFailed: 'This laptop has no repository for it.' })] };
     const { wrap } = setup({ answer });
