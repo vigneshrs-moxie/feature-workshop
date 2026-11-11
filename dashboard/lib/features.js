@@ -207,6 +207,8 @@ export function summariseSessions(sessions, now = Date.now()) {
       who: 'conductor', name: agentInfo('conductor').name, sessionId: s.parsed.sessionId, model: s.parsed.lastModel ?? null,
       state: activityState(s.parsed), quiet: quietHint(s.parsed, now), doing: s.parsed.lastAction?.text ?? null,
       since: s.parsed.lastAction?.at ?? s.parsed.lastAt, lastAt: s.parsed.lastAt,
+      // The job page's live feed (lib/session-log.js): its last actions, and its last command.
+      recent: s.parsed.recent ?? [], lastCommand: s.parsed.lastCommand ?? null,
     });
     for (const sub of s.subagents) {
       activity.push({
@@ -216,6 +218,7 @@ export function summariseSessions(sessions, now = Date.now()) {
         model: Object.entries(usageByModel(sub.parsed)).sort((a, b) => b[1].tokens.output - a[1].tokens.output)[0]?.[0] ?? null,
         sessionId: s.parsed.sessionId, state: workerState(sub, s.parsed), quiet: quietHint(sub.parsed, now),
         doing: sub.parsed.lastAction?.text ?? null, startedAt: sub.parsed.firstAt, lastAt: sub.parsed.lastAt,
+        recent: sub.parsed.recent ?? [], lastCommand: sub.parsed.lastCommand ?? null,
       });
     }
   }
@@ -247,15 +250,16 @@ export function kindFor(kind, branch, slug) {
   return /^(fix|bug|hotfix)[/-]/i.test(branch || '') || /^(fix|bug)-/i.test(slug || '') ? 'bug' : 'feature';
 }
 
-// The job's brief files (briefs/NNN-stage.md), oldest first.
+// The job's brief files (briefs/NNN-stage.md), oldest first; at: the file's time (ISO), or null.
 async function listBriefs(dir) {
-  return (await listDir(path.join(dir, 'briefs')))
+  const briefs = (await listDir(path.join(dir, 'briefs')))
     .filter((e) => e.isFile() && /^\d+-.+\.md$/.test(e.name))
     .map((e) => {
       const [, n, stage] = /^(\d+)-(.+)\.md$/.exec(e.name);
       return { number: Number(n), stage, file: `briefs/${e.name}` };
     })
     .sort((a, b) => a.number - b.number);
+  return Promise.all(briefs.map(async (b) => ({ ...b, at: (await statOrNull(path.join(dir, b.file)))?.mtime.toISOString() ?? null })));
 }
 
 // The brief the Foreman is on: the one status.json names, else the newest brief file (detail

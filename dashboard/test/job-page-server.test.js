@@ -185,3 +185,29 @@ test('a restart keeps the filer’s name out of the archived folder, and the new
   for (const f of archived) assert.ok(!f.text.includes('Pat Reporter'), f.p);
   assert.equal((await getJob(res.body.slug)).page.ticket.filedBy, 'Pat Reporter');
 });
+
+test('a job’s page has each step’s times and documents (Task 2)', { timeout: 60_000 }, async () => {
+  const STEPS = ['spec', 'investigate', 'plan', 'build', 'test', 'review', 'ship'];
+  // Not started by Starbase (no new-job line), at Clarify: the Spec step has no start and no end yet.
+  const job = await getJob('notes-on-customers');
+  assert.ok(job.briefs.every((b) => typeof b.at === 'string'), 'each brief has its file’s time');
+  assert.deepEqual(Object.keys(job.page.times), STEPS);
+  for (const stop of STEPS) assert.deepEqual(job.page.times[stop], { startedAt: null, endedAt: null }, stop);
+  const files = (stop) => job.page.docs[stop].map((d) => d.file);
+  assert.deepEqual(Object.keys(job.page.docs), [...STEPS, 'none']);
+  assert.deepEqual(files('spec'), ['briefs/001-clarify.md']);
+  assert.deepEqual(files('plan'), ['briefs/002-plan.md']);
+  assert.ok(files('none').includes('status.json') && files('none').includes('options.json'));
+  // Started by Starbase: once the Foreman says it is at the Spec, that step starts at the new-job line.
+  const { slug, dir } = await startTicketJob();
+  await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({
+    schema_version: 1, slug, title: 'Read-only feedback API', route: 'small', stage: 'spec', stage_state: 'working',
+    repo: { path: repo, base_branch: 'main' }, updated_at: new Date().toISOString(),
+  }));
+  let ticketJob = await getJob(slug);
+  const end = Date.now() + 10_000;
+  while (Date.now() < end && ticketJob.stage !== 'spec') { await sleep(100); ticketJob = await getJob(slug); }
+  const startLine = ticketJob.audit.find((e) => e.action === 'new-job');
+  assert.ok(startLine?.at, 'the new-job line is in the job’s audit');
+  assert.deepEqual(ticketJob.page.times.spec, { startedAt: startLine.at, endedAt: null });
+});
