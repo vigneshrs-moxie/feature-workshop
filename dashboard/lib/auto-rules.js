@@ -340,23 +340,46 @@ function analyze(command, cwd, st, depth, viaXargs) {
   const parts = commandParts(command, cwd);
   const noCd = !/\b(cd|pushd|popd)\b/.test(command); // with no cd in it, every command runs where the session does
   if (parts) {
-    let lost = false;
-    let guess = null; // where a script lookup may look, taking a plain `cd name` as a folder of that name (writes never use it)
+    // Where each command may run (C2). A cd moves the commands joined to it by an unbroken && chain;
+    // after any other separator the cd may have failed (or been skipped), so a later command is judged
+    // in the folder before it as well as the one it names, and the stricter answer is kept (st.hits
+    // gathers both). A plain `cd name` is taken as that folder (CDPATH is not set in a plain call).
+    let lost = false; // where later commands run is no longer known (pushd, popd, a cd behind a wrapper)
+    let cands = [cwd]; // the folders the next command may run in (null: not known)
+    let open = []; // the folders before each cd of the && chain now running
+    let chainOk = true; // the next command starts a list, or follows only && since its start
     for (const part of parts) {
-      const first = part.words.find((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w.t))?.t;
-      st.hint = lost ? null : part.cwd ?? guess ?? (noCd ? cwd : null);
-      simple(part.words, part.redirects ?? [], lost ? null : part.cwd ?? guess, st, depth, viaXargs); // guess: a plain `cd name` taken as that folder (CDPATH is not set in a plain call)
-      if (first === 'pushd' || first === 'popd') lost = true; // where later commands run is no longer known
+      if (part.sub) { st.hint = noCd ? cwd : null; simple(part.words, part.redirects ?? [], null, st, depth, viaXargs); continue; }
       const ws = part.words.filter((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w.t));
-      if ((ws[0]?.t === 'cd' || ws[0]?.t === 'pushd') && ws.length === 2 && !ws[1].dyn) { const at = physicalPath(ws[1].t, part.cwd ?? guess ?? cwd); if (at) st.cdTargets.push(at); }
-      if (ws[0]?.t === 'cd' && ws.length === 2 && !ws[1].dyn && /^[^/~.-]/.test(ws[1].t) && (part.cwd ?? guess)) guess = path.resolve(part.cwd ?? guess, ws[1].t);
-      else if (ws[0]?.t === 'cd') guess = null;
+      for (const c of lost ? [null] : cands) { st.hint = c; simple(part.words, part.redirects ?? [], c, st, depth, viaXargs); }
+      const isCd = ws[0]?.t === 'cd';
+      if (ws[0]?.t === 'pushd' || ws[0]?.t === 'popd' || (!isCd && ws.some((w) => /^(cd|pushd|popd)$/.test(w.t)))) lost = true;
+      if ((isCd || ws[0]?.t === 'pushd') && ws.length === 2 && !ws[1].dyn) for (const c of cands) { const at = physicalPath(ws[1].t, c ?? cwd); if (at) st.cdTargets.push(at); }
+      let next = cands;
+      if (isCd) {
+        const targets = cands.map((c) => cdWhere(ws, c));
+        if (chainOk && part.sep === '&&') { open.push(...cands); next = targets; } else next = [...cands, ...targets];
+      }
+      if (part.sep !== '&&') { next = [...open, ...next]; open = []; chainOk = part.sep === ';' || part.sep === null; }
+      cands = [...new Set(next)];
+      if (cands.length > 8) lost = true;
     }
     return;
   }
   const { pieces, inner } = rawSplit(command);
   for (const piece of pieces) { const { ws, redirects } = rawWords(piece); st.hint = noCd ? cwd : null; simple(ws, redirects, null, st, depth, viaXargs); }
   for (const s of inner) analyze(s, null, st, depth + 1, viaXargs);
+}
+
+// Where `cd <word>` (the words without assignments) goes from folder c: absolute, or null when not known.
+function cdWhere(ws, c) {
+  if (ws.length === 1) return os.homedir();
+  if (ws.length !== 2 || ws[1].dyn || ws[1].t.startsWith('-')) return null;
+  const t = ws[1].t;
+  if (t === '~' || t.startsWith('~/')) return path.join(os.homedir(), t.slice(1));
+  if (t.startsWith('~')) return null;
+  if (path.isAbsolute(t)) return path.resolve(t);
+  return c ? path.resolve(c, t) : null;
 }
 
 // Wrappers beyond hard-lines' list. Each maps to its options that take a value.

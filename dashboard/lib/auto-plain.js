@@ -760,9 +760,20 @@ export function plainWhy(command, env = {}) {
     if (!here) ask('a folder Starbase cannot work out');
     let cands = [here];
     let pending = null;
+    // A cd moves the commands joined to it by an unbroken && chain. Once any other separator follows, the
+    // cd may have failed (or been skipped), so what comes next is judged against the old folders and the new (C2).
+    let open = []; // the folders before each cd of the && chain now running
+    let chainOk = true; // this command starts a list, or follows only && since its start
     let broughtIn = false; // an archive or a checkout just put files here: a link among them could be written through
     for (const cmd of cmds) {
-      if (pending) { if (cmd.sep !== '&&') ask('a cd that is not followed by && (what comes next may run in either folder)'); cands = pending.news; pending = null; }
+      if (cmd.sep === '||' || cmd.sep === '|') chainOk = false; else if (cmd.sep !== '&&') chainOk = true;
+      if (pending) {
+        if (cmd.sep !== '&&') ask('a cd that is not followed by && (what comes next may run in either folder)');
+        open.push(...pending.old);
+        cands = pending.sure ? pending.news : [...new Set([...pending.old, ...pending.news])];
+        pending = null;
+      } else if (cmd.sep !== '&&' && open.length) { cands = [...new Set([...open, ...cands])]; open = []; }
+      if (cands.length > 8) ask('a command that may run in too many folders');
       const ctx = { roots, cands, ctx: env.ctx };
       for (const r of cmd.redirects) { if (r.op === '<') { readablePath(r.target, ctx); } else redirectCheck(r, ctx); }
       let words = cmd.words;
@@ -772,7 +783,9 @@ export function plainWhy(command, env = {}) {
         i++;
       }
       words = words.slice(i);
+      const before = words.length;
       while (words[0] && KEYWORDS.has(words[0].t)) words = words.slice(1);
+      const keyword = words.length !== before; // if cd x, while cd x, ! cd x: the cd may fail and what follows still run
       if (!words.length) { if (i > 0) ask('a variable set on its own'); continue; }
       const head = words[0];
       if (head.glob) ask('a program chosen by a pattern');
@@ -784,7 +797,7 @@ export function plainWhy(command, env = {}) {
       if (head.t === 'cd') {
         const news = cdTargets(cmd, cands, roots);
         if (!news.every((p) => inRoots(p, roots))) ask('a cd to a folder outside the job');
-        pending = { old: cands, news };
+        pending = { old: cands, news, sure: chainOk && !keyword };
         continue;
       }
       const args = words.slice(1);

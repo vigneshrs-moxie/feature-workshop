@@ -131,3 +131,60 @@ test('C1: /, the home folder, a folder above it, the state folder and ~/.claude 
   }
 });
 
+// ---------- C2: a cd may have failed ----------
+
+const C2CTX = () => ctxOf({ worktrees: [WT], specDirs: [`${REPO}/docs/plans`], branches: [BRANCH] });
+const UP9 = '../'.repeat(9); // from the worktree this reaches /; from a/b/c/d/e/f/g/h/i inside it, the worktree
+const OUT = `${UP9}Users/nobody-probe`;
+const FAILING_CD = 'cd a/b/c/d/e/f/g/h/i && true; ';
+const C2_TAILS = [
+  `mkdir -p ${OUT}/newdir`, `touch ${OUT}/x`, `cp package.json ${OUT}/x.json`, `mv package.json ${OUT}/x.json`, `rm ${OUT}/x`, `rm -r ${OUT}/Documents`,
+  `npx prettier --write ${OUT}/other-repo/README.md`, `npx eslint --fix ${OUT}/other-repo/src`, `npx eslint . -o ${OUT}/.zshrc`, `npx tsc --outDir ${OUT}/out`,
+  `sed -i '' s/a/b/ ${OUT}/.zshrc`, `git add ${OUT}/x`, `git checkout -- ${OUT}/other-repo/src/a.js`, `git mv a.txt ${OUT}/a.txt`, `git rm -r ${OUT}/other-repo/src`,
+  `npm test -- --outputFile=${OUT}/x.json`, `npx vitest run --outputFile ${OUT}/x.json`, `npx jest --coverageDirectory ${OUT}/cov`,
+  `ln -s ${OUT}/Documents docs-link`, `chmod -R 777 ${OUT}/Documents`, `tar xf a.tar -C ${OUT}`, `unzip a.zip -d ${OUT}`, `npm ci --prefix ${OUT}/other-repo`, `npm install --prefix ${OUT}/other-repo --ignore-scripts`,
+];
+
+test('C2: after a cd that may have failed, a later command is judged in the old folder too', () => {
+  const ctx = C2CTX();
+  const wrong = [];
+  for (const t of C2_TAILS) {
+    const got = bash(FAILING_CD + t, ctx);
+    const control = bash(t, ctx);
+    if (got !== control) wrong.push({ command: FAILING_CD + t, got, control });
+  }
+  assert.deepEqual(wrong, []);
+  // The review's own rows: each separator after the cd's && chain.
+  const rows = [
+    [`cd a/b/c/d/e/f/g/h/i && true; touch ${OUT}/x`, 'outside'],
+    [`cd a/b/c/d/e/f/g/h/i && true; rm -r ${OUT}/Documents`, 'outside'],
+    [`cd a/b/c/d/e/f/g/h/i && true; echo hi > ${OUT}/.zshrc`, 'outside'],
+    [`cd a/b/c/d/e/f/g/h/i && true; cp package.json ${OUT}/x.json`, 'outside'],
+    [`cd a/b/c/d/e/f/g/h/i && ls; mv ${OUT}/x.json y.json`, 'outside'],
+    [`cd a/b/c/d/e/f/g/h/i && true\ntouch ${OUT}/x`, 'outside'],
+    [`cd a/b/c/d/e/f/g/h/i && true || touch ${OUT}/x`, 'outside'],
+    [`cd a/b/c/d/e/f/g/h/i && true | touch ${OUT}/x`, 'outside'],
+    [`cd a && cd b && true; touch ../../${UP9}x`, 'outside'],
+    ['cd nosuch && true; rm -r ../sibling', 'outside'],
+    ['cd nosuch && true; touch ../sibling.txt', 'outside'],
+    [`touch ${OUT}/x`, 'outside'],
+  ];
+  for (const [command, want] of rows) assert.equal(bash(command, ctx), want, command);
+});
+
+test('C2: a cd joined by an unbroken && chain still moves the commands after it', () => {
+  const ctx = C2CTX();
+  for (const command of ['cd app && npm run build && npm test', 'cd app && touch ../notes.txt', 'cd app && touch dist/x && touch dist/y', 'cd app && cd src && touch x.ts']) assert.equal(bash(command, ctx), null, command);
+  // a plain read after a broken chain still passes
+  assert.equal(bash('cd app && true; ls', ctx), null);
+});
+
+test('C2: the routine list treats a later command after a cd that may have failed as running in an unknown folder', async () => {
+  const { classify } = await import('../lib/policy.js');
+  const routine = (c) => classify('Bash', { command: c }, { mode: 'auto', stage: 'implement', featureDir: JOB, worktrees: [WT], repoPath: REPO, specDirs: [`${REPO}/docs/plans`], cwd: WT, defaultToNo: false, rules: [] }).auto;
+  for (const t of C2_TAILS) assert.equal(routine(FAILING_CD + t), routine(t) && routine(FAILING_CD + t), t);
+  for (const t of [`touch ${OUT}/x`, `mkdir -p ${OUT}/d`, `echo x > ${OUT}/y`, `git add ${OUT}/x`]) {
+    assert.equal(routine(`cd /Users/test/Projects/orbit-orbit-500-thing/app && true; ${t}`), false, t);
+    assert.equal(routine(`cd app && true; ${t}`), false, t);
+  }
+});

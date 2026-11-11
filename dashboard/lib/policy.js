@@ -492,8 +492,8 @@ function cdTarget(words, cwd) {
 
 /**
  * The simple commands of a command line, each with the folder it runs in (absolute, or null when
- * unknown) and its words ({ t, dyn }), following cd the way classify() does. Commands inside $( … )
- * come last, in an unknown folder. null when the line can't be read.
+ * unknown), its words ({ t, dyn }) and the separator after it (sep), following cd the way classify()
+ * does. Commands inside $( … ) come last, in an unknown folder (sub: true). null when the line can't be read.
  * lib/hard-lines.js uses it to see exactly what an rm -rf would delete.
  */
 export function commandParts(cmd, cwd = null) {
@@ -506,7 +506,7 @@ export function commandParts(cmd, cwd = null) {
   for (const part of parsed.parts) {
     const t = tokenize(part.text);
     if (!t) return null;
-    out.push({ text: part.text, cwd: here, words: t.words, redirects: t.redirects });
+    out.push({ text: part.text, cwd: here, words: t.words, redirects: t.redirects, sep: part.sep });
     const to = cdTarget(t.words, here);
     if (to !== undefined) { here = chainOk && part.sep === '&&' ? to : null; moved = true; }
     if (part.sep !== '&&') {
@@ -517,7 +517,7 @@ export function commandParts(cmd, cwd = null) {
   for (const part of parsed.subs) {
     const t = tokenize(part.text);
     if (!t) return null;
-    out.push({ text: part.text, cwd: null, words: t.words, redirects: t.redirects });
+    out.push({ text: part.text, cwd: null, words: t.words, redirects: t.redirects, sep: null, sub: true });
   }
   return out;
 }
