@@ -536,9 +536,11 @@ const strictest = (verdicts) => verdicts.filter(Boolean).sort((a, b) => RANK[b.d
 const MAX_HARD_COMMAND = 100_000;
 const MAX_HARD_WORDS = 2000;
 export const TOO_LONG = Object.freeze({ decision: 'ask', line: 'too-long', reason: 'This command is too long for Starbase to check, so it needs you.' });
+// Above 100 KB a command is refused, for every job: padding in front must never turn a refusal into a question (I9).
+export const TOO_LONG_REFUSED = Object.freeze({ decision: 'deny', line: 'too-long', reason: 'This command is too long to check. Split it, or write the file with the Write tool.' });
 
 export function hardLine(toolName, input = {}, opts = {}) {
-  if (toolName === 'Bash' && String(input?.command ?? '').length > MAX_HARD_COMMAND) return TOO_LONG;
+  if (toolName === 'Bash' && String(input?.command ?? '').length > MAX_HARD_COMMAND) return TOO_LONG_REFUSED;
   const outer = lstatMemo;
   const memo = { seen: new Map(), left: LSTAT_LIMIT, exhausted: false, places: new Map(), tooMuch: false };
   lstatMemo = memo;

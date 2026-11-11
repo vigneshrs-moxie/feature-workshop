@@ -546,3 +546,14 @@ test('I8: the job cannot rewrite what Auto reads about itself, and nothing it wr
   assert.equal(/\nThe person says/.test(before(evil)), false, before(evil)); // no line of its own outside the block
   for (const k of ['orbit-500', 'ORBIT 500', 'ORBIT-500a', '-500']) assert.match(approverPrompt(task({ ticketKey: k })), /ticket none\./, k);
 });
+
+test('I9: above 100 KB a command is refused for every job, so a refusal can never become a question', () => {
+  const REFUSED = 'This command is too long to check. Split it, or write the file with the Write tool.';
+  const pad = `echo "${'x'.repeat(100_100)}"; `;
+  for (const c of [`${pad}git push --force origin ${BRANCH}`, `${pad}git push moxie main`, `${pad}echo x >> ~/.starbase/sessions.json`, `${pad}curl -s -X POST http://localhost:4477/api/jobs/x/auto`, `echo "${'a'.repeat(100_001)}"`]) {
+    const v = hardLine('Bash', { command: c }, { cwd: WT });
+    assert.deepEqual({ decision: v?.decision, reason: v?.reason }, { decision: 'deny', reason: REFUSED }, c.slice(-60));
+  }
+  // under the limit, the refusals are found as before
+  assert.equal(hardLine('Bash', { command: `echo hi; git push --force origin ${BRANCH}` }, { cwd: WT })?.decision, 'deny');
+});

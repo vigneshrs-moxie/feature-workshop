@@ -861,7 +861,7 @@ test('T3k: a megabyte of command is judged by the hard lines in under 200 ms, fo
   // through the hook: an Auto job's cap comes first
   const hook = autoOn();
   const t1 = performance.now();
-  assert.equal(decision(await call(hook, 'Bash', { command: 'a '.repeat(500_000) })), 'ask');
+  assert.equal(decision(await call(hook, 'Bash', { command: 'a '.repeat(500_000) })), 'deny'); // over 100 KB: refused for every job (deep review A, I9)
   assert.ok(performance.now() - t1 < 200);
 });
 
