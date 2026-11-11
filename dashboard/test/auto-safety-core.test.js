@@ -399,3 +399,32 @@ test('I2: gh pr create names the job\'s own org repository with --repo or -R, an
     assert.equal(bash('gh pr create --repo moxie-org/orbit --title T --body B', { ...ctx, orgRepo: null }), 'ask');
   } finally { o.done(); }
 });
+
+// ---------- C1 follow-up: a worktree named by status.json must be this job's ----------
+
+test('C1 follow-up: status.json naming another job\'s worktree of the same repository is not this job\'s, even though git lists it', async () => {
+  const OTHER = `${HOME}/Projects/orbit-orbit-499-other`;
+  const LONGER = `${HOME}/Projects/orbit-orbit-500-thing-2`;
+  const list = [{ path: REPO, branch: 'main' }, { path: WT, branch: BRANCH }, { path: OTHER, branch: 'feature/orbit-499-other' }, { path: LONGER, branch: 'feature/orbit-500-thing-2' }];
+  const base = { featureDir: JOB, slug: 'orbit-500-thing', recordedRepo: REPO, git: gitOf({ list }), otherWorktrees: [OTHER, LONGER] };
+  const other = await verifiedJobContext({ ...base, f: { worktree: OTHER, statusWorktree: OTHER } });
+  assert.deepEqual(other.worktrees, []);
+  assert.deepEqual(other.branches, []);
+  assert.equal(card('Write', { file_path: `${OTHER}/src/a.ts`, content: 'x' }, ctxOf(other)), 'outside');
+  assert.equal(bash(`touch ${OTHER}/src/a.ts`, ctxOf(other, { cwd: WT })), 'outside');
+  // A folder whose name holds this job's slug but is another job's (its profile folder) is not this job's either.
+  assert.deepEqual((await verifiedJobContext({ ...base, f: { worktree: LONGER } })).worktrees, []);
+  // This job's own worktree under its usual name is kept, named by status.json alone (no profile answer).
+  const own = await verifiedJobContext({ ...base, f: { worktree: WT, statusWorktree: WT } });
+  assert.deepEqual(own.worktrees, [WT]);
+  assert.deepEqual(own.branches, [BRANCH]);
+  // Kept also when only the branch git names holds the slug, or when it is a stack part's folder by the profile.
+  const ODD = `${HOME}/Projects/scratch-wt`;
+  const odd = await verifiedJobContext({ ...base, git: gitOf({ list: [{ path: REPO, branch: 'main' }, { path: ODD, branch: BRANCH }] }), f: { worktree: ODD } });
+  assert.deepEqual(odd.worktrees, [ODD]);
+  const PART = `${HOME}/Projects/part-api`;
+  const part = await verifiedJobContext({ ...base, git: gitOf({ list: [{ path: REPO, branch: 'main' }, { path: PART, branch: 'feature/x--api' }] }), f: { worktree: PART }, stackWorktrees: [PART] });
+  assert.deepEqual(part.worktrees, [PART]);
+  const stray = await verifiedJobContext({ ...base, git: gitOf({ list: [{ path: REPO, branch: 'main' }, { path: PART, branch: 'feature/x--api' }] }), f: { worktree: PART } });
+  assert.deepEqual(stray.worktrees, [], 'neither its name, its branch nor the profile ties it to this job');
+});

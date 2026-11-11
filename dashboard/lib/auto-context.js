@@ -6,7 +6,9 @@
 //     record of Starbase's (a job started in a terminal), the job's records are believed only for a
 //     repository the registry knows;
 //   - a worktree named by status.json counts only when git lists it as a worktree of that repository
-//     (real paths compared); the profile's own worktree counts before it exists (the Foreman makes it
+//     (real paths compared) and it is this job's: the profile's folder for this job or one of its stack
+//     parts, or its folder name or checked-out branch holds the job's slug; and never the profile's folder
+//     for another job Starbase knows. The profile's own worktree counts before it exists (the Foreman makes it
 //     there) and, once it exists, under the same test. The main checkout is never one of the job's
 //     worktrees, nor is a worktree with a branch that is never the job's own checked out;
 //   - the job's branches are what git says is checked out in those worktrees, and the stack's part
@@ -37,7 +39,10 @@ export const NEVER_JOB_BRANCH = /^(main|master|staging|develop)$/i;
  *   f               the job as loadFeatures read it (its records: believed only as said above), or null
  *   recordedRepo    the repository Starbase recorded for the job, or null
  *   knownRepos      the registry's repositories
+ *   slug            the job's slug (its folder's name, Starbase's own)
  *   profileWorktree where the repository's profile puts the job's worktree, or null
+ *   stackWorktrees  where the profile puts this job's stack parts' worktrees
+ *   otherWorktrees  where the profile puts every other job's worktree
  *   stack           stack.json, or null
  *   git             { worktrees(repo, { fresh }) -> [{ path, branch }] | null (main checkout first),
  *                     defaultBranch(repo) -> [branch names] (the org remote's default) }
@@ -50,7 +55,7 @@ export function jobRepo({ recordedRepo = null, f = null, knownRepos = [] }) {
   return null;
 }
 
-export async function verifiedJobContext({ featureDir, f = null, recordedRepo = null, knownRepos = [], profileWorktree = null, stack = null, git }) {
+export async function verifiedJobContext({ featureDir, slug = null, f = null, recordedRepo = null, knownRepos = [], profileWorktree = null, stackWorktrees = [], otherWorktrees = [], stack = null, git }) {
   const none = { repo: null, mainCheckout: null, worktrees: [], specDirs: [], branches: [] };
   const repo = jobRepo({ recordedRepo, f, knownRepos });
   if (!repo) return none;
@@ -76,9 +81,16 @@ export async function verifiedJobContext({ featureDir, f = null, recordedRepo = 
     worktrees.push(p);
     if (branch && !branches.includes(branch)) branches.push(branch);
   };
+  // A listed worktree is this job's only by Starbase's own naming: the profile's folders for it, or its slug.
+  const key = String(slug ?? (usable(featureDir) ? path.basename(featureDir) : '')).toLowerCase();
+  const ours = (x) => {
+    if ((otherWorktrees ?? []).some((o) => usable(o) && same(o, x.path))) return false;
+    if ((profile && same(profile, x.path)) || (stackWorktrees ?? []).some((s) => usable(s) && same(s, x.path))) return true;
+    return Boolean(key) && (path.basename(x.path).toLowerCase().includes(key) || String(x.branch ?? '').toLowerCase().includes(key));
+  };
   for (const w of named) {
     const hit = others.find((x) => same(x.path, w));
-    if (hit && !(hit.branch && notOwn(hit.branch))) keep(hit.path, hit.branch);
+    if (hit && ours(hit) && !(hit.branch && notOwn(hit.branch))) keep(hit.path, hit.branch);
   }
   if (profile && !same(profile, repo)) {
     const hit = others.find((x) => same(x.path, profile));

@@ -76,7 +76,7 @@ import { goAheadCovers, ORG_REMOTES, setApiPort, setStateDir } from '../lib/hard
 import { jobRepo, verifiedJobContext } from '../lib/auto-context.js';
 import { autoGitFacts, gitIsAncestor, gitRemoteDefault, gitWorktrees } from '../lib/auto-git.js';
 import { readStack } from '../lib/stack.js';
-import { fillPattern, stackRules, tryItRules } from '../lib/profile.js';
+import { fillPattern, stackNames, stackRules, tryItRules } from '../lib/profile.js';
 import { FlowWatch, gatherRepo } from '../lib/flow.js';
 import { noticeBody, Notifier, validateNotifyPatch } from '../lib/notify.js';
 import { Integrator, IntegrateError } from '../lib/integrate.js';
@@ -257,16 +257,23 @@ export async function createRunner(config) {
   // branches, from Starbase's own records and git, never from the job's word alone (lib/auto-context.js).
   // One function for all: Auto's rules, the routine list, both covers, auto mode's environment and the Approver.
   async function jobContext(run) {
-    const f = (await features()).find((x) => x.dir === run.featureDir);
+    const all = await features();
+    const f = all.find((x) => x.dir === run.featureDir);
     const recordedRepo = await recordedRepoOf(run.featureDir);
     const knownRepos = local.registry ? (await local.registry.entries().catch(() => [])).map((e) => e.path) : [];
     const repoFor = jobRepo({ recordedRepo, f, knownRepos });
     // Where the job's worktree goes, from its repository's profile (lib/repos.js worktreeFor).
     const profileWorktree = repoFor && local.registry ? await local.registry.worktreeFor(repoFor, path.basename(run.featureDir)).catch(() => null) : null;
     const hit = repoFor && local.registry ? await local.registry.profileFor(repoFor).catch(() => null) : null;
-    const orgRemote = stackRules(hit?.ok ? hit.profile : null).org;
+    const rules = stackRules(hit?.ok ? hit.profile : null);
+    const orgRemote = rules.org;
+    const slug = path.basename(run.featureDir);
+    const stack = await readStack(run.featureDir).catch(() => null);
+    // The profile's folders for this job's stack parts, and for every other job Starbase knows (never this job's).
+    const stackWorktrees = repoFor ? (stack?.sections ?? []).filter((s) => typeof s?.name === 'string').map((s) => stackNames(rules, repoFor, { slug, section: s.name }).worktree) : [];
+    const otherWorktrees = repoFor ? all.filter((x) => x.dir !== run.featureDir).map((x) => path.resolve(repoFor, fillPattern(rules.worktree, { slug: path.basename(x.dir) }))) : [];
     const v = await verifiedJobContext({
-      featureDir: run.featureDir, f, recordedRepo, knownRepos, profileWorktree, stack: await readStack(run.featureDir).catch(() => null),
+      featureDir: run.featureDir, slug, f, recordedRepo, knownRepos, profileWorktree, stackWorktrees, otherWorktrees, stack,
       git: {
         worktrees: (repo, { fresh = false } = {}) => gitWorktrees({ repo, exec: gitStdout, cache: autoGitCache, fresh }),
         defaultBranch: async (repo) => (await Promise.all([...new Set([orgRemote, ...ORG_REMOTES].filter(Boolean))].map((remote) => gitRemoteDefault({ repo, remote, exec: gitStdout, cache: autoGitCache })))).filter(Boolean),
