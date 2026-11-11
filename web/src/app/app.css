@@ -1266,3 +1266,4 @@ a:hover { text-decoration: underline; }
 .job-row-timing.is-over { color: var(--status-warn); }
 .gate-proof { margin: 2px 0 0; font-size: var(--text-sm); }
 .gate-proof code { font-size: .92em; }
+.gate-screens-note { font-size: var(--text-sm); flex-basis: 100%; }

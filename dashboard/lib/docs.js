@@ -266,6 +266,29 @@ export async function readWireframes(dir, { maxBytes = WIREFRAMES_MAX_BYTES } = 
   return { html, updatedAt: st.mtime.toISOString(), size: st.size };
 }
 
+/** The PDF pack of a job's screens (the page's "PDF" button), written beside wireframes.html. */
+export const WIREFRAMES_PACK_FILE = 'wireframes.pack.pdf';
+const PACK_MAX_BYTES = 64 * 1024 * 1024;
+
+/**
+ * The PDF pack of a job's screens, the one PDF file served from its folder: { bytes, size }.
+ * Refuses (DocError 404) when it isn't there, is a symlink or lies outside the folder's real path,
+ * and (413) when it is bigger than maxBytes.
+ */
+export async function readWireframesPack(dir, { maxBytes = PACK_MAX_BYTES } = {}) {
+  const none = () => new DocError(404, 'This job has no PDF yet.');
+  const root = path.resolve(dir);
+  const abs = path.join(root, WIREFRAMES_PACK_FILE);
+  const st = await fs.lstat(abs).catch(() => null);
+  if (!st?.isFile()) throw none();
+  const [realRoot, realFile] = await Promise.all([fs.realpath(root), fs.realpath(abs)]).catch(() => [null, null]);
+  if (!realRoot || !realFile || realFile !== path.join(realRoot, WIREFRAMES_PACK_FILE)) throw none();
+  if (st.size > maxBytes) throw new DocError(413, `The PDF is too big to show here (${Math.round(st.size / 1048576)} MB). Open ${WIREFRAMES_PACK_FILE} from the job folder instead.`);
+  const bytes = await fs.readFile(abs).catch(() => null);
+  if (bytes === null) throw none();
+  return { bytes, size: st.size };
+}
+
 /**
  * The product spec's real path when it may be shown, else null. Its path comes from status.json,
  * which the AI writes, so it is shown only when it is a .md file whose real path (symlinks followed)

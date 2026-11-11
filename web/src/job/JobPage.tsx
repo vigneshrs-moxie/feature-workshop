@@ -581,7 +581,7 @@ function TabBody({ job, tab, tryOpen, onTry, docs }: { job: Job; tab: JobTab; tr
     case 'spec':
       return (
         <>
-          {job.wireframes && <p><Button icon="eye" href={screensHref(slug)} title="The feature’s screens, full width: mark each one, pick the design choices, and Copy feedback puts your notes in your reply.">Review the screens</Button></p>}
+          {job.wireframes && <p><Button icon="eye" href={screensHref(slug)} title="The feature’s screens, full width: click through the prototype, pin notes and pick the design choices. Copy feedback puts them in your reply.">Review the screens</Button></p>}
           <DocsTab key="spec" {...docs} slug={slug} section="plan" pick={isSpecDoc} changedAt={changed} />
         </>
       );

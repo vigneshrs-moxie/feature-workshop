@@ -155,6 +155,46 @@ describe('ScreensTab', () => {
     expect(container.querySelector('.screens-tab')).not.toHaveClass('is-full');
   });
 
+  it('the hint names pinned notes', () => {
+    setup();
+    expect(screen.getByText('Click through it like the real thing. Right-click (or press and hold) anywhere to pin a note. Decisions are on the Info tab.')).toBeInTheDocument();
+  });
+
+  it('the Screens tab answers the page’s PDF request: one GET, one message back', async () => {
+    const { win } = setup();
+    const post = vi.spyOn(win, 'postMessage');
+    const fetchMock = vi.fn(async (_url: string) => new Response(new Blob(['%PDF-1.4']), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:pack'), revokeObjectURL: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    fromPage(win, { type: 'wireframes-pdf' });
+    await waitFor(() => expect(post).toHaveBeenCalledWith({ type: 'wireframes-pdf', ok: true }, SCREENS_ORIGIN));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/jobs/alpha/wireframes/pack.pdf');
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
+  it('a job with no PDF answers without an error', async () => {
+    const { win } = setup();
+    const post = vi.spyOn(win, 'postMessage');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'This job has no PDF yet.' }), { status: 404 })));
+    fromPage(win, { type: 'wireframes-pdf' });
+    await waitFor(() => expect(post).toHaveBeenCalledWith({ type: 'wireframes-pdf', ok: false, reason: 'This job has no PDF yet.' }, SCREENS_ORIGIN));
+    expect(screen.queryByRole('alert')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('a PDF request from another origin is ignored', () => {
+    const { win } = setup();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    fromPage(win, { type: 'wireframes-pdf' }, 'https://elsewhere.example');
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
   it('says so, with no iframe, when the dashboard named no screens origin', () => {
     const { container } = setup({ origin: null });
     expect(container.querySelector('iframe')).toBeNull();

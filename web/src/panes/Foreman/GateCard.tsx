@@ -121,7 +121,8 @@ function ScreensRow({ slug, hasPage }: { slug: string; hasPage: boolean }) {
           </Button>
         );
       })}
-      <button type="button" className="link-button" onClick={() => open()} title="Open the Screens tab: review each screen on the page, pick the design choices, and Copy feedback puts your notes in your reply.">Review the screens</button>
+      <button type="button" className="link-button" onClick={() => open()} title="Open the Screens tab: click through the prototype, pin notes and pick the design choices. Copy feedback puts them in your reply.">Review the screens</button>
+      <span className="muted gate-screens-note">Your pinned notes and picks go to the Foreman with your answer.</span>
     </div>
   );
 }

@@ -92,6 +92,15 @@ export default function jobRoutes({ runner, read, send, sendJson, needJob, wiref
       },
     },
     {
+      // The job's screens PDF (wireframes.pack.pdf in its own folder), for the page's PDF button the
+      // Screens tab answers. Only that one file; 404 when the job has none.
+      method: 'GET', path: /^\/api\/jobs\/([^/]+)\/wireframes\/pack\.pdf$/,
+      run: async ({ res, m }) => {
+        const { bytes } = await read.wireframesPack(decodeURIComponent(m[1]));
+        return send(res, 200, bytes, 'application/pdf', { 'Cache-Control': 'no-store', 'Content-Disposition': 'attachment; filename="screens.pdf"' });
+      },
+    },
+    {
       // The job page and its parts.
       method: 'GET', path: /^\/api\/job\/([^/]+)(\/.*)?$/,
       run: async ({ res, url, m: jm }) => {

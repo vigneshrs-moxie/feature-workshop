@@ -61,7 +61,7 @@ import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, g
 import { composeReply, cleanChips } from '../lib/compose.js';
 import { skillChecker } from '../lib/skill-check.js';
 import { DEMO_OFF, prototypesSetup, publishScript, runPublish } from '../lib/prototype.js';
-import { DOC_MAX_BYTES, DocError, describeDoc, docVersion, jsonHtml, listJobDocs, readJobDoc, readSummary, readWalkthrough, readWireframes, servableSpec } from '../lib/docs.js';
+import { DOC_MAX_BYTES, DocError, describeDoc, docVersion, jsonHtml, listJobDocs, readJobDoc, readSummary, readWalkthrough, readWireframes, readWireframesPack, servableSpec } from '../lib/docs.js';
 import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, hexCommit, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from '../lib/play.js';
 import { parseStatusJson } from '../lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from '../lib/auto-env.js';
@@ -2329,6 +2329,11 @@ export async function createRunner(config) {
     async screen(slug, which, { forDownload = false } = {}) {
       const f = await jobOf(slug);
       try { return which === 'walkthrough' ? await readWalkthrough(f, { forDownload }) : await readWireframes(f.dir); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
+    },
+    /** A job's screens PDF pack (lib/docs.js readWireframesPack): { bytes }, or 404. */
+    async wireframesPack(slug) {
+      const f = await jobOf(slug);
+      try { return await readWireframesPack(f.dir); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
     },
     orbitStatus,
     /**

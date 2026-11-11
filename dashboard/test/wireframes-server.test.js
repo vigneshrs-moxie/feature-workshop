@@ -14,9 +14,10 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { DocError, DOC_GROUPS, WIREFRAMES_FILE, listJobDocs, readWireframes, wireframesInfo } from '../lib/docs.js';
+import { DocError, DOC_GROUPS, WIREFRAMES_FILE, listJobDocs, readWireframes, readWireframesPack, wireframesInfo } from '../lib/docs.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
+const PDF = Buffer.from('%PDF-1.4\nthe pack\n%%EOF\n');
 const PAGE = '<!doctype html><html><head><meta charset="utf-8"><title>Screens (test)</title></head><body><section data-key="s-one" data-screen="One"><h2>One</h2></section><script>window.parent.postMessage({ type: "wireframes", version: "2", current: "s-one", screens: [] }, "*");</script></body></html>\n';
 
 let root, featuresDir, outside, child, base, screens;
@@ -62,6 +63,12 @@ before(async () => {
   await fs.symlink(path.join(outside, 'wireframes.html'), path.join(linked, 'wireframes.html'));
   // Another HTML file in the folder: never served either (only the one name is).
   await writeJob('other-html', { files: { 'index.html': PAGE } });
+
+  // The PDF pack the page's PDF button asks for: only wireframes.pack.pdf, from the job's own folder.
+  await writeJob('with-pack', { files: { 'wireframes.pack.pdf': PDF } });
+  const packLinked = await writeJob('linked-pack');
+  await fs.writeFile(path.join(outside, 'secret.pdf'), '%PDF-secret');
+  await fs.symlink(path.join(outside, 'secret.pdf'), path.join(packLinked, 'wireframes.pack.pdf'));
 
   const port = await freePort();
   const screensPort = await freePort();
@@ -234,4 +241,25 @@ test('with the screens port taken, the dashboard runs without the screens server
     if (second.exitCode === null) { const gone = new Promise((r) => second.once('exit', r)); second.kill('SIGTERM'); await gone; }
     await new Promise((r) => blocker.close(r));
   }
+});
+
+test('docs lib: readWireframesPack serves the one PDF, never a symlink, 404 when missing', async () => {
+  const pack = await readWireframesPack(path.join(featuresDir, 'with-pack'));
+  assert.deepEqual(pack.bytes, PDF);
+  await assert.rejects(readWireframesPack(path.join(featuresDir, 'no-screens')), (e) => e instanceof DocError && e.status === 404);
+  await assert.rejects(readWireframesPack(path.join(featuresDir, 'linked-pack')), (e) => e instanceof DocError && e.status === 404);
+  await assert.rejects(readWireframesPack(path.join(featuresDir, 'with-pack'), { maxBytes: 4 }), (e) => e instanceof DocError && e.status === 413);
+});
+
+test('GET /api/jobs/:slug/wireframes/pack.pdf gives the job’s pack, and 404 for no pack, a linked file or no job', async () => {
+  const res = await get('/api/jobs/with-pack/wireframes/pack.pdf');
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'application/pdf');
+  assert.deepEqual(Buffer.from(await res.arrayBuffer()), PDF);
+  for (const slug of ['no-screens', 'linked-pack', 'nobody']) assert.equal((await get(`/api/jobs/${slug}/wireframes/pack.pdf`)).status, 404, slug);
+  const linked = await get('/api/jobs/linked-pack/wireframes/pack.pdf');
+  assert.ok(!(await linked.text()).includes('secret'));
+  // Only that one name: no other file of the folder through this route.
+  assert.equal((await get('/api/jobs/with-pack/wireframes/status.json')).status, 404);
+  assert.equal((await get('/api/jobs/with-pack/wireframes/..%2Fstatus.json')).status, 404);
 });
