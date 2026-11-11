@@ -4,6 +4,7 @@
 // checked and shaped into that command, with the same refusals as before.
 
 import { HttpError } from '../lib/http-guard.js';
+import { autoLog } from '../lib/auto-log.js';
 import { NUDGE_IDS } from '../lib/nudges.js';
 import { MAX_CHIPS } from '../lib/compose.js';
 import { NOTES_MAX } from '../lib/protocol.js';
@@ -113,6 +114,8 @@ export default function jobRoutes({ runner, read, send, sendJson, needJob, wiref
         if (sub === '/notes') return sendJson(res, 200, await read.notes(slug));
         // The Decisions tab: every choice you made on this job, newest first (lib/decisions.js).
         if (sub === '/decisions') return sendJson(res, 200, await read.decisions(slug));
+        // What Auto decided on this job (lib/auto-log.js): { on, stopped, tag, summary, entries }. A job Auto never ran on answers with nothing decided.
+        if (sub === '/auto') return sendJson(res, 200, await read.autoLog(slug) ?? { on: false, stopped: null, tag: null, summary: autoLog([]).summary, entries: [] });
         // The Docs tab's list: every document of the job, grouped, with versions and times (lib/docs.js).
         if (sub === '/docs') return sendJson(res, 200, await read.docs(slug));
         if (sub === '/wireframes') {

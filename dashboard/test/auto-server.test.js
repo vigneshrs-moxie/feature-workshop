@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { createRunner } from '../runner/index.js';
 import { AUTO_L3, AUTO_MARK, autoRecord } from '../lib/auto.js';
 import { APPROVER_BUDGET_USD } from '../lib/approver.js';
-import { OPUS } from '../lib/options.js';
+import { FABLE, OPUS } from '../lib/options.js';
 import { createAuto } from '../runner/auto.js';
 import { Busy } from '../lib/driver.js';
 import { JobLocked } from '../lib/lock.js';
@@ -1349,5 +1349,94 @@ test('a status card stops Auto with the status rule and is never answered; feedb
     assert.equal((await w.record()).stopped.rule, 'status');
     assert.equal(w.asks.length, 0);
     await assert.rejects(driver.decide(status.id, { decision: 'allow', by: 'auto' }), /never answers/);
+  } finally { await w.stop(); }
+});
+
+// ---------- Task 7b: the record, wired into the runner ----------
+
+const logFile = (w) => path.join(w.dir, 'auto-log.md');
+const readLog = (w) => fs.readFile(logFile(w), 'utf8').catch(() => null);
+
+test('auto-log.md is written again after each decision', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    assert.equal(await readLog(w), null, 'nothing before Auto has acted');
+    await w.pass(); await w.idle();
+    const first = await readLog(w);
+    assert.match(first, /^# Auto log: Visit audit columns/);
+    assert.match(first, /Auto made 1 decision on this job\. The Approver cost \$0\.12\./);
+    assert.match(first, /Auto is on\./);
+    await w.writeStatus(status(2));
+    await new Promise((r) => setTimeout(r, 1600));
+    await w.pass(); await w.idle();
+    const second = await readLog(w);
+    assert.match(second, /Auto made 2 decisions on this job\. The Approver cost \$0\.24\./);
+    assert.equal((second.match(/^## /gm) ?? []).length, 2);
+  } finally { await w.stop(); }
+});
+
+test('a decision on a card, a stop and switching Auto off each write auto-log.md again', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => allow() });
+  try {
+    await raise(w);
+    await w.until(() => outcomes.length === 1, 'the card');
+    await w.until(async () => /Auto made 1 decision/.test((await readLog(w)) ?? ''), 'the log to show the card');
+    await w.idle();
+    await w.runner.handle({ type: 'auto', slug: w.slug, on: false }, { from: 'local' });
+    await w.until(async () => /Auto is off\./.test((await readLog(w)) ?? ''), 'the log to say Auto is off');
+  } finally { await w.stop(); }
+});
+
+test('a job with no Auto lines has no auto-log.md', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null });
+  try {
+    await w.runner.handle({ type: 'approve', slug: w.slug, briefNumber: 1 }, { from: 'local' });
+    await w.idle();
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(await readLog(w), null);
+    assert.deepEqual(await w.autoLines(), []);
+  } finally { await w.stop(); }
+});
+
+test('a failed write of auto-log.md never fails the decision', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    await fs.mkdir(logFile(w)); // a folder where the file goes: the write cannot succeed
+    await w.pass(); await w.idle();
+    assert.equal((await w.sends()).length, 1);
+    assert.equal((await w.autoLines('gate')).length, 1);
+    assert.equal((await w.record()).lastBrief, 1);
+    assert.equal((await w.record()).failures, 0);
+  } finally { await w.stop(); }
+});
+
+test('the Approver\'s cost is a row of its own and in the total, and the usage log has a line for it', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    await w.pass(); await w.idle();
+    const { costDetail } = await w.runner.read.job(w.slug);
+    const row = costDetail.agents.find((a) => a.agentType === 'approver');
+    assert.equal(row.model, FABLE);
+    assert.equal(row.stage, 'auto');
+    assert.ok(Math.abs(row.usd - 0.12) < 1e-9);
+    assert.ok(Math.abs(costDetail.perModel[FABLE] - 0.12) < 1e-9);
+    assert.ok(Math.abs(costDetail.totalUsd - 0.12) < 1e-9, 'the total holds it');
+    await w.until(async () => (await fs.readFile(path.join(w.dirs.state, 'usage.jsonl'), 'utf8').catch(() => '')).includes('"approver"'), 'a usage line for the Approver');
+    const usage = (await fs.readFile(path.join(w.dirs.state, 'usage.jsonl'), 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((l) => l.worker === 'approver');
+    assert.equal(usage.length, 1);
+    assert.equal(usage[0].job, w.slug);
+    assert.equal(usage[0].model, FABLE);
+    assert.ok(Math.abs(usage[0].costUsd - 0.12) < 1e-9);
+  } finally { await w.stop(); }
+});
+
+test('the crew list has no approver, which has no approver.md', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    const { crewModels, agents } = await w.runner.read.meta();
+    assert.ok(Object.hasOwn(agents, 'approver'), 'the Approver is a named worker (for the cost rows)');
+    assert.ok(!Object.hasOwn(crewModels, 'approver'), 'but not one of the crew with a model of its own');
+    assert.ok(Object.hasOwn(crewModels, 'feature-reviewer') || Object.keys(crewModels).length > 0);
   } finally { await w.stop(); }
 });

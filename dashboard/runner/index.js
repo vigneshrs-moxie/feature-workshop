@@ -61,7 +61,7 @@ import { checkDiff, chooseLevel } from '../lib/auto-level.js';
 import { AUTO_MARK, autoAllowed, autoCardView, autoOption, autoRecord } from '../lib/auto.js';
 import { createAuto } from './auto.js';
 import { askApprover as askApproverLib, approverOptions } from '../lib/approver.js';
-import { autoLogRecord } from '../lib/auto-log.js';
+import { autoCost, autoLog, autoLogRecord, writeAutoLog } from '../lib/auto-log.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs, isGateDecision } from '../lib/gate.js';
 import { composeReply, cleanChips } from '../lib/compose.js';
 import { skillChecker } from '../lib/skill-check.js';
@@ -318,7 +318,7 @@ export async function createRunner(config) {
   async function crewModels() {
     const out = {};
     for (const type of Object.keys(AGENTS)) {
-      if (type === 'conductor') continue;
+      if (type === 'conductor' || type === 'approver') continue; // the Approver has no agent file of its own
       try {
         const text = await fsp.readFile(path.join(AGENTS_DIR, `${type}.md`), 'utf8');
         const front = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? '';
@@ -396,6 +396,8 @@ export async function createRunner(config) {
   let cached = null;
   // Each job's stage at the last read, for a notification's text (lib/notify.js noticeBody).
   const knownStage = new Map();
+  // Each job's title at the last read: auto-log.md is written from inside the Auto lock, where features() must not be called.
+  const knownTitle = new Map();
   async function features() {
     if (cached && Date.now() - cached.at < 1500) return cached.list;
     runEnds = await state.lastRunEnds();
@@ -410,12 +412,22 @@ export async function createRunner(config) {
     for (const f of list) f.sentNudges = Array.isArray(saved[f.dir]?.sentNudges) ? saved[f.dir].sentNudges : [];
     // Auto mode's record (lib/auto.js): only this says a job is in Auto. Its options.json follows it.
     for (const f of list) f.auto = saved[f.dir]?.auto ?? null;
+    // The Approver's cost (lib/auto-log.js autoCost): a row of its own, in perModel and in the total. Only a job whose Auto has run is read.
+    await Promise.all(list.filter((f) => f.auto?.ran === true).map(async (f) => {
+      const usd = autoCost(await state.auditFor(f.dir, Infinity).catch(() => []));
+      if (!(usd > 0)) return;
+      const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 };
+      f.cost = {
+        ...f.cost, totalUsd: f.cost.totalUsd + usd, perModel: { ...f.cost.perModel, [FABLE]: (f.cost.perModel[FABLE] ?? 0) + usd },
+        agents: [...f.cost.agents, { agentType: 'approver', name: AGENTS.approver.name, model: FABLE, stage: 'auto', usd, tokens }].sort((a, b) => b.usd - a.usd),
+      };
+    }));
     sessionsNow = saved;
     // Code that holds autoLocked must never call features() or jobContext: they wait on the same lock.
     await mirrorAuto(list);
     for (const f of list) noteRaisedVersions(f);
     cached = { at: Date.now(), list };
-    for (const f of list) knownStage.set(f.slug, f.stage ?? null);
+    for (const f of list) { knownStage.set(f.slug, f.stage ?? null); knownTitle.set(f.dir, f.title); }
     return list;
   }
   const featureBySlug = async (slug) => (await features()).find((f) => f.slug === slug) ?? null;
@@ -1473,8 +1485,27 @@ export async function createRunner(config) {
     return tell(n);
   };
 
+  // Every Auto line goes through here: the audit line, then auto-log.md written again from the job's lines
+  // (a failed file write is logged and never fails the decision), and, when the line carries the
+  // Approver's cost, one line in the usage log (worker approver). A job with no Auto lines has no file.
+  async function auditAuto(line) {
+    await state.audit(line);
+    if (!line.featureDir) return;
+    try {
+      const lines = await state.auditFor(line.featureDir, Infinity);
+      const title = knownTitle.get(line.featureDir) ?? line.slug ?? path.basename(line.featureDir);
+      await writeAutoLog(line.featureDir, lines, { title, now: new Date().toISOString(), record: (await state.sessionFor(line.featureDir))?.auto ?? null });
+    } catch (err) { console.warn(`Auto: auto-log.md for ${line.slug ?? line.featureDir} not written: ${err.message}`); }
+    if (line.costUsd > 0) {
+      logTurn({
+        runId: `auto-${crypto.randomUUID()}`, slug: line.slug ?? null, featureDir: line.featureDir, sessionId: null, total: line.costUsd, runPrev: null,
+        groups: [{ worker: 'approver', agentType: 'approver', model: FABLE, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 } }],
+      });
+    }
+  }
+
   const auto = createAuto({
-    read: autoJobs, update: updateAuto, state, notify: autoNotify, askApprover: askForAuto,
+    read: autoJobs, update: updateAuto, state: { audit: auditAuto, auditFor: (...a) => state.auditFor(...a) }, notify: autoNotify, askApprover: askForAuto,
     decide: {
       gate: (kind, body, opts) => gateDecision(kind, body, opts),
       // A card answered for the person: only code passes by: 'auto' (a request's body never does).
@@ -2030,7 +2061,7 @@ export async function createRunner(config) {
       const text = `${conductor} ${description}${kind === 'bug' && conductor === '/feature' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${kind === 'bug' ? '- Kind: bug fix.\n' : ''}${describeOptions(optionsOut).map((l) => `- ${l}`).join('\n')}${fromTicket ? `\n\n${fromTicket.brief}` : ''}${tail}`;
       const run = await driver.start({ featureDir, slug, title: description, cwd, sessionId, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
       await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options, fromSession: from ? { id: from.id, mode: from.mode, forkedTo: from.forkedTo } : undefined, ticket: ticket?.key });
-      if (autoOn) await state.audit({ action: 'auto', what: 'on', by: autoOn.by, featureDir, slug, via: 'start', stage: null, asked: '', chose: '', why: '' });
+      if (autoOn) await auditAuto({ action: 'auto', what: 'on', by: autoOn.by, featureDir, slug, via: 'start', stage: null, asked: '', chose: '', why: '' });
       cached = null;
       // Start on a ticket's row works as usual and clears "couldn't start by itself".
       if (ticket && !internal.autoStart) await autoStarter.clearFailed(ticket.key).catch(() => {});
@@ -2291,7 +2322,7 @@ export async function createRunner(config) {
         const next = owed ? { ...autoRecord(prev, { on: false, by: 'you' }), spent: 0 } : autoRecord(prev, { on: body.on, by: 'you' });
         await state.setSession(f.dir, { auto: next });
         // Audited as soon as the record changed: a failed file write below can't leave it unsaid.
-        await state.audit({ action: 'auto', what: body.on ? 'on' : 'off', by: 'you', featureDir: f.dir, slug: f.slug, stage: f.stage ?? null, asked: '', chose: '', why: '', ...(owed ? { costUsd: owed } : {}) });
+        await auditAuto({ action: 'auto', what: body.on ? 'on' : 'off', by: 'you', featureDir: f.dir, slug: f.slug, stage: f.stage ?? null, asked: '', chose: '', why: '', ...(owed ? { costUsd: owed } : {}) });
         try {
           const want = autoOption(next, f.level);
           const file = path.join(f.dir, 'options.json');
