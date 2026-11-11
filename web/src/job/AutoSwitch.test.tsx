@@ -187,6 +187,20 @@ describe('AutoSwitch', () => {
     expect(screen.getByText(AUTO_L3).closest('.auto-switch-row')).toHaveClass('is-off');
   });
 
+  // Round 2, M4: in the job page's head, a long line under the switch wraps inside the switch's own width.
+  it('in the page head the switch keeps its own width and its line wraps inside it', () => {
+    const css = readFileSync(path.join(process.cwd(), 'src/job/auto.css'), 'utf8');
+    const rule = (sel: string) => new RegExp(`${sel.replace(/[.()*+?[\]\\^$|{}]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+    expect(rule('.page-head .job-auto .auto-switch-row')).toMatch(/width:\s*auto/);
+    const line = rule('.page-head .job-auto .auto-line');
+    expect(line).toMatch(/width:\s*0/);
+    expect(line).toMatch(/min-width:\s*100%/);
+    expect(rule('.page-head .job-auto .auto-switch.is-inline')).toMatch(/display:\s*inline-grid/);
+    expect(line).toMatch(/grid-column:\s*1\s*\/\s*-1/);
+    // What Auto decided goes under the switch, so the head keeps one row at 1280 px.
+    expect(rule('.page-head .job-auto')).toMatch(/grid-template-columns:\s*auto\b/);
+  });
+
   it('on the form it is controlled and sends nothing itself', () => {
     const onChange = vi.fn();
     const post = vi.fn();

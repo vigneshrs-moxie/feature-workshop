@@ -25,3 +25,11 @@
 /* The header's row: the checkbox and its label, the status line, the button. */
 .job-auto { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); }
 .auto-switch.is-inline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); }
+/* The job page's head (M4): the switch keeps its own width (the spinner beside it), and the line under it
+   wraps inside that width instead of widening the head onto a second row. */
+/* What Auto decided sits under the switch's line, not beside it, so the head stays on one row at 1280 px. */
+.page-head .job-auto { display: inline-grid; grid-template-columns: auto; justify-items: start; gap: 0; }
+.page-head .job-auto .auto-switch.is-inline { display: inline-grid; grid-template-columns: auto auto; justify-content: start; align-items: center; gap: var(--space-1) var(--space-2); }
+.page-head .job-auto .auto-switch-row { width: auto; }
+.page-head .job-auto .auto-line { width: 0; min-width: 100%; grid-column: 1 / -1; }
+.page-head .job-auto .auto-switch.is-inline > :not(.option-row):not(.auto-spin):not(.auto-line):not(.sr-only) { grid-column: 1 / -1; }
