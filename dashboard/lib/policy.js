@@ -466,7 +466,7 @@ function judgeWords(w, ctx, simple) {
   if (cmd === 'uniq') return rest.filter((a) => !a.startsWith('-')).length <= 1 ? 'ok' : 'uniq writing to a file needs your OK';
   if (cmd === 'mkdir') {
     const dirs = rest.filter((a) => !a.startsWith('-'));
-    return dirs.length && dirs.every((a) => { const abs = resolvePath(a, ctx.cwd); if (!(abs && ctx.writableDirs.some((d) => inside(abs, d)))) markOutside(ctx, abs); return abs && ctx.writableDirs.some((d) => inside(abs, d)); }) ? 'ok' : 'creates a folder outside the job’s folders';
+    return dirs.length && dirs.every((a) => { const abs = resolvePath(a, ctx.cwd); if (!(abs && ctx.writableDirs.some((d) => inside(abs, d))) && !(!abs && unplacedInside(a))) markOutside(ctx, abs); return abs && ctx.writableDirs.some((d) => inside(abs, d)); }) ? 'ok' : 'creates a folder outside the job’s folders';
   }
   if (cmd === 'sed') return sedVerdict(rest);
   if (cmd === 'awk') return awkVerdict(rest);
@@ -512,10 +512,14 @@ function pathWordsInside(words, ctx) {
     const v = w.includes('=') ? w.slice(w.indexOf('=') + 1) : w;
     if (!(v.includes('/') || v.startsWith('~') || v === '..')) continue;
     const abs = resolvePath(v, ctx.cwd);
+    if (!abs && unplacedInside(v)) return 'names a path in a folder Starbase cannot place'; // not routine, but not outside: Auto's own reading decides (N8)
     if (!abs || ![...ctx.writableDirs, ...TEMP_DIRS].some((d) => inside(abs, d))) { markOutside(ctx, abs); return 'names a path outside the job’s folders'; }
   }
   return 'ok';
 }
+// A relative word that does not climb (no leading ..): in a folder the routine list can't place (after cd app &&) it is
+// not known to be outside.
+const unplacedInside = (w) => !path.isAbsolute(w) && !w.startsWith('~') && !path.normalize(w).split(path.sep).includes('..');
 
 // Where a cd goes (absolute), null when unknown; undefined when the command isn't a cd.
 function cdTarget(words, cwd) {

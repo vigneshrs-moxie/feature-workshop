@@ -743,3 +743,15 @@ test('N3: husky with a folder is plain only for the repository\'s own .husky fol
     for (const c of ['cd app && npx husky tools', `cd app && npx husky ${o.wt}/app/.husky`, 'cd app && npx husky ../x/.husky', 'cd app && npx husky .husky extra', 'cd app && npx husky src/.husky/../hooks']) assert.equal(bash(c, ctx), 'ask', c);
   } finally { o.done(); }
 });
+
+test('N8: a relative path behind cd app && does not stop; one that climbs out still does', () => {
+  const d = diskWorktree();
+  try {
+    fsSync.mkdirSync(pathMod.join(d.wt, 'app', 'src', 'lib'), { recursive: true });
+    const ctx = ctxOf({ worktrees: [d.wt], specDirs: [], branches: [BRANCH] }, { cwd: d.wt, tempDirs: [] });
+    for (const c of ['cd app && npm test -- src/lib/x.test.ts', 'cd app && npm run lint -- src/lib', 'cd app && npx vitest run src/lib/x.test.ts', 'cd app && npx eslint src/',
+      'cd app && npx eslint src/lib/x.ts', 'cd app && npx prettier --check src/lib/x.ts', 'cd app && npx tsc -p ./tsconfig.json --noEmit', 'cd app && mkdir -p dist']) assert.notEqual(bash(c, ctx), 'outside', c);
+    assert.equal(bash('cd app && mkdir -p dist', ctx), null);
+    assert.equal(bash('cd app && npm test -- ../../../x', ctx), 'outside');
+  } finally { d.done(); }
+});
