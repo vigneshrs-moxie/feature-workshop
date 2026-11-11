@@ -2265,7 +2265,22 @@ test('I4 (H2): a throw while Auto handles a card leaves the card to the person a
   } finally { await clear(w); await w.stop(); }
 });
 
-test('I4: a card Auto is still deciding shows as "Auto is deciding" in Working',{ timeout: 30_000 }, async () => {
+test('I4: a card raised before Auto was switched on is the person\'s: Needs you with the ordinary card sentence, not "Auto is deciding"', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ auto: null, query: cardQuery([FETCH], outcomes), jobStatus: WORKING });
+  try {
+    await raise(w);
+    await w.until(async () => (await waiting(w)).length === 1, 'the card');
+    await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
+    await new Promise((r) => setTimeout(r, 1700));
+    const card = (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
+    assert.equal(card.auto.on, true);
+    assert.deepEqual({ lane: card.lane, laneReason: card.laneReason }, { lane: 'needs-you', laneReason: 'A permission waits for your yes' });
+    assert.equal(w.asks.length, 0, 'Auto does not take it up');
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('I4: a card Auto is still deciding shows as "Auto is deciding" in Working', { timeout: 30_000 }, async () => {
   const outcomes = [];
   let release;
   const hung = new Promise((r) => { release = r; });

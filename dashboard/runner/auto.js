@@ -467,6 +467,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   function cardGone(id) { cards.delete(id); }
   /** Whether Auto has left this card to the person: it took it up, is done with it, and did not answer it. */
   function leftCard(id) { return cards.get(id) === 'left'; }
+  /** Whether Auto is handling this card now: taken up, and not done with. Any other card that waits is the person's. */
+  function handlingCard(id) { return cards.get(id) === true; }
 
   /** A stop on the card: its own notification tells the person; when none was written, the card's notification does. */
   async function stopOnCard(job, hit, leave, opts = {}) {
@@ -609,5 +611,5 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     });
   }
 
-  return { pass, onPermission, cardGone, leftCard };
+  return { pass, onPermission, cardGone, leftCard, handlingCard };
 }

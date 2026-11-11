@@ -1168,7 +1168,7 @@ export async function createRunner(config) {
     cards.sort((a, b) => rank(a) - rank(b) || (a.needsYou ? String(a.waitingSince ?? '').localeCompare(String(b.waitingSince ?? '')) : 0));
     // Each card's lane on Jobs and the reason in words (lib/snapshot.js laneFor, packet M).
     const pending = driver.pendingPermissions();
-    return cards.map((c) => ({ ...c, ...laneFor(c, { lane: flowLanes.get(c.slug) ?? null, pending: pending.filter((p) => p.slug === c.slug), left: (id) => auto.leftCard(id) }) }));
+    return cards.map((c) => ({ ...c, ...laneFor(c, { lane: flowLanes.get(c.slug) ?? null, pending: pending.filter((p) => p.slug === c.slug), handled: (id) => auto.handlingCard(id) }) }));
   }
 
 

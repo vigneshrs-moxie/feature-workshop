@@ -50,7 +50,7 @@ export function groupCards(cards) {
 //   ready      a PR's checks passed and its approvals are in: merging is the next step
 // and two folded under the board: resting (nothing happening, nothing asked) and done.
 //
-// laneFor(card, { lane, pending, left }) → { lane, laneReason, paused? }. card: as boardCard builds it;
+// laneFor(card, { lane, pending, handled }) → { lane, laneReason, paused? }. card: as boardCard builds it;
 // lane: the job's flow lane (lib/flow.js laneOf: pr1, pr2 with state, review and checks), if known;
 // pending: the job's pending permission and question cards (driver.pendingPermissions()). Every
 // reason is a plain sentence the card shows, so the lane is never told by its colour alone.
@@ -79,15 +79,16 @@ function openPr(lane) {
   return null;
 }
 
-export function laneFor(card, { lane = null, pending = [], left = null } = {}) {
+export function laneFor(card, { lane = null, pending = [], handled = null } = {}) {
   const needs = (laneReason) => ({ lane: 'needs-you', laneReason });
   if (card.closed) return { lane: 'done', laneReason: card.closed.as === 'dropped' ? 'Dropped' : 'Marked done' };
 
   // Cards waiting for a click: permissions, a crew member's question, PR feedback.
   const cards = pending.length ? pending : Array.from({ length: Number(card.permissions) || 0 }, () => ({}));
-  // An Auto job (lib/auto.js) with a gate or a card waiting: Auto is deciding it, unless it stopped, or it has left a
-  // card to you (left(id): runner/auto.js leftCard), which then shows as any card does.
-  const leftToYou = typeof left === 'function' && cards.some((p) => p?.id && left(p.id));
+  // An Auto job (lib/auto.js) with a gate or a card waiting: Auto is deciding it, unless it stopped, or a card waits that
+  // Auto is not handling (handled(id): runner/auto.js handlingCard; one it left, one raised before Auto was switched on),
+  // which then shows as any card does.
+  const leftToYou = typeof handled === 'function' && cards.some((p) => p?.id && !handled(p.id));
   if (card.auto?.on === true && (cards.length || card.needsYou)) {
     if (card.auto.stopped) return needs(`Auto stopped: ${card.auto.stopped.reason ?? 'it waits for you'}`);
     if (!leftToYou) return { lane: 'working', laneReason: `Auto is deciding: ${STAGE_WORDS[card.stage] ?? 'the next step'}` };
