@@ -148,11 +148,11 @@ The prototype for Part 3 is drawn while Parts 1 and 2 are built, so its review d
 
 ### 1.10 No scroll past the end of a page (added 2026-11-10)
 
-**Today.** Text kept for screen readers (`.sr-only`) is placed outside the normal layout. The pages' scroll areas don't hold on to such text, so when one sits below the bottom of the window the whole browser page grows to reach it. The result is a second scrollbar and blank space, up to as long as the content itself. Seen on a job page after opening "Try it on your computer": the page scrolled 1800 px in a 992 px window, the lower half empty. Smaller cases of the same kind: 97 px of empty space under the Desk's card and 208 px under a step page.
+**Today.** Text kept for screen readers (`.sr-only`) is placed outside the normal layout. The pages' scroll areas don't hold on to such text, so when one sits below the bottom of the window the whole browser page grows to reach it. The result is a second scrollbar and blank space, up to as long as the content itself. Seen on a job page after opening "Try it on your computer": the page scrolled 1800 px in a 992 px window, the lower half empty. Two smaller gaps first noted here (97 px under the Desk's card, 208 px under a step page) turned out on a closer look to be the sticky button bar and message box, not empty space; nothing was changed for them.
 
 **Change.**
 - Every scroll area holds on to what is inside it, so hidden text can't stretch anything. A test reads the stylesheets and fails when a new scroll area misses this.
-- A browser check opens every page at three window sizes, opens every folded section, and fails when the browser page itself scrolls, when a scroll area runs more than a few lines past its last visible content, or when something is cut off sideways. Everything it finds is fixed, including the two smaller cases above, long file paths running out of the level card, and the conversation shrinking to a sliver when Details is open.
+- A browser check opens every page at three window sizes, opens every folded section, and fails when the browser page itself scrolls, when a scroll area runs more than a few lines past its last visible content, or when something is cut off sideways. Everything it finds is fixed, including long file paths running out of the level card, and the conversation shrinking to a sliver when Details is open.
 
 **Done when.** The check passes on the demo at 1280, 1512 and 1920 wide. On the real job page, Try it open, the browser page doesn't scroll.
 
