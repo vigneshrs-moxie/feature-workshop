@@ -71,6 +71,7 @@ import { noticeBody, Notifier, validateNotifyPatch } from '../lib/notify.js';
 import { Integrator, IntegrateError } from '../lib/integrate.js';
 import { MCP_NAME, OrbitError, OrbitInbox, canonicalKey, clearToken, jobsByTicket, removeMcpEntry, sessionEnv, normalizeOrbitUrl, orbitClient, setToken } from '../lib/orbit.js';
 import { tokenStore } from '../lib/orbit-token.js';
+import { TICKET_FILE, readTicketFile } from '../lib/ticket-file.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
@@ -1664,8 +1665,17 @@ export async function createRunner(config) {
       const { detail: fromDetail, ...fromRecord } = from ?? {};
       const optionsOut = from ? { ...options, from_session: fromRecord } : options;
       await writeOptions(featureDir, options, { title: description, repo: repo.path, kind, from_session: from ? fromRecord : undefined, ticket: ticket ?? undefined, branch: ticket ? ticketBranch(kind, slug, { profile, ticket }) : undefined });
+      // The ticket's safe details go in ticket.md before the Foreman's first message (lib/ticket-file.js).
+      // Orbit being slow or down never stops a start: no file, and the message says so.
+      let detailsRead = false;
+      if (ticket) {
+        const md = await readTicketFile(orbit, ticket);
+        if (md) {
+          try { await fsp.mkdir(featureDir, { recursive: true }); await fsp.writeFile(path.join(featureDir, TICKET_FILE), md, { mode: 0o600 }); detailsRead = true; } catch { /* the job starts without it */ }
+        }
+      }
       // A ticket's job starts with a status.json of schema version 2 holding the ticket block.
-      const fromTicket = ticket ? await startFromTicket(featureDir, { ticket, slug, title: description, kind, level: options.level, repo: repo.path, profile }) : null;
+      const fromTicket = ticket ? await startFromTicket(featureDir, { ticket, slug, title: description, kind, level: options.level, repo: repo.path, profile, detailsRead }) : null;
       if (fromDetail) await fsp.writeFile(path.join(featureDir, 'history.md'), historyMarkdown(fromDetail), { mode: 0o600 });
       // The /feature (or /bugfix) command must come first in the message, or it doesn't run. A bug job
       // goes to /bugfix when that skill is installed; an older install still gets /feature with a note.
