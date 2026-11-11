@@ -855,7 +855,8 @@ function unit({ job = () => ({}), auditLines = [], now = undefined, decide, ask 
     update: async (dir, fn) => { const next = fn({ ...rec }); if (next) rec = next; return { ...rec }; },
     decide: { gate: async (kind, body, opts) => { decides.push(body); return decide(decides.length, opts); }, permission: async () => {} },
     askApprover: async (task) => { asks.push(task); return ask(task, asks.length); },
-    state: { audit: async (l) => { lines.push(l); }, auditFor: async () => [...auditLines] },
+    // As state.auditFor: the last `limit` lines of the job (200 when none is named).
+    state: { audit: async (l) => { lines.push(l); }, auditFor: async (_dir, limit = 200) => auditLines.slice(-limit) },
     notify: (n) => notes.push(n),
     ...(now ? { now } : {}),
   });
@@ -1953,6 +1954,29 @@ test('K4/I5: a held answer is not sent once the person has written since the bri
   await u.auto.pass();
   assert.equal(u.asks.length, 1, 'not asked afresh');
   assert.equal(u.decides.length, 1);
+});
+
+const routine = (n) => Array.from({ length: n }, (_, i) => ({ action: 'auto-allowed', at: new Date().toISOString(), tool: 'Read', headline: `Read file ${i}`, reason: 'routine' }));
+
+test('I5: a message while the Approver thinks, then more than 400 lines before it answers: the answer is dropped and Auto stops with its sentence', { timeout: 30_000 }, async () => {
+  let u;
+  u = unit({ decide: () => {}, ask: (task, n) => { if (n === 1) { personSays(u); u.auditLines.push(...routine(401)); } return { ok: true, costUsd: 0.1, answer: { decision: 'go', answers: [], why: 'Fine.', risk: 'low' } }; } });
+  await u.auto.pass();
+  assert.equal(u.decides.length, 0, 'the answer was dropped');
+  await later();
+  await u.auto.pass();
+  assert.equal(u.record().stopped?.reason, YOURS);
+  assert.equal(u.asks.length, 1);
+});
+
+test('I5: a decision of the person\'s after a stop, followed by more than 400 lines, still clears the stop', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: stoppedRecord() });
+  try {
+    await auditLine(w, { at: AT(4), action: 'send', kind: 'approve', gateBrief: 1, text: 'go' });
+    for (let i = 0; i < 401; i++) await auditLine(w, { at: AT(5), action: 'auto-allowed', tool: 'Read', headline: `Read ${i}`, reason: 'routine' });
+    await w.pass();
+    assert.equal((await w.record()).stopped, null);
+  } finally { await w.stop(); }
 });
 
 test('I5: a message written before the brief was raised, or before Auto was switched on, leaves the step to Auto', { timeout: 30_000 }, async () => {

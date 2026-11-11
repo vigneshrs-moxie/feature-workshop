@@ -171,7 +171,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   /** You decided something yourself after Auto stopped: it carries on from the next step. */
   async function carryOnIfYouDecided(job) {
     const stoppedAt = Date.parse(job.auto.stopped?.at ?? '');
-    const lines = await state.auditFor(job.dir, 400);
+    // All of the job's lines since the stop: a long reply after the person's decision must not push it out of view.
+    const lines = await state.auditFor(job.dir, Infinity);
     // Only the person's decision on a gate (a send that carries its brief) or on a card (the status card's answer is its own line) clears a stop.
     // An answer on the status card clears a stop made by a status card, and no other.
     const statusStop = job.auto.stopped?.rule === 'status';
@@ -250,9 +251,10 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   /**
    * Did the person say something to this job after the Approver was asked (a message of their own: a send that
    * is not Auto's, or, for a card, a message steered into the reply)? The Approver never saw it, so its answer is dropped.
+   * All of the job's lines are read: the Foreman's reply to that message can write many while the Approver thinks.
    */
   async function youSpokeSince(job, askedAt, { steer = false } = {}) {
-    const lines = await state.auditFor(job.dir, 400);
+    const lines = await state.auditFor(job.dir, Infinity);
     return lines.some((l) => l.by !== 'auto' && (l.action === 'send' || (steer && l.action === 'steer')) && Date.parse(l.at) >= askedAt);
   }
   /**
