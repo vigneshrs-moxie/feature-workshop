@@ -34,7 +34,7 @@ import path from 'node:path';
 
 import { autoAllowed } from './auto.js';
 import { classify, commandParts, isInside, TEMP_DIRS } from './policy.js';
-import { hardLine, namesStarbaseAddress, namesThisComputer, ORG_URL, physicalPath, rmInsideJob, withPathMemo, WRAPPERS } from './hard-lines.js';
+import { hardLine, namesStarbaseAddress, namesThisComputer, ORG_REMOTES, ORG_URL, physicalPath, rmInsideJob, withPathMemo, WRAPPERS } from './hard-lines.js';
 import { envCopy, localPlain, plainWhy } from './auto-plain.js';
 import { STAGES, STAGE_IDS } from './stages.js';
 
@@ -1254,15 +1254,15 @@ function foreignSource(sub, sargs, ctx) {
   const VALUE = /^(-m|-s|--strategy|-X|--strategy-option|-F|--file|--onto|--depth|-x|--exec)$/;
   const pos = [];
   for (let k = 0; k < a.length; k++) { if (VALUE.test(a[k])) { if (a[k] === '--onto') pos.push(a[k + 1] ?? ''); k++; continue; } if (!a[k].startsWith('-')) pos.push(a[k]); }
-  const org = ctx.orgRemote || 'moxie';
+  const orgs = ctx.orgRemote ? [ctx.orgRemote] : ORG_REMOTES; // the org remote git names, else the known org remote names
   const fork = ctx.forkRemote || 'origin';
   const own = (ctx.branches ?? []).filter(Boolean);
-  const ok = (ref) => ref === `${org}/main` || own.some((b) => ref === b || ref === `${fork}/${b}` || ref === `${org}/${b}` || ref === `refs/heads/${b}`);
+  const ok = (ref) => orgs.some((org) => ref === `${org}/main` || own.some((b) => ref === `${org}/${b}`)) || own.some((b) => ref === b || ref === `${fork}/${b}` || ref === `refs/heads/${b}`);
   if (sub === 'pull') {
     if (!pos.length) return true;
     const [remote, ...refs] = pos;
-    if (remote !== org && remote !== fork) return true;
-    return !refs.length || refs.some((r) => !(r === 'main' && remote === org) && !own.includes(r));
+    if (!orgs.includes(remote) && remote !== fork) return true;
+    return !refs.length || refs.some((r) => !(r === 'main' && orgs.includes(remote)) && !own.includes(r));
   }
   if (!pos.length) return true;
   return pos.some((r) => !ok(r));
