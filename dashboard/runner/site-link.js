@@ -680,6 +680,8 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
     async function syncOnce(full) {
       const snap = await runner.read.snapshot({ token: null, wireframesOrigin: null });
       await put('board', '', boardRecord(snap));
+      // The laptop's suggested tickets (null when switched off or none is ready): the site shows them in its Inbox.
+      await put('inbox-suggest', '', runner.read.inboxSuggest?.() ?? null);
       const open = (snap.jobs ?? []).filter((c) => c?.slug && !c.closed && !c.starting);
       const openSlugs = new Set(open.map((c) => c.slug));
       for (const c of open) {

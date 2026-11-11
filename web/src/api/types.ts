@@ -1789,7 +1789,13 @@ export interface InboxFilter { audience: 'tech' | 'participant'; ignored: string
 /** A laptop and the repositories it offers the website's Start form (names only; the laptop finds the folder). */
 export interface InboxLaptop { id: number; name: string; online: boolean; repos: { name: string; default: boolean }[] }
 
-export type InboxAnswer = OrbitStatus & { items: InboxItem[]; laptops?: InboxLaptop[]; filter?: InboxFilter; view?: string; checkedAt?: string; truncated?: boolean };
+/**
+ * The laptop's suggested tickets while none of the list is ranked in Orbit (dashboard/lib/inbox-suggest.js).
+ * On the website the state is always ready, and `nextAt` and `why` are absent.
+ */
+export interface InboxSuggestion { state: 'asking' | 'ready' | 'failed'; at: string | null; /** Hosted only: when the site received it (the age is worked out from this). */ receivedAt?: string; picks: { key: string; reason: string }[]; forList: string[]; nextAt?: string | null; why?: string }
+
+export type InboxAnswer = OrbitStatus & { suggest?: InboxSuggestion | null; items: InboxItem[]; laptops?: InboxLaptop[]; filter?: InboxFilter; view?: string; checkedAt?: string; truncated?: boolean };
 
 // ---------- The Stage: one stop of a job (dashboard/lib/stage-view.js, GET /api/job/:slug/stage/:stop) ----------
 

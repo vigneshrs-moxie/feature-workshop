@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useEffect, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../api/client';
@@ -6,9 +6,10 @@ import { installKeyListener } from '../app/keyRegistry';
 import { writeKeysSetting } from '../app/keysSetting';
 import { hrefFor, parseHash } from '../app/router';
 import { UiProvider, useUi, type SheetState } from '../app/ui';
+import { clockTime } from '../lib/time';
 import { createStore, WorkshopContext } from '../state/store';
 import { LEVELS, snapshot } from '../state/test-fixtures';
-import { InboxView, levelWord, nextTicket, queueOrder, sortInbox, toStart, startText, statusWord, type InboxAnswer, type InboxItem, type OrbitStatus, type OrbitStream } from './Inbox';
+import { InboxView, suggestNote, levelWord, nextTicket, shownPicks, queueOrder, sortInbox, toStart, startText, statusWord, type InboxAnswer, type InboxItem, type InboxSuggestion, type OrbitStatus, type OrbitStream } from './Inbox';
 import { OrbitTokenSettings } from './Settings/OrbitTokenSettings';
 import { setGuideFirstVisit } from '../components/page/Page';
 import { pickOption } from '../components/Select.testing';
@@ -493,5 +494,80 @@ describe('the Inbox follows your queue', () => {
     expect(screen.getByText('Already started')).toBeInTheDocument();
     expect(screen.getByText('A job is on each of these already')).toBeInTheDocument();
     expect(rowKeys(tables[1])).toEqual(['ORBIT-41']);
+  });
+
+  describe('suggested tickets', () => {
+    const unranked = (n: number, extra: Partial<InboxItem> = {}) => item(n, { queuePosition: null, workOrder: null, size: null, queueKnown: true, ...extra });
+    const suggest = (picks: { key: string; reason: string }[], extra: Partial<InboxSuggestion> = {}): InboxSuggestion => ({
+      state: 'ready', at: new Date(NOW.getTime() - 4 * 60_000).toISOString(), picks, forList: ['ORBIT-31@x'], nextAt: null, ...extra,
+    });
+    const LIST = [unranked(31, { changedAt: 'x' }), unranked(32, { changedAt: 'x' }), unranked(33, { changedAt: 'x' }), unranked(34, { changedAt: 'x' })];
+    const THREE = [{ key: 'ORBIT-33', reason: 'Small and blocks Sam.' }, { key: 'ORBIT-31', reason: 'Oldest.' }, { key: 'ORBIT-34', reason: 'Quick win.' }];
+    const open = async (answer: InboxAnswer) => {
+      const { wrap } = setup({ answer });
+      wrap(<InboxView openStream={() => null} />);
+      return screen.findByRole('region', { name: 'Next step' });
+    };
+
+    it('up to three rows say Suggested with their reason', async () => {
+      await open({ ...INBOX, items: LIST, suggest: suggest(THREE) });
+      const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-ticket'));
+      const marked = rows.filter((r) => within(r).queryByText('Suggested'));
+      expect(marked.map((r) => r.getAttribute('data-ticket')).sort()).toEqual(['ORBIT-31', 'ORBIT-33', 'ORBIT-34']);
+      const row33 = rows.find((r) => r.getAttribute('data-ticket') === 'ORBIT-33')!;
+      expect(within(row33).getByText('Suggested')).toHaveAttribute('title', "Picked by Haiku on your laptop, because none of your tickets is ranked in Orbit. Rank them in Orbit's Plan my queue to set the order yourself.");
+      expect(row33).toHaveTextContent('Small and blocks Sam.');
+      expect(rows.find((r) => r.getAttribute('data-ticket') === 'ORBIT-32')).not.toHaveTextContent('Suggested');
+    });
+
+    it('the status line is always in the page, empty with no note and holding the note when there is one', async () => {
+      await open({ ...INBOX, items: LIST, suggest: null });
+      const empty = document.querySelector('.inbox-note');
+      expect(empty).toBeInTheDocument();
+      expect(empty).toHaveAttribute('role', 'status');
+      expect(empty).toHaveTextContent('');
+      cleanup();
+      await open({ ...INBOX, items: LIST, suggest: suggest([], { state: 'asking' }) });
+      expect(document.querySelector('.inbox-note')).toHaveTextContent('Picking up to three tickets to suggest…');
+    });
+
+    it('on the website the age comes from when the site received the suggestion, not the laptop’s own date', () => {
+      const items = [unranked(31, { changedAt: 'x' })];
+      const wrong = suggest([{ key: 'ORBIT-31', reason: 'r' }], { at: new Date(NOW.getTime() - 60_000).toISOString(), receivedAt: new Date(NOW.getTime() - 3 * 3_600_000).toISOString() });
+      expect(suggestNote(wrong, items, 1, NOW, true)).toMatch(/^Suggested by your laptop 3 hours ago\. Your list may have changed since\./);
+      expect(suggestNote({ ...wrong, receivedAt: new Date(NOW.getTime() - 4 * 60_000).toISOString() }, items, 1, NOW, true)).toBe('Suggested by your laptop 4 minutes ago.');
+    });
+
+    it('a pick that got a job or a rank is not shown', () => {
+      const items = [unranked(31), unranked(32, { job: { slug: 'x', title: 'X' } }), unranked(33, { queuePosition: 2 }), unranked(34, { start: { id: 1, state: 'sending', laptop: { id: 1, name: 'L', online: true }, at: daysAgo(0) } }), unranked(35)];
+      const picks = shownPicks(items, suggest([31, 32, 33, 34, 35, 99].map((n) => ({ key: `ORBIT-${n}`, reason: 'r' }))));
+      expect(picks.map((i) => i.key)).toEqual(['ORBIT-31', 'ORBIT-35']);
+      expect(shownPicks(items, suggest([{ key: 'ORBIT-31', reason: 'r' }], { state: 'failed' }))).toEqual([]);
+      expect(shownPicks(items, null)).toEqual([]);
+    });
+
+    it('the bar offers the first shown pick with the exact words', async () => {
+      const bar = await open({ ...INBOX, items: LIST, suggest: suggest(THREE) });
+      expect(bar).toHaveTextContent('ORBIT-33 is suggested: Small and blocks Sam.');
+      expect(bar).toHaveTextContent('None of your tickets is ranked in Orbit, so this is a suggestion. Start a job and the Foreman reads the ticket first.');
+      expect(within(bar).getByRole('button', { name: /Start ORBIT-33/ })).toBeInTheDocument();
+    });
+
+    it('a ranked free ticket wins over any pick', () => {
+      const items = [unranked(31), item(32, { queuePosition: 5, queueKnown: true })];
+      expect(nextTicket(items, shownPicks(items, suggest([{ key: 'ORBIT-31', reason: 'r' }])))).toMatchObject({ item: { key: 'ORBIT-32' }, why: 'queue' });
+    });
+
+    it('the note above the table: asking, failed, and a list that changed since', async () => {
+      await open({ ...INBOX, items: LIST, suggest: suggest([], { state: 'asking' }) });
+      expect(screen.getByText('Picking up to three tickets to suggest…')).toBeInTheDocument();
+      cleanup();
+      await open({ ...INBOX, items: LIST, suggest: suggest([], { state: 'failed', why: "Haiku didn't answer in time." }) });
+      expect(screen.getByText("No suggestion this time: Haiku didn't answer in time. It tries again when your list changes.")).toBeInTheDocument();
+      cleanup();
+      const next = new Date(NOW.getTime() + 20 * 60_000).toISOString();
+      await open({ ...INBOX, items: LIST, suggest: suggest(THREE, { forList: ['ORBIT-OLD@x'], nextAt: next }) });
+      expect(screen.getByText(new RegExp(`^Suggested 4 minutes ago\\. Your list has changed since, so a new suggestion comes by ${clockTime(next).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.$`))).toBeInTheDocument();
+    });
   });
 });

@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApi } from '../../api/client';
-import type { InboxAnswer, InboxFilter, InboxItem, InboxLaptop, InboxStart, OrbitStatus } from '../../api/types';
+import type { InboxAnswer, InboxFilter, InboxItem, InboxLaptop, InboxStart, InboxSuggestion, OrbitStatus } from '../../api/types';
 import { HostedApp } from './HostedApp';
 import { dayWords, savedWords } from './OrbitPage';
 import { parseHostedHash } from './route';
@@ -27,12 +27,12 @@ const ticket = (n: number, extra: Partial<InboxItem> = {}): InboxItem => ({
 const REPOS = [{ name: 'orbit', default: true }, { name: 'starbase', default: false }];
 const lap = (id: number, name: string, online: boolean): Laptop => ({ id, name, os: 'macOS', version: '0.1.0', pairedAt: ago(86_400_000 * 5), lastSeenAt: ago(online ? 5_000 : 3_600_000), online });
 
-interface Site { status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** Start answers only once this settles. */ hold?: Promise<void> }
+interface Site { suggest?: InboxSuggestion | null; status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** Start answers only once this settles. */ hold?: Promise<void> }
 
 function site(over: Partial<Site> = {}) {
   const s: Site = { status: STATUS, items: [ticket(12), ticket(13, { severity: 'low' })], laptops: [lap(7, 'Olive’s Mac', true)], calls: [], ...over };
   const laptopsOf = (): InboxLaptop[] => s.laptops.map((l) => ({ id: l.id, name: l.name, online: l.online, repos: s.repos ?? REPOS }));
-  const answer = (): InboxAnswer => ({ ...s.status, ...(s.filter ? { filter: s.filter } : {}), laptops: laptopsOf(), items: s.items });
+  const answer = (): InboxAnswer => ({ ...s.status, ...(s.filter ? { filter: s.filter } : {}), laptops: laptopsOf(), items: s.items, suggest: s.suggest ?? null });
   const fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url);
     const method = init?.method ?? 'GET';
@@ -83,6 +83,20 @@ describe('the hosted Inbox', () => {
     expect(screen.queryByText('Start as stack')).toBeNull();
     expect(screen.getByText(/checked every 3 minutes, and every minute while this page is open/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Inbox' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('the website shows how old the suggestion is, and that it may be out of date after two hours', async () => {
+    const picks = [{ key: 'ORBIT-12', reason: 'Small and quick.' }];
+    const unranked = (n: number) => ticket(n, { queuePosition: null, queueKnown: true });
+    const { api } = site({ items: [unranked(12), unranked(13)], suggest: { state: 'ready', at: ago(5 * 60_000), picks, forList: [] } });
+    render(<HostedApp api={api} />);
+    expect(await screen.findByText('Suggested by your laptop 5 minutes ago.')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Next step' })).toHaveTextContent('ORBIT-12 is suggested: Small and quick.');
+    expect(screen.getByRole('region', { name: 'Next step' })).toHaveTextContent("None of your tickets is ranked in Orbit, so this is your laptop's suggestion. Start sends it to your laptop.");
+    cleanup();
+    const old = site({ items: [unranked(12), unranked(13)], suggest: { state: 'ready', at: ago(3 * 3_600_000), picks, forList: [] } });
+    render(<HostedApp api={old.api} />);
+    expect(await screen.findByText('Suggested by your laptop 3 hours ago. Your list may have changed since. Your laptop suggests again when it is on.')).toBeInTheDocument();
   });
 
   it('says under the title that only tickets assigned to you are listed, with no Watching tab or chip', async () => {

@@ -39,7 +39,7 @@ import { HttpError, API_HEADERS, send, sendJson } from './http.js';
 import { iso } from './sessions.js';
 import { liveEvents, resumeFrom, HOSTED_EPOCH } from '../lib/live.js';
 import { decisionQueue, nameOf } from '../lib/queue.js';
-import { recordStore, KINDS } from '../lib/records.js';
+import { cleanSuggestion, recordStore, KINDS } from '../lib/records.js';
 
 export const OFF_WORDS = 'Your laptop is off; this shows when it’s back.';
 export const ON_LAPTOP = 'This is done on your laptop for now. Open the job there.';
@@ -95,6 +95,13 @@ export default function mirrorRoutes(ctx) {
         [runner.id, iso(now() + 1)],
       );
       p.synced = true;
+      return;
+    }
+    // The laptop's suggested tickets are data from outside: stored in the shape the site checks, or not at all.
+    // A record that fails the check removes that laptop's earlier one, so the site shows nothing from it.
+    if (kind === 'inbox-suggest' && typeof key === 'string') {
+      const clean = value === null ? null : cleanSuggestion(value, now());
+      await records.put(runner, kind, '', clean); // marks no job and no change: the page reads it with its inbox
       return;
     }
     if (!Object.hasOwn(KINDS, kind) || typeof key !== 'string' || (value !== null && (typeof value !== 'object' || Array.isArray(value)))) return;

@@ -7,8 +7,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import { keychainStore, tokenStore } from '../lib/orbit-token.js';
-import { normalizeSiteUrl, repoChoices, readSiteFile, SITE_TOKEN_NAMES, siteTokenStore, thisLaptop, writeSiteFile } from '../runner/site-link.js';
+import { createSiteLink, normalizeSiteUrl, repoChoices, readSiteFile, SITE_TOKEN_NAMES, siteTokenStore, thisLaptop, writeSiteFile } from '../runner/site-link.js';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'gc-site-link-'));
 
@@ -69,4 +70,37 @@ test('the laptop sends its repository names, never paths', () => {
   assert.deepEqual(sent, [{ name: 'orbit', default: true }, { name: 'starbase', default: false }]);
   assert.ok(!JSON.stringify(sent).includes('/Users'), 'no path leaves the laptop');
   assert.deepEqual(repoChoices(null), []);
+});
+
+test('the laptop sends its last suggestion as an inbox-suggest record, and null when switched off', async () => {
+  const dir = tmp();
+  writeSiteFile(dir, { url: 'https://starbase.example.test', deviceId: 'device-test-0001', runnerId: 1, name: 'Test Laptop' });
+  const store = await siteTokenStore({ stateDir: dir, prefer: 'file' });
+  await store.set('runner-token-for-a-test-only');
+  const ee = new EventEmitter();
+  let suggestion = { at: '2026-11-10T09:00:00.000Z', picks: [{ key: 'ORBIT-12', reason: 'Small and quick' }], forList: ['ORBIT-12@x'] };
+  const runner = {
+    read: { features: async () => ({ features: [] }), snapshot: async () => ({ jobs: [] }), inboxSuggest: () => suggestion },
+    on(type, fn) { ee.on(type, fn); return () => ee.off(type, fn); },
+  };
+  const posted = [];
+  const fetch = async (url, init) => {
+    const u = new URL(url);
+    let body = {};
+    if (u.pathname === '/api/runner/events') { posted.push(...JSON.parse(init.body).events); body = { refused: [] }; }
+    if (u.pathname === '/api/runner/commands') { await new Promise((r) => setTimeout(r, 300)); body = { commands: [] }; }
+    return { status: 200, json: async () => body };
+  };
+  const link = createSiteLink({ runner, stateDir: dir, store, fetch, waitSeconds: 1, debounceMs: 10, watchEveryMs: 0, log: () => {}, version: '0.1.0' }).start();
+  const records = () => posted.filter((e) => e.type === 'record' && e.data.kind === 'inbox-suggest');
+  const until = async (check) => { for (let i = 0; i < 200 && !check(); i++) await new Promise((r) => setTimeout(r, 25)); assert.ok(check(), 'the record to be sent'); };
+  try {
+    await until(() => records().length === 1);
+    assert.equal(records()[0].data.key, '');
+    assert.deepEqual(records()[0].data.value, suggestion);
+    suggestion = null; // switched off
+    ee.emit('*', 'inbox-suggest', null, { at: 1 });
+    await until(() => records().length === 2);
+    assert.equal(records()[1].data.value, null);
+  } finally { link.stop(); }
 });
