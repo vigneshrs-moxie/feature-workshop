@@ -823,3 +823,16 @@ test('N6: --ignore-scripts with true or false after it asks, and prepublish is r
     assert.equal(bash('cd pkg-db && npm install --ignore-scripts', ctx), null);
   } finally { o.done(); }
 });
+
+test('N13: a test name that starts with / is text in the routine list too, not an outside path', async () => {
+  const { classify } = await import('../lib/policy.js');
+  const d = diskWorktree();
+  try {
+    const ctx = ctxOf({ worktrees: [d.wt], specDirs: [], branches: [BRANCH] }, { cwd: d.wt });
+    const routine = (c) => classify('Bash', { command: c }, { mode: 'auto', stage: 'implement', featureDir: JOB, worktrees: [d.wt], repoPath: REPO, specDirs: [], cwd: d.wt, defaultToNo: false, rules: [] });
+    for (const c of ['npx vitest run -t "/api/users returns 200"', 'npx vitest run --testNamePattern=/api/users', 'npm test -- -t "/api/users returns 200"', 'npx jest -t "/api/users"', 'npx vitest run --grep /api/users']) {
+      assert.notEqual(bash(c, ctx), 'outside', c);
+      assert.notEqual(routine(c).outside, true, c);
+    }
+  } finally { d.done(); }
+});

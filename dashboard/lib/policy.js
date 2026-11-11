@@ -507,8 +507,13 @@ function judgeWords(w, ctx, simple) {
 
 // A build or test command's words that could be paths (the part after the first = when there is one, when
 // it holds a /, starts with ~ or is ..) must land in the job's folders or a temp folder (C3).
+// The values of these options are text (a test name, a pattern, a message), not paths, as in Auto's own reading (N13).
+const TEXT_OPTION = /^(-t|-k|-m|-g|--testNamePattern|--testPathPattern|--grep|--message|--title|--body)$/;
 function pathWordsInside(words, ctx) {
-  for (const w of words) {
+  for (let k = 0; k < words.length; k++) {
+    const w = words[k];
+    if (TEXT_OPTION.test(w)) { k++; continue; }
+    if (TEXT_OPTION.test(w.split('=')[0]) && w.includes('=')) continue;
     const v = w.includes('=') ? w.slice(w.indexOf('=') + 1) : w;
     if (!(v.includes('/') || v.startsWith('~') || v === '..')) continue;
     const abs = resolvePath(v, ctx.cwd);
