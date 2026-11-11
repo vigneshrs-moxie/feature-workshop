@@ -588,6 +588,39 @@ test('a job whose own files say L1 but whose worktree holds a new migration stop
   } finally { await w.stop(); }
 });
 
+test('F6: the real changes are read from the verified worktree against the org remote\'s default branch, whatever folder or base status.json names', { timeout: 120_000 }, async () => {
+  // The branch, in its own worktree, holds a new migration; status.json predicts only src/visits.js.
+  const variants = [
+    ['names no folder and no base', () => ({})],
+    ['names the folder and no base', ({ wt }) => ({ worktree: wt })],
+    ['names the folder and, as base, the commit that holds the migration', ({ wt, head }) => ({ worktree: wt, base_sha: head })],
+  ];
+  for (const [what, over] of variants) {
+    const w = await world({ jobStatus: status(1, { branch: 'feature/visit-audit', predicted_paths: ['src/visits.js'] }) });
+    try {
+      const bare = path.join(w.root, 'org.git');
+      execFileSync('git', ['clone', '-q', '--bare', w.dirs.repo, bare], { stdio: 'pipe' });
+      w.git('remote', 'add', 'moxie', bare);
+      w.git('fetch', '-q', 'moxie');
+      w.git('remote', 'set-head', 'moxie', 'main');
+      await fs.mkdir(path.join(w.root, 'elsewhere'), { recursive: true });
+      const wt = path.join(w.root, 'visit-audit-wt');
+      w.git('worktree', 'add', '-q', '-b', 'feature/visit-audit', wt, 'moxie/main');
+      const g = (...a) => execFileSync('git', ['-C', wt, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...a], { stdio: 'pipe' });
+      await fs.mkdir(path.join(wt, 'db', 'migrations'), { recursive: true });
+      await fs.writeFile(path.join(wt, 'db', 'migrations', '001_visits.sql'), 'alter table visits add column x int;\n');
+      g('add', '.'); g('commit', '-q', '-m', 'build');
+      const head = g('rev-parse', 'HEAD').toString().trim();
+      await w.writeStatus(status(1, { branch: 'feature/visit-audit', predicted_paths: ['src/visits.js'], ...over({ wt, head, repo: w.dirs.repo, root: w.root }) }));
+      await new Promise((r) => setTimeout(r, 1700));
+      await w.pass();
+      await w.idle();
+      assert.equal(w.asks.length, 0, `${what}: the Approver is not asked`);
+      assert.equal((await w.record()).stopped?.rule, 'database', `${what}: Auto stops for the migration`);
+    } finally { await w.stop(); }
+  }
+});
+
 test('a job with no level whose Foreman suggests L3 leaves Auto', { timeout: 30_000 }, async () => {
   const w = await world({ jobStatus: status(1, { suggested_level: 3 }), options: { flow: 'small', title: 'T' } });
   try {

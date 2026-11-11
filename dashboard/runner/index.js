@@ -746,6 +746,34 @@ export async function createRunner(config) {
     return paths;
   }
 
+  /**
+   * The files the job's branch really changes, for Auto's level rules (F6), from git, not from what status.json says:
+   * the job's first verified worktree (status.json's folder only when it is one of them), diffed against the org remote's
+   * default branch (asked of git with the same cache jobContext uses); status.json's base is kept only when it is an
+   * ancestor of that branch. With no org remote known, the job page's reading (changedPathsFor). Cached as that is.
+   */
+  async function autoChangedPaths(f, { worktrees = [], repo = null } = {}) {
+    const real = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+    const wt = worktrees.includes(f.worktree) && real(f.worktree) ? f.worktree : worktrees.find(real) ?? null;
+    // No verified worktree that exists: the job page's reading (status.json's folder), which can only add stops.
+    if (!wt || !repo) return changedPathsFor(f);
+    const hit = local.registry ? await local.registry.profileFor(repo).catch(() => null) : null;
+    let orgBase = null;
+    for (const remote of [...new Set([stackRules(hit?.ok ? hit.profile : null).org, ...ORG_REMOTES].filter(Boolean))]) {
+      const branch = await gitRemoteDefault({ repo, remote, exec: gitStdout, cache: autoGitCache }).catch(() => null);
+      if (branch) { orgBase = `refs/remotes/${remote}/${branch}`; break; }
+    }
+    if (!orgBase) return changedPathsFor(f);
+    let base = orgBase;
+    if (/^[0-9a-f]{40}$/.test(String(f.baseSha ?? '')) && (await gitIsAncestor({ repo, sha: f.baseSha, ref: orgBase, exec: gitStdout, cache: autoGitCache }).catch(() => null)) === true) base = f.baseSha;
+    const key = `auto\n${wt}\n${base}\n${f.updatedAt ?? ''}`;
+    const kept = diffCache.get(`auto:${f.dir}`);
+    if (kept && kept.key === key && Date.now() - kept.at < DIFF_TTL_MS) return kept.paths;
+    const paths = await changedPaths(wt, base);
+    diffCache.set(`auto:${f.dir}`, { key, at: Date.now(), paths });
+    return paths;
+  }
+
   // Claude Code terminals open in this job's repository or worktree right now.
   async function terminalsFor(f) {
     const open = DEMO ? [] : await liveTerminals();
@@ -1617,7 +1645,7 @@ export async function createRunner(config) {
     if (only) invalidate();
     for (const f of await features()) {
       if (f.auto?.on !== true || (only && f.dir !== only)) continue;
-      const { worktrees, specDirs } = await jobContext({ featureDir: f.dir, cwd: f.repoPath });
+      const { worktrees, specDirs, repo: verifiedRepo, mainCheckout } = await jobContext({ featureDir: f.dir, cwd: f.repoPath });
       const g = gateNow(f);
       const cb = f.currentBrief;
       let locked = null;
@@ -1628,7 +1656,7 @@ export async function createRunner(config) {
         stage: f.stage ?? null, stageState: f.stageState ?? null, ticketKey: f.options?.ticket?.key ?? null,
         // The rules that read the description, the files the Foreman expects to touch and the files the job's branch really
         // changes (changedPathsFor: git, cached a minute per job, as the job page and the Inbox suggestion use): a migration stops Auto.
-        triggers: suggestLevel({ description: f.description, paths: [...(f.predictedPaths ?? []), ...((await changedPathsFor(f).catch(() => null)) ?? [])] }).triggers,
+        triggers: suggestLevel({ description: f.description, paths: [...(f.predictedPaths ?? []), ...((await autoChangedPaths(f, { worktrees, repo: mainCheckout ?? verifiedRepo }).catch(() => null)) ?? [])] }).triggers,
         statusCard: driver.pendingPermissions().some((p) => p.featureDir === f.dir && p.statusCard === true),
         // PR #1 open by status.json or by the flow map: the same sources the ordinary Done notice reads (flowNotices).
         prOpen: finishLineReached({ prs: f.prs, closed: null }, flowLanes.get(f.slug) ?? null, 'pr1-open').reached,
