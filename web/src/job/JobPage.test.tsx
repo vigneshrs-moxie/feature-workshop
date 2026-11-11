@@ -178,7 +178,10 @@ describe('the go / no go bar', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'message', note: 'What does the old column feed?' })));
     // Nothing was approved: the card stays open, and the bar says it was sent.
     await within(screen.getByRole('region', { name: 'Next step' })).findByText('Sent. Waiting for the Foreman to start.');
-    expect(screen.getByRole('textbox', { name: /Your answers or a note/ })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /Keep the old column\?/ })).toBeInTheDocument();
+    // m3: the reply was taken, so its box is cleared and closed: no second press sends it again.
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: /Your answers or a note/ })).toBeNull());
+    expect(screen.queryByRole('button', { name: 'Send the reply' })).toBeNull();
     expect(post.mock.calls.filter(([, b]) => (b as { kind?: string })?.kind === 'approve')).toHaveLength(0);
   });
 

@@ -353,6 +353,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
           : kind === 'changes' ? 'The changes you asked for went to the Foreman. It stays in this stage and revises.'
             : 'Your reply went to the Foreman.';
       report({ tone: 'ok', text: `${what}${dropped}`, lines, focus: 'notice' });
+      // m3: a reply that was taken leaves its box: cleared and closed, so a second press can't send it again.
+      if (kind === 'message') { setNote(''); setMode(null); }
     } else if (r.held) {
       report({ tone: 'ok', text: `${r.message ?? 'Held until Claude’s usage limit resets.'}${dropped}`, lines, focus: 'notice' });
     } else {
