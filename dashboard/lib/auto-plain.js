@@ -922,6 +922,8 @@ export function plainWhy(command, env = {}) {
       if (broughtIn && cmd.redirects.some((r) => r.op !== '<')) ask('a file written after an archive or a git command changed the files');
       const newBranch = args.some((x) => ['-b', '-B', '-c', '-C'].includes(x.t));
       if (name === 'tar' || name === 'unzip' || (name === 'gh' && args.filter((x) => !x.t.startsWith('-'))[0]?.t === 'pr' && args.filter((x) => !x.t.startsWith('-'))[1]?.t === 'checkout') || (name === 'git' && !newBranch && ['checkout', 'switch', 'pull', 'merge', 'rebase', 'reset', 'restore', 'cherry-pick', 'revert', 'clone'].includes(sub))) broughtIn = true;
+      // gh's body read from standard input: the file given by < is the body file (N18).
+      if (name === 'gh' && args.some((x, k) => (['--body-file', '-F'].includes(x.t) && args[k + 1]?.t === '-') || x.t === '--body-file=-') && cmd.redirects.some((r) => r.op === '<' && SECRET_NAME.test(path.basename(r.target.t)))) ask('a body file with a secret name');
       runProgram(name, args, ctx, null);
     }
     return null;

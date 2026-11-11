@@ -874,3 +874,9 @@ test('N17: the env copy passes with the destination folder, and with -n or -p; n
     for (const c of [`cp -f ${o.repo}/app/.env.local app/.env.local`, `cp -r ${o.repo}/app/.env.local app/`, `cp ${o.repo}/app/.env.local src/`, `cp ${o.repo}/app/.env.local app/sub/`, `cp -n ${o.repo}/app/.env.local app/.env.copy`]) assert.notEqual(bash(c, ctx), null, c);
   } finally { o.done(); }
 });
+
+test('N18: with --body-file -, the file given by < is the body file', () => {
+  const ctx = C5CTX();
+  for (const c of [`gh pr create --base ${BRANCH} --title T --body-file - < app/.env.local`, `gh pr create --base ${BRANCH} --title T -F - < app/.env.local`]) assert.equal(bash(c, ctx), 'ask', c);
+  assert.equal(bash(`gh pr create --base ${BRANCH} --title T --body-file - < notes.md`, ctx), null);
+});
