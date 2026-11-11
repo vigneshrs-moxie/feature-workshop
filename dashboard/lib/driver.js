@@ -101,6 +101,13 @@ import { WRITE_TOOLS_MATCHER, ownedPathsHook, sectionOwnership } from './stack.j
 import { PRODUCT } from './brand.js';
 import { withoutMark } from './auto.js';
 
+/** The text without Auto's mark at its end; a text that had words and is empty without the mark is refused (F8). */
+function unmarked(text) {
+  const out = withoutMark(text);
+  if (String(text ?? '').trim() && !String(out).trim()) throw new HttpError(400, 'The message is empty.');
+  return out;
+}
+
 /** How many corrective messages one run of invalid status.json writes gets before the card. */
 export const STATUS_RETRIES = 3;
 /** The card's two answers (the question card also offers "Something else": your own words). */
@@ -268,7 +275,8 @@ export class Driver extends EventEmitter {
    */
   async start({ featureDir, slug, title, cwd, sessionId = null, model = null, effort = null, text, kind = 'message', newJob = false, additionalDirectories = [], gateBrief = null, owned = undefined, by = 'you' }) {
     // Every message to a Foreman passes here: only Auto's own reply may end with Auto's mark (lib/auto.js withoutMark).
-    if (by !== 'auto') text = withoutMark(text);
+    // A message that was nothing but the mark is refused, as an empty one is (F8).
+    if (by !== 'auto') text = unmarked(text);
     // Asked before the busy check, so nothing is awaited between that check and the run being listed.
     let mode = null;
     if (this.modeFor) { try { mode = await this.modeFor({ featureDir, slug }); } catch { mode = null; } }
@@ -1230,7 +1238,7 @@ export class Driver extends EventEmitter {
     const run = this.runs.get(runId);
     if (!run || !ACTIVE.has(run.status) || run.inputClosed) return null;
     if (run.stopRequested) throw new Busy('This reply is stopping. Send your message once it has stopped.');
-    const s = { id: randomUUID(), runId: run.id, slug: run.slug, text: withoutMark(text), state: 'queued', queuedAt: new Date().toISOString(), deliveredAt: null, actedAt: null };
+    const s = { id: randomUUID(), runId: run.id, slug: run.slug, text: unmarked(text), state: 'queued', queuedAt: new Date().toISOString(), deliveredAt: null, actedAt: null };
     run.steers.push(s);
     if (run.steers.length > 50) run.steers.shift();
     run.inbox.push(s);

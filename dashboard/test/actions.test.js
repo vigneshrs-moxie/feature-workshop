@@ -348,3 +348,26 @@ test('F9: a reply whose send line cannot be written is not left listed as starti
   const run = await driver.start({ featureDir: '/f/f9', slug: 'f9', title: 'F9', cwd: '/repo', text: 'go again' });
   await until(driver, run.id, ['done', 'error']);
 });
+
+test('F8: a message that is only Auto\'s mark is refused as empty, started or steered; Auto\'s own reply is not', async () => {
+  const { AUTO_MARK } = await import('../lib/auto.js');
+  const state = await tmpState();
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const queryFn = fakeSession(async function* () {
+    yield { type: 'system', subtype: 'init', session_id: 's-f8', model: 'claude-fable-5-1', apiKeySource: 'none' };
+    await held;
+    yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0, permission_denials: [] };
+  });
+  const driver = new Driver({ queryFn, state, projectsDir: '/nonexistent' });
+  driver.idleGraceMs = 30;
+  for (const text of [AUTO_MARK, `  ${AUTO_MARK}\n${AUTO_MARK} `]) {
+    await assert.rejects(driver.start({ featureDir: '/f/f8', slug: 'f8', title: 'F8', cwd: '/repo', text }), /^HttpError: The message is empty\.$|The message is empty\./);
+  }
+  assert.deepEqual(driver.list(), [], 'nothing started');
+  const run = await driver.start({ featureDir: '/f/f8', slug: 'f8', title: 'F8', cwd: '/repo', text: `I approve.\n${AUTO_MARK}`, by: 'auto' });
+  await until(driver, run.id, ['running']);
+  await assert.rejects(driver.steer(run.id, AUTO_MARK), /The message is empty\./);
+  release();
+  await until(driver, run.id, ['done', 'error']);
+});
