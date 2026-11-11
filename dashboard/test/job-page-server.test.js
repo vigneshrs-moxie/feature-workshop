@@ -1,0 +1,187 @@
+// The job page's overview facts on GET /api/job/:slug (Part 3, Task 1), on a demo dashboard with a
+// pretend Orbit on this computer: the ticket with who filed it, what we're building (the spec's Key
+// points, else the first brief's) and the check lists from acceptance.md. The filer's name is kept
+// in Starbase's own record, never in the job folder. No model and no real Orbit are called.
+
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs/promises';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { startDashboard } from './helpers/dashboard.js';
+import { FABLE } from '../lib/options.js';
+
+const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'orbit', 'ticket-ORBIT-479.json');
+const FAKE_TOKEN = `orbfb_${'A'.repeat(43)}`;
+const OLD = '2026-10-01T10:00:00Z';
+const ACCEPTANCE = '# Acceptance criteria\n\n## It works when\n1. Starbase reads a ticket with a personal token. (FR-001)\n\n## It must not\n1. Write to Orbit. (FR-002)\n';
+
+let root, featuresDir, repo, orbit, dashboard, base, token;
+const output = [];
+
+const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
+
+/** A job folder written by hand, as an older Starbase left it: status.json and options.json, and any files given. */
+async function writeJob(slug, { options = {}, files = {} } = {}) {
+  const dir = path.join(featuresDir, slug);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({
+    schema_version: 1, slug, title: `Job ${slug}`, route: 'small', stage: 'clarify', stage_state: 'working',
+    repo: { path: repo, base_branch: 'main' }, updated_at: OLD,
+  }, null, 2));
+  await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify({ schema_version: 2, level: 2, flow: 'small', title: `Job ${slug}`, ...options }, null, 2));
+  for (const [rel, text] of Object.entries(files)) {
+    await fs.mkdir(path.dirname(path.join(dir, rel)), { recursive: true });
+    await fs.writeFile(path.join(dir, rel), typeof text === 'string' ? text : JSON.stringify(text));
+  }
+  return dir;
+}
+
+before(async () => {
+  root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fw-job-page-')));
+  featuresDir = path.join(root, 'feature-work');
+  repo = path.join(root, 'sample-repo');
+  const dirs = { projects: path.join(root, 'projects'), agents: path.join(root, 'agents'), skills: path.join(root, 'skills'), state: path.join(root, 'state'), home: path.join(root, 'home') };
+  for (const d of [featuresDir, repo, ...Object.values(dirs)]) await fs.mkdir(d, { recursive: true });
+  execFileSync('git', ['init', '-q', repo]);
+  await fs.writeFile(path.join(dirs.state, 'orbit-token'), `${FAKE_TOKEN}\n`, { mode: 0o600 });
+
+  // A job from before this change: options.json holds the ticket; no session facts, no summaries, no acceptance.md.
+  await writeJob('orbit-470-older-job', { options: { ticket: { key: 'ORBIT-470', title: 'Older job', url: 'https://orbit.example.com/t/470' } } });
+  // A job with briefs and their Key points but no spec yet.
+  await writeJob('notes-on-customers', {
+    files: {
+      'briefs/001-clarify.md': '**Notes on customers** (demo)\n\n- Managers want notes.\n',
+      'briefs/002-plan.md': '**The plan** (demo)\n\n- Later.\n',
+      'summaries/briefs/001-clarify.json': { outcome: ['Managers add notes on customers.'], risks: ['Techs must not see them.'] },
+      'summaries/briefs/002-plan.json': { outcome: ['The later brief.'] },
+    },
+  });
+
+  const fixture = await fs.readFile(FIXTURE, 'utf8');
+  orbit = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/api/feedback/v1/tickets/ORBIT-479') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(fixture);
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end('{}');
+  });
+  await new Promise((resolve) => orbit.listen(0, '127.0.0.1', resolve));
+  dashboard = await startDashboard({
+    env: {
+      HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state, STARBASE_ORBIT_URL: `http://127.0.0.1:${orbit.address().port}`,
+    },
+    output,
+  });
+  ({ base, token } = dashboard);
+});
+
+after(async () => {
+  await dashboard?.stop();
+  if (orbit) await new Promise((resolve) => { orbit.close(resolve); orbit.closeAllConnections?.(); });
+  if (root) await fs.rm(root, { recursive: true, force: true });
+});
+
+const getJob = async (slug) => {
+  const res = await fetch(`${base}/api/job/${slug}`);
+  assert.equal(res.status, 200, `GET /api/job/${slug}`);
+  return res.json();
+};
+
+/** The ticket job, started once through POST /api/jobs and shared by the tests that read it. */
+let started = null;
+function startTicketJob() {
+  started ??= (async () => {
+    const res = await fetch(`${base}/api/jobs`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token },
+      body: JSON.stringify({ description: 'ORBIT-479: Read-only feedback API', repoPath: repo, ticket: { key: 'ORBIT-479', title: 'Read-only feedback API', url: 'https://orbit.example.com/t/479' } }),
+    });
+    const body = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(body));
+    return { slug: body.slug, dir: path.join(featuresDir, body.slug) };
+  })();
+  return started;
+}
+
+/** Every file under a folder, with its text. */
+async function filesUnder(dir) {
+  const out = [];
+  for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...await filesUnder(p));
+    else if (e.isFile()) out.push({ p, text: await fs.readFile(p, 'utf8') });
+  }
+  return out;
+}
+
+test('a ticket job’s page has the ticket with who filed it, what we’re building from the spec summary and the check lists', { timeout: 60_000 }, async () => {
+  const { slug, dir } = await startTicketJob();
+  await fs.mkdir(path.join(dir, 'summaries'), { recursive: true });
+  await fs.writeFile(path.join(dir, 'summaries', 'spec.v0.3.json'), JSON.stringify({ outcome: ['Starbase reads Orbit tickets.'], risks: ['A token that can write.'] }));
+  await fs.writeFile(path.join(dir, 'acceptance.md'), ACCEPTANCE);
+  // The answer is read again once the folder's change is seen.
+  let job = await getJob(slug);
+  const end = Date.now() + 10_000;
+  while (Date.now() < end && !(job.page?.check && job.page?.building)) { await sleep(100); job = await getJob(slug); }
+  assert.deepEqual(job.page.ticket, {
+    key: 'ORBIT-479', title: 'Read-only feedback API', url: 'https://orbit.example.com/t/479',
+    filedBy: 'Pat Reporter', filedAt: '2026-10-01T09:00:00.000Z',
+    description: 'Starbase should read tickets with a personal token and never write.',
+  });
+  assert.equal(job.page.building.from, 'spec');
+  assert.equal(job.page.building.version, '0.3');
+  assert.deepEqual(job.page.building.outcome, ['Starbase reads Orbit tickets.']);
+  assert.deepEqual(job.page.building.risks, ['A token that can write.']);
+  assert.equal(job.page.check.worksWhen.length, 1);
+  assert.deepEqual(job.page.check, { version: null, worksWhen: ['Starbase reads a ticket with a personal token.'], mustNot: ['Write to Orbit.'] });
+});
+
+test('the filer’s name is in no file of the job folder', { timeout: 60_000 }, async () => {
+  const { slug, dir } = await startTicketJob();
+  assert.equal((await getJob(slug)).page.ticket.filedBy, 'Pat Reporter', 'Starbase knows the name');
+  const files = await filesUnder(dir);
+  assert.ok(files.some((f) => f.p.endsWith('ticket.md')), 'ticket.md was written');
+  for (const f of files) assert.ok(!f.text.includes('Pat Reporter') && !f.text.includes('pat@example.com'), f.p);
+});
+
+test('a job from before this change still has a page', { timeout: 60_000 }, async () => {
+  const job = await getJob('orbit-470-older-job');
+  assert.deepEqual(job.page.ticket, { key: 'ORBIT-470', title: 'Older job', url: 'https://orbit.example.com/t/470', filedBy: null, filedAt: null, description: null });
+  assert.equal(job.page.building, null);
+  assert.equal(job.page.check, null);
+});
+
+test('before there is a spec, what we’re building comes from the first brief’s summary', { timeout: 60_000 }, async () => {
+  const job = await getJob('notes-on-customers');
+  assert.equal(job.page.ticket, null, 'no ticket');
+  assert.deepEqual(job.page.building, { from: 'brief', version: null, outcome: ['Managers add notes on customers.'], risks: ['Techs must not see them.'] });
+  assert.equal(job.page.check, null);
+});
+
+test('a restart keeps the filer’s name out of the archived folder, and the new start reads it again', { timeout: 60_000 }, async () => {
+  const { slug } = await startTicketJob();
+  const post = async (p, body) => {
+    const res = await fetch(`${base}${p}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  // The demo Foreman's reply is stopped first: a restart waits for no reply.
+  const active = new Set(['starting', 'running', 'waiting_permission', 'stopping']);
+  for (let i = 0; i < 200; i++) {
+    const runs = (await (await fetch(`${base}/api/runs`)).json()).runs.filter((r) => r.slug === slug && active.has(r.status));
+    if (!runs.length) break;
+    for (const r of runs) if (r.status !== 'stopping') await post(`/api/runs/${r.id}/stop`, {});
+    await sleep(100);
+  }
+  const res = await post(`/api/job/${slug}/restart`, { model: FABLE });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const archived = await filesUnder(path.join(featuresDir, '.restarted'));
+  assert.ok(archived.some((f) => f.p.endsWith('session-record.json')), 'the session record was archived');
+  for (const f of archived) assert.ok(!f.text.includes('Pat Reporter'), f.p);
+  assert.equal((await getJob(res.body.slug)).page.ticket.filedBy, 'Pat Reporter');
+});

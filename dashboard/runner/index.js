@@ -83,7 +83,8 @@ import { Integrator, IntegrateError } from '../lib/integrate.js';
 import { MCP_NAME, OrbitError, OrbitInbox, canonicalKey, clearToken, jobsByTicket, removeMcpEntry, sessionEnv, normalizeOrbitUrl, orbitClient, setToken } from '../lib/orbit.js';
 import { tokenStore } from '../lib/orbit-token.js';
 import { InboxSuggester, SUGGEST_MODEL, askHaiku, demoAsk, suggestPrompt } from '../lib/inbox-suggest.js';
-import { TICKET_FILE, readTicketFile } from '../lib/ticket-file.js';
+import { TICKET_FILE, readTicket, ticketDescription } from '../lib/ticket-file.js';
+import { readAcceptance } from '../lib/job-page.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
@@ -1013,6 +1014,37 @@ export async function createRunner(config) {
     return { items, more: page.more };
   }
 
+  // The job page's overview facts (design 3.1): the ticket with who filed it (Starbase's own record,
+  // written at the start) and its description (ticket.md); what we're building (the spec's Key
+  // points, else the first brief's); the check lists (acceptance.md). A read that fails gives that
+  // part null, so a job from an older Starbase still has a page.
+  async function pageFacts(f) {
+    const part = (read) => read().catch(() => null);
+    const ticket = await part(async () => {
+      const t = f.options?.ticket;
+      if (!t || typeof t !== 'object' || typeof t.key !== 'string') return null;
+      const facts = (await state.sessionFor(f.dir).catch(() => null))?.ticketFacts ?? null;
+      const md = await readInside(f.dir, TICKET_FILE, { noLink: true });
+      const text = (v) => (typeof v === 'string' ? v : null);
+      return {
+        key: t.key, title: text(t.title), url: text(t.url),
+        filedBy: text(facts?.filedBy), filedAt: text(facts?.filedAt), description: md ? ticketDescription(md) : null,
+      };
+    });
+    const building = await part(async () => {
+      const spec = await readSummary(f.dir, 'spec', f.spec?.version ?? null).catch(() => null);
+      const first = f.briefs[0]?.file;
+      const s = spec ?? (first ? await readSummary(f.dir, first, null).catch(() => null) : null);
+      return s ? { from: spec ? 'spec' : 'brief', version: s.version ?? null, outcome: s.outcome, risks: s.risks } : null;
+    });
+    const check = await part(async () => {
+      const text = await readInside(f.dir, 'acceptance.md', { noLink: true });
+      const lists = text === null ? null : readAcceptance(text);
+      return lists ? { version: docVersion(f.dir, 'acceptance.md', f.recordedArtifacts), ...lists } : null;
+    });
+    return { ticket, building, check };
+  }
+
   async function jobDetail(f) {
     const run = runFor(f);
     const latestPath = f.latestBrief?.path ?? f.briefs.at(-1)?.file ?? null;
@@ -1076,7 +1108,7 @@ export async function createRunner(config) {
       }
     }
 
-    const page = await threadPage(f, audit);
+    const threadPart = await threadPage(f, audit);
     const card = boardCard(f, run);
     return {
       ...card,
@@ -1092,7 +1124,8 @@ export async function createRunner(config) {
       latestBrief, briefs: f.briefs, approvals: f.approvals, history: f.history, artifacts: f.artifacts, recordedArtifacts: f.recordedArtifacts,
       costDetail: { ...f.cost, whatIf: whatIfConductor(f.cost.agents) },
       activity: f.activity.map((a) => (a.state === 'running' && !stillRunning(f, a, run && ACTIVE_RUN.has(run.status) ? run : null) ? { ...a, state: 'stopped' } : a)),
-      drive, run, runs: runsOf(f), overview, thread: page.items, threadMore: page.more, locate: f.locate,
+      drive, run, runs: runsOf(f), overview, thread: threadPart.items, threadMore: threadPart.more, locate: f.locate,
+      page: await pageFacts(f),
       // policy: the setting in force for this job; policyOverride: the job's own (null: it follows yours).
       // While Auto is on, 'auto' (lib/state.js policyFor), the job's own setting kept as it was.
       policy: await state.policyFor(f.dir), policyOverride: settings.jobPolicy?.[f.dir] ?? null, globalPolicy: settings.policy, autoMode: settings.autoMode,
@@ -2308,9 +2341,13 @@ export async function createRunner(config) {
         // Orbit being slow or down never stops a start: no file, and the message says so.
         let detailsRead = false;
         if (ticket) {
-          const md = await readTicketFile(orbit, ticket);
-          if (md) {
-            try { await fsp.mkdir(featureDir, { recursive: true }); await writeFileAtomic(path.join(featureDir, TICKET_FILE), md, { mode: 0o600 }); detailsRead = true; } catch { /* the job starts without it */ }
+          const read = await readTicket(orbit, ticket);
+          if (read?.md) {
+            try { await fsp.mkdir(featureDir, { recursive: true }); await writeFileAtomic(path.join(featureDir, TICKET_FILE), read.md, { mode: 0o600 }); detailsRead = true; } catch { /* the job starts without it */ }
+          }
+          // Who filed it and when, for the job page: kept in Starbase's own record, never in the job folder.
+          if (read?.facts) {
+            try { await state.setSession(featureDir, { ticketFacts: read.facts }); } catch { /* the page shows them as not known */ }
           }
         }
         // A ticket's job starts with a status.json of schema version 2 holding the ticket block.
@@ -2541,10 +2578,17 @@ export async function createRunner(config) {
         let out;
         let policyCleared = false;
         let boundary = false;
+        // Who filed the ticket stays in Starbase's own record: the copy of the record kept with the archived folder
+        // goes without it, and a restart that is put back writes it back. The new start reads it from Orbit again.
+        let ticketFacts;
         try {
           out = await restartJob(job, {
             model: body.model,
-            session: { read: (dir) => state.sessionFor(dir), clear: (dir) => state.clearSession(dir), write: (dir, record) => state.setSession(dir, record) },
+            session: {
+              read: async (dir) => { const record = await state.sessionFor(dir); if (!record) return record; const { ticketFacts: facts, ...rest } = record; ticketFacts = facts; return rest; },
+              clear: (dir) => state.clearSession(dir),
+              write: (dir, record) => state.setSession(dir, ticketFacts ? { ...record, ticketFacts } : record),
+            },
             parked: { read: async (dir) => limits.entriesFor(dir), forget: (dir) => limits.forget(dir) },
             // The old job's own permission setting, pause and run end are cleared before the new job starts, so its
             // first tool call never runs under them; put back when the restart is undone.

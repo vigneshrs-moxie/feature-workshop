@@ -1046,7 +1046,39 @@ export interface JobDetail {
   answeredBriefs?: number[];
   /** A gate reply held until Claude's usage limit resets ("Approve, start after reset"), or null. */
   heldReply?: { kind: GateKind; gateBrief: number | null; at: string } | null;
+  /** The job page's overview facts; missing from an older Starbase's answer (not known). */
+  page?: JobPageFacts;
   [key: string]: unknown;
+}
+
+/**
+ * The job page's overview facts (dashboard/runner/index.js pageFacts). Every part may be missing
+ * (an older Starbase) or null (nothing to show): both read as not known.
+ * ticket: the Orbit ticket the job started from (null: none); filedBy and filedAt from Starbase's
+ * own record of the start, description from ticket.md.
+ * building: the spec's Key points, else the first brief's (null: neither has any).
+ * check: the numbered lines of acceptance.md, without their (FR-…) brackets (null: no such file).
+ */
+export interface JobPageFacts {
+  ticket?: {
+    key?: string;
+    title?: string | null;
+    url?: string | null;
+    filedBy?: string | null;
+    filedAt?: string | null;
+    description?: string | null;
+  } | null;
+  building?: {
+    from?: 'spec' | 'brief';
+    version?: string | null;
+    outcome?: string[];
+    risks?: string[];
+  } | null;
+  check?: {
+    version?: string | null;
+    worksWhen?: string[];
+    mustNot?: string[];
+  } | null;
 }
 
 /** POST /api/job/:slug/gate: a decision from the gate card (dashboard/server.js). */

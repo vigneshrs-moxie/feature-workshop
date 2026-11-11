@@ -100,3 +100,15 @@ test('a long Auto list is cut on the laptop to the site’s limits, so it is nev
   const small = { on: true, stopped: null, tag: null, summary: ['a', 'b', 'c'], entries: [{ at: 'x', stage: 'Plan', chose: 'c', asked: 'a', why: 'w' }] };
   assert.deepEqual(autoLogRecord(small), small);
 });
+
+test('the job record carries page', () => {
+  const page = {
+    ticket: { key: 'ORBIT-479', title: 'Feedback API', url: 'https://orbit.example.com/t/479', filedBy: 'Pat Reporter', filedAt: '2026-10-01T09:00:00.000Z', description: 'Read tickets and never write.' },
+    building: { from: 'spec', version: '0.3', outcome: ['Managers add notes.'], risks: ['Techs could see them.'] },
+    check: { version: '2', worksWhen: ['A manager can add a note.'], mustNot: ['Show notes to techs.'] },
+  };
+  const r = jobRecord({ slug: 'x', page });
+  assert.deepEqual(r.page, page);
+  assert.equal(makeEvent('record', { kind: 'job', key: 'x', value: r }).ok, true);
+  assert.deepEqual(jobRecord({ slug: 'y', page: { ticket: null, building: null, check: null } }).page, { ticket: null, building: null, check: null });
+});
