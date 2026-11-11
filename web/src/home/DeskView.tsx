@@ -34,7 +34,7 @@ import { StopMap } from '../components/stops/StopMap';
 import { Card } from '../components/permissions/PendingCards';
 import { fullTime, relativeTime } from '../lib/time';
 import { GateSlot, pressReply } from '../panes/Foreman/GateCard';
-import { useGateSent } from '../panes/Foreman/gateSent';
+import { sessionOf, useGateSent } from '../panes/Foreman/gateSent';
 import { ServerHtml } from '../panes/Foreman/ServerHtml';
 import { useJobThread } from '../panes/Foreman/useJobThread';
 import { CrewMember } from '../play/CrewMember';
@@ -93,7 +93,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
   const [extras, setExtras] = useState<HTMLDivElement | null>(null);
   // The call pressed spins while its decision is out (the card's own button was pressed for it).
   const run = state.runs[job.slug] ?? thread.detail?.run ?? null;
-  const decision = useGateSent(job, run, queuedOf(thread.detail?.queued)?.id ?? null);
+  const decision = useGateSent(job, run, queuedOf(thread.detail?.queued)?.id ?? null, sessionOf(thread.detail));
   // After a send: the same lines as the job page's bar (job/sentView.ts), and no calls.
   const sent = useWaitingLines(job, thread.detail, run, decision, thread.reload);
   const spins = (kind: string) => decision.state === 'sending' && decision.kind === kind;
@@ -296,7 +296,7 @@ function DeskGate({ job, now, briefOpen, toggleBrief }: { job: Job; now: Date; b
   const thread = useJobThread(job.slug, (state.threadVersions[job.slug] ?? 0) + state.threadEpoch);
   // M3: after a send, the same lines as the default Desk and the job page's bar (job/sentView.ts).
   const run = state.runs[job.slug] ?? thread.detail?.run ?? null;
-  const decision = useGateSent(job, run, queuedOf(thread.detail?.queued)?.id ?? null);
+  const decision = useGateSent(job, run, queuedOf(thread.detail?.queued)?.id ?? null, sessionOf(thread.detail));
   const sent = useWaitingLines(job, thread.detail, run, decision, thread.reload);
   if (thread.error) return <p className="perm-warn" role="alert">{thread.error}</p>;
   if (!thread.detail) return <p className="muted" role="status">Opening the Foreman’s brief…</p>;

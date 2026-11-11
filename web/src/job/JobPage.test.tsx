@@ -35,7 +35,7 @@ const GATE: Gate = {
 };
 
 /** What the test's server knows: the store its events go to, and the briefs a deciding answer has answered (as GET /api/job/:slug returns them). */
-const server = { store: null as Store | null, answered: [] as number[], gate: undefined as Gate | null | undefined, held: null as JobDetail['heldReply'] };
+const server = { store: null as Store | null, answered: [] as number[], gate: undefined as Gate | null | undefined, held: null as JobDetail['heldReply'], drive: undefined as JobDetail['drive'] | undefined };
 
 function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], play = 'subtle', auto = null as { on: boolean; tag: string | null } | null, gate = null as Gate | null, slug = 'alpha', extra = null as React.ReactNode, drive = null as JobDetail['drive'], post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   const store: Store = createStore();
@@ -43,8 +43,9 @@ function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions =
   server.answered = [];
   server.gate = undefined;
   server.held = null;
+  server.drive = undefined;
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: play } }, models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }] } as never }) });
-  const detail = (s: string): JobDetail => ({ slug: s, thread: [], threadMore: false, gate: server.gate === undefined ? gate : server.gate, answeredBriefs: [...server.answered], heldReply: server.held, options: { level: 1 }, auto, drive } as JobDetail);
+  const detail = (s: string): JobDetail => ({ slug: s, thread: [], threadMore: false, gate: server.gate === undefined ? gate : server.gate, answeredBriefs: [...server.answered], heldReply: server.held, options: { level: 1 }, auto, drive: server.drive === undefined ? drive : server.drive } as JobDetail);
   const get = vi.fn(async (path: string): Promise<unknown> => {
     if (path.endsWith('/docs')) return { docs: DOCS };
     const m = /\/doc\?file=(.+)$/.exec(path);
@@ -752,6 +753,24 @@ describe('after a click on the go / no go bar', () => {
     expect(bar()).not.toHaveTextContent(SENT_LINE);
     expect(calls()).toHaveLength(0);
     expect(live()).toHaveTextContent('Held until Claude’s usage limit resets.');
+  });
+
+  // Round 2, M6: a job started again under the same name is a new job: the old answer is forgotten.
+  it('after the job is started again (a new session), its brief 2 asks again; the old answer is not kept', async () => {
+    const post = sentPost();
+    const { store } = setup({ jobs: waiting(), gate: GATE, post, drive: { sessionId: 's1', model: 'claude-opus-5-5' } });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(bar()).toHaveTextContent(SENT_LINE));
+    // Started again: a new Foreman session, the same brief number open again, nothing answered.
+    server.answered = [];
+    server.drive = { sessionId: 's2', model: 'claude-fable-5-2' };
+    act(() => { store.dispatch({ type: 'event', event: ev(200, 'run', 'alpha', { id: 'r_new', slug: 'alpha', status: 'done', endedAt: new Date().toISOString() }) }); });
+    act(() => { store.dispatch({ type: 'event', event: ev(201, 'thread', 'alpha', {}) }); });
+    const go = await screen.findByRole('button', { name: /^Go: approve/ });
+    await waitFor(() => expect(go).toBeEnabled());
+    expect(bar()).not.toHaveTextContent(SENT_LINE);
+    fireEvent.click(go);
+    await waitFor(() => expect(gatePosts(post)).toHaveLength(2));
   });
 
   // Round 2, M7: Try again sends a decision only, never a Reply's words.

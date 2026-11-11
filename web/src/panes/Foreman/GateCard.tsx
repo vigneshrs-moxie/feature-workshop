@@ -39,7 +39,7 @@ import { useWorkshop, useWorkshopState } from '../../state/store';
 import { stageLabel } from '../Jobs/stages';
 import { draftKey, SendPreview } from './Composer';
 import { EVIDENCE_STAGES, EvidenceStrip } from './EvidenceStrip';
-import { useGateSent } from './gateSent';
+import { sessionOf, useGateSent } from './gateSent';
 import { isActiveRun } from './thread';
 import { LockCard, lockFromError, lockHeadline } from '../../views/JobLock/LockCard';
 import { Button, isPressable } from '../../components/Button';
@@ -226,7 +226,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const tryUi = useUi();
   // A decision is out: this card's (the button pressed spins) or Try again on the job page's bar.
   // Once the Foreman has it (sent), every call stays off until the job moves on: no second press.
-  const decision = useGateSent(job, runs[slug] ?? detail.run ?? null, queuedOf(detail.queued)?.id ?? null);
+  const decision = useGateSent(job, runs[slug] ?? detail.run ?? null, queuedOf(detail.queued)?.id ?? null, sessionOf(detail));
   const [working, setBusy] = useState(false);
   const [pressed, setPressed] = useState<'approve' | 'after-reset' | 'changes' | 'message' | 'stop' | null>(null);
   const sending = working || decision.state === 'sending';

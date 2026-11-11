@@ -7,7 +7,7 @@
 // queued decision, so no call can be pressed again before its card says it waits.
 import { useEffect } from 'react';
 import type { ApiClient } from '../../api/client';
-import type { GateRequest, GateResult, Job, Run } from '../../api/types';
+import type { GateRequest, GateResult, Job, JobDetail, Run } from '../../api/types';
 import { sendGate } from '../../app/jobActions';
 import type { GateKind } from '../../lib/compose';
 import { useSent, type SentPhase } from '../../lib/sentState';
@@ -24,7 +24,7 @@ export function jobMarks(job: Job, run: Run | null | undefined): string {
  * (`sent: true`), the run it started: kept after the bar's sent state clears, so the page can go on
  * saying it was sent while that run works or until the brief shows as answered.
  */
-interface LastSent { body: GateRequest; marks: string; gate: string | null; queuedId?: string; accepted?: { runId: string | null; at: number } }
+interface LastSent { body: GateRequest; marks: string; gate: string | null; session: string | null; queuedId?: string; accepted?: { runId: string | null; at: number } }
 const lastSent = new Map<string, LastSent>();
 
 /** A decision the server took: its kind, the brief it answered and the run it started. */
@@ -66,8 +66,12 @@ export interface GateSent {
  * `run`: the job's live run, else the one its page was fetched with. `queuedId`: the decision the
  * page shows as queued for the laptop (the website), if any.
  */
-export function useGateSent(job: Job, run: Run | null | undefined, queuedId: string | null = null): GateSent {
+export function useGateSent(job: Job, run: Run | null | undefined, queuedId: string | null = null, session: string | null = null): GateSent {
   const slug = job.slug;
+  // M6: a job started again under the same name has a new Foreman session: what this page sent to the
+  // old one is forgotten, so no old answer keeps the calls off or goes again with Try again.
+  const kept = lastSent.get(slug);
+  if (kept?.session && session && kept.session !== session) lastSent.delete(slug);
   const sent = useSent(gateSentKey(slug));
   const marks = jobMarks(job, run);
   const { state, clear } = sent;
@@ -86,7 +90,7 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
 
   async function send(api: ApiClient, body: GateRequest, gate: string | null = null): Promise<GateResult> {
     const key = gate ?? (typeof body.briefNumber === 'number' ? `#${body.briefNumber}` : null);
-    lastSent.set(slug, { body, marks, gate: key });
+    lastSent.set(slug, { body, marks, gate: key, session });
     sent.start();
     let r: GateResult;
     try {
@@ -97,10 +101,10 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
     }
     const queued = queuedIdOf(r);
     if (r?.sent) {
-      lastSent.set(slug, { body, marks, gate: key, accepted: { runId: typeof r.run?.id === 'string' ? r.run.id : null, at: Date.now() } });
+      lastSent.set(slug, { body, marks, gate: key, session, accepted: { runId: typeof r.run?.id === 'string' ? r.run.id : null, at: Date.now() } });
       sent.accepted();
     }
-    else if (queued) lastSent.set(slug, { body, marks, gate: key, queuedId: queued });
+    else if (queued) lastSent.set(slug, { body, marks, gate: key, session, queuedId: queued });
     // Held for the usage limit or given back to the message box: nothing went to the Foreman.
     else sent.clear();
     return r;
@@ -122,6 +126,12 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
 function acceptedOf(last: LastSent | undefined): AcceptedDecision | null {
   if (!last?.accepted) return null;
   return { kind: last.body.kind, brief: last.body.briefNumber ?? null, gate: last.gate, runId: last.accepted.runId, at: last.accepted.at };
+}
+
+/** The job's Foreman session, from its detail: a new one means the job was started again. */
+export function sessionOf(detail: Pick<JobDetail, 'drive'> | null | undefined): string | null {
+  const id = detail?.drive?.sessionId;
+  return typeof id === 'string' && id ? id : null;
 }
 
 /** Forget every decision sent (between tests). */

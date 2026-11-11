@@ -28,7 +28,7 @@ import { EvidenceStrip } from '../panes/Foreman/EvidenceStrip';
 import { ThreadList, useCurrentJob, useJobConversation } from '../panes/Foreman/ForemanPane';
 import { Composer } from '../panes/Foreman/Composer';
 import { GateSlot, pressReply } from '../panes/Foreman/GateCard';
-import { useGateSent, type GateSent } from '../panes/Foreman/gateSent';
+import { sessionOf, useGateSent, type GateSent } from '../panes/Foreman/gateSent';
 import { isActiveRun } from '../panes/Foreman/thread';
 import { linesText, stateLines, STUCK_WORDS, useSentView, type SentShown } from './sentView';
 import { JobGithub } from '../panes/Foreman/JobGithub';
@@ -293,7 +293,7 @@ export function NextStep({ job, conversation, now, onShip, foldCard = false }: {
   const play = usePlay();
   const review = useReview(job.slug);
   const { thread, run } = conversation;
-  const after = useAfterSend(job, run, thread.reload, queuedOf(thread.detail?.queued)?.id ?? null);
+  const after = useAfterSend(job, run, thread.reload, queuedOf(thread.detail?.queued)?.id ?? null, sessionOf(thread.detail));
   const perms = state.permissions.filter((p) => p.slug === job.slug && !isRoundCard(p));
   // One live region, always here (empty when nothing is out), so each of sending, sent and stuck is
   // announced once; the bar shows the same words, but not as a live region.
@@ -337,9 +337,9 @@ interface AfterSend {
  * The decision this job's gate card sent, as the bar shows it: watched here (gateSent.ts clears it
  * once the job moves on), with Try again sending the same decision once more.
  */
-function useAfterSend(job: Job, run: Run | null, reload: () => void, queuedId: string | null): AfterSend {
+function useAfterSend(job: Job, run: Run | null, reload: () => void, queuedId: string | null, session: string | null): AfterSend {
   const { api } = useWorkshop();
-  const decision = useGateSent(job, run, queuedId);
+  const decision = useGateSent(job, run, queuedId, session);
   const sayRef = useRef<HTMLSpanElement>(null);
   const tryRef = useRef<HTMLButtonElement>(null);
   const problemRef = useRef<HTMLParagraphElement>(null);
