@@ -225,6 +225,9 @@ export async function createRunner(config) {
   const restarting = new Set();
   // Jobs whose Auto a restart has switched off (inside restartJob's beforeMoves), until that restart ends.
   const autoArchiving = new Set();
+  // What a failed restart says when it had already switched Auto off. Where the message ends "Nothing was changed.", that
+  // sentence gives way to the first one: Auto did change.
+  const AUTO_OFF_ONLY_CHANGE = 'Only Auto changed: it was switched off for the restart. Turn it on again if you want it.';
   const AUTO_OFF_FOR_RESTART = ' Auto was switched off for the restart. Turn it on again if you want it.';
   const BEING_RESTARTED = 'This job is being started again on another model right now. Wait for that to finish.';
   // Jobs whose reply the last stop cut off (runner/replay.js), by job folder: { how: 'clean' (it
@@ -2349,7 +2352,7 @@ export async function createRunner(config) {
           });
         } catch (err) {
           // A refusal or a failure (put back, or part way) is on the record too, with what it says.
-          if (autoWasOn && err instanceof Error) err.message += AUTO_OFF_FOR_RESTART;
+          if (autoWasOn && err instanceof Error) err.message = /Nothing was changed\.$/.test(err.message) ? err.message.replace(/Nothing was changed\.$/, AUTO_OFF_ONLY_CHANGE) : err.message + AUTO_OFF_FOR_RESTART;
           await state.audit({ action: 'restart-failed', featureDir: f.dir, slug: f.slug, model: body.model, error: String(err?.message ?? err), ...(err?.moved?.length ? { stillMoved: err.moved } : {}), ...(boundary && !err?.moved?.length ? { afterBoundary: true } : {}) }).catch(() => {});
           throw err;
         }

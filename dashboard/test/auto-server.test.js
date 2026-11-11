@@ -2120,7 +2120,7 @@ test('R1: a restart that restartJob refuses leaves Auto exactly as it was, and i
   } finally { await w.stop(); }
 });
 
-test('R1: a restart that fails after the moves began and is put back leaves Auto off, with the money on one off line and the sentence in the error', { timeout: 60_000 }, async () => {
+test('R1: a restart that fails once Auto was switched off (its first move fails) leaves Auto off, with the money on one off line, and the error says Auto changed', { timeout: 60_000 }, async () => {
   const w = await restartedWorld({ auto: { ...autoRecord(null, { on: true, now: OLD }), spent: 0.3 }, });
   try {
     // The archive folder can't be made (a file is in its place): the job folder's move fails after the hook has run, and is put back.
@@ -2128,13 +2128,14 @@ test('R1: a restart that fails after the moves began and is put back leaves Auto
     let err = null;
     try { await w.runner.handle({ type: 'restart', slug: w.slug, model: FABLE }, { from: 'local' }); } catch (e) { err = e; }
     assert.ok(err, 'the restart failed');
-    assert.match(err.message, / Auto was switched off for the restart\. Turn it on again if you want it\.$/);
+    assert.match(err.message, /^The restart did not start: .* Only Auto changed: it was switched off for the restart\. Turn it on again if you want it\.$/);
+    assert.doesNotMatch(err.message, /Nothing was changed/, 'Auto did change, so the message does not say nothing did');
     const off = await w.autoLines('off');
     assert.equal(off.length, 1);
     assert.equal(off[0].costUsd, 0.3);
     assert.equal((await w.record()).on, false);
     const failed = (await w.lines()).filter((l) => l.action === 'restart-failed').at(-1);
-    assert.match(failed.error, / Auto was switched off for the restart\. Turn it on again if you want it\.$/);
+    assert.match(failed.error, / Only Auto changed: it was switched off for the restart\. Turn it on again if you want it\.$/);
   } finally { await w.stop(); }
 });
 
