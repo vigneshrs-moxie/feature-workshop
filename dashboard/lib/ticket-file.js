@@ -57,11 +57,20 @@ function head(text, max) {
   return s; // a run with no break is no email (a local part stops at 64), so nothing half-read is left
 }
 
+// What the cut can leave at the very end of a read part: the start of a mention or of a plain name
+// whose rest lay past the cut (@[Jane, @[Jane Doe](12, @Jane), so cleaning could not see it whole.
+const HALF_NAME = /(?:@\[[^\]\n]{0,200}(?:\]\([^)\n]{0,100})?|@\p{Lu}\p{Ll}{0,40}(?: \p{Lu}\p{Ll}{0,40})?)$/u;
+
 /** Read a bounded part, cleaned, trimmed, and cut at max with the mark. */
 function clip(text, max) {
   if (typeof text !== 'string') return '';
-  const t = cleanTicketText(head(text, max)).replace(/\r\n?/g, '\n').trim();
-  return t.length > max ? `${t.slice(0, max)}${CUT}` : t;
+  const read = head(text, max);
+  const wasCut = read.length < text.length;
+  let t = cleanTicketText(read).replace(/\r\n?/g, '\n');
+  // Cleaning can shrink a cut part below its limit: the half name at its end goes, and the mark stays.
+  if (wasCut) t = t.replace(HALF_NAME, '');
+  t = t.trim();
+  return t.length > max ? `${t.slice(0, max)}${CUT}` : wasCut ? `${t}${CUT}` : t;
 }
 /** One line: for titles, labels and list values. */
 const oneLine = (v, max = 300) => clip(typeof v === 'number' ? String(v) : v, max).replace(/\s+/g, ' ').trim();
