@@ -500,7 +500,7 @@ async function withFakeOrbit(answer, run) {
 
 const orbitTicket = (res, extra = {}) => {
   res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ audience: 'tech', ticket: { ticket: { subject: 'Feedback API', description: 'Make the API. Mail ana@example.com.', type: 'feature', ...extra }, timeline: [], references: [] } }));
+  res.end(JSON.stringify({ audience: 'tech', ticket: { ticket: { subject: 'Feedback API', description: 'Make the API. Mail ana@example.com.', type: 'feature', ...extra }, timeline: [{ type: 'comment', at: '2026-11-03T10:00:00Z', comment: { body: 'Shared words.', visibility: 'shared', createdAt: '2026-11-03T10:00:00Z', author: { id: 'u', fullName: 'AUTHOR-NAME' } } }], references: [] } }));
 };
 
 test('a job started from a ticket gets ticket.md', { timeout: 60_000 }, async () => {
@@ -512,7 +512,8 @@ test('a job started from a ticket gets ticket.md', { timeout: 60_000 }, async ()
     assert.equal(md.split('\n')[0], FIRST_LINE);
     assert.match(md, /# ORBIT-479: Feedback API/);
     assert.match(md, /Make the API\. Mail \[email\]\./);
-    assert.ok(!md.includes('NOTE-MARKER') && !md.includes('ana@example.com'));
+    assert.match(md, /- Comment, 3 Nov:\n {2}```\n {2}Shared words\.\n {2}```/);
+    assert.ok(!md.includes('NOTE-MARKER') && !md.includes('ana@example.com') && !md.includes('AUTHOR-NAME'));
     assert.ok(seen.includes('GET /api/feedback/v1/tickets/ORBIT-479'), seen.join('\n'));
     assert.ok(!seen.some((l) => !l.startsWith('GET ')), 'Orbit is only ever read');
     const send = await sent(dir);

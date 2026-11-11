@@ -72,6 +72,7 @@ import { Integrator, IntegrateError } from '../lib/integrate.js';
 import { MCP_NAME, OrbitError, OrbitInbox, canonicalKey, clearToken, jobsByTicket, removeMcpEntry, sessionEnv, normalizeOrbitUrl, orbitClient, setToken } from '../lib/orbit.js';
 import { tokenStore } from '../lib/orbit-token.js';
 import { TICKET_FILE, readTicketFile } from '../lib/ticket-file.js';
+import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
@@ -1671,7 +1672,7 @@ export async function createRunner(config) {
       if (ticket) {
         const md = await readTicketFile(orbit, ticket);
         if (md) {
-          try { await fsp.mkdir(featureDir, { recursive: true }); await fsp.writeFile(path.join(featureDir, TICKET_FILE), md, { mode: 0o600 }); detailsRead = true; } catch { /* the job starts without it */ }
+          try { await fsp.mkdir(featureDir, { recursive: true }); await writeFileAtomic(path.join(featureDir, TICKET_FILE), md, { mode: 0o600 }); detailsRead = true; } catch { /* the job starts without it */ }
         }
       }
       // A ticket's job starts with a status.json of schema version 2 holding the ticket block.
