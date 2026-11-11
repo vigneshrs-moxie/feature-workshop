@@ -280,7 +280,8 @@ function readFolders(ctx) {
 
 // Where each entry of a read folder that is a link really lands (skills and agents are often installed as links into a
 // checkout): read once a minute per folder. A landing in a secret place, in ~/.claude outside the read folders, or at /
-// or the home folder (or above it) is left out (N9).
+// or the home folder (or above it) is left out (N9), and so is a direct child of the home folder or a folder holding the
+// main checkout or a worktree of the job (R9).
 const landingsCache = new Map(); // folder -> { at, list }
 function linkLandings(dir, own, ctx) {
   const hit = landingsCache.get(dir);
@@ -295,9 +296,13 @@ function linkLandings(dir, own, ctx) {
     }
     landingsCache.set(dir, { at: Date.now(), list });
   }
+  // Nor a direct child of the home folder (~/Projects, ~/Documents, ~/Library, ~/.config), nor a folder that holds the main
+  // checkout or one of the job's worktrees (R9): a whole place, not one skill.
+  const held = [ctx.mainCheckout, ...(ctx.worktrees ?? [])].filter((x) => typeof x === 'string' && path.isAbsolute(x)).flatMap((x) => [path.resolve(x), physicalPath(x, null)].filter(Boolean)).map(fold);
   return list.filter((p) => {
     if (tooWideRoot(p, ctx) || secretPlace(p, [], ctx)) return false;
     const q = fold(p);
+    if (homes().some((h) => fold(path.dirname(p)) === fold(h)) || held.some((x) => isInside(x, q))) return false;
     const inClaude = homes().some((h) => isInside(q, fold(path.join(h, '.claude'))));
     return !inClaude || own.some((r) => isInside(q, fold(r)));
   });

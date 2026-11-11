@@ -1085,3 +1085,35 @@ test('R11: the set-up gate refuses odd branch names and opens from the main chec
   for (const c of ['git branch moxie/main', 'git branch moxie/main HEAD', 'git tag moxie/main', 'git tag -a moxie/v1 -m "x"', 'git branch -f moxie/main', 'git branch -m old moxie/main']) assert.equal(bash(c, wt), 'outside', c);
   for (const c of ['git branch feature/x', 'git tag v1', 'git branch --list "moxie/*"']) assert.equal(bash(c, wt), null, c);
 });
+
+test('R9: a link in a read folder that lands on a direct child of the home folder, or on a folder holding the main checkout or a worktree, adds nothing', () => {
+  const root = fsSync.realpathSync(fsSync.mkdtempSync(pathMod.join(os.tmpdir(), 'sb-links9-')));
+  const home = pathMod.join(root, 'home');
+  const was = process.env.HOME;
+  try {
+    const skills = pathMod.join(home, '.claude', 'skills');
+    const kit = pathMod.join(home, 'Projects', 'kit', 'skills', 'linked-skill');
+    const main = pathMod.join(home, 'Projects', 'work', 'orbit');
+    const wt = pathMod.join(home, 'Projects', 'work', 'orbit-orbit-500-thing');
+    for (const dir of [skills, kit, main, wt, pathMod.join(home, 'Projects', 'other', 'src'), pathMod.join(home, 'Documents'), pathMod.join(home, 'Library', 'Preferences'), pathMod.join(home, '.config', 'other')]) fsSync.mkdirSync(dir, { recursive: true });
+    fsSync.writeFileSync(pathMod.join(kit, 'SKILL.md'), '# skill\n');
+    const links = { 'linked-skill': kit, 'to-projects': pathMod.join(home, 'Projects'), 'to-docs': pathMod.join(home, 'Documents'), 'to-library': pathMod.join(home, 'Library'), 'to-config': pathMod.join(home, '.config'), 'to-main': main, 'to-work': pathMod.join(home, 'Projects', 'work'), 'to-wt': wt };
+    for (const [n, to] of Object.entries(links)) fsSync.symlinkSync(to, pathMod.join(skills, n));
+    process.env.HOME = home;
+    const job = pathMod.join(home, '.claude', 'feature-work', 'orbit-500-thing');
+    const ctx = ctxOf({ worktrees: [wt], specDirs: [], branches: [BRANCH] }, { cwd: wt, featureDir: job, mainCheckout: main, readRoots: [skills], stateDir: pathMod.join(home, '.starbase'), tempDirs: [] });
+    const control = { ...ctx, readRoots: [] };
+    const rows = [
+      ['Read', { file_path: pathMod.join(home, 'Projects', 'other', 'src', 'x.ts') }], ['Grep', { pattern: 'SECRET', path: pathMod.join(home, 'Projects') }], ['Read', { file_path: pathMod.join(home, 'Documents', 'notes.md') }],
+      ['Read', { file_path: pathMod.join(home, 'Library', 'Preferences', 'x.plist') }], ['Read', { file_path: pathMod.join(home, '.config', 'other', 'app.toml') }],
+      ['Grep', { pattern: 'SECRET', path: main }], ['Grep', { pattern: 'SECRET', path: pathMod.join(home, 'Projects', 'work') }], ['Grep', { pattern: 'SECRET', path: pathMod.join(home, 'Projects', 'other') }],
+    ];
+    for (const [tool, input] of rows) {
+      assert.equal(card(tool, input, control), 'ask', `control: ${tool} ${JSON.stringify(input)}`);
+      assert.equal(card(tool, input, ctx), 'ask', `${tool} ${JSON.stringify(input)}`);
+    }
+    // The skill installed as a link is still read without a question.
+    assert.equal(card('Read', { file_path: pathMod.join(kit, 'SKILL.md') }, ctx), null);
+    assert.equal(card('Grep', { pattern: 'x', path: kit }, ctx), null);
+  } finally { process.env.HOME = was; fsSync.rmSync(root, { recursive: true, force: true }); }
+});
