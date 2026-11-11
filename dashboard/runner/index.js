@@ -368,7 +368,8 @@ export async function createRunner(config) {
     const { f, repo, worktrees, specDirs } = await jobContext(run);
     return classify(toolName, input, {
       mode, stage: f?.stage ?? 'spec', featureDir: run.featureDir, worktrees, repoPath: repo, specDirs,
-      cwd: run.cwd, defaultToNo: Boolean(opts?.defaultToNo), rules: await rules.list(),
+      // The folder the call is judged in: the hook's, when it ran (the driver hands it in opts.cwd), else the session's.
+      cwd: opts?.cwd ?? run.cwd, defaultToNo: Boolean(opts?.defaultToNo), rules: await rules.list(),
     });
   }
 
@@ -1708,7 +1709,15 @@ export async function createRunner(config) {
     },
     // A card as it waits now (with its full input), and what the fixed stop list needs to know of its reply.
     pendingCard: (id) => driver.pendingRequest(id),
-    cardCtx: async (card) => { const run = driver.runs.get(card.runId); const full = driver.pendingRequest(card.id); return run ? autoCtxFor(run, full ? { toolName: full.toolName, input: full.input } : null) : null; },
+    // The card's call is judged in the folder the hook judged it in (the card's cwd, Round 3), else the session's.
+    cardCtx: async (card) => {
+      const run = driver.runs.get(card.runId);
+      if (!run) return null;
+      const full = driver.pendingRequest(card.id);
+      const ctx = await autoCtxFor(run, full ? { toolName: full.toolName, input: full.input } : null);
+      const cwd = full?.cwd ?? card.cwd;
+      return ctx && typeof cwd === 'string' && cwd ? { ...ctx, cwd } : ctx;
+    },
     // The Foreman suggests L1 or L2 above the job's level: applied before the gate is answered (raise only).
     raiseLevel: async (job, level) => {
       const f = await featureBySlug(job.slug);

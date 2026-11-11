@@ -530,6 +530,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       hit = fixedStop(asked, ctx);
       if (!hit) why = autoVerdict(asked, ctx)?.why ?? null;
     } catch { hit = { rule: 'tool', reason: AUTO_STOP_REASONS.tool }; }
+    // The hook stopped this call, in the folder it runs in (Round 3): it stays a stop, whatever is read here.
+    if (!hit && full.hookStop?.rule) hit = { rule: full.hookStop.rule, reason: full.hookStop.reason || AUTO_STOP_REASONS[full.hookStop.rule] || AUTO_STOP_REASONS.tool };
     // A push is the one hard line the Approver may judge: the fixed stops already refuse any push but the job's own branch to its fork.
     // Only the plain push: a command that also holds a gh call (an early pull request would end Auto with unreviewed work) is not it.
     const plainPush = full.hardLine?.line === 'git-push' && !/\bgh\b/.test(String(full.input?.command ?? ''));

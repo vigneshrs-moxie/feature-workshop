@@ -345,7 +345,7 @@ export class Driver extends EventEmitter {
       }
     }
     run.requestedMode = sdkModeFor(run.mode);
-    const hook = hardLineHook((verdict, input) => this.#onHardLine(run, verdict, input), { check: run.orgPushCheck, cwd: run.cwd, cover: this.cover ? (tool, input) => this.cover(run, tool, input) : null, autoStop: (tool, input, verdict, cwd) => this.#autoStop(run, tool, input, verdict, cwd), port: this.apiPort });
+    const hook = hardLineHook((verdict, input) => this.#onHardLine(run, verdict, input), { check: run.orgPushCheck, cwd: run.cwd, cover: this.cover ? (tool, input) => this.cover(run, tool, input) : null, autoStop: (tool, input, verdict, cwd, id) => this.#hookStop(run, tool, input, verdict, cwd, id), port: this.apiPort });
     const options = {
       cwd: run.cwd,
       // 'default' (every risky action reaches canUseTool) or, when you chose it, 'auto' (Claude
@@ -403,6 +403,7 @@ export class Driver extends EventEmitter {
       // Handed over but never answered: the reply is over, so it won't be now.
       for (const s of run.steers) if (s.state === 'delivered') this.#steerState(run, s, 'unanswered');
       this.#dropPending(run, { behavior: 'deny', message: 'The reply ended before this was decided.' }, 'run-ended');
+      run.hookCalls?.clear(); // the hook's answers belong to this reply's calls
       // The last write of the reply is checked too (a message for it is sent once the reply has ended).
       try { await this.#endStatusWatch(run); } catch { /* never stops the reply from ending */ }
       run.endedAt = new Date().toISOString();
@@ -971,6 +972,22 @@ export class Driver extends EventEmitter {
     return autoAnswer({ kind: 'card', toolName, input, hardLine: hard, blockedPath: null }, typeof cwd === 'string' && cwd ? { ...ctx, cwd } : ctx);
   }
 
+  /**
+   * The hook's own check (Auto's rules in the folder the hook reports, m12). Its answer and that folder are kept for the
+   * run by tool-use id, so the card road that follows judges the call in the same folder and keeps the hook's answer
+   * (Round 3); the entry goes when the call is answered (#ask) or the run ends. A check that throws keeps nothing: the
+   * hook asks, and the card road answers as it would with no hook.
+   */
+  async #hookStop(run, toolName, input, hard, cwd, id) {
+    const answer = await this.#autoStop(run, toolName, input, hard, cwd);
+    if (id) {
+      if (!run.hookCalls) run.hookCalls = new Map();
+      run.hookCalls.set(id, { cwd: typeof cwd === 'string' && cwd ? cwd : run.cwd, answer: answer ?? null });
+      if (run.hookCalls.size > 500) run.hookCalls.delete(run.hookCalls.keys().next().value); // calls the hook passed and no card followed
+    }
+    return answer;
+  }
+
   async #onHardLine(run, verdict, input) {
     if (verdict.decision !== 'deny') return;
     await this.#recordRefusal(run, input?.tool_name ?? 'Bash', input?.tool_input ?? {}, verdict, input?.tool_use_id, input?.agent_id);
@@ -1065,9 +1082,13 @@ export class Driver extends EventEmitter {
   }
 
   async #ask(run, toolName, input, opts = {}) {
-    const result = await this.#askInner(run, toolName, input, opts);
-    if (result?.behavior === 'deny' && opts.toolUseID) run.deniedIds.add(opts.toolUseID);
-    return result;
+    try {
+      const result = await this.#askInner(run, toolName, input, opts);
+      if (result?.behavior === 'deny' && opts.toolUseID) run.deniedIds.add(opts.toolUseID);
+      return result;
+    } finally {
+      if (opts.toolUseID) run.hookCalls?.delete(opts.toolUseID); // the call is answered: the hook's answer for it goes
+    }
   }
 
   // Allowed without a card (a routine step, a saved rule, or a hard line your go-ahead covers), and logged.
@@ -1080,10 +1101,15 @@ export class Driver extends EventEmitter {
   }
 
   async #askInner(run, toolName, input, opts) {
+    // The hook's answer for this call and the folder it judged in, when the hook ran (Round 3): the card road judges the
+    // call in that folder (the hard line, Auto's stop, the routine list) and keeps the hook's answer, so a call the hook
+    // stopped is never handed to the routine list, and one it asked about is never turned into a stop by another folder.
+    const kept = opts.toolUseID ? run.hookCalls?.get(opts.toolUseID) ?? null : null;
+    const cwd = kept?.cwd ?? run.cwd;
     // Hard lines first (the hook already did this; checked again in case it didn't run): a refusal
     // never asks, and an "ask" one is never settled by the routine list or a saved rule.
-    let hard = toolName === 'AskUserQuestion' ? null : hardLine(toolName, input, { cwd: run.cwd, port: this.apiPort });
-    if (hard) { try { hard = await run.orgPushCheck(hard, run.cwd); } catch { /* a failed lookup still asks */ } }
+    let hard = toolName === 'AskUserQuestion' ? null : hardLine(toolName, input, { cwd, port: this.apiPort });
+    if (hard) { try { hard = await run.orgPushCheck(hard, cwd); } catch { /* a failed lookup still asks */ } }
     if (hard?.decision === 'deny') {
       await this.#recordRefusal(run, toolName, input, hard, opts.toolUseID, opts.agentID);
       return { behavior: 'deny', message: hard.reason };
@@ -1092,7 +1118,8 @@ export class Driver extends EventEmitter {
     // Never a saved rule or the routine list: those don't apply to hard lines.
     // An Auto job's fixed stop (the hook asked for this card): nothing steps in front of it.
     let autoStopped = null;
-    try { autoStopped = (await this.#autoStop(run, toolName, input, hard)) ?? null; } catch { autoStopped = { rule: null, reason: 'Auto could not check this step, so it needs you.' }; }
+    if (kept) autoStopped = kept.answer;
+    else { try { autoStopped = (await this.#autoStop(run, toolName, input, hard)) ?? null; } catch { autoStopped = { rule: null, reason: 'Auto could not check this step, so it needs you.' }; } }
     if (hard && hard.line !== 'too-long' && this.cover && !autoStopped) {
       let covered = null;
       try { covered = await this.cover(run, toolName, input); } catch { covered = null; }
@@ -1100,7 +1127,7 @@ export class Driver extends EventEmitter {
     }
     if (this.policy && toolName !== 'AskUserQuestion' && !hard && !autoStopped) {
       let verdict = null;
-      try { verdict = await this.policy(run, toolName, input, opts); } catch { verdict = null; }
+      try { verdict = await this.policy(run, toolName, input, { ...opts, cwd }); } catch { verdict = null; }
       if (verdict?.auto) return this.#autoAllow(run, toolName, input, opts, verdict);
     }
     const req = {
@@ -1112,6 +1139,9 @@ export class Driver extends EventEmitter {
       defaultToNo: Boolean(opts.defaultToNo),
       // A hard line (lib/hard-lines.js): it asks every time, so nothing is offered that would stop it asking.
       hardLine: hard ? { line: hard.line, reason: hard.reason } : null,
+      // The folder the call is judged in (the hook's, when it ran) and the hook's own stop, for Auto's card road (Round 3).
+      cwd,
+      hookStop: kept?.answer?.rule ? { rule: kept.answer.rule, reason: kept.answer.reason ?? null } : null,
       // Auto mode's safety model couldn't decide this one, so it came to you.
       fromAutoMode: run.permissionMode === 'auto' && !hard && toolName !== 'AskUserQuestion',
       // "Allow for this reply" is offered only when Claude Code suggests a rule, and is kept in memory

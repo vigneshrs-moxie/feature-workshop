@@ -60,10 +60,11 @@ const failure = (problem = 'It ended with an error.', costUsd = 0.1) => ({ ok: f
  * A job in Auto (unless auto is null) with a plan gate at brief 1. ask(task, n): what the fake Approver
  * says on its nth call (n from 1). Returns the pieces a test needs; stop() cleans up.
  */
-async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null, { on: true, now: OLD }), options = { level: 1, flow: 'quick', title: 'Visit audit columns' }, jobStatus = status(1), title = 'Visit audit columns', also = null, query = null } = {}) {
+async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null, { on: true, now: OLD }), options = { level: 1, flow: 'quick', title: 'Visit audit columns' }, jobStatus = status(1), title = 'Visit audit columns', also = null, query = null, layout = null } = {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sb-auto-srv-')));
-  const dirs = Object.fromEntries(['claude', 'features', 'projects', 'agents', 'skills', 'state', 'repo'].map((n) => [n, path.join(root, n)]));
-  for (const d of Object.values(dirs)) await fs.mkdir(d);
+  // layout(root): the folders by another plan (a home folder with .claude/feature-work and Projects/<repo> in it).
+  const dirs = layout ? layout(root) : Object.fromEntries(['claude', 'features', 'projects', 'agents', 'skills', 'state', 'repo'].map((n) => [n, path.join(root, n)]));
+  for (const d of Object.values(dirs)) await fs.mkdir(d, { recursive: true });
   const git = (...a) => execFileSync('git', ['-C', dirs.repo, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...a], { stdio: 'pipe' });
   git('init', '-q', '-b', 'main');
   await fs.writeFile(path.join(dirs.repo, 'README.md'), 'hi\n');
@@ -2750,6 +2751,93 @@ test('N14: a gate whose question, or decision made for the person (or its reason
   assert.equal(u.asks.length, 1);
   assert.equal(u.asks[0].decided[0].decision.length, 1990);
   assert.equal(u.decides.length, 1);
+});
+
+// ---------- Round 3: the card road keeps the hook's answer and the folder it judged in ----------
+
+/**
+ * A Foreman that runs `calls` ({ command, cwd: the folder the hook reports }) through both roads, as Claude Code does on an
+ * Auto job: the PreToolUse hook first, then, when the hook asks, canUseTool with the same tool-use id. `outcomes` gets
+ * { hook: 'pass' | 'ask' | 'deny', result } for each, result being what canUseTool answered (null when no card was raised).
+ */
+function hookedQuery(calls, outcomes) {
+  return (texts) => ({ prompt, options }) => {
+    const sid = options.resume ?? crypto.randomUUID();
+    const gen = (async function* () {
+      yield { type: 'system', subtype: 'init', session_id: sid, model: options.model ?? OPUS, apiKeySource: 'none', cwd: options.cwd, permissionMode: 'default' };
+      const it = prompt[Symbol.asyncIterator]();
+      texts.push((await it.next()).value?.message?.content ?? '');
+      const hook = options.hooks.PreToolUse.find((h) => h.matcher === 'Bash').hooks[0];
+      for (const c of calls) {
+        const id = `toolu_${crypto.randomUUID()}`;
+        const input = { command: c.command };
+        const said = await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: input, tool_use_id: id, cwd: c.cwd }, id, { signal: new AbortController().signal });
+        const decision = said?.hookSpecificOutput?.permissionDecision ?? 'pass';
+        const result = decision === 'ask' ? await options.canUseTool('Bash', input, { signal: new AbortController().signal, toolUseID: id }) : null;
+        outcomes.push({ ...c, hook: decision, result });
+      }
+      yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0, session_id: sid, permission_denials: [] };
+      yield { type: 'system', subtype: 'session_state_changed', state: 'idle', session_id: sid };
+      while (!(await it.next()).done) { /* until the dashboard closes its input */ }
+    })();
+    gen.interrupt = async () => {};
+    gen.setPermissionMode = async () => {};
+    return gen;
+  };
+}
+
+/** The reviewer's layout: a home folder holding .claude/feature-work/<job> and Projects/orbit (the main checkout, the session's folder). */
+const homeLayout = (root) => {
+  const home = path.join(root, 'home');
+  return {
+    home, claude: path.join(home, '.claude'), features: path.join(home, '.claude', 'feature-work'), projects: path.join(root, 'projects'),
+    agents: path.join(root, 'agents'), skills: path.join(root, 'skills'), state: path.join(root, 'state'), repo: path.join(home, 'Projects', 'orbit'),
+  };
+};
+
+test('Round 3: the card road judges a call in the folder the hook judged it in, and keeps the hook\'s answer: a stop at the hook stays a stop; an ask goes to the Approver, told that folder', { timeout: 120_000 }, async () => {
+  const homeBefore = process.env.HOME;
+  const rows = [
+    // [hook folder, command, what the end must be]
+    ['main', 'cat ../../.ssh/id_rsa', 'stop'],
+    ['job', 'cat ../../../.aws/credentials', 'stop'],
+    ['main/app', 'cat ../../../.aws/credentials', 'stop'],
+    ['job', 'cat ../../.credentials.json', 'stop'],
+    ['job', 'cat ../../settings.json', 'stop'],
+    ['job', 'ls ../', 'stop'],
+    ['job', 'cat ../orbit-501-other/ticket.md', 'stop'],
+    ['job', 'python3 -m json.tool status.json', 'approver'],
+  ];
+  try {
+    for (const [where, command, end] of rows) {
+      const outcomes = [];
+      const calls = [];
+      const w = await world({ layout: homeLayout, jobStatus: status(1, { stage: 'implement', stage_state: 'working', waiting_for: null }), query: hookedQuery(calls, outcomes), ask: () => allow('Only reads the job\'s own status.') });
+      process.env.HOME = w.dirs.home;
+      try {
+        await fs.mkdir(path.join(w.dirs.repo, 'app'), { recursive: true });
+        await fs.mkdir(path.join(w.dirs.features, 'orbit-501-other'), { recursive: true });
+        const cwd = { main: w.dirs.repo, 'main/app': path.join(w.dirs.repo, 'app'), job: w.dir }[where];
+        calls.push({ command, cwd });
+        await raise(w);
+        const label = `${where}: ${command}`;
+        if (end === 'stop') {
+          await w.until(async () => (await w.record())?.stopped, `${label}: the stop`);
+          assert.equal((await w.lines()).filter((l) => l.action === 'auto-allowed').length, 0, `${label}: not allowed by the routine list`);
+          assert.equal(w.asks.length, 0, `${label}: the Approver is not asked`);
+          assert.equal(outcomes.length, 0, `${label}: the call waits for the person`);
+          assert.equal(outcomes.filter((o) => o.result?.behavior === 'allow').length, 0);
+        } else {
+          await w.until(() => outcomes.length === 1, `${label}: the call answered`);
+          assert.equal(outcomes[0].hook, 'ask', `${label}: the hook asked`);
+          assert.equal(w.asks.length, 1, `${label}: the Approver is asked`);
+          assert.equal(w.asks[0].task.facts?.cwd, w.dir, `${label}: the Approver is told the folder the call runs in`);
+          assert.equal(outcomes[0].result?.behavior, 'allow');
+          assert.equal((await w.record()).stopped, null);
+        }
+      } finally { process.env.HOME = homeBefore; await clear(w); await w.stop(); }
+    }
+  } finally { process.env.HOME = homeBefore; }
 });
 
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------
