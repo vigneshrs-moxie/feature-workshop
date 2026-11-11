@@ -676,7 +676,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
       for (const t of targets) if (pathOutside(t, cwd, st, true)) hit('outside');
       return;
     }
-    case 'mv': writes(pos()); for (const t of pos()) if (pathOutside(t, cwd, st, true)) hit('outside'); return;
+    case 'mv': writes(pos()); for (const t of pos()) if (pathOutside(t, cwd, st, true)) hit('outside'); if (pos().length >= 2 && movesCodeLater(pos().slice(0, -1), pos().at(-1), cwd ?? st.hint ?? null, st)) hit('outside'); return;
     case 'tee': case 'truncate': case 'split': writes(pos().filter((x) => x.t !== '-')); return;
     case 'rmdir': case 'unlink': case 'touch': case 'mkdir': case 'shred': case 'mkfifo': case 'mknod': case 'chflags': case 'xattr': writes(pos().filter((x) => x.t !== '-'), false); return;
     case 'chmod': case 'chown': case 'chgrp': {
@@ -696,6 +696,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
       if (!dest) { writes([{ t: '.', dyn: false }]); return; }
       for (const x of [...p, dest]) if (/^[^/]*:/.test(x.t) && !x.t.startsWith('/')) hit('outside'); // a remote host
       writes([...p, dest]); // every path argument, sources too
+      if (a.some((x) => /^-[A-Za-z]*[rRa]/.test(x) || x === '--recursive' || x === '--archive') && movesCodeLater(p.filter((x) => x !== dest), dest, cwd ?? st.hint ?? null, st)) hit('outside');
       return;
     }
     case 'dd': writes(a.filter((x) => /^(of|if)=/.test(x)).map((x) => ({ t: x.slice(3), dyn: x.includes('$') }))); return;
@@ -1181,6 +1182,19 @@ function gitStep(args, assigns, cwd, st, xargs) {
     else if (sub === 'clone') { const at = physicalPath(dest.t, eff); if (at) st.cloneDirs.push(at); } // what it brings in is not known
     return;
   }
+  // Files that run code later put in place by git itself (I5).
+  if (sub === 'mv') { const p = sargs.filter((x) => !x.t.startsWith('-')); if (p.length >= 2 && movesCodeLater(p.slice(0, -1), p.at(-1), eff, st)) hit('outside'); }
+  if (sub === 'checkout' || sub === 'restore') {
+    const dashes = a.indexOf('--');
+    const list = [];
+    for (let k = 0; k < sargs.length; k++) {
+      if (dashes >= 0 && k <= dashes) continue;
+      if (/^(-s|--source|-b|-B|--orphan|--conflict|--pathspec-from-file)$/.test(a[k])) { if (a[k] === '--pathspec-from-file') hit('outside'); k++; continue; }
+      if (!a[k].startsWith('-')) list.push(sargs[k]);
+    }
+    const paths = dashes >= 0 || sub === 'restore' ? list : list.slice(1); // git checkout <ref> <path>…: the first word is the ref
+    if (paths.some((x) => x.dyn || codeLater(physicalPath(x.t, eff), st.roots))) hit('outside');
+  }
   // Any other git command run in another folder (git -C <elsewhere>) acts there.
   if (!GIT_READ.has(sub) && eff !== cwd && !(eff && inRoots(eff, st.roots))) hit('outside');
 }
@@ -1250,6 +1264,23 @@ function pushStops(sargs, eff, ctx) {
   return false;
 }
 
+// Does moving or copying these into dest put a file where code runs later: dest itself, dest joined with a source's
+// name, or a source folder that holds workflows, actions, hooks or another such place (I5)? A path that can't be placed does.
+const CODE_LATER_NAMES = /^(workflows|actions|hooks|\.git|\.github|\.husky|\.claude|\.githooks|\.mcp\.json|lefthook\.yml)$/i;
+function movesCodeLater(sources, dest, cwd, st) {
+  const d = dest && !dest.dyn ? physicalPath(dest.t, cwd) : null;
+  if (!d) return true;
+  if (codeLater(d, st.roots)) return true;
+  for (const s of sources) {
+    const p = s && !s.dyn ? physicalPath(s.t, cwd) : null;
+    if (!p) return true;
+    if (codeLater(path.join(d, path.basename(p)), st.roots)) return true;
+    let list = [];
+    try { if (fs.statSync(p).isDirectory()) list = fs.readdirSync(p); } catch { /* not there: judged by its name */ }
+    if (list.some((n) => CODE_LATER_NAMES.test(n))) return true;
+  }
+  return false;
+}
 // ---------- paths ----------
 
 // Is this path word outside the job's folders (or somewhere we can't tell)? A symlink inside the

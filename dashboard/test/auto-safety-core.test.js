@@ -463,3 +463,22 @@ test('I4: a migration or data script run by file is a database stop, however it 
     for (const c of ['cd app && node scripts/build-icons.js', 'cd app && npx tsx scripts/build-icons.js']) assert.notEqual(bash(c, ctx), 'database', c);
   } finally { o.done(); }
 });
+
+test('I5: places that run code later cannot be filled by a move, a checkout, a restore or a patch', () => {
+  const d = diskWorktree();
+  try {
+    fsSync.mkdirSync(pathMod.join(d.wt, 'gh', 'workflows'), { recursive: true });
+    fsSync.writeFileSync(pathMod.join(d.wt, 'gh', 'workflows', 'ci.yml'), 'on: push\n');
+    fsSync.mkdirSync(pathMod.join(d.wt, 'src'), { recursive: true });
+    fsSync.writeFileSync(pathMod.join(d.wt, 'ci.yml'), 'on: push\n');
+    fsSync.writeFileSync(pathMod.join(d.wt, 'bad.patch'), 'diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\nnew file mode 100644\n--- /dev/null\n+++ b/.github/workflows/ci.yml\n@@ -0,0 +1 @@\n+on: push\n');
+    fsSync.writeFileSync(pathMod.join(d.wt, 'ok.patch'), 'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n');
+    const ctx = ctxOf({ worktrees: [d.wt], specDirs: [], branches: [BRANCH] }, { cwd: d.wt });
+    for (const c of ['git mv ci.yml .github/workflows/ci.yml', 'git mv ci.yml .claude/settings.json', 'git mv ci.yml .husky/pre-commit', 'git mv gh .github', 'git mv gh/workflows .github/',
+      'mv gh/workflows .github/', 'mv gh .github', 'cp -r gh/. .github/', 'cp -R gh .github', 'cp -r gh/workflows .github/',
+      'git checkout feature/orbit-500-thing -- .github/workflows/ci.yml', 'git restore --source=feature/orbit-500-thing .github/workflows/ci.yml', 'git restore -s HEAD~1 .husky/pre-commit',
+      'git apply bad.patch', 'git apply --index bad.patch']) assert.equal(bash(c, ctx), 'outside', c);
+    // (git apply of any patch already stops: apply is not a git subcommand Auto knows.)
+    for (const c of ['git mv ci.yml src/ci.yml', 'mv src src2', 'git checkout feature/orbit-500-thing -- src/a.ts']) assert.notEqual(bash(c, ctx), 'outside', c);
+  } finally { d.done(); }
+});
