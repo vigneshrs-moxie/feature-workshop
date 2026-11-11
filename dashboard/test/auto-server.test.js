@@ -2729,6 +2729,19 @@ test('N5 (I3-a2): Resume, and nothing waits after the resumed reply: the job is 
   } finally { await w.stop(); }
 });
 
+test('F2: after the cut-off stop, the person\'s own message clears it as Resume does; Starbase\'s own sends do not', { timeout: 60_000 }, async () => {
+  const w = await crashedWorld();
+  try {
+    await auditLine(w, { at: new Date().toISOString(), action: 'send', kind: 'nudge', text: 'Nudge.' });
+    await new Promise((r) => setTimeout(r, 1700)); await w.pass();
+    assert.equal((await w.record()).stopped?.reason, CUT_OFF, 'a nudge is Starbase\'s own');
+    await w.runner.handle({ type: 'reply', slug: w.slug, text: 'Carry on from where you were.' }, { from: 'local' });
+    await w.idle();
+    await new Promise((r) => setTimeout(r, 1700)); await w.pass();
+    assert.equal((await w.record()).stopped, null, 'the person\'s message cleared it');
+  } finally { await w.stop(); }
+});
+
 test('N5: Starbase\'s own carry-on (via auto) does not clear the cut-off stop', { timeout: 30_000 }, async () => {
   const w = await crashedWorld();
   try {
