@@ -379,7 +379,8 @@ export async function createRunner(config) {
     const { f, repo, worktrees, specDirs } = await jobContext(run);
     return classify(toolName, input, {
       mode, stage: f?.stage ?? 'spec', featureDir: run.featureDir, worktrees, repoPath: repo, specDirs,
-      cwd: run.cwd, defaultToNo: Boolean(opts?.defaultToNo), rules: await rules.list(),
+      // The folder the call is judged in: the hook's, when it ran (the driver hands it in opts.cwd), else the session's.
+      cwd: opts?.cwd ?? run.cwd, defaultToNo: Boolean(opts?.defaultToNo), rules: await rules.list(),
     });
   }
 
@@ -753,6 +754,34 @@ export async function createRunner(config) {
     if (hit && hit.key === key && Date.now() - hit.at < DIFF_TTL_MS) return hit.paths;
     const paths = await changedPaths(f.worktree, base);
     diffCache.set(f.dir, { key, at: Date.now(), paths });
+    return paths;
+  }
+
+  /**
+   * The files the job's branch really changes, for Auto's level rules (F6), from git, not from what status.json says:
+   * the job's first verified worktree (status.json's folder only when it is one of them), diffed against the org remote's
+   * default branch (asked of git with the same cache jobContext uses); status.json's base is kept only when it is an
+   * ancestor of that branch. With no org remote known, the job page's reading (changedPathsFor). Cached as that is.
+   */
+  async function autoChangedPaths(f, { worktrees = [], repo = null } = {}) {
+    const real = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+    const wt = worktrees.includes(f.worktree) && real(f.worktree) ? f.worktree : worktrees.find(real) ?? null;
+    // No verified worktree that exists: the job page's reading (status.json's folder), which can only add stops.
+    if (!wt || !repo) return changedPathsFor(f);
+    const hit = local.registry ? await local.registry.profileFor(repo).catch(() => null) : null;
+    let orgBase = null;
+    for (const remote of [...new Set([stackRules(hit?.ok ? hit.profile : null).org, ...ORG_REMOTES].filter(Boolean))]) {
+      const branch = await gitRemoteDefault({ repo, remote, exec: gitStdout, cache: autoGitCache }).catch(() => null);
+      if (branch) { orgBase = `refs/remotes/${remote}/${branch}`; break; }
+    }
+    if (!orgBase) return changedPathsFor(f);
+    let base = orgBase;
+    if (/^[0-9a-f]{40}$/.test(String(f.baseSha ?? '')) && (await gitIsAncestor({ repo, sha: f.baseSha, ref: orgBase, exec: gitStdout, cache: autoGitCache }).catch(() => null)) === true) base = f.baseSha;
+    const key = `auto\n${wt}\n${base}\n${f.updatedAt ?? ''}`;
+    const kept = diffCache.get(`auto:${f.dir}`);
+    if (kept && kept.key === key && Date.now() - kept.at < DIFF_TTL_MS) return kept.paths;
+    const paths = await changedPaths(wt, base);
+    diffCache.set(`auto:${f.dir}`, { key, at: Date.now(), paths });
     return paths;
   }
 
@@ -1627,7 +1656,7 @@ export async function createRunner(config) {
     if (only) invalidate();
     for (const f of await features()) {
       if (f.auto?.on !== true || (only && f.dir !== only)) continue;
-      const { worktrees, specDirs } = await jobContext({ featureDir: f.dir, cwd: f.repoPath });
+      const { worktrees, specDirs, repo: verifiedRepo, mainCheckout } = await jobContext({ featureDir: f.dir, cwd: f.repoPath });
       const g = gateNow(f);
       const cb = f.currentBrief;
       let locked = null;
@@ -1638,7 +1667,7 @@ export async function createRunner(config) {
         stage: f.stage ?? null, stageState: f.stageState ?? null, ticketKey: f.options?.ticket?.key ?? null,
         // The rules that read the description, the files the Foreman expects to touch and the files the job's branch really
         // changes (changedPathsFor: git, cached a minute per job, as the job page and the Inbox suggestion use): a migration stops Auto.
-        triggers: suggestLevel({ description: f.description, paths: [...(f.predictedPaths ?? []), ...((await changedPathsFor(f).catch(() => null)) ?? [])] }).triggers,
+        triggers: suggestLevel({ description: f.description, paths: [...(f.predictedPaths ?? []), ...((await autoChangedPaths(f, { worktrees, repo: mainCheckout ?? verifiedRepo }).catch(() => null)) ?? [])] }).triggers,
         statusCard: driver.pendingPermissions().some((p) => p.featureDir === f.dir && p.statusCard === true),
         // PR #1 open by status.json or by the flow map: the same sources the ordinary Done notice reads (flowNotices).
         prOpen: finishLineReached({ prs: f.prs, closed: null }, flowLanes.get(f.slug) ?? null, 'pr1-open').reached,
@@ -1719,7 +1748,15 @@ export async function createRunner(config) {
     },
     // A card as it waits now (with its full input), and what the fixed stop list needs to know of its reply.
     pendingCard: (id) => driver.pendingRequest(id),
-    cardCtx: async (card) => { const run = driver.runs.get(card.runId); const full = driver.pendingRequest(card.id); return run ? autoCtxFor(run, full ? { toolName: full.toolName, input: full.input } : null) : null; },
+    // The card's call is judged in the folder the hook judged it in (the card's cwd, Round 3), else the session's.
+    cardCtx: async (card) => {
+      const run = driver.runs.get(card.runId);
+      if (!run) return null;
+      const full = driver.pendingRequest(card.id);
+      const ctx = await autoCtxFor(run, full ? { toolName: full.toolName, input: full.input } : null);
+      const cwd = full?.cwd ?? card.cwd;
+      return ctx && typeof cwd === 'string' && cwd ? { ...ctx, cwd } : ctx;
+    },
     // The Foreman suggests L1 or L2 above the job's level: applied before the gate is answered (raise only).
     raiseLevel: async (job, level) => {
       const f = await featureBySlug(job.slug);
@@ -1805,7 +1842,8 @@ export async function createRunner(config) {
   const endedRuns = new Set();
   driver.on('run', (run) => {
     // A reply ended: the job may now wait for your go-ahead (its card shows only once nothing runs).
-    if (!ACTIVE_RUN.has(run.status) && !endedRuns.has(run.id)) { endedRuns.add(run.id); setTimeout(() => { checkWaiting(); auto.pass(); }, 1000); }
+    // A reply that held an Auto start place has let it go: a waiting tagged ticket starts now, not at the next Inbox poll (F5).
+    if (!ACTIVE_RUN.has(run.status) && !endedRuns.has(run.id)) { endedRuns.add(run.id); setTimeout(() => { checkWaiting(); auto.pass(); runAutoStart(); }, 1000); }
     if (run.status !== 'error' || toldErrors.has(run.id)) return;
     toldErrors.add(run.id);
     tell({ level: 'problem', title: run.title ?? run.slug, body: noticeBody({ stage: stageOfSlug(run.slug), what: 'The reply ended with an error. Open the job to see it.' }), slug: run.slug, key: `error:${run.id}` });

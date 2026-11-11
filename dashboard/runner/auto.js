@@ -128,12 +128,13 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
    * Auto stops and waits for you: the record says why, one audit line, one notification (none if it already had). Resolves true when it wrote the stop.
    * why: the Approver's own words when the reason is Starbase's (they go on the line; the reason is what the person is told).
    */
-  async function stop(job, { rule, reason }, { leave = false, why = null, card = false } = {}) {
+  async function stop(job, { rule, reason }, { leave = false, why = null, card = false, cardId = null } = {}) {
     stopping(job.slug, true);
-    try { return await writeStop(job, { rule, reason }, { leave, why, card }); } finally { stopping(job.slug, false); }
+    try { return await writeStop(job, { rule, reason }, { leave, why, card, cardId }); } finally { stopping(job.slug, false); }
   }
   // card: the stop was written on a card (stopOnCard); only then does the person's answer to a card clear it (N1).
-  async function writeStop(job, { rule, reason }, { leave, why, card }) {
+  // cardId: that card's request id; only the person's answer to that card clears the stop (F1).
+  async function writeStop(job, { rule, reason }, { leave, why, card, cardId }) {
     const at = now().toISOString();
     let spent = 0;
     let wrote = false;
@@ -142,7 +143,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       if (prev?.on !== true || (!leave && prev.stopped)) return null;
       wrote = true;
       spent = prev.spent ?? 0;
-      return { ...prev, ...(leave ? { on: false } : {}), stopped: { reason, rule, at, ...(card ? { card: true } : {}) } };
+      return { ...prev, ...(leave ? { on: false } : {}), stopped: { reason, rule, at, ...(card ? { card: true, ...(cardId ? { cardId } : {}) } : {}) } };
     });
     if (!wrote) return false;
     try {
@@ -187,12 +188,17 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     // answer to a card clears only a stop that was written on a card (N1: a yes or no to a tool call decides no step);
     // an answer on the status card clears a stop made by a status card, and no other.
     const statusStop = job.auto.stopped?.rule === 'status';
-    const cardStop = job.auto.stopped?.card === true;
-    // The cut-off stop asks for Resume: the person's Resume (a `resumed` line not via Starbase's own carry-on) clears it (N5).
+    // A stop written on a card is cleared by the person's answer to that card, named by its request id (F1); a stop whose
+    // card is gone is cleared by a gate decision, or by switching Auto off and on.
+    const cardStop = job.auto.stopped?.card === true ? job.auto.stopped.cardId ?? null : null;
+    // The cut-off stop asks for Resume: the person's Resume (a `resumed` line not via Starbase's own carry-on) clears it (N5),
+    // and so does a message of their own, which ends the pause as Resume would (F2).
     const cutOffStop = job.auto.stopped?.reason === CUT_OFF;
     const yours = lines.some((l) => l.by !== 'auto' && Date.parse(l.at) > stoppedAt
-      && ((l.action === 'send' && DECIDES.has(l.kind) && l.gateBrief) || (cardStop && l.action === 'permission') || (statusStop && l.action === 'status_invalid_answer')
-        || (cutOffStop && l.action === 'resumed' && l.via !== 'auto')));
+      && ((l.action === 'send' && DECIDES.has(l.kind) && l.gateBrief) || (cardStop && l.action === 'permission' && l.requestId === cardStop) || (statusStop && l.action === 'status_invalid_answer')
+        || (cutOffStop && l.action === 'resumed' && l.via !== 'auto')
+        // A message of the person's own after the cut-off stop does what Resume would (it ends the pause, F2).
+        || (cutOffStop && l.action === 'send' && !OWN_SENDS.has(l.kind))));
     if (!yours) return false;
     const at = now().toISOString();
     await update(job.dir, (prev) => (prev?.stopped ? { ...prev, stopped: null, failures: 0, problem: null, step: null, cards: 0, since: at } : null));
@@ -516,7 +522,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     if (!job || job.auto?.on !== true || job.auto.stopped || job.restarting || !autoAllowed({ level: job.level, suggestedLevel: job.suggestedLevel }).ok) return leave();
     // Never answered: a card about Starbase's own checks, PR feedback, a review round. A status card also stops Auto.
     if (card.feedbackCard || card.roundCard) return leave();
-    if (card.statusCard) return stopOnCard(job, fixedStop({ kind: 'job', statusCard: true }), leave);
+    if (card.statusCard) return stopOnCard(job, fixedStop({ kind: 'job', statusCard: true }), leave, { cardId: card.id });
     const full = waits();
     if (!full) { cards.delete(card.id); return; }
     // The fixed stop list decides first; so does a hard line (the hook refused a deny one before any card existed).
@@ -530,15 +536,17 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       hit = fixedStop(asked, ctx);
       if (!hit) why = autoVerdict(asked, ctx)?.why ?? null;
     } catch { hit = { rule: 'tool', reason: AUTO_STOP_REASONS.tool }; }
+    // The hook stopped this call, in the folder it runs in (Round 3): it stays a stop, whatever is read here.
+    if (!hit && full.hookStop?.rule) hit = { rule: full.hookStop.rule, reason: full.hookStop.reason || AUTO_STOP_REASONS[full.hookStop.rule] || AUTO_STOP_REASONS.tool };
     // A push is the one hard line the Approver may judge: the fixed stops already refuse any push but the job's own branch to its fork.
     // Only the plain push: a command that also holds a gh call (an early pull request would end Auto with unreviewed work) is not it.
     const plainPush = full.hardLine?.line === 'git-push' && !/\bgh\b/.test(String(full.input?.command ?? ''));
     if (!hit && full.hardLine && !plainPush) hit = { rule: 'blocked', reason: oneLine(full.hardLine.reason) || 'this is a hard line, and hard lines need you.' };
-    if (hit) return stopOnCard(job, hit, leave);
+    if (hit) return stopOnCard(job, hit, leave, { cardId: card.id });
     // The count belongs to one reply: it starts from 0 when the last answered brief is not the one it was kept with.
     const lastAnswered = Math.max(0, ...(job.answered ?? []));
     if (((job.auto.cardsBrief ?? 0) === lastAnswered ? job.auto.cards ?? 0 : 0) >= AUTO_CARDS_PER_REPLY) {
-      return stopOnCard(job, { rule: 'loop', reason: `Auto has answered ${AUTO_CARDS_PER_REPLY} cards in one reply, so it needs you.` }, leave);
+      return stopOnCard(job, { rule: 'loop', reason: `Auto has answered ${AUTO_CARDS_PER_REPLY} cards in one reply, so it needs you.` }, leave, { cardId: card.id });
     }
 
     // The person wrote to the job (a message, or one steered into the reply) since Auto took the card up, while it
@@ -547,7 +555,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     const task = { ...cardTask(job, full), facts: cardFacts(ctx, why, full, plainPush) };
     // The Approver never judges a card it cannot see whole (C4): a command or a field it would be shown cut stops instead.
     const cut = approverCut(task);
-    if (cut) return stopOnCard(job, { rule: 'blocked', reason: `this ${cut} is too long for the Approver to read, so it needs you.` }, leave);
+    if (cut) return stopOnCard(job, { rule: 'blocked', reason: `this ${cut} is too long for the Approver to read, so it needs you.` }, leave, { cardId: card.id });
     const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
     const res = await askApprover(task, { roots, job });
     const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
@@ -572,13 +580,13 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       await update(job.dir, (prev) => { if (!prev) return null; count = (prev.failures ?? 0) + 1; return { ...prev, failures: count, problem, spent: (prev.spent ?? 0) + cost }; });
       // The same sentence as for a gate (stopFor): the problem without its closing full stop.
       const hitAgain = fixedStop({ kind: 'job', failures: count, problem: String(problem).replace(/\.$/, '') });
-      return hitAgain ? stopOnCard(job, hitAgain, leave) : leave();
+      return hitAgain ? stopOnCard(job, hitAgain, leave, { cardId: card.id }) : leave();
     }
     const answer = checked.answer;
     await addSpent(job, cost);
-    if (answer.decision === 'stop') return stopOnCard(job, { rule: 'judgment', reason: oneLine(answer.why) }, leave);
+    if (answer.decision === 'stop') return stopOnCard(job, { rule: 'judgment', reason: oneLine(answer.why) }, leave, { cardId: card.id });
     // An allow (or a question's go) the Approver itself calls high risk is not acted on: the card is left to the person.
-    if (tooRisky(answer)) return stopOnCard(job, { rule: 'judgment', reason: HIGH_RISK }, leave, { why: oneLine(answer.why) });
+    if (tooRisky(answer)) return stopOnCard(job, { rule: 'judgment', reason: HIGH_RISK }, leave, { why: oneLine(answer.why), cardId: card.id });
     await answerCard(job, full, task, answer, { leave, lastAnswered });
   }
 

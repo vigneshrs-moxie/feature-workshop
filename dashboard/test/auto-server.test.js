@@ -60,10 +60,11 @@ const failure = (problem = 'It ended with an error.', costUsd = 0.1) => ({ ok: f
  * A job in Auto (unless auto is null) with a plan gate at brief 1. ask(task, n): what the fake Approver
  * says on its nth call (n from 1). Returns the pieces a test needs; stop() cleans up.
  */
-async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null, { on: true, now: OLD }), options = { level: 1, flow: 'quick', title: 'Visit audit columns' }, jobStatus = status(1), title = 'Visit audit columns', also = null, query = null } = {}) {
+async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null, { on: true, now: OLD }), options = { level: 1, flow: 'quick', title: 'Visit audit columns' }, jobStatus = status(1), title = 'Visit audit columns', also = null, query = null, layout = null } = {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sb-auto-srv-')));
-  const dirs = Object.fromEntries(['claude', 'features', 'projects', 'agents', 'skills', 'state', 'repo'].map((n) => [n, path.join(root, n)]));
-  for (const d of Object.values(dirs)) await fs.mkdir(d);
+  // layout(root): the folders by another plan (a home folder with .claude/feature-work and Projects/<repo> in it).
+  const dirs = layout ? layout(root) : Object.fromEntries(['claude', 'features', 'projects', 'agents', 'skills', 'state', 'repo'].map((n) => [n, path.join(root, n)]));
+  for (const d of Object.values(dirs)) await fs.mkdir(d, { recursive: true });
   const git = (...a) => execFileSync('git', ['-C', dirs.repo, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...a], { stdio: 'pipe' });
   git('init', '-q', '-b', 'main');
   await fs.writeFile(path.join(dirs.repo, 'README.md'), 'hi\n');
@@ -261,15 +262,17 @@ test('answering a stopped gate yourself moves auto_since', { timeout: 30_000 }, 
 });
 
 test('your own permission answer after a stop clears it too, and Auto\'s own lines do not', { timeout: 30_000 }, async () => {
-  const stopped = { ...autoRecord(null, { on: true, now: OLD }), stopped: { reason: 'a request needs you', rule: 'outside', at: '2026-10-02T10:00:00Z', card: true }, failures: 1 };
+  const stopped = { ...autoRecord(null, { on: true, now: OLD }), stopped: { reason: 'a request needs you', rule: 'outside', at: '2026-10-02T10:00:00Z', card: true, cardId: 'card-a' }, failures: 1 };
   const w = await world({ auto: stopped });
   try {
     const audit = path.join(w.dirs.state, 'audit.jsonl');
     const line = (o) => `${JSON.stringify({ featureDir: w.dir, slug: w.slug, ...o })}\n`;
-    await fs.appendFile(audit, line({ at: '2026-10-02T11:00:00Z', action: 'permission', decision: 'allow', by: 'auto' }) + line({ at: '2026-10-02T11:01:00Z', action: 'send', kind: 'approve', by: 'auto' }) + line({ at: '2026-10-02T09:00:00Z', action: 'send', kind: 'message' }));
+    await fs.appendFile(audit, line({ at: '2026-10-02T11:00:00Z', action: 'permission', decision: 'allow', by: 'auto', requestId: 'card-a' }) + line({ at: '2026-10-02T11:01:00Z', action: 'send', kind: 'approve', by: 'auto' }) + line({ at: '2026-10-02T09:00:00Z', action: 'send', kind: 'message' }));
+    // F1: the person's answer to another card leaves it.
+    await fs.appendFile(audit, line({ at: '2026-10-02T11:30:00Z', action: 'permission', decision: 'allow', requestId: 'card-b' }));
     await w.pass();
-    assert.ok((await w.record()).stopped, 'Auto\'s own lines and older ones leave the stop');
-    await fs.appendFile(audit, line({ at: '2026-10-02T12:00:00Z', action: 'permission', decision: 'allow' }));
+    assert.ok((await w.record()).stopped, 'Auto\'s own lines, older ones and an answer to another card leave the stop');
+    await fs.appendFile(audit, line({ at: '2026-10-02T12:00:00Z', action: 'permission', decision: 'allow', requestId: 'card-a' }));
     await w.pass();
     const rec = await w.record();
     assert.equal(rec.stopped, null);
@@ -583,6 +586,39 @@ test('a job whose own files say L1 but whose worktree holds a new migration stop
     assert.equal((await w.sends()).length, 0);
     assert.equal((await w.record()).stopped?.rule, 'database');
   } finally { await w.stop(); }
+});
+
+test('F6: the real changes are read from the verified worktree against the org remote\'s default branch, whatever folder or base status.json names', { timeout: 120_000 }, async () => {
+  // The branch, in its own worktree, holds a new migration; status.json predicts only src/visits.js.
+  const variants = [
+    ['names no folder and no base', () => ({})],
+    ['names the folder and no base', ({ wt }) => ({ worktree: wt })],
+    ['names the folder and, as base, the commit that holds the migration', ({ wt, head }) => ({ worktree: wt, base_sha: head })],
+  ];
+  for (const [what, over] of variants) {
+    const w = await world({ jobStatus: status(1, { branch: 'feature/visit-audit', predicted_paths: ['src/visits.js'] }) });
+    try {
+      const bare = path.join(w.root, 'org.git');
+      execFileSync('git', ['clone', '-q', '--bare', w.dirs.repo, bare], { stdio: 'pipe' });
+      w.git('remote', 'add', 'moxie', bare);
+      w.git('fetch', '-q', 'moxie');
+      w.git('remote', 'set-head', 'moxie', 'main');
+      await fs.mkdir(path.join(w.root, 'elsewhere'), { recursive: true });
+      const wt = path.join(w.root, 'visit-audit-wt');
+      w.git('worktree', 'add', '-q', '-b', 'feature/visit-audit', wt, 'moxie/main');
+      const g = (...a) => execFileSync('git', ['-C', wt, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...a], { stdio: 'pipe' });
+      await fs.mkdir(path.join(wt, 'db', 'migrations'), { recursive: true });
+      await fs.writeFile(path.join(wt, 'db', 'migrations', '001_visits.sql'), 'alter table visits add column x int;\n');
+      g('add', '.'); g('commit', '-q', '-m', 'build');
+      const head = g('rev-parse', 'HEAD').toString().trim();
+      await w.writeStatus(status(1, { branch: 'feature/visit-audit', predicted_paths: ['src/visits.js'], ...over({ wt, head, repo: w.dirs.repo, root: w.root }) }));
+      await new Promise((r) => setTimeout(r, 1700));
+      await w.pass();
+      await w.idle();
+      assert.equal(w.asks.length, 0, `${what}: the Approver is not asked`);
+      assert.equal((await w.record()).stopped?.rule, 'database', `${what}: Auto stops for the migration`);
+    } finally { await w.stop(); }
+  }
 });
 
 test('a job with no level whose Foreman suggests L3 leaves Auto', { timeout: 30_000 }, async () => {
@@ -1366,10 +1402,10 @@ test('answering a gate sets the card count back to 0', { timeout: 30_000 }, asyn
 });
 
 test('the person clearing a stop sets the card count back to 0', { timeout: 30_000 }, async () => {
-  const stopped = { ...autoRecord(null, { on: true, now: OLD }), cards: 40, stopped: { reason: 'Auto has answered 40 cards in one reply, so it needs you.', rule: 'loop', at: '2026-10-02T10:00:00Z', card: true } }; // the loop stop is written on a card
+  const stopped = { ...autoRecord(null, { on: true, now: OLD }), cards: 40, stopped: { reason: 'Auto has answered 40 cards in one reply, so it needs you.', rule: 'loop', at: '2026-10-02T10:00:00Z', card: true, cardId: 'card-40' } }; // the loop stop is written on a card
   const w = await world({ auto: stopped });
   try {
-    await fs.appendFile(path.join(w.dirs.state, 'audit.jsonl'), `${JSON.stringify({ featureDir: w.dir, slug: w.slug, at: '2026-10-02T12:00:00Z', action: 'permission', decision: 'allow' })}\n`);
+    await fs.appendFile(path.join(w.dirs.state, 'audit.jsonl'), `${JSON.stringify({ featureDir: w.dir, slug: w.slug, at: '2026-10-02T12:00:00Z', action: 'permission', decision: 'allow', requestId: 'card-40' })}\n`);
     await w.pass();
     const rec = await w.record();
     assert.equal(rec.stopped, null);
@@ -2507,6 +2543,19 @@ test('m3: a stop and a finish each say a place is free (once), so Auto start can
   }
 });
 
+test('F5: a reply that ends asks Auto start to fill the place it held', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null, jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    let asked = 0;
+    w.hooks.autoStartAsked = () => { asked++; };
+    await w.runner.handle({ type: 'reply', slug: w.slug, text: 'Carry on.' }, { from: 'local' });
+    await w.idle();
+    await w.until(() => asked >= 1, 'Auto start to be asked after the reply ended');
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.equal(asked, 1, 'once for the one reply');
+  } finally { await w.stop(); }
+});
+
 test('m3: switching Auto off, by hand or by closing the job, asks Auto start to fill the place', { timeout: 30_000 }, async () => {
   for (const how of ['switch', 'close']) {
     const w = await world();
@@ -2716,6 +2765,19 @@ test('N5 (I3-a2): Resume, and nothing waits after the resumed reply: the job is 
   } finally { await w.stop(); }
 });
 
+test('F2: after the cut-off stop, the person\'s own message clears it as Resume does; Starbase\'s own sends do not', { timeout: 60_000 }, async () => {
+  const w = await crashedWorld();
+  try {
+    await auditLine(w, { at: new Date().toISOString(), action: 'send', kind: 'nudge', text: 'Nudge.' });
+    await new Promise((r) => setTimeout(r, 1700)); await w.pass();
+    assert.equal((await w.record()).stopped?.reason, CUT_OFF, 'a nudge is Starbase\'s own');
+    await w.runner.handle({ type: 'reply', slug: w.slug, text: 'Carry on from where you were.' }, { from: 'local' });
+    await w.idle();
+    await new Promise((r) => setTimeout(r, 1700)); await w.pass();
+    assert.equal((await w.record()).stopped, null, 'the person\'s message cleared it');
+  } finally { await w.stop(); }
+});
+
 test('N5: Starbase\'s own carry-on (via auto) does not clear the cut-off stop', { timeout: 30_000 }, async () => {
   const w = await crashedWorld();
   try {
@@ -2751,6 +2813,93 @@ test('N14: a gate whose question, or decision made for the person (or its reason
   assert.equal(u.asks.length, 1);
   assert.equal(u.asks[0].decided[0].decision.length, 1990);
   assert.equal(u.decides.length, 1);
+});
+
+// ---------- Round 3: the card road keeps the hook's answer and the folder it judged in ----------
+
+/**
+ * A Foreman that runs `calls` ({ command, cwd: the folder the hook reports }) through both roads, as Claude Code does on an
+ * Auto job: the PreToolUse hook first, then, when the hook asks, canUseTool with the same tool-use id. `outcomes` gets
+ * { hook: 'pass' | 'ask' | 'deny', result } for each, result being what canUseTool answered (null when no card was raised).
+ */
+function hookedQuery(calls, outcomes) {
+  return (texts) => ({ prompt, options }) => {
+    const sid = options.resume ?? crypto.randomUUID();
+    const gen = (async function* () {
+      yield { type: 'system', subtype: 'init', session_id: sid, model: options.model ?? OPUS, apiKeySource: 'none', cwd: options.cwd, permissionMode: 'default' };
+      const it = prompt[Symbol.asyncIterator]();
+      texts.push((await it.next()).value?.message?.content ?? '');
+      const hook = options.hooks.PreToolUse.find((h) => h.matcher === 'Bash').hooks[0];
+      for (const c of calls) {
+        const id = `toolu_${crypto.randomUUID()}`;
+        const input = { command: c.command };
+        const said = await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: input, tool_use_id: id, cwd: c.cwd }, id, { signal: new AbortController().signal });
+        const decision = said?.hookSpecificOutput?.permissionDecision ?? 'pass';
+        const result = decision === 'ask' ? await options.canUseTool('Bash', input, { signal: new AbortController().signal, toolUseID: id }) : null;
+        outcomes.push({ ...c, hook: decision, result });
+      }
+      yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0, session_id: sid, permission_denials: [] };
+      yield { type: 'system', subtype: 'session_state_changed', state: 'idle', session_id: sid };
+      while (!(await it.next()).done) { /* until the dashboard closes its input */ }
+    })();
+    gen.interrupt = async () => {};
+    gen.setPermissionMode = async () => {};
+    return gen;
+  };
+}
+
+/** The reviewer's layout: a home folder holding .claude/feature-work/<job> and Projects/orbit (the main checkout, the session's folder). */
+const homeLayout = (root) => {
+  const home = path.join(root, 'home');
+  return {
+    home, claude: path.join(home, '.claude'), features: path.join(home, '.claude', 'feature-work'), projects: path.join(root, 'projects'),
+    agents: path.join(root, 'agents'), skills: path.join(root, 'skills'), state: path.join(root, 'state'), repo: path.join(home, 'Projects', 'orbit'),
+  };
+};
+
+test('Round 3: the card road judges a call in the folder the hook judged it in, and keeps the hook\'s answer: a stop at the hook stays a stop; an ask goes to the Approver, told that folder', { timeout: 120_000 }, async () => {
+  const homeBefore = process.env.HOME;
+  const rows = [
+    // [hook folder, command, what the end must be]
+    ['main', 'cat ../../.ssh/id_rsa', 'stop'],
+    ['job', 'cat ../../../.aws/credentials', 'stop'],
+    ['main/app', 'cat ../../../.aws/credentials', 'stop'],
+    ['job', 'cat ../../.credentials.json', 'stop'],
+    ['job', 'cat ../../settings.json', 'stop'],
+    ['job', 'ls ../', 'stop'],
+    ['job', 'cat ../orbit-501-other/ticket.md', 'stop'],
+    ['job', 'python3 -m json.tool status.json', 'approver'],
+  ];
+  try {
+    for (const [where, command, end] of rows) {
+      const outcomes = [];
+      const calls = [];
+      const w = await world({ layout: homeLayout, jobStatus: status(1, { stage: 'implement', stage_state: 'working', waiting_for: null }), query: hookedQuery(calls, outcomes), ask: () => allow('Only reads the job\'s own status.') });
+      process.env.HOME = w.dirs.home;
+      try {
+        await fs.mkdir(path.join(w.dirs.repo, 'app'), { recursive: true });
+        await fs.mkdir(path.join(w.dirs.features, 'orbit-501-other'), { recursive: true });
+        const cwd = { main: w.dirs.repo, 'main/app': path.join(w.dirs.repo, 'app'), job: w.dir }[where];
+        calls.push({ command, cwd });
+        await raise(w);
+        const label = `${where}: ${command}`;
+        if (end === 'stop') {
+          await w.until(async () => (await w.record())?.stopped, `${label}: the stop`);
+          assert.equal((await w.lines()).filter((l) => l.action === 'auto-allowed').length, 0, `${label}: not allowed by the routine list`);
+          assert.equal(w.asks.length, 0, `${label}: the Approver is not asked`);
+          assert.equal(outcomes.length, 0, `${label}: the call waits for the person`);
+          assert.equal(outcomes.filter((o) => o.result?.behavior === 'allow').length, 0);
+        } else {
+          await w.until(() => outcomes.length === 1, `${label}: the call answered`);
+          assert.equal(outcomes[0].hook, 'ask', `${label}: the hook asked`);
+          assert.equal(w.asks.length, 1, `${label}: the Approver is asked`);
+          assert.equal(w.asks[0].task.facts?.cwd, w.dir, `${label}: the Approver is told the folder the call runs in`);
+          assert.equal(outcomes[0].result?.behavior, 'allow');
+          assert.equal((await w.record()).stopped, null);
+        }
+      } finally { process.env.HOME = homeBefore; await clear(w); await w.stop(); }
+    }
+  } finally { process.env.HOME = homeBefore; }
 });
 
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------
@@ -2912,12 +3061,13 @@ test('L7: an answer on a status card clears only a status stop; a gate decision 
     ['judgment', { action: 'send', kind: 'approve', gateBrief: 1, text: 'go' }, true],
     ['status', { action: 'send', kind: 'approve', gateBrief: 1, text: 'go' }, true],
     // A permission answer clears only a stop that was written on a card (N1).
-    ['tool', { action: 'permission', decision: 'allow' }, true, true],
+    ['tool', { action: 'permission', decision: 'allow', requestId: 'card-a' }, true, true],
+    ['tool', { action: 'permission', decision: 'allow', requestId: 'card-b' }, false, true],
     ['judgment', { action: 'permission', decision: 'allow' }, false],
     ['blocked', { action: 'permission', decision: 'deny' }, false],
     ['judgment', { action: 'send', kind: 'message', gateBrief: 1 }, false],
   ]) {
-    const w = await world({ auto: stoppedRecord({ stopped: { reason: 'x', rule, at: STOP_AT, ...(onCard ? { card: true } : {}) } }) });
+    const w = await world({ auto: stoppedRecord({ stopped: { reason: 'x', rule, at: STOP_AT, ...(onCard ? { card: true, cardId: 'card-a' } : {}) } }) });
     try {
       await auditLine(w, { at: AT(4), ...line });
       await w.pass();
@@ -2971,6 +3121,33 @@ for (const [name, decision] of [['C1-d: a judgment stop on brief 1; the person a
     } finally { await w.stop(); }
   });
 }
+
+test('F1 (N1-other-card): three cards; Auto stops on A; the person allows B and leaves A: the stop stays, and Auto answers nothing more', { timeout: 60_000 }, async () => {
+  const outcomes = [];
+  const A = { tool: 'WebFetch', input: { url: 'https://example.com/a', prompt: 'Summarise.' } };
+  const B = { tool: 'WebFetch', input: { url: 'https://example.com/b', prompt: 'Summarise.' } };
+  const C = { tool: 'WebFetch', input: { url: 'https://example.com/c', prompt: 'Summarise.' } };
+  const w = await world({ jobStatus: WORKING, query: cardQuery([A, B, C], outcomes, { parallel: true }), ask: (task, n) => (n === 1 ? { ok: true, costUsd: 0.12, answer: { decision: 'allow', why: 'It reaches a site.', risk: 'high' } } : allow()) });
+  try {
+    await raise(w);
+    await w.until(async () => (await w.record())?.stopped, 'the stop on A');
+    const stopped = (await w.record()).stopped;
+    assert.equal(stopped.card, true);
+    assert.equal(typeof stopped.cardId, 'string');
+    const cards = await w.until(async () => { const p = await waiting(w); return p.length === 3 ? p : null; }, 'the three cards');
+    const b = cards.find((p) => p.id !== stopped.cardId && /example\.com\/b/.test(JSON.stringify(p)));
+    await w.runner.handle({ type: 'allow', requestId: b.id }, { from: 'local' });
+    await w.until(() => outcomes.length === 1, 'B answered');
+    await new Promise((r) => setTimeout(r, 300));
+    await w.pass();
+    await new Promise((r) => setTimeout(r, 300));
+    assert.deepEqual((await w.record()).stopped, stopped, 'the stop on A stays');
+    assert.equal((await w.lines()).filter((l) => l.action === 'permission' && l.by === 'auto').length, 0, 'Auto answered nothing');
+    assert.equal(w.asks.length, 1);
+    const line = (await w.lines()).find((l) => l.action === 'permission' && l.by !== 'auto');
+    assert.equal(line.requestId, b.id, 'the person\'s permission line names its card');
+  } finally { await clear(w); await w.stop(); }
+});
 
 test('N1: a stop written on a card is marked so, and the person\'s answer to a card then carries Auto on', { timeout: 30_000 }, async () => {
   const outcomes = [];
