@@ -2342,6 +2342,29 @@ test('I4: a card raised before Auto was switched on is the person\'s: Needs you 
   } finally { await clear(w); await w.stop(); }
 });
 
+test('N3 (I5-8): two cards wait; the person steers a message in while the Approver thinks about the first: both cards are theirs, Auto tells the worker nothing, the Approver is asked once', { timeout: 60_000 }, async () => {
+  const outcomes = [];
+  let release;
+  const released = new Promise((r) => { release = r; });
+  const A = { tool: 'WebFetch', input: { url: 'https://example.com/a', prompt: 'Summarise.' } };
+  const B = { tool: 'WebFetch', input: { url: 'https://example.com/b', prompt: 'Summarise.' } };
+  const w = await world({ jobStatus: WORKING, query: cardQuery([A, B], outcomes, { parallel: true }), ask: async (_task, n) => { if (n === 1) await released; return allow(); } });
+  try {
+    await raise(w);
+    await w.until(async () => (await waiting(w)).length === 2 && w.asks.length === 1, 'two cards and the first ask');
+    const run = (await w.runner.read.runs()).runs.find((r) => ['starting', 'running', 'waiting_permission'].includes(r.status));
+    await w.runner.handle({ type: 'steer', runId: run.id, text: 'Do not fetch anything from example.com.' }, { from: 'local' });
+    await new Promise((r) => setTimeout(r, 50));
+    release();
+    await w.until(() => w.notes.length >= 2, 'both cards told to the person');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.deepEqual(outcomes, [], 'the worker was told nothing by Auto');
+    assert.equal((await waiting(w)).length, 2, 'both cards wait for the person');
+    assert.equal(w.asks.length, 1, 'the Approver is asked once');
+    assert.equal((await w.lines()).filter((l) => l.action === 'permission' && l.by === 'auto').length, 0);
+  } finally { release(); await clear(w); await w.stop(); }
+});
+
 test('I4: a card Auto is still deciding shows as "Auto is deciding" in Working', { timeout: 30_000 }, async () => {
   const outcomes = [];
   let release;

@@ -469,11 +469,13 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   function onPermission(card, { leftWaiting = () => {} } = {}) {
     if (!card?.id || cards.has(card.id)) return Promise.resolve();
     cards.set(card.id, true);
+    // From when Auto took the card up: words the person writes while it waits make it theirs (N3).
+    const takenAt = Date.now();
     const dir = card.featureDir;
     let told = false;
     const tell = () => { if (!told) { told = true; leftWaiting(card); } };
     const mine = (queues.get(dir) ?? Promise.resolve())
-      .then(() => attendCard(card, tell))
+      .then(() => attendCard(card, tell, takenAt))
       .catch((err) => {
         console.error(`auto card (${card.slug}):`, err.message);
         // Something failed while Auto had the card: it is the person's now, and they are told (once).
@@ -500,7 +502,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     if (!(await stop(job, hit, { ...opts, card: true }))) leave();
   }
 
-  async function attendCard(card, leftWaiting) {
+  async function attendCard(card, leftWaiting, takenAt = Date.now()) {
     let left = false;
     const leave = () => { if (!left) { left = true; leftWaiting(card); } };
     const waits = () => pendingCard(card.id);
@@ -530,9 +532,11 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       return stopOnCard(job, { rule: 'loop', reason: `Auto has answered ${AUTO_CARDS_PER_REPLY} cards in one reply, so it needs you.` }, leave);
     }
 
+    // The person wrote to the job (a message, or one steered into the reply) since Auto took the card up, while it
+    // queued behind another: it is theirs, and the Approver is not asked.
+    if (await youSpokeSince(job, takenAt, { steer: true })) { leave(); return; }
     const task = cardTask(job, full);
     const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
-    const askedAt = Date.now();
     const res = await askApprover(task, { roots, job });
     const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
     const checked = res?.ok ? checkAnswer(task, res.answer) : null;
@@ -543,8 +547,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       if (waits()) leave(); // the card still waits for the person: told once
       return;
     }
-    // The person wrote to the job while the Approver was thinking: it never saw that. The card is left to them.
-    if (await youSpokeSince(job, askedAt, { steer: true })) {
+    // The person wrote to the job since Auto took the card up (while it waited, or while the Approver thought): the
+    // Approver never saw that. The card is left to them.
+    if (await youSpokeSince(job, takenAt, { steer: true })) {
       await settleDropped(job, cost);
       leave();
       return;
