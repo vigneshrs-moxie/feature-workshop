@@ -212,6 +212,16 @@ describe('the Stage', () => {
     expect(await screen.findByRole('textbox', { name: /Your answers or a note/ })).toBeVisible();
   });
 
+  it('on a stop’s page the r and o keys open a folded brief too', async () => {
+    setDefaultDetail('simple');
+    setup({ detail: WITH_GATE });
+    await screen.findByRole('button', { name: /^The brief/ });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    expect(document.querySelector('.job-gate-body')).not.toBeVisible();
+    fireEvent.keyDown(document.body, { key: 'o' });
+    expect(await screen.findByRole('textbox', { name: /Your answers or a note/ })).toBeVisible();
+  });
+
   it('Full: the brief starts open on a stop’s page', async () => {
     setup({ detail: WITH_GATE });
     const row = await screen.findByRole('button', { name: /^The brief/ });

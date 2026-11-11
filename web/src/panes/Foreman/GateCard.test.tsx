@@ -477,10 +477,17 @@ describe('GateCard', () => {
     expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', { kind: 'stop', briefNumber: 2, note: '' });
   });
 
-  it('Other guidance needs a note and sends it as a message', async () => {
+  it('without the bar the card’s help keeps Other guidance and Revise with feedback', () => {
+    setup({ det: detail({ questions: [] }) });
+    const help = card()!.querySelector('.how-body')!;
+    expect(help).toHaveTextContent('Other guidance');
+    expect(help).toHaveTextContent('Revise with feedback');
+  });
+
+  it('Other guidance sends a note and the answers picked as a message', async () => {
     const { post } = setup();
     fireEvent.click(button('Other guidance'));
-    expect(button('Send the reply')).toBeDisabled();
+    expect(button('Send the reply')).toBeEnabled(); // the recommended answer is picked: answers alone are a reply
     fireEvent.change(within(card()!).getByRole('textbox', { name: /Your answers or a note for the Foreman/ }), { target: { value: 'Is the CSV in scope?' } });
     await act(async () => { fireEvent.click(button('Send the reply')); });
     expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'message', note: 'Is the CSV in scope?', answers: { 1: { choice: 'a' } }, verdicts: {} }));

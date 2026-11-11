@@ -292,6 +292,11 @@ export function NextStep({ job, conversation, now, onShip, foldCard = false }: {
 /** The bar after a decision was taken (spec 1.2): its words, and Try again once nothing has moved. */
 const SENT_WORDS = 'Sent. Waiting for the Foreman to start.';
 const STUCK_WORDS = 'Nothing has moved yet.';
+/** The second line under the sent line, by what was sent (Go keeps the bar's own second line). */
+const SENT_MORE: Partial<Record<string, string>> = {
+  message: 'Your reply is with the Foreman. Nothing is approved.',
+  changes: 'The Foreman will rework this step with your note.',
+};
 
 const SENDING_WORDS = 'Sending…';
 
@@ -302,6 +307,8 @@ interface AfterSend {
   /** Where focus goes when the sent line shows and focus would otherwise be lost, and Try again. */
   sayRef: RefObject<HTMLSpanElement | null>;
   tryRef: RefObject<HTMLButtonElement | null>;
+  /** The second line while a reply or a send back waits (null: the bar keeps its own). */
+  more: string | null;
   /** What the bar says instead of its own words, while a decision waits for the Foreman (null: nothing waits). */
   say: ReactNode;
   stuck: boolean;
@@ -345,6 +352,7 @@ function useAfterSend(job: Job, run: Run | null, reload: () => void, queuedId: s
   const words = out === 'sent' ? SENT_WORDS : STUCK_WORDS;
   const shown = !waits ? null : out === 'sent' ? 'sent' : 'stuck';
   const tryShown = out === 'stuck' || retrying;
+  const more = out === 'sent' && decision.kind ? SENT_MORE[decision.kind] ?? null : null;
   // Focus stays on the pressed button while it spins (a busy button keeps it). When the sent or stuck
   // line shows, or Try again goes, and the focus would be lost (on nothing, or on a call now off), it
   // moves to the line, to Try again once stuck, or to the server's sentence when Try again was
@@ -359,7 +367,8 @@ function useAfterSend(job: Job, run: Run | null, reload: () => void, queuedId: s
   }, [shown, tryShown, problem, decision.moved]);
   return {
     decision,
-    live: out === 'sending' ? SENDING_WORDS : out === 'sent' ? SENT_WORDS : out === 'stuck' ? STUCK_WORDS : '',
+    more,
+    live: out === 'sending' ? SENDING_WORDS : out === 'sent' ? [SENT_WORDS, more].filter(Boolean).join(' ') : out === 'stuck' ? STUCK_WORDS : '',
     sayRef,
     tryRef,
     say: waits ? <span ref={sayRef} tabIndex={-1}>{words}</span> : null,
@@ -420,7 +429,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { jo
         icon="clipboard"
         label={call ? 'Go / no go' : null}
         say={after.say ?? (gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead')}
-        sub={gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason}
+        sub={after.more ?? (gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason)}
       >
         {/* On the hosted site a Go made there waits for the laptop (the card under this says so): no calls meanwhile. */}
         {!isOpen(queuedOf(detail.queued)) && <>
@@ -457,7 +466,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { jo
         </button>
       )}
       <div ref={body} className="job-gate-body" hidden={folded}>
-        <GateSlot job={job} detail={detail} now={now} reload={reload} callsOutside />
+        <GateSlot job={job} detail={detail} now={now} reload={reload} callsOutside onOpenBox={() => { if (folded) setCardShown(true); }} />
       </div>
     </div>
   );

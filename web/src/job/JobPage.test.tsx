@@ -11,7 +11,7 @@ import { installKeyListener } from '../app/keyRegistry';
 import { UiProvider, useUi } from '../app/ui';
 import { ServerHtml } from '../panes/Foreman/ServerHtml';
 import { createStore, WorkshopContext, type Store } from '../state/store';
-import { job, permission, snapshot } from '../state/test-fixtures';
+import { ev, job, permission, snapshot } from '../state/test-fixtures';
 import { JobPage, tabForStop } from './JobPage';
 
 const NOW = new Date().toISOString();
@@ -126,6 +126,16 @@ describe('the go / no go bar', () => {
     expect(calls).toEqual([expect.stringMatching(/^No go: send back/), 'Reply', expect.stringMatching(/^Go: approve/)]);
     // One way to do it: the card's own Other guidance is not shown under the bar.
     expect(document.querySelector('.job-gate-body .gate-actions')).toHaveAttribute('hidden');
+  });
+
+  it('the card’s help names the bar’s buttons, not the hidden ones', async () => {
+    setup({ jobs: waiting(), gate: GATE });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    const help = document.querySelector('.job-gate-body .how-body')!;
+    expect(help).toHaveTextContent('Reply');
+    expect(help).toHaveTextContent('No go: send back');
+    expect(help).not.toHaveTextContent('Other guidance');
+    expect(help).not.toHaveTextContent('Revise with feedback');
   });
 
   it('Reply works with a question unanswered', async () => {
@@ -429,7 +439,53 @@ describe('after a click on the go / no go bar', () => {
     setup({ jobs: waiting(), gate: GATE, post: sentPost() });
     fireEvent.click(await sendBack());
     expect(await within(bar()).findByText(SENT_LINE)).toBeInTheDocument();
-    expect(live()).toHaveTextContent(SENT_LINE);
+    expect(bar()).toHaveTextContent('The Foreman will rework this step with your note.');
+    expect(live()).toHaveTextContent(`${SENT_LINE} The Foreman will rework this step with your note.`);
+  });
+
+  it('after the server accepts a reply, the bar says nothing is approved', async () => {
+    setup({ jobs: waiting(), gate: GATE, post: sentPost() });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'A note.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
+    expect(await within(bar()).findByText(SENT_LINE)).toBeInTheDocument();
+    expect(bar()).toHaveTextContent('Your reply is with the Foreman. Nothing is approved.');
+    expect(live()).toHaveTextContent(`${SENT_LINE} Your reply is with the Foreman. Nothing is approved.`);
+  });
+
+  it('after the Foreman answers a reply, Reply, Go and Send back can be pressed again', async () => {
+    const { store } = setup({ jobs: waiting(), gate: GATE, post: sentPost() });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'A note.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
+    await within(bar()).findByText(SENT_LINE);
+    expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^Go: approve/ })).toBeDisabled();
+    // The Foreman picks the message up (a new run) and answers: the gate is still waiting.
+    act(() => { store.dispatch({ type: 'event', event: ev(11, 'run', 'alpha', { id: 'r_reply', slug: 'alpha', status: 'running' }) }); });
+    await waitFor(() => expect(within(bar()).queryByText(SENT_LINE)).toBeNull());
+    act(() => { store.dispatch({ type: 'event', event: ev(12, 'run', 'alpha', { id: 'r_reply', slug: 'alpha', status: 'done' }) }); });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    expect(screen.getByRole('button', { name: /^Go: approve/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /^No go: send back/ })).toBeEnabled();
+    // The bar reads as waiting again.
+    expect(bar()).toHaveTextContent('Say go and the Foreman goes ahead: Build step 1');
+    expect(bar()).not.toHaveTextContent('Nothing is approved.');
+  });
+
+  it('a reply with answers and no note is sent', async () => {
+    const post = sentPost();
+    setup({ jobs: waiting(), gate: { ...GATE, questions: [{ id: '1', text: 'Keep the old column?', recommendation: null, options: [{ id: 'a', label: 'Yes' }, { id: 'b', label: 'No' }] }] } as Gate, post });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    await screen.findByRole('textbox', { name: /Your answers or a note/ });
+    expect(screen.getByRole('button', { name: 'Send the reply' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send the reply' })).toHaveAttribute('title', 'Pick an answer or write a note first.');
+    fireEvent.click(screen.getByRole('radio', { name: /No/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'message', answers: { 1: { choice: 'b' } } })));
   });
 
   it('after 30 seconds with no change to a send back it says "Nothing has moved yet."; Try again sends the same send back once', async () => {
