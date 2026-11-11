@@ -49,7 +49,7 @@ import { More } from '../components/More';
 import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
 import { BRAND } from '../app/brand';
 import { autoLaneReason } from '../job/autoLine';
-import { DESK_WRITE_TO_MOVE, useWaitingLines } from '../job/sentView';
+import { DESK_WRITE_TO_MOVE, useWaitingLines, type SentShown } from '../job/sentView';
 import { WhatAutoDecided } from '../job/WhatAutoDecided';
 
 const DESK_KEYS: readonly KeyId[] = ['desk-next', 'desk-prev', 'desk-approve', 'desk-deny', 'desk-open', 'desk-brief'];
@@ -137,9 +137,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
         // After a send: the bar's own lines; the label and head no longer ask for the go-ahead given (M1).
         <div className="desk-say" role="status">
           <h3 className="desk-head">{sent.words}</h3>
-          {sent.write
-            ? <p className="desk-sub"><a href={jobHref(job.slug)}>Open the job</a>{DESK_WRITE_TO_MOVE.slice('Open the job'.length)}</p>
-            : sent.more && <p className="desk-sub">{sent.more}</p>}
+          <SentSub job={job} sent={sent} />
         </div>
       ) : (
         <div className="desk-say">
@@ -206,6 +204,12 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
       )}
     </>
   );
+}
+
+/** The second line under the sent or stalled line on the Desk: the Desk has no message box, so it says to open the job. */
+function SentSub({ job, sent }: { job: Job; sent: SentShown }) {
+  if (sent.write) return <p className="desk-sub"><a href={jobHref(job.slug)}>Open the job</a>{DESK_WRITE_TO_MOVE.slice('Open the job'.length)}</p>;
+  return sent.more ? <p className="desk-sub">{sent.more}</p> : null;
 }
 
 /** The same Auto line the Jobs card shows ("Auto stopped: …", "Auto is deciding: …"), with What Auto decided. */
@@ -290,13 +294,22 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 function DeskGate({ job, now, briefOpen, toggleBrief }: { job: Job; now: Date; briefOpen: boolean; toggleBrief(): void }) {
   const state = useWorkshopState();
   const thread = useJobThread(job.slug, (state.threadVersions[job.slug] ?? 0) + state.threadEpoch);
+  // M3: after a send, the same lines as the default Desk and the job page's bar (job/sentView.ts).
+  const run = state.runs[job.slug] ?? thread.detail?.run ?? null;
+  const decision = useGateSent(job, run, queuedOf(thread.detail?.queued)?.id ?? null);
+  const sent = useWaitingLines(job, thread.detail, run, decision, thread.reload);
   if (thread.error) return <p className="perm-warn" role="alert">{thread.error}</p>;
   if (!thread.detail) return <p className="muted" role="status">Opening the Foreman’s brief…</p>;
   const brief = thread.detail.latestBrief as { html?: string; number?: number | null } | null | undefined;
   const label = `Brief${brief?.number ? ` #${brief.number}` : ''}`;
   return (
     <>
-      {typeof job.headline === 'string' && job.headline && <p className="desk-headline">{job.headline}</p>}
+      {sent ? (
+        <div className="desk-say" role="status">
+          <p className="desk-headline">{sent.words}</p>
+          <SentSub job={job} sent={sent} />
+        </div>
+      ) : typeof job.headline === 'string' && job.headline && <p className="desk-headline">{job.headline}</p>}
       {brief?.html && (
         <section className="desk-brief" aria-label={label}>
           <header className="desk-brief-head">
