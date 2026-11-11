@@ -1808,7 +1808,11 @@ export async function createRunner(config) {
   const suggestAsk = config.suggestAsk ?? (DEMO
     ? demoAsk
     : (input) => askHaiku(suggestPrompt(input), { queryFn, cliPath: claudePath, cwd: path.join(state.dir, 'inbox-suggest') }));
-  const suggester = new InboxSuggester({ ask: suggestAsk, enabled: () => suggestOn });
+  // Not while Claude can't be used: its limit is reached or a warning about it shows (Auto start's rule too).
+  const claudeHeld = () => limits.isLimited() || Boolean(limits.view().warning) || activeWarnings(planUsage.view()).length > 0;
+  const suggester = new InboxSuggester({ ask: suggestAsk, enabled: () => suggestOn, paused: claudeHeld });
+  limits.on('change', () => suggester.resume());
+  planUsage.on('change', () => suggester.resume());
 
   /** The open jobs with a worktree, newest first, as the suggestion's "files already being changed". */
   async function suggestJobs() {
@@ -1826,7 +1830,8 @@ export async function createRunner(config) {
     considering = considering.then(async () => {
       if (!suggestOn) return;
       const v = orbitInbox.view();
-      suggester.consider({ items: await withJobs(v.items), rows: orbitInbox.rows, jobs: await suggestJobs() });
+      // The open jobs' changed paths (git diff) are worked out only when a call is made (lib/inbox-suggest.js).
+      suggester.consider({ items: await withJobs(v.items), rows: orbitInbox.rows, jobs: suggestJobs });
     }).catch((err) => console.error('inbox suggestion:', err.message));
   }
   orbitInbox.on('change', considerSuggestion);

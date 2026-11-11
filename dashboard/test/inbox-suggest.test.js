@@ -83,6 +83,10 @@ test('parser: reasons are made plain and cut', () => {
   assert.ok(r.picks[1].reason.endsWith('…'));
   assert.equal(r.picks.length, 2);
 });
+test('C-M10: a bare web address is taken out of a reason, like a markdown link', () => {
+  const r = parseSuggestion(JSON.stringify({ picks: [{ key: 'ORBIT-1', reason: 'See https://evil.example/x?y=1 and www.evil.example/z now.' }] }), ['ORBIT-1']);
+  assert.equal(r.picks[0].reason, 'See and now.');
+});
 test('parser: errors say what is wrong', () => {
   assert.deepEqual(parseSuggestion('{"picks":[{"key":"ORBIT-9","reason":"x"}]}', ['ORBIT-1']), { error: "Haiku's answer named no ticket from your list." });
   for (const bad of ['', 'no json', '{"picks":', '{"picks":"x"}', '[1]', '{"a":1}']) assert.deepEqual(parseSuggestion(bad, ['ORBIT-1']), { error: "Haiku's answer couldn't be read." }, bad);
@@ -128,7 +132,7 @@ test('demoAsk picks the two oldest with no cost, in the same shape', async () =>
 
 import { InboxSuggester, SUGGEST_EVERY_MS } from '../lib/inbox-suggest.js';
 
-function rig({ enabled = true } = {}) {
+function rig({ enabled = true, paused = null } = {}) {
   const clock = { t: 1_000_000, timers: [] };
   const calls = [];
   let hold = null; let fail = null;
@@ -140,7 +144,7 @@ function rig({ enabled = true } = {}) {
   };
   const flag = { on: enabled };
   const s = new InboxSuggester({
-    ask, enabled: () => flag.on, now: () => clock.t,
+    ask, enabled: () => flag.on, now: () => clock.t, ...(paused ? { paused: () => paused.on } : {}),
     setTimer: (fn, ms) => { const tm = { fn, at: clock.t + ms }; clock.timers.push(tm); return tm; },
     clearTimer: (tm) => { clock.timers = clock.timers.filter((x) => x !== tm); },
   });
@@ -241,6 +245,48 @@ test('the usage hook gets the cost and tokens of each answered call', async () =
   assert.deepEqual(seen, [{ costUsd: 0.25, tokens: { input: 7 } }]);
 });
 
+test('C-M7: no call while Claude can\'t be used, and that is no try; it asks once Claude can be used again', async () => {
+  const paused = { on: true };
+  const r = rig({ paused });
+  give(r, list('a')); await r.settle();
+  assert.equal(r.calls.length, 0, 'not asked while the limit is reached or its warning shows');
+  assert.equal(r.clock.timers.length, 0);
+  paused.on = false; r.s.resume(); await r.settle();
+  assert.equal(r.calls.length, 1, 'asked as soon as Claude can be used: the held moment was no try');
+  r.s.resume(); await r.settle();
+  assert.equal(r.calls.length, 1, 'once');
+});
+test('C-M8: a failed suggestion is tried once more when its 30-minute window ends, not before, and only once per list', async () => {
+  const r = rig(); r.failWith('boom');
+  give(r, list('a')); await r.settle();
+  assert.equal(r.calls.length, 1);
+  assert.equal(r.s.view().state, 'failed');
+  assert.equal(r.clock.timers.length, 1, 'one more try is planned');
+  give(r, list('a')); r.tick(SUGGEST_EVERY_MS - 1); await r.settle();
+  assert.equal(r.calls.length, 1, 'not before the window ends');
+  r.tick(1); await r.settle();
+  assert.equal(r.calls.length, 2, 'tried once more when it ends');
+  assert.equal(r.s.view().state, 'failed');
+  assert.equal(r.clock.timers.length, 0, 'and no third try for this list');
+  r.tick(SUGGEST_EVERY_MS * 3); give(r, list('a')); await r.settle();
+  assert.equal(r.calls.length, 2);
+  r.failWith(null); give(r, list('b')); await r.settle();
+  assert.equal(r.calls.length, 3, 'a new list is asked about as before');
+  assert.equal(r.s.view().state, 'ready');
+  assert.equal(r.clock.timers.length, 0, 'an answer is not tried again');
+});
+test('C-M9: the open jobs\' changed paths are worked out only when a call is made', async () => {
+  const r = rig(); let worked = 0;
+  const jobs = async () => { worked++; return [{ title: 'Job', ticket: null, repo: 'r', paths: ['a.js'] }]; };
+  r.s.consider({ items: [item(1, { queuePosition: 1 }), item(2), item(3)], rows, jobs }); await r.settle();
+  assert.equal(worked, 0, 'no suggestion needed: no git diff');
+  r.s.consider({ items: list('a'), rows, jobs }); await r.settle();
+  assert.equal(worked, 1);
+  assert.deepEqual(r.calls[0].jobs[0].paths, ['a.js']);
+  r.s.consider({ items: list('a'), rows, jobs }); await r.settle();
+  assert.equal(worked, 1, 'the same list: no call, no git diff');
+});
+
 test('no call when a ranked ticket is free or Orbit sent no queue numbers', async () => {
   const r = rig();
   give(r, [item(1, { queuePosition: 1 }), item(2), item(3)]); give(r, [item(1, { queueKnown: false }), item(2, { queueKnown: false })]); await r.settle();
@@ -265,7 +311,7 @@ import { startDashboard } from './helpers/dashboard.js';
 const TOKEN = `orbfb_${'s'.repeat(43)}`;
 const orbitRow = (n, o = {}) => ({ id: `id-${n}`, number: n, subject: `Problem ${n}`, type: 'bug', status: 'open', severity: 'medium', priority: null, queuePosition: null, storyPoints: 2, description: `Details of ${n}`, createdAt: `2026-10-0${n}T00:00:00Z`, activityAt: `2026-10-0${n}T00:00:00Z`, ...o });
 
-async function withDashboard(rowsNow, body) {
+async function withDashboard(rowsNow, body, { settings = null } = {}) {
   const requests = [];
   const orbit = http.createServer((req, res) => {
     requests.push(req.method);
@@ -278,6 +324,7 @@ async function withDashboard(rowsNow, body) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fw-suggest-')));
   const dirs = Object.fromEntries(['feature-work', 'state', 'projects', 'agents', 'skills', 'home'].map((d) => [d, path.join(root, d)]));
   for (const d of Object.values(dirs)) await fs.mkdir(d, { recursive: true });
+  if (settings) await fs.writeFile(path.join(dirs.state, 'settings.json'), JSON.stringify(settings));
   const d = await startDashboard({ env: { HOME: dirs.home, STARBASE_FEATURES_DIR: dirs['feature-work'], STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents, STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state, STARBASE_ORBIT_URL: '', STARBASE_USER: 'vignesh', STARBASE_DIR: '' } });
   try {
     const token = (await (await fetch(`${d.base}/api/meta`)).json()).token;
@@ -315,6 +362,17 @@ test('the inbox answer carries the suggestion, and none while switched off', { t
     assert.equal(on.body.workflow.inboxSuggest, true);
     await until(async () => (await inbox()).suggest?.state, 'a suggestion again');
   });
+});
+
+test('C-M7: no suggestion is asked for while the Claude limit is reached', { timeout: 90_000 }, async () => {
+  const now = Date.now();
+  const usageLimit = { kind: 'five_hour', since: now, resetsAt: now + 3600_000, resetKnown: true, jobs: [] };
+  await withDashboard(() => [orbitRow(1), orbitRow(2), orbitRow(3)], async ({ dirs, inbox, until }) => {
+    await until(async () => { const x = await inbox(); return x.items?.length === 3 ? x : null; }, 'the list');
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.equal((await inbox()).suggest, null, 'not asked');
+    assert.equal(await fs.readFile(path.join(dirs.state, 'usage.jsonl'), 'utf8').catch(() => ''), '', 'no call made');
+  }, { settings: { usageLimit } });
 });
 
 test('no suggestion while Orbit ranks a free ticket', { timeout: 90_000 }, async () => {
