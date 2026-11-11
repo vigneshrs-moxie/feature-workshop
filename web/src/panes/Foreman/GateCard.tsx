@@ -28,7 +28,7 @@ import { Kbd } from '../../components/Kbd';
 import { composeGate, type GateKind } from '../../lib/compose';
 import {
   answersFor, approveLabel, chipsFor, chipViews, decidedKey, emptyOverride, gateDraftKey, gateRequest, initialChoices,
-  oneKeyGateApprove, openDecisions, openGate, OTHER, placeGateReply, readGateMemo, readReopenedMemo, reopenMemo, toggleChip, unansweredQuestion,
+  DECIDING_KINDS, oneKeyGateApprove, openDecisions, openGate, OTHER, placeGateReply, readGateMemo, readReopenedMemo, reopenMemo, toggleChip, unansweredQuestion,
   verdictsFor, type ChipId, type GateChoices,
 } from '../../lib/gateCard';
 import { plainInline } from '../../lib/inlineMarkdown';
@@ -230,7 +230,10 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const [working, setBusy] = useState(false);
   const [pressed, setPressed] = useState<'approve' | 'after-reset' | 'changes' | 'message' | 'stop' | null>(null);
   const sending = working || decision.state === 'sending';
-  const busy = sending || decision.state === 'sent';
+  // The server took a deciding answer to this brief (its run may already have cleared the sent state):
+  // nothing on the card sends again until the job is fetched and the brief shows as answered.
+  const taken = decision.accepted !== null && decision.accepted.brief !== null && decision.accepted.brief === (gate.briefNumber ?? null) && DECIDING_KINDS.includes(decision.accepted.kind);
+  const busy = sending || decision.state === 'sent' || taken;
   const spins = (button: NonNullable<typeof pressed>) => sending && pressed === button;
   const [error, setError] = useState<string | null>(null);
   const [askTerminal, setAskTerminal] = useState(false);

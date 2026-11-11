@@ -259,12 +259,12 @@ describe('after a click on the go / no go bar', () => {
    * started run, whose run event reaches the page, and a deciding answer (approve, changes) answers the
    * brief. `runEvent: false`: the run event never arrives (a lost event stream), so the sent line stays.
    */
-  const sentPost = ({ runEvent = true } = {}) => {
+  const sentPost = ({ runEvent = true, answers = true } = {}) => {
     let n = 0;
     return vi.fn(async (path: string, body?: unknown): Promise<unknown> => {
       if (path !== '/api/job/alpha/gate') return { ok: true };
       const b = (body ?? {}) as { kind?: string; briefNumber?: number | null };
-      if ((b.kind === 'approve' || b.kind === 'changes') && typeof b.briefNumber === 'number') server.answered.push(b.briefNumber);
+      if (answers && (b.kind === 'approve' || b.kind === 'changes') && typeof b.briefNumber === 'number') server.answered.push(b.briefNumber);
       const run = { id: `r_sent_${++n}`, slug: 'alpha', status: 'running' };
       if (runEvent) server.store?.dispatch({ type: 'event', event: ev(100 + n, 'run', 'alpha', run) });
       return { ok: true, sent: true, text: 'sent', run };
@@ -372,6 +372,19 @@ describe('after a click on the go / no go bar', () => {
     expect(document.querySelectorAll('[data-next-live]')).toHaveLength(1);
     // The card's note says what went (as before), and has the focus: it is not dropped.
     expect(document.activeElement).toHaveTextContent('Your approval went to the Foreman.');
+  });
+
+  it('before the job says the brief is answered, the card’s own a key sends nothing again', async () => {
+    // The gap between the run starting and the job being fetched again: the card is still open.
+    const post = sentPost({ answers: false });
+    setup({ jobs: waiting(), gate: GATE, post });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await within(bar()).findByText(SENT_LINE);
+    await act(async () => {});
+    expect(document.querySelector('[data-gate="approve"]')).not.toBeNull();
+    fireEvent.keyDown(document.body, { key: 'a' });
+    await act(async () => {});
+    expect(gatePosts(post)).toHaveLength(1);
   });
 
   it('a press while sent sends nothing', async () => {
