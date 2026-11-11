@@ -201,6 +201,74 @@ export function setStateDir(dir) {
   stateFolders.splice(0, stateFolders.length, ...(typeof dir === 'string' && path.isAbsolute(dir) ? [dir] : []));
 }
 
+// ---------- Starbase's own address ----------
+// A job must not call Starbase on this computer: the page's write token is handed out by a read, and
+// one POST turns Auto on. A hard line for every job, always a refusal, reads included.
+const API_REASON = "Starbase's own address is not for jobs to call.";
+const API_DENY = { decision: 'deny', line: 'starbase-api', reason: API_REASON };
+let apiPort = 4477;
+/** The port Starbase is served on (4477 unless the server was started on another). */
+export function setApiPort(port) { if (Number.isInteger(port) && port > 0 && port < 65536) apiPort = port; }
+
+// inet_aton's spellings of an address: 1 to 4 parts, each decimal, 0x hex or 0 octal.
+function ipv4Value(host) {
+  const parts = host.split('.');
+  if (parts.length < 1 || parts.length > 4 || parts.some((x) => x === '')) return null;
+  const nums = parts.map((x) => (/^0x[0-9a-f]+$/i.test(x) ? parseInt(x, 16) : /^0[0-7]*$/.test(x) ? parseInt(x, 8) : /^[1-9][0-9]*$/.test(x) ? parseInt(x, 10) : NaN));
+  if (nums.some((n) => !Number.isFinite(n))) return null;
+  const last = nums.pop();
+  if (nums.some((n) => n > 255) || last >= 256 ** (4 - nums.length)) return null;
+  return nums.reduce((acc, n, k) => acc + n * 256 ** (3 - k), 0) + last;
+}
+
+const thisHostnames = () => { const h = os.hostname().toLowerCase(); return [h, h.split('.')[0], `${h.split('.')[0]}.local`]; };
+
+function isThisComputer(host) {
+  const h = String(host).toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  if (!h) return false;
+  if (h === 'localhost' || h.endsWith('.localhost') || thisHostnames().includes(h)) return true;
+  if (h.includes(':')) { // IPv6: ::1, 0:0:0:0:0:0:0:1, ::ffff:127.0.0.1, ::
+    const tail = /^(?:0*:)*(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/.exec(h);
+    if (tail) return isThisComputer(tail[1]);
+    return /^[0:]*1?$/.test(h);
+  }
+  const v = ipv4Value(h);
+  return v !== null && (v === 0 || Math.floor(v / 2 ** 24) === 127);
+}
+
+/** Does this word (a URL, host:port, an address or a --resolve style value) name this computer? */
+export function namesThisComputer(word) {
+  const w = String(word ?? '');
+  if (!w) return false;
+  const cands = new Set([w]);
+  const url = w.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//, '').replace(/^[^@/]*@/, '');
+  const hostPart = url.split(/[/?#]/)[0];
+  cands.add(hostPart);
+  const bracket = /^\[([^\]]*)\]/.exec(hostPart);
+  cands.add(bracket ? bracket[1] : hostPart.replace(/:\d*$/, ''));
+  for (const m of w.matchAll(/\[([^\]]*)\]/g)) cands.add(m[1]);
+  for (const piece of w.split(/[:/=,@]/)) cands.add(piece);
+  return [...cands].some((c) => c && isThisComputer(c));
+}
+
+/** Does this text name this computer together with Starbase's port? (For a script's text.) */
+export function namesStarbaseAddress(text, port = null) {
+  return apiVerdict('Bash', { command: String(text ?? '') }, { port: port ?? undefined }) !== null;
+}
+
+function apiVerdict(toolName, input, opts) {
+  if (toolName !== 'Bash') return null;
+  const command = String(input?.command ?? '');
+  const port = opts.port ?? apiPort;
+  if (!command.includes(String(port).slice(-2))) return null; // quick out: the port's last digits must appear
+  const tokens = command.split(/[\s;&|()<>`"'\\,]+/).filter(Boolean);
+  const onPort = (x) => new RegExp(`(^|[:=])0*${port}(?![0-9])`).test(x);
+  if (!tokens.some(onPort)) return null;
+  if (tokens.some(namesThisComputer)) return API_DENY;
+  // a host chosen by a variable or a substitution on that port
+  return tokens.some((x) => /[$]/.test(x) && onPort(x) && /:0*\d+/.test(x)) ? API_DENY : null;
+}
+
 const homeOf = () => os.homedir();
 const expandHome = (t) => String(t).replace(/\$\{HOME\}|\$HOME(?![A-Za-z0-9_])/g, homeOf()).replace(/^~(?=\/|$)/, homeOf());
 
@@ -241,6 +309,44 @@ export function physicalPath(raw, cwd = null) {
   return walkPhysical(walkPhysical('/', cwd.split('/')), t.split('/'));
 }
 
+const MAC = process.platform === 'darwin';
+const fold = (x) => (MAC ? String(x).toLowerCase() : String(x));
+const insideState = (p, root) => isInside(fold(p), fold(root));
+
+// Could this word, with a glob or a $variable in it, expand into the state folder? Only words under the
+// home folder are judged: each segment up to the first moving one must lead to a state folder, and that
+// segment's pattern must be able to match the next folder's name.
+function couldReachState(word, roots) {
+  const t = expandHome(word);
+  if (!/[*?[{$]/.test(t) || !path.isAbsolute(t)) return false;
+  const segs = t.split('/').filter((x, k) => x !== '' || k === 0);
+  const g = segs.findIndex((x) => /[*?[{$]/.test(x));
+  if (g < 1) return false;
+  const head = segs.slice(0, g).join('/') || '/';
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = (seg) => {
+    if (seg.includes('$')) return /^/;
+    let out = '';
+    for (let i = 0; i < seg.length; i++) {
+      const c = seg[i];
+      if (c === '*') out += '.*';
+      else if (c === '?') out += '.';
+      else if (c === '[' && seg.indexOf(']', i + 1) > 0) { const j = seg.indexOf(']', i + 1); out += seg.slice(i, j + 1); i = j; }
+      else if (c === '{' && seg.indexOf('}', i + 1) > 0) { const j = seg.indexOf('}', i + 1); out += `(?:${seg.slice(i + 1, j).split(',').map(esc).join('|')})`; i = j; }
+      else out += esc(c);
+    }
+    return new RegExp(`^${out}$`, MAC ? 'i' : '');
+  };
+  return roots.some((r) => {
+    const rs = r.split('/').filter(Boolean);
+    const hs = head.split('/').filter(Boolean);
+    if (hs.length > rs.length || !hs.every((x, k) => fold(x) === fold(rs[k]))) return false;
+    const next = rs[hs.length];
+    if (next === undefined) return true; // the word could be the folder itself
+    try { return re(segs[g]).test(next); } catch { return true; }
+  });
+}
+
 const stateRoots = (opts = {}) => {
   const out = [];
   for (const d of [path.join(homeOf(), '.starbase'), ...stateFolders, opts.stateDir].filter((x) => typeof x === 'string' && path.isAbsolute(x))) {
@@ -257,10 +363,11 @@ function namesStateWord(t, cwd, roots, interpreter) {
   const eq = t.indexOf('=');
   if (eq > 0) subs.push(t.slice(eq + 1));
   for (const x of subs) {
-    if (interpreter) { if (x.includes('.starbase') || roots.some((r) => x.includes(r))) return true; }
+    if (interpreter) { if (fold(x).includes('.starbase') || roots.some((r) => fold(x).includes(fold(r)))) return true; }
     if (/\s/.test(x)) continue; // prose, not a path
     const p = physicalPath(x, cwd);
-    if (p ? roots.some((r) => isInside(p, r)) : /(^|[/=])\.starbase(\/|$)/.test(x) || roots.some((r) => x.includes(r))) return true;
+    if (couldReachState(x, roots)) return true;
+    if (p ? roots.some((r) => insideState(p, r)) : /(^|[/=])\.starbase(\/|$)/i.test(x) || roots.some((r) => fold(x).includes(fold(r)))) return true;
   }
   return false;
 }
@@ -273,7 +380,7 @@ function stateVerdict(toolName, input, opts) {
     const file = input?.file_path ?? input?.notebook_path;
     if (typeof file !== 'string') return null;
     const p = physicalPath(file, opts.cwd ?? null);
-    return p && roots.some((r) => isInside(p, r)) ? STATE_DENY : null;
+    return (p && roots.some((r) => insideState(p, r))) || couldReachState(file, roots) ? STATE_DENY : null;
   }
   if (toolName !== 'Bash') return null;
   const command = String(input?.command ?? '');
@@ -356,6 +463,8 @@ const strictest = (verdicts) => verdicts.filter(Boolean).sort((a, b) => RANK[b.d
 export function hardLine(toolName, input = {}, opts = {}) {
   const state = stateVerdict(toolName, input, opts);
   if (state) return state;
+  const api = apiVerdict(toolName, input, opts);
+  if (api) return api;
   if (toolName !== 'Bash') return null;
   const command = String(input?.command ?? '');
   if (!command.trim()) return null;
@@ -474,13 +583,13 @@ export function orgPushCheck() {
  * orgPushCheck()) looks up where pushes really go; cwd is the job's folder when the hook input
  * has none. cover(toolName, input) says whether your go-ahead covers an 'ask' one (auto mode,
  * goAheadCovers()); then the hook doesn't force a card and the setting decides as usual.
- * autoStop(toolName, input, verdict) is Auto's fixed stop list: null, or { rule, reason }, which makes
+ * port is the one Starbase is served on (the starbase-api line); autoStop(toolName, input, verdict) is Auto's fixed stop list: null, or { rule, reason }, which makes
  * the hook ask whatever cover says. It returns null for a job whose Auto is off.
  */
-export function hardLineHook(onVerdict = () => {}, { check = orgPushCheck(), cwd = null, cover = null, autoStop = null } = {}) {
+export function hardLineHook(onVerdict = () => {}, { check = orgPushCheck(), cwd = null, cover = null, autoStop = null, port = null } = {}) {
   return async (input) => {
     if (input?.hook_event_name !== 'PreToolUse') return {};
-    let verdict = hardLine(input.tool_name, input.tool_input, { cwd: input.cwd || cwd });
+    let verdict = hardLine(input.tool_name, input.tool_input, { cwd: input.cwd || cwd, port });
     if (verdict) { try { verdict = await check(verdict, input.cwd || cwd); } catch { /* a failed lookup still asks */ } }
     // A refusal stays a refusal, Auto or not.
     if (verdict?.decision === 'deny') {
