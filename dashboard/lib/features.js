@@ -416,13 +416,17 @@ export async function loadGateStates({ featuresDir }) {
 }
 
 // overrides: { [featureDir]: { repoPath, branch } } chosen by the person; knownRepos: repositories to search.
-export async function loadFeatures({ featuresDir, sessionIndex, now = Date.now(), overrides = {}, knownRepos = [] }) {
+// restartedAt: { [featureDir]: time of its last restart that counts } (lib/state.js restartTimes). A
+// restart starts a new job in the same folder: a session log whose last line is at or before that time
+// is the old job's, so it is left out (its sessions, spend, crew, pull request links and Foreman).
+export async function loadFeatures({ featuresDir, sessionIndex, now = Date.now(), overrides = {}, knownRepos = [], restartedAt = {} }) {
   const dirs = (await listDir(featuresDir)).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => path.join(featuresDir, e.name));
   const features = await Promise.all(dirs.map(readFeatureFolder));
   const explicit = Object.fromEntries(features.map((f) => [f.dir, f.sessionId]));
   const sessions = sessionIndex ? await sessionIndex.sessionsByFeature(dirs, explicit) : {};
   for (const f of features) {
-    const s = sessions[f.dir] ?? [];
+    const bound = Date.parse(restartedAt?.[f.dir] ?? '');
+    const s = (sessions[f.dir] ?? []).filter((x) => !(bound && Date.parse(x.parsed.lastAt ?? '') <= bound));
     f.sessionIds = s.map((x) => x.parsed.sessionId);
     // For the play ledger: when the Foreman's first session began, and the PRs the logs say were
     // created (Claude Code's pr-link lines), with when.

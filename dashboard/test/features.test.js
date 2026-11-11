@@ -174,3 +174,50 @@ test('a background launch does not finish the worker', async () => {
   const job = await jobWithOneWorker({ answeredAt: '2026-11-10T09:01:05Z', result: 'Async agent launched successfully', workerLastAt: '2026-11-10T09:11:05Z' });
   assert.equal(workerOf(job).state, 'running');
 });
+
+test('I2: session logs that ended at or before the folder\'s last restart are not the new job\'s', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-restarted-'));
+  const dir = path.join(root, 'feature-work', 'orbit-12-export');
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify({ title: 'Export', models: { foreman: 'claude-fable-5-2' } }));
+  const proj = path.join(root, 'projects', '-tmp-repo');
+  const usage = { input_tokens: 2000, output_tokens: 90000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+  const log = async (sessionId, model, at, extra = []) => {
+    const line = (o) => JSON.stringify({ sessionId, cwd: '/tmp/repo', ...o });
+    await fs.mkdir(path.join(proj, sessionId, 'subagents'), { recursive: true });
+    await fs.writeFile(path.join(proj, `${sessionId}.jsonl`), `${[
+      line({ type: 'user', timestamp: at[0], message: { role: 'user', content: `/feature Export. Private folder: ${dir}` } }),
+      line({ type: 'assistant', timestamp: at[1], message: { id: `${sessionId}-1`, model, stop_reason: 'end_turn', usage, content: [{ type: 'text', text: 'Working.' }] } }),
+      ...extra.map(line),
+    ].join('\n')}\n`);
+  };
+  await log('old-sess', 'claude-opus-5-5', ['2026-11-10T09:00:00Z', '2026-11-10T09:00:05Z'], [{ type: 'pr-link', timestamp: '2026-11-10T09:40:00Z', prNumber: 7, prUrl: 'https://github.com/o/r/pull/7', prRepository: 'o/r' }]);
+  await log('new-sess', 'claude-fable-5-2', ['2026-11-10T09:50:00Z', '2026-11-10T09:50:05Z']);
+  try {
+    const load = (restartedAt) => loadFeatures({ featuresDir: path.join(root, 'feature-work'), sessionIndex: new SessionIndex(path.join(root, 'projects')), restartedAt });
+    const [all] = await load(undefined);
+    assert.deepEqual(all.sessionIds.sort(), ['new-sess', 'old-sess'], 'with no restart, both');
+    // The old log's last line (09:40) is at the restart's time: it counts as before it.
+    for (const at of ['2026-11-10T09:45:00.000Z', '2026-11-10T09:40:00Z']) {
+      const [job] = await load({ [dir]: at });
+      assert.deepEqual(job.sessionIds, ['new-sess'], at);
+      assert.equal(job.conductorSession.sessionId, 'new-sess');
+      assert.equal(job.conductorSession.model, 'claude-fable-5-2');
+      assert.equal(job.firstSessionAt, '2026-11-10T09:50:00Z');
+      assert.deepEqual(job.prLinks, []);
+      assert.deepEqual(job.activity.map((a) => a.sessionId), ['new-sess']);
+      assert.ok(job.cost.totalUsd > 0 && Math.abs(job.cost.totalUsd - all.cost.perModel['claude-fable-5-2']) < 1e-6, 'only the new session\'s spend');
+      assert.deepEqual(Object.keys(job.cost.perModel), ['claude-fable-5-2']);
+    }
+    // Before the new Foreman has written a line: nothing at all.
+    await fs.rm(path.join(proj, 'new-sess.jsonl'));
+    const [fresh] = await load({ [dir]: '2026-11-10T09:45:00.000Z' });
+    assert.deepEqual(fresh.sessionIds, []);
+    assert.equal(fresh.conductorSession, null);
+    assert.equal(fresh.cost.totalUsd, 0);
+    assert.deepEqual(fresh.activity, []);
+    assert.equal(fresh.working, false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

@@ -75,6 +75,22 @@ export function sinceRestart(lines) {
   return marks.length ? lines.slice(marks.at(-1)) : lines;
 }
 
+/**
+ * Each folder's last restart that still counts, by sinceRestart's rule: { [featureDir]: at }. A folder
+ * with none is not there. Session logs that ended at or before it are the old job's (lib/features.js).
+ */
+export function restartTimes(lines) {
+  const marks = new Map(); // featureDir → the times of its restarts that still count
+  for (const e of lines) {
+    if (!e?.featureDir) continue;
+    if (e.action === 'restart') { if (!marks.has(e.featureDir)) marks.set(e.featureDir, []); marks.get(e.featureDir).push(e.at); }
+    else if (e.action === 'restart-failed' && e.afterBoundary === true) marks.get(e.featureDir)?.pop();
+  }
+  const out = {};
+  for (const [dir, times] of marks) if (times.length && times.at(-1)) out[dir] = times.at(-1);
+  return out;
+}
+
 // Emits 'audit' (the entry as written) after each audit line is saved, so live views can say
 // which job's conversation just changed.
 export class State extends EventEmitter {

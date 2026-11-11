@@ -25,3 +25,18 @@ test('two reads with no write between them parse the file once; a write is seen 
   (await state.auditFor('/f/one')).pop();
   assert.equal((await state.auditFor('/f/one')).length, 3);
 });
+
+test('I2: restartTimes gives each folder the time of its last restart that still counts', async () => {
+  const { restartTimes } = await import('../lib/state.js');
+  const lines = [
+    { at: 't1', action: 'send', featureDir: '/f/a' },
+    { at: 't2', action: 'restart', featureDir: '/f/a' },
+    { at: 't3', action: 'restart', featureDir: '/f/b' },
+    { at: 't4', action: 'restart', featureDir: '/f/b' },
+    { at: 't5', action: 'restart-failed', featureDir: '/f/b', afterBoundary: true },
+    { at: 't6', action: 'restart', featureDir: '/f/c' },
+    { at: 't7', action: 'restart-failed', featureDir: '/f/c', afterBoundary: true },
+    { at: 't8', action: 'restart-failed', featureDir: '/f/d' },
+  ];
+  assert.deepEqual(restartTimes(lines), { '/f/a': 't2', '/f/b': 't3' }, 'a restart put back does not count; a refusal cancels nothing');
+});

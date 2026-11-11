@@ -31,7 +31,7 @@ import crypto from 'node:crypto';
 import { loadFeatures, loadGateStates, SessionIndex } from '../lib/features.js';
 import { STAGES, AGENTS } from '../lib/stages.js';
 import { PRICES, PRICES_AS_OF, whatIfConductor, costCsv, costMarkdown } from '../lib/cost.js';
-import { OLD_STATE_FOLDER, State, WORKFLOW_CHOICES } from '../lib/state.js';
+import { OLD_STATE_FOLDER, State, WORKFLOW_CHOICES, restartTimes } from '../lib/state.js';
 import { Driver, Busy } from '../lib/driver.js';
 import { renderMarkdown, indexIds } from '../lib/markdown.js';
 import * as git from '../lib/git.js';
@@ -411,7 +411,9 @@ export async function createRunner(config) {
     runEnds = await state.lastRunEnds();
     const saved = await state.allSessions();
     const overrides = Object.fromEntries(Object.entries(saved).filter(([, v]) => v.repoPath || v.branch).map(([k, v]) => [k, { repoPath: v.repoPath, branch: v.branch }]));
-    const list = await loadFeatures({ featuresDir: FEATURES_DIR, sessionIndex, overrides, knownRepos: await repoList() });
+    // A folder restarted (lib/restart.js) holds a new job: the old job's session logs are not its own.
+    const restartedAt = restartTimes(await state.auditAll());
+    const list = await loadFeatures({ featuresDir: FEATURES_DIR, sessionIndex, overrides, knownRepos: await repoList(), restartedAt });
     // Jobs you marked done or dropped (kept in the dashboard's own state; the job's records are untouched).
     for (const f of list) f.closed = saved[f.dir]?.closed ?? null;
     // Hand-off nudges you dismissed on this job, and the ones whose sentence already went to its
@@ -1099,8 +1101,10 @@ export async function createRunner(config) {
     return String(s).toLowerCase().normalize('NFKD').replace(/[^\w\s-]/g, '').trim().replace(/[\s_]+/g, '-').replace(/-+/g, '-').slice(0, 48).replace(/-$/, '') || 'job';
   }
 
-  async function uniqueSlug(base) {
-    const taken = new Set([...(await features()).map((f) => f.slug), ...driver.list().map((r) => r.slug)]);
+  // restartOf: the folder of the job a restart is starting again (its folder already moved aside). Its
+  // own runs, still held by the driver, don't take its name: the new job keeps it, and so its branch.
+  async function uniqueSlug(base, { restartOf = null } = {}) {
+    const taken = new Set([...(await features()).map((f) => f.slug), ...driver.list().filter((r) => !(restartOf && r.featureDir === restartOf)).map((r) => r.slug)]);
     let slug = base;
     for (let i = 2; taken.has(slug) || fs.existsSync(path.join(FEATURES_DIR, slug)); i++) slug = `${base}-${i}`;
     return slug;
@@ -2029,7 +2033,8 @@ export async function createRunner(config) {
 
   const HANDLERS = {
     // POST /api/jobs: a new job.
-    // `internal` is only ever passed by Auto start (never from a request): { autoStart: { tag } } turns Auto on by that tag.
+    // `internal` is only ever passed by Auto start and the restart (never from a request): { autoStart: { tag } } turns Auto
+    // on by that tag; { restartOf: featureDir } is the job a restart starts again, whose name the new job keeps.
     async start(body, internal = {}) {
       const description = str(body.description, 600).replace(/\s+/g, ' ').trim();
       if (description.length < 4) throw new HttpError(400, 'Describe the job in a few words.');
@@ -2085,7 +2090,7 @@ export async function createRunner(config) {
       // The repository's profile names a ticket's folder and branch (lib/profile.js); none: the general case.
       const hit = ticket ? await local.registry.profileFor(repo.path).catch(() => null) : null;
       const profile = hit?.ok ? hit.profile : null;
-      const slug = await uniqueSlug(ticket ? ticketSlug(ticket, profile) : slugify(description));
+      const slug = await uniqueSlug(ticket ? ticketSlug(ticket, profile) : slugify(description), { restartOf: internal.restartOf ?? null });
       const featureDir = path.join(FEATURES_DIR, slug);
       // The job's options go in its private folder (read before every stage) and in the first message.
       const { detail: fromDetail, ...fromRecord } = from ?? {};
@@ -2353,7 +2358,7 @@ export async function createRunner(config) {
                 cached = null;
               };
             },
-            start: async (startBody) => { cached = null; return HANDLERS.start(startBody); },
+            start: async (startBody) => { cached = null; return HANDLERS.start(startBody, { restartOf: f.dir }); },
           });
         } catch (err) {
           // A refusal or a failure (put back, or part way) is on the record too, with what it says.
