@@ -1001,7 +1001,9 @@ test('T2: the shape of a plain command, and the files that change how tools run'
     ['eval ls', 'outside'], ['source x', 'outside'], ['. x', 'outside'], ['export A=1', 'ask'], ['FOO=1 ls', 'ask'], ['FOO=1', 'ask'], ['env X=1 ls', 'ask'], ['time ls', 'ask'], ['nohup ls', 'ask'], ['xargs ls', 'ask'], ['trap x EXIT', 'outside'], ['ls ~root', 'ask'], ['echo x > ~root/a', 'outside'],
     ['echo x > a.txt && echo y > b.txt', null], ['echo x > ../elsewhere', 'outside'], ['echo x > a*.txt', 'outside'], ['ls 3>&1', 'ask'], ['echo ‮', 'ask'], ['ls\r', 'ask'], ['echo "a\\"b"', 'ask'], ['ls "unfinished', 'ask'],
     ['git commit -m "$(cat <<\'EOF\'\nFix it\nEOF\n)"', null], ['git commit -m "$(cat <<\'EOF\'\nFix it\nEOF\nrm -rf x\nEOF\n)"', 'outside'], ['git commit -m "$(cat <<EOF\nFix $X\nEOF\n)"', 'outside'], ['echo "$(cat <<\'EOF\'\nx\nEOF\n)"', 'ask'],
-    ['git add -A && git commit -m "x" && git push origin feature/x', null], ['npm test 2>&1 | tail -20', null],
+    ['git add -A && git commit -m "x" && git push origin feature/x', null], ['npm test 2>&1 | tail -20', null], ['npm ci && npm test', null], ['git checkout -b feature/y && npm test', null],
+    ['git restore package.json && npm test', 'ask'], ['git checkout other && npm test', 'ask'], ['git pull && npm test', 'ask'], ['git merge main && make', 'ask'], ['git pull && git push origin feature/x', null], ['tar xf a.tar && ls', null], ['tar xf a.tar && echo x > y', 'ask'],
+    ['git symbolic-ref HEAD refs/heads/main', 'ask'], ['git symbolic-ref --short HEAD', null],
   ]);
   for (const f of ['.npmrc', '.envrc', 'sub/.npmrc']) {
     assert.equal(tool('Write', { file_path: `${W}/${f}` }), null, `${f} is not a stop`);

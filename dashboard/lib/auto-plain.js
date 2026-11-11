@@ -456,7 +456,7 @@ const GIT = {
   'count-objects': READ('v H'),
   'show-ref': READ('--heads --tags --verify q --hash s --head'),
   'ls-remote': spec('--heads --tags q', { pos: (pos) => { for (const x of pos) if (!/^[\w.-]+$/.test(x.t)) ask('an address given to ls-remote'); } }),
-  'symbolic-ref': READ('q --short'),
+  'symbolic-ref': spec('q --short', { pos: (pos) => { if (pos.length > 1) ask('a symbolic-ref that changes a reference'); } }),
   version: spec('', { pos: 'none' }),
 };
 
@@ -739,9 +739,12 @@ export function plainWhy(command, env = {}) {
       if (!READ_ONLY.has(name) && !(name === 'git' && GIT_READS.has(args.find((x) => !x.t.startsWith('-'))?.t)) && !cands.every((c) => inRoots(physicalPath('.', c), roots))) ask('a command that changes things, run from a folder outside the job');
       if (words.some((x) => x.t === HEREDOC) && !(name === 'git' && args[0]?.t === 'commit')) ask('a commit message form used outside git commit');
       const sub = args.find((x) => !x.t.startsWith('-'))?.t;
-      const writes = !READ_ONLY.has(name) && !(name === 'git') && !['npm', 'pnpm', 'yarn', 'bun', 'npx', 'node', 'curl', 'wget', 'tsc', 'eslint', 'prettier', 'vitest', 'jest', 'pytest', 'go', 'cargo', 'gh', 'pip', 'pip3'].includes(name) && !/^python/.test(name) && !BASH_LIKE.has(name);
-      if (broughtIn && (writes || cmd.redirects.some((r) => r.op !== '<'))) ask('a file written after an archive or a checkout brought files in');
-      if (name === 'tar' || name === 'unzip' || (name === 'git' && ['checkout', 'switch', 'pull', 'merge', 'rebase', 'reset', 'restore', 'cherry-pick', 'revert', 'clone'].includes(sub))) broughtIn = true;
+      // After an archive or a checkout, merge, pull, reset… has changed the files, only reads and git go on: a link, a
+      // package.json or a Makefile that just arrived could be written through or run in the same call.
+      if (broughtIn && !READ_ONLY.has(name) && name !== 'git' && name !== 'gh') ask('a program run after an archive or a git command changed the files');
+      if (broughtIn && cmd.redirects.some((r) => r.op !== '<')) ask('a file written after an archive or a git command changed the files');
+      const newBranch = args.some((x) => ['-b', '-B', '-c', '-C'].includes(x.t));
+      if (name === 'tar' || name === 'unzip' || (name === 'git' && !newBranch && ['checkout', 'switch', 'pull', 'merge', 'rebase', 'reset', 'restore', 'cherry-pick', 'revert', 'clone'].includes(sub))) broughtIn = true;
       runProgram(name, args, ctx, null);
     }
     return null;
