@@ -6,7 +6,7 @@
 // This script only looks. It refuses every request that is not a GET, so nothing on the page can answer
 // a step for Auto: if "Auto demo" gets to PR #1, Auto did it. It checks that
 //   1. "Auto demo" shows PR #1 open within 120 s, with no click and no request that changes anything,
-//      and its job page has the Auto switch (on) and "What Auto decided" in its head;
+//      and its job page has the Auto switch and "What Auto decided" in its head;
 //   2. "What Auto decided" on its card lists one entry per approval (the summary counts them), each
 //      with the Approver's reason, and says Auto finished;
 //   3. "Auto demo: migrate" is in the Needs you group with "Auto stopped: a database change needs you."
@@ -63,11 +63,11 @@ try {
   else fail(`Auto demo did not show "PR #1 open" within ${WAIT_MS / 1000} s`);
   if (refused) fail(`${refused} request(s) that change something were refused: ${refusedWhat.join(', ')}`);
 
-  // 1b. The job page itself has the Auto switch (on) and What Auto decided, before we leave it.
+  // 1b. The job page itself has the Auto switch and What Auto decided, before we leave it. (Auto goes
+  // off by itself once PR #1 is open, so the switch is there but not ticked now.)
   const pageSwitch = page.locator('main .page-head').getByRole('checkbox', { name: /Auto: run to PR #1/ });
   if ((await pageSwitch.count()) !== 1) fail(`the job page has ${await pageSwitch.count()} Auto switches in its head, expected 1`);
-  else if (!(await pageSwitch.isChecked())) fail('the job page\'s Auto switch is not on');
-  else ok('the job page has the Auto switch, on');
+  else ok('the job page has the Auto switch');
   const pageWhat = page.locator('main .page-head').getByRole('button', { name: 'What Auto decided' });
   if ((await pageWhat.count()) !== 1) fail(`the job page has ${await pageWhat.count()} "What Auto decided" buttons in its head, expected 1`);
   else ok('the job page has What Auto decided');

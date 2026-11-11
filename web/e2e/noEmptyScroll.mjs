@@ -11,14 +11,18 @@
 //   3. something is cut off sideways: main or a scroll area is wider inside than it shows, or a
 //      box with text in a card runs past its own edge without an ellipsis or a sideways scroll;
 //   4. on a job page the conversation's message list is under 160 px tall in a window 800 px tall
-//      or more.
+//      or more;
+//   5. the screen is not there: the address could not be opened, or the page has no main, or its
+//      main has no text (a blank page or a crashed route never passes).
 // The check only reads: it refuses every request that is not a GET.
 //
 // Run it against a running app (the demo is best):
 //   PORT=4493 STARBASE_DEMO=1 node dashboard/demo/run-demo.js      # in one terminal
 //   npm run web:build && node web/e2e/noEmptyScroll.mjs            # in another
 // Environment: BASE (default http://127.0.0.1:4493/next/), WIDTHS (comma list, default
-// 1280,1512,1920), WIDTH (one width only; overrides WIDTHS), THEME (light), JOBS (a comma list of
+// 1280,1512,1920), WIDTH (one width only; overrides WIDTHS), THEME (light; a theme's id, such as
+// default, glass or starbase; dark means default, the dark theme; a theme the app does not put on
+// fails the run), JOBS (a comma list of
 // job slugs; default every job the app lists), DIST (a built app folder, such as web/dist: its
 // pages and files stand in for the ones BASE serves, so a build is checked on another Starbase's
 // jobs), PLAYWRIGHT (the path to playwright's index.mjs, when it isn't installed here). Every
@@ -35,7 +39,8 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 const WIDTHS = (process.env.WIDTH || process.env.WIDTHS || '1280,1512,1920')
   .split(',').map((w) => Number(w.trim())).filter((w) => w > 0);
 const HEIGHT = 820;
-const THEME = process.env.THEME || 'light';
+// "dark" is the dark theme's own id, default (web/src/theme/theme.ts THEME_PAIRS).
+const THEME = ({ dark: 'default' })[process.env.THEME || 'light'] ?? (process.env.THEME || 'light');
 const FOLDS = 'main .more-head, main details > summary';
 const MAX_FOLDS = 60;
 
@@ -227,9 +232,20 @@ async function runAt(WIDTH) {
     for (const p of await page.evaluate(check)) problems.push(`${screen}, ${when}: ${p}`);
   };
 
+  let themeChecked = false;
   for (const [screen, hash] of SCREENS) {
-    await page.goto(BASE + hash, { waitUntil: 'networkidle' }).catch(() => {});
+    const opened = await page.goto(BASE + hash, { waitUntil: 'networkidle' }).then((r) => (r && !r.ok() ? `the address answered ${r.status()}` : null), (err) => `the address could not be opened (${String(err.message).split('\n')[0]})`);
+    if (opened) { checks += 1; problems.push(`${screen}: ${opened}`); continue; }
     await page.waitForTimeout(700);
+    // 5. The screen must be there: a main with text in it.
+    const main = await page.evaluate(() => { const m = document.querySelector('main'); return m ? (m.innerText || '').trim().length : -1; });
+    if (main <= 0) { checks += 1; problems.push(`${screen}: ${main < 0 ? 'the page has no main' : 'the page\'s main has no text'}`); continue; }
+    // The theme asked for is the one on the page (the app skips an id it does not know).
+    if (!themeChecked) {
+      themeChecked = true;
+      const on = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+      if (on !== THEME) throw new Error(`THEME=${process.env.THEME || 'light'} asks for the theme "${THEME}", but the page shows "${on}": not a theme the app puts on.`);
+    }
     // A first-visit guide: close it.
     const skip = page.locator('.guide button', { hasText: 'Skip' });
     if (await skip.count()) { await skip.first().click().catch(() => {}); await page.waitForTimeout(200); }
@@ -263,7 +279,9 @@ async function runAt(WIDTH) {
 
 let failed = 0;
 for (const WIDTH of WIDTHS) {
-  const { problems, checks } = await runAt(WIDTH);
+  const at = await runAt(WIDTH).catch((err) => ({ broke: err.message }));
+  if (at.broke) { await browser.close(); console.log(`${WIDTH} px: ${at.broke}`); process.exit(1); }
+  const { problems, checks } = at;
   if (problems.length) {
     failed += 1;
     const list = [...new Set(problems)];
