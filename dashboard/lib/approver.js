@@ -16,6 +16,7 @@
 // Nothing here decides the fixed stop rules (lib/auto.js); a later step calls askApprover.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { FABLE } from './options.js';
@@ -92,8 +93,20 @@ export function approverMayRead(p, roots) {
 const safePattern = (pattern) => typeof pattern === 'string' && pattern.length > 0 && pattern.length <= 1000
   && !pattern.includes('\0') && !pattern.includes('..') && !/[{}]/.test(pattern) && !path.isAbsolute(pattern) && !/^[~\\]/.test(pattern) && !/^[a-z]:/i.test(pattern);
 
+// /, the home folder or a folder above it, ~/.claude itself and the state folder (~/.starbase, or the
+// one this Starbase uses) or a folder above it are never a root, whatever the job's records say.
+let stateDirNow = null;
+export function setApproverStateDir(dir) { stateDirNow = typeof dir === 'string' && path.isAbsolute(dir) ? dir : null; }
+const tooWide = (r) => {
+  const fold = (x) => (process.platform === 'darwin' ? path.resolve(x).toLowerCase() : path.resolve(x));
+  const q = fold(r);
+  const home = fold(os.homedir());
+  if (q === fold(path.parse(q).root) || inside(home, q) || q === fold(path.join(os.homedir(), '.claude'))) return true;
+  return [path.join(os.homedir(), '.starbase'), stateDirNow].filter(Boolean).some((s) => inside(fold(s), q));
+};
+
 /** The folders one job's Approver may read in: the job's folder, its worktrees and its spec folders. */
-export const approverRoots = ({ featureDir, worktrees = [], specDirs = [] }) => [featureDir, ...worktrees, ...specDirs].filter(Boolean);
+export const approverRoots = ({ featureDir, worktrees = [], specDirs = [] }) => [featureDir, ...worktrees, ...specDirs].filter((r) => usablePath(r) && !tooWide(r));
 
 /**
  * The Approver's canUseTool. Read when approverMayRead(file_path); Glob when its folder is inside

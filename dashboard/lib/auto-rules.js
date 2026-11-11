@@ -204,11 +204,25 @@ const tooBig = (command) => command.length > MAX_COMMAND || command.split(/&&|\|
 
 // The folders a job may change: its worktrees, record folder, spec folders and the temp folders, as
 // written and as they really are (/tmp is /private/tmp on a Mac).
+// A root that is /, the home folder or a folder above it, the state folder or a folder above it, or
+// ~/.claude itself, is never one: everything the job must not touch would be inside it (C1).
 function jobRoots(ctx) {
   const roots = [...(ctx.worktrees ?? []), ctx.featureDir, ...(ctx.specDirs ?? []), ...TEMP_DIRS].filter((r) => typeof r === 'string' && path.isAbsolute(r));
   const out = new Set();
-  for (const r of roots) { out.add(path.resolve(r)); const p = physicalPath(r, null); if (p) out.add(p); }
+  for (const r of roots) {
+    const forms = [path.resolve(r), physicalPath(r, null)].filter(Boolean);
+    // The temp folders are Starbase's own list, never a job's word; a state folder kept inside one (tests do) is still refused by its own rules.
+    if (forms.some((x) => tooWideRoot(x, TEMP_DIRS.includes(r) ? {} : ctx))) continue;
+    for (const x of forms) out.add(x);
+  }
   return [...out];
+}
+export function tooWideRoot(r, ctx = {}) {
+  const q = fold(r);
+  if (q === fold(path.parse(q).root)) return true;
+  for (const h of homes()) if (isInside(fold(h), q) || q === fold(path.join(h, '.claude'))) return true;
+  const state = typeof ctx.stateDir === 'string' && ctx.stateDir ? [ctx.stateDir, physicalPath(ctx.stateDir, null)].filter(Boolean) : [];
+  return state.some((s) => isInside(fold(s), q));
 }
 const inRoots = (p, roots, strict = false) => roots.some((r) => isInside(p, r) && !(strict && p === r));
 

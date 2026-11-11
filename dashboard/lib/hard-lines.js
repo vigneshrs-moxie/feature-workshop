@@ -577,11 +577,21 @@ const RM_COVERED = 'Auto mode: it deletes only inside the job’s own folders.';
 
 // rm -rf whose every target is written out in full and sits strictly inside the job's worktrees,
 // its record folder or a temp folder (never one of those folders itself, never inside a .git).
+// A folder that holds what a job must never delete: /, the home folder or above it, ~/.claude itself,
+// the state folder or above it. Never one of a job's roots, whatever its records say (C1).
+function wideRoot(d) {
+  const q = MAC ? d.toLowerCase() : d;
+  const f = (x) => (MAC ? path.resolve(x).toLowerCase() : path.resolve(x));
+  if (q === f(path.parse(q).root)) return true;
+  if (isInside(f(homeOf()), q) || q === f(path.join(homeOf(), '.claude'))) return true;
+  return [path.join(homeOf(), '.starbase'), ...stateFolders].some((s) => isInside(f(s), q));
+}
+
 export function rmInsideJob(words, cwd, ctx) {
   const w = [...words];
   while (w.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0].t)) w.shift();
   if (w[0]?.t !== 'rm' && w[0]?.t !== '/bin/rm') return false; // behind a wrapper: not judged here
-  const roots = [...(ctx.worktrees ?? []), ctx.featureDir, ...TEMP_DIRS].filter(Boolean).map((d) => path.resolve(d));
+  const roots = [...[...(ctx.worktrees ?? []), ctx.featureDir].filter(Boolean).map((d) => path.resolve(d)).filter((d) => !wideRoot(d)), ...TEMP_DIRS.map((d) => path.resolve(d))];
   let options = true;
   const targets = [];
   for (const x of w.slice(1)) {

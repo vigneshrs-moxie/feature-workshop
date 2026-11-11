@@ -1592,7 +1592,8 @@ test('J6: a push of the job\'s own branch to its fork before the PR stage goes t
     query: cardQuery([{ tool: 'Bash', input: { command: 'git push origin feature/visit-audit' } }], outcomes), ask: () => allow('It is the job\'s own branch, to the fork.'),
   });
   try {
-    w.git('checkout', '-q', '-b', 'feature/visit-audit');
+    // The job's branch is the one git says is checked out in its worktree (here where the profile puts it), not status.json's word.
+    w.git('worktree', 'add', '-q', '-b', 'feature/visit-audit', path.join(w.root, 'orbit-visit-audit'));
     w.git('remote', 'add', 'origin', 'https://github.com/me/app.git');
     await raise(w);
     await w.until(() => outcomes.length === 1, 'the push to be decided');
@@ -1625,8 +1626,8 @@ test('J6: a push with a gh call in the same command is not the plain push: Auto 
     query: cardQuery([{ tool: 'Bash', input: { command: 'git push origin feature/visit-audit && gh pr create --fill' } }], outcomes), ask: () => allow(),
   });
   try {
-    // The job's own branch and its fork, so no fixed stop matches the push itself.
-    w.git('checkout', '-q', '-b', 'feature/visit-audit');
+    // The job's own branch (checked out in its worktree) and its fork, so no fixed stop matches the push itself.
+    w.git('worktree', 'add', '-q', '-b', 'feature/visit-audit', path.join(w.root, 'orbit-visit-audit'));
     w.git('remote', 'add', 'origin', 'https://github.com/me/app.git');
     await raise(w);
     await w.until(async () => (await w.record()).stopped, 'Auto to stop');
@@ -2177,4 +2178,30 @@ test('R2b: a job that waits on a brief Auto already answered, with no reply runn
     await u.auto.pass();
     assert.equal(u.notes.length, 1, 'none again');
   }
+});
+
+test('C1: the folders and branch every safety rule uses come from Starbase\'s record and git, not status.json', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { branch: 'main', worktree: '/Users/nobody-probe', spec: { path: '/Users/nobody-probe/Documents/spec.md' }, stage: 'plan' }) });
+  try {
+    const run = { id: 'c1-run', featureDir: w.dir, cwd: w.dirs.repo, slug: w.slug, title: 'T' };
+    const lied = await w.driver.autoCtx(run);
+    assert.equal(lied.worktrees.includes('/Users/nobody-probe'), false, 'Auto\'s rules');
+    assert.equal(lied.specDirs.some((d) => d.startsWith('/Users/nobody-probe')), false);
+    assert.deepEqual(lied.branches, [], 'status.json\'s branch is not the job\'s');
+    const routine = await w.driver.policy(run, 'Write', { file_path: '/Users/nobody-probe/.zshrc', content: 'x' });
+    assert.equal(routine.auto, false, 'the routine list');
+    assert.equal(routine.outside, true);
+    const env = await w.driver.settingsFor(run);
+    assert.equal(JSON.stringify(env ?? {}).includes('nobody-probe'), false, 'auto mode\'s environment');
+    await w.pass();
+    assert.equal(w.asks[0].call.roots.some((r) => r.startsWith('/Users/nobody-probe')), false, 'the Approver\'s read gate');
+    // A worktree git lists for the job's repository counts, with the branch checked out there.
+    const wt = path.join(w.root, 'visit-audit-wt');
+    w.git('worktree', 'add', '-q', '-b', 'feature/visit-audit', wt);
+    await w.writeStatus(status(1, { branch: 'main', worktree: wt, stage: 'plan' }));
+    await new Promise((r) => setTimeout(r, 1600)); // the job list is read again after 1.5 seconds
+    const real = await w.driver.autoCtx({ ...run, id: 'c1-run-2' });
+    assert.ok(real.worktrees.includes(wt), JSON.stringify(real.worktrees));
+    assert.deepEqual(real.branches, ['feature/visit-audit']);
+  } finally { await w.stop(); }
 });

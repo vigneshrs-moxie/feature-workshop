@@ -60,7 +60,7 @@ import { suggestLevel, changedPaths, diffSummary } from '../lib/levels.js';
 import { checkDiff, chooseLevel } from '../lib/auto-level.js';
 import { AUTO_MARK, autoAllowed, autoCardView, autoOption, autoRecord } from '../lib/auto.js';
 import { createAuto } from './auto.js';
-import { askApprover as askApproverLib, approverOptions } from '../lib/approver.js';
+import { askApprover as askApproverLib, approverOptions, setApproverStateDir } from '../lib/approver.js';
 import { autoCost, autoLog, autoLogRecord, writeAutoLog } from '../lib/auto-log.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs, isGateDecision, feedParking } from '../lib/gate.js';
 import { composeReply, cleanChips } from '../lib/compose.js';
@@ -72,9 +72,9 @@ import { parseStatusJson } from '../lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from '../lib/auto-env.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { goAheadCovers, setApiPort, setStateDir } from '../lib/hard-lines.js';
-import { branchesOf } from '../lib/auto-rules.js';
-import { autoGitFacts } from '../lib/auto-git.js';
+import { goAheadCovers, ORG_REMOTES, setApiPort, setStateDir } from '../lib/hard-lines.js';
+import { jobRepo, verifiedJobContext } from '../lib/auto-context.js';
+import { autoGitFacts, gitRemoteDefault, gitWorktrees } from '../lib/auto-git.js';
 import { readStack } from '../lib/stack.js';
 import { stackRules } from '../lib/profile.js';
 import { FlowWatch, gatherRepo } from '../lib/flow.js';
@@ -168,6 +168,7 @@ export async function createRunner(config) {
   const sessionIndex = new SessionIndex(PROJECTS_DIR);
   const state = new State(stateDir);
   setStateDir(state.dir); // jobs may not write here (the starbase-state hard line)
+  setApproverStateDir(state.dir); // nor is it ever a folder the Approver reads in
   setApiPort(PORT); // nor call Starbase's own address (the starbase-api hard line)
   // Your "Always allow" rules (rules.json next to the dashboard's other state; see lib/rules.js).
   const rules = new RuleStore(state.dir);
@@ -252,15 +253,40 @@ export async function createRunner(config) {
     return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
   };
 
-  // What the policy knows about a run's job: its record, repo, worktrees and spec folders.
+  // What every safety rule knows about a run's job: its record, repo, worktrees, spec folders and
+  // branches, from Starbase's own records and git, never from the job's word alone (lib/auto-context.js).
+  // One function for all: Auto's rules, the routine list, both covers, auto mode's environment and the Approver.
   async function jobContext(run) {
     const f = (await features()).find((x) => x.dir === run.featureDir);
-    const repo = f?.repoPath ?? run.cwd;
+    const recordedRepo = await recordedRepoOf(run.featureDir);
+    const knownRepos = local.registry ? (await local.registry.entries().catch(() => [])).map((e) => e.path) : [];
+    const repoFor = jobRepo({ recordedRepo, f, knownRepos });
     // Where the job's worktree goes, from its repository's profile (lib/repos.js worktreeFor).
-    const worktrees = [f?.worktree, f?.statusWorktree, repo && f && local.registry ? await local.registry.worktreeFor(repo, f.slug) : null].filter(Boolean);
-    const specDirs = [repo ? path.join(repo, 'docs', 'plans') : null, f?.spec?.path && path.isAbsolute(f.spec.path) ? path.dirname(f.spec.path) : null].filter(Boolean);
-    return { f, repo, worktrees, specDirs };
+    const profileWorktree = repoFor && local.registry ? await local.registry.worktreeFor(repoFor, path.basename(run.featureDir)).catch(() => null) : null;
+    const hit = repoFor && local.registry ? await local.registry.profileFor(repoFor).catch(() => null) : null;
+    const orgRemote = stackRules(hit?.ok ? hit.profile : null).org;
+    const v = await verifiedJobContext({
+      featureDir: run.featureDir, f, recordedRepo, knownRepos, profileWorktree, stack: await readStack(run.featureDir).catch(() => null),
+      git: {
+        worktrees: (repo, { fresh = false } = {}) => gitWorktrees({ repo, exec: gitStdout, cache: autoGitCache, fresh }),
+        defaultBranch: async (repo) => (await Promise.all([...new Set([orgRemote, ...ORG_REMOTES].filter(Boolean))].map((remote) => gitRemoteDefault({ repo, remote, exec: gitStdout, cache: autoGitCache })))).filter(Boolean),
+      },
+    });
+    return { f, repo: v.repo, worktrees: v.worktrees, specDirs: v.specDirs, branches: v.branches, mainCheckout: v.mainCheckout };
   }
+  // The repository Starbase recorded for a job: the one you set (sessions.json), else the one the
+  // start handler wrote in its new-job audit line. null for a job Starbase did not make.
+  const recordedRepos = new Map(); // featureDir -> { repo, at }
+  async function recordedRepoOf(dir) {
+    const set = (await state.sessionFor(dir))?.repoPath;
+    if (typeof set === 'string' && path.isAbsolute(set)) return set;
+    const hit = recordedRepos.get(dir);
+    if (hit && (hit.repo || Date.now() - hit.at < 30_000)) return hit.repo;
+    const line = (await state.auditAll()).filter((e) => e?.featureDir === dir && e.action === 'new-job' && typeof e.repo === 'string' && path.isAbsolute(e.repo)).at(-1);
+    recordedRepos.set(dir, { repo: line?.repo ?? null, at: Date.now() });
+    return line?.repo ?? null;
+  }
+  const gitStdout = async (file, args, opts) => (await execGit(file, args, { ...opts, windowsHide: true })).stdout;
 
   // The Foreman session's own Claude Code settings: the job's auto mode environment (lib/auto-env.js),
   // so auto mode's safety model knows the job's repo, fork and org remote. Added to your settings.
@@ -277,13 +303,12 @@ export async function createRunner(config) {
   const execGit = promisify(execFile);
   const autoGitCache = new Map();
   async function autoCtxFor(run) {
-    const { f, repo, worktrees, specDirs } = await jobContext(run);
+    const { repo, worktrees, specDirs, branches } = await jobContext(run);
     const hit = repo && local.registry ? await local.registry.profileFor(repo).catch(() => null) : null;
-    const facts = await autoGitFacts({ cwd: run.cwd, dirs: worktrees, key: run.id ?? run.featureDir, cache: autoGitCache, exec: async (file, args, opts) => (await execGit(file, args, { ...opts, windowsHide: true })).stdout });
-    const stack = await readStack(run.featureDir).catch(() => null);
+    const facts = await autoGitFacts({ cwd: run.cwd, dirs: worktrees, key: run.id ?? run.featureDir, cache: autoGitCache, exec: gitStdout });
     return {
       worktrees, featureDir: run.featureDir, specDirs, cwd: run.cwd, forkRemote: stackRules(hit?.ok ? hit.profile : null).fork,
-      remoteUrl: facts.remoteUrl, currentBranch: facts.currentBranch, branches: branchesOf(f?.branch, stack), stateDir: state.dir, apiPort: PORT,
+      remoteUrl: facts.remoteUrl, currentBranch: facts.currentBranch, branches, stateDir: state.dir, apiPort: PORT,
     };
   }
 
