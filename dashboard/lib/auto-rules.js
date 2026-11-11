@@ -540,6 +540,8 @@ const READS = new Set(['cat', 'ls', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack',
 // File changes: pass only when every path argument is inside the job's folders (a path we can't place stops).
 // The read programs whose words name what they read (echo, test and the like only print or compare text).
 const READ_PATHS = new Set(['cat', 'ls', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'head', 'tail', 'wc', 'diff', 'cmp', 'find', 'file', 'stat', 'du', 'tree', 'less', 'more', 'sort', 'uniq', 'cut', 'column', 'comm', 'join', 'paste', 'nl', 'fold', 'fmt', 'tac', 'rev', 'od', 'hexdump', 'xxd', 'strings', 'md5', 'md5sum', 'shasum', 'sha1sum', 'sha256sum', 'cksum', 'jq', 'yq', 'realpath', 'readlink']);
+// Programs whose every word may be a path that is read or copied: a word with a space in it is still looked at (N2).
+const READ_OR_COPY = new Set([...READ_PATHS, 'cp', 'mv', 'rsync', 'ditto', 'scp', 'install', 'tar', 'zip', 'unzip', 'sed', 'gsed', 'awk', 'gawk', 'tee', 'ln', 'base64', 'xxd', 'od', 'openssl', 'gzip', 'bzip2', 'xz']);
 const FILE_CHANGES = new Set(['cp', 'mv', 'rm', 'mkdir', 'rmdir', 'touch', 'ln', 'chmod', 'chown', 'chgrp', 'sed', 'gsed', 'awk', 'gawk', 'perl', 'tee', 'tar', 'unzip', 'zip', 'rsync', 'install', 'truncate', 'dd', 'patch', 'ed', 'unlink', 'shred', 'mkfifo', 'mknod', 'chflags', 'xattr', 'split', 'csplit', 'cpio', 'ditto', 'gzip', 'gunzip', 'bzip2', 'bunzip2', 'xz', 'unxz', 'unrar', '7z', '7za', 'mktemp']);
 // Build and test: they pass unless a rule stops them (a database tool, -e/-c code, a global install, a publish).
 const BUILD = new Set(['node', 'nodejs', 'npm', 'npx', 'pnpm', 'pnpx', 'yarn', 'bun', 'bunx', 'deno', 'tsc', 'tsx', 'ts-node', 'vitest', 'jest', 'eslint', 'prettier', 'pip', 'pip3', 'pytest', 'ruby', 'bundle', 'rake', 'rails', 'mix', 'elixir', 'flask', 'go', 'cargo', 'rustc', 'make', 'mvn', 'gradle', 'dotnet', 'php', 'composer', 'uv', 'poetry', 'pipenv', 'vite', 'webpack', 'rollup', 'esbuild', 'turbo', 'nx', 'lerna', 'playwright', 'cypress', 'mocha', 'ruff', 'black', 'mypy', 'flake8', 'swift', 'xcodebuild', 'gcc', 'cc', 'clang', 'java', 'javac', 'just', 'tox', 'nox', 'perl']);
@@ -567,8 +569,9 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     if (codeLater(p, st.codeRoots) || autoRecordFile(p, ctx)) st.hits.add('outside');
     if (p && ASK_FILES.has(path.basename(p))) st.asks.push('a file that changes how tools run');
   };
-  const secretWord = (t) => {
-    if (typeof t !== 'string' || !t || /\s/.test(t)) return false;
+  // A word with a space in it is a path too (N2): always for the read and copy programs, and for any program when it starts with / ~ or .
+  const secretWord = (t, every = false) => {
+    if (typeof t !== 'string' || !t || (/\s/.test(t) && !every && !/^[/~.]/.test(t))) return false;
     for (const x of t.startsWith('-') && t.includes('=') ? [t.slice(t.indexOf('=') + 1)] : t.startsWith('-') ? [] : [t, t.includes('=') ? t.slice(t.indexOf('=') + 1) : t]) {
       if (secretPlace(physicalPath(x, cwd ?? st.hint ?? null), st.roots, ctx)) return true;
       // a word relative to a folder an earlier cd went to, however the commands are joined (C1)
@@ -590,9 +593,10 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     noteWrite({ t: r.target, dyn: r.dyn });
     recordWrite({ t: r.target, dyn: r.dyn });
   }
-  for (const r of redirects) if (secretWord(r.target)) { hit('outside'); st.secret = true; }
+  const readsAll = READ_OR_COPY.has(name(plainWords[0]?.t ?? ''));
+  for (const r of redirects) if (secretWord(r.target, true)) { hit('outside'); st.secret = true; }
   for (const r of redirects) if ((r.op === '<' || r.op === '<&') && !r.dyn && !/^(\d+|-)$/.test(r.target) && readElsewhere(physicalPath(r.target, cwd ?? st.hint ?? null), st.readRoots)) st.asks.push('a read outside the job\'s folders');
-  for (const w of ws) if (/\/dev\/(tcp|udp)\//.test(w.t)) hit('outside'); else if (!isEnvCopy && secretWord(w.t)) { hit('outside'); st.secret = true; } // a network file of bash's; a secret place
+  for (const w of ws) if (/\/dev\/(tcp|udp)\//.test(w.t)) hit('outside'); else if (!isEnvCopy && secretWord(w.t, readsAll)) { hit('outside'); st.secret = true; } // a network file of bash's; a secret place
   for (const r of redirects) if (/\/dev\/(tcp|udp)\//.test(r.target)) hit('outside');
   if (ws.some((w) => SQL.test(w.t))) hit('database'); // a .sql file given to any program
   const { rest, assigns, wrappers } = unwrap(ws, st, cwd, depth);
@@ -615,7 +619,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   if (/^(curl|wget|nc|ncat|netcat|telnet|ssh|socat|sftp|scp)$/.test(cmd) && a.some((x) => namesThisComputer(x))) hit('outside'); // a call to this computer, on any port
   if ((cmd === 'curl' || cmd === 'wget') && a.some((x) => URL_CREDENTIALS.test(x))) hit('outside'); // a name and password in an address (C5)
   // A read program's path words in the home folder (or on another disk) outside the job's folders ask (C5).
-  if (READ_PATHS.has(cmd) && a.some((x) => !/\s/.test(x) && (x.includes('/') || x.startsWith('~') || x === '..') && readElsewhere(physicalPath(x.includes('=') && x.startsWith('-') ? x.slice(x.indexOf('=') + 1) : x, cwd ?? st.hint ?? null), st.readRoots))) st.asks.push('a read outside the job\'s folders');
+  if (READ_PATHS.has(cmd) && a.some((x) => (x.includes('/') || x.startsWith('~') || x === '..') && readElsewhere(physicalPath(x.includes('=') && x.startsWith('-') ? x.slice(x.indexOf('=') + 1) : x, cwd ?? st.hint ?? null), st.readRoots))) st.asks.push('a read outside the job\'s folders');
   if (dbCommand(cmd, args)) hit('database');
   else if (!TEXTY.has(cmd) && args.some((x) => DB_CLIENTS.has(name(x.t)))) hit('database'); // a client named under a wrapper we don't know
   if (EXEC_LIKE.has(cmd)) for (const x of args) if (/\s/.test(x.t)) analyze(x.t, cwd, st, depth + 1, null);
