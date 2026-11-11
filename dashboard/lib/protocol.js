@@ -17,12 +17,14 @@
 // Both lists are closed and frozen: adding a command is a change to this file and its test.
 
 import { scrubDeep } from './orbit.js';
+import { FOREMAN_MODEL_IDS } from './options.js';
 
 /**
  * Bumped whenever a command, a field or an event changes shape. 2: the events hello and job-list
- * (packet 2A). 3: the events record and audit, and the command stack-merge (packet 2B).
+ * (packet 2A). 3: the events record and audit, and the command stack-merge (packet 2B). 4: the start command's choices
+ * (kind, repo, model, options), and hello carrying the laptop's repository names.
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /** The most a job's notes.md may hold (characters): the notes command's text, and meta.jobOptions.notesMax. */
 export const NOTES_MAX = 20000;
@@ -44,6 +46,8 @@ const FIELD = {
   brief: { ok: (v) => v === null || (Number.isInteger(v) && v >= 1 && v <= 99999), says: 'a brief number' },
   // A permission request's id, or a reply's (run) id.
   id: { ok: (v) => typeof v === 'string' && /^[\w-]{1,128}$/.test(v), says: 'an id' },
+  // A registered repository's name: a label, never a folder.
+  repoName: { ok: (v) => typeof v === 'string' && v.length > 0 && v.length <= 200 && !/[/\\\0]/.test(v), says: 'the name of a repository, not a folder' },
   bool: { ok: (v) => typeof v === 'boolean', says: 'true or false' },
   // Answers and verdicts by id (the gate card's; checked in full by the site before they are sent).
   record: { ok: (v) => v === null || isPlain(v), says: 'a set of answers by id' },
@@ -70,6 +74,8 @@ export const REMOTE_COMMANDS = freeze({
   // A new job: what it is, where, and how it runs.
   start: {
     description: required(str(600)), repoPath: str(1000), options: FIELD.json, model: FIELD.json, kind: oneOf('feature', 'bug'),
+    // A registered repository's name, matched by the laptop itself (never a path).
+    repo: FIELD.repoName,
     ticket: FIELD.json, fromSession: FIELD.json, despiteLimit: FIELD.bool,
   },
   // A message to the job's Foreman: from the message box (text), or the gate card's own message.
@@ -140,7 +146,40 @@ export function parseCommand(raw, { from = 'site' } = {}) {
   }
   const command = { type };
   for (const key of Object.keys(fields)) if (raw[key] !== undefined) command[key] = raw[key];
+  if (type === 'start' && from !== 'local') {
+    const checked = siteStart(command);
+    if (!checked.ok) return checked;
+  }
   return { ok: true, command: Object.freeze(command) };
+}
+
+/**
+ * A start that came from the site holds only what this computer's own Start form can set: a
+ * repository by name (never a folder), a Foreman model it offers, and the level, stack and
+ * whole-job-on-Fable choices. Any other option (`auto` included) is dropped, and a past
+ * conversation is dropped too. A value out of range is refused. Changes `command` in place.
+ */
+function siteStart(command) {
+  if (command.repoPath !== undefined) return { ok: false, error: 'A start from the site names a repository, not a folder.' };
+  delete command.fromSession;
+  if (command.model === null) delete command.model;
+  if (command.model !== undefined && !FOREMAN_MODEL_IDS.includes(command.model)) return { ok: false, error: '“model” of “start” must be one of the Foreman models this computer offers.' };
+  if (command.options !== undefined) {
+    const o = command.options;
+    if (o !== null && !isPlain(o)) return { ok: false, error: '“options” of “start” must be a set of choices.' };
+    const kept = {};
+    if (o?.level !== undefined) {
+      if (![0, 1, 2, 3].includes(o.level)) return { ok: false, error: 'The level of a start must be 0, 1, 2 or 3.' };
+      kept.level = o.level;
+    }
+    for (const key of ['stack', 'all_fable']) {
+      if (o?.[key] === undefined) continue;
+      if (o[key] !== true) return { ok: false, error: `“${key}” of a start must be true, or left out.` };
+      kept[key] = true;
+    }
+    command.options = Object.freeze(kept);
+  }
+  return { ok: true };
 }
 
 // ---------- Events ----------

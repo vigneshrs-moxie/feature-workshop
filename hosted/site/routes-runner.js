@@ -54,7 +54,11 @@ export default function runnerRoutes(ctx) {
   ctx.applyEvent.hello = async (runner, e) => {
     const version = typeof e.data.version === 'string' ? e.data.version.slice(0, 40) : '';
     const os = typeof e.data.os === 'string' && e.data.os.trim() ? e.data.os.trim().slice(0, 60) : runner.os;
-    await db.query('UPDATE runners SET version = $2, os = $3 WHERE id = $1', [runner.id, version, os]);
+    // The repositories this laptop offers the Start form: names only, never a folder.
+    const repos = (Array.isArray(e.data.repos) ? e.data.repos : [])
+      .filter((r) => r && typeof r.name === 'string' && r.name && r.name.length <= 200 && !/[/\\\0]/.test(r.name))
+      .slice(0, 50).map((r) => ({ name: r.name, default: r.default === true }));
+    await db.query('UPDATE runners SET version = $2, os = $3, repos = $4::jsonb WHERE id = $1', [runner.id, version, os, JSON.stringify(repos)]);
   };
 
   ctx.queueCommand = async (runnerId, raw, { by = null, madeOn = null, byName = null, answerKey = null } = {}) => {

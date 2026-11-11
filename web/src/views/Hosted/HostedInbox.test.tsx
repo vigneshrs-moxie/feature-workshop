@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApi } from '../../api/client';
-import type { InboxAnswer, InboxFilter, InboxItem, InboxStart, OrbitStatus } from '../../api/types';
+import type { InboxAnswer, InboxFilter, InboxItem, InboxLaptop, InboxStart, OrbitStatus } from '../../api/types';
 import { HostedApp } from './HostedApp';
 import { dayWords, savedWords } from './OrbitPage';
 import { parseHostedHash } from './route';
@@ -24,13 +24,15 @@ const ticket = (n: number, extra: Partial<InboxItem> = {}): InboxItem => ({
   createdAt: ago(3 * 86_400_000), changedAt: ago(86_400_000), assignee: { name: 'You', you: true }, why: ['assigned'],
   url: `https://orbit.example.test/admin/feedback/ORBIT-${n}`, job: null, description: `What ticket ${n} is about.`, start: null, ...extra,
 });
+const REPOS = [{ name: 'orbit', default: true }, { name: 'starbase', default: false }];
 const lap = (id: number, name: string, online: boolean): Laptop => ({ id, name, os: 'macOS', version: '0.1.0', pairedAt: ago(86_400_000 * 5), lastSeenAt: ago(online ? 5_000 : 3_600_000), online });
 
-interface Site { status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** Start answers only once this settles. */ hold?: Promise<void> }
+interface Site { status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** Start answers only once this settles. */ hold?: Promise<void> }
 
 function site(over: Partial<Site> = {}) {
   const s: Site = { status: STATUS, items: [ticket(12), ticket(13, { severity: 'low' })], laptops: [lap(7, 'Olive’s Mac', true)], calls: [], ...over };
-  const answer = (): InboxAnswer => ({ ...s.status, ...(s.filter ? { filter: s.filter } : {}), items: s.items });
+  const laptopsOf = (): InboxLaptop[] => s.laptops.map((l) => ({ id: l.id, name: l.name, online: l.online, repos: s.repos ?? REPOS }));
+  const answer = (): InboxAnswer => ({ ...s.status, ...(s.filter ? { filter: s.filter } : {}), laptops: laptopsOf(), items: s.items });
   const fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url);
     const method = init?.method ?? 'GET';
@@ -118,11 +120,29 @@ describe('the hosted Inbox', () => {
     expect(table).toHaveTextContent('ORBIT-13');
   });
 
-  it('Start with one laptop sends it at once; the row says it is on its way, and Cancel takes it back', async () => {
+  const pressStart = async (name = 'Start a job on ORBIT-12') => {
+    fireEvent.click(await screen.findByRole('button', { name }));
+    return screen.findByRole('dialog', { name: 'Start a new job' });
+  };
+
+  it('Start on the website opens the form with the ticket filled in; submitting posts the choices, and Cancel takes the start back', async () => {
     const { s, api } = site();
     render(<HostedApp api={api} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Start a job on ORBIT-12' }));
-    await waitFor(() => expect(s.calls.find((c) => c.path === '/api/orbit/start')?.body).toEqual({ key: 'ORBIT-12', laptopId: 7 }));
+    const sheet = await pressStart();
+    expect(within(sheet).getByLabelText('What should the crew build or fix?')).toHaveValue('ORBIT-12: Sample ticket 12');
+    expect(within(sheet).getByLabelText('Orbit ticket')).toHaveValue('ORBIT-12');
+    expect(within(sheet).getByRole('radio', { name: 'Feature' })).toBeChecked();
+    await waitFor(() => expect(within(sheet).getByRole('combobox', { name: 'Repository' })).toHaveAttribute('data-value', 'orbit'));
+    expect(within(sheet).queryByText('Start from a past conversation (optional)')).toBeNull();
+    expect(within(sheet).queryByText('Another folder…')).toBeNull();
+    expect(within(sheet).queryByText('Which laptop starts it?')).toBeNull();
+    fireEvent.click(within(sheet).getByRole('radio', { name: /L1/ }));
+    fireEvent.click(within(sheet).getByRole('radio', { name: /^Fable 5\.2/ }));
+    fireEvent.click(within(sheet).getByLabelText(/Run as a stack/));
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Start job' }));
+    await waitFor(() => expect(s.calls.find((c) => c.path === '/api/orbit/start')?.body).toEqual({
+      key: 'ORBIT-12', description: 'ORBIT-12: Sample ticket 12', kind: 'feature', laptopId: 7, repo: 'orbit', model: 'claude-fable-5-2', options: { level: 1, stack: true },
+    }));
     expect(await screen.findByText('Starting on Olive’s Mac…')).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -130,17 +150,25 @@ describe('the hosted Inbox', () => {
     expect(await screen.findByRole('button', { name: 'Start a job on ORBIT-12' })).toBeInTheDocument();
   });
 
-  it('Start spins on the click and cannot be pressed twice', async () => {
+  it('a bug ticket preselects Bug fix', async () => {
+    const { s, api } = site({ items: [ticket(12, { type: 'bug' })] });
+    render(<HostedApp api={api} />);
+    const sheet = await pressStart();
+    expect(within(sheet).getByRole('radio', { name: 'Bug fix' })).toBeChecked();
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Start job' }));
+    await waitFor(() => expect(s.calls.find((c) => c.path === '/api/orbit/start')?.body).toMatchObject({ kind: 'bug' }));
+  });
+
+  it('Start spins until the site answers and cannot be sent twice', async () => {
     let release: () => void = () => {};
     const { s, api } = site({ hold: new Promise<void>((res) => { release = res; }) });
     render(<HostedApp api={api} />);
-    const start = await screen.findByRole('button', { name: 'Start a job on ORBIT-12' });
-    fireEvent.click(start);
-    fireEvent.click(start);
-    await waitFor(() => expect(start).toHaveAttribute('aria-busy', 'true'));
-    expect(start.querySelector('.spin-ring')).not.toBeNull();
+    const sheet = await pressStart();
+    const go = within(sheet).getByRole('button', { name: 'Start job' });
+    fireEvent.click(go);
+    fireEvent.click(go);
+    await waitFor(() => expect(go).toHaveAttribute('aria-busy', 'true'));
     await waitFor(() => expect(s.calls.filter((c) => c.path === '/api/orbit/start')).toHaveLength(1));
-    expect(s.calls.filter((c) => c.path === '/api/laptops')).toHaveLength(1);
     release();
     expect(await screen.findByText('Starting on Olive’s Mac…')).toBeInTheDocument();
     expect(s.calls.filter((c) => c.path === '/api/orbit/start')).toHaveLength(1);
@@ -149,29 +177,48 @@ describe('the hosted Inbox', () => {
   it('with the laptop off the row says “Starts when your laptop is back”', async () => {
     const { api } = site({ laptops: [lap(7, 'Olive’s Mac', false)] });
     render(<HostedApp api={api} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Start a job on ORBIT-12' }));
+    fireEvent.click(within(await pressStart()).getByRole('button', { name: 'Start job' }));
     const said = await screen.findByText('Starts when your laptop is back');
     expect(said.closest('[role="status"]')?.querySelector('svg')).toBeTruthy();
   });
 
-  it('with two laptops it asks which, one choice each, saying which is on', async () => {
+  it('two laptops: the form asks which, the repositories are that laptop’s, and the choice is sent', async () => {
     const { s, api } = site({ laptops: [lap(7, 'Olive’s Mac', false), lap(8, 'Olive’s spare laptop', true)] });
     render(<HostedApp api={api} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Start a job on ORBIT-12' }));
-    const sheet = await screen.findByRole('dialog', { name: 'Which laptop starts ORBIT-12?' });
-    const radios = within(sheet).getAllByRole('radio');
+    const sheet = await pressStart();
+    const group = within(sheet).getByRole('group', { name: 'Which laptop starts it?' });
+    const radios = within(group).getAllByRole('radio');
     expect(radios).toHaveLength(2);
     expect(radios[0]).toBeChecked(); // the one that is on, first and picked
-    expect(sheet).toHaveTextContent('Online: it starts in a moment');
-    expect(sheet).toHaveTextContent('it starts when the laptop is back');
-    fireEvent.click(within(sheet).getByRole('radio', { name: /Olive’s Mac/ }));
-    fireEvent.click(within(sheet).getByRole('button', { name: 'Start on Olive’s Mac' }));
+    expect(group).toHaveTextContent('Online: it starts in a moment');
+    expect(group).toHaveTextContent('it starts when the laptop is back');
+    fireEvent.click(within(group).getByRole('radio', { name: /Olive’s Mac/ }));
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Start job' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(s.calls.find((c) => c.path === '/api/orbit/start')?.body).toEqual({ key: 'ORBIT-12', laptopId: 7 });
+    expect(s.calls.find((c) => c.path === '/api/orbit/start')?.body).toMatchObject({ key: 'ORBIT-12', laptopId: 7 });
     expect(await screen.findByText('Starts when your laptop is back')).toBeInTheDocument();
   });
 
-  it('with no laptop, the sheet says to pair one; a refused Start says why', async () => {
+  it('two laptops that are both off or both on: nothing is picked, and Start job asks', async () => {
+    const { s, api } = site({ laptops: [lap(7, 'Olive’s Mac', true), lap(8, 'Olive’s spare laptop', true)] });
+    render(<HostedApp api={api} />);
+    const sheet = await pressStart();
+    expect(within(sheet).getAllByRole('radio', { name: /Olive’s/ }).some((r) => (r as HTMLInputElement).checked)).toBe(false);
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Start job' }));
+    expect(await within(sheet).findByText('Pick which laptop starts it.')).toBeInTheDocument();
+    expect(s.calls.some((c) => c.path === '/api/orbit/start')).toBe(false);
+  });
+
+  it('a laptop that has told the site no repository: the form says so and sends none', async () => {
+    const { s, api } = site({ repos: [] });
+    render(<HostedApp api={api} />);
+    const sheet = await pressStart();
+    expect(sheet).toHaveTextContent('hasn’t told Starbase about a repository yet');
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Start job' }));
+    await waitFor(() => expect(s.calls.find((c) => c.path === '/api/orbit/start')?.body).not.toHaveProperty('repo'));
+  });
+
+  it('with no laptop, the sheet says to pair one; a refused Start says why in the form', async () => {
     const { api } = site({ laptops: [] });
     render(<HostedApp api={api} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Start a job on ORBIT-12' }));
@@ -180,8 +227,8 @@ describe('the hosted Inbox', () => {
     cleanup();
     const refused = site({ startFails: 'You’re already on this: Tidy button.' });
     render(<HostedApp api={refused.api} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Start a job on ORBIT-12' }));
-    expect(await screen.findByText('ORBIT-12 wasn’t started: You’re already on this: Tidy button.')).toBeInTheDocument();
+    fireEvent.click(within(await pressStart()).getByRole('button', { name: 'Start job' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('You’re already on this: Tidy button.');
   });
 
   it('a Start the laptop couldn’t run says why, and offers Start again; a job on the mirror says “you are already on this”', async () => {

@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { keychainStore, tokenStore } from '../lib/orbit-token.js';
-import { normalizeSiteUrl, readSiteFile, SITE_TOKEN_NAMES, siteTokenStore, thisLaptop, writeSiteFile } from '../runner/site-link.js';
+import { normalizeSiteUrl, repoChoices, readSiteFile, SITE_TOKEN_NAMES, siteTokenStore, thisLaptop, writeSiteFile } from '../runner/site-link.js';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'gc-site-link-'));
 
@@ -53,4 +53,20 @@ test('this laptop as the site lists it', () => {
   assert.deepEqual(thisLaptop({ platform: 'darwin', hostname: 'Studio-Mac.local' }), { name: 'Studio-Mac', os: 'macOS' });
   assert.deepEqual(thisLaptop({ platform: 'win32', hostname: 'DESK-1' }), { name: 'DESK-1', os: 'Windows' });
   assert.deepEqual(thisLaptop({ platform: 'linux', hostname: '' }), { name: 'This laptop', os: 'Linux' });
+});
+
+test('the laptop sends its repository names, never paths', () => {
+  const sent = repoChoices({
+    defaultPath: '/Users/someone/Projects/orbit',
+    repos: [
+      { name: 'orbit', path: '/Users/someone/Projects/orbit', ok: true },
+      { name: 'starbase', path: '/Users/someone/Projects/starbase', ok: true },
+      { name: 'gone', path: '/Users/someone/Projects/gone', ok: false },
+      { name: '/Users/someone/Projects/odd', path: '/Users/someone/Projects/odd', ok: true },
+      { name: 'twin', path: '/a/twin', ok: true }, { name: 'twin', path: '/b/twin', ok: true },
+    ],
+  });
+  assert.deepEqual(sent, [{ name: 'orbit', default: true }, { name: 'starbase', default: false }]);
+  assert.ok(!JSON.stringify(sent).includes('/Users'), 'no path leaves the laptop');
+  assert.deepEqual(repoChoices(null), []);
 });

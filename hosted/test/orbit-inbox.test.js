@@ -622,3 +622,76 @@ test('a route that fails unexpectedly logs nothing of the token (the router’s 
     await noTokenAnywhere(s, [token]);
   } finally { await s.close(); }
 });
+
+const SENT_REPOS = { defaultPath: '/Users/olive/Projects/orbit', repos: [{ name: 'orbit', path: '/Users/olive/Projects/orbit', ok: true }, { name: 'starbase', path: '/Users/olive/Projects/starbase', ok: true }] };
+
+test('the inbox answer lists each laptop’s repositories, names only', async () => {
+  const s = await makeOrbitSite();
+  const olive = await paired(s, OLIVE, 'Olive’s Mac');
+  const token = testToken('olive');
+  s.orbit.person(token, { assigned: [ticket(12)] });
+  const runner = fakeRunner([]);
+  runner.startRepos = SENT_REPOS;
+  const lap = await laptop(s, olive.token, { runner });
+  try {
+    await saveToken(olive.person, token);
+    await s.cron();
+    await until(async () => (await olive.person.json('/api/orbit/inbox')).body.laptops?.[0]?.repos?.length === 2, { what: 'the laptop’s repositories' });
+    const { laptops } = (await olive.person.json('/api/orbit/inbox')).body;
+    assert.equal(laptops.length, 1);
+    assert.equal(laptops[0].name, 'Olive’s Mac');
+    assert.deepEqual(laptops[0].repos, [{ name: 'orbit', default: true }, { name: 'starbase', default: false }]);
+    assert.ok(!JSON.stringify(laptops).includes('/Users'), 'no path on the site');
+  } finally { lap.link.stop(); await s.close(); }
+});
+
+test('the start route stores the choices: a queued start at level 1 on Fable reaches the laptop with them', async () => {
+  const s = await makeOrbitSite();
+  const olive = await paired(s, OLIVE, 'Olive’s Mac');
+  const token = testToken('olive');
+  s.orbit.person(token, { assigned: [ticket(12, { subject: 'Tidy the export button', type: 'bug' })] });
+  const runner = fakeRunner([]);
+  const lap = await laptop(s, olive.token, { runner });
+  try {
+    await saveToken(olive.person, token);
+    await s.cron();
+    await until(async () => (await olive.person.json('/api/laptops')).body.laptops[0]?.online, { what: 'the laptop to call in' });
+    const bad = await olive.person.send('POST', '/api/orbit/start', { key: 'ORBIT-12', model: 'claude-made-up' });
+    assert.equal(bad.status, 400);
+    const r = await olive.person.send('POST', '/api/orbit/start', {
+      key: 'ORBIT-12', description: 'ORBIT-12: Tidy the export button, only the label', kind: 'feature', repo: 'starbase', model: 'claude-fable-5-2', options: { level: 1, auto: true, evidence: 'always' },
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    await until(() => runner.handled.length === 1, { what: 'the laptop to get the start command' });
+    const got = runner.handled[0];
+    assert.equal(got.options.level, 1);
+    assert.equal(got.model, 'claude-fable-5-2');
+    assert.deepEqual(got, {
+      type: 'start', description: 'ORBIT-12: Tidy the export button, only the label', kind: 'feature', repo: 'starbase', model: 'claude-fable-5-2', options: { level: 1 },
+      ticket: { key: 'ORBIT-12', title: 'Tidy the export button', url: `${FAKE_ORBIT}/admin/feedback/ORBIT-12` },
+    });
+  } finally { lap.link.stop(); await s.close(); }
+});
+
+test('Start is refused, as for a missing row, for a stored ticket that was not assigned, and while Orbit ignores the filter', async () => {
+  const s = await makeOrbitSite();
+  const olive = await paired(s, OLIVE, 'Olive’s Mac');
+  const token = testToken('olive');
+  s.orbit.person(token, { assigned: [ticket(12)] });
+  try {
+    await saveToken(olive.person, token);
+    await s.cron();
+    const person = (await s.db.query('SELECT person_id FROM orbit_tokens')).rows[0].person_id;
+    const old = { key: 'ORBIT-77', number: 77, title: 'Watched only', why: ['watching'], changedAt: null };
+    await s.db.query("INSERT INTO orbit_inbox (person_id, number, ticket_key, item, changed_at, stored_at) VALUES ($1, 77, 'ORBIT-77', $2, NULL, '2026-10-30T16:00:00Z')", [person, JSON.stringify(old)]);
+    const missing = await olive.person.send('POST', '/api/orbit/start', { key: 'ORBIT-999' });
+    const watched = await olive.person.send('POST', '/api/orbit/start', { key: 'ORBIT-77' });
+    assert.equal(watched.status, 404);
+    assert.equal(watched.body.error, missing.body.error.replace('ORBIT-999', 'ORBIT-77'));
+    await s.db.query('UPDATE orbit_tokens SET assignee_ignored = true');
+    const ignored = await olive.person.send('POST', '/api/orbit/start', { key: 'ORBIT-12' });
+    assert.equal(ignored.status, 404);
+    assert.equal(ignored.body.error, missing.body.error.replace('ORBIT-999', 'ORBIT-12'));
+    assert.equal((await s.db.query('SELECT count(*)::int AS n FROM commands')).rows[0].n, 0, 'nothing was queued');
+  } finally { await s.close(); }
+});

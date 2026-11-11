@@ -35,7 +35,7 @@ import { OLD_STATE_FOLDER, State, WORKFLOW_CHOICES } from '../lib/state.js';
 import { Driver, Busy } from '../lib/driver.js';
 import { renderMarkdown, indexIds } from '../lib/markdown.js';
 import * as git from '../lib/git.js';
-import { recentRepos, checkRepo, reposDoor, ticketRepo } from '../lib/repos.js';
+import { recentRepos, checkRepo, reposDoor, ticketRepo, repoByName } from '../lib/repos.js';
 import { HttpError } from '../lib/http-guard.js';
 import { liveTerminals } from '../lib/live.js';
 import { readHookSessions } from '../lib/hook-events.js';
@@ -1660,6 +1660,12 @@ export async function createRunner(config) {
       // A ticket's Start from the hosted site names no folder (the site doesn't know this laptop's):
       // the registered repository for Orbit's tickets (lib/repos.js ticketRepo).
       let repoPath = str(body.repoPath, 1000);
+      // The site's Start form names a repository this laptop registered, by its name. The laptop
+      // matches it itself; a name it doesn't know (or two share) fails the start.
+      if (!repoPath && typeof body.repo === 'string' && body.repo) {
+        repoPath = await repoByName(local.registry, body.repo);
+        if (!repoPath) throw new HttpError(400, `This laptop doesn't have a repository called "${body.repo.slice(0, 100)}". Pick another in the form.`);
+      }
       if (!repoPath && body.ticket) {
         repoPath = await ticketRepo(local.registry);
         if (!repoPath) throw new HttpError(400, 'This laptop doesn’t know which repository a ticket’s job goes in. Add the repository in Settings → Repos on the laptop, then press Start again.');
@@ -2218,6 +2224,8 @@ export async function createRunner(config) {
 
   const read = {
     meta,
+    /** The registered repositories and the ticket default, for the site's Start form (the link sends names only). */
+    startRepos: async () => ({ repos: (await local.registry?.listRepos().catch(() => [])) ?? [], defaultPath: await ticketRepo(local.registry).catch(() => null) }),
     /** Everything the new UI needs to draw itself (GET /api/snapshot), apart from the event log's seq and epoch. */
     async snapshot(pageMeta) {
       const list = await features();

@@ -51,7 +51,7 @@ test('every command on each list is accepted with good fields', () => {
     assert.equal(r.ok, true, `${type}: ${r.error}`);
     assert.deepEqual(r.command, { type, ...fields });
     assert.ok(Object.isFrozen(r.command));
-    if (Object.hasOwn(REMOTE_COMMANDS, type)) assert.equal(parseCommand({ type, ...fields }, { from: 'site' }).ok, true, `${type} from the site`);
+    if (Object.hasOwn(REMOTE_COMMANDS, type) && type !== 'start') assert.equal(parseCommand({ type, ...fields }, { from: 'site' }).ok, true, `${type} from the site`);
   }
   // Optional fields may be left out; a 20,000-character reply is fine.
   assert.equal(parseCommand({ type: 'reply', slug: 'x', text: 'y'.repeat(20000) }).ok, true);
@@ -132,7 +132,7 @@ test('makeEvent: known types only; never a diff, patch, environment, token or so
 });
 
 test('the hosted site’s events (packet 2A): hello and job-list, checked like every other', () => {
-  assert.equal(PROTOCOL_VERSION, 3);
+  assert.equal(PROTOCOL_VERSION, 4);
   for (const type of ['hello', 'job-list']) assert.ok(EVENT_TYPES.includes(type), type);
   const hello = makeEvent('hello', { name: 'Test Laptop', os: 'macOS', version: '0.1.0', protocol: PROTOCOL_VERSION });
   assert.equal(hello.ok, true);
@@ -160,4 +160,43 @@ test('every event the site stores passes the “never carries” check again on 
   assert.equal(checkStoredEvent({ eid: 'not ok!', v: PROTOCOL_VERSION, type: 'status', job: null, data: {} }).ok, false);
   assert.equal(checkStoredEvent({ eid: 'e-5', v: PROTOCOL_VERSION, type: 'status', job: '../etc', data: {} }).ok, false);
   assert.equal(checkStoredEvent({ eid: 'e-6', v: PROTOCOL_VERSION, type: 'status', job: null, data: [] }).ok, false);
+});
+
+// ---------- A start from the site carries the choices of the New job form ----------
+
+const site = (fields) => parseCommand({ type: 'start', description: 'ORBIT-12: Tidy the export button', ...fields }, { from: 'site' });
+
+test('a start carries its choices', () => {
+  const r = site({ kind: 'bug', repo: 'orbit', model: 'claude-fable-5-2', options: { level: 1, stack: true, all_fable: true }, ticket: { key: 'ORBIT-12' } });
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(r.command, { type: 'start', description: 'ORBIT-12: Tidy the export button', kind: 'bug', repo: 'orbit', model: 'claude-fable-5-2', options: { level: 1, stack: true, all_fable: true }, ticket: { key: 'ORBIT-12' } });
+  assert.equal(site({ options: { level: 0 } }).command.options.level, 0);
+});
+
+test('a start with an unknown model, level 4, or a repo path is refused', () => {
+  assert.equal(site({ model: 'claude-made-up' }).ok, false);
+  assert.equal(site({ options: { level: 4 } }).ok, false);
+  assert.equal(site({ options: { level: '2' } }).ok, false);
+  assert.equal(site({ options: { stack: false } }).ok, false);
+  assert.equal(site({ options: 'level 1' }).ok, false);
+  assert.equal(site({ repo: '/Users/someone/Projects/orbit' }).ok, false);
+  assert.equal(site({ repo: '..\\orbit' }).ok, false);
+  assert.equal(site({ repo: '' }).ok, false);
+  assert.equal(site({ repoPath: '/Users/someone/Projects/orbit' }).ok, false, 'a site never names a folder');
+  assert.equal(site({ kind: 'chore' }).ok, false);
+});
+
+test('a start from the site drops options it has no name for, and `auto`, and a past conversation', () => {
+  const r = site({ options: { level: 2, auto: true, evidence: 'always', models: { foreman: 'x' }, __proto__: { polluted: true } }, fromSession: { id: 'x', mode: 'continue' } });
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(r.command.options, { level: 2 });
+  assert.equal(Object.hasOwn(r.command, 'fromSession'), false);
+  assert.ok(Object.isFrozen(r.command.options));
+  assert.deepEqual(site({ options: { auto: true } }).command.options, {});
+});
+
+test('this computer’s own start still takes a folder and any options', () => {
+  const r = parseCommand({ type: 'start', description: 'Add a tidy button', repoPath: '/tmp/repo', options: { auto: true, wireframes: 'skip' } }, { from: 'local' });
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(r.command.options, { auto: true, wireframes: 'skip' });
 });

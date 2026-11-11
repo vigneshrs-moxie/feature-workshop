@@ -1784,7 +1784,10 @@ export interface InboxStart {
  */
 export interface InboxFilter { audience: 'tech' | 'participant'; ignored: string[]; applied: boolean }
 
-export type InboxAnswer = OrbitStatus & { items: InboxItem[]; filter?: InboxFilter; view?: string; checkedAt?: string; truncated?: boolean };
+/** A laptop and the repositories it offers the website's Start form (names only; the laptop finds the folder). */
+export interface InboxLaptop { id: number; name: string; online: boolean; repos: { name: string; default: boolean }[] }
+
+export type InboxAnswer = OrbitStatus & { items: InboxItem[]; laptops?: InboxLaptop[]; filter?: InboxFilter; view?: string; checkedAt?: string; truncated?: boolean };
 
 // ---------- The Stage: one stop of a job (dashboard/lib/stage-view.js, GET /api/job/:slug/stage/:stop) ----------
 

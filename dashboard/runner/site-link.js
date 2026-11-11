@@ -118,6 +118,19 @@ export function normalizeSiteUrl(raw) {
 }
 
 /** This computer as the site lists it. */
+/**
+ * What the site's Start form needs to know about this laptop's repositories: a name to show and to
+ * send back, and which one a ticket goes in by default. Never a path. A repository that can't be
+ * used, a name that looks like a path, and a name two repositories share are left out.
+ */
+export function repoChoices(from) {
+  const { repos = [], defaultPath = null } = from ?? {};
+  const usable = (Array.isArray(repos) ? repos : []).filter((r) => r?.ok && typeof r.name === 'string' && r.name.trim() && r.name.length <= 200 && !/[/\\\0]/.test(r.name));
+  const count = new Map();
+  for (const r of usable) count.set(r.name, (count.get(r.name) ?? 0) + 1);
+  return usable.filter((r) => count.get(r.name) === 1).slice(0, 50).map((r) => ({ name: r.name, default: Boolean(defaultPath) && r.path === defaultPath }));
+}
+
 export function thisLaptop({ platform = process.platform, hostname = os.hostname() } = {}) {
   const osName = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }[platform] ?? platform;
   const name = String(hostname || 'This laptop').replace(/\.local$/i, '').slice(0, 100) || 'This laptop';
@@ -889,7 +902,8 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
     me = file.person ?? null;
     offRunner = [runner.on('change', onChange), runner.on('run', onChange), runner.on('*', onRunnerEvent)];
     if (onAudit) offRunner.push(onAudit(onAuditLine) ?? (() => {}));
-    await send('hello', { name: file.name ?? thisLaptop().name, os: thisLaptop().os, version, protocol: PROTOCOL_VERSION });
+    const startRepos = await runner.read.startRepos?.().catch(() => null);
+    await send('hello', { name: file.name ?? thisLaptop().name, os: thisLaptop().os, version, protocol: PROTOCOL_VERSION, repos: repoChoices(startRepos ?? {}) });
     await sendJobList();
     records.reset();
     // A runner with a snapshot (every real one) mirrors its whole record, then says so.

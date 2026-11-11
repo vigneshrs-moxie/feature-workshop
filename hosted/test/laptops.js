@@ -36,7 +36,7 @@ export function fakeRunner(cards = []) {
   const ee = new EventEmitter();
   const r = {
     cards, handled: [],
-    read: { features: async () => ({ features: r.cards }) },
+    read: { features: async () => ({ features: r.cards }), startRepos: async () => r.startRepos ?? { repos: [], defaultPath: null } },
     async handle(cmd) { r.handled.push(cmd); return { ok: true }; },
     on(type, fn) { ee.on(type, fn); return () => ee.off(type, fn); },
     changed() { ee.emit('change'); },

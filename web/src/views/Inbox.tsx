@@ -88,12 +88,15 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 /** What New job is filled in with: the ticket's key and title. */
 export const startText = (item: Pick<InboxItem, 'key' | 'title'>) => `${item.key}: ${item.title}`;
 
+/** A bug ticket opens New job on Bug fix; any other type on Feature. */
+export const kindOfTicket = (item: Pick<InboxItem, 'type'>): 'feature' | 'bug' => (item.type === 'bug' ? 'bug' : 'feature');
+
 /** When to use Start as stack, in one sentence (its button says it). */
 export const STACK_WHEN = 'For a big ticket: the work is split into parts that are built side by side, then joined in order.';
 
 /** New job on a ticket, to run as a stack (Start as stack, S). */
-export function stackSheet(item: Pick<InboxItem, 'key' | 'title' | 'url'>): SheetState {
-  return { kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url }, stack: true };
+export function stackSheet(item: Pick<InboxItem, 'key' | 'title' | 'url' | 'type'>): SheetState {
+  return { kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url }, stack: true, jobKind: kindOfTicket(item) };
 }
 
 // ---------- Severity, and the order ----------
@@ -291,7 +294,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
   const start = useCallback((item: InboxItem) => {
     if (item.job || onItsWay(item)) return;
     if (onHostedStart) { onHostedStart(item); return; }
-    ui.openSheet({ kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url } });
+    ui.openSheet({ kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url }, jobKind: kindOfTicket(item) });
   }, [ui, onHostedStart]);
   // Start as stack (S): New job with the ticket filled in, to run as a stack (views/Stack). Not on the site.
   const startStack = useCallback((item: InboxItem) => {
