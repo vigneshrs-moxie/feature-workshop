@@ -110,8 +110,9 @@ async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null,
   const ownOptions = async () => { const { auto: _a, auto_since: _s, ...rest } = await optionsFile(); return rest; };
   /** Notifications are told after the audit line: wait for n, then a moment more for a second one. */
   const told = async (n) => { await until(() => notes.length >= n, `${n} notification(s)`); await new Promise((r) => setTimeout(r, 200)); return notes; };
+  // Up to 15 seconds: other suites run on this computer at the same time, and a busy machine is slow, not wrong.
   const until = async (fn, what) => {
-    for (let i = 0; i < 100; i++) { const v = await fn(); if (v) return v; await new Promise((r) => setTimeout(r, 50)); }
+    for (let i = 0; i < 300; i++) { const v = await fn(); if (v) return v; await new Promise((r) => setTimeout(r, 50)); }
     throw new Error(`Timed out waiting for ${what}`);
   };
   /** Wait for the Foreman's last reply to end. */
@@ -2284,6 +2285,61 @@ test('I4: a throw while Auto handles a gate counts as a failure; two stop Auto w
   assert.equal(u.lines.filter((l) => l.what === 'stop').length, 1);
   await u.auto.pass();
   assert.equal(u.asks.length, 2, 'not asked again once stopped');
+});
+
+// ---------- Ruling: an Approver answer that calls the risk high is not acted on ----------
+
+const HIGH = 'the Approver called this high risk, so it needs you.';
+
+test('high risk: a go with risk high on a gate stops Auto (judgment), sends nothing, and keeps the answer\'s own reason on the line; low and medium go ahead', { timeout: 30_000 }, async () => {
+  const high = unit({ decide: () => {}, ask: () => ({ ok: true, costUsd: 0.1, answer: { decision: 'go', answers: [], why: 'It rewrites the billing tables.', risk: 'high' } }) });
+  await high.auto.pass();
+  assert.deepEqual(high.decides, [], 'nothing sent');
+  assert.deepEqual({ rule: high.record().stopped?.rule, reason: high.record().stopped?.reason }, { rule: 'judgment', reason: HIGH });
+  assert.equal(high.notes.length, 1);
+  assert.equal(high.notes[0].body, `Auto stopped: ${HIGH} Open the job to answer.`);
+  const [line] = high.lines.filter((l) => l.what === 'stop');
+  assert.equal(line.reason, HIGH);
+  assert.equal(line.why, 'It rewrites the billing tables.');
+  assert.equal(line.costUsd, 0.1);
+  for (const risk of ['low', 'medium']) {
+    const u = unit({ decide: () => {}, ask: () => ({ ok: true, costUsd: 0.1, answer: { decision: 'go', answers: [], why: 'Fine.', risk } }) });
+    await u.auto.pass();
+    assert.equal(u.decides.length, 1, risk);
+    assert.equal(u.record().stopped, null, risk);
+  }
+});
+
+test('high risk: an allow with risk high on a card stops Auto (judgment) and the card waits for the person; a deny with risk high is still sent', { timeout: 30_000 }, async () => {
+  for (const [decision, stops] of [['allow', true], ['deny', false]]) {
+    const sent = [];
+    const lines = [];
+    const notes = [];
+    let rec = { ...autoRecord(null, { on: true, now: OLD }) };
+    let waits = true;
+    const card = { id: `c-${decision}`, slug: 's', featureDir: unitDir, kind: 'permission', toolName: 'WebFetch', input: {}, plain: { headline: 'Fetch' }, hardLine: null };
+    const auto = createAuto({
+      read: async () => [{ dir: unitDir, slug: 's', title: 'T', auto: { ...rec }, level: 1, suggestedLevel: null, stage: 'plan', answered: [], worktrees: [], specDirs: [], artifacts: [] }],
+      update: async (dir, fn) => { const n = fn({ ...rec }); if (n) rec = n; return { ...rec }; },
+      decide: { gate: async () => {}, permission: async (...a) => { sent.push(a); waits = false; } },
+      askApprover: async () => ({ ok: true, costUsd: 0.1, answer: { decision, why: 'It reaches an outside site.', risk: 'high' } }),
+      pendingCard: () => (waits ? { ...card } : null), cardCtx: async () => ({ worktrees: [unitDir], featureDir: unitDir, cwd: unitDir }),
+      state: { audit: async (l) => { lines.push(l); }, auditFor: async () => [] },
+      notify: (n) => notes.push(n),
+    });
+    await auto.onPermission(card, { leftWaiting: () => {} });
+    if (stops) {
+      assert.deepEqual(sent, [], 'the worker was told nothing');
+      assert.deepEqual({ rule: rec.stopped?.rule, reason: rec.stopped?.reason }, { rule: 'judgment', reason: HIGH });
+      assert.equal(notes.length, 1);
+      assert.equal(lines.find((l) => l.what === 'stop').why, 'It reaches an outside site.');
+      assert.equal(auto.leftCard(card.id), true, 'left to the person');
+    } else {
+      assert.equal(sent.length, 1);
+      assert.equal(sent[0][1].decision, 'deny');
+      assert.equal(rec.stopped, null);
+    }
+  }
 });
 
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------

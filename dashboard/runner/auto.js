@@ -52,6 +52,9 @@ const DECIDES = new Set(DECIDING_KINDS);
 const OWN_SENDS = new Set(['nudge', 'resume-after-restart', 'status-fix', 'pr-feedback', 'review-round', 'stack-section']);
 /** Auto's stop when the person wrote to a job while its step waited (I5). */
 const YOURS_NOW = 'you wrote to this job while this step waited, so it is yours to decide.';
+/** An Approver answer that would act (go, allow) but calls its own risk high is a stop, not an action. */
+const HIGH_RISK = 'the Approver called this high risk, so it needs you.';
+const tooRisky = (answer) => answer?.risk === 'high' && (answer.decision === 'go' || answer.decision === 'allow');
 /** Auto's stop for a job nothing moves (I3): after ten minutes, or at once for a reply cut off by a crash or restart. */
 const IDLE = 'nothing is running on this job and no step waits, so it needs you.';
 const CUT_OFF = 'Starbase stopped while this job was working, so it needs you: press Resume.';
@@ -336,6 +339,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         answer = checked.answer;
         await addSpent(job, cost);
         if (answer.decision === 'stop') return stop(job, { rule: 'judgment', reason: oneLine(answer.why) });
+        // A go the Approver itself calls high risk is not acted on: the person decides (its own reason goes on the line).
+        if (tooRisky(answer)) return stop(job, { rule: 'judgment', reason: HIGH_RISK }, { why: oneLine(answer.why) });
       }
       const sent = await send(job, gate, task, answer, askedAt);
       if (sent === 'failed') continue;
@@ -462,8 +467,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   function leftCard(id) { return cards.get(id) === 'left'; }
 
   /** A stop on the card: its own notification tells the person; when none was written, the card's notification does. */
-  async function stopOnCard(job, hit, leave) {
-    if (!(await stop(job, hit))) leave();
+  async function stopOnCard(job, hit, leave, opts = {}) {
+    if (!(await stop(job, hit, opts))) leave();
   }
 
   async function attendCard(card, leftWaiting) {
@@ -526,6 +531,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     const answer = checked.answer;
     await addSpent(job, cost);
     if (answer.decision === 'stop') return stopOnCard(job, { rule: 'judgment', reason: oneLine(answer.why) }, leave);
+    // An allow (or a question's go) the Approver itself calls high risk is not acted on: the card is left to the person.
+    if (tooRisky(answer)) return stopOnCard(job, { rule: 'judgment', reason: HIGH_RISK }, leave, { why: oneLine(answer.why) });
     await answerCard(job, full, task, answer, { leave, lastAnswered });
   }
 
