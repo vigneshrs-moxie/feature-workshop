@@ -44,6 +44,18 @@ describe('WhatAutoDecided', () => {
     expect(entries[1]).toHaveTextContent('Spec');
   });
 
+  // m8: each entry reads with labels and "ago", not bare words.
+  it('each entry says Why: and Risk: and how long ago', async () => {
+    const at = new Date(Date.now() - 14 * 60_000).toISOString();
+    show(vi.fn(async () => ({ ...DECIDED, entries: [{ at, stage: 'Review', chose: 'Allowed', asked: 'Run a command in the terminal', why: 'An ordinary step of this job.', risk: 'low' }] })));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+    const panel = screen.getByRole('dialog', { name: 'What Auto decided' });
+    const entry = within(panel).getAllByRole('listitem').find((li) => li.classList.contains('auto-entry'))!;
+    expect(within(entry).getByText('Why: An ordinary step of this job.')).toBeInTheDocument();
+    expect(within(entry).getByText('Risk: low')).toBeInTheDocument();
+    expect(within(entry).getByText('14m ago')).toBeInTheDocument();
+  });
+
   it('an entry with an unreadable time keeps the order it was given in', async () => {
     const entries = [
       { at: 'not a time', stage: 'Build', chose: 'First', asked: 'a', why: 'w' },
