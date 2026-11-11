@@ -2461,6 +2461,39 @@ test('m6: money on a record that is off goes on the on line when Auto is switche
   } finally { await w.stop(); }
 });
 
+test('m7: when the line that carries the money cannot be written, the money stays in spent (stop, finish, gate, card)', { timeout: 30_000 }, async () => {
+  const cases = {
+    stop: { job: () => ({}), ask: { decision: 'stop', answers: [], why: 'Needs a person.', risk: 'low' } },
+    finished: { job: () => ({ prOpen: true }), ask: null },
+    gate: { job: () => ({}), ask: { decision: 'go', answers: [], why: 'Fine.', risk: 'low' } },
+  };
+  for (const [what, c] of Object.entries(cases)) {
+    let rec = { ...autoRecord(null, { on: true, now: OLD }), spent: 0.2 };
+    const view = () => ({ dir: unitDir, slug: 'visit-audit', title: 'V', auto: { ...rec }, level: 1, suggestedLevel: null, stage: 'plan', stageState: 'waiting_for_you', triggers: [], statusCard: false, prOpen: false, gate: { briefNumber: 1, stale: false, questions: [], decided: [], headline: 'P', nextStage: 'implement' }, answered: [], artifacts: [], running: false, locked: false, restarting: false, paused: false, worktrees: [], specDirs: [], ...c.job() });
+    const auto = createAuto({
+      read: async () => (rec.on ? [view()] : []), update: async (d, fn) => { const n = fn({ ...rec }); if (n) rec = n; return { ...rec }; },
+      decide: { gate: async () => {}, permission: async () => {} }, askApprover: async () => (c.ask ? { ok: true, costUsd: 0.1, answer: c.ask } : { ok: false }),
+      state: { audit: async (l) => { if (l.what === what) throw new Error('the disk said no'); }, auditFor: async () => [] },
+    });
+    await auto.pass();
+    assert.ok(Math.abs((rec.spent ?? 0) - (c.ask ? 0.3 : 0.2)) < 1e-9, `${what}: ${rec.spent}`);
+  }
+  // A card's answer.
+  let rec = { ...autoRecord(null, { on: true, now: OLD }), spent: 0.2 };
+  let waits = true;
+  const card = { id: 'c-m7', slug: 's', featureDir: unitDir, kind: 'permission', toolName: 'WebFetch', input: {}, plain: { headline: 'Fetch' }, hardLine: null };
+  const auto = createAuto({
+    read: async () => [{ dir: unitDir, slug: 's', title: 'T', auto: { ...rec }, level: 1, suggestedLevel: null, stage: 'plan', answered: [], worktrees: [], specDirs: [], artifacts: [] }],
+    update: async (d, fn) => { const n = fn({ ...rec }); if (n) rec = n; return { ...rec }; },
+    decide: { gate: async () => {}, permission: async () => { waits = false; } },
+    askApprover: async () => ({ ok: true, costUsd: 0.1, answer: { decision: 'allow', why: 'Fine.', risk: 'low' } }),
+    pendingCard: () => (waits ? { ...card } : null), cardCtx: async () => ({ worktrees: [unitDir], featureDir: unitDir, cwd: unitDir }),
+    state: { audit: async (l) => { if (l.what === 'permission') throw new Error('the disk said no'); }, auditFor: async () => [] },
+  });
+  await auto.onPermission(card);
+  assert.ok(Math.abs(rec.spent - 0.3) < 1e-9, `card: ${rec.spent}`);
+});
+
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------
 
 test('I2: the person sent brief 1 back, then 401 lines; the reply ended with the gate still on brief 1: the Approver is not asked', { timeout: 30_000 }, async () => {

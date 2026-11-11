@@ -137,11 +137,12 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       if (prev?.on !== true || (!leave && prev.stopped)) return null;
       wrote = true;
       spent = prev.spent ?? 0;
-      return { ...prev, ...(leave ? { on: false } : {}), stopped: { reason, rule, at }, spent: 0 };
+      return { ...prev, ...(leave ? { on: false } : {}), stopped: { reason, rule, at } };
     });
     if (!wrote) return false;
     try {
       await audit(job, 'stop', { rule, reason, why: why || reason, ...(spent > 0 ? { costUsd: spent } : {}) });
+      await paidOff(job, spent);
     } finally {
       // Once the record says stopped, the person is told, even when the line could not be written.
       // What the person should do, for every stop: the reason ends with its own full stop.
@@ -162,10 +163,11 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       if (prev?.on !== true) return null;
       wrote = true;
       spent = prev.spent ?? 0;
-      return { ...prev, on: false, stopped: null, spent: 0, finished: at };
+      return { ...prev, on: false, stopped: null, finished: at };
     });
     if (!wrote) return;
     await audit(job, 'finished', { why: 'PR #1 is open.', ...(spent > 0 ? { costUsd: spent } : {}) });
+    await paidOff(job, spent);
     notify({ level: 'done', title: 'Auto finished: PR #1 is open.', body: `${job.title}. Review it and merge it yourself when you're ready.`, slug: job.slug, key: `auto-finish:${job.slug}` });
     changed();
     freed();
@@ -286,12 +288,20 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   async function settleIfOff(job) {
     let owed = 0;
     await update(job.dir, (prev) => {
-      if (!prev || prev.on === true || !(prev.spent > 0)) return null;
-      owed = prev.spent;
-      return { ...prev, spent: 0 };
+      if (prev && prev.on !== true && prev.spent > 0) owed = prev.spent;
+      return null;
     });
-    if (owed > 0) await audit(job, 'cost', { why: 'The Approver answered after Auto was switched off.', costUsd: owed });
+    if (!(owed > 0)) return;
+    await audit(job, 'cost', { why: 'The Approver answered after Auto was switched off.', costUsd: owed });
+    await paidOff(job, owed);
   }
+  /**
+   * The money `amount` is on a line now: it comes off spent (never below 0). Called only once that line is written, so a
+   * failed write leaves the money in spent for the next line; anything added meanwhile stays.
+   */
+  const paidOff = (job, amount) => (amount > 0
+    ? update(job.dir, (prev) => (prev ? { ...prev, spent: Math.max(0, Math.round(((prev.spent ?? 0) - amount) * 1e9) / 1e9) } : null))
+    : null);
   const addSpent = (job, cost) => (cost > 0 ? update(job.dir, (prev) => (prev ? { ...prev, spent: (prev.spent ?? 0) + cost } : null)) : null);
 
   async function attend(first, firstGate) {
@@ -414,7 +424,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       if (!prev) return null;
       spent = prev.spent ?? 0;
       const count = prev.step?.stage === job.stage ? prev.step.count + 1 : 1;
-      return { ...prev, lastBrief: gate.briefNumber, failures: 0, problem: null, spent: 0, cards: 0, cardsBrief: gate.briefNumber, step: { stage: job.stage, count } };
+      return { ...prev, lastBrief: gate.briefNumber, failures: 0, problem: null, cards: 0, cardsBrief: gate.briefNumber, step: { stage: job.stage, count } };
     });
     const labelOf = (q, id) => (q?.options ?? []).find((o) => String(o.id) === String(id))?.label ?? id;
     await audit(job, 'gate', {
@@ -429,6 +439,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       }),
       costUsd: spent,
     });
+    await paidOff(job, spent);
     return 'sent';
   }
 
@@ -607,12 +618,13 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     await update(job.dir, (prev) => {
       if (!prev) return null;
       spent = prev.spent ?? 0;
-      return { ...prev, failures: 0, problem: null, spent: 0, cards: ((prev.cardsBrief ?? 0) === lastAnswered ? prev.cards ?? 0 : 0) + 1, cardsBrief: lastAnswered };
+      return { ...prev, failures: 0, problem: null, cards: ((prev.cardsBrief ?? 0) === lastAnswered ? prev.cards ?? 0 : 0) + 1, cardsBrief: lastAnswered };
     });
     await audit(job, task.kind === 'question' ? 'question' : 'permission', {
       asked: oneLine(task.kind === 'question' ? task.questions.map((q) => q.text).join(' / ') : card.plain?.headline ?? card.toolName),
       chose, why: oneLine(answer.why), risk: answer.risk, ...(lines ? { answers: lines } : {}), costUsd: spent,
     });
+    await paidOff(job, spent);
   }
 
   return { pass, onPermission, cardGone, leftCard, handlingCard };
