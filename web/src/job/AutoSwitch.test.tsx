@@ -67,8 +67,38 @@ describe('AutoSwitch', () => {
     const post = vi.fn(async () => { throw new ApiError(409, 'Auto works up to L2. An L3 job needs you to approve each step.', { code: 'auto-level' }); });
     show(job('alpha', 'needs-you', { level: 1 }), post);
     await act(async () => { fireEvent.click(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })); });
-    expect(screen.getByRole('alert')).toHaveTextContent('Auto works up to L2. An L3 job needs you to approve each step.');
+    expect(document.querySelector('.auto-line')).toHaveTextContent('Auto works up to L2. An L3 job needs you to approve each step.');
     expect(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })).not.toBeChecked();
+  });
+
+  // Minor 13: the header switch's small faults, fixed as it goes on the job page.
+  it('the status line is a polite live region, so a refusal or a stop is heard', () => {
+    const { container } = show(job('alpha', 'running', { level: 1 }));
+    const line = container.querySelector('.auto-line')!;
+    expect(line).toHaveAttribute('role', 'status');
+    expect(line).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('a refusal\'s words clear when the job\'s Auto state next changes', async () => {
+    const post = vi.fn(async () => { throw new ApiError(409, 'The laptop said no.', { code: 'x' }); });
+    const j = job('alpha', 'needs-you', { level: 1 });
+    const { container, rerender } = show(j, post);
+    await act(async () => { fireEvent.click(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })); });
+    expect(container.querySelector('.auto-line')).toHaveTextContent('The laptop said no.');
+    const store: Store = createStore();
+    const api = { get: vi.fn(), post } as unknown as ApiClient;
+    rerender(<WorkshopContext.Provider value={{ store, api }}><AutoSwitch job={{ ...j, auto: { on: true } } as Job} /></WorkshopContext.Provider>);
+    expect(container.querySelector('.auto-line')).not.toHaveTextContent('The laptop said no.');
+    expect(container.querySelector('.auto-line')).toHaveTextContent('Auto is on');
+  });
+
+  it('while it spins, the spinner\'s words are not part of the checkbox\'s name', async () => {
+    let finish: (v: unknown) => void = () => {};
+    show(job('alpha', 'needs-you', { level: 1 }), vi.fn(() => new Promise((r) => { finish = r; })));
+    fireEvent.click(screen.getByRole('checkbox', { name: AUTO_LABEL }));
+    expect(screen.getByRole('status', { name: 'Turning Auto on…' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox')).toHaveAccessibleName(AUTO_LABEL);
+    await act(async () => { finish({ ok: true }); });
   });
 
   it('says Auto is on, and who started it when a tag did', () => {

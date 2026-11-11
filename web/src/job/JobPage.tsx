@@ -33,6 +33,9 @@ import { JobGithub } from '../panes/Foreman/JobGithub';
 import { JobMenu } from '../panes/Foreman/JobHeader';
 import { LevelChip } from '../panes/Foreman/LevelChip';
 import { CopyDecisions } from './CopyDecisions';
+import { AutoSwitch } from './AutoSwitch';
+import { WhatAutoDecided } from './WhatAutoDecided';
+import { AUTO_DECIDING_NOTE, autoDeciding, autoLaneReason } from './autoLine';
 import { DecisionsTab } from '../panes/Preview/DecisionsTab';
 import { DocsTab } from '../panes/Preview/DocsTab';
 import { TryTab } from '../panes/Preview/TryTab';
@@ -180,6 +183,9 @@ function JobView({ job }: { job: Job }) {
   const [detail] = useDetail();
   const thread_ = <ThreadList job={job} conversation={conversation} now={now} cards={false} newest={detail === 'simple' ? 1 : undefined} />;
   const workCount = JOB_TABS.length;
+  // The Foreman's model, fixed once the job has started: a locked line in Details.
+  const modelId = thread.detail?.drive?.sessionId ? thread.detail.drive.model ?? null : null;
+  const modelLabel = modelId ? state.meta?.models?.find((m) => m.id === modelId)?.label ?? modelId : null;
   return (
     <Page
       label="Job"
@@ -193,6 +199,8 @@ function JobView({ job }: { job: Job }) {
           <section className="job-strip" aria-label="The job’s stops"><StopMap job={{ ...job, lane }} compact hrefFor={(s) => stageHref(job.slug, s)} label="The job’s stops: each opens who works on it" /></section>
           {narrow && <PartOfStack slug={job.slug} index={stacks} />}
           <span className="spacer" />
+          {/* Auto (C1): the switch with its line, and What Auto decided, where he answers. */}
+          <div className="job-auto"><AutoSwitch job={job} /><WhatAutoDecided slug={job.slug} auto={job.auto} /></div>
           <CopyDecisions slug={job.slug} />
           <JobMenu job={job} dir={thread.detail?.dir} policyOverride={thread.detail?.policyOverride} run={run} worktree={thread.detail?.worktree} started={Boolean(thread.detail?.drive?.sessionId)} gear />
         </>
@@ -215,6 +223,11 @@ function JobView({ job }: { job: Job }) {
               <CopyDecisions slug={job.slug} />
               <LevelChip job={job} ready={Boolean(thread.detail)} />
               <PartOfStack slug={job.slug} index={stacks} />
+              {modelLabel && (
+                <span className="job-model muted" title="Fixed for this job. Change model… in the job menu starts the job again.">
+                  <Icon name="lock" size={12} /> Foreman model: {modelLabel}
+                </span>
+              )}
             </div>
             <section className={`job-map${play.full ? ' has-grid' : ''}`} aria-label="The job’s stops, in full">
               <StopMap job={{ ...job, lane }} faces={play.full && !narrow} label="Every stop, with its name" />
@@ -433,7 +446,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { jo
         icon="clipboard"
         label={call ? 'Go / no go' : null}
         say={after.say ?? (gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead')}
-        sub={after.more ?? (gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason)}
+        sub={after.more ?? autoLaneReason(job) ?? (gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason)}
       >
         {/* On the hosted site a Go made there waits for the laptop (the card under this says so): no calls meanwhile. */}
         {!isOpen(queuedOf(detail.queued)) && <>
@@ -462,6 +475,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { jo
         </Button>
         </>}
       </NextBar>
+      {autoDeciding(job) && <p className="job-go-auto muted">{AUTO_DECIDING_NOTE}</p>}
       {foldCard && (
         <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
           <Icon name="file" size={16} />

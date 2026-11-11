@@ -39,6 +39,31 @@ let off = () => {};
 beforeEach(() => { off = installKeyListener(); });
 afterEach(() => { off(); cleanup(); clearDecisions(); localStorage.clear(); window.location.hash = ''; });
 
+// Deep review D, C1: the Desk card for a stopped Auto job shows the same Auto line the Jobs card shows.
+describe('the Desk card of an Auto job', () => {
+  const reason = 'Auto stopped: a database change needs you.';
+  const STOPPED = job('alpha', 'needs-you', { stage: 'plan', lane: 'needs-you', laneReason: reason, level: 1, permissions: 1, auto: { on: true, by: 'you', ran: true, stopped: { reason: 'a database change needs you.', rule: 'database', at: '2026-10-21T10:00:00Z' } } });
+
+  it('a permission on a stopped Auto job: the card says why Auto stopped, with What Auto decided', () => {
+    setup({ jobs: [STOPPED], permissions: [{ ...permission('p1', 'alpha'), createdAt: '2026-10-21T10:00:00Z' }] });
+    const card = screen.getByRole('region', { name: /^Job alpha:/ });
+    expect(within(card).getByText(reason)).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'What Auto decided' })).toBeInTheDocument();
+  });
+
+  it('a go-ahead on a stopped Auto job says it once', async () => {
+    setup({ jobs: [{ ...STOPPED, permissions: 0, waitingFor: 'approval' }] });
+    const card = screen.getByRole('region', { name: /^Job alpha:/ });
+    await within(card).findByRole('button', { name: /^Go: approve/ });
+    expect(within(card).getAllByText(reason)).toHaveLength(1);
+  });
+
+  it('an ordinary job has no Auto line', () => {
+    setup({ permissions: [{ ...permission('p1', 'alpha'), createdAt: '2026-10-21T10:00:00Z' }] });
+    expect(document.querySelector('.desk-auto')).toBeNull();
+  });
+});
+
 describe('the Desk, one at a time', () => {
   it('shows one decision: where it is in the queue, the seven stops in words, the headline, and the brief behind Details (b)', async () => {
     setup({ permissions: [{ ...permission('p1', 'alpha'), createdAt: '2026-10-21T10:00:00Z' }] });

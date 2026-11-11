@@ -40,12 +40,13 @@ function SwitchView({ checked, blocked, disabled, busy, quiet, onToggle }: ViewP
   return (
     <>
     <OptionRow type="checkbox" className={`auto-switch-row${off ? ' is-off' : ''}`} checked={checked && !blocked} disabled={off} aria-busy={busy || undefined} aria-describedby={hidden ? hintId : undefined} title={hidden ? AUTO_HINT : undefined} onChange={(e) => onToggle(e.target.checked)}>
-      {busy && <span className="auto-spin" role="status" aria-label={checked ? 'Turning Auto off…' : 'Turning Auto on…'}><span className="spin-ring" aria-hidden="true" /></span>}
       <span className="option-body">
         <span className="auto-switch-label">{AUTO_LABEL}</span>
         {!quiet && <span className="auto-switch-hint">{blocked ? AUTO_L3 : AUTO_HINT}</span>}
       </span>
     </OptionRow>
+    {/* Outside the label, so its words never join the checkbox's name. */}
+    {busy && <span className="auto-spin" role="status" aria-label={checked ? 'Turning Auto off…' : 'Turning Auto on…'}><span className="spin-ring" aria-hidden="true" /></span>}
     {/* Outside the label, so it describes the checkbox without becoming part of its name. */}
     {hidden && <span id={hintId} className="sr-only">{AUTO_HINT}</span>}
     </>
@@ -59,7 +60,10 @@ function HeaderSwitch({ job, onChange }: { job: Pick<Job, 'slug' | 'level' | 'su
   // What the server last answered, until the job's own record catches up.
   const [shown, setShown] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { setShown(null); }, [job.auto?.on]);
+  // The job's Auto state changed (on, off, stopped or going again): what the server last answered,
+  // and a refusal's words, give way to the job's own record.
+  const stopKey = JSON.stringify(job.auto?.stopped ?? null);
+  useEffect(() => { setShown(null); setError(null); }, [job.auto?.on, stopKey]);
   // The website's queue: what the site answered to the click, until the job's own record shows it.
   const [held, setHeld] = useState<QueuedView | null>(null);
   useEffect(() => { if (job.autoQueued) setHeld(null); }, [job.autoQueued]);
@@ -93,8 +97,9 @@ function HeaderSwitch({ job, onChange }: { job: Pick<Job, 'slug' | 'level' | 'su
   return (
     <div className="auto-switch is-inline">
       <SwitchView quiet checked={on} blocked={blocked} disabled={sent.state === 'sending' || waiting} busy={sent.state === 'sending'} onToggle={(next) => { void toggle(next); }} />
-      <p className="auto-line">
-        {error ? <span className="is-refused" role="alert">{error}</span> : (
+      {/* A polite live region: a refusal, a stop or "Auto is on" is heard once, without taking the focus. */}
+      <p className="auto-line" role="status" aria-live="polite">
+        {error ? <span className="is-refused">{error}</span> : (
           <>
             {blocked && <span>{AUTO_L3}</span>}
             {stopped ? <span className="is-stopped">Auto stopped: {stopped}</span> : on && <span>Auto is on</span>}

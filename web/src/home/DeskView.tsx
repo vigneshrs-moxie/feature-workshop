@@ -48,6 +48,8 @@ import { type DeskEntry, deskEntries, isShipping, jobFacts, type NudgeItem, nudg
 import { More } from '../components/More';
 import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
 import { BRAND } from '../app/brand';
+import { autoLaneReason } from '../job/autoLine';
+import { WhatAutoDecided } from '../job/WhatAutoDecided';
 
 const DESK_KEYS: readonly KeyId[] = ['desk-next', 'desk-prev', 'desk-approve', 'desk-deny', 'desk-open', 'desk-brief'];
 
@@ -130,7 +132,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
       <div className="desk-say">
         <span className="next-label">{call ? 'Go / no go' : 'Waiting for you'}</span>
         <h3 className="desk-head">{typeof job.headline === 'string' && job.headline ? job.headline : 'Waiting for your go-ahead'}</h3>
-        {job.laneReason && <p className="desk-sub">{job.laneReason}</p>}
+        {job.laneReason && !autoLaneReason(job) && <p className="desk-sub">{job.laneReason}</p>}
       </div>
       {/* One Details (packet R): the Foreman's brief, adjusting the next step and how this works, as
           sections of one sheet over the right side. Always there (hidden while shut), so the gate
@@ -189,6 +191,18 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
         <p className="muted">The Foreman is waiting for your reply. <a href={jobHref(job.slug)}>Open the job</a> to read its last message and answer in the message box.</p>
       )}
     </>
+  );
+}
+
+/** The same Auto line the Jobs card shows ("Auto stopped: …", "Auto is deciding: …"), with What Auto decided. */
+function DeskAutoLine({ job }: { job: Job }) {
+  const reason = autoLaneReason(job);
+  if (!reason && !job.auto?.ran) return null;
+  return (
+    <div className="desk-auto">
+      {reason && <span className="desk-auto-why">{reason}</span>}
+      <WhatAutoDecided slug={job.slug} auto={job.auto} />
+    </div>
   );
 }
 
@@ -530,6 +544,7 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
                 <Button kind="quiet" size="sm" keyId="desk-open" iconOnly={false} href={jobHref(current.slug)} title="Open the whole job: its stops, documents and conversation (key: o).">Open the job</Button>
               </header>
               {job && current.kind !== 'nudge' && <StopMap job={job} />}
+              {job && current.kind !== 'nudge' && <DeskAutoLine job={job} />}
               {current.kind === 'gate' && (job
                 ? <DeskGateOne key={current.key} job={job} now={now} briefOpen={briefOpen} toggleBrief={() => setBriefOpen((o) => !o)} call={call} />
                 : <p className="muted">This job isn’t in the list any more.</p>)}
@@ -591,6 +606,7 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
               <h3>{current.title}</h3>
               <Button kind="quiet" keyId="desk-open" href={jobHref(current.slug)} title="Open the whole job: its conversation, documents and options (key: o).">Open the job</Button>
             </header>
+            {job && current.kind !== 'nudge' && <DeskAutoLine job={job} />}
             {current.kind === 'gate' && (job
               ? <DeskGate key={current.key} job={job} now={now} briefOpen={briefOpen} toggleBrief={() => setBriefOpen((o) => !o)} />
               : <p className="muted">This job isn’t in the list any more.</p>)}

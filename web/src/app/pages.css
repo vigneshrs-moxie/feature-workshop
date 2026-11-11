@@ -279,6 +279,9 @@ a.stop-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset
 .desk-say { display: flex; flex-direction: column; gap: var(--space-1); }
 .desk-head { margin: 0; font-size: var(--text-xl); line-height: 1.25; letter-spacing: -.012em; }
 .desk-sub { margin: 0; color: var(--text-2); }
+/* The Jobs card's Auto line on the Desk card (C1): why Auto stopped, or that it is deciding, and What Auto decided. */
+.desk-auto { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); margin: 0; color: var(--text-2); font-size: var(--text-sm); }
+.desk-auto-why { overflow-wrap: anywhere; min-width: 0; }
 /* Inside the card nothing is framed again: the brief, the gate card and its parts sit on dividers. */
 .desk-console .desk-brief-fold { border: 0; border-top: 1px solid var(--border-1); border-bottom: 1px solid var(--border-1); border-radius: 0; background: none; box-shadow: none; }
 .desk-console .desk-brief-fold .fold-head { padding: 0 var(--space-1); border-radius: var(--radius-md); }

@@ -34,10 +34,10 @@ const GATE: Gate = {
   level: 1, suggestedLevel: null, levelReason: null, usage: null,
 };
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], play = 'subtle', auto = null as { on: boolean; tag: string | null } | null, gate = null as Gate | null, slug = 'alpha', extra = null as React.ReactNode, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], play = 'subtle', auto = null as { on: boolean; tag: string | null } | null, gate = null as Gate | null, slug = 'alpha', extra = null as React.ReactNode, drive = null as JobDetail['drive'], post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   const store: Store = createStore();
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: play } } } as never }) });
-  const detail = (s: string): JobDetail => ({ slug: s, thread: [], threadMore: false, gate, answeredBriefs: [], heldReply: null, options: { level: 1 }, auto } as JobDetail);
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: play } }, models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }] } as never }) });
+  const detail = (s: string): JobDetail => ({ slug: s, thread: [], threadMore: false, gate, answeredBriefs: [], heldReply: null, options: { level: 1 }, auto, drive } as JobDetail);
   const get = vi.fn(async (path: string): Promise<unknown> => {
     if (path.endsWith('/docs')) return { docs: DOCS };
     const m = /\/doc\?file=(.+)$/.exec(path);
@@ -540,6 +540,60 @@ describe('after a click on the go / no go bar', () => {
     cleanup();
     setup({ jobs: waiting(), gate: null, post: sentPost() });
     expect(within(bar()).getByText(SENT_LINE)).toBeInTheDocument();
+  });
+});
+
+// Deep review D, C1: Auto is on the page the person answers on, not only in a header no page shows.
+describe('Auto on the job page', () => {
+  const STOPPED = { on: true, by: 'you' as const, ran: true, stopped: { reason: 'a database change needs you.', rule: 'database', at: NOW } };
+  const head = () => document.querySelector('.page-head')!;
+
+  it('an Auto job has the switch and What Auto decided in the page head, and the locked model line in Details', async () => {
+    setup({ jobs: [job('alpha', 'running', { stage: 'plan', level: 1, auto: { on: true, by: 'you', ran: true } })], drive: { sessionId: 's1', model: 'claude-opus-5-5' } });
+    const box = screen.getByRole('checkbox', { name: /Auto: run to PR #1/ });
+    expect(box).toBeChecked();
+    expect(box.closest('.job-details')).toBeNull();
+    expect(head().contains(box)).toBe(true);
+    const what = screen.getByRole('button', { name: 'What Auto decided' });
+    expect(head().contains(what)).toBe(true);
+    const model = await screen.findByText(/Foreman model: Opus 5\.5/);
+    expect(model.closest('.job-details')).not.toBeNull();
+    expect(model.querySelector('svg, .icon')).not.toBeNull();
+  });
+
+  it('a job without Auto still has the switch, off, so Auto can be turned on', () => {
+    setup({ jobs: [job('alpha', 'idle', { stage: 'plan', level: 1 })] });
+    expect(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })).not.toBeChecked();
+    expect(screen.queryByRole('button', { name: 'What Auto decided' })).toBeNull();
+  });
+
+  it('a stopped Auto job says why it stopped in the bar, not "Say go and the Foreman goes ahead"', async () => {
+    const reason = 'Auto stopped: a database change needs you.';
+    setup({ jobs: [job('alpha', 'needs-you', { stage: 'plan', lane: 'needs-you', level: 1, waitingFor: 'approval', laneReason: reason, auto: STOPPED })], gate: GATE });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    const bar = screen.getByRole('region', { name: 'Next step' });
+    expect(bar).toHaveTextContent(reason);
+    expect(bar).not.toHaveTextContent('Say go and the Foreman goes ahead');
+  });
+
+  it('while Auto is deciding the bar says so, the calls stay usable, and his own answer still counts', async () => {
+    const { post } = setup({ jobs: [job('alpha', 'running', { stage: 'plan', lane: 'working', level: 1, waitingFor: 'approval', laneReason: 'Auto is deciding: the plan', auto: { on: true, by: 'you', ran: true } })], gate: GATE });
+    const go = await screen.findByRole('button', { name: /^Go: approve/ });
+    await waitFor(() => expect(go).toBeEnabled());
+    const bar = screen.getByRole('region', { name: 'Next step' });
+    expect(bar).toHaveTextContent('Auto is deciding: the plan');
+    expect(bar).not.toHaveTextContent('Say go and the Foreman goes ahead');
+    expect(screen.getByText('Auto is deciding this step. Your own answer still counts.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^No go: send back/ })).toBeEnabled();
+    fireEvent.click(go);
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'approve' })));
+  });
+
+  it('an ordinary job never says Auto is deciding', async () => {
+    setup({ jobs: [job('alpha', 'needs-you', { stage: 'plan', lane: 'needs-you', waitingFor: 'approval' })], gate: GATE });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    expect(screen.queryByText(/Auto is deciding/)).toBeNull();
+    expect(screen.getByRole('region', { name: 'Next step' })).toHaveTextContent('Say go and the Foreman goes ahead: Build step 1');
   });
 });
 
