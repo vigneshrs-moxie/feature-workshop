@@ -271,7 +271,15 @@ const PROGRAMS = {
   sleep: spec('', { pos: 'digits' }), seq: spec('', { pos: 'digits' }),
   exit: spec('', { pos: 'digits' }),
   // ---------- file changes: every path inside the job ----------
-  cp: INSIDE('r R a p f i n v t:'),
+  // cp reads its sources (anywhere a read may be) and writes its destination, which must be the job's (R13).
+  cp: spec('r R a p f i n v t:', { pos: (pos, vals, ctx) => {
+    const t = vals.filter(([f]) => f === '-t').map(([, x]) => x);
+    const dests = t.length ? t : pos.slice(-1);
+    const sources = t.length ? pos : pos.slice(0, -1);
+    if (!dests.length || !sources.length || t.length > 1) ask('a cp Starbase does not read');
+    for (const d of dests) mustBeInside(d, ctx);
+    for (const x of sources) readablePath(x, ctx);
+  } }),
   mv: INSIDE('f i n v', { strict: true }),
   rm: INSIDE('r R f v i d --recursive --force --verbose', { strict: true }),
   mkdir: INSIDE('p v m:'),
@@ -364,7 +372,7 @@ function awkCheck(args, ctx) {
     if (program === null) program = t; else files.push(args[i]);
   }
   if (program === null) ask('an awk with no program');
-  if (/system|getline|ENVIRON|close|fflush|[|>]/.test(program)) ask('an awk program that runs, writes or reads other places');
+  if (/system|getline|ENVIRON|close|fflush|\||(?<![<>=!])>(?!=)/.test(program)) ask('an awk program that runs, writes or reads other places'); // >= compares
   for (const f of files) readablePath(f, ctx);
 }
 
@@ -881,8 +889,12 @@ function gitReadHere(args) {
 }
 // Commands judged by their own rule whatever the folder they run in (R4): gh pr create (its own rule, prCreateProblem),
 // starbase decisions for the job, and ps that only reads.
-function anyFolder(name, args, here, ctx) {
+function anyFolder(name, args, here, ctx, known = null) {
   const pos = args.filter((x) => !x.t.startsWith('-')).map((x) => x.t);
+  // sed and awk that only print, mkdir, touch, cp and mv (each path judged on its own), and a known program's version (R13).
+  if (/^g?(sed|awk)$/.test(name)) return !args.some((x) => /^-[A-Za-z]*i|^--in-place/.test(x.t));
+  if (['mkdir', 'touch', 'cp', 'mv'].includes(name)) return true;
+  if (args.length === 1 && /^(--version|-v|-V)$/.test(args[0].t) && typeof known === 'function' && known(name)) return true;
   if (name === 'gh') return pos[0] === 'pr' && pos[1] === 'create';
   if (name === 'starbase') return starbaseDecisions(args.map((x) => x.t), here, ctx);
   if (name === 'ps') return psRead(args.map((x) => x.t));
@@ -974,7 +986,23 @@ export function plainWhy(command, env = {}) {
         if (!inRoots(at, roots) || !cands.every((c) => inRoots(physicalPath(name, c), roots))) ask('a program given by a path outside the job');
         if (bin) name = bin[1]; else { for (const x of args) pathInside(x, ctx); continue; } // a script of the job's own: its text is read by the caller
       }
-      if (!READ_ONLY.has(name) && !(name === 'git' && gitReadHere(args)) && !anyFolder(name, args, here, env.ctx) && !here.every((c) => inRoots(physicalPath('.', c), roots))) ask('a command that changes things, run from a folder outside the job');
+      // npm --prefix <folder> … is cd <folder> && npm … (R13).
+      if (['npm', 'pnpm', 'yarn', 'bun'].includes(name)) {
+        const end = args.findIndex((x) => x.t === '--');
+        const at = args.findIndex((x, k) => (end < 0 || k < end) && /^(--prefix|--cwd|--dir|-C)(=|$)/.test(x.t));
+        if (at >= 0) {
+          const glued = args[at].t.includes('=');
+          const v = glued ? { t: args[at].t.slice(args[at].t.indexOf('=') + 1), glob: args[at].glob } : args[at + 1];
+          if (!v || v.glob || v.t === '' || /^~[^/]/.test(v.t)) ask('a folder Starbase cannot follow');
+          const dirs = here.map((c) => physicalPath(v.t, c));
+          if (!dirs.every((p) => p && inRoots(p, roots))) ask('a cd to a folder outside the job');
+          args = args.filter((_, k) => k !== at && (glued || k !== at + 1));
+          here = dirs;
+          ctx = { ...ctx, cands: dirs };
+        }
+      }
+      if (!READ_ONLY.has(name) && !(name === 'git' && gitReadHere(args)) && !anyFolder(name, args, here, env.ctx, env.known) && !here.every((c) => inRoots(physicalPath('.', c), roots))) ask('a command that changes things, run from a folder outside the job');
+      if (args.length === 1 && /^(--version|-v|-V)$/.test(args[0].t) && typeof env.known === 'function' && env.known(name)) continue;
       words.forEach((x, k) => {
         if (!x.t.includes(HEREDOC)) return;
         const message = name === 'git' && args[0]?.t === 'commit' && ((x.t === HEREDOC && ['-m', '--message'].includes(words[k - 1]?.t)) || x.t === `--message=${HEREDOC}`);

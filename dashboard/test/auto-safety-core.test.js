@@ -977,3 +977,47 @@ test('R2: a package\'s program is that program however it is started: by its lin
     assert.deepEqual(wrong, []);
   } finally { o.done(); }
 });
+
+test('R13: other spellings of the same steps, from the session\'s folder (the main checkout)', () => {
+  const A = `${WT}/app`;
+  const ctx = C5CTX({ cwd: REPO, orgRemote: 'moxie', orgRepo: 'moxie-org/orbit', filesToCopy: [{ from: 'app/.env.local', to: 'app/.env.local' }] });
+  const rows = [];
+  const as = (c, control) => rows.push({ c, want: bash(control, ctx), got: bash(c, ctx) });
+  const want = (c, w) => rows.push({ c, want: w, got: bash(c, ctx) });
+  // sed -n and awk on a file answer as cat on it.
+  for (const f of ['app/src/lib/auth.ts', `${A}/src/lib/x.ts`, '~/.zshrc', 'app/.env.local', `${HOME}/Projects/other/notes.md`]) {
+    as(`sed -n 1,80p ${f}`, `cat ${f}`); as(`sed -n '10,60p' ${f}`, `cat ${f}`); as(`awk 'NR>=10 && NR<=60' ${f}`, `cat ${f}`); as(`awk 'NR<=20' ${f}`, `cat ${f}`);
+  }
+  for (const f of ['app/src/lib/auth.ts', `${A}/src/lib/x.ts`]) want(`sed -n 1,80p ${f}`, null);
+  for (const c of ['sed -i s/a/b/ app/src/lib/auth.ts', `sed -n 'w ${REPO}/out.txt' app/src/lib/auth.ts`, 'awk \'{print > "out.txt"}\' app/src/lib/auth.ts', 'awk \'{system("rm -rf ~")}\' app/src/lib/auth.ts']) want(c, 'outside');
+  // [ -f x ], [ -d x ], [ -e x ] and test -f x (-d, -e) are reads of x.
+  for (const f of ['app/.env.local', 'app/node_modules', '~/Documents/x', '~/.ssh', `${A}/node_modules`]) {
+    for (const op of ['-f', '-d', '-e']) { as(`[ ${op} ${f} ] && echo yes`, `cat ${f} && echo yes`); as(`test ${op} ${f} || echo missing`, `cat ${f} || echo missing`); }
+  }
+  want('[ -d app/node_modules ] || echo missing', null);
+  want('[ -e ~/Documents/x ] && echo yes', 'ask');
+  // mkdir, touch, cp and mv pass when every path they write is in a job root, whatever the folder; a cp source may be anywhere a read passes.
+  for (const c of [`mkdir -p ${JOB}/briefs`, `mkdir -p ${JOB}/review`, `mkdir -p ${A}/src/lib/new`, `touch ${A}/src/lib/new.ts`, `cp ${A}/src/a.ts ${A}/src/b.ts`, `mv ${A}/src/a.ts ${A}/src/b.ts`,
+    `cp ${REPO}/app/src/lib/auth.ts ${A}/src/lib/auth.ts`, `cp -r ${REPO}/docs/plans ${JOB}/plans-copy`, `cp ${REPO}/app/.env.local ${A}/.env.local`, `cp ${REPO}/app/.env.local ${A}/`, `cp -n ${REPO}/app/.env.local ${A}/.env.local`]) want(c, null);
+  for (const c of ['mkdir -p app/new', `touch ${REPO}/x`, `cp ${A}/a.ts ${REPO}/b.ts`, `mv ${REPO}/app/x.ts ${A}/x.ts`, `cp ~/.ssh/id_rsa ${A}/x`, `cp ${REPO}/app/.env.local ${A}/.env.production`, `cp ${REPO}/app/.env.local app/.env.local`,
+    `rm ${A}/src/a.ts`, `chmod +x ${A}/scripts/x.sh`, `mkdir -p ${A}/.husky`, `cp x.sh ${A}/.git/hooks/pre-commit`, `touch ${HOME}/.zshrc`]) want(c, 'outside');
+  want(`cp ${HOME}/Documents/notes.md ${JOB}/notes.md`, 'ask');
+  // A known program with --version (or -v, -V) and nothing else.
+  for (const c of ['node --version', 'npm --version', 'gh --version', 'git --version', 'node -v', 'python3 -V', 'python3 --version']) want(c, null);
+  for (const c of ['gh auth status', 'node --version x.js', 'bash -v', 'npm -v install', 'whatever --version']) want(c, 'outside');
+  // gh lookups ask; a write to GitHub still stops.
+  for (const c of ['gh pr view --repo moxie-org/orbit --json url,state', `gh pr list --repo moxie-org/orbit --head ${BRANCH} --json url`, 'gh pr checks 12 --repo moxie-org/orbit', `gh api repos/moxie-org/orbit/branches/${BRANCH}`, `gh api repos/moxie-org/orbit/git/ref/heads/${BRANCH}`, `gh api -X GET repos/moxie-org/orbit/pulls`]) want(c, 'ask');
+  for (const c of ['gh api -X DELETE repos/moxie-org/orbit/issues/1/labels/x', 'gh api repos/moxie-org/orbit/issues -f title=x', 'gh api --input body.json repos/moxie-org/orbit/issues', 'gh api -F title=x repos/moxie-org/orbit/issues', 'gh pr comment 12 -b x', 'gh api user']) want(c, 'outside');
+  // npm --prefix <folder> is cd <folder> && npm; ( cd <folder> && … ) is the line inside.
+  for (const [c, control] of [[`npm --prefix ${A} run check`, `cd ${A} && npm run check`], [`npm --prefix ${A} ci`, `cd ${A} && npm ci`], [`npm run check --prefix ${A}`, `cd ${A} && npm run check`], [`npm --prefix=${A} test`, `cd ${A} && npm test`],
+    [`npm --prefix ${HOME}/Projects/other run build`, `cd ${HOME}/Projects/other && npm run build`], [`(cd ${A} && npm run check)`, `cd ${A} && npm run check`], [`( cd ${A} && npm run build )`, `cd ${A} && npm run build`],
+    [`(cd ${HOME}/Documents && touch x)`, `cd ${HOME}/Documents && touch x`], ['(cd app && npm run build)', 'cd app && npm run build']]) as(c, control);
+  want(`(cd ${A} && npm run check)`, null);
+  // A commit or a pull request with a here-document, after cd to the worktree: as the git -C form.
+  const msg = `"$(cat <<'EOF'\nfeat(tickets): add copy ID button\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)"`;
+  as(`cd ${WT} && git commit -m ${msg}`, `git -C ${WT} commit -m ${msg}`);
+  want(`cd ${WT} && git commit -m ${msg}`, null);
+  want(`cd ${WT} && gh pr create --repo moxie-org/orbit --head test:${BRANCH} --base ${BRANCH} --title "T" --body "$(cat <<'EOF'\n## What\n- one\nEOF\n)"`, null);
+  const wrong = rows.filter((r) => r.got !== r.want);
+  assert.deepEqual(wrong, []);
+});

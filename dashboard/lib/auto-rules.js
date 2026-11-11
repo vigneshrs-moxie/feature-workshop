@@ -325,7 +325,10 @@ function readElsewhere(p, roots) {
 }
 
 // A Bash call: a fixed stop if a rule matches; else an ask if it is not plain; else null (pass).
-function bashVerdict(command, hard, ctx) {
+function bashVerdict(whole, hard, ctx) {
+  // ( cd <folder> && … ) as the whole command is judged as the line inside it (R13).
+  let command = whole;
+  for (let inner = wholeSubshell(command); inner !== null; inner = wholeSubshell(command)) command = inner;
   // The workflow's set-up lines, in their exact forms, from the main checkout or a folder of the job's (N7).
   const setup = setupStep(command, ctx);
   if (setup) return setup === true ? null : { ask: setup };
@@ -333,7 +336,7 @@ function bashVerdict(command, hard, ctx) {
   if (hard?.line === 'gh-pr-merge') st.hits.add('merge');
   if (hard?.line === 'database') st.hits.add('database');
   if (DB_ADDRESS.test(command)) st.hits.add('database'); // a database address anywhere in the call
-  analyze(command, ctx.cwd ?? null, st, 0, null);
+  analyze(quotedBodies(command), ctx.cwd ?? null, st, 0, null);
   // A branch changed and a push in one call: where the push goes can't be told from here (C3).
   if (st.branchChange && st.pushed) st.hits.add('push');
   if (st.gitSetting && st.pushed) st.hits.add('push'); // a git setting changed and a push in one call: the remembered lookups are stale (I6)
@@ -401,8 +404,32 @@ function setupForm(words, at, main, ctx) {
   return null;
 }
 
+// "$(cat <<'EOF' … EOF)" with a quoted delimiter expands nothing: it is the body's text, as one word. Written as that word
+// in single quotes, so a cd before it is still followed (R13: cd <worktree> && git commit -m "$(cat <<'EOF' …)").
+function quotedBodies(command) {
+  return command.replace(/"\$\(cat <<'(\w+)'\n([\s\S]*?)\n\1\n\)"/g, (all, delim, body) => (body.split('\n').includes(delim) ? all : `'${body.replace(/\n+$/, '').replace(/'/g, "'\\''")}'`));
+}
+
+// The text inside ( … ) when the parentheses hold the whole command, else null. Quotes and $( … ) are followed.
+function wholeSubshell(text) {
+  const t = String(text ?? '').trim();
+  if (!t.startsWith('(') || t.startsWith('((') || !t.endsWith(')')) return null;
+  let depth = 0;
+  let q = null;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (q === "'") { if (c === "'") q = null; continue; }
+    if (c === '\\') { i++; continue; }
+    if (q === '"') { if (c === '"') q = null; else if (c === '$' && t[i + 1] === '(') { depth++; i++; } else if (c === ')' && depth > 1) depth--; continue; }
+    if (c === "'" || c === '"') { q = c; continue; }
+    if (c === '(') depth++;
+    else if (c === ')') { depth--; if (depth === 0) return i === t.length - 1 ? t.slice(1, -1) : null; }
+  }
+  return null;
+}
+
 // Plain: Starbase understands every word of the command (lib/auto-plain.js).
-const plainEnv = (st, cwd) => ({ cwd: cwd ?? st.hint ?? st.ctx.cwd ?? null, roots: st.roots, ctx: st.ctx, binBase: st.scriptBin ?? null });
+const plainEnv = (st, cwd) => ({ cwd: cwd ?? st.hint ?? st.ctx.cwd ?? null, roots: st.roots, ctx: st.ctx, binBase: st.scriptBin ?? null, known: (n) => Boolean(programGroup(n)) && !SHELLS.has(n) });
 
 // Names a command defines as shell functions (their bodies are read as commands; a use of one is not an unknown program).
 function functionNames(command) {
@@ -699,6 +726,19 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   const valueOf = (re) => { const k = a.findIndex((x) => re.test(x)); return k < 0 ? null : (/=/.test(a[k]) && a[k].startsWith('--') ? { t: a[k].slice(a[k].indexOf('=') + 1), dyn: args[k].dyn } : args[k + 1] ?? { t: '', dyn: true }); };
   // A write program's targets can't be known when xargs feeds them in.
   const writes = (targets, content = true) => { if (xargs) hit('outside'); for (const t of targets) { if (out(t)) hit('outside'); noteWrite(t); if (content) recordWrite(t); } };
+  // npm --prefix <folder> … is cd <folder> && npm … (R13); a folder that can't be placed stops.
+  if (/^(npm|pnpm|yarn|bun)$/.test(cmd) && !cmdWord.t.includes('/')) {
+    const end = a.indexOf('--');
+    const at = a.findIndex((x, k) => (end < 0 || k < end) && /^(--prefix|--cwd|--dir|-C)(=|$)/.test(x));
+    if (at >= 0) {
+      const glued = a[at].includes('=');
+      const v = glued ? { t: a[at].slice(a[at].indexOf('=') + 1), dyn: args[at].dyn } : args[at + 1];
+      const dir = v && !v.dyn ? cdWhere([{ t: 'cd' }, v], cwd ?? st.hint ?? null) : null;
+      if (!dir) { hit('outside'); return; }
+      simple([cmdWord, ...args.filter((_, k) => k !== at && (glued || k !== at + 1))], [], dir, st, depth + 1, viaXargs);
+      return;
+    }
+  }
 
   if (DANGEROUS.has(cmd)) hit('outside');
   if (/^(nc|ncat|netcat|telnet|socat)$/.test(cmd) && a.some((x) => /(^|:)(5432|3306|1433|27017|6379|9042)$/.test(x))) hit('database'); // a database port, on any host
@@ -738,14 +778,24 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   }
   // T3c: a command that is not a read runs from a folder inside the job's (a cd moves it; a folder we can't tell stops).
   const readOnly = psOk || programGroup(cmd) === 'read' || (cmd === 'git' && gitReads(args));
-  if (!readOnly) st.nonRead = true;
   // A script of the installed workflow run by an interpreter asks, whatever the folder (R4); gh pr create is judged by its own rule (R4).
   const skill = skillScript(cmd, cmdWord, args, a, cwd ?? st.hint ?? null, st);
   const prCreate = cmd === 'gh' && (() => { const p = args.filter((x, k) => !(x.t.startsWith('-') || ['-R', '--repo'].includes(a[k - 1]))).map((x) => x.t); return p[0] === 'pr' && p[1] === 'create'; })();
-  if (!readOnly && !byFile && !skill && !prCreate) {
+  // sed and awk that only print, a test of a file, mkdir, touch, cp and mv (their paths are judged one by one) and a known
+  // program asked its version are judged by what they name, whatever the folder; a lookup on GitHub asks (R13).
+  const sedRead = /^g?(sed|awk)$/.test(cmd) && !a.some((x) => /^-[A-Za-z]*i|^--in-place/.test(x));
+  const ownPaths = ['mkdir', 'touch', 'cp', 'mv'].includes(cmd);
+  const version = args.length === 1 && /^(--version|-v|-V)$/.test(a[0]) && !SHELLS.has(cmd);
+  const ghLook = (cmd === 'gh') && ghLookup(args, a);
+  if (!readOnly && !byFile && !skill && !prCreate && !sedRead && !ownPaths && !version) {
     const eff = cmd === 'git' ? gitFolder(args, cwd ?? st.hint ?? null) : cwd ?? st.hint ?? null; // git -C runs it there (m11)
     const at = eff ? physicalPath(eff, null) : null;
-    if (!at || !inRoots(at, cmd === 'git' ? st.gitRoots : st.roots)) hit('outside'); // git changes something only in a worktree (R1)
+    if (!at || !inRoots(at, cmd === 'git' ? st.gitRoots : st.roots)) { if (ghLook) st.asks.push('a lookup on GitHub, run from a folder outside the job'); else hit('outside'); } // git changes something only in a worktree (R1)
+  }
+  if (!readOnly && !sedRead) st.nonRead = true;
+  // [ -f x ], [ -d x ], [ -e x ] and test -f x (-d, -e) read x: they are judged as cat x (R13).
+  if (cmd === '[' || cmd === '[[' || cmd === 'test') {
+    for (let k = 0; k < a.length - 1; k++) if (/^-[fde]$/.test(a[k]) && (args[k + 1].dyn || readElsewhere(physicalPath(a[k + 1], cwd ?? st.hint ?? null), st.readRoots))) st.asks.push('a read outside the job\'s folders');
   }
   if (secretPlace(cwd ?? st.hint ? physicalPath(cwd ?? st.hint, null) : null, st.roots, ctx)) { hit('outside'); st.secret = true; } // running inside one
   if (/^(export|declare|typeset|readonly|local)$/.test(cmd)) for (const x of a) { if (!x.startsWith('-') && REDIRECT_VAR.test(x.split('=')[0])) hit('outside'); }
@@ -832,7 +882,13 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
       const dest = t ?? (p.length >= 2 ? p[p.length - 1] : null);
       if (!dest) { writes([{ t: '.', dyn: false }]); return; }
       for (const x of [...p, dest]) if (/^[^/]*:/.test(x.t) && !x.t.startsWith('/')) hit('outside'); // a remote host
-      writes([...p, dest]); // every path argument, sources too
+      if (cmd === 'cp') {
+        // cp's sources are read: anywhere a read passes (secret places stop above); only the destination is written (R13).
+        const sources = p.filter((x) => x !== dest);
+        if (xargs || sources.some((x) => x.dyn)) hit('outside');
+        if (sources.some((x) => readElsewhere(physicalPath(x.t, cwd ?? st.hint ?? null), st.readRoots))) st.asks.push('a read outside the job\'s folders');
+        writes([dest]);
+      } else writes([...p, dest]); // every path argument, sources too
       if (a.some((x) => /^-[A-Za-z]*[rRa]/.test(x) || x === '--recursive' || x === '--archive') && movesCodeLater(p.filter((x) => x !== dest), dest, cwd ?? st.hint ?? null, st)) hit('outside');
       return;
     }
@@ -1249,7 +1305,7 @@ function scriptWrites(sed, script, cwd, st, writes) {
     if (/(?:^|[;{}\n])\s*e\b|\/[gpiImM0-9]*e\s*(?:$|[;}\n])/.test(script)) st.hits.add('outside'); // sed's e runs a command
     return;
   }
-  for (const m of script.matchAll(/>>?\s*"?([^"\s;}]+)"?/g)) writes([{ t: m[1], dyn: m[1].includes('$') }]);
+  for (const m of script.matchAll(/(?<![<>=!])>>?(?!=)\s*"?([^"\s;}]+)"?/g)) writes([{ t: m[1], dyn: m[1].includes('$') }]); // not >= (a comparison)
   if (/system\s*\(|getline|close\s*\(/.test(script) || /\|/.test(script.replace(/\|\|/g, ''))) st.hits.add('outside'); // awk's pipes and system() run commands
 }
 
@@ -1266,6 +1322,17 @@ function findStep(args, a, cwd, st) {
     try { simple(cmd, [], cwd, st, 1, 'find'); } finally { st.inFind = false; } // its targets come from the folders just checked
   }
   for (let k = 0; k < a.length; k++) if (/^-(fprint0?|fprintf|fls)$/.test(a[k]) && pathOutside(args[k + 1] ?? { t: '', dyn: true }, cwd, st)) st.hits.add('outside');
+}
+
+// gh pr view, list or checks, and gh api repos/… read with GET and nothing sent: a lookup (R13).
+function ghLookup(args, a) {
+  const p = args.filter((x, k) => !(x.t.startsWith('-') || ['-R', '--repo', '-X', '--method', '--json', '--jq', '-q', '--head', '-H', '--base', '-B', '--state', '-s', '--limit', '-L', '--search', '-S', '--author', '--label', '-l'].includes(a[k - 1]))).map((x) => x.t);
+  if (args.some((x) => x.dyn)) return false;
+  if (p[0] === 'pr') return ['view', 'list', 'checks'].includes(p[1]);
+  if (p[0] !== 'api' || p.length !== 2 || !/^\/?repos\//.test(p[1])) return false;
+  const k = a.findIndex((x) => /^(-X|--method)$/.test(x));
+  const m = k >= 0 ? a[k + 1] : (a.find((x) => /^(-X.|--method=)/.test(x)) ?? '').replace(/^(-X|--method=)/, '') || 'GET';
+  return String(m).toUpperCase() === 'GET' && !a.some((x) => /^(-f|-F|--field|--raw-field|--input)(=|$)/.test(x) || /^-[fF]./.test(x));
 }
 
 function ghStep(cmd, args, a, st) {

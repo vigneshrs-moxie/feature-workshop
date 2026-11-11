@@ -187,7 +187,7 @@ test('S1: a program Starbase does not know stops; the ones it does pass', () => 
     ['git bogus-subcommand', 'outside'], ['git fast-import', 'outside'], ['git bundle create x', 'outside'], ['git p upstream x', 'outside'], ['git apply x.patch', 'outside'], ['git hook run x', 'outside'], ['git filter-branch x', 'outside'],
     ['gh pr create --fill', 'ask'], ['gh pr view 1', null], ['gh bogus thing', 'outside'], ['gh extension install x', 'outside'],
     // file changes pass only inside
-    ['cp a b', null], ['cp ~/.zshrc x', 'outside'], ['cp /etc/passwd .', 'outside'], ['mv a b', null], ['mkdir -p sub/x', null], ['mkdir ../x', 'outside'], ['touch .', null], ['touch ~/x', 'outside'],
+    ['cp a b', null], ['cp ~/.zshrc x', 'ask'], ['cp /etc/passwd .', null], ['cp ~/.ssh/id_rsa x', 'outside'], ['cp a ~/x', 'outside'], // a cp source is read: anywhere a read passes (R13) ['mv a b', null], ['mkdir -p sub/x', null], ['mkdir ../x', 'outside'], ['touch .', null], ['touch ~/x', 'outside'],
     ['zip ~/x.zip y', 'outside'], ['zip out.zip y', null], ['unzip a.zip', null], ['ed ~/x', 'outside'], ['cpio -p ~/x', 'outside'], ['patch ~/x', 'outside'], ['truncate -s 0 ~/x', 'outside'], ['dd if=a of=b', 'ask'],
     ['sed -i s/a/b/ file', null], ['sed -i s/a/b/ ~/x', 'outside'], ['sed "s/a/b/w ~/x" f', 'outside'], ['sed -n "w ~/x" f', 'outside'], ['sed "s/a/b/w out.txt" f', 'ask'], ['sed s/a/b/ f', null],
     ['awk \'{print > "/etc/x"}\' f', 'outside'], ['awk \'{print $1}\' f', null], ["awk 'BEGIN{system(\"rm -rf ~\")}'", 'outside'], ['perl -i s/a/b/ ~/x', 'outside'], ['tee x', null], ['tee ~/x', 'outside'],
@@ -782,7 +782,7 @@ test('T3c: after a cd the folder is judged for every command that is not a read;
     [`npm --prefix ${O} test`, 'outside'], [`npm --prefix=${O} test`, 'outside'], [`npm test --prefix ${O}`, 'outside'], [`npm -C ${O} test`, 'outside'], [`npm install --prefix ${O} x`, 'outside'], [`pnpm --dir ${O} test`, 'outside'], [`pnpm -C ${O} test`, 'outside'],
     [`yarn --cwd ${O} test`, 'outside'], [`make -C ${O}`, 'outside'], [`make -f ${O}/Makefile`, 'outside'], [`make --directory=${O}`, 'outside'], [`cargo build --manifest-path ${O}/Cargo.toml`, 'outside'], [`tsc --outDir ${O}`, 'outside'], [`npx tsc --outDir ${O}`, 'outside'],
     [`go build -o ${O}/x`, 'outside'], [`pip install --target ${O} x`, 'outside'], ['pip install --target ../x y', 'outside'],
-    ['npm --prefix sub test', 'ask'], ['make -C sub', 'ask'], ['tsc --outDir dist', null], ['go build -o bin/x', null], ['cargo build --manifest-path sub/Cargo.toml', null],
+    ['npm --prefix sub test', null], ['npm --prefix ../.. test', 'outside'], // npm --prefix <folder> is cd <folder> && npm (R13) ['make -C sub', 'ask'], ['tsc --outDir dist', null], ['go build -o bin/x', null], ['cargo build --manifest-path sub/Cargo.toml', null],
   ]);
 });
 
@@ -1001,7 +1001,7 @@ test('T2: the shape of a plain command, and the files that change how tools run'
     ['ls && ls', null], ['ls || ls', null], ['ls; ls', null], ['ls | cat', null], ['ls\nls', null], ['ls;', null], ['ls\n', null], ['ls 2>&1', null], ['ls > /dev/null', null], ['ls 2> /dev/null', null], ['echo hi > notes.txt', null], ['echo hi >> notes.txt', null],
     ['echo "a b"', null], ["echo 'a $b'", null], ['echo "a * b"', null], ['ls *.js', null], ['NODE_ENV=test ls', null], ['! ls', null], ['if test -f a; then echo y; fi', null], ['if test -f a; then echo y; else echo n; fi', null], ['for f in a b; do echo x; done', null],
     ['ls && && ls', 'ask'], ['ls &&', 'ask'], ['&& ls', 'ask'], ['ls |', 'ask'], ['ls &', 'ask'], ['ls & ls', 'ask'], ['ls $(pwd)', 'ask'], ['ls `pwd`', 'ask'], ['ls $HOME', 'ask'], ['ls ${HOME}', 'ask'], ['echo "$X"', 'ask'], ['ls # note', 'ask'], ['ls {a,b}', 'ask'], ['ls {1..3}', 'ask'],
-    ['cat <<EOF\nx\nEOF', 'outside'], ['cat <<< x', 'ask'], ['cat < a.txt', null], ['ls <(ls)', 'ask'], ['ls >(cat)', 'outside'], ['ls |& cat', 'ask'], ['ls >| a', 'outside'], ['ls 2>&2', 'ask'], ['ls >& a', 'ask'], ['ls \\n', 'ask'], ['echo a\\ b', 'ask'], ['(ls)', 'ask'], ['{ ls; }', 'ask'],
+    ['cat <<EOF\nx\nEOF', 'outside'], ['cat <<< x', 'ask'], ['cat < a.txt', null], ['ls <(ls)', 'ask'], ['ls >(cat)', 'outside'], ['ls |& cat', 'ask'], ['ls >| a', 'outside'], ['ls 2>&2', 'ask'], ['ls >& a', 'ask'], ['ls \\n', 'ask'], ['echo a\\ b', 'ask'], ['(ls)', null], ['(ls) && ls', 'ask'], // a subshell that is the whole command is the line inside it (R13) ['{ ls; }', 'ask'],
     ['eval ls', 'outside'], ['source x', 'outside'], ['. x', 'outside'], ['export A=1', 'ask'], ['FOO=1 ls', 'ask'], ['FOO=1', 'ask'], ['env X=1 ls', 'ask'], ['time ls', 'ask'], ['nohup ls', 'ask'], ['xargs ls', 'ask'], ['trap x EXIT', 'outside'], ['ls ~root', 'ask'], ['echo x > ~root/a', 'outside'],
     ['echo x > a.txt && echo y > b.txt', null], ['echo x > ../elsewhere', 'outside'], ['echo x > a*.txt', 'outside'], ['ls 3>&1', 'ask'], ['echo ‮', 'ask'], ['ls\r', 'ask'], ['echo "a\\"b"', 'ask'], ['ls "unfinished', 'ask'],
     ['git commit -m "$(cat <<\'EOF\'\nFix it\nEOF\n)"', null], ['git commit -m "$(cat <<\'EOF\'\nFix it\nEOF\nrm -rf x\nEOF\n)"', 'outside'], ['git commit -m "$(cat <<EOF\nFix $X\nEOF\n)"', 'outside'], ['echo "$(cat <<\'EOF\'\nx\nEOF\n)"', 'ask'],
