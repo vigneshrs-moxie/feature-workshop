@@ -37,7 +37,7 @@ import { renderMarkdown, indexIds } from '../lib/markdown.js';
 import * as git from '../lib/git.js';
 import { recentRepos, checkRepo, reposDoor, ticketRepo, repoByName } from '../lib/repos.js';
 import { HttpError } from '../lib/http-guard.js';
-import { restartJob } from '../lib/restart.js';
+import { RestartFailed, restartJob } from '../lib/restart.js';
 import { liveTerminals } from '../lib/live.js';
 import { readHookSessions } from '../lib/hook-events.js';
 import { classify, matchRule, POLICIES } from '../lib/policy.js';
@@ -2446,6 +2446,12 @@ export async function createRunner(config) {
           // A refusal or a failure (put back, or part way) is on the record too, with what it says.
           if (autoWasOn && err instanceof Error) err.message = /Nothing was changed\.$/.test(err.message) ? err.message.replace(/Nothing was changed\.$/, AUTO_OFF_ONLY_CHANGE) : err.message + AUTO_OFF_FOR_RESTART;
           await state.audit({ action: 'restart-failed', featureDir: f.dir, slug: f.slug, model: body.model, error: String(err?.message ?? err), ...(err?.moved?.length ? { stillMoved: err.moved } : {}), ...(boundary && !err?.moved?.length ? { afterBoundary: true } : {}) }).catch(() => {});
+          // The restart's own sentence (what moved, what was put back, what happened to Auto) is the answer the page shows:
+          // 409 when nothing, or only Auto, changed and everything was put back; 500 when the job was left part way.
+          if (err instanceof RestartFailed) {
+            const partWay = err.moved?.length > 0;
+            throw new HttpError(partWay ? 500 : 409, err.message, { code: 'restart-failed', ...(partWay ? { stillMoved: err.moved } : {}) });
+          }
           throw err;
         }
         // State kept by the old job's folder starts fresh: the new job's folder is often the same path (a ticket job).

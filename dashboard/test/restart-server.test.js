@@ -11,7 +11,7 @@ import fsSync from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { STOP_HOOK } from '../lib/service.js';
@@ -282,6 +282,26 @@ function importsOf(file) {
   const text = fsSync.readFileSync(file, 'utf8');
   return [...text.matchAll(IMPORT)].map((m) => m[1] ?? m[2] ?? m[3]);
 }
+
+test('a failed restart answers with its own sentence: 409 when only Auto changed and everything was put back', async () => {
+  const { env, dirs } = await makeJob();
+  // The job's repository is a git repository, so the restart passes its checks and reaches its first move.
+  const repo = path.join(path.dirname(path.dirname(dirs.job)), 'sample-repo');
+  const git = (...a) => execFileSync('git', ['-C', repo, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...a], { stdio: 'pipe' });
+  git('init', '-q', '-b', 'main');
+  git('commit', '-q', '--allow-empty', '-m', 'base');
+  const b = await startDashboard(env);
+  try {
+    const on = await b.write('/api/job/sample-job/auto', { on: true });
+    assert.equal(on.status, 200, JSON.stringify(on.body));
+    // The archive folder can't be made (a file is in its place): the first move fails and is put back.
+    await fs.writeFile(path.join(path.dirname(dirs.job), '.restarted'), 'not a folder');
+    const r = await b.write('/api/job/sample-job/restart', { model: 'claude-fable-5-2' });
+    assert.equal(r.status, 409, JSON.stringify(r.body));
+    assert.match(r.body.error, /^The restart did not start: .* Only Auto changed: it was switched off for the restart\. Turn it on again if you want it\.$/);
+    assert.equal(r.body.code, 'restart-failed');
+  } finally { await b.stop(); }
+});
 
 test('dashboard/site/ imports no driver, local runner, lock or child_process, directly or through what it imports', () => {
   const siteDir = path.join(DASHBOARD, 'site');
