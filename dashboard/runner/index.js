@@ -366,14 +366,25 @@ export async function createRunner(config) {
   }
   /**
    * Called under the job's Auto lock right before Auto's own answer goes (a gate reply or a card decision): refuses unless
-   * Auto is on and not stopped and the job is not being closed, restarted or archived, nor closed. The refusal's code,
-   * 'auto-gone', is one the pass treats as moved on: nothing is sent and no failure is counted.
+   * the job's level allows Auto (options.json, read first), Auto is on and not stopped, and the job is not being closed,
+   * restarted or archived, nor closed. The refusal's code, 'auto-gone', is one the pass treats as moved on: nothing is
+   * sent and no failure is counted.
+   *
+   * Keep the record check the last thing before driver.start / driver.decide. That there is no window between the check
+   * and the start rests on state.sessionFor answering from memory: nothing that reads a file (or waits on anything else)
+   * may be put between the record check and the start, or a click could land in between again.
    */
   async function autoMaySend(dir) {
+    const gone = () => new HttpError(409, 'Auto was switched off or stopped, the job left Auto for its level, or the job is being closed or restarted, before its answer went. Nothing was sent.', { code: 'auto-gone' });
+    // The level first (a file read): set to L3 at the door, the answer does not go.
+    let level = null;
+    try { level = (await readOptions(dir))?.level ?? null; } catch { level = null; }
+    if (!autoAllowed({ level: Number.isInteger(level) ? level : null }).ok) throw gone();
+    // Then the record, from memory, last.
     const saved = await state.sessionFor(dir);
     const rec = saved?.auto ?? null;
     if (rec?.on === true && !rec.stopped && !saved?.closed && !closing.has(dir) && !restarting.has(dir) && !autoArchiving.has(dir)) return;
-    throw new HttpError(409, 'Auto was switched off or stopped, or the job is being closed or restarted, before its answer went. Nothing was sent.', { code: 'auto-gone' });
+    throw gone();
   }
   const autoFieldsOf = (o) => ({ on: o?.auto === true, since: o?.auto_since, any: Boolean(o) && (Object.hasOwn(o, 'auto') || Object.hasOwn(o, 'auto_since')) });
   /** Options with Auto's two fields as the record says (autoOption), for any write of options.json. */

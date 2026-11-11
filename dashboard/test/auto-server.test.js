@@ -2793,6 +2793,29 @@ test('I1 (card): Auto switched off after the card\'s last check, at the driver\'
   } finally { await w.stop(); }
 });
 
+test('N4 (level-door): the person sets the job to L3 at the driver\'s door: nothing is sent, no failure is counted, and the cost is on a line', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    let did = false;
+    w.hooks.atAutoDoor = async ({ kind }) => {
+      if (kind !== 'gate' || did) return;
+      did = true;
+      await w.runner.handle({ type: 'options', slug: w.slug, level: 3 }, { from: 'local' });
+    };
+    await w.pass();
+    await w.idle();
+    assert.ok(did);
+    assert.equal((await w.sends()).filter((x) => x.by === 'auto').length, 0, 'nothing sent');
+    assert.equal(w.texts.length, 0);
+    assert.equal((await w.record()).failures ?? 0, 0, 'no failure counted');
+    await new Promise((r) => setTimeout(r, 1700));
+    await w.pass();
+    const rec = await w.record();
+    assert.equal(rec.on, false, 'the job left Auto for L3');
+    assert.ok(Math.abs((await costOnLines(w)) - 0.12) < 1e-9, 'the Approver\'s cost is on a line');
+  } finally { await w.stop(); }
+});
+
 test('I1 (close): a job closed while Auto\'s approval is on its way ends closed, with no reply running', { timeout: 30_000 }, async () => {
   const w = await world();
   try {
