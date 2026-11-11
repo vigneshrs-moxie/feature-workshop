@@ -40,7 +40,7 @@ import { HttpError } from '../lib/http-guard.js';
 import { restartJob } from '../lib/restart.js';
 import { liveTerminals } from '../lib/live.js';
 import { readHookSessions } from '../lib/hook-events.js';
-import { classify, matchRule, POLICIES } from '../lib/policy.js';
+import { classify, githubOwner, matchRule, POLICIES } from '../lib/policy.js';
 import { RuleStore, RuleError, validateRule, describeRule } from '../lib/rules.js';
 import { buildOverview, parseBrief } from '../lib/overview.js';
 import { LimitWatch } from '../lib/limits.js';
@@ -299,8 +299,12 @@ export async function createRunner(config) {
   // so auto mode's safety model knows the job's repo, fork and org remote. Added to your settings.
   // Auto mode: does your go-ahead already cover this hard line (lib/hard-lines.js goAheadCovers)?
   async function goAheadFor(run, toolName, input) {
-    const { f, worktrees } = await jobContext(run);
-    return goAheadCovers(toolName, input, { mode: await state.policyFor(run.featureDir), stage: f?.stage ?? null, worktrees, featureDir: run.featureDir, cwd: run.cwd });
+    const { f, repo, worktrees, branches } = await jobContext(run);
+    // A pull request is covered only into the job's own branch, from it or the fork's copy of it (I7): the fork's owner from git.
+    const hit = repo && local.registry ? await local.registry.profileFor(repo).catch(() => null) : null;
+    const fork = stackRules(hit?.ok ? hit.profile : null).fork;
+    const forkOwner = githubOwner((await cachedRemotes(repo)).find((r) => r.name === fork)?.url);
+    return goAheadCovers(toolName, input, { mode: await state.policyFor(run.featureDir), stage: f?.stage ?? null, worktrees, featureDir: run.featureDir, cwd: run.cwd, branches, forkOwner });
   }
 
   // What Auto's fixed stop list (lib/auto-rules.js) needs to know about a job: its folders, its fork

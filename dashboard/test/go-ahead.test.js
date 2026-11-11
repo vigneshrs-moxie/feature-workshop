@@ -15,7 +15,7 @@ import { autoModeEnvironment, remotesOf } from '../lib/auto-env.js';
 
 const WT = '/r/orbit-x';
 const JOB = '/home/me/.claude/feature-work/x';
-const ctx = (over = {}) => ({ mode: 'auto', stage: 'pr1', worktrees: [WT], featureDir: JOB, cwd: '/r/moxie-portal', ...over });
+const ctx = (over = {}) => ({ mode: 'auto', stage: 'pr1', worktrees: [WT], featureDir: JOB, cwd: '/r/moxie-portal', branches: ['feature/x'], ...over });
 const covers = (command, over) => goAheadCovers('Bash', { command }, ctx(over));
 // A temp folder as a command spells it: /tmp on macOS and Linux; on Windows /tmp isn't one to node
 // (lib/platform.js tempDirs), so the Windows temp folder, written with / the way Git Bash takes it.
@@ -25,12 +25,14 @@ const TMP = process.platform === 'win32' ? os.tmpdir().replaceAll('\\', '/') : '
 
 test('go-ahead: at a PR stage in auto mode, pushes to your fork and opening the PR are covered', () => {
   for (const stage of PR_STAGES) {
-    for (const command of ['git push -u origin feature/x', 'git -C /r/orbit-x push origin feature/x', 'cd /r/orbit-x && git push origin feature/x && gh pr create --repo org/app --base staging --fill', 'timeout 60 git push origin x']) {
+    for (const command of ['git push -u origin feature/x', 'git -C /r/orbit-x push origin feature/x', 'cd /r/orbit-x && git push origin feature/x && gh pr create --repo org/app --base feature/x --fill', 'timeout 60 git push origin x']) {
       assert.ok(covers(command, { stage }), `${stage}: ${command}`);
     }
   }
   assert.match(covers('git push origin x').reason, /approved the PR stage/);
-  assert.match(covers('gh pr create --fill').reason, /pull request/);
+  assert.match(covers('gh pr create --fill --base feature/x').reason, /pull request/);
+  // deep review A, I7: only into the job's own branch, with no reviewer
+  for (const c of ['gh pr create --fill', 'gh pr create --repo org/app --base staging --fill', 'gh pr create --base feature/x -r someone --fill']) assert.equal(covers(c), null, c);
 });
 
 test('go-ahead: before the PR stage, or in the other settings, a push still asks', () => {

@@ -37,7 +37,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { classify, commandParts, isInside, NOT_DB_SCRIPT, orgRefWrite, resolvePath, splitCommand, TEMP_DIRS } from './policy.js';
+import { classify, commandParts, isInside, NOT_DB_SCRIPT, orgRefWrite, prCreateProblem, resolvePath, splitCommand, TEMP_DIRS } from './policy.js';
 import { PRODUCT } from './brand.js';
 
 /**
@@ -626,6 +626,11 @@ export function goAheadCovers(toolName, input = {}, ctx = {}) {
     if (!verdict) continue;
     if (verdict.decision !== 'ask') return null;
     if (verdict.line === 'git-push' && part.words.some((w) => w.t === '-c')) return null; // a push with a -c in front is never covered (I6)
+    if (verdict.line === 'gh-pr-create') { // covered only into the job's own branch, from it, with no reviewer (I7)
+      const w = part.words.map((x) => x.t);
+      const at = w.indexOf('create');
+      if (part.words.some((x) => x.dyn) || at < 0 || prCreateProblem(w.slice(at + 1), { branches: ctx.branches ?? [], forkOwner: ctx.forkOwner ?? null })) return null;
+    }
     if ((verdict.line === 'git-push' || verdict.line === 'gh-pr-create') && PR_STAGES.has(ctx.stage)) reasons.add(verdict.line === 'git-push' ? PUSH_COVERED : PR_COVERED);
     else if (verdict.line === 'rm-rf' && rmInsideJob(part.words, part.cwd, ctx)) reasons.add(RM_COVERED);
     else return null;

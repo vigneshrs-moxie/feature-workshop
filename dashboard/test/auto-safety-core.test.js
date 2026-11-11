@@ -517,3 +517,17 @@ test('I6: the hard lines forget where a remote pushes after a git setting change
   } finally { d.done(); }
 });
 
+test('I7: gh pr create is plain, and covered at the PR stage, only into the job\'s branch with no reviewer and no other head', () => {
+  const o = orbitWorld();
+  try {
+    const ctx = orbitCtx(o);
+    const pr1 = `gh pr create --repo moxie-org/orbit --head test:${BRANCH} --base ${BRANCH} --title "Thing" --body-file ${o.wt}/pr1-body.md`; // the workflow's own PR #1 call
+    for (const c of [pr1, `gh pr create --title T --body B --base ${BRANCH}`, `gh pr create --title T --body B --base ${BRANCH} --head ${BRANCH}`, `gh pr create --fill --base ${BRANCH}`]) assert.equal(bash(c, ctx), null, c);
+    for (const c of ['gh pr create --title T --body B --reviewer some-colleague', `gh pr create --title T --body B --base ${BRANCH} --reviewer some-colleague`, `gh pr create --title T --body B --base ${BRANCH} -r some-colleague`,
+      'gh pr create --title T --body B --base main --head feature/x', 'gh pr create --title T --body B --base staging', `gh pr create --title T --body B --base ${BRANCH} --head someone-else:their-branch`,
+      `gh pr create --title T --body B --base ${BRANCH} --head someone-else:${BRANCH}`, 'gh pr create --fill', 'gh pr create --title T --body B']) assert.equal(bash(c, ctx), 'ask', c);
+    const cover = (c) => goAheadCovers('Bash', { command: c }, { mode: 'auto', stage: 'pr1', worktrees: [o.wt], featureDir: JOB, cwd: o.wt, branches: [BRANCH], forkOwner: 'test' });
+    assert.notEqual(cover(pr1), null, 'the workflow\'s own call is covered at the PR stage');
+    for (const c of ['gh pr create --fill', 'gh pr create --title T --body B --base staging', `gh pr create --title T --body B --base ${BRANCH} -r x`, `gh pr create --base ${BRANCH} --head someone:${BRANCH} --title T --body B`]) assert.equal(cover(c), null, c);
+  } finally { o.done(); }
+});

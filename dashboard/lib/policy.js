@@ -89,6 +89,39 @@ export function orgRefWrite(args) {
   return { branch, sha: f.sha };
 }
 
+/**
+ * gh pr create's words (after "create"): null when it opens a pull request into one of the job's branches
+ * (--base given and one of `branches`), from the job's branch (--head absent, or a job branch, with the fork's
+ * owner in front if any) and asks nobody to review it; else the reason in plain words (I7).
+ */
+export function prCreateProblem(words, { branches = [], forkOwner = null } = {}) {
+  let base = null;
+  let head = null;
+  let reviewer = false;
+  for (let k = 0; k < words.length; k++) {
+    const x = String(words[k]);
+    let m;
+    if (x === '--base' || x === '-B') base = String(words[++k] ?? '');
+    else if ((m = /^(?:--base=|-B)(.+)$/.exec(x))) base = m[1];
+    else if (x === '--head' || x === '-H') head = String(words[++k] ?? '');
+    else if ((m = /^(?:--head=|-H)(.+)$/.exec(x))) head = m[1];
+    else if (/^(--reviewer|-r)(=|$)/.test(x) || /^-r./.test(x)) reviewer = true;
+  }
+  const own = (branches ?? []).filter(Boolean);
+  if (reviewer) return 'a pull request that asks someone to review it';
+  if (!base) return 'a pull request with no --base';
+  if (!own.includes(base)) return 'a pull request into a branch that is not the job\'s';
+  if (head !== null) {
+    const m = /^(?:([^:]+):)?(.+)$/.exec(head);
+    if (!m || !own.includes(m[2])) return 'a pull request from a branch that is not the job\'s';
+    if (m[1] && !(forkOwner && m[1].toLowerCase() === String(forkOwner).toLowerCase())) return 'a pull request from someone else\'s branch';
+  }
+  return null;
+}
+
+/** The owner in a GitHub address (git@github.com:owner/repo.git, https://github.com/owner/repo), or null. */
+export const githubOwner = (url) => /github\.com[:/]+([\w.-]+)\/[\w.-]+?(?:\.git)?\/?$/i.exec(String(url ?? ''))?.[1] ?? null;
+
 export const NOT_DB_SCRIPT = /^db:(renumber|status|check|generate|validate|diff|lint|format)$/;
 const SUB = '\u0000sub\u0000'; // stands in for a $( … ) whose own commands are judged separately
 // ${name}, ${#name}, ${name:-word}, ${name%pat} and the like; not assignments, indirection, flags or @ operators.

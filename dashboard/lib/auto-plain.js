@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { isInside } from './policy.js';
+import { githubOwner, isInside, prCreateProblem } from './policy.js';
 import { namesThisComputer, physicalPath } from './hard-lines.js';
 
 const inRoots = (p, roots, strict = false) => Boolean(p) && roots.some((r) => isInside(p, r) && !(strict && p === r));
@@ -560,6 +560,13 @@ function ghCheck(args, ctx) {
   const rest = args.filter((_, k) => k !== args.findIndex((x) => x.t === group) && k !== at);
   const { pos, vals } = check(sp, rest, ctx, `gh ${group} ${action}`);
   for (const [f, x] of vals) if (['--body-file', '-F'].includes(f) && SECRET_NAME.test(path.basename(x.t))) ask('a body file with a secret name');
+  // Only into the job's own branch, from it, and asking nobody to review (I7).
+  if (group === 'pr' && action === 'create') {
+    const c = ctx.ctx ?? {};
+    const forkOwner = (() => { try { return githubOwner(typeof c.remoteUrl === 'function' ? c.remoteUrl(c.forkRemote || 'origin') : null); } catch { return null; } })();
+    const problem = prCreateProblem(rest.map((x) => x.t), { branches: c.branches ?? [], forkOwner });
+    if (problem) ask(problem);
+  }
   // --repo / -R only names the job's own org repository, as its org remote's address says (I2).
   const own = typeof ctx.ctx?.orgRepo === 'string' ? ctx.ctx.orgRepo.toLowerCase() : null;
   for (const [f, x] of vals) if (['--repo', '-R'].includes(f) && !(own && String(x.t).toLowerCase() === own)) ask('a pull request on a repository that is not the job\'s own');
