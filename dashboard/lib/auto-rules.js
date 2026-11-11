@@ -368,7 +368,7 @@ function bashVerdict(whole, hard, ctx) {
 function setupStep(command, ctx) {
   const at = typeof ctx.cwd === 'string' && ctx.cwd ? physicalPath(ctx.cwd, null) : null;
   const main = typeof ctx.mainCheckout === 'string' ? physicalPath(ctx.mainCheckout, null) : null;
-  if (!at || !((main && at === main) || inRoots(at, jobRoots(ctx)))) return null;
+  if (!at || !main) return null; // the gate opens from the main checkout only (R11); a -C must name it too
   const parts = commandParts(command, ctx.cwd);
   // One form, or two of the git forms joined by && (R4): each half is judged by its own form, and one wrong half is the whole line's.
   if (!parts || !(parts.length === 1 || (parts.length === 2 && parts[0].sep === '&&')) || parts.some((p) => p.sub || (p.redirects ?? []).length || p.words.some((w) => w.dyn))) return null;
@@ -387,8 +387,12 @@ function setupForm(words, at, main, ctx) {
     here = main;
     w = ['git', ...w.slice(3)];
   }
+  if (here !== main) return null;
   const remotes = [ctx.forkRemote || 'origin', ctx.orgRemote].filter((r) => typeof r === 'string' && r && (() => { try { return Boolean(ctx.remoteUrl?.(r)); } catch { return false; } })());
-  const branchName = (b) => /^[A-Za-z0-9][\w./-]*$/.test(b) && !b.split('/').includes('..') && !b.endsWith('/') && !b.endsWith('.lock');
+  // Never HEAD, a full ref, a name that starts with a remote's name, or one git would read as a range or refuse (R11).
+  const remoteNamed = (b) => { const first = b.split('/')[0]; return [ctx.forkRemote || 'origin', 'origin', ctx.orgRemote, ...ORG_REMOTES].includes(first) || (() => { try { return Boolean(ctx.remoteUrl?.(first)); } catch { return true; } })(); };
+  const branchName = (b) => /^[A-Za-z0-9][\w./-]*$/.test(b) && !b.includes('..') && !b.endsWith('/') && !b.endsWith('.') && !b.endsWith('.lock') && b !== 'HEAD' && !b.startsWith('refs/');
+  const newBranch = (b) => branchName(b) && !(b.includes('/') && remoteNamed(b));
   if (w[0] === 'git' && w[1] === 'fetch' && (w.length === 3 || (w.length === 4 && w[3] === '--prune')) && remotes.includes(w[2])) return true;
   if (w[0] === 'git' && w[1] === 'ls-remote' && w.length === 5 && w[2] === '--heads' && remotes.includes(w[3]) && branchName(w[4])) return true;
   if (w[0] === 'git' && w[1] === 'worktree' && w[2] === 'add' && w[3] === '-b' && w.length === 7) {
@@ -397,10 +401,10 @@ function setupForm(words, at, main, ctx) {
     const where = physicalPath(place, here);
     const places = (s.worktrees ?? []).map((x) => physicalPath(x, null)).filter(Boolean);
     const never = PROTECTED.test(branch) || /^(main|master|staging|develop)$/i.test(branch) || (s.never ?? []).includes(branch);
-    if (where && places.includes(where) && (s.starts ?? []).includes(start) && branchName(branch) && !never && !(s.taken ?? []).includes(branch)) return true;
+    if (where && places.includes(where) && (s.starts ?? []).includes(start) && newBranch(branch) && !never && !(s.taken ?? []).includes(branch)) return true;
     return null;
   }
-  if (words === w && w[0] === 'gh' && w[1] === 'api' && main && at === main) { const why = orgBranchCall(w.slice(2), ctx); if (why) return why; }
+  if (words === w && w[0] === 'gh' && w[1] === 'api') { const why = orgBranchCall(w.slice(2), ctx); if (why) return why; }
   return null;
 }
 
@@ -1427,6 +1431,7 @@ function gitStep(args, assigns, cwd, st, xargs) {
   const a = sargs.map((x) => x.t);
   if (!sub) return;
   if (!GIT_READ.has(sub) && !GIT_LOCAL.has(sub)) { hit('outside'); st.unknown = true; return; } // a subcommand (or alias) we don't know
+  const readForm = gitReadForm(sub, sargs);
   const inWork = eff && st.work.some((w) => isInside(eff, w));
   if (a.some((x) => /^--(git-dir|work-tree)(=|$)/.test(x))) { hit('outside'); return; } // acts on another folder
   if (changesBranch(sub, a)) st.branchChange = true;
@@ -1446,6 +1451,12 @@ function gitStep(args, assigns, cwd, st, xargs) {
     return;
   }
   if (risky || foreign) { hit(foreign && !GIT_READ.has(sub) ? 'outside' : 'outside'); return; }
+  // A branch or tag named <org remote>/…: git then reads the allowed start <org>/main as that name (R11).
+  if ((sub === 'branch' || sub === 'tag') && !readForm) {
+    const orgs = [ctx.orgRemote, ...ORG_REMOTES].filter(Boolean);
+    const names = sargs.filter((x, k) => !x.t.startsWith('-') && !/^(-m|--message|-F|--file|-u|--local-user|--contains|--points-at|--merged|--no-merged|--sort|--format)$/.test(a[k - 1] ?? ''));
+    if (names.some((x) => x.dyn || orgs.some((o) => x.t.startsWith(`${o}/`) || x.t.startsWith(`refs/heads/${o}/`) || x.t.startsWith(`refs/tags/${o}/`)))) hit('outside');
+  }
   if (sub === 'remote' && ['add', 'set-url', 'rename', 'remove', 'rm', 'set-head', 'set-branches'].includes(a[0])) { hit('push'); return; }
   // A branch's upstream set to anything but the fork redirects a later push (I6); any change of a git setting in the call holds a push in it.
   if (sub === 'branch') {
@@ -1456,7 +1467,6 @@ function gitStep(args, assigns, cwd, st, xargs) {
       if (sargs.some((x) => x.dyn) || !v.startsWith(`${ctx.forkRemote || 'origin'}/`)) hit('push');
     }
   }
-  const readForm = gitReadForm(sub, sargs);
   if (sub === 'remote' && a.length && !readForm) st.gitSetting = true;
   if (sub === 'config') {
     const read = a.some((x) => /^(--get|--get-all|--get-regexp|--list|-l|--get-urlmatch)$/.test(x));

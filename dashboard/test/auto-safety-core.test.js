@@ -791,8 +791,9 @@ test('N7: the workflow\'s set-up lines run from the main checkout in their exact
   for (const c of ['git fetch moxie --prune', 'git fetch moxie', 'git fetch origin', `git ls-remote --heads origin ${BRANCH}`, `git ls-remote --heads moxie ${BRANCH}`,
     `git worktree add -b ${BRANCH} ../orbit-orbit-500-thing moxie/main`, `git worktree add -b ${BRANCH} ${WT} moxie/main`]) assert.equal(bash(c, ctx), null, c);
   assert.equal(bash(`gh api -X POST repos/moxie-org/orbit/git/refs -f ref=refs/heads/${BRANCH} -f sha=${'a'.repeat(40)}`, ctx), 'ask', 'the org-branch call asks from the main checkout as from the worktree');
-  // The same from a folder of the job's.
-  for (const c of ['git fetch moxie --prune', `git ls-remote --heads origin ${BRANCH}`]) assert.equal(bash(c, C5CTX({ orgRemote: 'moxie', setup })), null, c);
+  // From a folder of the job's the gate is shut (R11): the lines answer by the ordinary rules (a fetch in the worktree passes, ls-remote asks).
+  assert.equal(bash('git fetch moxie --prune', C5CTX({ orgRemote: 'moxie', setup })), null);
+  assert.equal(bash(`git ls-remote --heads origin ${BRANCH}`, C5CTX({ orgRemote: 'moxie', setup })), 'ask');
   // One thing wrong: as today (a stop or an ask, never a pass).
   for (const c of ['git fetch upstream', 'git fetch git@github.com:someone/orbit.git', 'git fetch moxie --prune --tags', `git ls-remote --heads git@github.com:x/y.git ${BRANCH}`, `git ls-remote --heads upstream ${BRANCH}`,
     `git ls-remote --heads origin ${BRANCH} other`, `git worktree add -b ${BRANCH} ../somewhere-else moxie/main`, `git worktree add -b ${BRANCH} ../orbit-orbit-500-thing origin/main`,
@@ -1067,4 +1068,20 @@ test('R12: a worktree named by status.json is the job\'s only when its folder na
   const named = async (wt) => (await verifiedJobContext({ featureDir: JOB, slug: 'orbit-500-thing', f: { worktree: wt }, recordedRepo: REPO, git: gitOf({ list: listed }) })).worktrees;
   for (const wt of [`${P}/orbit-orbit-500-thing-else-mine`, `${P}/scratch`, `${P}/orbit-orbit-500-thing-v2`]) assert.deepEqual(await named(wt), [], wt);
   for (const wt of [`${P}/orbit-500-thing`, `${P}/wt-orbit-500-thing`]) assert.deepEqual(await named(wt), [wt], wt);
+});
+
+test('R11: the set-up gate refuses odd branch names and opens from the main checkout only; a branch or tag named <org remote>/… stops', () => {
+  const setup = { worktrees: [WT], starts: ['moxie/main'], taken: ['main'] };
+  const ctx = C5CTX({ cwd: REPO, orgRemote: 'moxie', setup });
+  const add = (b) => `git worktree add -b ${b} ../orbit-orbit-500-thing moxie/main`;
+  assert.equal(bash(add(BRANCH), ctx), null, 'control');
+  for (const b of ['HEAD', 'refs/heads/main', 'refs/x', 'origin/main', 'moxie/main', 'moxie/feature-x', 'origin/feature-x', 'a..b', 'feature/x.', 'feature/x..y']) assert.notEqual(bash(add(b), ctx), null, b);
+  // From the job folder or a temp folder the gate stays shut: the lines answer as they would without it.
+  for (const cwd of [JOB, '/tmp']) {
+    for (const c of ['git fetch moxie --prune', `git ls-remote --heads origin ${BRANCH}`, add(BRANCH)]) assert.notEqual(bash(c, C5CTX({ cwd, orgRemote: 'moxie', setup })), null, `${cwd}: ${c}`);
+  }
+  // In the worktree: a branch or a tag named after the org remote stops; others pass.
+  const wt = C5CTX({ orgRemote: 'moxie' });
+  for (const c of ['git branch moxie/main', 'git branch moxie/main HEAD', 'git tag moxie/main', 'git tag -a moxie/v1 -m "x"', 'git branch -f moxie/main', 'git branch -m old moxie/main']) assert.equal(bash(c, wt), 'outside', c);
+  for (const c of ['git branch feature/x', 'git tag v1', 'git branch --list "moxie/*"']) assert.equal(bash(c, wt), null, c);
 });
