@@ -153,10 +153,12 @@ async function remoteCheck(git, repo, branch) {
  * back when a later step fails).  clearOldState(): async, called just before the new job starts, clears
  * what the old job's folder kept (its own permission setting, pause, run end) and returns an async function
  * that puts it back, called when the start fails.  parked: { read(dir) → entries, forget(dir) }, replies and go-aheads
- * waiting to be sent for the job (the usage limit's list).
+ * waiting to be sent for the job (the usage limit's list).  beforeMoves(): async, no arguments, called once, after the last
+ * refusal has passed and the plan is made, before the first thing is moved (the caller's own last-moment bookkeeping that a
+ * refusal must not trigger).
  * Returns { slug, archive, backupBranch, worktreeAside, run }.
  */
-export async function restartJob(job, { model, git = realGit, fs = fsp, start, session = null, parked = null, clearOldState = null, today = dated() }) {
+export async function restartJob(job, { model, git = realGit, fs = fsp, start, session = null, parked = null, clearOldState = null, beforeMoves = null, today = dated() }) {
   const notes = [];
   if (job.running) throw new HttpError(409, 'Stop the reply first.');
   if (job.terminalOpen) throw new HttpError(409, 'Claude Code is open on this job in a terminal. Close it (type /exit there) and try again. Nothing was changed.');
@@ -208,6 +210,8 @@ export async function restartJob(job, { model, git = realGit, fs = fsp, start, s
     existingArchives: (await siblings(archiveRoot)).map((n) => path.join(archiveRoot, n)),
     existingPaths: worktree ? (await siblings(path.dirname(worktree))).map((n) => path.join(path.dirname(worktree), n)) : [],
   });
+
+  if (beforeMoves) await beforeMoves();
 
   const moved = []; // each: { what, from, to, undo }
   // Put back what moved, newest first. Stops at the first step that cannot be put back.

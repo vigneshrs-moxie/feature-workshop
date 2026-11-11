@@ -1805,17 +1805,23 @@ test('K2: the confirmation has no Auto sentence for a job whose Auto was off', {
   } finally { await w.stop(); }
 });
 
-test('K2: nothing writes the Auto record while the job is being restarted (an Approver answer arriving then adds nothing)', { timeout: 60_000 }, async () => {
+test('K2: an Approver answer arriving after the restart switched Auto off adds nothing to the archived record, and its cost has its own line', { timeout: 60_000 }, async () => {
   let w;
+  let res = null;
   w = await restartedWorld({
     auto: { ...autoRecord(null, { on: true, now: OLD }), spent: 0.3 },
-    ask: (task) => { w.runner.auto.restarting.add(w.dir); return goodAnswer(task); },
+    ask: async (task) => { res = await w.runner.handle({ type: 'restart', slug: w.slug, model: FABLE }, { from: 'local' }); return goodAnswer(task); },
   });
   try {
     await w.pass();
-    assert.equal(w.asks.length, 1);
-    assert.equal((await w.record()).spent, 0.3, 'unchanged: the answer\'s cost is not added to a record about to be archived');
-    assert.deepEqual(await w.sends(), []);
+    assert.ok(res, 'the restart ran while the Approver was thinking');
+    const archived = JSON.parse(await fs.readFile(path.join(res.archive, 'session-record.json'), 'utf8'));
+    assert.equal(archived.auto.spent, 0, 'unchanged by the late answer');
+    assert.equal((await w.autoLines('off'))[0].costUsd, 0.3);
+    const cost = (await w.autoLines('cost'));
+    assert.equal(cost.length, 1, 'the late answer\'s money is on a line of its own');
+    assert.equal(cost[0].costUsd, 0.12);
+    assert.equal((await w.sends()).filter((l) => l.by === 'auto').length, 0);
   } finally { await w.stop(); }
 });
 
@@ -2095,5 +2101,39 @@ test('L8: marked done by hand with PR #1 open and Auto on: one notice, not two',
     const crossings = doneNotes(w).filter((n) => !/^Landed/.test(n.body));
     assert.equal(crossings.length, 1, JSON.stringify(crossings.map((n) => [n.title, n.body])));
     assert.ok(!crossings.some((n) => /^Auto finished/.test(n.title)), 'not Auto\'s too');
+  } finally { await w.stop(); }
+});
+
+// ---------- Round 2: R1 a refused restart leaves Auto alone ----------
+
+test('R1: a restart that restartJob refuses leaves Auto exactly as it was, and its gate is still answered', { timeout: 60_000 }, async () => {
+  const w = await restartedWorld({ auto: { ...autoRecord(null, { on: true, now: OLD }), spent: 0.3 }, jobStatus: status(1, { stack: 'some-coordinator' }) });
+  try {
+    await assert.rejects(w.runner.handle({ type: 'restart', slug: w.slug, model: FABLE }, { from: 'local' }), /stack/);
+    const rec = await w.record();
+    assert.equal(rec.on, true);
+    assert.equal(rec.spent, 0.3, 'unchanged');
+    assert.equal((await w.autoLines('off')).length, 0, 'no off line');
+    assert.equal((await w.optionsFile()).auto, true, 'options.json still says Auto');
+    await w.pass();
+    assert.equal(w.asks.length, 1, 'the next pass answers its gate');
+  } finally { await w.stop(); }
+});
+
+test('R1: a restart that fails after the moves began and is put back leaves Auto off, with the money on one off line and the sentence in the error', { timeout: 60_000 }, async () => {
+  const w = await restartedWorld({ auto: { ...autoRecord(null, { on: true, now: OLD }), spent: 0.3 }, });
+  try {
+    // The archive folder can't be made (a file is in its place): the job folder's move fails after the hook has run, and is put back.
+    await fs.writeFile(path.join(w.dirs.features, '.restarted'), 'not a folder');
+    let err = null;
+    try { await w.runner.handle({ type: 'restart', slug: w.slug, model: FABLE }, { from: 'local' }); } catch (e) { err = e; }
+    assert.ok(err, 'the restart failed');
+    assert.match(err.message, / Auto was switched off for the restart\. Turn it on again if you want it\.$/);
+    const off = await w.autoLines('off');
+    assert.equal(off.length, 1);
+    assert.equal(off[0].costUsd, 0.3);
+    assert.equal((await w.record()).on, false);
+    const failed = (await w.lines()).filter((l) => l.action === 'restart-failed').at(-1);
+    assert.match(failed.error, / Auto was switched off for the restart\. Turn it on again if you want it\.$/);
   } finally { await w.stop(); }
 });

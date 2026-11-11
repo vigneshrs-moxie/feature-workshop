@@ -223,6 +223,9 @@ export async function createRunner(config) {
   const closing = new Set();
   // Jobs (by folder) being started again on another model right now: nothing else is sent to them.
   const restarting = new Set();
+  // Jobs whose Auto a restart has switched off (inside restartJob's beforeMoves), until that restart ends.
+  const autoArchiving = new Set();
+  const AUTO_OFF_FOR_RESTART = ' Auto was switched off for the restart. Turn it on again if you want it.';
   const BEING_RESTARTED = 'This job is being started again on another model right now. Wait for that to finish.';
   // Jobs whose reply the last stop cut off (runner/replay.js), by job folder: { how: 'clean' (it
   // carries on by itself) or 'crash' (it waits for Resume), at, runId, sessionId, cwd, model, slug }.
@@ -1449,8 +1452,8 @@ export async function createRunner(config) {
   function updateAuto(dir, fn) {
     return autoLocked(dir, async () => {
       const prev = (await state.sessionFor(dir))?.auto ?? null;
-      // A restart is archiving this job's record: nothing writes it meanwhile.
-      if (restarting.has(dir)) return prev;
+      // A restart has switched Auto off and is archiving this job's record: nothing writes it until the restart ends.
+      if (autoArchiving.has(dir)) return prev;
       const next = fn(prev);
       if (!next) return prev;
       await state.setSession(dir, { auto: next });
@@ -1472,6 +1475,7 @@ export async function createRunner(config) {
       wasOn = prev?.on === true;
       const owed = prev?.spent > 0 ? prev.spent : 0;
       if (!wasOn && !owed) return;
+      if (via === 'restart') autoArchiving.add(f.dir);
       const next = { ...autoRecord(prev, { on: false, by: 'you' }), spent: 0 };
       await state.setSession(f.dir, { auto: next });
       await auditAuto({ action: 'auto', what: 'off', by: 'you', via, featureDir: f.dir, slug: f.slug, stage: f.stage ?? null, asked: '', chose: '', why: '', ...(owed ? { costUsd: owed } : {}) });
@@ -2309,7 +2313,7 @@ export async function createRunner(config) {
         };
         // Auto does not follow the job to its new start. Its money not yet on a line goes on an `off` line now,
         // under the job's Auto lock, before the record is archived; nothing writes the record from here (updateAuto).
-        const autoWasOn = await autoOff(f, 'restart');
+        let autoWasOn = false;
         let out;
         let policyCleared = false;
         let boundary = false;
@@ -2320,6 +2324,8 @@ export async function createRunner(config) {
             parked: { read: async (dir) => limits.entriesFor(dir), forget: (dir) => limits.forget(dir) },
             // The old job's own permission setting, pause and run end are cleared before the new job starts, so its
             // first tool call never runs under them; put back when the restart is undone.
+            // Auto goes off only once no refusal can come any more (restartJob calls this just before it moves anything).
+            beforeMoves: async () => { autoWasOn = await autoOff(f, 'restart'); },
             clearOldState: async () => {
               // The boundary: the old folder is archived, nothing of the new job is written yet. Every reader of this
               // folder's lines starts here (state.auditFor). If it can't be written the restart is put back.
@@ -2342,6 +2348,7 @@ export async function createRunner(config) {
           });
         } catch (err) {
           // A refusal or a failure (put back, or part way) is on the record too, with what it says.
+          if (autoWasOn && err instanceof Error) err.message += AUTO_OFF_FOR_RESTART;
           await state.audit({ action: 'restart-failed', featureDir: f.dir, slug: f.slug, model: body.model, error: String(err?.message ?? err), ...(err?.moved?.length ? { stillMoved: err.moved } : {}), ...(boundary && !err?.moved?.length ? { afterBoundary: true } : {}) }).catch(() => {});
           throw err;
         }
@@ -2357,6 +2364,7 @@ export async function createRunner(config) {
         return { ok: true, slug: out.slug, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside, notes };
       } finally {
         restarting.delete(f.dir);
+        autoArchiving.delete(f.dir);
       }
     },
     // POST /api/job/:slug/auto: Auto mode's switch (lib/auto.js). The record in sessions.json is what
