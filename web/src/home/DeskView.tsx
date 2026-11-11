@@ -49,6 +49,7 @@ import { More } from '../components/More';
 import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
 import { BRAND } from '../app/brand';
 import { autoLaneReason } from '../job/autoLine';
+import { waitingLines } from '../job/sentView';
 import { WhatAutoDecided } from '../job/WhatAutoDecided';
 
 const DESK_KEYS: readonly KeyId[] = ['desk-next', 'desk-prev', 'desk-approve', 'desk-deny', 'desk-open', 'desk-brief'];
@@ -91,7 +92,10 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
   const [go, setGo] = useState({ words: '', off: true, asks: false });
   const [extras, setExtras] = useState<HTMLDivElement | null>(null);
   // The call pressed spins while its decision is out (the card's own button was pressed for it).
-  const decision = useGateSent(job, state.runs[job.slug] ?? thread.detail?.run ?? null, queuedOf(thread.detail?.queued)?.id ?? null);
+  const run = state.runs[job.slug] ?? thread.detail?.run ?? null;
+  const decision = useGateSent(job, run, queuedOf(thread.detail?.queued)?.id ?? null);
+  // After a send: the same lines as the job page's bar (job/sentView.ts), and no calls.
+  const sent = waitingLines(job, thread.detail, run, decision);
   const spins = (kind: string) => decision.state === 'sending' && decision.kind === kind;
   // The gate card's own key for Adjust the next step opens the Details it lives in; Esc closes them.
   useEffect(() => {
@@ -124,7 +128,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
   const brief = thread.detail.latestBrief as { html?: string; number?: number | null } | null | undefined;
   const press = (what: 'approve' | 'revise') => { const b = body.current?.querySelector(`[data-gate="${what}"]`); if (isPressable(b)) b.click(); };
   // On the hosted site, a Go made there waits for the laptop: the card says so, and the calls rest.
-  const gate = Boolean(thread.detail.gate) && !isOpen(queuedOf(thread.detail.queued));
+  const gate = Boolean(thread.detail.gate) && !isOpen(queuedOf(thread.detail.queued)) && !sent;
   // On a phone No go is as large as Go (at least 44 px: packet 2B's Desk on a phone).
   const goWords = go.words || 'Approve';
   return (
@@ -187,6 +191,8 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
             {call ? <>Go<span className="call-long">: {lowerFirst(goWords)}</span></> : goWords}
           </Button>
         </div>
+      ) : sent ? (
+        <p className="desk-sent" role="status"><b>{sent.words}</b>{sent.more && <span className="muted"> {sent.more}</span>}</p>
       ) : thread.detail.gate ? null : (
         <p className="muted">The Foreman is waiting for your reply. <a href={jobHref(job.slug)}>Open the job</a> to read its last message and answer in the message box.</p>
       )}

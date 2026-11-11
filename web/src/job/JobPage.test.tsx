@@ -35,15 +35,16 @@ const GATE: Gate = {
 };
 
 /** What the test's server knows: the store its events go to, and the briefs a deciding answer has answered (as GET /api/job/:slug returns them). */
-const server = { store: null as Store | null, answered: [] as number[], gate: undefined as Gate | null | undefined };
+const server = { store: null as Store | null, answered: [] as number[], gate: undefined as Gate | null | undefined, held: null as JobDetail['heldReply'] };
 
 function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], play = 'subtle', auto = null as { on: boolean; tag: string | null } | null, gate = null as Gate | null, slug = 'alpha', extra = null as React.ReactNode, drive = null as JobDetail['drive'], post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   const store: Store = createStore();
   server.store = store;
   server.answered = [];
   server.gate = undefined;
+  server.held = null;
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: play } }, models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }] } as never }) });
-  const detail = (s: string): JobDetail => ({ slug: s, thread: [], threadMore: false, gate: server.gate === undefined ? gate : server.gate, answeredBriefs: [...server.answered], heldReply: null, options: { level: 1 }, auto, drive } as JobDetail);
+  const detail = (s: string): JobDetail => ({ slug: s, thread: [], threadMore: false, gate: server.gate === undefined ? gate : server.gate, answeredBriefs: [...server.answered], heldReply: server.held, options: { level: 1 }, auto, drive } as JobDetail);
   const get = vi.fn(async (path: string): Promise<unknown> => {
     if (path.endsWith('/docs')) return { docs: DOCS };
     const m = /\/doc\?file=(.+)$/.exec(path);
@@ -607,7 +608,7 @@ describe('after a click on the go / no go bar', () => {
     fireEvent.click(go);
     await within(bar()).findByText(SENT_LINE);
     expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
-    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    await act(async () => {});
     expect(within(bar()).getByText(SENT_LINE)).toBeInTheDocument();
     expect(live()).toHaveTextContent(SENT_LINE);
     expect(calls()).toHaveLength(0);
@@ -623,7 +624,7 @@ describe('after a click on the go / no go bar', () => {
     fireEvent.click(send);
     await within(bar()).findByText(SENT_LINE);
     expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
-    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    await act(async () => {});
     expect(within(bar()).getByText(SENT_LINE)).toBeInTheDocument();
     expect(bar()).toHaveTextContent('The Foreman will rework this step with your note.');
     expect(calls()).toHaveLength(0);
@@ -639,7 +640,7 @@ describe('after a click on the go / no go bar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
     await within(bar()).findByText(SENT_LINE);
     expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
-    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    await act(async () => {});
     expect(within(bar()).getByText(SENT_LINE)).toBeInTheDocument();
     expect(bar()).toHaveTextContent('Your reply is with the Foreman. Nothing is approved.');
     expect(calls()).toHaveLength(0);
@@ -657,6 +658,17 @@ describe('after a click on the go / no go bar', () => {
     expect(calls()).toHaveLength(0);
     expect(within(bar()).queryByRole('button', { name: 'Try again' })).toBeNull();
     expect(bar()).not.toHaveTextContent('Say go and the Foreman goes ahead');
+  });
+
+  // Part 2: a held answer is not "sent".
+  it('an answer held for the usage limit says so, not "Sent", with no calls', async () => {
+    const { store } = setup({ jobs: waiting(), gate: GATE });
+    server.held = { kind: 'approve', gateBrief: 2, at: NOW };
+    act(() => { store.dispatch({ type: 'event', event: ev(21, 'thread', 'alpha', {}) }); });
+    await waitFor(() => expect(bar()).toHaveTextContent('Held until Claude’s usage limit resets.'));
+    expect(bar()).not.toHaveTextContent(SENT_LINE);
+    expect(calls()).toHaveLength(0);
+    expect(live()).toHaveTextContent('Held until Claude’s usage limit resets.');
   });
 
   it('once the brief is answered and the gate goes, the bar without a gate still says it was sent', async () => {

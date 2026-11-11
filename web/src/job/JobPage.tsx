@@ -8,7 +8,7 @@
 // evidence and Try it, Review, Decisions, Ship), the folded conversation, and the message box (c).
 import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
-import type { Job, JobDetail, JobDocEntry, Run, StopId } from '../api/types';
+import type { Job, JobDocEntry, Run, StopId } from '../api/types';
 import { jobHref, navigate, screensHref, stageHref } from '../app/router';
 import { useUi } from '../app/ui';
 import { useDetail, useShown } from '../app/detail';
@@ -30,7 +30,7 @@ import { Composer } from '../panes/Foreman/Composer';
 import { GateSlot, pressReply } from '../panes/Foreman/GateCard';
 import { useGateSent, type GateSent } from '../panes/Foreman/gateSent';
 import { isActiveRun } from '../panes/Foreman/thread';
-import { DECIDING_KINDS, openGate } from '../lib/gateCard';
+import { linesText, sentView, stateLines, STUCK_WORDS, type SentLines } from './sentView';
 import { JobGithub } from '../panes/Foreman/JobGithub';
 import { JobMenu } from '../panes/Foreman/JobHeader';
 import { LevelChip } from '../panes/Foreman/LevelChip';
@@ -300,7 +300,7 @@ export function NextStep({ job, conversation, now, onShip, foldCard = false }: {
   // announced once; the bar shows the same words, but not as a live region.
   // The brief is answered (or his reply's run is at work): the bar keeps saying it was sent.
   const sent = perms.length === 0 ? sentView(job, thread.detail, run, after.decision) : null;
-  const live = <p className="sr-only" role="status" data-next-live>{after.live || (sent ? [SENT_WORDS, sent.more].filter(Boolean).join(' ') : '')}</p>;
+  const live = <p className="sr-only" role="status" data-next-live>{after.live || (sent ? linesText(sent) : '')}</p>;
   const problem = after.problem && <p ref={after.problemRef} className="field-problem" role="alert" tabIndex={-1}>{after.problem}</p>;
   let bar: ReactNode;
   if (perms.length > 0) bar = <PermissionAlert permissions={perms} now={now} />;
@@ -310,36 +310,7 @@ export function NextStep({ job, conversation, now, onShip, foldCard = false }: {
   return <>{bar}{live}{problem}</>;
 }
 
-/** The bar after a decision was taken (spec 1.2): its words, and Try again once nothing has moved. */
-const SENT_WORDS = 'Sent. Waiting for the Foreman to start.';
-const STUCK_WORDS = 'Nothing has moved yet.';
-/** The second line under the sent line, by what was sent (an approval has none). */
-const SENT_MORE: Partial<Record<string, string>> = {
-  message: 'Your reply is with the Foreman. Nothing is approved.',
-  changes: 'The Foreman will rework this step with your note.',
-};
-
 const SENDING_WORDS = 'Sending…';
-
-/** What the bar says once his decision on the waiting brief went: the second line by what was sent. */
-interface SentView { more: string | null }
-
-/**
- * The bar after the server took his decision (deep review D, I1). The server answers `sent` with a
- * started run, so the sent state clears at once; the bar keeps saying it was sent, with no calls,
- * while the brief is answered (the job's detail says so, or the server took a deciding answer to this
- * brief), or while the run his reply started works. Null: the bar asks as usual.
- */
-function sentView(job: Job, detail: JobDetail | null | undefined, run: Run | null, decision: GateSent): SentView | null {
-  const gate = detail?.gate ?? null;
-  if (!gate || job.closed) return null;
-  const a = decision.accepted;
-  const thisBrief = a !== null && a.brief !== null && a.brief === (gate.briefNumber ?? null);
-  const answered = openGate(detail, false) === null || (thisBrief && DECIDING_KINDS.includes(a.kind));
-  const replying = !answered && a?.kind === 'message' && a.runId !== null && isActiveRun(run) && run.id === a.runId;
-  if (!answered && !replying) return null;
-  return { more: a && (thisBrief || replying) ? SENT_MORE[a.kind] ?? null : null };
-}
 
 interface AfterSend {
   decision: GateSent;
@@ -390,10 +361,11 @@ function useAfterSend(job: Job, run: Run | null, reload: () => void, queuedId: s
     }
   }
   const waits = out === 'sent' || out === 'stuck' || (retrying && out === 'sending');
-  const words = out === 'sent' ? SENT_WORDS : STUCK_WORDS;
+  const lines = stateLines(decision);
+  const words = lines?.words ?? STUCK_WORDS;
   const shown = !waits ? null : out === 'sent' ? 'sent' : 'stuck';
   const tryShown = out === 'stuck' || retrying;
-  const more = out === 'sent' && decision.kind ? SENT_MORE[decision.kind] ?? null : null;
+  const more = out === 'sent' ? lines?.more ?? null : null;
   // Focus stays on the pressed button while it spins (a busy button keeps it). When the sent or stuck
   // line shows, or Try again goes, and the focus would be lost (on nothing, or on a call now off), it
   // moves to the line, to Try again once stuck, or to the server's sentence when Try again was
@@ -409,7 +381,7 @@ function useAfterSend(job: Job, run: Run | null, reload: () => void, queuedId: s
   return {
     decision,
     more,
-    live: out === 'sending' ? SENDING_WORDS : out === 'sent' ? [SENT_WORDS, more].filter(Boolean).join(' ') : out === 'stuck' ? STUCK_WORDS : '',
+    live: out === 'sending' ? SENDING_WORDS : lines ? linesText(lines) : '',
     sayRef,
     tryRef,
     say: waits ? <span ref={sayRef} tabIndex={-1}>{words}</span> : null,
@@ -434,7 +406,7 @@ function TryAgain({ after }: { after: AfterSend }) {
  * the decisions made for you, a stale plan, the evidence); its own row of buttons is hidden, and
  * the bar's three calls press them (Reply opens the message box). Go is off while the card asks a question: a never answers one.
  */
-function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, run }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; after: AfterSend; sent: SentView | null; run: Run | null }) {
+function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, run }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; after: AfterSend; sent: SentLines | null; run: Run | null }) {
   const [cardShown, setCardShown] = useShown('stage', 'brief');
   const folded = foldCard && !cardShown;
   const body = useRef<HTMLDivElement>(null);
@@ -467,7 +439,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, 
   // His decision went (I1): the sent line, the second line for what was sent, and no calls; Try
   // again only once nothing has moved and no run is at work.
   const waits = Boolean(after.say) || sent !== null;
-  const sentSay = after.say ?? <span ref={after.sayRef} tabIndex={-1}>{SENT_WORDS}</span>;
+  const sentSay = after.say ?? <span ref={after.sayRef} tabIndex={-1}>{sent?.words}</span>;
   return (
     <div className="job-go">
       <NextBar
