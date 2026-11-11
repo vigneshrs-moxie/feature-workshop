@@ -3348,9 +3348,11 @@ export async function createRunner(config) {
     return () => out.off('event', listener);
   }
 
-  // `auto` is for code inside this computer (the tests, a later task): the pass, a decision sent as Auto, the set of
+  // `auto` is for code inside this computer (the tests, a later task): the pass, the set of
   // jobs being started again, the look at what waits for you. The site and the pages reach the runner only through handle and read.
-  return { handle, read, local: local_, on, start, stop, auto: { pass: auto.pass, decideGate: gateDecision, restarting, checkWaiting, checkLevels } };
+  // A decision sent as Auto ({ by: 'auto' }) is reachable only from inside: the pass, and a test's hooks, never this object.
+  if (testHooks && typeof testHooks === 'object') testHooks.decideGate = gateDecision;
+  return { handle, read, local: local_, on, start, stop, auto: { pass: auto.pass, restarting, checkWaiting, checkLevels } };
 
 
 }

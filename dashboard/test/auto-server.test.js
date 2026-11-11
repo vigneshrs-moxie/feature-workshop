@@ -209,12 +209,20 @@ test('a decision by auto with chips in its body saves no option', { timeout: 30_
   const w = await world();
   try {
     const before = await w.ownOptions();
-    await w.runner.auto.decideGate('approve', { slug: w.slug, briefNumber: 1, note: 'ok', chips: [{ kind: 'level', level: 2 }, { kind: 'skip', stage: 'review' }, { kind: 'fable', point: 'plan' }] }, { by: 'auto' });
+    await w.hooks.decideGate('approve', { slug: w.slug, briefNumber: 1, note: 'ok', chips: [{ kind: 'level', level: 2 }, { kind: 'skip', stage: 'review' }, { kind: 'fable', point: 'plan' }] }, { by: 'auto' });
     const [send] = await w.sends();
     assert.equal(send.by, 'auto');
     assert.doesNotMatch(send.text, /Option change for the next step/);
     assert.deepEqual(await w.ownOptions(), before);
     assert.equal((await w.lines()).filter((l) => l.action === 'options').length, 0);
+  } finally { await w.stop(); }
+});
+
+test('m10: the object the site gets has no door to a decision by Auto; only a test hook has', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    assert.equal(w.runner.auto.decideGate, undefined);
+    assert.equal(typeof w.hooks.decideGate, 'function');
   } finally { await w.stop(); }
 });
 
