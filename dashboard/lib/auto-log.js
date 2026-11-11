@@ -21,6 +21,9 @@ const oneLine = (s, max = CAP) => {
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 };
 
+// The same for the Markdown: agent text cannot start inline markup (a tag, a link, code).
+const md = (s, max = CAP) => oneLine(s, max).replace(/[<[`]/g, '\\$&');
+
 /** "11 Nov 08:05" in the laptop's local time; '' when the time is missing or not a time. */
 export function autoTime(at) {
   const d = new Date(at ?? NaN);
@@ -36,6 +39,8 @@ export function autoCost(lines = []) {
   return sum;
 }
 
+// A time as a number for sorting; an unreadable one counts as 0 (oldest); ties go by the file's order, later lines first.
+const timeOf = (at) => { const t = Date.parse(at); return Number.isFinite(t) ? t : 0; };
 const stageLabel = (id) => STAGES.find((s) => s.id === id)?.label ?? text(id);
 const reasonOf = (s) => (s && typeof s === 'object' ? text(s.reason) : text(s));
 
@@ -88,13 +93,13 @@ export function autoLog(lines = [], { title = '', now = null, record = null } = 
     if (text(l.risk)) e.risk = text(l.risk);
     if (Array.isArray(l.answers) && l.answers.length) e.answers = l.answers.map((a) => ({ question: text(a?.question), choice: text(a?.choice), reason: text(a?.reason) }));
     return { e, i };
-  }).sort((a, b) => text(b.e.at).localeCompare(text(a.e.at)) || b.i - a.i).map((x) => x.e);
+  }).sort((a, b) => timeOf(b.e.at) - timeOf(a.e.at) || b.i - a.i).map((x) => x.e);
   const n = entries.length;
   const last = entries[0];
   const summary = [
     `Auto made ${n} decision${n === 1 ? '' : 's'} on this job. The Approver cost $${autoCost(all).toFixed(2)}.`,
     lineTwo(all, record),
-    last ? `Last decision: ${autoTime(last.at)}, ${last.stage}: ${oneLine(last.chose)}.` : 'No decisions yet.',
+    last ? `Last decision: ${[autoTime(last.at), last.stage].filter(Boolean).join(', ')}: ${oneLine(last.chose)}.` : 'No decisions yet.',
   ];
   return { title: text(title), written: now ?? null, summary, entries };
 }
@@ -112,15 +117,15 @@ export function autoLogRecord(lines = [], { title = '', record = null } = {}) {
 
 /** The view as Markdown: every string from the Approver or a ticket on one line, at most 300 characters. */
 export function autoLogMarkdown(view) {
-  const out = [`# Auto log${oneLine(view?.title, 120) ? `: ${oneLine(view.title, 120)}` : ''}`, ''];
-  for (const s of view?.summary ?? []) out.push(oneLine(s), '');
+  const out = [`# Auto log${md(view?.title, 120) ? `: ${md(view.title, 120)}` : ''}`, ''];
+  for (const s of view?.summary ?? []) out.push(md(s), '');
   if (view?.written && autoTime(view.written)) out.push(`Written ${autoTime(view.written)}.`, '');
   for (const e of view?.entries ?? []) {
-    out.push(`## ${[autoTime(e.at), oneLine(e.stage, 60), oneLine(e.chose)].filter(Boolean).join(' · ')}`, '');
-    if (oneLine(e.asked)) out.push(`Asked: ${oneLine(e.asked)}`);
-    for (const a of e.answers ?? []) out.push(`- ${oneLine(a.question)} → ${oneLine(a.choice)}. Why: ${oneLine(a.reason)}`);
-    if (oneLine(e.why)) out.push(`Why: ${oneLine(e.why)}`);
-    if (oneLine(e.risk)) out.push(`Risk: ${oneLine(e.risk)}`);
+    out.push(`## ${[autoTime(e.at), md(e.stage, 60), md(e.chose)].filter(Boolean).join(' · ')}`, '');
+    if (md(e.asked)) out.push(`Asked: ${md(e.asked)}`);
+    for (const a of e.answers ?? []) out.push(`- ${md(a.question)} → ${md(a.choice)}. Why: ${md(a.reason)}`);
+    if (md(e.why)) out.push(`Why: ${md(e.why)}`);
+    if (md(e.risk)) out.push(`Risk: ${md(e.risk)}`);
     out.push('');
   }
   return `${out.join('\n').replace(/\n+$/, '')}\n`;

@@ -121,3 +121,28 @@ test('the record the site gets is { on, stopped, tag, summary, entries }, and no
   assert.equal(autoLogRecord(LINES, { record: { on: true, stopped: { reason: 'Risky' } } }).stopped, 'Risky');
   assert.equal(autoLogRecord(LINES, { record: null }).on, false);
 });
+
+test('a decision with no readable time leaves the time out, with no stray comma or dot', () => {
+  const lines = [{ action: 'auto', what: 'gate', stage: 'plan', chose: 'Approved the plan', why: 'ok' }];
+  const v = autoLog(lines, {});
+  assert.equal(v.summary[2], 'Last decision: Plan: Approved the plan.');
+  const md = autoLogMarkdown(v);
+  assert.ok(md.includes('\n## Plan · Approved the plan\n'), md);
+  const bad = autoLog([{ at: 'nonsense', action: 'auto', what: 'gate', stage: 'plan', chose: 'X' }], {});
+  assert.equal(bad.summary[2], 'Last decision: Plan: X.');
+});
+
+test('newest first compares times as dates, and ties or unreadable times keep the order of the file', () => {
+  const mk = (iso, chose) => ({ at: iso, action: 'auto', what: 'gate', stage: 'plan', chose });
+  const v = autoLog([mk('2026-11-11T09:00:00+02:00', 'earlier'), mk('2026-11-11T08:00:00Z', 'later')], {});
+  assert.deepEqual(v.entries.map((e) => e.chose), ['later', 'earlier']);
+  const w = autoLog([mk('junk', 'a'), mk('junk', 'b')], {});
+  assert.deepEqual(w.entries.map((e) => e.chose), ['b', 'a']);
+});
+
+test('agent text cannot start inline markup in the Markdown', () => {
+  const view = { title: '<b>T</b>', summary: ['Last decision: [x](y) `z`'], entries: [{ at: '', stage: 'Plan', chose: '<img src=x> `c`', asked: '[a](b)', why: '`w` <i>', risk: '<r>', answers: [{ question: '[q]', choice: '`c`', reason: '<s>' }] }] };
+  const md = autoLogMarkdown(view);
+  assert.equal(/[<`[]/.test(md.replace(/\\[<`[]/g, '')), false, md);
+  assert.ok(md.includes('\\<img src=x>'), md);
+});

@@ -358,3 +358,25 @@ test('an Auto approval is marked (Auto) in Decisions and in Copy decisions', () 
   assert.ok(text.includes('1. Keep the old column? Yes (Auto)'), text);
   assert.equal(text.includes('Sent by Starbase'), false);
 });
+
+// ---------- the mark comes off only Auto's own lines ----------
+test('a person’s note that quotes the mark keeps it, with its line breaks', () => {
+  const note = `Line one\nLine  two ${AUTO_MARK}`;
+  const d = decisionOf({ at: '2026-11-11T09:00:00Z', action: 'permission', decision: 'allow', headline: 'Run it', note });
+  assert.equal(d.note, 'Line one'); // the note is its first line, as before
+  const quoted = `${AUTO_MARK} is what Auto writes`;
+  assert.equal(decisionOf({ action: 'permission', decision: 'allow', headline: 'x', note: quoted }).note, quoted);
+  const rows = decisionRows([{ at: '2026-11-11T09:00:00Z', action: 'send', kind: 'changes', text: `Please make changes before moving on.\nplease keep ${AUTO_MARK}  here` }], { prefix: 'P' });
+  assert.equal(rows[0].why, `please keep ${AUTO_MARK} here`);
+  const own = decisionRows([{ action: 'permission', decision: 'allow', headline: 'x', answers: { 'Q?': 'A' }, note: `Fine  ${AUTO_MARK}` }], { prefix: 'P' });
+  assert.equal(own[0].why, `Fine ${AUTO_MARK}`);
+});
+
+test('an Auto row loses the trailing mark; a copy of it in the middle stays', () => {
+  const end = decisionRows([{ action: 'permission', decision: 'allow', by: 'auto', headline: 'x', note: `Reads only. ${AUTO_MARK}` }], { prefix: 'P' });
+  assert.equal(end[0].why, 'Reads only.');
+  const mid = decisionRows([{ action: 'permission', decision: 'allow', by: 'auto', headline: 'x', note: `Quoting ${AUTO_MARK} on purpose. ${AUTO_MARK}` }], { prefix: 'P' });
+  assert.equal(mid[0].why, `Quoting ${AUTO_MARK} on purpose.`);
+  const onlyMid = decisionRows([{ action: 'permission', decision: 'allow', by: 'auto', headline: 'x', note: `Quoting ${AUTO_MARK} on purpose.` }], { prefix: 'P' });
+  assert.equal(onlyMid[0].why, `Quoting ${AUTO_MARK} on purpose.`);
+});

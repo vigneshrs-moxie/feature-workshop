@@ -27,7 +27,13 @@ const SEND = {
 
 // A reply or permission answer that Auto sent for the person carries by: 'auto' and the mark.
 const isAutoSent = (e) => e.by === 'auto' && (e.action === 'send' || e.action === 'permission');
-const unmark = (s) => String(s ?? '').split(AUTO_MARK).join('').replace(/\s+/g, ' ').trim();
+// The mark comes off the end of what Auto sent, and nowhere else: anyone else's text is left as written.
+const unmark = (s, e) => {
+  const t = String(s ?? '');
+  if (!isAutoSent(e)) return t;
+  const end = t.trimEnd();
+  return end.endsWith(AUTO_MARK) ? end.slice(0, -AUTO_MARK.length).trimEnd() : t;
+};
 
 /** One entry for an audit line that records a decision of yours, else null. */
 export function decisionOf(e) {
@@ -46,7 +52,7 @@ export function decisionOf(e) {
   else if (e.action === 'nudge') d = { kind: 'nudge', text: `Said yes: ${firstLine(e.text, 100)}` };
   else if (e.action === 'nudge-dismissed') d = { kind: 'nudge', text: 'Dismissed a suggestion' };
   if (!d) return null;
-  if (d.note) d.note = unmark(d.note);
+  if (d.note) d.note = unmark(d.note, e);
   if (!d.note) delete d.note;
   if (isAutoSent(e)) d.text += ' (Auto)';
   return { at, ...d };
@@ -149,7 +155,7 @@ function briefQuestion(e, briefs) {
 export function decisionRows(audit = [], { prefix = 'job', person = 'You', briefs = {}, after = 0 } = {}) {
   const rows = [];
   let by = null; // the line being read, when Auto sent it
-  const add = (e, r) => rows.push({ id: decisionId(prefix, after + rows.length + 1), who: by ? 'Auto' : person, when: day(e.at), options: '', ...r, why: unmark(r.why ?? ''), ...(by ? { by } : {}) });
+  const add = (e, r) => rows.push({ id: decisionId(prefix, after + rows.length + 1), who: by ? 'Auto' : person, when: day(e.at), options: '', ...r, why: unmark(r.why ?? '', e), ...(by ? { by } : {}) });
   for (const e of audit) {
     if (!e || typeof e !== 'object') continue;
     by = isAutoSent(e) ? 'auto' : null;
