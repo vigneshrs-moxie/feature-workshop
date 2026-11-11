@@ -2562,6 +2562,24 @@ test('a reply\'s kind is one the pages send; anything else is refused, and a mes
   } finally { await w.stop(); }
 });
 
+test('features() is single flight: callers that arrive while it loads share the one load; a change made meanwhile is read by a new load', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null });
+  try {
+    let loads = 0;
+    w.hooks.featuresLoaded = () => { loads++; };
+    await new Promise((r) => setTimeout(r, 1700)); // the cache has run out
+    await Promise.all([w.runner.read.features(), w.runner.read.features(), w.runner.read.features()]);
+    assert.equal(loads, 1);
+    // A change while a load runs (here: Auto switched on) is not hidden by that load.
+    await new Promise((r) => setTimeout(r, 1700));
+    const first = w.runner.read.features();
+    await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
+    await first;
+    const card = (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
+    assert.equal(card.auto.on, true);
+  } finally { await w.stop(); }
+});
+
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------
 
 test('I2: the person sent brief 1 back, then 401 lines; the reply ended with the gate still on brief 1: the Approver is not asked', { timeout: 30_000 }, async () => {
