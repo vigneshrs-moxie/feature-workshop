@@ -177,6 +177,14 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   }
   const notNow = (j) => Boolean(j.running || j.locked || j.paused);
   /**
+   * Did the person say something to this job after the Approver was asked (a message of their own: a send that
+   * is not Auto's, or, for a card, a message steered into the reply)? The Approver never saw it, so its answer is dropped.
+   */
+  async function youSpokeSince(job, askedAt, { steer = false } = {}) {
+    const lines = await state.auditFor(job.dir, 400);
+    return lines.some((l) => l.by !== 'auto' && (l.action === 'send' || (steer && l.action === 'steer')) && Date.parse(l.at) >= askedAt);
+  }
+  /**
    * An answer that was dropped cost money. While Auto is still on (stopped, or the card or gate has gone)
    * it goes to spent, for the next line. With Auto off nothing will ever write spent, so the money gets
    * its own line at once.
@@ -205,11 +213,15 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
 
       let task;
       let answer;
+      let askedAt;
       const kept = held.get(job.dir);
+      // A kept answer is sent only if the person has said nothing since the Approver was asked; its cost is already counted.
+      if (kept?.brief === n && (await youSpokeSince(job, kept.askedAt))) { held.delete(job.dir); refused.delete(job.dir); return; }
       if (kept?.brief === n) {
-        ({ task, answer } = kept);
+        ({ task, answer, askedAt } = kept);
       } else {
         held.delete(job.dir);
+        askedAt = Date.now();
         task = taskFor(job, gate);
         const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
         const res = await askApprover(task, { roots, job });
@@ -218,6 +230,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         const checked = res?.ok ? checkAnswer(task, res.answer) : null;
         // Immediately before anything is written or sent: is the answer still for something that waits?
         if (!(await look(job, n))) { await settleDropped(job, cost); return; }
+        // The person wrote to the job while the Approver was thinking: it never saw that. Dropped; the next pass asks again.
+        if (await youSpokeSince(job, askedAt)) { await settleDropped(job, cost); return; }
         if (!checked?.ok) {
           await update(job.dir, (prev) => ({ ...prev, failures: (prev?.failures ?? 0) + 1, problem: res?.ok ? checked.problem : res?.problem ?? 'It ended with an error.', spent: (prev?.spent ?? 0) + cost }));
           continue;
@@ -226,7 +240,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         await addSpent(job, cost);
         if (answer.decision === 'stop') return stop(job, { rule: 'judgment', reason: oneLine(answer.why) });
       }
-      const sent = await send(job, gate, task, answer);
+      const sent = await send(job, gate, task, answer, askedAt);
       if (sent === 'failed') continue;
       return;
     }
@@ -257,7 +271,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   }
 
   /** Send the approval through the same path as a click. Returns 'sent', 'not-now', 'dropped' or 'failed'. */
-  async function send(job, gate, task, answer) {
+  async function send(job, gate, task, answer, askedAt) {
     const n = gate.briefNumber;
     const answers = {};
     for (const a of answer.answers) answers[a.id] = { choice: a.choice ?? undefined, other: a.other === null ? undefined : oneLine(a.other) };
@@ -269,7 +283,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       if (MOVED_ON.has(err?.extra?.code ?? err?.code ?? null)) { held.delete(job.dir); return 'dropped'; }
       if (isNotNow(err)) {
         // Kept for a later pass (no second ask, no second charge); three in a row stop Auto.
-        held.set(job.dir, { brief: n, task, answer });
+        held.set(job.dir, { brief: n, task, answer, askedAt });
         const count = (refused.get(job.dir)?.brief === n ? refused.get(job.dir).count : 0) + 1;
         refused.set(job.dir, { brief: n, count });
         if (count >= NOT_NOW_LIMIT) {
@@ -371,6 +385,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
 
     const task = cardTask(job, full);
     const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
+    const askedAt = Date.now();
     const res = await askApprover(task, { roots, job });
     const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
     const checked = res?.ok ? checkAnswer(task, res.answer) : null;
@@ -379,6 +394,12 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     if (!waits() || !fresh || fresh.auto?.on !== true || fresh.auto.stopped || fresh.restarting) {
       await settleDropped(job, cost);
       if (waits()) leave(); // the card still waits for the person: told once
+      return;
+    }
+    // The person wrote to the job while the Approver was thinking: it never saw that. The card is left to them.
+    if (await youSpokeSince(job, askedAt, { steer: true })) {
+      await settleDropped(job, cost);
+      leave();
       return;
     }
     if (!checked?.ok) {

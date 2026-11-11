@@ -834,7 +834,7 @@ test('M7: the loop counter goes 0, 1, 2 and the third gate on one stage stops', 
 
 const unitDir = '/jobs/visit-audit';
 /** createAuto on an in-memory job: job(readCount) may return overrides for that read. */
-function unit({ job = () => ({}), decide, ask = () => ({ ok: true, costUsd: 0.1, answer: { decision: 'go', answers: [], why: 'Fine.', risk: 'low' } }), record = {} } = {}) {
+function unit({ job = () => ({}), auditLines = [], decide, ask = () => ({ ok: true, costUsd: 0.1, answer: { decision: 'go', answers: [], why: 'Fine.', risk: 'low' } }), record = {} } = {}) {
   let rec = { ...autoRecord(null, { on: true, now: OLD }), ...record };
   let reads = 0;
   const lines = [];
@@ -851,10 +851,10 @@ function unit({ job = () => ({}), decide, ask = () => ({ ok: true, costUsd: 0.1,
     update: async (dir, fn) => { const next = fn({ ...rec }); if (next) rec = next; return { ...rec }; },
     decide: { gate: async (kind, body, opts) => { decides.push(body); return decide(decides.length, opts); }, permission: async () => {} },
     askApprover: async (task) => { asks.push(task); return ask(task, asks.length); },
-    state: { audit: async (l) => { lines.push(l); }, auditFor: async () => [] },
+    state: { audit: async (l) => { lines.push(l); }, auditFor: async () => [...auditLines] },
     notify: (n) => notes.push(n),
   });
-  return { auto, record: () => rec, lines, notes, asks, decides };
+  return { auto, record: () => rec, lines, notes, asks, decides, auditLines };
 }
 const refusal = (code) => Object.assign(new Error('Refused.'), { extra: { code } });
 
@@ -1816,4 +1816,62 @@ test('K2: nothing writes the Auto record while the job is being restarted (an Ap
     assert.equal((await w.record()).spent, 0.3, 'unchanged: the answer\'s cost is not added to a record about to be archived');
     assert.deepEqual(await w.sends(), []);
   } finally { await w.stop(); }
+});
+
+// ---------- K4: the person speaks while the Approver is thinking ----------
+
+const personSays = (u) => u.auditLines.push({ action: 'send', kind: 'message', at: new Date().toISOString(), gateBrief: null, text: 'Please use the other table.' });
+const later = () => new Promise((r) => setTimeout(r, 5));
+
+test('K4: a message the person sends while the Approver answers a gate drops that answer; the next pass asks again', { timeout: 30_000 }, async () => {
+  let u;
+  u = unit({ decide: () => {}, ask: (task, n) => { if (n === 1) personSays(u); return { ok: true, costUsd: 0.1, answer: { decision: 'go', answers: [], why: 'Fine.', risk: 'low' } }; } });
+  await u.auto.pass();
+  assert.equal(u.decides.length, 0, 'nothing of Auto\'s was sent for that ask');
+  assert.equal(u.record().lastBrief, null);
+  assert.equal(u.record().spent, 0.1, 'the dropped answer is paid for, on the next line');
+  await later();
+  await u.auto.pass();
+  assert.equal(u.asks.length, 2, 'asked afresh');
+  assert.equal(u.decides.length, 1);
+  assert.equal(u.lines.find((l) => l.what === 'gate').costUsd, 0.2);
+});
+
+test('K4: a held answer is not sent once the person has written since it was asked; without a message it still goes with no second ask', { timeout: 30_000 }, async () => {
+  const plain = unit({ decide: (n) => { if (n === 1) throw refusal('busy'); } });
+  await plain.auto.pass(); await later(); await plain.auto.pass();
+  assert.equal(plain.asks.length, 1);
+  assert.equal(plain.decides.length, 2);
+  const u = unit({ decide: (n) => { if (n === 1) throw refusal('busy'); } });
+  await u.auto.pass();
+  assert.equal(u.decides.length, 1);
+  await later();
+  personSays(u);
+  await later();
+  await u.auto.pass();
+  assert.equal(u.decides.length, 1, 'the held approval was not sent');
+  assert.equal(u.record().spent, 0.1, 'its cost was counted once, when it was asked');
+  await u.auto.pass();
+  assert.equal(u.asks.length, 2, 'asked afresh');
+  assert.equal(u.decides.length, 2);
+});
+
+test('K4: a message the person steers in while the Approver answers a card leaves the card to them, and tells them', { timeout: 30_000 }, async () => {
+  const told = [];
+  const sent = [];
+  const lines = [];
+  let rec = { ...autoRecord(null, { on: true, now: OLD }) };
+  const card = { id: 'c1', slug: 's', featureDir: unitDir, kind: 'permission', toolName: 'WebFetch', input: {}, plain: { headline: 'Fetch' }, hardLine: null };
+  const auto = createAuto({
+    read: async () => [{ dir: unitDir, slug: 's', title: 'T', auto: { ...rec }, level: 1, suggestedLevel: null, stage: 'plan', answered: [], worktrees: [], specDirs: [], artifacts: [] }],
+    update: async (dir, fn) => { const n = fn({ ...rec }); if (n) rec = n; return { ...rec }; },
+    decide: { gate: async () => {}, permission: async (...a) => { sent.push(a); } },
+    askApprover: async () => { lines.push({ action: 'steer', at: new Date().toISOString(), text: 'wait' }); return { ok: true, costUsd: 0.1, answer: { decision: 'allow', why: 'Fine.', risk: 'low' } }; },
+    pendingCard: () => ({ ...card }), cardCtx: async () => ({ worktrees: [unitDir], featureDir: unitDir, cwd: unitDir }),
+    state: { audit: async () => {}, auditFor: async () => [...lines] },
+  });
+  await auto.onPermission(card, { leftWaiting: (c) => told.push(c.id) });
+  assert.deepEqual(sent, [], 'Auto answered nothing');
+  assert.deepEqual(told, ['c1']);
+  assert.equal(rec.spent, 0.1);
 });
