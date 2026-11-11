@@ -330,7 +330,7 @@ export async function createRunner(config) {
     // Each commit the call names, checked against the org remote's main: true, false, or null when git can't say.
     const shas = call?.toolName === 'Bash' && /\bgh\b/.test(String(call.input?.command ?? '')) ? [...new Set(String(call.input.command).match(/\b[0-9a-f]{40}\b/g) ?? [])].slice(0, 4) : [];
     const orgShas = {};
-    for (const sha of shas) orgShas[sha] = orgRemote && mainCheckout ? await gitIsAncestor({ repo: mainCheckout, sha, ref: `${orgRemote}/main`, exec: gitStdout, cache: autoGitCache }) : null;
+    for (const sha of shas) orgShas[sha] = orgRemote && mainCheckout ? await gitIsAncestor({ repo: mainCheckout, sha, ref: `refs/remotes/${orgRemote}/main`, exec: gitStdout, cache: autoGitCache }) : null; // the remote's own ref, never a branch or tag of that name (N5)
     // The files the profile copies from the main checkout into a worktree (filesToCopy), {app} filled.
     const rules = tryItRules(profile);
     const filesToCopy = rules.files.flatMap((r) => rules.appDirs.map((app) => ({ from: path.normalize(fillPattern(r.from, { app }).replace(/^\/+/, '')), to: path.normalize(fillPattern(r.to, { app }).replace(/^\/+/, '')) })));

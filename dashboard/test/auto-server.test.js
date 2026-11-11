@@ -2347,3 +2347,19 @@ test('N7: Auto\'s context names where the set-up may make the job\'s worktree, a
     assert.equal(v(`git worktree add -b feature/visit-audit ../orbit-visit-audit moxie/main`), null);
   } finally { await w.stop(); }
 });
+
+test('N5: "the commit is on the org\'s main" asks git about the org remote\'s own ref, so a branch or tag named moxie/main fools nothing', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    w.git('remote', 'add', 'moxie', 'git@github.com:moxie-org/visit-app.git');
+    w.git('update-ref', 'refs/remotes/moxie/main', 'HEAD');
+    const wt = path.join(w.root, 'orbit-visit-audit');
+    w.git('worktree', 'add', '-q', '-b', 'feature/visit-audit', wt);
+    execFileSync('git', ['-C', wt, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'job work'], { stdio: 'pipe' });
+    const job = execFileSync('git', ['-C', wt, 'rev-parse', 'HEAD']).toString().trim();
+    w.git('tag', 'moxie/main', job);
+    w.git('branch', 'moxie/main', job);
+    const ctx = await w.driver.autoCtx({ id: 'n5-run', featureDir: w.dir, cwd: w.dirs.repo, slug: w.slug, title: 'T' }, { toolName: 'Bash', input: { command: `gh api -X POST repos/moxie-org/visit-app/git/refs -f ref=refs/heads/feature/visit-audit -f sha=${job}` } });
+    assert.equal(ctx.orgShas[job], false);
+  } finally { await w.stop(); }
+});
