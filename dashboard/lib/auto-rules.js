@@ -636,7 +636,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   // T3c: a command that is not a read runs from a folder inside the job's (a cd moves it; a folder we can't tell stops).
   const readOnly = programGroup(cmd) === 'read' || (cmd === 'git' && GIT_READ.has(firstGitSub(args)));
   if (!readOnly && !byFile) {
-    const eff = cwd ?? st.hint ?? null;
+    const eff = cmd === 'git' ? gitFolder(args, cwd ?? st.hint ?? null) : cwd ?? st.hint ?? null; // git -C runs it there (m11)
     const at = eff ? physicalPath(eff, null) : null;
     if (!at || !inRoots(at, st.roots)) hit('outside');
   }
@@ -815,6 +815,15 @@ const DEPLOY_SUB = { firebase: /^(deploy|hosting:channel:deploy)$/, wrangler: /^
 const deploys = (cmd, a) => DEPLOY_ANY.has(cmd) || Boolean(DEPLOY_SUB[cmd]?.test(a.find((x) => !x.startsWith('-')) ?? ''));
 const REDIRECT_VAR = /^(GIT_.*|PATH|HOME|NODE_OPTIONS|LD_.*|DYLD_.*|SHELL|EDITOR|VISUAL|.*_PAGER|BASH_ENV|ENV|npm_config_.*|PIP_.*)$/i;
 const PUBLISH = [['cargo', 'publish'], ['poetry', 'publish'], ['uv', 'publish'], ['yarn', 'npm', 'publish'], ['pnpm', 'publish'], ['npm', 'publish'], ['twine', 'upload'], ['gem', 'push']];
+
+// The folder a git command acts in: its -C folders in turn from the one it runs in; null when one can't be placed.
+function gitFolder(args, from) {
+  let at = from;
+  for (let i = 0; args[i]?.t.startsWith('-'); i += ['-C', '-c'].includes(args[i].t) ? 2 : 1) {
+    if (args[i].t === '-C') { const d = args[i + 1]; at = !d || d.dyn || !at ? null : physicalPath(d.t, at); }
+  }
+  return at;
+}
 
 function firstGitSub(args) {
   let i = 0;

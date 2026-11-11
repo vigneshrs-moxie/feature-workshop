@@ -631,3 +631,11 @@ test('m14: a stop says what happened: a secret place read, an unknown program, a
   assert.equal(reason('Bash', { command: 'vercel --prod' }), DEPLOY);
   assert.equal(reason('Bash', { command: 'echo x > ~/x' }), "this would change or delete something outside the job's own folders.");
 });
+
+test('m11: git -C <a worktree of the job> is judged as that git command run there; the main checkout only for reads', () => {
+  const ctx = C5CTX({ cwd: REPO }); // the session runs in the repository's main checkout
+  for (const c of [`git -C ${WT} status`, `git -C ${WT} diff --stat`, `git -C ${WT} add -A`, `git -C ${WT} commit -m "Fix thing"`, `git -C ${WT} log --oneline -5`, `git -C ${REPO} status`, `git -C ${REPO} log --oneline -3`]) assert.equal(bash(c, ctx), null, c);
+  for (const c of [`git -C ${REPO} add -A`, `git -C ${REPO} commit -m x`, `git -C ${HOME}/Projects/other status`]) assert.notEqual(bash(c, ctx), null, c);
+  assert.equal(hardLine("Bash", { command: `git -C ${WT} push moxie main` }, { cwd: REPO })?.decision, "deny", "an org push stays a refusal");
+  assert.equal(bash(`git -C ${WT} add ${HOME}/.zshrc`, ctx), 'ask');
+});

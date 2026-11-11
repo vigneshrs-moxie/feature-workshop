@@ -846,7 +846,7 @@ export function plainWhy(command, env = {}) {
         pending = null;
       } else if (cmd.sep !== '&&' && open.length) { cands = [...new Set([...open, ...cands])]; open = []; }
       if (cands.length > 8) ask('a command that may run in too many folders');
-      const ctx = { roots, cands, ctx: env.ctx, binBase: env.binBase ?? null };
+      let ctx = { roots, cands, ctx: env.ctx, binBase: env.binBase ?? null };
       for (const r of cmd.redirects) { if (r.op === '<') { readablePath(r.target, ctx); } else redirectCheck(r, ctx); }
       let words = cmd.words;
       let i = 0;
@@ -872,15 +872,32 @@ export function plainWhy(command, env = {}) {
         pending = { old: cands, news, sure: chainOk && !keyword };
         continue;
       }
-      const args = words.slice(1);
+      let args = words.slice(1);
       let name = head.t;
+      let here = cands; // where this command runs
+      // git -C <a worktree of the job> is that git command run there; the main checkout only for git's reads (m11).
+      if (name === 'git' && args[0]?.t === '-C') {
+        const d = args[1];
+        if (!d || d.glob || d.t === '' || args[2]?.t === '-C') ask('the git subcommand option -C');
+        const dirs = cands.map((c) => physicalPath(d.t, c));
+        const trees = (Array.isArray(env.ctx?.worktrees) ? env.ctx.worktrees : []).map((w) => physicalPath(w, null)).filter(Boolean);
+        const main = typeof env.ctx?.mainCheckout === 'string' ? physicalPath(env.ctx.mainCheckout, null) : null;
+        const rest = args.slice(2);
+        const sub = rest.find((x) => !x.t.startsWith('-'))?.t;
+        const inTree = dirs.every((p) => p && trees.some((w) => isInside(p, w)));
+        const mainRead = dirs.every((p) => p && main && isInside(p, main)) && GIT_READS.has(sub) && sub !== 'config';
+        if (!inTree && !mainRead) ask('the git subcommand option -C');
+        args = rest;
+        here = dirs;
+        ctx = { ...ctx, cands: dirs };
+      }
       if (name.includes('/')) {
         const at = physicalPath(name, cands[0]);
         const bin = at && /\/node_modules\/\.bin\/([^/]+)$/.exec(at);
         if (!inRoots(at, roots) || !cands.every((c) => inRoots(physicalPath(name, c), roots))) ask('a program given by a path outside the job');
         if (bin) name = bin[1]; else { for (const x of args) pathInside(x, ctx); continue; } // a script of the job's own: its text is read by the caller
       }
-      if (!READ_ONLY.has(name) && !(name === 'git' && GIT_READS.has(args.find((x) => !x.t.startsWith('-'))?.t)) && !cands.every((c) => inRoots(physicalPath('.', c), roots))) ask('a command that changes things, run from a folder outside the job');
+      if (!READ_ONLY.has(name) && !(name === 'git' && GIT_READS.has(args.find((x) => !x.t.startsWith('-'))?.t)) && !here.every((c) => inRoots(physicalPath('.', c), roots))) ask('a command that changes things, run from a folder outside the job');
       words.forEach((x, k) => {
         if (!x.t.includes(HEREDOC)) return;
         const message = name === 'git' && args[0]?.t === 'commit' && ((x.t === HEREDOC && ['-m', '--message'].includes(words[k - 1]?.t)) || x.t === `--message=${HEREDOC}`);
