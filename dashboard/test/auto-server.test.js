@@ -749,6 +749,9 @@ test('M6: a slow Approver for one job never delays another job\'s stop', { timeo
       const rec = JSON.parse(await fs.readFile(path.join(w.dirs.state, 'sessions.json'), 'utf8'))[w.otherDir]?.auto;
       return rec?.on === false && rec.stopped?.rule === 'level';
     }, 'the other job to leave Auto');
+    // The other job's stop may land before the first job's Approver is even asked (the job's folders are
+    // checked with git first): either order is fine, as long as the Approver is asked once and still hangs.
+    await w.until(() => w.asks.length >= 1, 'the first job\'s Approver to be asked');
     assert.equal(w.asks.length, 1, 'the first job\'s Approver is still thinking');
     release();
     await p;
