@@ -266,6 +266,9 @@ export function tooWideRoot(r, ctx = {}) {
 }
 // The roots codeLater measures from: the worktrees, the job folder and the temp folders, never a spec folder (N1).
 const codeRoots = (ctx) => jobRoots({ ...ctx, specDirs: [] });
+// The roots git may change something in: the job's worktrees alone. A spec folder sits in the owner's main checkout, and
+// git there acts on the whole checkout (R1).
+const gitRoots = (ctx) => jobRoots({ ...ctx, featureDir: null, specDirs: [], tempDirs: [] });
 const inRoots = (p, roots, strict = false) => roots.some((r) => isInside(p, r) && !(strict && p === r));
 
 // The session's read folders (skills, agents), as written and as they really are.
@@ -325,7 +328,7 @@ function bashVerdict(command, hard, ctx) {
   // The workflow's set-up lines, in their exact forms, from the main checkout or a folder of the job's (N7).
   const setup = setupStep(command, ctx);
   if (setup) return setup === true ? null : { ask: setup };
-  const st = { ctx, asks: [], cdTargets: [], hits: new Set(), unknown: false, ranRunner: false, ranMake: false, pkgEdit: false, runs: [], written: [], touched: [], cloneDirs: [], branchChange: false, pushed: false, funcs: functionNames(command), roots: jobRoots(ctx), codeRoots: codeRoots(ctx), readRoots: readRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
+  const st = { ctx, asks: [], cdTargets: [], hits: new Set(), unknown: false, ranRunner: false, ranMake: false, pkgEdit: false, runs: [], written: [], touched: [], cloneDirs: [], branchChange: false, pushed: false, funcs: functionNames(command), roots: jobRoots(ctx), codeRoots: codeRoots(ctx), gitRoots: gitRoots(ctx), readRoots: readRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
   if (hard?.line === 'gh-pr-merge') st.hits.add('merge');
   if (hard?.line === 'database') st.hits.add('database');
   if (DB_ADDRESS.test(command)) st.hits.add('database'); // a database address anywhere in the call
@@ -710,7 +713,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   if (!readOnly && !byFile) {
     const eff = cmd === 'git' ? gitFolder(args, cwd ?? st.hint ?? null) : cwd ?? st.hint ?? null; // git -C runs it there (m11)
     const at = eff ? physicalPath(eff, null) : null;
-    if (!at || !inRoots(at, st.roots)) hit('outside');
+    if (!at || !inRoots(at, cmd === 'git' ? st.gitRoots : st.roots)) hit('outside'); // git changes something only in a worktree (R1)
   }
   if (secretPlace(cwd ?? st.hint ? physicalPath(cwd ?? st.hint, null) : null, st.roots, ctx)) { hit('outside'); st.secret = true; } // running inside one
   if (/^(export|declare|typeset|readonly|local)$/.test(cmd)) for (const x of a) { if (!x.startsWith('-') && REDIRECT_VAR.test(x.split('=')[0])) hit('outside'); }
@@ -1323,7 +1326,7 @@ function gitStep(args, assigns, cwd, st, xargs) {
     if (paths.some((x) => x.dyn || codeLater(physicalPath(x.t, eff), st.codeRoots))) hit('outside');
   }
   // Any other git command run in another folder (git -C <elsewhere>) acts there.
-  if (!GIT_READ.has(sub) && eff !== cwd && !(eff && inRoots(eff, st.roots))) hit('outside');
+  if (!GIT_READ.has(sub) && eff !== cwd && !(eff && inRoots(eff, st.gitRoots))) hit('outside');
 }
 
 // Is the source of a merge, pull or rebase anything but the org remote's main or one of the job's branches (m3)?

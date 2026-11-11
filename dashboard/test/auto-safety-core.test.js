@@ -887,3 +887,33 @@ test('N19: a write under node_modules/.bin asks', () => {
   for (const c of ['echo x > app/node_modules/.bin/next', 'cp evil.sh app/node_modules/.bin/next', 'ln -sf ../../evil.sh app/node_modules/.bin/next']) assert.equal(bash(c, ctx), 'ask', c);
   assert.equal(card('Write', { file_path: `${WT}/app/src/x.ts`, content: 'x' }, ctx), null);
 });
+
+// ---------- Round 3 ----------
+
+test('R1: git that changes something passes only inside the job\'s worktrees, never in a spec folder of the main checkout', () => {
+  const PLANS = `${REPO}/docs/plans`;
+  for (const worktrees of [[], [WT]]) {
+    const main = C5CTX({ worktrees, cwd: REPO });
+    const lines = ['git add -A && git commit -m "docs: add the spec"', 'git add 2026-11-11-thing-product-spec.md && git commit -m "docs: add the spec"', 'git checkout -b spec-draft', 'git switch -c spec-draft', 'git reset --hard HEAD~1',
+      'git checkout -- .', 'git restore .', 'git clean -fd', 'git commit --amend -m x', 'git merge moxie/main', 'git rebase moxie/main', 'git rm -r --cached .', 'git tag v9'];
+    for (const c of lines) {
+      const control = bash(c, main);
+      assert.equal(control, 'outside', `control: ${c}`);
+      assert.equal(bash(`cd docs/plans && ${c}`, main), control, `cd docs/plans && ${c}`);
+      assert.equal(bash(`cd ${PLANS} && ${c}`, main), control, `cd <main>/docs/plans && ${c}`);
+      assert.equal(bash(c, C5CTX({ worktrees, cwd: PLANS })), control, `the bare line with the shell in docs/plans: ${c}`);
+      assert.equal(bash(c, C5CTX({ worktrees, cwd: JOB })), control, `the bare line with the shell in the job folder: ${c}`);
+    }
+    // Writing the spec itself still passes.
+    assert.equal(card('Write', { file_path: `${PLANS}/2026-11-11-thing-product-spec.md`, content: '# spec' }, main), null);
+    assert.equal(bash(`echo x > ${PLANS}/notes.md`, main), null);
+  }
+  // The same lines in the worktree still pass.
+  const wt = C5CTX({ cwd: WT });
+  for (const c of ['git add -A && git commit -m "docs: add the spec"', 'git checkout -b spec-draft', 'git commit --amend -m x', 'git merge moxie/main', 'git tag v9', 'git rm -r --cached .']) {
+    assert.equal(bash(c, wt), null, `worktree: ${c}`);
+    assert.equal(bash(c.replace(/(^| && )git /g, `$1git -C ${WT} `), C5CTX({ cwd: REPO })), null, `git -C <worktree>: ${c}`);
+  }
+  // Reads still pass in the spec folder.
+  assert.equal(bash('cd docs/plans && git status --short && git log -1', C5CTX({ cwd: REPO })), null);
+});

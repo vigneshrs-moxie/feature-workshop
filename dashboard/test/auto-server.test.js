@@ -1624,10 +1624,11 @@ test('J6: a push of the job\'s own branch to its fork before the PR stage goes t
   const outcomes = [];
   const w = await world({
     jobStatus: status(1, { stage: 'review', waiting_for: 'none', stage_state: 'in_progress', branch: 'feature/visit-audit' }),
-    query: cardQuery([{ tool: 'Bash', input: { command: 'git push origin feature/visit-audit' } }], outcomes), ask: () => allow('It is the job\'s own branch, to the fork.'),
+    query: cardQuery([{ tool: 'Bash', input: { command: 'git -C ../orbit-visit-audit push origin feature/visit-audit' } }], outcomes), ask: () => allow('It is the job\'s own branch, to the fork.'),
   });
   try {
     // The job's branch is the one git says is checked out in its worktree (here where the profile puts it), not status.json's word.
+    // The push is spelled in the worktree: from the main checkout, git that changes something stops (R1).
     w.git('worktree', 'add', '-q', '-b', 'feature/visit-audit', path.join(w.root, 'orbit-visit-audit'));
     w.git('remote', 'add', 'origin', 'https://github.com/me/app.git');
     await raise(w);
@@ -1658,7 +1659,7 @@ test('J6: a push with a gh call in the same command is not the plain push: Auto 
   const outcomes = [];
   const w = await world({
     jobStatus: status(1, { stage: 'review', waiting_for: 'none', stage_state: 'in_progress', branch: 'feature/visit-audit' }),
-    query: cardQuery([{ tool: 'Bash', input: { command: 'git push origin feature/visit-audit && gh pr create --fill' } }], outcomes), ask: () => allow(),
+    query: cardQuery([{ tool: 'Bash', input: { command: 'git -C ../orbit-visit-audit push origin feature/visit-audit && gh pr create --fill' } }], outcomes), ask: () => allow(),
   });
   try {
     // The job's own branch (checked out in its worktree) and its fork, so no fixed stop matches the push itself.
