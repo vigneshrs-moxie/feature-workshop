@@ -164,6 +164,8 @@ function judgeCardOf(inp, ctx) {
     return ASK_FILES.has(path.basename(where)) ? { ask: 'a file that changes how tools run' } : null;
   }
   if (toolName === 'Bash') return bashVerdict(String(input.command ?? ''), hard, ctx);
+  // A helper sent to run elsewhere: its calls leave the computer, and the hook does not follow them (m10).
+  if ((toolName === 'Agent' || toolName === 'Task') && input.isolation === 'remote') return { stop: stop('outside') };
   if (WEB_TOOLS.has(toolName)) return URL_CREDENTIALS.test(String(input.url ?? '').trim()) ? { stop: stop('outside') } : { ask: 'a web lookup: what it sends leaves the computer' };
   // A read in the home folder (or on another disk) outside the job's folders, its repository and the session's read folders asks (C5).
   if (READ_TOOLS.has(toolName) && toolPaths(input).some((x) => readElsewhere(physicalPath(x, ctx.cwd ?? null), readRoots(ctx)))) return { ask: 'a read outside the job\'s folders' };

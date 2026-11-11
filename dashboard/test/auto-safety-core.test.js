@@ -601,3 +601,12 @@ test('m8: the material block drops zero-width characters, so a closing tag canno
   assert.equal(/[​-‍﻿]/.test(p), false);
   assert.equal(p.split('</material>').length, 2, 'one closing tag only, Starbase\'s own');
 });
+
+test('m10: a helper sent to run remotely stops an Auto job', () => {
+  const ctx = C5CTX();
+  assert.equal(card('Agent', { subagent_type: 'general-purpose', prompt: 'x', isolation: 'remote' }, ctx), 'outside');
+  assert.equal(card('Task', { subagent_type: 'general-purpose', prompt: 'x', isolation: 'remote' }, ctx), 'outside');
+  assert.equal(card('Agent', { subagent_type: 'general-purpose', prompt: 'x' }, ctx), null);
+  assert.equal(card('Agent', { subagent_type: 'general-purpose', prompt: 'x', isolation: 'worktree' }, ctx), null);
+});
+
