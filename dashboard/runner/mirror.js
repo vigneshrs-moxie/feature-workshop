@@ -23,6 +23,7 @@
 // the site, which refuses a record that fails.
 
 import { NEVER_CARRIED } from '../lib/protocol.js';
+import { capAutoLog } from '../lib/auto-log.js';
 
 /** The largest one part may be on the wire (a batch is at most 256 KB). */
 export const RECORD_MAX = 200 * 1024;
@@ -137,7 +138,12 @@ export const docsRecord = (docs) => wireSafe(docs);
 export const docRecord = (doc) => wireSafe(doc);
 export const decisionsRecord = (d) => wireSafe(d);
 /** What Auto decided on a job: { on, stopped, tag, summary, entries } (the site cleans it again on its side). */
-export const autoLogRecord = (v) => wireSafe(v);
+export function autoLogRecord(v) {
+  // Cut to the site's own limits first, then the oldest entries go until it fits: the site refuses a part that is too big and would show nothing.
+  const capped = wireSafe(capAutoLog(v));
+  while (Array.isArray(capped?.entries) && capped.entries.length > 0 && fit('auto-log', capped).tooBig) capped.entries = capped.entries.slice(0, Math.floor(capped.entries.length / 2));
+  return capped;
+}
 
 /** The evidence list, without the laptop's folder names (the site links each file itself). */
 export function evidenceRecord(view) {

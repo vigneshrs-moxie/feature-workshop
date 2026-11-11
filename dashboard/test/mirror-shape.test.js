@@ -4,7 +4,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fit, fromWire, jobRecord, permissionCard, RECORD_MAX, wireSafe } from '../runner/mirror.js';
+import { autoLogRecord, fit, fromWire, jobRecord, permissionCard, RECORD_MAX, wireSafe } from '../runner/mirror.js';
+import { AUTO_LOG_LIMITS } from '../lib/auto-log.js';
 import { gateMark, madeOnFor, stillMadeOn } from '../lib/made-on.js';
 import { answerKeys, open, seal } from '../lib/sealed.js';
 import { makeEvent } from '../lib/protocol.js';
@@ -81,4 +82,21 @@ test('a sealed answer opens only with the asking request’s key', () => {
   assert.ok(!JSON.stringify(sealed).includes('a line'));
   assert.deepEqual(open(k.privateKey, sealed), { diff: '+ a line' });
   assert.throws(() => open(answerKeys().privateKey, sealed));
+});
+
+test('a long Auto list is cut on the laptop to the site’s limits, so it is never too big to send', () => {
+  const long = 'w'.repeat(5000);
+  const entries = Array.from({ length: 500 }, (_, i) => ({ at: `2026-11-11T08:${String(i % 60).padStart(2, '0')}:00.000Z`, stage: 'Plan', chose: `Go ${i} ${long}`, asked: long, why: long, risk: long, answers: Array.from({ length: 30 }, () => ({ question: long, choice: long, reason: long })) }));
+  const rec = autoLogRecord({ on: true, stopped: null, tag: null, summary: [long, long, long], entries });
+  const sent = fit('auto-log', rec);
+  assert.notEqual(sent.tooBig, true);
+  assert.ok(Buffer.byteLength(JSON.stringify(sent)) < RECORD_MAX);
+  const L = AUTO_LOG_LIMITS;
+  assert.ok(sent.entries.length > 0 && sent.entries.length <= L.entries);
+  assert.ok(sent.entries[0].chose.startsWith('Go 0 '), 'the newest entries are the ones kept');
+  assert.ok(sent.entries.every((e) => e.chose.length <= L.text && e.asked.length <= L.text && e.why.length <= L.text && e.risk.length <= L.text && e.answers.length <= L.answers && e.answers.every((a) => a.question.length <= L.text && a.choice.length <= L.text && a.reason.length <= L.text)));
+  assert.ok(sent.summary.every((x) => x.length <= L.line));
+  // A short list goes as it is.
+  const small = { on: true, stopped: null, tag: null, summary: ['a', 'b', 'c'], entries: [{ at: 'x', stage: 'Plan', chose: 'c', asked: 'a', why: 'w' }] };
+  assert.deepEqual(autoLogRecord(small), small);
 });

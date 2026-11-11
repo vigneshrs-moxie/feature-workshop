@@ -2665,6 +2665,7 @@ export async function createRunner(config) {
     // What Auto decided on a job (lib/auto-log.js): null when Auto has not run on it.
     async autoLog(slug) {
       const f = await jobOf(slug);
+      if (f.auto?.ran !== true) return null; // Auto has never run here: no reason to read and parse the audit
       return autoLogRecord(await state.auditFor(f.dir, Infinity), { title: f.title, record: f.auto ?? null });
     },
     async docs(slug) {

@@ -5,6 +5,7 @@
 import crypto from 'node:crypto';
 import { canonicalKey } from '../../dashboard/lib/orbit.js';
 import { fromWire } from '../../dashboard/runner/mirror.js';
+import { AUTO_LOG_LIMITS } from '../../dashboard/lib/auto-log.js';
 import { iso } from '../site/sessions.js';
 
 /** The parts a laptop may send, and whether each is about one job (its key is the slug, or starts with it). */
@@ -44,11 +45,8 @@ export function cleanSuggestion(v, now = Date.now()) {
   return { at: new Date(v.at).toISOString(), picks, forList: v.forList.slice(0, SUGGEST_LIST).map((x) => x.slice(0, SUGGEST_ITEM)) };
 }
 
-const AUTO_SUMMARY = 3;
-const AUTO_ENTRIES = 200;
-const AUTO_ANSWERS = 20;
-const AUTO_LINE = 400;
-const AUTO_TEXT = 1000;
+// The laptop cuts to these same numbers before it sends (dashboard/lib/auto-log.js).
+const { summary: AUTO_SUMMARY, entries: AUTO_ENTRIES, answers: AUTO_ANSWERS, line: AUTO_LINE, text: AUTO_TEXT } = AUTO_LOG_LIMITS;
 
 /**
  * A job's Auto record as the site keeps and shows it, or null when it isn't the right shape:
@@ -63,7 +61,7 @@ export function cleanAutoLog(v) {
   const entries = [];
   for (const e of v.entries.slice(0, AUTO_ENTRIES)) {
     if (!e || typeof e !== 'object' || Array.isArray(e)) continue;
-    const one = { at: cut(e.at, 40), stage: cut(e.stage, 100), chose: cut(e.chose, AUTO_TEXT), asked: cut(e.asked, AUTO_TEXT), why: cut(e.why, AUTO_TEXT) };
+    const one = { at: cut(e.at, AUTO_LOG_LIMITS.at), stage: cut(e.stage, AUTO_LOG_LIMITS.stage), chose: cut(e.chose, AUTO_TEXT), asked: cut(e.asked, AUTO_TEXT), why: cut(e.why, AUTO_TEXT) };
     if (typeof e.risk === 'string' && e.risk) one.risk = e.risk.slice(0, AUTO_TEXT);
     if (Array.isArray(e.answers) && e.answers.length) {
       one.answers = e.answers.slice(0, AUTO_ANSWERS).filter((a) => a && typeof a === 'object').map((a) => ({ question: cut(a.question, AUTO_TEXT), choice: cut(a.choice, AUTO_TEXT), reason: cut(a.reason, AUTO_TEXT) }));
@@ -72,7 +70,7 @@ export function cleanAutoLog(v) {
   }
   const summary = v.summary.slice(0, AUTO_SUMMARY).map((x) => cut(x, AUTO_LINE));
   while (summary.length < AUTO_SUMMARY) summary.push('');
-  return { on: v.on, stopped: orNull(v.stopped, 300), tag: orNull(v.tag, 100), summary, entries };
+  return { on: v.on, stopped: orNull(v.stopped, AUTO_LOG_LIMITS.stopped), tag: orNull(v.tag, AUTO_LOG_LIMITS.tag), summary, entries };
 }
 
 /** A part from outside as the site keeps it: through its own check, or null when it has none (the part is kept as sent). */

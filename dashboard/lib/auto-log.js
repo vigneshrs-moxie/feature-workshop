@@ -9,6 +9,12 @@ import { STAGES } from './stages.js';
 
 export const AUTO_LOG_FILE = 'auto-log.md';
 
+/**
+ * The most the website keeps of a job's Auto list (hosted/lib/records.js cleans with these same
+ * numbers): entries newest first, characters per string, answers per entry, summary lines.
+ */
+export const AUTO_LOG_LIMITS = Object.freeze({ entries: 200, text: 1000, answers: 20, line: 400, summary: 3, at: 40, stage: 100, stopped: 300, tag: 100 });
+
 const DECISIONS = new Set(['gate', 'question', 'permission']);
 const CAP = 300;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -113,6 +119,20 @@ export function autoLogRecord(lines = [], { title = '', record = null } = {}) {
   const { summary, entries } = autoLog(lines, { title, record });
   const stopped = record?.stopped && typeof record.stopped === 'object' ? text(record.stopped.reason) : text(record?.stopped);
   return { on: record?.on === true, stopped: stopped || null, tag: record?.tag ? text(record.tag) : null, summary, entries };
+}
+
+/** An Auto record cut to AUTO_LOG_LIMITS: the newest entries, every string shortened. A record within the limits comes back equal. */
+export function capAutoLog(v) {
+  const L = AUTO_LOG_LIMITS;
+  if (!v || typeof v !== 'object' || !Array.isArray(v.entries) || !Array.isArray(v.summary)) return v;
+  const cut = (x, n) => (typeof x === 'string' && x.length > n ? x.slice(0, n) : x);
+  const entries = v.entries.slice(0, L.entries).map((e) => {
+    const o = { ...e, at: cut(e.at, L.at), stage: cut(e.stage, L.stage), chose: cut(e.chose, L.text), asked: cut(e.asked, L.text), why: cut(e.why, L.text) };
+    if (typeof e.risk === 'string') o.risk = cut(e.risk, L.text);
+    if (Array.isArray(e.answers)) o.answers = e.answers.slice(0, L.answers).map((a) => ({ ...a, question: cut(a?.question, L.text), choice: cut(a?.choice, L.text), reason: cut(a?.reason, L.text) }));
+    return o;
+  });
+  return { ...v, stopped: cut(v.stopped, L.stopped), tag: cut(v.tag, L.tag), summary: v.summary.slice(0, L.summary).map((x) => cut(x, L.line)), entries };
 }
 
 /** The view as Markdown: every string from the Approver or a ticket on one line, at most 300 characters. */

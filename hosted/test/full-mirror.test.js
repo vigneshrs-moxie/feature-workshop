@@ -526,15 +526,51 @@ test('the website cannot set by: auto', async () => {
     }
     assert.equal(parseCommand({ type: 'auto-start', on: true, tag: 'x', by: 'auto' }, { from: 'site' }).ok, false);
     // Through the website's route: the extra field is not carried, and the queued command is the plain one.
-    const r = await olive.person.send('POST', '/api/job/add-export/auto', { on: true, by: 'auto' });
+    const r = await olive.person.send('POST', '/api/job/add-export/auto', { on: true, by: 'auto', tag: 'x', slug: 'other-job', type: 'approve' });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     await until(() => runner.handled.length === 1, { what: 'Auto to reach the laptop' });
-    assert.deepEqual(Object.keys(runner.handled[0]).sort(), ['on', 'slug', 'type']);
+    // The website carries only what it reads (slug from the address, on): the extra fields are not the laptop's to see.
+    assert.deepEqual(runner.handled[0], { type: 'auto', slug: 'add-export', on: true });
     const stored = (await s.db.query("SELECT command FROM decisions WHERE kind = 'auto'")).rows[0].command;
     assert.deepEqual(typeof stored === 'string' ? JSON.parse(stored) : stored, { type: 'auto', slug: 'add-export', on: true });
-    assert.ok(runner.auditLines.every((x) => x.by !== 'auto'), 'no audit line says Auto did it');
     // Nor does anything queued for the laptop carry it.
     const sent = (await s.db.query('SELECT command FROM commands')).rows.map((x) => JSON.stringify(x.command));
     assert.ok(sent.every((c) => !c.includes('"by":"auto"')));
+  } finally { l.link.stop(); await s.close(); }
+});
+
+test('the website keeps what the laptop sends of a long Auto list: the laptop and the site cut to the same numbers', async () => {
+  const { cleanAutoLog } = await import('../lib/records.js');
+  const { autoLogRecord, fit, RECORD_MAX } = await import('../../dashboard/runner/mirror.js');
+  const { AUTO_LOG_LIMITS: L } = await import('../../dashboard/lib/auto-log.js');
+  assert.deepEqual({ ...L }, { entries: 200, text: 1000, answers: 20, line: 400, summary: 3, at: 40, stage: 100, stopped: 300, tag: 100 });
+  const long = 'w'.repeat(5000);
+  const entries = Array.from({ length: 500 }, (_, i) => ({ at: '2026-11-11T08:00:00.000Z', stage: 'Plan', chose: `Go ${i}`, asked: long, why: long, risk: long, answers: Array.from({ length: 30 }, () => ({ question: long, choice: long, reason: long })) }));
+  const sent = fit('auto-log', autoLogRecord({ on: true, stopped: null, tag: null, summary: [long, long, long], entries }));
+  assert.ok(Buffer.byteLength(JSON.stringify(sent)) < RECORD_MAX);
+  const kept = cleanAutoLog(sent);
+  assert.ok(kept, 'the site does not refuse it');
+  assert.equal(kept.entries[0].chose, 'Go 0');
+  assert.deepEqual(kept.entries, sent.entries, 'the site cuts nothing more');
+  // The site's own cleaner cuts at the same numbers.
+  const wide = cleanAutoLog({ on: true, summary: [], entries: Array.from({ length: 300 }, () => ({ at: 'x', stage: 'Plan', chose: long, asked: 'a', why: 'w', answers: Array.from({ length: 30 }, () => ({ question: long, choice: 'c', reason: 'r' })) })) });
+  assert.equal(wide.entries.length, L.entries);
+  assert.equal(wide.entries[0].chose.length, L.text);
+  assert.equal(wide.entries[0].answers.length, L.answers);
+});
+
+test('Auto on the website: another person’s job is a 404 and a flag that is not true or false is a 400, and nothing is queued either way', async () => {
+  const { s, olive, l, runner } = await setUp();
+  try {
+    const sam = browser(s.fetch);
+    await signIn(sam, { email: 'sam.sample@example.test' });
+    const queued = async () => [(await s.db.query('SELECT count(*)::int AS n FROM commands')).rows[0].n, (await s.db.query("SELECT count(*)::int AS n FROM decisions WHERE kind = 'auto'")).rows[0].n];
+    const before = await queued();
+    assert.equal((await sam.send('POST', '/api/job/add-export/auto', { on: true })).status, 404);
+    assert.equal((await olive.person.send('POST', '/api/job/add-export/auto', { on: 'yes' })).status, 400);
+    assert.equal((await olive.person.send('POST', '/api/job/add-export/auto', {})).status, 400);
+    assert.deepEqual(await queued(), before);
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(runner.handled.length, 0, 'the laptop was sent nothing');
   } finally { l.link.stop(); await s.close(); }
 });

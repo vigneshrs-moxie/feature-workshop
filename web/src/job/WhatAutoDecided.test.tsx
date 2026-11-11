@@ -44,6 +44,19 @@ describe('WhatAutoDecided', () => {
     expect(entries[1]).toHaveTextContent('Spec');
   });
 
+  it('an entry with an unreadable time keeps the order it was given in', async () => {
+    const entries = [
+      { at: 'not a time', stage: 'Build', chose: 'First', asked: 'a', why: 'w' },
+      { at: '2026-11-10T09:00:00Z', stage: 'Spec', chose: 'Second', asked: 'a', why: 'w' },
+      { at: '2026-11-10T11:00:00Z', stage: 'Plan', chose: 'Third', asked: 'a', why: 'w' },
+    ];
+    show(vi.fn(async () => ({ ...DECIDED, entries })));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+    const panel = screen.getByRole('dialog', { name: 'What Auto decided' });
+    const items = within(panel).getAllByRole('listitem').filter((li) => li.classList.contains('auto-entry'));
+    expect(items.map((li) => li.querySelector('strong')?.textContent)).toEqual(['First', 'Second', 'Third']);
+  });
+
   it('says it has decided nothing yet when there are no entries', async () => {
     show(vi.fn(async () => ({ ...DECIDED, summary: ['', '', ''], entries: [] })));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });

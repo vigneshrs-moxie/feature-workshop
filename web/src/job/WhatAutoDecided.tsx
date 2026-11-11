@@ -23,7 +23,9 @@ function Panel({ slug, onClose }: { slug: string; onClose(): void }) {
     );
     return () => { cancelled = true; };
   }, [api, slug]);
-  const entries = data ? [...data.entries].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)) : [];
+  // Newest first. The laptop sends them that way; they are only put in order again when every time is readable, otherwise they stay as given.
+  const entries = data ? [...data.entries] : [];
+  if (entries.every((e) => Number.isFinite(Date.parse(e.at)))) entries.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
   return (
     <Sheet title="What Auto decided" onClose={onClose}>
       <div className="auto-decided">
