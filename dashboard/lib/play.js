@@ -72,8 +72,8 @@ export function validatePlayPatch(patch) {
 
 // ---------- What can be met, tried and found ----------
 
-/** All 15 crew members, the Foreman first (lib/stages.js AGENTS). */
-export const CREW_TYPES = Object.keys(AGENTS);
+/** All 15 crew members, the Foreman first (lib/stages.js AGENTS). The Approver is Auto's own helper, not crew. */
+export const CREW_TYPES = Object.keys(AGENTS).filter((t) => t !== 'approver');
 /**
  * The crew member an agent type stands for, or null for anyone else: an alias (lib/stages.js
  * AGENT_ALIASES, feature-wireframer is the Painter at the screens stage) counts as who it is.

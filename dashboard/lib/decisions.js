@@ -12,6 +12,7 @@ import path from 'node:path';
 import { PRODUCT, stateDirFor } from './state.js';
 import { writeFileAtomic } from './atomic-write.js';
 import { cleanTicketText } from './ticket-file.js';
+import { AUTO_MARK } from './auto-mode.js';
 
 const firstLine = (text, max = 160) => {
   const line = String(text ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
@@ -23,6 +24,10 @@ const SEND = {
   changes: (e) => ({ kind: 'changes', text: `Sent back${Number.isInteger(e.gateBrief) ? ` brief ${e.gateBrief}` : ''} for changes`, note: firstLine(e.text) }),
   stop: () => ({ kind: 'stop', text: 'Stopped the job' }),
 };
+
+// A reply or permission answer that Auto sent for the person carries by: 'auto' and the mark.
+const isAutoSent = (e) => e.by === 'auto' && (e.action === 'send' || e.action === 'permission');
+const unmark = (s) => String(s ?? '').split(AUTO_MARK).join('').replace(/\s+/g, ' ').trim();
 
 /** One entry for an audit line that records a decision of yours, else null. */
 export function decisionOf(e) {
@@ -41,7 +46,9 @@ export function decisionOf(e) {
   else if (e.action === 'nudge') d = { kind: 'nudge', text: `Said yes: ${firstLine(e.text, 100)}` };
   else if (e.action === 'nudge-dismissed') d = { kind: 'nudge', text: 'Dismissed a suggestion' };
   if (!d) return null;
+  if (d.note) d.note = unmark(d.note);
   if (!d.note) delete d.note;
+  if (isAutoSent(e)) d.text += ' (Auto)';
   return { at, ...d };
 }
 
@@ -141,9 +148,11 @@ function briefQuestion(e, briefs) {
  */
 export function decisionRows(audit = [], { prefix = 'job', person = 'You', briefs = {}, after = 0 } = {}) {
   const rows = [];
-  const add = (e, r) => rows.push({ id: decisionId(prefix, after + rows.length + 1), who: person, when: day(e.at), options: '', why: '', ...r });
+  let by = null; // the line being read, when Auto sent it
+  const add = (e, r) => rows.push({ id: decisionId(prefix, after + rows.length + 1), who: by ? 'Auto' : person, when: day(e.at), options: '', ...r, why: unmark(r.why ?? ''), ...(by ? { by } : {}) });
   for (const e of audit) {
     if (!e || typeof e !== 'object') continue;
+    by = isAutoSent(e) ? 'auto' : null;
     if (e.action === 'send' && GATE_KINDS.includes(e.kind)) {
       for (const a of gateAnswers(e.text)) add(e, { kind: 'answer', question: a.question, choice: a.choice });
       for (const c of gateChanges(e.text)) add(e, { kind: 'answer', question: c.id, choice: c.note });

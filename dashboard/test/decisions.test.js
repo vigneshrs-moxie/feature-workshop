@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decisionId, decisionLog, decisionOf, decisionPrefix, decisionRows, gateAnswers, gateNote, keptParts, localDay, orbitCopy, render, writeDecisionsFile } from '../lib/decisions.js';
+import { AUTO_MARK } from '../lib/auto-mode.js';
 import { startDashboard } from './helpers/dashboard.js';
 
 test('approvals, send-backs with their note, stops, permissions, levels, closing', () => {
@@ -333,4 +334,27 @@ test('no decisions gives the empty line', () => {
 test('decision rows say what kind they are, so the copy can keep the product ones', () => {
   const kinds = decisionRows(AUDIT, { prefix: 'ORBIT-479' }).map((r) => r.kind);
   assert.deepEqual(kinds, ['answer', 'answer', 'gate', 'permission', 'answer', 'level', 'send-back', 'gate']);
+});
+
+// ---------- Auto's own lines ----------
+test('an Auto approval is marked (Auto) in Decisions and in Copy decisions', () => {
+  const audit = [
+    { at: '2026-11-11T09:00:00Z', action: 'send', kind: 'approve', by: 'auto', gateBrief: 2, text: `My answers to brief 2:\n1. Keep the old column? → a) Yes\n\nI approve. Go ahead with the next stage: plan\n${AUTO_MARK}` },
+    { at: '2026-11-11T09:05:00Z', action: 'permission', decision: 'allow', by: 'auto', headline: 'Run the tests', note: `Only reads the repo. ${AUTO_MARK}` },
+    { at: '2026-11-11T09:10:00Z', action: 'send', kind: 'approve', gateBrief: 3, text: 'I approve.' },
+  ];
+  const log = decisionLog(audit);
+  assert.deepEqual(log.map((d) => d.text), ['Approved brief 3', 'Allowed: Run the tests (Auto)', 'Approved brief 2 (Auto)']);
+  const rows = decisionRows(audit, { prefix: 'ORBIT-1', person: 'Vignesh', briefs: { 2: 'spec', 3: 'plan' } });
+  assert.deepEqual(rows.map((r) => [r.who, r.by, r.choice, r.why.includes('Sent by Starbase')]), [
+    ['Auto', 'auto', 'Yes', false],
+    ['Auto', 'auto', 'approve', false],
+    ['Auto', 'auto', 'allow', false],
+    ['Vignesh', undefined, 'approve', false],
+  ]);
+  assert.equal(rows[2].why, 'Only reads the repo.');
+  assert.equal(rows[3].by, undefined);
+  const { text } = orbitCopy(rows, { ticket: 'ORBIT-1', today: '2026-11-11' });
+  assert.ok(text.includes('1. Keep the old column? Yes (Auto)'), text);
+  assert.equal(text.includes('Sent by Starbase'), false);
 });
