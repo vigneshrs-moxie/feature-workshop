@@ -153,14 +153,14 @@ function judgeCardOf(inp, ctx) {
   if (toolName !== 'Bash' && toolPaths(input).some((x) => secretPlace(physicalPath(x, ctx.cwd ?? null), jobRoots(ctx), ctx))) return { stop: stop('outside') };
   // A search whose root is outside the job's folders can read anything under it (C1).
   if (toolName === 'Grep' || toolName === 'Glob') {
-    const roots = jobRoots(ctx);
+    const roots = [...jobRoots(ctx), ...readFolders(ctx)]; // the skills and agents folders hold no secrets; the main checkout does (.env)
     const where = [input.path, /^[/~]/.test(String(input.pattern ?? '')) && toolName === 'Glob' ? input.pattern : null].filter((x) => typeof x === 'string' && x);
     if (where.some((x) => !inRoots(physicalPath(x, ctx.cwd ?? null), roots))) return { ask: 'a search that starts outside the job' };
   }
   if (EDIT_TOOLS.has(toolName)) {
     const file = input.file_path ?? input.notebook_path;
     const where = typeof file === 'string' ? physicalPath(file, ctx.cwd ?? null) : null;
-    if (!(where && inRoots(where, jobRoots(ctx))) || codeLater(where)) return { stop: stop('outside') };
+    if (!(where && inRoots(where, jobRoots(ctx))) || codeLater(where, jobRoots(ctx))) return { stop: stop('outside') };
     return ASK_FILES.has(path.basename(where)) ? { ask: 'a file that changes how tools run' } : null;
   }
   if (toolName === 'Bash') return bashVerdict(String(input.command ?? ''), hard, ctx);
@@ -173,7 +173,7 @@ function judgeCardOf(inp, ctx) {
 
 // ---------- secret places (T3a) and files that run code later (T3h) ----------
 
-const SECRET_DIRS = ['.ssh', '.aws', '.gnupg', '.config/gh', '.config/gcloud', '.azure', '.docker', '.kube', '.starbase', '.claude', 'Library/Keychains'];
+const SECRET_DIRS = ['.ssh', '.aws', '.gnupg', '.config/gh', '.config/gcloud', '.azure', '.docker', '.kube', '.starbase', 'Library/Keychains'];
 const SECRET_FILES = ['.claude.json', '.netrc', '.npmrc', '.pypirc', '.git-credentials', '.zsh_history', '.bash_history'];
 const SECRET_NAME = /^(\.env(\..*)?|id_rsa.*|id_ed25519.*|.*\.(pem|key|p12))$/i;
 const MAC = process.platform === 'darwin';
@@ -186,9 +186,20 @@ function secretPlace(p, roots, ctx = {}) {
   const q = fold(p);
   for (const h of homes()) {
     if (SECRET_DIRS.some((d) => isInside(q, fold(path.join(h, d)))) || SECRET_FILES.some((f) => q === fold(path.join(h, f)))) return true;
+    if (claudeSecret(q, h, ctx)) return true;
   }
   if (typeof ctx.stateDir === 'string' && ctx.stateDir && isInside(q, fold(ctx.stateDir))) return true;
   return SECRET_NAME.test(path.basename(p)) && !inRoots(p, roots);
+}
+
+// ~/.claude is a secret place, but for the job's own folder and the session's read folders (skills, agents) when
+// they sit there (I1); its sign-in (.credentials.json) and every settings*.json under it stay secret wherever they are.
+function claudeSecret(q, home, ctx) {
+  const dir = fold(path.join(home, '.claude'));
+  if (!isInside(q, dir)) return false;
+  if (q === fold(path.join(home, '.claude', '.credentials.json')) || /^settings[^/]*\.json$/.test(path.basename(q))) return true;
+  const open = [ctx.featureDir, ...(ctx.readRoots ?? [])].filter((r) => typeof r === 'string' && path.isAbsolute(r));
+  return !open.some((r) => [path.resolve(r), physicalPath(r, null)].filter(Boolean).some((x) => fold(x) !== dir && isInside(q, fold(x))));
 }
 
 // The path-like fields of a tool's input.
@@ -200,9 +211,11 @@ function toolPaths(input) {
 }
 
 // Does a path sit where a file runs code later or elsewhere: .git/, .github/workflows/, .husky/, .claude/, .mcp.json?
-function codeLater(p) {
+// It is read from the root the path sits in (the deepest of roots), so a .claude above the job's folder does not count (I1).
+function codeLater(p, roots = []) {
   if (!p) return false;
-  const segs = p.toLowerCase().split('/'); // a Mac's disk does not tell .GIT from .git
+  const root = roots.filter((r) => isInside(p, r) && p !== r).sort((a, b) => b.length - a.length)[0];
+  const segs = (root ? path.relative(root, p) : p).toLowerCase().split(/[\\/]/); // a Mac's disk does not tell .GIT from .git
   if (segs.some((x) => x === '.git' || x === '.husky' || x === '.claude' || x === '.githooks') || ['.mcp.json', 'lefthook.yml'].includes(segs[segs.length - 1])) return true;
   return segs.some((x, k) => x === '.github' && (segs[k + 1] === 'workflows' || segs[k + 1] === 'actions'));
 }
@@ -235,6 +248,11 @@ export function tooWideRoot(r, ctx = {}) {
   return state.some((s) => isInside(fold(s), q));
 }
 const inRoots = (p, roots, strict = false) => roots.some((r) => isInside(p, r) && !(strict && p === r));
+
+// The session's read folders (skills, agents), as written and as they really are.
+function readFolders(ctx) {
+  return (ctx.readRoots ?? []).filter((r) => typeof r === 'string' && path.isAbsolute(r)).flatMap((r) => [path.resolve(r), physicalPath(r, null)].filter(Boolean)).filter((x) => !tooWideRoot(x, ctx));
+}
 
 // The places a job may read without a question: its own roots, the repository's main checkout and the
 // session's read folders (skills, agents). Secret places are judged apart and stop wherever they are.
@@ -525,7 +543,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   // A file that runs code later (T3h), or that changes how tools run (asks).
   const noteWrite = (word) => {
     const p = physicalPath(word.t, cwd ?? st.hint ?? null);
-    if (codeLater(p)) st.hits.add('outside');
+    if (codeLater(p, st.roots)) st.hits.add('outside');
     if (p && ASK_FILES.has(path.basename(p))) st.asks.push('a file that changes how tools run');
   };
   const secretWord = (t) => {

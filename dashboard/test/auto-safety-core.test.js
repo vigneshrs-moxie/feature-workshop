@@ -288,3 +288,28 @@ test('C5: a read in the home folder or on another disk outside the job, its repo
   for (const c of ['cat README.md', 'cat app/.env.local', `cat ${WT}/src/a.ts`, `cat ${REPO}/README.md`, `grep -n TODO ${REPO}/app/src/a.ts`, 'cat /etc/hosts', 'echo ~/x', `ls ${WT}`]) assert.equal(bash(c, ctx), null, c);
   for (const f of [`${WT}/src/a.ts`, `${WT}/app/.env.local`, `${REPO}/app/src/a.ts`, '/usr/include/stdio.h']) assert.equal(card('Read', { file_path: f }, ctx), null, f);
 });
+
+// ---------- I1: Auto can run where the job folder and the skills are under ~/.claude ----------
+
+test('I1: the job\'s own folder and the skills under ~/.claude are read and written as the job\'s; the rest of ~/.claude stays secret', () => {
+  const ctx = C5CTX();
+  // The review's rows, with the real shape.
+  assert.equal(card('Read', { file_path: `${JOB}/ticket.md` }, ctx), null);
+  assert.equal(card('Write', { file_path: `${JOB}/status.json`, content: '{}' }, ctx), null);
+  assert.equal(card('Read', { file_path: `${SKILLS}/feature/SKILL.md` }, ctx), null);
+  assert.equal(card('Read', { file_path: `${AGENTS}/feature-reviewer.md` }, ctx), null);
+  assert.equal(card('Grep', { pattern: 'gate', path: SKILLS }, ctx), null);
+  assert.equal(card('Glob', { pattern: '**/*.md', path: `${SKILLS}/feature` }, ctx), null);
+  for (const c of [`cat ${JOB}/status.json`, `ls ${JOB}`, `echo done > ${JOB}/notes.md`, `cat ${SKILLS}/feature/SKILL.md`, `mkdir -p ${JOB}/review && touch ${JOB}/review/facts.md`]) assert.equal(bash(c, ctx), null, c);
+  // Still stops: a .claude folder inside the worktree, Claude Code's sign-in and settings, the rest of ~/.claude.
+  assert.equal(card('Write', { file_path: `${WT}/.claude/settings.json`, content: '{}' }, ctx), 'outside');
+  assert.equal(bash(`echo '{}' > ${WT}/.claude/settings.local.json`, ctx), 'outside');
+  for (const f of [`${HOME}/.claude/.credentials.json`, `${HOME}/.claude.json`, `${HOME}/.claude/settings.json`, `${HOME}/.claude/settings.local.json`, `${HOME}/.claude/projects/-Users-test/x.jsonl`, `${JOB}/settings.json`, `${SKILLS}/settings.local.json`, `${HOME}/.claude/feature-work/orbit-499-other/status.json`]) {
+    assert.equal(card('Read', { file_path: f }, ctx), 'outside', f);
+  }
+  for (const c of [`cat ${HOME}/.claude/.credentials.json`, `cat ~/.claude/settings.json`, `cat ~/.claude/feature-work/orbit-499-other/status.json`]) assert.equal(bash(c, ctx), 'outside', c);
+  // The skills and agents are read, never written.
+  assert.equal(card('Write', { file_path: `${SKILLS}/feature/SKILL.md`, content: 'x' }, ctx), 'outside');
+  assert.equal(card('Edit', { file_path: `${AGENTS}/feature-reviewer.md`, old_string: 'a', new_string: 'b' }, ctx), 'outside');
+  assert.equal(bash(`echo x >> ${SKILLS}/feature/SKILL.md`, ctx), 'outside');
+});
