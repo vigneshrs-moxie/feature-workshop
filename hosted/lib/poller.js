@@ -30,8 +30,6 @@ export const PERSON_BUDGET_MS = 20_000;
 /** The open Inbox asks for a refresh at most this often; the cron job doesn't read again sooner. */
 export const REFRESH_MS = 60_000;
 export const CRON_EVERY_MS = 3 * 60_000;
-/** Between full reads only what changed is fetched; a full read drops the tickets that left. */
-export const FULL_EVERY_MS = 60 * 60_000;
 const DESCRIPTION_MAX = 2000;
 const CHECK_TIMEOUT_MS = 15_000;
 
@@ -103,7 +101,7 @@ export function createPoller({ db, tokens, config, fetch: fetchFn, now = () => D
 
   /**
    * One person's inbox, now. gapMs: skip it when it was read more recently (REFRESH_MS from the
-   * page). Resolves { ok, skipped?, kind?, full?, count? }; never throws for an Orbit problem.
+   * page). Resolves { ok, skipped?, kind?, count? }; never throws for an Orbit problem.
    */
   async function pollPerson(personId, { budgetMs = PERSON_BUDGET_MS, deadline = clock() + budgetMs, gapMs = REFRESH_MS } = {}) {
     const orbitUrl = orbitUrlOf(config);
@@ -114,15 +112,12 @@ export function createPoller({ db, tokens, config, fetch: fetchFn, now = () => D
     try {
       const token = await tokens.open(personId);
       if (!token) return { ok: false, skipped: true };
-      const fullAt = turn.full_at ? new Date(turn.full_at).getTime() : null;
-      const full = !turn.polled_at || fullAt === null || started - fullAt >= FULL_EVERY_MS;
-      const since = full ? null : new Date(turn.polled_at).toISOString();
       const client = orbitClient({ baseUrl: orbitUrl, getToken: async () => token, fetchFn: boxed(fetchFn, deadline, clock), now });
       const got = new Map(); // number → { row, audience, why }
       const ignored = new Set();
       let audience = 'tech';
       for (const q of INBOX_QUERIES) {
-        const list = await client.listTickets(q.query, { since });
+        const list = await client.listTickets(q.query);
         audience = list.audience;
         for (const f of list.ignored) ignored.add(f);
         for (const row of list.tickets) {
@@ -131,20 +126,13 @@ export function createPoller({ db, tokens, config, fetch: fetchFn, now = () => D
           got.set(row.number, { row, audience: list.audience, why: new Set([...(had?.why ?? []), q.id]) });
         }
       }
-      // Orbit set "assigned to me" aside: what it sent is everyone's tickets, so none are kept, and
-      // the next clean read is a full one (the changes-only read would not bring the list back).
+      // Orbit set "assigned to me" aside: what it sent is everyone's tickets, so none are kept.
       const applied = assigneeApplied({ ignored: [...ignored] });
       if (!applied) got.clear();
       await db.tx(async (q) => {
-        const kept = new Map();
-        if (full || !applied) await q.query('DELETE FROM orbit_inbox WHERE person_id = $1', [personId]);
-        else {
-          const { rows } = await q.query('SELECT number, item FROM orbit_inbox WHERE person_id = $1 AND number = ANY($2::int[])', [personId, [...got.keys()]]);
-          for (const r of rows) kept.set(Number(r.number), (typeof r.item === 'string' ? JSON.parse(r.item) : r.item)?.why ?? []);
-        }
+        await q.query('DELETE FROM orbit_inbox WHERE person_id = $1', [personId]);
         for (const [number, g] of got) {
-          const why = [...new Set([...(kept.get(number) ?? []), ...g.why])].sort();
-          const item = storedItem(g.row, { why, audience: g.audience, orbitUrl });
+          const item = storedItem(g.row, { why: [...g.why].sort(), audience: g.audience, orbitUrl });
           await q.query(
             `INSERT INTO orbit_inbox (person_id, number, ticket_key, item, changed_at, stored_at) VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (person_id, number) DO UPDATE SET ticket_key = EXCLUDED.ticket_key, item = EXCLUDED.item, changed_at = EXCLUDED.changed_at, stored_at = EXCLUDED.stored_at`,
@@ -152,12 +140,11 @@ export function createPoller({ db, tokens, config, fetch: fetchFn, now = () => D
           );
         }
         await q.query(
-          `UPDATE orbit_tokens SET polled_at = $2, full_at = CASE WHEN NOT $4 THEN NULL WHEN $3 THEN $2 ELSE full_at END,
-                  assignee_ignored = NOT $4, orbit_audience = $5, error = NULL, error_kind = NULL, wait_until = NULL WHERE person_id = $1`,
-          [personId, iso(started), full, applied, audience],
+          `UPDATE orbit_tokens SET polled_at = $2, assignee_ignored = NOT $3, orbit_audience = $4, error = NULL, error_kind = NULL, wait_until = NULL WHERE person_id = $1`,
+          [personId, iso(started), applied, audience],
         );
       });
-      return { ok: true, full, count: got.size };
+      return { ok: true, count: got.size };
     } catch (err) {
       const outOfTime = clock() >= deadline;
       const e = outOfTime && !(err instanceof TokenKeyError) ? new OrbitError('Orbit was slow to answer, so your inbox is read again in a few minutes.', { kind: 'network' }) : err;

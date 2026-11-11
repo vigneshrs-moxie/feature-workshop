@@ -334,22 +334,22 @@ export function assigneeApplied(result) {
 }
 export const OPEN_EVERY_MS = 3 * 60_000; // a browser has the Inbox open
 export const IDLE_EVERY_MS = 15 * 60_000; // nobody is looking
-// Between full reads only what changed is fetched; a full read catches tickets that left the list.
-export const FULL_EVERY_MS = 60 * 60_000;
 const VIEW_LIST_MS = 60_000; // a saved view's tickets, fetched when its tab opens
 const VIEWS_MS = 24 * 60 * 60_000; // the saved views themselves: daily, and after a new token
 
-const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
 const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
 
 /**
  * One inbox row from an Orbit row (the team's TrackerRow or a participant's ParticipantRow).
  * `why`: ['assigned'] (which inbox list it came from; empty for a saved view's list).
  * Priority and severity are null where Orbit doesn't show them (a participant's rows).
+ * The queue fields (Queue #, rank, size) are the assignee's own, so a participant row has none.
  */
 export function inboxItem(row, { why = [], audience = 'tech', orbitUrl = null } = {}) {
   const key = ticketKey(row.number);
   const assignedToYou = why.includes('assigned');
+  const tech = audience === 'tech';
+  const place = row.queuePosition;
   const assignee = assignedToYou ? { name: 'You', you: true }
     : row.assignee?.name ? { name: row.assignee.name, you: false }
       : row.assignedToId ? { name: 'Someone else', you: false } : null;
@@ -357,17 +357,31 @@ export function inboxItem(row, { why = [], audience = 'tech', orbitUrl = null } 
     key, number: row.number, id: row.id ?? null, title: String(row.subject ?? ''), type: row.type ?? null, status: row.status ?? null,
     priority: audience === 'tech' ? row.priority ?? null : null,
     severity: audience === 'tech' ? row.severity ?? null : null,
+    queuePosition: tech && Number.isInteger(place) && place >= 1 ? place : null,
+    workOrder: tech && Number.isInteger(row.workOrder) ? row.workOrder : null,
+    size: tech && Number.isInteger(row.storyPoints) ? row.storyPoints : null,
+    queueKnown: tech && 'queuePosition' in row,
     createdAt: row.createdAt ?? null, changedAt: changedAt(row), assignee, why: [...why],
     url: orbitUrl ? `${orbitUrl}${audience === 'tech' ? '/admin/feedback/' : '/feedback/'}${key}` : null,
   };
 }
 
-/** Inbox order: severity (critical first, untriaged last), then priority, then the latest change first. */
+/**
+ * Orbit's queue order, read through Queue #: severity (critical first, none last), ranked before
+ * unranked, Queue # ascending, oldest first, then ticket number. The list reads like Plan my queue.
+ */
+export function queueOrder(a, b) {
+  const sev = (v) => (v && v in SEVERITY_ORDER ? SEVERITY_ORDER[v] : 9);
+  const ranked = (v) => (Number.isInteger(v?.queuePosition) ? 0 : 1);
+  return sev(a.severity) - sev(b.severity)
+    || ranked(a) - ranked(b)
+    || (ranked(a) === 0 ? a.queuePosition - b.queuePosition : 0)
+    || String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? ''))
+    || a.number - b.number;
+}
+
 export function sortItems(items) {
-  const rank = (v, order) => (v && v in order ? order[v] : 9);
-  return [...items].sort((a, b) => rank(a.severity, SEVERITY_ORDER) - rank(b.severity, SEVERITY_ORDER)
-    || rank(a.priority, PRIORITY_ORDER) - rank(b.priority, PRIORITY_ORDER)
-    || String(b.changedAt ?? '').localeCompare(String(a.changedAt ?? '')));
+  return [...items].sort(queueOrder);
 }
 
 /**
@@ -375,7 +389,7 @@ export function sortItems(items) {
  *   start() / stop()   poll now (when due) and on the cadence, or not at all
  *   watch()            a browser opened the Inbox: the cadence is OPEN_EVERY_MS until the
  *                      returned function is called (IDLE_EVERY_MS once nobody watches)
- *   refresh({ full })  poll now; while one runs, callers share it (one request in flight)
+ *   refresh()          poll now (always a whole read); while one runs, callers share it (one request in flight)
  *   reset()            forget everything (the token was cleared or replaced)
  * The last list is kept with its time, so the Inbox still shows it while Orbit is out of reach.
  */
@@ -395,7 +409,6 @@ export class OrbitInbox extends EventEmitter {
     this.audience = 'tech';
     this.ignored = []; // filters Orbit set aside on the last read
     this.checkedAt = null; // when the last good poll started (ISO)
-    this.fullAt = 0;
     this.lastTryAt = null; // when the last poll, good or not, started (ms)
     this.error = null;
     this.errorKind = null;
@@ -446,8 +459,8 @@ export class OrbitInbox extends EventEmitter {
     };
   }
 
-  refresh({ full = false } = {}) {
-    this.busy ??= this.#poll(full).finally(() => { this.busy = null; this.#schedule(); });
+  refresh() {
+    this.busy ??= this.#poll().finally(() => { this.busy = null; this.#schedule(); });
     return this.busy;
   }
 
@@ -461,18 +474,16 @@ export class OrbitInbox extends EventEmitter {
     this.timer?.unref?.();
   }
 
-  async #poll(forceFull) {
+  async #poll() {
     const before = JSON.stringify(this.view());
     const started = this.now();
     this.lastTryAt = started;
-    const full = forceFull || !this.checkedAt || started - this.fullAt >= FULL_EVERY_MS;
-    const since = full ? null : this.checkedAt;
     try {
       const ignored = new Set();
       let audience = this.audience;
-      const next = full ? new Map() : new Map([...this.rows].map(([n, r]) => [n, { ...r, why: new Set(r.why) }]));
+      const next = new Map();
       for (const q of this.queries) {
-        const list = await this.client.listTickets(q.query, { since });
+        const list = await this.client.listTickets(q.query);
         audience = list.audience;
         for (const f of list.ignored) ignored.add(f);
         for (const row of list.tickets) {
@@ -483,14 +494,8 @@ export class OrbitInbox extends EventEmitter {
       }
       this.audience = audience;
       this.ignored = [...ignored];
-      if (assigneeApplied({ ignored: this.ignored })) {
-        this.rows = next;
-        if (full) this.fullAt = started;
-      } else {
-        // That read held everyone's tickets, not yours: keep none, and make the next clean read a full one.
-        this.rows = new Map();
-        this.fullAt = 0;
-      }
+      // When Orbit set "assigned to me" aside, that read held everyone's tickets: keep none.
+      this.rows = assigneeApplied({ ignored: this.ignored }) ? next : new Map();
       this.checkedAt = new Date(started).toISOString();
       this.error = null;
       this.errorKind = null;
