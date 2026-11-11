@@ -9,7 +9,10 @@ import path from 'node:path';
 
 import { State } from '../lib/state.js';
 import { Driver } from '../lib/driver.js';
-import { defaultsForLevel, writeAutoOption, writeOptions } from '../lib/options.js';
+import { defaultsForLevel, ticketStatus, writeAutoOption, writeOptions } from '../lib/options.js';
+import { nextStageAfter } from '../lib/gate.js';
+import { fixedStop } from '../lib/auto-rules.js';
+import { stagesFor } from '../lib/stages.js';
 import { makeFakeQuery, readReply } from '../demo/fake-query.js';
 import { parseReviewFindings } from '../lib/play.js';
 import { createRunner } from '../runner/index.js';
@@ -78,6 +81,21 @@ test('demo Foreman reads a reply: approvals, option lines, guidance and a new jo
   assert.equal(readReply('/feature Fix the typo in the footer Private folder: /x').description, 'Fix the typo in the footer');
   assert.equal(readReply('/feature Fix the login (This is a bug fix.) Private folder: /x').description, 'Fix the login');
   assert.equal(readReply('Stop here. Record where things stand').stopping, true);
+});
+
+test('demo Foreman, a bug ticket\'s job (as Auto start makes one): it runs a bug job\'s stages, so its gates are ones Auto can answer up to PR #1', async () => {
+  const { featuresDir, driver } = await setup();
+  const { dir, text } = await newJob(featuresDir, 'orbit-7-dial-drops', 'ORBIT-7: The dial drops calls', 1);
+  await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify(ticketStatus({ ticket: { key: 'ORBIT-7', title: 'The dial drops calls', url: null }, slug: 'orbit-7-dial-drops', title: 'ORBIT-7: The dial drops calls', kind: 'bug', level: 1, repo: '/repo' }), null, 2));
+  let { status } = await reply(driver, dir, text);
+  for (let i = 0; i < 12 && !status.prs?.[0]?.url; i++) {
+    assert.equal(status.kind, 'bug');
+    assert.ok(stagesFor('bug').includes(status.stage), `a bug stage: ${status.stage}`);
+    const next = nextStageAfter(status.stage, [], 'bug');
+    assert.equal(fixedStop({ kind: 'gate', stage: status.stage, nextStage: next }), null, `no merge stop at ${status.stage} (next ${next})`);
+    if (next === 'pr1') break;
+    ({ status } = await reply(driver, dir, 'I approve. Go ahead with the next stage.', { sessionId: status.session_id }));
+  }
 });
 
 test('demo Foreman, L0: no plan card; one build after a working status, then a diff brief with no questions', async () => {
