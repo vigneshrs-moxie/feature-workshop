@@ -223,14 +223,32 @@ function ipv4Value(host) {
 
 const thisHostnames = () => { const h = os.hostname().toLowerCase(); return [h, h.split('.')[0], `${h.split('.')[0]}.local`]; };
 
+// The eight 16-bit groups of an IPv6 address written in hex (with one ::), or null.
+function ipv6Groups(h) {
+  if (!/^[0-9a-f:]+$/.test(h) || (h.match(/::/g) ?? []).length > 1) return null;
+  const [head, tail] = h.split('::');
+  const left = head ? head.split(':') : [];
+  const right = tail === undefined ? [] : tail ? tail.split(':') : [];
+  const fill = 8 - left.length - right.length;
+  if (tail === undefined ? left.length !== 8 : fill < 1) return null;
+  const all = [...left, ...Array(tail === undefined ? 0 : fill).fill('0'), ...right];
+  if (all.length !== 8 || all.some((x) => !/^[0-9a-f]{1,4}$/.test(x))) return null;
+  return all.map((x) => parseInt(x, 16));
+}
+
 function isThisComputer(host) {
   const h = String(host).toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
   if (!h) return false;
   if (h === 'localhost' || h.endsWith('.localhost') || thisHostnames().includes(h)) return true;
-  if (h.includes(':')) { // IPv6: ::1, 0:0:0:0:0:0:0:1, ::ffff:127.0.0.1, ::
+  if (h.includes(':')) { // IPv6: ::1, 0:0:0:0:0:0:0:1, ::ffff:127.0.0.1, ::ffff:7f00:1, ::7f00:1, ::
     const tail = /^(?:0*:)*(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/.exec(h);
     if (tail) return isThisComputer(tail[1]);
-    return /^[0:]*1?$/.test(h);
+    const g = ipv6Groups(h);
+    if (!g) return false;
+    if (g.slice(0, 5).some((x) => x !== 0)) return false;
+    if (g[5] !== 0 && g[5] !== 0xffff) return false;
+    const v = g[6] * 65536 + g[7]; // the last 32 bits, as an IPv4 address
+    return g[5] === 0 && g[6] === 0 ? v <= 1 : v === 0 || Math.floor(v / 2 ** 24) === 127;
   }
   const v = ipv4Value(h);
   return v !== null && (v === 0 || Math.floor(v / 2 ** 24) === 127);
@@ -256,17 +274,32 @@ export function namesStarbaseAddress(text, port = null) {
   return apiVerdict('Bash', { command: String(text ?? '') }, { port: port ?? undefined }) !== null;
 }
 
+// The text a non-Bash tool's input holds that could be an address: its single-word strings (a URL, a host, a port), any depth.
+function addressWords(value, out = [], depth = 0) {
+  if (out.length > 200 || depth > 4) return out;
+  if (typeof value === 'string') { if (value.length <= 2048 && !/\s/.test(value)) out.push(value); } else if (Array.isArray(value)) { for (const v of value) addressWords(v, out, depth + 1); } else if (value && typeof value === 'object') { for (const v of Object.values(value)) addressWords(v, out, depth + 1); }
+  return out;
+}
+
 function apiVerdict(toolName, input, opts) {
-  if (toolName !== 'Bash') return null;
-  const command = String(input?.command ?? '');
   const port = opts.port ?? apiPort;
-  if (!command.includes(String(port).slice(-2))) return null; // quick out: the port's last digits must appear
-  const tokens = command.split(/[\s;&|()<>`"'\\,]+/).filter(Boolean);
+  const last = String(port).slice(-2);
+  const bash = toolName === 'Bash';
+  // %xx spellings are read as the bytes they stand for (a sequence that is not valid is left as written)
+  const unescape = (x) => String(x).replace(/%([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  const command = bash ? unescape(input?.command ?? '') : '';
+  if (bash && !command.includes(last)) return null; // quick out: the port's last digits must appear
   const onPort = (x) => new RegExp(`(^|[:=])0*${port}(?![0-9])`).test(x);
+  if (bash) {
+    // bash's own network files: /dev/tcp/<host>/<port>, /dev/udp/<host>/<port>
+    const dev = new RegExp(`/dev/(?:tcp|udp)/([^/\\s'"\`;&|()<>]+)/0*${port}(?![0-9])`, 'g');
+    for (const m of command.matchAll(dev)) if (/[$`]/.test(m[1]) || namesThisComputer(m[1])) return API_DENY;
+  }
+  const tokens = bash ? command.split(/[\s;&|()<>`"'\\,]+/).filter(Boolean) : addressWords(input).map(unescape);
   if (!tokens.some(onPort)) return null;
   if (tokens.some(namesThisComputer)) return API_DENY;
   // a host chosen by a variable or a substitution on that port
-  return tokens.some((x) => /[$]/.test(x) && onPort(x) && /:0*\d+/.test(x)) ? API_DENY : null;
+  return bash && tokens.some((x) => /[$]/.test(x) && onPort(x) && /:0*\d+/.test(x)) ? API_DENY : null;
 }
 
 const homeOf = () => os.homedir();
@@ -274,6 +307,29 @@ const expandHome = (t) => String(t).replace(/\$\{HOME\}|\$HOME(?![A-Za-z0-9_])/g
 
 // Follows symlinks one step at a time, so a path that goes through a link (or climbs out with ..
 // from inside one) lands where it really does. Folders that don't exist yet are taken as written.
+// While one call is judged, what lstat said about a path is remembered, and only so many different paths are
+// looked up: a command of a million words must not become a million disk reads (T3k). Past the limit a path
+// is "not known" (physicalPath says null), which every caller already treats as the stricter case.
+let lstatMemo = null;
+const LSTAT_LIMIT = 3000;
+/** Runs fn with the lstat memory on (the outermost call owns it). */
+export function withPathMemo(fn) {
+  if (lstatMemo) return fn();
+  lstatMemo = { seen: new Map(), left: LSTAT_LIMIT, exhausted: false, places: new Map() };
+  try { return fn(); } finally { lstatMemo = null; }
+}
+function isLink(p) {
+  const m = lstatMemo;
+  if (!m) return fs.lstatSync(p).isSymbolicLink();
+  if (m.seen.has(p)) return m.seen.get(p);
+  if (m.left <= 0) { m.exhausted = true; return false; }
+  m.left--;
+  let link = false;
+  try { link = fs.lstatSync(p).isSymbolicLink(); } catch { /* not there yet */ }
+  m.seen.set(p, link);
+  return link;
+}
+
 function walkPhysical(start, segments) {
   let p = start;
   for (const s of segments) {
@@ -281,7 +337,7 @@ function walkPhysical(start, segments) {
     if (s === '..') { p = path.dirname(p); continue; }
     let next = path.join(p, s);
     try {
-      if (fs.lstatSync(next).isSymbolicLink()) {
+      if (isLink(next)) {
         try { next = fs.realpathSync(next); } catch { next = path.resolve(path.dirname(next), fs.readlinkSync(next)); }
       }
     } catch { /* not there yet: as written */ }
@@ -296,6 +352,16 @@ function walkPhysical(start, segments) {
  * a glob stands for what its folder holds, unless a .. could hide in it. Only reads symlinks.
  */
 export function physicalPath(raw, cwd = null) {
+  const m = lstatMemo;
+  if (!m) return physicalPathOf(raw, cwd);
+  const key = `${cwd}\u0000${raw}`;
+  if (m.places.has(key)) return m.places.get(key);
+  const out = physicalPathOf(raw, cwd);
+  if (m.places.size < 50000) m.places.set(key, out);
+  return out;
+}
+
+function physicalPathOf(raw, cwd) {
   let t = expandHome(raw);
   if (!t || /[$`\u0000]/.test(t) || (t.startsWith('~') && t !== '~' && !t.startsWith('~/'))) return null;
   const segs = t.split('/');
@@ -304,9 +370,11 @@ export function physicalPath(raw, cwd = null) {
     if (segs.slice(g).some((x) => x.includes('..'))) return null;
     t = segs.slice(0, g).join('/') || (t.startsWith('/') ? '/' : '.');
   }
-  if (path.isAbsolute(t)) return walkPhysical('/', t.split('/'));
-  if (!cwd || !path.isAbsolute(cwd)) return null;
-  return walkPhysical(walkPhysical('/', cwd.split('/')), t.split('/'));
+  let out;
+  if (path.isAbsolute(t)) out = walkPhysical('/', t.split('/'));
+  else if (!cwd || !path.isAbsolute(cwd)) return null;
+  else out = walkPhysical(walkPhysical('/', cwd.split('/')), t.split('/'));
+  return lstatMemo?.exhausted ? null : out;
 }
 
 const MAC = process.platform === 'darwin';
@@ -390,6 +458,9 @@ function stateVerdict(toolName, input, opts) {
   let written = false; // a redirect or mkdir that names it: classify() lets those through into a temp folder
   const isWrite = (r) => !(r.op === '<' || r.op === '<&' || (r.op === '>&' && /^(\d+|-)$/.test(r.target)));
   if (parts) {
+    // A command of thousands of words is not looked at word by word for a bare name (no folder, no ~, no $, no dot):
+    // it could reach the state folder only through a link of that name, and each lookup is a disk read (T3k).
+    if (parts.reduce((n, part) => n + part.words.length, 0) > MAX_HARD_WORDS) { if (lstatMemo) lstatMemo.tooMuch = true; return null; } // hardLine answers ask
     for (const part of parts) {
       const interpreter = part.words.some((w) => INTERPRETERS.test(commandName(w.t)));
       const hit = part.words.some((w) => namesStateWord(w.t, part.cwd, roots, interpreter));
@@ -460,7 +531,25 @@ const strictest = (verdicts) => verdicts.filter(Boolean).sort((a, b) => RANK[b.d
  * Shell commands (the Bash tool) are checked, and for the starbase-state line the edit tools too.
  * With several, the strictest wins. opts: { cwd, stateDir } for resolving paths.
  */
+// A command too long to check, or one that needs more path lookups than a call may make: the answer is ask, for every
+// job, never "no line" (nothing is skipped). Neither the go-ahead nor a saved rule answers it (see hardLineHook, goAheadCovers).
+const MAX_HARD_COMMAND = 100_000;
+const MAX_HARD_WORDS = 2000;
+export const TOO_LONG = Object.freeze({ decision: 'ask', line: 'too-long', reason: 'This command is too long for Starbase to check, so it needs you.' });
+
 export function hardLine(toolName, input = {}, opts = {}) {
+  if (toolName === 'Bash' && String(input?.command ?? '').length > MAX_HARD_COMMAND) return TOO_LONG;
+  const outer = lstatMemo;
+  const memo = { seen: new Map(), left: LSTAT_LIMIT, exhausted: false, places: new Map(), tooMuch: false };
+  lstatMemo = memo;
+  try {
+    const verdict = hardLineOf(toolName, input, opts);
+    if (verdict?.decision === 'deny') return verdict;
+    return memo.exhausted || memo.tooMuch ? TOO_LONG : verdict;
+  } finally { lstatMemo = outer; }
+}
+
+function hardLineOf(toolName, input, opts) {
   const state = stateVerdict(toolName, input, opts);
   if (state) return state;
   const api = apiVerdict(toolName, input, opts);
@@ -516,6 +605,7 @@ export function rmInsideJob(words, cwd, ctx) {
 export function goAheadCovers(toolName, input = {}, ctx = {}) {
   if (ctx.mode !== 'auto' || toolName !== 'Bash') return null;
   const command = String(input?.command ?? '');
+  if (command.length > MAX_HARD_COMMAND) return null;
   // Commands handed to another shell can't be seen: those always ask.
   if (/\b(eval|sh|bash|zsh)\b/.test(command)) return null;
   const parts = commandParts(command, ctx.cwd ?? null);
@@ -607,7 +697,7 @@ export function hardLineHook(onVerdict = () => {}, { check = orgPushCheck(), cwd
       }
     }
     if (!verdict) return {};
-    if (verdict.decision === 'ask' && cover) {
+    if (verdict.decision === 'ask' && verdict.line !== 'too-long' && cover) {
       let covered = null;
       try { covered = await cover(input.tool_name, input.tool_input); } catch { /* still asks */ }
       if (covered) return {};
