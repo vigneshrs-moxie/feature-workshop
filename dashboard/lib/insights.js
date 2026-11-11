@@ -279,14 +279,15 @@ export function limitGraph(rec, ctx) {
     todo = 'Press Read now. The forecast needs readings a few hours apart in the last day.';
   }
   const sub = split.state === 'split' || split.state === 'no-ratio' ? split.sentence : null;
+  const hasFive = points.some((p) => p.fiveHour !== null);
   return graph({
     id: 'limit', n: 1, title: 'Weekly limit and forecast', audience: 'common', state: points.length ? 'ok' : 'empty', headline, todo, sub,
     data: { window, from: new Date(from).toISOString(), to: new Date(now).toISOString(), points, resets, forecast: fc, split, fiveHour: limits.fiveHour },
     table: {
       caption: `${headline}${resets.length ? ` The week reset at ${resets.map((r) => whenWords(r, { now, timeZone })).join(', ')}.` : ''}`,
       // The 5-hour column only when some reading has one: a limit Claude does not report is not named.
-      head: ['When', 'Weekly limit used', ...(points.some((p) => p.fiveHour !== null) ? ['5-hour limit used'] : [])],
-      rows: points.map((p) => [whenWords(p.t, { timeZone }), p.week === null ? 'Not read' : pct(p.week), ...(points.some((q) => q.fiveHour !== null) ? [p.fiveHour === null ? 'Not read' : pct(p.fiveHour)] : [])]),
+      head: ['When', 'Weekly limit used', ...(hasFive ? ['5-hour limit used'] : [])],
+      rows: points.map((p) => [whenWords(p.t, { timeZone }), p.week === null ? 'Not read' : pct(p.week), ...(hasFive ? [p.fiveHour === null ? 'Not read' : pct(p.fiveHour)] : [])]),
     },
     notes: driver ? [ccDriver
       ? `In the last day the meter rose ${pct(driver.app + driver.claudeCode + driver.other)}: this app about ${pct(driver.app)}, your Claude Code outside this app about ${pct(driver.claudeCode)}, other use about ${pct(driver.other)} (estimated).`

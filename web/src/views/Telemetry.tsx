@@ -51,16 +51,27 @@ const REFRESH_MS = 60_000;
 /** While Claude Code's logs are first read: ask again this soon, until they are. */
 export const READING_MS = 5_000;
 
-const GUIDE: GuideSpec = {
+/** The guide names only the limits Claude reports: both, the weekly one, or none yet. */
+function guideFor(hasFive: boolean, hasWeek: boolean): GuideSpec {
+  const who = 'how much is used, and by whom: this app, your Claude Code use outside it, or other use.';
+  const first = hasFive && hasWeek
+    ? { title: 'Two limits', say: `Claude limits use over five hours and over a week, for everyone on the account. The dials show ${who}` }
+    : hasFive
+      ? { title: 'The 5-hour limit', say: `Claude limits use over five hours, for everyone on the account. The dial shows ${who}` }
+      : hasWeek
+        ? { title: 'The weekly limit', say: `Claude limits use over a week, for everyone on the account. The dial shows ${who}` }
+        : { title: 'The limits', say: `Once Claude reports a limit, a dial shows ${who}` };
+  return {
   id: 'telemetry',
   title: 'How Telemetry works',
   cards: [
-    { icons: ['gauge'], title: 'Two limits', say: 'Claude limits use over five hours and over a week, for everyone on the account. The dials show how much is used, and by whom: this app, your Claude Code use outside it, or other use.' },
+    { icons: ['gauge'], ...first },
     { icons: ['activity', 'check'], title: 'Each graph says what it found', say: 'And one line on what to do about it. Table shows the numbers.' },
     { icons: ['minus', 'eye-off'], title: 'Fold or hide', say: 'Keep the ones you use. Hidden graphs come back from the end of the page.' },
   ],
   done: 'Show me the graphs',
-};
+  };
+}
 
 function readWindow(): TelemetryWindow {
   try {
@@ -75,12 +86,19 @@ export function TelemetryView() {
   const { planUsage } = useWorkshopState();
   const now = useNow(30_000);
   const narrow = useNarrow();
-  const [win, setWin] = useState<TelemetryWindow>(readWindow);
+  const [chosen, setWin] = useState<TelemetryWindow>(readWindow);
   const [data, setData] = useState<TelemetryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   const asked = useRef(0);
+  // A limit Claude doesn't report is not offered: without a 5-hour reading, the 5 hours window is not
+  // either, and a remembered one reads the week.
+  const u: PlanUsage | null = planUsage ?? data?.meters ?? null;
+  const weekMeter = u?.week ?? (data ? fromLog(data.limits.week, 7 * 864e5) : null);
+  const fiveMeter = u?.fiveHour ?? (data ? fromLog(data.limits.fiveHour, 5 * 3600e3) : null);
+  const hasFive = fiveMeter !== null;
+  const win: TelemetryWindow = chosen === '5h' && !hasFive ? 'week' : chosen;
 
   // quiet: a read again while Claude Code's logs are read, without dimming the graphs.
   const load = useCallback(async (w: TelemetryWindow, { quiet = false } = {}) => {
@@ -123,7 +141,6 @@ export function TelemetryView() {
     try { window.localStorage.setItem(WINDOW_KEY, w); } catch { /* only this visit, then */ }
   };
 
-  const u: PlanUsage | null = planUsage ?? data?.meters ?? null;
   const canRead = Boolean(u?.enabled);
   const readNow = useCallback(async () => {
     if (!canRead || reading) return;
@@ -140,8 +157,6 @@ export function TelemetryView() {
   useKeyScope('global', { 'tele-read': () => { void readNow(); } }, canRead);
 
   // Each dial: the live reading, else the newest reading in the usage log (plan usage off for a while, or demo mode).
-  const weekMeter = u?.week ?? (data ? fromLog(data.limits.week, 7 * 864e5) : null);
-  const fiveMeter = u?.fiveHour ?? (data ? fromLog(data.limits.fiveHour, 5 * 3600e3) : null);
   const graphs = data?.graphs ?? [];
   const limit = graphs.find((g) => g.id === 'limit');
   const hidden = new Set(prefs.hidden);
@@ -167,7 +182,7 @@ export function TelemetryView() {
       label="Window: what the dials’ graph and People cover"
       value={win}
       onChange={pick}
-      options={WINDOWS.map((w) => ({ value: w.id, label: <><span className="tele-long">{w.label}</span><span className="tele-short">{w.short}</span></>, title: `Show ${w.label.toLowerCase()} in the weekly graph and People.` }))}
+      options={WINDOWS.filter((w) => hasFive || w.id !== '5h').map((w) => ({ value: w.id, label: <><span className="tele-long">{w.label}</span><span className="tele-short">{w.short}</span></>, title: `Show ${w.label.toLowerCase()} in the weekly graph and People.` }))}
     />
   );
 
@@ -175,7 +190,7 @@ export function TelemetryView() {
   const nothing = data && data.lines === 0 && !graphs.some((g) => g.state === 'ok' && g.id !== 'limit') && !u?.week && !u?.fiveHour && !(limit && limit.data.points.length);
 
   return (
-    <Page label="Telemetry" title="Telemetry" className="page-telemetry tele" head={head} guide={GUIDE}>
+    <Page label="Telemetry" title="Telemetry" className="page-telemetry tele" head={head} guide={guideFor(hasFive, weekMeter !== null)}>
       {error && (
         <p className="thread-error" role="alert">
           Couldn’t read the usage log: {error}{' '}
@@ -191,7 +206,7 @@ export function TelemetryView() {
       {data && !nothing && (
         <>
           <section className="tele-dials" aria-label="The Claude limits now">
-            {fiveMeter && <Dial name="5-hour limit" claudeCode={data.claudeCode} unread="No reading in this five hours yet" meter={fiveMeter} split={data.limits.fiveHour} when={dialWhen(fiveMeter, u?.fiveHour ?? null, data.limits.fiveHour, (r) => `Resets ${resetsIn(r, now)}`, now)} />}
+            {fiveMeter && <Dial name="5-hour limit" claudeCode={data.claudeCode} meter={fiveMeter} split={data.limits.fiveHour} when={dialWhen(fiveMeter, u?.fiveHour ?? null, data.limits.fiveHour, (r) => `Resets ${resetsIn(r, now)}`, now)} />}
             <Dial name="Weekly limit" claudeCode={data.claudeCode} meter={weekMeter} split={data.limits.week} when={dialWhen(weekMeter, u?.week ?? null, data.limits.week, (r) => `Resets ${clockTime(r, now)}`, now)} />
           </section>
           <WhoLine split={data.limits.week} note={data.limits.note} otherLabel={data.limits.otherLabel} me={data.me} claudeCode={data.claudeCode} onPick={openPeople} />

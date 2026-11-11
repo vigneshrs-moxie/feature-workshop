@@ -4,7 +4,7 @@
 // week (with Other use), the ten cards with Fold, Hide, Show again and Table ▸, the window picker,
 // Read now, the empty state and the phone width; and the colour rules for Telemetry.css. No model
 // calls: the dashboard is a fake api.
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -277,6 +277,64 @@ describe('Telemetry', () => {
     expect(document.querySelector('.tele-tip')).not.toBeNull();
     expect(document.querySelector('.tele-tip')?.textContent).not.toMatch(/5 hours/);
     expect(svg.parentElement?.querySelector('[aria-live]')?.textContent).not.toMatch(/5 hours/);
+  });
+
+  /** The page with a 5-hour limit read or not: the live reading and the log's readings go together. */
+  const noFiveSetup = (extra: { fiveHour?: boolean; planUsage?: PlanUsage } = {}) => {
+    const lines = extra.fiveHour ? FIXTURE : FIXTURE.map((l) => ({ ...l, meters: { ...l.meters, fiveHour: undefined } }));
+    const meters = extra.planUsage ?? (extra.fiveHour ? METERS_ON : { ...METERS_ON, fiveHour: null });
+    return setup({ planUsage: meters, get: async (path) => answer(new URLSearchParams(path.split('?')[1]).get('window') as TelemetryWindow, meters, lines) });
+  };
+
+  it('the guide names only the limits that are read', async () => {
+    noFiveSetup();
+    await screen.findByRole('region', { name: 'The Claude limits now' });
+    fireEvent.click(screen.getByRole('button', { name: 'How it works' }));
+    let guide = screen.getByRole('dialog').textContent ?? '';
+    expect(guide).toMatch(/over a week/);
+    expect(guide).not.toMatch(/five hours|5-hour/i);
+    cleanup();
+    noFiveSetup({ fiveHour: true });
+    await screen.findByRole('region', { name: 'The Claude limits now' });
+    fireEvent.click(screen.getByRole('button', { name: 'How it works' }));
+    guide = screen.getByRole('dialog').textContent ?? '';
+    expect(guide).toMatch(/over five hours and over a week/);
+    cleanup();
+    const none = { ...METERS_ON, fiveHour: null, week: null, checkedAt: null };
+    setup({ planUsage: none, get: async () => answer('week', none, []) });
+    await screen.findByRole('heading', { name: 'No readings yet' });
+    fireEvent.click(screen.getByRole('button', { name: 'How it works' }));
+    guide = screen.getByRole('dialog').textContent ?? '';
+    expect(guide).not.toMatch(/five hours|5-hour|over a week/i);
+  });
+
+  it('the 5 hours window is not offered when no 5-hour limit is read', async () => {
+    noFiveSetup();
+    await screen.findByRole('region', { name: 'The Claude limits now' });
+    const windows = screen.getByRole('radiogroup', { name: /^Window/ });
+    expect(within(windows).getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['week', '30d']);
+    cleanup();
+    noFiveSetup({ fiveHour: true });
+    await screen.findByRole('region', { name: 'The Claude limits now' });
+    expect(within(screen.getByRole('radiogroup', { name: /^Window/ })).getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['5h', 'week', '30d']);
+  });
+
+  it('a remembered 5 hours window falls back to the week', async () => {
+    localStorage.setItem('workshop.telemetryWindow', '5h');
+    const { get } = noFiveSetup();
+    await screen.findByRole('region', { name: 'The Claude limits now' });
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/api/telemetry?window=week'));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(within(screen.getByRole('radiogroup', { name: /^Window/ })).getByRole('radio', { name: /This week/ })).toBeChecked();
+  });
+
+  it('the People text names no 5-hour limit when none is read', async () => {
+    localStorage.setItem('workshop.telemetryWindow', '5h');
+    noFiveSetup();
+    await screen.findByRole('region', { name: 'The Claude limits now' });
+    await waitFor(() => expect(document.querySelector('[data-graph="people"]')).not.toBeNull());
+    expect(document.querySelector('[data-graph="people"]')?.textContent).not.toMatch(/5-hour|five hours/i);
+    expect(document.body.textContent?.match(/.{0,40}(5-hour|five hours).{0,40}/i)?.[0]).toBeUndefined();
   });
 
   it('without the limits read here (demo mode): says so, and Read now waits', async () => {

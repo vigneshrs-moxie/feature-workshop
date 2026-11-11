@@ -240,6 +240,7 @@ function limitGraph(ctx) {
     const named = driver.people.filter((p) => p.part >= 0.5).map((p) => `${p.user} about ${pct(p.part)}`);
     notes.push(`In the last day the meter rose ${pct(driver.app + driver.claudeCode + driver.other)}: ${named.length ? `${named.join(', ')}, ` : ''}other use about ${pct(driver.other)} (estimated).`);
   }
+  const hasFive = points.some((p) => p.fiveHour !== null);
   return graph({
     id: 'limit', n: 1, title: 'The shared limit this week, with the forecast', audience: 'common', state: points.length ? 'ok' : 'empty', headline, todo,
     sub: split.state === 'split' || split.state === 'no-ratio' ? split.sentence : null,
@@ -247,8 +248,8 @@ function limitGraph(ctx) {
     table: {
       caption: `${headline} ${week.label}.`,
       // The 5-hour column only when some reading has one: a limit Claude does not report is not named.
-      head: ['When', 'Weekly limit used', ...(points.some((p) => p.fiveHour !== null) ? ['5-hour limit used'] : [])],
-      rows: points.map((p) => [whenWords(p.t, { timeZone }), p.week === null ? 'Not read' : pct(p.week), ...(points.some((q) => q.fiveHour !== null) ? [p.fiveHour === null ? 'Not read' : pct(p.fiveHour)] : [])]),
+      head: ['When', 'Weekly limit used', ...(hasFive ? ['5-hour limit used'] : [])],
+      rows: points.map((p) => [whenWords(p.t, { timeZone }), p.week === null ? 'Not read' : pct(p.week), ...(hasFive ? [p.fiveHour === null ? 'Not read' : pct(p.fiveHour)] : [])]),
     },
     notes,
   });
