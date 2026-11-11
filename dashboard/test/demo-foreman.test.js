@@ -296,6 +296,12 @@ test('the stand-in Approver answers a gate, a question and a permission in the s
   assert.deepEqual(permission.answer, { decision: 'allow', why: 'An ordinary step of this job.', risk: 'low' });
 });
 
+test('K6: the stand-in Approver still answers a gate whose prompt lists decided items', async () => {
+  const gate = await ask({ ...task('gate', QS), decided: [{ id: 'D-1', decision: 'Reviewers: head inspector', why: 'L2 defaults' }, { id: 'D-2', decision: 'Keep the column', why: '' }] }, makeFakeApprover({ fail: false }));
+  assert.equal(gate.ok, true, gate.problem);
+  assert.deepEqual(gate.answer.answers.map((a) => a.id), ['1', '2', '3'], 'no answer for a decided item');
+});
+
 test('the stand-in Approver with fail answers a shape checkAnswer refuses, and takes only Read and Glob', async () => {
   const bad = await ask(task('gate', QS), makeFakeApprover({ fail: true }));
   assert.equal(bad.ok, false);

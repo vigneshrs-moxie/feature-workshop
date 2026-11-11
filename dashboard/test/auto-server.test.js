@@ -1913,3 +1913,18 @@ test('K5: the clock starts again when the gate can be acted on in between', { ti
   await u.auto.pass();
   assert.equal(u.record().stopped, null, 'only 8 minutes since it became stale again');
 });
+
+// ---------- K6: the Approver sees what the Foreman decided for the person ----------
+
+const DECIDED = [{ id: 'D-1', decision: 'Reviewers: head inspector\nlocksmith', reason: 'L2 defaults', confirmed: false }, { id: 'D-2', decision: 'Keep it', reason: 'Fine', confirmed: true }];
+
+test('K6: the task carries the unconfirmed decisions, flattened; a go confirms them and a stop confirms nothing', { timeout: 30_000 }, async () => {
+  const go = unit({ decide: () => {}, job: () => ({ gate: { briefNumber: 1, stale: false, questions: [], decided: DECIDED, headline: 'Plan v1', nextStage: 'implement' } }) });
+  await go.auto.pass();
+  assert.deepEqual(go.asks[0].decided, [{ id: 'D-1', decision: 'Reviewers: head inspector locksmith', why: 'L2 defaults' }]);
+  assert.deepEqual(go.decides[0].verdicts, { 'D-1': { verdict: 'confirm' } });
+  const stop = unit({ decide: () => {}, ask: () => ({ ok: true, costUsd: 0.1, answer: { decision: 'stop', answers: [], why: 'I disagree with D-1.', risk: 'high' } }), job: () => ({ gate: { briefNumber: 1, stale: false, questions: [], decided: DECIDED, headline: 'Plan v1', nextStage: 'implement' } }) });
+  await stop.auto.pass();
+  assert.deepEqual(stop.decides, [], 'nothing confirmed, nothing sent');
+  assert.equal(stop.record().stopped.rule, 'judgment');
+});

@@ -268,6 +268,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       brief: { number: gate.briefNumber, path: job.briefPath },
       paths: approverPaths({ featureDir: job.dir, artifacts: job.artifacts, roots }),
       questions: (gate.questions ?? []).map((q) => ({ id: q.id, text: q.text, recommendation: q.recommendation ?? null, options: (q.options ?? []).map((o) => ({ id: o.id, label: o.label })) })),
+      // What the Foreman decided for the person and has not confirmed: the Approver sees each, one line, capped like the questions.
+      decided: (gate.decided ?? []).filter((d) => !d.confirmed).map((d) => ({ id: oneLine(d.id ?? d.decision).slice(0, 200), decision: oneLine(d.decision).slice(0, 2000), why: oneLine(d.reason).slice(0, 2000) })),
       request: null,
     };
   }
@@ -289,7 +291,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     const answers = {};
     for (const a of answer.answers) answers[a.id] = { choice: a.choice ?? undefined, other: a.other === null ? undefined : oneLine(a.other) };
     const verdicts = {};
-    for (const d of gate.decided ?? []) if (!d.confirmed) verdicts[d.id ?? d.decision] = { verdict: 'confirm' };
+    // Confirmed only on a go (a stop never gets here), and only the ones the Approver was shown.
+    if (answer.decision === 'go') for (const d of gate.decided ?? []) if (!d.confirmed) verdicts[d.id ?? d.decision] = { verdict: 'confirm' };
     try {
       await decide.gate('approve', { slug: job.slug, briefNumber: n, answers, verdicts, note: noteFor(task, answer) }, { by: 'auto' });
     } catch (err) {

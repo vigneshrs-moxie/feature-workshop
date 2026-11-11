@@ -208,6 +208,8 @@ export const APPROVER_SYSTEM = [
   '',
   'For each question, take its recommendation. When a question has no recommendation, pick the option that stays closest to the ticket and can be changed later, and say so in its reason. A question with no options is answered in `other`.',
   '',
+  'A gate may list decisions the Foreman made for the person. Judge each one as you judge a question. If you disagree with any of them, say `stop`; Starbase confirms them only when you say `go`.',
+  '',
   'Say `stop` only when a wrong choice could not be put right by a later code change or review (real data deleted or changed, who can see or do what widened beyond the ticket, money spent), or when the Foreman reports it cannot do the ticket as written. Otherwise say `go`.',
   '',
   'On a permission card, allow only what is plainly read-only or stays inside the job\'s own folders, deny what the job doesn\'t need, and say `stop` when you can\'t tell what a command would change.',
@@ -264,6 +266,13 @@ export function approverPrompt(task, { roots = null } = {}) {
       const opts = Array.isArray(q?.options) ? q.options : [];
       said.push(`  options: ${opts.length ? opts.map((o) => `${material(o?.id, 200)} (${material(o?.label, 300)})`).join(', ') : 'none, answer in other'}`);
     }
+  }
+  // What the Foreman decided for the person: shown, so a wrong one can be stopped. (Not `- id:` lines: those are the questions.)
+  const decided = Array.isArray(t.decided) ? t.decided : [];
+  if (decided.length) {
+    said.push('', 'Decided for the person by the Foreman:');
+    for (const d of decided) said.push(`- [${material(d?.id ?? '', 200)}] ${material(d?.decision)}${d?.why ? ` (why: ${material(d.why)})` : ''}`);
+    said.push('If you disagree with any of them, answer stop. Starbase confirms them only when you answer go.');
   }
   if (t.request) {
     said.push('', `Request: ${material(t.request.tool, 200)}`, `Headline: ${material(t.request.headline, 500)}`, 'Preview:', material(t.request.preview, 4000));

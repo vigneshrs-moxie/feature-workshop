@@ -13,7 +13,11 @@ const TOOLS = ['Read', 'Glob'];
 /** The questions in the prompt's <material> block: { id, recommendation, firstOption }. */
 function questionsIn(prompt) {
   const out = [];
-  for (const line of String(prompt).split('\n')) {
+  // Only the Questions section: the decided items and the request come after it, in their own sections.
+  const text = String(prompt);
+  const from = text.indexOf('\nQuestions:\n');
+  const section = from < 0 ? '' : text.slice(from + 1).split('\n\n')[0];
+  for (const line of section.split('\n')) {
     let m = /^- id: (.*)$/.exec(line);
     if (m) { out.push({ id: m[1], recommendation: null, firstOption: null }); continue; }
     const q = out.at(-1);
