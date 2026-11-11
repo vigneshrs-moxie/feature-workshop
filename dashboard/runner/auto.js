@@ -24,7 +24,7 @@
 
 import { autoAllowed, AUTO_CARDS_PER_REPLY, AUTO_MARK } from '../lib/auto.js';
 import { AUTO_STOP_REASONS, autoVerdict, fixedStop } from '../lib/auto-rules.js';
-import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, checkAnswer } from '../lib/approver.js';
+import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, callPreview, checkAnswer } from '../lib/approver.js';
 import { DECIDING_KINDS } from '../lib/gate.js';
 
 /** Anything the Approver wrote, on one line: nothing it writes can start a line of its own, and no copy of the mark gets through. */
@@ -349,6 +349,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         held.delete(job.dir);
         askedAt = Date.now();
         task = taskFor(job, gate);
+        // The Approver never judges a step it cannot see whole (C4, N14): a question or a decision it would be shown cut stops instead.
+        const cut = approverCut(task);
+        if (cut) return stop(job, { rule: 'blocked', reason: `this ${cut} is too long for the Approver to read, so it needs you.` });
         const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
         const res = await askApprover(task, { roots, job });
         // A run that timed out is charged the ceiling it was given, whatever partial cost it reported.
@@ -384,8 +387,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       brief: { number: gate.briefNumber, path: job.briefPath },
       paths: approverPaths({ featureDir: job.dir, artifacts: job.artifacts, roots }),
       questions: (gate.questions ?? []).map((q) => ({ id: q.id, text: q.text, recommendation: q.recommendation ?? null, options: (q.options ?? []).map((o) => ({ id: o.id, label: o.label })) })),
-      // What the Foreman decided for the person and has not confirmed: the Approver sees each, one line, capped like the questions.
-      decided: (gate.decided ?? []).filter((d) => !d.confirmed).map((d) => ({ id: oneLine(d.id ?? d.decision).slice(0, 200), decision: oneLine(d.decision).slice(0, 2000), why: oneLine(d.reason).slice(0, 2000) })),
+      // What the Foreman decided for the person and has not confirmed: the Approver sees each on one line, never sliced here:
+      // one longer than the Approver is shown stops Auto (approverCut, N14) instead of being confirmed half read.
+      decided: (gate.decided ?? []).filter((d) => !d.confirmed).map((d) => ({ id: oneLine(d.id ?? ''), decision: oneLine(d.decision), why: oneLine(d.reason) })),
       request: null,
     };
   }
@@ -617,11 +621,16 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         }),
       };
     }
-    // A command is given whole, from the card's own input, not the card's trimmed preview (C4); another tool's preview says when it was cut.
+    // A command is given whole, from the card's own input, not the card's trimmed preview (C4); so is a MultiEdit's, a
+    // NotebookEdit's or an Agent's call (N15, callPreview), and the input as JSON for any tool whose preview is empty.
+    // Another tool's preview says when it was cut. Whatever is longer than the Approver is shown stops Auto (approverCut).
     const command = card.toolName === 'Bash' && typeof card.input?.command === 'string' ? card.input.command : null;
+    const call = command ?? callPreview(card.toolName, card.input);
+    const shown = card.plain?.preview || card.plain?.detail || '';
+    const whole = call ?? (shown ? null : JSON.stringify(card.input ?? {}, null, 2));
     return {
       ...base, kind: 'permission', questions: [],
-      request: { tool: card.toolName, headline: card.plain?.headline ?? card.toolName, preview: command ?? card.plain?.preview ?? card.plain?.detail ?? '', cut: command === null && card.plain?.previewCut != null },
+      request: { tool: card.toolName, headline: card.plain?.headline ?? card.toolName, preview: whole ?? shown, cut: whole === null && card.plain?.previewCut != null },
     };
   }
 

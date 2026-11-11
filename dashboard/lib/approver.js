@@ -243,20 +243,49 @@ const material = (v, max = 2000) => { const t = cleaned(v); return t.length > ma
 export const APPROVER_SHOWN = Object.freeze({ tool: 200, headline: 500, preview: 20_000, id: 200, text: 2000, recommendation: 200, label: 300 });
 
 /**
- * Would the message for this task cut anything of the card it is about? 'command' when the command is,
- * 'request' when another field is (a question, an option, a request's preview), null when nothing is.
- * Auto stops instead of asking then: the Approver never judges what it cannot see whole.
+ * Would the message for this task cut anything it is about? For a card: 'command' when the command is, 'request' when
+ * another field is (a question, an option, a request's preview). For a gate (N14): 'question' when a question or an
+ * option is, 'decision made for the person' when one of those (its id, words or reason) is. null when nothing is.
+ * Auto stops instead of asking then: the Approver never judges what it cannot see whole. (A gate's brief goes by its
+ * path, and the Approver reads the file itself: nothing of it is cut here.)
  */
 export function approverCut(task) {
   const over = (v, max) => cleaned(v).length > max;
+  const gate = task?.kind === 'gate';
   const r = task?.request;
   if (r) {
     if (r.tool === 'Bash' && over(r.preview, APPROVER_SHOWN.preview)) return 'command';
     if (r.cut === true || over(r.tool, APPROVER_SHOWN.tool) || over(r.headline, APPROVER_SHOWN.headline) || over(r.preview, APPROVER_SHOWN.preview)) return 'request';
   }
+  const asked = gate ? 'question' : 'request';
   for (const q of Array.isArray(task?.questions) ? task.questions : []) {
-    if (over(q?.id, APPROVER_SHOWN.id) || over(q?.text, APPROVER_SHOWN.text) || (q?.recommendation != null && over(q.recommendation, APPROVER_SHOWN.recommendation))) return 'request';
-    for (const o of Array.isArray(q?.options) ? q.options : []) if (over(o?.id, APPROVER_SHOWN.id) || over(o?.label, APPROVER_SHOWN.label)) return 'request';
+    if (over(q?.id, APPROVER_SHOWN.id) || over(q?.text, APPROVER_SHOWN.text) || (q?.recommendation != null && over(q.recommendation, APPROVER_SHOWN.recommendation))) return asked;
+    for (const o of Array.isArray(q?.options) ? q.options : []) if (over(o?.id, APPROVER_SHOWN.id) || over(o?.label, APPROVER_SHOWN.label)) return asked;
+  }
+  for (const d of Array.isArray(task?.decided) ? task.decided : []) {
+    if (over(d?.id ?? '', APPROVER_SHOWN.id) || over(d?.decision, APPROVER_SHOWN.text) || (d?.why && over(d.why, APPROVER_SHOWN.text))) return 'decision made for the person';
+  }
+  return null;
+}
+
+/**
+ * The call itself, in words, for a tool whose card preview holds none of it (N15): every edit of a MultiEdit (its file,
+ * old and new text), a NotebookEdit's cell and new source, an Agent's type, description and whole prompt. null for any
+ * other tool (its card preview, or the input as JSON when that preview is empty: see runner/auto.js cardTask).
+ * Nothing is trimmed here: a call longer than the Approver is shown stops Auto (approverCut).
+ */
+export function callPreview(toolName, input) {
+  const i = input && typeof input === 'object' ? input : {};
+  const str = (v) => (typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v));
+  if (toolName === 'MultiEdit') {
+    const edits = Array.isArray(i.edits) ? i.edits : [];
+    return [`File: ${str(i.file_path)}`, ...edits.flatMap((e, k) => [`Edit ${k + 1}${e?.replace_all ? ' (every match)' : ''}:`, 'Old text:', str(e?.old_string), 'New text:', str(e?.new_string)])].join('\n');
+  }
+  if (toolName === 'NotebookEdit') {
+    return [`Notebook: ${str(i.notebook_path)}`, `Cell: ${str(i.cell_id) || 'none named'}${i.cell_type ? ` (${str(i.cell_type)})` : ''}${i.edit_mode ? `, ${str(i.edit_mode)}` : ''}`, 'New source:', str(i.new_source)].join('\n');
+  }
+  if (toolName === 'Agent' || toolName === 'Task') {
+    return [`Agent type: ${str(i.subagent_type) || 'none named'}`, `Description: ${str(i.description)}`, 'Prompt:', str(i.prompt)].join('\n');
   }
   return null;
 }

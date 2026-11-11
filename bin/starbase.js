@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { pidAlive } from '../dashboard/lib/lock.js';
 import { readServiceFile } from '../dashboard/runner/service-file.js';
 import { PRODUCT, prepareStateFolder, stateDirFor } from '../dashboard/lib/state.js';
-import { withOldNames } from '../dashboard/lib/env-names.js';
+import { demoOn, withOldNames } from '../dashboard/lib/env-names.js';
 
 const BIN = fileURLToPath(import.meta.url);
 const ROOT = path.resolve(path.dirname(BIN), '..');
@@ -285,7 +285,7 @@ export async function main(argv = process.argv.slice(2), overrides = {}) {
   if (parsed.help) { for (const l of commandHelp(spec)) ctx.out(l); return 0; }
   // The default state folder first (the old one becomes ~/.starbase, lib/state-folder.js), before a
   // command writes to it; not when a folder is named (STARBASE_STATE_DIR, demo mode, or the caller's).
-  if (!overrides.stateDir && !ctx.env.STARBASE_STATE_DIR && !ctx.env.STARBASE_DEMO) {
+  if (!overrides.stateDir && !ctx.env.STARBASE_STATE_DIR && !demoOn(ctx.env)) { // the demo only for 1 or true, as the server reads it
     const ready = (overrides.prepareStateFolder ?? prepareStateFolder)({ home: ctx.home, platform: ctx.platform });
     for (const l of ready.lines) ctx.err(l);
     ctx.stateDir = ready.dir;
@@ -666,7 +666,7 @@ async function cmdToken(ctx, { args, values }) {
     await api(ctx, s, 'POST', '/api/orbit/token', { token, url });
   } else {
     const { tokenStore } = await lib(ctx, 'orbit-token');
-    const store = await tokenStore({ stateDir: ctx.stateDir, prefer: ctx.env.STARBASE_ORBIT_STORE === 'file' || ctx.env.STARBASE_DEMO ? 'file' : 'auto' });
+    const store = await tokenStore({ stateDir: ctx.stateDir, prefer: ctx.env.STARBASE_ORBIT_STORE === 'file' || demoOn(ctx.env) ? 'file' : 'auto' });
     try { await orbit.setToken(token, { store, claudeSettingsFile, orbitUrl: url }); } catch (err) { ctx.err(`${err.message} Nothing was saved.`); return 1; }
     const { State } = await lib(ctx, 'state');
     const state = new State(ctx.stateDir);
@@ -681,7 +681,7 @@ async function cmdToken(ctx, { args, values }) {
 
 async function siteStore(ctx) {
   const link = ctx.deps['site-link'] ?? await import('../dashboard/runner/site-link.js');
-  const store = await link.siteTokenStore({ stateDir: ctx.stateDir, prefer: ctx.env.STARBASE_ORBIT_STORE === 'file' || ctx.env.STARBASE_DEMO ? 'file' : 'auto' });
+  const store = await link.siteTokenStore({ stateDir: ctx.stateDir, prefer: ctx.env.STARBASE_ORBIT_STORE === 'file' || demoOn(ctx.env) ? 'file' : 'auto' });
   return { link, store };
 }
 

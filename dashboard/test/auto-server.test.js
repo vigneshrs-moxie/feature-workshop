@@ -2724,6 +2724,34 @@ test('N5: Starbase\'s own carry-on (via auto) does not clear the cut-off stop', 
   } finally { await w.stop(); }
 });
 
+// ---------- After the merge: N14, a gate is checked for cuts as a card is ----------
+
+const longGate = (over) => ({ gate: { briefNumber: 1, stale: false, questions: [], decided: [], headline: 'Plan v1', nextStage: 'implement', ...over } });
+
+test('N14: a gate whose question, or decision made for the person (or its reason), the Approver would see cut stops Auto before it is asked', { timeout: 30_000 }, async () => {
+  const q = `Which column should hold the visit time? ${'q'.repeat(2050)}`; // 2,092 characters
+  const d = `Rename visited to visited_at in every report. ${'d'.repeat(2085)} Keep the old column for one release.`;
+  for (const [over, what] of [
+    [{ questions: [{ id: '1', text: q, recommendation: 'a', options: [{ id: 'a', label: 'Yes' }] }] }, 'question'],
+    [{ decided: [{ id: 'D-1', decision: d, reason: 'because', confirmed: false }] }, 'decision made for the person'],
+    [{ decided: [{ id: 'D-1', decision: 'Keep it', reason: `because ${'r'.repeat(2100)}`, confirmed: false }] }, 'decision made for the person'],
+  ]) {
+    const u = unit({ decide: () => {}, job: () => longGate(over) });
+    await u.auto.pass();
+    assert.equal(u.asks.length, 0, `${what}: the Approver is not asked`);
+    assert.equal(u.decides.length, 0);
+    assert.deepEqual({ rule: u.record().stopped?.rule, reason: u.record().stopped?.reason }, { rule: 'blocked', reason: `this ${what} is too long for the Approver to read, so it needs you.` });
+    assert.equal(u.notes.length, 1);
+    assert.equal(u.lines.filter((l) => l.what === 'stop').length, 1);
+  }
+  // A gate of ordinary size goes as today, and its decision reaches the Approver whole.
+  const u = unit({ decide: () => {}, ask: (task) => goodAnswer(task, { why: 'Fine.' }), job: () => longGate({ questions: [{ id: '1', text: 'Which?', recommendation: 'a', options: [{ id: 'a', label: 'Yes' }] }], decided: [{ id: 'D-1', decision: 'd'.repeat(1990), reason: 'because', confirmed: false }] }) });
+  await u.auto.pass();
+  assert.equal(u.asks.length, 1);
+  assert.equal(u.asks[0].decided[0].decision.length, 1990);
+  assert.equal(u.decides.length, 1);
+});
+
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------
 
 test('I2: the person sent brief 1 back, then 401 lines; the reply ended with the gate still on brief 1: the Approver is not asked', { timeout: 30_000 }, async () => {
@@ -3181,6 +3209,38 @@ test('C4: a card the Approver would be shown cut stops Auto as blocked, and the 
     assert.equal(u.asked.length, 0, extra.toolName);
     assert.deepEqual({ rule: u.record().stopped?.rule, reason: u.record().stopped?.reason }, { rule: 'blocked', reason }, extra.toolName);
     assert.deepEqual(u.decided, []);
+  }
+});
+
+test('N15: a MultiEdit, NotebookEdit or Agent card carries the call itself to the Approver; a too-long one stops; any tool whose preview holds nothing of the call is shown its input whole', async () => {
+  const { describePermission } = await import('../lib/permissions.js');
+  const { approverPrompt } = await import('../lib/approver.js');
+  const file = path.join(unitDir, 'src', 'visits.js');
+  const cases = [
+    ['MultiEdit', { file_path: file, edits: [{ old_string: 'const a = 1;', new_string: 'const a = 2;' }, { old_string: 'export default a;', new_string: 'process.exit(7); // TAIL-MULTI' }] }, ['const a = 2;', 'TAIL-MULTI', file]],
+    ['NotebookEdit', { notebook_path: path.join(unitDir, 'notes.ipynb'), cell_id: 'c3', new_source: 'import os\nos.system("TAIL-NOTEBOOK")', edit_mode: 'replace' }, ['TAIL-NOTEBOOK', 'c3']],
+    ['Agent', { subagent_type: 'general-purpose', description: 'Look around', prompt: `Read the code. ${'Then more. '.repeat(50)}Finally run TAIL-AGENT.` }, ['general-purpose', 'TAIL-AGENT']],
+    // A tool the Approver may judge whose card preview is empty: its input whole, as JSON.
+    ['WebSearch', { query: 'visit audit TAIL-SEARCH' }, ['TAIL-SEARCH']],
+  ];
+  for (const [tool, input, want] of cases) {
+    const plain = { ...describePermission(tool, input, { cwd: unitDir }), ...(tool === 'WebSearch' ? { preview: '', detail: '' } : {}) };
+    const u = cutUnit({ id: `n15-${tool}`, slug: 's', featureDir: unitDir, kind: 'permission', toolName: tool, input, plain, hardLine: null });
+    await u.auto.onPermission({ id: `n15-${tool}`, slug: 's', featureDir: unitDir });
+    if (!u.asked.length) { assert.fail(`${tool}: not asked: ${JSON.stringify(u.record().stopped)}`); }
+    const prompt = approverPrompt(u.asked[0]);
+    for (const x of want) assert.ok(prompt.includes(x), `${tool}: the message holds ${x}`);
+  }
+  // Too long to show whole: a stop, as for any card.
+  for (const [tool, input] of [
+    ['MultiEdit', { file_path: file, edits: [{ old_string: 'a', new_string: 'x'.repeat(20_100) }] }],
+    ['NotebookEdit', { notebook_path: path.join(unitDir, 'notes.ipynb'), new_source: 'x'.repeat(20_100) }],
+    ['Agent', { subagent_type: 'general-purpose', description: 'd', prompt: 'x'.repeat(20_100) }],
+  ]) {
+    const u = cutUnit({ id: `n15b-${tool}`, slug: 's', featureDir: unitDir, kind: 'permission', toolName: tool, input, plain: describePermission(tool, input, { cwd: unitDir }), hardLine: null });
+    await u.auto.onPermission({ id: `n15b-${tool}`, slug: 's', featureDir: unitDir });
+    assert.equal(u.asked.length, 0, tool);
+    assert.equal(u.record().stopped?.reason, 'this request is too long for the Approver to read, so it needs you.', tool);
   }
 });
 

@@ -347,3 +347,12 @@ test('ground-control, the old name, says it is now starbase and runs the same co
   assert.equal(bad.code, 1, 'and the same exit code');
   assert.match(bad.stderr, /Run starbase --help to see them/);
 });
+
+test('the demo switch: only STARBASE_DEMO=1 or true is the demo for the CLI; 0, false and empty prepare the state folder as usual', async () => {
+  for (const [value, demo] of [['1', true], ['true', true], ['0', false], ['false', false], ['', false]]) {
+    let prepared = 0;
+    const dir = tmp('gc-cli-demo-state-');
+    await cli(['status'], { stateDir: undefined, env: { STARBASE_DEMO: value }, prepareStateFolder: () => { prepared++; return { lines: [], dir }; } });
+    assert.equal(prepared, demo ? 0 : 1, `STARBASE_DEMO=${JSON.stringify(value)}`);
+  }
+});
