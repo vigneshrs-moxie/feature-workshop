@@ -604,9 +604,13 @@ function binExists(name, ctx) {
 const LOCAL_PLAIN = {
   next: (args) => { if (!(args.length === 1 && ['build', 'lint'].includes(args[0].t))) ask('a next command Starbase does not read'); },
   prisma: (args) => { if (!(args.length === 1 && ['generate', 'format', 'validate'].includes(args[0].t))) ask('a prisma command Starbase does not read'); },
+  // husky <folder> sets the whole repository's core.hooksPath (a worktree shares its config): only the repository's own
+  // .husky folder, written relative and with no .. part, is plain (N3).
   husky: (args, ctx) => {
     if (!args.length || (args.length === 1 && args[0].t === 'install')) return;
-    if (args.length !== 1 || args[0].t.startsWith('-') || args[0].glob) ask('a husky command Starbase does not read');
+    const t = args[0].t;
+    const parts = t.split('/').filter((x) => x && x !== '.');
+    if (args.length !== 1 || args[0].glob || t.startsWith('-') || t.startsWith('/') || t.startsWith('~') || parts.includes('..') || parts.at(-1) !== '.husky') ask('a husky command Starbase does not read');
     mustBeInside(args[0], ctx);
   },
 };

@@ -726,3 +726,20 @@ test('N2: a path with a space in it is looked at by the secret stop and by the r
   assert.equal(bash('cat "my notes/x.md"', ctx), null);
   assert.equal(bash('git commit -m "fix: the /api route and a/b paths"', ctx), null);
 });
+
+test('N3: husky with a folder is plain only for the repository\'s own .husky folder, also through a package script', () => {
+  const o = orbitWorld();
+  try {
+    const ctx = orbitCtx(o);
+    for (const [dir, prepare] of [['hk-abs', `cd .. && husky ${o.wt}/tools`], ['hk-job', `cd .. && husky ${JOB}/hooks`], ['hk-rel', 'cd .. && husky tools'], ['hk-two', 'cd .. && husky app/.husky extra']]) {
+      const p = pathMod.join(o.wt, dir);
+      fsSync.mkdirSync(pathMod.join(p, 'node_modules', '.bin'), { recursive: true });
+      fsSync.writeFileSync(pathMod.join(p, 'node_modules', '.bin', 'husky'), '#!/bin/sh\n');
+      fsSync.writeFileSync(pathMod.join(p, 'package.json'), JSON.stringify({ name: dir, scripts: { prepare } }));
+      assert.notEqual(bash(`cd ${dir} && npm ci`, ctx), null, dir);
+    }
+    assert.equal(bash('cd app && npm ci', ctx), null, 'Orbit\'s own prepare: cd .. && husky app/.husky');
+    for (const c of ['cd app && npx husky', 'cd app && npx husky install', 'cd app && npx husky .husky']) assert.equal(bash(c, ctx), null, c);
+    for (const c of ['cd app && npx husky tools', `cd app && npx husky ${o.wt}/app/.husky`, 'cd app && npx husky ../x/.husky', 'cd app && npx husky .husky extra', 'cd app && npx husky src/.husky/../hooks']) assert.equal(bash(c, ctx), 'ask', c);
+  } finally { o.done(); }
+});
