@@ -759,15 +759,23 @@ function subTable(prog, table, args, ctx) {
  * from the repository's main checkout to the same relative place in one of the job's worktrees, judged from
  * each folder the command may run in. words: cp's arguments; cands: those folders; ctx: Auto's context.
  */
-export function envCopy(words, cands, ctx) {
+export function envCopy(all, cands, ctx) {
+  // -n and -p (no clobber, keep the times) change nothing about where it lands (N17); no other option.
+  const flags = all.filter((t) => typeof t === 'string' && t.startsWith('-'));
+  if (flags.some((t) => !/^-[np]+$/.test(t))) return false;
+  const words = all.filter((t) => !(typeof t === 'string' && t.startsWith('-')));
   if (!ctx || !Array.isArray(ctx.filesToCopy) || typeof ctx.mainCheckout !== 'string' || words.length !== 2) return false;
-  if (words.some((t) => typeof t !== 'string' || !t || t.startsWith('-') || /[*?[\]{}$`\s]/.test(t))) return false;
+  if (words.some((t) => typeof t !== 'string' || !t || /[*?[\]{}$`\s]/.test(t))) return false;
   const main = physicalPath(ctx.mainCheckout, null);
   const trees = (ctx.worktrees ?? []).map((w) => physicalPath(w, null)).filter(Boolean);
   if (!main || !cands.length) return false;
   return cands.every((c) => {
     const from = physicalPath(words[0], c);
-    const to = physicalPath(words[1], c);
+    let to = physicalPath(words[1], c);
+    // A folder as the destination: the file lands in it under its own name (N17).
+    let isDir = words[1].endsWith('/') || words[1] === '.';
+    try { isDir = isDir || (Boolean(to) && fs.statSync(to).isDirectory()); } catch { /* not there: as written */ }
+    if (to && from && isDir) to = path.join(to, path.basename(from));
     return Boolean(from && to) && ctx.filesToCopy.some((f) => typeof f?.from === 'string' && typeof f?.to === 'string'
       && from === path.join(main, f.from) && trees.some((w) => to === path.join(w, f.to)));
   });
@@ -779,7 +787,7 @@ const BASH_LIKE = new Set(['bash', 'sh', 'zsh']);
 
 function runProgram(name, args, ctx, raw) {
   if (Object.hasOwn(LOCAL_PLAIN, name)) { if (!binExists(name, ctx)) ask(`${name}, which is not in the job's node_modules/.bin`); return LOCAL_PLAIN[name](args, ctx); }
-  if (name === 'cp' && envCopy(args.map((x) => x.t), ctx.cands, ctx.ctx)) return; // the profile's env file into a worktree of the job (I2)
+  if (name === 'cp' && !args.some((x) => x.glob) && envCopy(args.map((x) => x.t), ctx.cands, ctx.ctx)) return; // the profile's env file into a worktree of the job (I2)
   if (CUSTOM[name]) return CUSTOM[name](args, ctx);
   if (name === 'git') return gitCheck(args, ctx);
   if (name === 'gh') return ghCheck(args, ctx);

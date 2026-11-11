@@ -865,3 +865,12 @@ test('N16: a file:// resource is a read path, and a gh word that is an address o
   assert.equal(bash('gh pr view https://collect.example.net/a/b/pull/1', ctx), 'ask');
   assert.equal(bash('gh pr view https://github.com/moxie-org/orbit/pull/1', ctx), null);
 });
+
+test('N17: the env copy passes with the destination folder, and with -n or -p; nothing else widens', () => {
+  const o = orbitWorld();
+  try {
+    const ctx = orbitCtx(o);
+    for (const c of [`cp ${o.repo}/app/.env.local app/`, `cp ${o.repo}/app/.env.local app`, `cp -n ${o.repo}/app/.env.local app/.env.local`, `cp -p ${o.repo}/app/.env.local app/.env.local`, `cp -np ${o.repo}/app/.env.local app/`, `cd app && cp ${o.repo}/app/.env.local .`]) assert.equal(bash(c, ctx), null, c);
+    for (const c of [`cp -f ${o.repo}/app/.env.local app/.env.local`, `cp -r ${o.repo}/app/.env.local app/`, `cp ${o.repo}/app/.env.local src/`, `cp ${o.repo}/app/.env.local app/sub/`, `cp -n ${o.repo}/app/.env.local app/.env.copy`]) assert.notEqual(bash(c, ctx), null, c);
+  } finally { o.done(); }
+});
