@@ -15,6 +15,7 @@
 //   evidenceWanted(options)       the level and option rules (lib/options.js evidenceOn)
 //   listSpecs, evidenceLines      the specs on disk; the test report's Evidence section
 //   playwrightConfig, guardModule, prepareRun   the config and the spec copies a recording runs
+//   progressReporter, parseProgressLine         which line runs now: the reporter and its lines read back
 //   buildEvidence, collectEvidence             evidence.json from Playwright's report and output
 //   recordEvidence(deps)          one recording, start to finish, with the server, the database
 //                                 check and Playwright handed in (runner/evidence.js gives the real ones)
@@ -117,8 +118,9 @@ export function evidenceLines(reportText) {
 // ---------- The run: its config, its spec copies and the guard ----------
 
 /** The Playwright config for one recording: video and screenshots on, one worker, Chromium only. */
-export function playwrightConfig({ testDir, outputDir, reportFile, baseURL, specs = 1 }) {
+export function playwrightConfig({ testDir, outputDir, reportFile, baseURL, specs = 1, progressFile = null }) {
   const j = (v) => JSON.stringify(v);
+  const progress = progressFile ? `, [${j(progressFile)}]` : '';
   return `// Written by ${PRODUCT} for one evidence recording (lib/evidence.js). It is written again
 // for every recording, so a change here doesn't last.
 export default {
@@ -131,11 +133,78 @@ export default {
   fullyParallel: false,
   retries: 0,
   forbidOnly: true,
-  reporter: [['json', { outputFile: ${j(reportFile)} }], ['line']],
+  reporter: [['json', { outputFile: ${j(reportFile)} }], ['line']${progress}],
   use: { baseURL: ${j(baseURL)}, video: 'on', screenshot: 'on', trace: 'off', headless: true, viewport: { width: 1280, height: 800 } },
   projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
 };
 `;
+}
+
+/** What starts each of the progress reporter's lines on Playwright's output. */
+export const PROGRESS_MARK = '@@starbase';
+export const PROGRESS_FILE = 'progress.mjs';
+const PROGRESS_ID = /^AC-[1-9]\d{0,3}$/;
+const LINE_STATUS = new Set(['passed', 'failed', 'skipped']);
+
+// The reporter's own code (no imports: it runs inside Playwright). Its STATUS and MARK are put in
+// front of it by progressReporter, from this file's.
+const REPORTER = String.raw`const SPEC = /^AC-([1-9]\d{0,3})\.spec\.mjs$/;
+const TITLE = /^AC-([1-9]\d{0,3})\b/;
+function idOf(test) {
+  const file = String(test?.location?.file ?? '').split(/[\\/]/).pop();
+  const m = SPEC.exec(file) ?? TITLE.exec(String(test?.title ?? ''));
+  return m ? 'AC-' + Number(m[1]) : null;
+}
+const titleOf = (test) => String(test?.title ?? '').replace(/^AC-\d+\s*[:.–—-]?\s*/, '').trim();
+
+export default class StarbaseProgress {
+  constructor(options = {}) {
+    this.write = typeof options.write === 'function' ? options.write : (text) => process.stdout.write(text);
+  }
+  printsToStdio() { return true; }
+  line(at, test, status, video) {
+    const id = idOf(test);
+    // On a line of its own, whatever the line reporter left unfinished.
+    if (id) this.write('\n' + MARK + ' ' + JSON.stringify({ at, id, title: titleOf(test), status, video }) + '\n');
+  }
+  onTestBegin(test) { this.line('begin', test, null, null); }
+  onTestEnd(test, result) {
+    const video = (result?.attachments ?? []).find((a) => a?.name === 'video' && typeof a.path === 'string')?.path ?? null;
+    this.line('end', test, STATUS[result?.status] ?? 'failed', video);
+  }
+}
+`;
+
+/**
+ * The source of the Playwright reporter a recording adds to its config (run/progress.mjs): one line
+ * on Playwright's output when each acceptance line's test starts and one when it ends,
+ *   @@starbase {"at":"begin"|"end","id":"AC-4","title":"…","status":"passed"|"failed"|"skipped"|null,"video":"<path>"|null}
+ * (status and video only at the end). parseProgressLine reads them back.
+ */
+export function progressReporter() {
+  return `// Written by ${PRODUCT} for one evidence recording (lib/evidence.js): which acceptance line runs
+// now, one line as each starts and ends, read by ${PRODUCT} while Playwright runs.
+const MARK = ${JSON.stringify(PROGRESS_MARK)};
+const STATUS = ${JSON.stringify(STATUS)};
+${REPORTER}`;
+}
+
+/**
+ * One line of Playwright's output read as the progress reporter's: { at, id, title, status, video },
+ * or null for every other line (and for one whose fields aren't what the reporter writes).
+ */
+export function parseProgressLine(line) {
+  if (typeof line !== 'string') return null;
+  const text = line.replace(ANSI, '').trim();
+  if (!text.startsWith(`${PROGRESS_MARK} `)) return null;
+  let o;
+  try { o = JSON.parse(text.slice(PROGRESS_MARK.length + 1)); } catch { return null; }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+  if ((o.at !== 'begin' && o.at !== 'end') || typeof o.id !== 'string' || !PROGRESS_ID.test(o.id)) return null;
+  return {
+    at: o.at, id: o.id, title: typeof o.title === 'string' ? o.title.slice(0, 300) : null,
+    status: LINE_STATUS.has(o.status) ? o.status : null, video: typeof o.video === 'string' ? o.video : null,
+  };
 }
 
 /**
@@ -176,8 +245,8 @@ export function guardedSpec(text, guardPath = '../guard.mjs') {
 }
 
 /**
- * Write one recording's files: the config in evidence/, the spec copies and the guard in
- * evidence/<commit>/run/. Returns { configFile, runDir, outputDir, reportFile }.
+ * Write one recording's files: the config in evidence/, the spec copies, the guard and the
+ * progress reporter in evidence/<commit>/run/. Returns { configFile, runDir, outputDir, reportFile }.
  */
 export async function prepareRun({ evidenceDir, commit, specs, baseURL, playwrightUrl }) {
   const commitDir = path.join(evidenceDir, commit);
@@ -190,8 +259,10 @@ export async function prepareRun({ evidenceDir, commit, specs, baseURL, playwrig
   await fsp.rm(reportFile, { force: true });
   await fsp.writeFile(path.join(runDir, 'guard.mjs'), guardModule(playwrightUrl));
   for (const s of specs) await fsp.writeFile(path.join(specDir, path.basename(s.file)), guardedSpec(await fsp.readFile(s.file, 'utf8')));
+  const progressFile = path.join(runDir, PROGRESS_FILE);
+  await fsp.writeFile(progressFile, progressReporter());
   const configFile = path.join(evidenceDir, CONFIG_FILE);
-  await fsp.writeFile(configFile, playwrightConfig({ testDir: specDir, outputDir, reportFile, baseURL, specs: specs.length }));
+  await fsp.writeFile(configFile, playwrightConfig({ testDir: specDir, outputDir, reportFile, baseURL, specs: specs.length, progressFile }));
   return { configFile, runDir, outputDir, reportFile };
 }
 
@@ -240,6 +311,14 @@ const inside = (p, dir) => {
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 };
 
+/** Every acceptance line a recording covers, with a spec or in the report's Evidence section, in order. */
+function lineIds(specs, lines) {
+  const ids = new Map();
+  for (const s of specs) ids.set(s.id, s.n);
+  for (const [id, l] of lines) ids.set(id, l.n);
+  return [...ids].sort((a, b) => a[1] - b[1]).map(([id]) => id);
+}
+
 /**
  * evidence.json for one recording, and the files to copy into evidence/<commit>/AC-<n>/:
  * { evidence, copies: [{ from, to }] } (to relative to evidence/). report: Playwright's JSON report
@@ -250,11 +329,8 @@ export function buildEvidence({ report, specs, lines, commit, level, at, outputD
   const byId = new Map();
   for (const t of reportTests(report)) { const id = idOf(t); if (id && !byId.has(id)) byId.set(id, t); }
   const loadError = firstLine(report?.errors?.[0]?.message ?? '');
-  const ids = new Map();
-  for (const s of specs) ids.set(s.id, s.n);
-  for (const [id, l] of lines) ids.set(id, l.n);
   const copies = [];
-  const criteria = [...ids].sort((a, b) => a[1] - b[1]).map(([id]) => {
+  const criteria = lineIds(specs, lines).map((id) => {
     const spec = specs.find((s) => s.id === id) ?? null;
     const line = lines.get(id) ?? null;
     const t = byId.get(id) ?? null;
@@ -353,17 +429,42 @@ export async function evidenceFile(jobDir, rel) {
 // ---------- One recording ----------
 
 /**
+ * A recording's progress as its run starts: { commit, startedAt, line, of, lines: [{ id, title,
+ * state, video, at }] }, every acceptance line waiting. line: the running line's place (from 1),
+ * else the last finished one's (0 before any began); a line's at: when its state last changed.
+ * Each line's video is null for now.
+ */
+function progressStart({ commit, specs, lines, at }) {
+  const rows = lineIds(specs, lines).map((id) => ({ id, title: lines.get(id)?.title || id, state: 'waiting', video: null, at: null }));
+  return { commit, startedAt: at, line: 0, of: rows.length, lines: rows };
+}
+
+/** The progress after one reporter line (parseProgressLine), as a new object; null when it names no line of this recording. */
+function progressAfter(progress, event, at) {
+  const i = progress.lines.findIndex((l) => l.id === event.id);
+  if (i < 0) return null;
+  const lines = progress.lines.map((l, k) => (k !== i ? l : {
+    ...l, title: l.title === l.id && event.title ? event.title : l.title, state: event.at === 'begin' ? 'running' : event.status ?? 'failed', at,
+  }));
+  const running = lines.findIndex((l) => l.state === 'running');
+  return { ...progress, line: running >= 0 ? running + 1 : i + 1, lines };
+}
+
+/**
  * Record the evidence of one job for the commit its test report names. Everything that touches
  * the computer is handed in:
  *   server.start()   starts Try it for the job (or finds it running): { baseURL, startedHere }
  *   server.stop()    stops it again (called only when start said startedHere)
  *   dbCheck()        { ok } : whether the local database copy is up (null: there is no check)
- *   run({ configFile, cwd, specs })   runs Playwright: { code, output }
+ *   run({ configFile, cwd, specs, onLine })   runs Playwright: { code, output }; onLine(text) for
+ *                    each line of its output as it comes (the progress reporter's lines among them)
  *   playwrightUrl    the URL of the dashboard's @playwright/test (the guard imports it)
  *   onStart()        called once the checks pass and the recording really starts (not for a refusal)
+ *   onProgress(p)    called as Playwright starts (every line waiting) and on each line's start and
+ *                    end: the progress (progressStart), a new object each time
  * Returns { ok: true, evidence } or throws EvidenceError (status and plain words; fix when there is a line to run).
  */
-export async function recordEvidence({ job, server, dbCheck = null, run, playwrightUrl, cwd, now = () => new Date(), onStart = () => {} }) {
+export async function recordEvidence({ job, server, dbCheck = null, run, playwrightUrl, cwd, now = () => new Date(), onStart = () => {}, onProgress = () => {} }) {
   const wanted = evidenceWanted(job.options);
   if (!wanted.on) throw new EvidenceError(409, wanted.why, { code: 'not-wanted' });
   const reportText = await fsp.readFile(path.join(job.dir, 'test-report.md'), 'utf8').catch(() => null);
@@ -391,14 +492,21 @@ export async function recordEvidence({ job, server, dbCheck = null, run, playwri
   let prepared = null;
   try {
     prepared = await prepareRun({ evidenceDir, commit, specs, baseURL: started.baseURL, playwrightUrl });
-    const ran = await run({ configFile: prepared.configFile, cwd, specs });
+    let progress = progressStart({ commit, specs, lines, at: now().toISOString() });
+    onProgress(progress);
+    const onLine = (text) => {
+      const event = parseProgressLine(text);
+      const next = event && progressAfter(progress, event, now().toISOString());
+      if (next) { progress = next; onProgress(progress); }
+    };
+    const ran = await run({ configFile: prepared.configFile, cwd, specs, onLine });
     const reportJson = await fsp.readFile(prepared.reportFile, 'utf8').then((t) => JSON.parse(t), () => null);
     const errors = JSON.stringify(reportJson?.errors ?? []) + JSON.stringify(reportTests(reportJson).map((t) => t.result?.error?.message ?? ''));
     if (browsersMissing(ran.output) || browsersMissing(errors)) {
       throw new EvidenceError(503, `Playwright’s Chromium isn’t installed on this computer. ${BROWSER_FIX}, then press Record again.`, { fix: BROWSER_FIX, code: 'no-browser' });
     }
     if (!reportJson) {
-      const last = firstLine(String(ran.output ?? '').replace(ANSI, '').split('\n').filter((l) => l.trim()).at(-1) ?? '');
+      const last = firstLine(String(ran.output ?? '').replace(ANSI, '').split('\n').filter((l) => l.trim() && !parseProgressLine(l)).at(-1) ?? '');
       throw new EvidenceError(500, `Playwright stopped before it wrote its report, so nothing was recorded${last ? `: ${last}` : '.'}`, { code: 'no-report' });
     }
     const evidence = await collectEvidence({ evidenceDir, commit, specs, lines, level, at: now().toISOString(), report: reportJson, outputDir: prepared.outputDir });

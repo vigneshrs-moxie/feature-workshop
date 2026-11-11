@@ -127,6 +127,8 @@ export interface Job {
   stackSuggested?: string | null;
   /** Its Auto record; missing when Auto never touched it. */
   auto?: JobAuto;
+  /** Its evidence being recorded now ("Recording evidence: line 4 of 19"); null when not, missing from dashboards from before. */
+  testing?: string | null;
   [key: string]: unknown;
 }
 
@@ -1507,6 +1509,18 @@ export interface EvidenceView {
   /** The evidence folder on this computer, and its address (what "Copy link" copies). */
   folder: string;
   folderUrl: string;
+  /** While Playwright records: which line of how many, and each line's state; null when not; missing from dashboards from before. */
+  progress?: EvidenceProgress | null;
+}
+
+/** A recording by line (dashboard/lib/evidence.js): line is the running line's place, else the last finished one's. */
+export interface EvidenceProgress {
+  commit: string;
+  startedAt: string;
+  line: number;
+  of: number;
+  /** Every acceptance line in order; at: when its state last changed (null: not yet). */
+  lines: { id: string; title: string; state: 'waiting' | 'running' | 'passed' | 'failed' | 'skipped'; video: string | null; at: string | null }[];
 }
 
 /** POST /api/job/:slug/evidence/record: the view again; started when the recording carries on by itself. */

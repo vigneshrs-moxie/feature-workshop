@@ -865,6 +865,8 @@ export async function createRunner(config) {
 
   // A job's review round state (set once review rounds exist, below): its nudges leave out what the round covers.
   let roundStateOf = () => null;
+  // The evidence recording's words for a job while Playwright runs it (set once the evidence door exists, below).
+  let testingOf = () => null;
   function boardCard(f, run) {
     const ids = STAGES.map((s) => s.id).filter((id) => !f.skipped.includes(id));
     const at = ids.indexOf(f.stage);
@@ -926,6 +928,8 @@ export async function createRunner(config) {
       finish,
       // Auto mode (lib/auto.js): on, ran, stopped, deciding, and whether this job's level allows it.
       auto: autoCardView(f.auto, { level: f.level, suggestedLevel: f.suggestedLevel }),
+      // Its evidence being recorded now, by line ("Recording evidence: line 4 of 19"; runner/evidence.js), else null.
+      testing: testingOf(f.slug),
       // The PR hand-offs waiting on someone (lib/nudges.js): the Desk's nudge items.
       nudges: nudgesFor({ stage: f.stage, prs: f.prs, closed: off ? f.closed : null, finish }, lane, { dismissed: f.dismissedNudges, sent: f.sentNudges, inRound: roundStateOf(f.slug) !== null }),
       // Marked done or dropped: off the board, unless something is going on or the job changed since.
@@ -3327,6 +3331,7 @@ export async function createRunner(config) {
     /** Something outside the runner changed what the page shows (the screens server went down): every page fetches again. */
     changed() { invalidate(); notifyChange(); },
   };
+  testingOf = (slug) => local_.evidence.progressWords(slug);
 
   // ---------- After a restart (runner/replay.js) ----------
 

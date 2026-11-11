@@ -40,7 +40,7 @@ export function groupCards(cards) {
 // ---------- The four lanes of Jobs (plan §7, packet M) ----------
 //
 //   working    running: the Foreman or a crew member is at it (a usage-limit pause stays here, with
-//              `paused` set and when it carries on)
+//              `paused` set and when it carries on), or its evidence is being recorded (card.testing)
 //   needs-you  something waits for you: a go-ahead, an answer, a permission, a crew question, a PR
 //              feedback card, a stuck stack part, or changes asked for on a PR
 // An Auto job (lib/auto.js) with a gate or card waiting is working ("Auto is deciding: the plan"),
@@ -108,6 +108,8 @@ export function laneFor(card, { lane = null, pending = [], handled = null } = {}
   if (card.stuck) return needs(`${card.stuck} is stuck and needs you`);
   // An Auto job that stopped waits for you, whatever else holds it (paused by a restart, nothing running), until a reply runs.
   if (card.auto?.on === true && card.auto.stopped && !card.working && !card.starting) return needs(`Auto stopped: ${card.auto.stopped.reason ?? 'it waits for you'}`);
+  // Its evidence being recorded (runner/evidence.js progressWords), with no card or gate waiting: the line it is on.
+  if (card.testing && !card.needsYou) return { lane: 'working', laneReason: String(card.testing) };
 
   if (card.working || card.starting) {
     const doing = (Array.isArray(card.nowDoing) ? card.nowDoing : []).find((d) => d?.doing)?.doing;
