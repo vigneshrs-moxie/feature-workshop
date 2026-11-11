@@ -194,7 +194,7 @@ function JobView({ job }: { job: Job }) {
           {narrow && <PartOfStack slug={job.slug} index={stacks} />}
           <span className="spacer" />
           <CopyDecisions slug={job.slug} />
-          <JobMenu job={job} dir={thread.detail?.dir} policyOverride={thread.detail?.policyOverride} run={run} worktree={thread.detail?.worktree} gear />
+          <JobMenu job={job} dir={thread.detail?.dir} policyOverride={thread.detail?.policyOverride} run={run} worktree={thread.detail?.worktree} started={Boolean(thread.detail?.drive?.sessionId)} gear />
         </>
       )}
     >

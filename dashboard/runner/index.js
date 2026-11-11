@@ -546,9 +546,12 @@ export async function createRunner(config) {
     const terminals = await terminalsFor(f);
     const hook = await hookSessionsFor(f);
     const liveHook = hook.sessions.filter((s) => !s.ended).sort((a, b) => String(b.lastAt).localeCompare(String(a.lastAt)))[0] ?? null;
-    // The model the next message goes on: Fable when the whole job runs on it, else the last one
-    // used (a retired Fable id moves to the current one).
-    const model = f.options?.all_fable === true ? FABLE : currentModel(cs?.model ?? saved?.model ?? null);
+    // The model the next message goes on. A started job's Foreman model is fixed (spec 1.5): the one
+    // its session was started with, whatever its options say now (a retired Fable id moves to the
+    // current one). A job with no session yet takes what its options name: Fable when the whole job
+    // runs on it, else models.foreman.
+    const named = f.options?.all_fable === true ? FABLE : currentModel(f.options?.models?.foreman ?? null);
+    const model = sessionId ? currentModel(cs?.model ?? saved?.model ?? null) : MODELS.some((x) => x.id === named) ? named : null;
     const base = { sessionId, cwd: cs?.cwd ?? saved?.cwd ?? f.repoPath ?? null, model, terminals, liveLink: hook.enabled, terminalSession: liveHook };
     if (run) return { ...base, mode: 'running', runId: run.id };
     if (liveHook && (!saved?.takenOverAt || String(liveHook.lastAt) > saved.takenOverAt)) return { ...base, mode: 'terminal', lastTerminalAt: liveHook.lastAt, sessionId: liveHook.sessionId };
@@ -1873,6 +1876,9 @@ export async function createRunner(config) {
         const now = (await readOptions(f.dir))?.updated_at ?? null;
         if (now !== (body.updated_at ?? null)) throw new HttpError(409, 'These options changed elsewhere since you opened them.', { code: 'options-changed' });
       }
+      // The Foreman's model is fixed once the job has a Foreman session (spec 1.5): the Foreman model and
+      // the whole-job-on-Fable switch, the two fields the options editor locks, keep their stored values.
+      const started = Boolean((await driveState(f)).sessionId);
       let options;
       if (body.options === undefined && body.level !== undefined) {
         // A level on its own (the header's level chip, the LevelCard): merged here with the job's
@@ -1880,8 +1886,10 @@ export async function createRunner(config) {
         if (!isLevel(body.level)) throw new HttpError(400, 'Level: pick L0, L1, L2 or L3.');
         options = levelOptions(f.options, body.level);
       } else {
-        try { options = normalizeOptions(body.options ?? {}, { previous: f.options }); } catch (err) { throw new HttpError(400, err.message); }
+        const asked = started ? { ...(body.options ?? {}), all_fable: undefined, models: body.options?.models ? { ...body.options.models, foreman: undefined } : undefined } : (body.options ?? {});
+        try { options = normalizeOptions(asked, { previous: f.options }); } catch (err) { throw new HttpError(400, err.message); }
       }
+      if (started && f.options?.models?.foreman) options = { ...options, models: { ...options.models, foreman: f.options.models.foreman }, all_fable: f.options.all_fable === true };
       const updatedAt = await writeOptions(f.dir, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
       // was: the level before, so the conversation can say "Level changed from L2 Standard to L3 Large".
       // overrode: 'auto' when the level you set replaces one chosen automatically (lib/auto-level.js),
@@ -1901,6 +1909,13 @@ export async function createRunner(config) {
       if (restarting.has(f.dir)) throw new HttpError(409, 'This job is already being started again. Wait for that to finish. Nothing was changed.');
       restarting.add(f.dir);
       try {
+        // Test hook: while the file named here exists the restart waits (it writes <file>.held first), so a test can
+        // act while a restart is under way without depending on timing. Unset in real use.
+        const hold = process.env.STARBASE_TEST_HOLD_RESTART;
+        if (hold && fs.existsSync(hold)) {
+          await fsp.writeFile(`${hold}.held`, f.slug);
+          while (fs.existsSync(hold)) await new Promise((r) => { setTimeout(r, 20); });
+        }
         if (!MODELS.some((x) => x.id === body.model)) throw new HttpError(400, 'That isn’t a model the Foreman can run on.');
         const drive = await driveState(f);
         if (drive.mode === 'running' || closing.has(f.dir)) throw new HttpError(409, 'Stop the reply first.');
@@ -1915,11 +1930,24 @@ export async function createRunner(config) {
           terminalOpen: drive.mode === 'terminal' || drive.mode === 'terminal-open',
           options: f.options, archiveRoot: path.join(FEATURES_DIR, '.restarted'),
         };
-        const out = await restartJob(job, {
-          model: body.model,
-          session: { read: (dir) => state.sessionFor(dir), clear: (dir) => state.clearSession(dir) },
-          start: async (startBody) => { cached = null; await limits.forget(f.dir); return HANDLERS.start(startBody); },
-        });
+        let out;
+        try {
+          out = await restartJob(job, {
+            model: body.model,
+            session: { read: (dir) => state.sessionFor(dir), clear: (dir) => state.clearSession(dir), write: (dir, record) => state.setSession(dir, record) },
+            parked: { read: async (dir) => limits.entriesFor(dir), forget: (dir) => limits.forget(dir) },
+            start: async (startBody) => { cached = null; return HANDLERS.start(startBody); },
+          });
+        } catch (err) {
+          // A refusal or a failure (put back, or part way) is on the record too, with what it says.
+          await state.audit({ action: 'restart-failed', featureDir: f.dir, slug: f.slug, model: body.model, error: String(err?.message ?? err), ...(err?.moved?.length ? { stillMoved: err.moved } : {}) }).catch(() => {});
+          throw err;
+        }
+        // State kept by the old job's folder starts fresh: the new job's folder is often the same path (a ticket job).
+        // Saved "Always allow" rules are one list for every job, not kept per job, so there is nothing to clear for them.
+        if ((await state.getSettings()).jobPolicy?.[f.dir]) { await state.setJobPolicy(f.dir, null); await driver.applyModes(); settingsChanged(); }
+        restartPaused.delete(f.dir);
+        delete runEnds[f.dir];
         await state.audit({ action: 'restart', featureDir: f.dir, slug: f.slug, newSlug: out.slug, model: body.model, was: drive.model ?? null, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside });
         cached = null;
         return { ok: true, slug: out.slug, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside, notes: out.notes };

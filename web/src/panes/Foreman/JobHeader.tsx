@@ -43,6 +43,8 @@ interface MenuProps {
   policyOverride?: PolicyId | null;
   run?: Run | null;
   worktree?: string | null;
+  /** Whether the job has a Foreman session: only then is there anything to restart on another model. */
+  started?: boolean;
   /** The Job page's gear: an icon button named "Job menu" instead of the words. */
   gear?: boolean;
 }
@@ -53,7 +55,7 @@ export function JobMenu(props: MenuProps) {
   return api.hosted?.() ? null : <LaptopJobMenu {...props} />;
 }
 
-function LaptopJobMenu({ job, dir, policyOverride, run, worktree, gear = false }: MenuProps) {
+function LaptopJobMenu({ job, dir, policyOverride, run, worktree, started = false, gear = false }: MenuProps) {
   const { api, store } = useWorkshop();
   const ui = useUi();
   const slug = job.slug;
@@ -145,16 +147,18 @@ function LaptopJobMenu({ job, dir, policyOverride, run, worktree, gear = false }
               Try it on your computer
             </button>
           </li>
-          <li>
-            <button
-              type="button"
-              disabled={running}
-              onClick={() => { setOpen(false); ui.openSheet({ kind: 'change-model', slug }); }}
-              title={running ? 'The Foreman is replying. Stop the reply first.' : 'The Foreman’s model is fixed for a job. Another one starts the job again from step one; you see what that moves before you agree.'}
-            >
-              Change model…
-            </button>
-          </li>
+          {started && (
+            <li>
+              <button
+                type="button"
+                disabled={running}
+                onClick={() => { setOpen(false); ui.openSheet({ kind: 'change-model', slug }); }}
+                title={running ? 'The Foreman is replying. Stop the reply first.' : 'The Foreman’s model is fixed for a job. Another one starts the job again from step one; you see what that moves before you agree.'}
+              >
+                Change model…
+              </button>
+            </li>
+          )}
           <li role="presentation"><p className="job-menu-heading" id={`perm-${slug}`}>Permissions for this job</p></li>
           <li>
             <ul role="group" aria-labelledby={`perm-${slug}`}>
@@ -200,6 +204,8 @@ export interface JobHeaderProps {
   detailLoaded?: boolean;
   /** The Foreman's model for this job (fixed once it has started); shown as a locked line. */
   model?: string | null;
+  /** Whether the job has a Foreman session (Change model… is offered only then). */
+  started?: boolean;
 }
 
 /**
@@ -263,7 +269,7 @@ function useStuckHeader() {
   return { ref, compact };
 }
 
-export function JobHeader({ job, branch, dir, policyOverride, run, worktree, detailLoaded = false, model = null }: JobHeaderProps) {
+export function JobHeader({ job, branch, dir, policyOverride, run, worktree, detailLoaded = false, model = null, started = false }: JobHeaderProps) {
   const now = useNow();
   const kind = job.kind ? KIND_LABELS[job.kind] ?? job.kind : null;
   const repo = job.repo?.name ?? null;
@@ -287,7 +293,7 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree, det
         <ForemanFace job={job} usage={usage} />
         <h2 className="pane-title job-title">{job.title || job.slug}</h2>
         <LevelChip job={job} ready={detailLoaded} />
-        <JobMenu job={job} dir={dir} policyOverride={policyOverride} run={run} worktree={worktree} />
+        <JobMenu job={job} dir={dir} policyOverride={policyOverride} run={run} worktree={worktree} started={started} />
       </div>
       {/* Play: the trail (the stages as a path, who is on the current one, and what happens next). */}
       <JobTrail job={job} now={now} />

@@ -7,6 +7,8 @@
 //   the job's session     record (sessions.json) is copied into that archive folder, then cleared
 //                         so the new job does not pick up the old Foreman
 // When any of those names is taken (a second restart the same day) -2, -3, … is added.
+// A step that fails before the new job exists is undone, in reverse order, so the old job is as it
+// was; when an undo step itself fails, the message says exactly what is where.
 
 import { execFile } from 'node:child_process';
 import fsp from 'node:fs/promises';
@@ -17,8 +19,18 @@ import { FABLE } from './options.js';
 
 const run = promisify(execFile);
 
-/** Options keys a restart never copies from the old options.json: the new job writes its own. */
-const OWN_OPTION_KEYS = new Set(['schema_version', 'updated_at', 'from_session']);
+/**
+ * The options a restart carries to the new job: what the New job form itself can set. Nothing else is
+ * copied. Left out on purpose: auto and auto_since (the old job's Auto level, and when it was set),
+ * from_session (the old job's link to a past conversation), schema_version and updated_at (the new
+ * job writes its own), stack (the stack's coordinator and its parts are not restarted), title, repo,
+ * kind, ticket and branch (the start writes them from the description, repository, kind and ticket),
+ * and any key not listed here.
+ */
+export const CARRIED_OPTION_KEYS = ['level', 'flow', 'skip', 'provided', 'reviewers', 'review_rounds', 'manual_test', 'fable_checks', 'models', 'all_fable', 'notes', 'wireframes', 'clarify', 'evidence'];
+
+/** What a new job's start writes into its folder before it can fail: nothing else in there is the start's. */
+const START_WRITES = new Set(['options.json', 'status.json', 'ticket.md', 'history.md']);
 
 const free = (base, taken) => {
   const used = new Set(taken);
@@ -41,13 +53,23 @@ export function planRestart(job, { today, existingBranches = [], existingArchive
   };
 }
 
-/** A restart that stopped part way: `moved` says what had already moved (and where to). Nothing is moved back. */
+/**
+ * A restart that did not go through. `moved` says what is still moved (and where to).
+ *   no moved, no `undone`: nothing was touched.
+ *   `undone`: steps had moved, and all of them were put back.
+ *   `undoFailed` ({ what, why }): putting a step back failed; the rest stays where it is.
+ *   `leftAlone` (text): Starbase could not be sure what was safe to remove, so it left everything.
+ */
 export class RestartFailed extends Error {
-  constructor(reason, moved) {
+  constructor(reason, moved, { undone = false, undoFailed = null, leftAlone = null } = {}) {
     const list = moved.map((m) => `${m.what} (${m.from} to ${m.to})`).join('; ');
-    super(moved.length
-      ? `The restart stopped part way: ${reason} Already moved, and left where it is now: ${list}. Nothing was deleted or moved back.`
-      : `The restart did not start: ${reason} Nothing was changed.`);
+    let text;
+    if (undoFailed) text = `The restart stopped part way, and putting things back failed: ${reason} Starbase then tried to put back ${undoFailed.what} and could not: ${undoFailed.why} Where things are now: ${list}. Nothing was deleted.`;
+    else if (leftAlone) text = `The restart stopped part way: ${reason} ${leftAlone} Where things are now: ${list}. Nothing was deleted.`;
+    else if (undone) text = `The restart did not go through: ${reason} Everything it had moved was put back. Nothing was changed.`;
+    else if (moved.length) text = `The restart stopped part way: ${reason} Already moved, and left where it is now: ${list}. Nothing was deleted or moved back.`;
+    else text = `The restart did not start: ${reason} Nothing was changed.`;
+    super(text);
     this.moved = moved;
     this.status = 409;
   }
@@ -124,16 +146,21 @@ async function remoteCheck(git, repo, branch) {
  * job: { slug, dir, title, kind, ticket, repoPath, branch, worktree, prs, options (options.json as
  * read), running, archiveRoot }.  model: the new Foreman model (already checked by the caller).
  * git: realGit.  fs: node:fs/promises.  start(body): the New job handler.
- * session: { read(dir), clear(dir) }, the job's sessions.json record.
+ * session: { read(dir), clear(dir), write(dir, record) }, the job's sessions.json record (write puts it
+ * back when a later step fails).  parked: { read(dir) → entries, forget(dir) }, replies and go-aheads
+ * waiting to be sent for the job (the usage limit's list).
  * Returns { slug, archive, backupBranch, worktreeAside, run }.
  */
-export async function restartJob(job, { model, git = realGit, fs = fsp, start, session = null, today = dated() }) {
+export async function restartJob(job, { model, git = realGit, fs = fsp, start, session = null, parked = null, today = dated() }) {
   const notes = [];
   if (job.running) throw new HttpError(409, 'Stop the reply first.');
   if (job.terminalOpen) throw new HttpError(409, 'Claude Code is open on this job in a terminal. Close it (type /exit there) and try again. Nothing was changed.');
   if (hasOpenPullRequest(job.prs)) throw new HttpError(409, 'This job has an open pull request, so its model can’t change: reviewed work would be thrown away. Close the pull request, or start a new job.');
 
   const refuse = (reason) => new RestartFailed(reason, []);
+  if (job.options?.stack === true || await exists(fs, path.join(job.dir, 'stack.md')) || await exists(fs, path.join(job.dir, 'stack.json'))) {
+    throw refuse('This job coordinates a stack, and its parts have branches and folders of their own that a restart does not move, so starting it again here could leave them pointing at nothing. Finish the stack on its current model, or start a new job.');
+  }
   const repo = job.repoPath ?? null;
   const real = async (p) => { try { return await fs.realpath(p); } catch { return null; } };
   const archiveRoot = job.archiveRoot;
@@ -173,46 +200,97 @@ export async function restartJob(job, { model, git = realGit, fs = fsp, start, s
     existingPaths: worktree ? (await siblings(path.dirname(worktree))).map((n) => path.join(path.dirname(worktree), n)) : [],
   });
 
-  const moved = [];
-  const step = async (what, from, to, fn) => {
-    try { await fn(); } catch (err) { throw new RestartFailed(`${what} failed: ${why(err)}`, moved); }
-    moved.push({ what, from, to });
+  const moved = []; // each: { what, from, to, undo }
+  // Put back what moved, newest first. Stops at the first step that cannot be put back.
+  const putBack = async (reason, options = {}) => {
+    const nothingMoved = moved.length === 0;
+    while (moved.length) {
+      const last = moved.at(-1);
+      try { await last.undo(); } catch (err) {
+        throw new RestartFailed(reason, moved.map(({ what, from, to }) => ({ what, from, to })), { undoFailed: { what: last.what, why: why(err) } });
+      }
+      moved.pop();
+    }
+    return new RestartFailed(reason, [], { undone: !nothingMoved, ...options });
   };
-  if (worktree) await step('the worktree folder', worktree, plan.worktreeAside, () => git.moveWorktree(repo ?? worktree, worktree, plan.worktreeAside));
-  if (branch) await step('the branch', branch, plan.backupBranch, () => git.renameBranch(repo, branch, plan.backupBranch));
+  const step = async (what, from, to, fn, undo) => {
+    try { await fn(); } catch (err) { throw await putBack(`${what} failed: ${why(err)}`); }
+    moved.push({ what, from, to, undo });
+  };
+  if (worktree) await step('the worktree folder', worktree, plan.worktreeAside, () => git.moveWorktree(repo ?? worktree, worktree, plan.worktreeAside), () => git.moveWorktree(repo ?? worktree, plan.worktreeAside, worktree));
+  if (branch) await step('the branch', branch, plan.backupBranch, () => git.renameBranch(repo, branch, plan.backupBranch), () => git.renameBranch(repo, plan.backupBranch, branch));
   await step('the job folder', job.dir, plan.archiveDir, async () => {
     await fs.mkdir(archiveRoot, { recursive: true });
     await fs.rename(job.dir, plan.archiveDir);
-  });
+  }, () => fs.rename(plan.archiveDir, job.dir));
   if (session) {
     const record = await session.read(job.dir);
     if (record) {
-      await step('the Foreman session record', 'sessions.json', path.join(plan.archiveDir, 'session-record.json'), async () => {
-        await fs.writeFile(path.join(plan.archiveDir, 'session-record.json'), `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+      const copy = path.join(plan.archiveDir, 'session-record.json');
+      let cleared = false;
+      await step('the Foreman session record', 'sessions.json', copy, async () => {
+        await fs.writeFile(copy, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
         await session.clear(job.dir);
+        cleared = true;
+      }, async () => {
+        if (cleared) {
+          if (!session.write) throw new Error('there is no way to write it back');
+          await session.write(job.dir, record);
+        }
+        await fs.rm(copy, { force: true });
       });
     }
   }
+  // A reply or go-ahead waiting to be sent for this job is copied into the archive; it is forgotten
+  // (never sent) only once the new job has started.
+  const waiting = parked ? await parked.read(job.dir) : [];
+  if (waiting.length) {
+    const copy = path.join(plan.archiveDir, 'parked-reply.json');
+    await step('the reply waiting to be sent', 'the paused jobs list', copy, () => fs.writeFile(copy, `${JSON.stringify(waiting, null, 2)}\n`, { mode: 0o600 }), () => fs.rm(copy, { force: true }));
+  }
 
+  // The options the new job starts with: only the listed ones, the new model in place of the old.
   const old = job.options ?? {};
+  const carried = Object.fromEntries(CARRIED_OPTION_KEYS.filter((k) => old[k] !== undefined).map((k) => [k, old[k]]));
   const models = { ...(old.models && typeof old.models === 'object' ? old.models : {}), foreman: model };
-  const options = { ...Object.fromEntries(Object.entries(old).filter(([k]) => !OWN_OPTION_KEYS.has(k))), models, ...(old.all_fable === true && model !== FABLE ? { all_fable: false } : {}) };
+  const options = { ...carried, models, ...(old.all_fable === true && model !== FABLE ? { all_fable: false } : {}) };
+  const featuresDir = path.dirname(archiveRoot);
+  const folders = async () => (await siblings(featuresDir)).filter((n) => !n.startsWith('.'));
+  const before = new Set(await folders());
   let started;
   try {
     started = await start({ description: job.title, ticket: job.ticket ?? undefined, kind: job.kind, repoPath: repo ?? old.repo, level: old.level, options, model });
-  } catch (err) { throw new RestartFailed(`starting the new job failed: ${why(err)}`, moved); }
-
-  // Keys of the old options.json the new job's options don't know (written by other parts of
-  // Starbase) are kept, so a restart never drops one by name.
-  try {
-    const file = path.join(path.dirname(archiveRoot), started.slug, 'options.json');
-    {
-      const next = JSON.parse(await fs.readFile(file, 'utf8'));
-      const prev = JSON.parse(await fs.readFile(path.join(plan.archiveDir, 'options.json'), 'utf8'));
-      const extra = Object.fromEntries(Object.entries(prev).filter(([k]) => !OWN_OPTION_KEYS.has(k) && !(k in next)));
-      if (Object.keys(extra).length) await fs.writeFile(file, `${JSON.stringify({ ...next, ...extra }, null, 2)}\n`);
+  } catch (err) {
+    const reason = `starting the new job failed: ${why(err)}`;
+    // What the failed start left behind: removed only when it is nothing but what the start itself writes.
+    const fresh = (await folders()).filter((n) => !before.has(n)).map((n) => path.join(featuresDir, n));
+    const unsure = [];
+    for (const dir of fresh) {
+      let names;
+      try { names = await fs.readdir(dir, { withFileTypes: true }); } catch { unsure.push(dir); continue; }
+      if (names.every((e) => e.isFile() && START_WRITES.has(e.name))) continue;
+      unsure.push(dir);
     }
-  } catch { /* the old file was missing or not JSON: nothing to carry over */ }
+    if (unsure.length) {
+      const where = fresh.length ? ` The half-started job's folder${unsure.length > 1 ? 's' : ''}: ${unsure.join(', ')}.` : '';
+      throw new RestartFailed(reason, moved.map(({ what, from, to }) => ({ what, from, to })), { leftAlone: `Starbase is not sure which files in the new job's folder were written by Starbase and which by a person, so it left everything as it is.${where} To start the job again by hand, use the description "${job.title}"${job.ticket?.key ? `, the ticket ${job.ticket.key}` : ''} and the repository ${repo ?? old.repo ?? '(not recorded)'}. The old work is in ${plan.archiveDir}${plan.backupBranch ? `, on the branch ${plan.backupBranch}` : ''}${plan.worktreeAside ? `, and in the folder ${plan.worktreeAside}` : ''}.` });
+    }
+    for (const dir of fresh) { try { await fs.rm(dir, { recursive: true, force: true }); } catch (e) { throw new RestartFailed(reason, moved.map(({ what, from, to }) => ({ what, from, to })), { leftAlone: `Starbase could not clear the new job's half-written folder ${dir} (${why(e)}), so it left everything as it is. To start the job again by hand, use the description "${job.title}" and the repository ${repo ?? old.repo ?? '(not recorded)'}; the old work is in ${plan.archiveDir}.` }); } }
+    throw await putBack(reason);
+  }
+  if (waiting.length) { await parked.forget(job.dir); notes.push(`A reply waiting to be sent for the old job was not sent. A copy is in ${path.join(plan.archiveDir, 'parked-reply.json')}.`); }
+
+  // Listed options of the old options.json that the new job's file doesn't hold are kept. Only a
+  // missing old file is fine; any other failure is told to the person (the new job is already running).
+  const file = path.join(featuresDir, started.slug, 'options.json');
+  try {
+    const next = JSON.parse(await fs.readFile(file, 'utf8'));
+    const prev = JSON.parse(await fs.readFile(path.join(plan.archiveDir, 'options.json'), 'utf8'));
+    const extra = Object.fromEntries(Object.entries(prev).filter(([k]) => CARRIED_OPTION_KEYS.includes(k) && !(k in next)));
+    if (Object.keys(extra).length) await fs.writeFile(file, `${JSON.stringify({ ...next, ...extra }, null, 2)}\n`);
+  } catch (err) {
+    if (err?.code !== 'ENOENT') notes.push(`Some of the old job's options could not be copied to the new job's options file (${why(err)}). Check them in the job's options.`);
+  }
 
   return { slug: started.slug, archive: plan.archiveDir, backupBranch: plan.backupBranch, worktreeAside: plan.worktreeAside, run: started.run, notes };
 }

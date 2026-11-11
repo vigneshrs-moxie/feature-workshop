@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { planRestart, restartJob, realGit } from '../lib/restart.js';
 
 const TODAY = '2026-11-10';
+const CARRIED_FOR_TEST = ['level', 'flow', 'skip', 'provided', 'reviewers', 'review_rounds', 'manual_test', 'fable_checks', 'models', 'all_fable', 'notes', 'wireframes', 'clarify', 'evidence'];
 let root, repo, features, worktree, started;
 
 const git = (dir, ...args) => execFileSync('git', ['-C', dir, '-c', 'user.name=Test', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...args], { stdio: 'pipe' }).toString().trim();
@@ -123,10 +124,65 @@ test('the new job has the same description, ticket, kind, repository, level and 
   assert.equal(started.options.models.foreman, 'claude-fable-5-2');
   assert.equal(started.options.models.build, 'claude-opus-5-5');
   assert.equal(started.options.notes, 'be careful');
-  // Keys this code does not know are kept by name, in the new job's options.json.
+  // Auto, and when it was set, belong to the old job: never carried over.
   const next = JSON.parse(await fs.readFile(path.join(features, 'visit-audit', 'options.json'), 'utf8'));
-  assert.deepEqual(next.auto, { on: true });
-  assert.equal(next.auto_since, '2026-11-09');
+  assert.equal('auto' in next, false);
+  assert.equal('auto_since' in next, false);
+});
+
+test('F3: only the options the New job form can set are carried; Auto, its date, the session link, the stamps and unknown keys are not', async () => {
+  const options = { ...job().options, from_session: { id: 'x' }, mystery: 1, wireframes: 'always', clarify: 'off', evidence: 'always', all_fable: false, reviewers: 'auto', review_rounds: 2, manual_test: true, fable_checks: [], skip: ['refine'], provided: {} };
+  await restartJob(job({ options }), { model: 'claude-fable-5-2', start, today: TODAY });
+  const sent = Object.keys(started.options).sort();
+  assert.deepEqual(sent.filter((k) => !CARRIED_FOR_TEST.includes(k)), [], `carried a key that is not on the list: ${sent}`);
+  for (const gone of ['auto', 'auto_since', 'from_session', 'schema_version', 'updated_at', 'stack', 'mystery']) assert.equal(gone in started.options, false, gone);
+  for (const kept of ['level', 'models', 'notes', 'wireframes', 'clarify', 'evidence', 'reviewers', 'review_rounds', 'manual_test', 'fable_checks', 'skip']) assert.equal(kept in started.options, true, kept);
+  const next = JSON.parse(await fs.readFile(path.join(features, 'visit-audit', 'options.json'), 'utf8'));
+  for (const gone of ['auto', 'auto_since', 'from_session', 'stack', 'mystery']) assert.equal(gone in next, false, gone);
+});
+
+test('F3: a listed option the new job’s file lacks is carried from the archive', async () => {
+  await fs.writeFile(path.join(features, 'visit-audit', 'options.json'), JSON.stringify({ ...job().options, evidence: 'always' }));
+  const out = await restartJob(job({ options: { ...job().options, evidence: 'always' } }), { model: 'claude-fable-5-2', start, today: TODAY });
+  const next = JSON.parse(await fs.readFile(path.join(features, 'visit-audit', 'options.json'), 'utf8'));
+  assert.equal(next.evidence, 'always');
+  assert.deepEqual(out.notes.filter((n) => /options/.test(n)), []);
+});
+
+test('F3 minor: a failed write of the carried options is reported to the person, not swallowed', async () => {
+  const writeFails = { ...fs, writeFile: async (f, ...rest) => { if (String(f).endsWith(path.join('visit-audit', 'options.json'))) throw new Error('disk is full'); return fs.writeFile(f, ...rest); } };
+  const out = await restartJob(job({ options: { ...job().options, evidence: 'always' } }), { model: 'claude-fable-5-2', fs: writeFails, start, today: TODAY });
+  assert.equal(out.notes.some((n) => /options/.test(n) && /disk is full/.test(n)), true, JSON.stringify(out.notes));
+});
+
+test('F3 minor: an old options file that is missing is fine and says nothing', async () => {
+  await fs.rm(path.join(features, 'visit-audit', 'options.json'));
+  const out = await restartJob(job(), { model: 'claude-fable-5-2', start, today: TODAY });
+  assert.deepEqual(out.notes.filter((n) => /options/.test(n)), []);
+});
+
+test('F3: a reply waiting to be sent is copied into the archive before it is forgotten', async () => {
+  const entries = [{ featureDir: path.join(features, 'visit-audit'), slug: 'visit-audit', send: { text: 'Approve the plan', kind: 'approve', gateBrief: 2 } }];
+  const forgot = [];
+  const parked = { read: async () => entries, forget: async (d) => { forgot.push(d); } };
+  const out = await restartJob(job(), { model: 'claude-fable-5-2', start, parked, today: TODAY });
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(out.archive, 'parked-reply.json'), 'utf8')), entries);
+  assert.deepEqual(forgot, [path.join(features, 'visit-audit')]);
+  assert.equal(out.notes.some((n) => /waiting to be sent/.test(n) && /not sent/.test(n)), true, JSON.stringify(out.notes));
+});
+
+test('F3: a restart that fails keeps the parked reply (it is forgotten only once the new job has started)', async () => {
+  const forgot = [];
+  const parked = { read: async () => [{ send: { text: 'x' } }], forget: async (d) => { forgot.push(d); } };
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start: async () => { throw new Error('nope'); }, parked, today: TODAY }));
+  assert.deepEqual(forgot, []);
+  assert.equal(await exists(path.join(features, 'visit-audit', 'parked-reply.json')), false);
+});
+
+test('F3 follow-on: a job with a stack plan is refused, and nothing moved', async () => {
+  await fs.writeFile(path.join(features, 'visit-audit', 'stack.md'), 'sections');
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start, today: TODAY }), refused(/stack/i));
+  await assertUntouched();
 });
 
 test('the Foreman session record is kept in the archive and cleared for the new job', async () => {
@@ -144,23 +200,108 @@ test('a job with no branch or worktree yet restarts, and the main checkout is ne
   assert.equal(await exists(path.join(repo, 'README.md')), true);
 });
 
-test('a failure after the branch rename reports what was moved and moves nothing back silently', async () => {
-  const failing = { ...realGit, async moveWorktree(...a) { return realGit.moveWorktree(...a); } };
+// F2: a failure before the new job exists puts everything back, in reverse order.
+async function assertOldJobUsable() {
+  assert.equal(await exists(worktree), true, 'the worktree is back in place');
+  assert.equal(git(worktree, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/visit-audit', 'the branch name is back');
+  assert.equal(git(repo, 'branch', '--list', 'backup/*'), '');
+  assert.equal(await exists(`${worktree}.2026-11-10`), false);
+  assert.equal(await fs.readFile(path.join(features, 'visit-audit', 'decisions.md'), 'utf8'), 'decided', 'the job is listed where it was');
+  assert.equal(await fs.readFile(path.join(features, 'visit-audit', 'briefs', '001-spec.md'), 'utf8'), 'the spec');
+  assert.equal(await exists(path.join(features, '.restarted', 'visit-audit-2026-11-10')), false);
+}
+const putBack = (reasonPattern) => (e) => e.status === 409 && reasonPattern.test(e.message) && /Nothing was changed\./.test(e.message) && /put back/.test(e.message);
+
+test('F2: a failure at the branch rename puts the worktree back and says nothing was changed', async () => {
+  const bad = { ...realGit, renameBranch: async () => { throw new Error('branch is locked'); } };
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', git: bad, start, today: TODAY }), putBack(/the branch failed: branch is locked/));
+  await assertOldJobUsable();
+  assert.equal(started, null);
+});
+
+test('F2: a failure at the job folder move puts the branch name and the worktree back', async () => {
   const fsFail = { ...fs, rename: async () => { throw new Error('disk is full'); } };
-  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', git: failing, fs: fsFail, start, today: TODAY }), (e) => {
-    assert.match(e.message, /stopped part way/);
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', fs: fsFail, start, today: TODAY }), putBack(/the job folder failed: disk is full/));
+  await assertOldJobUsable();
+  assert.equal(started, null);
+});
+
+test('F2: a failure at the session record puts the folder, the branch and the worktree back, and the record stays', async () => {
+  let record = { sessionId: 'abc' };
+  const session = { read: async () => record, clear: async () => { throw new Error('state file is locked'); }, write: async (_d, r) => { record = r; } };
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start, session, today: TODAY }), putBack(/state file is locked/));
+  await assertOldJobUsable();
+  assert.deepEqual(record, { sessionId: 'abc' });
+});
+
+test('F2: a session record that was cleared is written back when a later step fails', async () => {
+  let record = { sessionId: 'abc', model: 'claude-opus-5-5' };
+  const session = { read: async () => record, clear: async () => { record = null; }, write: async (_d, r) => { record = r; } };
+  const failing = async () => { throw new Error('the model service is down'); };
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start: failing, session, today: TODAY }), putBack(/starting the new job failed: the model service is down/));
+  await assertOldJobUsable();
+  assert.deepEqual(record, { sessionId: 'abc', model: 'claude-opus-5-5' });
+  assert.equal(await exists(path.join(features, 'visit-audit', 'session-record.json')), false, 'the copy made for the archive is gone');
+});
+
+test('F2: a failed new start whose half-written folder holds only what the start wrote is cleared, and everything is put back', async () => {
+  const half = async () => {
+    await fs.mkdir(path.join(features, 'visit-audit'), { recursive: true }); // the same path as the old job, as a ticket job has
+    await fs.writeFile(path.join(features, 'visit-audit', 'options.json'), '{}');
+    await fs.mkdir(path.join(features, 'other-new-job'), { recursive: true });
+    await fs.writeFile(path.join(features, 'other-new-job', 'status.json'), '{}');
+    throw new Error('the repository is not there');
+  };
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start: half, today: TODAY }), putBack(/starting the new job failed: the repository is not there/));
+  await assertOldJobUsable();
+  assert.equal(await exists(path.join(features, 'other-new-job')), false, 'the half-written folder is removed');
+  assert.equal(await exists(path.join(features, 'visit-audit', 'options.json')), true, 'the old options are back (the old job’s own file)');
+  assert.notEqual(await fs.readFile(path.join(features, 'visit-audit', 'options.json'), 'utf8'), '{}');
+});
+
+test('F2: a failed new start whose folder holds a file a person made leaves everything and says where it all is', async () => {
+  const messy = async () => {
+    await fs.mkdir(path.join(features, 'new-job'), { recursive: true });
+    await fs.writeFile(path.join(features, 'new-job', 'notes.md'), 'my own notes');
+    throw new Error('the repository is not there');
+  };
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start: messy, today: TODAY }), (e) => {
+    assert.equal(e.status, 409);
+    assert.match(e.message, /starting the new job failed: the repository is not there/);
+    assert.match(e.message, /Nothing was deleted/);
+    assert.match(e.message, /not sure/i);
+    assert.match(e.message, new RegExp(path.join(features, 'new-job').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(e.message, /Add visit audit columns/);
+    assert.match(e.message, /ORBIT-9/);
+    assert.match(e.message, new RegExp(repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(e.message, new RegExp(path.join(features, '.restarted', 'visit-audit-2026-11-10').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.doesNotMatch(e.message, /Nothing was changed\./);
+    return true;
+  });
+  assert.equal(await fs.readFile(path.join(features, 'new-job', 'notes.md'), 'utf8'), 'my own notes');
+  assert.equal(await exists(path.join(features, '.restarted', 'visit-audit-2026-11-10', 'decisions.md')), true, 'the old work stays in the archive');
+  assert.equal(await exists(`${worktree}.2026-11-10`), true);
+});
+
+test('F2: when an undo step itself fails, undoing stops and the message says exactly what is where', async () => {
+  const stuck = { ...realGit, renameBranch: async (r, from, to) => { if (from.startsWith('backup/')) throw new Error('branch is locked'); return realGit.renameBranch(r, from, to); } };
+  const fsFail = { ...fs, rename: async () => { throw new Error('disk is full'); } };
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', git: stuck, fs: fsFail, start, today: TODAY }), (e) => {
+    assert.equal(e.status, 409);
     assert.match(e.message, /the job folder failed: disk is full/);
+    assert.match(e.message, /tried to put back the branch and could not: branch is locked/);
+    assert.match(e.message, /the branch \(feature\/visit-audit to backup\/feature\/visit-audit-2026-11-10\)/);
     assert.match(e.message, /the worktree folder/);
-    assert.match(e.message, /the branch/);
-    assert.match(e.message, /Nothing was deleted or moved back/);
+    assert.match(e.message, /Nothing was deleted/);
+    assert.doesNotMatch(e.message, /Nothing was changed\./);
     assert.deepEqual(e.moved.map((m) => m.what), ['the worktree folder', 'the branch']);
     return true;
   });
-  // Left as they were moved: the branch is renamed, the worktree is aside, the job folder never moved.
+  // Undoing stopped at the branch: it is still under the backup name and the worktree is still aside.
   assert.notEqual(git(repo, 'branch', '--list', 'backup/feature/visit-audit-2026-11-10'), '');
   assert.equal(await exists(`${worktree}.2026-11-10`), true);
+  assert.equal(await exists(worktree), false);
   assert.equal(await exists(path.join(features, 'visit-audit', 'decisions.md')), true);
-  assert.equal(started, null);
 });
 
 // ---------- Fix round 1: refusals before anything moves ----------

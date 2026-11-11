@@ -197,7 +197,7 @@ function JobThread({ job }: { job: Job }) {
 
   return (
     <>
-      <JobHeader job={job} branch={thread.detail?.branch} dir={thread.detail?.dir} policyOverride={thread.detail?.policyOverride} run={run} worktree={thread.detail?.worktree} detailLoaded={Boolean(thread.detail)} model={thread.detail?.drive?.model ?? null} />
+      <JobHeader job={job} branch={thread.detail?.branch} dir={thread.detail?.dir} policyOverride={thread.detail?.policyOverride} run={run} worktree={thread.detail?.worktree} detailLoaded={Boolean(thread.detail)} model={thread.detail?.drive?.sessionId ? thread.detail.drive.model ?? null : null} started={Boolean(thread.detail?.drive?.sessionId)} />
       <HowThisWorks id="foreman">
         <p>{HOW}</p>
         <p>A brief opens in full while it waits for you and folds to its headline once you’ve answered; click a headline to open it again. Steps the Foreman took by itself are folded into one “routine steps” line.</p>

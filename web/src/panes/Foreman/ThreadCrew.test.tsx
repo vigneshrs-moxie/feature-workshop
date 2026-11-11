@@ -57,7 +57,7 @@ const detail = (extra: Partial<JobDetail> = {}): JobDetail => ({
   slug: 'alpha', title: 'Job alpha', branch: 'feat/sample', run: RUN, thread: THREAD, threadMore: false, activity: ACTIVITY,
   gate: GATE, answeredBriefs: [], heldReply: null, level: 2, options: { level: 2 },
   statusForCompose: { questions: QUESTIONS, decidedOnYourBehalf: [], nextProposed: 'Fix round', spec: null, artifacts: [], brief: { number: 2 } },
-  drive: { mode: 'workshop', model: 'claude-opus-5-5' },
+  drive: { mode: 'workshop', model: 'claude-opus-5-5', sessionId: 's1' },
   ...extra,
 });
 

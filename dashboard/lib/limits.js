@@ -155,6 +155,11 @@ export class LimitWatch extends EventEmitter {
     return j ? { kind: j.send.kind, gateBrief: j.send.gateBrief, at: j.send.at } : null;
   }
 
+  /** Copies of what is paused or held for this job (what forget would drop), so a caller can keep them before forgetting. */
+  entriesFor(featureDir) {
+    return [...(this.limit?.jobs ?? []), ...this.queue].filter((j) => j.featureDir === featureDir).map((j) => structuredClone(j));
+  }
+
   /**
    * A job sent a message by hand while paused no longer waits for the automatic carry-on. A reply
    * held for it (hold) is dropped too, and the audit says so ('send-held-dropped').
