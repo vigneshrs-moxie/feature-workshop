@@ -1770,6 +1770,24 @@ const newBrief1 = async (w) => {
   await w.writeStatus(status(1));
 };
 
+test('a restarted job lists none of the old job\'s runs; its own new run is listed', { timeout: 60_000 }, async () => {
+  const w = await restartedWorld({ auto: null, jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    await w.runner.handle({ type: 'reply', slug: w.slug, text: 'Old job: carry on.' }, { from: 'local' });
+    await w.idle();
+    const old = (await w.runner.read.runs()).runs.filter((r) => r.featureDir === w.dir).map((r) => r.id);
+    assert.equal(old.length, 1, 'the driver holds the old job\'s run');
+    await restartIt(w);
+    await w.idle();
+    await new Promise((r) => setTimeout(r, 1700));
+    const detail = await w.runner.read.job(w.slug);
+    const listed = detail.runs.map((r) => r.id);
+    assert.deepEqual(listed.filter((id) => old.includes(id)), [], 'no run of the old job');
+    assert.equal(listed.length, 1, 'the new job\'s own first run');
+    assert.ok(!old.includes(detail.run?.id), 'the job\'s run is the new one');
+  } finally { await w.stop(); }
+});
+
 test('K1: a restarted job\'s new brief 1 waits for the person and can be approved (no Auto)', { timeout: 60_000 }, async () => {
   const w = await restartedWorld({ auto: null });
   try {

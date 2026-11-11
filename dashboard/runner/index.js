@@ -441,6 +441,8 @@ export async function createRunner(config) {
     const list = await loadFeatures({ featuresDir: FEATURES_DIR, sessionIndex, overrides, knownRepos: await repoList(), restartedAt });
     // Jobs you marked done or dropped (kept in the dashboard's own state; the job's records are untouched).
     for (const f of list) f.closed = saved[f.dir]?.closed ?? null;
+    // The folder's last restart that counts: runs and session logs from at or before it are the old job's.
+    for (const f of list) f.restartedAt = restartedAt[f.dir] ?? null;
     // Hand-off nudges you dismissed on this job, and the ones whose sentence already went to its
     // Foreman (lib/nudges.js), kept in the same record.
     for (const f of list) f.dismissedNudges = Array.isArray(saved[f.dir]?.dismissedNudges) ? saved[f.dir].dismissedNudges : [];
@@ -714,8 +716,16 @@ export async function createRunner(config) {
 
 
 
+  /**
+   * The runs of this job that the driver holds: in its folder, and started after the folder's last restart that counts
+   * (f.restartedAt, the bound the session logs use), so a restarted job lists none of the old job's runs.
+   */
+  function runsOf(f) {
+    const bound = Date.parse(f?.restartedAt ?? '');
+    return driver.list().filter((r) => r.featureDir === f.dir && !(Number.isFinite(bound) && Date.parse(r.startedAt) <= bound));
+  }
   function runFor(f) {
-    return driver.list().filter((r) => r.featureDir === f.dir).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null;
+    return runsOf(f).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null;
   }
 
   // When a reply sent from the dashboard ends, the process that ran it (and any workers inside it)
@@ -973,7 +983,7 @@ export async function createRunner(config) {
       latestBrief, briefs: f.briefs, approvals: f.approvals, history: f.history, artifacts: f.artifacts, recordedArtifacts: f.recordedArtifacts,
       costDetail: { ...f.cost, whatIf: whatIfConductor(f.cost.agents) },
       activity: f.activity.map((a) => (a.state === 'running' && !stillRunning(f, a, run && ACTIVE_RUN.has(run.status) ? run : null) ? { ...a, state: 'stopped' } : a)),
-      drive, run, runs: driver.list().filter((r) => r.featureDir === f.dir), overview, thread: page.items, threadMore: page.more, locate: f.locate,
+      drive, run, runs: runsOf(f), overview, thread: page.items, threadMore: page.more, locate: f.locate,
       // policy: the setting in force for this job; policyOverride: the job's own (null: it follows yours).
       // While Auto is on, 'auto' (lib/state.js policyFor), the job's own setting kept as it was.
       policy: await state.policyFor(f.dir), policyOverride: settings.jobPolicy?.[f.dir] ?? null, globalPolicy: settings.policy, autoMode: settings.autoMode,
