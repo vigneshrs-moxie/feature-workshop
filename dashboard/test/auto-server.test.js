@@ -1704,7 +1704,8 @@ test('N2: the card count belongs to one reply: the person answering the gate sta
     await w.until(() => outcomes.length === 1, 'the card to be answered');
     assert.equal(outcomes[0].result.behavior, 'allow');
     assert.equal((await w.record()).stopped, null);
-    assert.equal((await w.record()).cards, 1);
+    // The count is written once the decision has gone (answerCard): wait for it, not for the clock.
+    await w.until(async () => (await w.record()).cards === 1, 'the card count of 1');
   } finally { await clear(w); await w.stop(); }
 });
 
@@ -2023,6 +2024,21 @@ test('I5: a decision of the person\'s after a stop, followed by more than 400 li
     await w.pass();
     assert.equal((await w.record()).stopped, null);
   } finally { await w.stop(); }
+});
+
+test('N2: Starbase\'s own messages written while a step waits are not the person\'s words; the stack messages that carry the person\'s note or go are', { timeout: 30_000 }, async () => {
+  const own = ['resume', 'resume-after-restart', 'nudge', 'status-fix', 'pr-feedback', 'review-round', 'stack-section', 'stack-ready', 'stack-merged', 'stack-stuck', 'stack-checks-failed'];
+  const theirs = ['message', 'stack-plan', 'stack-plan-change', 'stack-push', 'stack-push-no', 'stack-sendback'];
+  for (const kind of [...own, ...theirs]) {
+    const u = unit({ decide: () => {}, auditLines: [{ action: 'send', kind, at: new Date(Date.now() - 1000).toISOString(), text: 'x' }] });
+    await u.auto.pass();
+    if (own.includes(kind)) {
+      assert.equal(u.record().stopped, null, kind);
+      assert.equal(u.decides.length, 1, kind);
+    } else {
+      assert.equal(u.record().stopped?.reason, YOURS, kind);
+    }
+  }
 });
 
 test('I5: a message written before the brief was raised, or before Auto was switched on, leaves the step to Auto', { timeout: 30_000 }, async () => {

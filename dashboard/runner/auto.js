@@ -49,8 +49,12 @@ const TIMED_OUT = /^It took longer/;
  * from the gate card's own box, approves nothing; nor do Starbase's own sends (resume, nudge, a stack's message).
  */
 const DECIDES = new Set(DECIDING_KINDS);
-/** Sends that are Starbase's own, not the person's words (a nudge, a resume, a status fix, PR feedback, a review round, a stack's message). */
-const OWN_SENDS = new Set(['nudge', 'resume-after-restart', 'status-fix', 'pr-feedback', 'review-round', 'stack-section']);
+/**
+ * Sends that are Starbase's own, not the person's words: a nudge, a resume (after a restart, or the carry-on after a usage
+ * limit), a status fix, PR feedback, a review round, a stack's start and its own news (ready, merged, stuck, checks failed).
+ * A stack's messages that carry the person's own note or go (stack-plan, -plan-change, -push, -push-no, -sendback) are theirs.
+ */
+const OWN_SENDS = new Set(['nudge', 'resume', 'resume-after-restart', 'status-fix', 'pr-feedback', 'review-round', 'stack-section', 'stack-ready', 'stack-merged', 'stack-stuck', 'stack-checks-failed']);
 /** Auto's stop when the person wrote to a job while its step waited (I5). */
 const YOURS_NOW = 'you wrote to this job while this step waited, so it is yours to decide.';
 /** An Approver answer that would act (go, allow) but calls its own risk high is a stop, not an action. */
