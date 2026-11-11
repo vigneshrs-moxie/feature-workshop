@@ -6,7 +6,12 @@
 //   answered  the brief is answered (the job's detail says so, or the server took a deciding answer
 //             to this brief) or the run his reply started is at work: the sent lines, no calls
 //   held      the deciding answer waits for Claude's usage limit to reset: the app's held words
+//   stalled   answered, no run at work, and 30 s gone since the later of the server taking it and the
+//             last run ending: "Nothing has moved yet.", with Try again when there is a decision to
+//             send again, else a line saying to write to the Foreman
+import { useEffect, useState } from 'react';
 import type { Job, JobDetail, Run } from '../api/types';
+import { STUCK_AFTER_MS } from '../lib/sentState';
 import { DECIDING_KINDS, openGate } from '../lib/gateCard';
 import type { GateSent } from '../panes/Foreman/gateSent';
 import { isActiveRun } from '../panes/Foreman/thread';
@@ -49,9 +54,45 @@ export function sentView(job: Pick<Job, 'closed'>, detail: JobDetail | null | un
   return { words: SENT_WORDS, more: a && (thisBrief || replying) ? SENT_MORE[a.kind] ?? null : null };
 }
 
+/** A stalled answered brief with no decision on this page to send again. */
+export const WRITE_TO_MOVE = 'Write to the Foreman below to move it on.';
+
+/** The lines, and whether Try again may send the same decision once more. */
+export interface SentShown extends SentLines { canRetry: boolean }
+
+/**
+ * sentView, and once the answered brief has stalled (no run at work, 30 s after the later of the
+ * server taking the decision and the last run ending; at once when neither time is known):
+ * "Nothing has moved yet.". One timer of its own, to the moment it stalls.
+ */
+export function useSentView(job: Pick<Job, 'closed'>, detail: JobDetail | null | undefined, run: Run | null, decision: Pick<GateSent, 'accepted'>): SentShown | null {
+  const view = sentView(job, detail, run, decision);
+  const a = decision.accepted;
+  const brief = detail?.gate?.briefNumber ?? null;
+  const mine = a !== null && a.brief !== null && a.brief === brief;
+  const endedAt = run?.endedAt;
+  const working = isActiveRun(run);
+  const resting = view !== null && view.words === SENT_WORDS && !working;
+  const ended = !working && typeof endedAt === 'string' ? Date.parse(endedAt) : NaN;
+  const due = resting ? Math.max(mine ? a.at : 0, Number.isFinite(ended) ? ended : 0) + STUCK_AFTER_MS : null;
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (due === null) return;
+    const left = due - Date.now();
+    if (left <= 0) return;
+    const t = setTimeout(() => tick((n) => n + 1), left);
+    return () => clearTimeout(t);
+  }, [due]);
+  if (!view) return null;
+  if (due !== null && Date.now() >= due) return { words: STUCK_WORDS, more: mine ? null : WRITE_TO_MOVE, canRetry: mine };
+  return { ...view, canRetry: false };
+}
+
 /** What a place shows after a send: its own state first, then what the job says. */
-export function waitingLines(job: Pick<Job, 'closed'>, detail: JobDetail | null | undefined, run: Run | null, decision: GateSent): SentLines | null {
-  return stateLines(decision) ?? sentView(job, detail, run, decision);
+export function useWaitingLines(job: Pick<Job, 'closed'>, detail: JobDetail | null | undefined, run: Run | null, decision: GateSent): SentShown | null {
+  const shown = useSentView(job, detail, run, decision);
+  const own = stateLines(decision);
+  return own ? { ...own, canRetry: false } : shown;
 }
 
 export const linesText = (l: SentLines) => [l.words, l.more].filter(Boolean).join(' ');

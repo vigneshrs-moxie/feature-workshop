@@ -24,13 +24,15 @@ export function jobMarks(job: Job, run: Run | null | undefined): string {
  * (`sent: true`), the run it started: kept after the bar's sent state clears, so the page can go on
  * saying it was sent while that run works or until the brief shows as answered.
  */
-const lastSent = new Map<string, { body: GateRequest; marks: string; queuedId?: string; accepted?: { runId: string | null } }>();
+const lastSent = new Map<string, { body: GateRequest; marks: string; queuedId?: string; accepted?: { runId: string | null; at: number } }>();
 
 /** A decision the server took: its kind, the brief it answered and the run it started. */
 export interface AcceptedDecision {
   kind: GateKind;
   brief: number | null;
   runId: string | null;
+  /** When the server took it (ms since 1970). */
+  at: number;
 }
 
 /** The id of the decision the website queued for the laptop, from a gate answer. */
@@ -92,7 +94,7 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
     }
     const queued = queuedIdOf(r);
     if (r?.sent) {
-      lastSent.set(slug, { body, marks, accepted: { runId: typeof r.run?.id === 'string' ? r.run.id : null } });
+      lastSent.set(slug, { body, marks, accepted: { runId: typeof r.run?.id === 'string' ? r.run.id : null, at: Date.now() } });
       sent.accepted();
     }
     else if (queued) lastSent.set(slug, { body, marks, queuedId: queued });
@@ -114,9 +116,9 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
   };
 }
 
-function acceptedOf(last: { body: GateRequest; accepted?: { runId: string | null } } | undefined): AcceptedDecision | null {
+function acceptedOf(last: { body: GateRequest; accepted?: { runId: string | null; at: number } } | undefined): AcceptedDecision | null {
   if (!last?.accepted) return null;
-  return { kind: last.body.kind, brief: last.body.briefNumber ?? null, runId: last.accepted.runId };
+  return { kind: last.body.kind, brief: last.body.briefNumber ?? null, runId: last.accepted.runId, at: last.accepted.at };
 }
 
 /** Forget every decision sent (between tests). */

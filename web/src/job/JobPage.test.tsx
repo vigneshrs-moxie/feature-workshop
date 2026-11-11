@@ -614,6 +614,8 @@ describe('after a click on the go / no go bar', () => {
     expect(calls()).toHaveLength(0);
     expect(bar()).not.toHaveTextContent('Nothing is approved');
     expect(bar()).not.toHaveTextContent('rework');
+    // A run is at work: no Try again.
+    expect(within(bar()).queryByRole('button', { name: 'Try again' })).toBeNull();
     expect(watch.stop().comeBack).toEqual([]);
   });
 
@@ -660,7 +662,38 @@ describe('after a click on the go / no go bar', () => {
     expect(bar()).not.toHaveTextContent('Say go and the Foreman goes ahead');
   });
 
-  // Part 2: a held answer is not "sent".
+  // Part 2: an answered brief that has stalled offers Try again; a held answer is not "sent".
+  it('answered, and 30 s after the run ended with nothing new: "Nothing has moved yet." with Try again, which sends the same decision again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const post = sentPost();
+    const { store } = setup({ jobs: waiting(), gate: GATE, post });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await within(bar()).findByText(SENT_LINE);
+    // The run ends; the brief is still the answered one and nothing new starts.
+    act(() => { store.dispatch({ type: 'event', event: ev(200, 'run', 'alpha', { id: 'r_sent_1', slug: 'alpha', status: 'done', endedAt: new Date().toISOString() }) }); });
+    act(() => { vi.advanceTimersByTime(29_000); });
+    expect(bar()).toHaveTextContent(SENT_LINE);
+    expect(within(bar()).queryByRole('button', { name: 'Try again' })).toBeNull();
+    act(() => { vi.advanceTimersByTime(2_000); });
+    await waitFor(() => expect(bar()).toHaveTextContent('Nothing has moved yet.'));
+    const again = within(bar()).getByRole('button', { name: 'Try again' });
+    expect(calls()).toHaveLength(0);
+    fireEvent.click(again);
+    await waitFor(() => expect(gatePosts(post)).toHaveLength(2));
+    expect(gatePosts(post)[1][1]).toEqual(gatePosts(post)[0][1]);
+  });
+
+  it('a page opened on an answered brief with no run and no decision of its own: "Nothing has moved yet.", write to the Foreman, no Try again', async () => {
+    const { store } = setup({ jobs: waiting(), gate: GATE });
+    server.answered.push(2);
+    act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_old', slug: 'alpha', status: 'done', endedAt: new Date(Date.now() - 31_000).toISOString() }) }); });
+    act(() => { store.dispatch({ type: 'event', event: ev(21, 'thread', 'alpha', {}) }); });
+    await waitFor(() => expect(bar()).toHaveTextContent('Nothing has moved yet.'));
+    expect(bar()).toHaveTextContent('Write to the Foreman below to move it on.');
+    expect(within(bar()).queryByRole('button', { name: 'Try again' })).toBeNull();
+    expect(calls()).toHaveLength(0);
+  });
+
   it('an answer held for the usage limit says so, not "Sent", with no calls', async () => {
     const { store } = setup({ jobs: waiting(), gate: GATE });
     server.held = { kind: 'approve', gateBrief: 2, at: NOW };

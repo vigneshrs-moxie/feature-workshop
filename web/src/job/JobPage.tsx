@@ -30,7 +30,7 @@ import { Composer } from '../panes/Foreman/Composer';
 import { GateSlot, pressReply } from '../panes/Foreman/GateCard';
 import { useGateSent, type GateSent } from '../panes/Foreman/gateSent';
 import { isActiveRun } from '../panes/Foreman/thread';
-import { linesText, sentView, stateLines, STUCK_WORDS, type SentLines } from './sentView';
+import { linesText, stateLines, STUCK_WORDS, useSentView, type SentShown } from './sentView';
 import { JobGithub } from '../panes/Foreman/JobGithub';
 import { JobMenu } from '../panes/Foreman/JobHeader';
 import { LevelChip } from '../panes/Foreman/LevelChip';
@@ -299,7 +299,8 @@ export function NextStep({ job, conversation, now, onShip, foldCard = false }: {
   // One live region, always here (empty when nothing is out), so each of sending, sent and stuck is
   // announced once; the bar shows the same words, but not as a live region.
   // The brief is answered (or his reply's run is at work): the bar keeps saying it was sent.
-  const sent = perms.length === 0 ? sentView(job, thread.detail, run, after.decision) : null;
+  const sentShown = useSentView(job, thread.detail, run, after.decision);
+  const sent = perms.length === 0 ? sentShown : null;
   const live = <p className="sr-only" role="status" data-next-live>{after.live || (sent ? linesText(sent) : '')}</p>;
   const problem = after.problem && <p ref={after.problemRef} className="field-problem" role="alert" tabIndex={-1}>{after.problem}</p>;
   let bar: ReactNode;
@@ -406,7 +407,7 @@ function TryAgain({ after }: { after: AfterSend }) {
  * the decisions made for you, a stale plan, the evidence); its own row of buttons is hidden, and
  * the bar's three calls press them (Reply opens the message box). Go is off while the card asks a question: a never answers one.
  */
-function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, run }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; after: AfterSend; sent: SentLines | null; run: Run | null }) {
+function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, run }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; after: AfterSend; sent: SentShown | null; run: Run | null }) {
   const [cardShown, setCardShown] = useShown('stage', 'brief');
   const folded = foldCard && !cardShown;
   const body = useRef<HTMLDivElement>(null);
@@ -449,7 +450,8 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, 
         say={waits ? sentSay : (gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead')}
         sub={waits ? (sent?.more ?? after.more) : autoLaneReason(job) ?? (gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason)}
       >
-        {waits && after.stuck && !isActiveRun(run) && <TryAgain after={after} />}
+        {/* Try again: the send itself is stuck, or the answered brief has stalled with no run at work. */}
+        {waits && !isActiveRun(run) && (after.stuck || sent?.canRetry) && <TryAgain after={after} />}
         {/* On the hosted site a Go made there waits for the laptop (the card under this says so): no calls meanwhile. */}
         {!waits && !isOpen(queuedOf(detail.queued)) && <>
         <Button size="lg" keyId="gate-revise" busy={spins('changes')} busyLabel={SENDING_WORDS} disabled={go.backOff} onClick={() => { if (folded) setCardShown(true); press('revise'); }} title={go.backOff ? 'Off for now: the card under this says why.' : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>

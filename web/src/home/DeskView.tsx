@@ -49,7 +49,7 @@ import { More } from '../components/More';
 import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
 import { BRAND } from '../app/brand';
 import { autoLaneReason } from '../job/autoLine';
-import { waitingLines } from '../job/sentView';
+import { useWaitingLines } from '../job/sentView';
 import { WhatAutoDecided } from '../job/WhatAutoDecided';
 
 const DESK_KEYS: readonly KeyId[] = ['desk-next', 'desk-prev', 'desk-approve', 'desk-deny', 'desk-open', 'desk-brief'];
@@ -95,7 +95,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
   const run = state.runs[job.slug] ?? thread.detail?.run ?? null;
   const decision = useGateSent(job, run, queuedOf(thread.detail?.queued)?.id ?? null);
   // After a send: the same lines as the job page's bar (job/sentView.ts), and no calls.
-  const sent = waitingLines(job, thread.detail, run, decision);
+  const sent = useWaitingLines(job, thread.detail, run, decision);
   const spins = (kind: string) => decision.state === 'sending' && decision.kind === kind;
   // The gate card's own key for Adjust the next step opens the Details it lives in; Esc closes them.
   useEffect(() => {
