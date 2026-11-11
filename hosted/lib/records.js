@@ -3,18 +3,43 @@
 // a part is found only among that person's own laptops that are still paired.
 
 import crypto from 'node:crypto';
+import { canonicalKey } from '../../dashboard/lib/orbit.js';
 import { fromWire } from '../../dashboard/runner/mirror.js';
 import { iso } from '../site/sessions.js';
 
 /** The parts a laptop may send, and whether each is about one job (its key is the slug, or starts with it). */
 export const KINDS = Object.freeze({
   board: null, job: 'key', docs: 'key', doc: 'line', decisions: 'key', evidence: 'key',
-  stacks: null, stack: null, 'stack-part': null,
+  stacks: null, stack: null, 'stack-part': null, 'inbox-suggest': null,
 });
 const KEY = /^[^\0]{0,700}$/;
 
 const parse = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
 const hashOf = (v) => crypto.createHash('sha256').update(JSON.stringify(v)).digest('hex').slice(0, 32);
+
+const SUGGEST_PICKS = 3;
+const SUGGEST_REASON = 300;
+const SUGGEST_LIST = 100;
+const SUGGEST_ITEM = 80;
+
+/**
+ * The laptop's suggestion as the site keeps and shows it, or null when it isn't the right shape:
+ * { at: a date string, picks: up to 3 { key: ORBIT-<n>, reason: text }, forList: up to 100 short strings }.
+ * The reason is the model's words about a ticket: plain text, cut to 300 characters.
+ */
+export function cleanSuggestion(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  if (typeof v.at !== 'string' || v.at.length > 40 || Number.isNaN(Date.parse(v.at))) return null;
+  if (!Array.isArray(v.picks) || v.picks.length > SUGGEST_PICKS || !Array.isArray(v.forList) || !v.forList.every((x) => typeof x === 'string')) return null;
+  const picks = [];
+  for (const p of v.picks) {
+    if (!p || typeof p !== 'object' || typeof p.key !== 'string' || typeof p.reason !== 'string') return null;
+    const key = canonicalKey(p.key);
+    if (!key || key !== p.key) return null;
+    picks.push({ key, reason: p.reason.slice(0, SUGGEST_REASON) });
+  }
+  return { at: new Date(v.at).toISOString(), picks, forList: v.forList.slice(0, SUGGEST_LIST).map((x) => x.slice(0, SUGGEST_ITEM)) };
+}
 
 /** The job a part belongs to, from its kind and key. */
 export function jobOfRecord(kind, key) {

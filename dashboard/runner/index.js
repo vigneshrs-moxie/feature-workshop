@@ -1523,6 +1523,14 @@ export async function createRunner(config) {
     }).catch((err) => console.error('inbox suggestion:', err.message));
   }
   orbitInbox.on('change', considerSuggestion);
+  // The site link looks again when the ready suggestion changes (its answer, or switched off).
+  let suggestSent = 'null';
+  suggester.on('change', () => {
+    const now = JSON.stringify(read.inboxSuggest());
+    if (now === suggestSent) return;
+    suggestSent = now;
+    events.emit('inbox-suggest', null, { at: Date.now() });
+  });
   function setSuggestOn(on) {
     suggestOn = on !== false;
     if (suggestOn) considerSuggestion(); else suggester.off();
@@ -2224,6 +2232,11 @@ export async function createRunner(config) {
 
   const read = {
     meta,
+    /** The suggested tickets for the site (lib/inbox-suggest.js): the ready answer only, null when off or none yet. */
+    inboxSuggest() {
+      const v = suggester.view();
+      return v && v.state === 'ready' ? { at: v.at, picks: v.picks, forList: v.forList } : null;
+    },
     /** The registered repositories and the ticket default, for the site's Start form (the link sends names only). */
     startRepos: async () => ({ repos: (await local.registry?.listRepos().catch(() => [])) ?? [], defaultPath: await ticketRepo(local.registry).catch(() => null) }),
     /** Everything the new UI needs to draw itself (GET /api/snapshot), apart from the event log's seq and epoch. */

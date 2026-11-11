@@ -17,6 +17,7 @@
 // The ticket's page, its links and saved views stay with the laptop: the site's token is for the
 // inbox only (plan §3.2). The Foreman still reads the ticket itself, with the laptop's own token.
 
+import { cleanSuggestion } from '../lib/records.js';
 import { OrbitError, canonicalKey, checkToken, scrub, scrubDeep } from '../../dashboard/lib/orbit.js';
 import { CRON_EVERY_MS, REFRESH_MS, createPoller, orbitUrlOf } from '../lib/poller.js';
 import { createTokenStore } from '../lib/token-store.js';
@@ -130,10 +131,23 @@ export default function orbitRoutes(ctx) {
     return (await ctx.laptopsOf(personId)).map((l) => ({ id: l.id, name: l.name, online: l.online, repos: Array.isArray(repos.get(l.id)) ? repos.get(l.id) : [] }));
   }
 
+  /**
+   * The newest laptop suggestion that has the right shape, with the picks this site's own rows still
+   * allow: in the list, free (no job, no Start on its way), unranked in Orbit's queue. At most 3.
+   */
+  async function suggestion(personId, rows) {
+    const all = await ctx.mirror.records.all(personId, 'inbox-suggest');
+    const best = all.map((r) => cleanSuggestion(r.value)).filter(Boolean).sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+    if (!best) return null;
+    const free = new Set(rows.filter((i) => i.queueKnown && i.queuePosition === null && !i.job && !i.start).map((i) => i.key));
+    return { state: 'ready', at: best.at, picks: best.picks.filter((p) => free.has(p.key)).slice(0, 3), forList: best.forList };
+  }
+
   async function inboxAnswer(personId) {
     const row = await tokens.row(personId);
     const filter = { audience: row?.audience ?? 'tech', ignored: row?.assigneeIgnored ? ['assignee'] : [], applied: !row?.assigneeIgnored };
-    return scrubDeep({ ...(await status(personId)), filter, laptops: await laptopRepos(personId), items: await items(personId) });
+    const rows = await items(personId);
+    return scrubDeep({ ...(await status(personId)), filter, laptops: await laptopRepos(personId), items: rows, suggest: await suggestion(personId, rows) });
   }
 
   return [

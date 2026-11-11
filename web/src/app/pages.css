@@ -128,6 +128,7 @@ details[open] > summary .fold-chevron, .fold-chevron.is-up { transform: rotate(1
 .ticket-key { flex: none; font-size: var(--text-xs); color: var(--text-2); font-family: var(--font-mono); }
 .ticket-title { font-weight: var(--weight-medium); }
 .ticket-job { display: block; font-size: var(--text-sm); }
+.ticket-reason { display: block; font-size: var(--text-sm); }
 .inbox-table .cell-queue { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .inbox-table .cell-age { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .inbox-table .cell-act { text-align: right; white-space: nowrap; }

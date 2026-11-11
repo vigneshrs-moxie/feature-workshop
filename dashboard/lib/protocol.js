@@ -201,6 +201,8 @@ export const EVENT_TYPES = Object.freeze([
   // The full mirror (packet 2B): one part of the job record as the laptop shows it now (its kind,
   // its key, and the value, or null when it is gone), and one decision as the laptop's audit wrote it.
   'record', 'audit',
+  // The laptop's suggested tickets changed ({ at }): the link looks again. An older site refuses it.
+  'inbox-suggest',
 ]);
 
 /** Keys an event never carries, at any depth (§2.4 "Never carries"). */

@@ -30,6 +30,7 @@ import { jobHref, settingsHref } from '../app/router';
 import { useUi, type SheetState } from '../app/ui';
 import { Icon, type IconName } from '../components/Icon';
 import { Button } from '../components/Button';
+import { Chip } from '../components/Chip';
 import { More } from '../components/More';
 import { Peek, usePeekAddress, usePeekKeys } from '../components/Peek';
 import { Pending, Skeleton } from '../components/Pending';
@@ -40,8 +41,8 @@ import { useWorkshop, useWorkshopState } from '../state/store';
 
 // ---------- What the dashboard sends (GET /api/orbit/*) ----------
 
-export type { InboxAnswer, InboxItem, OrbitStatus } from '../api/types';
-import type { InboxAnswer, InboxItem, InboxStart, Job, OrbitStatus } from '../api/types';
+export type { InboxAnswer, InboxItem, InboxSuggestion, OrbitStatus } from '../api/types';
+import type { InboxAnswer, InboxItem, InboxStart, InboxSuggestion, Job, OrbitStatus } from '../api/types';
 import { BRAND } from '../app/brand';
 
 interface SavedView { id: string; name: string; isDefault: boolean }
@@ -146,6 +147,56 @@ export function nextTicket(items: readonly InboxItem[], picks: readonly InboxIte
   const suggested = picks.find((i) => keys.has(i.key));
   if (suggested) return { item: free.find((i) => i.key === suggested.key)!, why: 'suggested' };
   return free[0] ? { item: free[0], why: 'order' } : null;
+}
+
+/** Most suggestions shown, and the most tickets the laptop looks at (dashboard/lib/inbox-suggest.js TICKETS_MAX). */
+const SHOWN_PICKS = 3;
+const SUGGEST_LOOKS_AT = 25;
+const SUGGESTED_HOVER = "Picked by Haiku on your laptop, because none of your tickets is ranked in Orbit. Rank them in Orbit's Plan my queue to set the order yourself.";
+
+/** A ticket the laptop could be asked about: free, unranked in a list that knows its queue. */
+const suggestible = (i: InboxItem) => Boolean(i.queueKnown) && !Number.isInteger(i.queuePosition) && toStart(i);
+
+/**
+ * The suggested tickets to show: the picks whose ticket is in this list, free, unranked and with the
+ * queue known, at most 3, in the suggestion's order. Only an answer that is ready shows any.
+ */
+export function shownPicks(items: readonly InboxItem[], suggest: InboxSuggestion | null | undefined): InboxItem[] {
+  if (suggest?.state !== 'ready') return [];
+  const out: InboxItem[] = [];
+  for (const p of suggest.picks) {
+    const i = items.find((x) => x.key === p.key);
+    if (i && suggestible(i) && !out.includes(i)) out.push(i);
+    if (out.length === SHOWN_PICKS) break;
+  }
+  return out;
+}
+
+/** The list the laptop was asked about, as it is now (the same keys as the suggester's `forList`). */
+const askedList = (items: readonly InboxItem[]) => sortInbox(items.filter((i) => i.queueKnown && i.queuePosition === null && !i.job)).slice(0, SUGGEST_LOOKS_AT).map((i) => `${i.key}@${i.changedAt ?? ''}`);
+
+/** "4 minutes", "3 hours", "2 days": for "Suggested <time> ago." */
+function agoWords(iso: string | null, now: Date): string {
+  const min = Math.max(0, Math.floor((now.getTime() - Date.parse(iso ?? '')) / 60_000));
+  const unit = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  if (!Number.isFinite(min) || min < 1) return 'less than a minute';
+  if (min < 60) return unit(min, 'minute');
+  if (min < 48 * 60) return unit(Math.floor(min / 60), 'hour');
+  return unit(Math.floor(min / 1440), 'day');
+}
+
+/** The line above the table about the suggestion, or null when there is nothing to say. */
+function suggestNote(suggest: InboxSuggestion | null | undefined, items: readonly InboxItem[], shown: number, now: Date, hosted: boolean): string | null {
+  if (!suggest) return null;
+  if (hosted) {
+    if (!shown) return null;
+    const old = now.getTime() - Date.parse(suggest.at ?? '') > 2 * 3_600_000;
+    return `Suggested by your laptop ${agoWords(suggest.at, now)} ago.${old ? ' Your list may have changed since. Your laptop suggests again when it is on.' : ''}`;
+  }
+  if (suggest.state === 'asking') return 'Picking up to three tickets to suggest…';
+  if (suggest.state === 'failed') return `No suggestion this time: ${suggest.why ?? "Haiku couldn't be reached."} It tries again when your list changes.`;
+  if (JSON.stringify(askedList(items)) === JSON.stringify(suggest.forList)) return null;
+  return `Suggested ${agoWords(suggest.at, now)} ago. Your list has changed since${suggest.nextAt ? `, so a new suggestion comes by ${clockTime(suggest.nextAt, now)}` : ''}.`;
 }
 
 export function Severity({ item, hidden = severityHidden(item) }: { item: Pick<InboxItem, 'severity' | 'url'>; hidden?: boolean }) {
@@ -304,8 +355,11 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
 
   const shown = tab === 'mine' ? mine : viewList ?? { state: 'loading' as const };
   const items = useMemo(() => (shown.state === 'ready' ? sortInbox(shown.data.items) : []), [shown]);
-  const next = useMemo(() => nextTicket(items), [items]);
+  const suggest = tab === 'mine' ? ready?.suggest : null;
+  const picks = useMemo(() => shownPicks(items, suggest), [items, suggest]);
+  const next = useMemo(() => nextTicket(items, picks), [items, picks]);
   const pick = next?.item ?? null;
+  const reasons = useMemo(() => new Map((suggest?.picks ?? []).filter((p) => picks.some((i) => i.key === p.key)).map((p) => [p.key, p.reason])), [suggest, picks]);
   const showQueue = items.some((i) => i.queueKnown);
   // The ticket in the quick look (#/inbox?peek=ORBIT-12): from this list, else the last one seen.
   // Orbit set "assigned to me" aside for this token: the list is empty on purpose, and we say why.
@@ -374,6 +428,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
       caption={caption}
       jobs={jobs}
       pick={pick}
+      suggested={reasons}
       showQueue={showQueue}
       now={now}
       peeked={open?.key ?? null}
@@ -400,10 +455,12 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
             <NextBar
               tone="stop"
               icon={SEVERITY_ICON[pick.severity ?? ''] ?? 'inbox'}
-              say={next?.why === 'queue' ? `${pick.key} is number ${pick.queuePosition} in your queue` : `${pick.key} is ${pick.severity ? levelWord(pick.severity).toLowerCase() : 'not triaged yet'}${pick.assignee ? pick.assignee.you ? ' and yours' : `, with ${pick.assignee.name}` : ' and nobody is on it'}`}
+              say={next?.why === 'queue' ? `${pick.key} is number ${pick.queuePosition} in your queue` : next?.why === 'suggested' ? `${pick.key} is suggested: ${reasons.get(pick.key) ?? ''}` : `${pick.key} is ${pick.severity ? levelWord(pick.severity).toLowerCase() : 'not triaged yet'}${pick.assignee ? pick.assignee.you ? ' and yours' : `, with ${pick.assignee.name}` : ' and nobody is on it'}`}
               sub={next?.why === 'queue'
                 ? (isHosted ? 'The lowest number in your Orbit queue without a job. Start sends it to your laptop, and the Foreman reads the ticket there first.' : 'The lowest number in your Orbit queue without a job. Start a job and the Foreman reads the ticket first.')
-                : (isHosted ? 'Start sends it to your laptop, and the Foreman reads the ticket there first.' : 'Start a job and the Foreman reads the ticket first.')}
+                : next?.why === 'suggested'
+                  ? (isHosted ? "None of your tickets is ranked in Orbit, so this is your laptop's suggestion. Start sends it to your laptop." : 'None of your tickets is ranked in Orbit, so this is a suggestion. Start a job and the Foreman reads the ticket first.')
+                  : (isHosted ? 'Start sends it to your laptop, and the Foreman reads the ticket there first.' : 'Start a job and the Foreman reads the ticket first.')}
             >
               {!isHosted && (
                 <Button size="lg" keyId="inbox-start-stack" onClick={() => startStack(pick)} title={`${STACK_WHEN} Opens New job on ${pick.key}, run as a stack (key: Shift+S).`}>
@@ -417,6 +474,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
           ) : items.length > 0 ? (
             <NextBar tone="quiet" icon="circle-check" say={isHosted ? 'Every ticket here has a job, or is on its way to your laptop' : 'Every ticket here already has a job'} sub="Open a job from its row to see where it is." />
           ) : null)}
+          {shown.state === 'ready' && !notApplied && (() => { const note = suggestNote(suggest, items, picks.length, now, isHosted); return note ? <p className="muted" role="status">{note}</p> : null; })()}
           {shown.state === 'loading' && showListLoading && <p className="muted" role="status">Reading the list…</p>}
           {shown.state === 'error' && <p className="field-problem" role="alert">{shown.message}</p>}
           {shown.state === 'ready' && !notApplied && (items.length ? (
@@ -583,8 +641,8 @@ function HostedStatusLine({ status, now, settingsHref }: { status: OrbitStatus; 
   );
 }
 
-function TicketTable({ items, caption, jobs, pick, showQueue, now, peeked, onOpen, onStart, onStartStack, onFocusRow, hosted }: {
-  items: InboxItem[]; caption: string; jobs: readonly Job[]; pick: InboxItem | null; /** Some row has a queue number: the Queue column shows. */ showQueue: boolean; now: Date; peeked: string | null;
+function TicketTable({ items, caption, jobs, pick, suggested, showQueue, now, peeked, onOpen, onStart, onStartStack, onFocusRow, hosted }: {
+  items: InboxItem[]; caption: string; jobs: readonly Job[]; pick: InboxItem | null; /** The reason for each suggested ticket, by key. */ suggested: ReadonlyMap<string, string>; /** Some row has a queue number: the Queue column shows. */ showQueue: boolean; now: Date; peeked: string | null;
   onOpen: (item: InboxItem) => void; onStart: (item: InboxItem) => void; onStartStack: (item: InboxItem) => void; onFocusRow: (item: InboxItem | null) => void;
   hosted?: HostedInbox;
 }) {
@@ -631,8 +689,10 @@ function TicketTable({ items, caption, jobs, pick, showQueue, now, peeked, onOpe
                     title={`Take a quick look at ${i.key}: its description, links and timeline (key: Space).`}
                   >
                     <span className="num ticket-key">{i.key}</span>
+                    {suggested.has(i.key) && <Chip tone="accent" title={SUGGESTED_HOVER}>Suggested</Chip>}
                     <span className="ticket-title">{i.title}</span>
                   </button>
+                  {suggested.has(i.key) && <span className="muted ticket-reason">{suggested.get(i.key)}</span>}
                   {i.job && <span className="muted ticket-job">You are already on this: <a href={jobHref(i.job.slug)} title="Open the job on this ticket.">{i.job.title}</a></span>}
                   {!i.job && i.start?.state === 'failed' && <StartProblem start={i.start} />}
                 </th>
