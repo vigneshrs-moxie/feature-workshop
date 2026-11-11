@@ -157,8 +157,9 @@ export class Driver extends EventEmitter {
    * queryFn: the SDK's query() (injectable for tests).
    * state: State instance. projectsDir: where Claude Code keeps session logs.
    */
-  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, autoCtx = null, settingsFor = null, envFor = null, locks = jobLock, statusWatch = watchStatusFile, statusRetries = STATUS_RETRIES, ticketKeyFor = ticketKeyOf, feedbackSession = null, ownedFor = sectionOwnership }) {
+  constructor({ queryFn, state, projectsDir, cliPath = null, policy = null, modeFor = null, cover = null, autoCtx = null, apiPort = null, settingsFor = null, envFor = null, locks = jobLock, statusWatch = watchStatusFile, statusRetries = STATUS_RETRIES, ticketKeyFor = ticketKeyOf, feedbackSession = null, ownedFor = sectionOwnership }) {
     super();
+    this.apiPort = apiPort; // the port Starbase is served on: the starbase-api hard line
     // Stacks: ownedFor(featureDir) -> { section, owns, worktree, jobDir } for a section's job, else null.
     this.ownedFor = ownedFor;
     // PR feedback cards (see the top): id -> card, and the messages waiting for a reply to end, by job folder.
@@ -339,7 +340,7 @@ export class Driver extends EventEmitter {
       }
     }
     run.requestedMode = sdkModeFor(run.mode);
-    const hook = hardLineHook((verdict, input) => this.#onHardLine(run, verdict, input), { check: run.orgPushCheck, cwd: run.cwd, cover: this.cover ? (tool, input) => this.cover(run, tool, input) : null, autoStop: (tool, input, verdict) => this.#autoStop(run, tool, input, verdict) });
+    const hook = hardLineHook((verdict, input) => this.#onHardLine(run, verdict, input), { check: run.orgPushCheck, cwd: run.cwd, cover: this.cover ? (tool, input) => this.cover(run, tool, input) : null, autoStop: (tool, input, verdict) => this.#autoStop(run, tool, input, verdict), port: this.apiPort });
     const options = {
       cwd: run.cwd,
       // 'default' (every risky action reaches canUseTool) or, when you chose it, 'auto' (Claude

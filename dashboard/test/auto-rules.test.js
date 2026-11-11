@@ -6,8 +6,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { fixedStop, AUTO_STOP_REASONS } from '../lib/auto-rules.js';
-import { hardLine, hardLineHook, rmInsideJob, setStateDir } from '../lib/hard-lines.js';
+import { fixedStop, AUTO_STOP_REASONS, branchesOf } from '../lib/auto-rules.js';
+import { autoGitFacts } from '../lib/auto-git.js';
+import { hardLine, hardLineHook, rmInsideJob, setStateDir, namesThisComputer } from '../lib/hard-lines.js';
 import { classify, commandParts } from '../lib/policy.js';
 import { Driver } from '../lib/driver.js';
 import { State } from '../lib/state.js';
@@ -18,7 +19,7 @@ const F = '/Users/test/features/job-x';
 const URLS = { origin: 'git@github.com:me/orbit.git', fork: 'git@github.com:me/orbit.git', upstream: 'git@github.com:other/orbit.git', moxie: 'git@github.com:moxie-org/orbit.git', '': 'git@github.com:me/orbit.git' };
 const ctx = (over = {}) => ({
   worktrees: [W], featureDir: F, specDirs: ['/Users/test/repo/docs/plans'], cwd: W, forkRemote: 'origin',
-  remoteUrl: (name) => URLS[name] ?? null, branches: ['feature/x'], ...over,
+  remoteUrl: (name) => URLS[name] ?? null, branches: ['feature/x'], currentBranch: 'feature/x', ...over,
 });
 const bash = (command, over) => {
   const c = ctx(over);
@@ -39,6 +40,7 @@ test('reasons are the exact sentences', () => {
     level: 'the job is now L3, and L3 jobs need you to approve each step.',
     blocked: "the Foreman says it can't do the ticket as written.",
     status: "the Foreman can't write a valid status.json.",
+    tool: 'this tool is not one Auto can judge.',
   });
 });
 
@@ -106,8 +108,9 @@ test('push: only the fork, only the job branch', () => {
   assert.equal(bash('git push origin feature/x', { remoteUrl: () => 'git@github.com:moxie-org/orbit.git' }), 'push', 'a fork remote that really points at the org');
   // another remote name for the same address is still the fork
   assert.equal(bash('git push mirror feature/x', { remoteUrl: () => URLS.origin }), null);
-  // without a known branch, only name-for-name refspecs pass
-  assert.equal(bash('git push origin feature/x', { branches: [] }), null);
+  // without a known branch, every push stops (I4a)
+  assert.equal(bash('git push origin feature/x', { branches: [] }), 'push');
+  assert.equal(bash('git push origin feature/x', { branches: undefined }), 'push');
   assert.equal(bash('git push origin HEAD:feature/x', { branches: [] }), 'push');
   assert.equal(bash('git push origin HEAD:main', { branches: [] }), 'push');
 });
@@ -147,8 +150,8 @@ test('outside: wrappers, redirects, copies, installs, system tools', () => {
 test('outside: what a command hides stops', () => {
   table([
     ['eval "ls"', 'outside'], ['$CMD x', 'outside'], ['bash <<EOF\nls\nEOF', 'outside'], ["bash <<'EOF'\nls\nEOF", 'outside'], ['echo ls | sh', 'outside'], ['bash', 'outside'],
-    ['bash -c "$X"', 'outside'], ['bash scripts/check.sh', null], ['source .env', 'outside'], ['. ./env.sh', 'outside'],
-    ['python3 -c "print(1)"', 'outside'], ['node -e "1"', 'outside'], ["python - <<'EOF'\nprint(1)\nEOF", 'outside'], ['node --test', null], ['python3 script.py', null], ['node build.js', null],
+    ['bash -c "$X"', 'outside'], ['bash scripts/check.sh', 'outside'], ['source .env', 'outside'], ['. ./env.sh', 'outside'],
+    ['python3 -c "print(1)"', 'outside'], ['node -e "1"', 'outside'], ["python - <<'EOF'\nprint(1)\nEOF", 'outside'], ['node --test', null], ['python3 script.py', 'outside'], ['node build.js', 'outside'],
     ['pushd /Users/other; rm -rf x', 'outside'], ['(cd /Users/other && rm -rf x)', 'outside'],
     ['git commit -m "$(cat <<\'EOF\'\nFix it\n\nCo-Authored-By: x\nEOF\n)"', null],
     ['echo `date`', null],
@@ -170,8 +173,8 @@ test('S1: a program Starbase does not know stops; the ones it does pass', () => 
     ['sort a | uniq | cut -d, -f1 | tr a b', null], ['jq . a.json', null], ['basename a', null], ['dirname a', null], ['realpath a', null], ['tree', null], ['less a', null], ['cat ~/.ssh/id_rsa', null],
     ['ls ~', null], ['rg foo src', null], ['cd sub && ls', null], ['for f in a b; do echo $f; done', null], ['if test -f a; then echo y; fi', null],
     // build and test pass
-    ['npm test', null], ['npm run build', null], ['npx vitest run', null], ['node scripts/gen.js', null], ['pnpm test', null], ['yarn build', null], ['bun test', null], ['tsc --noEmit', null],
-    ['vitest', null], ['jest', null], ['eslint .', null], ['prettier --check .', null], ['python3 script.py', null], ['pytest -q', null], ['cargo build', null], ['go test ./...', null],
+    ['npm test', null], ['npm run build', null], ['npx vitest run', null], ['node scripts/gen.js', 'outside'], ['pnpm test', null], ['yarn build', null], ['bun test', null], ['tsc --noEmit', null],
+    ['vitest', null], ['jest', null], ['eslint .', null], ['prettier --check .', null], ['python3 script.py', 'outside'], ['pytest -q', null], ['cargo build', null], ['go test ./...', null],
     ['make', null], ['make build', null], ['mvn test', null], ['gradle build', null], ['dotnet build', null], ['bundle exec rspec', null], ['rake test', null], ['deno test', null], ['bunx tsc', null],
     ['cd packages/a && npm test', null], ['/Users/test/work/orbit-x/node_modules/.bin/vitest run', null], ['./node_modules/.bin/eslint .', null],
     // git and gh: by subcommand
@@ -250,7 +253,8 @@ test('known tools pass, unknown tools stop', () => {
   for (const t of ['Read', 'Glob', 'Grep', 'LS', 'TodoWrite', 'Agent', 'Task']) assert.equal(tool(t, {}), null, t);
   for (const t of ['mcp__orbit-feedback__post', 'FancyNewTool']) {
     const stop = fixedStop({ kind: 'card', toolName: t, input: {}, hardLine: null, blockedPath: null }, ctx());
-    assert.equal(stop.rule, 'outside', t);
+    assert.equal(stop.rule, 'tool', t);
+    assert.equal(stop.reason, 'this tool is not one Auto can judge.');
     assert.equal(stop.unknownTool, true);
   }
 });
@@ -389,13 +393,13 @@ test('driver: the hook sees every tool; autoStop answers only for a job whose re
         assert.deepEqual(['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'mcp__x__y', 'NewTool'].map(reaches), [1, 1, 1, 1, 1, 1, 1], 'every tool reaches the hook once');
         const hook = entries[0];
         const ask = async (tool_name, tool_input) => (await hook.hooks[0]({ hook_event_name: 'PreToolUse', tool_name, tool_input, cwd: W })).hookSpecificOutput?.permissionDecision ?? null;
-        answers[dir] = { push: await ask('Bash', { command: 'git push upstream feature/x' }), edit: await ask('Edit', { file_path: `${HOME}/.zshrc` }), mcp: await ask('mcp__x__y', {}), state: await ask('Write', { file_path: `${HOME}/.starbase/sessions.json` }), read: await ask('Read', { file_path: 'x' }) };
+        answers[dir] = { push: await ask('Bash', { command: 'git push upstream feature/x' }), edit: await ask('Edit', { file_path: `${HOME}/.zshrc` }), mcp: await ask('mcp__x__y', {}), state: await ask('Write', { file_path: `${HOME}/.starbase/sessions.json` }), read: await ask('Read', { file_path: 'x' }), api: await ask('Bash', { command: 'curl -X POST http://127.0.0.1:5123/api/job/x/auto' }), mine: await ask('Bash', { command: 'ls' }) };
         yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0 };
       })();
       gen.interrupt = async () => {};
       return gen;
     },
-    state, projectsDir: '/nonexistent', autoCtx: async () => ctx(),
+    state, projectsDir: '/nonexistent', autoCtx: async () => ctx(), apiPort: 5123,
   });
   const run = async (dir, auto) => {
     if (auto) await state.setSession(dir, { auto: { on: true, since: 'now', by: 'you', tag: null, ran: true, stopped: null, step: null, failures: 0, lastBrief: null } });
@@ -406,6 +410,247 @@ test('driver: the hook sees every tool; autoStop answers only for a job whose re
   };
   await run('/f/off', false);
   await run('/f/on', true);
-  assert.deepEqual(answers['/f/off'], { push: 'ask', edit: null, mcp: null, state: 'deny', read: null });
-  assert.deepEqual(answers['/f/on'], { push: 'ask', edit: 'ask', mcp: 'ask', state: 'deny', read: null });
+  assert.deepEqual(answers['/f/off'], { push: 'ask', edit: null, mcp: null, state: 'deny', read: null, api: 'deny', mine: null });
+  assert.deepEqual(answers['/f/on'], { push: 'ask', edit: 'ask', mcp: 'ask', state: 'deny', read: null, api: 'deny', mine: null });
+});
+
+// ---------- fix round 1 ----------
+
+const lineOf = (command, opts = {}) => hardLine('Bash', { command }, { cwd: W, ...opts })?.line ?? null;
+const HOSTNAME = os.hostname();
+
+test('C1: a link made and used in one call is never resolved; a link that points out stops', () => {
+  table([
+    ['ln -s /etc lnk; echo x > lnk/hosts', 'outside'], ['ln -s ~ lnk && touch lnk/.zshrc', 'outside'], ['ln -s ~ lnk && cp x lnk/y', 'outside'],
+    ['ln -s ~ lnk; cd lnk && touch y', 'outside'], ['mkdir d && ln -s /etc d/e && rm -rf d/e/x', 'outside'], ['ln -s .. up; echo x > up/y', 'outside'],
+    ['ln -s /Users/test/other up; echo x > up/y', 'outside'], ['ln -s $T lnk', 'outside'], ['ln -s "$(pwd)/.." lnk', 'outside'], ['ln /etc/hosts h', 'outside'], ['ln -sf /etc/hosts h', 'outside'],
+    ['ln -s ../src link', 'outside'], ['ln -s -t sub /etc/hosts', 'outside'], ['ln -s /etc/hosts a/b', 'outside'],
+    ['ln -s a b', null], ['ln -s src/a link', null], ['ln -sf target.txt link', null], ['ln -s src/a sub/link', null], ['ln a b', null], ['ln -s /Users/test/work/orbit-x/src/a link', null],
+    ['git clone http://x/y.git ../z', 'outside'], ['git clone http://x/y.git && echo x > y/z', 'outside'], ['git clone http://x/y.git /tmp/z', null], ['git clone http://x/y.git sub', null],
+    ['git worktree add ../other-wt feature/y', 'outside'], ['git worktree add wt2', null],
+  ]);
+  assert.equal(lineOf('ln -s ~/.starbase lnk && echo x > lnk/sessions.json'), 'starbase-state', 'denied outright (the state folder is named)');
+});
+
+test('C2: Starbase\'s own address is a hard line for every job; any call to this computer stops an Auto job', async () => {
+  const REASON = "Starbase's own address is not for jobs to call.";
+  const calls = [
+    'curl -X POST http://127.0.0.1:4477/api/job/x/auto', 'curl -d x http://127.0.0.1:4477/api/x', 'wget http://127.0.0.1:4477/api/x --post-data=y', 'curl http://localhost:4477/api/state',
+    'curl -s -X POST localhost:4477/api/jobs/x/answer -d {}', 'wget -qO- http://127.0.0.1:4477/api/state', 'curl http://127.0.0.1:4477/api/state', 'curl http://127.1:4477/x', 'curl http://[::1]:4477/x',
+    'curl http://0.0.0.0:4477', 'curl http://0:4477', 'curl http://2130706433:4477/', 'curl http://0x7f000001:4477', 'curl http://017700000001:4477', 'curl http://0177.0.0.1:4477', 'curl http://LOCALHOST:4477',
+    'nc localhost 4477', 'nc 127.0.0.1 4477', 'telnet localhost 4477', 'curl --connect-to example.com:80:localhost:4477 http://example.com', 'curl --resolve example.com:4477:127.0.0.1 http://example.com:4477/',
+    'curl http://$H:4477/', `curl http://${HOSTNAME}:4477/`, 'curl "http://user@localhost:4477/"', 'curl http://sub.localhost:4477/', 'curl http://[::ffff:127.0.0.1]:4477/', 'curl http://[0:0:0:0:0:0:0:1]:4477/',
+    'python3 -c "import urllib.request as u; u.urlopen(\'http://localhost:4477/\')"', 'node -e "fetch(\'http://localhost:4477\')"', 'echo http://localhost:4477 | xargs curl', 'ls; curl localhost:4477', 'curl -H "Host: x" 127.0.0.1:04477',
+  ];
+  for (const c of calls) {
+    assert.deepEqual({ c, line: lineOf(c) }, { c, line: 'starbase-api' });
+    assert.deepEqual(hardLine('Bash', { command: c }, { cwd: W }), { decision: 'deny', line: 'starbase-api', reason: REASON }, c);
+  }
+  for (const autoStop of [null, (t, i, v) => fixedStop({ kind: 'card', toolName: t, input: i, hardLine: v, blockedPath: null }, ctx())]) {
+    const hook = hardLineHook(() => {}, { check: async (v) => v, cwd: W, autoStop });
+    for (const c of ['curl -X POST http://127.0.0.1:4477/api/job/x/auto', 'curl http://127.0.0.1:4477/api/state', 'nc localhost 4477']) {
+      const r = await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: c }, cwd: W });
+      assert.equal(r.hookSpecificOutput.permissionDecision, 'deny', c);
+      assert.equal(r.hookSpecificOutput.permissionDecisionReason, REASON);
+    }
+  }
+  // the configured port, given to the hook; the default one is then just another port
+  assert.equal(lineOf('curl http://localhost:5000/x', { port: 5000 }), 'starbase-api');
+  assert.equal(lineOf('curl http://localhost:4477/x', { port: 5000 }), null);
+  const hook5 = hardLineHook(() => {}, { check: async (v) => v, cwd: W, port: 5000 });
+  assert.equal((await hook5({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'curl localhost:5000' }, cwd: W })).hookSpecificOutput.permissionDecision, 'deny');
+  // near misses: another machine, another port, a word alone
+  for (const c of ['curl https://example.com:4477/x', 'curl http://localhost:3000/x', 'echo localhost', 'echo 4477', 'lsof -i :4477', 'ls 4477', 'curl https://example.com/doc']) assert.equal(lineOf(c), null, c);
+  assert.equal(namesThisComputer('[::1]:80'), true);
+  assert.equal(namesThisComputer('example.com'), false);
+  // for an Auto job, a call to this computer on any port stops
+  table([
+    ['curl http://localhost:3000/x', 'outside'], ['wget http://127.0.0.1:8080/x', 'outside'], ['curl http://[::1]:3000', 'outside'], ['curl localhost:3000', 'outside'], ['nc localhost 8080', 'outside'],
+    ['ssh localhost', 'outside'], ['telnet 127.0.0.1 22', 'outside'], ['curl http://0.0.0.0:3000', 'outside'], ['curl http://2130706433:3000', 'outside'], ['curl --resolve a.test:80:127.0.0.1 http://a.test', 'outside'],
+    ['curl https://example.com:4477/x', null], ['curl https://example.com/doc', null], ['wget https://example.com:8080/x', null],
+  ]);
+});
+
+test('C3: a push with no named branch is tied to the checked-out branch', () => {
+  const on = (c, over) => bash(c, over);
+  for (const c of ['git push origin', 'git push', 'git push origin HEAD', 'git push origin @', 'git push -u origin HEAD', 'git push --set-upstream origin']) {
+    assert.equal(on(c, { currentBranch: 'feature/x' }), null, `own branch: ${c}`);
+    assert.equal(on(c, { currentBranch: 'main' }), 'push', `main: ${c}`);
+    assert.equal(on(c, { currentBranch: null }), 'push', `detached or unreadable: ${c}`);
+    assert.equal(on(c, { currentBranch: undefined }), 'push', `missing: ${c}`);
+    assert.equal(on(c, { currentBranch: 'feature/other' }), 'push', `not the job's: ${c}`);
+  }
+  assert.equal(on('git push origin feature/x', { currentBranch: 'main' }), null, 'a named own branch does not need the checked-out one');
+  // a call that changes the branch and pushes
+  table([
+    ['git checkout main && git push origin', 'push'], ['git checkout main; git push origin HEAD', 'push'], ['git switch other && git push', 'push'], ['git branch -f feature/x main && git push origin feature/x', 'push'],
+    ['git branch -M other && git push origin feature/x', 'push'], ['git branch -m other && git push origin feature/x', 'push'], ['git reset --hard origin/other && git push origin feature/x', 'push'],
+    ['git worktree add wt2 other && git push origin feature/x', 'push'], ['git push origin feature/x && git checkout main', 'push'], ['git checkout -b feature/y && git push origin feature/y', 'push'],
+    ['git checkout main', null], ['git switch other', null], ['git reset --hard', null], ['git reset --hard HEAD~1', null], ['git branch -f feature/x main', null], ['git push origin feature/x', null], ['git add -A && git commit -m x && git push origin feature/x', null],
+  ]);
+  assert.equal(on('git checkout main && git push origin', { branches: [] }), 'push');
+});
+
+test('I4: a push needs the job\'s branches to be known; a stack part\'s branch is one of them', () => {
+  assert.equal(bash('git push origin feature/x', { branches: [] }), 'push');
+  assert.equal(bash('git push origin feature/x', { branches: undefined }), 'push');
+  assert.equal(bash('git push origin HEAD', { branches: [] }), 'push');
+  assert.equal(bash('git push origin feature/x-part-1', { branches: ['feature/x', 'feature/x-part-1'] }), null);
+  assert.equal(bash('git push origin feature/x-part-2', { branches: ['feature/x', 'feature/x-part-1'] }), 'push');
+  assert.equal(bash('git push origin feature/x-part-1', { branches: ['feature/x'] }), 'push');
+  assert.deepEqual(branchesOf('feature/x', { sections: [{ branch: 'feature/x-part-1' }, { branch: null }, { branch: 'feature/x-part-2' }, {}] }), ['feature/x', 'feature/x-part-1', 'feature/x-part-2']);
+  assert.deepEqual(branchesOf('feature/x', null), ['feature/x']);
+  assert.deepEqual(branchesOf(null, { sections: [{ branch: 'a' }] }), ['a']);
+  assert.deepEqual(branchesOf(undefined, undefined), []);
+});
+
+test('I5: a push stops when the fork\'s address cannot be read', () => {
+  for (const remoteUrl of [undefined, null, () => null, () => { throw new Error('boom'); }, () => '', () => undefined]) {
+    assert.equal(bash('git push origin feature/x', { remoteUrl }), 'push', String(remoteUrl));
+    assert.equal(bash('git push', { remoteUrl }), 'push', String(remoteUrl));
+  }
+  assert.equal(bash('git push z feature/x', { remoteUrl: (n) => (n === 'z' ? URLS.origin : null) }), 'push', 'the fork lookup fails');
+  assert.equal(bash('git push z feature/x', { remoteUrl: (n) => (n === 'origin' ? URLS.origin : null) }), 'push', 'the named remote lookup fails');
+  assert.equal(bash('git push origin feature/x'), null);
+});
+
+test('I6: more database tools, and a database address', () => {
+  table([
+    ['python -m django migrate', 'database'], ['python3 -m django migrate', 'database'], ['python3 -m alembic upgrade head', 'database'], ['alembic upgrade head', 'database'], ['mix ecto.migrate', 'database'], ['mix ecto.reset', 'database'],
+    ['iex -S mix ecto.migrate', 'database'], ['php artisan migrate', 'database'], ['php artisan migrate:fresh', 'database'], ['php artisan db:seed', 'database'], ['flask db upgrade', 'database'], ['python -m flask db upgrade', 'database'],
+    ['rails db:migrate', 'database'], ['rake db:migrate', 'database'], ['sequelize db:migrate', 'database'], ['npx sequelize-cli db:migrate', 'database'], ['typeorm migration:run', 'database'], ['npx typeorm migration:run', 'database'],
+    ['knex migrate:latest', 'database'], ['knex seed:run', 'database'], ['prisma migrate dev', 'database'], ['npx prisma db push', 'database'], ['drizzle-kit generate', 'database'], ['npx drizzle-kit push', 'database'],
+    ['flyway migrate', 'database'], ['liquibase update', 'database'], ['dbmate up', 'database'], ['goose up', 'database'], ['atlas schema apply', 'database'], ['bq query x', 'database'], ['wrangler d1 execute db', 'database'],
+    ['npx wrangler d1 migrations apply db', 'database'], ['supabase db push', 'database'], ['supabase migration up', 'database'], ['turso db shell x', 'database'], ['pscale shell', 'database'], ['cockroach sql', 'database'],
+    ['dolt sql', 'database'], ['tsql', 'database'], ['isql', 'database'], ['heroku pg:reset', 'database'], ['aws rds delete-db-instance', 'database'], ['gcloud sql import sql x', 'database'], ['az sql db delete', 'database'],
+    ['nc localhost 5432', 'database'], ['nc host 3306', 'database'], ['telnet host 1433', 'database'], ['nc host 27017', 'database'], ['nc host 6379', 'database'], ['nc host 9042', 'database'], ['nc -zv host 5432', 'database'],
+    ['node x.js postgres://u@h/db', 'database'], ['DATABASE_URL=mysql://u@h/db npm test', 'database'], ['echo mongodb+srv://x', 'database'], ['echo redis://x', 'database'], ['curl postgresql://u@h/db', 'database'], ['npm test -- --url=mongodb://h', 'database'],
+    ['rake test', null], ['mix test', null], ['python -m pytest', null], ['python -m django test', null], ['rails server', null], ['flask run', null],
+    ['npx prisma generate', null], ['alembic --version', 'database'], ['supabase start', 'outside'], ['nc host 8080', 'outside'],
+  ]);
+});
+
+test('I9: a very long command stops without being read, and quickly', () => {
+  const big = `echo ${'a'.repeat(1_000_000)}`;
+  const t0 = performance.now();
+  assert.equal(fixedStop({ kind: 'card', toolName: 'Bash', input: { command: big }, hardLine: null, blockedPath: null }, ctx())?.rule, 'outside');
+  assert.ok(performance.now() - t0 < 100, `took ${performance.now() - t0} ms`);
+  const many = Array.from({ length: 60_000 }, () => 'ls').join(' && ');
+  const t1 = performance.now();
+  assert.equal(fixedStop({ kind: 'card', toolName: 'Bash', input: { command: many }, hardLine: null, blockedPath: null }, ctx())?.rule, 'outside');
+  assert.ok(performance.now() - t1 < 100, `took ${performance.now() - t1} ms`);
+  assert.equal(bash(`echo ${'a'.repeat(20_001)}`), 'outside');
+  assert.equal(bash(`echo ${'a'.repeat(19_000)}`), null);
+  assert.equal(bash(Array.from({ length: 201 }, () => 'ls').join(' && ')), 'outside');
+  assert.equal(bash(Array.from({ length: 200 }, () => 'ls').join(' && ')), null);
+  assert.equal(bash(Array.from({ length: 201 }, () => 'ls').join('\n')), 'outside');
+});
+
+test('I9: the git facts are read once, with a limit, and remembered for a minute', async () => {
+  const calls = [];
+  const exec = async (file, args, opts) => {
+    calls.push([file, ...args]);
+    assert.equal(file, 'git');
+    assert.ok(opts.timeout <= 3000);
+    if (args[0] === 'symbolic-ref') return 'feature/x\n';
+    if (args[0] === 'remote') return 'origin\tgit@github.com:me/orbit.git (fetch)\norigin\tgit@github.com:me/orbit.git (push)\nupstream\tgit@github.com:other/orbit.git (push)\n';
+    if (args[0] === 'rev-parse') return 'origin/feature/x\n';
+    throw new Error(`unexpected ${args}`);
+  };
+  const cache = new Map();
+  let now = 1000;
+  const get = () => autoGitFacts({ cwd: W, dirs: [W], exec, cache, key: 'run1', now: () => now });
+  let f = await get();
+  assert.equal(f.currentBranch, 'feature/x');
+  assert.equal(f.remoteUrl('origin', W), 'git@github.com:me/orbit.git');
+  assert.equal(f.remoteUrl('upstream'), 'git@github.com:other/orbit.git');
+  assert.equal(f.remoteUrl('', W), 'git@github.com:me/orbit.git');
+  assert.equal(f.remoteUrl('nope', W), null);
+  assert.equal(f.remoteUrl('origin', '/somewhere/else'), null, 'a folder it did not read');
+  const first = calls.length;
+  now += 30_000;
+  f = await get();
+  assert.equal(calls.length, first + 1, 'only the branch is read again within the minute');
+  now += 40_000;
+  await get();
+  assert.ok(calls.length > first + 2, 'the remotes are read again after a minute');
+  // a failed or slow read gives a ctx that stops pushes
+  const bad = await autoGitFacts({ cwd: W, dirs: [W], exec: async () => { throw new Error('timeout'); }, cache: new Map(), key: 'r', now: () => 0 });
+  assert.equal(bad.currentBranch, null);
+  assert.equal(bad.remoteUrl('origin', W), null);
+  assert.equal(bash('git push origin feature/x', { remoteUrl: bad.remoteUrl, currentBranch: bad.currentBranch }), 'push');
+  assert.equal(bash('git push origin', { remoteUrl: f.remoteUrl, currentBranch: bad.currentBranch }), 'push');
+});
+
+test('Minor: the state folder ignores case on a Mac, and a glob or variable that could reach it is denied', () => {
+  const state = (c) => lineOf(c);
+  if (process.platform === 'darwin') {
+    for (const c of ['echo x > ~/.STARBASE/sessions.json', 'cp x ~/.Starbase/x', 'rm ~/.STARBASE/sessions.json']) assert.equal(state(c), 'starbase-state', c);
+    assert.equal(hardLine('Write', { file_path: `${HOME}/.STARBASE/sessions.json` }, { cwd: W })?.line, 'starbase-state');
+    assert.equal(hardLine('Edit', { file_path: '~/.Starbase/x' }, { cwd: W })?.line, 'starbase-state');
+  }
+  for (const c of ['echo x > ~/.star*/x', 'echo x > ~/$D/y', 'cp x ~/.starbas?/x', 'rm -rf ~/.s*', 'echo x > ~/.[s]tarbase/x', 'echo x > ~/*/sessions.json', 'echo x > $HOME/$D/y', 'rm ~/.star{base,x}/x']) assert.equal(state(c), 'starbase-state', c);
+  assert.equal(hardLine('Write', { file_path: '~/.star*/x' }, { cwd: W })?.line, 'starbase-state');
+  for (const c of ['cat ~/.star*/x', 'ls ~/*', 'echo x > ~/.zshrc.bak', 'echo x > ~/Documents/x', 'echo x > ~/D*/y', 'cp x ~/.config/y', 'echo x > a.txt']) assert.equal(state(c), null, c);
+});
+
+test('Minor: alias, function bodies, tools', () => {
+  table([
+    ['alias x=ls', 'outside'], ['alias p=psql', 'database'], ['alias g="git push upstream x"; g', 'push'], ['f() { psql -c x; }; f', 'database'], ['function f { ls; }; f', null], ['f() { ls; }; f', null],
+  ]);
+  const stop = fixedStop({ kind: 'card', toolName: 'FancyNewTool', input: {}, hardLine: null, blockedPath: null }, ctx());
+  assert.deepEqual(stop, { rule: 'tool', reason: 'this tool is not one Auto can judge.', unknownTool: true });
+  const prog = fixedStop({ kind: 'card', toolName: 'Bash', input: { command: 'terraform apply' }, hardLine: null, blockedPath: null }, ctx());
+  assert.deepEqual(prog, { rule: 'outside', reason: AUTO_STOP_REASONS.outside, unknownProgram: true });
+});
+
+// A script run by file is read (I8): a real folder, since the files have to be there.
+test('I8: a script run by file is read; where it is, what it holds, and whether this call just wrote it', async () => {
+  const wt = await fs.realpath(await fs.mkdtemp(path.join(os.homedir(), '.auto-wt-i8-')));
+  const outsideDir = await fs.realpath(await fs.mkdtemp(path.join(os.homedir(), '.auto-out-i8-')));
+  const w = (rel, text) => fs.mkdir(path.dirname(path.join(wt, rel)), { recursive: true }).then(() => fs.writeFile(path.join(wt, rel), text));
+  try {
+    await w('clean.sh', '#!/bin/sh\necho hello\nnpm test\n');
+    await w('scripts/gen.js', "console.log('generated');\n");
+    await w('scripts/check.sh', 'ls\n');
+    await w('tool.py', 'print(1)\n');
+    await w('artisan', '#!/usr/bin/env php\n<?php require __DIR__."/vendor/autoload.php";\n');
+    await w('psql.sh', 'psql -c "select 1"\n');
+    await w('push.sh', 'git push upstream x\n');
+    await w('merge.sh', 'gh pr merge 1\n');
+    await w('api.sh', 'gh api repos/me/orbit/pulls/1/merge -X PUT\n');
+    await w('send.sh', 'curl -X POST https://example.com -d x\n');
+    await w('state.sh', 'rm ~/.starbase/sessions.json\n');
+    await w('local.sh', 'curl http://localhost:4477/api/state\n');
+    await w('addr.sh', 'psycopg.connect("postgres://u@h/db")\n');
+    await w('migrate.js', "require('child_process').execSync('prisma migrate deploy')\n");
+    await w('big.sh', `echo ${'a'.repeat(210_000)}\n`);
+    await w('package.json', JSON.stringify({ scripts: { build: 'tsc', test: 'vitest run', dbx: 'psql -c x', prepush: 'git push upstream x', push: 'echo hi', 'post-x': 'x', prelint: 'psql', lint: 'eslint .', send: 'curl -d x https://e.test' } }));
+    await w('packages/a/package.json', JSON.stringify({ scripts: { test: 'psql -c x' } }));
+    await w('packages/b/package.json', JSON.stringify({ scripts: { test: 'vitest' } }));
+    await w('bad/package.json', '{ not json');
+    await fs.writeFile(path.join(outsideDir, 'evil.sh'), 'ls\n');
+    await fs.symlink(path.join(outsideDir, 'evil.sh'), path.join(wt, 'link.sh'));
+    const over = { worktrees: [wt], cwd: wt };
+    table([
+      ['bash clean.sh', null], ['sh ./clean.sh', null], ['./clean.sh', null], ['node scripts/gen.js', null], ['bash scripts/check.sh', null], ['python3 tool.py', null], ['python tool.py', null], ['bash -x clean.sh', null],
+      ['bash psql.sh', 'database'], ['sh ./psql.sh', 'database'], ['./psql.sh', 'database'], ['bash push.sh', 'push'], ['bash merge.sh', 'merge'], ['bash api.sh', 'merge'], ['bash send.sh', 'outside'], ['bash state.sh', 'outside'],
+      ['bash local.sh', 'outside'], ['bash addr.sh', 'database'], ['node migrate.js', 'database'], ['bash big.sh', 'outside'], ['bash missing.sh', 'outside'], ['node missing.js', 'outside'], ['bash link.sh', 'outside'],
+      [`bash ${outsideDir}/evil.sh`, 'outside'], ['bash /etc/hosts', 'outside'], ['bash ../x.sh', 'outside'], ['bash $X', 'outside'], ['bash ~/x.sh', 'outside'], ['zsh clean.sh', null],
+      // this call writes the file it runs
+      ['echo psql > x.sh && bash x.sh', 'outside'], ['echo hi > clean.sh && bash clean.sh', 'outside'], ['printf "git push upstream x" > p.sh; sh p.sh', 'outside'], ['cat > x.sh <<EOF\nls\nEOF\nbash x.sh', 'outside'],
+      ['cp a.txt clean.sh && bash clean.sh', 'outside'], ['mv a.txt clean.sh && ./clean.sh', 'outside'], ['echo ls | tee clean.sh; bash clean.sh', 'outside'], ['bash clean.sh && echo done >> clean.sh', 'outside'],
+      ['echo x > other.txt && bash clean.sh', null],
+      // package scripts
+      ['npm run build', null], ['npm test', null], ['npm run dbx', 'database'], ['npm run push', 'push'], ['npm run lint', 'database'], ['npm run send', 'outside'], ['pnpm test', null], ['yarn build', null], ['pnpm run build', null],
+      ['npm run nothing-here', null], ['cd packages/a && npm test', 'database'], ['cd packages/b && npm test', null], ['cd bad && npm test', 'outside'], ['npm start', null], ['npm run-script build', null],
+      ['make', null], ['make build', null], ['make migrate', 'database'], ['php artisan test', null], ['php artisan serve', null],
+    ], over);
+    // the script's own folder decides which package.json is the nearest
+    assert.equal(bash('npm test', { worktrees: [wt], cwd: path.join(wt, 'packages', 'a') }), 'database');
+    assert.equal(bash('npm test', { worktrees: [wt], cwd: path.join(wt, 'packages', 'b') }), null);
+  } finally {
+    await fs.rm(wt, { recursive: true, force: true });
+    await fs.rm(outsideDir, { recursive: true, force: true });
+  }
 });

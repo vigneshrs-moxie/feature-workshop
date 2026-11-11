@@ -68,8 +68,12 @@ import { DOC_MAX_BYTES, DocError, describeDoc, docVersion, jsonHtml, listJobDocs
 import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, hexCommit, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from '../lib/play.js';
 import { parseStatusJson } from '../lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from '../lib/auto-env.js';
-import { execFileSync } from 'node:child_process';
-import { goAheadCovers, setStateDir } from '../lib/hard-lines.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { goAheadCovers, setApiPort, setStateDir } from '../lib/hard-lines.js';
+import { branchesOf } from '../lib/auto-rules.js';
+import { autoGitFacts } from '../lib/auto-git.js';
+import { readStack } from '../lib/stack.js';
 import { stackRules } from '../lib/profile.js';
 import { FlowWatch, gatherRepo } from '../lib/flow.js';
 import { noticeBody, Notifier, validateNotifyPatch } from '../lib/notify.js';
@@ -162,6 +166,7 @@ export async function createRunner(config) {
   const sessionIndex = new SessionIndex(PROJECTS_DIR);
   const state = new State(stateDir);
   setStateDir(state.dir); // jobs may not write here (the starbase-state hard line)
+  setApiPort(PORT); // nor call Starbase's own address (the starbase-api hard line)
   // Your "Always allow" rules (rules.json next to the dashboard's other state; see lib/rules.js).
   const rules = new RuleStore(state.dir);
   const HOOK_SCRIPT = path.join(HERE, 'hooks', 'record.mjs');
@@ -175,7 +180,7 @@ export async function createRunner(config) {
     : (await import('@anthropic-ai/claude-agent-sdk')).query);
   const driver = new Driver({
     queryFn, state, projectsDir: PROJECTS_DIR, cliPath: claudePath,
-    policy: policyFor, modeFor: (run) => state.policyFor(run.featureDir), cover: goAheadFor, autoCtx: autoCtxFor, settingsFor: sessionSettings,
+    policy: policyFor, modeFor: (run) => state.policyFor(run.featureDir), cover: goAheadFor, autoCtx: autoCtxFor, apiPort: PORT, settingsFor: sessionSettings,
     // The Orbit token as ORBIT_FEEDBACK_TOKEN, so the Foreman's MCP entry has it (never an argument).
     envFor: async () => ({ ...process.env, ...(orbitStoreReady ? await sessionEnv(orbitStoreReady) : {}) }),
   });
@@ -256,22 +261,20 @@ export async function createRunner(config) {
   }
 
   // What Auto's fixed stop list (lib/auto-rules.js) needs to know about a job: its folders, its fork
-  // remote and where a remote pushes (asked of git in the job's folder, as orgPushCheck does).
+  // remote, the branch checked out, and where each remote pushes. Git is asked asynchronously with a
+  // 3 second limit (lib/auto-git.js), so a slow answer never holds the server; a failed one gives a ctx
+  // that stops pushes. The job's branches are its own and its stack's parts.
+  const execGit = promisify(execFile);
+  const autoGitCache = new Map();
   async function autoCtxFor(run) {
     const { f, repo, worktrees, specDirs } = await jobContext(run);
     const hit = repo && local.registry ? await local.registry.profileFor(repo).catch(() => null) : null;
-    const remoteUrl = (name, dir) => {
-      const cwd = dir || run.cwd;
-      try {
-        let remote = name;
-        if (!remote) {
-          const push = execFileSync('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{push}'], { cwd, timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-          remote = push.split('/')[0] || 'origin';
-        }
-        return execFileSync('git', ['remote', 'get-url', '--push', remote], { cwd, timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || null;
-      } catch { return null; }
+    const facts = await autoGitFacts({ cwd: run.cwd, dirs: worktrees, key: run.id ?? run.featureDir, cache: autoGitCache, exec: async (file, args, opts) => (await execGit(file, args, { ...opts, windowsHide: true })).stdout });
+    const stack = await readStack(run.featureDir).catch(() => null);
+    return {
+      worktrees, featureDir: run.featureDir, specDirs, cwd: run.cwd, forkRemote: stackRules(hit?.ok ? hit.profile : null).fork,
+      remoteUrl: facts.remoteUrl, currentBranch: facts.currentBranch, branches: branchesOf(f?.branch, stack), stateDir: state.dir, apiPort: PORT,
     };
-    return { worktrees, featureDir: run.featureDir, specDirs, cwd: run.cwd, forkRemote: stackRules(hit?.ok ? hit.profile : null).fork, remoteUrl, branches: [f?.branch].filter(Boolean), stateDir: state.dir };
   }
 
   // Each repo's remotes, asked of git at most once a minute (they rarely change; every reply needs them).
