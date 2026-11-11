@@ -87,25 +87,21 @@ test('Orbit showing no tags to this token: nothing starts, and the answer says s
   });
 });
 
-test('a tagged ticket is tried once, an untagged one never', { timeout: 90_000 }, async () => {
-  await withDashboard(() => [row(1, ['Auto']), row(2, []), row(3, ['other'], { subject: 'auto', description: 'tag auto' })], async ({ dirs, write, inbox, until }) => {
+test('with no repository registered, a tagged ticket fails to start, once, says why on its row and tells the person; an untagged one is never tried', { timeout: 90_000 }, async () => {
+  await withDashboard(() => [row(1, ['Auto']), row(2, []), row(3, ['other'], { subject: 'auto', description: 'tag auto' })], async ({ d, dirs, write, inbox, until }) => {
     await until(async () => (await inbox()).items?.length === 3, 'the list');
     const set = await write('POST', '/api/settings', { workflow: { autoStart: { on: true, tag: 'auto' } } });
     assert.equal(set.status, 200);
-    const mem = await until(async () => { const m = await memoryOf(dirs); return m?.started?.[0]?.slug || m?.failed?.length ? m : null; }, 'the memory file');
-    // This test machine has no repository registered for Orbit's tickets, so the start may fail: either way it is remembered once.
-    assert.deepEqual([...mem.started, ...mem.failed].map((e) => e.key), ['ORBIT-1']);
-    if (mem.started.length) {
-      assert.equal(mem.started[0].tag, 'auto');
-      const sessions = JSON.parse(await fs.readFile(path.join(dirs.state, 'sessions.json'), 'utf8'));
-      const rec = Object.values(sessions).find((v) => v.auto);
-      assert.equal(rec.auto.on, true);
-      assert.equal(rec.auto.by, 'tag');
-      assert.equal(rec.auto.tag, 'auto');
-    } else {
-      const b = await until(async () => { const x = await inbox(); return x.items.find((i) => i.key === 'ORBIT-1')?.autoStartFailed ? x : null; }, 'the failed row');
-      assert.match(b.items.find((i) => i.key === 'ORBIT-1').autoStartFailed, /\w/);
-    }
+    // This dashboard has no repository registered for Orbit's tickets: the start must fail, and is remembered once.
+    const mem = await until(async () => { const m = await memoryOf(dirs); return m?.failed?.length ? m : null; }, 'the failed start');
+    assert.deepEqual(mem.started, []);
+    assert.deepEqual(mem.failed.map((e) => e.key), ['ORBIT-1']);
+    assert.match(mem.failed[0].reason, /repository/);
+    const b = await until(async () => { const x = await inbox(); return x.items.find((i) => i.key === 'ORBIT-1')?.autoStartFailed ? x : null; }, 'the failed row');
+    assert.match(b.items.find((i) => i.key === 'ORBIT-1').autoStartFailed, /repository/);
+    assert.deepEqual(await fs.readdir(dirs['feature-work']), [], 'no job folder');
+    const notes = await until(async () => { const n = await (await fetch(`${d.base}/api/notifications`)).json(); const list = n.history ?? []; return Array.isArray(list) && list.some((x) => x.title === 'Auto start could not start ORBIT-1') ? list : null; }, 'the notification');
+    assert.equal(notes.filter((x) => x.title === 'Auto start could not start ORBIT-1').length, 1);
     await new Promise((r) => setTimeout(r, 500));
     const after = await memoryOf(dirs);
     assert.equal(after.started.length + after.failed.length, 1, 'once only');

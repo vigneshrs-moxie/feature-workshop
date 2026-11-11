@@ -129,7 +129,8 @@ async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null,
       await idle().catch(() => {});
       await new Promise((r) => setTimeout(r, 150)); // decisions.md and the like are written after a reply
       runner.stop();
-      await fs.rm(root, { recursive: true, force: true });
+      // A last write of the runner's (decisions.md after a reply) can land while the folder is removed: tried again.
+      await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     },
   };
 }
@@ -1008,6 +1009,9 @@ test('a WebFetch card is allowed or denied by the Approver and recorded, and a d
   try {
     await raise(w);
     await w.until(() => outcomes.length === 2, 'both cards to be decided');
+    // Auto's own lines are written after each decision (answerCard): wait for the reply to end and for both lines.
+    await w.idle();
+    await w.until(async () => (await w.autoLines('permission')).length === 2, 'Auto\'s two lines');
     assert.equal(outcomes[0].result.behavior, 'allow');
     assert.equal(outcomes[0].result.updatedPermissions, undefined);
     assert.equal(outcomes[1].result.behavior, 'deny');
