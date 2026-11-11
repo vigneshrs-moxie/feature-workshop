@@ -1754,6 +1754,12 @@ export interface InboxItem {
   description?: string | null;
   /** The hosted site: Start on its way to a laptop (packet 2C). */
   start?: InboxStart | null;
+  /** The number in the person's Orbit queue (Plan my queue); null when not ranked. Absent on a row stored before the queue was read. */
+  queuePosition?: number | null;
+  workOrder?: number | null;
+  size?: number | null;
+  /** Orbit sent queue numbers for this read: the Inbox shows its Queue column. */
+  queueKnown?: boolean;
 }
 
 /**

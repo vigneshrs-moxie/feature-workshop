@@ -98,6 +98,26 @@ describe('the hosted Inbox', () => {
     expect(screen.queryByText(/Watching/i)).toBeNull();
   });
 
+  it("the website's bar skips a ticket whose Start is on its way", async () => {
+    const sending: InboxStart = { id: 5, state: 'sending', laptop: { id: 7, name: 'Olive’s Mac', online: true }, at: ago(1000) };
+    const q = { workOrder: null, size: null, queueKnown: true };
+    const { api } = site({ items: [ticket(1, { ...q, queuePosition: 1, start: sending }), ticket(2, { ...q, queuePosition: 2 })] });
+    render(<HostedApp api={api} />);
+    const bar = await screen.findByRole('region', { name: 'Next step' });
+    expect(bar).toHaveTextContent('ORBIT-2 is number 2 in your queue');
+    expect(bar).toHaveTextContent('The lowest number in your Orbit queue without a job. Start sends it to your laptop, and the Foreman reads the ticket there first.');
+    expect(screen.getByText('A job is on each of these, or one is on its way')).toBeInTheDocument();
+  });
+
+  it('a stored row without queue fields still shows', async () => {
+    const { api } = site({ items: [ticket(12), ticket(13, { severity: 'low' })] });
+    render(<HostedApp api={api} />);
+    const [table] = await screen.findAllByRole('table');
+    expect(within(table).queryByRole('columnheader', { name: 'Queue' })).toBeNull();
+    expect(table).toHaveTextContent('ORBIT-12');
+    expect(table).toHaveTextContent('ORBIT-13');
+  });
+
   it('Start with one laptop sends it at once; the row says it is on its way, and Cancel takes it back', async () => {
     const { s, api } = site();
     render(<HostedApp api={api} />);
