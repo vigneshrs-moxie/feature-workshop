@@ -67,6 +67,13 @@ describe('WhatAutoDecided', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('closes with Escape pressed from inside the panel, where the focus is', async () => {
+    show(vi.fn(async () => DECIDED));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('closing the panel gives focus back to its button', async () => {
     show(vi.fn(async () => DECIDED));
     const button = screen.getByRole('button', { name: 'What Auto decided' });
