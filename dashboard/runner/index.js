@@ -364,6 +364,17 @@ export async function createRunner(config) {
     autoLocks.set(dir, mine);
     return mine.finally(() => { if (autoLocks.get(dir) === mine) autoLocks.delete(dir); });
   }
+  /**
+   * Called under the job's Auto lock right before Auto's own answer goes (a gate reply or a card decision): refuses unless
+   * Auto is on and not stopped and the job is not being closed, restarted or archived, nor closed. The refusal's code,
+   * 'auto-gone', is one the pass treats as moved on: nothing is sent and no failure is counted.
+   */
+  async function autoMaySend(dir) {
+    const saved = await state.sessionFor(dir);
+    const rec = saved?.auto ?? null;
+    if (rec?.on === true && !rec.stopped && !saved?.closed && !closing.has(dir) && !restarting.has(dir) && !autoArchiving.has(dir)) return;
+    throw new HttpError(409, 'Auto was switched off or stopped, or the job is being closed or restarted, before its answer went. Nothing was sent.', { code: 'auto-gone' });
+  }
   const autoFieldsOf = (o) => ({ on: o?.auto === true, since: o?.auto_since, any: Boolean(o) && (Object.hasOwn(o, 'auto') || Object.hasOwn(o, 'auto_since')) });
   /** Options with Auto's two fields as the record says (autoOption), for any write of options.json. */
   function withAutoOf(options, record) {
@@ -1010,7 +1021,16 @@ export async function createRunner(config) {
    * by: 'auto' only from Auto's own code (gateDecision's third argument), never from a request.
    */
   async function startSend(f, out, { kind, gateBrief = null, by = 'you' }) {
-    const run = await driver.start({ ...out, kind, gateBrief, by, additionalDirectories: await readDirs() });
+    const additionalDirectories = await readDirs();
+    const go = () => driver.start({ ...out, kind, gateBrief, by, additionalDirectories });
+    let run;
+    if (by === 'auto') {
+      await testHooks?.atAutoDoor?.({ kind: 'gate', slug: f.slug }); // tests only: the person's click lands here
+      // Auto's reply: the last check and the start under the job's Auto lock (the switch, close and restart write under it).
+      run = await autoLocked(f.dir, async () => { await autoMaySend(f.dir); return go(); });
+    } else {
+      run = await go();
+    }
     if (by !== 'auto') await limits.forget(f.dir); // you've picked it up yourself
     await reopenIfClosed(f);
     cached = null;
@@ -1570,7 +1590,20 @@ export async function createRunner(config) {
     decide: {
       gate: (kind, body, opts) => gateDecision(kind, body, opts),
       // A card answered for the person: only code passes by: 'auto' (a request's body never does).
-      permission: async (id, body, { by } = {}) => { if (!by) throw new TypeError('A decision for a card says who sent it.'); if (!(await driver.decide(id, { ...body, by }))) throw new Error('That card was already answered or has gone.'); },
+      permission: async (id, body, { by } = {}) => {
+        if (!by) throw new TypeError('A decision for a card says who sent it.');
+        const go = () => driver.decide(id, { ...body, by });
+        let ok;
+        if (by === 'auto') {
+          await testHooks?.atAutoDoor?.({ kind: 'card', id }); // tests only: the person's click lands here
+          const dir = driver.pendingRequest(id)?.featureDir ?? null;
+          // The last check and the decision under the card's job's Auto lock, as for a gate reply (startSend).
+          ok = dir ? await autoLocked(dir, async () => { await autoMaySend(dir); return go(); }) : false;
+        } else {
+          ok = await go();
+        }
+        if (!ok) throw new Error('That card was already answered or has gone.');
+      },
     },
     // A card as it waits now (with its full input), and what the fixed stop list needs to know of its reply.
     pendingCard: (id) => driver.pendingRequest(id),
@@ -2247,11 +2280,12 @@ export async function createRunner(config) {
           if (!worktree.ok) throw new HttpError(409, worktree.partial ? `Not marked yet. ${worktree.reason}` : `Not marked yet: the worktree can’t be removed safely. ${worktree.reason}`);
         }
         if (driver.activeRunFor({ featureDir: f.dir })) throw new HttpError(409, 'The Foreman started a reply meanwhile. Not marked; try again once it’s done.');
+        // A closed or finished job is out of Auto, so reopening it does not start Auto again by itself. Switched off while
+        // the job is still marked as closing, so an answer of Auto's on its way is refused at its last check (autoMaySend).
+        try { await autoOff(f, 'close'); } catch (err) { console.warn(`Auto: ${f.slug} not switched off at close: ${err.message}`); }
       } finally {
         closing.delete(f.dir);
       }
-      // A closed or finished job is out of Auto, so reopening it does not start Auto again by itself.
-      try { await autoOff(f, 'close'); } catch (err) { console.warn(`Auto: ${f.slug} not switched off at close: ${err.message}`); }
       const closed = { as, note, at: new Date().toISOString(), worktreeRemoved: worktree?.ok ? f.worktree : null };
       await state.setSession(f.dir, { closed });
       await state.audit({ action: 'close', featureDir: f.dir, slug: f.slug, as, note: note ?? undefined, worktreeRemoved: closed.worktreeRemoved ?? undefined });

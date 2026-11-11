@@ -975,7 +975,8 @@ test('a worker\'s question mid-reply is answered with the recommended label', { 
     const [perm] = (await w.lines()).filter((l) => l.action === 'permission');
     assert.equal(perm.by, 'auto');
     assert.equal(perm.decision, 'allow');
-    const [line] = await w.autoLines('question');
+    // Auto's own line is written once the decision has gone (answerCard): wait for it, not for the clock.
+    const [line] = await w.until(async () => { const l = await w.autoLines('question'); return l.length ? l : null; }, 'Auto\'s question line');
     assert.equal(line.chose, 'visited_at (Recommended)');
     assert.deepEqual(line.answers, [{ question: 'Which name for the column?', choice: 'visited_at (Recommended)', reason: 'It is the recommendation.' }]);
     assert.equal(line.costUsd, 0.12);
@@ -2143,6 +2144,78 @@ test('L2: an update callback never makes a record on a job that had none', { tim
   }
   assert.ok(made.length >= 5, `the callbacks ran (${made.length})`);
   assert.deepEqual(made.filter((m) => m !== null), [], 'none made a record');
+});
+
+// ---------- I1: Auto's answer is checked at the moment it is sent ----------
+
+/** The money of the Approver's runs, on lines: every costUsd on an Auto line. */
+const costOnLines = async (w) => (await w.lines()).filter((l) => l.action === 'auto').reduce((s, l) => s + (l.costUsd ?? 0), 0);
+
+test('I1 (gate): Auto switched off after the pass\'s last look, at the driver\'s door: nothing is sent, and the cost is on a line', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    let did = false;
+    w.hooks.atAutoDoor = async ({ kind }) => {
+      if (kind !== 'gate' || did) return;
+      did = true;
+      await w.runner.handle({ type: 'auto', slug: w.slug, on: false }, { from: 'local' });
+    };
+    await w.pass();
+    await w.idle();
+    assert.ok(did, 'the switch-off landed at the door');
+    assert.equal((await w.sends()).length, 0, 'nothing sent');
+    assert.equal(w.texts.length, 0, 'the Foreman received nothing');
+    assert.equal((await w.autoLines('gate')).length, 0);
+    const rec = await w.record();
+    assert.equal(rec.on, false);
+    assert.equal(rec.failures, 0, 'no failure counted');
+    assert.ok(Math.abs((await costOnLines(w)) - 0.12) < 1e-9, 'the Approver\'s cost is on a line');
+  } finally { await w.stop(); }
+});
+
+test('I1 (card): Auto switched off after the card\'s last check, at the driver\'s door: the worker is not told allow, and the cost is on a line', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => allow(), jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    let did = false;
+    w.hooks.atAutoDoor = async ({ kind }) => {
+      if (kind !== 'card' || did) return;
+      did = true;
+      await w.runner.handle({ type: 'auto', slug: w.slug, on: false }, { from: 'local' });
+    };
+    await raise(w);
+    await w.until(() => did, 'the door');
+    await w.until(async () => (await w.autoLines('off')).length === 1, 'the off line');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(outcomes.length, 0, 'the worker was told nothing yet');
+    assert.equal((await waiting(w)).length, 1, 'the card waits for the person');
+    assert.equal((await w.lines()).filter((l) => l.action === 'permission' && l.by === 'auto').length, 0);
+    assert.ok(Math.abs((await costOnLines(w)) - 0.12) < 1e-9, 'the Approver\'s cost is on a line');
+    await clear(w);
+    await w.until(() => outcomes.length === 1, 'the person\'s answer');
+    assert.equal(outcomes[0].result.behavior, 'deny', 'only the person\'s answer reached the worker');
+  } finally { await w.stop(); }
+});
+
+test('I1 (close): a job closed while Auto\'s approval is on its way ends closed, with no reply running', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    let closed = null;
+    w.hooks.atAutoDoor = async ({ kind }) => {
+      if (kind !== 'gate' || closed) return;
+      closed = await w.runner.handle({ type: 'close', slug: w.slug, as: 'done' }, { from: 'local' });
+    };
+    await w.pass();
+    await w.idle();
+    assert.ok(closed?.ok, 'the close went through');
+    assert.equal((await w.sends()).length, 0, 'nothing sent');
+    assert.equal(w.texts.length, 0);
+    assert.equal((await w.runner.read.runs()).runs.length, 0, 'no reply ran');
+    const view = (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
+    assert.equal(view.lane, 'done');
+    assert.equal((await w.lines()).filter((l) => l.action === 'reopen').length, 0, 'not reopened');
+    assert.equal((await w.record()).on, false);
+  } finally { await w.stop(); }
 });
 
 test('L3: closing a job, or marking it done, switches Auto off with an off line, so reopening does not start it again', { timeout: 60_000 }, async () => {

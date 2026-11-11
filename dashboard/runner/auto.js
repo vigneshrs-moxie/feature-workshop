@@ -36,8 +36,12 @@ const oneLine = (s) => {
 };
 /** A refusal that is only "not now": the answer waits and the next pass sends it, with no failure counted. */
 const NOT_NOW = new Set(['busy', 'limited', 'job-locked']);
-/** A refusal that says the answer is for something that has moved on: it is dropped. */
-const MOVED_ON = new Set(['stale-brief', 'stale-gate']);
+/**
+ * A refusal that says the answer is for something that has moved on: it is dropped. 'auto-gone': at the moment of sending,
+ * Auto was off or stopped, or the job was being closed or restarted (the runner's last check, under the job's Auto lock).
+ */
+const MOVED_ON = new Set(['stale-brief', 'stale-gate', 'auto-gone']);
+const codeOf = (err) => err?.extra?.code ?? err?.code ?? null;
 const TIMED_OUT = /^It took longer/;
 /**
  * Only a reply that decides a gate (approve, changes, stop: lib/gate.js) is the person's decision. A message, even one
@@ -240,6 +244,16 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     if (now?.auto?.on === true) { await addSpent(job, cost); return; }
     await audit(job, 'cost', { why: 'The Approver answered after Auto was switched off.', costUsd: cost });
   }
+  /** Auto went off before its answer could go: money left on the record (added after its off line was written) gets a line of its own. */
+  async function settleIfOff(job) {
+    let owed = 0;
+    await update(job.dir, (prev) => {
+      if (!prev || prev.on === true || !(prev.spent > 0)) return null;
+      owed = prev.spent;
+      return { ...prev, spent: 0 };
+    });
+    if (owed > 0) await audit(job, 'cost', { why: 'The Approver answered after Auto was switched off.', costUsd: owed });
+  }
   const addSpent = (job, cost) => (cost > 0 ? update(job.dir, (prev) => (prev ? { ...prev, spent: (prev.spent ?? 0) + cost } : null)) : null);
 
   async function attend(first, firstGate) {
@@ -336,7 +350,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     try {
       await decide.gate('approve', { slug: job.slug, briefNumber: n, answers, verdicts, note: noteFor(task, answer) }, { by: 'auto' });
     } catch (err) {
-      if (MOVED_ON.has(err?.extra?.code ?? err?.code ?? null)) { held.delete(job.dir); return 'dropped'; }
+      if (MOVED_ON.has(codeOf(err))) { held.delete(job.dir); await settleIfOff(job); return 'dropped'; }
       if (isNotNow(err)) {
         // Kept for a later pass (no second ask, no second charge); three in a row stop Auto.
         held.set(job.dir, { brief: n, task, answer, askedAt });
@@ -525,8 +539,10 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     try {
       await decide.permission(card.id, { decision, note, answers }, { by: 'auto' });
     } catch (err) {
-      // Refused (the card went away between the look and the decision): nothing was sent. The cost stays in spent.
-      console.error(`auto card (${job.slug}):`, err.message);
+      // Refused (the card went away between the look and the decision, or Auto went off or stopped): nothing was sent.
+      // The cost stays in spent, or, with Auto off, goes on a line of its own.
+      if (codeOf(err) !== 'auto-gone') console.error(`auto card (${job.slug}):`, err.message);
+      await settleIfOff(job);
       if (pendingCard(card.id)) leave(); // refused but still waiting: the person is told once
       return;
     }
