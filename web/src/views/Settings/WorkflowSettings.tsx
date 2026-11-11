@@ -109,7 +109,7 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
           <p className="muted" role="note">{BRAND.name} didn’t send the finish line’s choices. Update it and start it again; until then it uses {finishLineLabel(w.finishLine, undefined)}.</p>
         )}
       </SettingGroup>
-      <SettingsMore id="workflow-more" label="More: GitHub, what new jobs start with, the level, stacks, Claude Code use and the Orbit token" holds={['github-every', 'pr-route', 'wireframes', 'clarify', 'auto-level', 'inbox-suggest', 'auto-start', 'sections-at-once', 'count-claude-code', 'orbit-token']}>
+      <SettingsMore id="workflow-more" label="More: GitHub, the Inbox and Auto start, what new jobs start with, the level, stacks, Claude Code use and the Orbit token" holds={['github-every', 'pr-route', 'wireframes', 'clarify', 'auto-level', 'inbox-suggest', 'auto-start', 'sections-at-once', 'count-claude-code', 'orbit-token']}>
         <GithubEvery />
         <RouteTable />
         {CHOICES.map((c) => (

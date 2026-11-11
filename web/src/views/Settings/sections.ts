@@ -128,6 +128,7 @@ export const SETTING_INDEX: SettingEntry[] = [
   { id: 'count-claude-code', label: 'Count my Claude Code use outside the app', section: 'workflow', keywords: 'telemetry usage limit terminal logs other use' },
   { id: 'orbit-token', label: 'Orbit token', section: 'workflow', keywords: 'inbox read-only token portal feedback tickets orbfb' },
   { id: 'inbox-suggest', label: 'Suggest what to start next', section: 'workflow', keywords: 'haiku suggestion suggested queue rank next ticket orbit' },
+  { id: 'auto-start', label: 'Auto start', section: 'workflow', keywords: 'tag orbit ticket start by itself automatic' },
   { id: 'repos-list', label: 'Your repositories and their profiles', section: 'repos', keywords: 'repos repository profile starbase.md registry remove check' },
   { id: 'repos-add', label: 'Add a repository', section: 'repos', keywords: 'repos repository profile file register new' },
   { id: 'play-mode', label: 'Play mode: Full, Subtle, Off', section: 'play', keywords: 'crew achievements game' },
