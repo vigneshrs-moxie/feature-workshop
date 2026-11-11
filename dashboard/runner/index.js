@@ -1536,7 +1536,8 @@ export async function createRunner(config) {
         // The rules that read the description and the files the Foreman expects to touch (a migration stops Auto).
         triggers: suggestLevel({ description: f.description, paths: f.predictedPaths ?? [] }).triggers,
         statusCard: driver.pendingPermissions().some((p) => p.featureDir === f.dir && p.statusCard === true),
-        prOpen: finishLineReached({ prs: f.prs, closed: null }, null, 'pr1-open').reached,
+        // PR #1 open by status.json or by the flow map: the same sources the ordinary Done notice reads (flowNotices).
+        prOpen: finishLineReached({ prs: f.prs, closed: null }, flowLanes.get(f.slug) ?? null, 'pr1-open').reached,
         gate: g ? { ...g, briefNumber: cb?.number ?? null, headline: cb?.headline ?? null } : null,
         // All of the job's lines: a long reply after the person's own answer must not push it out of view.
         answered: answeredBriefs(await state.auditFor(f.dir, Infinity), cb),

@@ -2688,6 +2688,22 @@ test('L8: Auto finishes: Auto\'s notice only', { timeout: 40_000 }, async () => 
   } finally { await w.stop(); }
 });
 
+test('m9: Auto finishes when the flow map shows PR #1 open although status.json names no PR', { timeout: 40_000 }, async () => {
+  const w = await finishWorld();
+  try {
+    // The demo's map opens PR #1 for a job at the pr1 stage; status.json says nothing of it.
+    await w.writeStatus(status(1, { stage: 'pr1', stage_state: 'working', waiting_for: null }));
+    await new Promise((r) => setTimeout(r, 1600));
+    await w.runner.local.refreshFlow();
+    await w.until(async () => ((await w.runner.local.refreshFlow()).repos ?? []).some((r) => r.lanes.some((l) => l.slug === w.slug && l.pr1?.state === 'open')), 'the map to show PR #1');
+    await w.pass();
+    const rec = await w.record();
+    assert.equal(rec.on, false);
+    assert.equal(typeof rec.finished, 'string');
+    assert.equal((await w.autoLines('finished')).length, 1);
+  } finally { await w.stop(); }
+});
+
 test('L8: Auto switched off just before the finish: the ordinary Done notice only', { timeout: 40_000 }, async () => {
   const w = await finishWorld();
   try {
