@@ -205,6 +205,42 @@ test('off cancels the waiting call and clears the view', async () => {
   r.tick(SUGGEST_EVERY_MS * 2); await r.settle();
   assert.equal(r.calls.length, 1);
 });
+test('off and on again inside the 30 minutes does not ask again', async () => {
+  const r = rig();
+  give(r, list('a')); await r.settle();
+  assert.equal(r.calls.length, 1);
+  r.flag.on = false; r.s.off(); r.flag.on = true;
+  give(r, list('a'));
+  assert.equal(r.calls.length, 1);
+  assert.equal(r.s.view().state, 'ready'); // the answer already there
+  give(r, list('b'));
+  assert.equal(r.calls.length, 1);
+  assert.equal(r.clock.timers.length, 1);
+  r.tick(SUGGEST_EVERY_MS); await r.settle();
+  assert.equal(r.calls.length, 2);
+});
+test('off and on again during a call sets no timer and makes no second call', async () => {
+  const r = rig(); let release; r.holdWith(new Promise((res) => { release = res; }));
+  give(r, list('a'));
+  r.flag.on = false; r.s.off(); r.flag.on = true;
+  give(r, list('a')); give(r, list('a'));
+  assert.equal(r.clock.timers.length, 0);
+  release(); await r.settle();
+  assert.equal(r.calls.length, 1);
+  assert.equal(r.clock.timers.length, 0);
+  assert.equal(r.s.view().state, 'ready');
+});
+test('the usage hook gets the cost and tokens of each answered call', async () => {
+  const seen = [];
+  const s = new InboxSuggester({
+    ask: async (input) => ({ text: JSON.stringify({ picks: [{ key: input.tickets[0].key, reason: 'Oldest.' }] }), costUsd: 0.25, tokens: { input: 7 } }),
+    onCall: (c) => seen.push(c),
+  });
+  s.consider({ items: list('a'), rows, jobs: [] });
+  await new Promise((res) => setImmediate(res));
+  assert.deepEqual(seen, [{ costUsd: 0.25, tokens: { input: 7 } }]);
+});
+
 test('no call when a ranked ticket is free or Orbit sent no queue numbers', async () => {
   const r = rig();
   give(r, [item(1, { queuePosition: 1 }), item(2), item(3)]); give(r, [item(1, { queueKnown: false }), item(2, { queueKnown: false })]); await r.settle();

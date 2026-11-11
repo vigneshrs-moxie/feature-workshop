@@ -46,8 +46,8 @@ export function suggestInput(candidates, rows, jobs, { now = Date.now() } = {}) 
     return {
       key: c.key,
       title: plain(c.title, TITLE_MAX),
-      type: c.type ?? null,
-      severity: c.severity ?? null,
+      type: typeof c.type === 'string' ? plain(c.type, 40) : null,
+      severity: typeof c.severity === 'string' ? plain(c.severity, 40) : null,
       ageDays: Number.isFinite(made) ? Math.max(0, Math.floor((now - made) / DAY_MS)) : null,
       size: points === 0 ? '?' : Number.isInteger(points) ? points : 'not estimated',
       start: plain(row.description, DESCRIPTION_START),
@@ -55,7 +55,7 @@ export function suggestInput(candidates, rows, jobs, { now = Date.now() } = {}) 
   });
   const open = (jobs ?? []).slice(0, JOBS_MAX).map((j) => ({
     title: plain(j.title, TITLE_MAX),
-    ticket: j.ticket ?? null,
+    ticket: typeof j.ticket === 'string' ? plain(j.ticket, 40) : null,
     repo: plain(j.repo, 100),
     paths: (Array.isArray(j.paths) ? j.paths : []).slice(0, PATHS_PER_JOB).map((p) => plain(p, 200)),
   }));
@@ -200,14 +200,18 @@ export class InboxSuggester extends EventEmitter {
     if (!this.enabled() || !needsSuggestion(items)) { this.#cancel(); this.#emit(); return; }
     const list = this.#list(items);
     if (this.askedList && JSON.stringify(list) === JSON.stringify(this.askedList)) { this.#emit(); return; }
-    if (this.busy) { this.#schedule(); this.#emit(); return; }
+    // A call is out: no timer meanwhile (it would fire at once, again and again). The end of #run
+    // asks again, when the window allows, if the list changed during the call.
+    if (this.busy) { this.#emit(); return; }
     if (this.lastTryAt !== null && this.now() - this.lastTryAt < this.everyMs) { this.#schedule(); this.#emit(); return; }
     this.#run();
   }
 
   off() {
     this.#cancel();
-    this.latest = null; this.askedList = null; this.state = null; this.lastTryAt = null; // turning it on again asks at once
+    // The last try's time, list and answer are kept, so turning it on again inside the 30 minutes
+    // shows the answer already there, or waits the window out: off and on is no way to ask more often.
+    this.latest = null;
     this.#emit();
   }
 
