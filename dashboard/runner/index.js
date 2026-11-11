@@ -1449,6 +1449,8 @@ export async function createRunner(config) {
   function updateAuto(dir, fn) {
     return autoLocked(dir, async () => {
       const prev = (await state.sessionFor(dir))?.auto ?? null;
+      // A restart is archiving this job's record: nothing writes it meanwhile.
+      if (restarting.has(dir)) return prev;
       const next = fn(prev);
       if (!next) return prev;
       await state.setSession(dir, { auto: next });
@@ -2279,6 +2281,19 @@ export async function createRunner(config) {
           lastRunInTerminal: drive.mode === 'terminal' && drive.terminals.length === 0,
           options: f.options, archiveRoot: path.join(FEATURES_DIR, '.restarted'),
         };
+        // Auto does not follow the job to its new start. Its money not yet on a line goes on an `off` line now,
+        // under the job's Auto lock, before the record is archived; nothing writes the record from here (updateAuto).
+        let autoWasOn = false;
+        await autoLocked(f.dir, async () => {
+          const prev = (await state.sessionFor(f.dir))?.auto ?? null;
+          autoWasOn = prev?.on === true;
+          const owed = prev?.spent > 0 ? prev.spent : 0;
+          if (!autoWasOn && !owed) return;
+          const next = { ...autoRecord(prev, { on: false, by: 'you' }), spent: 0 };
+          await state.setSession(f.dir, { auto: next });
+          await auditAuto({ action: 'auto', what: 'off', by: 'you', via: 'restart', featureDir: f.dir, slug: f.slug, stage: f.stage ?? null, asked: '', chose: '', why: '', ...(owed ? { costUsd: owed } : {}) });
+          try { await writeAutoOption(f.dir, autoOption(next, f.level ?? null)); } catch { /* the folder is archived next; the new job's options carry no Auto */ }
+        });
         let out;
         let policyCleared = false;
         let boundary = false;
@@ -2320,6 +2335,7 @@ export async function createRunner(config) {
         const notes = [...(out.notes ?? [])];
         const oneLine = (err) => String(err?.message ?? err).split('\n')[0];
         if (policyCleared) { try { await driver.applyModes(); settingsChanged(); } catch (err) { notes.push(`The permission modes could not be refreshed (${oneLine(err)}).`); } }
+        if (autoWasOn) notes.push('A restart switches Auto off. Turn it on again on the new job if you want it.');
         try { await state.audit({ action: 'restart-done', featureDir: f.dir, slug: f.slug, newSlug: out.slug, model: body.model, was: drive.model ?? null, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside }); } catch (err) { notes.push(`The restart could not be written to the record (${oneLine(err)}).`); }
         cached = null;
         return { ok: true, slug: out.slug, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside, notes };

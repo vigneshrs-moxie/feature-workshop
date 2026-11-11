@@ -1770,3 +1770,50 @@ test('K1: after a restart Auto turned on for the new job asks about brief 1; Wha
     assert.equal((await w.sends()).filter((l) => l.by === 'auto').length, 2);
   } finally { await w.stop(); }
 });
+
+test('K2: a restart of an Auto job writes its unsaid money on an off line, leaves Auto off for the new job, and says so', { timeout: 60_000 }, async () => {
+  const w = await restartedWorld({ auto: { ...autoRecord(null, { on: true, now: OLD }), spent: 0.3 } });
+  try {
+    const res = await w.runner.handle({ type: 'restart', slug: w.slug, model: FABLE }, { from: 'local' });
+    assert.ok(res.notes.includes('A restart switches Auto off. Turn it on again on the new job if you want it.'));
+    assert.ok(!res.notes.some((n) => /Auto stays on/.test(n)));
+    const lines = await w.lines();
+    const off = lines.filter((l) => l.action === 'auto' && l.what === 'off');
+    assert.equal(off.length, 1);
+    assert.equal(off[0].costUsd, 0.3);
+    const boundary = lines.findIndex((l) => l.action === 'restart');
+    assert.ok(lines.indexOf(off[0]) < boundary, 'the off line belongs to the old job');
+    assert.equal(await w.record(), null, 'no Auto record on the new job');
+    assert.equal((await w.ownOptions()).level, 1);
+    assert.equal((await w.optionsFile()).auto, undefined);
+    assert.equal((await w.optionsFile()).auto_since, undefined);
+    assert.equal((await w.runner.read.job(res.slug)).auto.on, false);
+    // The archived record is off with nothing owed.
+    const archived = JSON.parse(await fs.readFile(path.join(res.archive, 'session-record.json'), 'utf8'));
+    assert.equal(archived.auto.on, false);
+    assert.equal(archived.auto.spent, 0);
+  } finally { await w.stop(); }
+});
+
+test('K2: the confirmation has no Auto sentence for a job whose Auto was off', { timeout: 60_000 }, async () => {
+  const w = await restartedWorld({ auto: null });
+  try {
+    const res = await w.runner.handle({ type: 'restart', slug: w.slug, model: FABLE }, { from: 'local' });
+    assert.ok(!res.notes.some((n) => /Auto/.test(n)));
+    assert.equal((await w.autoLines('off')).length, 0);
+  } finally { await w.stop(); }
+});
+
+test('K2: nothing writes the Auto record while the job is being restarted (an Approver answer arriving then adds nothing)', { timeout: 60_000 }, async () => {
+  let w;
+  w = await restartedWorld({
+    auto: { ...autoRecord(null, { on: true, now: OLD }), spent: 0.3 },
+    ask: (task) => { w.runner.auto.restarting.add(w.dir); return goodAnswer(task); },
+  });
+  try {
+    await w.pass();
+    assert.equal(w.asks.length, 1);
+    assert.equal((await w.record()).spent, 0.3, 'unchanged: the answer\'s cost is not added to a record about to be archived');
+    assert.deepEqual(await w.sends(), []);
+  } finally { await w.stop(); }
+});
