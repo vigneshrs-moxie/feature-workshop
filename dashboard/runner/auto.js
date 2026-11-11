@@ -273,7 +273,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     return lines.some((l) => l.by !== 'auto' && (l.action === 'send' || (steer && l.action === 'steer')) && Date.parse(l.at) >= askedAt);
   }
   /**
-   * Did the person send a message of their own (not Auto's, not one of Starbase's own sends) to this job after its
+   * Did the person send a message of their own (not Auto's, not one of Starbase's own sends; or steer one in) to this job after its
    * current brief was raised (the brief file's time) and after Auto was last switched on or carried on (`since`)?
    * All of the job's lines are read: the Foreman's reply to that message can write many.
    */
@@ -281,7 +281,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     const times = [Date.parse(job.briefAt ?? ''), Date.parse(job.auto?.since ?? '')].filter(Number.isFinite);
     const from = times.length ? Math.max(...times) : -Infinity;
     const lines = await state.auditFor(job.dir, Infinity);
-    return lines.some((l) => l.action === 'send' && l.by !== 'auto' && !OWN_SENDS.has(l.kind) && Date.parse(l.at) > from);
+    // A message they steered into a running reply counts as one they sent (only their steer command writes that line).
+    return lines.some((l) => l.by !== 'auto' && ((l.action === 'send' && !OWN_SENDS.has(l.kind)) || l.action === 'steer') && Date.parse(l.at) > from);
   }
   /**
    * An answer that was dropped cost money. While Auto is still on (stopped, or the card or gate has gone)

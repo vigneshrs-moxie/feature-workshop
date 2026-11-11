@@ -2041,6 +2041,14 @@ test('N2: Starbase\'s own messages written while a step waits are not the person
   }
 });
 
+test('N6: a message the person steered into the reply after the brief was raised makes the step theirs, as a message sent does', { timeout: 30_000 }, async () => {
+  const u = unit({ decide: () => {}, auditLines: [{ action: 'steer', at: new Date(Date.now() - 1000).toISOString(), text: 'Leave the old table alone.' }] });
+  await u.auto.pass();
+  assert.equal(u.decides.length, 0, 'nothing approved');
+  assert.equal(u.record().stopped?.reason, YOURS);
+  assert.equal(u.asks.length, 0);
+});
+
 test('I5: a message written before the brief was raised, or before Auto was switched on, leaves the step to Auto', { timeout: 30_000 }, async () => {
   const before = new Date(Date.now() - 60_000).toISOString();
   for (const job of [() => ({ briefAt: new Date().toISOString() }), () => ({ auto: { ...autoRecord(null, { on: true, now: new Date().toISOString() }) } })]) {
