@@ -285,7 +285,8 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
 const UPLOAD_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webm': 'video/webm', '.mp4': 'video/mp4' };
 
 /**
- * Sends a job's pictures and videos to the site's private Blob store, each once (sent: a Map kept
+ * Sends a job's pictures and videos (its evidence list's, and while it records, each finished
+ * line's video its progress names) to the site's private Blob store, each once (sent: a Map kept
  * by the caller, `${slug}\n${file}` -> its size and time). For each new one the site makes a
  * one-time upload link for exactly that path (ask → { url, pathname }), the file goes straight to
  * the store with a PUT (putFile: fetch), and the site is told it is there (done). The file's bytes
@@ -293,8 +294,13 @@ const UPLOAD_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'imag
  */
 export async function uploadEvidence({ slug, view, door, sent, ask, done, putFile, log = () => {} }) {
   const fsp = await import('node:fs/promises');
-  for (const c of view?.evidence?.criteria ?? []) {
-    const files = [...(c.screenshots ?? []).map((x) => x?.file), typeof c.video === 'string' ? c.video : c.video?.file].filter((f) => typeof f === 'string');
+  // The evidence list's files, and each finished line's video while a recording runs (its progress).
+  const groups = [
+    ...(view?.evidence?.criteria ?? []).map((c) => [...(c.screenshots ?? []).map((x) => x?.file), typeof c.video === 'string' ? c.video : c.video?.file]),
+    (view?.progress?.lines ?? []).map((l) => l?.video),
+  ];
+  for (const group of groups) {
+    const files = group.filter((f) => typeof f === 'string');
     for (const file of files) {
       const type = UPLOAD_TYPES[path.extname(file).toLowerCase()];
       if (!type) continue;

@@ -345,6 +345,28 @@ test('evidence: a recording says which line it is on, as each line begins and en
   ]);
   const last = seen.at(-1);
   assert.ok(last.lines[0].at && last.lines[1].at && last.lines[1].at > last.lines[0].at, 'each line’s time is when its state last changed');
-  assert.ok(last.lines.every((l) => l.video === null), 'no video yet (Task 5b)');
+  // Each ended line's video is copied at once to its place at the end (Task 5b); a line with no spec has none.
+  assert.deepEqual(last.lines.map((l) => l.video), ['abc1234def5/AC-1/video.webm', 'abc1234def5/AC-2/video.webm', null]);
+  assert.equal(seen[1].lines[0].video, null, 'none while the line runs');
   assert.notEqual(seen[1], seen[2], 'each change is a new object');
+});
+
+test('evidence: a line’s video is copied only from inside the run’s output', async () => {
+  const job = await makeJob();
+  const seen = [];
+  const outside = path.join(job.dir, 'outside.webm');
+  await fs.writeFile(outside, 'not from this run');
+  const run = async (opts) => {
+    const ran = await fakeRun()(opts);
+    const output = path.join(job.dir, 'evidence', 'abc1234def5', 'run', 'output');
+    await fs.symlink(outside, path.join(output, 'AC-2-chromium', 'link.webm'));
+    const end = (id, video) => `@@starbase ${JSON.stringify({ at: 'end', id, title: id, status: 'passed', video })}`;
+    opts.onLine(end('AC-1', outside)); // outside the output
+    opts.onLine(end('AC-2', path.join(output, 'AC-2-chromium', 'link.webm'))); // a symlink out of it
+    opts.onLine(end('AC-1', path.join(output, 'AC-1-chromium', '01.png'))); // not a video
+    return ran;
+  };
+  await recordEvidence({ job, server: fakeServer(), run, playwrightUrl: 'x', cwd: job.dir, onProgress: (p) => seen.push(p) });
+  assert.equal(seen.length, 4);
+  assert.ok(seen.every((p) => p.lines.every((l) => l.video === null)), 'none named');
 });

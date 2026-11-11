@@ -23,7 +23,7 @@ const TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'
 const FILE = /^(?!.*\.\.)[\w.-]+(?:\/[\w.-]+){0,4}$/;
 const SLUG = (v) => typeof v === 'string' && v.length > 0 && v.length <= 200 && /^[\w.-]+$/.test(v) && v !== '.' && v !== '..';
 
-/** Every file an evidence list names. */
+/** Every file an evidence list names, and each finished line's video its progress names (a recording part way). */
 function named(view) {
   const out = new Set();
   for (const c of view?.evidence?.criteria ?? []) {
@@ -31,6 +31,7 @@ function named(view) {
     const v = typeof c.video === 'string' ? c.video : c.video?.file;
     if (typeof v === 'string') out.add(v);
   }
+  for (const l of Array.isArray(view?.progress?.lines) ? view.progress.lines : []) if (typeof l?.video === 'string') out.add(l.video);
   return out;
 }
 

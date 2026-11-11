@@ -432,22 +432,47 @@ export async function evidenceFile(jobDir, rel) {
  * A recording's progress as its run starts: { commit, startedAt, line, of, lines: [{ id, title,
  * state, video, at }] }, every acceptance line waiting. line: the running line's place (from 1),
  * else the last finished one's (0 before any began); a line's at: when its state last changed.
- * Each line's video is null for now.
+ * A line's video: null until the line ends, then where copyLineVideo put it (relative to evidence/).
  */
 function progressStart({ commit, specs, lines, at }) {
   const rows = lineIds(specs, lines).map((id) => ({ id, title: lines.get(id)?.title || id, state: 'waiting', video: null, at: null }));
   return { commit, startedAt: at, line: 0, of: rows.length, lines: rows };
 }
 
-/** The progress after one reporter line (parseProgressLine), as a new object; null when it names no line of this recording. */
-function progressAfter(progress, event, at) {
+/**
+ * The progress after one reporter line (parseProgressLine), as a new object; null when it names no
+ * line of this recording. video: the line's video as copyLineVideo placed it (an end only), else null.
+ */
+function progressAfter(progress, event, at, video = null) {
   const i = progress.lines.findIndex((l) => l.id === event.id);
   if (i < 0) return null;
   const lines = progress.lines.map((l, k) => (k !== i ? l : {
-    ...l, title: l.title === l.id && event.title ? event.title : l.title, state: event.at === 'begin' ? 'running' : event.status ?? 'failed', at,
+    ...l, title: l.title === l.id && event.title ? event.title : l.title, state: event.at === 'begin' ? 'running' : event.status ?? 'failed', video, at,
   }));
   const running = lines.findIndex((l) => l.state === 'running');
   return { ...progress, line: running >= 0 ? running + 1 : i + 1, lines };
+}
+
+/**
+ * As a line ends, its video copied at once to the place it has at the end
+ * (evidence/<commit>/AC-<n>/video.webm, or .mp4): that path relative to evidence/, or null when the
+ * reporter named none, or one that isn't a plain video file inside the run's output (resolved, so
+ * no symlink leads out of it), or the copy failed. collectEvidence copies it there again at the end.
+ */
+async function copyLineVideo({ evidenceDir, commit, id, from, outputDir }) {
+  if (typeof from !== 'string' || !from || !PROGRESS_ID.test(id)) return null;
+  const ext = path.extname(from).toLowerCase();
+  if (!VIDEO.test(SERVED_TYPES[ext] ?? '')) return null;
+  const st = await fsp.lstat(from).catch(() => null);
+  if (!st?.isFile()) return null;
+  const [realOut, realFrom] = await Promise.all([fsp.realpath(outputDir), fsp.realpath(from)]).catch(() => [null, null]);
+  if (!realOut || !realFrom || !inside(realFrom, realOut)) return null;
+  const to = `${commit}/${id}/video${ext === '.mp4' ? '.mp4' : '.webm'}`;
+  try {
+    await fsp.mkdir(path.join(evidenceDir, commit, id), { recursive: true });
+    await fsp.copyFile(realFrom, path.join(evidenceDir, to));
+  } catch { return null; }
+  return to;
 }
 
 /**
@@ -461,7 +486,8 @@ function progressAfter(progress, event, at) {
  *   playwrightUrl    the URL of the dashboard's @playwright/test (the guard imports it)
  *   onStart()        called once the checks pass and the recording really starts (not for a refusal)
  *   onProgress(p)    called as Playwright starts (every line waiting) and on each line's start and
- *                    end: the progress (progressStart), a new object each time
+ *                    end: the progress (progressStart), a new object each time; at a line's end its
+ *                    video is already copied to its place (copyLineVideo) and named
  * Returns { ok: true, evidence } or throws EvidenceError (status and plain words; fix when there is a line to run).
  */
 export async function recordEvidence({ job, server, dbCheck = null, run, playwrightUrl, cwd, now = () => new Date(), onStart = () => {}, onProgress = () => {} }) {
@@ -494,12 +520,19 @@ export async function recordEvidence({ job, server, dbCheck = null, run, playwri
     prepared = await prepareRun({ evidenceDir, commit, specs, baseURL: started.baseURL, playwrightUrl });
     let progress = progressStart({ commit, specs, lines, at: now().toISOString() });
     onProgress(progress);
+    // One reporter line after another: a line's end waits for its video to be copied.
+    let lineChain = Promise.resolve();
     const onLine = (text) => {
       const event = parseProgressLine(text);
-      const next = event && progressAfter(progress, event, now().toISOString());
-      if (next) { progress = next; onProgress(progress); }
+      if (!event) return;
+      lineChain = lineChain.then(async () => {
+        const video = event.at === 'end' ? await copyLineVideo({ evidenceDir, commit, id: event.id, from: event.video, outputDir: prepared.outputDir }) : null;
+        const next = progressAfter(progress, event, now().toISOString(), video);
+        if (next) { progress = next; onProgress(progress); }
+      }).catch(() => {});
     };
     const ran = await run({ configFile: prepared.configFile, cwd, specs, onLine });
+    await lineChain;
     const reportJson = await fsp.readFile(prepared.reportFile, 'utf8').then((t) => JSON.parse(t), () => null);
     const errors = JSON.stringify(reportJson?.errors ?? []) + JSON.stringify(reportTests(reportJson).map((t) => t.result?.error?.message ?? ''));
     if (browsersMissing(ran.output) || browsersMissing(errors)) {

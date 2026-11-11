@@ -298,3 +298,30 @@ test('evidence server: when the recording dies the progress is gone and the prob
     await setHold('go');
   }
 });
+
+test('evidence server: a line’s video is there as soon as the line ends', async () => {
+  await fs.rm(hold, { force: true });
+  try {
+    await writeJob('video-job', { level: 2 });
+    await viewWhen('video-job', runningFirst, 'no recording part way');
+    await setHold('one'); // the first line ends, then the fake holds again before the next begins
+    const view = await viewWhen('video-job', (v) => v.progress?.lines?.[0]?.video, 'the first line’s video never came');
+    // Before the run's end: still recording, no evidence.json yet.
+    assert.equal(view.recording, true);
+    assert.equal(view.evidence, null);
+    assert.deepEqual(view.progress.lines.map((l) => [l.id, l.state, l.video]), [
+      ['AC-1', 'passed', 'abc1234def5/AC-1/video.webm'], ['AC-2', 'waiting', null], ['AC-3', 'waiting', null],
+    ]);
+    // At the place it has at the end, served by the file route.
+    const res = await get(fileUrl('video-job', view.progress.lines[0].video));
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'video/webm');
+    assert.deepEqual(Buffer.from(await res.arrayBuffer()), await fs.readFile(path.join(FIXTURE, 'output', 'AC-1-chromium', 'video.webm')));
+    await setHold('go');
+    const done = await viewWhen('video-job', (v) => v.evidence && !v.recording, 'the recording never ended');
+    assert.equal(done.evidence.criteria[0].video, 'abc1234def5/AC-1/video.webm', 'the same place at the end');
+    assert.equal((await get(fileUrl('video-job', done.evidence.criteria[0].video))).status, 200);
+  } finally {
+    await setHold('go');
+  }
+});

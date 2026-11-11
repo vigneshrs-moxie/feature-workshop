@@ -151,7 +151,7 @@ export function evidenceRecord(view) {
   return wireSafe(rest);
 }
 
-/** Every picture and video an evidence list names: [{ file, type }]. */
+/** Every picture and video an evidence list names, and each finished line's video its progress names: [file]. */
 export function evidenceFiles(view) {
   const out = [];
   for (const c of view?.evidence?.criteria ?? []) {
@@ -159,6 +159,7 @@ export function evidenceFiles(view) {
     if (typeof c.video === 'string') out.push(c.video);
     else if (typeof c.video?.file === 'string') out.push(c.video.file);
   }
+  for (const l of view?.progress?.lines ?? []) if (typeof l?.video === 'string') out.push(l.video);
   return [...new Set(out)];
 }
 

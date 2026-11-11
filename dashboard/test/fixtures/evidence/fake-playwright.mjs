@@ -8,7 +8,8 @@
 // FAKE_PLAYWRIGHT=no-browser says what Playwright says when Chromium isn't installed, and stops.
 // STARBASE_FAKE_HOLD=<file>: after the first line's begin it waits until that file exists (30 seconds
 // at most). When the file says `exit 1` it stops there, as a Playwright that died part way: exit
-// code 1 and no report.
+// code 1 and no report. When it says `one` the first line ends, then it waits again (30 seconds at
+// most) until the file says something else, so a test sees the run between its first line and its end.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -35,6 +36,7 @@ process.stdout.write(`Running ${parsed.suites.length} tests using 1 worker\n`);
 const STATUS = { passed: 'passed', skipped: 'skipped', failed: 'failed', timedOut: 'failed', interrupted: 'failed' };
 const say = (o) => process.stdout.write(`\n@@starbase ${JSON.stringify(o)}\n`);
 const hold = process.env.STARBASE_FAKE_HOLD;
+const readHold = () => { try { return fs.readFileSync(hold, 'utf8').trim(); } catch { return null; } };
 let first = true;
 for (const suite of parsed.suites) {
   for (const spec of suite.specs) {
@@ -48,10 +50,13 @@ for (const suite of parsed.suites) {
         process.exit(1);
       }
     }
-    first = false;
     const result = spec.tests[0].results.at(-1);
     const video = result.attachments.find((a) => a.name === 'video')?.path ?? null;
     say({ at: 'end', id, title, status: STATUS[result.status] ?? 'failed', video });
+    if (first && hold) {
+      for (const until = Date.now() + 30_000; readHold() === 'one' && Date.now() < until;) await new Promise((r) => { setTimeout(r, 50); });
+    }
+    first = false;
   }
 }
 fs.writeFileSync(reportFile, JSON.stringify(parsed, null, 2));
