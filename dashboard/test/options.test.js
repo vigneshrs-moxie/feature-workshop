@@ -337,3 +337,41 @@ test('job options: a document the job already had is kept when saved again, even
   assert.throws(() => normalize({ level: 2, provided: { spec: '/tmp/fw-test/new-spec.md' } }, { previous, exists: nowhere }), /Spec: there’s no file at/);
   assert.throws(() => normalize({ level: 2, provided: { plan: '/tmp/fw-test/moved-plan.md' } }, { exists: nowhere }), /no file at/, 'without the earlier options it is checked');
 });
+
+test('auto survives normalize below L3 and is dropped at L3', async () => {
+  const since = '2026-11-10T09:00:00.000Z';
+  for (const level of [0, 1, 2]) {
+    const o = normalize({ level, auto: true, auto_since: since });
+    assert.equal(o.auto, true, `L${level}`);
+    assert.equal(o.auto_since, since, `L${level}`);
+  }
+  const none = normalize({ auto: true, auto_since: since });
+  assert.deepEqual([none.level, none.auto, none.auto_since], [null, true, since], 'no level yet: kept');
+  const l3 = normalize({ level: 3, auto: true, auto_since: since });
+  assert.equal('auto' in l3, false, 'L3: dropped');
+  assert.equal('auto_since' in l3, false, 'L3: its time goes with it');
+  for (const v of ['true', 1, {}, false, null]) assert.equal('auto' in normalize({ level: 1, auto: v, auto_since: since }), false, `auto: ${JSON.stringify(v)}`);
+  assert.equal('auto_since' in normalize({ level: 1, auto_since: since }), false, 'no auto: no auto_since');
+  assert.equal('auto' in normalize({ level: 1 }), false, 'nothing said: no field at all');
+
+  // Starbase writes the two fields together and nothing else in the file changes.
+  const { writeAutoOption } = await import('../lib/options.js');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fw-auto-option-'));
+  const updatedAt = await writeOptions(dir, normalize({ level: 2 }), { title: 'A job' });
+  assert.equal(await writeAutoOption(dir, { on: true, since }), true);
+  let raw = JSON.parse(await fs.readFile(path.join(dir, 'options.json'), 'utf8'));
+  assert.deepEqual([raw.auto, raw.auto_since, raw.updated_at, raw.title, raw.level], [true, since, updatedAt, 'A job', 2]);
+  assert.equal(await writeAutoOption(dir, { on: true, since }), false, 'already so: not written');
+  assert.equal(await writeAutoOption(dir, { on: false }), true);
+  raw = JSON.parse(await fs.readFile(path.join(dir, 'options.json'), 'utf8'));
+  assert.deepEqual(['auto' in raw, 'auto_since' in raw, raw.updated_at], [false, false, updatedAt]);
+  assert.equal(await writeAutoOption(path.join(dir, 'nothing-here'), { on: true, since }), false, 'no options.json: nothing written');
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test('describeOptions has the Auto line', () => {
+  const line = 'Auto: Starbase\'s Auto answers each gate for the person, no hand test is asked for, and the job stops once PR #1 is open.';
+  assert.ok(describeOptions(normalize({ level: 2, auto: true, auto_since: '2026-11-10T09:00:00.000Z' })).includes(line));
+  assert.ok(!describeOptions(normalize({ level: 2 })).includes(line));
+  assert.ok(!describeOptions(normalize({ level: 3, auto: true })).includes(line), 'never at L3');
+});

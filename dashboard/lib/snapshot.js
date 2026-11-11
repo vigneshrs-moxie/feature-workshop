@@ -43,6 +43,8 @@ export function groupCards(cards) {
 //              `paused` set and when it carries on)
 //   needs-you  something waits for you: a go-ahead, an answer, a permission, a crew question, a PR
 //              feedback card, a stuck stack part, or changes asked for on a PR
+// An Auto job (lib/auto.js) with a gate or card waiting is working ("Auto is deciding: the plan"),
+// or needs-you once Auto has stopped ("Auto stopped: <reason>").
 //   in-review  a PR is open and waits on other people (a review, its checks), or the work is past
 //              your finish line on its way to main
 //   ready      a PR's checks passed and its approvals are in: merging is the next step
@@ -83,6 +85,11 @@ export function laneFor(card, { lane = null, pending = [] } = {}) {
 
   // Cards waiting for a click: permissions, a crew member's question, PR feedback.
   const cards = pending.length ? pending : Array.from({ length: Number(card.permissions) || 0 }, () => ({}));
+  // An Auto job (lib/auto.js) with a gate or a card waiting: Auto is deciding it, unless it stopped.
+  if (card.auto?.on === true && (cards.length || card.needsYou)) {
+    if (card.auto.stopped) return needs(`Auto stopped: ${card.auto.stopped.reason ?? 'it waits for you'}`);
+    return { lane: 'working', laneReason: `Auto is deciding: ${STAGE_WORDS[card.stage] ?? 'the next step'}` };
+  }
   if (cards.length) {
     // A review round's card (packet Q, lib/driver.js parkRoundCard) says what the reviewer asked for.
     const round = cards.find((p) => p.roundCard);

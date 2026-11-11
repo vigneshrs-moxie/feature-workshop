@@ -98,7 +98,8 @@ export class State extends EventEmitter {
     try { await mine; } finally { if (this.#writing.get(file) === mine) this.#writing.delete(file); }
   }
 
-  // { [featureDir]: { sessionId, cwd, model, takenOverAt, startedFromWorkshop } }
+  // { [featureDir]: { sessionId, cwd, model, takenOverAt, startedFromWorkshop, closed, auto } }
+  // auto: Auto mode's record (lib/auto.js), the only thing that says a job is in Auto.
   async allSessions() {
     if (!this.sessions) {
       // One read, shared by everyone who asks while it is under way: callers patching at the same
@@ -144,8 +145,12 @@ export class State extends EventEmitter {
     };
   }
 
-  /** The permission setting for one job: its own, else the global one. */
+  /**
+   * The permission setting for one job: 'auto' while the job's Auto is on (its record here, lib/auto.js),
+   * else its own, else the global one. Turning Auto off leaves the job's own setting as it was.
+   */
   async policyFor(featureDir) {
+    if (featureDir && (await this.sessionFor(featureDir))?.auto?.on === true) return 'auto';
     const s = await this.getSettings();
     return (featureDir && s.jobPolicy?.[featureDir]) || s.policy;
   }

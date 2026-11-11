@@ -13,6 +13,8 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDashboard } from './helpers/dashboard.js';
+import { parseCommand } from '../lib/protocol.js';
+import { State } from '../lib/state.js';
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server.js');
 const OLD = '2026-10-01T10:00:00Z';
@@ -88,6 +90,15 @@ before(async () => {
     status: { title: 'Answered', route: 'small', stage: 'plan', stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: OLD, brief: { number: 4, path: 'briefs/004-plan.md', headline: null }, updated_at: OLD },
     briefs: { '004-plan.md': '**Answered · plan v1**\n' },
   });
+
+  // Auto mode's switch: an L2 job, an L3 job and an L1 job whose Foreman writes options.json itself.
+  // None of them waits at a gate, so the parking tests above see only their own jobs.
+  for (const [slug, level] of [['auto-job', 2], ['big-job', 3], ['foreman-job', 1]]) {
+    await writeJob(slug, {
+      status: { title: slug, route: 'small', stage: 'implement', stage_state: 'working', updated_at: OLD },
+      options: { level, flow: level === 3 ? 'large' : level === 2 ? 'small' : 'quick', title: slug, updated_at: OLD },
+    });
+  }
 
   const audit = [
     { at: '2026-10-02T09:00:00Z', action: 'send', kind: 'approve', featureDir: plan, slug: 'visit-audit', text: 'I approve the spec.', gateBrief: 1 },
@@ -245,4 +256,103 @@ test('parking: one gate-stale per job and brief; the row says parked and stays u
   assert.deepEqual(stale(seen), ['no-since#1', 'visit-audit#2', 'visit-audit#3']);
   const trimmed = JSON.parse(await fs.readFile(path.join(stateDir, 'gate-parking.json'), 'utf8'));
   assert.deepEqual(trimmed.alerted, ['no-since#1#2026-01-02T03:04:05.000Z', `visit-audit#3#${OLD}`], 'brief 2 no longer waits: forgotten');
+});
+
+// ---------- Auto mode's switch: kept in Starbase's own sessions.json, never in the job's folder ----------
+
+const L3 = 'Auto works up to L2. An L3 job needs you to approve each step.';
+async function post(p, body) {
+  const { token } = await getJson('/api/meta');
+  const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: JSON.stringify(body) });
+  return { status: res.status, body: await res.json() };
+}
+const readJson = async (file) => JSON.parse(await fs.readFile(file, 'utf8'));
+const sessions = () => readJson(path.join(stateDir, 'sessions.json')).catch(() => ({}));
+const optionsOf = (slug) => readJson(path.join(featuresDir, slug, 'options.json'));
+const auditLines = async () => (await fs.readFile(path.join(stateDir, 'audit.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+
+test('turning Auto on writes the record, options.json and the audit line', { timeout: 60_000 }, async () => {
+  const dir = path.join(featuresDir, 'auto-job');
+  const r = await post('/api/job/auto-job/auto', { on: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const rec = (await sessions())[dir]?.auto;
+  assert.ok(rec, 'the record is in sessions.json');
+  assert.equal(rec.on, true);
+  assert.equal(rec.by, 'you');
+  assert.equal(rec.tag, null);
+  assert.equal(rec.ran, true);
+  assert.deepEqual([rec.stopped, rec.step, rec.failures, rec.lastBrief], [null, null, 0, null]);
+  assert.ok(Number.isFinite(Date.parse(rec.since)));
+  const o = await optionsOf('auto-job');
+  assert.equal(o.auto, true);
+  assert.equal(o.auto_since, rec.since);
+  assert.deepEqual([o.level, o.title, o.updated_at], [2, 'auto-job', OLD], 'nothing else in options.json changes');
+  const line = (await auditLines()).filter((e) => e.action === 'auto' && e.slug === 'auto-job').at(-1);
+  assert.deepEqual([line.what, line.by, line.featureDir], ['on', 'you', dir]);
+  const job = await getJson('/api/job/auto-job');
+  assert.deepEqual(job.auto, { on: true, ran: true, stopped: null, deciding: false, allowed: true, why: null, tag: null });
+  const card = (await getJson('/api/snapshot')).jobs.find((j) => j.slug === 'auto-job');
+  assert.equal(card.auto.on, true);
+  assert.equal(card.auto.tag, undefined, 'the tag is the job page’s');
+});
+
+test('policyFor says auto while Auto is on and the job\'s own setting after', { timeout: 60_000 }, async () => {
+  const dir = path.join(featuresDir, 'auto-job');
+  assert.equal((await post('/api/job/auto-job/policy', { policy: 'ask-all' })).status, 200);
+  // Auto is still on from the test before.
+  assert.equal(await new State(stateDir).policyFor(dir), 'auto');
+  let job = await getJson('/api/job/auto-job');
+  assert.equal(job.policy, 'auto');
+  assert.equal(job.policyOverride, 'ask-all', 'the job’s own setting is kept, untouched');
+  const r = await post('/api/job/auto-job/auto', { on: false });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(await new State(stateDir).policyFor(dir), 'ask-all');
+  job = await getJson('/api/job/auto-job');
+  assert.equal(job.policy, 'ask-all');
+  assert.deepEqual([job.auto.on, job.auto.ran], [false, true], 'ran stays true');
+  const o = await optionsOf('auto-job');
+  assert.equal('auto' in o, false);
+  assert.equal('auto_since' in o, false);
+  const lines = (await auditLines()).filter((e) => e.action === 'auto' && e.slug === 'auto-job');
+  assert.deepEqual(lines.map((e) => e.what), ['on', 'off']);
+  assert.equal(lines.some((e) => e.what === 'stray-option'), false, 'Starbase’s own writes are never stray');
+});
+
+test('a Foreman that writes auto: true into options.json does not turn Auto on', { timeout: 60_000 }, async () => {
+  const dir = path.join(featuresDir, 'foreman-job');
+  const stray = () => auditLines().then((l) => l.filter((e) => e.action === 'auto' && e.what === 'stray-option' && e.slug === 'foreman-job'));
+  for (const round of [1, 2]) {
+    await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify({ ...(await optionsOf('foreman-job')), auto: true, auto_since: new Date().toISOString() }, null, 2));
+    await pause(1600); // the job list is cached for 1.5 seconds
+    const job = await getJson('/api/job/foreman-job');
+    assert.equal(job.auto.on, false, `round ${round}: the card`);
+    assert.equal(job.policy, 'hands-off', `round ${round}: the policy is the job's own`);
+    assert.equal(await new State(stateDir).policyFor(dir), 'hands-off');
+    assert.equal((await sessions())[dir]?.auto?.on ?? false, false, `round ${round}: no record says on`);
+    const o = await optionsOf('foreman-job');
+    assert.equal('auto' in o, false, `round ${round}: taken out again`);
+    assert.equal('auto_since' in o, false, `round ${round}: its time too`);
+    assert.deepEqual([o.level, o.title], [1, 'foreman-job'], 'the rest is left as it was');
+    assert.equal((await stray()).length, round, `round ${round}: one audit line per removal`);
+  }
+  const line = (await stray())[0];
+  assert.deepEqual([line.action, line.what, line.featureDir], ['auto', 'stray-option', dir]);
+});
+
+test('the site cannot send by: \'auto\'', () => {
+  const r = parseCommand({ type: 'approve', slug: 'auto-job', by: 'auto' }, { from: 'site' });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /doesn’t take “by”/);
+  assert.equal(parseCommand({ type: 'approve', slug: 'auto-job', by: 'auto' }, { from: 'local' }).ok, false, 'not from this computer’s page either');
+});
+
+test('L3 refuses with the sentence', { timeout: 60_000 }, async () => {
+  const dir = path.join(featuresDir, 'big-job');
+  const r = await post('/api/job/big-job/auto', { on: true });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.error, L3);
+  assert.equal((await sessions())[dir]?.auto, undefined, 'no record written');
+  assert.equal('auto' in (await optionsOf('big-job')), false);
+  const job = await getJson('/api/job/big-job');
+  assert.deepEqual([job.auto.on, job.auto.allowed, job.auto.why], [false, false, L3]);
 });

@@ -170,6 +170,12 @@ export default function jobRoutes({ runner, read, send, sendJson, needJob, wiref
       return command(res, { type: 'repo', slug, repoPath: str(body.repoPath, 1000), branch: str(body.branch, 200).trim() || null });
     }),
     // One job's own permission setting; null clears it (the job follows your global setting again).
+    // Auto mode's switch (lib/auto.js): { on }. Refused at L3 (409, with why).
+    post(/^\/api\/job\/([^/]+)\/auto$/, async ({ res, m, body }) => {
+      const slug = await needJob(m[1]);
+      if (typeof body.on !== 'boolean') throw new HttpError(400, 'Auto: say on (true) or off (false).');
+      return command(res, { type: 'auto', slug, on: body.on });
+    }),
     post(/^\/api\/job\/([^/]+)\/policy$/, async ({ res, m, body }) => command(res, { type: 'policy', slug: await needJob(m[1]), policy: body.policy })),
     post(/^\/api\/job\/([^/]+)\/(close|reopen)$/, async ({ res, m, body }) => {
       const slug = await needJob(m[1]);
