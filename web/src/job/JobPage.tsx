@@ -8,7 +8,7 @@
 // evidence and Try it, Review, Decisions, Ship), the folded conversation, and the message box (c).
 import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
-import type { Job, JobDocEntry, Run, StopId } from '../api/types';
+import type { Job, JobDetail, JobDocEntry, Run, StopId } from '../api/types';
 import { jobHref, navigate, screensHref, stageHref } from '../app/router';
 import { useUi } from '../app/ui';
 import { useDetail, useShown } from '../app/detail';
@@ -29,6 +29,8 @@ import { ThreadList, useCurrentJob, useJobConversation } from '../panes/Foreman/
 import { Composer } from '../panes/Foreman/Composer';
 import { GateSlot, pressReply } from '../panes/Foreman/GateCard';
 import { useGateSent, type GateSent } from '../panes/Foreman/gateSent';
+import { isActiveRun } from '../panes/Foreman/thread';
+import { DECIDING_KINDS, openGate } from '../lib/gateCard';
 import { JobGithub } from '../panes/Foreman/JobGithub';
 import { JobMenu } from '../panes/Foreman/JobHeader';
 import { LevelChip } from '../panes/Foreman/LevelChip';
@@ -296,11 +298,13 @@ export function NextStep({ job, conversation, now, onShip, foldCard = false }: {
   const perms = state.permissions.filter((p) => p.slug === job.slug && !isRoundCard(p));
   // One live region, always here (empty when nothing is out), so each of sending, sent and stuck is
   // announced once; the bar shows the same words, but not as a live region.
-  const live = <p className="sr-only" role="status" data-next-live>{after.live}</p>;
+  // The brief is answered (or his reply's run is at work): the bar keeps saying it was sent.
+  const sent = perms.length === 0 ? sentView(job, thread.detail, run, after.decision) : null;
+  const live = <p className="sr-only" role="status" data-next-live>{after.live || (sent ? [SENT_WORDS, sent.more].filter(Boolean).join(' ') : '')}</p>;
   const problem = after.problem && <p ref={after.problemRef} className="field-problem" role="alert" tabIndex={-1}>{after.problem}</p>;
   let bar: ReactNode;
   if (perms.length > 0) bar = <PermissionAlert permissions={perms} now={now} />;
-  else if (thread.detail?.gate) bar = <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} after={after} />;
+  else if (thread.detail?.gate) bar = <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} after={after} sent={sent} run={run} />;
   else if (review.view) bar = <ReviewBar view={review.view} act={review.act} problem={review.problem} />;
   else bar = <StateBar job={job} onShip={onShip} after={after} />;
   return <>{bar}{live}{problem}</>;
@@ -309,13 +313,33 @@ export function NextStep({ job, conversation, now, onShip, foldCard = false }: {
 /** The bar after a decision was taken (spec 1.2): its words, and Try again once nothing has moved. */
 const SENT_WORDS = 'Sent. Waiting for the Foreman to start.';
 const STUCK_WORDS = 'Nothing has moved yet.';
-/** The second line under the sent line, by what was sent (Go keeps the bar's own second line). */
+/** The second line under the sent line, by what was sent (an approval has none). */
 const SENT_MORE: Partial<Record<string, string>> = {
   message: 'Your reply is with the Foreman. Nothing is approved.',
   changes: 'The Foreman will rework this step with your note.',
 };
 
 const SENDING_WORDS = 'Sending…';
+
+/** What the bar says once his decision on the waiting brief went: the second line by what was sent. */
+interface SentView { more: string | null }
+
+/**
+ * The bar after the server took his decision (deep review D, I1). The server answers `sent` with a
+ * started run, so the sent state clears at once; the bar keeps saying it was sent, with no calls,
+ * while the brief is answered (the job's detail says so, or the server took a deciding answer to this
+ * brief), or while the run his reply started works. Null: the bar asks as usual.
+ */
+function sentView(job: Job, detail: JobDetail | null | undefined, run: Run | null, decision: GateSent): SentView | null {
+  const gate = detail?.gate ?? null;
+  if (!gate || job.closed) return null;
+  const a = decision.accepted;
+  const thisBrief = a !== null && a.brief !== null && a.brief === (gate.briefNumber ?? null);
+  const answered = openGate(detail, false) === null || (thisBrief && DECIDING_KINDS.includes(a.kind));
+  const replying = !answered && a?.kind === 'message' && a.runId !== null && isActiveRun(run) && run.id === a.runId;
+  if (!answered && !replying) return null;
+  return { more: a && (thisBrief || replying) ? SENT_MORE[a.kind] ?? null : null };
+}
 
 interface AfterSend {
   decision: GateSent;
@@ -410,7 +434,7 @@ function TryAgain({ after }: { after: AfterSend }) {
  * the decisions made for you, a stale plan, the evidence); its own row of buttons is hidden, and
  * the bar's three calls press them (Reply opens the message box). Go is off while the card asks a question: a never answers one.
  */
-function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; after: AfterSend }) {
+function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, run }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; after: AfterSend; sent: SentView | null; run: Run | null }) {
   const [cardShown, setCardShown] = useShown('stage', 'brief');
   const folded = foldCard && !cardShown;
   const body = useRef<HTMLDivElement>(null);
@@ -439,18 +463,22 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { jo
   // The call pressed spins while its decision is out (the card's own button was pressed for it).
   const out = after.decision.state === 'sending' && !after.retrying;
   const spins = (kind: string) => out && after.decision.kind === kind;
+  // His decision went (I1): the sent line, the second line for what was sent, and no calls; Try
+  // again only once nothing has moved and no run is at work.
+  const waits = Boolean(after.say) || sent !== null;
+  const sentSay = after.say ?? <span ref={after.sayRef} tabIndex={-1}>{SENT_WORDS}</span>;
   return (
     <div className="job-go">
       <NextBar
         tone="go"
         icon="clipboard"
-        label={call ? 'Go / no go' : null}
-        say={after.say ?? (gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead')}
-        sub={after.more ?? autoLaneReason(job) ?? (gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason)}
+        label={call && !waits ? 'Go / no go' : null}
+        say={waits ? sentSay : (gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead')}
+        sub={waits ? (sent?.more ?? after.more) : autoLaneReason(job) ?? (gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason)}
       >
+        {waits && after.stuck && !isActiveRun(run) && <TryAgain after={after} />}
         {/* On the hosted site a Go made there waits for the laptop (the card under this says so): no calls meanwhile. */}
-        {!isOpen(queuedOf(detail.queued)) && <>
-        {after.stuck && <TryAgain after={after} />}
+        {!waits && !isOpen(queuedOf(detail.queued)) && <>
         <Button size="lg" keyId="gate-revise" busy={spins('changes')} busyLabel={SENDING_WORDS} disabled={go.backOff} onClick={() => { if (folded) setCardShown(true); press('revise'); }} title={go.backOff ? 'Off for now: the card under this says why.' : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
           {call ? 'No go: send back' : 'Send back'}
         </Button>
@@ -475,7 +503,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { jo
         </Button>
         </>}
       </NextBar>
-      {autoDeciding(job) && <p className="job-go-auto muted">{AUTO_DECIDING_NOTE}</p>}
+      {autoDeciding(job) && !waits && <p className="job-go-auto muted">{AUTO_DECIDING_NOTE}</p>}
       {foldCard && (
         <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
           <Icon name="file" size={16} />

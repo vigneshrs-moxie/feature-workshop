@@ -19,8 +19,19 @@ export function jobMarks(job: Job, run: Run | null | undefined): string {
   return JSON.stringify([run?.id ?? null, job.waitingFor ?? null, job.stage ?? null]);
 }
 
-/** The decision last sent for each job, and where the job stood at its click. */
-const lastSent = new Map<string, { body: GateRequest; marks: string; queuedId?: string }>();
+/**
+ * The decision last sent for each job, where the job stood at its click, and once the server took it
+ * (`sent: true`), the run it started: kept after the bar's sent state clears, so the page can go on
+ * saying it was sent while that run works or until the brief shows as answered.
+ */
+const lastSent = new Map<string, { body: GateRequest; marks: string; queuedId?: string; accepted?: { runId: string | null } }>();
+
+/** A decision the server took: its kind, the brief it answered and the run it started. */
+export interface AcceptedDecision {
+  kind: GateKind;
+  brief: number | null;
+  runId: string | null;
+}
 
 /** The id of the decision the website queued for the laptop, from a gate answer. */
 function queuedIdOf(r: unknown): string | null {
@@ -35,6 +46,8 @@ export interface GateSent {
   kind: GateKind | null;
   /** The job has moved on since the last send's click (a sent line is about to clear). */
   moved: boolean;
+  /** The last decision the server took (`sent: true`), or null: kept once the sent state clears. */
+  accepted: AcceptedDecision | null;
   /**
    * Send a decision: sending until it answers, then sent if it went to the Foreman; queued by the
    * website, still sending until the page shows it; else idle. Refusals throw.
@@ -78,7 +91,10 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
       throw err;
     }
     const queued = queuedIdOf(r);
-    if (r?.sent) sent.accepted();
+    if (r?.sent) {
+      lastSent.set(slug, { body, marks, accepted: { runId: typeof r.run?.id === 'string' ? r.run.id : null } });
+      sent.accepted();
+    }
     else if (queued) lastSent.set(slug, { body, marks, queuedId: queued });
     // Held for the usage limit or given back to the message box: nothing went to the Foreman.
     else sent.clear();
@@ -89,12 +105,18 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
     state,
     kind: lastSent.get(slug)?.body.kind ?? null,
     moved: lastSent.has(slug) && lastSent.get(slug)!.marks !== marks,
+    accepted: acceptedOf(lastSent.get(slug)),
     send,
     retry: (api) => {
       const last = lastSent.get(slug);
       return last ? send(api, last.body) : Promise.reject(new Error('Nothing to send again.'));
     },
   };
+}
+
+function acceptedOf(last: { body: GateRequest; accepted?: { runId: string | null } } | undefined): AcceptedDecision | null {
+  if (!last?.accepted) return null;
+  return { kind: last.body.kind, brief: last.body.briefNumber ?? null, runId: last.accepted.runId };
 }
 
 /** Forget every decision sent (between tests). */
