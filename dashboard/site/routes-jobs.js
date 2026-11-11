@@ -7,12 +7,14 @@ import { HttpError } from '../lib/http-guard.js';
 import { NUDGE_IDS } from '../lib/nudges.js';
 import { MAX_CHIPS } from '../lib/compose.js';
 import { NOTES_MAX } from '../lib/protocol.js';
+import { MAX_CLARIFY_QUESTIONS } from '../lib/status-json.js';
 
 const str = (v, max = 20000) => (typeof v === 'string' ? v.slice(0, max) : '');
 
 // ---------- Reading what the page sent (…/send and …/gate) ----------
 
-// The gate card's body, checked: kind, the brief it answers, at most 3 answers, 20 verdicts,
+// The gate card's body, checked: kind, the brief it answers, at most 5 answers (a clarify brief
+// asks five), 20 verdicts,
 // MAX_CHIPS chips and a 4,000-character note. Anything off is a 400, and nothing is sent.
 const GATE_KINDS = ['approve', 'changes', 'message', 'stop'];
 const GATE_NOTE_MAX = 4000;
@@ -40,7 +42,7 @@ function readGateBody(body) {
   const note = body.note ?? '';
   if (note.length > GATE_NOTE_MAX) throw new HttpError(400, `The note is too long (at most ${GATE_NOTE_MAX.toLocaleString('en')} characters).`);
   if (kind === 'changes' && !note.trim()) throw new HttpError(400, 'Say what to change.');
-  const answers = byId(body.answers, 3, 'Answers', (a) => ({ ...(str(a.choice, 100) ? { choice: str(a.choice, 100) } : {}), ...(str(a.other, 1000) ? { other: str(a.other, 1000) } : {}) }));
+  const answers = byId(body.answers, MAX_CLARIFY_QUESTIONS, 'Answers', (a) => ({ ...(str(a.choice, 100) ? { choice: str(a.choice, 100) } : {}), ...(str(a.other, 1000) ? { other: str(a.other, 1000) } : {}) }));
   const verdicts = byId(body.verdicts, 20, 'Verdicts', (v) => {
     if (!['confirm', 'change'].includes(v.verdict)) throw new HttpError(400, 'Verdicts: confirm or change.');
     return { verdict: v.verdict, ...(str(v.note, 1000) ? { note: str(v.note, 1000) } : {}) };

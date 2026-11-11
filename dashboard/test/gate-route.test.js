@@ -269,7 +269,7 @@ test('gate: refusals send nothing and change nothing', { timeout: 60_000 }, asyn
     [{ kind: 'approve', briefNumber: '2' }, 400, /brief number/],
     [{ kind: 'message', note: 'x'.repeat(4001) }, 400, /too long/],
     [{ kind: 'changes', note: '  ' }, 400, /Say what to change/],
-    [{ kind: 'approve', answers: { 1: { choice: 'a' }, 2: {}, 3: {}, 4: {} } }, 400, /at most 3/],
+    [{ kind: 'approve', answers: { 1: { choice: 'a' }, 2: {}, 3: {}, 4: {}, 5: {}, 6: {} } }, 400, /at most 5/],
     [{ kind: 'approve', verdicts: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`D-${i}`, { verdict: 'confirm' }])) }, 400, /at most 20/],
     [{ kind: 'approve', verdicts: { 'D-1': { verdict: 'maybe' } } }, 400, /confirm or change/],
     [{ kind: 'approve', chips: Array.from({ length: 9 }, () => ({ kind: 'skip', stage: 'test' })) }, 400, /at most 8/],
