@@ -174,6 +174,19 @@ describe('AutoSwitch', () => {
     expect(/\.job-auto \{([^}]*)\}/.exec(css)?.[1]).toMatch(/flex-wrap:\s*wrap/);
   });
 
+  // m9: at L3 the row is greyed, but the sentence saying why Auto is off is fully readable.
+  it('at L3 the row stays greyed but its sentence is at full opacity, in the second text colour', () => {
+    const css = readFileSync(path.join(process.cwd(), 'src/job/auto.css'), 'utf8');
+    const rule = (sel: string) => new RegExp(`${sel.replace(/[.()*+?[\]\\^$|{}]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+    expect(rule('.option-row.auto-switch-row.is-off:has(.choice:disabled)')).toMatch(/opacity:\s*1\b/);
+    expect(rule('.auto-switch-row.is-off > .choice, .auto-switch-row.is-off .auto-switch-label')).toMatch(/opacity:\s*\.7/);
+    expect(rule('.auto-switch-row.is-off .auto-switch-hint')).toMatch(/opacity:\s*1\b/);
+    expect(rule('.auto-switch-row.is-off .auto-switch-hint')).toMatch(/color:\s*var\(--text-2\)/);
+    render(<AutoSwitch level={3} checked onChange={vi.fn()} />);
+    expect(screen.getByText(AUTO_L3)).toHaveClass('auto-switch-hint');
+    expect(screen.getByText(AUTO_L3).closest('.auto-switch-row')).toHaveClass('is-off');
+  });
+
   it('on the form it is controlled and sends nothing itself', () => {
     const onChange = vi.fn();
     const post = vi.fn();
