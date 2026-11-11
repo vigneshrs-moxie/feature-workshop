@@ -163,6 +163,114 @@ test('a failure after the branch rename reports what was moved and moves nothing
   assert.equal(started, null);
 });
 
+// ---------- Fix round 1: refusals before anything moves ----------
+
+// Everything a refusal must leave as it was: branch names, folders, the job folder, no new job.
+async function assertUntouched(extra = {}) {
+  assert.notEqual(git(repo, 'branch', '--list', extra.branch ?? 'feature/visit-audit'), '', 'the branch keeps its name');
+  assert.equal(git(repo, 'branch', '--list', 'backup/*'), '', 'no backup branch was made');
+  assert.equal(await exists(path.join(features, 'visit-audit', 'decisions.md')), true, 'the job folder is where it was');
+  assert.equal(await exists(path.join(features, '.restarted')), false, 'no archive was made');
+  assert.equal(await exists(extra.worktree ?? worktree), true, 'the worktree is where it was');
+  assert.equal(started, null, 'no new job was started');
+}
+const refused = (reasonPattern) => (e) => e.status === 409 && /did not start/.test(e.message) && /Nothing was changed\./.test(e.message) && reasonPattern.test(e.message) && e.moved.length === 0;
+
+test('F1: a branch also checked out in the main checkout refuses, and nothing moved', async () => {
+  // The job's worktree has gone, and its branch is checked out in the main checkout.
+  git(repo, 'worktree', 'remove', '--force', worktree);
+  git(repo, 'checkout', '-q', 'feature/visit-audit');
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start, today: TODAY }), refused(/main checkout/));
+  assert.equal(git(repo, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/visit-audit');
+  assert.equal(git(repo, 'branch', '--list', 'backup/*'), '');
+  assert.equal(await exists(path.join(features, 'visit-audit', 'decisions.md')), true);
+  assert.equal(started, null);
+});
+
+test('F1: a branch checked out in some other folder than the job’s own worktree refuses', async () => {
+  // The branch is in the job's worktree AND the main checkout cannot have it too, so use a second worktree on a detached name:
+  // move the job's branch to another folder by pointing the job at a different worktree path.
+  const other = path.join(root, 'repo-worktrees', 'other');
+  git(repo, 'worktree', 'add', '-q', '-b', 'feature/other', other);
+  await assert.rejects(restartJob(job({ branch: 'feature/other' }), { model: 'claude-fable-5-2', start, today: TODAY }), refused(/checked out in/));
+  assert.notEqual(git(repo, 'branch', '--list', 'feature/other'), '');
+  assert.equal(await exists(other), true);
+  assert.equal(await exists(worktree), true);
+  assert.equal(started, null);
+});
+
+test('F1: the base branch is never renamed', async () => {
+  // The job is recorded as working on main: in the main checkout, with a worktree of its own named for it.
+  await assert.rejects(restartJob(job({ branch: 'main', worktree: null }), { model: 'claude-fable-5-2', start, today: TODAY }), refused(/main checkout|base branch/));
+  assert.notEqual(git(repo, 'branch', '--list', 'main'), '');
+  assert.equal(git(repo, 'branch', '--list', 'backup/*'), '');
+  assert.equal(started, null);
+});
+
+test('F1: the base branch named by the job is refused even when it is not main', async () => {
+  git(repo, 'branch', 'develop');
+  await assert.rejects(restartJob(job({ branch: 'develop', baseBranch: 'develop', worktree: null }), { model: 'claude-fable-5-2', start, today: TODAY }), refused(/base branch/));
+  assert.notEqual(git(repo, 'branch', '--list', 'develop'), '');
+  assert.equal(started, null);
+});
+
+test('F1: a worktree that is the repository itself, with a branch set, refuses (compared by real path)', async () => {
+  const link = path.join(root, 'repo-link');
+  await fs.symlink(repo, link);
+  await assert.rejects(restartJob(job({ worktree: link }), { model: 'claude-fable-5-2', start, today: TODAY }), refused(/main checkout/));
+  assert.notEqual(git(repo, 'branch', '--list', 'feature/visit-audit'), '');
+  assert.equal(git(repo, 'branch', '--list', 'backup/*'), '');
+  assert.equal(await exists(path.join(features, 'visit-audit', 'decisions.md')), true);
+  assert.equal(started, null);
+});
+
+test('F6: a branch list that cannot be read stops the restart before anything moves', async () => {
+  const broken = { ...realGit, branches: async () => { throw new Error('fatal: not a git repository'); } };
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', git: broken, start, today: TODAY }), refused(/list of branches/));
+  await assertUntouched();
+});
+
+// ---------- F5: a branch already on the remote ----------
+
+async function withRemote(branchOnRemote) {
+  const bare = path.join(root, 'remote.git');
+  execFileSync('git', ['init', '-q', '--bare', bare]);
+  git(repo, 'remote', 'add', 'origin', bare);
+  if (branchOnRemote) git(repo, 'push', '-q', 'origin', 'feature/visit-audit');
+  else git(repo, 'push', '-q', 'origin', 'main');
+  return bare;
+}
+
+test('F5: a branch already on the remote refuses, and nothing moved', async () => {
+  await withRemote(true);
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start, today: TODAY }), refused(/already on the remote[\s\S]*finish the job on this model[\s\S]*delete or rename the branch on the remote/i));
+  await assertUntouched();
+});
+
+test('F5: a branch that is not on the remote goes ahead', async () => {
+  await withRemote(false);
+  const out = await restartJob(job(), { model: 'claude-fable-5-2', start, today: TODAY });
+  assert.equal(out.notes.some((n) => /could not be checked/.test(n)), false);
+  assert.equal(out.backupBranch, 'backup/feature/visit-audit-2026-11-10');
+});
+
+test('F5: an unreachable remote goes ahead, and the result says it could not be checked', async () => {
+  git(repo, 'remote', 'add', 'origin', path.join(root, 'no-such-remote.git'));
+  const out = await restartJob(job(), { model: 'claude-fable-5-2', start, today: TODAY });
+  assert.equal(out.backupBranch, 'backup/feature/visit-audit-2026-11-10');
+  assert.equal(out.notes.some((n) => /could not be checked/.test(n) && /pushed/.test(n)), true, JSON.stringify(out.notes));
+});
+
+test('F5: no remote at all goes ahead, with the same note', async () => {
+  const out = await restartJob(job(), { model: 'claude-fable-5-2', start, today: TODAY });
+  assert.equal(out.notes.some((n) => /could not be checked/.test(n)), true);
+});
+
+test('F7: Claude Code open in a terminal on the job refuses, and nothing moved', async () => {
+  await assert.rejects(restartJob(job({ terminalOpen: true }), { model: 'claude-fable-5-2', start, today: TODAY }), (e) => e.status === 409 && /in a terminal/.test(e.message) && /close/i.test(e.message) && /Nothing was changed\./.test(e.message));
+  await assertUntouched();
+});
+
 test('a first step that fails says nothing was changed', async () => {
   const badGit = { ...realGit, moveWorktree: async () => { throw new Error('worktree is locked'); } };
   await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', git: badGit, start, today: TODAY }), (e) => /did not start/.test(e.message) && /Nothing was changed/.test(e.message) && e.moved.length === 0);

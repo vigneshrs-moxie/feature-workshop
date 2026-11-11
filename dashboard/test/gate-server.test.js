@@ -94,6 +94,18 @@ before(async () => {
   const wt = path.join(root, 'repo-worktrees', 'restart-me');
   git('worktree', 'add', '-q', '-b', 'feature/restart-me', wt);
   await started('restart-me', { branch: 'feature/restart-me', worktree: wt, base_sha: baseSha }, { models: { foreman: OPUS, build: OPUS, checks: OPUS } });
+  // More started jobs for the restart's guards (a terminal open, two restarts at once, a send during one).
+  for (const slug of ['race-one', 'race-two']) {
+    const w = path.join(root, 'repo-worktrees', slug);
+    git('worktree', 'add', '-q', '-b', `feature/${slug}`, w);
+    await started(slug, { branch: `feature/${slug}`, worktree: w, base_sha: baseSha }, { models: { foreman: OPUS, build: OPUS, checks: OPUS } });
+  }
+  await started('term-job');
+  await fs.mkdir(path.join(dirs.state, 'hook-events'), { recursive: true });
+  await fs.writeFile(path.join(dirs.state, 'hook-events', 'events.jsonl'), `${new Date().toISOString()}\t${JSON.stringify({ session_id: 'term-1', hook_event_name: 'UserPromptSubmit', cwd: repo, prompt: `carry on with feature-work/term-job` })}\n`);
+  // A started job and one that has not started (no Foreman session), both on Opus, for the locked model.
+  await started('lock-job', {}, { models: { foreman: OPUS, build: OPUS, checks: OPUS }, all_fable: false });
+  await writeJob('fresh-job', { status: { title: 'Fresh', route: 'small', stage: 'plan', stage_state: 'working', repo: { path: repo, base_branch: 'main' }, updated_at: OLD }, options: { level: 2, flow: 'small', title: 'Do the fresh-job job', repo, models: { foreman: FABLE, build: OPUS, checks: OPUS } } });
 
   // Waiting with no waiting_since and no brief named: timed from the newest brief file.
   const noSince = await writeJob('no-since', {
@@ -340,4 +352,35 @@ test('restart route: the job starts again on the new model; the old work is kept
   assert.equal(opts.title, 'Do the restart-me job');
   const audit = (await auditLines()).filter((l) => l.action === 'restart' && l.slug === 'restart-me');
   assert.equal(audit.length, 1);
+});
+
+test('F7: a terminal open on the job refuses the restart; nothing changed', { timeout: 60_000 }, async () => {
+  const res = await post('/api/job/term-job/restart', { model: FABLE });
+  assert.equal(res.status, 409, JSON.stringify(res.body));
+  assert.match(res.body.error ?? res.body.message, /in a terminal[\s\S]*Nothing was changed/);
+  assert.equal(await fs.access(path.join(featuresDir, 'term-job')).then(() => true, () => false), true);
+  assert.equal(await modelOf('term-job'), OPUS);
+});
+
+test('F7: a second restart while the first is under way answers 409', { timeout: 60_000 }, async () => {
+  const [a, b] = await Promise.all([post('/api/job/race-one/restart', { model: FABLE }), post('/api/job/race-one/restart', { model: FABLE })]);
+  assert.deepEqual([a.status, b.status].sort(), [200, 409], JSON.stringify([a.body, b.body]));
+  const refused = a.status === 409 ? a : b;
+  assert.match(refused.body.error ?? refused.body.message, /already being started again|being restarted/i);
+  const archives = (await fs.readdir(path.join(featuresDir, '.restarted'))).filter((n) => n.startsWith('race-one-'));
+  assert.equal(archives.length, 1, 'only one restart moved the work');
+});
+
+test('F7: a send and a gate answer during a restart answer 409', { timeout: 60_000 }, async () => {
+  const restart = post('/api/job/race-two/restart', { model: FABLE });
+  const seen = [];
+  let finished = false;
+  restart.then(() => { finished = true; });
+  while (!finished) {
+    seen.push((await post('/api/job/race-two/send', { text: 'Hello' })).status);
+    seen.push((await post('/api/job/race-two/gate', { kind: 'message', note: 'Hello' })).status);
+  }
+  assert.equal((await restart).status, 200);
+  assert.equal(seen.includes(200), false, `a send or gate went through during the restart: ${seen}`);
+  assert.equal(seen.includes(409), true, `nothing was refused as busy: ${seen}`);
 });

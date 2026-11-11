@@ -61,6 +61,33 @@ export const realGit = {
   },
   async moveWorktree(repo, from, to) { await run('git', ['-C', repo, 'worktree', 'move', from, to]); },
   async renameBranch(repo, from, to) { await run('git', ['-C', repo, 'branch', '-m', from, to]); },
+  /** Every folder git has a checkout in, with the branch checked out there: [{ path, branch }]. */
+  async worktrees(repo) {
+    const { stdout } = await run('git', ['-C', repo, 'worktree', 'list', '--porcelain']);
+    return stdout.split('\n\n').map((block) => {
+      const line = (key) => block.split('\n').find((l) => l.startsWith(`${key} `))?.slice(key.length + 1) ?? null;
+      const branch = line('branch');
+      return { path: line('worktree'), branch: branch ? branch.replace(/^refs\/heads\//, '') : null };
+    }).filter((w) => w.path);
+  },
+  /** The branch the remote calls its default (origin/HEAD), or null when git doesn't know. */
+  async defaultBranch(repo) {
+    try {
+      const { stdout } = await run('git', ['-C', repo, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
+      return stdout.trim().replace(/^origin\//, '') || null;
+    } catch { return null; }
+  },
+  async remotes(repo) {
+    const { stdout } = await run('git', ['-C', repo, 'remote']);
+    return stdout.split('\n').filter(Boolean);
+  },
+  /** Whether the remote has a branch of this name: true, false, or null when it could not be asked (offline, no such remote, too slow). */
+  async remoteHasBranch(repo, remote, branch) {
+    try {
+      const { stdout } = await run('git', ['-C', repo, 'ls-remote', '--heads', remote, branch], { timeout: 8000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+      return stdout.split('\n').some((l) => l.trim().endsWith(`refs/heads/${branch}`));
+    } catch { return null; }
+  },
 };
 
 const exists = async (fs, p) => { try { await fs.access(p); return true; } catch { return false; } };
@@ -73,6 +100,19 @@ export function hasOpenPullRequest(prs) {
     const state = String(p?.state ?? '').toLowerCase();
     return state ? !['not_started', 'closed'].includes(state) : Boolean(p?.url);
   });
+}
+
+/** Ask every remote whether it has the branch: { onRemote: name | null, notes: [what could not be checked] }. */
+async function remoteCheck(git, repo, branch) {
+  let remotes = [];
+  try { remotes = await git.remotes(repo); } catch { remotes = []; }
+  let unsure = remotes.length === 0;
+  for (const remote of remotes) {
+    const has = await git.remoteHasBranch(repo, remote, branch);
+    if (has === true) return { onRemote: remote, notes: [] };
+    if (has === null) unsure = true;
+  }
+  return { onRemote: null, notes: unsure ? [`Whether the branch ${branch} had already been pushed could not be checked (no remote could be reached). If it was pushed, the new job's branch of the same name will collide with it when you push.`] : [] };
 }
 
 /**
@@ -88,15 +128,44 @@ export function hasOpenPullRequest(prs) {
  * Returns { slug, archive, backupBranch, worktreeAside, run }.
  */
 export async function restartJob(job, { model, git = realGit, fs = fsp, start, session = null, today = dated() }) {
+  const notes = [];
   if (job.running) throw new HttpError(409, 'Stop the reply first.');
+  if (job.terminalOpen) throw new HttpError(409, 'Claude Code is open on this job in a terminal. Close it (type /exit there) and try again. Nothing was changed.');
   if (hasOpenPullRequest(job.prs)) throw new HttpError(409, 'This job has an open pull request, so its model can’t change: reviewed work would be thrown away. Close the pull request, or start a new job.');
 
+  const refuse = (reason) => new RestartFailed(reason, []);
   const repo = job.repoPath ?? null;
-  // The main checkout is never moved: only a worktree that is a folder of its own.
-  const worktree = job.worktree && job.worktree !== repo && await exists(fs, job.worktree) ? job.worktree : null;
+  const real = async (p) => { try { return await fs.realpath(p); } catch { return null; } };
   const archiveRoot = job.archiveRoot;
-  const branches = repo ? await git.branches(repo).catch(() => []) : [];
+  let branches = [];
+  if (repo) {
+    try { branches = await git.branches(repo); } catch (err) { throw refuse(`Starbase could not read the list of branches in ${repo} (${why(err)}), so it can't tell what is safe to move.`); }
+  }
   const branch = job.branch && branches.includes(job.branch) ? job.branch : null;
+  // The main checkout is never moved: only a worktree that is a folder of its own. Real paths, so a
+  // link or a trailing slash can't hide that the "worktree" is the repository itself.
+  const repoReal = repo ? await real(repo) : null;
+  const worktreeReal = job.worktree ? await real(job.worktree) : null;
+  const worktreeIsRepo = Boolean(worktreeReal && repoReal && worktreeReal === repoReal);
+  const worktree = worktreeReal && !worktreeIsRepo ? job.worktree : null;
+  const inMain = (what) => refuse(`This job works in the main checkout of ${repo}${what}, so Starbase can't move its work aside without taking it away from that checkout. Finish the job on its current model, or start a new job instead.`);
+  if (worktreeIsRepo && job.branch) throw inMain(` (on the branch ${job.branch})`);
+  if (branch) {
+    const bases = new Set(['main', 'master', job.baseBranch, await git.defaultBranch(repo)].filter(Boolean));
+    if (bases.has(branch)) throw refuse(`This job's branch, ${branch}, is the repository's base branch, so Starbase can't rename it. Finish the job on its current model, or start a new job instead.`);
+    let checkouts = [];
+    try { checkouts = await git.worktrees(repo); } catch (err) { throw refuse(`Starbase could not read where the branch ${branch} is checked out (${why(err)}), so it can't tell what is safe to move.`); }
+    for (const w of checkouts) {
+      if (w.branch !== branch) continue;
+      const at = await real(w.path);
+      if (at && at === worktreeReal) continue;
+      throw (at === repoReal ? inMain(` (on the branch ${branch})`) : refuse(`This job's branch, ${branch}, is also checked out in ${w.path}, which is not the job's own worktree, so Starbase can't move the branch out from under it. Close whatever is using that folder, or finish the job on its current model.`));
+    }
+    // A branch already pushed keeps its name on the remote: a new job on the same name would collide with it.
+    const checked = await remoteCheck(git, repo, branch);
+    if (checked.onRemote) throw refuse(`The branch ${branch} is already on the remote (${checked.onRemote}), and the new job would use the same branch name and collide with it. You can finish the job on this model, or close its pull request and delete or rename the branch on the remote, then try again.`);
+    notes.push(...checked.notes);
+  }
   const siblings = async (dir) => { try { return await fs.readdir(dir); } catch { return []; } };
   const plan = planRestart({ slug: job.slug, branch, worktree, archiveRoot }, {
     today, existingBranches: branches,
@@ -145,5 +214,5 @@ export async function restartJob(job, { model, git = realGit, fs = fsp, start, s
     }
   } catch { /* the old file was missing or not JSON: nothing to carry over */ }
 
-  return { slug: started.slug, archive: plan.archiveDir, backupBranch: plan.backupBranch, worktreeAside: plan.worktreeAside, run: started.run };
+  return { slug: started.slug, archive: plan.archiveDir, backupBranch: plan.backupBranch, worktreeAside: plan.worktreeAside, run: started.run, notes };
 }

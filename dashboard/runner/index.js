@@ -199,6 +199,9 @@ export async function createRunner(config) {
   let orbitStoreReady = null;
   // Jobs being marked done right now (sends and automatic carry-ons wait).
   const closing = new Set();
+  // Jobs (by folder) being started again on another model right now: nothing else is sent to them.
+  const restarting = new Set();
+  const BEING_RESTARTED = 'This job is being started again on another model right now. Wait for that to finish.';
   // Jobs whose reply the last stop cut off (runner/replay.js), by job folder: { how: 'clean' (it
   // carries on by itself) or 'crash' (it waits for Resume), at, runId, sessionId, cwd, model, slug }.
   // Gone once anything is sent to the job, or it is marked done.
@@ -846,6 +849,7 @@ export async function createRunner(config) {
    * doesn't refuse it.
    */
   function sendPlan(f, drive, body, text, { holding = false } = {}) {
+    if (restarting.has(f.dir)) throw new HttpError(409, BEING_RESTARTED);
     if (drive.mode === 'running') throw new HttpError(409, 'The Foreman is still working on your last message. Wait for it, or pause it first.');
     if (closing.has(f.dir)) throw new HttpError(409, 'This job is being marked done right now. Wait a moment.');
     if (!holding && limits.isLimited() && body.despiteLimit !== true) throw new HttpError(409, limitMessage(), { code: 'limited' });
@@ -1616,6 +1620,7 @@ export async function createRunner(config) {
     // options.json first. With a reply in progress nothing is sent: the text comes back for the
     // composer to hold. With the usage limit reached, startAfterReset holds it until the reset.
     const f = await jobOf(body.slug);
+    if (restarting.has(f.dir)) throw new HttpError(409, BEING_RESTARTED);
     const g = { kind, briefNumber: body.briefNumber ?? null, note: body.note ?? '', answers: body.answers ?? {}, verdicts: body.verdicts ?? {}, chips: body.chips ?? [], edited: body.text ?? null, startAfterReset: body.startAfterReset === true };
     // Answers, verdicts and chips for an older brief mustn't land on the new brief's questions; only
     // a stop goes through whichever brief is current.
@@ -1892,27 +1897,35 @@ export async function createRunner(config) {
     // the job again from step one (lib/restart.js). Nothing is deleted or pushed.
     async restart(body) {
       const f = await jobOf(body.slug);
-      if (!MODELS.some((x) => x.id === body.model)) throw new HttpError(400, 'That isn’t a model the Foreman can run on.');
-      const drive = await driveState(f);
-      if (drive.mode === 'running' || closing.has(f.dir)) throw new HttpError(409, 'Stop the reply first.');
-      // What would stop the new job from starting is checked before anything is moved.
-      if (limits.isLimited()) throw new HttpError(409, limitMessage(), { code: 'limited' });
-      const repoPath = f.repoPath ?? f.options?.repo ?? '';
-      const repo = await checkRepo(repoPath);
-      if (!repo.ok) throw new HttpError(400, repo.reason);
-      const job = {
-        slug: f.slug, dir: f.dir, title: f.options?.title ?? f.title, kind: f.kind === 'bug' ? 'bug' : 'feature', ticket: f.options?.ticket ?? null,
-        repoPath: repo.path, branch: f.branch ?? null, worktree: f.worktree ?? null, prs: f.prs, running: false,
-        options: f.options, archiveRoot: path.join(FEATURES_DIR, '.restarted'),
-      };
-      const out = await restartJob(job, {
-        model: body.model,
-        session: { read: (dir) => state.sessionFor(dir), clear: (dir) => state.clearSession(dir) },
-        start: async (startBody) => { cached = null; await limits.forget(f.dir); return HANDLERS.start(startBody); },
-      });
-      await state.audit({ action: 'restart', featureDir: f.dir, slug: f.slug, newSlug: out.slug, model: body.model, was: drive.model ?? null, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside });
-      cached = null;
-      return { ok: true, slug: out.slug, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside };
+      // One restart at a time per job, and nothing else sent to it meanwhile: set before the first check.
+      if (restarting.has(f.dir)) throw new HttpError(409, 'This job is already being started again. Wait for that to finish. Nothing was changed.');
+      restarting.add(f.dir);
+      try {
+        if (!MODELS.some((x) => x.id === body.model)) throw new HttpError(400, 'That isn’t a model the Foreman can run on.');
+        const drive = await driveState(f);
+        if (drive.mode === 'running' || closing.has(f.dir)) throw new HttpError(409, 'Stop the reply first.');
+        // What would stop the new job from starting is checked before anything is moved.
+        if (limits.isLimited()) throw new HttpError(409, limitMessage(), { code: 'limited' });
+        const repoPath = f.repoPath ?? f.options?.repo ?? '';
+        const repo = await checkRepo(repoPath);
+        if (!repo.ok) throw new HttpError(400, repo.reason);
+        const job = {
+          slug: f.slug, dir: f.dir, title: f.options?.title ?? f.title, kind: f.kind === 'bug' ? 'bug' : 'feature', ticket: f.options?.ticket ?? null,
+          repoPath: repo.path, branch: f.branch ?? null, baseBranch: f.baseBranch ?? null, worktree: f.worktree ?? null, prs: f.prs, running: false,
+          terminalOpen: drive.mode === 'terminal' || drive.mode === 'terminal-open',
+          options: f.options, archiveRoot: path.join(FEATURES_DIR, '.restarted'),
+        };
+        const out = await restartJob(job, {
+          model: body.model,
+          session: { read: (dir) => state.sessionFor(dir), clear: (dir) => state.clearSession(dir) },
+          start: async (startBody) => { cached = null; await limits.forget(f.dir); return HANDLERS.start(startBody); },
+        });
+        await state.audit({ action: 'restart', featureDir: f.dir, slug: f.slug, newSlug: out.slug, model: body.model, was: drive.model ?? null, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside });
+        cached = null;
+        return { ok: true, slug: out.slug, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside, notes: out.notes };
+      } finally {
+        restarting.delete(f.dir);
+      }
     },
 
     // POST /api/job/:slug/policy: one job's own permission setting; null clears it (the job follows your global setting again).
