@@ -524,7 +524,7 @@ export function pathCandidates(word) {
 }
 
 // The values of these options are text (a test name, a pattern, a message), not paths, as in Auto's own reading (N13).
-const TEXT_OPTION = /^(-t|-k|-m|-g|--testNamePattern|--testPathPattern|--grep|--message|--title|--body)$/;
+export const TEXT_OPTION = /^(-t|-k|-m|-g|--testNamePattern|--testPathPattern|--grep|--message|--title|--body)$/;
 function pathWordsInside(words, ctx) {
   for (let k = 0; k < words.length; k++) {
     const w = words[k];

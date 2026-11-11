@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { githubOwner, isInside, pathCandidates, prCreateProblem } from './policy.js';
+import { githubOwner, isInside, pathCandidates, prCreateProblem, TEXT_OPTION } from './policy.js';
 import { namesThisComputer, physicalPath } from './hard-lines.js';
 
 const inRoots = (p, roots, strict = false) => Boolean(p) && roots.some((r) => isInside(p, r) && !(strict && p === r));
@@ -587,6 +587,16 @@ const BARE_SCRIPT = /^[\w:.-]+$/; // a script named directly (pnpm build, bun ru
 const FILE_LIKE = /\.(m?[jt]sx?|cjs|py|sh)$/;
 const PKG_NAME = /^(@[\w.-]+\/)?[\w.-]+(@[\w.^~<>=*-]+)?$/;
 
+// Words handed on to a script: each may be a path, but a test name or a message (the values the routine list skips) is text (R10).
+function handedOn(list, ctx) {
+  for (let k = 0; k < list.length; k++) {
+    const t = list[k].t;
+    if (TEXT_OPTION.test(t)) { k++; continue; }
+    if (t.includes('=') && TEXT_OPTION.test(t.split('=')[0])) continue;
+    pathInside(list[k], ctx);
+  }
+}
+
 function binExists(name, ctx) {
   if (!/^[A-Za-z0-9._-]+$/.test(name)) return false;
   // A package script also finds its package's own node_modules/.bin, wherever it has cd'd to (binBase).
@@ -663,7 +673,7 @@ function pkgCheck(prog, args, ctx) {
   const dd = args.findIndex((x) => x.t === '--');
   const before = dd < 0 ? args : args.slice(0, dd);
   const after = dd < 0 ? [] : args.slice(dd + 1);
-  for (const x of after) pathInside(x, ctx);
+  handedOn(after, ctx);
   const { pos, vals } = parse(PKG_FLAGS, before, prog);
   for (const [, x] of vals) pathInside(x, ctx);
   const sub = pos[0]?.t;
@@ -674,7 +684,7 @@ function pkgCheck(prog, args, ctx) {
   const more = pos.slice(1);
   const hasIgnore = before.some((x) => x.t === '--ignore-scripts');
   const names = (list) => { for (const x of list) if (!PKG_NAME.test(x.t) || pathlike(x.t) || /^(https?|git|file|github):/.test(x.t)) ask('a package that is not a plain registry name'); };
-  const extraArgs = (list) => { for (const x of list) pathInside(x, ctx); };
+  const extraArgs = (list) => handedOn(list, ctx);
   if (!sub) { if (prog === 'npm' || prog === 'pnpm' || prog === 'yarn' || prog === 'bun') { if (args.some((x) => x.t === '--version' || x.t === '-v')) return; if (prog === 'yarn' || prog === 'bun') ask(`${prog} with no command`); } ask(`${prog} with no command`); }
   if (['test', 't', 'tst', 'start', 'stop', 'restart'].includes(sub)) { noWorkspaces(); extraArgs(more); return; }
   if (['run', 'run-script', 'rum', 'urun'].includes(sub)) { noWorkspaces(); if (!more[0] || !SCRIPT_NAME.test(more[0].t) || (prog === 'bun' && (!BARE_SCRIPT.test(more[0].t) || FILE_LIKE.test(more[0].t)))) ask('a script name Starbase does not read'); extraArgs(more.slice(1)); return; }

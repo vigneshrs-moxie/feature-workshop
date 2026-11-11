@@ -1044,3 +1044,18 @@ test('R8: a git fetch whose refspec lands under refs/remotes/ stops, as git upda
     'git fetch origin "refs/heads/*:refs/remotes/moxie/*"', 'git fetch --prune . HEAD:refs/remotes/origin/main']) assert.equal(bash(c, ctx), 'outside', c);
   for (const c of ['git fetch moxie', 'git fetch moxie main', 'git fetch origin', `git fetch origin ${BRANCH}`, 'git fetch --prune moxie']) assert.equal(bash(c, ctx), null, c);
 });
+
+test('R10: a test name handed on after -- is text, as the routine list reads it', async () => {
+  const { classify } = await import('../lib/policy.js');
+  const d = diskWorktree();
+  try {
+    const ctx = ctxOf({ worktrees: [d.wt], specDirs: [], branches: [BRANCH] }, { cwd: d.wt });
+    const routine = (c) => classify('Bash', { command: c }, { mode: 'auto', stage: 'implement', featureDir: JOB, worktrees: [d.wt], repoPath: REPO, specDirs: [], cwd: d.wt, defaultToNo: false, rules: [] }).auto;
+    for (const c of ['npm test -- -t "/api/users returns 200"', 'npm test -- --testNamePattern "/api/users returns 200"', 'npm test -- --testNamePattern="/api/users"', 'npm run test -- -t "/api/users"']) {
+      assert.equal(routine(c), true, `routine list: ${c}`);
+      assert.equal(bash(c, ctx), null, c);
+    }
+    // A path after -- that is not a test name's value is still a path.
+    for (const c of ['npm test -- /Users/nobody-probe/x.test.ts', 'npm test -- --outputFile=/Users/nobody-probe/.zshrc', 'npm test -- -t x /Users/nobody-probe/x.test.ts']) assert.notEqual(bash(c, ctx), null, c);
+  } finally { d.done(); }
+});
