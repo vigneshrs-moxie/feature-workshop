@@ -1438,10 +1438,12 @@ export async function createRunner(config) {
   }
 
   /** What the pass needs to know about each job in Auto, read fresh from the job's records. */
-  async function autoJobs() {
+  async function autoJobs(only = null) {
     const jobs = [];
+    // One job asked for again (the pass looks again after the Approver has answered): read fresh.
+    if (only) cached = null;
     for (const f of await features()) {
-      if (f.auto?.on !== true) continue;
+      if (f.auto?.on !== true || (only && f.dir !== only)) continue;
       const { worktrees, specDirs } = await jobContext({ featureDir: f.dir, cwd: f.repoPath });
       const g = gateNow(f);
       const cb = f.currentBrief;

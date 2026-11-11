@@ -23,13 +23,27 @@ import { APPROVER_BUDGET_USD, approverPaths, approverRoots, checkAnswer } from '
 
 /** Anything the Approver wrote, on one line: nothing it writes can start a line of its own. */
 const oneLine = (s) => String(s ?? '').replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
-/** A refusal that is only "not now": the next pass looks again and nothing counts as a failure. */
-const NOT_NOW = new Set(['stale-brief', 'stale-gate', 'busy', 'limited']);
+/** A refusal that is only "not now": the answer waits and the next pass sends it, with no failure counted. */
+const NOT_NOW = new Set(['busy', 'limited', 'job-locked']);
+/** A refusal that says the answer is for something that has moved on: it is dropped. */
+const MOVED_ON = new Set(['stale-brief', 'stale-gate']);
 const TIMED_OUT = /^It took longer/;
+/** Only a reply that came through a gate card is the person's decision; Starbase's own sends (resume, nudge, a stack's message) are not. */
+const GATE_KINDS = new Set(['approve', 'changes', 'stop', 'message']);
+/** "Not now" this many times running on one gate stops Auto, like the Approver failing twice. */
+const NOT_NOW_LIMIT = 3;
+const isNotNow = (err) => {
+  const code = err?.extra?.code ?? err?.code ?? null;
+  return NOT_NOW.has(code) || err?.constructor?.name === 'Busy' || err?.name === 'Busy' || err?.name === 'JobLocked';
+};
 
 export function createAuto({ read, update, decide, askApprover, raiseLevel = async () => {}, changed = () => {}, state, notify = () => {}, now = () => new Date() }) {
   let running = null;
   let again = false;
+  // An answer the Approver gave that could not be sent "not now" is kept for that job and brief and sent
+  // on a later pass without asking (and paying) again; and how many "not now" in a row one gate has had.
+  const held = new Map(); // dir -> { brief, task, answer }
+  const refused = new Map(); // dir -> { brief, count }
 
   /** One pass at a time; a request during one runs once after it. */
   function pass() {
@@ -80,7 +94,9 @@ export function createAuto({ read, update, decide, askApprover, raiseLevel = asy
   async function carryOnIfYouDecided(job) {
     const stoppedAt = Date.parse(job.auto.stopped?.at ?? '');
     const lines = await state.auditFor(job.dir, 400);
-    const yours = lines.some((l) => (l.action === 'send' || l.action === 'permission') && l.by !== 'auto' && Date.parse(l.at) > stoppedAt);
+    // Only the person's decision on a gate (a send that carries its brief) or on a card clears a stop.
+    const yours = lines.some((l) => l.by !== 'auto' && Date.parse(l.at) > stoppedAt
+      && ((l.action === 'send' && GATE_KINDS.has(l.kind) && l.gateBrief) || l.action === 'permission'));
     if (!yours) return false;
     const at = now().toISOString();
     await update(job.dir, (prev) => (prev?.stopped ? { ...prev, stopped: null, failures: 0, problem: null, step: null, since: at } : null));
@@ -113,37 +129,63 @@ export function createAuto({ read, update, decide, askApprover, raiseLevel = asy
     });
   };
 
-  async function attend(job, gate) {
-    let rec = job.auto;
+  /**
+   * The job read again, for the answer the Approver gave about brief `n`: null when it no longer
+   * stands (Auto is off, the record is stopped, no gate waits, the brief moved on or was answered).
+   */
+  async function look(job, n) {
+    const [fresh] = await read(job.dir);
+    if (!fresh || fresh.auto?.on !== true || fresh.auto.stopped || fresh.restarting) return null;
+    const g = fresh.gate;
+    if (!g || g.stale || g.briefNumber !== n) return null;
+    if (fresh.answered.includes(n) || fresh.auto.lastBrief === n) return null;
+    return fresh;
+  }
+  const notNow = (j) => Boolean(j.running || j.locked || j.paused);
+  const addSpent = (job, cost) => (cost > 0 ? update(job.dir, (prev) => (prev ? { ...prev, spent: (prev.spent ?? 0) + cost } : null)) : null);
+
+  async function attend(first, firstGate) {
+    const n = firstGate.briefNumber;
     for (let tries = 0; tries < 3; tries++) {
+      // Everything is read again at each turn: the Approver can take minutes.
+      const job = await look(first, n);
+      if (!job) return;
+      const gate = job.gate;
+      const rec = job.auto;
       const hit = stopFor(job, rec, gate);
       if (hit) return stop(job, hit);
-      if (!gate) return;
       const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage });
       if (route) return stop(job, route);
+      if (notNow(job)) return;
 
-      const task = taskFor(job, gate);
-      const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
-      const res = await askApprover(task, { roots, job });
-      // A run that timed out reports 0: record the ceiling it was given, so the cost never under-counts.
-      const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') && !(res.costUsd > 0) ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
-      const checked = res?.ok ? checkAnswer(task, res.answer) : null;
-      if (!checked?.ok) {
-        rec = await update(job.dir, (prev) => ({ ...prev, failures: (prev?.failures ?? 0) + 1, problem: res?.ok ? checked.problem : res?.problem ?? 'It ended with an error.', spent: (prev?.spent ?? 0) + cost }));
-        continue;
+      let task;
+      let answer;
+      const kept = held.get(job.dir);
+      if (kept?.brief === n) {
+        ({ task, answer } = kept);
+      } else {
+        held.delete(job.dir);
+        task = taskFor(job, gate);
+        const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
+        const res = await askApprover(task, { roots, job });
+        // A run that timed out reports 0: record the ceiling it was given, so the cost never under-counts.
+        const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') && !(res.costUsd > 0) ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
+        const checked = res?.ok ? checkAnswer(task, res.answer) : null;
+        // Immediately before anything is written or sent: is the answer still for something that waits?
+        if (!(await look(job, n))) { await addSpent(job, cost); return; }
+        if (!checked?.ok) {
+          await update(job.dir, (prev) => ({ ...prev, failures: (prev?.failures ?? 0) + 1, problem: res?.ok ? checked.problem : res?.problem ?? 'It ended with an error.', spent: (prev?.spent ?? 0) + cost }));
+          continue;
+        }
+        answer = checked.answer;
+        await addSpent(job, cost);
+        if (answer.decision === 'stop') return stop(job, { rule: 'judgment', reason: oneLine(answer.why) });
       }
-      const answer = checked.answer;
-      if (answer.decision === 'stop') {
-        await update(job.dir, (prev) => ({ ...prev, spent: (prev?.spent ?? 0) + cost }));
-        return stop(job, { rule: 'judgment', reason: oneLine(answer.why) });
-      }
-      const sent = await send(job, gate, task, answer, cost);
-      if (sent === 'failed') { rec = (await currentOf(job)) ?? rec; continue; }
+      const sent = await send(job, gate, task, answer);
+      if (sent === 'failed') continue;
       return;
     }
   }
-
-  const currentOf = async (job) => (await state.sessionFor?.(job.dir))?.auto ?? null;
 
   function taskFor(job, gate) {
     const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
@@ -169,26 +211,37 @@ export function createAuto({ read, update, decide, askApprover, raiseLevel = asy
     return lines.join('\n');
   }
 
-  /** Send the approval through the same path as a click. Returns 'sent', 'not-now' or 'failed'. */
-  async function send(job, gate, task, answer, cost) {
+  /** Send the approval through the same path as a click. Returns 'sent', 'not-now', 'dropped' or 'failed'. */
+  async function send(job, gate, task, answer) {
+    const n = gate.briefNumber;
     const answers = {};
     for (const a of answer.answers) answers[a.id] = { choice: a.choice ?? undefined, other: a.other === null ? undefined : oneLine(a.other) };
     const verdicts = {};
     for (const d of gate.decided ?? []) if (!d.confirmed) verdicts[d.id ?? d.decision] = { verdict: 'confirm' };
     try {
-      await decide.gate('approve', { slug: job.slug, briefNumber: gate.briefNumber, answers, verdicts, note: noteFor(task, answer) }, { by: 'auto' });
+      await decide.gate('approve', { slug: job.slug, briefNumber: n, answers, verdicts, note: noteFor(task, answer) }, { by: 'auto' });
     } catch (err) {
-      const code = err?.extra?.code ?? err?.code ?? null;
-      if (NOT_NOW.has(code)) {
-        await update(job.dir, (prev) => ({ ...prev, spent: (prev?.spent ?? 0) + cost }));
+      if (MOVED_ON.has(err?.extra?.code ?? err?.code ?? null)) { held.delete(job.dir); return 'dropped'; }
+      if (isNotNow(err)) {
+        // Kept for a later pass (no second ask, no second charge); three in a row stop Auto.
+        held.set(job.dir, { brief: n, task, answer });
+        const count = (refused.get(job.dir)?.brief === n ? refused.get(job.dir).count : 0) + 1;
+        refused.set(job.dir, { brief: n, count });
+        if (count >= NOT_NOW_LIMIT) {
+          held.delete(job.dir); refused.delete(job.dir);
+          const problem = oneLine(err?.message).replace(/\.$/, '') || 'the reply could not be sent';
+          await stop(job, fixedStop({ kind: 'job', failures: 2, problem }));
+        }
         return 'not-now';
       }
-      await update(job.dir, (prev) => ({ ...prev, failures: (prev?.failures ?? 0) + 1, problem: oneLine(err?.message) || 'The reply was refused.', spent: (prev?.spent ?? 0) + cost }));
+      held.delete(job.dir);
+      await update(job.dir, (prev) => ({ ...prev, failures: (prev?.failures ?? 0) + 1, problem: oneLine(err?.message) || 'The reply was refused.' }));
       return 'failed';
     }
+    held.delete(job.dir); refused.delete(job.dir);
     let spent = 0;
     await update(job.dir, (prev) => {
-      spent = (prev?.spent ?? 0) + cost;
+      spent = prev?.spent ?? 0;
       const count = prev?.step?.stage === job.stage ? prev.step.count + 1 : 1;
       return { ...prev, lastBrief: gate.briefNumber, failures: 0, problem: null, spent: 0, step: { stage: job.stage, count } };
     });

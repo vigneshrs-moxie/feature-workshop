@@ -13,6 +13,9 @@ import { createRunner } from '../runner/index.js';
 import { AUTO_L3, AUTO_MARK, autoRecord } from '../lib/auto.js';
 import { APPROVER_BUDGET_USD } from '../lib/approver.js';
 import { OPUS } from '../lib/options.js';
+import { createAuto } from '../runner/auto.js';
+import { Busy } from '../lib/driver.js';
+import { JobLocked } from '../lib/lock.js';
 
 const DASH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OLD = '2026-10-01T10:00:00Z';
@@ -56,7 +59,7 @@ const failure = (problem = 'It ended with an error.', costUsd = 0.1) => ({ ok: f
  * A job in Auto (unless auto is null) with a plan gate at brief 1. ask(task, n): what the fake Approver
  * says on its nth call (n from 1). Returns the pieces a test needs; stop() cleans up.
  */
-async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null, { on: true, now: OLD }), options = { level: 1, flow: 'quick', title: 'Visit audit columns' }, jobStatus = status(1), title = 'Visit audit columns' } = {}) {
+async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null, { on: true, now: OLD }), options = { level: 1, flow: 'quick', title: 'Visit audit columns' }, jobStatus = status(1), title = 'Visit audit columns', also = null } = {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sb-auto-srv-')));
   const dirs = Object.fromEntries(['claude', 'features', 'projects', 'agents', 'skills', 'state', 'repo'].map((n) => [n, path.join(root, n)]));
   for (const d of Object.values(dirs)) await fs.mkdir(d);
@@ -71,10 +74,21 @@ async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null,
   await writeStatus(jobStatus);
   for (const n of [1, 2, 3]) await fs.writeFile(path.join(dir, 'briefs', `00${n}-plan.md`), `**Visit audit · plan v${n} ready**\n`);
   if (options) await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify({ schema_version: 2, ...options }, null, 2));
-  await fs.writeFile(path.join(dirs.state, 'sessions.json'), JSON.stringify({ [dir]: { sessionId: crypto.randomUUID(), cwd: dirs.repo, repoPath: dirs.repo, model: OPUS, ...(auto ? { auto } : {}) } }));
+  const sessions = { [dir]: { sessionId: crypto.randomUUID(), cwd: dirs.repo, repoPath: dirs.repo, model: OPUS, ...(auto ? { auto } : {}) } };
+  // A second job in Auto: { slug, status, options } (its record is a fresh Auto one).
+  let otherDir = null;
+  if (also) {
+    otherDir = path.join(dirs.features, also.slug);
+    await fs.mkdir(path.join(otherDir, 'briefs'), { recursive: true });
+    await fs.writeFile(path.join(otherDir, 'status.json'), JSON.stringify({ slug: also.slug, ...also.status }, null, 2));
+    await fs.writeFile(path.join(otherDir, 'briefs', '001-plan.md'), '**Other · plan v1**\n');
+    await fs.writeFile(path.join(otherDir, 'options.json'), JSON.stringify({ schema_version: 2, ...also.options }, null, 2));
+    sessions[otherDir] = { sessionId: crypto.randomUUID(), cwd: dirs.repo, repoPath: dirs.repo, model: OPUS, auto: autoRecord(null, { on: true, now: OLD }) };
+  }
+  await fs.writeFile(path.join(dirs.state, 'sessions.json'), JSON.stringify(sessions));
   const texts = [];
   const asks = [];
-  const runner = await createRunner({
+  const boot = () => createRunner({
     host: '127.0.0.1', port: 1, token: 't', dashboardDir: DASH, claudeDir: dirs.claude, featuresDir: dirs.features, projectsDir: dirs.projects,
     agentsDir: dirs.agents, skillsDir: dirs.skills, stateDir: dirs.state, demo: true, claudePath: null,
     claudeSettingsFile: path.join(root, 'claude.json'), legacySettingsFile: null, planUsage: false, orbitStore: 'file',
@@ -82,8 +96,10 @@ async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null,
     queryFn: stubQuery(texts),
     askApprover: async (task, call) => { asks.push({ task, call }); return ask(task, asks.length); },
   });
+  let runner = await boot();
   const notes = [];
-  runner.on('notification', (_job, entry) => notes.push(entry));
+  const listen = () => runner.on('notification', (_job, entry) => notes.push(entry));
+  listen();
   const lines = async () => (await fs.readFile(path.join(dirs.state, 'audit.jsonl'), 'utf8').catch(() => '')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
   const record = async () => JSON.parse(await fs.readFile(path.join(dirs.state, 'sessions.json'), 'utf8'))[dir]?.auto ?? null;
   const optionsFile = async () => JSON.parse(await fs.readFile(path.join(dir, 'options.json'), 'utf8'));
@@ -98,8 +114,10 @@ async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null,
   /** Wait for the Foreman's last reply to end. */
   const idle = () => until(async () => (await runner.read.runs()).runs.every((r) => !['starting', 'running', 'waiting_permission', 'stopping'].includes(r.status)), 'the reply to end');
   return {
-    runner, root, dirs, dir, slug, texts, asks, notes, lines, record, optionsFile, ownOptions, told, until, idle, writeStatus,
+    get runner() { return runner; }, root, dirs, dir, otherDir, slug, texts, asks, notes, lines, record, optionsFile, ownOptions, told, until, idle, writeStatus,
     pass: () => runner.auto.pass(),
+    /** A new runner on the same folders, as after Starbase is started again. */
+    async restart() { runner.stop(); runner = await boot(); listen(); },
     git,
     sends: async () => (await lines()).filter((l) => l.action === 'send'),
     autoLines: async (what) => (await lines()).filter((l) => l.action === 'auto' && (!what || l.what === what)),
@@ -568,4 +586,179 @@ test('leaving Auto for L3 keeps the tag that started the job on its record', { t
     const rec = await w.record();
     assert.deepEqual({ on: rec.on, by: rec.by, tag: rec.tag, ran: rec.ran }, { on: false, by: 'tag', tag: 'auto', ran: true });
   } finally { await w.stop(); }
+});
+
+// ---------- Fix round 1: a stop is never lost, the person's action wins, no money goes unrecorded ----------
+
+const AT = (n) => `2026-10-02T1${n}:00:00Z`;
+const STOP_AT = '2026-10-02T10:00:00Z';
+const stoppedRecord = (over = {}) => ({ ...autoRecord(null, { on: true, now: OLD }), stopped: { reason: 'the plan is unclear', rule: 'judgment', at: STOP_AT }, failures: 1, step: { stage: 'plan', count: 2 }, problem: 'x', ...over });
+const auditLine = (w, o) => fs.appendFile(path.join(w.dirs.state, 'audit.jsonl'), `${JSON.stringify({ featureDir: w.dir, slug: w.slug, ...o })}\n`);
+
+test('H1: a resume, a nudge or a usage-limit resume the person did not choose leaves the stop alone', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: stoppedRecord() });
+  try {
+    // The kinds Starbase's own code sends: the resume after a restart or a limit, a nudge, a stack's queued message.
+    await auditLine(w, { at: AT(1), action: 'send', kind: 'resume', text: 'carry on' });
+    await auditLine(w, { at: AT(2), action: 'send', kind: 'nudge', text: 'still there?' });
+    await auditLine(w, { at: AT(3), action: 'send', kind: 'stack-sendback', text: 'back to you' });
+    await w.pass();
+    const rec = await w.record();
+    assert.deepEqual(rec.stopped, stoppedRecord().stopped, 'still stopped');
+    assert.equal(rec.failures, 1);
+    assert.deepEqual(rec.step, { stage: 'plan', count: 2 });
+    assert.equal(rec.problem, 'x');
+    assert.equal(w.asks.length, 0);
+    // The person's own approve of the gate (it carries the brief) still clears it.
+    await auditLine(w, { at: AT(4), action: 'send', kind: 'approve', gateBrief: 1, text: 'go' });
+    await w.pass();
+    const after = await w.record();
+    assert.equal(after.stopped, null);
+    assert.equal(after.failures, 0);
+  } finally { await w.stop(); }
+});
+
+test('H1: a restart of Starbase leaves a stopped job stopped', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: stoppedRecord() });
+  try {
+    await auditLine(w, { at: AT(1), action: 'send', kind: 'resume', text: 'carry on', sessionId: 's' });
+    await w.restart();
+    await w.pass();
+    assert.ok((await w.record()).stopped);
+    assert.equal(w.asks.length, 0);
+  } finally { await w.stop(); }
+});
+
+test('H2: Auto switched off while the Approver answers sends nothing, stops nothing, tells nobody', { timeout: 30_000 }, async () => {
+  let w;
+  w = await world({
+    ask: async (task) => { await w.runner.handle({ type: 'auto', slug: w.slug, on: false }, { from: 'local' }); return goodAnswer(task); },
+  });
+  try {
+    await w.pass();
+    assert.deepEqual(await w.sends(), []);
+    assert.equal((await w.autoLines('stop')).length, 0);
+    assert.equal((await w.autoLines('gate')).length, 0);
+    assert.equal(w.notes.length, 0);
+    assert.equal((await w.record()).stopped, null);
+    assert.equal((await w.record()).on, false);
+  } finally { await w.stop(); }
+});
+
+test('H2: the person approves the gate while the Approver answers: Auto sends nothing for that brief, even after the reply ended', { timeout: 30_000 }, async () => {
+  let w;
+  w = await world({
+    ask: async (task) => {
+      await w.runner.handle({ type: 'approve', slug: w.slug, briefNumber: 1 }, { from: 'local' });
+      await w.idle();
+      return goodAnswer(task);
+    },
+  });
+  try {
+    await w.pass();
+    const sends = await w.sends();
+    assert.equal(sends.length, 1, 'only the person\'s');
+    assert.equal(sends[0].by, undefined);
+    assert.equal((await w.autoLines('gate')).length, 0);
+    assert.equal((await w.record()).lastBrief, null);
+    assert.equal((await w.record()).spent, 0.12, 'the dropped answer is still paid for, on the next line Auto writes');
+  } finally { await w.stop(); }
+});
+
+test('H2: an Approver stop for a gate the person has already answered records no stop', { timeout: 30_000 }, async () => {
+  let w;
+  w = await world({
+    ask: async () => {
+      await w.runner.handle({ type: 'approve', slug: w.slug, briefNumber: 1 }, { from: 'local' });
+      await w.idle();
+      return { ok: true, costUsd: 0.2, answer: { decision: 'stop', answers: [], why: 'Too risky.', risk: 'high' } };
+    },
+  });
+  try {
+    await w.pass();
+    const rec = await w.record();
+    assert.equal(rec.stopped, null);
+    assert.equal((await w.autoLines('stop')).length, 0);
+    assert.equal(w.notes.length, 0);
+  } finally { await w.stop(); }
+});
+
+// ---------- the pass on its own, with a job whose refusals the test controls ----------
+
+const unitDir = '/jobs/visit-audit';
+/** createAuto on an in-memory job: job(readCount) may return overrides for that read. */
+function unit({ job = () => ({}), decide, ask = () => ({ ok: true, costUsd: 0.1, answer: { decision: 'go', answers: [], why: 'Fine.', risk: 'low' } }), record = {} } = {}) {
+  let rec = { ...autoRecord(null, { on: true, now: OLD }), ...record };
+  let reads = 0;
+  const lines = [];
+  const notes = [];
+  const asks = [];
+  const decides = [];
+  const view = () => ({
+    dir: unitDir, slug: 'visit-audit', title: 'Visit audit', auto: { ...rec }, level: 1, suggestedLevel: null, stage: 'plan', stageState: 'waiting_for_you', ticketKey: null,
+    triggers: [], statusCard: false, prOpen: false, gate: { briefNumber: 1, stale: false, questions: [], decided: [], headline: 'Plan v1', nextStage: 'implement' },
+    answered: [], briefPath: null, artifacts: [], running: false, locked: false, restarting: false, paused: false, worktrees: [], specDirs: [], ...job(++reads),
+  });
+  const auto = createAuto({
+    read: async (dir) => (dir && dir !== unitDir ? [] : [view()]),
+    update: async (dir, fn) => { const next = fn({ ...rec }); if (next) rec = next; return { ...rec }; },
+    decide: { gate: async (kind, body, opts) => { decides.push(body); return decide(decides.length, opts); }, permission: async () => {} },
+    askApprover: async (task) => { asks.push(task); return ask(task, asks.length); },
+    state: { audit: async (l) => { lines.push(l); }, auditFor: async () => [] },
+    notify: (n) => notes.push(n),
+  });
+  return { auto, record: () => rec, lines, notes, asks, decides };
+}
+const refusal = (code) => Object.assign(new Error('Refused.'), { extra: { code } });
+
+test('H3: Busy and JobLocked from the driver are "not now", not Approver failures', { timeout: 30_000 }, async () => {
+  for (const make of [() => new Busy('This job\'s Foreman is already working on a reply.'), () => new JobLocked({ owner: 'terminal', pid: 7 })]) {
+    const u = unit({ decide: (n) => { if (n === 1) throw make(); } });
+    await u.auto.pass();
+    assert.equal(u.record().failures, 0);
+    assert.equal(u.record().stopped, null);
+    assert.equal(u.record().lastBrief, null);
+    await u.auto.pass();
+    assert.equal(u.record().lastBrief, 1, 'the next pass sends');
+    assert.equal(u.decides.length, 2);
+  }
+});
+
+test('H4: a gate that answers busy twice then goes through is asked about once', { timeout: 30_000 }, async () => {
+  const u = unit({ decide: (n) => { if (n <= 2) throw refusal('busy'); } });
+  await u.auto.pass(); await u.auto.pass(); await u.auto.pass();
+  assert.equal(u.asks.length, 1);
+  assert.equal(u.decides.length, 3);
+  assert.equal(u.record().lastBrief, 1);
+  assert.equal(u.record().failures, 0);
+  assert.equal(u.lines.filter((l) => l.what === 'gate').length, 1);
+  assert.equal(u.lines.find((l) => l.what === 'gate').costUsd, 0.1, 'paid for once');
+});
+
+test('H4: three "not now" in a row on one gate stop Auto like the Approver failing', { timeout: 30_000 }, async () => {
+  const u = unit({ decide: () => { throw refusal('busy'); } });
+  await u.auto.pass(); await u.auto.pass();
+  assert.equal(u.record().stopped, null);
+  await u.auto.pass();
+  assert.equal(u.asks.length, 1);
+  assert.equal(u.record().stopped.rule, 'approver');
+  assert.match(u.record().stopped.reason, /^the Approver failed twice running \(.+\)\.$/);
+  assert.equal(u.notes.length, 1);
+  assert.equal(u.lines.find((l) => l.what === 'stop').costUsd, 0.1);
+});
+
+test('H4: the Approver is not asked while the reply runs, the job is locked, or the limit holds', { timeout: 30_000 }, async () => {
+  for (const over of [{ running: true }, { locked: true }, { paused: true }]) {
+    const u = unit({ job: () => over });
+    await u.auto.pass();
+    assert.equal(u.asks.length, 0, JSON.stringify(over));
+  }
+});
+
+test('H4: the check is made again right before the Approver is asked', { timeout: 30_000 }, async () => {
+  // The first read (the start of the pass) is free; by the time the job's turn comes a reply is running.
+  const u = unit({ job: (n) => (n === 1 ? {} : { running: true }) });
+  await u.auto.pass();
+  assert.equal(u.asks.length, 0);
+  assert.equal(u.decides.length, 0);
 });
