@@ -268,6 +268,28 @@ export function approverCut(task) {
   return null;
 }
 
+/**
+ * The call itself, in words, for a tool whose card preview holds none of it (N15): every edit of a MultiEdit (its file,
+ * old and new text), a NotebookEdit's cell and new source, an Agent's type, description and whole prompt. null for any
+ * other tool (its card preview, or the input as JSON when that preview is empty: see runner/auto.js cardTask).
+ * Nothing is trimmed here: a call longer than the Approver is shown stops Auto (approverCut).
+ */
+export function callPreview(toolName, input) {
+  const i = input && typeof input === 'object' ? input : {};
+  const str = (v) => (typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v));
+  if (toolName === 'MultiEdit') {
+    const edits = Array.isArray(i.edits) ? i.edits : [];
+    return [`File: ${str(i.file_path)}`, ...edits.flatMap((e, k) => [`Edit ${k + 1}${e?.replace_all ? ' (every match)' : ''}:`, 'Old text:', str(e?.old_string), 'New text:', str(e?.new_string)])].join('\n');
+  }
+  if (toolName === 'NotebookEdit') {
+    return [`Notebook: ${str(i.notebook_path)}`, `Cell: ${str(i.cell_id) || 'none named'}${i.cell_type ? ` (${str(i.cell_type)})` : ''}${i.edit_mode ? `, ${str(i.edit_mode)}` : ''}`, 'New source:', str(i.new_source)].join('\n');
+  }
+  if (toolName === 'Agent' || toolName === 'Task') {
+    return [`Agent type: ${str(i.subagent_type) || 'none named'}`, `Description: ${str(i.description)}`, 'Prompt:', str(i.prompt)].join('\n');
+  }
+  return null;
+}
+
 /** One line of Starbase's own text for outside the material block: no line break, no control character, capped. */
 const factLine = (v, max = 300) => material(v, max).replace(/[\r\n\t\u0085]+/g, ' ');
 // Small words a reason keeps even when the command holds them.

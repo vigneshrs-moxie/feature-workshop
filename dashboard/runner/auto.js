@@ -24,7 +24,7 @@
 
 import { autoAllowed, AUTO_CARDS_PER_REPLY, AUTO_MARK } from '../lib/auto.js';
 import { AUTO_STOP_REASONS, autoVerdict, fixedStop } from '../lib/auto-rules.js';
-import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, checkAnswer } from '../lib/approver.js';
+import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, callPreview, checkAnswer } from '../lib/approver.js';
 import { DECIDING_KINDS } from '../lib/gate.js';
 
 /** Anything the Approver wrote, on one line: nothing it writes can start a line of its own, and no copy of the mark gets through. */
@@ -621,11 +621,16 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         }),
       };
     }
-    // A command is given whole, from the card's own input, not the card's trimmed preview (C4); another tool's preview says when it was cut.
+    // A command is given whole, from the card's own input, not the card's trimmed preview (C4); so is a MultiEdit's, a
+    // NotebookEdit's or an Agent's call (N15, callPreview), and the input as JSON for any tool whose preview is empty.
+    // Another tool's preview says when it was cut. Whatever is longer than the Approver is shown stops Auto (approverCut).
     const command = card.toolName === 'Bash' && typeof card.input?.command === 'string' ? card.input.command : null;
+    const call = command ?? callPreview(card.toolName, card.input);
+    const shown = card.plain?.preview || card.plain?.detail || '';
+    const whole = call ?? (shown ? null : JSON.stringify(card.input ?? {}, null, 2));
     return {
       ...base, kind: 'permission', questions: [],
-      request: { tool: card.toolName, headline: card.plain?.headline ?? card.toolName, preview: command ?? card.plain?.preview ?? card.plain?.detail ?? '', cut: command === null && card.plain?.previewCut != null },
+      request: { tool: card.toolName, headline: card.plain?.headline ?? card.toolName, preview: whole ?? shown, cut: whole === null && card.plain?.previewCut != null },
     };
   }
 

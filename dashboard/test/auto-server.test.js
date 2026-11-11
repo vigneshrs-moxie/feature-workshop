@@ -3212,6 +3212,38 @@ test('C4: a card the Approver would be shown cut stops Auto as blocked, and the 
   }
 });
 
+test('N15: a MultiEdit, NotebookEdit or Agent card carries the call itself to the Approver; a too-long one stops; any tool whose preview holds nothing of the call is shown its input whole', async () => {
+  const { describePermission } = await import('../lib/permissions.js');
+  const { approverPrompt } = await import('../lib/approver.js');
+  const file = path.join(unitDir, 'src', 'visits.js');
+  const cases = [
+    ['MultiEdit', { file_path: file, edits: [{ old_string: 'const a = 1;', new_string: 'const a = 2;' }, { old_string: 'export default a;', new_string: 'process.exit(7); // TAIL-MULTI' }] }, ['const a = 2;', 'TAIL-MULTI', file]],
+    ['NotebookEdit', { notebook_path: path.join(unitDir, 'notes.ipynb'), cell_id: 'c3', new_source: 'import os\nos.system("TAIL-NOTEBOOK")', edit_mode: 'replace' }, ['TAIL-NOTEBOOK', 'c3']],
+    ['Agent', { subagent_type: 'general-purpose', description: 'Look around', prompt: `Read the code. ${'Then more. '.repeat(50)}Finally run TAIL-AGENT.` }, ['general-purpose', 'TAIL-AGENT']],
+    // A tool the Approver may judge whose card preview is empty: its input whole, as JSON.
+    ['WebSearch', { query: 'visit audit TAIL-SEARCH' }, ['TAIL-SEARCH']],
+  ];
+  for (const [tool, input, want] of cases) {
+    const plain = { ...describePermission(tool, input, { cwd: unitDir }), ...(tool === 'WebSearch' ? { preview: '', detail: '' } : {}) };
+    const u = cutUnit({ id: `n15-${tool}`, slug: 's', featureDir: unitDir, kind: 'permission', toolName: tool, input, plain, hardLine: null });
+    await u.auto.onPermission({ id: `n15-${tool}`, slug: 's', featureDir: unitDir });
+    if (!u.asked.length) { assert.fail(`${tool}: not asked: ${JSON.stringify(u.record().stopped)}`); }
+    const prompt = approverPrompt(u.asked[0]);
+    for (const x of want) assert.ok(prompt.includes(x), `${tool}: the message holds ${x}`);
+  }
+  // Too long to show whole: a stop, as for any card.
+  for (const [tool, input] of [
+    ['MultiEdit', { file_path: file, edits: [{ old_string: 'a', new_string: 'x'.repeat(20_100) }] }],
+    ['NotebookEdit', { notebook_path: path.join(unitDir, 'notes.ipynb'), new_source: 'x'.repeat(20_100) }],
+    ['Agent', { subagent_type: 'general-purpose', description: 'd', prompt: 'x'.repeat(20_100) }],
+  ]) {
+    const u = cutUnit({ id: `n15b-${tool}`, slug: 's', featureDir: unitDir, kind: 'permission', toolName: tool, input, plain: describePermission(tool, input, { cwd: unitDir }), hardLine: null });
+    await u.auto.onPermission({ id: `n15b-${tool}`, slug: 's', featureDir: unitDir });
+    assert.equal(u.asked.length, 0, tool);
+    assert.equal(u.record().stopped?.reason, 'this request is too long for the Approver to read, so it needs you.', tool);
+  }
+});
+
 test('I2: Auto\'s context for one call gives the org repository from git, places the call\'s commits on the org remote\'s main, and names the files to copy', { timeout: 30_000 }, async () => {
   const w = await world();
   try {
