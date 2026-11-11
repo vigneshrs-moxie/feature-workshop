@@ -605,8 +605,9 @@ test('Minor: alias, function bodies, tools', () => {
   ]);
   const stop = fixedStop({ kind: 'card', toolName: 'FancyNewTool', input: {}, hardLine: null, blockedPath: null }, ctx());
   assert.deepEqual(stop, { rule: 'tool', reason: 'this tool is not one Auto can judge.', unknownTool: true });
-  const prog = fixedStop({ kind: 'card', toolName: 'Bash', input: { command: 'terraform apply' }, hardLine: null, blockedPath: null }, ctx());
-  assert.deepEqual(prog, { rule: 'outside', reason: AUTO_STOP_REASONS.outside, unknownProgram: true });
+  const prog = fixedStop({ kind: 'card', toolName: 'Bash', input: { command: 'terraform plan' }, hardLine: null, blockedPath: null }, ctx());
+  assert.deepEqual(prog, { rule: 'outside', reason: 'this runs a program Auto does not know, so it needs you.', unknownProgram: true }); // its own sentence (deep review A, m14)
+  assert.equal(fixedStop({ kind: 'card', toolName: 'Bash', input: { command: 'terraform apply' }, hardLine: null, blockedPath: null }, ctx()).reason, 'this would deploy or publish something, so it needs you.');
 });
 
 // A script run by file is read (I8): a real folder, since the files have to be there.

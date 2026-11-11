@@ -63,6 +63,12 @@ const URL_CREDENTIALS = /^[a-z][a-z0-9+.-]*:\/\/[^/?#\s]*@/i;
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
 const stop = (rule, extra = {}) => ({ rule, reason: AUTO_STOP_REASONS[rule], ...extra });
+/** The outside rule's sentence when what happened is one of these (m14): the owner reads it in a notification. */
+export const OUTSIDE_REASONS = Object.freeze({
+  secret: 'this reads a place that holds secrets (keys, tokens or passwords), so it needs you.',
+  unknown: 'this runs a program Auto does not know, so it needs you.',
+  deploy: 'this would deploy or publish something, so it needs you.',
+});
 
 /** The job's own branch and its stack's part branches: the ones a push of Auto's may go to. */
 export function branchesOf(branch, stack) {
@@ -150,7 +156,7 @@ function judgeCardOf(inp, ctx) {
   if (own?.decision === 'deny' || hard?.decision === 'deny') return null; // refused outright, never asked
   if (typeof inp.blockedPath === 'string' && inp.blockedPath) return { stop: stop('outside') };
   // A secret place named by any tool (T3a).
-  if (toolName !== 'Bash' && toolPaths(input).some((x) => secretPlace(physicalPath(x, ctx.cwd ?? null), jobRoots(ctx), ctx))) return { stop: stop('outside') };
+  if (toolName !== 'Bash' && toolPaths(input).some((x) => secretPlace(physicalPath(x, ctx.cwd ?? null), jobRoots(ctx), ctx))) return { stop: stop('outside', { reason: OUTSIDE_REASONS.secret }) };
   // A search whose root is outside the job's folders can read anything under it (C1).
   if (toolName === 'Grep' || toolName === 'Glob') {
     const roots = [...jobRoots(ctx), ...readFolders(ctx)]; // the skills and agents folders hold no secrets; the main checkout does (.env)
@@ -301,7 +307,10 @@ function bashVerdict(command, hard, ctx) {
   const wroteBase = (names) => st.pkgEdit && names.includes('package.json') || st.written.some((w) => names.includes(path.basename(w)));
   if ((st.ranRunner && wroteBase(['package.json'])) || (st.ranMake && wroteBase(['Makefile', 'makefile', 'GNUmakefile']))) st.hits.add('outside');
   const rule = PRIORITY.find((r) => st.hits.has(r));
-  if (rule) return { stop: stop(rule, rule === 'outside' && st.unknown ? { unknownProgram: true } : {}) };
+  if (rule) {
+    const why = rule !== 'outside' ? null : st.deploy ? OUTSIDE_REASONS.deploy : st.secret ? OUTSIDE_REASONS.secret : st.unknown ? OUTSIDE_REASONS.unknown : null;
+    return { stop: stop(rule, { ...(rule === 'outside' && st.unknown ? { unknownProgram: true } : {}), ...(why ? { reason: why } : {}) }) };
+  }
   const why = st.asks[0] ?? plainWhy(command, plainEnv(st, ctx.cwd ?? null));
   return why ? { ask: why } : null;
 }
@@ -579,9 +588,9 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     noteWrite({ t: r.target, dyn: r.dyn });
     recordWrite({ t: r.target, dyn: r.dyn });
   }
-  for (const r of redirects) if (secretWord(r.target)) hit('outside');
+  for (const r of redirects) if (secretWord(r.target)) { hit('outside'); st.secret = true; }
   for (const r of redirects) if ((r.op === '<' || r.op === '<&') && !r.dyn && !/^(\d+|-)$/.test(r.target) && readElsewhere(physicalPath(r.target, cwd ?? st.hint ?? null), st.readRoots)) st.asks.push('a read outside the job\'s folders');
-  for (const w of ws) if (/\/dev\/(tcp|udp)\//.test(w.t) || (!isEnvCopy && secretWord(w.t))) hit('outside'); // a network file of bash's; a secret place
+  for (const w of ws) if (/\/dev\/(tcp|udp)\//.test(w.t)) hit('outside'); else if (!isEnvCopy && secretWord(w.t)) { hit('outside'); st.secret = true; } // a network file of bash's; a secret place
   for (const r of redirects) if (/\/dev\/(tcp|udp)\//.test(r.target)) hit('outside');
   if (ws.some((w) => SQL.test(w.t))) hit('database'); // a .sql file given to any program
   const { rest, assigns, wrappers } = unwrap(ws, st, cwd, depth);
@@ -631,7 +640,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     const at = eff ? physicalPath(eff, null) : null;
     if (!at || !inRoots(at, st.roots)) hit('outside');
   }
-  if (secretPlace(cwd ?? st.hint ? physicalPath(cwd ?? st.hint, null) : null, st.roots, ctx)) hit('outside'); // running inside one
+  if (secretPlace(cwd ?? st.hint ? physicalPath(cwd ?? st.hint, null) : null, st.roots, ctx)) { hit('outside'); st.secret = true; } // running inside one
   if (/^(export|declare|typeset|readonly|local)$/.test(cmd)) for (const x of a) { if (!x.startsWith('-') && REDIRECT_VAR.test(x.split('=')[0])) hit('outside'); }
   if (/^(npm|pnpm|yarn|bun|npx|pnpx|bunx)$/.test(cmd) && !/^(pkg|set-script)$/.test(a.find((x) => !x.startsWith('-')) ?? '')) st.ranRunner = true;
   if (cmd === 'make' || cmd === 'gmake') st.ranMake = true;
@@ -1069,6 +1078,7 @@ function ghStep(cmd, args, a, st) {
     return;
   }
   if (group === 'pr' && action === 'merge') { hit('merge'); return; }
+  if (group === 'auth' && action === 'token') { hit('outside'); st.secret = true; return; }
   // gh auth status printing the token is gh auth token by another name (m15).
   if (group === 'auth' && a.some((x) => x === '--show-token' || /^-[A-Za-z]*t/.test(x))) { hit('outside'); st.secret = true; return; }
   if (group === 'api') {

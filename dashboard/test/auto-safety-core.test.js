@@ -615,3 +615,19 @@ test('m15: gh auth status that prints the token stops, like gh auth token', () =
   for (const c of ['gh auth status --show-token', 'gh auth status -t', 'gh auth status -ht github.com', 'gh auth token']) assert.equal(bash(c, ctx), 'outside', c);
   assert.notEqual(bash('gh auth status', ctx), 'outside');
 });
+
+test('m14: a stop says what happened: a secret place read, an unknown program, a deploy', async () => {
+  const { autoAnswer } = await import('../lib/auto-rules.js');
+  const ctx = C5CTX();
+  const reason = (toolName, input) => autoAnswer({ kind: 'card', toolName, input, hardLine: null, blockedPath: null }, ctx)?.reason;
+  const SECRET = 'this reads a place that holds secrets (keys, tokens or passwords), so it needs you.';
+  const UNKNOWN = 'this runs a program Auto does not know, so it needs you.';
+  const DEPLOY = 'this would deploy or publish something, so it needs you.';
+  assert.equal(reason('Read', { file_path: `${HOME}/.ssh/id_rsa` }), SECRET);
+  assert.equal(reason('Bash', { command: 'cat ~/.ssh/id_rsa' }), SECRET);
+  assert.equal(reason('Bash', { command: 'gh auth token' }), SECRET);
+  assert.equal(reason('Bash', { command: 'gh auth status --show-token' }), SECRET);
+  assert.equal(reason('Bash', { command: 'docker ps' }), UNKNOWN);
+  assert.equal(reason('Bash', { command: 'vercel --prod' }), DEPLOY);
+  assert.equal(reason('Bash', { command: 'echo x > ~/x' }), "this would change or delete something outside the job's own folders.");
+});
