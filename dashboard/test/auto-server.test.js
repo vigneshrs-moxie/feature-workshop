@@ -2424,6 +2424,33 @@ test('m3: switching Auto off, by hand or by closing the job, asks Auto start to 
   }
 });
 
+const sessionsOf = async (w) => JSON.parse(await fs.readFile(path.join(w.dirs.state, 'sessions.json'), 'utf8'));
+
+test('m5: a tag start that fails leaves no Auto record and no on line behind', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null });
+  try {
+    w.driver.start = async () => { throw new Error('The Foreman could not be started.'); };
+    await assert.rejects(w.hooks.startJob({ description: 'ORBIT-9: Visit export', repoPath: w.dirs.repo, options: { auto: true, level: 1 } }, { autoStart: { tag: 'auto' } }), /could not be started/);
+    const withAuto = Object.entries(await sessionsOf(w)).filter(([, v]) => v?.auto);
+    assert.deepEqual(withAuto, [], 'no record left');
+    assert.equal((await w.autoLines('on')).length, 0);
+  } finally { await w.stop(); }
+});
+
+test('m5: the person\'s Start and a tag start of the same job at once: the tag\'s record never lands on the person\'s job', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null });
+  try {
+    const body = { description: 'Visit export button', repoPath: w.dirs.repo, options: { level: 1 } };
+    const [yours, tags] = await Promise.allSettled([w.hooks.startJob(body), w.hooks.startJob({ ...body, options: { auto: true, level: 1 } }, { autoStart: { tag: 'auto' } })]);
+    assert.equal(yours.status, 'fulfilled', String(yours.reason));
+    const sessions = await sessionsOf(w);
+    const mine = sessions[path.join(w.dirs.features, yours.value.slug)];
+    assert.equal(mine?.auto, undefined, 'the person\'s job has no Auto record');
+    if (tags.status === 'fulfilled') assert.notEqual(tags.value.slug, yours.value.slug);
+    await w.idle();
+  } finally { await w.stop(); }
+});
+
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------
 
 test('I2: the person sent brief 1 back, then 401 lines; the reply ended with the gate still on brief 1: the Approver is not asked', { timeout: 30_000 }, async () => {

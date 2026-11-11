@@ -1124,10 +1124,14 @@ export async function createRunner(config) {
 
   // restartOf: the folder of the job a restart is starting again (its folder already moved aside). Its
   // own runs, still held by the driver, don't take its name: the new job keeps it, and so its branch.
+  // Slugs a start has picked and not yet finished with (HANDLERS.start frees its own): two starts at once, say the person's
+  // Start and Auto start on one ticket, never get the same folder, so one's Auto record can't land on the other's job.
+  const startingSlugs = new Set();
   async function uniqueSlug(base, { restartOf = null } = {}) {
-    const taken = new Set([...(await features()).map((f) => f.slug), ...driver.list().filter((r) => !(restartOf && r.featureDir === restartOf)).map((r) => r.slug)]);
+    const taken = new Set([...(await features()).map((f) => f.slug), ...driver.list().filter((r) => !(restartOf && r.featureDir === restartOf)).map((r) => r.slug), ...startingSlugs]);
     let slug = base;
     for (let i = 2; taken.has(slug) || fs.existsSync(path.join(FEATURES_DIR, slug)); i++) slug = `${base}-${i}`;
+    startingSlugs.add(slug);
     return slug;
   }
 
@@ -2140,46 +2144,61 @@ export async function createRunner(config) {
       const profile = hit?.ok ? hit.profile : null;
       const slug = await uniqueSlug(ticket ? ticketSlug(ticket, profile) : slugify(description), { restartOf: internal.restartOf ?? null });
       const featureDir = path.join(FEATURES_DIR, slug);
-      // The job's options go in its private folder (read before every stage) and in the first message.
-      const { detail: fromDetail, ...fromRecord } = from ?? {};
-      // Started in Auto (options.auto): its record first, so the Foreman's very first reply runs in
-      // Auto's permission mode, and options.json says so with the record's time. normalize has
-      // already dropped auto at L3.
-      let autoOn = null;
-      if (options.auto === true && autoAllowed({ level: options.level }).ok) {
-        autoOn = autoRecord(null, internal.autoStart ? { on: true, by: 'tag', tag: internal.autoStart.tag } : { on: true, by: 'you' });
-        await state.setSession(featureDir, { auto: autoOn });
-      }
-      options = withAutoOf(options, autoOn);
-      const optionsOut = from ? { ...options, from_session: fromRecord } : options;
-      await writeOptions(featureDir, options, { title: description, repo: repo.path, kind, from_session: from ? fromRecord : undefined, ticket: ticket ?? undefined, branch: ticket ? ticketBranch(kind, slug, { profile, ticket }) : undefined });
-      // The ticket's safe details go in ticket.md before the Foreman's first message (lib/ticket-file.js).
-      // Orbit being slow or down never stops a start: no file, and the message says so.
-      let detailsRead = false;
-      if (ticket) {
-        const md = await readTicketFile(orbit, ticket);
-        if (md) {
-          try { await fsp.mkdir(featureDir, { recursive: true }); await writeFileAtomic(path.join(featureDir, TICKET_FILE), md, { mode: 0o600 }); detailsRead = true; } catch { /* the job starts without it */ }
+      let autoWritten = false;
+      try {
+        // The job's options go in its private folder (read before every stage) and in the first message.
+        const { detail: fromDetail, ...fromRecord } = from ?? {};
+        // Started in Auto (options.auto): its record first, so the Foreman's very first reply runs in
+        // Auto's permission mode, and options.json says so with the record's time. normalize has
+        // already dropped auto at L3.
+        let autoOn = null;
+        if (options.auto === true && autoAllowed({ level: options.level }).ok) {
+          autoOn = autoRecord(null, internal.autoStart ? { on: true, by: 'tag', tag: internal.autoStart.tag } : { on: true, by: 'you' });
+          await state.setSession(featureDir, { auto: autoOn });
+          autoWritten = true;
         }
+        options = withAutoOf(options, autoOn);
+        const optionsOut = from ? { ...options, from_session: fromRecord } : options;
+        await writeOptions(featureDir, options, { title: description, repo: repo.path, kind, from_session: from ? fromRecord : undefined, ticket: ticket ?? undefined, branch: ticket ? ticketBranch(kind, slug, { profile, ticket }) : undefined });
+        // The ticket's safe details go in ticket.md before the Foreman's first message (lib/ticket-file.js).
+        // Orbit being slow or down never stops a start: no file, and the message says so.
+        let detailsRead = false;
+        if (ticket) {
+          const md = await readTicketFile(orbit, ticket);
+          if (md) {
+            try { await fsp.mkdir(featureDir, { recursive: true }); await writeFileAtomic(path.join(featureDir, TICKET_FILE), md, { mode: 0o600 }); detailsRead = true; } catch { /* the job starts without it */ }
+          }
+        }
+        // A ticket's job starts with a status.json of schema version 2 holding the ticket block.
+        const fromTicket = ticket ? await startFromTicket(featureDir, { ticket, slug, title: description, kind, level: options.level, repo: repo.path, profile, detailsRead }) : null;
+        if (fromDetail) await fsp.writeFile(path.join(featureDir, 'history.md'), historyMarkdown(fromDetail), { mode: 0o600 });
+        // The /feature (or /bugfix) command must come first in the message, or it doesn't run. A bug job
+        // goes to /bugfix when that skill is installed; an older install still gets /feature with a note.
+        await checkSkill();
+        const conductor = conductorFor(kind);
+        const tail = from?.mode === 'continue'
+          ? `\n\nThis conversation is now a ${PRODUCT} job: carry it on through the feature workflow from here. Everything said earlier in it is background, not approval.`
+          : '';
+        const text = `${conductor} ${description}${kind === 'bug' && conductor === '/feature' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${kind === 'bug' ? '- Kind: bug fix.\n' : ''}${describeOptions(optionsOut).map((l) => `- ${l}`).join('\n')}${fromTicket ? `\n\n${fromTicket.brief}` : ''}${tail}`;
+        const run = await driver.start({ featureDir, slug, title: description, cwd, sessionId, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
+        autoWritten = false; // the job has started: its record stays, whatever fails after
+        await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options, fromSession: from ? { id: from.id, mode: from.mode, forkedTo: from.forkedTo } : undefined, ticket: ticket?.key });
+        if (autoOn) await auditAuto({ action: 'auto', what: 'on', by: autoOn.by, featureDir, slug, via: 'start', stage: null, asked: '', chose: '', why: '' });
+        cached = null;
+        // Start on a ticket's row works as usual and clears "couldn't start by itself".
+        if (ticket && !internal.autoStart) await autoStarter.clearFailed(ticket.key).catch(() => {});
+        return { run, slug };
+      } catch (err) {
+        // The start failed: the Auto record it wrote (and options.json's mirror of it) is taken out again, so no job
+        // is left in Auto that never started (nor was its `on` line written: that comes after the start).
+        if (autoWritten) {
+          try { await state.setSession(featureDir, { auto: null }); } catch (e) { console.warn(`Auto: the record of a failed start (${slug}) not taken out: ${e.message}`); }
+          try { await writeAutoOption(featureDir, { on: false, since: null }); } catch { /* no options.json yet */ }
+        }
+        throw err;
+      } finally {
+        startingSlugs.delete(slug);
       }
-      // A ticket's job starts with a status.json of schema version 2 holding the ticket block.
-      const fromTicket = ticket ? await startFromTicket(featureDir, { ticket, slug, title: description, kind, level: options.level, repo: repo.path, profile, detailsRead }) : null;
-      if (fromDetail) await fsp.writeFile(path.join(featureDir, 'history.md'), historyMarkdown(fromDetail), { mode: 0o600 });
-      // The /feature (or /bugfix) command must come first in the message, or it doesn't run. A bug job
-      // goes to /bugfix when that skill is installed; an older install still gets /feature with a note.
-      await checkSkill();
-      const conductor = conductorFor(kind);
-      const tail = from?.mode === 'continue'
-        ? `\n\nThis conversation is now a ${PRODUCT} job: carry it on through the feature workflow from here. Everything said earlier in it is background, not approval.`
-        : '';
-      const text = `${conductor} ${description}${kind === 'bug' && conductor === '/feature' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${kind === 'bug' ? '- Kind: bug fix.\n' : ''}${describeOptions(optionsOut).map((l) => `- ${l}`).join('\n')}${fromTicket ? `\n\n${fromTicket.brief}` : ''}${tail}`;
-      const run = await driver.start({ featureDir, slug, title: description, cwd, sessionId, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
-      await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options, fromSession: from ? { id: from.id, mode: from.mode, forkedTo: from.forkedTo } : undefined, ticket: ticket?.key });
-      if (autoOn) await auditAuto({ action: 'auto', what: 'on', by: autoOn.by, featureDir, slug, via: 'start', stage: null, asked: '', chose: '', why: '' });
-      cached = null;
-      // Start on a ticket's row works as usual and clears "couldn't start by itself".
-      if (ticket && !internal.autoStart) await autoStarter.clearFailed(ticket.key).catch(() => {});
-      return { run, slug };
     },
 
     // POST /api/job/:slug/send (via 'box'), or the gate card's own message (via 'card').
@@ -3230,8 +3249,12 @@ export async function createRunner(config) {
     }
     return jobs;
   }
-  // Tests only: the replay start() makes, without the watchers and timers start() opens.
-  if (testHooks && typeof testHooks === 'object') testHooks.replay = replayRestart;
+  // Tests only: the replay start() makes, without the watchers and timers start() opens; a start with
+  // `internal` (as Auto start makes one), which no request can pass.
+  if (testHooks && typeof testHooks === 'object') {
+    testHooks.replay = replayRestart;
+    testHooks.startJob = (body, internal) => HANDLERS.start(body, internal);
+  }
 
   // ---------- Start and stop ----------
 
