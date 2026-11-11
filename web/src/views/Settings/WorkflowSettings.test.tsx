@@ -97,6 +97,19 @@ describe('Settings → Workflow', () => {
     await waitFor(() => expect(store.getState().meta?.settings?.workflow?.autoLevel).toBe(true));
   });
 
+  it('the Inbox switch saves inboxSuggest and shows the explanation', async () => {
+    const { post, store } = setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged' } });
+    const group = screen.getByRole('group', { name: 'Inbox' });
+    const box = within(group).getByRole('checkbox', { name: 'Suggest what to start next' });
+    expect(box).toBeChecked();
+    expect(group).toHaveTextContent('Haiku on this laptop picks up to three to start next and says why.');
+    expect(group).toHaveTextContent('Never names, emails, internal notes or comments.');
+    fireEvent.click(box);
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/settings', { workflow: { inboxSuggest: false } }));
+    await waitFor(() => expect(store.getState().meta?.settings?.workflow?.inboxSuggest).toBe(false));
+    expect(box).not.toBeChecked();
+  });
+
   it('Count my Claude Code use outside the app: on by default, posts countClaudeCode and says Saved beside it', async () => {
     const { post, store } = setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged' } });
     const group = screen.getByRole('group', { name: 'Telemetry' });

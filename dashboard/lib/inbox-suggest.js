@@ -5,6 +5,8 @@
 // parseSuggestion reads it strictly. Nothing here logs ticket text.
 
 import fs from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
+import { tokensFromUsage, ZERO_TOKENS } from './cost.js';
 import { HAIKU } from './options.js';
 import { TOKEN_ENV, canonicalKey, queueOrder, scrub } from './orbit.js';
 import { cleanTicketText } from './ticket-file.js';
@@ -135,11 +137,7 @@ export async function askHaiku({ system, prompt }, { queryFn, cliPath = null, cw
     for await (const m of queryFn({ prompt, options })) {
       if (m?.type !== 'result') continue;
       if (m.is_error || typeof m.result !== 'string') throw new Error('no answer');
-      const u = m.usage ?? {};
-      return {
-        text: m.result, costUsd: Number(m.total_cost_usd) || 0,
-        tokens: { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 },
-      };
+      return { text: m.result, costUsd: Number(m.total_cost_usd) || 0, tokens: tokensFromUsage(m.usage ?? {}) };
     }
     throw new Error('no result');
   })();
@@ -157,5 +155,93 @@ export async function askHaiku({ system, prompt }, { queryFn, cliPath = null, cw
 export async function demoAsk(input) {
   const picks = [...(input?.tickets ?? [])].sort((a, b) => (b.ageDays ?? -1) - (a.ageDays ?? -1)).slice(0, 2)
     .map((t) => ({ key: t.key, reason: "The oldest ticket that isn't ranked." }));
-  return { text: JSON.stringify({ picks }), costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+  return { text: JSON.stringify({ picks }), costUsd: 0, tokens: { ...ZERO_TOKENS } };
+}
+
+export const SUGGEST_EVERY_MS = 30 * 60_000;
+
+/**
+ * Asks for a suggestion when the list of unranked tickets changes, at most once in everyMs (a failure
+ * counts as a try). ask(input) → { text, costUsd, tokens }; enabled() says whether the setting is on.
+ *   consider({ items, rows, jobs })   the inbox changed (or the setting turned on)
+ *   off()                             the setting turned off: cancel the timer, clear the view
+ *   view()                            InboxSuggestion | null; 'change' is emitted with it
+ * An `onCall` hook (optional) gets { costUsd, tokens } after each answered call, for the usage log.
+ */
+export class InboxSuggester extends EventEmitter {
+  constructor({ ask, enabled = () => true, now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout, everyMs = SUGGEST_EVERY_MS, onCall = null }) {
+    super();
+    Object.assign(this, { ask, enabled, now, setTimer, clearTimer, everyMs, onCall });
+    this.latest = null; // the newest inputs given to consider()
+    this.askedList = null; // the list last asked about (JSON of key + changedAt)
+    this.lastTryAt = null;
+    this.timer = null;
+    this.busy = false;
+    this.state = null; // { state, at, picks, forList, why }
+  }
+
+  #list(items) { return suggestCandidates(items).map((i) => `${i.key}@${i.changedAt ?? ''}`); }
+
+  #emit() { this.emit('change', this.view()); }
+
+  view() {
+    if (!this.enabled() || !this.latest || !needsSuggestion(this.latest.items)) return null;
+    if (!this.state) return null;
+    const waiting = this.timer !== null && this.lastTryAt !== null;
+    return {
+      state: this.busy ? 'asking' : this.state.state, at: this.state.at, picks: this.state.picks, forList: this.state.forList,
+      nextAt: waiting ? new Date(this.lastTryAt + this.everyMs).toISOString() : null,
+      ...(this.state.why ? { why: this.state.why } : {}),
+    };
+  }
+
+  consider({ items, rows, jobs }) {
+    this.latest = { items, rows, jobs };
+    if (!this.enabled() || !needsSuggestion(items)) { this.#cancel(); this.#emit(); return; }
+    const list = this.#list(items);
+    if (this.askedList && JSON.stringify(list) === JSON.stringify(this.askedList)) { this.#emit(); return; }
+    if (this.busy) { this.#schedule(); this.#emit(); return; }
+    if (this.lastTryAt !== null && this.now() - this.lastTryAt < this.everyMs) { this.#schedule(); this.#emit(); return; }
+    this.#run();
+  }
+
+  off() {
+    this.#cancel();
+    this.latest = null; this.askedList = null; this.state = null; this.lastTryAt = null; // turning it on again asks at once
+    this.#emit();
+  }
+
+  #cancel() { if (this.timer !== null) { this.clearTimer(this.timer); this.timer = null; } }
+
+  // One timer, set for the moment the last try is everyMs old; later changes do not move it.
+  #schedule() {
+    if (this.timer !== null) return;
+    const wait = Math.max(0, (this.lastTryAt ?? 0) + this.everyMs - this.now());
+    this.timer = this.setTimer(() => { this.timer = null; if (this.latest) this.consider(this.latest); }, wait);
+    this.timer?.unref?.();
+  }
+
+  async #run() {
+    const { items, rows, jobs } = this.latest;
+    const candidates = suggestCandidates(items);
+    const list = this.#list(items);
+    const keys = candidates.map((c) => c.key);
+    this.busy = true; this.lastTryAt = this.now(); this.askedList = list;
+    this.state = { state: 'asking', at: this.state?.at ?? null, picks: this.state?.picks ?? [], forList: this.state?.forList ?? [], why: null };
+    this.#emit();
+    try {
+      const out = await this.ask(suggestInput(candidates, rows, jobs, { now: this.now() }));
+      try { this.onCall?.({ costUsd: out.costUsd, tokens: out.tokens }); } catch { /* the usage log must not stop the suggestion */ }
+      const parsed = parseSuggestion(out.text, keys);
+      this.state = parsed.error
+        ? { state: 'failed', at: new Date(this.now()).toISOString(), picks: [], forList: keys, why: parsed.error }
+        : { state: 'ready', at: new Date(this.now()).toISOString(), picks: parsed.picks, forList: keys, why: null };
+    } catch (err) {
+      this.state = { state: 'failed', at: new Date(this.now()).toISOString(), picks: [], forList: keys, why: err?.message === "Haiku didn't answer in time." ? err.message : "Haiku couldn't be reached." };
+    }
+    this.busy = false;
+    // The list changed during the call: ask again when the window allows.
+    if (this.enabled() && this.latest && needsSuggestion(this.latest.items) && JSON.stringify(this.#list(this.latest.items)) !== JSON.stringify(this.askedList)) this.#schedule();
+    this.#emit();
+  }
 }
