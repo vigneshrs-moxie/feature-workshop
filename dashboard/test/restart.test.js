@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { planRestart, restartJob, realGit } from '../lib/restart.js';
+import { planRestart, restartJob, realGit, remoteEnv } from '../lib/restart.js';
 
 const TODAY = '2026-11-10';
 const CARRIED_FOR_TEST = ['level', 'flow', 'skip', 'provided', 'reviewers', 'review_rounds', 'manual_test', 'fable_checks', 'models', 'all_fable', 'notes', 'wireframes', 'clarify', 'evidence'];
@@ -247,21 +247,23 @@ test('F2: a session record that was cleared is written back when a later step fa
 test('F2: a failed new start whose half-written folder holds only what the start wrote is cleared, and everything is put back', async () => {
   const half = async () => {
     await fs.mkdir(path.join(features, 'visit-audit'), { recursive: true }); // the same path as the old job, as a ticket job has
-    await fs.writeFile(path.join(features, 'visit-audit', 'options.json'), '{}');
+    await fs.writeFile(path.join(features, 'visit-audit', 'options.json'), JSON.stringify({ title: 'Add visit audit columns', repo }));
     await fs.mkdir(path.join(features, 'other-new-job'), { recursive: true });
     await fs.writeFile(path.join(features, 'other-new-job', 'status.json'), '{}');
+    await fs.writeFile(path.join(features, 'other-new-job', 'options.json'), JSON.stringify({ title: 'Add visit audit columns', repo }));
     throw new Error('the repository is not there');
   };
   await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start: half, today: TODAY }), putBack(/starting the new job failed: the repository is not there/));
   await assertOldJobUsable();
   assert.equal(await exists(path.join(features, 'other-new-job')), false, 'the half-written folder is removed');
   assert.equal(await exists(path.join(features, 'visit-audit', 'options.json')), true, 'the old options are back (the old job’s own file)');
-  assert.notEqual(await fs.readFile(path.join(features, 'visit-audit', 'options.json'), 'utf8'), '{}');
+  assert.equal(JSON.parse(await fs.readFile(path.join(features, 'visit-audit', 'options.json'), 'utf8')).level, 2);
 });
 
 test('F2: a failed new start whose folder holds a file a person made leaves everything and says where it all is', async () => {
   const messy = async () => {
     await fs.mkdir(path.join(features, 'new-job'), { recursive: true });
+    await fs.writeFile(path.join(features, 'new-job', 'options.json'), JSON.stringify({ title: 'Add visit audit columns', repo }));
     await fs.writeFile(path.join(features, 'new-job', 'notes.md'), 'my own notes');
     throw new Error('the repository is not there');
   };
@@ -399,12 +401,12 @@ test('F5: an unreachable remote goes ahead, and the result says it could not be 
   git(repo, 'remote', 'add', 'origin', path.join(root, 'no-such-remote.git'));
   const out = await restartJob(job(), { model: 'claude-fable-5-2', start, today: TODAY });
   assert.equal(out.backupBranch, 'backup/feature/visit-audit-2026-11-10');
-  assert.equal(out.notes.some((n) => /could not be checked/.test(n) && /pushed/.test(n)), true, JSON.stringify(out.notes));
+  assert.equal(out.notes.some((n) => /could not be checked/.test(n) && /pushed/.test(n) && /no remote could be reached/.test(n)), true, JSON.stringify(out.notes));
 });
 
-test('F5: no remote at all goes ahead, with the same note', async () => {
+test('G6: no remote at all goes ahead with no note about a remote; an unreachable one still says so', async () => {
   const out = await restartJob(job(), { model: 'claude-fable-5-2', start, today: TODAY });
-  assert.equal(out.notes.some((n) => /could not be checked/.test(n)), true);
+  assert.deepEqual(out.notes.filter((n) => /remote|pushed/.test(n)), []);
 });
 
 test('F7: Claude Code open in a terminal on the job refuses, and nothing moved', async () => {
@@ -416,4 +418,63 @@ test('a first step that fails says nothing was changed', async () => {
   const badGit = { ...realGit, moveWorktree: async () => { throw new Error('worktree is locked'); } };
   await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', git: badGit, start, today: TODAY }), (e) => /did not start/.test(e.message) && /Nothing was changed/.test(e.message) && e.moved.length === 0);
   assert.equal(await exists(worktree), true);
+});
+
+// ---------- Fix round 2 ----------
+
+test('G2: a failed start removes only its own half-made folder; another new job’s folder stays and is not mentioned', async () => {
+  const racing = async () => {
+    await fs.mkdir(path.join(features, 'mine'), { recursive: true });
+    await fs.writeFile(path.join(features, 'mine', 'options.json'), JSON.stringify({ title: 'Add visit audit columns', repo }));
+    await fs.mkdir(path.join(features, 'someone-elses'), { recursive: true });
+    await fs.writeFile(path.join(features, 'someone-elses', 'options.json'), JSON.stringify({ title: 'Another job entirely', repo }));
+    throw new Error('the repository is not there');
+  };
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start: racing, today: TODAY }), putBack(/the repository is not there/));
+  await assertOldJobUsable();
+  assert.equal(await exists(path.join(features, 'mine')), false, 'its own half-made folder is removed');
+  assert.equal(await exists(path.join(features, 'someone-elses', 'options.json')), true, 'another job’s folder is left alone');
+});
+
+test('G3: one part of a stack is refused, and nothing moved', async () => {
+  await fs.writeFile(path.join(features, 'visit-audit', 'status.json'), JSON.stringify({ slug: 'visit-audit', stack: 'big-feature', section: 'api' }));
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start, today: TODAY }), refused(/one part of a stack, and Starbase can't restart one part on its own/));
+  await assertUntouched();
+});
+
+test('G4: a failed session step leaves no copy of the record behind', async () => {
+  const session = { read: async () => ({ sessionId: 'abc' }), clear: async () => { throw new Error('state file is locked'); }, write: async () => {} };
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start, session, today: TODAY }), putBack(/state file is locked/));
+  await assertOldJobUsable();
+  assert.equal(await exists(path.join(features, 'visit-audit', 'session-record.json')), false, 'no stray copy in the job folder');
+});
+
+test('G5: the old job’s state is cleared before the new start, and put back when the start fails', async () => {
+  const log = [];
+  const clearOldState = async () => { log.push('cleared'); return async () => { log.push('restored'); }; };
+  const watching = async (body) => { log.push('start'); return start(body); };
+  await restartJob(job(), { model: 'claude-fable-5-2', start: watching, clearOldState, today: TODAY });
+  assert.deepEqual(log, ['cleared', 'start'], 'cleared first, and kept cleared on success');
+  log.length = 0;
+  const failing = async () => { log.push('start'); throw new Error('nope'); };
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start: failing, clearOldState, today: TODAY }), putBack(/nope/));
+  assert.deepEqual(log, ['cleared', 'start', 'restored']);
+});
+
+test('G5: a step after the new job exists that throws goes into the notes; the restart still succeeds', async () => {
+  const parked = { read: async () => [{ send: { text: 'x' } }], forget: async () => { throw new Error('the list is locked'); } };
+  const out = await restartJob(job(), { model: 'claude-fable-5-2', start, parked, today: TODAY });
+  assert.equal(out.slug, 'visit-audit');
+  assert.equal(out.notes.some((n) => /the list is locked/.test(n)), true, JSON.stringify(out.notes));
+});
+
+test('G6: a job last run in a terminal (no window open) is told to take it over in Starbase first', async () => {
+  await assert.rejects(restartJob(job({ lastRunInTerminal: true }), { model: 'claude-fable-5-2', start, today: TODAY }), (e) => e.status === 409 && /last run in a terminal/.test(e.message) && /take it over in Starbase first, then change the model/i.test(e.message) && !/close it/i.test(e.message) && /Nothing was changed\./.test(e.message));
+  await assertUntouched();
+});
+
+test('G7: the remote check never waits for an ssh password, unless the environment already sets the command', () => {
+  assert.equal(remoteEnv({ PATH: '/bin' }).GIT_SSH_COMMAND, 'ssh -o BatchMode=yes');
+  assert.equal(remoteEnv({ PATH: '/bin' }).GIT_TERMINAL_PROMPT, '0');
+  assert.equal(remoteEnv({ GIT_SSH_COMMAND: 'ssh -i key' }).GIT_SSH_COMMAND, 'ssh -i key');
 });

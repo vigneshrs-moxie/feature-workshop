@@ -75,6 +75,9 @@ export class RestartFailed extends Error {
   }
 }
 
+/** The environment of the remote check: no prompt for a password or passphrase (git or ssh), unless GIT_SSH_COMMAND is already set. */
+export const remoteEnv = (base = process.env) => ({ ...base, GIT_TERMINAL_PROMPT: '0', ...(base.GIT_SSH_COMMAND ? {} : { GIT_SSH_COMMAND: 'ssh -o BatchMode=yes' }) });
+
 /** The git calls a restart makes (injectable for tests). */
 export const realGit = {
   async branches(repo) {
@@ -106,7 +109,7 @@ export const realGit = {
   /** Whether the remote has a branch of this name: true, false, or null when it could not be asked (offline, no such remote, too slow). */
   async remoteHasBranch(repo, remote, branch) {
     try {
-      const { stdout } = await run('git', ['-C', repo, 'ls-remote', '--heads', remote, branch], { timeout: 8000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+      const { stdout } = await run('git', ['-C', repo, 'ls-remote', '--heads', remote, branch], { timeout: 8000, env: remoteEnv() });
       return stdout.split('\n').some((l) => l.trim().endsWith(`refs/heads/${branch}`));
     } catch { return null; }
   },
@@ -128,7 +131,7 @@ export function hasOpenPullRequest(prs) {
 async function remoteCheck(git, repo, branch) {
   let remotes = [];
   try { remotes = await git.remotes(repo); } catch { remotes = []; }
-  let unsure = remotes.length === 0;
+  let unsure = false;
   for (const remote of remotes) {
     const has = await git.remoteHasBranch(repo, remote, branch);
     if (has === true) return { onRemote: remote, notes: [] };
@@ -147,20 +150,26 @@ async function remoteCheck(git, repo, branch) {
  * read), running, archiveRoot }.  model: the new Foreman model (already checked by the caller).
  * git: realGit.  fs: node:fs/promises.  start(body): the New job handler.
  * session: { read(dir), clear(dir), write(dir, record) }, the job's sessions.json record (write puts it
- * back when a later step fails).  parked: { read(dir) → entries, forget(dir) }, replies and go-aheads
+ * back when a later step fails).  clearOldState(): async, called just before the new job starts, clears
+ * what the old job's folder kept (its own permission setting, pause, run end) and returns an async function
+ * that puts it back, called when the start fails.  parked: { read(dir) → entries, forget(dir) }, replies and go-aheads
  * waiting to be sent for the job (the usage limit's list).
  * Returns { slug, archive, backupBranch, worktreeAside, run }.
  */
-export async function restartJob(job, { model, git = realGit, fs = fsp, start, session = null, parked = null, today = dated() }) {
+export async function restartJob(job, { model, git = realGit, fs = fsp, start, session = null, parked = null, clearOldState = null, today = dated() }) {
   const notes = [];
   if (job.running) throw new HttpError(409, 'Stop the reply first.');
   if (job.terminalOpen) throw new HttpError(409, 'Claude Code is open on this job in a terminal. Close it (type /exit there) and try again. Nothing was changed.');
+  if (job.lastRunInTerminal) throw new HttpError(409, 'This job was last run in a terminal. Take it over in Starbase first, then change the model. Nothing was changed.');
   if (hasOpenPullRequest(job.prs)) throw new HttpError(409, 'This job has an open pull request, so its model can’t change: reviewed work would be thrown away. Close the pull request, or start a new job.');
 
   const refuse = (reason) => new RestartFailed(reason, []);
   if (job.options?.stack === true || await exists(fs, path.join(job.dir, 'stack.md')) || await exists(fs, path.join(job.dir, 'stack.json'))) {
     throw refuse('This job coordinates a stack, and its parts have branches and folders of their own that a restart does not move, so starting it again here could leave them pointing at nothing. Finish the stack on its current model, or start a new job.');
   }
+  let status = null;
+  try { status = JSON.parse(await fs.readFile(path.join(job.dir, 'status.json'), 'utf8')); } catch { status = null; }
+  if (typeof status?.stack === 'string' && status.stack) throw refuse('This job is one part of a stack, and Starbase can\'t restart one part on its own.');
   const repo = job.repoPath ?? null;
   const real = async (p) => { try { return await fs.realpath(p); } catch { return null; } };
   const archiveRoot = job.archiveRoot;
@@ -230,7 +239,7 @@ export async function restartJob(job, { model, git = realGit, fs = fsp, start, s
       let cleared = false;
       await step('the Foreman session record', 'sessions.json', copy, async () => {
         await fs.writeFile(copy, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
-        await session.clear(job.dir);
+        try { await session.clear(job.dir); } catch (err) { await fs.rm(copy, { force: true }); throw err; }
         cleared = true;
       }, async () => {
         if (cleared) {
@@ -258,12 +267,27 @@ export async function restartJob(job, { model, git = realGit, fs = fsp, start, s
   const folders = async () => (await siblings(featuresDir)).filter((n) => !n.startsWith('.'));
   const before = new Set(await folders());
   let started;
+  let restoreOldState = null;
   try {
+    restoreOldState = clearOldState ? await clearOldState() : null;
     started = await start({ description: job.title, ticket: job.ticket ?? undefined, kind: job.kind, repoPath: repo ?? old.repo, level: old.level, options, model });
   } catch (err) {
     const reason = `starting the new job failed: ${why(err)}`;
     // What the failed start left behind: removed only when it is nothing but what the start itself writes.
-    const fresh = (await folders()).filter((n) => !before.has(n)).map((n) => path.join(featuresDir, n));
+    // Only this restart's own: a new folder whose options.json names the same description and repository.
+    // Another job started at the same moment is not ours to remove, or to mention.
+    const sameRepo = repo ?? old.repo;
+    const mine = async (dir) => {
+      try {
+        const o = JSON.parse(await fs.readFile(path.join(dir, 'options.json'), 'utf8'));
+        return o?.title === job.title && o?.repo === sameRepo;
+      } catch { return false; }
+    };
+    const fresh = [];
+    for (const n of (await folders()).filter((x) => !before.has(x))) {
+      const dir = path.join(featuresDir, n);
+      if (await mine(dir)) fresh.push(dir);
+    }
     const unsure = [];
     for (const dir of fresh) {
       let names;
@@ -276,9 +300,15 @@ export async function restartJob(job, { model, git = realGit, fs = fsp, start, s
       throw new RestartFailed(reason, moved.map(({ what, from, to }) => ({ what, from, to })), { leftAlone: `Starbase is not sure which files in the new job's folder were written by Starbase and which by a person, so it left everything as it is.${where} To start the job again by hand, use the description "${job.title}"${job.ticket?.key ? `, the ticket ${job.ticket.key}` : ''} and the repository ${repo ?? old.repo ?? '(not recorded)'}. The old work is in ${plan.archiveDir}${plan.backupBranch ? `, on the branch ${plan.backupBranch}` : ''}${plan.worktreeAside ? `, and in the folder ${plan.worktreeAside}` : ''}.` });
     }
     for (const dir of fresh) { try { await fs.rm(dir, { recursive: true, force: true }); } catch (e) { throw new RestartFailed(reason, moved.map(({ what, from, to }) => ({ what, from, to })), { leftAlone: `Starbase could not clear the new job's half-written folder ${dir} (${why(e)}), so it left everything as it is. To start the job again by hand, use the description "${job.title}" and the repository ${repo ?? old.repo ?? '(not recorded)'}; the old work is in ${plan.archiveDir}.` }); } }
+    if (restoreOldState) { try { await restoreOldState(); } catch (e) { notes.push(`The old job's pause and settings could not be put back (${why(e)}).`); } }
     throw await putBack(reason);
   }
-  if (waiting.length) { await parked.forget(job.dir); notes.push(`A reply waiting to be sent for the old job was not sent. A copy is in ${path.join(plan.archiveDir, 'parked-reply.json')}.`); }
+  if (waiting.length) {
+    try {
+      await parked.forget(job.dir);
+      notes.push(`A reply waiting to be sent for the old job was not sent. A copy is in ${path.join(plan.archiveDir, 'parked-reply.json')}.`);
+    } catch (err) { notes.push(`A reply waiting to be sent for the old job could not be taken off the paused jobs list (${why(err)}). A copy is in ${path.join(plan.archiveDir, 'parked-reply.json')}; do not send it to the new job.`); }
+  }
 
   // Listed options of the old options.json that the new job's file doesn't hold are kept. Only a
   // missing old file is fine; any other failure is told to the person (the new job is already running).

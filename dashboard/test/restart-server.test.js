@@ -220,6 +220,55 @@ test('a reply cut off by a crash shows paused with its note, and starbase resume
   await b.stop();
 });
 
+// ---------- G1: nothing is sent to a job whose restart is under way ----------
+
+// Holds a restart of sample-job open (the dashboard's test hook) and waits until it is under way.
+async function holdRestart(d, hold) {
+  await fs.writeFile(hold, '');
+  const restart = d.write('/api/job/sample-job/restart', { model: 'claude-fable-5-2' });
+  await d.waitFor(() => fsSync.existsSync(`${hold}.held`), 'the restart to be under way');
+  return { restart }; // wrapped: an async function would otherwise wait for the held restart itself
+}
+
+test('G1: a job due to carry on after a server restart is not started while its restart is held; it carries on afterwards', async () => {
+  const { env, audit, dirs } = await makeJob();
+  const hold = path.join(dirs.state, 'hold-restart');
+  const a = await startDashboard(env);
+  await replyThatWaits(a);
+  await a.stop();
+  // A terminal holds the job's lock, so the carry-on waits until the test frees it.
+  const lockFile = path.join(dirs.job, 'lock.json');
+  await fs.writeFile(lockFile, JSON.stringify({ owner: 'terminal', pid: process.pid, branch: null, acquiredAt: new Date().toISOString() }));
+  const b = await startDashboard({ ...env, STARBASE_TEST_HOLD_RESTART: hold });
+  const { restart } = await holdRestart(b, hold);
+  await fs.rm(lockFile);
+  await sleep(4500); // longer than the carry-on's tick
+  const sentWhileHeld = audit().filter((e) => e.action === 'send' && e.kind === 'resume-after-restart');
+  await fs.rm(hold);
+  await restart;
+  assert.equal(sentWhileHeld.length, 0, 'nothing was started under the worktree being moved');
+  await b.waitFor(() => audit().find((e) => e.action === 'send' && e.kind === 'resume-after-restart'), 'the carry-on, once the restart is over (the parked entry was kept)');
+  await b.stop();
+});
+
+test('G1: a usage-limit resume skips a job whose restart is held', async () => {
+  const { env, audit, dirs } = await makeJob();
+  const hold = path.join(dirs.state, 'hold-restart');
+  const sessionId = '11111111-2222-4333-8444-555555555555';
+  await fs.writeFile(path.join(dirs.state, 'sessions.json'), JSON.stringify({ [dirs.job]: { sessionId, cwd: dirs.job, model: 'claude-opus-5-5' } }));
+  const now = Date.now();
+  await fs.writeFile(path.join(dirs.state, 'settings.json'), JSON.stringify({ policy: 'ask-all', usageLimit: { kind: 'five_hour', since: now, resetsAt: now + 3600_000, resetKnown: true, jobs: [{ featureDir: dirs.job, slug: 'sample-job', title: 'Sample job', cwd: dirs.job, sessionId, model: 'claude-opus-5-5' }] } }));
+  const b = await startDashboard({ ...env, STARBASE_TEST_HOLD_RESTART: hold });
+  const { restart } = await holdRestart(b, hold);
+  const resumed = await b.write('/api/usage/resume', {});
+  await fs.rm(hold);
+  await restart;
+  assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
+  assert.deepEqual(resumed.body.resumed, [], 'not started');
+  assert.equal(audit().filter((e) => e.action === 'send' && e.slug === 'sample-job').length, 0, 'nothing was sent to the job being restarted');
+  await b.stop();
+});
+
 // ---------- the site reaches nothing of the machine half ----------
 
 const IMPORT = /(?:^|\n)\s*import\s[^'"]*?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|(?:^|\n)\s*export\s[^'"\n]*?from\s+['"]([^'"]+)['"]/g;

@@ -42,6 +42,9 @@ describe('Change model sheet', () => {
     expect(screen.getByText(/except Auto, which starts off again\. The job's own permission setting is not kept either\./)).toBeInTheDocument();
     expect(screen.getByText('A reply waiting to be sent, or a carry-on waiting for the usage limit, is not sent. A copy goes in the archive folder.')).toBeInTheDocument();
     expect(screen.getByText(/If something goes wrong before the new job starts, everything is put back/)).toBeInTheDocument();
+    // Before anything moves, Starbase asks GitHub; and a link to a past conversation is not carried over.
+    expect(screen.getByText(/first checks GitHub, and won't restart a job whose branch is already there\./)).toBeInTheDocument();
+    expect(screen.getByText('A link to a past conversation the job was started from is not carried over.')).toBeInTheDocument();
     // The picker starts on a model other than the current one; the button names it and waits for the name.
     const button = screen.getByRole('button', { name: 'Start the job again on Fable 5.2' });
     expect(button).toBeDisabled();

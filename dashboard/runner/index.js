@@ -183,6 +183,7 @@ export async function createRunner(config) {
     canResume: async (job) => {
       const f = await featureBySlug(job.slug);
       if (!f || f.closed || closing.has(f.dir)) return false; // marked done meanwhile
+      if (restarting.has(f.dir)) return false; // being started again on another model: its worktree is being moved
       const drive = f ? await driveState(f) : null;
       // A reply held for a job with no Foreman session yet starts one, as long as none has started since.
       if (job.send && !job.sessionId) return Boolean(drive && ['none', 'terminal-open'].includes(drive.mode));
@@ -1922,7 +1923,8 @@ export async function createRunner(config) {
         const hold = process.env.STARBASE_TEST_HOLD_RESTART;
         if (hold && fs.existsSync(hold)) {
           await fsp.writeFile(`${hold}.held`, f.slug);
-          while (fs.existsSync(hold)) await new Promise((r) => { setTimeout(r, 20); });
+          const until = Date.now() + 30_000; // a test that forgets to release it cannot hang the server
+          while (fs.existsSync(hold) && Date.now() < until) await new Promise((r) => { setTimeout(r, 20); });
         }
         if (!MODELS.some((x) => x.id === body.model)) throw new HttpError(400, 'That isn’t a model the Foreman can run on.');
         const drive = await driveState(f);
@@ -1935,15 +1937,33 @@ export async function createRunner(config) {
         const job = {
           slug: f.slug, dir: f.dir, title: f.options?.title ?? f.title, kind: f.kind === 'bug' ? 'bug' : 'feature', ticket: f.options?.ticket ?? null,
           repoPath: repo.path, branch: f.branch ?? null, baseBranch: f.baseBranch ?? null, worktree: f.worktree ?? null, prs: f.prs, running: false,
-          terminalOpen: drive.mode === 'terminal' || drive.mode === 'terminal-open',
+          terminalOpen: drive.mode === 'terminal-open' || (drive.mode === 'terminal' && drive.terminals.length > 0),
+          lastRunInTerminal: drive.mode === 'terminal' && drive.terminals.length === 0,
           options: f.options, archiveRoot: path.join(FEATURES_DIR, '.restarted'),
         };
         let out;
+        let policyCleared = false;
         try {
           out = await restartJob(job, {
             model: body.model,
             session: { read: (dir) => state.sessionFor(dir), clear: (dir) => state.clearSession(dir), write: (dir, record) => state.setSession(dir, record) },
             parked: { read: async (dir) => limits.entriesFor(dir), forget: (dir) => limits.forget(dir) },
+            // The old job's own permission setting, pause and run end are cleared before the new job starts, so its
+            // first tool call never runs under them; put back when the restart is undone.
+            clearOldState: async () => {
+              const policy = (await state.getSettings()).jobPolicy?.[f.dir] ?? null;
+              const paused = restartPaused.get(f.dir);
+              const ended = Object.hasOwn(runEnds, f.dir) ? runEnds[f.dir] : undefined;
+              if (policy) { await state.setJobPolicy(f.dir, null); policyCleared = true; }
+              restartPaused.delete(f.dir);
+              delete runEnds[f.dir];
+              return async () => {
+                if (paused) restartPaused.set(f.dir, paused);
+                if (ended !== undefined) runEnds[f.dir] = ended;
+                if (policy) { policyCleared = false; await state.setJobPolicy(f.dir, policy); await driver.applyModes(); }
+                cached = null;
+              };
+            },
             start: async (startBody) => { cached = null; return HANDLERS.start(startBody); },
           });
         } catch (err) {
@@ -1953,12 +1973,13 @@ export async function createRunner(config) {
         }
         // State kept by the old job's folder starts fresh: the new job's folder is often the same path (a ticket job).
         // Saved "Always allow" rules are one list for every job, not kept per job, so there is nothing to clear for them.
-        if ((await state.getSettings()).jobPolicy?.[f.dir]) { await state.setJobPolicy(f.dir, null); await driver.applyModes(); settingsChanged(); }
-        restartPaused.delete(f.dir);
-        delete runEnds[f.dir];
-        await state.audit({ action: 'restart', featureDir: f.dir, slug: f.slug, newSlug: out.slug, model: body.model, was: drive.model ?? null, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside });
+        // (Cleared before the start, by clearOldState.) What is left to do here must not fail the restart: the new job is running.
+        const notes = [...(out.notes ?? [])];
+        const oneLine = (err) => String(err?.message ?? err).split('\n')[0];
+        if (policyCleared) { try { await driver.applyModes(); settingsChanged(); } catch (err) { notes.push(`The permission modes could not be refreshed (${oneLine(err)}).`); } }
+        try { await state.audit({ action: 'restart', featureDir: f.dir, slug: f.slug, newSlug: out.slug, model: body.model, was: drive.model ?? null, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside }); } catch (err) { notes.push(`The restart could not be written to the record (${oneLine(err)}).`); }
         cached = null;
-        return { ok: true, slug: out.slug, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside, notes: out.notes };
+        return { ok: true, slug: out.slug, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside, notes };
       } finally {
         restarting.delete(f.dir);
       }
@@ -2648,7 +2669,8 @@ export async function createRunner(config) {
     resuming = true;
     try {
       for (const [dir, p] of [...restartPaused]) {
-        if (p.how !== 'clean' || limits.isLimited() || closing.has(dir)) continue;
+        // A job being started again on another model is skipped (its entry stays, tried again on the next tick).
+        if (p.how !== 'clean' || limits.isLimited() || closing.has(dir) || restarting.has(dir)) continue;
         let held = null;
         try { held = heldElsewhere(dir); } catch { held = null; }
         if (held) continue;
