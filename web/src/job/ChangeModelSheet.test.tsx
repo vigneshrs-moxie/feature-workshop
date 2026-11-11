@@ -61,6 +61,19 @@ describe('Change model sheet', () => {
     expect(screen.getByText('/w/alpha.2026-11-10')).toBeInTheDocument();
   });
 
+  // m5: the focus is inside the sheet once it has loaded, not left on the page behind.
+  it('opens with the focus in the sheet: on the name box once the job is loaded', async () => {
+    setup();
+    const name = await screen.findByRole('textbox', { name: /Type the job's name to confirm/ });
+    await waitFor(() => expect(name).toHaveFocus());
+  });
+
+  it('with an open pull request the focus is on Close', async () => {
+    setup({ detail: { ...DETAIL, prs: [{ number: 1, state: 'open', url: 'https://github.com/x/y/pull/1' }] } });
+    await screen.findByText(PR_REASON);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus());
+  });
+
   it('after the restart it passes on what Starbase says it could not check', async () => {
     const post = vi.fn(async () => ({ ok: true, slug: 'alpha', archive: '/f/.restarted/alpha-2026-11-10', backupBranch: null, worktreeAside: null, notes: ['Whether the branch feature/alpha had already been pushed could not be checked (no remote could be reached).'] }));
     setup({ post });

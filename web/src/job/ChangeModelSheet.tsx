@@ -2,7 +2,7 @@
 // the job again from step one (POST /api/job/:slug/restart, dashboard/lib/restart.js). The sheet
 // says exactly what leaves the job and where it is kept, then asks for the job's name, as Stop job
 // does. With a pull request in play it says only why the model can't change.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { JobDetail, ModelChoice } from '../api/types';
 import { BRAND } from '../app/brand';
 import { navigate } from '../app/router';
@@ -53,6 +53,10 @@ export function ChangeModelSheet({ slug, onClose }: { slug: string; onClose: () 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Restarted | null>(null);
+  // m5: the sheet opens on "Loading…", with nothing to focus; once the job is in, the focus goes to
+  // the name box (or Close, when a pull request means there is nothing to confirm).
+  const nameBox = useRef<HTMLInputElement>(null);
+  const closeBox = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,6 +66,12 @@ export function ChangeModelSheet({ slug, onClose }: { slug: string; onClose: () 
     );
     return () => { cancelled = true; };
   }, [api, slug]);
+
+  const loaded = detail !== null;
+  useEffect(() => {
+    if (!loaded) return;
+    (nameBox.current ?? closeBox.current?.querySelector<HTMLButtonElement>('button'))?.focus();
+  }, [loaded]);
 
   const current = detail?.drive?.model ?? null;
   const target = picked ?? models.find((m) => m.id !== current)?.id ?? null;
@@ -106,7 +116,7 @@ export function ChangeModelSheet({ slug, onClose }: { slug: string; onClose: () 
       {detail && hasPullRequest(detail.prs) && (
         <>
           <p className="sheet-lede">{PR_REASON}</p>
-          <div className="sheet-actions"><Button onClick={onClose} title="Leave the job as it is.">Close</Button></div>
+          <div className="sheet-actions" ref={closeBox}><Button onClick={onClose} title="Leave the job as it is.">Close</Button></div>
         </>
       )}
       {detail && !hasPullRequest(detail.prs) && (
@@ -116,7 +126,7 @@ export function ChangeModelSheet({ slug, onClose }: { slug: string; onClose: () 
             <Select value={target ?? ''} onChange={setPicked} disabled={busy || models.length === 0} options={models.map((m) => ({ value: m.id, label: m.id === current ? `${m.label} (now)` : m.label }))} />
           </Field>
           <Field label={<>Type the job's name, <code>{slug}</code>, to confirm</>}>
-            <TextInput value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" spellCheck={false} disabled={busy} aria-label="Type the job's name to confirm" title={`Type ${slug} exactly. This makes sure you mean to start the job again.`} />
+            <TextInput ref={nameBox} value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" spellCheck={false} disabled={busy} aria-label="Type the job's name to confirm" title={`Type ${slug} exactly. This makes sure you mean to start the job again.`} />
           </Field>
           {running && <p className="field-problem" role="alert">Stop the reply first.</p>}
           {error && <p className="field-problem" role="alert">{error}</p>}
