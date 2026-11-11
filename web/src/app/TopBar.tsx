@@ -60,7 +60,7 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
   const pages: (MenuEntry & { kind: 'link' })[] = [
     { kind: 'link', id: 'jobs', label: 'Jobs', href: hrefFor({ name: 'home' }), icon: 'activity', current: at === 'jobs', hint: 'Jobs: every job in four lanes, Working, Needs you, In review and Ready to merge (key: g j).' },
     { kind: 'link', id: 'desk', label: 'Desk', href: hrefFor({ name: 'desk' }), icon: 'hand', current: at === 'desk', count: desk, hint: deskHint },
-    { kind: 'link', id: 'inbox', label: 'Inbox', href: hrefFor({ name: 'inbox' }), icon: 'inbox', current: at === 'inbox', hint: 'The Inbox: your Portal Feedback tickets from Orbit, most severe first, with Start for a new job on one (key: g i).' },
+    { kind: 'link', id: 'inbox', label: 'Inbox', href: hrefFor({ name: 'inbox' }), icon: 'inbox', current: at === 'inbox', hint: 'The Inbox: your Portal Feedback tickets from Orbit, in your Orbit queue order, with Start for a new job on one (key: g i).' },
     { kind: 'link', id: 'stacks', label: 'Stacks', href: stacksHref(), icon: 'layers', current: at === 'stacks', hint: 'Stacks: a big ticket split into parts that are built side by side, then joined in order and pushed with your go.' },
     { kind: 'link', id: 'telemetry', label: 'Telemetry', href: telemetryHref(), icon: 'gauge', current: at === 'telemetry', hint: 'Telemetry: where the Claude usage goes and when the weekly limit will be reached.' },
   ];

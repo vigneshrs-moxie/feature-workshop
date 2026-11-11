@@ -138,7 +138,7 @@ details[open] > summary .fold-chevron, .fold-chevron.is-up { transform: rotate(1
 .inbox-table tr.is-peeked { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .inbox-table .row-link { border-radius: var(--radius-sm); }
 
-/* The two groups: Needs a decision (open), Can wait (a fold). */
+/* The two groups: To start (open), Already started (a fold). */
 .inbox-group { display: flex; flex-direction: column; gap: var(--space-3); }
 .inbox-group-head { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--text-1); }
 .inbox-group-icon.is-decide { color: var(--status-warn); }

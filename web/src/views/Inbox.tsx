@@ -136,7 +136,8 @@ export const toStart = (i: Pick<InboxItem, 'job' | 'start'>) => !i.job && !onIts
  */
 export function nextTicket(items: readonly InboxItem[], picks: readonly InboxItem[] = []): NextPick | null {
   const free = sortInbox(items).filter(toStart);
-  const byNumber = free.find((i) => Number.isInteger(i.queuePosition));
+  // The minimum queue number; `free` is in queueOrder, so a tie keeps the earlier row.
+  const byNumber = free.reduce<InboxItem | undefined>((best, i) => (Number.isInteger(i.queuePosition) && (!best || i.queuePosition! < best.queuePosition!) ? i : best), undefined);
   if (byNumber) return { item: byNumber, why: 'queue' };
   const keys = new Set(free.map((i) => i.key));
   const suggested = picks.find((i) => keys.has(i.key));

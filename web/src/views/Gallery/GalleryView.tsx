@@ -204,7 +204,7 @@ function Column({ compact }: { compact: boolean }) {
       </Group>
 
       <Group title="Empty, loading, error">
-        <Hero icon="inbox" title="No tickets yet" actions={<Button kind="primary">Check Orbit now</Button>}>Tickets from Orbit land here, most severe first.</Hero>
+        <Hero icon="inbox" title="No tickets yet" actions={<Button kind="primary">Check Orbit now</Button>}>Tickets from Orbit land here, in your Orbit queue order.</Hero>
         <div className="skeleton-card" aria-label="Loading" role="status"><span className="skeleton-line is-wide" /><span className="skeleton-line" /><span className="skeleton-line is-short" /></div>
         <div className="error-state" role="alert">
           <Icon name="warn" size={16} />

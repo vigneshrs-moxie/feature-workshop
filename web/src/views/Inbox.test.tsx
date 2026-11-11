@@ -456,6 +456,14 @@ describe('the Inbox follows your queue', () => {
     expect(within(bar).getByRole('button', { name: /Start ORBIT-12/ })).toBeInTheDocument();
   });
 
+  it('the bar offers the lowest number even when a more severe ticket has a higher one', async () => {
+    const { wrap } = setup({ answer: { ...INBOX, items: [queued(51, 5, { severity: 'critical' }), queued(52, 1, { severity: 'high' })] } });
+    wrap(<InboxView openStream={() => null} />);
+    const bar = await screen.findByRole('region', { name: 'Next step' });
+    expect(bar).toHaveTextContent('ORBIT-52 is number 1 in your queue');
+    expect(nextTicket([queued(51, 5, { severity: 'critical' }), queued(52, 1, { severity: 'high' })])?.item.key).toBe('ORBIT-52');
+  });
+
   it('two rows numbered 2: the bar offers the first in order, and only one row is marked next', async () => {
     const { wrap } = setup({ answer: { ...INBOX, items: [queued(21, 2, { createdAt: daysAgo(1) }), queued(20, 2, { createdAt: daysAgo(5) })] } });
     wrap(<InboxView openStream={() => null} />);
