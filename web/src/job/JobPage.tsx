@@ -27,7 +27,7 @@ import { relativeTime, useNow } from '../lib/time';
 import { EvidenceStrip } from '../panes/Foreman/EvidenceStrip';
 import { ThreadList, useCurrentJob, useJobConversation } from '../panes/Foreman/ForemanPane';
 import { Composer } from '../panes/Foreman/Composer';
-import { GateSlot } from '../panes/Foreman/GateCard';
+import { GateSlot, pressReply } from '../panes/Foreman/GateCard';
 import { useGateSent, type GateSent } from '../panes/Foreman/gateSent';
 import { JobGithub } from '../panes/Foreman/JobGithub';
 import { JobMenu } from '../panes/Foreman/JobHeader';
@@ -382,13 +382,13 @@ function TryAgain({ after }: { after: AfterSend }) {
 /**
  * The go / no go bar while a gate waits. The gate card under it keeps every rule (its questions,
  * the decisions made for you, a stale plan, the evidence); its own row of buttons is hidden, and
- * the bar's two calls press them. Go is off while the card asks a question: a never answers one.
+ * the bar's three calls press them (Reply opens the message box). Go is off while the card asks a question: a never answers one.
  */
 function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; after: AfterSend }) {
   const [cardShown, setCardShown] = useShown('stage', 'brief');
   const folded = foldCard && !cardShown;
   const body = useRef<HTMLDivElement>(null);
-  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false });
+  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true });
   useLayoutEffect(() => {
     const el = body.current;
     if (!el) return;
@@ -396,8 +396,9 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { jo
       const b = el.querySelector<HTMLButtonElement>('[data-gate="approve"]');
       const back = el.querySelector<HTMLButtonElement>('[data-gate="revise"]');
       // Off whenever the card's button can't be pressed: disabled, aria-disabled, or busy.
-      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back) };
-      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff ? was : next));
+      const reply = el.querySelector<HTMLButtonElement>('[data-gate="guidance"]');
+      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back), replyOff: !isPressable(reply) };
+      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff && was.replyOff === next.replyOff ? was : next));
     };
     read();
     const watch = new MutationObserver(read);
@@ -405,6 +406,8 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { jo
     return () => watch.disconnect();
   }, [detail]);
   const press = (what: 'approve' | 'revise') => { const b = body.current?.querySelector(`[data-gate="${what}"]`); if (isPressable(b)) b.click(); };
+  // Send back and Reply open a box in the card: a folded brief opens first so the box is seen.
+  const reply = () => { if (folded) setCardShown(true); pressReply(body.current); };
   const gate = detail.gate;
   const goWords = go.words || 'Approve';
   // The call pressed spins while its decision is out (the card's own button was pressed for it).
@@ -422,8 +425,12 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { jo
         {/* On the hosted site a Go made there waits for the laptop (the card under this says so): no calls meanwhile. */}
         {!isOpen(queuedOf(detail.queued)) && <>
         {after.stuck && <TryAgain after={after} />}
-        <Button size="lg" keyId="gate-revise" busy={spins('changes')} busyLabel={SENDING_WORDS} disabled={go.backOff} onClick={() => press('revise')} title={go.backOff ? 'Off for now: the card under this says why.' : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
+        <Button size="lg" keyId="gate-revise" busy={spins('changes')} busyLabel={SENDING_WORDS} disabled={go.backOff} onClick={() => { if (folded) setCardShown(true); press('revise'); }} title={go.backOff ? 'Off for now: the card under this says why.' : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
           {call ? 'No go: send back' : 'Send back'}
+        </Button>
+        {/* Reply opens the card's message box: on whenever the card waits, even with a question open. It never approves. */}
+        <Button size="lg" busy={spins('message')} busyLabel={SENDING_WORDS} disabled={go.replyOff} onClick={reply} title={go.replyOff ? 'Off for now: the card under this says why.' : 'Answer a question or leave a note for the Foreman. Nothing is approved. Your answers so far go with it.'}>
+          Reply
         </Button>
         {/* Go is on whenever the card's own Approve is: with questions it sends your answers too (the
             picked ones show under this), but the a key never answers a question, so it shows no key. */}

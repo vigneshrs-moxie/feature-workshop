@@ -33,7 +33,7 @@ import { Fold, Hero, useMinWidth } from '../components/page/Page';
 import { StopMap } from '../components/stops/StopMap';
 import { Card } from '../components/permissions/PendingCards';
 import { fullTime, relativeTime } from '../lib/time';
-import { GateSlot } from '../panes/Foreman/GateCard';
+import { GateSlot, pressReply } from '../panes/Foreman/GateCard';
 import { useGateSent } from '../panes/Foreman/gateSent';
 import { ServerHtml } from '../panes/Foreman/ServerHtml';
 import { useJobThread } from '../panes/Foreman/useJobThread';
@@ -120,7 +120,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
   if (thread.error) return <p className="perm-warn" role="alert">{thread.error}</p>;
   if (!thread.detail) return <p className="muted" role="status">Opening the Foreman’s brief…</p>;
   const brief = thread.detail.latestBrief as { html?: string; number?: number | null } | null | undefined;
-  const press = (what: 'approve' | 'revise' | 'guidance') => { const b = body.current?.querySelector(`[data-gate="${what}"]`); if (isPressable(b)) b.click(); };
+  const press = (what: 'approve' | 'revise') => { const b = body.current?.querySelector(`[data-gate="${what}"]`); if (isPressable(b)) b.click(); };
   // On the hosted site, a Go made there waits for the laptop: the card says so, and the calls rest.
   const gate = Boolean(thread.detail.gate) && !isOpen(queuedOf(thread.detail.queued));
   // On a phone No go is as large as Go (at least 44 px: packet 2B's Desk on a phone).
@@ -162,7 +162,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
       </div>
       {gate ? (
         <div className={`desk-calls${call ? ' is-call' : ''}`}>
-          <Button kind="quiet" keyId="desk-reply" className="desk-call-reply" busy={spins('message')} busyLabel="Sending…" disabled={decision.state === 'sending' || decision.state === 'sent'} onClick={() => press('guidance')} title="Ask or tell the Foreman something without deciding: nothing is approved (key: c).">
+          <Button kind="quiet" keyId="desk-reply" className="desk-call-reply" busy={spins('message')} busyLabel="Sending…" disabled={decision.state === 'sending' || decision.state === 'sent'} onClick={() => pressReply(body.current)} title="Ask or tell the Foreman something without deciding: nothing is approved (key: c).">
             Reply
           </Button>
           <Button size={phone ? 'lg' : undefined} keyId="desk-send-back" className="desk-call-no" busy={spins('changes')} busyLabel="Sending…" disabled={decision.state === 'sending' || decision.state === 'sent'} onClick={() => press('revise')} title="No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).">

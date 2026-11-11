@@ -200,6 +200,18 @@ describe('the Stage', () => {
     expect(document.querySelector('.job-gate-body')).toHaveTextContent('Checks done');
   });
 
+  it('the bar on a stop’s page has Send back, Reply and Go; Reply opens its box even with the brief folded', async () => {
+    setDefaultDetail('simple');
+    setup({ detail: WITH_GATE });
+    await screen.findByRole('button', { name: /^The brief/ });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    const calls = within(screen.getByRole('region', { name: 'Next step' })).getAllByRole('button').map((b) => b.textContent?.replace(/\s+/g, ' ').trim());
+    expect(calls).toEqual([expect.stringMatching(/^No go: send back/), 'Reply', expect.stringMatching(/^Go:/)]);
+    expect(document.querySelector('.job-gate-body')).not.toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    expect(await screen.findByRole('textbox', { name: /Your answers or a note/ })).toBeVisible();
+  });
+
   it('Full: the brief starts open on a stop’s page', async () => {
     setup({ detail: WITH_GATE });
     const row = await screen.findByRole('button', { name: /^The brief/ });

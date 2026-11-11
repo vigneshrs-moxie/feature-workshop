@@ -480,9 +480,9 @@ describe('GateCard', () => {
   it('Other guidance needs a note and sends it as a message', async () => {
     const { post } = setup();
     fireEvent.click(button('Other guidance'));
-    expect(button('Send the guidance')).toBeDisabled();
-    fireEvent.change(within(card()!).getByRole('textbox', { name: /Your guidance or question/ }), { target: { value: 'Is the CSV in scope?' } });
-    await act(async () => { fireEvent.click(button('Send the guidance')); });
+    expect(button('Send the reply')).toBeDisabled();
+    fireEvent.change(within(card()!).getByRole('textbox', { name: /Your answers or a note for the Foreman/ }), { target: { value: 'Is the CSV in scope?' } });
+    await act(async () => { fireEvent.click(button('Send the reply')); });
     expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'message', note: 'Is the CSV in scope?', answers: { 1: { choice: 'a' } }, verdicts: {} }));
   });
 
@@ -495,8 +495,8 @@ describe('GateCard', () => {
     expect(card()).toHaveTextContent('The Foreman is still working on a reply.');
     fireEvent.click(button('Lighter (Build)'));
     fireEvent.click(button('Other guidance'));
-    fireEvent.change(within(card()!).getByRole('textbox', { name: /Your guidance or question/ }), { target: { value: 'Also check the CSV.' } });
-    await act(async () => { fireEvent.click(button('Send the guidance')); });
+    fireEvent.change(within(card()!).getByRole('textbox', { name: /Your answers or a note for the Foreman/ }), { target: { value: 'Also check the CSV.' } });
+    await act(async () => { fireEvent.click(button('Send the reply')); });
     expect(screen.getByText(/The Foreman is still working; your reply is ready to send when it finishes\./)).toHaveTextContent('The option changes are saved already.');
     const composerBox = screen.getByRole('textbox', { name: 'Your message to the Foreman' });
     expect(composerBox).toHaveValue(text);
@@ -825,12 +825,12 @@ describe('GateCard: a decision on its way', () => {
     expect(approve).not.toHaveAttribute('aria-busy');
   });
 
-  it('Send the guidance spins on the click and cannot be pressed twice', async () => {
+  it('Send the reply spins on the click and cannot be pressed twice', async () => {
     const { post, answer } = held();
     setup({ det: oneQ(), post });
     fireEvent.click(button('Other guidance'));
-    fireEvent.change(within(card()!).getByRole('textbox', { name: /Your guidance or question/ }), { target: { value: 'Is the CSV in scope?' } });
-    const send = button('Send the guidance');
+    fireEvent.change(within(card()!).getByRole('textbox', { name: /Your answers or a note for the Foreman/ }), { target: { value: 'Is the CSV in scope?' } });
+    const send = button('Send the reply');
     fireEvent.click(send);
     fireEvent.click(send);
     expect(send).toHaveAttribute('aria-busy', 'true');

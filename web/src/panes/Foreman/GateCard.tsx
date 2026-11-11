@@ -42,7 +42,7 @@ import { EVIDENCE_STAGES, EvidenceStrip } from './EvidenceStrip';
 import { useGateSent } from './gateSent';
 import { isActiveRun } from './thread';
 import { LockCard, lockFromError, lockHeadline } from '../../views/JobLock/LockCard';
-import { Button } from '../../components/Button';
+import { Button, isPressable } from '../../components/Button';
 import { Choice } from '../../components/Choice';
 
 // Refusals that mean the card is out of date: the Foreman moved on to a new brief, or the spec or
@@ -124,6 +124,18 @@ function ScreensRow({ slug, hasPage }: { slug: string; hasPage: boolean }) {
       <button type="button" className="link-button" onClick={() => open()} title="Open the Screens tab: review each screen on the page, pick the design choices, and Copy feedback puts your notes in your reply.">Review the screens</button>
     </div>
   );
+}
+
+/**
+ * Reply, from a page's own bar: opens the card's message box (the card's own guidance button), or
+ * puts the cursor back in it when it is already open. Never approves. Nothing happens while the
+ * card's button is not pressable (a decision is out, or the job is held elsewhere).
+ */
+export function pressReply(root: Element | null | undefined) {
+  const b = root?.querySelector<HTMLButtonElement>('[data-gate="guidance"]');
+  if (!isPressable(b)) return;
+  if (b.getAttribute('aria-expanded') === 'true') root?.querySelector<HTMLTextAreaElement>('.gate-note textarea')?.focus();
+  else b.click();
 }
 
 /** `callsOutside`: the page draws its own big calls (the Desk's Go / No go / Reply) and presses the card's buttons, so the card's row is hidden. */
@@ -329,7 +341,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       const what = kind === 'stop' ? 'Stop sent: the Foreman records where things stand and starts nothing else.'
         : kind === 'approve' ? 'Your approval went to the Foreman.'
           : kind === 'changes' ? 'The changes you asked for went to the Foreman. It stays in this stage and revises.'
-            : 'Your guidance went to the Foreman.';
+            : 'Your reply went to the Foreman.';
       report({ tone: 'ok', text: `${what}${dropped}`, lines, focus: 'notice' });
     } else if (r.held) {
       report({ tone: 'ok', text: `${r.message ?? 'Held until Claude’s usage limit resets.'}${dropped}`, lines, focus: 'notice' });
@@ -610,7 +622,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       {(mode === 'changes' || mode === 'message') && (
         <div className="gate-note">
           <label className="field">
-            <span>{mode === 'changes' ? 'What should change? The Foreman stays in this stage and revises; nothing is approved.' : 'Your guidance or question for the Foreman. Nothing is approved.'}</span>
+            <span>{mode === 'changes' ? 'What should change? The Foreman stays in this stage and revises; nothing is approved.' : 'Your answers or a note for the Foreman. Nothing is approved.'}</span>
             <textarea
               ref={noteBox}
               className="text-area"
@@ -620,7 +632,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
               disabled={busy}
               title={mode === 'changes'
                 ? 'Say what the Foreman should change. It goes in your reply with your answers; the Foreman revises and briefs you again.'
-                : 'A question or a note for the Foreman. It goes in your reply with your answers; this card stays open.'}
+                : 'A question or a note for the Foreman. It goes with your answers so far; nothing is approved and this card stays open.'}
             />
           </label>
           <div className="perm-actions">
@@ -630,9 +642,9 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
               busyLabel="Sending…"
               disabled={busy || !note.trim()}
               onClick={() => void act(mode, { note })}
-              title={note.trim() ? (mode === 'changes' ? 'Send your answers and the changes you want. The Foreman revises before moving on.' : 'Send your answers and this guidance. The Foreman replies; the gate stays open.') : 'Write something first.'}
+              title={note.trim() ? (mode === 'changes' ? 'Send your answers and the changes you want. The Foreman revises before moving on.' : 'Send your answers and this note. The Foreman replies; the gate stays open.') : 'Write something first.'}
             >
-              {mode === 'changes' ? 'Send the changes' : 'Send the guidance'}
+              {mode === 'changes' ? 'Send the changes' : 'Send the reply'}
             </Button>
             <Button kind="quiet" disabled={busy} onClick={() => setMode(null)} title="Close this without sending. What you wrote is kept until the card goes.">Cancel</Button>
           </div>
