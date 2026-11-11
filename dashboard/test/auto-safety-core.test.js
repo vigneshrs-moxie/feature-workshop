@@ -566,3 +566,9 @@ test('m3: a merge, pull or rebase from anything but the org remote\'s main or th
   for (const c of ['git merge moxie/main', `git merge origin/${BRANCH}`, `git merge ${BRANCH}`, 'git pull moxie main', `git pull origin ${BRANCH}`, 'git rebase moxie/main', 'git merge --abort', 'git rebase --continue', 'git merge --no-edit moxie/main']) assert.notEqual(bash(c, ctx), 'merge', c);
   assert.equal(bash('git cherry-pick abc123', ctx), 'ask');
 });
+
+test('m4: gh pr checkout asks, and brings in files: nothing else runs after it in the same call', () => {
+  const ctx = C5CTX();
+  for (const c of ['gh pr checkout 12', 'gh pr checkout 12 && npm test', 'gh pr checkout 12 && ls']) assert.equal(bash(c, ctx), 'ask', c);
+});
+

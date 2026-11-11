@@ -536,7 +536,7 @@ const GH_TEXT = ['--json', '--jq', '-q', '--state', '-s', '--author', '--label',
 const GH = {
   pr: {
     create: BUILD('--fill --fill-first --fill-verbose --title: -t: --body: -b: --base: -B: --head: -H: --draft -d --label: -l: --reviewer: -r: --assignee: -a: --milestone: -m: --no-maintainer-edit --body-file: -F: --repo: -R:', { text: ['--title', '-t', '--body', '-b', '--base', '-B', '--head', '-H', '--label', '-l', '--reviewer', '-r', '--assignee', '-a', '--milestone', '-m', '--repo', '-R'] }),
-    view: BUILD('--json: --jq: -q: --comments -c', { text: GH_TEXT }), list: BUILD(GH_LIST.replace('--web', ''), { text: GH_TEXT }), status: BUILD(''), checks: BUILD('--watch --required --json: --jq: -q: --interval: -i:'), diff: BUILD('--name-only --patch --color:'), checkout: BUILD('--detach'),
+    view: BUILD('--json: --jq: -q: --comments -c', { text: GH_TEXT }), list: BUILD(GH_LIST.replace('--web', ''), { text: GH_TEXT }), status: BUILD(''), checks: BUILD('--watch --required --json: --jq: -q: --interval: -i:'), diff: BUILD('--name-only --patch --color:'), // checkout: someone else's code arrives; it asks (m4)
   },
   issue: { view: BUILD('--json: --jq: -q: --comments -c'), list: BUILD(GH_LIST.replace('--web', '')), status: BUILD('') },
   repo: { view: BUILD('--json: --jq: -q') },
@@ -894,7 +894,7 @@ export function plainWhy(command, env = {}) {
       if (broughtIn && !READ_ONLY.has(name) && name !== 'git' && name !== 'gh') ask('a program run after an archive or a git command changed the files');
       if (broughtIn && cmd.redirects.some((r) => r.op !== '<')) ask('a file written after an archive or a git command changed the files');
       const newBranch = args.some((x) => ['-b', '-B', '-c', '-C'].includes(x.t));
-      if (name === 'tar' || name === 'unzip' || (name === 'git' && !newBranch && ['checkout', 'switch', 'pull', 'merge', 'rebase', 'reset', 'restore', 'cherry-pick', 'revert', 'clone'].includes(sub))) broughtIn = true;
+      if (name === 'tar' || name === 'unzip' || (name === 'gh' && args.filter((x) => !x.t.startsWith('-'))[0]?.t === 'pr' && args.filter((x) => !x.t.startsWith('-'))[1]?.t === 'checkout') || (name === 'git' && !newBranch && ['checkout', 'switch', 'pull', 'merge', 'rebase', 'reset', 'restore', 'cherry-pick', 'revert', 'clone'].includes(sub))) broughtIn = true;
       runProgram(name, args, ctx, null);
     }
     return null;
