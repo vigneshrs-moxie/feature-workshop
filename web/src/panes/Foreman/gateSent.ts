@@ -73,11 +73,10 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
 
   useEffect(() => {
     const last = lastSent.get(slug);
-    if (state === 'sending') {
-      // Queued by the website: over once the page shows it (or the job moved on meanwhile).
-      if (last?.queuedId && (queuedId === last.queuedId || last.marks !== marks)) clear();
-      return;
-    }
+    // Queued by the website: over once the page shows it (or the job moved on meanwhile), even when
+    // its 30 seconds ran out first (the queued card says where it is).
+    if (last?.queuedId && (state === 'sending' || state === 'stuck') && (queuedId === last.queuedId || last.marks !== marks)) { clear(); return; }
+    if (state === 'sending') return;
     if (state !== 'sent' && state !== 'stuck') return;
     if (last?.marks !== marks) clear();
   }, [state, marks, slug, clear, queuedId, awaited]);

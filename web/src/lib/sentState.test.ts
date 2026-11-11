@@ -50,17 +50,46 @@ describe('useSent', () => {
     expect(result.current.state).toBe('idle');
   });
 
-  it('a new start after stuck sends again, and its own 30 seconds count from its acceptance', () => {
+  it('a new start after stuck sends again, and its own 30 seconds count from its own click', () => {
     const { result } = hook();
     act(() => { result.current.start(); result.current.accepted(); });
     act(() => { vi.advanceTimersByTime(STUCK_AFTER_MS); });
     act(() => result.current.start());
     expect(result.current.state).toBe('sending');
-    act(() => { vi.advanceTimersByTime(STUCK_AFTER_MS); });
+    act(() => { vi.advanceTimersByTime(STUCK_AFTER_MS - 1); });
     expect(result.current.state, 'no old timer turns a new send stuck').toBe('sending');
     act(() => result.current.accepted());
-    act(() => { vi.advanceTimersByTime(STUCK_AFTER_MS - 1); });
     expect(result.current.state).toBe('sent');
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(result.current.state).toBe('stuck');
+  });
+
+  // m1: the 30 seconds count from the click, so a request that never answers turns stuck too.
+  it('a send that gets no answer turns stuck 30 seconds after the click', () => {
+    const { result } = hook();
+    act(() => result.current.start());
+    act(() => { vi.advanceTimersByTime(STUCK_AFTER_MS - 1); });
+    expect(result.current.state).toBe('sending');
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(result.current.state).toBe('stuck');
+  });
+
+  it('taken 20 seconds after the click, it turns stuck 10 seconds later, not 30', () => {
+    const { result } = hook();
+    act(() => result.current.start());
+    act(() => { vi.advanceTimersByTime(20_000); });
+    act(() => result.current.accepted());
+    expect(result.current.state).toBe('sent');
+    act(() => { vi.advanceTimersByTime(10_000); });
+    expect(result.current.state).toBe('stuck');
+  });
+
+  it('taken only after it was stuck, it stays stuck', () => {
+    const { result } = hook();
+    act(() => result.current.start());
+    act(() => { vi.advanceTimersByTime(STUCK_AFTER_MS + 5_000); });
+    act(() => result.current.accepted());
+    expect(result.current.state).toBe('stuck');
   });
 
   it('every place with the same key sees one state; another key is its own', () => {

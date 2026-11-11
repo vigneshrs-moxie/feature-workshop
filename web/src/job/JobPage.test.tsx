@@ -391,6 +391,21 @@ describe('after a click on the go / no go bar', () => {
     expect(within(bar()).getByRole('button', { name: 'Try again' })).toBeEnabled();
   });
 
+  // m1: a send with no answer at all.
+  it('a Go that gets no answer: after 30 seconds from the click, "Nothing has moved yet." with Try again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { post, answer } = held();
+    setup({ jobs: waiting(), gate: GATE, post });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(live()).toHaveTextContent('Sending…'));
+    act(() => { vi.advanceTimersByTime(29_000); });
+    expect(bar()).not.toHaveTextContent('Nothing has moved yet.');
+    act(() => { vi.advanceTimersByTime(1_000); });
+    expect(within(bar()).getByText('Nothing has moved yet.')).toBeInTheDocument();
+    expect(within(bar()).getByRole('button', { name: 'Try again' })).toBeEnabled();
+    await answer();
+  });
+
   it('Try again sends the same decision once', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const post = sentPost({ runEvent: false });
