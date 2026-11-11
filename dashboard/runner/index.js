@@ -138,7 +138,7 @@ export async function createRunner(config) {
     featuresDir: FEATURES_DIR, projectsDir: PROJECTS_DIR, agentsDir: AGENTS_DIR, skillsDir: SKILLS_DIR,
     stateDir, demo: DEMO = false, claudePath = null, claudeSettingsFile: CLAUDE_SETTINGS_FILE, legacySettingsFile = null,
     gateParkMs = null, planUsage: planUsageOn = true, orbitStore: orbitStorePrefer = 'auto',
-    integrateDir: INTEGRATE_DIR, integrateRoot, env = process.env, siteLink: siteLinkOn = true,
+    integrateDir: INTEGRATE_DIR, integrateRoot, env = process.env, siteLink: siteLinkOn = true, testHooks = null,
   } = config;
   // Whether the installed /feature skill knows levels (read only; Settings warns when it doesn't),
   // and whether /bugfix is installed: a bug job's Foreman is then /bugfix (conductorFor).
@@ -186,6 +186,8 @@ export async function createRunner(config) {
     // The Orbit token as ORBIT_FEEDBACK_TOKEN, so the Foreman's MCP entry has it (never an argument).
     envFor: async () => ({ ...process.env, ...(orbitStoreReady ? await sessionEnv(orbitStoreReady) : {}) }),
   });
+  // Tests only: they hand in an object and get the driver in it. Nothing the site or the pages reach holds it.
+  if (testHooks && typeof testHooks === 'object') testHooks.driver = driver;
   // Whether auto mode works for this account, as the last reply that asked for it found out.
   driver.on('auto-mode', ({ available, reason = null }) => {
     (async () => {
@@ -1488,14 +1490,25 @@ export async function createRunner(config) {
   // Every Auto line goes through here: the audit line, then auto-log.md written again from the job's lines
   // (a failed file write is logged and never fails the decision), and, when the line carries the
   // Approver's cost, one line in the usage log (worker approver). A job with no Auto lines has no file.
+  // The writes for one folder go one after another, so the file never ends one line behind the audit.
+  const logChains = new Map();
   async function auditAuto(line) {
     await state.audit(line);
     if (!line.featureDir) return;
+    const dir = line.featureDir;
+    const mine = (logChains.get(dir) ?? Promise.resolve()).then(() => writeLogFor(line));
+    logChains.set(dir, mine);
+    try { await mine; } finally { if (logChains.get(dir) === mine) logChains.delete(dir); }
+    afterLog(line);
+  }
+  async function writeLogFor(line) {
     try {
       const lines = await state.auditFor(line.featureDir, Infinity);
       const title = knownTitle.get(line.featureDir) ?? line.slug ?? path.basename(line.featureDir);
       await writeAutoLog(line.featureDir, lines, { title, now: new Date().toISOString(), record: (await state.sessionFor(line.featureDir))?.auto ?? null });
     } catch (err) { console.warn(`Auto: auto-log.md for ${line.slug ?? line.featureDir} not written: ${err.message}`); }
+  }
+  function afterLog(line) {
     if (line.costUsd > 0) {
       logTurn({
         runId: `auto-${crypto.randomUUID()}`, slug: line.slug ?? null, featureDir: line.featureDir, sessionId: null, total: line.costUsd, runPrev: null,
@@ -1509,7 +1522,7 @@ export async function createRunner(config) {
     decide: {
       gate: (kind, body, opts) => gateDecision(kind, body, opts),
       // A card answered for the person: only code passes by: 'auto' (a request's body never does).
-      permission: async (id, body, { by = 'auto' } = {}) => { if (!(await driver.decide(id, { ...body, by }))) throw new Error('That card was already answered or has gone.'); },
+      permission: async (id, body, { by } = {}) => { if (!by) throw new TypeError('A decision for a card says who sent it.'); if (!(await driver.decide(id, { ...body, by }))) throw new Error('That card was already answered or has gone.'); },
     },
     // A card as it waits now (with its full input), and what the fixed stop list needs to know of its reply.
     pendingCard: (id) => driver.pendingRequest(id),
@@ -1951,11 +1964,13 @@ export async function createRunner(config) {
       await saveChipOptions(f, options);
       return { ...reply, sent: false, queued: false, message: `The Foreman is still working on a reply, so nothing was sent${options ? '. The option changes are saved and apply from its next stage' : ''}. Send this text once the reply is done.` };
     }
+    // Auto's reply is never parked for the limit: refused as "limited", and Auto keeps its answer and sends it on a later pass.
+    if (auto && limits.isLimited()) throw new HttpError(409, limitMessage(), { code: 'limited' });
     const hold = g.startAfterReset && body.despiteLimit !== true && limits.isLimited();
     const out = sendPlan(f, drive, body, text, { holding: hold });
     if (!auto) await saveChipOptions(f, options);
     if (hold) {
-      const held = await limits.hold({ featureDir: f.dir, slug: f.slug, title: f.title, cwd: out.cwd, sessionId: out.sessionId, model: out.model, additionalDirectories: await readDirs() }, { text: out.text, kind: g.kind, gateBrief: g.briefNumber });
+      const held = await limits.hold({ featureDir: f.dir, slug: f.slug, title: f.title, cwd: out.cwd, sessionId: out.sessionId, model: out.model, additionalDirectories: await readDirs() }, { text: out.text, kind: g.kind, gateBrief: g.briefNumber, ...(auto ? { by: 'auto' } : {}) });
       await state.audit({ action: 'send-held', featureDir: f.dir, slug: f.slug, kind: g.kind, text, autoResume: held.autoResume, resetsAt: held.resetsAt, ...(g.briefNumber ? { gateBrief: g.briefNumber } : {}) });
       await reopenIfClosed(f);
       cached = null;
@@ -2587,6 +2602,8 @@ export async function createRunner(config) {
       let alsoAllowed = 0;
       for (const p of driver.pendingPermissions()) {
         if (p.kind !== 'permission' || p.defaultToNo || p.hardLine) continue;
+        // A card of a job in Auto is for the person or the Approver, one by one: a saved rule never answers it.
+        if ((await state.sessionFor(p.featureDir))?.auto?.on === true) continue;
         if ((await state.policyFor(p.featureDir)) === 'ask-all') continue;
         const full = driver.pendingRequest(p.id);
         if (full && matchRule(rule, full.toolName, full.input) && (await driver.decide(p.id, { decision: 'allow', rule: rule.id }))) alsoAllowed++;
@@ -3187,7 +3204,7 @@ export async function createRunner(config) {
 
   // `auto` is for code inside this computer (the tests, a later task): the pass, a decision sent as Auto, the set of
   // jobs being started again, the look at what waits for you. The site and the pages reach the runner only through handle and read.
-  return { handle, read, local: local_, on, start, stop, driver, auto: { pass: auto.pass, decideGate: gateDecision, restarting, checkWaiting, checkLevels } };
+  return { handle, read, local: local_, on, start, stop, auto: { pass: auto.pass, decideGate: gateDecision, restarting, checkWaiting, checkLevels } };
 
 
 }

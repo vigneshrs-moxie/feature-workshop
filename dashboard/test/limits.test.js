@@ -225,3 +225,20 @@ test('a message you send yourself drops the held reply: audited, and a carry-on 
   assert.equal(skip.held, undefined, 'the drop is noted once (send-held-dropped), not twice');
   assert.deepEqual(limits.queue, []);
 });
+
+test('a held reply keeps who sent it: by auto goes out as Auto\'s, a reply with no by goes out as the person\'s', async () => {
+  const c = clock(Date.parse('2026-10-16T12:00:00Z'));
+  const driver = fakeDriver([run('a')]);
+  const state = await tmpState();
+  const limits = new LimitWatch({ driver, state, ...c });
+  await limits.load();
+  await limits.onLimit({ run: driver.runs[0], info: limitInfo(c) });
+  await limits.hold(heldJob('auto-job'), { ...HELD, by: 'auto' });
+  await limits.hold(heldJob('your-job'), HELD);
+  assert.equal(limits.pausedJob('/f/auto-job').send.by, 'auto');
+  assert.equal(Object.hasOwn(limits.pausedJob('/f/your-job').send, 'by'), false);
+  await limits.resume('you');
+  await settle(limits);
+  assert.equal(driver.started.find((s) => s.slug === 'auto-job').by, 'auto');
+  assert.equal(driver.started.find((s) => s.slug === 'your-job').by, undefined);
+});

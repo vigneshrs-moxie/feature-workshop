@@ -183,6 +183,7 @@ export class State extends EventEmitter {
     // Every line through the scrubber (lib/orbit.js): no token or key ever reaches the audit.
     const line = scrub(JSON.stringify({ at: new Date().toISOString(), ...entry }));
     await fs.appendFile(this.auditFile, line + '\n', { mode: 0o600 });
+    this.#auditParsed = null;
     try { this.emit('audit', JSON.parse(line)); } catch { /* a listener's problem must not fail the write */ }
   }
 
@@ -199,13 +200,24 @@ export class State extends EventEmitter {
     return out;
   }
 
-  // Every audit entry, oldest first (unreadable lines left out).
+  // Every audit entry, oldest first (unreadable lines left out). The parsed file is kept and reused
+  // while its size and modified time are unchanged (one parse serves every job and every caller);
+  // a write through audit() drops it. The list is a copy, so what a caller does to it stays its own.
+  #auditParsed = null; // { size, mtimeMs, entries }
+  auditParses = 0;
   async auditAll() {
+    let st;
+    try { st = await fs.stat(this.auditFile); } catch { this.#auditParsed = null; return []; }
+    const kept = this.#auditParsed;
+    if (kept && kept.size === st.size && kept.mtimeMs === st.mtimeMs) return [...kept.entries];
     let text = '';
     try { text = await fs.readFile(this.auditFile, 'utf8'); } catch { return []; }
-    return text.trim().split('\n').filter(Boolean)
+    this.auditParses++;
+    const entries = text.trim().split('\n').filter(Boolean)
       .map((l) => { try { return JSON.parse(l); } catch { return null; } })
       .filter(Boolean);
+    this.#auditParsed = { size: st.size, mtimeMs: st.mtimeMs, entries };
+    return [...entries];
   }
 
   async auditFor(featureDir, limit = 200) {

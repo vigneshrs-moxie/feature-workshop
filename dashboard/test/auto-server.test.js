@@ -88,7 +88,9 @@ async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null,
   await fs.writeFile(path.join(dirs.state, 'sessions.json'), JSON.stringify(sessions));
   const texts = [];
   const asks = [];
+  let hooks = {};
   const boot = () => createRunner({
+    testHooks: (hooks = {}),
     host: '127.0.0.1', port: 1, token: 't', dashboardDir: DASH, claudeDir: dirs.claude, featuresDir: dirs.features, projectsDir: dirs.projects,
     agentsDir: dirs.agents, skillsDir: dirs.skills, stateDir: dirs.state, demo: true, claudePath: null,
     claudeSettingsFile: path.join(root, 'claude.json'), legacySettingsFile: null, planUsage: false, orbitStore: 'file',
@@ -114,7 +116,7 @@ async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null,
   /** Wait for the Foreman's last reply to end. */
   const idle = () => until(async () => (await runner.read.runs()).runs.every((r) => !['starting', 'running', 'waiting_permission', 'stopping'].includes(r.status)), 'the reply to end');
   return {
-    get runner() { return runner; }, root, dirs, dir, otherDir, slug, texts, asks, notes, lines, record, optionsFile, ownOptions, told, until, idle, writeStatus,
+    get runner() { return runner; }, get driver() { return hooks.driver; }, root, dirs, dir, otherDir, slug, texts, asks, notes, lines, record, optionsFile, ownOptions, told, until, idle, writeStatus,
     pass: () => runner.auto.pass(),
     /** A new runner on the same folders, as after Starbase is started again. */
     async restart() { runner.stop(); runner = await boot(); listen(); },
@@ -931,7 +933,9 @@ function cardQuery(cards, outcomes, { parallel = false } = {}) {
         const result = await options.canUseTool(c.tool, c.input, { signal: new AbortController().signal, toolUseID: crypto.randomUUID() });
         outcomes.push({ ...c, result });
       };
-      const mine = todo.splice(0);
+      const text = String(first.value?.message?.content ?? '');
+      const mine = todo.filter((c) => !c.for || text.includes(c.for));
+      for (const c of mine) todo.splice(todo.indexOf(c), 1);
       if (parallel) await Promise.all(mine.map(raise)); else for (const c of mine) await raise(c);
       yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0, session_id: sid, permission_denials: [] };
       yield { type: 'system', subtype: 'session_state_changed', state: 'idle', session_id: sid };
@@ -1105,10 +1109,10 @@ test('Auto only allows once or says no: a saved rule or allow-run from Auto is r
   try {
     await raise(w);
     const [card] = await w.until(async () => { const p = await waiting(w); return p.length ? p : null; }, 'the card');
-    await assert.rejects(w.runner.driver.decide(card.id, { decision: 'allow-run', by: 'auto' }), /only allows once/);
-    await assert.rejects(w.runner.driver.decide(card.id, { decision: 'allow', rule: 'r1', by: 'auto' }), /only allows once/);
+    await assert.rejects(w.driver.decide(card.id, { decision: 'allow-run', by: 'auto' }), /only allows once/);
+    await assert.rejects(w.driver.decide(card.id, { decision: 'allow', rule: 'r1', by: 'auto' }), /only allows once/);
     assert.equal((await waiting(w)).length, 1, 'nothing was decided');
-    assert.equal(await w.runner.driver.decide(card.id, { decision: 'allow', by: 'auto' }), true);
+    assert.equal(await w.driver.decide(card.id, { decision: 'allow', by: 'auto' }), true);
     await w.until(() => outcomes.length === 1, 'the allow');
     assert.equal(outcomes[0].result.updatedPermissions, undefined);
   } finally { await clear(w); await w.stop(); }
@@ -1152,7 +1156,7 @@ test('the person answers the card while the Approver thinks: nothing is sent, no
   } finally { await clear(w); await w.stop(); }
 });
 
-test('Auto switched off while the Approver thinks about a card: the answer is dropped, the card waits, the person hears of it', { timeout: 30_000 }, async () => {
+test('Auto switched off while the Approver thinks about a card: the answer is dropped, the card waits, the person is told exactly once, and the money has its own line', { timeout: 30_000 }, async () => {
   const outcomes = [];
   let release;
   const gate = new Promise((r) => { release = r; });
@@ -1162,12 +1166,48 @@ test('Auto switched off while the Approver thinks about a card: the answer is dr
     await w.until(() => w.asks.length === 1, 'the Approver to be asked');
     await w.runner.handle({ type: 'auto', slug: w.slug, on: false }, { from: 'local' });
     release();
-    await w.until(async () => ((await w.record()).spent ?? 0) === 0 && (await waiting(w)).length === 1 && true, 'the answer to be dropped');
+    await w.until(async () => (await w.autoLines('cost')).length === 1, 'the cost line');
     await new Promise((r) => setTimeout(r, 300));
     assert.equal((await waiting(w)).length, 1, 'the card still waits for the person');
     assert.deepEqual(outcomes, []);
     assert.deepEqual(await w.autoLines('permission'), []);
+    assert.equal(w.notes.filter((n) => /Permission/.test(n.body ?? '')).length, 1, 'exactly one notification for the card left waiting');
+    const [cost] = await w.autoLines('cost');
+    assert.equal(cost.costUsd, 0.12);
+    assert.equal(cost.why, 'The Approver answered after Auto was switched off.');
+    assert.equal((await w.record()).spent ?? 0, 0, 'not kept in spent: nothing will ever write it');
+    // autoCost counts it, the log has no entry for it, and the job's cost row has it.
+    const view = await w.runner.read.autoLog(w.slug);
+    assert.equal(view.entries.length, 0);
+    assert.match(view.summary[0], /The Approver cost \$0\.12\./);
+    await new Promise((r) => setTimeout(r, 1600)); // the runner reads the jobs at most every 1.5 seconds
+    const { costDetail } = await w.runner.read.job(w.slug);
+    assert.ok(Math.abs(costDetail.agents.find((a) => a.agentType === 'approver').usd - 0.12) < 1e-9);
   } finally { await clear(w); await w.stop(); }
+});
+
+test('Auto switched off while the Approver thinks about a gate: the answer is dropped and its money has its own line', { timeout: 30_000 }, async () => {
+  let w;
+  w = await world({ ask: async (task) => { await w.runner.handle({ type: 'auto', slug: w.slug, on: false }, { from: 'local' }); return goodAnswer(task); } });
+  try {
+    await w.pass();
+    const [cost] = await w.autoLines('cost');
+    assert.equal(cost.costUsd, 0.12);
+    assert.equal(cost.why, 'The Approver answered after Auto was switched off.');
+    assert.deepEqual(await w.sends(), []);
+    assert.equal((await w.record()).spent ?? 0, 0);
+    assert.match((await w.runner.read.autoLog(w.slug)).summary[0], /The Approver cost \$0\.12\./);
+  } finally { await w.stop(); }
+});
+
+test('while Auto is still on (stopped meanwhile), a dropped answer\'s money stays in spent and no cost line is written', { timeout: 30_000 }, async () => {
+  let w;
+  w = await world({ ask: async (task) => { await w.runner.handle({ type: 'approve', slug: w.slug, briefNumber: 1 }, { from: 'local' }); return goodAnswer(task); } });
+  try {
+    await w.pass();
+    assert.equal((await w.autoLines('cost')).length, 0);
+    assert.equal((await w.record()).spent, 0.12);
+  } finally { await w.stop(); }
 });
 
 test('one question per card: never two at once, in arrival order, and a card that goes away is not asked about', { timeout: 30_000 }, async () => {
@@ -1194,7 +1234,7 @@ test('one question per card: never two at once, in arrival order, and a card tha
     const all = await w.until(async () => { const p = await waiting(w); return p.length === 3 ? p : null; }, 'three cards');
     await w.until(() => w.asks.length === 1, 'the first to be asked');
     // A second raising of the same card is not a second question.
-    w.runner.driver.emit('permission', all[0]);
+    w.driver.emit('permission', all[0]);
     await new Promise((r) => setTimeout(r, 200));
     assert.equal(w.asks.length, 1, 'one at a time');
     // The second card is answered by the person: it is forgotten.
@@ -1334,7 +1374,7 @@ test('a status card stops Auto with the status rule and is never answered; feedb
   const outcomes = [];
   const w = await world({ query: cardQuery([], outcomes), ask: () => allow() });
   try {
-    const driver = w.runner.driver;
+    const driver = w.driver;
     const card = (extra) => ({ id: crypto.randomUUID(), runId: 'none', slug: w.slug, featureDir: w.dir, title: 'T', toolName: 'AskUserQuestion', kind: 'question', input: { questions: [] }, hardLine: null, plain: { headline: 'x' }, ...extra });
     const feedback = card({ feedbackCard: true });
     driver.feedbackCards.set(feedback.id, feedback);
@@ -1438,5 +1478,223 @@ test('the crew list has no approver, which has no approver.md', { timeout: 30_00
     assert.ok(Object.hasOwn(agents, 'approver'), 'the Approver is a named worker (for the cost rows)');
     assert.ok(!Object.hasOwn(crewModels, 'approver'), 'but not one of the crew with a model of its own');
     assert.ok(Object.hasOwn(crewModels, 'feature-reviewer') || Object.keys(crewModels).length > 0);
+  } finally { await w.stop(); }
+});
+
+// ---------- Fix round 1 ----------
+
+const limitHits = (w) => w.driver.emit('usage-limit', { run: null, info: { status: 'rejected', rateLimitType: 'five_hour', resetsAt: Date.now() / 1000 + 3600 } });
+const limited = async (w) => { limitHits(w); await w.until(async () => (await w.runner.read.features()).usage.blocking, 'the limit to be in force'); };
+
+test('J1: with the usage limit holding, Auto\'s approval parks nothing, counts no failure, and goes out as Auto\'s once the limit lifts', { timeout: 30_000 }, async () => {
+  let release;
+  const slow = new Promise((r) => { release = r; });
+  const w = await world({ ask: async (task) => { await slow; return goodAnswer(task); } });
+  try {
+    const pass = w.pass();
+    await w.until(() => w.asks.length === 1, 'the Approver to be asked');
+    await limited(w);
+    release();
+    await pass;
+    const lines = await w.lines();
+    assert.deepEqual(lines.filter((l) => l.action === 'send' || l.action === 'send-held'), [], 'nothing sent, nothing parked');
+    assert.equal((await w.record()).failures, 0);
+    assert.equal((await w.record()).stopped, null);
+    await w.runner.handle({ type: 'usage-resume' }, { from: 'local' });
+    await w.until(async () => !(await w.runner.read.features()).usage.blocking, 'the limit to lift');
+    await w.pass();
+    const [send] = await w.sends();
+    assert.equal(send.by, 'auto');
+    assert.equal(send.gateBrief, 1);
+    assert.equal(w.asks.length, 1, 'the kept answer was sent, not asked for again');
+  } finally { await w.stop(); }
+});
+
+test('J1: a gate approval of the person\'s, parked for the limit, still resumes as the person\'s', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null });
+  try {
+    await limited(w);
+    const out = await w.runner.handle({ type: 'approve', slug: w.slug, briefNumber: 1, startAfterReset: true }, { from: 'local' });
+    assert.equal(out.held, true);
+    await w.runner.handle({ type: 'usage-resume' }, { from: 'local' });
+    const [send] = await w.until(async () => { const s = await w.sends(); return s.length ? s : null; }, 'the held reply to go');
+    assert.equal(send.by, undefined);
+    assert.equal(send.kind, 'approve');
+  } finally { await w.stop(); }
+});
+
+test('J2: a feedback card and a review round card on an Auto job are each told once; a status card that stops Auto is told once', { timeout: 30_000 }, async () => {
+  const w = await world({ query: cardQuery([], []), ask: () => allow() });
+  try {
+    const driver = w.driver;
+    const card = (extra) => ({ id: crypto.randomUUID(), runId: 'none', slug: w.slug, featureDir: w.dir, title: 'T', toolName: 'AskUserQuestion', kind: 'question', input: { questions: [] }, hardLine: null, plain: { headline: 'x' }, ...extra });
+    const feedback = card({ feedbackCard: true });
+    driver.feedbackCards.set(feedback.id, feedback);
+    driver.emit('permission', driver.viewPermission(feedback));
+    await w.told(1);
+    assert.equal(w.notes.length, 1, 'the feedback card');
+    const round = card({ roundCard: true });
+    driver.roundCards.set(round.id, round);
+    driver.emit('permission', driver.viewPermission(round));
+    await w.told(2);
+    assert.equal(w.notes.length, 2, 'the review round card');
+    const status = card({ statusCard: true });
+    driver.statusCards.set(status.id, status);
+    driver.emit('permission', driver.viewPermission(status));
+    await w.told(3);
+    assert.equal(w.notes.length, 3, 'one for the status card that stopped Auto, no second');
+    assert.match(w.notes[2].body, /^Auto stopped: /);
+  } finally { await w.stop(); }
+});
+
+test('J2: when the decision is refused but the card still waits, the person is told once; when the card is gone, not at all', async () => {
+  const mk = (stillWaits) => {
+    const told = [];
+    let rec = { ...autoRecord(null, { on: true, now: OLD }) };
+    let waits = true;
+    const card = { id: 'c1', slug: 's', featureDir: unitDir, kind: 'permission', toolName: 'WebFetch', input: {}, plain: { headline: 'Fetch' }, hardLine: null };
+    const auto = createAuto({
+      read: async () => [{ dir: unitDir, slug: 's', title: 'T', auto: { ...rec }, level: 1, suggestedLevel: null, stage: 'plan', answered: [], worktrees: [], specDirs: [], artifacts: [] }],
+      update: async (dir, fn) => { const n = fn({ ...rec }); if (n) rec = n; return { ...rec }; },
+      decide: { gate: async () => {}, permission: async () => { if (!stillWaits) waits = false; throw new Error('refused'); } },
+      askApprover: async () => ({ ok: true, costUsd: 0.1, answer: { decision: 'allow', why: 'Fine.', risk: 'low' } }),
+      pendingCard: () => (waits ? { ...card } : null), cardCtx: async () => ({ worktrees: [unitDir], featureDir: unitDir, cwd: unitDir }),
+      state: { audit: async () => {}, auditFor: async () => [] },
+    });
+    return { auto, card, told };
+  };
+  for (const [stillWaits, expected] of [[true, 1], [false, 0]]) {
+    const { auto, card, told } = mk(stillWaits);
+    await auto.onPermission(card, { leftWaiting: (c) => told.push(c.id) });
+    assert.equal(told.length, expected, stillWaits ? 'waiting: told once' : 'gone: not told');
+  }
+});
+
+test('J3: an Always allow rule saved later does not answer a card of an Auto job that Auto stopped on', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([{ tool: 'Bash', input: { command: 'psql -d orbit -c "select 1"' } }], outcomes) });
+  try {
+    await raise(w);
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    await w.runner.handle({ type: 'rules', action: 'add', rule: { tool: 'Bash', kind: 'prefix', value: 'psql -d' } }, { from: 'local' });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.deepEqual(outcomes, [], 'the rule answered nothing');
+    assert.equal((await waiting(w)).length, 1);
+    assert.equal((await w.record()).stopped.rule, 'database');
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('J6: a push of the job\'s own branch to its fork before the PR stage goes to the Approver, and its allow is recorded as Auto\'s', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({
+    jobStatus: status(1, { stage: 'review', waiting_for: 'none', stage_state: 'in_progress', branch: 'feature/visit-audit' }),
+    query: cardQuery([{ tool: 'Bash', input: { command: 'git push origin feature/visit-audit' } }], outcomes), ask: () => allow('It is the job\'s own branch, to the fork.'),
+  });
+  try {
+    w.git('checkout', '-q', '-b', 'feature/visit-audit');
+    w.git('remote', 'add', 'origin', 'https://github.com/me/app.git');
+    await raise(w);
+    await w.until(() => outcomes.length === 1, 'the push to be decided');
+    assert.equal(w.asks.length >= 1 && cardsOnly(w).length, 1, 'the Approver was asked');
+    assert.equal(outcomes[0].result.behavior, 'allow');
+    const [perm] = (await w.lines()).filter((l) => l.action === 'permission');
+    assert.equal(perm.by, 'auto');
+    assert.equal((await w.record()).stopped, null);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('J6: a gh pr create card on the same job stops Auto as blocked, and the Approver is not asked', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({
+    jobStatus: status(1, { stage: 'review', waiting_for: 'none', stage_state: 'in_progress', branch: 'feature/visit-audit' }),
+    query: cardQuery([{ tool: 'Bash', input: { command: 'gh pr create --fill' } }], outcomes), ask: () => allow(),
+  });
+  try {
+    await raise(w);
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    assert.equal((await w.record()).stopped.rule, 'blocked');
+    assert.equal(w.asks.length, 0);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('after the merge: a call Starbase cannot tell about reaches the Approver on an Auto job, and its allow lets it run', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([{ tool: 'Bash', input: { command: 'make test' } }], outcomes), ask: () => allow('A test run inside the job.') });
+  try {
+    await raise(w);
+    await w.until(() => outcomes.length === 1, 'the call to be decided');
+    assert.equal(cardsOnly(w).length, 1, 'the Approver judged it');
+    assert.equal(outcomes[0].result.behavior, 'allow');
+    assert.equal((await w.record()).stopped, null);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('N1: a copy of the mark nested inside a copy of the mark leaves no mark in what the worker is told', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const half = AUTO_MARK.indexOf(' ', Math.floor(AUTO_MARK.length / 2)); // cut at a space: taking the inner copy out and joining with a space makes a whole one
+  const nested = `${AUTO_MARK.slice(0, half)}${AUTO_MARK}${AUTO_MARK.slice(half)}`;
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => refuse(`No ${nested} thanks.`) });
+  try {
+    await raise(w);
+    await w.until(() => outcomes.length === 1, 'the deny');
+    assert.ok(!outcomes[0].result.message.includes(AUTO_MARK));
+    assert.ok(!outcomes[0].result.message.includes('Sent by Starbase'));
+    assert.match(outcomes[0].result.message, /^Auto said no: No .*thanks\.$/);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('N2: the card count belongs to one reply: the person answering the gate starts it from 0', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const auto = { ...autoRecord(null, { on: true, now: OLD }), cards: 40, cardsBrief: 0 };
+  const w = await world({ auto, query: cardQuery([FETCH], outcomes), ask: () => allow() });
+  try {
+    await w.runner.handle({ type: 'approve', slug: w.slug, briefNumber: 1 }, { from: 'local' });
+    await w.until(() => outcomes.length === 1, 'the card to be answered');
+    assert.equal(outcomes[0].result.behavior, 'allow');
+    assert.equal((await w.record()).stopped, null);
+    assert.equal((await w.record()).cards, 1);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('N3: a card that went away before Auto looked at it is not kept', async () => {
+  let calls = 0;
+  const auto = createAuto({
+    read: async () => [], update: async () => null, decide: { gate: async () => {}, permission: async () => {} }, askApprover: async () => null,
+    pendingCard: () => { calls++; return null; }, state: { audit: async () => {}, auditFor: async () => [] },
+  });
+  const card = { id: 'gone-1', featureDir: unitDir, slug: 's' };
+  await auto.onPermission(card);
+  await auto.onPermission(card);
+  assert.equal(calls, 2, 'the second raising of the id is looked at again, not ignored as taken');
+});
+
+test('N6: many decisions on one job leave auto-log.md with every one of them', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const cards = [1, 2, 3, 4, 5].map((i) => ({ tool: 'WebFetch', input: { url: `https://example.com/${i}`, prompt: 'x' } }));
+  const w = await world({ query: cardQuery(cards, outcomes, { parallel: true }), ask: () => allow() });
+  try {
+    await raise(w);
+    await w.until(() => outcomes.length === 5, 'every card');
+    await w.idle();
+    await new Promise((r) => setTimeout(r, 500));
+    assert.match(await readLog(w), /Auto made 5 decisions/);
+  } finally { await w.stop(); }
+});
+
+test('N7: the person answers the status card through the route, and only that clears the stop; Auto\'s own permission line clears nothing', { timeout: 30_000 }, async () => {
+  const w = await world({ query: cardQuery([], []), ask: () => allow() });
+  try {
+    const driver = w.driver;
+    const status = { id: crypto.randomUUID(), runId: 'none', slug: w.slug, featureDir: w.dir, title: 'T', toolName: 'AskUserQuestion', kind: 'question', input: { questions: [] }, statusCard: true, errors: ['x'], hardLine: null, plain: { headline: 'x' } };
+    driver.statusCards.set(status.id, status);
+    driver.emit('permission', driver.viewPermission(status));
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    assert.equal((await w.record()).stopped.rule, 'status');
+    await w.pass();
+    assert.ok((await w.record()).stopped, 'nothing but the person clears it');
+    await w.runner.handle({ type: 'allow', requestId: status.id, answers: { q: 'Leave it' } }, { from: 'local' });
+    await w.pass();
+    assert.equal((await w.record()).stopped, null);
+    assert.ok((await w.lines()).some((l) => l.action === 'status_invalid_answer'), 'the real writer wrote the line');
   } finally { await w.stop(); }
 });
