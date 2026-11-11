@@ -77,6 +77,16 @@ describe('Jobs', () => {
     expect(within(bar).queryByRole('link')).toBeNull();
   });
 
+  it('the button is on the card in Jobs', () => {
+    setup([
+      job('alpha', 'needs-you', { title: 'Customer notes', stage: 'plan', lane: 'needs-you', auto: { on: true, ran: true } }),
+      job('beta', 'running', { title: 'Technician photo', stage: 'implement', lane: 'working' }),
+    ]);
+    const card = screen.getByRole('link', { name: 'Customer notes' }).closest('li')!;
+    expect(within(card).getByRole('button', { name: 'What Auto decided' })).toBeInTheDocument();
+    expect(within(screen.getByRole('link', { name: 'Technician photo' }).closest('li')!).queryByRole('button', { name: 'What Auto decided' })).toBeNull();
+  });
+
   it('each stop dot takes the focus and has its own tooltip in words; each card says its state in a word', () => {
     setup();
     const card = screen.getByRole('link', { name: 'Customer notes' }).closest('li')!;

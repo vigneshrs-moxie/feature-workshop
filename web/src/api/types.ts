@@ -30,6 +30,44 @@ export interface JobPrototype {
   publishedAt?: string | null;
 }
 
+/** A job's Auto record (sessions.json via the snapshot): lets it run to its first pull request while an agent answers for you. */
+export interface JobAuto {
+  on: boolean;
+  since?: string | null;
+  /** Who turned it on: you, or Auto start by an Orbit tag. */
+  by?: 'you' | 'tag';
+  tag?: string | null;
+  /** It has run on this job at some point (what makes What Auto decided show). */
+  ran?: boolean;
+  /** Why it stopped and waits for you, or null. */
+  stopped?: string | null;
+  step?: string | null;
+  failures?: number;
+  lastBrief?: string | null;
+  /** The board card's view only: whether the job's level allows Auto, and the sentence when it doesn't. */
+  allowed?: boolean;
+  why?: string | null;
+}
+
+/** GET /api/job/:slug/auto: the three lines and every decision Auto made on the job. */
+export interface AutoDecision {
+  at: string;
+  /** The stage's label ("Plan", "Build"). */
+  stage: string;
+  chose: string;
+  asked: string;
+  why: string;
+  risk?: string;
+  answers?: { question: string; choice: string; reason: string }[];
+}
+export interface AutoDecided {
+  on: boolean;
+  stopped: string | null;
+  tag: string | null;
+  summary: [string, string, string];
+  entries: AutoDecision[];
+}
+
 export interface Job {
   slug: string;
   title: string;
@@ -87,6 +125,8 @@ export interface Job {
   lock?: JobLockInfo | null;
   /** The Foreman's first brief says the ticket looks big enough for a stack, and why (status.json stack_suggested). */
   stackSuggested?: string | null;
+  /** Its Auto record; missing when Auto never touched it. */
+  auto?: JobAuto;
   [key: string]: unknown;
 }
 

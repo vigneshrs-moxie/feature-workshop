@@ -83,14 +83,16 @@ describe('the job header stays still', () => {
     expect(css).toMatch(/\.job-header\.is-compact \.trail-now \{ grid-area: 2 \/ 1 \/ 3 \/ -1;/);
   });
 
-  it('renders as one header block: the title line, then the facts line (the trail and the lines between them with Play on)', () => {
+  it('renders as one header block: the title line, then the facts line and the Auto row (the trail and the lines between them with Play on)', () => {
     const { container } = show(job('alpha', 'running', { kind: 'feature', repo: { name: 'sample-repo', branch: 'feat/sample' } }));
     const header = container.querySelector('header.job-header')!;
     expect(header).not.toBeNull();
     const classes = [...header.children].map((c) => c.className);
     expect(classes[0]).toBe('job-header-line');
-    expect(classes.at(-1)).toBe('job-facts muted');
-    expect(classes.slice(1, -1), 'Play on by default: the trail between them').toEqual(['job-trail is-header']);
+    // The Auto switch and its line close the header (a place of their own, so nothing moves when its line appears).
+    expect(classes.at(-1)).toBe('job-auto');
+    expect(classes.at(-2)).toBe('job-facts muted');
+    expect(classes.slice(1, -2), 'Play on by default: the trail between them').toEqual(['job-trail is-header']);
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Job alpha');
   });
 });

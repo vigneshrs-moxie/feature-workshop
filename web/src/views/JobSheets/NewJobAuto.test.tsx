@@ -1,0 +1,41 @@
+// The Auto switch on the New job form: it goes with the job as options.auto, and is off at L3.
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApiError, type ApiClient } from '../../api/client';
+import { createStore, WorkshopContext, type Store } from '../../state/store';
+import { LEVELS, snapshot } from '../../state/test-fixtures';
+import { NewJobSheet } from './NewJobSheet';
+
+function setup() {
+  const store: Store = createStore();
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5', note: 'Everyday.' }], levels: LEVELS }, jobs: [] }) });
+  const get = vi.fn(async (path: string) => {
+    if (path === '/api/repos') return { repos: [{ path: '/tmp/fw-test/sample-one', name: 'sample-one', lastUsed: null }] };
+    throw new ApiError(404, 'Not found');
+  });
+  const post = vi.fn(async () => ({ slug: 'alpha' }));
+  render(<WorkshopContext.Provider value={{ store, api: { get, post } as unknown as ApiClient }}><NewJobSheet onClose={vi.fn()} /></WorkshopContext.Provider>);
+  return { post, dialog: screen.getByRole('dialog', { name: 'Start a new job' }) };
+}
+async function start(dialog: HTMLElement) {
+  await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Repository' })).toHaveAttribute('data-value', '/tmp/fw-test/sample-one'));
+  await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Start job' })); });
+}
+afterEach(() => { localStorage.clear(); window.location.hash = ''; });
+
+describe('NewJobSheet: Auto', () => {
+  it('the form sends auto', async () => {
+    const { post, dialog } = setup();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /What should the crew build/ }), { target: { value: 'Add a Copy ID button' } });
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Auto: run to PR #1/ }));
+    await start(dialog);
+    expect(post).toHaveBeenCalledWith('/api/jobs', expect.objectContaining({ options: expect.objectContaining({ auto: true }) }));
+  });
+
+  it('sends nothing about Auto when it is left off', async () => {
+    const { post, dialog } = setup();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /What should the crew build/ }), { target: { value: 'Add a Copy ID button' } });
+    await start(dialog);
+    expect((post.mock.calls[0] as unknown[])[1]).not.toEqual(expect.objectContaining({ options: expect.objectContaining({ auto: true }) }));
+  });
+});

@@ -894,3 +894,19 @@ describe('GateCard: a decision on its way', () => {
     }
   });
 });
+
+describe('the hand test under Auto', () => {
+  const HAND_TEST_LINE = 'Auto skips your hand test on this job. The recorded evidence still runs.';
+
+  it('an Auto job shows the hand test line in place of the ask', () => {
+    setup({ det: detail({ stage: 'test' }), jobExtra: { auto: { on: true, ran: true } } });
+    expect(screen.getByText(HAND_TEST_LINE)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try it on your computer' })).toBeNull();
+  });
+
+  it('a job without Auto keeps the Try it button', () => {
+    setup({ det: detail({ stage: 'test' }) });
+    expect(screen.getByRole('button', { name: 'Try it on your computer' })).toBeInTheDocument();
+    expect(screen.queryByText(HAND_TEST_LINE)).toBeNull();
+  });
+});

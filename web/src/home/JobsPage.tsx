@@ -35,6 +35,7 @@ import { StepDots } from '../views/Stack/StacksPage';
 import type { Permission, ReviewView } from '../api/types';
 import { GithubLine } from '../views/Review/GithubLine';
 import { JobPeek } from './JobPeek';
+import { WhatAutoDecided } from '../job/WhatAutoDecided';
 import { isRoundCard, useReviewList } from '../views/Review/useReview';
 import { cardIcon } from '../views/Review/words';
 import { Segmented } from '../components/Choice';
@@ -174,6 +175,7 @@ function JobCard({ job, now, play, review, full, onPeek, peeked }: { job: Job; n
         : job.laneReason && <span className="job-card-reason">{job.laneReason}</span>}
       <div className="job-card-foot">
         <Chip tone={chipTone(lane, chip.word)} icon={chip.icon} className={`state-chip is-${lane}`}>{chip.word}</Chip>
+        <WhatAutoDecided slug={job.slug} auto={job.auto} />
         <span className="job-card-end">
           {t && <span className="muted job-card-time">{relativeTime(t, now)}</span>}
           {!full && <span className="job-card-peek">{stops}</span>}

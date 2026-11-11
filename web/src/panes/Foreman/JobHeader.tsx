@@ -22,6 +22,8 @@ import { jobHueStyle } from '../../theme/hue';
 import { GROUP_HINTS, GROUP_LABELS } from '../Jobs/jobStatus';
 import { ForemanFace } from '../../play/ThreadCrew';
 import { JobTrail } from '../../play/JobTrail';
+import { AutoSwitch } from '../../job/AutoSwitch';
+import { WhatAutoDecided } from '../../job/WhatAutoDecided';
 import { LevelChip } from './LevelChip';
 import { formatCost, isActiveRun } from './thread';
 
@@ -314,6 +316,10 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree, det
           </span>
         )}
       </p>
+      <div className="job-auto">
+        <AutoSwitch job={job} />
+        <WhatAutoDecided slug={job.slug} auto={job.auto} />
+      </div>
       {closed && (
         <p className="closed-note muted" title={`Marked on ${fullTime(closed.at)}. Reopen it from the job menu; sending the Foreman a message reopens it too.`}>
           <strong>{closed.as === 'done' ? 'Marked done' : 'Dropped'}</strong> {ago && (/^\d+[mhd]$/.test(ago) ? `${ago} ago` : ago)}

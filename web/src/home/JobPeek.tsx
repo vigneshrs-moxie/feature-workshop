@@ -13,6 +13,7 @@ import { NowLine, nowOf } from '../components/NowLine';
 const sameWords = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 import { useNow } from '../lib/time';
 import { useJobConversation } from '../panes/Foreman/ForemanPane';
+import { WhatAutoDecided } from '../job/WhatAutoDecided';
 import { NextStep } from '../job/JobPage';
 import { chipTone, laneOf, stateChip } from './JobsPage';
 import { useWorkshopState } from '../state/store';
@@ -45,6 +46,7 @@ export function JobPeek({ job, order, onPick, onClose }: { job: Job; order: read
         <h3 className="peek-title">{name}</h3>
         <Chip tone={chipTone(lane, chip.word)} icon={chip.icon} className={`state-chip is-${lane}`}>{chip.word}</Chip>
         <span className="spacer" />
+        <WhatAutoDecided slug={job.slug} auto={job.auto} />
         <Button kind="quiet" size="sm" href={jobHref(job.slug)} title="Open the whole job: its stops, work and conversation (key: Enter).">Open the job</Button>
         <Button kind="quiet" size="sm" iconOnly icon="x" aria-label="Close" title="Close this quick look; the list stays as it was (key: Esc)." onClick={onClose} />
       </header>

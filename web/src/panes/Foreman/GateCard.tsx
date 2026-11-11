@@ -481,7 +481,10 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       {lock && <LockCard lock={lock} now={now} />}
       {/* Screens and Try it run on the laptop: the hosted site (packet 2B) leaves them out. */}
       {gate.stage === 'wireframe' && !api.hosted?.() && <ScreensRow slug={slug} hasPage={Boolean(job.wireframes)} />}
-      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && (
+      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && job.auto?.on === true && (
+        <p className="muted gate-try">Auto skips your hand test on this job. The recorded evidence still runs.</p>
+      )}
+      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && job.auto?.on !== true && (
         <p className="gate-try">
           <Button kind="quiet" size="sm" icon="terminal" onClick={() => tryUi.openTry(slug)} title="Open the Try it tab: start this job’s app on your computer and click around before you decide.">Try it on your computer</Button>
         </p>

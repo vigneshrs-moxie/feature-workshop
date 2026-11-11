@@ -1,0 +1,19 @@
+/* The Auto switch and What Auto decided (job/AutoSwitch.tsx, job/WhatAutoDecided.tsx). Tokens only. */
+.auto-switch { display: grid; gap: var(--space-1); min-width: 0; }
+.auto-switch-row.is-off { cursor: not-allowed; color: var(--text-3); }
+.auto-switch-label { font-weight: 600; }
+.auto-switch-hint { display: block; font-size: var(--text-xs); color: var(--text-3); font-weight: 400; }
+/* A room of its own so the line appearing after load never moves the page. */
+.auto-line { margin: 0; min-height: 1.5em; font-size: var(--text-xs); display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
+.auto-line .is-stopped, .auto-line .is-refused { color: var(--warn-text, var(--text-1)); }
+.auto-spin { position: relative; display: inline-block; width: 16px; height: 16px; flex: none; margin-top: 2px; }
+
+.auto-decided { display: grid; gap: var(--space-3); }
+.auto-summary { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-1); }
+.auto-entries { position: relative; margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-3); max-height: 50vh; overflow: auto; }
+.auto-entry { display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-2); border-radius: var(--card-radius); }
+.auto-entry-head { display: flex; gap: var(--space-2); align-items: baseline; flex-wrap: wrap; }
+.auto-entry-stage { font-weight: 600; }
+.auto-entry p { margin: 0; }
+.auto-entry ul { margin: 0; padding-left: var(--space-4); }
+.job-auto { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }

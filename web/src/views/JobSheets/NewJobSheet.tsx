@@ -23,6 +23,7 @@ import { HowThisWorks } from '../../components/HowThisWorks';
 import { Sheet } from '../../components/Sheet';
 import { plainInline } from '../../lib/inlineMarkdown';
 import { ALL_FABLE_HINT, FABLE } from '../../lib/jobOptions';
+import { AutoSwitch } from '../../job/AutoSwitch';
 import { suggestFromDescription } from '../../lib/levels';
 import { readStored, writeStored } from '../../lib/stored';
 import { relativeTime, useNow } from '../../lib/time';
@@ -46,7 +47,7 @@ export interface TicketRef { key: string; title?: string | null; url?: string | 
 /** What the website's Start sends: the form's choices; the laptop checks them again. */
 export interface StartChoices {
   description: string; kind: 'feature' | 'bug'; laptopId: number; repo?: string; model?: string;
-  options: { level?: LevelNumber; stack?: true; all_fable?: true };
+  options: { level?: LevelNumber; stack?: true; all_fable?: true; auto?: true };
 }
 /** The website's side of the form: each laptop with the repository names it offered, and what to do with the choices. */
 export interface HostedStart {
@@ -197,6 +198,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
   const [asStack, setAsStack] = useState(startAsStack);
   // The whole job on Fable: the Foreman too, so its model picker is fixed on Fable while this is on.
   const [allFable, setAllFable] = useState(false);
+  const [auto, setAuto] = useState(false);
   const [repos, setRepos] = useState<Repos>(hosted ? { state: 'ready', list: [] } : { state: 'loading' });
   const [repo, setRepo] = useState<string>('');
   // The website: which laptop. One laptop, or one that is on, is picked for you.
@@ -214,6 +216,8 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
   const [picked, setPicked] = useState<LevelNumber | null>(null);
   const suggestion = useMemo(() => suggestFromDescription(description), [description]);
   const level: LevelNumber | null = picked ?? suggestion?.level ?? null;
+  // Auto works up to L2 (the switch is off at L3, so a tick left over from a lower level is not sent).
+  const aboveAuto = level === 3;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const descId = useId();
@@ -270,7 +274,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
       try {
         await hosted.onStart({
           description: text, kind, laptopId, ...(repoPath ? { repo: repoPath } : {}), ...((allFable ? FABLE : model) ? { model: allFable ? FABLE : model } : {}),
-          options: { ...(level !== null ? { level } : {}), ...(asStack ? { stack: true as const } : {}), ...(allFable ? { all_fable: true as const } : {}) },
+          options: { ...(level !== null ? { level } : {}), ...(asStack ? { stack: true as const } : {}), ...(allFable ? { all_fable: true as const } : {}), ...(auto && !aboveAuto ? { auto: true as const } : {}) },
         });
         onClose();
       } catch (err) { setError(message(err)); setBusy(false); }
@@ -287,7 +291,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
     setError(null);
     try {
       const fromSession = from ? { id: from.id, mode: fromMode } : undefined;
-      const options = { ...(level !== null ? { level } : {}), ...(asStack ? { stack: true } : {}), ...(allFable ? { all_fable: true } : {}) };
+      const options = { ...(level !== null ? { level } : {}), ...(asStack ? { stack: true } : {}), ...(allFable ? { all_fable: true } : {}), ...(auto && !aboveAuto ? { auto: true } : {}) };
       const r = await api.post<{ slug: string }>('/api/jobs', { description: text, kind, repoPath, model: (allFable ? FABLE : model) || undefined, options, fromSession, ticket });
       writeStored(LAST_REPO_KEY, repoPath);
       onClose();
@@ -441,6 +445,8 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
               <span className="option-desc">For a big ticket: the Foreman splits the work into parts that are built side by side, then joined in order. You check the parts on the Stack page before anything is built.</span>
             </span>
           </OptionRow>
+
+          <AutoSwitch level={level} checked={auto} onChange={setAuto} disabled={busy} />
 
           {!hosted && <PastConversation picked={from} onPick={pick} mode={fromMode} onMode={setFromMode} canContinue={canContinue} />}
         </fieldset>
