@@ -1343,7 +1343,8 @@ export async function createRunner(config) {
   const flow = new FlowWatch({
     jobsFor: async () => (await featuresShared())
       .filter((f) => !f.closed || Date.now() - Date.parse(f.closed.at ?? 0) < FLOW_CLOSED_DAYS * 86400000)
-      .map((f) => ({ slug: f.slug, title: f.title, branch: f.branch, worktree: f.worktree, repoPath: f.repoPath, stage: f.stage ?? null, closed: f.closed ?? null })),
+      // auto: the job is or was in Auto (only the demo's pretend map reads it: demo/fake-flow.js).
+      .map((f) => ({ slug: f.slug, title: f.title, branch: f.branch, worktree: f.worktree, repoPath: f.repoPath, stage: f.stage ?? null, closed: f.closed ?? null, auto: f.auto?.on === true || f.auto?.ran === true })),
     gather: DEMO ? (await import('../demo/fake-flow.js')).fakeFlow : gatherRepo,
   });
   // Live only (not kept for replay): a page that reconnects fetches the map again. The lanes are kept

@@ -33,7 +33,9 @@ export async function fakeFlow({ repo, jobs }) {
       headOwner: base === f.branch ? 'you' : 'acme', review: extra.review ?? null, checks: extra.checks ?? 'passing',
       mergedAt: state === 'merged' ? ago(600) : null, mergeCommit: state === 'merged' ? sha(`${j.slug}${base}`) : null, updatedAt: ago(30),
     });
-    if (stage === 'review' && h % 2 === 0) pr(f.branch, 'draft', { checks: 'pending' });
+    // Never for a job in Auto: a draft counts as "PR #1 is open" (lib/finish.js), and Auto would end at Review,
+    // before its Foreman opens PR #1, whenever the map was read while the job was there.
+    if (stage === 'review' && h % 2 === 0 && !j.auto) pr(f.branch, 'draft', { checks: 'pending' });
     if (stage === 'pr1') pr(f.branch, 'open', { review: 'review_required', checks: h % 2 ? 'passing' : 'failing' });
     if (/^pr2|staging|pr3/.test(stage) || done) pr(f.branch, 'merged');
     if (/^pr2/.test(stage)) pr('staging', 'open', { review: 'review_required' });

@@ -185,3 +185,10 @@ test('flow: a failing refresh never rejects, and the next one still runs', async
   assert.equal(n, 2);
   assert.equal(watch.view().refreshing, false);
 });
+
+test('the demo\'s pretend map gives a job in Auto no draft pull request at Review (a draft counts as PR #1 open and would end Auto early)', async () => {
+  const { fakeFlow } = await import('../demo/fake-flow.js');
+  const at = async (auto) => (await fakeFlow({ repo: '/work/orbit', jobs: [{ slug: 'auto-demo', title: 'Auto demo', stage: 'review', auto }] })).prs.filter((p) => p.head === 'feature/auto-demo').map((p) => p.state);
+  assert.deepEqual(await at(false), ['draft'], 'the ordinary demo job keeps its draft');
+  assert.deepEqual(await at(true), [], 'none for a job in Auto');
+});
