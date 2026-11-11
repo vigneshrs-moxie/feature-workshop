@@ -278,6 +278,8 @@ export async function restartJob(job, { model, git = realGit, fs = fsp, start, s
     // Another job started at the same moment is not ours to remove, or to mention.
     const sameRepo = repo ?? old.repo;
     const mine = async (dir) => {
+      // The old job's folder was moved aside, so a folder now at its path is the new job's, options written or not.
+      if (path.resolve(dir) === path.resolve(job.dir)) return true;
       try {
         const o = JSON.parse(await fs.readFile(path.join(dir, 'options.json'), 'utf8'));
         return o?.title === job.title && o?.repo === sameRepo;

@@ -436,6 +436,16 @@ test('G2: a failed start removes only its own half-made folder; another new job�
   assert.equal(await exists(path.join(features, 'someone-elses', 'options.json')), true, 'another job’s folder is left alone');
 });
 
+test('G2: a start that fails before it writes the options leaves a folder at the old job’s own path; it is cleared and the old job put back', async () => {
+  const emptyHanded = async () => {
+    await fs.mkdir(path.join(features, 'visit-audit'), { recursive: true });
+    await fs.writeFile(path.join(features, 'visit-audit', 'status.json'), '{}');
+    throw new Error('the disk is full');
+  };
+  await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start: emptyHanded, today: TODAY }), putBack(/the disk is full/));
+  await assertOldJobUsable();
+});
+
 test('G3: one part of a stack is refused, and nothing moved', async () => {
   await fs.writeFile(path.join(features, 'visit-audit', 'status.json'), JSON.stringify({ slug: 'visit-audit', stack: 'big-feature', section: 'api' }));
   await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start, today: TODAY }), refused(/one part of a stack, and Starbase can't restart one part on its own/));
