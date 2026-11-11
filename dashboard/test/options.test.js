@@ -46,8 +46,8 @@ test('job options: screens and clarify follow the job’s own choice, else Setti
   assert.equal(normalize({ level: 3 }, { previous: stacked }).stack, true, 'kept when the options are saved again');
   assert.equal(normalize({ level: 3, stack: false }, { previous: stacked }).stack, undefined, 'and can be taken off');
   assert.ok(!describeOptions(normalize({ level: 3 })).some((l) => l.startsWith('Run as a stack')));
-  assert.deepEqual(workflowSettings({ finishLine: 'main', wireframes: 'off', clarify: 'nope' }), { finishLine: 'main', wireframes: 'off', clarify: 'auto', autoLevel: false, inboxSuggest: true });
-  assert.deepEqual(workflowSettings(undefined), { finishLine: 'pr1-merged', wireframes: 'auto', clarify: 'auto', autoLevel: false, inboxSuggest: true });
+  assert.deepEqual(workflowSettings({ finishLine: 'main', wireframes: 'off', clarify: 'nope' }), { finishLine: 'main', wireframes: 'off', clarify: 'auto', autoLevel: false, inboxSuggest: true, autoStart: { on: false, tag: '' } });
+  assert.deepEqual(workflowSettings(undefined), { finishLine: 'pr1-merged', wireframes: 'auto', clarify: 'auto', autoLevel: false, inboxSuggest: true, autoStart: { on: false, tag: '' } });
 });
 
 test('job options: the clarify and wireframe stages follow their fields; L0 and L1 skip both by default', () => {

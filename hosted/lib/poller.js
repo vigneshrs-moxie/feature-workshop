@@ -56,7 +56,8 @@ function boxed(fetchFn, deadline, clock) {
 function storedItem(row, { why, audience, orbitUrl }) {
   const item = inboxItem(row, { why, audience, orbitUrl });
   const text = typeof row.description === 'string' ? row.description : '';
-  return scrubDeep({ ...item, description: text ? text.slice(0, DESCRIPTION_MAX) : null });
+  // tagsKnown: Orbit sent this row's tags (the team's rows do; a participant's don't), so the page can tell "no tags" from "tags not shown".
+  return scrubDeep({ ...item, tagsKnown: audience === 'tech' && Array.isArray(row.tags), description: text ? text.slice(0, DESCRIPTION_MAX) : null });
 }
 
 /**

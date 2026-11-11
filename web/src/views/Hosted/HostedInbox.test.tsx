@@ -27,7 +27,7 @@ const ticket = (n: number, extra: Partial<InboxItem> = {}): InboxItem => ({
 const REPOS = [{ name: 'orbit', default: true }, { name: 'starbase', default: false }];
 const lap = (id: number, name: string, online: boolean): Laptop => ({ id, name, os: 'macOS', version: '0.1.0', pairedAt: ago(86_400_000 * 5), lastSeenAt: ago(online ? 5_000 : 3_600_000), online });
 
-interface Site { suggest?: InboxSuggestion | null; status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** Start answers only once this settles. */ hold?: Promise<void> }
+interface Site { suggest?: InboxSuggestion | null; status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** What the laptop's settings (mirrored) say about Auto start. */ autoStart?: { on: boolean; tag: string }; /** Start answers only once this settles. */ hold?: Promise<void> }
 
 function site(over: Partial<Site> = {}) {
   const s: Site = { status: STATUS, items: [ticket(12), ticket(13, { severity: 'low' })], laptops: [lap(7, 'Olive’s Mac', true)], calls: [], ...over };
@@ -40,6 +40,8 @@ function site(over: Partial<Site> = {}) {
     s.calls.push({ method, path, body });
     if (path === '/api/meta') return json(200, { mode: 'hosted', person: OLIVE, signIn: '/api/auth/start', missing: [] });
     if (path === '/api/orbit/inbox' || path === '/api/orbit/inbox?refresh=1') return json(200, answer());
+    if (path === '/api/snapshot') return json(200, { meta: { settings: { workflow: { finishLine: 'pr1-merged', ...(s.autoStart ? { autoStart: s.autoStart } : {}) } } } });
+    if (path === '/api/orbit/auto-start' && method === 'POST') { s.autoStart = { on: body?.on as boolean, tag: String(body?.tag).trim() }; return json(200, { ok: true }); }
     if (path === '/api/orbit/status') return json(200, s.status);
     if (path === '/api/laptops') return json(200, { laptops: s.laptops });
     if (path === '/api/orbit/token' && method === 'POST') {
@@ -332,3 +334,51 @@ describe('Settings → Orbit on the site', () => {
     expect(savedWords({ expiresAt: null })).toBe('Saved · when it expires isn’t known');
   });
 });
+
+describe('Auto start on the website', () => {
+  it('the Inbox says Auto start is on, marks the rows that start by themselves, and never starts one itself', async () => {
+    const { s, api } = site({ autoStart: { on: true, tag: 'auto' }, items: [ticket(12, { tags: ['Auto'] }), ticket(13, { tags: [], title: 'auto auto' }), ticket(14, { tags: ['auto'], job: { slug: 'orbit-14-x', title: 'x' } })] });
+    render(<HostedApp api={api} />);
+    expect(await screen.findByText('Auto start is on: tickets tagged "auto" start by themselves, one at a time.')).toBeInTheDocument();
+    const row = (key: string) => screen.getAllByRole('row').find((r) => r.getAttribute('data-ticket') === key)!;
+    expect(within(row('ORBIT-12')).getByText('Starts by itself')).toBeInTheDocument();
+    expect(within(row('ORBIT-13')).queryByText('Starts by itself')).toBeNull();
+    expect(within(row('ORBIT-14')).queryByText('Starts by itself')).toBeNull();
+    expect(s.calls.some((c) => c.method === 'POST' && c.path === '/api/orbit/start')).toBe(false);
+  });
+
+  it('with the switch off there is no line and no chip', async () => {
+    const { api } = site({ autoStart: { on: false, tag: 'auto' }, items: [ticket(12, { tags: ['auto'] })] });
+    render(<HostedApp api={api} />);
+    await screen.findAllByRole('table');
+    expect(screen.queryByText(/Auto start is on/)).toBeNull();
+    expect(screen.queryByText('Starts by itself')).toBeNull();
+  });
+
+  it('Settings → Orbit: a switch with an empty box asks for a tag, then the setting is sent as the auto-start command', async () => {
+    go('#/settings/orbit');
+    const { s, api } = site({ items: [ticket(12, { tags: ['auto'], tagsKnown: true })] });
+    render(<HostedApp api={api} />);
+    const group = await screen.findByRole('group', { name: 'Auto start' });
+    const box = within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' });
+    expect(within(group).getByLabelText('Orbit tag')).toHaveAttribute('placeholder', 'auto');
+    expect(group).toHaveTextContent('Only tickets assigned to you. One job at a time, in Inbox order. Nothing starts while the Claude limit warning shows.');
+    fireEvent.click(box);
+    expect(await within(group).findByText('Write a tag’s name to turn this on.')).toBeInTheDocument();
+    expect(s.calls.some((c) => c.path === '/api/orbit/auto-start')).toBe(false);
+    fireEvent.change(within(group).getByLabelText('Orbit tag'), { target: { value: ' auto ' } });
+    fireEvent.click(box);
+    await waitFor(() => expect(s.calls.find((c) => c.path === '/api/orbit/auto-start')?.body).toEqual({ on: true, tag: 'auto' }));
+    await waitFor(() => expect(box).toBeChecked());
+    expect(within(group).queryByText(/doesn’t show tags/)).toBeNull();
+  });
+
+  it('Settings → Orbit says when Orbit shows no tags to the token', async () => {
+    go('#/settings/orbit');
+    const { api } = site({ autoStart: { on: true, tag: 'auto' }, items: [ticket(12, { tags: [], tagsKnown: false })] });
+    render(<HostedApp api={api} />);
+    const group = await screen.findByRole('group', { name: 'Auto start' });
+    expect(await within(group).findByText('Orbit doesn’t show tags to your token, so nothing starts by itself.')).toBeInTheDocument();
+  });
+});
+

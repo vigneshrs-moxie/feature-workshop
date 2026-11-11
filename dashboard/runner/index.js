@@ -80,6 +80,8 @@ import { TICKET_FILE, readTicketFile } from '../lib/ticket-file.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
+import { AUTO_START_FILE, AutoStarter, normalizeAutoStart } from '../lib/auto-start.js';
+import { activeWarnings } from '../lib/usage-warnings.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
 import { ClaudeCodeUsage, CLAUDE_CODE_NOTE, CLAUDE_CODE_WORDS, readSetting as claudeCodeSetting, writeSetting as setClaudeCodeSetting } from '../lib/claude-code-usage.js';
 import { EVENT_TYPES, NOTES_MAX, parseCommand } from '../lib/protocol.js';
@@ -1592,7 +1594,7 @@ export async function createRunner(config) {
   /** Inbox rows with "you are already on this": the open job on the same ticket, if any. */
   async function withJobs(items) {
     const onTicket = await jobsByTicket(await features());
-    return items.map((i) => ({ ...i, job: onTicket.get(i.key) ?? null }));
+    return items.map((i) => ({ ...i, job: onTicket.get(i.key) ?? null, autoStartFailed: autoStarter.failedReason(i.key) }));
   }
 
 
@@ -1638,9 +1640,50 @@ export async function createRunner(config) {
     if (suggestOn) considerSuggestion(); else suggester.off();
   }
 
+  // Auto start by tag (lib/auto-start.js): after each Inbox refresh, a ticket assigned to you with the
+  // Orbit tag you wrote starts a job with Auto on, one at a time, each ticket once. It never runs
+  // when the setting is off. The website can only change the setting (the auto-start command).
+  let autoStartSetting = normalizeAutoStart(null);
+  const autoPaused = () => (orbitInbox.view().error ? 'orbit' : limits.isLimited() || activeWarnings(planUsage.view()).length ? 'limit' : null);
+  const autoStarter = new AutoStarter({
+    file: path.join(state.dir, AUTO_START_FILE),
+    setting: async () => autoStartSetting,
+    inbox: () => orbitInbox.view(),
+    paused: autoPaused,
+    jobs: async (memory) => {
+      const list = await features();
+      const ticketsWithJobs = new Set();
+      for (const f of list) {
+        const key = (f.dir ? await statusTicketKey(f.dir) : null) ?? slugTicketKey(f.slug);
+        if (key) ticketsWithJobs.add(key);
+      }
+      const last = memory.started.at(-1);
+      const f = last?.slug ? list.find((x) => x.slug === last.slug) : null;
+      const busy = Boolean(f) && !f.closed && f.auto?.on === true && !f.auto.stopped && !finishLineReached({ prs: f.prs, closed: f.closed }, null, 'pr1-open').reached;
+      return { ticketsWithJobs, busy };
+    },
+    start: async (item, tag) => {
+      const out = await HANDLERS.start({
+        description: `${item.key}: ${item.title}`, ticket: { key: item.key, title: item.title, url: item.url },
+        kind: item.type === 'bug' ? 'bug' : 'feature', options: { auto: true },
+      }, { autoStart: { tag } });
+      await state.audit({ action: 'auto-start', key: item.key, tag, slug: out.slug });
+      return { slug: out.slug };
+    },
+    notify: (n) => tell(n),
+  });
+  function runAutoStart() {
+    if (!autoStartSetting.on) return;
+    autoStarter.run().catch((err) => console.error('auto start:', err.message));
+  }
+  orbitInbox.on('change', runAutoStart);
+  /** What the Inbox shows of it: the setting, and why it is paused (null when it is not). */
+  const autoStartView = () => ({ ...autoStartSetting, paused: autoStartSetting.on ? autoPaused() : null });
+
   /** Reads the saved address and starts the poller when there is a token. At start and after a save. */
   async function startOrbit() {
     const o = await orbitSettings();
+    autoStartSetting = normalizeAutoStart((await state.getSettings()).workflow?.autoStart);
     suggestOn = (await state.getSettings()).workflow?.inboxSuggest !== false;
     orbitUrl = o.url ? (() => { try { return normalizeOrbitUrl(o.url); } catch { return null; } })() : null;
     if (!orbitUrl && env.STARBASE_ORBIT_URL) { try { orbitUrl = normalizeOrbitUrl(env.STARBASE_ORBIT_URL); } catch { /* ignored: Settings says what is missing */ } }
@@ -1764,7 +1807,8 @@ export async function createRunner(config) {
 
   const HANDLERS = {
     // POST /api/jobs: a new job.
-    async start(body) {
+    // `internal` is only ever passed by Auto start (never from a request): { autoStart: { tag } } turns Auto on by that tag.
+    async start(body, internal = {}) {
       const description = str(body.description, 600).replace(/\s+/g, ' ').trim();
       if (description.length < 4) throw new HttpError(400, 'Describe the job in a few words.');
       if (limits.isLimited() && body.despiteLimit !== true) throw new HttpError(409, limitMessage(), { code: 'limited' });
@@ -1828,7 +1872,7 @@ export async function createRunner(config) {
       // already dropped auto at L3.
       let autoOn = null;
       if (options.auto === true && autoAllowed({ level: options.level }).ok) {
-        autoOn = autoRecord(null, { on: true, by: 'you' });
+        autoOn = autoRecord(null, internal.autoStart ? { on: true, by: 'tag', tag: internal.autoStart.tag } : { on: true, by: 'you' });
         await state.setSession(featureDir, { auto: autoOn });
       }
       options = withAutoOf(options, autoOn);
@@ -1858,6 +1902,8 @@ export async function createRunner(config) {
       await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options, fromSession: from ? { id: from.id, mode: from.mode, forkedTo: from.forkedTo } : undefined, ticket: ticket?.key });
       if (autoOn) await state.audit({ action: 'auto', what: 'on', by: autoOn.by, featureDir, slug, via: 'start' });
       cached = null;
+      // Start on a ticket's row works as usual and clears "couldn't start by itself".
+      if (ticket && !internal.autoStart) await autoStarter.clearFailed(ticket.key).catch(() => {});
       return { run, slug };
     },
 
@@ -1896,6 +1942,13 @@ export async function createRunner(config) {
     async pause(body) {
       if (!(await driver.stop(body.runId))) throw new HttpError(404, 'That reply already finished.');
       return { ok: true };
+    },
+
+    // Auto start's setting from the website (lib/auto-start.js): only the setting; this laptop's own
+    // starter is what starts a job by it.
+    async 'auto-start'(body) {
+      await HANDLERS.settings({ workflow: { autoStart: { on: body.on, tag: body.tag } } });
+      return { ok: true, autoStart: autoStartSetting };
     },
 
     // POST /api/job/:slug/takeover
@@ -2215,13 +2268,18 @@ export async function createRunner(config) {
       // workflow: the finish line (lib/finish.js): what counts as done, everywhere; and the screens
       // (wireframes) and clarify defaults a new job's options.json starts with (lib/state.js).
       if (body.workflow !== undefined) {
-        const w = body.workflow;
+        let w = body.workflow;
         if (!w || typeof w !== 'object' || Array.isArray(w)) throw new HttpError(400, 'The workflow settings must be an object.');
         const keys = Object.keys(w);
-        for (const k of keys) if (!['finishLine', 'wireframes', 'clarify', 'autoLevel', 'countClaudeCode', 'inboxSuggest'].includes(k)) throw new HttpError(400, `Unknown workflow setting: ${String(k).slice(0, 40)}.`);
-        if (!keys.length) throw new HttpError(400, 'Send a workflow setting to change: finishLine, wireframes, clarify, autoLevel, inboxSuggest or countClaudeCode.');
+        for (const k of keys) if (!['finishLine', 'wireframes', 'clarify', 'autoLevel', 'countClaudeCode', 'inboxSuggest', 'autoStart'].includes(k)) throw new HttpError(400, `Unknown workflow setting: ${String(k).slice(0, 40)}.`);
+        if (!keys.length) throw new HttpError(400, 'Send a workflow setting to change: finishLine, wireframes, clarify, autoLevel, inboxSuggest, autoStart or countClaudeCode.');
         if (w.autoLevel !== undefined && typeof w.autoLevel !== 'boolean') throw new HttpError(400, 'Choose the level for me: on or off.');
         if (w.inboxSuggest !== undefined && typeof w.inboxSuggest !== 'boolean') throw new HttpError(400, 'Suggest what to start next: on or off.');
+        if (w.autoStart !== undefined) {
+          const a = w.autoStart;
+          if (!a || typeof a !== 'object' || Array.isArray(a) || typeof a.on !== 'boolean' || typeof a.tag !== 'string' || a.tag.trim().length > 60) throw new HttpError(400, 'Auto start: on or off, and a tag of at most 60 characters.');
+          w = { ...w, autoStart: normalizeAutoStart(a) };
+        }
         if (w.countClaudeCode !== undefined && typeof w.countClaudeCode !== 'boolean') throw new HttpError(400, 'Count my Claude Code use outside the app: on or off.');
         if (w.finishLine !== undefined && !FINISH_LINES.includes(w.finishLine)) throw new HttpError(400, 'The finish line is PR #1 open, PR #1 merged, in staging, in main, or when you mark it done.');
         for (const k of ['wireframes', 'clarify']) if (w[k] !== undefined && !WORKFLOW_CHOICES.includes(w[k])) throw new HttpError(400, `${k === 'wireframes' ? 'Screens' : 'Clarify questions'} for new jobs: Auto, Always or Off.`);
@@ -2233,6 +2291,10 @@ export async function createRunner(config) {
         await state.setSettings({ workflow: next });
         finishLineNow = next.finishLine;
         if (rest.inboxSuggest !== undefined) setSuggestOn(rest.inboxSuggest);
+        if (rest.autoStart !== undefined) {
+          autoStartSetting = normalizeAutoStart(rest.autoStart);
+          runAutoStart();
+        }
         if (next.finishLine !== was.finishLine) {
           // Every card's group may move: the pages fetch again. The ledger counts quests by the new
           // line, muted (what it finds was earned before). The Done notices start over: the next look
@@ -2699,7 +2761,7 @@ export async function createRunner(config) {
     },
     teapot: TEAPOT,
     orbit: {
-      status: orbitStatus, inbox: orbitInbox, suggester, client: orbit, url: () => orbitUrl, withJobs, httpError: orbitHttpError,
+      status: orbitStatus, inbox: orbitInbox, autoStartView, suggester, client: orbit, url: () => orbitUrl, withJobs, httpError: orbitHttpError,
       /** Save a pasted token (and wire up the Foreman's MCP entry). Throws OrbitError in plain words. */
       async saveToken(body) {
         const was = await orbitSettings();

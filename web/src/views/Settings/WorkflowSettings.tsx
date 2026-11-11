@@ -24,6 +24,8 @@ import { Choice, Segmented } from '../../components/Choice';
 import { NumberInput } from '../../components/Field';
 import { Saved, useSaved } from '../../components/Saved';
 import { SettingGroup, SettingsMore } from './SettingsMore';
+import { AutoStartGroup } from './AutoStartGroup';
+import type { InboxAnswer } from '../../api/types';
 import { BRAND } from '../../app/brand';
 
 /** Only for a rail line before the dashboard has said its words (meta.finishLines is the source). */
@@ -69,6 +71,16 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
     finally { setBusy(false); }
   }
 
+  // Whether Orbit shows tags to this token, read from the Inbox's answer while Auto start is on.
+  const [tagsShown, setTagsShown] = useState<boolean | undefined>(undefined);
+  const autoOn = w.autoStart?.on === true;
+  useEffect(() => {
+    if (!autoOn) { setTagsShown(undefined); return undefined; }
+    let live = true;
+    Promise.resolve(api.get<InboxAnswer>('/api/orbit/inbox')).then((a) => { if (live) setTagsShown(typeof a?.tagsShown === 'boolean' ? a.tagsShown : undefined); }).catch(() => {});
+    return () => { live = false; };
+  }, [api, autoOn]);
+
   async function save(patch: Partial<Workflow>, what: string) {
     setBusy(true);
     setError(null);
@@ -97,7 +109,7 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
           <p className="muted" role="note">{BRAND.name} didn’t send the finish line’s choices. Update it and start it again; until then it uses {finishLineLabel(w.finishLine, undefined)}.</p>
         )}
       </SettingGroup>
-      <SettingsMore id="workflow-more" label="More: GitHub, what new jobs start with, the level, stacks, Claude Code use and the Orbit token" holds={['github-every', 'pr-route', 'wireframes', 'clarify', 'auto-level', 'inbox-suggest', 'sections-at-once', 'count-claude-code', 'orbit-token']}>
+      <SettingsMore id="workflow-more" label="More: GitHub, what new jobs start with, the level, stacks, Claude Code use and the Orbit token" holds={['github-every', 'pr-route', 'wireframes', 'clarify', 'auto-level', 'inbox-suggest', 'auto-start', 'sections-at-once', 'count-claude-code', 'orbit-token']}>
         <GithubEvery />
         <RouteTable />
         {CHOICES.map((c) => (
@@ -126,6 +138,12 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
           </label>
           <p className="muted settings-note-under">When none of your tickets is ranked in Orbit, Haiku on this laptop picks up to three to start next and says why. It reads each ticket’s title, type, severity, age, size and the start of its description, and which files your open jobs are changing. Never names, emails, internal notes or comments. It asks again only when your list changes, at most every 30 minutes, for less than a cent each time.</p>
         </SettingGroup>
+        <AutoStartGroup
+          setting={w.autoStart}
+          tagsShown={tagsShown}
+          busy={busy}
+          onSave={async (next) => { store.dispatch({ type: 'settings', settings: await api.post<Settings>('/api/settings', { workflow: { autoStart: next } }) }); }}
+        />
         <SettingGroup className="workflow-choice" disabled={busy} setting="sections-at-once" title="Stacks" saved={<Saved tick={saved.tick('stacks')} />}>
           <div className="check">
             <NumberInput value={atOnceDraft} min={1} max={MAX_SECTIONS_AT_ONCE} onChange={(v) => void saveAtOnce(v)} aria-label="Sections at once, across every stack" />

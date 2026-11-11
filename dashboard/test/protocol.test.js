@@ -19,6 +19,7 @@ const GOOD = {
   'fetch-diff': { slug: 'sample-job', commit: 'abc1234' },
   'stack-merge': { slug: 'sample-stack', section: 'part-1' },
   auto: { slug: 'sample-job', on: true },
+  'auto-start': { on: true, tag: 'auto' },
   steer: { runId: 'run-1', text: 'Leave the README alone.' },
   resume: { slug: 'sample-job', via: 'cli' },
   close: { slug: 'sample-job', as: 'dropped', note: 'Not needed now.', removeWorktree: true },
@@ -37,7 +38,7 @@ const GOOD = {
 };
 
 test('the two lists are exactly the plan’s, closed and frozen', () => {
-  assert.deepEqual(Object.keys(REMOTE_COMMANDS).sort(), ['allow', 'approve', 'auto', 'deny', 'fetch-diff', 'pause', 'reply', 'send-back', 'stack-merge', 'start', 'stop', 'take-over']);
+  assert.deepEqual(Object.keys(REMOTE_COMMANDS).sort(), ['allow', 'approve', 'auto', 'auto-start', 'deny', 'fetch-diff', 'pause', 'reply', 'send-back', 'stack-merge', 'start', 'stop', 'take-over']);
   assert.deepEqual(Object.keys(LOCAL_COMMANDS).sort(), ['close', 'notes', 'nudge', 'options', 'policy', 'prototype', 'reopen', 'repo', 'restart', 'resume', 'rules', 'settings', 'steer', 'try-it', 'usage-resume']);
   assert.ok(Object.isFrozen(REMOTE_COMMANDS) && Object.isFrozen(LOCAL_COMMANDS));
   assert.ok(Object.values(REMOTE_COMMANDS).every(Object.isFrozen));
@@ -106,7 +107,7 @@ test('an unknown type, a local command from the site, an extra field and a wrong
 });
 
 test('the Auto switch (Auto mode): a job and on or off, both needed; the protocol moved to 4', () => {
-  assert.equal(PROTOCOL_VERSION, 5);
+  assert.equal(PROTOCOL_VERSION, 6);
   assert.equal(parseCommand({ type: 'auto', slug: 'sample-job', on: false }, { from: 'site' }).ok, true);
   assert.match(parseCommand({ type: 'auto', slug: 'sample-job' }, { from: 'site' }).error, /needs “on”/);
   assert.match(parseCommand({ type: 'auto', on: true }, { from: 'site' }).error, /needs “slug”/);
@@ -143,7 +144,7 @@ test('makeEvent: known types only; never a diff, patch, environment, token or so
 });
 
 test('the hosted site’s events (packet 2A): hello and job-list, checked like every other', () => {
-  assert.equal(PROTOCOL_VERSION, 5);
+  assert.equal(PROTOCOL_VERSION, 6);
   for (const type of ['hello', 'job-list']) assert.ok(EVENT_TYPES.includes(type), type);
   const hello = makeEvent('hello', { name: 'Test Laptop', os: 'macOS', version: '0.1.0', protocol: PROTOCOL_VERSION });
   assert.equal(hello.ok, true);
@@ -224,4 +225,19 @@ test('a start from the site cannot go past the Claude limit warning, and its tic
   const own = (fields) => parseCommand({ type: 'start', description: 'ORBIT-12: Tidy the export button', ...fields }, { from: 'local' });
   assert.equal(own({ despiteLimit: true }).command.despiteLimit, true);
   assert.equal(own({ ticket: big }).ok, true);
+});
+
+test('the Auto start setting from the site: on a boolean, tag text of at most 60 after trim, nothing else', () => {
+  const ok = (c) => parseCommand({ type: 'auto-start', ...c }, { from: 'site' });
+  assert.equal(ok({ on: true, tag: 'auto' }).ok, true);
+  assert.equal(ok({ on: false, tag: '' }).ok, true);
+  assert.equal(ok({ on: true, tag: ` ${'x'.repeat(60)} ` }).ok, true);
+  assert.equal(ok({ on: true, tag: 'x'.repeat(61) }).ok, false);
+  assert.equal(ok({ on: 'yes', tag: 'auto' }).ok, false);
+  assert.equal(ok({ on: true, tag: 7 }).ok, false);
+  assert.match(ok({ on: true }).error, /needs “tag”/);
+  assert.match(ok({ tag: 'a' }).error, /needs “on”/);
+  assert.equal(ok({ on: true, tag: 'a', slug: 'x' }).ok, false, 'no other field');
+  assert.equal(parseCommand({ type: 'auto-start', on: true, tag: 'a' }, { from: 'local' }).ok, true);
+  assert.equal(Object.hasOwn(LOCAL_COMMANDS, 'auto-start'), false);
 });

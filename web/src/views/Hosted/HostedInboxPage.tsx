@@ -6,9 +6,9 @@
 // back" while the laptop is off, with Cancel until it is picked up. With no laptop paired, a sheet
 // says how to pair one.
 // A 401 from any of it (the session ended) brings the sign-in page back.
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ApiClient } from '../../api/client';
-import type { InboxAnswer, InboxItem, InboxLaptop } from '../../api/types';
+import type { AutoStartSetting, InboxAnswer, InboxItem, InboxLaptop, Snapshot } from '../../api/types';
 import { Button } from '../../components/Button';
 import { Sheet } from '../../components/Sheet';
 import { createStore, WorkshopContext } from '../../state/store';
@@ -50,6 +50,13 @@ export function HostedInboxPage({ api: given, onSignedOut }: HostedProps) {
   // The ticket whose Start or Cancel is out: its button spins, and nothing else starts meanwhile.
   const [sending, setSending] = useState<string | null>(null);
   const out = useRef(false);
+  // Auto start's setting, from the laptop's settings the site mirrors: it marks the rows that start by themselves.
+  const [autoStart, setAutoStart] = useState<AutoStartSetting | null>(null);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(api.get<Pick<Snapshot, 'meta'>>('/api/snapshot')).then((s) => { if (live) setAutoStart(s?.meta?.settings?.workflow?.autoStart ?? null); }).catch(() => {});
+    return () => { live = false; };
+  }, [api, version]);
 
   const send = useCallback(async (item: InboxItem, choices: StartChoices) => {
     await api.post('/api/orbit/start', { key: item.key, ...choices });
@@ -87,7 +94,7 @@ export function HostedInboxPage({ api: given, onSignedOut }: HostedProps) {
 
   // Built once per form: a new object on every render would reset the repository the person picked.
   const startForm = useMemo(() => (form ? { laptops: form.laptops, onStart: (choices: StartChoices) => send(form.item, choices) } : null), [form, send]);
-  const hosted: HostedInbox = { settingsHref: ORBIT_SETTINGS_HREF, onStart: (i) => { void onStart(i); }, onCancel: (i) => { void onCancel(i); }, version, notice, sending };
+  const hosted: HostedInbox = { settingsHref: ORBIT_SETTINGS_HREF, onStart: (i) => { void onStart(i); }, onCancel: (i) => { void onCancel(i); }, version, notice, sending, autoStart };
   return (
     <WorkshopContext.Provider value={workshop}>
       <InboxView hosted={hosted} openStream={NO_STREAM} />

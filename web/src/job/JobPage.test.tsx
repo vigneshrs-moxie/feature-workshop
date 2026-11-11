@@ -34,10 +34,10 @@ const GATE: Gate = {
   level: 1, suggestedLevel: null, levelReason: null, usage: null,
 };
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], play = 'subtle', gate = null as Gate | null, slug = 'alpha', extra = null as React.ReactNode, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], play = 'subtle', auto = null as { on: boolean; tag: string | null } | null, gate = null as Gate | null, slug = 'alpha', extra = null as React.ReactNode, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   const store: Store = createStore();
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: play } } } as never }) });
-  const detail = (s: string): JobDetail => ({ slug: s, thread: [], threadMore: false, gate, answeredBriefs: [], heldReply: null, options: { level: 1 } } as JobDetail);
+  const detail = (s: string): JobDetail => ({ slug: s, thread: [], threadMore: false, gate, answeredBriefs: [], heldReply: null, options: { level: 1 }, auto } as JobDetail);
   const get = vi.fn(async (path: string): Promise<unknown> => {
     if (path.endsWith('/docs')) return { docs: DOCS };
     const m = /\/doc\?file=(.+)$/.exec(path);
@@ -74,6 +74,14 @@ describe('the Job page', () => {
     setup();
     const inDetails = screen.getAllByRole('button', { name: 'Copy decisions' }).filter((b) => b.closest('.job-details'));
     expect(inDetails).toHaveLength(1);
+  });
+  it('says a job Auto start began was started by Auto, with the tag; a job you started says nothing', async () => {
+    setup({ auto: { on: true, tag: 'nightly' } });
+    expect(await screen.findByText('Started by Auto (tag: nightly)')).toBeInTheDocument();
+    cleanup();
+    setup({ auto: { on: true, tag: null } });
+    await screen.findAllByRole('button', { name: 'Copy decisions' });
+    expect(screen.queryByText(/Started by Auto/)).toBeNull();
   });
   it('also has Copy decisions in the page’s head, outside the folded Details', () => {
     setup();

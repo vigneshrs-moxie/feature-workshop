@@ -849,3 +849,25 @@ test('nothing in dashboard/lib (or server.js) can send Orbit anything but a GET'
   // And at run time: everything this file sent the fake Orbit was a GET.
   assert.deepEqual([...everyMethod], ['GET']);
 });
+
+// ---------- Auto start by tag: the row's tag names ----------
+
+test('rows keep their tag names', () => {
+  const tags = [{ id: 't1', name: 'auto', color: 'blue', archived: false }, { id: 't2', name: 'Old', color: 'grey', archived: true }, { id: 't3' }, null];
+  assert.deepEqual(inboxItem({ number: 30, subject: 's', tags }, { why: ['assigned'] }).tags, ['auto', 'Old']);
+  assert.deepEqual(inboxItem({ number: 31, subject: 's', tags: [] }, { why: ['assigned'] }).tags, []);
+  assert.deepEqual(inboxItem({ number: 32, subject: 's' }, { why: ['assigned'] }).tags, []);
+});
+
+test("a participant's rows show no tags", () => {
+  const item = inboxItem({ number: 33, subject: 's', tags: [{ name: 'auto' }] }, { audience: 'participant' });
+  assert.deepEqual(item.tags, []);
+});
+
+test('the view says whether Orbit shows tags to this token', () => {
+  const inbox = new OrbitInbox({ client: {}, orbitUrl: () => 'https://orbit.example.com' });
+  const put = (audience, ...rows) => { inbox.audience = audience; inbox.rows = new Map(rows.map((row) => [row.number, { row, audience, why: new Set(['assigned']) }])); return inbox.view().tagsShown; };
+  assert.equal(put('tech', { number: 1, subject: 'a', tags: [] }, { number: 2, subject: 'b', tags: [{ name: 'x' }] }), true);
+  assert.equal(put('tech', { number: 1, subject: 'a', tags: [] }, { number: 2, subject: 'b' }), false, 'a row without a tags list');
+  assert.equal(put('participant', { number: 1, subject: 'a', tags: [] }), false, 'a participant sees none');
+});

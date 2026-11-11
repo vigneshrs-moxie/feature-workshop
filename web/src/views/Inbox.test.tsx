@@ -9,7 +9,7 @@ import { UiProvider, useUi, type SheetState } from '../app/ui';
 import { clockTime } from '../lib/time';
 import { createStore, WorkshopContext } from '../state/store';
 import { LEVELS, snapshot } from '../state/test-fixtures';
-import { InboxView, suggestNote, levelWord, nextTicket, shownPicks, queueOrder, sortInbox, toStart, startText, statusWord, type InboxAnswer, type InboxItem, type InboxSuggestion, type OrbitStatus, type OrbitStream } from './Inbox';
+import { InboxView, tagMatches, suggestNote, levelWord, nextTicket, shownPicks, queueOrder, sortInbox, toStart, startText, statusWord, type InboxAnswer, type InboxItem, type InboxSuggestion, type OrbitStatus, type OrbitStream } from './Inbox';
 import { OrbitTokenSettings } from './Settings/OrbitTokenSettings';
 import { setGuideFirstVisit } from '../components/page/Page';
 import { pickOption } from '../components/Select.testing';
@@ -571,3 +571,53 @@ describe('the Inbox follows your queue', () => {
     });
   });
 });
+
+describe('Auto start on the Inbox', () => {
+  const ON = { on: true, tag: 'auto', paused: null } as const;
+  const tagged = (n: number, tags: string[], extra: Partial<InboxItem> = {}) => item(n, { tags, ...extra });
+
+  it('says Auto start is on and marks only the tickets that will start by themselves', async () => {
+    const answer: InboxAnswer = { ...STATUS, autoStart: ON, tagsShown: true, items: [tagged(1, ['Auto']), tagged(2, []), tagged(3, ['auto'], { job: { slug: 'orbit-3-x', title: 'x' } }), tagged(4, ['auto'], { title: 'auto', status: 'closed' })] };
+    const { wrap } = setup({ answer });
+    wrap(<InboxView openStream={() => null} />);
+    expect(await screen.findByText('Auto start is on: tickets tagged "auto" start by themselves, one at a time.')).toBeInTheDocument();
+    const row = (key: string) => screen.getAllByRole('row').find((r) => r.getAttribute('data-ticket') === key)!;
+    expect(within(row('ORBIT-1')).getByText('Starts by itself')).toBeInTheDocument();
+    for (const key of ['ORBIT-2', 'ORBIT-3', 'ORBIT-4']) expect(within(row(key)).queryByText('Starts by itself')).toBeNull();
+  });
+
+  it('says why it is paused', async () => {
+    const limit = setup({ answer: { ...STATUS, autoStart: { ...ON, paused: 'limit' }, items: [tagged(1, ['auto'])] } });
+    limit.wrap(<InboxView openStream={() => null} />);
+    expect(await screen.findByText('Auto start is paused: the Claude limit warning is showing.')).toBeInTheDocument();
+    cleanup();
+    const orbit = setup({ answer: { ...STATUS, autoStart: { ...ON, paused: 'orbit' }, items: [tagged(1, ['auto'])] } });
+    orbit.wrap(<InboxView openStream={() => null} />);
+    expect(await screen.findByText("Auto start is paused: Orbit can't be reached.")).toBeInTheDocument();
+  });
+
+  it('a ticket that failed to start by itself says why and offers Start', async () => {
+    const answer: InboxAnswer = { ...STATUS, autoStart: ON, items: [tagged(1, ['auto'], { autoStartFailed: 'This laptop has no repository for it.' })] };
+    const { wrap } = setup({ answer });
+    wrap(<InboxView openStream={() => null} />);
+    expect(await screen.findByText("Couldn't start by itself: This laptop has no repository for it. Press Start to try.")).toBeInTheDocument();
+    expect(screen.queryByText('Starts by itself')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Start a job on ORBIT-1' })).toBeInTheDocument();
+  });
+
+  it('with Auto start off there is no line and no chip', async () => {
+    const { wrap } = setup({ answer: { ...STATUS, autoStart: { on: false, tag: 'auto', paused: null }, items: [tagged(1, ['auto'])] } });
+    wrap(<InboxView openStream={() => null} />);
+    await screen.findAllByRole('table');
+    expect(screen.queryByText(/Auto start is/)).toBeNull();
+    expect(screen.queryByText('Starts by itself')).toBeNull();
+  });
+
+  it('a tag matches a tag name only, ignoring case, never the title or text', () => {
+    expect(tagMatches({ tags: ['Auto'] }, ' AUTO ')).toBe(true);
+    expect(tagMatches({ tags: ['automatic'] }, 'auto')).toBe(false);
+    expect(tagMatches({ tags: [], title: 'auto' } as never, 'auto')).toBe(false);
+    expect(tagMatches({ tags: ['auto'] }, '  ')).toBe(false);
+  });
+});
+

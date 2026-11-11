@@ -13,6 +13,7 @@ import { DEFAULT_FINISH_LINE, finishLineOf } from './finish.js';
 import { WORKFLOW_CHOICES } from './options.js';
 import { scrub } from './orbit.js';
 import { PRODUCT } from './brand.js';
+import { normalizeAutoStart } from './auto-start.js';
 import { prepareStateFolder } from './state-folder.js';
 
 /** Screens (wireframes) and Clarify questions for new jobs: Auto (the workflow decides), Always, or Off (lib/options.js). */
@@ -23,7 +24,7 @@ export const workflowChoiceOf = (raw) => (WORKFLOW_CHOICES.includes(raw) ? raw :
  * The workflow settings with defaults filled in (Settings → Workflow): { finishLine } (lib/finish.js),
  * and for new jobs `wireframes` and `clarify` ('auto' | 'always' | 'off', default auto); a new job's
  * options.json copies those two (lib/options.js normalize). autoLevel: "Choose the level for me"
- * (lib/auto-level.js), off unless set to true. sectionsAtOnce: how many sections of stacks (plan §6.2)
+ * (lib/auto-level.js), off unless set to true. autoStart: { on, tag } (lib/auto-start.js), off with no tag. sectionsAtOnce: how many sections of stacks (plan §6.2)
  * run at once across every stack, 1 to 20, default 3 (lib/stack.js DEFAULT_CAP and MAX_CAP; saved
  * by POST /api/stacks/cap). It is there only once it has been set: until then the default holds,
  * and the first stack started takes the integration board's "packets at once" (integrate.json).
@@ -32,7 +33,7 @@ export const SECTIONS_AT_ONCE = Object.freeze({ default: 3, max: 20 });
 export const sectionsAtOnceOf = (raw) => (Number.isInteger(raw) && raw >= 1 && raw <= SECTIONS_AT_ONCE.max ? raw : SECTIONS_AT_ONCE.default);
 export function workflowSettings(raw = {}) {
   const w = raw && typeof raw === 'object' ? raw : {};
-  return { finishLine: finishLineOf(w.finishLine), wireframes: workflowChoiceOf(w.wireframes), clarify: workflowChoiceOf(w.clarify), autoLevel: w.autoLevel === true, inboxSuggest: w.inboxSuggest !== false, ...(w.sectionsAtOnce !== undefined ? { sectionsAtOnce: sectionsAtOnceOf(w.sectionsAtOnce) } : {}) };
+  return { finishLine: finishLineOf(w.finishLine), wireframes: workflowChoiceOf(w.wireframes), clarify: workflowChoiceOf(w.clarify), autoLevel: w.autoLevel === true, inboxSuggest: w.inboxSuggest !== false, autoStart: normalizeAutoStart(w.autoStart), ...(w.sectionsAtOnce !== undefined ? { sectionsAtOnce: sectionsAtOnceOf(w.sectionsAtOnce) } : {}) };
 }
 
 // Settings from before the finish line kept the quest rule under play.questDone. The first read

@@ -211,6 +211,7 @@ function JobView({ job }: { job: Job }) {
           <More screen="job" id="details" label="Details" note="level, stops, who is working, facts" icon="list" className="is-card job-details">
             <div className="job-details-head">
               {ticket && <Chip className="num">{ticket}</Chip>}
+              {thread.detail?.auto?.tag && <Chip tone="accent">{`Started by Auto (tag: ${thread.detail.auto.tag})`}</Chip>}
               <CopyDecisions slug={job.slug} />
               <LevelChip job={job} ready={Boolean(thread.detail)} />
               <PartOfStack slug={job.slug} index={stacks} />

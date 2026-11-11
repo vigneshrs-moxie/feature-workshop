@@ -419,6 +419,9 @@ export interface PlaySettings {
 export type WorkflowChoice = 'auto' | 'always' | 'off';
 export const WORKFLOW_CHOICES: WorkflowChoice[] = ['auto', 'always', 'off'];
 
+/** Settings → Workflow → Auto start: the switch and the Orbit tag (at most 60 characters, trimmed). */
+export interface AutoStartSetting { on: boolean; tag: string }
+
 /** settings.workflow (Settings → Workflow): the finish line (dashboard/lib/finish.js) and the defaults a new job starts with. */
 export interface WorkflowSettings {
   finishLine: FinishLine;
@@ -430,6 +433,8 @@ export interface WorkflowSettings {
   inboxSuggest?: boolean;
   /** Count my Claude Code use outside the app in Telemetry (dashboard/lib/claude-code-usage.js). On unless turned off. */
   countClaudeCode?: boolean;
+  /** Auto start (dashboard/lib/auto-start.js): tickets with this Orbit tag start by themselves. Off, with no tag, unless set. */
+  autoStart?: AutoStartSetting;
   /** Sections of stacks that build at once, across every stack (1 to 20; absent: the default, 3). Saved by POST /api/stacks/cap. */
   sectionsAtOnce?: number;
 }
@@ -964,6 +969,8 @@ export type ThreadItem = BriefItem | YouItem | ReplyItem | AutoItem | ProblemIte
 /** The parts of GET /api/job/:slug the Foreman pane reads. */
 export interface JobDetail {
   slug: string;
+  /** Auto mode's card, with the Orbit tag that started the job when Auto start did (else null). */
+  auto?: { on: boolean; tag?: string | null } & Record<string, unknown>;
   title?: string;
   kind?: string;
   branch?: string | null;
@@ -1764,6 +1771,12 @@ export interface InboxItem {
   size?: number | null;
   /** Orbit sent queue numbers for this read: the Inbox shows its Queue column. */
   queueKnown?: boolean;
+  /** The ticket's tag names (archived included); empty when Orbit shows none. */
+  tags?: string[];
+  /** The site: Orbit sent this row's tags, so an empty list means none rather than not shown. */
+  tagsKnown?: boolean;
+  /** The laptop: why Auto start could not start this ticket (it is not tried again until Start is pressed). */
+  autoStartFailed?: string | null;
 }
 
 /**
@@ -1795,7 +1808,10 @@ export interface InboxLaptop { id: number; name: string; online: boolean; repos:
  */
 export interface InboxSuggestion { state: 'asking' | 'ready' | 'failed'; at: string | null; /** Hosted only: when the site received it (the age is worked out from this). */ receivedAt?: string; picks: { key: string; reason: string }[]; forList: string[]; nextAt?: string | null; why?: string }
 
-export type InboxAnswer = OrbitStatus & { suggest?: InboxSuggestion | null; items: InboxItem[]; laptops?: InboxLaptop[]; filter?: InboxFilter; view?: string; checkedAt?: string; truncated?: boolean };
+/** The laptop's Inbox answer about Auto start: the setting, and why it is paused (null when it is not). */
+export type AutoStartView = AutoStartSetting & { paused: 'limit' | 'orbit' | null };
+
+export type InboxAnswer = OrbitStatus & { autoStart?: AutoStartView; /** Orbit shows tags to this token. */ tagsShown?: boolean; suggest?: InboxSuggestion | null; items: InboxItem[]; laptops?: InboxLaptop[]; filter?: InboxFilter; view?: string; checkedAt?: string; truncated?: boolean };
 
 // ---------- The Stage: one stop of a job (dashboard/lib/stage-view.js, GET /api/job/:slug/stage/:stop) ----------
 

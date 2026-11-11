@@ -4,7 +4,8 @@
 // "Saved · expires 12 Dec" and Remove: the token is never shown again, and no answer carries it.
 // Past its date, or refused by Orbit, the form comes back to paste a new one.
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
-import type { OrbitStatus } from '../../api/types';
+import type { AutoStartSetting, InboxAnswer, OrbitStatus, Snapshot } from '../../api/types';
+import { AutoStartGroup } from '../Settings/AutoStartGroup';
 import { Button } from '../../components/Button';
 import { Segmented } from '../../components/Choice';
 import { TextInput } from '../../components/Field';
@@ -43,6 +44,18 @@ export function OrbitPage({ api, onSignedOut }: HostedProps) {
   const [problem, setProblem] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const slow = useDelayedFlag(load.state === 'loading');
+  // Auto start: the setting your laptop mirrors, and whether Orbit shows tags to your token (from the inbox the site keeps).
+  const [auto, setAuto] = useState<AutoStartSetting | undefined>(undefined);
+  const [tagsShown, setTagsShown] = useState<boolean | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(api.get<Pick<Snapshot, 'meta'>>('/api/snapshot')).then((s) => { if (live) setAuto(s?.meta?.settings?.workflow?.autoStart); }).catch(() => {});
+    Promise.resolve(api.get<InboxAnswer>('/api/orbit/inbox')).then((a) => {
+      if (!live || !a?.items?.length) return;
+      setTagsShown(a.items.every((i) => i.tagsKnown === true));
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [api]);
 
   const fail = useCallback((err: unknown) => { if (isSignedOut(err)) { onSignedOut(); return true; } return false; }, [onSignedOut]);
   useEffect(() => {
@@ -123,6 +136,12 @@ export function OrbitPage({ api, onSignedOut }: HostedProps) {
       )}
       {said && <p role="status">{said}</p>}
       {problem && <p className="field-problem" role="alert">{problem}</p>}
+      <AutoStartGroup
+        className="hosted-auto-start"
+        setting={auto}
+        tagsShown={tagsShown}
+        onSave={async (next) => { await api.post('/api/orbit/auto-start', next); setAuto(next); }}
+      />
     </HostedSettings>
   );
 }

@@ -241,6 +241,23 @@ function defaultOpenStream(url: string): OrbitStream | null {
   return typeof EventSource === 'undefined' ? null : new EventSource(url);
 }
 
+/** Whether a tag name of the ticket equals the tag, ignoring case and spaces: the tag names only, never the title or text. */
+export const tagMatches = (item: Pick<InboxItem, 'tags'>, tag: string): boolean => {
+  const want = tag.trim().toLowerCase();
+  return Boolean(want) && Array.isArray(item.tags) && item.tags.some((t) => typeof t === 'string' && t.trim().toLowerCase() === want);
+};
+
+/** Auto start's words on the Inbox, exact. */
+export const autoStartLine = (tag: string) => `Auto start is on: tickets tagged "${tag}" start by themselves, one at a time.`;
+export const AUTO_PAUSED = { limit: 'Auto start is paused: the Claude limit warning is showing.', orbit: 'Auto start is paused: Orbit can\'t be reached.' } as const;
+export const STARTS_BY_ITSELF = 'Starts by itself';
+export const autoFailedLine = (reason: string) => `Couldn't start by itself: ${reason} Press Start to try.`;
+
+/** Whether this row will start by itself: assigned, open, no job and nothing on its way, the tag on it, not tried before. */
+export const startsByItself = (i: InboxItem, auto: { on: boolean; tag: string } | null | undefined): boolean =>
+  Boolean(auto?.on && auto.tag.trim()) && toStart(i) && i.why.includes('assigned') && !['closed', 'resolved'].includes(i.status ?? '')
+  && !i.autoStartFailed && tagMatches(i, auto!.tag);
+
 /** What the hosted site gives the Inbox (views/Hosted/HostedInboxPage.tsx). */
 export interface HostedInbox {
   /** Settings → Orbit on the site. */
@@ -255,6 +272,8 @@ export interface HostedInbox {
   notice?: string | null;
   /** The ticket whose Start or Cancel is on its way (its button spins and can't be pressed again). */
   sending?: string | null;
+  /** Auto start's setting, from the laptop's settings the site mirrors (null while unknown). */
+  autoStart?: { on: boolean; tag: string } | null;
 }
 
 /** The hosted Inbox reads the site's list this often, and asks for a fresh read from Orbit every fourth time (once a minute). */
@@ -421,6 +440,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
     </>
   ) : null;
 
+  const auto = isHosted ? hosted?.autoStart ?? null : ready?.autoStart ?? null;
   const todo = items.filter(toStart);
   const started = items.filter((i) => !toStart(i));
   const order = [...todo, ...started].map((i) => i.key);
@@ -439,6 +459,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
       onStartStack={startStack}
       onFocusRow={(item) => { focused.current = item; }}
       hosted={hosted}
+      auto={auto}
     />
   );
 
@@ -451,6 +472,11 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
         <>
           {hosted ? <HostedStatusLine status={ready} now={now} settingsHref={hosted.settingsHref} /> : <StatusLine status={ready} now={now} />}
           {hosted?.notice && <p className="field-problem" role="alert">{hosted.notice}</p>}
+          {tab === 'mine' && auto?.on && auto.tag.trim() && (
+            <p className="muted inbox-auto-line" role="status">
+              {isHosted || !ready?.autoStart?.paused ? autoStartLine(auto.tag.trim()) : AUTO_PAUSED[ready.autoStart.paused]}
+            </p>
+          )}
           {tab === 'mine' && <p className="muted">{SCOPE_LINE}</p>}
           {notApplied && <p className="field-problem" role="alert">{NOT_APPLIED}</p>}
           {shown.state === 'ready' && !notApplied && (pick ? (
@@ -643,10 +669,12 @@ function HostedStatusLine({ status, now, settingsHref }: { status: OrbitStatus; 
   );
 }
 
-function TicketTable({ items, caption, jobs, pick, suggested, showQueue, now, peeked, onOpen, onStart, onStartStack, onFocusRow, hosted }: {
+function TicketTable({ items, caption, jobs, pick, suggested, showQueue, now, peeked, onOpen, onStart, onStartStack, onFocusRow, hosted, auto }: {
   items: InboxItem[]; caption: string; jobs: readonly Job[]; pick: InboxItem | null; /** The reason for each suggested ticket, by key. */ suggested: ReadonlyMap<string, string>; /** Some row has a queue number: the Queue column shows. */ showQueue: boolean; now: Date; peeked: string | null;
   onOpen: (item: InboxItem) => void; onStart: (item: InboxItem) => void; onStartStack: (item: InboxItem) => void; onFocusRow: (item: InboxItem | null) => void;
   hosted?: HostedInbox;
+  /** Auto start's setting, to mark the rows that start by themselves. */
+  auto?: { on: boolean; tag: string } | null;
 }) {
   return (
     <div className="data-table inbox-table">
@@ -692,11 +720,13 @@ function TicketTable({ items, caption, jobs, pick, suggested, showQueue, now, pe
                   >
                     <span className="num ticket-key">{i.key}</span>
                     {suggested.has(i.key) && <Chip tone="accent" title={SUGGESTED_HOVER}>Suggested</Chip>}
+                    {startsByItself(i, auto) && <Chip tone="accent" title={`It has the tag "${auto!.tag.trim()}", so ${BRAND.name} starts it by itself when it is its turn.`}>{STARTS_BY_ITSELF}</Chip>}
                     <span className="ticket-title">{i.title}</span>
                   </button>
                   {suggested.has(i.key) && <span className="muted ticket-reason">{suggested.get(i.key)}</span>}
                   {i.job && <span className="muted ticket-job">You are already on this: <a href={jobHref(i.job.slug)} title="Open the job on this ticket.">{i.job.title}</a></span>}
                   {!i.job && i.start?.state === 'failed' && <StartProblem start={i.start} />}
+                  {!i.job && i.autoStartFailed && <span className="inbox-start-problem"><Icon name="warn" size={14} />{autoFailedLine(i.autoStartFailed)}</span>}
                 </th>
                 <td className="cell-age num" title={i.createdAt ? `Opened ${fullTime(i.createdAt)}` : undefined}>{relativeTime(i.createdAt, now) || '—'}</td>
                 <td className="cell-who"><WhoIsOn who={i.assignee} /></td>

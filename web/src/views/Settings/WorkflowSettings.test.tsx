@@ -14,6 +14,9 @@ const FINISH_LINES: NonNullable<Meta['finishLines']> = [
   { id: 'marked', label: 'When I mark it done', hint: 'Only Mark done counts.' },
 ];
 
+// What the Inbox's answer says about Orbit showing tags to the token.
+let inboxTagsShown: boolean | undefined;
+
 function setup(settings: Settings, finishLines: Meta['finishLines'] = FINISH_LINES, post?: (path: string, body: unknown) => Promise<unknown>) {
   const store: Store = createStore();
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', settings, finishLines } }) });
@@ -23,12 +26,12 @@ function setup(settings: Settings, finishLines: Meta['finishLines'] = FINISH_LIN
     const b = body as { workflow?: Partial<Settings['workflow']> };
     return { ...now, workflow: { ...now.workflow, ...b.workflow } };
   });
-  const api = { post: vi.fn(answer) } as unknown as ApiClient;
+  const api = { post: vi.fn(answer), get: vi.fn(async () => ({ tagsShown: inboxTagsShown })) } as unknown as ApiClient;
   render(<WorkshopContext.Provider value={{ store, api }}><WorkflowSettings /></WorkshopContext.Provider>);
   return { store, post: api.post as ReturnType<typeof vi.fn> };
 }
 
-afterEach(() => { localStorage.clear(); });
+afterEach(() => { localStorage.clear(); inboxTagsShown = undefined; });
 
 describe('Settings → Workflow', () => {
   it('offers the finish line’s choices in the dashboard’s words, the default marked, and saves a pick', async () => {
@@ -108,6 +111,40 @@ describe('Settings → Workflow', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/settings', { workflow: { inboxSuggest: false } }));
     await waitFor(() => expect(store.getState().meta?.settings?.workflow?.inboxSuggest).toBe(false));
     expect(box).not.toBeChecked();
+  });
+
+  it('Auto start: its words, a switch that needs a tag, and a save of the whole setting', async () => {
+    const { post, store } = setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged' } });
+    const group = screen.getByRole('group', { name: 'Auto start' });
+    const box = within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' });
+    const tag = within(group).getByRole('textbox', { name: 'Orbit tag' });
+    expect(tag).toHaveAttribute('placeholder', 'auto');
+    expect(box).not.toBeChecked();
+    expect(group).toHaveTextContent('Only tickets assigned to you. One job at a time, in Inbox order. Nothing starts while the Claude limit warning shows.');
+    fireEvent.click(box);
+    expect(await within(group).findByText('Write a tag’s name to turn this on.')).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+    fireEvent.change(tag, { target: { value: ' auto ' } });
+    fireEvent.click(box);
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/settings', { workflow: { autoStart: { on: true, tag: 'auto' } } }));
+    await waitFor(() => expect(store.getState().meta?.settings?.workflow?.autoStart).toEqual({ on: true, tag: 'auto' }));
+    expect(box).toBeChecked();
+  });
+
+  it('Auto start says so when Orbit shows no tags to the token', async () => {
+    inboxTagsShown = false;
+    setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged', autoStart: { on: true, tag: 'auto' } } });
+    const group = screen.getByRole('group', { name: 'Auto start' });
+    expect(await within(group).findByText('Orbit doesn’t show tags to your token, so nothing starts by itself.')).toBeInTheDocument();
+  });
+
+  it('Auto start: changing the tag saves it, and the box takes at most 60 characters', async () => {
+    const { post } = setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged', autoStart: { on: true, tag: 'auto' } } });
+    const tag = within(screen.getByRole('group', { name: 'Auto start' })).getByRole('textbox', { name: 'Orbit tag' });
+    expect(tag).toHaveAttribute('maxlength', '60');
+    fireEvent.change(tag, { target: { value: 'nightly' } });
+    fireEvent.blur(tag);
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/settings', { workflow: { autoStart: { on: true, tag: 'nightly' } } }));
   });
 
   it('Count my Claude Code use outside the app: on by default, posts countClaudeCode and says Saved beside it', async () => {

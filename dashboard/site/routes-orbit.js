@@ -17,7 +17,7 @@ import { HttpError } from '../lib/http-guard.js';
 import { inboxItem, scrubDeep } from '../lib/orbit.js';
 
 export default function orbitRoutes({ local, str, send, sendJson, readBody, checkWrite, SECURITY_HEADERS }) {
-  const { status: orbitStatus, inbox: orbitInbox, suggester, client: orbit, withJobs, httpError: orbitHttpError } = local.orbit;
+  const { status: orbitStatus, inbox: orbitInbox, autoStartView, suggester, client: orbit, withJobs, httpError: orbitHttpError } = local.orbit;
   const orbitStreams = new Set();
 
   function sendOrbitEvent(type, data) {
@@ -26,7 +26,7 @@ export default function orbitRoutes({ local, str, send, sendJson, readBody, chec
   }
   const pushInbox = () => {
     if (!orbitStreams.size) return;
-    (async () => sendOrbitEvent('inbox', { ...(await orbitStatus()), filter: orbitInbox.view().filter, items: await withJobs(orbitInbox.view().items), suggest: suggester.view() }))().catch(() => {});
+    (async () => sendOrbitEvent('inbox', { ...(await orbitStatus()), filter: orbitInbox.view().filter, items: await withJobs(orbitInbox.view().items), tagsShown: orbitInbox.view().tagsShown, autoStart: autoStartView(), suggest: suggester.view() }))().catch(() => {});
   };
   orbitInbox.on('change', pushInbox);
   suggester.on('change', pushInbox);
@@ -57,7 +57,7 @@ export default function orbitRoutes({ local, str, send, sendJson, readBody, chec
         }
         // The first open (nothing read yet) or Refresh: read now; else the last list as it is.
         if (url.searchParams.get('refresh') === '1' || !orbitInbox.view().checkedAt) await orbitInbox.refresh();
-        return sendJson(res, 200, scrubDeep({ ...(await orbitStatus()), filter: orbitInbox.view().filter, items: await withJobs(orbitInbox.view().items), suggest: suggester.view() }));
+        return sendJson(res, 200, scrubDeep({ ...(await orbitStatus()), filter: orbitInbox.view().filter, items: await withJobs(orbitInbox.view().items), tagsShown: orbitInbox.view().tagsShown, autoStart: autoStartView(), suggest: suggester.view() }));
       }
       if (urlPath === '/api/orbit/views') {
         try { return sendJson(res, 200, scrubDeep({ views: (await orbitInbox.views()).map(({ id, name, isDefault }) => ({ id, name, isDefault })) })); } catch (err) { throw orbitHttpError(err); }

@@ -198,6 +198,24 @@ export default function orbitRoutes(ctx) {
       },
     },
     {
+      // Settings → Orbit → Auto start: only the setting. It is queued for one laptop as the auto-start command
+      // (lib/protocol.js checks it); the site never starts a job, only that laptop's own starter does.
+      method: 'POST', path: '/api/orbit/auto-start', auth: 'session',
+      async run({ req, res, person }) {
+        const b = await ctx.readJson(req, { max: 1024 });
+        const laptops = await ctx.laptopsOf(person.id);
+        if (!laptops.length) throw new HttpError(409, 'Pair a laptop first: Settings → Laptops shows the one command to run on it.', { code: 'no-laptop' });
+        let laptop;
+        if (b.laptopId !== undefined && b.laptopId !== null) {
+          laptop = laptops.find((l) => l.id === Number(b.laptopId));
+          if (!laptop) throw new HttpError(404, 'There is no laptop like that among yours.');
+        } else if (laptops.length === 1) laptop = laptops[0];
+        else throw new HttpError(409, 'Choose which laptop to set.', { code: 'choose-laptop', laptops });
+        const commandId = await ctx.queueCommand(laptop.id, { type: 'auto-start', on: b.on, tag: b.tag }, { by: person.id });
+        sendJson(res, 200, { ok: true, commandId, laptop: { id: laptop.id, name: laptop.name } });
+      },
+    },
+    {
       method: 'POST', path: '/api/orbit/start', auth: 'session',
       async run({ req, res, person }) {
         const b = await ctx.readJson(req, { max: 4096 });

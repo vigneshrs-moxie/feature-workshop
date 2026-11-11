@@ -23,9 +23,9 @@ import { FOREMAN_MODEL_IDS } from './options.js';
  * Bumped whenever a command, a field or an event changes shape. 2: the events hello and job-list
  * (packet 2A). 3: the events record and audit, and the command stack-merge (packet 2B). 4: the start command's choices
  * (kind, repo, model, options), and hello carrying the laptop's repository names. 5: the command auto
- * (Auto mode's switch).
+ * (Auto mode's switch). 6: the command auto-start (Settings → Workflow → Auto start: on and the Orbit tag).
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /** The most a job's notes.md may hold (characters): the notes command's text, and meta.jobOptions.notesMax. */
 export const NOTES_MAX = 20000;
@@ -98,6 +98,9 @@ export const REMOTE_COMMANDS = freeze({
   'stack-merge': { slug: required(FIELD.slug), section: str(200) },
   // Auto mode's switch for one job (lib/auto.js): on or off. Who turned it on is the runner's to say.
   auto: { slug: required(FIELD.slug), on: required(FIELD.bool) },
+  // Auto start (lib/auto-start.js): the switch and the Orbit tag, from the site's Settings. It only
+  // changes the setting; the laptop's own starter is the only thing that ever starts a job by it.
+  'auto-start': { on: required(FIELD.bool), tag: required({ ok: (v) => typeof v === 'string' && v.trim().length <= 60, says: 'a tag of at most 60 characters' }) },
 });
 
 /** What only the page on this computer may ask. */

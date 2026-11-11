@@ -492,6 +492,53 @@ test('two cron runs at the same moment read each inbox once (Vercel may deliver 
     assert.equal(s.orbit.by(token).filter((r) => r.query.assignee === 'me').length, 1);
   } finally { await s.close(); }
 });
+test('the stored item keeps the ticket’s tag names, archived included', async () => {
+  const s = await makeOrbitSite();
+  const olive = browser(s.fetch);
+  await signIn(olive, { email: OLIVE });
+  const token = testToken('olive');
+  s.orbit.person(token, { assigned: [ticket(1, { tags: [{ id: 't1', name: 'auto', color: 'blue', archived: false }, { id: 't2', name: 'Old', color: 'grey', archived: true }] }), ticket(2, { tags: [] }), ticket(3)] });
+  try {
+    await saveToken(olive, token);
+    await s.cron();
+    const by = Object.fromEntries((await olive.json('/api/orbit/inbox')).body.items.map((i) => [i.key, i]));
+    assert.deepEqual(by['ORBIT-1'].tags, ['auto', 'Old']);
+    assert.deepEqual(by['ORBIT-2'].tags, []);
+    assert.deepEqual(by['ORBIT-3'].tags, []);
+    await noTokenAnywhere(s, [token]);
+  } finally { await s.close(); }
+});
+
+// ---------- Auto start (the setting only: the laptop's own starter is what starts a job) ----------
+
+test('Auto start from the site: the setting is queued as the auto-start command, checked, and nothing is started', async () => {
+  const s = await makeOrbitSite();
+  const olive = await paired(s, OLIVE, 'Olive’s Mac');
+  const runner = fakeRunner([]);
+  const lap = await laptop(s, olive.token, { runner });
+  try {
+    await until(async () => (await olive.person.json('/api/laptops')).body.laptops[0]?.online, { what: 'the laptop to call in' });
+    for (const bad of [{ on: 'yes', tag: 'auto' }, { on: true, tag: 7 }, { on: true, tag: 'x'.repeat(61) }, { tag: 'auto' }, { on: true }]) {
+      assert.equal((await olive.person.send('POST', '/api/orbit/auto-start', bad)).status, 400, JSON.stringify(bad));
+    }
+    const r = await olive.person.send('POST', '/api/orbit/auto-start', { on: true, tag: ' auto ' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    await until(() => runner.handled.length === 1, { what: 'the laptop to get the command' });
+    assert.deepEqual(runner.handled[0], { type: 'auto-start', on: true, tag: ' auto ' });
+    assert.ok(runner.handled.every((c) => c.type !== 'start'), 'the site never starts a job');
+  } finally { lap.link.stop(); await s.close(); }
+});
+
+test('Auto start from the site with no laptop paired says so', async () => {
+  const s = await makeOrbitSite();
+  const olive = browser(s.fetch);
+  await signIn(olive, { email: OLIVE });
+  try {
+    const r = await olive.send('POST', '/api/orbit/auto-start', { on: true, tag: 'auto' });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.code, 'no-laptop');
+  } finally { await s.close(); }
+});
 
 // ---------- Start ----------
 

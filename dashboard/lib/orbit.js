@@ -344,6 +344,7 @@ const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
  * `why`: ['assigned'] (which inbox list it came from; empty for a saved view's list).
  * Priority and severity are null where Orbit doesn't show them (a participant's rows).
  * The queue fields (Queue #, rank, size) are the assignee's own, so a participant row has none.
+ * `tags`: the tag names the team's rows carry (archived included); `[]` for a participant's row.
  */
 export function inboxItem(row, { why = [], audience = 'tech', orbitUrl = null } = {}) {
   const key = ticketKey(row.number);
@@ -361,6 +362,8 @@ export function inboxItem(row, { why = [], audience = 'tech', orbitUrl = null } 
     workOrder: tech && Number.isInteger(row.workOrder) ? row.workOrder : null,
     size: tech && Number.isInteger(row.storyPoints) ? row.storyPoints : null,
     queueKnown: tech && 'queuePosition' in row,
+    // The tag names (archived too), for Auto start (lib/auto-start.js). A participant's row has none.
+    tags: tech && Array.isArray(row.tags) ? row.tags.filter((t) => typeof t?.name === 'string' && t.name).map((t) => t.name) : [],
     createdAt: row.createdAt ?? null, changedAt: changedAt(row), assignee, why: [...why],
     url: orbitUrl ? `${orbitUrl}${audience === 'tech' ? '/admin/feedback/' : '/feedback/'}${key}` : null,
   };
@@ -422,8 +425,10 @@ export class OrbitInbox extends EventEmitter {
     const url = this.orbitUrl();
     const applied = !this.ignored.includes('assignee');
     const items = !applied ? [] : [...this.rows.values()].map((r) => inboxItem(r.row, { why: [...r.why].sort(), audience: r.audience, orbitUrl: url }));
+    // Orbit shows tags to this token: the team's audience, and every row carries a tags list.
+    const tagsShown = this.audience === 'tech' && [...this.rows.values()].every((r) => Array.isArray(r.row.tags));
     return {
-      items: sortItems(items), filter: { audience: this.audience, ignored: [...this.ignored], applied }, checkedAt: this.checkedAt, error: this.error, errorKind: this.errorKind,
+      items: sortItems(items), tagsShown, filter: { audience: this.audience, ignored: [...this.ignored], applied }, checkedAt: this.checkedAt, error: this.error, errorKind: this.errorKind,
       lastTryAt: this.lastTryAt ? new Date(this.lastTryAt).toISOString() : null,
       everyMs: this.everyMs(), watchers: this.watchers, waitingMs: this.client.waiting?.() ?? 0, polling: this.running,
     };
