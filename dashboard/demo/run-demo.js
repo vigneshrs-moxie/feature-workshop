@@ -39,7 +39,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { defaultsFor, defaultsForLevel, writeOptions } from '../lib/options.js';
+import { defaultsFor, defaultsForLevel, writeAutoOption, writeOptions } from '../lib/options.js';
+import { autoRecord } from '../lib/auto.js';
 import { suggestLevel } from '../lib/level-rules.js';
 
 const ROOT = path.join(os.tmpdir(), 'starbase-demo');
@@ -1048,6 +1049,38 @@ async function demoUsage() {
   await fs.writeFile(path.join(dir, 'usage.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
 }
 
+// Two jobs in Auto, both L1 at their quick-plan gate (Auto's design, Part 2): "Auto demo" runs to PR #1
+// with no click (its Approver is the stand-in, demo/fake-approver.js), and "Auto demo: migrate" stops
+// at once, because its description (demo: migrate) is a database change. Auto starts when the server does.
+async function autoJobs() {
+  const since = iso(9 * MIN);
+  const record = {};
+  for (const [slug, title, description] of [
+    ['auto-demo', 'Auto demo', 'Show the open ticket count in the page title.'],
+    ['auto-demo-migrate', 'Auto demo: migrate', 'Show the open ticket count in the page title (demo: migrate).'],
+  ]) {
+    const dir = await feature(slug, {
+      status: {
+        title, kind: 'feature', route: 'quick', stage: 'plan', stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: since,
+        brief: { number: 1, path: 'briefs/001-plan.md', headline: `Quick plan v1 for ${title}` },
+        questions: [{ id: '1', text: 'Where should the count go?', recommendation: 'a', options: [{ id: 'a', label: 'After the page name' }, { id: 'b', label: 'Before the page name' }] }],
+        decided_on_your_behalf: [], next_proposed: 'Build it in one step, run the checks, then you try it',
+        artifacts: [{ name: 'Quick plan', path: 'quick-plan.md', version: '1' }], repo: { path: ACME, base_branch: 'main' }, branch: `feature/${slug}`,
+        suggested_level: 1, level_reason: 'A small change to one page.', updated_at: since,
+      },
+      briefs: [{ stage: 'plan', text: `**Quick plan v1 for ${title}**\n\n**Quick plan v1**\n- What: ${description}\n- Where: one page and its test.\n- Checks: npm run check and npm run build, then you try it.\n\n**Decisions for you**\n1. Where should the count go? — Recommended: after the page name.\n\n**Next:** build it in one step once you approve quick plan v1.\n` }],
+      files: { 'quick-plan.md': `# Quick plan v1 (demo)\n\n- What: ${description}\n- Where: one page and its test\n- Checks: npm run check, npm run build\n` },
+    });
+    await options(slug, 1, description);
+    await writeAutoOption(dir, { on: true, since });
+    record[dir] = { cwd: ACME, repoPath: ACME, auto: autoRecord(null, { on: true, now: since }) };
+  }
+  // Their records join the demo's own (its state folder, never ~/.starbase).
+  const file = path.join(ROOT, 'state', 'sessions.json');
+  const had = JSON.parse(await fs.readFile(file, 'utf8').catch(() => '{}'));
+  await fs.writeFile(file, JSON.stringify({ ...had, ...record }, null, 2));
+}
+
 async function playSecrets() {
   const state = path.join(ROOT, 'state');
   await fs.mkdir(state, { recursive: true });
@@ -1109,6 +1142,7 @@ await oldSkill();
 await demoAgents();
 await widgetThread();
 await playSecrets();
+await autoJobs();
 await demoUsage();
 await (await import('./demo-stacks.js')).demoStacks({ features: FEATURES, root: ROOT }); // packet V: three demo stacks
 process.env.STARBASE_FEATURES_DIR = FEATURES;

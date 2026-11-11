@@ -176,9 +176,9 @@ export async function createRunner(config) {
     ? (await import('../demo/fake-query.js')).makeFakeQuery({ featuresDir: FEATURES_DIR })
     : (await import('@anthropic-ai/claude-agent-sdk')).query);
   // The Approver's sessions (lib/approver.js askApprover), apart from the Foreman's. The demo never
-  // calls a model: until its stand-in exists, a demo Approver ends with an error.
+  // calls a model: its Approver is a stand-in (demo/fake-approver.js).
   const approverQuery = config.approverQuery ?? (DEMO
-    ? () => { throw new Error('The demo has no Approver yet.'); }
+    ? (await import('../demo/fake-approver.js')).makeFakeApprover()
     : (await import('@anthropic-ai/claude-agent-sdk')).query);
   const driver = new Driver({
     queryFn, state, projectsDir: PROJECTS_DIR, cliPath: claudePath,

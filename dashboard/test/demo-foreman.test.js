@@ -9,9 +9,15 @@ import path from 'node:path';
 
 import { State } from '../lib/state.js';
 import { Driver } from '../lib/driver.js';
-import { defaultsForLevel, writeOptions } from '../lib/options.js';
+import { defaultsForLevel, writeAutoOption, writeOptions } from '../lib/options.js';
 import { makeFakeQuery, readReply } from '../demo/fake-query.js';
 import { parseReviewFindings } from '../lib/play.js';
+import { createRunner } from '../runner/index.js';
+import { autoRecord } from '../lib/auto.js';
+import { answerSchema, approverOptions, askApprover, checkAnswer } from '../lib/approver.js';
+import { makeFakeApprover } from '../demo/fake-approver.js';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const PACE = 0.02;
 
@@ -261,5 +267,143 @@ test('demo Foreman: a hand-off you deny runs nothing; the job stays as it was', 
   assert.equal(status.stage_state, 'waiting_for_you');
   assert.equal(status.brief.number, 6, 'no new brief');
   await assert.rejects(fs.access(path.join(dir, 'review.md')), 'no review was written');
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+// ---------- Auto in the demo: the stand-in Approver ----------
+
+const DASH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const task = (kind, questions = []) => ({ kind, job: { title: 'T', slug: 't', level: 1 }, stage: 'plan', brief: null, paths: [], questions, request: kind === 'permission' ? { tool: 'Bash', headline: 'Run npm run check', preview: '' } : null });
+const QS = [
+  { id: '1', text: 'Where?', recommendation: 'b', options: [{ id: 'a', label: 'Here' }, { id: 'b', label: 'There' }] },
+  { id: '2', text: 'Which?', recommendation: null, options: [{ id: '0', label: 'First' }, { id: '1', label: 'Second' }] },
+  { id: '3', text: 'Say it', recommendation: null, options: [] },
+];
+const ask = (t, fake) => askApprover(t, { query: fake, options: approverOptions({ featureDir: '/x', emptyDir: '/y', kind: t.kind }), roots: [] });
+
+test('the stand-in Approver answers a gate, a question and a permission in the shape checkAnswer accepts', async () => {
+  const fake = makeFakeApprover({ fail: false });
+  const gate = await ask(task('gate', QS), fake);
+  assert.equal(gate.ok, true, gate.problem);
+  assert.deepEqual(gate.answer.answers.map((a) => [a.id, a.choice]), [['1', 'b'], ['2', '0'], ['3', null]]);
+  assert.equal(gate.answer.why, 'The recommended answer, as the brief proposes.');
+  assert.equal(gate.answer.risk, 'low');
+  assert.equal(gate.costUsd, 0.02);
+  const question = await ask(task('question', QS.slice(0, 2)), fake);
+  assert.equal(question.ok, true, question.problem);
+  assert.deepEqual(question.answer.answers.map((a) => a.choice), ['b', '0']);
+  const permission = await ask(task('permission'), fake);
+  assert.deepEqual(permission.answer, { decision: 'allow', why: 'An ordinary step of this job.', risk: 'low' });
+});
+
+test('the stand-in Approver with fail answers a shape checkAnswer refuses, and takes only Read and Glob', async () => {
+  const bad = await ask(task('gate', QS), makeFakeApprover({ fail: true }));
+  assert.equal(bad.ok, false);
+  assert.match(bad.problem, /agreed shape/);
+  assert.throws(() => makeFakeApprover({ fail: false })({ prompt: 'x', options: { tools: ['Read', 'Bash'] } }), /Read and Glob/);
+  assert.throws(() => makeFakeApprover({ fail: false })({ prompt: 'x', options: { tools: ['Read', 'Glob'], allowedTools: ['Bash'] } }), /Read and Glob/);
+  assert.equal(checkAnswer(task('gate', []), { decision: 'maybe' }).ok, false);
+  assert.ok(answerSchema('gate'));
+});
+
+// A real runner on temp folders in demo mode: the pretend Foreman, the demo's own stand-in Approver.
+async function demoWorld(jobs) {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-demo-auto-')));
+  const dirs = Object.fromEntries(['claude', 'features', 'projects', 'agents', 'skills', 'state', 'repo'].map((n) => [n, path.join(root, n)]));
+  for (const d of Object.values(dirs)) await fs.mkdir(d);
+  const git = (...a) => execFileSync('git', ['-C', dirs.repo, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...a], { stdio: 'pipe' });
+  git('init', '-q', '-b', 'main');
+  await fs.writeFile(path.join(dirs.repo, 'README.md'), 'hi\n');
+  git('add', '.'); git('commit', '-q', '-m', 'base');
+  const sessions = {};
+  const made = {};
+  for (const [slug, description] of jobs) {
+    const dir = path.join(dirs.features, slug);
+    await fs.mkdir(path.join(dir, 'briefs'), { recursive: true });
+    await writeOptions(dir, defaultsForLevel(1), { title: description, repo: dirs.repo, kind: 'feature' });
+    await writeAutoOption(dir, { on: true, since: '2026-10-01T10:00:00Z' });
+    await fs.writeFile(path.join(dir, 'briefs', '001-plan.md'), '**Quick plan v1**\n');
+    await fs.writeFile(path.join(dir, 'quick-plan.md'), '# Quick plan v1 (demo)\n');
+    await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({
+      schema_version: 1, slug, title: slug, kind: 'feature', route: 'quick', stage: 'plan', stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: '2026-10-01T10:00:00Z',
+      brief: { number: 1, path: 'briefs/001-plan.md', headline: 'Quick plan v1' }, questions: [{ id: '1', text: 'Where should the button go?', recommendation: 'a', options: [{ id: 'a', label: 'Next to the title' }, { id: 'b', label: 'In the menu' }] }],
+      decided_on_your_behalf: [], next_proposed: 'Build it', artifacts: [{ name: 'Quick plan', path: 'quick-plan.md', version: '1' }], suggested_level: 1, level_reason: 'Small.',
+      repo: { path: dirs.repo, base_branch: 'main' }, updated_at: '2026-10-01T10:00:00Z',
+    }));
+    sessions[dir] = { cwd: dirs.repo, repoPath: dirs.repo, auto: autoRecord(null, { on: true, now: '2026-10-01T10:00:00Z' }) };
+    made[slug] = dir;
+  }
+  await fs.writeFile(path.join(dirs.state, 'sessions.json'), JSON.stringify(sessions));
+  const runner = await createRunner({
+    host: '127.0.0.1', port: 1, token: 't', dashboardDir: DASH, claudeDir: dirs.claude, featuresDir: dirs.features, projectsDir: dirs.projects,
+    agentsDir: dirs.agents, skillsDir: dirs.skills, stateDir: dirs.state, demo: true, claudePath: null,
+    claudeSettingsFile: path.join(root, 'claude.json'), legacySettingsFile: null, planUsage: false, orbitStore: 'file',
+    integrateDir: dirs.state, integrateRoot: path.join(DASH, '..'), siteLink: false, env: {},
+    queryFn: makeFakeQuery({ featuresDir: dirs.features, pace: PACE }),
+  });
+  runner.auto.pass(); // what start() does: jobs in Auto that waited carry on
+  const lines = async () => (await fs.readFile(path.join(dirs.state, 'audit.jsonl'), 'utf8').catch(() => '')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const until = async (fn, what) => {
+    for (let i = 0; i < 400; i++) { const v = await fn(); if (v) return v; await new Promise((r) => setTimeout(r, 50)); }
+    throw new Error(`Timed out waiting for ${what}; the audit says ${JSON.stringify((await lines()).map((l) => [l.action, l.what, l.rule, l.reason, l.tool, l.headline]))}`);
+  };
+  const record = async (dir) => JSON.parse(await fs.readFile(path.join(dirs.state, 'sessions.json'), 'utf8'))[dir]?.auto ?? null;
+  return { runner, root, dirs, made, lines, until, record };
+}
+
+test('the demo\'s Auto job reaches PR #1 with the stand-in Approver', async () => {
+  const w = await demoWorld([['auto-demo', 'Add a copy link button to the job card']]);
+  try {
+    const dir = w.made['auto-demo'];
+    await w.until(async () => (await w.lines()).some((l) => l.action === 'auto' && l.what === 'finished'), 'Auto to finish');
+    const status = JSON.parse(await fs.readFile(path.join(dir, 'status.json'), 'utf8'));
+    assert.equal(status.stage, 'pr1');
+    assert.equal(status.prs[0].state, 'open');
+    const mine = (await w.lines()).filter((l) => l.action === 'auto');
+    assert.ok(mine.filter((l) => l.what === 'gate').length >= 2, 'a decision per approval');
+    assert.ok(mine.every((l) => l.what === 'finished' || l.why), 'each decision says why');
+    assert.equal(mine.some((l) => l.what === 'stop'), false, JSON.stringify(mine.filter((l) => l.what === 'stop')));
+    const rec = await w.record(dir);
+    assert.equal(rec.on, false);
+    assert.ok(rec.finished);
+  } finally {
+    w.runner.stop();
+    await fs.rm(w.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
+  }
+});
+
+test('the demo\'s migrate job stops on a database change before the Approver is asked anything', async () => {
+  const w = await demoWorld([['auto-demo-migrate', 'Add a copy link button to the job card (demo: migrate)']]);
+  try {
+    const dir = w.made['auto-demo-migrate'];
+    const stop = await w.until(async () => (await w.lines()).find((l) => l.action === 'auto' && l.what === 'stop'), 'Auto to stop');
+    assert.equal(stop.rule, 'database');
+    assert.equal(stop.reason, 'a database change needs you.');
+    const rec = await w.record(dir);
+    assert.equal(rec.on, true);
+    assert.equal(rec.stopped.rule, 'database');
+    const mine = (await w.lines()).filter((l) => l.action === 'auto');
+    // The words "(demo: migrate)" trip the migrations trigger in the description (level-rules), so Auto stops at the plan gate, before any approval.
+    assert.equal(mine.some((l) => l.what === 'gate' || l.what === 'permission' || l.what === 'finished'), false, 'nothing was approved, and nothing was put to the Approver');
+  } finally {
+    w.runner.stop();
+    await fs.rm(w.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
+  }
+});
+
+test('demo Foreman: a job whose description says (demo: migrate) asks to run npm run db:migrate when it builds', async () => {
+  const { root, featuresDir, driver } = await setup();
+  const cards = [];
+  driver.removeAllListeners('permission');
+  driver.on('permission', (p) => { if (p.toolName === 'Bash') cards.push(p.input.command); driver.decide(p.id, { decision: 'allow' }); });
+  const { dir, text } = await newJob(featuresDir, 'copy-link-migrate', 'Add a copy link button (demo: migrate)', 1);
+  const { status } = await reply(driver, dir, text);
+  await reply(driver, dir, 'I approve. Go ahead with the next stage: Build', { sessionId: status.session_id });
+  assert.ok(cards.includes('npm run db:migrate'), cards.join(' · '));
+  const plain = await newJob(featuresDir, 'copy-link-plain', 'Add a copy link button', 1);
+  const first = await reply(driver, plain.dir, plain.text);
+  cards.length = 0;
+  await reply(driver, plain.dir, 'I approve. Go ahead with the next stage: Build', { sessionId: first.status.session_id });
+  assert.ok(!cards.includes('npm run db:migrate'), 'a job without the words never asks for it');
   await fs.rm(root, { recursive: true, force: true });
 });
