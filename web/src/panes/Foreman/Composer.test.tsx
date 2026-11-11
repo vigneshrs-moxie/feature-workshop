@@ -6,7 +6,6 @@ import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { ev, job, snapshot } from '../../state/test-fixtures';
 import { Composer, draftKey } from './Composer';
 import { ForemanPane } from './ForemanPane';
-import { pickOption } from '../../components/Select.testing';
 
 // Invented jobs only.
 const MODELS = [
@@ -36,30 +35,30 @@ const box = () => screen.getByRole('textbox', { name: /Foreman|Steer/ });
 afterEach(() => { localStorage.clear(); });
 
 describe('Composer', () => {
-  it('shows exactly what the Foreman receives before sending, with the model you chose', async () => {
+  it('shows exactly what the Foreman receives before sending, on the job’s own model', async () => {
     const { post } = setup();
     expect(screen.getByRole('button', { name: 'Send…' })).toBeDisabled();
     fireEvent.change(box(), { target: { value: '  Please also check the export.  ' } });
-    // The model defaults to the one the Foreman last used; change it.
-    const select = screen.getByRole('combobox');
-    expect(select).toHaveAttribute('data-value', 'claude-fable-5-2');
-    pickOption(select, 'claude-opus-5-5');
     fireEvent.click(screen.getByRole('button', { name: 'Send…' }));
     const dialog = screen.getByRole('dialog', { name: 'Message the Foreman' });
     const preview = screen.getByRole('textbox', { name: /exactly what the Foreman will receive/ });
     expect(preview).toHaveValue('Please also check the export.');
-    expect(dialog).toHaveTextContent('Opus 5.5');
+    expect(dialog).toHaveTextContent('Sent with Fable 5.2');
     fireEvent.change(preview, { target: { value: 'Please also check the CSV export.' } });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send to the Foreman' })); });
-    expect(post).toHaveBeenCalledWith('/api/job/alpha/send', { kind: 'message', text: 'Please also check the CSV export.', model: 'claude-opus-5-5', confirmNoTerminal: false });
+    // No model goes with the message: the model is fixed for the job.
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/send', { kind: 'message', text: 'Please also check the CSV export.', confirmNoTerminal: false });
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(box()).toHaveValue('');
     expect(localStorage.getItem(draftKey('alpha'))).toBeNull();
   });
 
-  it('starts on the job’s current session model, else the everyday Opus: never Fable unless you pick it', () => {
+  it('no model menu under the message box', () => {
+    setup();
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.queryByText('Foreman model')).toBeNull();
     setup({ detail: { ...DETAIL, drive: { mode: 'none', model: null } } });
-    expect(screen.getByRole('combobox')).toHaveAttribute('data-value', 'claude-opus-5-5');
+    expect(screen.queryByRole('combobox')).toBeNull();
   });
 
   it('keeps each job’s draft across job switches', () => {

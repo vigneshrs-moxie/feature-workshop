@@ -399,3 +399,12 @@ test('pairing: one address may start at most five pairings a minute, so nobody c
     assert.equal(await count(s, "SELECT count(*)::int AS n FROM pair_starts WHERE address_hash LIKE '203%'"), 0);
   } finally { await s.close(); }
 });
+
+test('the Screens PDF route answers 404 in words on the website, not 500', async () => {
+  const { s, olive, l } = await setUp();
+  try {
+    const r = await olive.person.get('/api/jobs/add-export/wireframes/pack.pdf');
+    assert.equal(r.status, 404);
+    assert.match(await r.text(), /The Screens PDF is on your laptop\./);
+  } finally { l.link.stop(); await s.close(); }
+});

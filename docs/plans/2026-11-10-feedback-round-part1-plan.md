@@ -281,14 +281,14 @@ Read from Orbit `moxie/main` on 2026-11-10 (`app/src/lib/feedback/operations/rea
 
 **Today.** `ticketBrief` (`dashboard/lib/options.js:526-534`) ends the Foreman's first message with the key, link and title and tells it to read the whole ticket through the `orbit-feedback` MCP server. That server is often not connected (HTTP 405 on 2026-11-10), and when it is, it hands over internal notes and people's emails. Task 8 replaces that sentence with the `ticket.md` sentence; `ticketBrief` no longer names the MCP server. Update `dashboard/test/status-json.test.js:386` with it.
 
-| `ticket.md` part | Orbit field (under `ticket.ticket` for tech, `ticket` for participant; try both) |
+| `ticket.md` part | Orbit field (under `ticket.ticket` for both audiences; `timeline` and `references` sit beside it. Corrected 2026-11-10 after Task 8's review read Orbit's code) |
 |---|---|
 | title | `subject` |
 | Type, Severity, Priority, Status | `type`, `severity`, `priority`, `status` (severity and priority are missing for a participant) |
 | Area | `module` (add a list line `Area` when present) |
 | Page | `affectedPage`, else `page` |
 | Description | `description`; then, when present, `### Steps to reproduce` (`stepsToReproduce`), `### Expected` (`expectedBehavior`), `### Actual` (`actualBehavior`) |
-| Comments | `timeline` entries that are comments with `visibility === 'shared'`: `body`, their time; role from the author's relation to the ticket when Orbit gives one, else `Comment` |
-| Links | `references` whose `visibility` is `shared`: a section `## Links`, one line each `- <kind>: <label> <url>`. Bug triage reads these to spot a fix that already exists. Never `createdBy` or `metadata`. At most 20, newest first. |
+| Comments | `timeline` entries `{ type: 'comment', at, comment: { body, visibility, createdAt, author } }` with `comment.visibility === 'shared'` and a non-null `body`. Orbit has no author-relation field, so the role is always `Comment` |
+| Links | `references` whose `visibility` is `shared`: a section `## Links`, one line each `- <kind>: <label> <url>`. Bug triage reads these to spot a fix that already exists. Never `createdBy` or `metadata`. At most 20, newest first. Leave out any with `removedAt` set; add `purpose` in brackets when present. |
 
 Never read into the file: `internalNotes`, any comment with `visibility: 'internal'`, `attachments`, `submitter`, `resolver`, `productReviewer`, `assignees`, `workOrderSetBy`, `history`, `viewer`, `watch`, a reference's `createdBy` and `metadata` and any reference that isn't `shared`, `userAgent`, `viewport`, `deployedCommit`. A mention in a body is written `@[Name](id)`: replace the whole thing with `[someone]`.

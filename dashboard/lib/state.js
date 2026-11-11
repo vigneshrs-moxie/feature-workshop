@@ -122,6 +122,14 @@ export class State extends EventEmitter {
     return all[featureDir];
   }
 
+  /** Forget a job's session record (its Foreman); the caller has kept a copy. */
+  async clearSession(featureDir) {
+    const all = await this.allSessions();
+    if (!(featureDir in all)) return;
+    delete all[featureDir];
+    await this.#writeJson(this.sessionsFile, all);
+  }
+
   // Starbase's settings.
   //   policy     'hands-off' (routine steps automatic), 'ask-all' or 'auto' (Claude Code's auto mode)
   //   jobPolicy  { [featureDir]: policy }: jobs that override it

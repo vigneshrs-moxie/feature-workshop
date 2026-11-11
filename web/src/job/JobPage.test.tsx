@@ -11,7 +11,7 @@ import { installKeyListener } from '../app/keyRegistry';
 import { UiProvider, useUi } from '../app/ui';
 import { ServerHtml } from '../panes/Foreman/ServerHtml';
 import { createStore, WorkshopContext, type Store } from '../state/store';
-import { job, permission, snapshot } from '../state/test-fixtures';
+import { ev, job, permission, snapshot } from '../state/test-fixtures';
 import { JobPage, tabForStop } from './JobPage';
 
 const NOW = new Date().toISOString();
@@ -70,6 +70,16 @@ describe('the Job page', () => {
     expect(within(page).getByRole('button', { name: 'Job menu' })).toBeInTheDocument();
   });
 
+  it('has Copy decisions in the job’s details, beside the ticket number', () => {
+    setup();
+    const inDetails = screen.getAllByRole('button', { name: 'Copy decisions' }).filter((b) => b.closest('.job-details'));
+    expect(inDetails).toHaveLength(1);
+  });
+  it('also has Copy decisions in the page’s head, outside the folded Details', () => {
+    setup();
+    const inHead = screen.getAllByRole('button', { name: 'Copy decisions' }).filter((b) => !b.closest('.job-details'));
+    expect(inHead).toHaveLength(1);
+  });
   it('Play full puts the crew member’s face on each stop', () => {
     setup({ play: 'full' });
     expect(document.querySelectorAll('.job-map .stop-face')).toHaveLength(7);
@@ -115,6 +125,67 @@ describe('the go / no go bar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     fireEvent.click(go);
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'approve' })));
+  });
+
+  const ASKING: Gate = { ...GATE, questions: [{ id: '1', text: 'Keep the old column?', recommendation: null, options: [{ id: 'a', label: 'Yes' }, { id: 'b', label: 'No' }] }] } as Gate;
+
+  it('the bar has Send back, Reply and Go', async () => {
+    setup({ jobs: waiting(), gate: GATE });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    const calls = within(screen.getByRole('region', { name: 'Next step' })).getAllByRole('button').map((b) => b.textContent?.replace(/\s+/g, ' ').trim());
+    expect(calls).toEqual([expect.stringMatching(/^No go: send back/), 'Reply', expect.stringMatching(/^Go: approve/)]);
+    // One way to do it: the card's own Other guidance is not shown under the bar.
+    expect(document.querySelector('.job-gate-body .gate-actions')).toHaveAttribute('hidden');
+  });
+
+  it('the card’s help names the bar’s buttons, not the hidden ones', async () => {
+    setup({ jobs: waiting(), gate: GATE });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    const help = document.querySelector('.job-gate-body .how-body')!;
+    expect(help).toHaveTextContent('Reply');
+    expect(help).toHaveTextContent('No go: send back');
+    expect(help).not.toHaveTextContent('Other guidance');
+    expect(help).not.toHaveTextContent('Revise with feedback');
+  });
+
+  it('Reply works with a question unanswered', async () => {
+    const post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true, sent: true, text: 'sent' }));
+    setup({ jobs: waiting(), gate: ASKING, post });
+    const go = await screen.findByRole('button', { name: /^Go: approve/ });
+    expect(go).toBeDisabled();
+    const reply = screen.getByRole('button', { name: 'Reply' });
+    expect(reply).toBeEnabled();
+    fireEvent.click(reply);
+    const box = await screen.findByRole('textbox', { name: 'Your answers or a note for the Foreman. Nothing is approved.' });
+    expect(box).toHaveFocus();
+    fireEvent.change(box, { target: { value: 'What does the old column feed?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'message', note: 'What does the old column feed?' })));
+    // Nothing was approved: the card stays open, and the bar says it was sent.
+    await within(screen.getByRole('region', { name: 'Next step' })).findByText('Sent. Waiting for the Foreman to start.');
+    expect(screen.getByRole('textbox', { name: /Your answers or a note/ })).toBeInTheDocument();
+    expect(post.mock.calls.filter(([, b]) => (b as { kind?: string })?.kind === 'approve')).toHaveLength(0);
+  });
+
+  it('Reply sends the answers typed so far', async () => {
+    const post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true, sent: true, text: 'sent' }));
+    setup({ jobs: waiting(), gate: ASKING, post });
+    fireEvent.click(await screen.findByRole('radio', { name: /No/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'Not sure about the rest.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'message', answers: { 1: { choice: 'b' } } })));
+  });
+
+  it('Reply while its box is open keeps the box and puts the cursor in it', async () => {
+    setup({ jobs: waiting(), gate: GATE });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    const box = await screen.findByRole('textbox', { name: /Your answers or a note/ });
+    screen.getByRole('button', { name: /^Go: approve/ }).focus();
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    expect(screen.getByRole('textbox', { name: /Your answers or a note/ })).toBe(box);
+    expect(box).toHaveFocus();
   });
 
   it('with Play off the calls are the gate’s own words', async () => {
@@ -168,6 +239,28 @@ describe('after a click on the go / no go bar', () => {
     expect(gatePosts(post)).toHaveLength(1);
     expect(gatePosts(post)[0][1]).toEqual(expect.objectContaining({ kind: 'approve' }));
     await answer();
+  });
+
+  it('Reply spins on the click, cannot be pressed twice, and the focus ends on the sent line', async () => {
+    const { post, answer } = held();
+    setup({ jobs: waiting(), gate: GATE, post });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'A note.' } });
+    const send = screen.getByRole('button', { name: 'Send the reply' });
+    send.focus();
+    fireEvent.click(send);
+    fireEvent.click(send);
+    await waitFor(() => expect(send).toHaveAttribute('aria-busy', 'true'));
+    expect(gatePosts(post)).toHaveLength(1);
+    expect(gatePosts(post)[0][1]).toEqual(expect.objectContaining({ kind: 'message' }));
+    expect(live()).toHaveTextContent('Sending…');
+    await answer();
+    await waitFor(() => expect(live()).toHaveTextContent(SENT_LINE));
+    // Reply is off now, so no second press; the focus is on something still on screen.
+    expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement?.isConnected).toBe(true);
   });
 
   it('the page has one live region: empty before the click, then sending, then sent; the focus goes to what was sent', async () => {
@@ -257,6 +350,72 @@ describe('after a click on the go / no go bar', () => {
     expect(within(bar()).queryByRole('button', { name: 'Try again' })).toBeNull();
   });
 
+  // Fix round 2: focus after Try again, and the bar's calls while it is out.
+  /** Sent at once the first time; later gate posts answer only when told to (or are refused). */
+  function sentThenHeld() {
+    let n = 0;
+    let answer: (v: unknown) => void = () => {};
+    let fail: (e: unknown) => void = () => {};
+    const post = vi.fn((path: string, _body?: unknown): Promise<unknown> => {
+      if (!path.endsWith('/gate')) return Promise.resolve({ ok: true });
+      if (n++ === 0) return Promise.resolve({ ok: true, sent: true, text: 'sent' });
+      return new Promise((res, rej) => { answer = res; fail = rej; });
+    });
+    return {
+      post,
+      answer: () => act(async () => { answer({ ok: true, sent: true, text: 'sent' }); }),
+      refuse: () => act(async () => { fail(new ApiError(409, 'The Foreman has moved on to brief 3 since this card was shown. Nothing was sent; decide on the new brief.', { code: 'stale-brief' })); }),
+    };
+  }
+  async function stuckThenTryAgain(post: (path: string, body?: unknown) => Promise<unknown>) {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setup({ jobs: waiting(), gate: GATE, post: vi.fn(post) });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await within(bar()).findByText(SENT_LINE);
+    act(() => { vi.advanceTimersByTime(30_000); });
+    const again = within(bar()).getByRole('button', { name: 'Try again' });
+    again.focus();
+    fireEvent.click(again);
+    await waitFor(() => expect(again).toHaveAttribute('aria-busy', 'true'));
+    expect(again).toHaveFocus();
+    return again;
+  }
+
+  it('after Try again succeeds the focus is on the sent line, not the page', async () => {
+    const { post, answer } = sentThenHeld();
+    await stuckThenTryAgain(post);
+    await answer();
+    const line = await within(bar()).findByText(SENT_LINE);
+    await waitFor(() => expect(within(bar()).queryByRole('button', { name: /Try again|Sending/ })).toBeNull());
+    expect(line).toHaveFocus();
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('after Try again is refused again the focus is on the server’s sentence, not the page', async () => {
+    const { post, refuse } = sentThenHeld();
+    await stuckThenTryAgain(post);
+    await refuse();
+    const said = await screen.findByText(/moved on to brief 3/);
+    // Try again is gone (the bar is back to how it was), so the focus goes to why it sent nothing.
+    expect(within(bar()).queryByRole('button', { name: /Try again|Sending/ })).toBeNull();
+    expect(said).toHaveFocus();
+  });
+
+  it('while Try again is out, Go and Send back are off', async () => {
+    const { post, answer } = sentThenHeld();
+    await stuckThenTryAgain(post);
+    const go = screen.getByRole('button', { name: /^Go: approve/ });
+    const back = screen.getByRole('button', { name: /^No go: send back/ });
+    await waitFor(() => expect(go).toBeDisabled());
+    expect(back).toBeDisabled();
+    fireEvent.click(go);
+    fireEvent.click(back);
+    fireEvent.keyDown(document.body, { key: 'a' });
+    expect(gatePosts(post)).toHaveLength(2);
+    expect(screen.queryByText(/What should change\?/)).toBeNull();
+    await answer();
+  });
+
   it('when the job moves on, the bar clears', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { store } = setup({ jobs: waiting(), gate: GATE, post: sentPost() });
@@ -290,7 +449,53 @@ describe('after a click on the go / no go bar', () => {
     setup({ jobs: waiting(), gate: GATE, post: sentPost() });
     fireEvent.click(await sendBack());
     expect(await within(bar()).findByText(SENT_LINE)).toBeInTheDocument();
-    expect(live()).toHaveTextContent(SENT_LINE);
+    expect(bar()).toHaveTextContent('The Foreman will rework this step with your note.');
+    expect(live()).toHaveTextContent(`${SENT_LINE} The Foreman will rework this step with your note.`);
+  });
+
+  it('after the server accepts a reply, the bar says nothing is approved', async () => {
+    setup({ jobs: waiting(), gate: GATE, post: sentPost() });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'A note.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
+    expect(await within(bar()).findByText(SENT_LINE)).toBeInTheDocument();
+    expect(bar()).toHaveTextContent('Your reply is with the Foreman. Nothing is approved.');
+    expect(live()).toHaveTextContent(`${SENT_LINE} Your reply is with the Foreman. Nothing is approved.`);
+  });
+
+  it('after the Foreman answers a reply, Reply, Go and Send back can be pressed again', async () => {
+    const { store } = setup({ jobs: waiting(), gate: GATE, post: sentPost() });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'A note.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
+    await within(bar()).findByText(SENT_LINE);
+    expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^Go: approve/ })).toBeDisabled();
+    // The Foreman picks the message up (a new run) and answers: the gate is still waiting.
+    act(() => { store.dispatch({ type: 'event', event: ev(11, 'run', 'alpha', { id: 'r_reply', slug: 'alpha', status: 'running' }) }); });
+    await waitFor(() => expect(within(bar()).queryByText(SENT_LINE)).toBeNull());
+    act(() => { store.dispatch({ type: 'event', event: ev(12, 'run', 'alpha', { id: 'r_reply', slug: 'alpha', status: 'done' }) }); });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    expect(screen.getByRole('button', { name: /^Go: approve/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /^No go: send back/ })).toBeEnabled();
+    // The bar reads as waiting again.
+    expect(bar()).toHaveTextContent('Say go and the Foreman goes ahead: Build step 1');
+    expect(bar()).not.toHaveTextContent('Nothing is approved.');
+  });
+
+  it('a reply with answers and no note is sent', async () => {
+    const post = sentPost();
+    setup({ jobs: waiting(), gate: { ...GATE, questions: [{ id: '1', text: 'Keep the old column?', recommendation: null, options: [{ id: 'a', label: 'Yes' }, { id: 'b', label: 'No' }] }] } as Gate, post });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    await screen.findByRole('textbox', { name: /Your answers or a note/ });
+    expect(screen.getByRole('button', { name: 'Send the reply' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send the reply' })).toHaveAttribute('title', 'Pick an answer or write a note first.');
+    fireEvent.click(screen.getByRole('radio', { name: /No/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'message', answers: { 1: { choice: 'b' } } })));
   });
 
   it('after 30 seconds with no change to a send back it says "Nothing has moved yet."; Try again sends the same send back once', async () => {

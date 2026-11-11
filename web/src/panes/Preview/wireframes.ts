@@ -8,7 +8,11 @@
 //   - it answers { type: 'wireframes-goto', key } by scrolling to that section;
 //   - it answers { type: 'wireframes-feedback' } with { type: 'wireframes-feedback', version, text },
 //     the Copy feedback text (the lines the Foreman understands: "Pick A for c-entry", "s-list: needs change: …");
-//   - it posts { type: 'wireframes-escape' } on Esc outside its notes box (the keyboard steps back out).
+//   - it posts { type: 'wireframes-escape' } on Esc outside its notes box (the keyboard steps back out);
+//   - it posts { type: 'wireframes-pdf' } from its PDF button; the dashboard gets the job's PDF pack,
+//     saves it, and answers { type: 'wireframes-pdf', ok: true } or { ok: false, reason } (sendPdf).
+// The page is a click-through prototype (an Info tab, then the screens, notes pinned in place); an older
+// review page (verdicts per section) posts the same messages, so both read the same here.
 // Every message is checked against that origin, both ways: nothing is read from, or posted to, anywhere else.
 // This module keeps the latest report per job, the one frame showing a job's page (ScreensTab
 // mounts it), and sends the two messages. The gate card reads the report for its screen chips.
@@ -90,6 +94,9 @@ export function parseWireframesMessage(data: unknown): WireframesReport | null {
 
 /** Whether this is the page's Esc message (the reader wants the keyboard back on the dashboard). */
 export const isEscapeMessage = (data: unknown) => Boolean(data) && typeof data === 'object' && (data as { type?: unknown }).type === 'wireframes-escape';
+
+/** Whether this is the page's PDF button: it asks the dashboard for the job's PDF pack. */
+export const isPdfRequest = (data: unknown) => Boolean(data) && typeof data === 'object' && (data as { type?: unknown }).type === 'wireframes-pdf';
 
 /** A 'wireframes-feedback' answer from the page, or null for anything else. */
 export function parseFeedbackMessage(data: unknown): WireframesFeedback | null {
@@ -228,6 +235,39 @@ export function requestFeedback(slug: string, timeoutMs = 3000): Promise<Wirefra
       reject(new Error('The screens aren’t open here. Open the Screens tab first.'));
     }
   });
+}
+
+/** What the page is told about its PDF request: nothing more to do (the file is saved), or why not. */
+export type PdfAnswer = { type: 'wireframes-pdf'; ok: true } | { type: 'wireframes-pdf'; ok: false; reason: string };
+export const NO_PDF = 'This job has no PDF yet.';
+
+/**
+ * The page's PDF request, answered: gets the job's pack from the dashboard (GET
+ * /api/jobs/:slug/wireframes/pack.pdf, 404 when it has none), saves it as a download, and tells the
+ * page it worked, or why not (the page shows the reason). One GET, one message back.
+ */
+export async function sendPdf(slug: string, fetcher: typeof fetch = (...a) => fetch(...a)): Promise<PdfAnswer> {
+  let answer: PdfAnswer;
+  try {
+    const res = await fetcher(`/api/jobs/${encodeURIComponent(slug)}/wireframes/pack.pdf`, { credentials: 'same-origin' });
+    if (res.status === 404) answer = { type: 'wireframes-pdf', ok: false, reason: NO_PDF };
+    else if (!res.ok) answer = { type: 'wireframes-pdf', ok: false, reason: 'Couldn’t get the PDF.' };
+    else {
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${slug}-screens.pdf`;
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      answer = { type: 'wireframes-pdf', ok: true };
+    }
+  } catch {
+    answer = { type: 'wireframes-pdf', ok: false, reason: 'Couldn’t get the PDF.' };
+  }
+  post(slug, answer);
+  return answer;
 }
 
 /** The latest report from this job's page, or null before it has posted one. */

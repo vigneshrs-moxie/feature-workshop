@@ -92,10 +92,13 @@ function StackBody({ stack, view: raw, guide, onHow }: { stack: StackState; view
 
   // The bar's button whose own click sends spins (the others are off meanwhile); one that only
   // opens a sheet doesn't (the sheet's button spins).
+  // It is forgotten once its send settles, and on a click that only opens a sheet, so a later send
+  // (from a sheet, or the part list) spins no bar button.
   const [pressed, setPressed] = useState<StackAction['kind'] | null>(null);
+  useEffect(() => { if (!stack.sending) setPressed(null); }, [stack.sending]);
   function run(a: StackAction) {
     if (stack.sending) return;
-    if (SENDS.has(a.kind)) setPressed(a.kind);
+    setPressed(SENDS.has(a.kind) ? a.kind : null);
     switch (a.kind) {
       case 'approve': void stack.act('approve-plan', { cap: draft.cap, autoIntegrate: draft.autoIntegrate }); break;
       case 'change': setSheet({ note: 'plan' }); break;

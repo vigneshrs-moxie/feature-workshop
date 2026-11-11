@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Button } from './Button';
+import { Button, isPressable } from './Button';
 import { Chip } from './Chip';
 import { Choice, OptionRow } from './Choice';
 import { Field, TextInput } from './Field';
@@ -38,6 +38,24 @@ describe('Button', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Off' }));
     expect(screen.getByRole('button', { name: 'Off' })).toBeDisabled();
     expect(click).not.toHaveBeenCalled();
+  });
+
+  it('a button with its own aria-label is named by its busy words while busy, and by its label otherwise (the Inbox row’s Start, a packet’s ↑)', () => {
+    const { rerender } = render(<><Button aria-label="Start a job on ORBIT-12" busy busyLabel="Starting…">Start</Button><Button aria-label="Move packet 4a up" busy>↑</Button></>);
+    expect(screen.getByRole('button', { name: 'Starting…' })).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('button', { name: 'Working…' })).toHaveTextContent('↑');
+    rerender(<><Button aria-label="Start a job on ORBIT-12" busyLabel="Starting…">Start</Button><Button aria-label="Move packet 4a up">↑</Button></>);
+    expect(screen.getByRole('button', { name: 'Start a job on ORBIT-12' })).not.toHaveAttribute('aria-busy');
+    expect(screen.getByRole('button', { name: 'Move packet 4a up' })).toBeInTheDocument();
+  });
+
+  it('isPressable: not when disabled, aria-disabled or busy', () => {
+    render(<><Button>On</Button><Button disabled>Off</Button><Button aria-disabled="true">Soft off</Button><Button busy busyLabel="Sending…">Go</Button></>);
+    expect(isPressable(screen.getByRole('button', { name: 'On' }))).toBe(true);
+    expect(isPressable(screen.getByRole('button', { name: 'Off' }))).toBe(false);
+    expect(isPressable(screen.getByRole('button', { name: 'Soft off' }))).toBe(false);
+    expect(isPressable(screen.getByRole('button', { name: 'Sending…' }))).toBe(false);
+    expect(isPressable(null)).toBe(false);
   });
 
   it('busy with its own words: a screen reader hears them; busy in a form never submits it', () => {

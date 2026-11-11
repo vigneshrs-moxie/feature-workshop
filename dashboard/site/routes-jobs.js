@@ -92,6 +92,15 @@ export default function jobRoutes({ runner, read, send, sendJson, needJob, wiref
       },
     },
     {
+      // The job's screens PDF (wireframes.pack.pdf in its own folder), for the page's PDF button the
+      // Screens tab answers. Only that one file; 404 when the job has none.
+      method: 'GET', path: /^\/api\/jobs\/([^/]+)\/wireframes\/pack\.pdf$/,
+      run: async ({ res, m }) => {
+        const { bytes } = await read.wireframesPack(decodeURIComponent(m[1]));
+        return send(res, 200, bytes, 'application/pdf', { 'Cache-Control': 'no-store', 'Content-Disposition': 'attachment; filename="screens.pdf"' });
+      },
+    },
+    {
       // The job page and its parts.
       method: 'GET', path: /^\/api\/job\/([^/]+)(\/.*)?$/,
       run: async ({ res, url, m: jm }) => {
@@ -170,6 +179,8 @@ export default function jobRoutes({ runner, read, send, sendJson, needJob, wiref
       return command(res, { type: 'repo', slug, repoPath: str(body.repoPath, 1000), branch: str(body.branch, 200).trim() || null });
     }),
     // One job's own permission setting; null clears it (the job follows your global setting again).
+    // The Foreman's model is fixed for a started job; another one starts it again (lib/restart.js).
+    post(/^\/api\/job\/([^/]+)\/restart$/, async ({ res, m, body }) => command(res, { type: 'restart', slug: await needJob(m[1]), model: str(body.model, 100) })),
     post(/^\/api\/job\/([^/]+)\/policy$/, async ({ res, m, body }) => command(res, { type: 'policy', slug: await needJob(m[1]), policy: body.policy })),
     post(/^\/api\/job\/([^/]+)\/(close|reopen)$/, async ({ res, m, body }) => {
       const slug = await needJob(m[1]);

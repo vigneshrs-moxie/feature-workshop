@@ -37,6 +37,7 @@ import { renderMarkdown, indexIds } from '../lib/markdown.js';
 import * as git from '../lib/git.js';
 import { recentRepos, checkRepo, reposDoor, ticketRepo, repoByName } from '../lib/repos.js';
 import { HttpError } from '../lib/http-guard.js';
+import { restartJob } from '../lib/restart.js';
 import { liveTerminals } from '../lib/live.js';
 import { readHookSessions } from '../lib/hook-events.js';
 import { classify, matchRule, POLICIES } from '../lib/policy.js';
@@ -52,7 +53,7 @@ import { groupCards, laneFor } from '../lib/snapshot.js';
 import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from '../lib/finish.js';
 import { NUDGE_IDS, nudgesFor } from '../lib/nudges.js';
 import { buildThread, pageThread } from '../lib/thread.js';
-import { DECISIONS_FILE, decisionLog, ticketCopy, writeDecisionsFile } from '../lib/decisions.js';
+import { DECISIONS_FILE, decisionLog, localDay, orbitCopy, writeDecisionsFile } from '../lib/decisions.js';
 import { typicalRuns } from '../lib/run-typical.js';
 import { proofStamp } from '../lib/proof.js';
 import { suggestLevel, changedPaths, diffSummary } from '../lib/levels.js';
@@ -61,7 +62,7 @@ import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, g
 import { composeReply, cleanChips } from '../lib/compose.js';
 import { skillChecker } from '../lib/skill-check.js';
 import { DEMO_OFF, prototypesSetup, publishScript, runPublish } from '../lib/prototype.js';
-import { DOC_MAX_BYTES, DocError, describeDoc, docVersion, jsonHtml, listJobDocs, readJobDoc, readSummary, readWalkthrough, readWireframes, servableSpec } from '../lib/docs.js';
+import { DOC_MAX_BYTES, DocError, describeDoc, docVersion, jsonHtml, listJobDocs, readJobDoc, readSummary, readWalkthrough, readWireframes, readWireframesPack, servableSpec } from '../lib/docs.js';
 import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, hexCommit, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from '../lib/play.js';
 import { parseStatusJson } from '../lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from '../lib/auto-env.js';
@@ -198,6 +199,9 @@ export async function createRunner(config) {
   let orbitStoreReady = null;
   // Jobs being marked done right now (sends and automatic carry-ons wait).
   const closing = new Set();
+  // Jobs (by folder) being started again on another model right now: nothing else is sent to them.
+  const restarting = new Set();
+  const BEING_RESTARTED = 'This job is being started again on another model right now. Wait for that to finish.';
   // Jobs whose reply the last stop cut off (runner/replay.js), by job folder: { how: 'clean' (it
   // carries on by itself) or 'crash' (it waits for Resume), at, runId, sessionId, cwd, model, slug }.
   // Gone once anything is sent to the job, or it is marked done.
@@ -845,12 +849,16 @@ export async function createRunner(config) {
    * doesn't refuse it.
    */
   function sendPlan(f, drive, body, text, { holding = false } = {}) {
+    if (restarting.has(f.dir)) throw new HttpError(409, BEING_RESTARTED);
     if (drive.mode === 'running') throw new HttpError(409, 'The Foreman is still working on your last message. Wait for it, or pause it first.');
     if (closing.has(f.dir)) throw new HttpError(409, 'This job is being marked done right now. Wait a moment.');
     if (!holding && limits.isLimited() && body.despiteLimit !== true) throw new HttpError(409, limitMessage(), { code: 'limited' });
     if (drive.mode === 'terminal') throw new HttpError(409, 'This job’s Foreman was last used in your terminal.', { code: 'terminal', lastTerminalAt: drive.lastTerminalAt });
     if (drive.mode === 'terminal-open' && body.confirmNoTerminal !== true) throw new HttpError(409, 'Claude Code is open in this repository in a terminal. Make sure none of those windows is this job’s Foreman, then confirm.', { code: 'terminal-open', terminals: drive.terminals.length });
-    const model = MODELS.some((x) => x.id === currentModel(body.model)) ? currentModel(body.model) : currentModel(drive.model) ?? OPUS;
+    // The Foreman's model is fixed once the job has started (spec 1.5): a model in the request is
+    // ignored. Only a job with no Foreman session yet may still be given one.
+    const asked = drive.sessionId ? null : body.model;
+    const model = MODELS.some((x) => x.id === currentModel(asked)) ? currentModel(asked) : currentModel(drive.model) ?? OPUS;
     const cwd = drive.cwd ?? f.repoPath;
     if (!cwd) throw new HttpError(400, 'I don’t know which repository this job belongs to.');
     const fresh = drive.mode === 'none' || drive.mode === 'terminal-open';
@@ -1620,6 +1628,7 @@ export async function createRunner(config) {
     // options.json first. With a reply in progress nothing is sent: the text comes back for the
     // composer to hold. With the usage limit reached, startAfterReset holds it until the reset.
     const f = await jobOf(body.slug);
+    if (restarting.has(f.dir)) throw new HttpError(409, BEING_RESTARTED);
     const g = { kind, briefNumber: body.briefNumber ?? null, note: body.note ?? '', answers: body.answers ?? {}, verdicts: body.verdicts ?? {}, chips: body.chips ?? [], edited: body.text ?? null, startAfterReset: body.startAfterReset === true };
     // Answers, verdicts and chips for an older brief mustn't land on the new brief's questions; only
     // a stop goes through whichever brief is current.
@@ -1890,6 +1899,41 @@ export async function createRunner(config) {
       await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options, was: f.options?.level ?? null, overrode });
       cached = null;
       return { ok: true, options, summary: describeOptions(options), updated_at: updatedAt };
+    },
+
+    // POST /api/job/:slug/restart: the Foreman's model is fixed for a started job; another one starts
+    // the job again from step one (lib/restart.js). Nothing is deleted or pushed.
+    async restart(body) {
+      const f = await jobOf(body.slug);
+      // One restart at a time per job, and nothing else sent to it meanwhile: set before the first check.
+      if (restarting.has(f.dir)) throw new HttpError(409, 'This job is already being started again. Wait for that to finish. Nothing was changed.');
+      restarting.add(f.dir);
+      try {
+        if (!MODELS.some((x) => x.id === body.model)) throw new HttpError(400, 'That isn’t a model the Foreman can run on.');
+        const drive = await driveState(f);
+        if (drive.mode === 'running' || closing.has(f.dir)) throw new HttpError(409, 'Stop the reply first.');
+        // What would stop the new job from starting is checked before anything is moved.
+        if (limits.isLimited()) throw new HttpError(409, limitMessage(), { code: 'limited' });
+        const repoPath = f.repoPath ?? f.options?.repo ?? '';
+        const repo = await checkRepo(repoPath);
+        if (!repo.ok) throw new HttpError(400, repo.reason);
+        const job = {
+          slug: f.slug, dir: f.dir, title: f.options?.title ?? f.title, kind: f.kind === 'bug' ? 'bug' : 'feature', ticket: f.options?.ticket ?? null,
+          repoPath: repo.path, branch: f.branch ?? null, baseBranch: f.baseBranch ?? null, worktree: f.worktree ?? null, prs: f.prs, running: false,
+          terminalOpen: drive.mode === 'terminal' || drive.mode === 'terminal-open',
+          options: f.options, archiveRoot: path.join(FEATURES_DIR, '.restarted'),
+        };
+        const out = await restartJob(job, {
+          model: body.model,
+          session: { read: (dir) => state.sessionFor(dir), clear: (dir) => state.clearSession(dir) },
+          start: async (startBody) => { cached = null; await limits.forget(f.dir); return HANDLERS.start(startBody); },
+        });
+        await state.audit({ action: 'restart', featureDir: f.dir, slug: f.slug, newSlug: out.slug, model: body.model, was: drive.model ?? null, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside });
+        cached = null;
+        return { ok: true, slug: out.slug, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside, notes: out.notes };
+      } finally {
+        restarting.delete(f.dir);
+      }
     },
 
     // POST /api/job/:slug/policy: one job's own permission setting; null clears it (the job follows your global setting again).
@@ -2327,7 +2371,8 @@ export async function createRunner(config) {
       const f = await jobOf(slug);
       const d = await writeDecisions(f);
       if (!d) throw new HttpError(404, 'This job’s folder isn’t there any more, so it has no decision file.');
-      return { file: DECISIONS_FILE, path: d.file, text: d.text, copy: ticketCopy(d.text) };
+      const ticket = /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(d.prefix) ? d.prefix : null;
+      return { file: DECISIONS_FILE, path: d.file, text: d.text, orbit: orbitCopy(d.rows, { ticket, title: f.title, today: localDay(), notDoing: d.notDoing }) };
     },
     hasJob: async (slug) => Boolean(await featureBySlug(slug)),
     /** The job a name means: its slug, or a ticket key (ORBIT-479) an open job is for. Null: none. */
@@ -2404,6 +2449,11 @@ export async function createRunner(config) {
     async screen(slug, which, { forDownload = false } = {}) {
       const f = await jobOf(slug);
       try { return which === 'walkthrough' ? await readWalkthrough(f, { forDownload }) : await readWireframes(f.dir); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
+    },
+    /** A job's screens PDF pack (lib/docs.js readWireframesPack): { bytes }, or 404. */
+    async wireframesPack(slug) {
+      const f = await jobOf(slug);
+      try { return await readWireframesPack(f.dir); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
     },
     orbitStatus,
     /**

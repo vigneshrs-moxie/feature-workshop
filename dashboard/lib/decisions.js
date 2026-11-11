@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { PRODUCT, stateDirFor } from './state.js';
 import { writeFileAtomic } from './atomic-write.js';
+import { cleanTicketText } from './ticket-file.js';
 
 const firstLine = (text, max = 160) => {
   const line = String(text ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
@@ -106,6 +107,21 @@ export function gateAnswers(text) {
   return out;
 }
 
+/** The decisions you changed in a gate reply ("Decided on my behalf, changed: ORBIT-9.D2: note"). */
+export function gateChanges(text) {
+  const out = [];
+  for (const l of String(text ?? '').split('\n').map((x) => x.trim())) {
+    const m = /^Decided on my behalf, changed:\s*(\S+?):\s+(.+)$/.exec(l);
+    if (m) out.push({ id: m[1], note: m[2] });
+  }
+  return out;
+}
+
+/** Today's date (YYYY-MM-DD) where the person is, not in UTC. */
+export function localDay(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 const day = (at) => (typeof at === 'string' && /^\d{4}-\d{2}-\d{2}/.test(at) ? at.slice(0, 10) : '');
 
 function briefQuestion(e, briefs) {
@@ -129,17 +145,18 @@ export function decisionRows(audit = [], { prefix = 'job', person = 'You', brief
   for (const e of audit) {
     if (!e || typeof e !== 'object') continue;
     if (e.action === 'send' && GATE_KINDS.includes(e.kind)) {
-      for (const a of gateAnswers(e.text)) add(e, { question: a.question, choice: a.choice });
-      add(e, { question: briefQuestion(e, briefs), options: 'approve · send back · stop', choice: GATE_CHOICE[e.kind], why: gateNote(e.kind, e.text) });
+      for (const a of gateAnswers(e.text)) add(e, { kind: 'answer', question: a.question, choice: a.choice });
+      for (const c of gateChanges(e.text)) add(e, { kind: 'answer', question: c.id, choice: c.note });
+      add(e, { kind: e.kind === 'changes' ? 'send-back' : 'gate', question: briefQuestion(e, briefs), options: 'approve · send back · stop', choice: GATE_CHOICE[e.kind], why: gateNote(e.kind, e.text) });
     } else if (e.action === 'options') {
       const level = e.options?.level;
       if (!Number.isInteger(level) || level === e.was) continue;
       const why = [Number.isInteger(e.was) ? `was L${e.was}` : '', e.overrode === 'auto' ? 'over the automatic pick' : '', e.via === 'gate' ? 'from a gate' : ''].filter(Boolean).join(', ');
-      add(e, { question: 'Level for this job', options: 'L0 · L1 · L2 · L3', choice: `L${level}`, why });
+      add(e, { kind: 'level', question: 'Level for this job', options: 'L0 · L1 · L2 · L3', choice: `L${level}`, why, ...(e.overrode === 'auto' ? { overrode: 'auto' } : {}) });
     } else if (e.action === 'permission') {
       const answers = e.answers && typeof e.answers === 'object' ? Object.entries(e.answers) : [];
-      if (answers.length) for (const [q, label] of answers) add(e, { question: oneLine(q), choice: oneLine(label), why: oneLine(e.note) });
-      else if (oneLine(e.note) && PERMISSION_CHOICE[e.decision]) add(e, { question: `Allow “${oneLine(e.headline ?? e.tool ?? 'a step', 120)}”?`, options: 'allow · allow for this reply · say no', choice: PERMISSION_CHOICE[e.decision], why: oneLine(e.note) });
+      if (answers.length) for (const [q, label] of answers) add(e, { kind: 'answer', question: oneLine(q), choice: oneLine(label), why: oneLine(e.note) });
+      else if (oneLine(e.note) && PERMISSION_CHOICE[e.decision]) add(e, { kind: 'permission', question: `Allow “${oneLine(e.headline ?? e.tool ?? 'a step', 120)}”?`, options: 'allow · allow for this reply · say no', choice: PERMISSION_CHOICE[e.decision], why: oneLine(e.note) });
     }
   }
   return rows;
@@ -308,33 +325,39 @@ async function writeNow(jobDir, { audit = null, auditFile = defaultAuditFile(), 
   const sections = await sectionParts(jobDir, { prefix, person: who, after: rows.length, auditFor, auditFile });
   const existing = fileStat ? await fs.readFile(file, 'utf8') : '';
   const text = render({ prefix, title: title ?? status?.title ?? null, rows, existing, sections });
-  if (text === existing) return { file, text, changed: false };
+  const parts = { prefix, rows, notDoing: keptParts(text).notDoing };
+  if (text === existing) return { file, text, changed: false, ...parts };
   await writeFileAtomic(file, text, { mode: 0o600 });
-  return { file, text, changed: true };
+  return { file, text, changed: true, ...parts };
 }
 
-/** The most lines "Copy for the ticket" gives. */
-export const TICKET_LINES = 40;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const dayMonth = (iso) => {
+  const m = /^\d{4}-(\d{2})-(\d{2})/.exec(String(iso ?? ''));
+  return m && MONTHS[Number(m[1]) - 1] ? `${Number(m[2])} ${MONTHS[Number(m[1]) - 1]}` : '';
+};
+const ORBIT_KINDS = new Set(['answer', 'send-back']);
 
 /**
- * decisions.md as plain text for a ticket ("Copy for the ticket"): the title, the table with its
- * pipes, the sections and the Not doing list, without the file's notes to agents (HTML comments,
- * the foreman marks). At most `max` lines: a longer file gives its last `max` lines, and cut says so.
- * Returns { text, lines, total, cut }.
+ * The job's decisions as a plain list to paste into an Orbit comment ("Copy decisions"). Starbase
+ * never sends it anywhere. rows: decisionRows' rows; only the product decisions are kept: an
+ * answered question and a send-back with its reason. Go-aheads, stops, level changes and
+ * permissions are left out (pushes, pull requests and installs are never rows). notDoing: the
+ * "Not doing" lines. No names of people. No cut. Returns { text, count }.
  */
-export function ticketCopy(markdown, max = TICKET_LINES) {
-  const all = [];
-  for (const raw of String(markdown ?? '').split(/\r?\n/)) {
-    if (/^\s*<!--[\s\S]*-->\s*$/.test(raw)) continue;
-    const line = raw.replace(FOREMAN_MARK, '').replace(/\s+$/, '');
-    if (!line && !all.at(-1)) continue; // one blank line at a time, none first
-    all.push(line);
-  }
-  while (all.length && !all.at(-1)) all.pop();
-  const cut = all.length > max;
-  const kept = cut ? all.slice(-max) : all;
-  while (kept.length && !kept[0]) kept.shift();
-  return { text: kept.join('\n'), lines: kept.length, total: all.length, cut };
+export function orbitCopy(rows = [], { ticket = null, title = null, today = '', notDoing = [] } = {}) {
+  const kept = rows.filter((r) => ORBIT_KINDS.has(r.kind) || (r.kind === 'level' && r.overrode === 'auto'));
+  const head = [oneLine(ticket || title || 'Job', 120), 'decisions'].join(' ') + (dayMonth(today) ? `, ${dayMonth(today)}` : '');
+  const not = notDoing.map((l) => cleanTicketText(String(l).trim().replace(/^[-*]\s+/, ''))).filter(Boolean);
+  if (!kept.length && !not.length) return { text: `${head}\nNo product decisions recorded yet.`, count: 0 };
+  const out = [head];
+  kept.forEach((r, i) => {
+    const said = r.kind === 'send-back' ? 'Sent back.' : cleanTicketText(oneLine(r.choice, 400));
+    out.push(`${i + 1}. ${cleanTicketText(oneLine(r.question, 300))} ${said}${r.by === 'auto' ? ' (Auto)' : ''}`.replace(/\s+$/, ''));
+    if (oneLine(r.why)) out.push(`   Why: ${cleanTicketText(oneLine(r.why, 400))}`);
+  });
+  if (not.length) out.push(`Not doing: ${not.join('; ')}`);
+  return { text: out.join('\n'), count: kept.length };
 }
 
 // ---------- The repository copy (plan G21, G22, G27) ----------

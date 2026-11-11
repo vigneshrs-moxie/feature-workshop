@@ -25,7 +25,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExter
 import type { Job } from '../api/types';
 import { useKeyScope, type KeyId } from '../app/keyRegistry';
 import { hrefFor, jobHref, navigate } from '../app/router';
-import { Button } from '../components/Button';
+import { Button, isPressable } from '../components/Button';
 import { Chip } from '../components/Chip';
 import { Kbd, KeyLegend, KeyText } from '../components/Kbd';
 import { Icon } from '../components/Icon';
@@ -33,7 +33,7 @@ import { Fold, Hero, useMinWidth } from '../components/page/Page';
 import { StopMap } from '../components/stops/StopMap';
 import { Card } from '../components/permissions/PendingCards';
 import { fullTime, relativeTime } from '../lib/time';
-import { GateSlot } from '../panes/Foreman/GateCard';
+import { GateSlot, pressReply } from '../panes/Foreman/GateCard';
 import { useGateSent } from '../panes/Foreman/gateSent';
 import { ServerHtml } from '../panes/Foreman/ServerHtml';
 import { useJobThread } from '../panes/Foreman/useJobThread';
@@ -109,7 +109,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
     if (!el) return;
     const read = () => {
       const b = el.querySelector<HTMLButtonElement>('[data-gate="approve"]');
-      const next = { words: wordsOf(b), off: !b || b.disabled, asks: Boolean(el.querySelector('.gate-question')) };
+      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')) };
       setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks ? was : next));
     };
     read();
@@ -120,7 +120,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
   if (thread.error) return <p className="perm-warn" role="alert">{thread.error}</p>;
   if (!thread.detail) return <p className="muted" role="status">Opening the Foreman’s brief…</p>;
   const brief = thread.detail.latestBrief as { html?: string; number?: number | null } | null | undefined;
-  const press = (what: 'approve' | 'revise' | 'guidance') => body.current?.querySelector<HTMLButtonElement>(`[data-gate="${what}"]:not(:disabled)`)?.click();
+  const press = (what: 'approve' | 'revise') => { const b = body.current?.querySelector(`[data-gate="${what}"]`); if (isPressable(b)) b.click(); };
   // On the hosted site, a Go made there waits for the laptop: the card says so, and the calls rest.
   const gate = Boolean(thread.detail.gate) && !isOpen(queuedOf(thread.detail.queued));
   // On a phone No go is as large as Go (at least 44 px: packet 2B's Desk on a phone).
@@ -162,7 +162,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
       </div>
       {gate ? (
         <div className={`desk-calls${call ? ' is-call' : ''}`}>
-          <Button kind="quiet" keyId="desk-reply" className="desk-call-reply" busy={spins('message')} busyLabel="Sending…" disabled={decision.state === 'sending' || decision.state === 'sent'} onClick={() => press('guidance')} title="Ask or tell the Foreman something without deciding: nothing is approved (key: c).">
+          <Button kind="quiet" keyId="desk-reply" className="desk-call-reply" busy={spins('message')} busyLabel="Sending…" disabled={decision.state === 'sending' || decision.state === 'sent'} onClick={() => pressReply(body.current)} title="Ask or tell the Foreman something without deciding: nothing is approved (key: c).">
             Reply
           </Button>
           <Button size={phone ? 'lg' : undefined} keyId="desk-send-back" className="desk-call-no" busy={spins('changes')} busyLabel="Sending…" disabled={decision.state === 'sending' || decision.state === 'sent'} onClick={() => press('revise')} title="No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).">
@@ -412,7 +412,8 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
   // Arrows only move the queue while it has the focus (elsewhere they scroll, or work a menu).
   const inQueue = (e: KeyboardEvent) => e.target instanceof Element && Boolean(e.target.closest('.desk-queue'));
   // The card's own buttons: the gate's Approve, a permission's Allow once or Deny….
-  const click = (selector: string) => panel.current?.querySelector<HTMLButtonElement>(selector)?.click();
+  // Only a button that can be pressed now (a busy one is aria-disabled, not disabled).
+  const click = (selector: string) => { const b = panel.current?.querySelector(selector); if (isPressable(b)) b.click(); };
   // A review round's card (packet Q): a is its go, r its no go, o opens the round on the job.
   const round = current && current.kind !== 'gate' && current.kind !== 'nudge' && isRoundCard(current.permission);
 
@@ -445,26 +446,26 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
     },
     // A gate card that still asks questions is answered on the card, whatever the job says.
     'desk-approve': () => {
-      if (round) { pressed('Go'); click('[data-review-go]:not(:disabled)'); return; }
+      if (round) { pressed('Go'); click('[data-review-go]'); return; }
       if (!current || busy || !oneKeyDecide(current)) return;
       if (current.kind === 'nudge') { void settleNudge(current, 'yes'); return; }
       if (panel.current?.querySelector('.gate-question')) return;
       pressed(current.kind === 'gate' ? 'Approved' : 'Allowed once');
-      click(current.kind === 'gate' ? '[data-gate="approve"]:not(:disabled)' : '.perm-actions > .btn-primary:not(:disabled)');
+      click(current.kind === 'gate' ? '[data-gate="approve"]' : '.perm-actions > .btn-primary');
     },
     'desk-deny': () => {
       if (!current || busy) return;
       if (current.kind === 'nudge') { void settleNudge(current, 'dismiss'); return; }
-      if (current.kind === 'permission') click('.perm-actions > .btn-danger:not(:disabled)');
+      if (current.kind === 'permission') click('.perm-actions > .btn-danger');
     },
     'desk-brief': () => { if (current?.kind === 'gate') setBriefOpen((o) => !o); else return false; },
     // r and c press the gate card's Revise with feedback and Other guidance (the same in both layouts).
     'desk-send-back': () => {
-      if (round) { pressed('No go'); click('[data-review-nogo]:not(:disabled)'); return; }
+      if (round) { pressed('No go'); click('[data-review-nogo]'); return; }
       if (current?.kind !== 'gate') return false;
-      click('[data-gate="revise"]:not(:disabled)');
+      click('[data-gate="revise"]');
     },
-    'desk-reply': () => { if (current?.kind !== 'gate') return false; click('[data-gate="guidance"]:not(:disabled)'); },
+    'desk-reply': () => { if (current?.kind !== 'gate') return false; click('[data-gate="guidance"]'); },
   });
 
   const onPanelClick = (e: ReactMouseEvent) => pressed(buttonWords(e.target));

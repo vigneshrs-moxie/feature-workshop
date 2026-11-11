@@ -42,7 +42,7 @@ import { EVIDENCE_STAGES, EvidenceStrip } from './EvidenceStrip';
 import { useGateSent } from './gateSent';
 import { isActiveRun } from './thread';
 import { LockCard, lockFromError, lockHeadline } from '../../views/JobLock/LockCard';
-import { Button } from '../../components/Button';
+import { Button, isPressable } from '../../components/Button';
 import { Choice } from '../../components/Choice';
 
 // Refusals that mean the card is out of date: the Foreman moved on to a new brief, or the spec or
@@ -121,13 +121,26 @@ function ScreensRow({ slug, hasPage }: { slug: string; hasPage: boolean }) {
           </Button>
         );
       })}
-      <button type="button" className="link-button" onClick={() => open()} title="Open the Screens tab: review each screen on the page, pick the design choices, and Copy feedback puts your notes in your reply.">Review the screens</button>
+      <button type="button" className="link-button" onClick={() => open()} title="Open the Screens tab: click through the prototype, pin notes and pick the design choices. Copy feedback puts them in your reply.">Review the screens</button>
+      <span className="muted gate-screens-note">Your pinned notes and picks go to the Foreman with your answer.</span>
     </div>
   );
 }
 
+/**
+ * Reply, from a page's own bar: opens the card's message box (the card's own guidance button), or
+ * puts the cursor back in it when it is already open. Never approves. Nothing happens while the
+ * card's button is not pressable (a decision is out, or the job is held elsewhere).
+ */
+export function pressReply(root: Element | null | undefined) {
+  const b = root?.querySelector<HTMLButtonElement>('[data-gate="guidance"]');
+  if (!isPressable(b)) return;
+  if (b.getAttribute('aria-expanded') === 'true') root?.querySelector<HTMLTextAreaElement>('.gate-note textarea')?.focus();
+  else b.click();
+}
+
 /** `callsOutside`: the page draws its own big calls (the Desk's Go / No go / Reply) and presses the card's buttons, so the card's row is hidden. */
-export function GateSlot({ job, detail, now, reload, callsOutside = false, extrasTo = null }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean; /** The Desk's Details sheet (packet R): Adjust the next step and How this works are drawn there instead. */ extrasTo?: HTMLElement | null }) {
+export function GateSlot({ job, detail, now, reload, callsOutside = false, extrasTo = null, onOpenBox }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean; /** The page opens a folded card before a key opens its box. */ onOpenBox?(): void; /** The Desk's Details sheet (packet R): Adjust the next step and How this works are drawn there instead. */ extrasTo?: HTMLElement | null }) {
   const { runs } = useWorkshopState();
   const [notice, setNotice] = useState<GateNotice | null>(null);
   const [memoRaw, setMemo] = useStored(gateDraftKey(job.slug));
@@ -184,7 +197,7 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
           </div>
         </section>
       ) : (
-        <GateCard key={`${job.slug}#${gate.briefNumber ?? '-'}`} job={job} detail={detail} gate={gate} now={now} reload={reload} report={setNotice} running={running} callsOutside={callsOutside} extrasTo={extrasTo} />
+        <GateCard key={`${job.slug}#${gate.briefNumber ?? '-'}`} job={job} detail={detail} gate={gate} now={now} reload={reload} report={setNotice} running={running} callsOutside={callsOutside} extrasTo={extrasTo} onOpenBox={onOpenBox} />
       ))}
     </>
   );
@@ -192,8 +205,8 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
 
 type Mode = null | 'changes' | 'message' | 'stop';
 
-function GateCard({ job, detail, gate, now, reload, report, running, callsOutside = false, extrasTo = null }: {
-  job: Job; detail: JobDetail; gate: Gate; now: Date; reload(): void; report(n: GateNotice): void; callsOutside?: boolean; extrasTo?: HTMLElement | null;
+function GateCard({ job, detail, gate, now, reload, report, running, callsOutside = false, extrasTo = null, onOpenBox }: {
+  job: Job; detail: JobDetail; gate: Gate; now: Date; reload(): void; report(n: GateNotice): void; callsOutside?: boolean; extrasTo?: HTMLElement | null; onOpenBox?(): void;
   /** The Foreman is working on a reply for this job right now. */
   running: boolean;
 }) {
@@ -258,6 +271,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   if (openQuestion !== null) offReasons.push(`Question ${openQuestion} has no answer. Pick one, or write your own.`);
   if (lock) offReasons.push(`${lockHeadline(lock, now)}. Only one place can work on a job at a time.`);
   const approveOff = offReasons.length > 0;
+  // Changes need words; a reply can be answers alone.
+  const canSendNote = note.trim() !== '' || (mode === 'message' && Object.keys(answersFor(gate, c)).length > 0);
   // The two disclosures, remembered in this browser (closed until you open them).
   const [adjustRaw, setAdjustRaw] = useStored('fw.gate.adjust');
   const adjustOpen = adjustRaw === 'open';
@@ -329,7 +344,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       const what = kind === 'stop' ? 'Stop sent: the Foreman records where things stand and starts nothing else.'
         : kind === 'approve' ? 'Your approval went to the Foreman.'
           : kind === 'changes' ? 'The changes you asked for went to the Foreman. It stays in this stage and revises.'
-            : 'Your guidance went to the Foreman.';
+            : 'Your reply went to the Foreman.';
       report({ tone: 'ok', text: `${what}${dropped}`, lines, focus: 'notice' });
     } else if (r.held) {
       report({ tone: 'ok', text: `${r.message ?? 'Held until Claude’s usage limit resets.'}${dropped}`, lines, focus: 'notice' });
@@ -414,8 +429,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   useKeyScope('gate', {
     'gate-approve': () => { if (!oneKeyGateApprove(gate, job.waitingFor)) return false; void act('approve'); },
     'gate-edit': () => { if (stale) return false; openEdit(); },
-    'gate-revise': () => openMode('changes'),
-    'gate-guidance': () => openMode('message'),
+    'gate-revise': () => { onOpenBox?.(); openMode('changes'); },
+    'gate-guidance': () => { onOpenBox?.(); openMode('message'); },
     'gate-answer': (e) => {
       const n = unansweredQuestion(gate, c);
       const q = n === null ? null : gate.questions[n - 1];
@@ -610,7 +625,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       {(mode === 'changes' || mode === 'message') && (
         <div className="gate-note">
           <label className="field">
-            <span>{mode === 'changes' ? 'What should change? The Foreman stays in this stage and revises; nothing is approved.' : 'Your guidance or question for the Foreman. Nothing is approved.'}</span>
+            <span>{mode === 'changes' ? 'What should change? The Foreman stays in this stage and revises; nothing is approved.' : 'Your answers or a note for the Foreman. Nothing is approved.'}</span>
             <textarea
               ref={noteBox}
               className="text-area"
@@ -620,7 +635,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
               disabled={busy}
               title={mode === 'changes'
                 ? 'Say what the Foreman should change. It goes in your reply with your answers; the Foreman revises and briefs you again.'
-                : 'A question or a note for the Foreman. It goes in your reply with your answers; this card stays open.'}
+                : 'A question or a note for the Foreman. It goes with your answers so far; nothing is approved and this card stays open.'}
             />
           </label>
           <div className="perm-actions">
@@ -628,11 +643,12 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
               kind="primary"
               busy={spins(mode)}
               busyLabel="Sending…"
-              disabled={busy || !note.trim()}
+              disabled={busy || !canSendNote}
               onClick={() => void act(mode, { note })}
-              title={note.trim() ? (mode === 'changes' ? 'Send your answers and the changes you want. The Foreman revises before moving on.' : 'Send your answers and this guidance. The Foreman replies; the gate stays open.') : 'Write something first.'}
+              title={!canSendNote ? (mode === 'changes' ? 'Write something first.' : 'Pick an answer or write a note first.')
+                : mode === 'changes' ? 'Send your answers and the changes you want. The Foreman revises before moving on.' : 'Send your answers and this note. The Foreman replies; the gate stays open.'}
             >
-              {mode === 'changes' ? 'Send the changes' : 'Send the guidance'}
+              {mode === 'changes' ? 'Send the changes' : 'Send the reply'}
             </Button>
             <Button kind="quiet" disabled={busy} onClick={() => setMode(null)} title="Close this without sending. What you wrote is kept until the card goes.">Cancel</Button>
           </div>
@@ -738,7 +754,9 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       {putExtras(
       <HowThisWorks id="gate-card" defaultOpen={false}>
         <p>The Foreman has briefed you and waits for your decision. Nothing goes ahead, and nothing is ever approved for you, until you press one of these.</p>
-        <p><strong>Approve</strong> (its label says what it approves and what starts) sends your answers to the questions, confirms the decisions made on your behalf that you didn’t override, and names the versions you approved. <strong>Edit, then approve</strong> shows that reply in full so you can change the words first. <strong>Revise with feedback</strong> asks for changes: the Foreman stays in this stage. <strong>Other guidance</strong> sends a question or a note without approving; the card stays open. Approve needs an answer to every question (a recommended answer is picked for you); while it is off, the card lists why, and the list empties as you resolve each point. <strong>Approve, start after reset</strong> appears when Claude’s usage limit is reached: your approval waits and goes when it resets. <strong>Stop job</strong> is under ⋯ and asks you to type the job’s name.</p>
+        <p><strong>Approve</strong> (its label says what it approves and what starts) sends your answers to the questions, confirms the decisions made on your behalf that you didn’t override, and names the versions you approved. <strong>Edit, then approve</strong> shows that reply in full so you can change the words first. {callsOutside
+          ? <><strong>No go: send back</strong> asks for changes: the Foreman stays in this stage. <strong>Reply</strong> sends a question or a note, and the answers you have picked so far, without approving; the card stays open.</>
+          : <><strong>Revise with feedback</strong> asks for changes: the Foreman stays in this stage. <strong>Other guidance</strong> sends a question or a note without approving; the card stays open.</>} Approve needs an answer to every question (a recommended answer is picked for you); while it is off, the card lists why, and the list empties as you resolve each point. <strong>Approve, start after reset</strong> appears when Claude’s usage limit is reached: your approval waits and goes when it resets. <strong>Stop job</strong> is under ⋯ and asks you to type the job’s name.</p>
         <p><strong>Decisions made for you</strong> is folded to one line: open it to read each one, and <strong>Override</strong> marks one changed, with what it should be instead. <strong>Adjust the next step</strong> holds the chips, which change <strong>only the next step</strong>: skip it, make it lighter or heavier, ask Fable for a second look, do it yourself, or move the level up or down from there. Each adds one line to your reply, shown there exactly, and saves the job’s options where there is one.</p>
         <p>If the plan changes after the card appears, it greys out (“Plan changed since this was proposed”) so you can’t approve an old version. If the Foreman is still working, your reply waits in the message box until it finishes. A decision left 4 hours shows as parked.</p>
       </HowThisWorks>

@@ -30,13 +30,14 @@ const GOOD = {
   rules: { action: 'add', rule: { tool: 'Bash', kind: 'prefix', value: 'npm test' }, permissionId: 'req-1', id: null },
   nudge: { slug: 'sample-job', nudge: 'pr1-merge', answer: 'yes', model: null, despiteLimit: false, confirmNoTerminal: false },
   repo: { slug: 'sample-job', repoPath: '/tmp/repo', branch: 'feat/x' },
+  restart: { slug: 'sample-job', model: 'claude-fable-5-2' },
   prototype: { slug: 'sample-job', action: 'publish' },
   'usage-resume': {},
 };
 
 test('the two lists are exactly the plan’s, closed and frozen', () => {
   assert.deepEqual(Object.keys(REMOTE_COMMANDS).sort(), ['allow', 'approve', 'deny', 'fetch-diff', 'pause', 'reply', 'send-back', 'stack-merge', 'start', 'stop', 'take-over']);
-  assert.deepEqual(Object.keys(LOCAL_COMMANDS).sort(), ['close', 'notes', 'nudge', 'options', 'policy', 'prototype', 'reopen', 'repo', 'resume', 'rules', 'settings', 'steer', 'try-it', 'usage-resume']);
+  assert.deepEqual(Object.keys(LOCAL_COMMANDS).sort(), ['close', 'notes', 'nudge', 'options', 'policy', 'prototype', 'reopen', 'repo', 'restart', 'resume', 'rules', 'settings', 'steer', 'try-it', 'usage-resume']);
   assert.ok(Object.isFrozen(REMOTE_COMMANDS) && Object.isFrozen(LOCAL_COMMANDS));
   assert.ok(Object.values(REMOTE_COMMANDS).every(Object.isFrozen));
   assert.throws(() => { REMOTE_COMMANDS.shell = {}; });
@@ -199,4 +200,18 @@ test('this computer’s own start still takes a folder and any options', () => {
   const r = parseCommand({ type: 'start', description: 'Add a tidy button', repoPath: '/tmp/repo', options: { auto: true, wireframes: 'skip' } }, { from: 'local' });
   assert.equal(r.ok, true, r.error);
   assert.deepEqual(r.command.options, { auto: true, wireframes: 'skip' });
+});
+
+test('a start from the site cannot go past the Claude limit warning, and its ticket has a size cap; the laptop’s own page can and is not capped', () => {
+  const fromSite = site({ despiteLimit: true });
+  assert.equal(fromSite.ok, true, fromSite.error);
+  assert.equal('despiteLimit' in fromSite.command, false);
+  const big = { key: 'ORBIT-12', title: 'x'.repeat(4000) };
+  const refused = site({ ticket: big });
+  assert.equal(refused.ok, false);
+  assert.match(refused.error, /ticket/);
+  assert.equal(site({ ticket: { key: 'ORBIT-12', title: 'x'.repeat(300), url: `https://orbit.example/${'u'.repeat(1000)}` } }).ok, true);
+  const own = (fields) => parseCommand({ type: 'start', description: 'ORBIT-12: Tidy the export button', ...fields }, { from: 'local' });
+  assert.equal(own({ despiteLimit: true }).command.despiteLimit, true);
+  assert.equal(own({ ticket: big }).ok, true);
 });

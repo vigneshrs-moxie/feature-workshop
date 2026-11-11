@@ -85,16 +85,18 @@ export function HostedInboxPage({ api: given, onSignedOut }: HostedProps) {
     setVersion((v) => v + 1);
   }), [api, sendingFor]);
 
+  // Built once per form: a new object on every render would reset the repository the person picked.
+  const startForm = useMemo(() => (form ? { laptops: form.laptops, onStart: (choices: StartChoices) => send(form.item, choices) } : null), [form, send]);
   const hosted: HostedInbox = { settingsHref: ORBIT_SETTINGS_HREF, onStart: (i) => { void onStart(i); }, onCancel: (i) => { void onCancel(i); }, version, notice, sending };
   return (
     <WorkshopContext.Provider value={workshop}>
       <InboxView hosted={hosted} openStream={NO_STREAM} />
-      {form && (
+      {form && startForm && (
         <NewJobSheet
           description={startText(form.item)}
           ticket={{ key: form.item.key, title: form.item.title, url: form.item.url }}
           kind={kindOfTicket(form.item)}
-          hosted={{ laptops: form.laptops, onStart: (choices) => send(form.item, choices) }}
+          hosted={startForm}
           onClose={() => setForm(null)}
         />
       )}

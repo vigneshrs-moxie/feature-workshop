@@ -33,6 +33,8 @@ export interface GateSent {
   state: SentPhase;
   /** The kind of the decision out or last sent (which call spins). */
   kind: GateKind | null;
+  /** The job has moved on since the last send's click (a sent line is about to clear). */
+  moved: boolean;
   /**
    * Send a decision: sending until it answers, then sent if it went to the Foreman; queued by the
    * website, still sending until the page shows it; else idle. Refusals throw.
@@ -86,6 +88,7 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
   return {
     state,
     kind: lastSent.get(slug)?.body.kind ?? null,
+    moved: lastSent.has(slug) && lastSent.get(slug)!.marks !== marks,
     send,
     retry: (api) => {
       const last = lastSent.get(slug);

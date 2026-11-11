@@ -26,7 +26,7 @@ import { fullTime } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { draftKey } from '../Foreman/Composer';
 import { versionLabel } from './docs';
-import { gotoScreen, isEscapeMessage, mountFrame, publishPrototype, pullPrototypeNotes, receive, requestFeedback, takeScreensRequest, useWireframes } from './wireframes';
+import { gotoScreen, isEscapeMessage, isPdfRequest, mountFrame, publishPrototype, pullPrototypeNotes, receive, requestFeedback, sendPdf, takeScreensRequest, useWireframes } from './wireframes';
 import { BRAND } from '../../app/brand';
 
 /** The page's address for a job: on the screens server's own origin (meta.wireframesOrigin), under its own content security policy (dashboard/server.js). */
@@ -140,6 +140,10 @@ export function ScreensTab({ slug, job, active, full = false }: {
     const onMessage = (e: MessageEvent) => {
       if (!frame.current?.contentWindow || e.source !== frame.current.contentWindow) return;
       if (!origin || e.origin !== origin) return;
+      if (isPdfRequest(e.data)) {
+        void sendPdf(slug);
+        return;
+      }
       if (isEscapeMessage(e.data)) {
         firstButton.current?.focus();
         setNotice({ tone: 'ok', text: 'Back on the page. Enter steps into the screens again.' });
@@ -254,7 +258,7 @@ export function ScreensTab({ slug, job, active, full = false }: {
         {version && <span className="chip doc-version" title="The version of the screens the job’s records name.">{versionLabel(version)}</span>}
         {siteLink}
         <span className="doc-spacer" />
-        <Button ref={firstButton} kind="quiet" disabled={busy} onClick={() => void copyFeedback()} title="Ask the page for your verdicts, picks and notes as text, copy it, and, while the Foreman waits for your decision, add it to your message to the Foreman.">
+        <Button ref={firstButton} kind="quiet" disabled={busy} onClick={() => void copyFeedback()} title="Ask the page for your picks and pinned notes as text, copy it, and, while the Foreman waits for your decision, add it to your message to the Foreman.">
           Copy feedback
         </Button>
         <Button kind="quiet" disabled={talking !== null || !canPublish} onClick={() => void publish()} title={canPublish ? `Put this page on the prototypes site (${meta?.prototypes?.site}) as the next revision.` : notSetUp}>
@@ -266,12 +270,13 @@ export function ScreensTab({ slug, job, active, full = false }: {
         {!full && (
           <Button kind="quiet" href={screensHref(slug)} title="Show the screens on their own, full width (Back brings you here).">Open full screen</Button>
         )}
-        <Button kind="quiet" keyId="screens-focus" onClick={() => frame.current?.focus()} title="Put the keyboard inside the screens page: its own keys then work (J K to move, 1 2 3 verdicts, A B picks, Esc back here).">
+        <Button kind="quiet" keyId="screens-focus" onClick={() => frame.current?.focus()} title="Put the keyboard inside the screens page: its own keys then work (Esc comes back here).">
           Step in
         </Button>
       </div>
       {notice && <p className={`screens-status ${notice.tone === 'ok' ? 'muted' : 'field-problem'}`} role={notice.tone === 'ok' ? 'status' : 'alert'}>{notice.text}{notice.link && <> <a href={notice.link.href} target="_blank" rel="noopener noreferrer">{notice.link.label}</a></>}</p>}
       {!canPublish && <p className="screens-status muted">{notSetUp}</p>}
+      {origin && <p className="screens-status muted screens-hint">Click through it like the real thing. Right-click (or press and hold) anywhere to pin a note. Decisions are on the Info tab.</p>}
       {origin ? (
         // allow-same-origin keeps the page's notes in ITS origin's storage, which can't reach this one.
         // Every job's page shares that one origin, so its storage is shared too: a page could read or

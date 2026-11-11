@@ -69,10 +69,20 @@ describe('the Desk, one at a time', () => {
     expect(await screen.findByText(/What should change\?/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     fireEvent.keyDown(document.body, { key: 'c' });
-    expect(await screen.findByText(/Your guidance or question for the Foreman/)).toBeInTheDocument();
+    expect(await screen.findByText('Your answers or a note for the Foreman. Nothing is approved.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     fireEvent.click(go);
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'approve' })));
+  });
+
+  it('the Desk has the same three calls, and Reply sends a message that approves nothing', async () => {
+    const { post } = setup();
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    expect(screen.getByRole('button', { name: /^No go: send back/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Reply/ }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'A question.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'message', note: 'A question.' })));
   });
 
   it('with Play off the calls are ordinary buttons with the gate’s own words, and "Waiting for you"', async () => {

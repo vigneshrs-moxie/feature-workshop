@@ -116,3 +116,26 @@ describe('the facts line', () => {
     expect(screen.getByText('Auto mode · this job')).toHaveAttribute('title', expect.stringContaining('this job’s own setting'));
   });
 });
+
+describe('the Foreman model line', () => {
+  it('the model shows as locked words, with what to do to change it', () => {
+    const j = job('alpha', 'running', { repo: { name: 'sample-repo', branch: 'fix/sample' } });
+    const store: Store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [j], meta: { token: 't', settings: { policy: 'hands-off', jobPolicy: {} } as never, models: [{ id: 'claude-fable-5-2', label: 'Fable 5.2', note: '' }] } }) });
+    const api = { get: async () => ({}), post: async () => ({}) } as unknown as ApiClient;
+    render(<WorkshopContext.Provider value={{ store, api }}><JobHeader job={j} dir="/f/alpha" model="claude-fable-5-2" /></WorkshopContext.Provider>);
+    const line = screen.getByText('Foreman model: Fable 5.2', { exact: false });
+    expect(line).toHaveTextContent('Foreman model: Fable 5.2');
+    expect(line).toHaveAttribute('title', 'Fixed for this job. Change model… in the job menu starts the job again.');
+    expect(line.querySelector('svg.icon')).not.toBeNull();
+    // The job menu offers Change model….
+    fireEvent.click(screen.getByRole('button', { name: /Job menu/ }));
+    expect(screen.getByRole('button', { name: 'Change model…' })).toBeEnabled();
+  });
+
+  it('shows no model line before the model is known', () => {
+    show(job('alpha', 'running'));
+    expect(document.querySelector('.job-model')).toBeNull();
+  });
+});
+

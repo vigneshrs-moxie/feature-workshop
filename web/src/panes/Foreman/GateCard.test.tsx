@@ -477,12 +477,19 @@ describe('GateCard', () => {
     expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', { kind: 'stop', briefNumber: 2, note: '' });
   });
 
-  it('Other guidance needs a note and sends it as a message', async () => {
+  it('without the bar the card’s help keeps Other guidance and Revise with feedback', () => {
+    setup({ det: detail({ questions: [] }) });
+    const help = card()!.querySelector('.how-body')!;
+    expect(help).toHaveTextContent('Other guidance');
+    expect(help).toHaveTextContent('Revise with feedback');
+  });
+
+  it('Other guidance sends a note and the answers picked as a message', async () => {
     const { post } = setup();
     fireEvent.click(button('Other guidance'));
-    expect(button('Send the guidance')).toBeDisabled();
-    fireEvent.change(within(card()!).getByRole('textbox', { name: /Your guidance or question/ }), { target: { value: 'Is the CSV in scope?' } });
-    await act(async () => { fireEvent.click(button('Send the guidance')); });
+    expect(button('Send the reply')).toBeEnabled(); // the recommended answer is picked: answers alone are a reply
+    fireEvent.change(within(card()!).getByRole('textbox', { name: /Your answers or a note for the Foreman/ }), { target: { value: 'Is the CSV in scope?' } });
+    await act(async () => { fireEvent.click(button('Send the reply')); });
     expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'message', note: 'Is the CSV in scope?', answers: { 1: { choice: 'a' } }, verdicts: {} }));
   });
 
@@ -495,8 +502,8 @@ describe('GateCard', () => {
     expect(card()).toHaveTextContent('The Foreman is still working on a reply.');
     fireEvent.click(button('Lighter (Build)'));
     fireEvent.click(button('Other guidance'));
-    fireEvent.change(within(card()!).getByRole('textbox', { name: /Your guidance or question/ }), { target: { value: 'Also check the CSV.' } });
-    await act(async () => { fireEvent.click(button('Send the guidance')); });
+    fireEvent.change(within(card()!).getByRole('textbox', { name: /Your answers or a note for the Foreman/ }), { target: { value: 'Also check the CSV.' } });
+    await act(async () => { fireEvent.click(button('Send the reply')); });
     expect(screen.getByText(/The Foreman is still working; your reply is ready to send when it finishes\./)).toHaveTextContent('The option changes are saved already.');
     const composerBox = screen.getByRole('textbox', { name: 'Your message to the Foreman' });
     expect(composerBox).toHaveValue(text);
@@ -508,7 +515,7 @@ describe('GateCard', () => {
     expect(screen.getByText(/This is your reply to brief 2 from its card/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Send…' }));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send to the Foreman' })); });
-    expect(post).toHaveBeenLastCalledWith('/api/job/alpha/send', { kind: 'message', text, model: 'claude-opus-5-5', confirmNoTerminal: false, gateBrief: 2 });
+    expect(post).toHaveBeenLastCalledWith('/api/job/alpha/send', { kind: 'message', text, confirmNoTerminal: false, gateBrief: 2 });
     expect(localStorage.getItem(gateDraftKey('alpha'))).toBeNull();
     expect(localStorage.getItem(draftKey('alpha'))).toBeNull();
   });
@@ -596,7 +603,7 @@ describe('Composer and gate replies', () => {
     fireEvent.change(box, { target: { value: 'Something else.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send…' }));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send to the Foreman' })); });
-    expect(post).toHaveBeenCalledWith('/api/job/alpha/send', { kind: 'message', text: 'Something else.', model: 'claude-opus-5-5', confirmNoTerminal: false });
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/send', { kind: 'message', text: 'Something else.', confirmNoTerminal: false });
   });
 
   it('a gate reply in the box goes with its kind and brief', async () => {
@@ -606,7 +613,7 @@ describe('Composer and gate replies', () => {
     setup({ post, det: detail(null), composer: true });
     fireEvent.click(screen.getByRole('button', { name: 'Send…' }));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send to the Foreman' })); });
-    expect(post).toHaveBeenCalledWith('/api/job/alpha/send', { kind: 'approve', text: 'I approve. Go ahead.', model: 'claude-opus-5-5', confirmNoTerminal: false, gateBrief: 2 });
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/send', { kind: 'approve', text: 'I approve. Go ahead.', confirmNoTerminal: false, gateBrief: 2 });
   });
 
   it('a gate reply for a brief the Foreman moved on from is not sent: the memo goes, the text stays, and it says so', async () => {
@@ -825,12 +832,12 @@ describe('GateCard: a decision on its way', () => {
     expect(approve).not.toHaveAttribute('aria-busy');
   });
 
-  it('Send the guidance spins on the click and cannot be pressed twice', async () => {
+  it('Send the reply spins on the click and cannot be pressed twice', async () => {
     const { post, answer } = held();
     setup({ det: oneQ(), post });
     fireEvent.click(button('Other guidance'));
-    fireEvent.change(within(card()!).getByRole('textbox', { name: /Your guidance or question/ }), { target: { value: 'Is the CSV in scope?' } });
-    const send = button('Send the guidance');
+    fireEvent.change(within(card()!).getByRole('textbox', { name: /Your answers or a note for the Foreman/ }), { target: { value: 'Is the CSV in scope?' } });
+    const send = button('Send the reply');
     fireEvent.click(send);
     fireEvent.click(send);
     expect(send).toHaveAttribute('aria-busy', 'true');

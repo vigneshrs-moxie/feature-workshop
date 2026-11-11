@@ -217,3 +217,6 @@
 .stage-brief-row { margin-top: calc(-1 * var(--space-2)); }
 /* "The brief" stays on one line, even at 390 px: only the muted words after it give way. */
 .stage-brief-row .desk-details-words > b { flex: none; white-space: nowrap; }
+
+/* "Copy decisions": the text exactly as it will be copied. */
+.copy-decisions-text { position: relative; margin: var(--space-2) 0; padding: var(--space-2); max-height: 50vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; border: 1px solid var(--border-2); border-radius: var(--radius-sm); }

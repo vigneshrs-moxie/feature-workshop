@@ -2,8 +2,8 @@
 // frame the dashboard talks to. Invented pages only; no iframe here (ScreensTab.test has it).
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  clearWireframes, frameMounted, gotoScreen, isEscapeMessage, mountFrame, parseFeedbackMessage, parseWireframesMessage, receive, requestFeedback, reviewable,
-  screensFromJson, screenWord, takeScreensRequest, wireframesReport,
+  clearWireframes, frameMounted, gotoScreen, isEscapeMessage, isPdfRequest, mountFrame, parseFeedbackMessage, parseWireframesMessage, receive, requestFeedback, reviewable,
+  screensFromJson, screenWord, sendPdf, takeScreensRequest, wireframesReport,
 } from './wireframes';
 import { SCREENS_ORIGIN } from '../../state/test-fixtures';
 
@@ -78,6 +78,34 @@ describe('the page’s messages', () => {
     ]);
     expect(screensFromJson('{ not json')).toEqual([]);
     expect(screensFromJson('[]')).toEqual([]);
+  });
+});
+
+describe('a prototype page and an old review page report the same way', () => {
+  it('a review page from an old job still reports its verdicts', () => {
+    const r = parseWireframesMessage({ type: 'wireframes', version: '2', current: 's-list', screens: [{ key: 's-list', name: 'The list', kind: 'screen', status: 'fix', choice: '' }] });
+    expect(r?.screens[0]).toMatchObject({ key: 's-list', status: 'fix' });
+  });
+  it('a prototype page: screens and choices by key, a change note makes the screen Needs change', () => {
+    const r = parseWireframesMessage({ type: 'wireframes', version: '3', current: 's-home', screens: [
+      { key: 's-home', name: 'Home', kind: 'screen', status: 'fix', choice: '' },
+      { key: 'c-entry', name: 'Where the button goes', kind: 'choice', status: '', choice: 'B' },
+    ] });
+    expect(r?.screens.map((s) => [s.key, s.status, s.choice])).toEqual([['s-home', 'fix', ''], ['c-entry', '', 'B']]);
+    expect(screenWord(r!.screens[0])).toBe('Needs change');
+    const json = screensFromJson(JSON.stringify({ screens: [{ key: 's-home', name: 'Home' }], choices: [{ key: 'c-entry', question: 'Where the button goes' }] }));
+    expect(json.map((s) => [s.key, s.kind])).toEqual([['s-home', 'screen'], ['c-entry', 'choice']]);
+  });
+  it('knows the page’s PDF request and answers it with one GET and one message', async () => {
+    expect(isPdfRequest({ type: 'wireframes-pdf' })).toBe(true);
+    expect(isPdfRequest({ type: 'wireframes' })).toBe(false);
+    const win = { postMessage: vi.fn() } as unknown as Window;
+    const unmount = mountFrame('alpha', () => win, vi.fn(), SCREENS_ORIGIN);
+    const fetcher = vi.fn(async () => new Response('', { status: 404 })) as unknown as typeof fetch;
+    await expect(sendPdf('alpha', fetcher)).resolves.toEqual({ type: 'wireframes-pdf', ok: false, reason: 'This job has no PDF yet.' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(win.postMessage).toHaveBeenCalledWith({ type: 'wireframes-pdf', ok: false, reason: 'This job has no PDF yet.' }, SCREENS_ORIGIN);
+    unmount();
   });
 });
 

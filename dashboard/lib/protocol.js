@@ -105,6 +105,8 @@ export const LOCAL_COMMANDS = freeze({
   reopen: { slug: required(FIELD.slug) },
   options: { slug: required(FIELD.slug), options: FIELD.json, level: FIELD.json, updated_at: FIELD.json },
   policy: { slug: required(FIELD.slug), policy: FIELD.json },
+  // Start the job again on another Foreman model (lib/restart.js).
+  restart: { slug: required(FIELD.slug), model: required(str(100)) },
   notes: { slug: required(FIELD.slug), text: required({ ok: isText(NOTES_MAX), says: `text of at most ${NOTES_MAX.toLocaleString('en')} characters` }) },
   // The job page's "Try it on your computer" actions.
   'try-it': {
@@ -159,9 +161,14 @@ export function parseCommand(raw, { from = 'site' } = {}) {
  * whole-job-on-Fable choices. Any other option (`auto` included) is dropped, and a past
  * conversation is dropped too. A value out of range is refused. Changes `command` in place.
  */
+const TICKET_JSON_MAX = 4000;
 function siteStart(command) {
   if (command.repoPath !== undefined) return { ok: false, error: 'A start from the site names a repository, not a folder.' };
   delete command.fromSession;
+  // The website may not start a job past the Claude limit warning; only this computer's own page can.
+  delete command.despiteLimit;
+  // A ticket is { key, title, url }: well under this. Anything larger is not one.
+  if (command.ticket !== undefined && JSON.stringify(command.ticket).length > TICKET_JSON_MAX) return { ok: false, error: '“ticket” of “start” is too large.' };
   if (command.model === null) delete command.model;
   if (command.model !== undefined && !FOREMAN_MODEL_IDS.includes(command.model)) return { ok: false, error: '“model” of “start” must be one of the Foreman models this computer offers.' };
   if (command.options !== undefined) {

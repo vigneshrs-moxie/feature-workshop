@@ -15,6 +15,7 @@ export type SheetState =
   | { kind: 'palette' }
   | { kind: 'new-job'; description?: string; ticket?: TicketRef; /** Start as stack (the Inbox): "Run as a stack" ticked. */ stack?: boolean; /** The ticket's type: a bug ticket opens on Bug fix. */ jobKind?: 'feature' | 'bug' }
   | { kind: 'close-job'; slug: string; worktree?: string | null }
+  | { kind: 'change-model'; slug: string }
   | { kind: 'keys' }
   | { kind: 'job-drawer'; slug: string; tab?: DrawerTab }
   | null;

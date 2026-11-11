@@ -674,7 +674,7 @@ test('the start route stores the choices: a queued start at level 1 on Fable rea
   } finally { lap.link.stop(); await s.close(); }
 });
 
-test('Start is refused, as for a missing row, for a stored ticket that was not assigned, and while Orbit ignores the filter', async () => {
+test('Start is refused, as for a missing row, for a stored ticket that was not assigned', async () => {
   const s = await makeOrbitSite();
   const olive = await paired(s, OLIVE, 'Olive’s Mac');
   const token = testToken('olive');
@@ -689,6 +689,19 @@ test('Start is refused, as for a missing row, for a stored ticket that was not a
     const watched = await olive.person.send('POST', '/api/orbit/start', { key: 'ORBIT-77' });
     assert.equal(watched.status, 404);
     assert.equal(watched.body.error, missing.body.error.replace('ORBIT-999', 'ORBIT-77'));
+    assert.equal((await s.db.query('SELECT count(*)::int AS n FROM commands')).rows[0].n, 0, 'nothing was queued');
+  } finally { await s.close(); }
+});
+
+test('Start is refused, as for a missing row, while Orbit ignores the assignee filter', async () => {
+  const s = await makeOrbitSite();
+  const olive = await paired(s, OLIVE, 'Olive’s Mac');
+  const token = testToken('olive');
+  s.orbit.person(token, { assigned: [ticket(12)] });
+  try {
+    await saveToken(olive.person, token);
+    await s.cron();
+    const missing = await olive.person.send('POST', '/api/orbit/start', { key: 'ORBIT-999' });
     await s.db.query('UPDATE orbit_tokens SET assignee_ignored = true');
     const ignored = await olive.person.send('POST', '/api/orbit/start', { key: 'ORBIT-12' });
     assert.equal(ignored.status, 404);

@@ -289,6 +289,26 @@ describe('one stack', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/stacks/orbit-512/send-back', { section: 'export-button', note: 'The button label is wrong.' }));
   });
 
+  it('a send from a sheet spins no button on the bar', async () => {
+    const view = { ...stackView({}, ['ready', 'running', 'pending']), next: { action: 'merge' as const, label: 'Merge part 1', key: 'm', section: 'export-button', words: 'Part 1 is ready.' } };
+    let answer: () => void = () => {};
+    const { wrap, post } = setup(one(view), { post: (path) => (path.endsWith('/send-back') ? new Promise((res) => { answer = () => res({ view }); }) : { started: true, view }) });
+    wrap(<StackPage slug="orbit-512" />);
+    await shown();
+    // An earlier send from the bar (Merge part 1), settled.
+    fireEvent.keyDown(document.body, { key: 'm' });
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/stacks/orbit-512/merge', { section: 'export-button' }));
+    await waitFor(() => expect(within(bar()).getByRole('button', { name: /Not yet/ })).toBeEnabled());
+    // Not yet only opens its sheet; the sheet's Send back is what sends.
+    fireEvent.click(within(bar()).getByRole('button', { name: /Not yet/ }));
+    const sheet = screen.getByRole('dialog', { name: 'Not yet: part 1' });
+    fireEvent.change(within(sheet).getByRole('textbox'), { target: { value: 'The button label is wrong.' } });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Send back' }));
+    await waitFor(() => expect(within(sheet).getByRole('button', { name: 'Working…' })).toHaveAttribute('aria-busy', 'true'));
+    expect(bar().querySelector('[aria-busy="true"]')).toBeNull();
+    await act(async () => { answer(); });
+  });
+
   it('Merge on its own: a ready part says it merges by itself, with no button', async () => {
     const view = { ...stackView({ autoIntegrate: true }, ['ready', 'running', 'pending']), next: { action: 'wait' as const, label: null, key: null, section: 'export-button', words: 'Part 1 is ready and merges on its own.' } };
     const { wrap } = setup(one(view));
