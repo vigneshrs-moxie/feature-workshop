@@ -233,8 +233,32 @@ export const APPROVER_SYSTEM = [
 const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u2028\u2029\u202A-\u202E\u2066-\u2069]/;
 const CONTROL_ALL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u2028\u2029\u202A-\u202E\u2066-\u2069]/g;
 
-/** Words for the material block: control characters out, the block's own tags made harmless, capped. */
-const material = (v, max = 2000) => String(v ?? '').replace(CONTROL_ALL, '').replace(/<\s*\/?\s*material/gi, '(material').slice(0, max);
+/** Words for the material block: control characters out, the block's own tags made harmless. */
+const cleaned = (v) => String(v ?? '').replace(CONTROL_ALL, '').replace(/<\s*\/?\s*material/gi, '(material');
+/** cleaned and capped; a cut keeps a cut mark (…) at its end, so what was left out never reads as the whole (C4). */
+const material = (v, max = 2000) => { const t = cleaned(v); return t.length > max ? `${t.slice(0, max)}…` : t; };
+
+/** How much of each field of a card the Approver is shown. A command is shown whole up to Auto's own limit (lib/auto-rules.js). */
+export const APPROVER_SHOWN = Object.freeze({ tool: 200, headline: 500, preview: 20_000, id: 200, text: 2000, recommendation: 200, label: 300 });
+
+/**
+ * Would the message for this task cut anything of the card it is about? 'command' when the command is,
+ * 'request' when another field is (a question, an option, a request's preview), null when nothing is.
+ * Auto stops instead of asking then: the Approver never judges what it cannot see whole.
+ */
+export function approverCut(task) {
+  const over = (v, max) => cleaned(v).length > max;
+  const r = task?.request;
+  if (r) {
+    if (r.tool === 'Bash' && over(r.preview, APPROVER_SHOWN.preview)) return 'command';
+    if (r.cut === true || over(r.tool, APPROVER_SHOWN.tool) || over(r.headline, APPROVER_SHOWN.headline) || over(r.preview, APPROVER_SHOWN.preview)) return 'request';
+  }
+  for (const q of Array.isArray(task?.questions) ? task.questions : []) {
+    if (over(q?.id, APPROVER_SHOWN.id) || over(q?.text, APPROVER_SHOWN.text) || (q?.recommendation != null && over(q.recommendation, APPROVER_SHOWN.recommendation))) return 'request';
+    for (const o of Array.isArray(q?.options) ? q.options : []) if (over(o?.id, APPROVER_SHOWN.id) || over(o?.label, APPROVER_SHOWN.label)) return 'request';
+  }
+  return null;
+}
 
 /** A path fit to list: absolute, no line breaks or control characters. */
 const listable = (p) => usablePath(p) && p.length <= 1000 && !/[\n\r]/.test(p) && !CONTROL.test(p);
@@ -288,7 +312,7 @@ export function approverPrompt(task, { roots = null } = {}) {
     said.push('If you disagree with any of them, answer stop. Starbase confirms them only when you answer go.');
   }
   if (t.request) {
-    said.push('', `Request: ${material(t.request.tool, 200)}`, `Headline: ${material(t.request.headline, 500)}`, 'Preview:', material(t.request.preview, 4000));
+    said.push('', `Request: ${material(t.request.tool, APPROVER_SHOWN.tool)}`, `Headline: ${material(t.request.headline, APPROVER_SHOWN.headline)}`, 'Preview:', material(t.request.preview, APPROVER_SHOWN.preview));
   }
   const level = Number.isInteger(job.level) ? `L${job.level}` : 'no level yet';
   return [

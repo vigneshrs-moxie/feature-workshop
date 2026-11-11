@@ -23,7 +23,7 @@
 
 import { autoAllowed, AUTO_CARDS_PER_REPLY, AUTO_MARK } from '../lib/auto.js';
 import { AUTO_STOP_REASONS, fixedStop } from '../lib/auto-rules.js';
-import { APPROVER_BUDGET_USD, approverPaths, approverRoots, checkAnswer } from '../lib/approver.js';
+import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, checkAnswer } from '../lib/approver.js';
 
 /** Anything the Approver wrote, on one line: nothing it writes can start a line of its own, and no copy of the mark gets through. */
 const oneLine = (s) => {
@@ -414,6 +414,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     }
 
     const task = cardTask(job, full);
+    // The Approver never judges a card it cannot see whole (C4): a command or a field it would be shown cut stops instead.
+    const cut = approverCut(task);
+    if (cut) return stopOnCard(job, { rule: 'blocked', reason: `this ${cut} is too long for the Approver to read, so it needs you.` }, leave);
     const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
     const askedAt = Date.now();
     const res = await askApprover(task, { roots, job });
@@ -466,7 +469,12 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         }),
       };
     }
-    return { ...base, kind: 'permission', questions: [], request: { tool: card.toolName, headline: card.plain?.headline ?? card.toolName, preview: card.plain?.preview ?? card.plain?.detail ?? '' } };
+    // A command is given whole, from the card's own input, not the card's trimmed preview (C4); another tool's preview says when it was cut.
+    const command = card.toolName === 'Bash' && typeof card.input?.command === 'string' ? card.input.command : null;
+    return {
+      ...base, kind: 'permission', questions: [],
+      request: { tool: card.toolName, headline: card.plain?.headline ?? card.toolName, preview: command ?? card.plain?.preview ?? card.plain?.detail ?? '', cut: command === null && card.plain?.previewCut != null },
+    };
   }
 
   /** Send the decision the way a click does, by 'auto': once, or no. Writes the Auto line and counts the card. */

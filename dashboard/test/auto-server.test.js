@@ -2205,3 +2205,54 @@ test('C1: the folders and branch every safety rule uses come from Starbase\'s re
     assert.deepEqual(real.branches, ['feature/visit-audit']);
   } finally { await w.stop(); }
 });
+
+// ---------- C4: the Approver never judges a card it cannot see whole ----------
+
+const LONG_TAIL = '; node -e "require(\'fs\').rmSync(require(\'os\').homedir() + \'/Documents\', { recursive: true, force: true })"';
+const LONG_COMMAND = `echo "${'build notes '.repeat(400)}"${LONG_TAIL}`; // the review's 4,913 characters
+
+function cutUnit(card) {
+  let rec = { ...autoRecord(null, { on: true, now: OLD }) };
+  const asked = [];
+  const decided = [];
+  const auto = createAuto({
+    read: async () => [{ dir: unitDir, slug: 's', title: 'T', auto: { ...rec }, level: 1, suggestedLevel: null, stage: 'implement', answered: [], worktrees: [unitDir], specDirs: [], artifacts: [] }],
+    update: async (dir, fn) => { const n = fn({ ...rec }); if (n) rec = n; return { ...rec }; },
+    decide: { gate: async () => {}, permission: async (id, body) => { decided.push(body); } },
+    askApprover: async (task) => { asked.push(task); return { ok: true, costUsd: 0, answer: { decision: 'allow', why: 'Fine.', risk: 'low' } }; },
+    pendingCard: () => ({ ...card }), cardCtx: async () => ({ worktrees: [unitDir], featureDir: unitDir, cwd: unitDir }),
+    state: { audit: async () => {}, auditFor: async () => [] }, notify: async () => {},
+  });
+  return { auto, asked, decided, record: () => rec };
+}
+
+test('C4: the Approver is given the whole command from the card\'s input, not the card\'s trimmed preview', async () => {
+  const { describePermission } = await import('../lib/permissions.js');
+  const { approverPrompt } = await import('../lib/approver.js');
+  const plain = describePermission('Bash', { command: LONG_COMMAND }, { cwd: unitDir });
+  assert.equal(plain.previewCut, 4000, 'the card itself shows a trimmed preview');
+  const u = cutUnit({ id: 'c4', slug: 's', featureDir: unitDir, kind: 'permission', toolName: 'Bash', input: { command: LONG_COMMAND }, plain, hardLine: null });
+  await u.auto.onPermission({ id: 'c4', slug: 's', featureDir: unitDir });
+  assert.equal(u.asked.length, 1, 'the Approver was asked');
+  const prompt = approverPrompt(u.asked[0]);
+  assert.ok(prompt.includes('rmSync'), 'the message holds the command\'s tail');
+  assert.ok(prompt.includes(LONG_TAIL.trim().slice(2)));
+});
+
+test('C4: a card the Approver would be shown cut stops Auto as blocked, and the Approver is not asked', async () => {
+  const { describePermission } = await import('../lib/permissions.js');
+  const webPlain = describePermission('WebFetch', { url: `https://example.com/${'x'.repeat(600)}` });
+  const cases = [
+    [{ toolName: 'WebFetch', input: { url: `https://example.com/${'x'.repeat(600)}` }, plain: webPlain, kind: 'permission' }, 'this request is too long for the Approver to read, so it needs you.'],
+    [{ toolName: 'AskUserQuestion', kind: 'question', input: { questions: [{ question: `Which? ${'q'.repeat(2100)}`, options: [{ label: 'A (Recommended)' }, { label: 'B' }] }] }, plain: { headline: 'x' } }, 'this request is too long for the Approver to read, so it needs you.'],
+    [{ toolName: 'AskUserQuestion', kind: 'question', input: { questions: [{ question: 'Which?', options: [{ label: `A ${'l'.repeat(400)}` }, { label: 'B' }] }] }, plain: { headline: 'x' } }, 'this request is too long for the Approver to read, so it needs you.'],
+  ];
+  for (const [extra, reason] of cases) {
+    const card = { id: 'c4b', slug: 's', featureDir: unitDir, hardLine: null, ...extra };
+    const u = cutUnit(card);
+    await u.auto.onPermission({ id: 'c4b', slug: 's', featureDir: unitDir });
+    assert.equal(u.asked.length, 0, extra.toolName);
+    assert.deepEqual({ rule: u.record().stopped?.rule, reason: u.record().stopped?.reason }, { rule: 'blocked', reason }, extra.toolName);
+    assert.deepEqual(u.decided, []);
+  }
+});

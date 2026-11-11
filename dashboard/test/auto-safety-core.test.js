@@ -237,3 +237,21 @@ test('C3: a path glued to its option, or one that climbs out after its first par
     for (const c of ['npm test -- --reporter=json', 'npx vitest run src/a.test.ts', 'npx eslint src/', 'npx tsc -p tsconfig.json --noEmit']) assert.equal(routine(c), true, `routine list: ${c}`);
   } finally { d.done(); }
 });
+
+// ---------- C4: the Approver never judges what it cannot see whole ----------
+
+test('C4: the message holds a command whole up to 20,000 characters; past that, or a field cut, is a cut', async () => {
+  const { approverPrompt, approverCut } = await import('../lib/approver.js');
+  const tail = '; node -e "require(\'fs\').rmSync(require(\'os\').homedir() + \'/Documents\', { recursive: true, force: true })"';
+  const long = `echo "${'build notes '.repeat(400)}"${tail}`;
+  assert.equal(long.length, 4913);
+  const task = (preview, over = {}) => ({ kind: 'permission', job: { title: 'T', slug: 'orbit-500-thing', level: 1, ticketKey: 'ORBIT-500' }, stage: 'implement', brief: null, paths: [], questions: [], request: { tool: 'Bash', headline: 'Run a command in the terminal', preview, ...over } });
+  assert.equal(approverCut(task(long)), null);
+  assert.ok(approverPrompt(task(long)).includes('rmSync'), 'the tail is in the message');
+  const huge = `echo "${'x'.repeat(20_000)}"; rm -rf ~/Documents`;
+  assert.equal(approverCut(task(huge)), 'command');
+  assert.ok(approverPrompt(task(huge)).includes('…'), 'a cut keeps its mark');
+  assert.equal(approverCut({ ...task('https://example.com/x'), request: { tool: 'WebFetch', headline: 'Read a web page', preview: 'https://example.com/x…', cut: true } }), 'request');
+  assert.equal(approverCut({ kind: 'question', questions: [{ id: '0', text: 'q'.repeat(2001), recommendation: null, options: [] }] }), 'request');
+  assert.equal(approverCut({ kind: 'question', questions: [{ id: '0', text: 'Which?', recommendation: '0', options: [{ id: '0', label: 'A' }] }] }), null);
+});
