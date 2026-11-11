@@ -10,6 +10,10 @@
 //   job         { kind: 'job', slug, stage }         a reply from the message box: the job's stage
 //   permission  { kind: 'permission', slug, id }     allow or deny: that request, still waiting
 //   stack       { kind: 'stack', slug, section }     merge next: that section, still next in order
+//   settings    { kind: 'settings' }                 Auto start (a setting of the laptop, not of a job): always holds
+//
+// Auto on or off for a job is a { kind: 'job', slug } with no stage: it holds while the job is there,
+// whatever stage it has moved to (a reply's holds to its stage).
 //
 // madeOnFor(command, now) makes one from the command and what is shown now; stillMadeOn(madeOn, now)
 // says whether it still holds: { ok: true } or { ok: false, why } in plain words. `now` is
@@ -40,6 +44,7 @@ export function decisionKind(command) {
   if (t === 'reply') return 'reply';
   if (t === 'allow' || t === 'deny') return t;
   if (t === 'stack-merge') return 'stack-merge';
+  if (t === 'auto' || t === 'auto-start') return t;
   return null;
 }
 
@@ -55,7 +60,9 @@ export function madeOnFor(command, { job = null, permissions = [] } = {}) {
     return { kind: 'permission', slug: p.slug ?? null, id: p.id };
   }
   if (t === 'stack-merge') return { kind: 'stack', slug: command.slug, section: command.section ?? null };
+  if (t === 'auto-start') return { kind: 'settings' };
   if (!job) throw new Error('There is no job like that among yours.');
+  if (t === 'auto') return { kind: 'job', slug: job.slug };
   if (t === 'reply' && command.via !== 'card') return { kind: 'job', slug: job.slug, stage: job.stage ?? null };
   if (GATE_TYPES.has(t) || t === 'reply') {
     if (!job.gate) throw new Error('The Foreman isn’t waiting for a decision on this job any more. Look again.');
@@ -75,12 +82,14 @@ export function stillMadeOn(madeOn, { job = null, permissions = [] } = {}) {
       return { ok: true };
     case 'job':
       if (!job) return changed('The job isn’t open any more.');
-      if ((job.stage ?? null) !== madeOn.stage) return changed(`The job moved on to ${job.stage ?? 'another stage'}.`);
+      if (Object.hasOwn(madeOn, 'stage') && (job.stage ?? null) !== madeOn.stage) return changed(`The job moved on to ${job.stage ?? 'another stage'}.`);
       return { ok: true };
     case 'permission':
       return permissions.some((p) => p.id === madeOn.id) ? { ok: true } : changed('That request was already answered on your laptop, or has expired.');
     case 'stack':
       return { ok: true }; // the stack itself refuses a section that isn't next (runner/stacks.js merge)
+    case 'settings':
+      return { ok: true }; // a setting of the laptop: nothing on a card to have moved
     default:
       return changed('It doesn’t say what it was decided on.');
   }

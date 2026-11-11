@@ -7,6 +7,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
 import type { Gate, JobDetail, Permission } from '../../api/types';
 import { DeskView } from '../../home/DeskView';
+import { AutoSwitch } from '../../job/AutoSwitch';
+import { WhatAutoDecided } from '../../job/WhatAutoDecided';
+import { clearAllSent } from '../../lib/sentState';
 import { deskQueue } from '../../home/homeModel';
 import { clearDecisions } from '../../home/nudges';
 import { PermissionCard } from '../../components/permissions/PermissionCard';
@@ -37,7 +40,7 @@ function desk(q: QueuedView | null) {
   return { post, get, detail };
 }
 
-afterEach(() => { cleanup(); clearDecisions(); localStorage.clear(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); clearAllSent(); clearDecisions(); localStorage.clear(); vi.useRealTimers(); });
 
 describe('a decision from the site, on its card', () => {
   it('waiting for the laptop: the words say so, with Cancel; the Desk’s Go and No go rest until then', async () => {
@@ -151,6 +154,62 @@ describe('a decision from the site, after the click', () => {
     expect(await screen.findByText('Go: sent to your laptop. It runs there in a moment.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^(Approve|Sending)/ })).toBeNull();
     expect(post.mock.calls.filter(([p]) => p === '/api/job/alpha/gate')).toHaveLength(1);
+  });
+});
+
+// Auto on the website: the switch posts the same route as on the laptop, but the website queues it
+// (shown beside the switch, never in the gate's place); the laptop's refusal comes back in words;
+// and What Auto decided reads the website's copy of the laptop's list, as text.
+describe('Auto on the website', () => {
+  const AUTO_WORDS = 'Auto on or off: waiting for your laptop. It runs when the laptop is back.';
+  const L3 = 'Auto works up to L2. An L3 job needs you to approve each step.';
+  function header(autoQueued: QueuedView | null, post = vi.fn(async (): Promise<unknown> => ({ ok: true }))) {
+    const j = { ...job('alpha', 'needs-you', { level: 1 }), autoQueued } as never;
+    const store = createStore();
+    const api = { get: vi.fn(), post, hosted: () => true } as unknown as ApiClient;
+    render(<WorkshopContext.Provider value={{ store, api }}><AutoSwitch job={j} /></WorkshopContext.Provider>);
+    return { post };
+  }
+
+  it('turning it on is queued: the checkbox does not flip, and the words say it waits for the laptop, with Cancel', async () => {
+    const q = queued('waiting', AUTO_WORDS, { kind: 'auto' });
+    const post = vi.fn(async (): Promise<unknown> => ({ ok: true, sent: false, held: true, queued: q, text: '', message: q.words }));
+    header(null, post);
+    await act(async () => { fireEvent.click(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })); });
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/auto', { on: true });
+    expect(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })).not.toBeChecked();
+    expect(screen.getByText(AUTO_WORDS)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+  });
+
+  it('while it waits, the switch rests; the job’s own card line carries the words and Cancel', async () => {
+    const { post } = header(queued('waiting', AUTO_WORDS, { kind: 'auto' }));
+    const box = screen.getByRole('checkbox', { name: /Auto: run to PR #1/ });
+    expect(box).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/decisions/d_abcdefgh1234/cancel', {}));
+  });
+
+  it('the laptop’s refusal (L3) shows in the laptop’s own sentence, with Got it', async () => {
+    const { post } = header(queued('failed', `Auto on or off: your laptop couldn’t do it. ${L3}`, { kind: 'auto', canCancel: false }));
+    expect(screen.getByText(`Auto on or off: your laptop couldn’t do it. ${L3}`)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/decisions/d_abcdefgh1234/dismiss', {}));
+  });
+
+  it('What Auto decided shows the website’s copy of the list, words as text and never as markup', async () => {
+    const get = vi.fn(async () => ({
+      on: true, stopped: null, tag: null,
+      summary: ['Auto made 1 decision on this job. The Approver cost $0.01.', 'Auto is on.', 'Last decision: 30 Oct 15:30, Plan: Go.'],
+      entries: [{ at: '2026-10-30T15:30:00.000Z', stage: 'Plan', chose: 'Go', asked: 'Start building?', why: '<img src=x onerror="alert(1)"> because it is small' }],
+    }));
+    const api = { get, post: vi.fn(), hosted: () => true } as unknown as ApiClient;
+    render(<WorkshopContext.Provider value={{ store: createStore(), api }}><WhatAutoDecided slug="alpha" auto={{ ran: true }} /></WorkshopContext.Provider>);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+    expect(get).toHaveBeenCalledWith('/api/job/alpha/auto');
+    expect(await screen.findByText('Auto is on.')).toBeInTheDocument();
+    expect(screen.getByText(/because it is small/)).toHaveTextContent('<img src=x onerror="alert(1)"> because it is small');
+    expect(document.querySelector('img')).toBeNull();
   });
 });
 

@@ -10,7 +10,7 @@ import { iso } from '../site/sessions.js';
 /** The parts a laptop may send, and whether each is about one job (its key is the slug, or starts with it). */
 export const KINDS = Object.freeze({
   board: null, job: 'key', docs: 'key', doc: 'line', decisions: 'key', evidence: 'key',
-  stacks: null, stack: null, 'stack-part': null, 'inbox-suggest': null,
+  stacks: null, stack: null, 'stack-part': null, 'inbox-suggest': null, 'auto-log': 'key',
 });
 const KEY = /^[^\0]{0,700}$/;
 
@@ -43,6 +43,40 @@ export function cleanSuggestion(v, now = Date.now()) {
   }
   return { at: new Date(v.at).toISOString(), picks, forList: v.forList.slice(0, SUGGEST_LIST).map((x) => x.slice(0, SUGGEST_ITEM)) };
 }
+
+const AUTO_SUMMARY = 3;
+const AUTO_ENTRIES = 200;
+const AUTO_ANSWERS = 20;
+const AUTO_LINE = 400;
+const AUTO_TEXT = 1000;
+
+/**
+ * A job's Auto record as the site keeps and shows it, or null when it isn't the right shape:
+ * { on, stopped, tag, summary: 3 short strings, entries: up to 200 { at, stage, chose, asked, why, risk?, answers? } }.
+ * Every string came from an agent's words on the laptop: plain text, cut, and only the known keys kept.
+ */
+export function cleanAutoLog(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v) || typeof v.on !== 'boolean') return null;
+  if (!Array.isArray(v.summary) || !Array.isArray(v.entries)) return null;
+  const cut = (x, n) => (typeof x === 'string' ? x.slice(0, n) : '');
+  const orNull = (x, n) => (typeof x === 'string' && x ? x.slice(0, n) : null);
+  const entries = [];
+  for (const e of v.entries.slice(0, AUTO_ENTRIES)) {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) continue;
+    const one = { at: cut(e.at, 40), stage: cut(e.stage, 100), chose: cut(e.chose, AUTO_TEXT), asked: cut(e.asked, AUTO_TEXT), why: cut(e.why, AUTO_TEXT) };
+    if (typeof e.risk === 'string' && e.risk) one.risk = e.risk.slice(0, AUTO_TEXT);
+    if (Array.isArray(e.answers) && e.answers.length) {
+      one.answers = e.answers.slice(0, AUTO_ANSWERS).filter((a) => a && typeof a === 'object').map((a) => ({ question: cut(a.question, AUTO_TEXT), choice: cut(a.choice, AUTO_TEXT), reason: cut(a.reason, AUTO_TEXT) }));
+    }
+    entries.push(one);
+  }
+  const summary = v.summary.slice(0, AUTO_SUMMARY).map((x) => cut(x, AUTO_LINE));
+  while (summary.length < AUTO_SUMMARY) summary.push('');
+  return { on: v.on, stopped: orNull(v.stopped, 300), tag: orNull(v.tag, 100), summary, entries };
+}
+
+/** A part from outside as the site keeps it: through its own check, or null when it has none (the part is kept as sent). */
+export const CLEANERS = Object.freeze({ 'auto-log': cleanAutoLog });
 
 /** The job a part belongs to, from its kind and key. */
 export function jobOfRecord(kind, key) {

@@ -3,11 +3,15 @@
 // job run to its first pull request while a read-only agent answers for you; fixed rules stop it.
 // At L3 it is off and disabled with the server's own sentence. In the header it also keeps one line
 // (Auto is on / Auto stopped: why / Started by Auto) in a place reserved for it, so nothing moves
-// when the line appears. Self-contained: props in, no reach into the page.
+// when the line appears. On the hosted website the same POST is queued for the laptop: the job's
+// `autoQueued` (a decision from the site, views/Hosted/QueuedDecision) says it waits, is on its way or was
+// refused (with the laptop's own sentence), beside the switch, and the switch rests meanwhile.
+// Self-contained: props in, no reach into the page.
 import { useEffect, useId, useRef, useState } from 'react';
 import type { Job, LevelNumber } from '../api/types';
 import { OptionRow } from '../components/Choice';
 import { useWorkshop } from '../state/store';
+import { isOpen, needsLook, QueuedDecision, queuedOf, type QueuedView } from '../views/Hosted/QueuedDecision';
 import { useSent } from '../lib/sentState';
 import './auto.css';
 
@@ -48,7 +52,7 @@ function SwitchView({ checked, blocked, disabled, busy, quiet, onToggle }: ViewP
   );
 }
 
-function HeaderSwitch({ job, onChange }: { job: Pick<Job, 'slug' | 'level' | 'suggestedLevel' | 'auto'>; onChange?(on: boolean): void }) {
+function HeaderSwitch({ job, onChange }: { job: Pick<Job, 'slug' | 'level' | 'suggestedLevel' | 'auto'> & { autoQueued?: unknown }; onChange?(on: boolean): void }) {
   const { api } = useWorkshop();
   const sent = useSent(`auto:${job.slug}`);
   const inflight = useRef(false);
@@ -56,6 +60,11 @@ function HeaderSwitch({ job, onChange }: { job: Pick<Job, 'slug' | 'level' | 'su
   const [shown, setShown] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setShown(null); }, [job.auto?.on]);
+  // The website's queue: what the site answered to the click, until the job's own record shows it.
+  const [held, setHeld] = useState<QueuedView | null>(null);
+  useEffect(() => { if (job.autoQueued) setHeld(null); }, [job.autoQueued]);
+  const queued = queuedOf(job.autoQueued) ?? held;
+  const waiting = isOpen(queued);
   const blocked = aboveAuto(job.level) || aboveAuto(job.suggestedLevel);
   const on = !blocked && (shown ?? job.auto?.on === true);
 
@@ -65,7 +74,8 @@ function HeaderSwitch({ job, onChange }: { job: Pick<Job, 'slug' | 'level' | 'su
     setError(null);
     sent.start();
     try {
-      await api.post(`/api/job/${encodeURIComponent(job.slug)}/auto`, { on: next });
+      const answer = await api.post<{ held?: boolean; queued?: unknown } | undefined>(`/api/job/${encodeURIComponent(job.slug)}/auto`, { on: next });
+      if (answer?.held) { setHeld(queuedOf(answer.queued)); return; } // the website queued it: the laptop does it, and the line says so
       setShown(next);
       onChange?.(next);
     } catch (err) {
@@ -80,7 +90,7 @@ function HeaderSwitch({ job, onChange }: { job: Pick<Job, 'slug' | 'level' | 'su
   const tag = on && job.auto?.by === 'tag' && job.auto.tag ? job.auto.tag : null;
   return (
     <div className="auto-switch is-inline">
-      <SwitchView quiet checked={on} blocked={blocked} disabled={sent.state === 'sending'} busy={sent.state === 'sending'} onToggle={(next) => { void toggle(next); }} />
+      <SwitchView quiet checked={on} blocked={blocked} disabled={sent.state === 'sending' || waiting} busy={sent.state === 'sending'} onToggle={(next) => { void toggle(next); }} />
       <p className="auto-line">
         {error ? <span className="is-refused" role="alert">{error}</span> : (
           <>
@@ -91,6 +101,7 @@ function HeaderSwitch({ job, onChange }: { job: Pick<Job, 'slug' | 'level' | 'su
           </>
         )}
       </p>
+      {queued && (isOpen(queued) || needsLook(queued)) && <QueuedDecision queued={queued} onChange={() => setHeld(null)} />}
     </div>
   );
 }

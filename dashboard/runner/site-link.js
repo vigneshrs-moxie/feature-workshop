@@ -68,7 +68,7 @@ import { enrichView, partPage, stackCard, usageByJob } from '../lib/stack-parts.
 import { USAGE_FILE, UsageLog, parseLine, usageDir } from '../lib/usage-log.js';
 import { cleanRecord } from '../lib/insights.js';
 import { STAGE_IDS } from '../lib/stages.js';
-import { boardRecord, decisionsRecord, docRecord, docsRecord, evidenceRecord, fit, jobRecord, partRecord, stackRecord, stacksRecord } from './mirror.js';
+import { autoLogRecord, boardRecord, decisionsRecord, docRecord, docsRecord, evidenceRecord, fit, jobRecord, partRecord, stackRecord, stacksRecord } from './mirror.js';
 import { uploadEvidence } from './evidence.js';
 
 /** Where the runner token is kept: its own names in the same stores as the Orbit token. */
@@ -634,6 +634,9 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
       }
       const decisions = await runner.read.decisions?.(slug).catch(() => null);
       if (decisions) await put('decisions', slug, decisionsRecord(decisions), slug, ids);
+      // What Auto decided: only for a job Auto has run on (the laptop answers null for any other).
+      const auto = await runner.read.autoLog?.(slug).catch(() => null);
+      if (auto) await put('auto-log', slug, autoLogRecord(auto), slug, ids);
       const door = runner.local?.evidence;
       const ev = door ? await door.view(slug).catch(() => null) : null;
       if (ev) {

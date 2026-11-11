@@ -39,7 +39,7 @@ import { HttpError, API_HEADERS, send, sendJson } from './http.js';
 import { iso } from './sessions.js';
 import { liveEvents, resumeFrom, HOSTED_EPOCH } from '../lib/live.js';
 import { decisionQueue, nameOf } from '../lib/queue.js';
-import { cleanSuggestion, recordStore, KINDS } from '../lib/records.js';
+import { cleanSuggestion, recordStore, CLEANERS, KINDS } from '../lib/records.js';
 
 export const OFF_WORDS = 'Your laptop is off; this shows when it’s back.';
 export const ON_LAPTOP = 'This is done on your laptop for now. Open the job there.';
@@ -105,7 +105,10 @@ export default function mirrorRoutes(ctx) {
       return;
     }
     if (!Object.hasOwn(KINDS, kind) || typeof key !== 'string' || (value !== null && (typeof value !== 'object' || Array.isArray(value)))) return;
-    if (!(await records.put(runner, kind, key, value))) return;
+    // A part made of an agent's words (Auto's list) is stored in the shape the site checks, or not at all:
+    // one that fails the check removes that laptop's earlier one.
+    const stored = value !== null && Object.hasOwn(CLEANERS, kind) ? CLEANERS[kind](value) : value;
+    if (!(await records.put(runner, kind, key, stored))) return;
     if (kind === 'board' || kind.startsWith('stack')) p.change = true;
     else { p.jobs.add(kind === 'doc' ? key.split('\n')[0] : key); if (kind === 'job') p.change = true; }
   };
@@ -147,11 +150,15 @@ export default function mirrorRoutes(ctx) {
     const all = await queue.shown(personId);
     const byJob = new Map();
     const byPermission = new Map();
+    const byAuto = new Map();
     for (const d of all) {
       if (d.permissionId) { if (!byPermission.has(d.permissionId)) byPermission.set(d.permissionId, d); continue; }
+      // Auto's switch has its own line beside the switch: it never holds back the job's gate card.
+      if (d.kind === 'auto') { if (!byAuto.has(d.job)) byAuto.set(d.job, d); continue; }
+      if (d.kind === 'auto-start') continue; // a setting of the laptop, not of a job
       if (!byJob.has(d.job)) byJob.set(d.job, d);
     }
-    return { byJob, byPermission };
+    return { byJob, byPermission, byAuto };
   }
 
   const read = {
@@ -161,12 +168,13 @@ export default function mirrorRoutes(ctx) {
       const person = who();
       const rec = await jobOf(slug);
       const laptops = await laptopsBy(person.id);
-      const { byJob, byPermission } = await shownFor(person.id);
+      const { byJob, byPermission, byAuto } = await shownFor(person.id);
       const job = rec.value;
       return {
         ...job,
         permissionsPending: (job.permissionsPending ?? []).map((p) => ({ ...p, queued: byPermission.get(p.id) ?? null })),
         queued: byJob.get(slug) ?? null,
+        autoQueued: byAuto.get(slug) ?? null,
         laptop: laptops.get(rec.runnerId) ?? null,
         mirroredAt: rec.updatedAt,
         hosted: true,
@@ -177,6 +185,13 @@ export default function mirrorRoutes(ctx) {
     async decisions(slug) {
       const rec = await records.get(who().id, 'decisions', slug);
       return rec?.value ?? { decisions: [] };
+    },
+    /** What Auto decided on a job, as the laptop last sent it (lib/records.js cleanAutoLog). */
+    async autoLog(slug) {
+      await jobOf(slug);
+      const rec = await records.get(who().id, 'auto-log', slug);
+      if (!rec) throw new HttpError(404, 'Auto hasn’t decided anything on this job yet.');
+      return rec.value;
     },
     async decisionsFile() { throw new HttpError(404, 'The decision file is on your laptop.'); },
     async docs(slug) {
@@ -255,6 +270,9 @@ export default function mirrorRoutes(ctx) {
       }
       if (!runnerId) throw new HttpError(404, 'That request was already answered or has expired.');
       if (expiresAt && Date.parse(expiresAt) <= now()) throw new HttpError(410, 'That request has run out. Nothing was sent.', { code: 'expired' });
+    } else if (kind === 'auto-start') {
+      runnerId = (await laptopsBy(person.id)).values().next().value?.id;
+      if (!runnerId) throw new HttpError(409, 'Pair a laptop first: Settings → Laptops shows the one command to run on it.', { code: 'no-laptop' });
     } else if (kind === 'stack-merge') {
       const rec = await records.get(person.id, 'stack', c.slug);
       if (!rec) throw new HttpError(404, 'There is no stack like that among yours.');
@@ -295,7 +313,7 @@ export default function mirrorRoutes(ctx) {
     const seq = await live.latest(person.id);
     const laptops = await laptopsBy(person.id);
     const boards = await records.all(person.id, 'board');
-    const { byJob, byPermission } = await shownFor(person.id);
+    const { byJob, byPermission, byAuto } = await shownFor(person.id);
     const seen = new Set();
     const jobs = [];
     const permissions = [];
@@ -304,7 +322,7 @@ export default function mirrorRoutes(ctx) {
       for (const j of b.value.jobs ?? []) {
         if (seen.has(j.slug)) continue;
         seen.add(j.slug);
-        jobs.push({ ...j, laptop, queued: byJob.get(j.slug) ?? null });
+        jobs.push({ ...j, laptop, queued: byJob.get(j.slug) ?? null, autoQueued: byAuto.get(j.slug) ?? null });
       }
       for (const p of b.value.permissions ?? []) permissions.push({ ...p, laptop, queued: byPermission.get(p.id) ?? null });
     }
@@ -326,6 +344,9 @@ export default function mirrorRoutes(ctx) {
   const stackPath = /^\/api\/stacks\/([a-z0-9][a-z0-9._-]{0,199})(?:\/part\/([1-9]\d{0,2})(\/diff)?|\/([a-z-]+))?$/;
 
   return [
+    // Before the dashboard's own job routes, whose GET /api/job/:slug/… answers any other path.
+    // What Auto decided (the button on a job): the laptop's own list, read from the site's copy.
+    { method: 'GET', path: /^\/api\/job\/([^/]+)\/auto$/, auth: 'session', async run({ res, m, person }) { sendJson(res, 200, await als.run({ person }, () => read.autoLog(m[1]))); } },
     ...mounted,
     // Review rounds run on the laptop; the Desk asks, and the site has none to show.
     { method: 'GET', path: '/api/review', auth: 'session', async run({ res }) { sendJson(res, 200, { jobs: [], hosted: true }); } },

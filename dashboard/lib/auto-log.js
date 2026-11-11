@@ -99,6 +99,17 @@ export function autoLog(lines = [], { title = '', now = null, record = null } = 
   return { title: text(title), written: now ?? null, summary, entries };
 }
 
+/**
+ * What a job's Auto list is, as the site and the laptop's own page get it: { on, stopped, tag, summary, entries }.
+ * Null for a job with no Auto line (Auto has not run on it).
+ */
+export function autoLogRecord(lines = [], { title = '', record = null } = {}) {
+  if (!(Array.isArray(lines) ? lines : []).some(isAuto)) return null;
+  const { summary, entries } = autoLog(lines, { title, record });
+  const stopped = record?.stopped && typeof record.stopped === 'object' ? text(record.stopped.reason) : text(record?.stopped);
+  return { on: record?.on === true, stopped: stopped || null, tag: record?.tag ? text(record.tag) : null, summary, entries };
+}
+
 /** The view as Markdown: every string from the Approver or a ticket on one line, at most 300 characters. */
 export function autoLogMarkdown(view) {
   const out = [`# Auto log${oneLine(view?.title, 120) ? `: ${oneLine(view.title, 120)}` : ''}`, ''];

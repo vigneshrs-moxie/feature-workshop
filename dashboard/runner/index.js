@@ -59,6 +59,7 @@ import { proofStamp } from '../lib/proof.js';
 import { suggestLevel, changedPaths, diffSummary } from '../lib/levels.js';
 import { checkDiff, chooseLevel } from '../lib/auto-level.js';
 import { autoAllowed, autoCardView, autoOption, autoRecord } from '../lib/auto.js';
+import { autoLogRecord } from '../lib/auto-log.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs, isGateDecision } from '../lib/gate.js';
 import { composeReply, cleanChips } from '../lib/compose.js';
 import { skillChecker } from '../lib/skill-check.js';
@@ -2660,6 +2661,11 @@ export async function createRunner(config) {
     async decisions(slug) {
       const f = await jobOf(slug);
       return { decisions: decisionLog(await state.auditFor(f.dir, Infinity)) };
+    },
+    // What Auto decided on a job (lib/auto-log.js): null when Auto has not run on it.
+    async autoLog(slug) {
+      const f = await jobOf(slug);
+      return autoLogRecord(await state.auditFor(f.dir, Infinity), { title: f.title, record: f.auto ?? null });
     },
     async docs(slug) {
       // The Docs tab's list: every document of the job, grouped, with versions and times (lib/docs.js).

@@ -104,3 +104,40 @@ test('the laptop sends its last suggestion as an inbox-suggest record, and null 
     assert.equal(records()[1].data.value, null);
   } finally { link.stop(); }
 });
+
+test('a job with Auto lines sends an auto-log record shaped { on, stopped, tag, summary, entries }; one without sends none', async () => {
+  const dir = tmp();
+  writeSiteFile(dir, { url: 'https://starbase.example.test', deviceId: 'device-test-0003', runnerId: 1, name: 'Test Laptop' });
+  const store = await siteTokenStore({ stateDir: dir, prefer: 'file' });
+  await store.set('runner-token-for-a-test-only');
+  const ee = new EventEmitter();
+  const log = { on: true, stopped: null, tag: 'auto-ok', summary: ['Auto made 1 decision on this job. The Approver cost $0.01.', 'Auto is on.', 'Last decision: 30 Oct 15:30, Plan: Go.'], entries: [{ at: '2026-10-30T15:30:00.000Z', stage: 'Plan', chose: 'Go', asked: 'Start?', why: 'Small.' }] };
+  const card = (slug) => ({ slug, title: slug, stage: 'plan', group: 'working' });
+  const runner = {
+    read: {
+      features: async () => ({ features: [card('with-auto'), card('without-auto')] }),
+      snapshot: async () => ({ jobs: [card('with-auto'), card('without-auto')] }),
+      job: async (slug) => card(slug),
+      autoLog: async (slug) => (slug === 'with-auto' ? log : null),
+    },
+    on(type, fn) { ee.on(type, fn); return () => ee.off(type, fn); },
+  };
+  const posted = [];
+  const fetch = async (url, init) => {
+    const u = new URL(url);
+    let body = {};
+    if (u.pathname === '/api/runner/events') { posted.push(...JSON.parse(init.body).events); body = { refused: [] }; }
+    if (u.pathname === '/api/runner/commands') { await new Promise((r) => setTimeout(r, 300)); body = { commands: [] }; }
+    return { status: 200, json: async () => body };
+  };
+  const link = createSiteLink({ runner, stateDir: dir, store, fetch, waitSeconds: 1, debounceMs: 10, watchEveryMs: 0, log: () => {}, version: '0.1.0' }).start();
+  const jobRecords = () => posted.filter((e) => e.type === 'record' && e.data.kind === 'job').length;
+  const logs = () => posted.filter((e) => e.type === 'record' && e.data.kind === 'auto-log');
+  try {
+    for (let i = 0; i < 200 && jobRecords() < 2; i++) await new Promise((r) => setTimeout(r, 25));
+    assert.equal(jobRecords(), 2);
+    assert.equal(logs().length, 1);
+    assert.equal(logs()[0].data.key, 'with-auto');
+    assert.deepEqual(logs()[0].data.value, log);
+  } finally { link.stop(); }
+});

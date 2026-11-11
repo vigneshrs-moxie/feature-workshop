@@ -38,6 +38,7 @@ export function mirrorRunner({ slug = 'add-export', title = 'Add export' } = {})
     docText: { 'briefs/002-plan.md': '# Plan v2\n\nThe plan.' },
     evidence: null,
     evidenceDir: null,
+    autoLog: null,
     stack: null,
     online: true,
     read: {
@@ -51,6 +52,8 @@ export function mirrorRunner({ slug = 'add-export', title = 'Add export' } = {})
       doc: async (_s, file) => ({ file, name: file, type: 'md', html: `<p>${r.docText[file] ?? ''}</p>`, text: r.docText[file] ?? '', updatedAt: '2026-10-30T15:00:00.000Z', size: 10, vscode: '/home/someone/x.md', summary: null }),
       decisions: async () => ({ decisions: [{ id: 'D1', question: 'Which format?', choice: 'CSV' }] }),
       runs: async () => ({ runs: [], permissions: r.permissions }),
+      // The job's Auto record as the laptop answers it: null when Auto has not run on it.
+      autoLog: async () => r.autoLog ?? null,
     },
     local: {
       evidence: {

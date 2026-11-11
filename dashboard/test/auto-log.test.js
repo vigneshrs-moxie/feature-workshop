@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { AUTO_LOG_FILE, autoCost, autoLog, autoLogMarkdown, autoTime, writeAutoLog } from '../lib/auto-log.js';
+import { AUTO_LOG_FILE, autoCost, autoLog, autoLogMarkdown, autoLogRecord, autoTime, writeAutoLog } from '../lib/auto-log.js';
 import { AUTO_MARK } from '../lib/auto.js';
 
 // Local times, so the tests do not depend on the machine's time zone.
@@ -104,4 +104,20 @@ test('auto-log.md is written again after each decision', async () => {
 
 test('the mark is the exact sentence', () => {
   assert.equal(AUTO_MARK, "(Sent by Starbase's Auto for the person. options.json says auto: true.)");
+});
+
+test('the record the site gets is { on, stopped, tag, summary, entries }, and none for a job Auto has not run on', () => {
+  assert.equal(autoLogRecord([{ action: 'send', kind: 'approve' }], { title: 'T' }), null);
+  assert.equal(autoLogRecord([], {}), null);
+  const rec = autoLogRecord(LINES, { title: 'T', record: { on: true, stopped: null, tag: 'auto-ok', by: 'tag', ran: true } });
+  assert.deepEqual(Object.keys(rec), ['on', 'stopped', 'tag', 'summary', 'entries']);
+  assert.equal(rec.on, true);
+  assert.equal(rec.stopped, null);
+  assert.equal(rec.tag, 'auto-ok');
+  assert.equal(rec.summary.length, 3);
+  assert.equal(rec.entries.length, 2);
+  // Stopped: the reason, whether the record keeps a sentence or { reason }.
+  assert.equal(autoLogRecord(LINES, { record: { on: true, stopped: 'It needs you' } }).stopped, 'It needs you');
+  assert.equal(autoLogRecord(LINES, { record: { on: true, stopped: { reason: 'Risky' } } }).stopped, 'Risky');
+  assert.equal(autoLogRecord(LINES, { record: null }).on, false);
 });

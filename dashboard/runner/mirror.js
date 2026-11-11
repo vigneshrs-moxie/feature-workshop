@@ -136,6 +136,8 @@ export function jobRecord(detail) {
 export const docsRecord = (docs) => wireSafe(docs);
 export const docRecord = (doc) => wireSafe(doc);
 export const decisionsRecord = (d) => wireSafe(d);
+/** What Auto decided on a job: { on, stopped, tag, summary, entries } (the site cleans it again on its side). */
+export const autoLogRecord = (v) => wireSafe(v);
 
 /** The evidence list, without the laptop's folder names (the site links each file itself). */
 export function evidenceRecord(view) {

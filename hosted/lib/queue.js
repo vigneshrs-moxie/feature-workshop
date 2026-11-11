@@ -25,6 +25,7 @@ const ONLINE_MS = 60 * 1000;
 
 const KIND_WORDS = {
   approve: 'Go', 'send-back': 'No go: send back', stop: 'Stop', reply: 'Your reply', allow: 'Allow', deny: 'Deny', 'stack-merge': 'Merge next',
+  auto: 'Auto on or off', 'auto-start': 'Auto start',
 };
 
 /** The words a card shows for a decision in each state (never colour alone: the words carry it). */

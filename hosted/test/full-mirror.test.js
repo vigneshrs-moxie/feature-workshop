@@ -408,3 +408,133 @@ test('the Screens PDF route answers 404 in words on the website, not 500', async
     assert.match(await r.text(), /The Screens PDF is on your laptop\./);
   } finally { l.link.stop(); await s.close(); }
 });
+
+const AUTO_LOG = {
+  on: true, stopped: null, tag: null,
+  summary: ['Auto made 2 decisions on this job. The Approver cost $0.04.', 'Auto is on.', 'Last decision: 30 Oct 15:30, Plan: Go.'],
+  entries: [
+    { at: '2026-10-30T15:30:00.000Z', stage: 'Plan', chose: 'Go', asked: 'Start building?', why: 'The plan is small and reversible.' },
+    { at: '2026-10-30T15:10:00.000Z', stage: 'Plan', chose: 'CSV', asked: 'Which format?', why: 'It is the recommended one.', risk: 'None.', answers: [{ question: 'Which format?', choice: 'CSV', reason: 'Recommended' }] },
+  ],
+};
+
+test('turning Auto on from the website reaches the laptop and is done there', async () => {
+  const { s, olive, l, runner } = await setUp();
+  try {
+    // Online: queued, handed over, run as the plain auto command, done.
+    const r = await olive.person.send('POST', '/api/job/add-export/auto', { on: true });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.held, true);
+    assert.match(r.body.queued.words, /^Auto on or off: /);
+    await until(() => runner.handled.length === 1, { what: 'Auto to reach the laptop' });
+    assert.deepEqual(runner.handled[0], { type: 'auto', slug: 'add-export', on: true });
+    await until(async () => (await olive.person.json('/api/decisions')).body.decisions[0]?.state === 'done', { what: 'the decision to say done' });
+    // It is Auto's own card line, not the gate's: the job's other decisions are not held back by it.
+    const job = (await olive.person.json('/api/job/add-export')).body;
+    assert.equal(job.queued, null);
+    // Offline: it waits, and says so.
+    closeLaptop(s, l);
+    const off = await olive.person.send('POST', '/api/job/add-export/auto', { on: false });
+    assert.equal(off.status, 200, JSON.stringify(off.body));
+    assert.equal(off.body.queued.state, 'waiting');
+    assert.equal(off.body.queued.words, 'Auto on or off: waiting for your laptop. It runs when the laptop is back.');
+    const waiting = (await olive.person.json('/api/job/add-export')).body;
+    assert.equal(waiting.autoQueued.state, 'waiting');
+    assert.equal(waiting.queued, null);
+    assert.equal((await olive.person.json('/api/snapshot')).body.jobs[0].autoQueued.state, 'waiting');
+    assert.equal(runner.handled.length, 1, 'nothing runs while the laptop is off');
+  } finally { l.link.stop(); await s.close(); }
+});
+
+test('the laptop’s refusal of Auto (L3) is shown back on the website', async () => {
+  const { s, olive, l, runner } = await setUp();
+  try {
+    const L3 = 'Auto works up to L2. An L3 job needs you to approve each step.';
+    runner.handle = async (cmd) => { runner.handled.push(cmd); throw new Error(L3); };
+    await olive.person.send('POST', '/api/job/add-export/auto', { on: true });
+    await until(async () => (await olive.person.json('/api/decisions')).body.decisions[0]?.state === 'failed', { what: 'the refusal' });
+    const d = (await olive.person.json('/api/decisions')).body.decisions[0];
+    assert.equal(d.words, `Auto on or off: your laptop couldn’t do it. ${L3}`);
+    assert.equal((await olive.person.json('/api/job/add-export')).body.autoQueued.words, d.words);
+  } finally { l.link.stop(); await s.close(); }
+});
+
+test('Auto start is a queued decision too: its words, what it is made on, and that it always holds', async () => {
+  const { stateWords } = await import('../lib/queue.js');
+  const { madeOnFor, stillMadeOn, decisionKind } = await import('../../dashboard/lib/made-on.js');
+  assert.equal(stateWords({ kind: 'auto-start', state: 'waiting' }), 'Auto start: waiting for your laptop. It runs when the laptop is back.');
+  assert.equal(stateWords({ kind: 'auto', state: 'done' }), 'Auto on or off: done on your laptop.');
+  const start = { type: 'auto-start', on: true, tag: 'auto-ok' };
+  assert.equal(decisionKind(start), 'auto-start');
+  assert.deepEqual(madeOnFor(start, {}), { kind: 'settings' });
+  assert.equal(stillMadeOn({ kind: 'settings' }, { job: null, permissions: [] }).ok, true);
+  const on = { type: 'auto', slug: 'x', on: true };
+  assert.equal(decisionKind(on), 'auto');
+  assert.deepEqual(madeOnFor(on, { job: { slug: 'x', stage: 'plan' } }), { kind: 'job', slug: 'x' });
+  assert.throws(() => madeOnFor(on, { job: null }), /no job like that/);
+  // Auto on a job holds while the job is there, whatever stage it has moved to.
+  assert.equal(stillMadeOn({ kind: 'job', slug: 'x' }, { job: { slug: 'x', stage: 'build' } }).ok, true);
+  assert.equal(stillMadeOn({ kind: 'job', slug: 'x' }, { job: null }).ok, false);
+  assert.equal(stillMadeOn({ kind: 'job', slug: 'x', stage: 'plan' }, { job: { slug: 'x', stage: 'build' } }).ok, false, 'a reply still holds to its stage');
+});
+
+test('What Auto decided on the website shows the laptop’s list, kept within the site’s limits and shown only to its owner', async () => {
+  const runner = mirrorRunner();
+  runner.autoLog = AUTO_LOG;
+  const { s, olive, l } = await setUp({ runner });
+  try {
+    await until(async () => (await count(s, "SELECT count(*)::int AS n FROM records WHERE kind = 'auto-log'")) === 1, { what: 'the Auto record' });
+    const shown = (await olive.person.json('/api/job/add-export/auto')).body;
+    assert.deepEqual(shown, AUTO_LOG);
+    // A job Auto has not run on has none.
+    // From outside, the record is cleaned: 200 entries, each string capped, unknown keys dropped.
+    const big = {
+      on: true, stopped: 's'.repeat(5000), tag: 'auto-ok', extra: 'dropped',
+      summary: ['a', 'b', 'c', 'd'],
+      entries: Array.from({ length: 202 }, (_, i) => ({ at: '2026-10-30T15:30:00.000Z', stage: 'Plan', chose: `Go ${i}`, asked: 'q'.repeat(1010), why: '<img src=x onerror=alert(1)>', notes: 'x', secret: 'y' })),
+    };
+    const e = makeEvent('record', { kind: 'auto-log', key: 'add-export', value: big }, { job: 'add-export' });
+    const rr = await (await post(s, olive.token, '/api/runner/events', { events: [{ eid: 'al-1', ...e.event }] })).json();
+    assert.equal(rr.accepted, 1, JSON.stringify(rr));
+    const kept = (await olive.person.json('/api/job/add-export/auto')).body;
+    assert.equal(kept.entries.length, 200);
+    assert.ok(kept.entries.every((x) => x.asked.length <= 1000 && !('secret' in x) && !('notes' in x)));
+    assert.equal(kept.entries[0].why, '<img src=x onerror=alert(1)>', 'kept as text, never as markup');
+    assert.ok(kept.stopped.length <= 300);
+    assert.deepEqual(kept.summary, ['a', 'b', 'c']);
+    assert.ok(!('extra' in kept));
+    // Not the right shape: the earlier record goes, and nothing is shown.
+    const bad = makeEvent('record', { kind: 'auto-log', key: 'add-export', value: { on: 'yes', summary: 'no', entries: 'no' } }, { job: 'add-export' });
+    await post(s, olive.token, '/api/runner/events', { events: [{ eid: 'al-2', ...bad.event }] });
+    assert.equal((await olive.person.get('/api/job/add-export/auto')).status, 404);
+    // Someone else's job is not there to read.
+    const sam = browser(s.fetch);
+    await signIn(sam, { email: 'sam.sample@example.test' });
+    assert.equal((await sam.json('/api/job/add-export/auto')).status, 404);
+  } finally { l.link.stop(); await s.close(); }
+});
+
+test('the website cannot set by: auto', async () => {
+  const { parseCommand } = await import('../../dashboard/lib/protocol.js');
+  const { s, olive, l, runner } = await setUp();
+  try {
+    // A raw command with by: it is refused, from the site and even from the laptop's own page.
+    for (const from of ['site', 'local']) {
+      const raw = parseCommand({ type: 'auto', slug: 'add-export', on: true, by: 'auto' }, { from });
+      assert.equal(raw.ok, false);
+      assert.match(raw.error, /doesn’t take “by”/);
+    }
+    assert.equal(parseCommand({ type: 'auto-start', on: true, tag: 'x', by: 'auto' }, { from: 'site' }).ok, false);
+    // Through the website's route: the extra field is not carried, and the queued command is the plain one.
+    const r = await olive.person.send('POST', '/api/job/add-export/auto', { on: true, by: 'auto' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    await until(() => runner.handled.length === 1, { what: 'Auto to reach the laptop' });
+    assert.deepEqual(Object.keys(runner.handled[0]).sort(), ['on', 'slug', 'type']);
+    const stored = (await s.db.query("SELECT command FROM decisions WHERE kind = 'auto'")).rows[0].command;
+    assert.deepEqual(typeof stored === 'string' ? JSON.parse(stored) : stored, { type: 'auto', slug: 'add-export', on: true });
+    assert.ok(runner.auditLines.every((x) => x.by !== 'auto'), 'no audit line says Auto did it');
+    // Nor does anything queued for the laptop carry it.
+    const sent = (await s.db.query('SELECT command FROM commands')).rows.map((x) => JSON.stringify(x.command));
+    assert.ok(sent.every((c) => !c.includes('"by":"auto"')));
+  } finally { l.link.stop(); await s.close(); }
+});
