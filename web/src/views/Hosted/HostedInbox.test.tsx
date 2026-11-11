@@ -1,7 +1,7 @@
 // Packet 2C on the page: the Inbox on the hosted site and Settings → Orbit, against a pretend site.
 // Made-up people, tickets and tokens only.
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApi } from '../../api/client';
 import type { InboxAnswer, InboxFilter, InboxItem, InboxLaptop, InboxStart, InboxSuggestion, OrbitStatus } from '../../api/types';
 import { HostedApp } from './HostedApp';
@@ -405,6 +405,23 @@ describe('Auto start on the website', () => {
     fireEvent.click(within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' }));
     expect(await within(group).findByText('Waiting for your laptop.')).toBeInTheDocument();
     expect(group).not.toHaveTextContent('Saved');
+  });
+
+  // Round 2, M8: the wait for the laptop ends after 10 minutes with what is true then (the site keeps the command).
+  it('Settings → Orbit: after 10 minutes with the laptop away, it says the change is kept for the laptop', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      go('#/settings/orbit');
+      const { api } = site({ autoStart: { on: false, tag: 'auto' }, autoTakes: false, laptops: [lap(7, 'Olive’s Mac', false)] });
+      render(<HostedApp api={api} />);
+      const group = await screen.findByRole('group', { name: 'Auto start' });
+      await waitFor(() => expect(within(group).getByLabelText('Orbit tag')).toHaveValue('auto'));
+      fireEvent.click(within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' }));
+      expect(await within(group).findByText('Waiting for your laptop.')).toBeInTheDocument();
+      await act(async () => { vi.advanceTimersByTime(10 * 60_000 + 4_000); });
+      expect(await within(group).findByText('Your laptop has not answered. The change is kept and takes effect when it is back online.')).toBeInTheDocument();
+      expect(within(group).queryByText('Waiting for your laptop.')).toBeNull();
+    } finally { vi.useRealTimers(); }
   });
 
   it('Settings → Orbit: when the laptop’s value arrives and differs from what was sent, it says the laptop did not take it', async () => {

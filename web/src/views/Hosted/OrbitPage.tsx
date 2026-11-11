@@ -39,6 +39,8 @@ export function savedWords(status: Pick<OrbitStatus, 'expiresAt'>, now = new Dat
 export const AUTO_START_SENT = 'Sent to your laptop. It takes effect there.';
 export const AUTO_START_WAITING = 'Waiting for your laptop.';
 export const AUTO_START_NOT_TAKEN = 'Your laptop did not take this change.';
+/** After its 10 minutes of looking (M8): the site keeps the command until the laptop collects it. */
+export const AUTO_START_KEPT = 'Your laptop has not answered. The change is kept and takes effect when it is back online.';
 /** How often the page reads the laptop's mirrored value after a change, and for how long. */
 const AUTO_LOOK_MS = 3000;
 const AUTO_TAKE_MS = 60_000;
@@ -73,7 +75,7 @@ export function OrbitPage({ api, onSignedOut }: HostedProps) {
       const waited = Date.now() - autoSent.at;
       if (sameAuto(now, autoSent.want)) { setAutoNote(null); setAutoSent(null); }
       else if (!sameAuto(now, autoSent.was) || (autoSent.online && waited > AUTO_TAKE_MS)) { setAutoNote(AUTO_START_NOT_TAKEN); setAutoSent(null); }
-      else if (waited > AUTO_WAIT_MS) setAutoSent(null);
+      else if (waited > AUTO_WAIT_MS) { setAutoNote(AUTO_START_KEPT); setAutoSent(null); }
     };
     void look();
     const timer = setInterval(() => { void look(); }, AUTO_LOOK_MS);
