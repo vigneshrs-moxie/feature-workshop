@@ -1069,6 +1069,8 @@ function ghStep(cmd, args, a, st) {
     return;
   }
   if (group === 'pr' && action === 'merge') { hit('merge'); return; }
+  // gh auth status printing the token is gh auth token by another name (m15).
+  if (group === 'auth' && a.some((x) => x === '--show-token' || /^-[A-Za-z]*t/.test(x))) { hit('outside'); st.secret = true; return; }
   if (group === 'api') {
     const method = a.findIndex((x) => /^(-X|--method)$/.test(x));
     const glued = (a.find((x) => /^-X./.test(x)) ?? '').slice(2);

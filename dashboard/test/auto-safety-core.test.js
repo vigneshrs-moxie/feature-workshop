@@ -610,3 +610,8 @@ test('m10: a helper sent to run remotely stops an Auto job', () => {
   assert.equal(card('Agent', { subagent_type: 'general-purpose', prompt: 'x', isolation: 'worktree' }, ctx), null);
 });
 
+test('m15: gh auth status that prints the token stops, like gh auth token', () => {
+  const ctx = C5CTX();
+  for (const c of ['gh auth status --show-token', 'gh auth status -t', 'gh auth status -ht github.com', 'gh auth token']) assert.equal(bash(c, ctx), 'outside', c);
+  assert.notEqual(bash('gh auth status', ctx), 'outside');
+});
