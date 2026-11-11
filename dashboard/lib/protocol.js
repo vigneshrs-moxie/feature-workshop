@@ -80,7 +80,10 @@ export const REMOTE_COMMANDS = freeze({
     ticket: FIELD.json, fromSession: FIELD.json, despiteLimit: FIELD.bool,
   },
   // A message to the job's Foreman: from the message box (text), or the gate card's own message.
-  reply: { ...GATE, via: oneOf('box', 'card'), text: FIELD.text, kind: str(20), gateBrief: FIELD.brief },
+  // kind: what the pages send (the gate's three decisions, a message, the classic page's Second look). Starbase's own kinds
+  // (nudge, resume, status fix, PR feedback, a stack's message) are never a page's to send. Only a deciding kind's
+  // gateBrief answers that brief (lib/gate.js answerEvent).
+  reply: { ...GATE, via: oneOf('box', 'card'), text: FIELD.text, kind: oneOf('message', 'approve', 'changes', 'stop', 'fable-check'), gateBrief: FIELD.brief },
   // The gate card's three decisions. Only an approval may carry a reply you edited.
   approve: { ...GATE, text: FIELD.text },
   'send-back': GATE,

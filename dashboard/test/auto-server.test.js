@@ -727,7 +727,7 @@ test('M3: switching Auto off by hand writes the money not yet recorded on the of
     await w.runner.handle({ type: 'auto', slug: w.slug, on: false }, { from: 'local' });
     const [off] = await w.autoLines('off');
     assert.equal(off.costUsd, 0.3);
-    assert.equal((await w.record()).spent, 0);
+    await w.until(async () => ((await w.record())?.spent ?? 0) === 0, 'the money to be on a line'); // taken off spent once its line is written
   } finally { await w.stop(); }
 });
 
@@ -737,7 +737,7 @@ test('M3: leaving Auto for L3 writes the money not yet recorded on the stop line
     await w.pass();
     const [stop] = await w.autoLines('stop');
     assert.equal(stop.costUsd, 0.3);
-    assert.equal((await w.record()).spent, 0);
+    await w.until(async () => ((await w.record())?.spent ?? 0) === 0, 'the money to be on a line'); // taken off spent once its line is written
   } finally { await w.stop(); }
 });
 
@@ -1009,7 +1009,7 @@ test('a worker\'s question mid-reply is answered with the recommended label', { 
     assert.equal(line.chose, 'visited_at (Recommended)');
     assert.deepEqual(line.answers, [{ question: 'Which name for the column?', choice: 'visited_at (Recommended)', reason: 'It is the recommendation.' }]);
     assert.equal(line.costUsd, 0.12);
-    assert.equal((await w.record()).spent ?? 0, 0);
+    await w.until(async () => ((await w.record())?.spent ?? 0) === 0, 'the money to be on a line'); // taken off spent once its line is written
     assert.equal((await w.record()).cards, 1);
     // The Auto log shows it: the answer with its question and reason.
     const view = await w.runner.read.autoLog(w.slug);
@@ -1041,7 +1041,7 @@ test('a WebFetch card is allowed or denied by the Approver and recorded, and a d
     assert.equal(auto[1].costUsd, 0.12);
     assert.equal(auto[0].risk, 'low');
     assert.ok(auto[0].asked.length > 0);
-    assert.equal((await w.record()).spent, 0);
+    await w.until(async () => ((await w.record())?.spent ?? 0) === 0, 'the money to be on a line'); // taken off spent once its line is written
     assert.equal((await w.record()).cards, 2);
     const view = await w.runner.read.autoLog(w.slug);
     assert.deepEqual(view.entries.map((e) => e.chose).sort(), ['Allowed', 'Said no']);
@@ -1230,7 +1230,7 @@ test('Auto switched off while the Approver thinks about a gate: the answer is dr
     assert.equal(cost.costUsd, 0.12);
     assert.equal(cost.why, 'The Approver answered after Auto was switched off.');
     assert.deepEqual(await w.sends(), []);
-    assert.equal((await w.record()).spent ?? 0, 0);
+    await w.until(async () => ((await w.record())?.spent ?? 0) === 0, 'the money to be on a line'); // taken off spent once its line is written
     assert.match((await w.runner.read.autoLog(w.slug)).summary[0], /The Approver cost \$0\.12\./);
   } finally { await w.stop(); }
 });
@@ -2485,7 +2485,7 @@ test('m6: money on a record that is off goes on the on line when Auto is switche
     await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
     const [on] = await w.autoLines('on');
     assert.equal(on.costUsd, 0.3);
-    assert.equal((await w.record()).spent ?? 0, 0);
+    await w.until(async () => ((await w.record())?.spent ?? 0) === 0, 'the money to be on a line'); // taken off spent once its line is written
   } finally { await w.stop(); }
 });
 
@@ -2538,6 +2538,27 @@ test('Auto\'s mark is Auto\'s alone: PR feedback (or the person\'s text) ending 
     assert.ok(w.texts[2].endsWith(AUTO_MARK), 'Auto\'s own reply keeps its mark');
     const sends = await w.sends();
     assert.ok(!sends[0].text.endsWith(AUTO_MARK) && !sends[1].text.endsWith(AUTO_MARK), 'the audit line has what was sent');
+  } finally { await w.stop(); }
+});
+
+test('a reply\'s kind is one the pages send; anything else is refused, and a message carrying a brief does not answer it', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null, jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    for (const from of ['site', 'local']) {
+      for (const kind of ['nudge', 'resume-after-restart', 'Approve', 'x']) {
+        await assert.rejects(w.runner.handle({ type: 'reply', slug: w.slug, text: 'go', kind }, { from }), /kind/, `${from} ${kind}`);
+      }
+    }
+    assert.deepEqual(await w.sends(), []);
+    for (const kind of ['message', 'fable-check']) {
+      await w.runner.handle({ type: 'reply', slug: w.slug, text: `a ${kind}`, kind }, { from: 'local' });
+      await w.idle();
+    }
+    await w.runner.handle({ type: 'reply', slug: w.slug, text: 'about brief 1', kind: 'message', gateBrief: 1 }, { from: 'local' });
+    await w.idle();
+    assert.deepEqual((await w.sends()).map((s) => s.kind), ['message', 'fable-check', 'message']);
+    const detail = await w.runner.read.job(w.slug);
+    assert.deepEqual(detail.answeredBriefs ?? [], [], 'a message answers no brief');
   } finally { await w.stop(); }
 });
 
@@ -2643,7 +2664,7 @@ test('L3: closing a job, or marking it done, switches Auto off with an off line,
       assert.equal(off[0].costUsd, 0.3);
       assert.equal(off[0].via, 'close');
       assert.equal((await w.record()).on, false);
-      assert.equal((await w.record()).spent, 0);
+      await w.until(async () => ((await w.record())?.spent ?? 0) === 0, 'the money to be on a line'); // taken off spent once its line is written
       assert.equal((await w.optionsFile()).auto, undefined);
       await w.runner.handle({ type: 'reopen', slug: w.slug }, { from: 'local' });
       await w.pass();
