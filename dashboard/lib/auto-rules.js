@@ -600,6 +600,8 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   else if (!TEXTY.has(cmd) && args.some((x) => DB_CLIENTS.has(name(x.t)))) hit('database'); // a client named under a wrapper we don't know
   if (EXEC_LIKE.has(cmd)) for (const x of args) if (/\s/.test(x.t)) analyze(x.t, cwd, st, depth + 1, null);
 
+  // A deploy or a publish stops, by whatever road it is started (I3).
+  if (deploys(cmd, a)) { hit('outside'); st.deploy = true; }
   // S1: a program is let in by name.
   const inside = cmdWord.t.includes('/') ? physicalPath(cmdWord.t, cwd) : null;
   const ownBin = inside && inRoots(inside, st.roots) && /\/node_modules\/\.bin\/[^/]+$/.test(inside);
@@ -765,7 +767,14 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
       const sub1 = a.find((x) => !x.startsWith('-')) ?? '';
       const sub2 = a.filter((x) => !x.startsWith('-'))[1] ?? '';
       if (a.some((x) => x === '-g' || /^--(global|location=global)$/.test(x)) || a[0] === 'global' || NPM_PUBLISH.test(sub1) || (sub1 === 'config' && /^(set|delete|edit|rm)$/.test(sub2))) hit('outside');
-      else if (cmd !== 'npx' && cmd !== 'bunx' && cmd !== 'pnpx') packageScripts(cmd, args, cwd, st, depth);
+      // The program a runner starts is judged as that program: a deploy or an unknown program stops behind it too (I3).
+      else if (cmd === 'npx' || cmd === 'bunx' || cmd === 'pnpx') runnerProgram(args, 0, cwd, st, depth, viaXargs);
+      else {
+        const how = packageScripts(cmd, args, cwd, st, depth);
+        const at = args.findIndex((x) => x.t === sub1);
+        if (/^(exec|dlx|x)$/.test(sub1)) runnerProgram(args, at + 1, cwd, st, depth, viaXargs);
+        else if (how === 'bin') runnerProgram(args, at, cwd, st, depth, viaXargs); // yarn, pnpm and bun run a program of that name when no script has it
+      }
       return;
     }
     case 'pip': case 'pip3': pipStep(a, hit); return;
@@ -778,6 +787,10 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   }
 }
 
+// Programs that deploy or publish: always, or with these first words.
+const DEPLOY_ANY = new Set(['vercel', 'netlify', 'surge', 'gh-pages', 'semantic-release', 'np', 'release-it', 'heroku', 'fly', 'flyctl', 'railway', 'eas', 'amplify']);
+const DEPLOY_SUB = { firebase: /^(deploy|hosting:channel:deploy)$/, wrangler: /^(deploy|publish|pages)$/, changeset: /^publish$/, lerna: /^publish$/, expo: /^publish$/, twine: /^upload$/, serverless: /^deploy$/, sls: /^deploy$/, cdk: /^deploy$/, pulumi: /^up$/, terraform: /^apply$/, npm: /^publish$/, yarn: /^publish$/, pnpm: /^publish$/ };
+const deploys = (cmd, a) => DEPLOY_ANY.has(cmd) || Boolean(DEPLOY_SUB[cmd]?.test(a.find((x) => !x.startsWith('-')) ?? ''));
 const REDIRECT_VAR = /^(GIT_.*|PATH|HOME|NODE_OPTIONS|LD_.*|DYLD_.*|SHELL|EDITOR|VISUAL|.*_PAGER|BASH_ENV|ENV|npm_config_.*|PIP_.*)$/i;
 const PUBLISH = [['cargo', 'publish'], ['poetry', 'publish'], ['uv', 'publish'], ['yarn', 'npm', 'publish'], ['pnpm', 'publish'], ['npm', 'publish'], ['twine', 'upload'], ['gem', 'push']];
 
@@ -935,6 +948,7 @@ function packageScripts(cmd, args, cwd, st, depth = 0) {
   if (/^(run|run-script|rum|urun)$/.test(sub)) { if (rest[1]) names.push(rest[1]); } else if (/^(test|t|tst|start|stop|restart)$/.test(sub)) names.push(sub === 't' || sub === 'tst' ? 'test' : sub);
   else if (/^(install|i|ci|add)$/.test(sub)) { if (!args.some((x) => x.t === '--ignore-scripts')) names.push('install', 'prepare'); } // the project's own lifecycle scripts, unless they are turned off
   else if (cmd !== 'npm' && !PKG_BUILTIN.has(sub) && !(cmd === 'bun' && sub === 'test')) names.push(sub);
+  const binRun = names.length === 1 && names[0] === sub && cmd !== 'npm' && !/^(run|run-script|rum|urun|test|t|tst|start|stop|restart)$/.test(sub);
   if (!names.length) return;
   if (!base) { st.hits.add('outside'); return; }
   // The nearest package.json at or above the folder, inside the job's folders. None at all: npm would fail, nothing runs.
@@ -947,7 +961,7 @@ function packageScripts(cmd, args, cwd, st, depth = 0) {
     if (up === dir) break;
     dir = up;
   }
-  if (!file) return;
+  if (!file) return binRun ? 'bin' : undefined;
   let scripts;
   try {
     const info = fs.statSync(file);
@@ -958,6 +972,23 @@ function packageScripts(cmd, args, cwd, st, depth = 0) {
   const before = st.scriptBin;
   st.scriptBin = dir;
   try { for (const n of names) for (const key of [`pre${n}`, n, `post${n}`]) if (typeof scripts[key] === 'string') scanShell(scripts[key], dir, st, depth); } finally { st.scriptBin = before; }
+  return binRun && typeof scripts[sub] !== 'string' ? 'bin' : undefined;
+}
+
+// The program after a runner's own options (npx -y, -p <package>, --): judged as that program. A shell command handed to the runner (-c) stops.
+function runnerProgram(args, from, cwd, st, depth, viaXargs) {
+  let k = from;
+  for (; k < args.length; k++) {
+    const t = args[k].t;
+    if (t === '--') { k++; break; }
+    if (!t.startsWith('-')) break;
+    if (/^(-c|--call)(=|$)/.test(t)) { st.hits.add('outside'); return; }
+    if (/^(-p|--package)$/.test(t)) k++;
+  }
+  const rest = args.slice(k);
+  if (!rest.length) return;
+  if (rest[0].dyn) { st.hits.add('outside'); return; }
+  simple(rest, [], cwd, st, depth + 1, viaXargs);
 }
 
 // Is `name` in node_modules/.bin at or above the folder (or above the running package script's own folder), inside the job?

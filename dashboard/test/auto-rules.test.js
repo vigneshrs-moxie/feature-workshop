@@ -178,7 +178,7 @@ test('S1: a program Starbase does not know stops; the ones it does pass', () => 
     ['sort a | uniq | cut -d, -f1 | tr a b', null], ['jq . a.json', 'ask'], ['basename a', null], ['dirname a', null], ['realpath a', null], ['tree', null], ['less a', 'ask'], ['cat ~/.ssh/id_rsa', 'outside'],
     ['ls ~', 'ask'], ['rg foo src', null], ['cd sub && ls', null], ['for f in a b; do echo $f; done', 'ask'], ['if test -f a; then echo y; fi', null],
     // build and test pass
-    ['npm test', null], ['npm run build', null], ['npx vitest run', 'ask'], ['node scripts/gen.js', 'outside'], ['pnpm test', null], ['yarn build', 'ask'], ['bun test', null], ['tsc --noEmit', null],
+    ['npm test', null], ['npm run build', null], ['npx vitest run', 'ask'], ['node scripts/gen.js', 'outside'], ['pnpm test', null], ['yarn build', 'outside'], ['bun test', null], ['tsc --noEmit', null],
     ['vitest', null], ['jest', null], ['eslint .', null], ['prettier --check .', null], ['python3 script.py', 'outside'], ['pytest -q', null], ['cargo build', null], ['go test ./...', null],
     ['make', 'ask'], ['make build', 'ask'], ['mvn test', 'ask'], ['gradle build', 'ask'], ['dotnet build', 'ask'], ['bundle exec rspec', 'ask'], ['rake test', 'ask'], ['deno test', 'ask'], ['bunx tsc', 'ask'],
     ['cd packages/a && npm test', null], ['/Users/test/work/orbit-x/node_modules/.bin/vitest run', null], ['./node_modules/.bin/eslint .', null],
@@ -531,7 +531,7 @@ test('I6: more database tools, and a database address', () => {
     ['nc localhost 5432', 'database'], ['nc host 3306', 'database'], ['telnet host 1433', 'database'], ['nc host 27017', 'database'], ['nc host 6379', 'database'], ['nc host 9042', 'database'], ['nc -zv host 5432', 'database'],
     ['node x.js postgres://u@h/db', 'database'], ['DATABASE_URL=mysql://u@h/db npm test', 'database'], ['echo mongodb+srv://x', 'database'], ['echo redis://x', 'database'], ['curl postgresql://u@h/db', 'database'], ['npm test -- --url=mongodb://h', 'database'],
     ['rake test', 'ask'], ['mix test', 'ask'], ['python -m pytest', 'ask'], ['python -m django test', 'ask'], ['rails server', 'ask'], ['flask run', 'ask'],
-    ['npx prisma generate', 'ask'], ['alembic --version', 'database'], ['supabase start', 'outside'], ['nc host 8080', 'outside'],
+    ['npx prisma generate', 'outside'], ['alembic --version', 'database'], ['supabase start', 'outside'], ['nc host 8080', 'outside'],
   ]);
 });
 
@@ -810,7 +810,7 @@ test('T3f: more database tools', () => {
     ['npx typeorm schema:drop', 'database'], ['npx typeorm schema:sync', 'database'], ['npx mikro-orm schema:update', 'database'], ['typeorm migration:run', 'database'], ['typeorm query "select 1"', 'database'], ['mikro-orm migration:create', 'database'],
     ['npx typeorm migration:generate x', 'database'], ['mikro-orm schema:fresh', 'database'], ['pnpm exec typeorm schema:drop', 'database'],
     ['npx prisma studio', 'database'], ['npx prisma db pull', 'database'], ['prisma introspect', 'database'], ['prisma migrate dev', 'database'], ['prisma db seed', 'database'], ['npx prisma init', 'database'],
-    ['npx prisma generate', 'ask'], ['npx prisma format', 'ask'], ['npx prisma validate', 'ask'], ['npx prisma --version', 'ask'], ['npx prisma version', 'ask'], ['pnpm exec prisma generate', 'ask'], ['npx typeorm --help', 'ask'],
+    ['npx prisma generate', 'outside'], ['npx prisma format', 'outside'], ['npx prisma validate', 'outside'], ['npx prisma --version', 'outside'], ['npx prisma version', 'outside'], ['pnpm exec prisma generate', 'outside'], ['npx typeorm --help', 'outside'],
   ]);
 });
 
@@ -932,7 +932,7 @@ test('T2: ordinary work passes (a real worktree with node_modules/.bin, scripts 
     // and a few neighbours of them that must not
     // (a path outside handed to a build tool is outside for the routine list too since deep review A's C3, so it stops)
     const not = [['npx vitest run --root /etc', 'outside'], ['npm run build -- --outDir /etc', 'outside'], ['node scripts/gen.js /etc/passwd', 'ask'], ['npx tsc --outDir /etc', 'outside'], ['rm -rf /etc/x', 'outside'], ['npm install foo', 'ask'], ['npm install --ignore-scripts foo', null],
-      ['git push origin main', 'push'], ['git commit -F ~/.ssh/id_rsa', 'outside'], ['git add -f .env', 'ask'], ['sed -i s/a/b/e src/a.ts', 'outside'], ['npx prettier --write /etc/hosts', 'ask'], ['npx notthere run', 'ask'],
+      ['git push origin main', 'push'], ['git commit -F ~/.ssh/id_rsa', 'outside'], ['git add -f .env', 'ask'], ['sed -i s/a/b/e src/a.ts', 'outside'], ['npx prettier --write /etc/hosts', 'ask'], ['npx notthere run', 'outside'],
       // deep review A, C5: a read in the home folder outside the job, and every network lookup, are questions
       ['cat ~/.zshrc', 'ask'], ['curl -sL https://example.com/doc', 'ask']];
     assert.deepEqual(not.map(([c, want]) => ({ c, want, got: answer(c, over) })).filter((r) => r.want !== r.got), []);

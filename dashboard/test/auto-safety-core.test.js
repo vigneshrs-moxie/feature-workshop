@@ -428,3 +428,17 @@ test('C1 follow-up: status.json naming another job\'s worktree of the same repos
   const stray = await verifiedJobContext({ ...base, git: gitOf({ list: [{ path: REPO, branch: 'main' }, { path: PART, branch: 'feature/x--api' }] }), f: { worktree: PART } });
   assert.deepEqual(stray.worktrees, [], 'neither its name, its branch nor the profile ties it to this job');
 });
+
+// ---------- Part 2 ----------
+
+test('I3: a deploy or publish behind a runner stops, as the bare program does, also when it is in node_modules/.bin', () => {
+  const d = diskWorktree();
+  try {
+    for (const b of ['vercel', 'wrangler', 'firebase', 'netlify', 'gh-pages', 'semantic-release', 'changeset']) fsSync.writeFileSync(pathMod.join(d.wt, 'node_modules', '.bin', b), '#!/bin/sh\n');
+    const ctx = ctxOf({ worktrees: [d.wt], specDirs: [], branches: [BRANCH] }, { cwd: d.wt });
+    for (const c of ['npx vercel --prod', 'npx vercel deploy --prod', 'yarn vercel --prod', 'pnpm vercel --prod', 'pnpm dlx vercel --prod', 'pnpm exec vercel --prod', 'npm exec vercel -- --prod', 'npm x vercel', 'yarn dlx vercel',
+      'npx wrangler deploy', 'npx wrangler publish', 'npx firebase deploy', 'npx netlify deploy --prod', 'npx gh-pages -d dist', 'npx semantic-release', 'npx changeset publish', 'npx npm publish',
+      'bunx vercel --prod', 'bun x vercel', 'pnpx vercel', 'uvx twine upload dist/x.whl', 'vercel --prod', './node_modules/.bin/vercel --prod', 'npx -y vercel', 'npx --yes surge dist', 'npx notthere run']) assert.equal(bash(c, ctx), 'outside', c);
+    for (const c of ['npx vitest run', 'npx tsc --noEmit', 'yarn test', 'pnpm test', 'npx wrangler --version']) assert.notEqual(bash(c, ctx), 'outside', c);
+  } finally { d.done(); }
+});
