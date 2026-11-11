@@ -313,3 +313,89 @@ test('I1: the job\'s own folder and the skills under ~/.claude are read and writ
   assert.equal(card('Edit', { file_path: `${AGENTS}/feature-reviewer.md`, old_string: 'a', new_string: 'b' }, ctx), 'outside');
   assert.equal(bash(`echo x >> ${SKILLS}/feature/SKILL.md`, ctx), 'outside');
 });
+
+// ---------- I2: Auto can install, build, copy the env file and open PR #1 on the Orbit repository ----------
+
+// The Orbit app's own script lines (as in the review's p6), in a worktree on disk next to its main checkout.
+function orbitWorld() {
+  const root = fsSync.realpathSync(fsSync.mkdtempSync(pathMod.join(os.tmpdir(), 'sb-orbit-')));
+  const repo = pathMod.join(root, 'Projects', 'orbit');
+  const wt = pathMod.join(root, 'Projects', 'orbit-orbit-500-thing');
+  const app = pathMod.join(wt, 'app');
+  for (const d of [pathMod.join(app, 'node_modules', '.bin'), pathMod.join(app, 'scripts'), pathMod.join(app, 'prisma'), pathMod.join(repo, 'app')]) fsSync.mkdirSync(d, { recursive: true });
+  for (const b of ['next', 'eslint', 'tsc', 'vitest', 'tsx', 'prisma', 'husky', 'email']) fsSync.writeFileSync(pathMod.join(app, 'node_modules', '.bin', b), '#!/bin/sh\n');
+  fsSync.writeFileSync(pathMod.join(app, 'package.json'), JSON.stringify({ name: 'app', scripts: {
+    dev: 'next dev --turbopack', build: 'next build', start: 'next start', lint: 'eslint', typecheck: 'tsc --noEmit', test: 'vitest run',
+    check: 'npm run typecheck && npm run lint && npm run test', 'db:migrate': 'tsx prisma/apply-migration.ts',
+    postinstall: 'prisma generate', prepare: 'cd .. && husky app/.husky', 'test:db': './scripts/db-test-sync.sh && vitest run --config vitest.db.config.ts', 'test:db:sync': './scripts/db-test-sync.sh',
+  } }));
+  fsSync.writeFileSync(pathMod.join(app, 'scripts', 'db-test-sync.sh'), '#!/bin/bash\nset -euo pipefail\npg_dump --schema-only "$SNAPSHOT_URL" | psql "$TEST_URL"\n');
+  fsSync.writeFileSync(pathMod.join(repo, 'app', '.env.local'), 'DATABASE_URL=x\n');
+  return { root, repo, wt, done: () => fsSync.rmSync(root, { recursive: true, force: true }) };
+}
+const SHA = 'a'.repeat(40);
+const ELSEWHERE = 'b'.repeat(40);
+const orbitCtx = (o) => ctxOf({ worktrees: [o.wt], specDirs: [], branches: [BRANCH] }, {
+  cwd: o.wt, mainCheckout: o.repo, readRoots: [SKILLS, AGENTS], orgRemote: 'moxie', orgRepo: 'moxie-org/orbit', orgShas: { [SHA]: true, [ELSEWHERE]: false },
+  filesToCopy: [{ from: 'app/.env.local', to: 'app/.env.local' }],
+  tempDirs: [], // the fixture sits in a temp folder; on the laptop the main checkout is not in one
+});
+
+test('I2: install, build and the env copy pass on the Orbit app; next dev and other programs of node_modules/.bin ask', () => {
+  const o = orbitWorld();
+  try {
+    const ctx = orbitCtx(o);
+    const rows = [
+      ['cd app && npm ci', null], ['cd app && npm install', null], ['cd app && npm ci --ignore-scripts', null], ['cd app && npm install --ignore-scripts', null],
+      ['cd app && npm run build', null], ['cd app && npm run check', null], ['cd app && npx next build', null], ['cd app && npx next lint', null],
+      ['cd app && npx prisma generate', null], ['cd app && npx prisma validate', null], ['cd app && ./node_modules/.bin/next build', null], ['cd app && npx husky', null],
+      [`cp ${o.repo}/app/.env.local app/.env.local`, null], [`cp ${o.repo}/app/.env.local ${o.wt}/app/.env.local`, null], [`cd app && cp ${o.repo}/app/.env.local .env.local`, null],
+      ['cd app && npx next dev', 'ask'], ['cd app && npm run dev', 'ask'], ['cd app && npm start', 'ask'], ['cd app && npx email dev', 'ask'],
+      [`cp ${o.repo}/app/.env.local app/.env.production`, 'outside'], [`cp ${o.repo}/app/.env.local ${o.repo}/app/.env.copy`, 'outside'], [`cp ${o.root}/.env.local app/.env.local`, 'outside'],
+      // the database rows of the review's Strengths still stop
+      ['cd app && npm run db:migrate', 'database'], ['cd app && npm run test:db', 'database'], ['cd app && npm run test:db:sync', 'database'],
+      ['cd app && npx prisma migrate deploy', 'database'], ['cd app && npx prisma db push', 'database'], ['cd app && npx prisma studio', 'database'],
+    ];
+    const wrong = rows.map(([c, want]) => ({ c, want, got: bash(c, ctx) })).filter((r) => r.want !== r.got);
+    assert.deepEqual(wrong, []);
+  } finally { o.done(); }
+});
+
+test('I2: the org-branch step is a question for the Approver only in the workflow\'s exact form', () => {
+  const o = orbitWorld();
+  try {
+    const ctx = orbitCtx(o);
+    const call = (extra = '', { repo = 'moxie-org/orbit', ref = `refs/heads/${BRANCH}`, sha = SHA } = {}) => `gh api -X POST repos/${repo}/git/refs -f ref=${ref} -f sha=${sha}${extra}`;
+    assert.equal(bash(call(), ctx), 'ask');
+    const v = autoVerdict({ kind: 'card', toolName: 'Bash', input: { command: call() }, hardLine: null, blockedPath: null }, ctx);
+    assert.match(v.why, /org branch step/);
+    assert.ok(v.why.includes(BRANCH) && v.why.includes('moxie-org/orbit') && v.why.includes(SHA), v.why);
+    for (const c of [`gh api repos/moxie-org/orbit/git/refs -f ref=refs/heads/${BRANCH} -f sha=${SHA}`, `gh api --method POST /repos/moxie-org/orbit/git/refs -f sha=${SHA} -f ref=refs/heads/${BRANCH}`]) assert.equal(bash(c, ctx), 'ask', c);
+    // A protected branch on the org repository is a refusal of the hard lines, for every job.
+    assert.equal(hardLine('Bash', { command: call('', { ref: 'refs/heads/main' }) }, { cwd: o.wt })?.decision, 'deny');
+    for (const c of [
+      call('', { repo: 'someone/orbit' }), call('', { ref: 'refs/heads/feature/orbit-499-other' }), call(' -f force=true'),
+      `gh api -X DELETE repos/moxie-org/orbit/git/refs -f ref=refs/heads/${BRANCH} -f sha=${SHA}`, `gh api -X PATCH repos/moxie-org/orbit/git/refs/heads/${BRANCH} -f sha=${SHA}`,
+      call('', { sha: ELSEWHERE }), call('', { sha: 'c'.repeat(40) }), call('', { sha: '$SHA' }), `gh api -X POST repos/moxie-org/orbit/git/refs -f ref=refs/heads/${BRANCH}`,
+    ]) {
+      // a stop of Auto's, or (stronger) a refusal of the hard lines, for every job
+      const refused = hardLine('Bash', { command: c }, { cwd: o.wt })?.decision === 'deny';
+      assert.ok(refused || bash(c, ctx) === 'outside', c);
+    }
+    assert.equal(bash(call(), { ...ctx, orgRepo: null }), 'outside', 'no org repository known from git');
+  } finally { o.done(); }
+});
+
+test('I2: gh pr create names the job\'s own org repository with --repo or -R, and takes a here-document body', () => {
+  const o = orbitWorld();
+  try {
+    const ctx = orbitCtx(o);
+    for (const c of [
+      `gh pr create --repo moxie-org/orbit --title T --body B --base ${BRANCH}`, `gh pr create -R moxie-org/orbit --title T --body B --base ${BRANCH}`,
+      `gh pr create --title "T" --base ${BRANCH} --body "$(cat <<'EOF'\n## Summary\n- one\nEOF\n)"`,
+      `gh pr create -R moxie-org/orbit --title "T" --base ${BRANCH} --body "$(cat <<'EOF'\n## Summary\n- one\nEOF\n)"`,
+    ]) assert.equal(bash(c, ctx), null, c);
+    for (const c of [`gh pr create --repo someone/orbit --title T --body B`, `gh pr create -R moxie-org/other --title T --body B`]) assert.equal(bash(c, ctx), 'ask', c);
+    assert.equal(bash('gh pr create --repo moxie-org/orbit --title T --body B', { ...ctx, orgRepo: null }), 'ask');
+  } finally { o.done(); }
+});

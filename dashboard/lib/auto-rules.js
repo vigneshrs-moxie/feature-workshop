@@ -35,7 +35,7 @@ import path from 'node:path';
 import { autoAllowed } from './auto.js';
 import { classify, commandParts, isInside, TEMP_DIRS } from './policy.js';
 import { hardLine, namesStarbaseAddress, namesThisComputer, ORG_URL, physicalPath, rmInsideJob, withPathMemo, WRAPPERS } from './hard-lines.js';
-import { plainWhy } from './auto-plain.js';
+import { envCopy, localPlain, plainWhy } from './auto-plain.js';
 import { STAGES, STAGE_IDS } from './stages.js';
 
 export const AUTO_STOP_REASONS = Object.freeze({
@@ -230,12 +230,13 @@ const tooBig = (command) => command.length > MAX_COMMAND || command.split(/&&|\|
 // A root that is /, the home folder or a folder above it, the state folder or a folder above it, or
 // ~/.claude itself, is never one: everything the job must not touch would be inside it (C1).
 function jobRoots(ctx) {
-  const roots = [...(ctx.worktrees ?? []), ctx.featureDir, ...(ctx.specDirs ?? []), ...TEMP_DIRS].filter((r) => typeof r === 'string' && path.isAbsolute(r));
+  const temps = Array.isArray(ctx.tempDirs) ? ctx.tempDirs : TEMP_DIRS; // ctx.tempDirs: tests whose folders all sit in a temp folder
+  const roots = [...(ctx.worktrees ?? []), ctx.featureDir, ...(ctx.specDirs ?? []), ...temps].filter((r) => typeof r === 'string' && path.isAbsolute(r));
   const out = new Set();
   for (const r of roots) {
     const forms = [path.resolve(r), physicalPath(r, null)].filter(Boolean);
     // The temp folders are Starbase's own list, never a job's word; a state folder kept inside one (tests do) is still refused by its own rules.
-    if (forms.some((x) => tooWideRoot(x, TEMP_DIRS.includes(r) ? {} : ctx))) continue;
+    if (forms.some((x) => tooWideRoot(x, temps.includes(r) ? {} : ctx))) continue;
     for (const x of forms) out.add(x);
   }
   return [...out];
@@ -297,7 +298,7 @@ function bashVerdict(command, hard, ctx) {
 }
 
 // Plain: Starbase understands every word of the command (lib/auto-plain.js).
-const plainEnv = (st, cwd) => ({ cwd: cwd ?? st.hint ?? st.ctx.cwd ?? null, roots: st.roots, ctx: st.ctx });
+const plainEnv = (st, cwd) => ({ cwd: cwd ?? st.hint ?? st.ctx.cwd ?? null, roots: st.roots, ctx: st.ctx, binBase: st.scriptBin ?? null });
 
 // Names a command defines as shell functions (their bodies are read as commands; a use of one is not an unknown program).
 function functionNames(command) {
@@ -556,6 +557,10 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     return false;
   };
   const hit = (rule) => st.hits.add(rule);
+  // The profile's env file copied from the main checkout into a worktree of the job (I2): its source is not a secret read here.
+  const plainWords = ws.filter((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w.t));
+  const here = cwd ?? st.hint ?? null;
+  const isEnvCopy = Boolean(here) && name(plainWords[0]?.t ?? '') === 'cp' && !plainWords[0].t.includes('/') && plainWords.every((w) => !w.dyn) && !redirects.length && envCopy(plainWords.slice(1).map((w) => w.t), [here], ctx);
   // Redirections: output anywhere but /dev/null and the job's folders stops; input from a .sql file is a database change.
   for (const r of redirects) {
     if (r.op === '<' || r.op === '<&' || (r.op === '>&' && /^(\d+|-)$/.test(r.target))) { if (SQL.test(r.target)) hit('database'); continue; }
@@ -567,7 +572,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   }
   for (const r of redirects) if (secretWord(r.target)) hit('outside');
   for (const r of redirects) if ((r.op === '<' || r.op === '<&') && !r.dyn && !/^(\d+|-)$/.test(r.target) && readElsewhere(physicalPath(r.target, cwd ?? st.hint ?? null), st.readRoots)) st.asks.push('a read outside the job\'s folders');
-  for (const w of ws) if (/\/dev\/(tcp|udp)\//.test(w.t) || secretWord(w.t)) hit('outside'); // a network file of bash's; a secret place
+  for (const w of ws) if (/\/dev\/(tcp|udp)\//.test(w.t) || (!isEnvCopy && secretWord(w.t))) hit('outside'); // a network file of bash's; a secret place
   for (const r of redirects) if (/\/dev\/(tcp|udp)\//.test(r.target)) hit('outside');
   if (ws.some((w) => SQL.test(w.t))) hit('database'); // a .sql file given to any program
   const { rest, assigns, wrappers } = unwrap(ws, st, cwd, depth);
@@ -600,7 +605,14 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   const ownBin = inside && inRoots(inside, st.roots) && /\/node_modules\/\.bin\/[^/]+$/.test(inside);
   const byFile = inside && inRoots(inside, st.roots) && !ownBin; // a file of the job's own, run by its path
   const known = byFile || (!cmdWord.t.includes('/') || ownBin) && (programGroup(cmd) || SHELLS.has(cmd) || cmd === 'eval' || cmd === 'source' || cmd === '.' || cmd === 'alias' || st.funcs.has(cmd.replace(/\(\)$/, '')));
-  if (!known) { hit('outside'); st.unknown = true; return; }
+  // A program found in the job's node_modules/.bin (as npx finds it, or a package script's own) and not otherwise known
+  // is a question, not a stop; a few of its uses are plain (I2).
+  const localBin = !known && /^[\w.-]+$/.test(cmd) && (ownBin || (!cmdWord.t.includes('/') && binNear(cmd, cwd ?? st.hint ?? null, st)));
+  if (!known && !localBin) { hit('outside'); st.unknown = true; return; }
+  if (localBin) {
+    if (!localPlain(cmd, a)) st.asks.push(`${cmd}, a program of the job's node_modules/.bin that Starbase does not read in this use`);
+    else if (cmd === 'husky' && a.length === 1 && a[0] !== 'install' && pathOutside(args[0], cwd ?? st.hint ?? null, st)) hit('outside');
+  }
   // T3c: a command that is not a read runs from a folder inside the job's (a cd moves it; a folder we can't tell stops).
   const readOnly = programGroup(cmd) === 'read' || (cmd === 'git' && GIT_READ.has(firstGitSub(args)));
   if (!readOnly && !byFile) {
@@ -671,6 +683,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     }
     case 'ln': lnStep(a, args, pos, valueOf, cwd, st, writes); return;
     case 'cp': case 'install': case 'rsync': case 'ditto': case 'scp': {
+      if (isEnvCopy) { writes([pos()[1]]); return; }
       if (cmd === 'install' && a.includes('-d')) { writes(pos()); return; }
       const t = valueOf(/^(-t|--target-directory(=.*)?)$/);
       const p = pos().filter((x) => !(t && x === t));
@@ -920,7 +933,7 @@ function packageScripts(cmd, args, cwd, st, depth = 0) {
   const sub = rest[0];
   if (!sub) return;
   if (/^(run|run-script|rum|urun)$/.test(sub)) { if (rest[1]) names.push(rest[1]); } else if (/^(test|t|tst|start|stop|restart)$/.test(sub)) names.push(sub === 't' || sub === 'tst' ? 'test' : sub);
-  else if (/^(install|i|ci|add)$/.test(sub)) names.push('install', 'prepare'); // the project's own lifecycle scripts
+  else if (/^(install|i|ci|add)$/.test(sub)) { if (!args.some((x) => x.t === '--ignore-scripts')) names.push('install', 'prepare'); } // the project's own lifecycle scripts, unless they are turned off
   else if (cmd !== 'npm' && !PKG_BUILTIN.has(sub) && !(cmd === 'bun' && sub === 'test')) names.push(sub);
   if (!names.length) return;
   if (!base) { st.hits.add('outside'); return; }
@@ -941,7 +954,24 @@ function packageScripts(cmd, args, cwd, st, depth = 0) {
     if (info.size > MAX_SCRIPT) { st.hits.add('outside'); return; }
     scripts = JSON.parse(fs.readFileSync(file, 'utf8'))?.scripts ?? {};
   } catch { st.hits.add('outside'); return; }
-  for (const n of names) for (const key of [`pre${n}`, n, `post${n}`]) if (typeof scripts[key] === 'string') scanShell(scripts[key], dir, st, depth);
+  // A script finds the programs in its package's own node_modules/.bin wherever it cd's to.
+  const before = st.scriptBin;
+  st.scriptBin = dir;
+  try { for (const n of names) for (const key of [`pre${n}`, n, `post${n}`]) if (typeof scripts[key] === 'string') scanShell(scripts[key], dir, st, depth); } finally { st.scriptBin = before; }
+}
+
+// Is `name` in node_modules/.bin at or above the folder (or above the running package script's own folder), inside the job?
+function binNear(name, from, st) {
+  return [from, st.scriptBin].filter(Boolean).some((start) => {
+    let dir = physicalPath(start, null);
+    for (let guard = 0; guard < 40 && dir && inRoots(dir, st.roots); guard++) {
+      try { if (fs.existsSync(path.join(dir, 'node_modules', '.bin', name))) return true; } catch { /* not there */ }
+      const up = path.dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+    return false;
+  });
 }
 
 // pip: reading is fine; installing needs a virtual env of the job's own (run by its path), never --user or the system.
@@ -991,6 +1021,9 @@ function ghStep(cmd, args, a, st) {
     const glued = (a.find((x) => /^-X./.test(x)) ?? '').slice(2);
     const m = (method >= 0 ? a[method + 1] : glued || (a.find((x) => /^--method=/.test(x)) ?? '').slice(9)) || 'GET';
     if (a.some((x) => /\/merge(\?.*)?$/.test(x))) hit('merge');
+    // The workflow's one write there, exactly: the job's branch made on its own org repository from a commit of the org's main (I2).
+    const org = a[0] === 'api' && !args.some((x) => x.dyn) ? orgBranchCall(a.slice(1), st.ctx) : null;
+    if (org) { st.asks.push(org); return; }
     if (m.toUpperCase() !== 'GET' || a.some((x) => /^(-f|-F|--field|--raw-field|--input)$/.test(x) || /^-[fF]./.test(x))) hit('outside');
     return;
   }
@@ -998,6 +1031,38 @@ function ghStep(cmd, args, a, st) {
   const ok = GH_OK[group];
   if (ok === null && group) return; // gh search / gh status only read
   if (!ok || !ok.includes(action)) { hit('outside'); if (!ok) st.unknown = true; }
+}
+
+/**
+ * `gh api -X POST repos/<org>/<repo>/git/refs -f ref=refs/heads/<branch> -f sha=<sha>` (the workflow's own spelling,
+ * the method may be left to -f): the job's own org repository (ctx.orgRepo, from the org remote's address), exactly the
+ * two fields, the job's own branch (ctx.branches, from git), and a commit git places on the org remote's main
+ * (ctx.orgShas[sha] === true). Returns the Approver's reason with those facts, or null for anything else.
+ */
+function orgBranchCall(rest, ctx) {
+  if (typeof ctx?.orgRepo !== 'string' || !ctx.orgRepo) return null;
+  let endpoint = null;
+  let method = null;
+  const fields = [];
+  for (let k = 0; k < rest.length; k++) {
+    const x = rest[k];
+    let m;
+    if (x === '-X' || x === '--method') { method = String(rest[++k] ?? '').toUpperCase(); continue; }
+    if ((m = /^(?:-X|--method=)(.+)$/.exec(x))) { method = m[1].toUpperCase(); continue; }
+    if (['-f', '-F', '--field', '--raw-field'].includes(x)) { fields.push(String(rest[++k] ?? '')); continue; }
+    if ((m = /^(?:-[fF]|--(?:raw-)?field=)(.+)$/.exec(x))) { fields.push(m[1]); continue; }
+    if (x.startsWith('-') || endpoint !== null) return null;
+    endpoint = x;
+  }
+  if (method !== null && method !== 'POST') return null;
+  if (String(endpoint ?? '').replace(/^\//, '').toLowerCase() !== `repos/${ctx.orgRepo}/git/refs`.toLowerCase()) return null;
+  const pairs = fields.map((x) => [x.slice(0, Math.max(0, x.indexOf('='))), x.slice(x.indexOf('=') + 1)]);
+  if (pairs.length !== 2 || pairs.map(([k]) => k).sort().join() !== 'ref,sha') return null;
+  const f = Object.fromEntries(pairs);
+  const branch = /^refs\/heads\/([\w./-]+)$/.exec(f.ref)?.[1];
+  if (!branch || branch.includes('..') || PROTECTED.test(branch) || !(ctx.branches ?? []).includes(branch)) return null;
+  if (!/^[0-9a-f]{40}$/.test(f.sha) || ctx.orgShas?.[f.sha] !== true) return null;
+  return `the workflow's org branch step: it makes the job's branch ${branch} on ${ctx.orgRepo} (the job's org repository) at ${f.sha}. Starbase checked the repository, that ${branch} is the job's own branch, and that the commit is on ${ctx.orgRemote ?? 'the org remote'}/main; GitHub refuses it if the branch exists.`;
 }
 
 // ---------- git ----------

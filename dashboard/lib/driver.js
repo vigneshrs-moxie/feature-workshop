@@ -963,7 +963,7 @@ export class Driver extends EventEmitter {
     if (typeof this.autoCtx !== 'function') throw new Error('Auto is on but there is no way to find the job’s folders.');
     // The stop object, or for a call Starbase can't tell the meaning of { rule: null, ask: true, why, reason }: both ask, and
     // neither the job's setting, a saved rule nor a go-ahead answers them.
-    return autoAnswer({ kind: 'card', toolName, input, hardLine: hard, blockedPath: null }, await this.autoCtx(run));
+    return autoAnswer({ kind: 'card', toolName, input, hardLine: hard, blockedPath: null }, await this.autoCtx(run, { toolName, input }));
   }
 
   async #onHardLine(run, verdict, input) {

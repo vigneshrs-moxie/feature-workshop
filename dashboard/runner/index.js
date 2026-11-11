@@ -74,9 +74,9 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { goAheadCovers, ORG_REMOTES, setApiPort, setStateDir } from '../lib/hard-lines.js';
 import { jobRepo, verifiedJobContext } from '../lib/auto-context.js';
-import { autoGitFacts, gitRemoteDefault, gitWorktrees } from '../lib/auto-git.js';
+import { autoGitFacts, gitIsAncestor, gitRemoteDefault, gitWorktrees } from '../lib/auto-git.js';
 import { readStack } from '../lib/stack.js';
-import { stackRules } from '../lib/profile.js';
+import { fillPattern, stackRules, tryItRules } from '../lib/profile.js';
 import { FlowWatch, gatherRepo } from '../lib/flow.js';
 import { noticeBody, Notifier, validateNotifyPatch } from '../lib/notify.js';
 import { Integrator, IntegrateError } from '../lib/integrate.js';
@@ -302,15 +302,28 @@ export async function createRunner(config) {
   // that stops pushes. The job's branches are its own and its stack's parts.
   const execGit = promisify(execFile);
   const autoGitCache = new Map();
-  async function autoCtxFor(run) {
+  // call: { toolName, input } when the context is for one call: a commit it names for the org branch is placed by git first (I2).
+  async function autoCtxFor(run, call = null) {
     const { repo, worktrees, specDirs, branches, mainCheckout } = await jobContext(run);
     const hit = repo && local.registry ? await local.registry.profileFor(repo).catch(() => null) : null;
+    const profile = hit?.ok ? hit.profile : null;
     const facts = await autoGitFacts({ cwd: run.cwd, dirs: worktrees, key: run.id ?? run.featureDir, cache: autoGitCache, exec: gitStdout });
+    // The job's own org repository, from the org remote's address as git gives it (never a job file).
+    const orgRemote = [stackRules(profile).org, ...ORG_REMOTES].filter(Boolean).find((name) => facts.remoteUrl(name));
+    const orgRepo = orgRemote ? /github\.com[:/]+([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/i.exec(facts.remoteUrl(orgRemote))?.[1] ?? null : null;
+    // Each commit the call names, checked against the org remote's main: true, false, or null when git can't say.
+    const shas = call?.toolName === 'Bash' && /\bgh\b/.test(String(call.input?.command ?? '')) ? [...new Set(String(call.input.command).match(/\b[0-9a-f]{40}\b/g) ?? [])].slice(0, 4) : [];
+    const orgShas = {};
+    for (const sha of shas) orgShas[sha] = orgRemote && mainCheckout ? await gitIsAncestor({ repo: mainCheckout, sha, ref: `${orgRemote}/main`, exec: gitStdout, cache: autoGitCache }) : null;
+    // The files the profile copies from the main checkout into a worktree (filesToCopy), {app} filled.
+    const rules = tryItRules(profile);
+    const filesToCopy = rules.files.flatMap((r) => rules.appDirs.map((app) => ({ from: path.normalize(fillPattern(r.from, { app }).replace(/^\/+/, '')), to: path.normalize(fillPattern(r.to, { app }).replace(/^\/+/, '')) })));
     return {
-      worktrees, featureDir: run.featureDir, specDirs, cwd: run.cwd, forkRemote: stackRules(hit?.ok ? hit.profile : null).fork,
+      worktrees, featureDir: run.featureDir, specDirs, cwd: run.cwd, forkRemote: stackRules(profile).fork,
       remoteUrl: facts.remoteUrl, currentBranch: facts.currentBranch, branches, stateDir: state.dir, apiPort: PORT,
       // Read without a question, never changed: the repository's own checkout and the session's read folders (C5).
       mainCheckout, readRoots: [SKILLS_DIR, AGENTS_DIR].filter(Boolean),
+      orgRemote: orgRemote ?? null, orgRepo, orgShas, filesToCopy,
     };
   }
 
@@ -1594,7 +1607,7 @@ export async function createRunner(config) {
     },
     // A card as it waits now (with its full input), and what the fixed stop list needs to know of its reply.
     pendingCard: (id) => driver.pendingRequest(id),
-    cardCtx: async (card) => { const run = driver.runs.get(card.runId); return run ? autoCtxFor(run) : null; },
+    cardCtx: async (card) => { const run = driver.runs.get(card.runId); const full = driver.pendingRequest(card.id); return run ? autoCtxFor(run, full ? { toolName: full.toolName, input: full.input } : null) : null; },
     // The Foreman suggests L1 or L2 above the job's level: applied before the gate is answered (raise only).
     raiseLevel: async (job, level) => {
       const f = await featureBySlug(job.slug);

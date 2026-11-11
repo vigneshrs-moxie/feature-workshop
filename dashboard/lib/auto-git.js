@@ -77,6 +77,20 @@ export function gitRemoteDefault({ repo, remote, exec, cache, now = Date.now }) 
 }
 
 /**
+ * Is `sha` the commit `ref` names or one of its ancestors (git merge-base --is-ancestor)? true or false
+ * as git says; null when git can't say (an error other than "no", or the time limit).
+ */
+export function gitIsAncestor({ repo, sha, ref, exec, cache, now = Date.now }) {
+  if (!repo || !/^[0-9a-f]{40}$/.test(String(sha ?? '')) || !/^[\w./-]+$/.test(String(ref ?? ''))) return Promise.resolve(null);
+  return remembered({
+    cache, key: `ancestor\u0000${path.resolve(repo)}\u0000${sha}\u0000${ref}`, now, fresh: false,
+    ask: async () => {
+      try { await exec('git', ['merge-base', '--is-ancestor', sha, ref], { cwd: repo, timeout: LIMIT_MS }); return true; } catch (err) { return err?.code === 1 ? false : null; }
+    },
+  });
+}
+
+/**
  * { currentBranch, remoteUrl(name, dir) } for a job. dirs: the job's folders (cwd is always read).
  * cache: a Map the caller keeps; key: the job's run; now(): for tests.
  */

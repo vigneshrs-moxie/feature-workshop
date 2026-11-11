@@ -535,7 +535,7 @@ const GH_LIST = '--json: --jq: -q: --state: -s: --limit: -L: --author: --label: 
 const GH_TEXT = ['--json', '--jq', '-q', '--state', '-s', '--author', '--label', '-l', '--base', '-B', '--head', '-H', '--search', '-S'];
 const GH = {
   pr: {
-    create: BUILD('--fill --fill-first --fill-verbose --title: -t: --body: -b: --base: -B: --head: -H: --draft -d --label: -l: --reviewer: -r: --assignee: -a: --milestone: -m: --no-maintainer-edit --body-file: -F:', { text: ['--title', '-t', '--body', '-b', '--base', '-B', '--head', '-H', '--label', '-l', '--reviewer', '-r', '--assignee', '-a', '--milestone', '-m'] }),
+    create: BUILD('--fill --fill-first --fill-verbose --title: -t: --body: -b: --base: -B: --head: -H: --draft -d --label: -l: --reviewer: -r: --assignee: -a: --milestone: -m: --no-maintainer-edit --body-file: -F: --repo: -R:', { text: ['--title', '-t', '--body', '-b', '--base', '-B', '--head', '-H', '--label', '-l', '--reviewer', '-r', '--assignee', '-a', '--milestone', '-m', '--repo', '-R'] }),
     view: BUILD('--json: --jq: -q: --comments -c', { text: GH_TEXT }), list: BUILD(GH_LIST.replace('--web', ''), { text: GH_TEXT }), status: BUILD(''), checks: BUILD('--watch --required --json: --jq: -q: --interval: -i:'), diff: BUILD('--name-only --patch --color:'), checkout: BUILD('--detach'),
   },
   issue: { view: BUILD('--json: --jq: -q: --comments -c'), list: BUILD(GH_LIST.replace('--web', '')), status: BUILD('') },
@@ -560,6 +560,9 @@ function ghCheck(args, ctx) {
   const rest = args.filter((_, k) => k !== args.findIndex((x) => x.t === group) && k !== at);
   const { pos, vals } = check(sp, rest, ctx, `gh ${group} ${action}`);
   for (const [f, x] of vals) if (['--body-file', '-F'].includes(f) && SECRET_NAME.test(path.basename(x.t))) ask('a body file with a secret name');
+  // --repo / -R only names the job's own org repository, as its org remote's address says (I2).
+  const own = typeof ctx.ctx?.orgRepo === 'string' ? ctx.ctx.orgRepo.toLowerCase() : null;
+  for (const [f, x] of vals) if (['--repo', '-R'].includes(f) && !(own && String(x.t).toLowerCase() === own)) ask('a pull request on a repository that is not the job\'s own');
   if (pos.length > 1 || pos.some((x) => !/^[\w./#:-]+$/.test(x.t))) ask('arguments to gh Starbase does not read');
 }
 
@@ -573,8 +576,9 @@ const PKG_NAME = /^(@[\w.-]+\/)?[\w.-]+(@[\w.^~<>=*-]+)?$/;
 
 function binExists(name, ctx) {
   if (!/^[A-Za-z0-9._-]+$/.test(name)) return false;
-  return ctx.cands.every((c) => {
-    let dir = physicalPath('.', c);
+  // A package script also finds its package's own node_modules/.bin, wherever it has cd'd to (binBase).
+  return ctx.cands.every((c) => (ctx.binBase ? [c, ctx.binBase] : [c]).some((start) => {
+    let dir = physicalPath('.', start);
     for (let guard = 0; guard < 40 && dir && inRoots(dir, ctx.roots); guard++) {
       try { if (fs.existsSync(path.join(dir, 'node_modules', '.bin', name))) return true; } catch { /* not there */ }
       const up = path.dirname(dir);
@@ -582,7 +586,28 @@ function binExists(name, ctx) {
       dir = up;
     }
     return false;
-  });
+  }));
+}
+
+/**
+ * Programs from the job's node_modules/.bin that are plain only in a few uses (I2): next build and next lint,
+ * prisma generate, format and validate (every other prisma word is the database rule's), husky bare, husky
+ * install and husky <a folder inside the job>. next dev and next start are not on the list.
+ */
+const LOCAL_PLAIN = {
+  next: (args) => { if (!(args.length === 1 && ['build', 'lint'].includes(args[0].t))) ask('a next command Starbase does not read'); },
+  prisma: (args) => { if (!(args.length === 1 && ['generate', 'format', 'validate'].includes(args[0].t))) ask('a prisma command Starbase does not read'); },
+  husky: (args, ctx) => {
+    if (!args.length || (args.length === 1 && args[0].t === 'install')) return;
+    if (args.length !== 1 || args[0].t.startsWith('-') || args[0].glob) ask('a husky command Starbase does not read');
+    mustBeInside(args[0], ctx);
+  },
+};
+export const LOCAL_PROGRAMS = Object.freeze(Object.keys(LOCAL_PLAIN));
+/** Is this use of a node_modules/.bin program on the short plain list (words without the program name, as strings)? */
+export function localPlain(name, words) {
+  if (!Object.hasOwn(LOCAL_PLAIN, name)) return false;
+  try { LOCAL_PLAIN[name](words.map((t) => ({ t, glob: /[*?[]/.test(t) })), { roots: [], cands: [] }, true); return true; } catch (e) { if (e instanceof Ask) return false; throw e; }
 }
 
 // A runner starts a program from the job's node_modules/.bin: its name must be there, and its arguments are read by that program's list.
@@ -611,6 +636,7 @@ function runBin(args, ctx, via) {
   const bin = args[i].t;
   if (!binExists(bin, ctx)) ask(`${via} of ${bin}, which is not in the job's node_modules/.bin`);
   const rest = args.slice(i + 1);
+  if (Object.hasOwn(LOCAL_PLAIN, bin)) { LOCAL_PLAIN[bin](rest, ctx); return; }
   if (!PROGRAMS[bin] || CUSTOM[bin]) ask(`${bin} is a program in node_modules/.bin that Starbase has no list of flags for`);
   check(PROGRAMS[bin], rest, ctx, bin);
 }
@@ -717,11 +743,34 @@ function subTable(prog, table, args, ctx) {
   check(table[args[i].t], own, ctx, `${prog} ${args[i].t}`);
 }
 
+// ---------- the env copy (I2) ----------
+
+/**
+ * `cp <main checkout>/<from> <to>` for a file the repository's profile copies into a worktree (filesToCopy):
+ * from the repository's main checkout to the same relative place in one of the job's worktrees, judged from
+ * each folder the command may run in. words: cp's arguments; cands: those folders; ctx: Auto's context.
+ */
+export function envCopy(words, cands, ctx) {
+  if (!ctx || !Array.isArray(ctx.filesToCopy) || typeof ctx.mainCheckout !== 'string' || words.length !== 2) return false;
+  if (words.some((t) => typeof t !== 'string' || !t || t.startsWith('-') || /[*?[\]{}$`\s]/.test(t))) return false;
+  const main = physicalPath(ctx.mainCheckout, null);
+  const trees = (ctx.worktrees ?? []).map((w) => physicalPath(w, null)).filter(Boolean);
+  if (!main || !cands.length) return false;
+  return cands.every((c) => {
+    const from = physicalPath(words[0], c);
+    const to = physicalPath(words[1], c);
+    return Boolean(from && to) && ctx.filesToCopy.some((f) => typeof f?.from === 'string' && typeof f?.to === 'string'
+      && from === path.join(main, f.from) && trees.some((w) => to === path.join(w, f.to)));
+  });
+}
+
 // ---------- the dispatch ----------
 
 const BASH_LIKE = new Set(['bash', 'sh', 'zsh']);
 
 function runProgram(name, args, ctx, raw) {
+  if (Object.hasOwn(LOCAL_PLAIN, name)) { if (!binExists(name, ctx)) ask(`${name}, which is not in the job's node_modules/.bin`); return LOCAL_PLAIN[name](args, ctx); }
+  if (name === 'cp' && envCopy(args.map((x) => x.t), ctx.cands, ctx.ctx)) return; // the profile's env file into a worktree of the job (I2)
   if (CUSTOM[name]) return CUSTOM[name](args, ctx);
   if (name === 'git') return gitCheck(args, ctx);
   if (name === 'gh') return ghCheck(args, ctx);
@@ -790,7 +839,7 @@ export function plainWhy(command, env = {}) {
         pending = null;
       } else if (cmd.sep !== '&&' && open.length) { cands = [...new Set([...open, ...cands])]; open = []; }
       if (cands.length > 8) ask('a command that may run in too many folders');
-      const ctx = { roots, cands, ctx: env.ctx };
+      const ctx = { roots, cands, ctx: env.ctx, binBase: env.binBase ?? null };
       for (const r of cmd.redirects) { if (r.op === '<') { readablePath(r.target, ctx); } else redirectCheck(r, ctx); }
       let words = cmd.words;
       let i = 0;
@@ -828,7 +877,9 @@ export function plainWhy(command, env = {}) {
       words.forEach((x, k) => {
         if (!x.t.includes(HEREDOC)) return;
         const message = name === 'git' && args[0]?.t === 'commit' && ((x.t === HEREDOC && ['-m', '--message'].includes(words[k - 1]?.t)) || x.t === `--message=${HEREDOC}`);
-        if (!message) ask('a here-document that is not a commit message'); // -F, --file, -t and the rest read a file by that name
+        // The same form as a pull request's body (I2).
+        const body = name === 'gh' && args.filter((y) => !y.t.startsWith('-'))[0]?.t === 'pr' && args.filter((y) => !y.t.startsWith('-'))[1]?.t === 'create' && ((x.t === HEREDOC && ['--body', '-b'].includes(words[k - 1]?.t)) || x.t === `--body=${HEREDOC}`);
+        if (!message && !body) ask('a here-document that is not a commit message or a pull request body'); // -F, --file, -t and the rest read a file by that name
       });
       const sub = args.find((x) => !x.t.startsWith('-'))?.t;
       // After an archive or a checkout, merge, pull, reset… has changed the files, only reads and git go on: a link, a

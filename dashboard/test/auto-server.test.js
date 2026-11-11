@@ -2256,3 +2256,22 @@ test('C4: a card the Approver would be shown cut stops Auto as blocked, and the 
     assert.deepEqual(u.decided, []);
   }
 });
+
+test('I2: Auto\'s context for one call gives the org repository from git, places the call\'s commits on the org remote\'s main, and names the files to copy', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    w.git('remote', 'add', 'moxie', 'git@github.com:moxie-org/visit-app.git');
+    w.git('update-ref', 'refs/remotes/moxie/main', 'HEAD');
+    const onMain = w.git('rev-parse', 'HEAD').toString().trim();
+    const wt = path.join(w.root, 'orbit-visit-audit');
+    w.git('worktree', 'add', '-q', '-b', 'feature/visit-audit', wt);
+    execFileSync('git', ['-C', wt, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'job work'], { stdio: 'pipe' });
+    const offMain = execFileSync('git', ['-C', wt, 'rev-parse', 'HEAD']).toString().trim();
+    const command = `gh api -X POST repos/moxie-org/visit-app/git/refs -f ref=refs/heads/feature/visit-audit -f sha=${onMain} && echo ${offMain}`;
+    const ctx = await w.driver.autoCtx({ id: 'i2-run', featureDir: w.dir, cwd: w.dirs.repo, slug: w.slug, title: 'T' }, { toolName: 'Bash', input: { command } });
+    assert.equal(ctx.orgRepo, 'moxie-org/visit-app');
+    assert.deepEqual(ctx.orgShas, { [onMain]: true, [offMain]: false });
+    assert.deepEqual(ctx.branches, ['feature/visit-audit']);
+    assert.ok(ctx.filesToCopy.some((f) => f.from === path.join('app', '.env.local') && f.to === path.join('app', '.env.local')), JSON.stringify(ctx.filesToCopy));
+  } finally { await w.stop(); }
+});
