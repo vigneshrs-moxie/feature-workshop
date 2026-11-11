@@ -98,23 +98,51 @@ function fieldsOf(detail) {
   return { outer, pick: (name) => (inner[name] ?? outer[name]) };
 }
 
+// The values Orbit picks from a fixed list (Orbit's taxonomy.ts and vocab.ts). Only these are
+// written outside a fence; any other value is the ticket's text and goes inside one.
+const KNOWN = {
+  type: new Set(['bug', 'internal_bug', 'feature', 'story', 'improvement', 'task', 'investigation', 'general']),
+  severity: new Set(['critical', 'high', 'medium', 'low']),
+  priority: new Set(['high', 'medium', 'low']),
+  status: new Set(['open', 'backlog', 'planning', 'ready_for_development', 'in_progress', 'code_review', 'testing', 'uat', 'ready_for_release', 'resolved', 'closed']),
+};
+/** A ticket key: letters, a hyphen, digits. */
+const KEY = /^[A-Za-z]{1,20}-\d{1,9}$/;
+/** A well-formed http or https address with no spaces, or null. */
+function webAddress(v) {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  if (!/^https?:\/\/\S+$/.test(t)) return null;
+  try { const u = new URL(t); return (u.protocol === 'http:' || u.protocol === 'https:') && u.hostname ? t : null; } catch { return null; }
+}
+
 /**
  * The markdown for ticket.md. `detail` is Orbit's getTicket answer; { key, url, readAt } come from
  * Starbase (the ticket it was started from, and when it was read). Every piece of the ticket's own
- * text sits in a fenced block; the headings and other lines are Starbase's.
+ * text sits in a fenced block. Outside the fences there are only Starbase's fixed words, the key
+ * (when it has a key's shape), values from Orbit's fixed lists, dates and counts.
  */
 export function ticketFile(detail, { key, url = null, readAt = new Date() } = {}) {
   const { pick } = fieldsOf(detail);
   const line = (name) => oneLine(pick(name));
 
   const out = [FIRST_LINE, SECOND_LINE, ''];
+  const shownKey = typeof key === 'string' && KEY.test(key.trim()) ? key.trim() : null;
+  out.push(`# ${shownKey ?? 'Orbit ticket'}`, '');
   const title = line('subject');
-  out.push(`# ${oneLine(key, 40)}${title ? `: ${title}` : ''}`, '');
+  if (title) out.push('## Title', ...fenced(title), '');
 
+  // A fact is written as it is only when its value is one of Orbit's fixed values; anything else
+  // (and Area and Page always) is fenced under its label, as a comment is.
   const page = typeof pick('affectedPage') === 'string' && pick('affectedPage').trim() ? pick('affectedPage') : pick('page');
-  const facts = [['Type', line('type')], ['Severity', line('severity')], ['Priority', line('priority')], ['Status', line('status')], ['Area', line('module')], ['Page', typeof page === 'string' ? oneLine(page.split(/[?#]/)[0]) : '']];
+  const facts = [['Type', 'type'], ['Severity', 'severity'], ['Priority', 'priority'], ['Status', 'status']].map(([label, name]) => [label, line(name), KNOWN[name]]);
+  facts.push(['Area', line('module'), null], ['Page', typeof page === 'string' ? oneLine(page.split(/[?#]/)[0]) : '', null]);
   const given = facts.filter(([, v]) => v);
-  if (given.length) out.push(...given.map(([k, v]) => `- ${k}: ${v}`), '');
+  for (const [label, v, known] of given) {
+    if (known?.has(v)) out.push(`- ${label}: ${v}`);
+    else out.push(`- ${label}:`, ...fenced(v).map((l) => `  ${l}`));
+  }
+  if (given.length) out.push('');
 
   out.push('## Description');
   const description = clip(pick('description'), DESCRIPTION_MAX);
@@ -148,24 +176,26 @@ export function ticketFile(detail, { key, url = null, readAt = new Date() } = {}
   }
   out.push('');
 
-  // What Orbit gives for Links: its shared, live references (kind, label, url, purpose). It names no
-  // merged, staging or deployed state of its own, so none is written here.
+  // What Orbit gives for Links: its shared, live references (kind, label, url, purpose), all in one
+  // fenced block, one line each. A reference whose address is not a well-formed web address is left
+  // out. Orbit names no merged, staging or deployed state of its own, so none is written here.
   out.push('## Links');
   const references = Array.isArray(pick('references')) ? pick('references') : [];
   const live = [];
   for (const r of references) {
-    if (isObject(r) && r.visibility === 'shared' && r.removedAt == null && typeof r.url === 'string' && /^https?:\/\/\S+$/.test(r.url.trim())) live.push({ i: live.length, at: stamp(r.createdAt), r });
+    if (isObject(r) && r.visibility === 'shared' && r.removedAt == null && webAddress(r.url)) live.push({ i: live.length, at: stamp(r.createdAt), r });
   }
   live.sort((a, b) => -newestLast(a, b));
   const links = live.slice(0, LINKS_MAX).map(({ r }) => {
     const label = oneLine(r.label, 200);
     const purpose = oneLine(r.purpose, 80);
-    return `- ${oneLine(r.kind, 40) || 'link'}: ${label ? `${label} ` : ''}${bareUrl(r.url)}${purpose ? ` (${purpose.slice(0, 80)})` : ''}`;
+    return `- ${oneLine(r.kind, 40) || 'link'}: ${label ? `${label} ` : ''}${bareUrl(webAddress(r.url))}${purpose ? ` (${purpose.slice(0, 80)})` : ''}`;
   });
-  out.push(...(links.length ? links : ['No links.']), '');
+  out.push(...(links.length ? fenced(links.join('\n')) : ['No links.']), '');
 
   const when = new Date(readAt);
-  out.push(`Read from Orbit ${Number.isNaN(when.getTime()) ? new Date().toISOString() : when.toISOString()}.${url ? ` Link: ${bareUrl(url, 1000)}` : ''}`);
+  const link = webAddress(url);
+  out.push(`Read from Orbit ${Number.isNaN(when.getTime()) ? new Date().toISOString() : when.toISOString()}.${link ? ` Link: ${bareUrl(link, 1000)}` : ''}`);
   return `${out.join('\n')}\n`;
 }
 

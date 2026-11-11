@@ -510,7 +510,7 @@ test('a job started from a ticket gets ticket.md', { timeout: 60_000 }, async ()
     const dir = path.join(featuresDir, r.body.slug);
     const md = await fs.readFile(path.join(dir, 'ticket.md'), 'utf8');
     assert.equal(md.split('\n')[0], FIRST_LINE);
-    assert.match(md, /# ORBIT-479: Feedback API/);
+    assert.match(md, /# ORBIT-479\n\n## Title\n```\nFeedback API\n```/);
     assert.match(md, /Make the API\. Mail \[email\]\./);
     assert.match(md, /- Comment, 3 Nov:\n {2}```\n {2}Shared words\.\n {2}```/);
     assert.ok(!md.includes('NOTE-MARKER') && !md.includes('ana@example.com') && !md.includes('AUTHOR-NAME'));
@@ -552,6 +552,6 @@ test('a start with a ticket and nothing but its key still reads the ticket', { t
     const r = await post({ description: 'ORBIT-12', repoPath: repo, ticket: { key: 'ORBIT-12' } });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.ok(seen.includes('GET /api/feedback/v1/tickets/ORBIT-12'), seen.join('\n'));
-    assert.match(await fs.readFile(path.join(featuresDir, r.body.slug, 'ticket.md'), 'utf8'), /# ORBIT-12: Feedback API/);
+    assert.match(await fs.readFile(path.join(featuresDir, r.body.slug, 'ticket.md'), 'utf8'), /# ORBIT-12\n\n## Title\n```\nFeedback API\n```/);
   });
 });
