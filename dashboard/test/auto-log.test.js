@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { AUTO_LOG_FILE, autoCost, autoLog, autoLogMarkdown, autoTime, writeAutoLog } from '../lib/auto-log.js';
-import { AUTO_MARK } from '../lib/auto-mode.js';
+import { AUTO_MARK } from '../lib/auto.js';
 
 // Local times, so the tests do not depend on the machine's time zone.
 const at = (d, h, m) => new Date(2026, 10, d, h, m).toISOString();

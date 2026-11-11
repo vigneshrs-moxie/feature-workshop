@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decisionId, decisionLog, decisionOf, decisionPrefix, decisionRows, gateAnswers, gateNote, keptParts, localDay, orbitCopy, render, writeDecisionsFile } from '../lib/decisions.js';
-import { AUTO_MARK } from '../lib/auto-mode.js';
+import { AUTO_MARK } from '../lib/auto.js';
 import { startDashboard } from './helpers/dashboard.js';
 
 test('approvals, send-backs with their note, stops, permissions, levels, closing', () => {

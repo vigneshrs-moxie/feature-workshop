@@ -12,7 +12,7 @@ import path from 'node:path';
 import { PRODUCT, stateDirFor } from './state.js';
 import { writeFileAtomic } from './atomic-write.js';
 import { cleanTicketText } from './ticket-file.js';
-import { AUTO_MARK } from './auto-mode.js';
+import { AUTO_MARK } from './auto.js';
 
 const firstLine = (text, max = 160) => {
   const line = String(text ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
