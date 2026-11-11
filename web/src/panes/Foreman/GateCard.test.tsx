@@ -11,7 +11,7 @@ import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job, LEVELS, REVIEWERS, snapshot } from '../../state/test-fixtures';
 import { Composer, draftKey } from './Composer';
 import { GateSlot } from './GateCard';
-import { gateSentKey } from './gateSent';
+import { clearGateSent, gateSentKey } from './gateSent';
 import { clearAllSent, useSent } from '../../lib/sentState';
 
 // An invented job and gate; no real job names.
@@ -295,7 +295,7 @@ describe('GateCard', () => {
     await act(async () => { fireEvent.click(button(/^Approve quick plan/)); });
     expect(post.mock.calls[0][1].chips).toEqual([{ kind: 'fable', point: 'review' }]);
     // Sent: the card's calls rest until the job moves on, as it does here (a new brief, a new run).
-    act(() => clearAllSent());
+    act(() => { clearAllSent(); clearGateSent(); });
     show(oneQ({ nextStage: 'investigate' }));
     expect(button('Ask Fable (the plan)')).not.toHaveAttribute('aria-disabled');
     show(oneQ({ nextStage: 'refine' }));
@@ -889,6 +889,7 @@ describe('GateCard: a decision on its way', () => {
       unmount();
       probe.unmount();
       clearAllSent();
+      clearGateSent();
       localStorage.clear();
       disclosuresOpen();
     }
@@ -906,6 +907,13 @@ describe('the hand test under Auto', () => {
 
   it('a job without Auto keeps the Try it button', () => {
     setup({ det: detail({ stage: 'test' }) });
+    expect(screen.getByRole('button', { name: 'Try it on your computer' })).toBeInTheDocument();
+    expect(screen.queryByText(HAND_TEST_LINE)).toBeNull();
+  });
+
+  // Deep review D, I5: Auto stopped and asks him to decide, so his hand test is back.
+  it('a stopped Auto job offers Try it on your computer, not the hand test line', () => {
+    setup({ det: detail({ stage: 'test' }), jobExtra: { auto: { on: true, ran: true, stopped: { reason: 'a database change needs you.', rule: 'database', at: '2026-11-11T08:00:00.000Z' } } } });
     expect(screen.getByRole('button', { name: 'Try it on your computer' })).toBeInTheDocument();
     expect(screen.queryByText(HAND_TEST_LINE)).toBeNull();
   });

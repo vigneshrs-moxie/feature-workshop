@@ -28,7 +28,7 @@ import { Kbd } from '../../components/Kbd';
 import { composeGate, type GateKind } from '../../lib/compose';
 import {
   answersFor, approveLabel, chipsFor, chipViews, decidedKey, emptyOverride, gateDraftKey, gateRequest, initialChoices,
-  oneKeyGateApprove, openDecisions, openGate, OTHER, placeGateReply, readGateMemo, readReopenedMemo, reopenMemo, toggleChip, unansweredQuestion,
+  DECIDING_KINDS, gateKey, oneKeyGateApprove, openDecisions, openGate, OTHER, placeGateReply, readGateMemo, readReopenedMemo, reopenMemo, toggleChip, unansweredQuestion,
   verdictsFor, type ChipId, type GateChoices,
 } from '../../lib/gateCard';
 import { plainInline } from '../../lib/inlineMarkdown';
@@ -39,7 +39,7 @@ import { useWorkshop, useWorkshopState } from '../../state/store';
 import { stageLabel } from '../Jobs/stages';
 import { draftKey, SendPreview } from './Composer';
 import { EVIDENCE_STAGES, EvidenceStrip } from './EvidenceStrip';
-import { useGateSent } from './gateSent';
+import { sessionOf, useGateSent } from './gateSent';
 import { isActiveRun } from './thread';
 import { LockCard, lockFromError, lockHeadline } from '../../views/JobLock/LockCard';
 import { Button, isPressable } from '../../components/Button';
@@ -60,6 +60,8 @@ export interface GateNotice {
   focus: 'notice' | 'composer';
 }
 
+/** Why Go waits while the send back box holds words (deep review D, I2). */
+export const CHANGES_TYPED = 'You wrote what should change. Send the changes or cancel them first.';
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
@@ -224,11 +226,14 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const tryUi = useUi();
   // A decision is out: this card's (the button pressed spins) or Try again on the job page's bar.
   // Once the Foreman has it (sent), every call stays off until the job moves on: no second press.
-  const decision = useGateSent(job, runs[slug] ?? detail.run ?? null, queuedOf(detail.queued)?.id ?? null);
+  const decision = useGateSent(job, runs[slug] ?? detail.run ?? null, queuedOf(detail.queued)?.id ?? null, sessionOf(detail));
   const [working, setBusy] = useState(false);
   const [pressed, setPressed] = useState<'approve' | 'after-reset' | 'changes' | 'message' | 'stop' | null>(null);
   const sending = working || decision.state === 'sending';
-  const busy = sending || decision.state === 'sent';
+  // The server took a deciding answer to this brief (its run may already have cleared the sent state):
+  // nothing on the card sends again until the job is fetched and the brief shows as answered.
+  const taken = decision.accepted !== null && decision.accepted.gate === gateKey(gate) && DECIDING_KINDS.includes(decision.accepted.kind);
+  const busy = sending || decision.state === 'sent' || taken;
   const spins = (button: NonNullable<typeof pressed>) => sending && pressed === button;
   const [error, setError] = useState<string | null>(null);
   const [askTerminal, setAskTerminal] = useState(false);
@@ -264,6 +269,9 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const approve = approveLabel(gate, chosen);
   // Why Approve is off, in plain words (the Kingdom Inspection pattern): the list empties as you resolve them.
   const offReasons: string[] = [];
+  // Words typed in the send back box (I2): Go would throw them away, so it waits until they are sent or cancelled.
+  const changesTyped = mode === 'changes' && note.trim() !== '';
+  if (changesTyped) offReasons.push(CHANGES_TYPED);
   if (stale) offReasons.push('The plan changed since this card was raised, so this approval would be for an old version. Ask for changes, or wait for the new brief.');
   const missingOverride = emptyOverride(gate, c);
   if (missingOverride) offReasons.push(`Say what “${missingOverride.decision}” should be instead, or undo that override.`);
@@ -271,6 +279,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   if (openQuestion !== null) offReasons.push(`Question ${openQuestion} has no answer. Pick one, or write your own.`);
   if (lock) offReasons.push(`${lockHeadline(lock, now)}. Only one place can work on a job at a time.`);
   const approveOff = offReasons.length > 0;
+  // Auto is on and has not stopped: it, not he, decides this step.
+  const autoDecides = job.auto?.on === true && !job.auto.stopped;
   // Changes need words; a reply can be answers alone.
   const canSendNote = note.trim() !== '' || (mode === 'message' && Object.keys(answersFor(gate, c)).length > 0);
   // The two disclosures, remembered in this browser (closed until you open them).
@@ -323,7 +333,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     if (problem) throw new Error(problem);
     const body = gateRequest(kind, gate, c, views, { ...(noTerminal ? { confirmNoTerminal: true } : {}), ...extra });
     try {
-      return await decision.send(api, body);
+      return await decision.send(api, body, gateKey(gate));
     } catch (err) {
       const held = lockFromError(err);
       if (held) setRefused(held);
@@ -346,6 +356,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
           : kind === 'changes' ? 'The changes you asked for went to the Foreman. It stays in this stage and revises.'
             : 'Your reply went to the Foreman.';
       report({ tone: 'ok', text: `${what}${dropped}`, lines, focus: 'notice' });
+      // m3: a reply that was taken leaves its box: cleared and closed, so a second press can't send it again.
+      if (kind === 'message') { setNote(''); setMode(null); }
     } else if (r.held) {
       report({ tone: 'ok', text: `${r.message ?? 'Held until Claude’s usage limit resets.'}${dropped}`, lines, focus: 'notice' });
     } else {
@@ -368,6 +380,12 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       });
     }
     reload();
+  }
+
+  /** Approve; a note typed in the open reply box goes with it (I2), and words for a send back stop it. */
+  function approveNow(extra: Partial<GateRequest> = {}, button: NonNullable<typeof pressed> = 'approve') {
+    if (changesTyped) return;
+    void act('approve', { ...(mode === 'message' && note.trim() ? { note } : {}), ...extra }, button);
   }
 
   async function act(kind: GateKind, extra: Partial<GateRequest> = {}, button: NonNullable<typeof pressed> = kind === 'stop' ? 'stop' : kind) {
@@ -427,7 +445,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   // The card's keys (the 'gate' scope): off while a decision is being sent. `a` only where the Desk
   // would allow one key too; 1–3 answer the first question still open.
   useKeyScope('gate', {
-    'gate-approve': () => { if (!oneKeyGateApprove(gate, job.waitingFor)) return false; void act('approve'); },
+    'gate-approve': () => { if (!oneKeyGateApprove(gate, job.waitingFor) || changesTyped) return false; approveNow(); },
     'gate-edit': () => { if (stale) return false; openEdit(); },
     'gate-revise': () => { onOpenBox?.(); openMode('changes'); },
     'gate-guidance': () => { onOpenBox?.(); openMode('message'); },
@@ -481,10 +499,11 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       {lock && <LockCard lock={lock} now={now} />}
       {/* Screens and Try it run on the laptop: the hosted site (packet 2B) leaves them out. */}
       {gate.stage === 'wireframe' && !api.hosted?.() && <ScreensRow slug={slug} hasPage={Boolean(job.wireframes)} />}
-      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && job.auto?.on === true && (
+      {/* While Auto decides, the hand test is skipped; once Auto has stopped and asks him (I5), Try it is back. */}
+      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && autoDecides && (
         <p className="muted gate-try">Auto skips your hand test on this job. The recorded evidence still runs.</p>
       )}
-      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && job.auto?.on !== true && (
+      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && !autoDecides && (
         <p className="gate-try">
           <Button kind="quiet" size="sm" icon="terminal" onClick={() => tryUi.openTry(slug)} title="Open the Try it tab: start this job’s app on your computer and click around before you decide.">Try it on your computer</Button>
         </p>
@@ -575,7 +594,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
         </div>
       )}
       <div className="perm-actions gate-actions" hidden={callsOutside}>
-        <Button kind="primary" keyId={oneKeyGateApprove(gate, job.waitingFor) ? 'gate-approve' : undefined} data-gate="approve" busy={spins('approve')} busyLabel="Sending…" disabled={busy || approveOff} onClick={() => void act('approve')} title={approveOff ? `Off: ${offReasons[0]}` : approveHint}>
+        <Button kind="primary" keyId={oneKeyGateApprove(gate, job.waitingFor) ? 'gate-approve' : undefined} data-gate="approve" data-off-why={changesTyped ? CHANGES_TYPED : undefined} busy={spins('approve')} busyLabel="Sending…" disabled={busy || approveOff} onClick={() => approveNow()} title={approveOff ? `Off: ${offReasons[0]}` : approveHint}>
           {approve}
         </Button>
         {limited && (
@@ -583,7 +602,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
             busy={spins('after-reset')}
             busyLabel="Sending…"
             disabled={busy || approveOff}
-            onClick={() => void act('approve', { startAfterReset: true }, 'after-reset')}
+            onClick={() => approveNow({ startAfterReset: true }, 'after-reset')}
             title={approveOff ? `Off: ${offReasons[0]}` : `Approve now; the reply is held and goes to the Foreman when Claude’s usage limit resets${resetAt ? ` (around ${resetAt})` : ''}.`}
           >
             Approve, start after reset

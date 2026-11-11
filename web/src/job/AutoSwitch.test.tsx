@@ -67,8 +67,38 @@ describe('AutoSwitch', () => {
     const post = vi.fn(async () => { throw new ApiError(409, 'Auto works up to L2. An L3 job needs you to approve each step.', { code: 'auto-level' }); });
     show(job('alpha', 'needs-you', { level: 1 }), post);
     await act(async () => { fireEvent.click(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })); });
-    expect(screen.getByRole('alert')).toHaveTextContent('Auto works up to L2. An L3 job needs you to approve each step.');
+    expect(document.querySelector('.auto-line')).toHaveTextContent('Auto works up to L2. An L3 job needs you to approve each step.');
     expect(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })).not.toBeChecked();
+  });
+
+  // Minor 13: the header switch's small faults, fixed as it goes on the job page.
+  it('the status line is a polite live region, so a refusal or a stop is heard', () => {
+    const { container } = show(job('alpha', 'running', { level: 1 }));
+    const line = container.querySelector('.auto-line')!;
+    expect(line).toHaveAttribute('role', 'status');
+    expect(line).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('a refusal\'s words clear when the job\'s Auto state next changes', async () => {
+    const post = vi.fn(async () => { throw new ApiError(409, 'The laptop said no.', { code: 'x' }); });
+    const j = job('alpha', 'needs-you', { level: 1 });
+    const { container, rerender } = show(j, post);
+    await act(async () => { fireEvent.click(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })); });
+    expect(container.querySelector('.auto-line')).toHaveTextContent('The laptop said no.');
+    const store: Store = createStore();
+    const api = { get: vi.fn(), post } as unknown as ApiClient;
+    rerender(<WorkshopContext.Provider value={{ store, api }}><AutoSwitch job={{ ...j, auto: { on: true } } as Job} /></WorkshopContext.Provider>);
+    expect(container.querySelector('.auto-line')).not.toHaveTextContent('The laptop said no.');
+    expect(container.querySelector('.auto-line')).toHaveTextContent('Auto is on');
+  });
+
+  it('while it spins, the spinner\'s words are not part of the checkbox\'s name', async () => {
+    let finish: (v: unknown) => void = () => {};
+    show(job('alpha', 'needs-you', { level: 1 }), vi.fn(() => new Promise((r) => { finish = r; })));
+    fireEvent.click(screen.getByRole('checkbox', { name: AUTO_LABEL }));
+    expect(screen.getByRole('status', { name: 'Turning Auto on…' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox')).toHaveAccessibleName(AUTO_LABEL);
+    await act(async () => { finish({ ok: true }); });
   });
 
   it('says Auto is on, and who started it when a tag did', () => {
@@ -142,6 +172,33 @@ describe('AutoSwitch', () => {
     const css = readFileSync(path.join(process.cwd(), 'src/job/auto.css'), 'utf8');
     expect(/\.auto-line span \{([^}]*)\}/.exec(css)?.[1]).toMatch(/overflow-wrap:\s*anywhere[^}]*min-width:\s*0|min-width:\s*0[^}]*overflow-wrap:\s*anywhere/);
     expect(/\.job-auto \{([^}]*)\}/.exec(css)?.[1]).toMatch(/flex-wrap:\s*wrap/);
+  });
+
+  // m9: at L3 the row is greyed, but the sentence saying why Auto is off is fully readable.
+  it('at L3 the row stays greyed but its sentence is at full opacity, in the second text colour', () => {
+    const css = readFileSync(path.join(process.cwd(), 'src/job/auto.css'), 'utf8');
+    const rule = (sel: string) => new RegExp(`${sel.replace(/[.()*+?[\]\\^$|{}]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+    expect(rule('.option-row.auto-switch-row.is-off:has(.choice:disabled)')).toMatch(/opacity:\s*1\b/);
+    expect(rule('.auto-switch-row.is-off > .choice, .auto-switch-row.is-off .auto-switch-label')).toMatch(/opacity:\s*\.7/);
+    expect(rule('.auto-switch-row.is-off .auto-switch-hint')).toMatch(/opacity:\s*1\b/);
+    expect(rule('.auto-switch-row.is-off .auto-switch-hint')).toMatch(/color:\s*var\(--text-2\)/);
+    render(<AutoSwitch level={3} checked onChange={vi.fn()} />);
+    expect(screen.getByText(AUTO_L3)).toHaveClass('auto-switch-hint');
+    expect(screen.getByText(AUTO_L3).closest('.auto-switch-row')).toHaveClass('is-off');
+  });
+
+  // Round 2, M4: in the job page's head, a long line under the switch wraps inside the switch's own width.
+  it('in the page head the switch keeps its own width and its line wraps inside it', () => {
+    const css = readFileSync(path.join(process.cwd(), 'src/job/auto.css'), 'utf8');
+    const rule = (sel: string) => new RegExp(`${sel.replace(/[.()*+?[\]\\^$|{}]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+    expect(rule('.page-head .job-auto .auto-switch-row')).toMatch(/width:\s*auto/);
+    const line = rule('.page-head .job-auto .auto-line');
+    expect(line).toMatch(/width:\s*0/);
+    expect(line).toMatch(/min-width:\s*100%/);
+    expect(rule('.page-head .job-auto .auto-switch.is-inline')).toMatch(/display:\s*inline-grid/);
+    expect(line).toMatch(/grid-column:\s*1\s*\/\s*-1/);
+    // What Auto decided goes under the switch, so the head keeps one row at 1280 px.
+    expect(rule('.page-head .job-auto')).toMatch(/grid-template-columns:\s*auto\b/);
   });
 
   it('on the form it is controlled and sends nothing itself', () => {

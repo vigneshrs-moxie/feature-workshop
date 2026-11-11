@@ -28,11 +28,16 @@ import { EvidenceStrip } from '../panes/Foreman/EvidenceStrip';
 import { ThreadList, useCurrentJob, useJobConversation } from '../panes/Foreman/ForemanPane';
 import { Composer } from '../panes/Foreman/Composer';
 import { GateSlot, pressReply } from '../panes/Foreman/GateCard';
-import { useGateSent, type GateSent } from '../panes/Foreman/gateSent';
+import { sessionOf, useGateSent, type GateSent } from '../panes/Foreman/gateSent';
+import { isActiveRun } from '../panes/Foreman/thread';
+import { linesText, stateLines, STUCK_WORDS, useSentView, type SentShown } from './sentView';
 import { JobGithub } from '../panes/Foreman/JobGithub';
 import { JobMenu } from '../panes/Foreman/JobHeader';
 import { LevelChip } from '../panes/Foreman/LevelChip';
 import { CopyDecisions } from './CopyDecisions';
+import { AutoSwitch } from './AutoSwitch';
+import { WhatAutoDecided } from './WhatAutoDecided';
+import { AUTO_DECIDING_NOTE, autoDeciding, autoLaneReason } from './autoLine';
 import { DecisionsTab } from '../panes/Preview/DecisionsTab';
 import { DocsTab } from '../panes/Preview/DocsTab';
 import { TryTab } from '../panes/Preview/TryTab';
@@ -180,6 +185,9 @@ function JobView({ job }: { job: Job }) {
   const [detail] = useDetail();
   const thread_ = <ThreadList job={job} conversation={conversation} now={now} cards={false} newest={detail === 'simple' ? 1 : undefined} />;
   const workCount = JOB_TABS.length;
+  // The Foreman's model, fixed once the job has started: a locked line in Details.
+  const modelId = thread.detail?.drive?.sessionId ? thread.detail.drive.model ?? null : null;
+  const modelLabel = modelId ? state.meta?.models?.find((m) => m.id === modelId)?.label ?? modelId : null;
   return (
     <Page
       label="Job"
@@ -193,6 +201,8 @@ function JobView({ job }: { job: Job }) {
           <section className="job-strip" aria-label="The job’s stops"><StopMap job={{ ...job, lane }} compact hrefFor={(s) => stageHref(job.slug, s)} label="The job’s stops: each opens who works on it" /></section>
           {narrow && <PartOfStack slug={job.slug} index={stacks} />}
           <span className="spacer" />
+          {/* Auto (C1): the switch with its line, and What Auto decided, where he answers. */}
+          <div className="job-auto"><AutoSwitch job={job} /><WhatAutoDecided slug={job.slug} auto={job.auto} /></div>
           <CopyDecisions slug={job.slug} />
           <JobMenu job={job} dir={thread.detail?.dir} policyOverride={thread.detail?.policyOverride} run={run} worktree={thread.detail?.worktree} started={Boolean(thread.detail?.drive?.sessionId)} gear />
         </>
@@ -212,9 +222,13 @@ function JobView({ job }: { job: Job }) {
             <div className="job-details-head">
               {ticket && <Chip className="num">{ticket}</Chip>}
               {thread.detail?.auto?.tag && <Chip tone="accent">{`Started by Auto (tag: ${thread.detail.auto.tag})`}</Chip>}
-              <CopyDecisions slug={job.slug} />
               <LevelChip job={job} ready={Boolean(thread.detail)} />
               <PartOfStack slug={job.slug} index={stacks} />
+              {modelLabel && (
+                <span className="job-model muted" title="Fixed for this job. Change model… in the job menu starts the job again.">
+                  <Icon name="lock" size={12} /> Foreman model: {modelLabel}
+                </span>
+              )}
             </div>
             <section className={`job-map${play.full ? ' has-grid' : ''}`} aria-label="The job’s stops, in full">
               <StopMap job={{ ...job, lane }} faces={play.full && !narrow} label="Every stop, with its name" />
@@ -279,30 +293,25 @@ export function NextStep({ job, conversation, now, onShip, foldCard = false }: {
   const play = usePlay();
   const review = useReview(job.slug);
   const { thread, run } = conversation;
-  const after = useAfterSend(job, run, thread.reload, queuedOf(thread.detail?.queued)?.id ?? null);
+  const after = useAfterSend(job, run, thread.reload, queuedOf(thread.detail?.queued)?.id ?? null, sessionOf(thread.detail));
   const perms = state.permissions.filter((p) => p.slug === job.slug && !isRoundCard(p));
   // One live region, always here (empty when nothing is out), so each of sending, sent and stuck is
   // announced once; the bar shows the same words, but not as a live region.
-  const live = <p className="sr-only" role="status" data-next-live>{after.live}</p>;
+  // The brief is answered (or his reply's run is at work): the bar keeps saying it was sent.
+  const sentShown = useSentView(job, thread.detail, run, after.decision, thread.reload);
+  const sent = perms.length === 0 ? sentShown : null;
+  const live = <p className="sr-only" role="status" data-next-live>{after.live || (sent ? linesText(sent) : '')}</p>;
   const problem = after.problem && <p ref={after.problemRef} className="field-problem" role="alert" tabIndex={-1}>{after.problem}</p>;
   let bar: ReactNode;
   if (perms.length > 0) bar = <PermissionAlert permissions={perms} now={now} />;
-  else if (thread.detail?.gate) bar = <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} after={after} />;
+  else if (thread.detail?.gate) bar = <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} after={after} sent={sent} run={run} />;
   else if (review.view) bar = <ReviewBar view={review.view} act={review.act} problem={review.problem} />;
   else bar = <StateBar job={job} onShip={onShip} after={after} />;
   return <>{bar}{live}{problem}</>;
 }
 
-/** The bar after a decision was taken (spec 1.2): its words, and Try again once nothing has moved. */
-const SENT_WORDS = 'Sent. Waiting for the Foreman to start.';
-const STUCK_WORDS = 'Nothing has moved yet.';
-/** The second line under the sent line, by what was sent (Go keeps the bar's own second line). */
-const SENT_MORE: Partial<Record<string, string>> = {
-  message: 'Your reply is with the Foreman. Nothing is approved.',
-  changes: 'The Foreman will rework this step with your note.',
-};
-
 const SENDING_WORDS = 'Sending…';
+const SENDING_OFF = 'Off while your decision is being sent.';
 
 interface AfterSend {
   decision: GateSent;
@@ -328,9 +337,9 @@ interface AfterSend {
  * The decision this job's gate card sent, as the bar shows it: watched here (gateSent.ts clears it
  * once the job moves on), with Try again sending the same decision once more.
  */
-function useAfterSend(job: Job, run: Run | null, reload: () => void, queuedId: string | null): AfterSend {
+function useAfterSend(job: Job, run: Run | null, reload: () => void, queuedId: string | null, session: string | null): AfterSend {
   const { api } = useWorkshop();
-  const decision = useGateSent(job, run, queuedId);
+  const decision = useGateSent(job, run, queuedId, session);
   const sayRef = useRef<HTMLSpanElement>(null);
   const tryRef = useRef<HTMLButtonElement>(null);
   const problemRef = useRef<HTMLParagraphElement>(null);
@@ -353,10 +362,11 @@ function useAfterSend(job: Job, run: Run | null, reload: () => void, queuedId: s
     }
   }
   const waits = out === 'sent' || out === 'stuck' || (retrying && out === 'sending');
-  const words = out === 'sent' ? SENT_WORDS : STUCK_WORDS;
+  const lines = stateLines(decision);
+  const words = lines?.words ?? STUCK_WORDS;
   const shown = !waits ? null : out === 'sent' ? 'sent' : 'stuck';
   const tryShown = out === 'stuck' || retrying;
-  const more = out === 'sent' && decision.kind ? SENT_MORE[decision.kind] ?? null : null;
+  const more = out === 'sent' ? lines?.more ?? null : null;
   // Focus stays on the pressed button while it spins (a busy button keeps it). When the sent or stuck
   // line shows, or Try again goes, and the focus would be lost (on nothing, or on a call now off), it
   // moves to the line, to Try again once stuck, or to the server's sentence when Try again was
@@ -372,7 +382,7 @@ function useAfterSend(job: Job, run: Run | null, reload: () => void, queuedId: s
   return {
     decision,
     more,
-    live: out === 'sending' ? SENDING_WORDS : out === 'sent' ? [SENT_WORDS, more].filter(Boolean).join(' ') : out === 'stuck' ? STUCK_WORDS : '',
+    live: out === 'sending' ? SENDING_WORDS : lines ? linesText(lines) : '',
     sayRef,
     tryRef,
     say: waits ? <span ref={sayRef} tabIndex={-1}>{words}</span> : null,
@@ -397,11 +407,11 @@ function TryAgain({ after }: { after: AfterSend }) {
  * the decisions made for you, a stale plan, the evidence); its own row of buttons is hidden, and
  * the bar's three calls press them (Reply opens the message box). Go is off while the card asks a question: a never answers one.
  */
-function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; after: AfterSend }) {
+function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, run }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; after: AfterSend; sent: SentShown | null; run: Run | null }) {
   const [cardShown, setCardShown] = useShown('stage', 'brief');
   const folded = foldCard && !cardShown;
   const body = useRef<HTMLDivElement>(null);
-  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true });
+  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true, why: '' });
   useLayoutEffect(() => {
     const el = body.current;
     if (!el) return;
@@ -410,8 +420,9 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { jo
       const back = el.querySelector<HTMLButtonElement>('[data-gate="revise"]');
       // Off whenever the card's button can't be pressed: disabled, aria-disabled, or busy.
       const reply = el.querySelector<HTMLButtonElement>('[data-gate="guidance"]');
-      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back), replyOff: !isPressable(reply) };
-      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff && was.replyOff === next.replyOff ? was : next));
+      // The card's own reason when Go must wait for something on it (words typed for a send back).
+      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back), replyOff: !isPressable(reply), why: b?.dataset.offWhy ?? '' };
+      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff && was.replyOff === next.replyOff && was.why === next.why ? was : next));
     };
     read();
     const watch = new MutationObserver(read);
@@ -426,23 +437,30 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { jo
   // The call pressed spins while its decision is out (the card's own button was pressed for it).
   const out = after.decision.state === 'sending' && !after.retrying;
   const spins = (kind: string) => out && after.decision.kind === kind;
+  // Why a greyed call is off: a decision on its way (m2), else the card under the bar says.
+  const offWhy = out ? SENDING_OFF : 'Off for now: the card under this says why.';
+  // His decision went (I1): the sent line, the second line for what was sent, and no calls; Try
+  // again only once nothing has moved and no run is at work.
+  const waits = Boolean(after.say) || sent !== null;
+  const sentSay = after.say ?? <span ref={after.sayRef} tabIndex={-1}>{sent?.words}</span>;
   return (
     <div className="job-go">
       <NextBar
         tone="go"
         icon="clipboard"
-        label={call ? 'Go / no go' : null}
-        say={after.say ?? (gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead')}
-        sub={after.more ?? (gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason)}
+        label={call && !waits ? 'Go / no go' : null}
+        say={waits ? sentSay : (gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead')}
+        sub={waits ? (sent?.more ?? after.more) : autoLaneReason(job) ?? (gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason)}
       >
+        {/* Try again: the send itself is stuck, or the answered brief has stalled with no run at work. */}
+        {waits && !isActiveRun(run) && (after.stuck || sent?.canRetry) && <TryAgain after={after} />}
         {/* On the hosted site a Go made there waits for the laptop (the card under this says so): no calls meanwhile. */}
-        {!isOpen(queuedOf(detail.queued)) && <>
-        {after.stuck && <TryAgain after={after} />}
-        <Button size="lg" keyId="gate-revise" busy={spins('changes')} busyLabel={SENDING_WORDS} disabled={go.backOff} onClick={() => { if (folded) setCardShown(true); press('revise'); }} title={go.backOff ? 'Off for now: the card under this says why.' : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
+        {!waits && !isOpen(queuedOf(detail.queued)) && <>
+        <Button size="lg" keyId="gate-revise" busy={spins('changes')} busyLabel={SENDING_WORDS} disabled={go.backOff} onClick={() => { if (folded) setCardShown(true); press('revise'); }} title={go.backOff ? offWhy : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
           {call ? 'No go: send back' : 'Send back'}
         </Button>
         {/* Reply opens the card's message box: on whenever the card waits, even with a question open. It never approves. */}
-        <Button size="lg" busy={spins('message')} busyLabel={SENDING_WORDS} disabled={go.replyOff} onClick={reply} title={go.replyOff ? 'Off for now: the card under this says why.' : 'Answer a question or leave a note for the Foreman. Nothing is approved. Your answers so far go with it.'}>
+        <Button size="lg" busy={spins('message')} busyLabel={SENDING_WORDS} disabled={go.replyOff} onClick={reply} title={go.replyOff ? offWhy : 'Answer a question or leave a note for the Foreman. Nothing is approved. Your answers so far go with it.'}>
           Reply
         </Button>
         {/* Go is on whenever the card's own Approve is: with questions it sends your answers too (the
@@ -456,12 +474,13 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { jo
           busyLabel={SENDING_WORDS}
           disabled={go.off}
           onClick={() => press('approve')}
-          title={go.off ? 'Go is off for now: the card under this says why.' : go.asks ? `${goWords}, with your answers to the questions under this. The a key never answers a question.` : `${goWords} (key: a).`}
+          title={go.off ? go.why || (out ? SENDING_OFF : 'Go is off for now: the card under this says why.') : go.asks ? `${goWords}, with your answers to the questions under this. The a key never answers a question.` : `${goWords} (key: a).`}
         >
           {call ? `Go: ${lowerFirst(goWords)}` : goWords}
         </Button>
         </>}
       </NextBar>
+      {autoDeciding(job) && !waits && <p className="job-go-auto muted">{AUTO_DECIDING_NOTE}</p>}
       {foldCard && (
         <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
           <Icon name="file" size={16} />

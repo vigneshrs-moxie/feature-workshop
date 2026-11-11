@@ -73,11 +73,17 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
 
   // Whether Orbit shows tags to this token, read from the Inbox's answer while Auto start is on.
   const [tagsShown, setTagsShown] = useState<boolean | undefined>(undefined);
+  // And whether a token is saved at all (m10): Auto start can start nothing without one.
+  const [tokenSet, setTokenSet] = useState<boolean | undefined>(undefined);
   const autoOn = w.autoStart?.on === true;
   useEffect(() => {
-    if (!autoOn) { setTagsShown(undefined); return undefined; }
+    if (!autoOn) { setTagsShown(undefined); setTokenSet(undefined); return undefined; }
     let live = true;
-    Promise.resolve(api.get<InboxAnswer>('/api/orbit/inbox')).then((a) => { if (live) setTagsShown(typeof a?.tagsShown === 'boolean' ? a.tagsShown : undefined); }).catch(() => {});
+    Promise.resolve(api.get<InboxAnswer>('/api/orbit/inbox')).then((a) => {
+      if (!live) return;
+      setTagsShown(typeof a?.tagsShown === 'boolean' ? a.tagsShown : undefined);
+      setTokenSet(typeof a?.tokenPresent === 'boolean' ? a.tokenPresent : undefined);
+    }).catch(() => {});
     return () => { live = false; };
   }, [api, autoOn]);
 
@@ -109,7 +115,7 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
           <p className="muted" role="note">{BRAND.name} didn’t send the finish line’s choices. Update it and start it again; until then it uses {finishLineLabel(w.finishLine, undefined)}.</p>
         )}
       </SettingGroup>
-      <SettingsMore id="workflow-more" label="More: GitHub, what new jobs start with, the level, stacks, Claude Code use and the Orbit token" holds={['github-every', 'pr-route', 'wireframes', 'clarify', 'auto-level', 'inbox-suggest', 'auto-start', 'sections-at-once', 'count-claude-code', 'orbit-token']}>
+      <SettingsMore id="workflow-more" label="More: GitHub, the Inbox and Auto start, what new jobs start with, the level, stacks, Claude Code use and the Orbit token" holds={['github-every', 'pr-route', 'wireframes', 'clarify', 'auto-level', 'inbox-suggest', 'auto-start', 'sections-at-once', 'count-claude-code', 'orbit-token']}>
         <GithubEvery />
         <RouteTable />
         {CHOICES.map((c) => (
@@ -136,11 +142,12 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
             <Choice type="checkbox" checked={w.inboxSuggest !== false} onChange={(e) => void save({ inboxSuggest: e.currentTarget.checked }, 'inbox')} />
             Suggest what to start next
           </label>
-          <p className="muted settings-note-under">When none of your tickets is ranked in Orbit, Haiku on this laptop picks up to three to start next and says why. It reads each ticket’s title, type, severity, age, size and the start of its description, and which files your open jobs are changing. Never names, emails, internal notes or comments. It asks again only when your list changes, at most every 30 minutes, for less than a cent each time.</p>
+          <p className="muted settings-note-under">When none of your tickets is ranked in Orbit, Haiku on this laptop picks up to three to start next and says why. It gets each ticket’s title and the start of its description, without mentions, email addresses or the names Orbit attaches. A name typed into the text is still there. It also gets each ticket’s type, severity, age and size, and which files your open jobs are changing; never internal notes or comments. It asks again only when your list changes, at most every 30 minutes, for less than a cent each time.</p>
         </SettingGroup>
         <AutoStartGroup
           setting={w.autoStart}
           tagsShown={tagsShown}
+          tokenSet={tokenSet}
           busy={busy}
           onSave={async (next) => { store.dispatch({ type: 'settings', settings: await api.post<Settings>('/api/settings', { workflow: { autoStart: next } }) }); }}
         />

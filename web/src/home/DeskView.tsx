@@ -34,7 +34,7 @@ import { StopMap } from '../components/stops/StopMap';
 import { Card } from '../components/permissions/PendingCards';
 import { fullTime, relativeTime } from '../lib/time';
 import { GateSlot, pressReply } from '../panes/Foreman/GateCard';
-import { useGateSent } from '../panes/Foreman/gateSent';
+import { sessionOf, useGateSent } from '../panes/Foreman/gateSent';
 import { ServerHtml } from '../panes/Foreman/ServerHtml';
 import { useJobThread } from '../panes/Foreman/useJobThread';
 import { CrewMember } from '../play/CrewMember';
@@ -48,6 +48,9 @@ import { type DeskEntry, deskEntries, isShipping, jobFacts, type NudgeItem, nudg
 import { More } from '../components/More';
 import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
 import { BRAND } from '../app/brand';
+import { autoLaneReason } from '../job/autoLine';
+import { DESK_WRITE_TO_MOVE, useWaitingLines, type SentShown } from '../job/sentView';
+import { WhatAutoDecided } from '../job/WhatAutoDecided';
 
 const DESK_KEYS: readonly KeyId[] = ['desk-next', 'desk-prev', 'desk-approve', 'desk-deny', 'desk-open', 'desk-brief'];
 
@@ -89,7 +92,10 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
   const [go, setGo] = useState({ words: '', off: true, asks: false });
   const [extras, setExtras] = useState<HTMLDivElement | null>(null);
   // The call pressed spins while its decision is out (the card's own button was pressed for it).
-  const decision = useGateSent(job, state.runs[job.slug] ?? thread.detail?.run ?? null, queuedOf(thread.detail?.queued)?.id ?? null);
+  const run = state.runs[job.slug] ?? thread.detail?.run ?? null;
+  const decision = useGateSent(job, run, queuedOf(thread.detail?.queued)?.id ?? null, sessionOf(thread.detail));
+  // After a send: the same lines as the job page's bar (job/sentView.ts), and no calls.
+  const sent = useWaitingLines(job, thread.detail, run, decision, thread.reload);
   const spins = (kind: string) => decision.state === 'sending' && decision.kind === kind;
   // The gate card's own key for Adjust the next step opens the Details it lives in; Esc closes them.
   useEffect(() => {
@@ -122,16 +128,24 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
   const brief = thread.detail.latestBrief as { html?: string; number?: number | null } | null | undefined;
   const press = (what: 'approve' | 'revise') => { const b = body.current?.querySelector(`[data-gate="${what}"]`); if (isPressable(b)) b.click(); };
   // On the hosted site, a Go made there waits for the laptop: the card says so, and the calls rest.
-  const gate = Boolean(thread.detail.gate) && !isOpen(queuedOf(thread.detail.queued));
+  const gate = Boolean(thread.detail.gate) && !isOpen(queuedOf(thread.detail.queued)) && !sent;
   // On a phone No go is as large as Go (at least 44 px: packet 2B's Desk on a phone).
   const goWords = go.words || 'Approve';
   return (
     <>
-      <div className="desk-say">
-        <span className="next-label">{call ? 'Go / no go' : 'Waiting for you'}</span>
-        <h3 className="desk-head">{typeof job.headline === 'string' && job.headline ? job.headline : 'Waiting for your go-ahead'}</h3>
-        {job.laneReason && <p className="desk-sub">{job.laneReason}</p>}
-      </div>
+      {sent ? (
+        // After a send: the bar's own lines; the label and head no longer ask for the go-ahead given (M1).
+        <div className="desk-say" role="status">
+          <h3 className="desk-head">{sent.words}</h3>
+          <SentSub job={job} sent={sent} />
+        </div>
+      ) : (
+        <div className="desk-say">
+          <span className="next-label">{call ? 'Go / no go' : 'Waiting for you'}</span>
+          <h3 className="desk-head">{typeof job.headline === 'string' && job.headline ? job.headline : 'Waiting for your go-ahead'}</h3>
+          {job.laneReason && !autoLaneReason(job) && <p className="desk-sub">{job.laneReason}</p>}
+        </div>
+      )}
       {/* One Details (packet R): the Foreman's brief, adjusting the next step and how this works, as
           sections of one sheet over the right side. Always there (hidden while shut), so the gate
           card can put its extras in it. */}
@@ -189,6 +203,24 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
         <p className="muted">The Foreman is waiting for your reply. <a href={jobHref(job.slug)}>Open the job</a> to read its last message and answer in the message box.</p>
       )}
     </>
+  );
+}
+
+/** The second line under the sent or stalled line on the Desk: the Desk has no message box, so it says to open the job. */
+function SentSub({ job, sent }: { job: Job; sent: SentShown }) {
+  if (sent.write) return <p className="desk-sub"><a href={jobHref(job.slug)}>Open the job</a>{DESK_WRITE_TO_MOVE.slice('Open the job'.length)}</p>;
+  return sent.more ? <p className="desk-sub">{sent.more}</p> : null;
+}
+
+/** The same Auto line the Jobs card shows ("Auto stopped: …", "Auto is deciding: …"), with What Auto decided. */
+function DeskAutoLine({ job }: { job: Job }) {
+  const reason = autoLaneReason(job);
+  if (!reason && !job.auto?.ran) return null;
+  return (
+    <div className="desk-auto">
+      {reason && <span className="desk-auto-why">{reason}</span>}
+      <WhatAutoDecided slug={job.slug} auto={job.auto} />
+    </div>
   );
 }
 
@@ -262,13 +294,22 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 function DeskGate({ job, now, briefOpen, toggleBrief }: { job: Job; now: Date; briefOpen: boolean; toggleBrief(): void }) {
   const state = useWorkshopState();
   const thread = useJobThread(job.slug, (state.threadVersions[job.slug] ?? 0) + state.threadEpoch);
+  // M3: after a send, the same lines as the default Desk and the job page's bar (job/sentView.ts).
+  const run = state.runs[job.slug] ?? thread.detail?.run ?? null;
+  const decision = useGateSent(job, run, queuedOf(thread.detail?.queued)?.id ?? null, sessionOf(thread.detail));
+  const sent = useWaitingLines(job, thread.detail, run, decision, thread.reload);
   if (thread.error) return <p className="perm-warn" role="alert">{thread.error}</p>;
   if (!thread.detail) return <p className="muted" role="status">Opening the Foreman’s brief…</p>;
   const brief = thread.detail.latestBrief as { html?: string; number?: number | null } | null | undefined;
   const label = `Brief${brief?.number ? ` #${brief.number}` : ''}`;
   return (
     <>
-      {typeof job.headline === 'string' && job.headline && <p className="desk-headline">{job.headline}</p>}
+      {sent ? (
+        <div className="desk-say" role="status">
+          <p className="desk-headline">{sent.words}</p>
+          <SentSub job={job} sent={sent} />
+        </div>
+      ) : typeof job.headline === 'string' && job.headline && <p className="desk-headline">{job.headline}</p>}
       {brief?.html && (
         <section className="desk-brief" aria-label={label}>
           <header className="desk-brief-head">
@@ -530,6 +571,7 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
                 <Button kind="quiet" size="sm" keyId="desk-open" iconOnly={false} href={jobHref(current.slug)} title="Open the whole job: its stops, documents and conversation (key: o).">Open the job</Button>
               </header>
               {job && current.kind !== 'nudge' && <StopMap job={job} />}
+              {job && current.kind !== 'nudge' && <DeskAutoLine job={job} />}
               {current.kind === 'gate' && (job
                 ? <DeskGateOne key={current.key} job={job} now={now} briefOpen={briefOpen} toggleBrief={() => setBriefOpen((o) => !o)} call={call} />
                 : <p className="muted">This job isn’t in the list any more.</p>)}
@@ -591,6 +633,7 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
               <h3>{current.title}</h3>
               <Button kind="quiet" keyId="desk-open" href={jobHref(current.slug)} title="Open the whole job: its conversation, documents and options (key: o).">Open the job</Button>
             </header>
+            {job && current.kind !== 'nudge' && <DeskAutoLine job={job} />}
             {current.kind === 'gate' && (job
               ? <DeskGate key={current.key} job={job} now={now} briefOpen={briefOpen} toggleBrief={() => setBriefOpen((o) => !o)} />
               : <p className="muted">This job isn’t in the list any more.</p>)}

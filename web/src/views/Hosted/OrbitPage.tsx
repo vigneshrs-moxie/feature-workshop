@@ -35,6 +35,18 @@ export function savedWords(status: Pick<OrbitStatus, 'expiresAt'>, now = new Dat
   return status.expiresAt ? `Saved · expires ${dayWords(status.expiresAt, now)}` : 'Saved · when it expires isn’t known';
 }
 
+/** Auto start from the site (I4): the site only queues it for the laptop; these say where it is. */
+export const AUTO_START_SENT = 'Sent to your laptop. It takes effect there.';
+export const AUTO_START_WAITING = 'Waiting for your laptop.';
+export const AUTO_START_NOT_TAKEN = 'Your laptop did not take this change.';
+/** After its 10 minutes of looking (M8): the site keeps the command until the laptop collects it. */
+export const AUTO_START_KEPT = 'Your laptop has not answered. The change is kept and takes effect when it is back online.';
+/** How often the page reads the laptop's mirrored value after a change, and for how long. */
+const AUTO_LOOK_MS = 3000;
+const AUTO_TAKE_MS = 60_000;
+const AUTO_WAIT_MS = 10 * 60_000;
+const sameAuto = (a: AutoStartSetting | undefined, b: AutoStartSetting | undefined) => (a?.on === true) === (b?.on === true) && (a?.tag ?? '') === (b?.tag ?? '');
+
 export function OrbitPage({ api, onSignedOut }: HostedProps) {
   const id = useId();
   const [load, setLoad] = useState<Load>({ state: 'loading' });
@@ -47,6 +59,28 @@ export function OrbitPage({ api, onSignedOut }: HostedProps) {
   // Auto start: the setting your laptop mirrors, and whether Orbit shows tags to your token (from the inbox the site keeps).
   const [auto, setAuto] = useState<AutoStartSetting | undefined>(undefined);
   const [tagsShown, setTagsShown] = useState<boolean | undefined>(undefined);
+  // A change sent to the laptop: what was sent, the laptop's value then, whether it was there, and when.
+  const [autoSent, setAutoSent] = useState<{ want: AutoStartSetting; was: AutoStartSetting | undefined; online: boolean; at: number } | null>(null);
+  const [autoNote, setAutoNote] = useState<string | null>(null);
+  // Until the laptop mirrors it, the switch shows the laptop's own value; then the line goes, or says it
+  // was not taken (the value came back different, or nothing changed for a minute while it was there).
+  useEffect(() => {
+    if (!autoSent) return;
+    let live = true;
+    const look = async () => {
+      const s = await Promise.resolve(api.get<Pick<Snapshot, 'meta'>>('/api/snapshot')).catch(() => null);
+      if (!live || !s) return;
+      const now = s.meta?.settings?.workflow?.autoStart;
+      setAuto(now);
+      const waited = Date.now() - autoSent.at;
+      if (sameAuto(now, autoSent.want)) { setAutoNote(null); setAutoSent(null); }
+      else if (!sameAuto(now, autoSent.was) || (autoSent.online && waited > AUTO_TAKE_MS)) { setAutoNote(AUTO_START_NOT_TAKEN); setAutoSent(null); }
+      else if (waited > AUTO_WAIT_MS) { setAutoNote(AUTO_START_KEPT); setAutoSent(null); }
+    };
+    void look();
+    const timer = setInterval(() => { void look(); }, AUTO_LOOK_MS);
+    return () => { live = false; clearInterval(timer); };
+  }, [api, autoSent]);
   useEffect(() => {
     let live = true;
     Promise.resolve(api.get<Pick<Snapshot, 'meta'>>('/api/snapshot')).then((s) => { if (live) setAuto(s?.meta?.settings?.workflow?.autoStart); }).catch(() => {});
@@ -140,7 +174,13 @@ export function OrbitPage({ api, onSignedOut }: HostedProps) {
         className="hosted-auto-start"
         setting={auto}
         tagsShown={tagsShown}
-        onSave={async (next) => { await api.post('/api/orbit/auto-start', next); setAuto(next); }}
+        laptopNote={autoNote}
+        onSave={async (next) => {
+          const r = await api.post<{ laptop?: { online?: boolean } } | undefined>('/api/orbit/auto-start', next);
+          const online = r?.laptop?.online === true;
+          setAutoNote(online ? AUTO_START_SENT : AUTO_START_WAITING);
+          setAutoSent({ want: next, was: auto, online, at: Date.now() });
+        }}
       />
     </HostedSettings>
   );

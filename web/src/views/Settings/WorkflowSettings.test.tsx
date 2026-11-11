@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
@@ -16,6 +18,7 @@ const FINISH_LINES: NonNullable<Meta['finishLines']> = [
 
 // What the Inbox's answer says about Orbit showing tags to the token.
 let inboxTagsShown: boolean | undefined;
+let inboxTokenPresent: boolean | undefined;
 
 function setup(settings: Settings, finishLines: Meta['finishLines'] = FINISH_LINES, post?: (path: string, body: unknown) => Promise<unknown>) {
   const store: Store = createStore();
@@ -26,12 +29,12 @@ function setup(settings: Settings, finishLines: Meta['finishLines'] = FINISH_LIN
     const b = body as { workflow?: Partial<Settings['workflow']> };
     return { ...now, workflow: { ...now.workflow, ...b.workflow } };
   });
-  const api = { post: vi.fn(answer), get: vi.fn(async () => ({ tagsShown: inboxTagsShown })) } as unknown as ApiClient;
+  const api = { post: vi.fn(answer), get: vi.fn(async () => ({ tagsShown: inboxTagsShown, tokenPresent: inboxTokenPresent })) } as unknown as ApiClient;
   render(<WorkshopContext.Provider value={{ store, api }}><WorkflowSettings /></WorkshopContext.Provider>);
   return { store, post: api.post as ReturnType<typeof vi.fn> };
 }
 
-afterEach(() => { localStorage.clear(); inboxTagsShown = undefined; });
+afterEach(() => { localStorage.clear(); inboxTagsShown = undefined; inboxTokenPresent = undefined; });
 
 describe('Settings → Workflow', () => {
   it('offers the finish line’s choices in the dashboard’s words, the default marked, and saves a pick', async () => {
@@ -106,7 +109,9 @@ describe('Settings → Workflow', () => {
     const box = within(group).getByRole('checkbox', { name: 'Suggest what to start next' });
     expect(box).toBeChecked();
     expect(group).toHaveTextContent('Haiku on this laptop picks up to three to start next and says why.');
-    expect(group).toHaveTextContent('Never names, emails, internal notes or comments.');
+    // m15: what the small model gets, said truly: a name typed into a ticket is still there.
+    expect(group).toHaveTextContent('It gets each ticket’s title and the start of its description, without mentions, email addresses or the names Orbit attaches. A name typed into the text is still there.');
+    expect(group).not.toHaveTextContent('Never names');
     fireEvent.click(box);
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/settings', { workflow: { inboxSuggest: false } }));
     await waitFor(() => expect(store.getState().meta?.settings?.workflow?.inboxSuggest).toBe(false));
@@ -145,6 +150,49 @@ describe('Settings → Workflow', () => {
     fireEvent.change(tag, { target: { value: 'nightly' } });
     fireEvent.blur(tag);
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/settings', { workflow: { autoStart: { on: true, tag: 'nightly' } } }));
+  });
+
+  // m10: the Auto start group's small faults.
+  it('Auto start: typing the tag then clicking the switch saves once', async () => {
+    const { post } = setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged' } });
+    const group = screen.getByRole('group', { name: 'Auto start' });
+    const tag = within(group).getByRole('textbox', { name: 'Orbit tag' });
+    const box = within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' });
+    tag.focus();
+    fireEvent.change(tag, { target: { value: 'auto' } });
+    // A click on the switch: the press moves the focus off the tag box first, then the switch changes.
+    fireEvent.mouseDown(box);
+    fireEvent.blur(tag);
+    fireEvent.click(box);
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/settings', { workflow: { autoStart: { on: true, tag: 'auto' } } }));
+    expect(post.mock.calls.filter(([p]) => p === '/api/settings')).toHaveLength(1);
+  });
+
+  it('Auto start: clearing the tag while it is on says it is off because it needs a tag', async () => {
+    const { post } = setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged', autoStart: { on: true, tag: 'auto' } } });
+    const group = screen.getByRole('group', { name: 'Auto start' });
+    const tag = within(group).getByRole('textbox', { name: 'Orbit tag' });
+    fireEvent.change(tag, { target: { value: '' } });
+    fireEvent.blur(tag);
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/settings', { workflow: { autoStart: { on: false, tag: '' } } }));
+    expect(await within(group).findByText('Auto start is off: it needs a tag.')).toBeInTheDocument();
+    // M5: it goes as soon as the box has text again.
+    fireEvent.change(tag, { target: { value: 'n' } });
+    expect(within(group).queryByText('Auto start is off: it needs a tag.')).toBeNull();
+  });
+
+  it('Auto start with no Orbit token says it needs the token first', async () => {
+    inboxTokenPresent = false;
+    setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged', autoStart: { on: true, tag: 'auto' } } });
+    const group = screen.getByRole('group', { name: 'Auto start' });
+    expect(await within(group).findByText('Auto start needs the Orbit token (below) before it can start anything.')).toBeInTheDocument();
+  });
+
+  it('Auto start’s "Orbit tag" label stays on one line', () => {
+    const css = readFileSync(path.join(process.cwd(), 'src/views/Settings/settings.css'), 'utf8');
+    expect(/\.auto-start-tag-label\s*\{([^}]*)\}/.exec(css)?.[1]).toMatch(/white-space:\s*nowrap/);
+    setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged' } });
+    expect(within(screen.getByRole('group', { name: 'Auto start' })).getByText('Orbit tag')).toHaveClass('auto-start-tag-label');
   });
 
   it('Count my Claude Code use outside the app: on by default, posts countClaudeCode and says Saved beside it', async () => {

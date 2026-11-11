@@ -7,7 +7,7 @@
 // queued decision, so no call can be pressed again before its card says it waits.
 import { useEffect } from 'react';
 import type { ApiClient } from '../../api/client';
-import type { GateRequest, GateResult, Job, Run } from '../../api/types';
+import type { GateRequest, GateResult, Job, JobDetail, Run } from '../../api/types';
 import { sendGate } from '../../app/jobActions';
 import type { GateKind } from '../../lib/compose';
 import { useSent, type SentPhase } from '../../lib/sentState';
@@ -19,8 +19,24 @@ export function jobMarks(job: Job, run: Run | null | undefined): string {
   return JSON.stringify([run?.id ?? null, job.waitingFor ?? null, job.stage ?? null]);
 }
 
-/** The decision last sent for each job, and where the job stood at its click. */
-const lastSent = new Map<string, { body: GateRequest; marks: string; queuedId?: string }>();
+/**
+ * The decision last sent for each job, where the job stood at its click, and once the server took it
+ * (`sent: true`), the run it started: kept after the bar's sent state clears, so the page can go on
+ * saying it was sent while that run works or until the brief shows as answered.
+ */
+interface LastSent { body: GateRequest; marks: string; gate: string | null; session: string | null; queuedId?: string; accepted?: { runId: string | null; at: number } }
+const lastSent = new Map<string, LastSent>();
+
+/** A decision the server took: its kind, the brief it answered and the run it started. */
+export interface AcceptedDecision {
+  kind: GateKind;
+  brief: number | null;
+  /** Which go / no go it answered (lib/gateCard.ts gateKey): its brief number, or its words when it has none. */
+  gate: string | null;
+  runId: string | null;
+  /** When the server took it (ms since 1970). */
+  at: number;
+}
 
 /** The id of the decision the website queued for the laptop, from a gate answer. */
 function queuedIdOf(r: unknown): string | null {
@@ -35,11 +51,13 @@ export interface GateSent {
   kind: GateKind | null;
   /** The job has moved on since the last send's click (a sent line is about to clear). */
   moved: boolean;
+  /** The last decision the server took (`sent: true`), or null: kept once the sent state clears. */
+  accepted: AcceptedDecision | null;
   /**
    * Send a decision: sending until it answers, then sent if it went to the Foreman; queued by the
    * website, still sending until the page shows it; else idle. Refusals throw.
    */
-  send(api: ApiClient, body: GateRequest): Promise<GateResult>;
+  send(api: ApiClient, body: GateRequest, gate?: string | null): Promise<GateResult>;
   /** Try again: the same decision once more (throws when there is none, or on a refusal). */
   retry(api: ApiClient): Promise<GateResult>;
 }
@@ -48,8 +66,12 @@ export interface GateSent {
  * `run`: the job's live run, else the one its page was fetched with. `queuedId`: the decision the
  * page shows as queued for the laptop (the website), if any.
  */
-export function useGateSent(job: Job, run: Run | null | undefined, queuedId: string | null = null): GateSent {
+export function useGateSent(job: Job, run: Run | null | undefined, queuedId: string | null = null, session: string | null = null): GateSent {
   const slug = job.slug;
+  // M6: a job started again under the same name has a new Foreman session: what this page sent to the
+  // old one is forgotten, so no old answer keeps the calls off or goes again with Try again.
+  const kept = lastSent.get(slug);
+  if (kept?.session && session && kept.session !== session) lastSent.delete(slug);
   const sent = useSent(gateSentKey(slug));
   const marks = jobMarks(job, run);
   const { state, clear } = sent;
@@ -58,17 +80,17 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
 
   useEffect(() => {
     const last = lastSent.get(slug);
-    if (state === 'sending') {
-      // Queued by the website: over once the page shows it (or the job moved on meanwhile).
-      if (last?.queuedId && (queuedId === last.queuedId || last.marks !== marks)) clear();
-      return;
-    }
+    // Queued by the website: over once the page shows it (or the job moved on meanwhile), even when
+    // its 30 seconds ran out first (the queued card says where it is).
+    if (last?.queuedId && (state === 'sending' || state === 'stuck') && (queuedId === last.queuedId || last.marks !== marks)) { clear(); return; }
+    if (state === 'sending') return;
     if (state !== 'sent' && state !== 'stuck') return;
     if (last?.marks !== marks) clear();
   }, [state, marks, slug, clear, queuedId, awaited]);
 
-  async function send(api: ApiClient, body: GateRequest): Promise<GateResult> {
-    lastSent.set(slug, { body, marks });
+  async function send(api: ApiClient, body: GateRequest, gate: string | null = null): Promise<GateResult> {
+    const key = gate ?? (typeof body.briefNumber === 'number' ? `#${body.briefNumber}` : null);
+    lastSent.set(slug, { body, marks, gate: key, session });
     sent.start();
     let r: GateResult;
     try {
@@ -78,8 +100,11 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
       throw err;
     }
     const queued = queuedIdOf(r);
-    if (r?.sent) sent.accepted();
-    else if (queued) lastSent.set(slug, { body, marks, queuedId: queued });
+    if (r?.sent) {
+      lastSent.set(slug, { body, marks, gate: key, session, accepted: { runId: typeof r.run?.id === 'string' ? r.run.id : null, at: Date.now() } });
+      sent.accepted();
+    }
+    else if (queued) lastSent.set(slug, { body, marks, gate: key, session, queuedId: queued });
     // Held for the usage limit or given back to the message box: nothing went to the Foreman.
     else sent.clear();
     return r;
@@ -89,12 +114,24 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
     state,
     kind: lastSent.get(slug)?.body.kind ?? null,
     moved: lastSent.has(slug) && lastSent.get(slug)!.marks !== marks,
+    accepted: acceptedOf(lastSent.get(slug)),
     send,
     retry: (api) => {
       const last = lastSent.get(slug);
-      return last ? send(api, last.body) : Promise.reject(new Error('Nothing to send again.'));
+      return last ? send(api, last.body, last.gate) : Promise.reject(new Error('Nothing to send again.'));
     },
   };
+}
+
+function acceptedOf(last: LastSent | undefined): AcceptedDecision | null {
+  if (!last?.accepted) return null;
+  return { kind: last.body.kind, brief: last.body.briefNumber ?? null, gate: last.gate, runId: last.accepted.runId, at: last.accepted.at };
+}
+
+/** The job's Foreman session, from its detail: a new one means the job was started again. */
+export function sessionOf(detail: Pick<JobDetail, 'drive'> | null | undefined): string | null {
+  const id = detail?.drive?.sessionId;
+  return typeof id === 'string' && id ? id : null;
 }
 
 /** Forget every decision sent (between tests). */

@@ -270,9 +270,6 @@ export default function mirrorRoutes(ctx) {
       }
       if (!runnerId) throw new HttpError(404, 'That request was already answered or has expired.');
       if (expiresAt && Date.parse(expiresAt) <= now()) throw new HttpError(410, 'That request has run out. Nothing was sent.', { code: 'expired' });
-    } else if (kind === 'auto-start') {
-      runnerId = (await laptopsBy(person.id)).values().next().value?.id;
-      if (!runnerId) throw new HttpError(409, 'Pair a laptop first: Settings → Laptops shows the one command to run on it.', { code: 'no-laptop' });
     } else if (kind === 'stack-merge') {
       const rec = await records.get(person.id, 'stack', c.slug);
       if (!rec) throw new HttpError(404, 'There is no stack like that among yours.');

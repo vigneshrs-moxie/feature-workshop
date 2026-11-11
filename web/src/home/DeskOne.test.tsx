@@ -7,7 +7,7 @@ import type { ApiClient } from '../api/client';
 import type { Gate, Job, JobDetail, Permission } from '../api/types';
 import { installKeyListener } from '../app/keyRegistry';
 import { createStore, WorkshopContext, type Store } from '../state/store';
-import { job, permission, snapshot } from '../state/test-fixtures';
+import { ev, job, permission, snapshot } from '../state/test-fixtures';
 import { DeskView } from './DeskView';
 import { deskQueue } from './homeModel';
 import { clearDecisions } from './nudges';
@@ -18,26 +18,104 @@ const GATE: Gate = {
   questions: [], decided: [], versions: null, raisedVersions: null, stale: false, waitingSince: '2026-10-21T09:00:00Z', runActive: false, parked: false,
   level: 1, suggestedLevel: null, levelReason: null, usage: null,
 };
+/** The briefs a deciding answer has answered, as the next GET of the job returns them. */
+const answered: number[] = [];
 const detail = (slug: string): JobDetail => ({
-  slug, thread: [], threadMore: false, gate: GATE, answeredBriefs: [], heldReply: null, options: { level: 1 },
+  slug, thread: [], threadMore: false, gate: GATE, answeredBriefs: [...answered], heldReply: null, options: { level: 1 },
   latestBrief: { html: '<p>The plan in full: two steps, one test.</p>', number: 2 },
 });
 const ALPHA = job('alpha', 'needs-you', { waitingFor: 'approval', stage: 'plan', lane: 'needs-you', laneReason: 'Waiting for your go-ahead on the plan', headline: 'The plan is ready. Start building?', waitingSince: '2026-10-21T09:00:00Z', level: 1 });
 
-function setup({ jobs = [ALPHA], permissions = [] as Permission[], play = 'subtle' }: { jobs?: Job[]; permissions?: Permission[]; play?: 'full' | 'subtle' | 'off' } = {}) {
+function setup({ jobs = [ALPHA], permissions = [] as Permission[], play = 'subtle', server = false }: { jobs?: Job[]; permissions?: Permission[]; play?: 'full' | 'subtle' | 'off'; /** Answer the gate as the server does: a started run, its event, the brief answered. */ server?: boolean } = {}) {
+  answered.length = 0;
   const store: Store = createStore();
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: play } } } as never }) });
   const get = vi.fn(async (path: string) => detail(path.split('/')[3]));
-  const post = vi.fn(async (): Promise<unknown> => ({ ok: true, sent: true, text: 'x' }));
+  const post = vi.fn(async (_path?: string, body?: unknown): Promise<unknown> => {
+    if (!server) return { ok: true, sent: true, text: 'x' };
+    const b = (body ?? {}) as { kind?: string; briefNumber?: number };
+    if ((b.kind === 'approve' || b.kind === 'changes') && typeof b.briefNumber === 'number') answered.push(b.briefNumber);
+    const run = { id: 'r_desk', slug: 'alpha', status: 'running' };
+    store.dispatch({ type: 'event', event: ev(100, 'run', 'alpha', run) });
+    return { ok: true, sent: true, text: 'x', run };
+  });
   const api = { get, post } as unknown as ApiClient;
   render(<WorkshopContext.Provider value={{ store, api }}><DeskView items={deskQueue(jobs, permissions)} now={NOW} layout="one" /></WorkshopContext.Provider>);
-  return { get, post };
+  return { get, post, store };
 }
 
 const kbd = (el: HTMLElement) => el.querySelector('kbd')?.textContent ?? null;
 let off = () => {};
 beforeEach(() => { off = installKeyListener(); });
 afterEach(() => { off(); cleanup(); clearDecisions(); localStorage.clear(); window.location.hash = ''; });
+
+// Deep review D, C1: the Desk card for a stopped Auto job shows the same Auto line the Jobs card shows.
+describe('the Desk card of an Auto job', () => {
+  const reason = 'Auto stopped: a database change needs you.';
+  const STOPPED = job('alpha', 'needs-you', { stage: 'plan', lane: 'needs-you', laneReason: reason, level: 1, permissions: 1, auto: { on: true, by: 'you', ran: true, stopped: { reason: 'a database change needs you.', rule: 'database', at: '2026-10-21T10:00:00Z' } } });
+
+  it('a permission on a stopped Auto job: the card says why Auto stopped, with What Auto decided', () => {
+    setup({ jobs: [STOPPED], permissions: [{ ...permission('p1', 'alpha'), createdAt: '2026-10-21T10:00:00Z' }] });
+    const card = screen.getByRole('region', { name: /^Job alpha:/ });
+    expect(within(card).getByText(reason)).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'What Auto decided' })).toBeInTheDocument();
+  });
+
+  it('a go-ahead on a stopped Auto job says it once', async () => {
+    setup({ jobs: [{ ...STOPPED, permissions: 0, waitingFor: 'approval' }] });
+    const card = screen.getByRole('region', { name: /^Job alpha:/ });
+    await within(card).findByRole('button', { name: /^Go: approve/ });
+    expect(within(card).getAllByText(reason)).toHaveLength(1);
+  });
+
+  it('an ordinary job has no Auto line', () => {
+    setup({ permissions: [{ ...permission('p1', 'alpha'), createdAt: '2026-10-21T10:00:00Z' }] });
+    expect(document.querySelector('.desk-auto')).toBeNull();
+  });
+});
+
+// Part 2: the Desk's card says what was sent with the bar's own lines, and shows no greyed calls.
+describe('the Desk card after a send', () => {
+  it('Go: the card says it was sent, and the calls go, also once the run started', async () => {
+    const { post, store } = setup({ server: true });
+    const card = screen.getByRole('region', { name: /^Job alpha:/ });
+    fireEvent.click(await within(card).findByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'approve' })));
+    expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
+    expect(await within(card).findByText('Sent. Waiting for the Foreman to start.')).toBeInTheDocument();
+    for (const name of [/^Go: /, /^No go/, /^Reply/]) expect(within(card).queryByRole('button', { name })).toBeNull();
+    // M1: the card no longer asks for the go-ahead that was given.
+    expect(card).not.toHaveTextContent('Go / no go');
+    expect(card).not.toHaveTextContent('The plan is ready. Start building?');
+    expect(card).not.toHaveTextContent('Waiting for your go-ahead on the plan');
+  });
+
+  // Round 2, M1: on the Desk there is no message box; the stalled line says to open the job.
+  it('a stalled answered brief: "Open the job and write to the Foreman to move it on.", with the link', async () => {
+    const { store } = setup({ server: true });
+    answered.push(2);
+    act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_old', slug: 'alpha', status: 'done', endedAt: new Date(Date.now() - 31_000).toISOString() }) }); });
+    act(() => { store.dispatch({ type: 'event', event: ev(21, 'thread', 'alpha', {}) }); });
+    const card = screen.getByRole('region', { name: /^Job alpha:/ });
+    await waitFor(() => expect(card).toHaveTextContent('Nothing has moved yet.'));
+    expect(card).toHaveTextContent('Open the job and write to the Foreman to move it on.');
+    expect(card).not.toHaveTextContent('below');
+    const links = within(card).getAllByRole('link', { name: 'Open the job' });
+    expect(links.some((l) => l.closest('.desk-say'))).toBe(true);
+    expect(links.every((l) => l.getAttribute('href') === '#/job/alpha')).toBe(true);
+    expect(card).not.toHaveTextContent('Go / no go');
+  });
+
+  it('Send back: the card says the Foreman will rework the step', async () => {
+    setup({ server: true });
+    const card = screen.getByRole('region', { name: /^Job alpha:/ });
+    fireEvent.click(await within(card).findByRole('button', { name: /^No go/ }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Smaller.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send the changes' }));
+    expect(await within(card).findByText('Sent. Waiting for the Foreman to start.')).toBeInTheDocument();
+    expect(card).toHaveTextContent('The Foreman will rework this step with your note.');
+  });
+});
 
 describe('the Desk, one at a time', () => {
   it('shows one decision: where it is in the queue, the seven stops in words, the headline, and the brief behind Details (b)', async () => {

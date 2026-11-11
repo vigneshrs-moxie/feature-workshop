@@ -308,7 +308,7 @@ describe('Settings, simple first (packet R)', () => {
         ['notifications', /^More: quiet hours, usage warnings, this browser, a test and the history/, '[data-setting="notify-quiet"]'],
         ['look', /^More: text size, layouts, play/, '[data-setting="text-size"]'],
         ['keys', /^More: key hints on buttons, and every key/, '[data-setting="keys-hints"]'],
-        ['workflow', /^More: GitHub, what new jobs start with, the level, stacks, Claude Code use and the Orbit token/, '[data-setting="github-every"]'],
+        ['workflow', /^More: GitHub, the Inbox and Auto start, what new jobs start with, the level, stacks, Claude Code use and the Orbit token/, '[data-setting="github-every"]'],
         ['play', /^More: sounds/, '[data-setting="play-sounds"]'],
       ];
       for (const [section, label, inside] of wants) {
@@ -347,6 +347,25 @@ describe('Settings, simple first (packet R)', () => {
       expect(screen.getByRole('radio', { name: /^Glass Chosen/ })).toBeChecked();
       await waitFor(() => expect(railValue('Rules')).toBe('No rules'));
       document.documentElement.removeAttribute('data-theme');
+    } finally { setDefaultDetail('full'); }
+  });
+
+  // Deep review D, I3: Auto start can be found.
+  it('Find a setting finds Auto start by "auto start" and by "tag", and opens the Workflow fold that holds it', async () => {
+    setDefaultDetail('simple');
+    window.location.hash = '#/settings/workflow';
+    try {
+      setup([{ rules: [], active: true, unreadable: null }], undefined, 'routed');
+      const more = moreButton(/^More: GitHub, the Inbox and Auto start, what new jobs start with, the level, stacks, Claude Code use and the Orbit token$/);
+      expect(more).toHaveAttribute('aria-expanded', 'false');
+      expect(document.querySelector('[data-setting="auto-start"]')).toBeNull();
+      for (const query of ['auto start', 'tag']) {
+        fireEvent.change(screen.getByRole('searchbox', { name: 'Find a setting' }), { target: { value: query } });
+        expect(within(screen.getByRole('list', { name: 'Matching settings' })).getByRole('button', { name: /^Auto start/ }), query).toBeInTheDocument();
+      }
+      fireEvent.click(within(screen.getByRole('list', { name: 'Matching settings' })).getByRole('button', { name: /^Auto start/ }));
+      await waitFor(() => expect(document.querySelector('[data-setting="auto-start"]')).toHaveClass('is-found'));
+      expect(more).toHaveAttribute('aria-expanded', 'true');
     } finally { setDefaultDetail('full'); }
   });
 

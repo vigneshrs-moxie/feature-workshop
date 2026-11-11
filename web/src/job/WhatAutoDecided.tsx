@@ -9,6 +9,12 @@ import { relativeTime } from '../lib/time';
 import { useWorkshop } from '../state/store';
 import './auto.css';
 
+/** "14m ago", "3h ago"; "yesterday" and dates as they are. */
+function agoWords(at: string): string {
+  const t = relativeTime(at, new Date());
+  return /^\d+[mhd]$/.test(t) ? `${t} ago` : t;
+}
+
 export const AUTO_EMPTY = 'Auto hasn\'t decided anything on this job yet.';
 
 function Panel({ slug, onClose }: { slug: string; onClose(): void }) {
@@ -35,11 +41,11 @@ function Panel({ slug, onClose }: { slug: string; onClose(): void }) {
             <ul className="auto-entries">
               {entries.map((e, i) => (
                 <li key={`${e.at}-${i}`} className="auto-entry">
-                  <div className="auto-entry-head"><span className="auto-entry-stage">{e.stage}</span><span className="muted" title={e.at}>{relativeTime(e.at, new Date())}</span></div>
+                  <div className="auto-entry-head"><span className="auto-entry-stage">{e.stage}</span><span className="muted" title={e.at}>{agoWords(e.at)}</span></div>
                   <p><strong>{e.chose}</strong></p>
                   <p className="muted">{e.asked}</p>
-                  <p>{e.why}</p>
-                  {e.risk && <p>{e.risk}</p>}
+                  {e.why && <p>Why: {e.why}</p>}
+                  {e.risk && <p>Risk: {e.risk}</p>}
                   {e.answers && e.answers.length > 0 && (
                     <ul>{e.answers.map((a, j) => <li key={j}>{a.question} {a.choice}. {a.reason}</li>)}</ul>
                   )}

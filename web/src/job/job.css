@@ -40,6 +40,10 @@
 /* ---------- The go / no go bar and the gate card under it ---------- */
 .job-go { display: flex; flex-direction: column; gap: var(--space-3); }
 .job-gate-body:empty { display: none; }
+/* While Auto decides the step that waits (C1): under the calls, his own answer still counts. */
+.job-go-auto { margin: 0; font-size: var(--text-sm); }
+/* The head's Auto switch and What Auto decided (C1): one row that wraps, never wider than the head. */
+.page-job .page-head .job-auto { min-width: 0; }
 
 /* ---------- The tabs ---------- */
 .job-tabs-wrap { display: flex; flex-direction: column; gap: var(--space-3); }

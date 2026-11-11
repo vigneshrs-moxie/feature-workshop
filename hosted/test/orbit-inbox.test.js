@@ -523,10 +523,27 @@ test('Auto start from the site: the setting is queued as the auto-start command,
     }
     const r = await olive.person.send('POST', '/api/orbit/auto-start', { on: true, tag: ' auto ' });
     assert.equal(r.status, 200, JSON.stringify(r.body));
+    // Answered as the site's other laptop commands are: queued for the laptop, never a bare ok that reads as done.
+    assert.equal(r.body.queued, true);
+    assert.equal(r.body.sent, false);
+    assert.equal(r.body.laptop.online, true);
     await until(() => runner.handled.length === 1, { what: 'the laptop to get the command' });
     assert.deepEqual(runner.handled[0], { type: 'auto-start', on: true, tag: ' auto ' });
     assert.ok(runner.handled.every((c) => c.type !== 'start'), 'the site never starts a job');
   } finally { lap.link.stop(); await s.close(); }
+});
+
+test('Auto start from the site with the laptop not connected: queued, and the answer says the laptop is not there', async () => {
+  const s = await makeOrbitSite();
+  const olive = await paired(s, OLIVE, 'Olive’s Mac');
+  try {
+    const r = await olive.person.send('POST', '/api/orbit/auto-start', { on: true, tag: 'auto' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.queued, true);
+    assert.equal(r.body.sent, false);
+    assert.equal(r.body.laptop.online, false);
+    assert.equal(r.body.laptop.name, 'Olive’s Mac');
+  } finally { await s.close(); }
 });
 
 test('Auto start from the site with no laptop paired says so', async () => {

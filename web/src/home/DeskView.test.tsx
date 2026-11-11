@@ -59,6 +59,22 @@ let off = () => {};
 beforeEach(() => { off = installKeyListener(); });
 afterEach(() => { off(); cleanup(); clearDecisions(); localStorage.clear(); window.location.hash = ''; });
 
+// Round 2, M3: the Three columns Desk shows the same lines after a send as the default Desk.
+describe('the Three columns Desk after a send', () => {
+  afterEach(() => { cleanup(); clearDecisions(); localStorage.clear(); });
+  it('Approve on the card: the card says "Sent. Waiting for the Foreman to start." and stops asking', async () => {
+    const off = installKeyListener();
+    try {
+      const { post } = setup();
+      const current = screen.getByRole('region', { name: /^Job alpha:/ });
+      fireEvent.click(await within(current).findByRole('button', { name: /^Approve/ }));
+      await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'approve' })));
+      expect(await within(current).findByText('Sent. Waiting for the Foreman to start.')).toBeInTheDocument();
+      expect(within(current).getByText('Sent. Waiting for the Foreman to start.').closest('[role="status"]')).not.toBeNull();
+    } finally { off(); }
+  });
+});
+
 describe('the Desk', () => {
   it('has three columns: the queue, the item with the brief open in the middle, and the side with Decided today and the job', async () => {
     setup();
