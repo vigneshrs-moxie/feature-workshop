@@ -60,3 +60,5 @@
 @media (max-width: 760px) {
   .theme-first { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+/* Auto start's tag box label (m10): "Orbit tag" stays on one line beside its box. */
+.auto-start-tag-label { white-space: nowrap; }

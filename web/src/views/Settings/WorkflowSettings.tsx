@@ -73,11 +73,17 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
 
   // Whether Orbit shows tags to this token, read from the Inbox's answer while Auto start is on.
   const [tagsShown, setTagsShown] = useState<boolean | undefined>(undefined);
+  // And whether a token is saved at all (m10): Auto start can start nothing without one.
+  const [tokenSet, setTokenSet] = useState<boolean | undefined>(undefined);
   const autoOn = w.autoStart?.on === true;
   useEffect(() => {
-    if (!autoOn) { setTagsShown(undefined); return undefined; }
+    if (!autoOn) { setTagsShown(undefined); setTokenSet(undefined); return undefined; }
     let live = true;
-    Promise.resolve(api.get<InboxAnswer>('/api/orbit/inbox')).then((a) => { if (live) setTagsShown(typeof a?.tagsShown === 'boolean' ? a.tagsShown : undefined); }).catch(() => {});
+    Promise.resolve(api.get<InboxAnswer>('/api/orbit/inbox')).then((a) => {
+      if (!live) return;
+      setTagsShown(typeof a?.tagsShown === 'boolean' ? a.tagsShown : undefined);
+      setTokenSet(typeof a?.tokenPresent === 'boolean' ? a.tokenPresent : undefined);
+    }).catch(() => {});
     return () => { live = false; };
   }, [api, autoOn]);
 
@@ -141,6 +147,7 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
         <AutoStartGroup
           setting={w.autoStart}
           tagsShown={tagsShown}
+          tokenSet={tokenSet}
           busy={busy}
           onSave={async (next) => { store.dispatch({ type: 'settings', settings: await api.post<Settings>('/api/settings', { workflow: { autoStart: next } }) }); }}
         />
