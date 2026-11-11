@@ -1509,7 +1509,7 @@ export async function createRunner(config) {
       await auditAuto({ action: 'auto', what: 'off', by: 'you', via, featureDir: f.dir, slug: f.slug, stage: f.stage ?? null, asked: '', chose: '', why: '', ...(owed ? { costUsd: owed } : {}) });
       try { await writeAutoOption(f.dir, autoOption(next, f.level ?? null)); } catch { /* the next pass puts options.json in line */ }
     });
-    if (wasOn) { cached = null; await driver.applyModes(); }
+    if (wasOn) { cached = null; await driver.applyModes(); runAutoStart(); }
     return wasOn;
   }
 
@@ -1618,6 +1618,8 @@ export async function createRunner(config) {
     },
     // A record changed that other parts show: a reply in progress changes its permission mode, the pages fetch again.
     changed: () => { driver.applyModes().catch(() => {}); settingsChanged(); cached = null; },
+    // A job stopped or finished: its Auto start place is free, so a waiting tagged ticket starts now, not at the next Inbox poll.
+    freed: () => { cached = null; runAutoStart(); },
   });
 
   // The finish line (lib/finish.js) and the flow map. "Done" is told once, when a job crosses the
@@ -1933,6 +1935,7 @@ export async function createRunner(config) {
     notify: (n) => tell(n),
   });
   function runAutoStart() {
+    testHooks?.autoStartAsked?.(); // tests only: a place may be free
     if (!autoStartSetting.on) return;
     autoStarter.run().catch((err) => console.error('auto start:', err.message));
   }
@@ -2468,6 +2471,7 @@ export async function createRunner(config) {
       await driver.applyModes(); // a reply in progress switches mode now
       settingsChanged();
       cached = null;
+      if (!body.on) runAutoStart(); // switched off: its Auto start place is free now
       return { ok: true, auto: { ...autoCardView(record, { level: f.level, suggestedLevel: f.suggestedLevel }), tag: record.tag ?? null } };
     },
 

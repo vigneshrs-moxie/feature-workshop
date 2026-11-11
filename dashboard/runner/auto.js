@@ -13,6 +13,7 @@
 //   askApprover(task, { roots, job }) lib/approver.js askApprover with the runner's query and options
 //   raiseLevel(job, level)            apply the Foreman's suggested level (setLevelAutomatically)
 //   changed()           a record changed in a way other parts show (permission modes, the page)
+//   freed()             a job stopped or finished: its Auto start place is free now (the runner's runAutoStart)
 //   state               audit() and auditFor()
 //   notify(n)           one notification { level, title, body, slug, key }
 //   stopping(slug, on)  Auto is about to write (on) or has finished writing (off) a stop and its notice: the job is not told "waiting" meanwhile
@@ -67,7 +68,7 @@ const isNotNow = (err) => {
   return NOT_NOW.has(code) || err?.constructor?.name === 'Busy' || err?.name === 'Busy' || err?.name === 'JobLocked';
 };
 
-export function createAuto({ read, update, decide, askApprover, pendingCard = () => null, cardCtx = async () => null, raiseLevel = async () => {}, changed = () => {}, state, notify = () => {}, stopping = () => {}, now = () => new Date() }) {
+export function createAuto({ read, update, decide, askApprover, pendingCard = () => null, cardCtx = async () => null, raiseLevel = async () => {}, changed = () => {}, freed = () => {}, state, notify = () => {}, stopping = () => {}, now = () => new Date() }) {
   let running = null;
   let again = false;
   // An answer the Approver gave that could not be sent "not now" is kept for that job and brief and sent
@@ -147,6 +148,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       const said = /[.!?]$/.test(reason) ? reason : `${reason}.`;
       notify({ level: 'needs', title: job.title, body: `Auto stopped: ${said} Open the job to answer.`, slug: job.slug, key: `auto-stop:${job.slug}:${at}` });
       if (leave) changed();
+      freed(); // a stopped job frees its Auto start place: it can be filled now
     }
     return true;
   }
@@ -166,6 +168,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     await audit(job, 'finished', { why: 'PR #1 is open.', ...(spent > 0 ? { costUsd: spent } : {}) });
     notify({ level: 'done', title: 'Auto finished: PR #1 is open.', body: `${job.title}. Review it and merge it yourself when you're ready.`, slug: job.slug, key: `auto-finish:${job.slug}` });
     changed();
+    freed();
   }
 
   /** You decided something yourself after Auto stopped: it carries on from the next step. */

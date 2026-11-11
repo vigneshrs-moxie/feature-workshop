@@ -2395,6 +2395,35 @@ test('m2: a job that reaches L3 between the pass\'s first read and its turn leav
   assert.equal(u.asks.length, 0);
 });
 
+test('m3: a stop and a finish each say a place is free (once), so Auto start can fill it at once', { timeout: 30_000 }, async () => {
+  for (const [job, ask] of [[() => ({}), () => ({ ok: true, costUsd: 0.1, answer: { decision: 'stop', answers: [], why: 'Needs a person.', risk: 'low' } })], [() => ({ prOpen: true }), undefined]]) {
+    let freed = 0;
+    let rec = { ...autoRecord(null, { on: true, now: OLD }) };
+    const view = () => ({ dir: unitDir, slug: 'visit-audit', title: 'V', auto: { ...rec }, level: 1, suggestedLevel: null, stage: 'plan', stageState: 'waiting_for_you', triggers: [], statusCard: false, prOpen: false, gate: { briefNumber: 1, stale: false, questions: [], decided: [], headline: 'P', nextStage: 'implement' }, answered: [], artifacts: [], running: false, locked: false, restarting: false, paused: false, worktrees: [], specDirs: [], ...job() });
+    const auto = createAuto({
+      read: async () => (rec.on ? [view()] : []), update: async (d, fn) => { const n = fn({ ...rec }); if (n) rec = n; return { ...rec }; },
+      decide: { gate: async () => {}, permission: async () => {} }, askApprover: async () => (ask ? ask() : { ok: false }),
+      state: { audit: async () => {}, auditFor: async () => [] }, freed: () => { freed++; },
+    });
+    await auto.pass();
+    await auto.pass();
+    assert.equal(freed, 1);
+  }
+});
+
+test('m3: switching Auto off, by hand or by closing the job, asks Auto start to fill the place', { timeout: 30_000 }, async () => {
+  for (const how of ['switch', 'close']) {
+    const w = await world();
+    try {
+      let asked = 0;
+      w.hooks.autoStartAsked = () => { asked++; };
+      if (how === 'switch') await w.runner.handle({ type: 'auto', slug: w.slug, on: false }, { from: 'local' });
+      else await w.runner.handle({ type: 'close', slug: w.slug, as: 'done' }, { from: 'local' });
+      assert.equal(asked, 1, how);
+    } finally { await w.stop(); }
+  }
+});
+
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------
 
 test('I2: the person sent brief 1 back, then 401 lines; the reply ended with the gate still on brief 1: the Approver is not asked', { timeout: 30_000 }, async () => {
