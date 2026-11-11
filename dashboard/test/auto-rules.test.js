@@ -1012,3 +1012,52 @@ test('T2: the shape of a plain command, and the files that change how tools run'
   table([['echo x > .npmrc', 'ask'], ['echo x > .envrc', 'ask'], ['echo x > .gitignore', null]]);
   assert.equal(autoVerdict({ kind: 'card', toolName: 'Edit', input: { file_path: `${W}/package.json` }, hardLine: null, blockedPath: null }, ctx()), null, 'package.json and Makefile are judged when they are run, not when written');
 });
+
+// ---------- fix round 3 ----------
+
+const TOO_LONG_REASON = 'This command is too long for Starbase to check, so it needs you.';
+
+test('C7+I4: a command over a cap is never skipped: the hard line answers ask (or deny), for every job; 1 MB is fast', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'auto-cap-'));
+  const real = path.join(dir, 'real-state');
+  const cwd = path.join(dir, 'wt');
+  await fs.mkdir(real);
+  await fs.mkdir(cwd);
+  await fs.symlink(real, path.join(cwd, 'lnk'));
+  try {
+    const opts = { stateDir: real, cwd };
+    const words = (n) => Array.from({ length: n }, () => 'a').join(' ');
+    const distinct = (n) => Array.from({ length: n }, (_, i) => `d${i}/f`).join(' ');
+    const rows = [
+      'rm lnk/x', `echo ${words(2100)}; rm lnk/x`, `echo ${words(2100)}; touch lnk`, `echo ${words(2100)}; rm lnk`, `echo ${distinct(1500)}; touch lnk/x`, `echo ${distinct(3100)}; touch lnk/x`,
+      `echo ${distinct(3100)}; echo y > lnk/x`, `echo ${words(5000)}; mkdir lnk/q`, `echo ${'a'.repeat(120_000)}; rm lnk/x`,
+    ];
+    const got = rows.map((command) => ({ c: command.slice(0, 30), l: command.length, d: hardLine('Bash', { command }, opts)?.decision ?? null }));
+    assert.deepEqual(got.filter((r) => r.d === null), []);
+    assert.equal(hardLine('Bash', { command: `echo ${words(2100)}; rm lnk/x` }, opts).reason !== undefined, true);
+    // the reason, and nothing answers it by itself
+    const v = hardLine('Bash', { command: `echo ${words(2100)}` }, opts);
+    assert.equal(v.decision, 'ask');
+    assert.equal(v.reason, TOO_LONG_REASON);
+    const covering = hardLineHook(() => {}, { check: async (x) => x, cwd, cover: async () => ({ reason: 'covered' }) });
+    const r = await covering({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: `git push origin feature/x; ${words(2100)}` }, cwd });
+    assert.equal(r.hookSpecificOutput.permissionDecision, 'ask');
+    assert.equal(r.hookSpecificOutput.permissionDecisionReason, TOO_LONG_REASON);
+    // a command under the caps is judged as before
+    assert.equal(hardLine('Bash', { command: 'echo a; rm lnk/x' }, opts).decision, 'deny');
+    assert.equal(hardLine('Bash', { command: `echo ${words(1500)}` }, opts), null);
+    // speed: every shape at 1 MB
+    const mb = 1_000_000;
+    const shapes = ['a '.repeat(mb / 2), 'A=b '.repeat(mb / 4) + 'ls', '=a '.repeat(mb / 3), 'x=/y '.repeat(mb / 5), '*.a '.repeat(mb / 4), '~/x '.repeat(mb / 4), 'mkdir a/b '.repeat(mb / 10), 'rm -rf a/b '.repeat(mb / 11),
+      Array.from({ length: 110_000 }, (_, i) => `d${i}/f`).join(' ')];
+    for (const command of shapes) {
+      const t0 = performance.now();
+      const a = hardLine('Bash', { command }, opts);
+      const took = performance.now() - t0;
+      assert.ok(took < 200, `${command.slice(0, 10)}: ${Math.round(took)} ms`);
+      assert.notEqual(a, null);
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

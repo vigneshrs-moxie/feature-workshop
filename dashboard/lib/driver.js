@@ -1086,7 +1086,7 @@ export class Driver extends EventEmitter {
     // An Auto job's fixed stop (the hook asked for this card): nothing steps in front of it.
     let autoStopped = null;
     try { autoStopped = (await this.#autoStop(run, toolName, input, hard)) ?? null; } catch { autoStopped = { rule: null, reason: 'Auto could not check this step, so it needs you.' }; }
-    if (hard && this.cover && !autoStopped) {
+    if (hard && hard.line !== 'too-long' && this.cover && !autoStopped) {
       let covered = null;
       try { covered = await this.cover(run, toolName, input); } catch { covered = null; }
       if (covered) return this.#autoAllow(run, toolName, input, opts, { reason: covered.reason });

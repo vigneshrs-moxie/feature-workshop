@@ -458,11 +458,10 @@ function stateVerdict(toolName, input, opts) {
   if (parts) {
     // A command of thousands of words is not looked at word by word for a bare name (no folder, no ~, no $, no dot):
     // it could reach the state folder only through a link of that name, and each lookup is a disk read (T3k).
-    const huge = parts.reduce((n, part) => n + part.words.length, 0) > 2000;
-    const plainWord = (t) => huge && !/[/~$*?[{.=]/.test(t);
+    if (parts.reduce((n, part) => n + part.words.length, 0) > MAX_HARD_WORDS) { if (lstatMemo) lstatMemo.tooMuch = true; return null; } // hardLine answers ask
     for (const part of parts) {
       const interpreter = part.words.some((w) => INTERPRETERS.test(commandName(w.t)));
-      const hit = part.words.some((w) => !plainWord(w.t) && namesStateWord(w.t, part.cwd, roots, interpreter));
+      const hit = part.words.some((w) => namesStateWord(w.t, part.cwd, roots, interpreter));
       const hitRedirect = (part.redirects ?? []).filter((r) => namesStateWord(r.target, part.cwd, roots, false));
       if (hit || hitRedirect.length) named = true;
       if (hitRedirect.some(isWrite) || (hit && part.words.some((w) => commandName(w.t) === 'mkdir'))) written = true;
@@ -530,8 +529,22 @@ const strictest = (verdicts) => verdicts.filter(Boolean).sort((a, b) => RANK[b.d
  * Shell commands (the Bash tool) are checked, and for the starbase-state line the edit tools too.
  * With several, the strictest wins. opts: { cwd, stateDir } for resolving paths.
  */
+// A command too long to check, or one that needs more path lookups than a call may make: the answer is ask, for every
+// job, never "no line" (nothing is skipped). Neither the go-ahead nor a saved rule answers it (see hardLineHook, goAheadCovers).
+const MAX_HARD_COMMAND = 100_000;
+const MAX_HARD_WORDS = 2000;
+export const TOO_LONG = Object.freeze({ decision: 'ask', line: 'too-long', reason: 'This command is too long for Starbase to check, so it needs you.' });
+
 export function hardLine(toolName, input = {}, opts = {}) {
-  return withPathMemo(() => hardLineOf(toolName, input, opts));
+  if (toolName === 'Bash' && String(input?.command ?? '').length > MAX_HARD_COMMAND) return TOO_LONG;
+  const outer = lstatMemo;
+  const memo = { seen: new Map(), left: LSTAT_LIMIT, exhausted: false, places: new Map(), tooMuch: false };
+  lstatMemo = memo;
+  try {
+    const verdict = hardLineOf(toolName, input, opts);
+    if (verdict?.decision === 'deny') return verdict;
+    return memo.exhausted || memo.tooMuch ? TOO_LONG : verdict;
+  } finally { lstatMemo = outer; }
 }
 
 function hardLineOf(toolName, input, opts) {
@@ -590,6 +603,7 @@ export function rmInsideJob(words, cwd, ctx) {
 export function goAheadCovers(toolName, input = {}, ctx = {}) {
   if (ctx.mode !== 'auto' || toolName !== 'Bash') return null;
   const command = String(input?.command ?? '');
+  if (command.length > MAX_HARD_COMMAND) return null;
   // Commands handed to another shell can't be seen: those always ask.
   if (/\b(eval|sh|bash|zsh)\b/.test(command)) return null;
   const parts = commandParts(command, ctx.cwd ?? null);
@@ -681,7 +695,7 @@ export function hardLineHook(onVerdict = () => {}, { check = orgPushCheck(), cwd
       }
     }
     if (!verdict) return {};
-    if (verdict.decision === 'ask' && cover) {
+    if (verdict.decision === 'ask' && verdict.line !== 'too-long' && cover) {
       let covered = null;
       try { covered = await cover(input.tool_name, input.tool_input); } catch { /* still asks */ }
       if (covered) return {};
